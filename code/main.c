@@ -201,8 +201,8 @@ int main(int argc, char **argv) {
   ThisNode = malloc(MPI_MAX_PROCESSOR_NAME * sizeof(char));
   MPI_Get_processor_name(ThisNode, &nodeNameLen);
   if (nodeNameLen >= MPI_MAX_PROCESSOR_NAME) {
-    printf("Node name string not long enough!...\n");
-    ABORT(0);
+    FATAL_ERROR("MPI node name string too long (%d >= %d)",
+                nodeNameLen, MPI_MAX_PROCESSOR_NAME);
   }
 #endif
 

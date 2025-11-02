@@ -119,9 +119,8 @@ void load_tree_table_hdf5(int filenr) {
   status = read_attribute_int(hdf5_file, "/Header",
                               metadata_names.name_TreeNHalos, TreeNHalos);
   if (status != EXIT_SUCCESS) {
-    fprintf(stderr, "Error while processing file %s\n", buf);
-    fprintf(stderr, "Error code is %d\n", status);
-    ABORT(0);
+    IO_FATAL_ERROR(IO_ERROR_HDF5, "read_attribute", buf,
+                   "Failed to read TreeNHalos attribute (status=%d)", status);
   }
 
   TreeFirstHalo = mymalloc(sizeof(int) * Ntrees);
@@ -141,7 +140,8 @@ void load_tree_table_hdf5(int filenr) {
              #hdf5_name);                                                      \
     status = read_dataset(hdf5_file, dataset_name, type_int, buffer);          \
     if (status != EXIT_SUCCESS) {                                              \
-      ABORT(0);                                                                \
+      IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,              \
+                     "Failed to read property for tree %d", treenr);           \
     }                                                                          \
     for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {               \
       TreeHalos[halo_idx].sage_name = ((data_type *)buffer)[halo_idx];              \
@@ -156,7 +156,8 @@ void load_tree_table_hdf5(int filenr) {
     status =                                                                   \
         read_dataset(hdf5_file, dataset_name, type_int, buffer_multipledim);   \
     if (status != EXIT_SUCCESS) {                                              \
-      ABORT(0);                                                                \
+      IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,              \
+                     "Failed to read property for tree %d", treenr);           \
     }                                                                          \
     for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {               \
       for (dim = 0; dim < NDIM; ++dim) {                                       \
@@ -197,13 +198,9 @@ void load_tree_hdf5(int32_t filenr, int32_t treenr) {
                               // to hold data such as position/velocity.
 
   if (hdf5_file <= 0) {
-    char err_msg[MAX_STRING_LEN + 1];
-    snprintf(err_msg, MAX_STRING_LEN,
-             "The HDF5 file should still be opened when reading the halos in "
-             "tree %d. Error code: %d",
-             treenr, hdf5_file);
-    fprintf(stderr, "%s\n", err_msg);
-    ABORT(0);
+    IO_FATAL_ERROR(IO_ERROR_HDF5, "read_tree", NULL,
+                   "HDF5 file not open when reading tree %d (handle=%d)",
+                   treenr, hdf5_file);
   }
 
   NHalos_ThisTree = TreeNHalos[treenr];
@@ -212,26 +209,15 @@ void load_tree_hdf5(int32_t filenr, int32_t treenr) {
 
   buffer = calloc(NHalos_ThisTree, sizeof(*(buffer)));
   if (buffer == NULL) {
-    char err_msg[MAX_STRING_LEN + 1];
-    snprintf(err_msg, MAX_STRING_LEN,
-             "Could not allocate memory for the HDF5 buffer for tree %d (%d "
-             "halos, %zu bytes)",
-             treenr, NHalos_ThisTree, NHalos_ThisTree * sizeof(*(buffer)));
-    fprintf(stderr, "%s\n", err_msg);
-    ABORT(0);
+    FATAL_ERROR("Memory allocation failed for HDF5 buffer: tree %d, %d halos, %zu bytes",
+                treenr, NHalos_ThisTree, NHalos_ThisTree * sizeof(*buffer));
   }
 
   buffer_multipledim =
       calloc(NHalos_ThisTree * NDIM, sizeof(*(buffer_multipledim)));
   if (buffer_multipledim == NULL) {
-    char err_msg[MAX_STRING_LEN + 1];
-    snprintf(err_msg, MAX_STRING_LEN,
-             "Could not allocate memory for the HDF5 multiple dimension buffer "
-             "for tree %d (%d halos, %zu bytes)",
-             treenr, NHalos_ThisTree,
-             NHalos_ThisTree * NDIM * sizeof(*(buffer_multipledim)));
-    fprintf(stderr, "%s\n", err_msg);
-    ABORT(0);
+    FATAL_ERROR("Memory allocation failed for HDF5 multidim buffer: tree %d, %d halos, %zu bytes",
+                treenr, NHalos_ThisTree, NHalos_ThisTree * NDIM * sizeof(*buffer_multipledim));
   }
 
   // We now need to read in all the halo fields for this tree.
