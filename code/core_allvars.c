@@ -67,8 +67,8 @@ int LastSnapshotNr;
 double BoxSize;
 
 int *FirstHaloInSnap;
-int *TreeNHalos;
-int *TreeFirstHalo;
+int *InputTreeNHalos;
+int *InputTreeFirstHalo;
 
 #ifdef MPI
 int ThisTask, NTask, nodeNameLen;

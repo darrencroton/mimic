@@ -97,28 +97,28 @@ void load_tree_table_binary(int32_t filenr) {
   DEBUG_LOG("Reading %d trees with %d total halos", Ntrees, totNHalos);
 
   // Allocate arrays for tree data
-  TreeNHalos = mymalloc(sizeof(int) * Ntrees);
-  if (TreeNHalos == NULL) {
-    FATAL_ERROR("Failed to allocate memory for TreeNHalos array");
+  InputTreeNHalos = mymalloc(sizeof(int) * Ntrees);
+  if (InputTreeNHalos == NULL) {
+    FATAL_ERROR("Failed to allocate memory for InputTreeNHalos array");
   }
-  SimState.TreeNHalos = TreeNHalos; /* Update SimState pointer directly */
+  SimState.InputTreeNHalos = InputTreeNHalos; /* Update SimState pointer directly */
 
-  TreeFirstHalo = mymalloc(sizeof(int) * Ntrees);
-  if (TreeFirstHalo == NULL) {
-    FATAL_ERROR("Failed to allocate memory for TreeFirstHalo array");
+  InputTreeFirstHalo = mymalloc(sizeof(int) * Ntrees);
+  if (InputTreeFirstHalo == NULL) {
+    FATAL_ERROR("Failed to allocate memory for InputTreeFirstHalo array");
   }
-  SimState.TreeFirstHalo = TreeFirstHalo; /* Update SimState pointer directly */
+  SimState.InputTreeFirstHalo = InputTreeFirstHalo; /* Update SimState pointer directly */
 
   // Read the number of halos per tree - using direct fread for now
-  if (fread(TreeNHalos, sizeof(int), Ntrees, load_fd) != Ntrees) {
+  if (fread(InputTreeNHalos, sizeof(int), Ntrees, load_fd) != Ntrees) {
     FATAL_ERROR("Failed to read tree halo counts from file '%s'", buf);
   }
 
   // Calculate starting indices for each tree
   if (Ntrees > 0) {
-    TreeFirstHalo[0] = 0;
+    InputTreeFirstHalo[0] = 0;
     for (i = 1; i < Ntrees; i++)
-      TreeFirstHalo[i] = TreeFirstHalo[i - 1] + TreeNHalos[i - 1];
+      InputTreeFirstHalo[i] = InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
   }
 }
 
@@ -144,15 +144,15 @@ void load_tree_binary(int32_t filenr, int32_t treenr) {
   // must have an FD
   assert(load_fd);
 
-  InputTreeHalos = mymalloc(sizeof(struct RawHalo) * TreeNHalos[treenr]);
+  InputTreeHalos = mymalloc(sizeof(struct RawHalo) * InputTreeNHalos[treenr]);
   if (InputTreeHalos == NULL) {
     FATAL_ERROR("Failed to allocate memory for Halo array with %d halos",
-                TreeNHalos[treenr]);
+                InputTreeNHalos[treenr]);
   }
 
   // Use direct fread to avoid our problematic wrapper
-  if (fread(InputTreeHalos, sizeof(struct RawHalo), TreeNHalos[treenr],
-            load_fd) != TreeNHalos[treenr]) {
+  if (fread(InputTreeHalos, sizeof(struct RawHalo), InputTreeNHalos[treenr],
+            load_fd) != InputTreeNHalos[treenr]) {
     FATAL_ERROR("Failed to read halo data for tree %d", treenr);
   }
 }

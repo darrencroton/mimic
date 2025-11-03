@@ -78,8 +78,8 @@ void sync_sim_state_to_globals(void) {
     }
   }
   FirstHaloInSnap = SimState.FirstHaloInSnap;
-  TreeNHalos = SimState.TreeNHalos;
-  TreeFirstHalo = SimState.TreeFirstHalo;
+  InputTreeNHalos = SimState.InputTreeNHalos;
+  InputTreeFirstHalo = SimState.InputTreeFirstHalo;
 }
 
 /**
@@ -133,8 +133,8 @@ void sync_globals_to_sim_state(void) {
     }
   }
   SimState.FirstHaloInSnap = FirstHaloInSnap;
-  SimState.TreeNHalos = TreeNHalos;
-  SimState.TreeFirstHalo = TreeFirstHalo;
+  SimState.InputTreeNHalos = InputTreeNHalos;
+  SimState.InputTreeFirstHalo = InputTreeFirstHalo;
 }
 
 /**

@@ -45,7 +45,7 @@ static hid_t hdf5_file;
 struct METADATA_NAMES {
   char name_NTrees[MAX_STRING_LEN + 1];
   char name_totNHalos[MAX_STRING_LEN + 1];
-  char name_TreeNHalos[MAX_STRING_LEN + 1];
+  char name_InputTreeNHalos[MAX_STRING_LEN + 1];
 };
 
 // Local Proto-Types //
@@ -114,24 +114,24 @@ void load_tree_table_hdf5(int filenr) {
 
   printf("There are %d trees and %d total halos\n", Ntrees, totNHalos);
 
-  TreeNHalos = mymalloc(sizeof(int) * Ntrees);
+  InputTreeNHalos = mymalloc(sizeof(int) * Ntrees);
 
   status = read_attribute_int(hdf5_file, "/Header",
-                              metadata_names.name_TreeNHalos, TreeNHalos);
+                              metadata_names.name_InputTreeNHalos, InputTreeNHalos);
   if (status != EXIT_SUCCESS) {
     IO_FATAL_ERROR(IO_ERROR_HDF5, "read_attribute", buf,
-                   "Failed to read TreeNHalos attribute (status=%d)", status);
+                   "Failed to read InputTreeNHalos attribute (status=%d)", status);
   }
 
-  TreeFirstHalo = mymalloc(sizeof(int) * Ntrees);
+  InputTreeFirstHalo = mymalloc(sizeof(int) * Ntrees);
 
   for (i = 0; i < 20; ++i)
-    printf("Tree %d: NHalos %d\n", i, TreeNHalos[i]);
+    printf("Tree %d: NHalos %d\n", i, InputTreeNHalos[i]);
 
   if (Ntrees)
-    TreeFirstHalo[0] = 0;
+    InputTreeFirstHalo[0] = 0;
   for (i = 1; i < Ntrees; i++)
-    TreeFirstHalo[i] = TreeFirstHalo[i - 1] + TreeNHalos[i - 1];
+    InputTreeFirstHalo[i] = InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
 }
 
 #define READ_TREE_PROPERTY(sage_name, hdf5_name, type_int, data_type)          \
@@ -203,9 +203,9 @@ void load_tree_hdf5(int32_t filenr, int32_t treenr) {
                    treenr, hdf5_file);
   }
 
-  NHalos_ThisTree = TreeNHalos[treenr];
+  NHalos_ThisTree = InputTreeNHalos[treenr];
 
-  Halo = mymalloc(sizeof(struct RawHalo) * NHalos_ThisTree);
+  InputTreeHalos = mymalloc(sizeof(struct RawHalo) * NHalos_ThisTree);
 
   buffer = calloc(NHalos_ThisTree, sizeof(*(buffer)));
   if (buffer == NULL) {
@@ -225,7 +225,7 @@ void load_tree_hdf5(int32_t filenr, int32_t treenr) {
 
   // We now need to read in all the halo fields for this tree.
   // To do so, we read the field into a buffer and then properly slot the field
-  // into the Halo struct.
+  // into the RawHalo struct (InputTreeHalos).
 
   /* Merger Tree Pointers */
   READ_TREE_PROPERTY(Descendant, Descendant, 0, int);
@@ -312,8 +312,8 @@ int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
              "Ntrees"); // Total number of trees within the file.
     snprintf(metadata_names->name_totNHalos, MAX_STRING_LEN,
              "totNHalos"); // Total number of halos within the file.
-    snprintf(metadata_names->name_TreeNHalos, MAX_STRING_LEN,
-             "TreeNHalos"); // Number of halos per tree within the file.
+    snprintf(metadata_names->name_InputTreeNHalos, MAX_STRING_LEN,
+             "InputTreeNHalos"); // Number of halos per tree within the file.
     return EXIT_SUCCESS;
 
   case lhalo_binary:

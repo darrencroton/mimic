@@ -195,8 +195,8 @@ struct SimulationState {
   /* Tree structure pointers */
   int *InputHalosPerSnap[ABSOLUTEMAXSNAPS]; /* Array of halos per tree per
                                                snapshot */
-  int *TreeNHalos;                          /* Array of halos per tree */
-  int *TreeFirstHalo;   /* Array of first halo in each tree */
+  int *InputTreeNHalos;                          /* Array of halos per tree */
+  int *InputTreeFirstHalo;   /* Array of first halo in each tree */
   int *FirstHaloInSnap; /* Array of first halo in each snapshot */
 };
 

@@ -153,17 +153,18 @@ Parameter files use a key-value format with sections for:
 
 ### Tree Processing Flow
 1. **load_tree_table()**: Load tree metadata and structure
-2. **construct_galaxies()**: Initialize halo tracking structures from merger trees
-4. **save_galaxies()**: Write halo properties to output files
-5. **free_galaxies_and_tree()**: Clean up memory
+2. **build_halo_tree()**: Recursively construct halo tracking structures from merger trees
+3. **save_halos()**: Write halo properties to output files
+4. **free_halos_and_tree()**: Clean up memory
 
 ### Memory Management
 Uses custom allocator with categorized tracking:
-- MEMORY_GALAXY: Halo tracking data structures (historical name, refers to Halo structs)
-- MEMORY_TREE: Merger tree data (RawHalo structs)
-- MEMORY_PARAMETER: Configuration data
-- MEMORY_UTIL: Utility arrays and buffers
-Call `print_allocated()` to check for memory leaks.
+- MEM_HALOS: Halo tracking data structures (Halo structs)
+- MEM_TREES: Merger tree data (RawHalo structs)
+- MEM_IO: Input/output buffers
+- MEM_UTILITY: Utility arrays and buffers
+- MEM_GALAXIES: Legacy category (deprecated, use MEM_HALOS)
+Call `print_allocated()` or `print_allocated_by_category()` to check for memory leaks.
 
 **Key Arrays:**
 - `InputTreeHalos[]`: Input halos from merger trees (allocated per tree, freed after processing)

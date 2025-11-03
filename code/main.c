@@ -369,7 +369,7 @@ int main(int argc, char **argv) {
       sync_sim_state_to_globals(); /* Update halo counter globals */
 
       /* Construct objects for each unprocessed halo in the tree */
-      for (halonr = 0; halonr < TreeNHalos[treenr]; halonr++)
+      for (halonr = 0; halonr < InputTreeNHalos[treenr]; halonr++)
         if (HaloAux[halonr].DoneFlag == 0)
           build_halo_tree(halonr, treenr);
 

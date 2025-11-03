@@ -143,13 +143,13 @@ void free_tree_table(enum Valid_TreeTypes my_TreeType) {
     SimState.InputHalosPerSnap[n] = NULL; /* Update SimState pointer */
   }
 
-  myfree(TreeFirstHalo);
-  TreeFirstHalo = NULL;
-  SimState.TreeFirstHalo = NULL; /* Update SimState pointer */
+  myfree(InputTreeFirstHalo);
+  InputTreeFirstHalo = NULL;
+  SimState.InputTreeFirstHalo = NULL; /* Update SimState pointer */
 
-  myfree(TreeNHalos);
-  TreeNHalos = NULL;
-  SimState.TreeNHalos = NULL; /* Update SimState pointer */
+  myfree(InputTreeNHalos);
+  InputTreeNHalos = NULL;
+  SimState.InputTreeNHalos = NULL; /* Update SimState pointer */
 
   // Don't forget to free the open file handle
 
@@ -213,7 +213,7 @@ void load_tree(int filenr, int treenr, enum Valid_TreeTypes my_TreeType) {
 
   /* Calculate MaxProcessedHalos based on number of halos with a sensible
    * minimum */
-  MaxProcessedHalos = (int)(MAXHALOFAC * TreeNHalos[treenr]);
+  MaxProcessedHalos = (int)(MAXHALOFAC * InputTreeNHalos[treenr]);
   if (MaxProcessedHalos < MIN_HALO_ARRAY_GROWTH)
     MaxProcessedHalos = MIN_HALO_ARRAY_GROWTH;
 
@@ -229,11 +229,11 @@ void load_tree(int filenr, int treenr, enum Valid_TreeTypes my_TreeType) {
   SimState.MaxFoFWorkspace = MaxFoFWorkspace;
   sync_sim_state_to_globals();
 
-  HaloAux = mymalloc(sizeof(struct HaloAuxData) * TreeNHalos[treenr]);
+  HaloAux = mymalloc(sizeof(struct HaloAuxData) * InputTreeNHalos[treenr]);
   if (HaloAux == NULL) {
     FATAL_ERROR(
         "Memory allocation failed for HaloAux array (%d halos, %zu bytes)",
-        TreeNHalos[treenr], TreeNHalos[treenr] * sizeof(struct HaloAuxData));
+        InputTreeNHalos[treenr], InputTreeNHalos[treenr] * sizeof(struct HaloAuxData));
   }
 
   ProcessedHalos = mymalloc(sizeof(struct Halo) * MaxProcessedHalos);
@@ -250,7 +250,7 @@ void load_tree(int filenr, int treenr, enum Valid_TreeTypes my_TreeType) {
         MaxFoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
   }
 
-  for (i = 0; i < TreeNHalos[treenr]; i++) {
+  for (i = 0; i < InputTreeNHalos[treenr]; i++) {
     HaloAux[i].DoneFlag = 0;
     HaloAux[i].HaloFlag = 0;
     HaloAux[i].NHalos = 0;

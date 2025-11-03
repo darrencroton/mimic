@@ -35,8 +35,8 @@ extern int TotHalos;
 extern int TotHalosPerSnap[ABSOLUTEMAXSNAPS];
 extern int *InputHalosPerSnap[ABSOLUTEMAXSNAPS];
 extern int *FirstHaloInSnap;
-extern int *TreeNHalos;
-extern int *TreeFirstHalo;
+extern int *InputTreeNHalos;
+extern int *InputTreeFirstHalo;
 
 /* parameter handling globals */
 extern int NParam;

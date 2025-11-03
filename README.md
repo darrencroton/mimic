@@ -1,9 +1,8 @@
-# Semi-Analytic Galaxy Evolution (SAGE) - Dark Matter Tracker
+# Semi-Analytic Galaxy Evolution (SAGE) - Dark Matter Halo Tracker
 
 [![DOI](https://zenodo.org/badge/13542/darrencroton/sage.svg)](https://zenodo.org/badge/latestdoi/13542/darrencroton/sage)
 
-
-For the full semi-analytic galaxy formation model with baryonic physics, see the main SAGE repository at [github.com/darrencroton/sage](https://github.com/darrencroton/sage).
+**Note:** This is a minimal dark matter halo tracking version of SAGE, with all baryonic physics removed. For the full semi-analytic galaxy formation model with baryonic physics, see the main SAGE repository at [github.com/darrencroton/sage](https://github.com/darrencroton/sage).
 
 ## Features
 
