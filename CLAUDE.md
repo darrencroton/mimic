@@ -178,3 +178,11 @@ Follow the documentation template in `code/doc_standards.md`:
 - File headers explaining purpose and key functions
 - Inline comments for complex calculations
 - Units explicitly stated for physical quantities
+
+## Development Guidelines
+- All work to highest professional coding standards
+- Documentation-as-you-go always
+- When running sage always check the exit code for success or failure
+- Never simplify tests - failing tests indicate real problems
+- Ask before committing to git
+- Never delete files! Archive to `archive/` instead
