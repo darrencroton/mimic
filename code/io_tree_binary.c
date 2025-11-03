@@ -144,15 +144,15 @@ void load_tree_binary(int32_t filenr, int32_t treenr) {
   // must have an FD
   assert(load_fd);
 
-  TreeHalos = mymalloc(sizeof(struct RawHalo) * TreeNHalos[treenr]);
-  if (TreeHalos == NULL) {
+  InputTreeHalos = mymalloc(sizeof(struct RawHalo) * TreeNHalos[treenr]);
+  if (InputTreeHalos == NULL) {
     FATAL_ERROR("Failed to allocate memory for Halo array with %d halos",
                 TreeNHalos[treenr]);
   }
 
   // Use direct fread to avoid our problematic wrapper
-  if (fread(TreeHalos, sizeof(struct RawHalo), TreeNHalos[treenr], load_fd) !=
-      TreeNHalos[treenr]) {
+  if (fread(InputTreeHalos, sizeof(struct RawHalo), TreeNHalos[treenr],
+            load_fd) != TreeNHalos[treenr]) {
     FATAL_ERROR("Failed to read halo data for tree %d", treenr);
   }
 }

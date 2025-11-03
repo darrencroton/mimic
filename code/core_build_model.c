@@ -55,25 +55,25 @@ void build_halo_tree(int halonr, int tree) {
 
   HaloAux[halonr].DoneFlag = 1;
 
-  prog = TreeHalos[halonr].FirstProgenitor;
+  prog = InputTreeHalos[halonr].FirstProgenitor;
   while (prog >= 0) {
     if (HaloAux[prog].DoneFlag == 0)
       build_halo_tree(prog, tree);
-    prog = TreeHalos[prog].NextProgenitor;
+    prog = InputTreeHalos[prog].NextProgenitor;
   }
 
-  fofhalo = TreeHalos[halonr].FirstHaloInFOFgroup;
+  fofhalo = InputTreeHalos[halonr].FirstHaloInFOFgroup;
   if (HaloAux[fofhalo].HaloFlag == 0) {
     HaloAux[fofhalo].HaloFlag = 1;
     while (fofhalo >= 0) {
-      prog = TreeHalos[fofhalo].FirstProgenitor;
+      prog = InputTreeHalos[fofhalo].FirstProgenitor;
       while (prog >= 0) {
         if (HaloAux[prog].DoneFlag == 0)
           build_halo_tree(prog, tree);
-        prog = TreeHalos[prog].NextProgenitor;
+        prog = InputTreeHalos[prog].NextProgenitor;
       }
 
-      fofhalo = TreeHalos[fofhalo].NextHaloInFOFgroup;
+      fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
     }
   }
 
@@ -83,17 +83,18 @@ void build_halo_tree(int halonr, int tree) {
   // ahead and construct all halos for the subhalos in this FOF halo, and
   // evolve them in time.
 
-  fofhalo = TreeHalos[halonr].FirstHaloInFOFgroup;
+  fofhalo = InputTreeHalos[halonr].FirstHaloInFOFgroup;
   if (HaloAux[fofhalo].HaloFlag == 1) {
     ngal = 0;
     HaloAux[fofhalo].HaloFlag = 2;
 
     while (fofhalo >= 0) {
       ngal = join_progenitor_halos(fofhalo, ngal);
-      fofhalo = TreeHalos[fofhalo].NextHaloInFOFgroup;
+      fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
     }
 
-    process_halo_evolution(TreeHalos[halonr].FirstHaloInFOFgroup, ngal, tree);
+    process_halo_evolution(InputTreeHalos[halonr].FirstHaloInFOFgroup, ngal,
+                           tree);
   }
 }
 
@@ -121,8 +122,8 @@ int find_most_massive_progenitor(int halonr) {
 
   lenmax = 0;
   lenoccmax = 0;
-  first_occupied = TreeHalos[halonr].FirstProgenitor;
-  prog = TreeHalos[halonr].FirstProgenitor;
+  first_occupied = InputTreeHalos[halonr].FirstProgenitor;
+  prog = InputTreeHalos[halonr].FirstProgenitor;
 
   if (prog >= 0)
     if (HaloAux[prog].NHalos > 0)
@@ -131,16 +132,16 @@ int find_most_massive_progenitor(int halonr) {
   // Find most massive progenitor that contains an actual object
   // Maybe FirstProgenitor never was FirstHaloInFOFGroup and thus has no object
   while (prog >= 0) {
-    if (TreeHalos[prog].Len > lenmax) {
-      lenmax = TreeHalos[prog].Len;
+    if (InputTreeHalos[prog].Len > lenmax) {
+      lenmax = InputTreeHalos[prog].Len;
       /* mother_halo = prog; */
     }
-    if (lenoccmax != -1 && TreeHalos[prog].Len > lenoccmax &&
+    if (lenoccmax != -1 && InputTreeHalos[prog].Len > lenoccmax &&
         HaloAux[prog].NHalos > 0) {
-      lenoccmax = TreeHalos[prog].Len;
+      lenoccmax = InputTreeHalos[prog].Len;
       first_occupied = prog;
     }
-    prog = TreeHalos[prog].NextProgenitor;
+    prog = InputTreeHalos[prog].NextProgenitor;
   }
 
   return first_occupied;
@@ -174,133 +175,139 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
   double previousMvir, previousVvir, previousVmax;
 
   ngal = ngalstart;
-  prog = TreeHalos[halonr].FirstProgenitor;
+  prog = InputTreeHalos[halonr].FirstProgenitor;
 
   while (prog >= 0) {
     for (i = 0; i < HaloAux[prog].NHalos; i++) {
-      if (ngal == (MaxWorkingHalos - 1)) {
+      if (ngal == (MaxFoFWorkspace - 1)) {
         /* Calculate new size using growth factor */
-        int new_size = (int)(MaxWorkingHalos * HALO_ARRAY_GROWTH_FACTOR);
+        int new_size = (int)(MaxFoFWorkspace * HALO_ARRAY_GROWTH_FACTOR);
 
         /* Ensure minimum growth to prevent too-frequent reallocations */
-        if (new_size - MaxWorkingHalos < MIN_HALO_ARRAY_GROWTH)
-          new_size = MaxWorkingHalos + MIN_HALO_ARRAY_GROWTH;
+        if (new_size - MaxFoFWorkspace < MIN_HALO_ARRAY_GROWTH)
+          new_size = MaxFoFWorkspace + MIN_HALO_ARRAY_GROWTH;
 
         /* Cap maximum size to prevent excessive memory usage */
         if (new_size > MAX_HALO_ARRAY_SIZE)
           new_size = MAX_HALO_ARRAY_SIZE;
 
-        INFO_LOG("Growing halo array from %d to %d elements", MaxWorkingHalos,
+        INFO_LOG("Growing halo array from %d to %d elements", MaxFoFWorkspace,
                  new_size);
 
         /* Reallocate with new size */
-        MaxWorkingHalos = new_size;
-        WorkingHalos = myrealloc(WorkingHalos, MaxWorkingHalos * sizeof(struct Halo));
-        SimState.MaxWorkingHalos = MaxWorkingHalos; /* Update SimState directly */
+        MaxFoFWorkspace = new_size;
+        FoFWorkspace =
+            myrealloc(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
+        SimState.MaxFoFWorkspace =
+            MaxFoFWorkspace; /* Update SimState directly */
       }
-      assert(ngal < MaxWorkingHalos);
+      assert(ngal < MaxFoFWorkspace);
 
       // This is the crucial line in which the properties of the progenitor
       // halos are copied over (as a whole) to the (temporary) halos
-      // WorkingHalos[xxx] in the current snapshot After updating their properties and
-      // evolving them they are copied to the end of the list of permanent
-      // halos CurrentTreeHalos[xxx]
-      WorkingHalos[ngal] = CurrentTreeHalos[HaloAux[prog].FirstHalo + i];
-      WorkingHalos[ngal].HaloNr = halonr;
-      WorkingHalos[ngal].dT = -1.0;
+      // FoFWorkspace[xxx] in the current snapshot After updating their
+      // properties and evolving them they are copied to the end of the list of
+      // permanent halos ProcessedHalos[xxx]
+      FoFWorkspace[ngal] = ProcessedHalos[HaloAux[prog].FirstHalo + i];
+      FoFWorkspace[ngal].HaloNr = halonr;
+      FoFWorkspace[ngal].dT = -1.0;
 
       // this deals with the central halos of (sub)halos
-      if (WorkingHalos[ngal].Type == 0 || WorkingHalos[ngal].Type == 1) {
+      if (FoFWorkspace[ngal].Type == 0 || FoFWorkspace[ngal].Type == 1) {
         // this halo shouldn't hold an object that has already merged; remove it
         // from future processing
-        if (WorkingHalos[ngal].MergeStatus != 0) {
-          WorkingHalos[ngal].Type = 3;
+        if (FoFWorkspace[ngal].MergeStatus != 0) {
+          FoFWorkspace[ngal].Type = 3;
           continue;
         }
 
         // remember properties from the last snapshot
-        previousMvir = WorkingHalos[ngal].Mvir;
-        previousVvir = WorkingHalos[ngal].Vvir;
-        previousVmax = WorkingHalos[ngal].Vmax;
+        previousMvir = FoFWorkspace[ngal].Mvir;
+        previousVvir = FoFWorkspace[ngal].Vvir;
+        previousVmax = FoFWorkspace[ngal].Vmax;
 
         if (prog == first_occupied) {
           // update properties of this object with physical properties of halo
-          WorkingHalos[ngal].MostBoundID = TreeHalos[halonr].MostBoundID;
+          FoFWorkspace[ngal].MostBoundID = InputTreeHalos[halonr].MostBoundID;
 
           for (j = 0; j < 3; j++) {
-            WorkingHalos[ngal].Pos[j] = TreeHalos[halonr].Pos[j];
-            WorkingHalos[ngal].Vel[j] = TreeHalos[halonr].Vel[j];
+            FoFWorkspace[ngal].Pos[j] = InputTreeHalos[halonr].Pos[j];
+            FoFWorkspace[ngal].Vel[j] = InputTreeHalos[halonr].Vel[j];
           }
 
-          WorkingHalos[ngal].Len = TreeHalos[halonr].Len;
-          WorkingHalos[ngal].Vmax = TreeHalos[halonr].Vmax;
+          FoFWorkspace[ngal].Len = InputTreeHalos[halonr].Len;
+          FoFWorkspace[ngal].Vmax = InputTreeHalos[halonr].Vmax;
 
-          WorkingHalos[ngal].deltaMvir = get_virial_mass(halonr) - WorkingHalos[ngal].Mvir;
+          FoFWorkspace[ngal].deltaMvir =
+              get_virial_mass(halonr) - FoFWorkspace[ngal].Mvir;
 
-          if (is_greater(get_virial_mass(halonr), WorkingHalos[ngal].Mvir)) {
-            WorkingHalos[ngal].Rvir =
+          if (is_greater(get_virial_mass(halonr), FoFWorkspace[ngal].Mvir)) {
+            FoFWorkspace[ngal].Rvir =
                 get_virial_radius(halonr); // use the maximum Rvir in model
-            WorkingHalos[ngal].Vvir =
+            FoFWorkspace[ngal].Vvir =
                 get_virial_velocity(halonr); // use the maximum Vvir in model
           }
-          WorkingHalos[ngal].Mvir = get_virial_mass(halonr);
+          FoFWorkspace[ngal].Mvir = get_virial_mass(halonr);
 
-          if (halonr == TreeHalos[halonr].FirstHaloInFOFgroup) {
+          if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
             // a central
-            WorkingHalos[ngal].MergeStatus = 0;
-            WorkingHalos[ngal].mergeIntoID = -1;
-            WorkingHalos[ngal].MergTime = 999.9;
+            FoFWorkspace[ngal].MergeStatus = 0;
+            FoFWorkspace[ngal].mergeIntoID = -1;
+            FoFWorkspace[ngal].MergTime = 999.9;
 
-            WorkingHalos[ngal].Type = 0;
+            FoFWorkspace[ngal].Type = 0;
           } else {
             // a satellite with subhalo
-            WorkingHalos[ngal].MergeStatus = 0;
-            WorkingHalos[ngal].mergeIntoID = -1;
+            FoFWorkspace[ngal].MergeStatus = 0;
+            FoFWorkspace[ngal].mergeIntoID = -1;
 
-            if (WorkingHalos[ngal].Type ==
+            if (FoFWorkspace[ngal].Type ==
                 0) // remember the infall properties before becoming a subhalo
             {
-              WorkingHalos[ngal].infallMvir = previousMvir;
-              WorkingHalos[ngal].infallVvir = previousVvir;
-              WorkingHalos[ngal].infallVmax = previousVmax;
+              FoFWorkspace[ngal].infallMvir = previousMvir;
+              FoFWorkspace[ngal].infallVvir = previousVvir;
+              FoFWorkspace[ngal].infallVmax = previousVmax;
             }
 
-            if (WorkingHalos[ngal].Type == 0 || is_greater(WorkingHalos[ngal].MergTime, 999.0))
+            if (FoFWorkspace[ngal].Type == 0 ||
+                is_greater(FoFWorkspace[ngal].MergTime, 999.0))
               // here the halo has gone from type 1 to type 2 or otherwise
               // doesn't have a merging time.
-              WorkingHalos[ngal].MergTime = 999.9; /* No merging without physics */
+              FoFWorkspace[ngal].MergTime =
+                  999.9; /* No merging without physics */
 
-            WorkingHalos[ngal].Type = 1;
+            FoFWorkspace[ngal].Type = 1;
           }
         } else {
           // an orphan satellite - these will merge or disrupt within the
           // current timestep
-          WorkingHalos[ngal].deltaMvir = -1.0 * WorkingHalos[ngal].Mvir;
-          WorkingHalos[ngal].Mvir = 0.0;
+          FoFWorkspace[ngal].deltaMvir = -1.0 * FoFWorkspace[ngal].Mvir;
+          FoFWorkspace[ngal].Mvir = 0.0;
 
-          if (is_greater(WorkingHalos[ngal].MergTime, 999.0) || WorkingHalos[ngal].Type == 0) {
+          if (is_greater(FoFWorkspace[ngal].MergTime, 999.0) ||
+              FoFWorkspace[ngal].Type == 0) {
             // here the halo has gone from type 0 to type 2 - merge it!
-            WorkingHalos[ngal].MergTime = 0.0;
+            FoFWorkspace[ngal].MergTime = 0.0;
 
-            WorkingHalos[ngal].infallMvir = previousMvir;
-            WorkingHalos[ngal].infallVvir = previousVvir;
-            WorkingHalos[ngal].infallVmax = previousVmax;
+            FoFWorkspace[ngal].infallMvir = previousMvir;
+            FoFWorkspace[ngal].infallVvir = previousVvir;
+            FoFWorkspace[ngal].infallVmax = previousVmax;
           }
 
-          WorkingHalos[ngal].Type = 2;
+          FoFWorkspace[ngal].Type = 2;
         }
       }
 
       ngal++;
     }
 
-    prog = TreeHalos[prog].NextProgenitor;
+    prog = InputTreeHalos[prog].NextProgenitor;
   }
 
   if (ngal == ngalstart) {
     // We have no progenitors with halos. This means we create a new object.
     // init_halo requires halonr to be the main subhalo
-    if (halonr == TreeHalos[halonr].FirstHaloInFOFgroup) {
+    if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
       init_halo(ngal, halonr);
       ngal++;
     }
@@ -327,7 +334,7 @@ void set_halo_centrals(int ngalstart, int ngal) {
   /* Per Halo there can be only one Type 0 or 1 object, all others are Type 2
    * (orphan) Find the central object for this halo */
   for (i = ngalstart, centralgal = -1; i < ngal; i++) {
-    if (WorkingHalos[i].Type == 0 || WorkingHalos[i].Type == 1) {
+    if (FoFWorkspace[i].Type == 0 || FoFWorkspace[i].Type == 1) {
       assert(centralgal == -1); /* Ensure only one central object per halo */
       centralgal = i;
     }
@@ -335,7 +342,7 @@ void set_halo_centrals(int ngalstart, int ngal) {
 
   /* Set all halos to point to the central object */
   for (i = ngalstart; i < ngal; i++)
-    WorkingHalos[i].CentralHalo = centralgal;
+    FoFWorkspace[i].CentralHalo = centralgal;
 }
 
 /**
@@ -378,7 +385,7 @@ int join_progenitor_halos(int halonr, int ngalstart) {
  * @param   deltaT        Time interval for the entire timestep
  *
  * This function attaches halo tracking structures to halos for output.
- * Simply copies halo structures to output array (CurrentTreeHalos).
+ * Simply copies halo structures to output array (ProcessedHalos).
  */
 void update_halo_properties(int ngal, int centralgal, double deltaT) {
   int p, i, currenthalo, offset;
@@ -387,10 +394,10 @@ void update_halo_properties(int ngal, int centralgal, double deltaT) {
   offset = 0;
   for (p = 0, currenthalo = -1; p < ngal; p++) {
     /* When processing a new halo, update its pointers */
-    if (WorkingHalos[p].HaloNr != currenthalo) {
-      currenthalo = WorkingHalos[p].HaloNr;
+    if (FoFWorkspace[p].HaloNr != currenthalo) {
+      currenthalo = FoFWorkspace[p].HaloNr;
       HaloAux[currenthalo].FirstHalo =
-          NumCurrentTreeHalos; /* Index of first one in this halo */
+          NumProcessedHalos;           /* Index of first one in this halo */
       HaloAux[currenthalo].NHalos = 0; /* Reset counter */
     }
 
@@ -399,8 +406,8 @@ void update_halo_properties(int ngal, int centralgal, double deltaT) {
     offset = 0;
     i = p - 1;
     while (i >= 0) {
-      if (WorkingHalos[i].MergeStatus > 0)
-        if (WorkingHalos[p].mergeIntoID > WorkingHalos[i].mergeIntoID)
+      if (FoFWorkspace[i].MergeStatus > 0)
+        if (FoFWorkspace[p].mergeIntoID > FoFWorkspace[i].mergeIntoID)
           offset++; /* These halos won't be kept, so offset mergeIntoID */
       i--;
     }
@@ -408,11 +415,11 @@ void update_halo_properties(int ngal, int centralgal, double deltaT) {
     /* Handle merged halos - update their merger info in the previous
      * snapshot */
     i = -1;
-    if (WorkingHalos[p].MergeStatus > 0) {
+    if (FoFWorkspace[p].MergeStatus > 0) {
       /* Find this object in the previous snapshot's array */
       i = HaloAux[currenthalo].FirstHalo - 1;
       while (i >= 0) {
-        if (CurrentTreeHalos[i].UniqueHaloID == WorkingHalos[p].UniqueHaloID)
+        if (ProcessedHalos[i].UniqueHaloID == FoFWorkspace[p].UniqueHaloID)
           break;
         else
           i--;
@@ -421,21 +428,23 @@ void update_halo_properties(int ngal, int centralgal, double deltaT) {
       assert(i >= 0); /* Should always be found */
 
       /* Update merger information in the previous snapshot's entry */
-      CurrentTreeHalos[i].MergeStatus = WorkingHalos[p].MergeStatus;
-      CurrentTreeHalos[i].mergeIntoID = WorkingHalos[p].mergeIntoID - offset;
-      CurrentTreeHalos[i].mergeIntoSnapNum = TreeHalos[currenthalo].SnapNum;
+      ProcessedHalos[i].MergeStatus = FoFWorkspace[p].MergeStatus;
+      ProcessedHalos[i].mergeIntoID = FoFWorkspace[p].mergeIntoID - offset;
+      ProcessedHalos[i].mergeIntoSnapNum = InputTreeHalos[currenthalo].SnapNum;
     }
 
     /* Copy non-merged halos to the permanent array */
-    if (WorkingHalos[p].MergeStatus == 0) {
-      assert(NumCurrentTreeHalos < MaxCurrentTreeHalos); /* Ensure we don't exceed array bounds */
+    if (FoFWorkspace[p].MergeStatus == 0) {
+      assert(NumProcessedHalos <
+             MaxProcessedHalos); /* Ensure we don't exceed array bounds */
 
-      WorkingHalos[p].SnapNum = TreeHalos[currenthalo].SnapNum; /* Update snapshot number */
-      CurrentTreeHalos[NumCurrentTreeHalos++] =
-          WorkingHalos[p]; /* Copy to permanent array and increment counter */
-      SimState.NumCurrentTreeHalos = NumCurrentTreeHalos; /* Update SimState after increment */
-      HaloAux[currenthalo]
-          .NHalos++; /* Increment count for this halo */
+      FoFWorkspace[p].SnapNum =
+          InputTreeHalos[currenthalo].SnapNum; /* Update snapshot number */
+      ProcessedHalos[NumProcessedHalos++] =
+          FoFWorkspace[p]; /* Copy to permanent array and increment counter */
+      SimState.NumProcessedHalos =
+          NumProcessedHalos;         /* Update SimState after increment */
+      HaloAux[currenthalo].NHalos++; /* Increment count for this halo */
     }
   }
 }
@@ -459,10 +468,11 @@ void process_halo_evolution(int halonr, int ngal,
   int centralgal;
 
   /* Identify the central object for this halo */
-  centralgal = WorkingHalos[0].CentralHalo;
-  assert(WorkingHalos[centralgal].Type == 0 && WorkingHalos[centralgal].HaloNr == halonr);
+  centralgal = FoFWorkspace[0].CentralHalo;
+  assert(FoFWorkspace[centralgal].Type == 0 &&
+         FoFWorkspace[centralgal].HaloNr == halonr);
 
   /* Update final object properties and attach them to halos */
-  deltaT = Age[WorkingHalos[0].SnapNum] - Age[TreeHalos[halonr].SnapNum];
+  deltaT = Age[FoFWorkspace[0].SnapNum] - Age[InputTreeHalos[halonr].SnapNum];
   update_halo_properties(ngal, centralgal, deltaT);
 }

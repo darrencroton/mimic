@@ -17,12 +17,12 @@
 #define MAX_STRING_LEN 1024 /* Max length of a string containing a name */
 
 /* Memory allocation parameters */
-#define HALO_ARRAY_GROWTH_FACTOR                                             \
+#define HALO_ARRAY_GROWTH_FACTOR                                               \
   1.5 /* Factor to grow arrays by (1.5 = 50% growth) */
-#define MIN_HALO_ARRAY_GROWTH                                                \
+#define MIN_HALO_ARRAY_GROWTH                                                  \
   1000 /* Minimum growth increment regardless of factor */
-#define MAX_HALO_ARRAY_SIZE                                                  \
-  1000000000 /* Upper limit to prevent excessive allocation */
+#define MAX_HALO_ARRAY_SIZE                                                    \
+  1000000000                   /* Upper limit to prevent excessive allocation */
 #define INITIAL_FOF_HALOS 1000 /* Initial size for FOF halo arrays */
 
 /* Physical constants */

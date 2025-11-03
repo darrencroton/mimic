@@ -91,16 +91,18 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
   }
 
   for (n = 0; n < NOUT; n++) {
-    TreeHalosPerSnap[n] = mymalloc(sizeof(int) * Ntrees);
-    if (TreeHalosPerSnap[n] == NULL) {
-      FATAL_ERROR("Memory allocation failed for TreeHalosPerSnap[%d] array (%d trees, "
-                  "%zu bytes)",
-                  n, Ntrees, Ntrees * sizeof(int));
+    InputHalosPerSnap[n] = mymalloc(sizeof(int) * Ntrees);
+    if (InputHalosPerSnap[n] == NULL) {
+      FATAL_ERROR(
+          "Memory allocation failed for InputHalosPerSnap[%d] array (%d trees, "
+          "%zu bytes)",
+          n, Ntrees, Ntrees * sizeof(int));
     }
-    SimState.TreeHalosPerSnap[n] = TreeHalosPerSnap[n]; /* Update SimState pointer directly */
+    SimState.InputHalosPerSnap[n] =
+        InputHalosPerSnap[n]; /* Update SimState pointer directly */
 
     for (i = 0; i < Ntrees; i++)
-      TreeHalosPerSnap[n][i] = 0;
+      InputHalosPerSnap[n][i] = 0;
 
     snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", SageConfig.OutputDir,
              SageConfig.FileNameGalaxies, ZZ[ListOutputSnaps[n]], filenr);
@@ -136,9 +138,9 @@ void free_tree_table(enum Valid_TreeTypes my_TreeType) {
   int n;
 
   for (n = NOUT - 1; n >= 0; n--) {
-    myfree(TreeHalosPerSnap[n]);
-    TreeHalosPerSnap[n] = NULL;
-    SimState.TreeHalosPerSnap[n] = NULL; /* Update SimState pointer */
+    myfree(InputHalosPerSnap[n]);
+    InputHalosPerSnap[n] = NULL;
+    SimState.InputHalosPerSnap[n] = NULL; /* Update SimState pointer */
   }
 
   myfree(TreeFirstHalo);
@@ -209,20 +211,22 @@ void load_tree(int filenr, int treenr, enum Valid_TreeTypes my_TreeType) {
                 my_TreeType);
   }
 
-  /* Calculate MaxCurrentTreeHalos based on number of halos with a sensible minimum */
-  MaxCurrentTreeHalos = (int)(MAXHALOFAC * TreeNHalos[treenr]);
-  if (MaxCurrentTreeHalos < MIN_HALO_ARRAY_GROWTH)
-    MaxCurrentTreeHalos = MIN_HALO_ARRAY_GROWTH;
+  /* Calculate MaxProcessedHalos based on number of halos with a sensible
+   * minimum */
+  MaxProcessedHalos = (int)(MAXHALOFAC * TreeNHalos[treenr]);
+  if (MaxProcessedHalos < MIN_HALO_ARRAY_GROWTH)
+    MaxProcessedHalos = MIN_HALO_ARRAY_GROWTH;
 
-  /* Start with a reasonable size for MaxWorkingHalos based on tree characteristics
+  /* Start with a reasonable size for MaxFoFWorkspace based on tree
+   * characteristics
    */
-  MaxWorkingHalos = INITIAL_FOF_HALOS;
-  if ((int)(0.1 * MaxCurrentTreeHalos) > MaxWorkingHalos)
-    MaxWorkingHalos = (int)(0.1 * MaxCurrentTreeHalos);
+  MaxFoFWorkspace = INITIAL_FOF_HALOS;
+  if ((int)(0.1 * MaxProcessedHalos) > MaxFoFWorkspace)
+    MaxFoFWorkspace = (int)(0.1 * MaxProcessedHalos);
 
   /* Update SimulationState */
-  SimState.MaxCurrentTreeHalos = MaxCurrentTreeHalos;
-  SimState.MaxWorkingHalos = MaxWorkingHalos;
+  SimState.MaxProcessedHalos = MaxProcessedHalos;
+  SimState.MaxFoFWorkspace = MaxFoFWorkspace;
   sync_sim_state_to_globals();
 
   HaloAux = mymalloc(sizeof(struct HaloAuxData) * TreeNHalos[treenr]);
@@ -232,18 +236,18 @@ void load_tree(int filenr, int treenr, enum Valid_TreeTypes my_TreeType) {
         TreeNHalos[treenr], TreeNHalos[treenr] * sizeof(struct HaloAuxData));
   }
 
-  CurrentTreeHalos = mymalloc(sizeof(struct Halo) * MaxCurrentTreeHalos);
-  if (CurrentTreeHalos == NULL) {
-    FATAL_ERROR(
-        "Memory allocation failed for CurrentTreeHalos array (%d halos, %zu bytes)",
-        MaxCurrentTreeHalos, MaxCurrentTreeHalos * sizeof(struct Halo));
+  ProcessedHalos = mymalloc(sizeof(struct Halo) * MaxProcessedHalos);
+  if (ProcessedHalos == NULL) {
+    FATAL_ERROR("Memory allocation failed for ProcessedHalos array (%d halos, "
+                "%zu bytes)",
+                MaxProcessedHalos, MaxProcessedHalos * sizeof(struct Halo));
   }
 
-  WorkingHalos = mymalloc(sizeof(struct Halo) * MaxWorkingHalos);
-  if (WorkingHalos == NULL) {
+  FoFWorkspace = mymalloc(sizeof(struct Halo) * MaxFoFWorkspace);
+  if (FoFWorkspace == NULL) {
     FATAL_ERROR(
-        "Memory allocation failed for WorkingHalos array (%d halos, %zu bytes)",
-        MaxWorkingHalos, MaxWorkingHalos * sizeof(struct Halo));
+        "Memory allocation failed for FoFWorkspace array (%d halos, %zu bytes)",
+        MaxFoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
   }
 
   for (i = 0; i < TreeNHalos[treenr]; i++) {
@@ -268,10 +272,10 @@ void load_tree(int filenr, int treenr, enum Valid_TreeTypes my_TreeType) {
  * the memory to be reused for the next tree.
  */
 void free_halos_and_tree(void) {
-  myfree(WorkingHalos);
-  myfree(CurrentTreeHalos);
+  myfree(FoFWorkspace);
+  myfree(ProcessedHalos);
   myfree(HaloAux);
-  myfree(TreeHalos);
+  myfree(InputTreeHalos);
 }
 
 /**

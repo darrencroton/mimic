@@ -32,9 +32,9 @@ struct SageConfig SageConfig;
 struct SimulationState SimState;
 
 /*  halo data  */
-struct Halo *WorkingHalos, *CurrentTreeHalos;
+struct Halo *FoFWorkspace, *ProcessedHalos;
 
-struct RawHalo *TreeHalos;
+struct RawHalo *InputTreeHalos;
 
 /*  auxiliary halo data  */
 struct HaloAuxData *HaloAux;
@@ -52,16 +52,16 @@ hid_t *HDF5_field_types;
 int HDF5_n_props;
 #endif
 
-int MaxCurrentTreeHalos;
-int MaxWorkingHalos;
-int Ntrees;  /*  number of trees in current file  */
-int NumCurrentTreeHalos; /*  Total number of halos stored for current tree  */
+int MaxProcessedHalos;
+int MaxFoFWorkspace;
+int Ntrees;            /*  number of trees in current file  */
+int NumProcessedHalos; /*  Total number of halos stored for current tree  */
 
 int HaloCounter; /*  unique halo ID for main progenitor line in tree */
 
 int TotHalos;
 int TotHalosPerSnap[ABSOLUTEMAXSNAPS];
-int *TreeHalosPerSnap[ABSOLUTEMAXSNAPS];
+int *InputHalosPerSnap[ABSOLUTEMAXSNAPS];
 
 int LastSnapshotNr;
 double BoxSize;

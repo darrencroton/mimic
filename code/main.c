@@ -201,8 +201,8 @@ int main(int argc, char **argv) {
   ThisNode = malloc(MPI_MAX_PROCESSOR_NAME * sizeof(char));
   MPI_Get_processor_name(ThisNode, &nodeNameLen);
   if (nodeNameLen >= MPI_MAX_PROCESSOR_NAME) {
-    FATAL_ERROR("MPI node name string too long (%d >= %d)",
-                nodeNameLen, MPI_MAX_PROCESSOR_NAME);
+    FATAL_ERROR("MPI node name string too long (%d >= %d)", nodeNameLen,
+                MPI_MAX_PROCESSOR_NAME);
   }
 #endif
 
@@ -364,7 +364,7 @@ int main(int argc, char **argv) {
       /* Random seed setting removed - not actually used in computation */
 
       /* Reset halo counters */
-      SimState.NumCurrentTreeHalos = 0;
+      SimState.NumProcessedHalos = 0;
       SimState.HaloCounter = 0;
       sync_sim_state_to_globals(); /* Update halo counter globals */
 

@@ -119,14 +119,14 @@ deactivate
   - `struct SageConfig`: Configuration parameters
   - `struct SimulationState`: Runtime simulation state
 - **globals.h**: Global variable declarations for halo arrays
-  - `TreeHalos`: Raw merger tree input (RawHalo*)
-  - `WorkingHalos`: Temporary FoF processing workspace (Halo*)
-  - `CurrentTreeHalos`: Permanent storage for current tree (Halo*)
+  - `InputTreeHalos`: Raw merger tree input (RawHalo*)
+  - `FoFWorkspace`: Temporary FoF processing workspace (Halo*)
+  - `ProcessedHalos`: Permanent storage for current tree (Halo*)
 - **constants.h**: Numerical constants
 - **config.h**: Compile-time configuration options
 
 ### Key Design Patterns
-1. **Three-Tier Halo Architecture**: Clear separation between input (TreeHalos), processing (WorkingHalos), and storage (CurrentTreeHalos)
+1. **Three-Tier Halo Architecture**: Clear separation between input (InputTreeHalos), processing (FoFWorkspace), and storage (ProcessedHalos)
 2. **Memory Categories**: Memory allocation is tracked by category (halos, trees, parameters, etc.)
 3. **Error Propagation**: Consistent error handling with context preservation throughout the call stack
 4. **Format Abstraction**: I/O operations abstracted to support multiple tree and output formats
@@ -166,9 +166,9 @@ Uses custom allocator with categorized tracking:
 Call `print_allocated()` to check for memory leaks.
 
 **Key Arrays:**
-- `TreeHalos[]`: Input halos from merger trees (allocated per tree, freed after processing)
-- `WorkingHalos[]`: Temporary workspace (grows dynamically during FoF processing)
-- `CurrentTreeHalos[]`: Accumulates all processed halos for current tree (written to output)
+- `InputTreeHalos[]`: Input halos from merger trees (allocated per tree, freed after processing)
+- `FoFWorkspace[]`: Temporary workspace (grows dynamically during FoF processing)
+- `ProcessedHalos[]`: Accumulates all processed halos for current tree (written to output)
 
 ### Documentation Standards
 Follow the documentation template in `code/doc_standards.md`:

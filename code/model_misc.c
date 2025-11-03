@@ -36,41 +36,41 @@
 void init_halo(int p, int halonr) {
   int j;
 
-  assert(halonr == TreeHalos[halonr].FirstHaloInFOFgroup);
+  assert(halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup);
 
-  WorkingHalos[p].Type = 0;
+  FoFWorkspace[p].Type = 0;
 
-  WorkingHalos[p].HaloNr = HaloCounter;
+  FoFWorkspace[p].HaloNr = HaloCounter;
   HaloCounter++;
 
-  WorkingHalos[p].HaloNr = halonr;
-  WorkingHalos[p].MostBoundID = TreeHalos[halonr].MostBoundID;
-  WorkingHalos[p].SnapNum = TreeHalos[halonr].SnapNum - 1;
+  FoFWorkspace[p].HaloNr = halonr;
+  FoFWorkspace[p].MostBoundID = InputTreeHalos[halonr].MostBoundID;
+  FoFWorkspace[p].SnapNum = InputTreeHalos[halonr].SnapNum - 1;
 
-  WorkingHalos[p].MergeStatus = 0;
-  WorkingHalos[p].mergeIntoID = -1;
-  WorkingHalos[p].mergeIntoSnapNum = -1;
-  WorkingHalos[p].dT = -1.0;
+  FoFWorkspace[p].MergeStatus = 0;
+  FoFWorkspace[p].mergeIntoID = -1;
+  FoFWorkspace[p].mergeIntoSnapNum = -1;
+  FoFWorkspace[p].dT = -1.0;
 
   for (j = 0; j < 3; j++) {
-    WorkingHalos[p].Pos[j] = TreeHalos[halonr].Pos[j];
-    WorkingHalos[p].Vel[j] = TreeHalos[halonr].Vel[j];
+    FoFWorkspace[p].Pos[j] = InputTreeHalos[halonr].Pos[j];
+    FoFWorkspace[p].Vel[j] = InputTreeHalos[halonr].Vel[j];
   }
 
-  WorkingHalos[p].Len = TreeHalos[halonr].Len;
-  WorkingHalos[p].Vmax = TreeHalos[halonr].Vmax;
-  WorkingHalos[p].Vvir = get_virial_velocity(halonr);
-  WorkingHalos[p].Mvir = get_virial_mass(halonr);
-  WorkingHalos[p].Rvir = get_virial_radius(halonr);
+  FoFWorkspace[p].Len = InputTreeHalos[halonr].Len;
+  FoFWorkspace[p].Vmax = InputTreeHalos[halonr].Vmax;
+  FoFWorkspace[p].Vvir = get_virial_velocity(halonr);
+  FoFWorkspace[p].Mvir = get_virial_mass(halonr);
+  FoFWorkspace[p].Rvir = get_virial_radius(halonr);
 
-  WorkingHalos[p].deltaMvir = 0.0;
+  FoFWorkspace[p].deltaMvir = 0.0;
 
-  WorkingHalos[p].MergTime = 999.9;
+  FoFWorkspace[p].MergTime = 999.9;
 
   // infall properties
-  WorkingHalos[p].infallMvir = -1.0;
-  WorkingHalos[p].infallVvir = -1.0;
-  WorkingHalos[p].infallVmax = -1.0;
+  FoFWorkspace[p].infallMvir = -1.0;
+  FoFWorkspace[p].infallVvir = -1.0;
+  FoFWorkspace[p].infallVmax = -1.0;
 }
 
 /**
@@ -89,10 +89,12 @@ void init_halo(int p, int halonr) {
  * mass.
  */
 double get_virial_mass(int halonr) {
-  if (halonr == TreeHalos[halonr].FirstHaloInFOFgroup && TreeHalos[halonr].Mvir >= 0.0)
-    return TreeHalos[halonr].Mvir; /* take spherical overdensity mass estimate */
+  if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup &&
+      InputTreeHalos[halonr].Mvir >= 0.0)
+    return InputTreeHalos[halonr]
+        .Mvir; /* take spherical overdensity mass estimate */
   else
-    return TreeHalos[halonr].Len * SageConfig.PartMass;
+    return InputTreeHalos[halonr].Len * SageConfig.PartMass;
 }
 
 /**
@@ -142,11 +144,11 @@ double get_virial_velocity(int halonr) {
  * halo catalog could be used directly instead of this calculation.
  */
 double get_virial_radius(int halonr) {
-  // return TreeHalos[halonr].Rvir;  // Used for Bolshoi
+  // return InputTreeHalos[halonr].Rvir;  // Used for Bolshoi
 
   double zplus1, hubble_of_z_sq, rhocrit, fac;
 
-  zplus1 = 1 + ZZ[TreeHalos[halonr].SnapNum];
+  zplus1 = 1 + ZZ[InputTreeHalos[halonr].SnapNum];
   hubble_of_z_sq =
       Hubble * Hubble *
       (SageConfig.Omega * zplus1 * zplus1 * zplus1 +

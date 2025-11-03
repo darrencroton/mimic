@@ -49,14 +49,15 @@
 void sync_sim_state_to_globals(void) {
   /* Tree and halo counts */
   Ntrees = SimState.Ntrees;
-  NumCurrentTreeHalos = SimState.NumCurrentTreeHalos;
-  MaxCurrentTreeHalos = SimState.MaxCurrentTreeHalos;
-  MaxWorkingHalos = SimState.MaxWorkingHalos;
+  NumProcessedHalos = SimState.NumProcessedHalos;
+  MaxProcessedHalos = SimState.MaxProcessedHalos;
+  MaxFoFWorkspace = SimState.MaxFoFWorkspace;
   HaloCounter = SimState.HaloCounter;
   TotHalos = SimState.TotHalos;
 
   /* Copy array values */
-  memcpy(TotHalosPerSnap, SimState.TotHalosPerSnap, sizeof(int) * ABSOLUTEMAXSNAPS);
+  memcpy(TotHalosPerSnap, SimState.TotHalosPerSnap,
+         sizeof(int) * ABSOLUTEMAXSNAPS);
 
   /* File and tree identifiers */
   FileNum = SimState.FileNum;
@@ -73,7 +74,7 @@ void sync_sim_state_to_globals(void) {
   /* Pointers - these need special care */
   for (int i = 0; i < ABSOLUTEMAXSNAPS; i++) {
     if (i < NOUT) {
-      TreeHalosPerSnap[i] = SimState.TreeHalosPerSnap[i];
+      InputHalosPerSnap[i] = SimState.InputHalosPerSnap[i];
     }
   }
   FirstHaloInSnap = SimState.FirstHaloInSnap;
@@ -102,14 +103,15 @@ void sync_sim_state_to_globals(void) {
 void sync_globals_to_sim_state(void) {
   /* Tree and halo counts */
   SimState.Ntrees = Ntrees;
-  SimState.NumCurrentTreeHalos = NumCurrentTreeHalos;
-  SimState.MaxCurrentTreeHalos = MaxCurrentTreeHalos;
-  SimState.MaxWorkingHalos = MaxWorkingHalos;
+  SimState.NumProcessedHalos = NumProcessedHalos;
+  SimState.MaxProcessedHalos = MaxProcessedHalos;
+  SimState.MaxFoFWorkspace = MaxFoFWorkspace;
   SimState.HaloCounter = HaloCounter;
   SimState.TotHalos = TotHalos;
 
   /* Copy array values */
-  memcpy(SimState.TotHalosPerSnap, TotHalosPerSnap, sizeof(int) * ABSOLUTEMAXSNAPS);
+  memcpy(SimState.TotHalosPerSnap, TotHalosPerSnap,
+         sizeof(int) * ABSOLUTEMAXSNAPS);
 
   /* File and tree identifiers */
   SimState.FileNum = FileNum;
@@ -125,9 +127,9 @@ void sync_globals_to_sim_state(void) {
   /* Pointers - these need special care */
   for (int i = 0; i < ABSOLUTEMAXSNAPS; i++) {
     if (i < NOUT) {
-      SimState.TreeHalosPerSnap[i] = TreeHalosPerSnap[i];
+      SimState.InputHalosPerSnap[i] = InputHalosPerSnap[i];
     } else {
-      SimState.TreeHalosPerSnap[i] = NULL;
+      SimState.InputHalosPerSnap[i] = NULL;
     }
   }
   SimState.FirstHaloInSnap = FirstHaloInSnap;

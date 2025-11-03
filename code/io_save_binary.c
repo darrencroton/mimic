@@ -71,32 +71,33 @@ void save_halos(int filenr, int tree) {
 
   int OutputGalCount[MAXSNAPS], *OutputGalOrder, nwritten;
 
-  OutputGalOrder = (int *)malloc(NumCurrentTreeHalos * sizeof(int));
+  OutputGalOrder = (int *)malloc(NumProcessedHalos * sizeof(int));
   if (OutputGalOrder == NULL) {
     FATAL_ERROR("Memory allocation failed for OutputGalOrder array (%d "
                 "elements, %zu bytes)",
-                NumCurrentTreeHalos, NumCurrentTreeHalos * sizeof(int));
+                NumProcessedHalos, NumProcessedHalos * sizeof(int));
   }
 
   // reset the output halo count and order
   for (i = 0; i < MAXSNAPS; i++)
     OutputGalCount[i] = 0;
-  for (i = 0; i < NumCurrentTreeHalos; i++)
+  for (i = 0; i < NumProcessedHalos; i++)
     OutputGalOrder[i] = -1;
 
   // first update mergeIntoID to point to the correct halo in the output
   for (n = 0; n < SageConfig.NOUT; n++) {
-    for (i = 0; i < NumCurrentTreeHalos; i++) {
-      if (CurrentTreeHalos[i].SnapNum == ListOutputSnaps[n]) {
+    for (i = 0; i < NumProcessedHalos; i++) {
+      if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
         OutputGalOrder[i] = OutputGalCount[n];
         OutputGalCount[n]++;
       }
     }
   }
 
-  for (i = 0; i < NumCurrentTreeHalos; i++)
-    if (CurrentTreeHalos[i].mergeIntoID > -1)
-      CurrentTreeHalos[i].mergeIntoID = OutputGalOrder[CurrentTreeHalos[i].mergeIntoID];
+  for (i = 0; i < NumProcessedHalos; i++)
+    if (ProcessedHalos[i].mergeIntoID > -1)
+      ProcessedHalos[i].mergeIntoID =
+          OutputGalOrder[ProcessedHalos[i].mergeIntoID];
 
   // now prepare and write
   for (n = 0; n < SageConfig.NOUT; n++) {
@@ -147,13 +148,13 @@ void save_halos(int filenr, int tree) {
       free(tmp_buf);
     }
 
-    for (i = 0; i < NumCurrentTreeHalos; i++) {
-      if (CurrentTreeHalos[i].SnapNum == ListOutputSnaps[n]) {
+    for (i = 0; i < NumProcessedHalos; i++) {
+      if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
         /* Use stack allocation instead of dynamic allocation */
         struct HaloOutput halo_output = {0}; /* Zero-initialize */
 
         /* Convert internal halo to output format */
-        prepare_halo_for_output(filenr, tree, &CurrentTreeHalos[i], &halo_output);
+        prepare_halo_for_output(filenr, tree, &ProcessedHalos[i], &halo_output);
 
         /* Write using direct file I/O */
         size_t halo_size = sizeof(struct HaloOutput);
@@ -168,7 +169,7 @@ void save_halos(int filenr, int tree) {
         /* Increment halo counters right after successful write */
         TotHalosPerSnap[n]++;
         SimState.TotHalosPerSnap[n]++; /* Update SimState directly */
-        TreeHalosPerSnap[n][tree]++;
+        InputHalosPerSnap[n][tree]++;
       }
     }
   }
@@ -218,16 +219,15 @@ void prepare_halo_for_output(int filenr, int tree, struct Halo *g,
                (FILENR_MUL_FAC / 10) * filenr ==
            g->HaloNr);
     o->CentralHaloIndex =
-        CurrentTreeHalos[HaloAux[TreeHalos[g->HaloNr].FirstHaloInFOFgroup].FirstHalo]
+        ProcessedHalos[HaloAux[InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup]
+                           .FirstHalo]
             .HaloNr +
         TREE_MUL_FAC * tree + (FILENR_MUL_FAC / 10) * filenr;
   } else {
     assert(g->HaloNr < TREE_MUL_FAC); // breaking tree size assumption
     assert(tree < FILENR_MUL_FAC / TREE_MUL_FAC);
-    o->HaloIndex =
-        g->HaloNr + TREE_MUL_FAC * tree + FILENR_MUL_FAC * filenr;
-    assert((o->HaloIndex - g->HaloNr - TREE_MUL_FAC * tree) /
-               FILENR_MUL_FAC ==
+    o->HaloIndex = g->HaloNr + TREE_MUL_FAC * tree + FILENR_MUL_FAC * filenr;
+    assert((o->HaloIndex - g->HaloNr - TREE_MUL_FAC * tree) / FILENR_MUL_FAC ==
            filenr);
     assert((o->HaloIndex - g->HaloNr - FILENR_MUL_FAC * filenr) /
                TREE_MUL_FAC ==
@@ -235,14 +235,15 @@ void prepare_halo_for_output(int filenr, int tree, struct Halo *g,
     assert(o->HaloIndex - TREE_MUL_FAC * tree - FILENR_MUL_FAC * filenr ==
            g->HaloNr);
     o->CentralHaloIndex =
-        CurrentTreeHalos[HaloAux[TreeHalos[g->HaloNr].FirstHaloInFOFgroup].FirstHalo]
+        ProcessedHalos[HaloAux[InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup]
+                           .FirstHalo]
             .HaloNr +
         TREE_MUL_FAC * tree + FILENR_MUL_FAC * filenr;
   }
 
   o->SAGEHaloIndex = g->HaloNr;
   o->SAGETreeIndex = tree;
-  o->SimulationHaloIndex = TreeHalos[g->HaloNr].MostBoundID;
+  o->SimulationHaloIndex = InputTreeHalos[g->HaloNr].MostBoundID;
 
   o->MergeStatus = g->MergeStatus;
   o->mergeIntoID = g->mergeIntoID;
@@ -252,18 +253,19 @@ void prepare_halo_for_output(int filenr, int tree, struct Halo *g,
   for (j = 0; j < 3; j++) {
     o->Pos[j] = g->Pos[j];
     o->Vel[j] = g->Vel[j];
-    o->Spin[j] = TreeHalos[g->HaloNr].Spin[j];
+    o->Spin[j] = InputTreeHalos[g->HaloNr].Spin[j];
   }
 
   o->Len = g->Len;
   o->Mvir = g->Mvir;
-  o->CentralMvir = get_virial_mass(TreeHalos[g->HaloNr].FirstHaloInFOFgroup);
+  o->CentralMvir =
+      get_virial_mass(InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup);
   o->Rvir = get_virial_radius(
       g->HaloNr); // output the actual Rvir, not the maximum Rvir
   o->Vvir = get_virial_velocity(
       g->HaloNr); // output the actual Vvir, not the maximum Vvir
   o->Vmax = g->Vmax;
-  o->VelDisp = TreeHalos[g->HaloNr].VelDisp;
+  o->VelDisp = InputTreeHalos[g->HaloNr].VelDisp;
 
   // infall properties
   if (g->Type != 0) {
@@ -328,7 +330,7 @@ void finalize_halo_file(int filenr) {
     }
 
     // Write objects per tree (array of integers)
-    nwritten = fwrite(TreeHalosPerSnap[n], sizeof(int), Ntrees, save_fd[n]);
+    nwritten = fwrite(InputHalosPerSnap[n], sizeof(int), Ntrees, save_fd[n]);
     if (nwritten != Ntrees) {
       FATAL_ERROR("Failed to write halo counts per tree to header of file %d "
                   "(filenr %d)",

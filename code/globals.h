@@ -17,22 +17,23 @@ extern char *ThisNode;
 #endif
 
 /* halo data pointers */
-extern struct Halo *WorkingHalos, *CurrentTreeHalos;
-extern struct RawHalo *TreeHalos;
+extern struct Halo *FoFWorkspace, *ProcessedHalos;
+extern struct RawHalo *InputTreeHalos;
 extern struct HaloAuxData *HaloAux;
 
 /* runtime file information */
-extern int Ntrees;  /* number of trees in current file  */
-extern int NumCurrentTreeHalos; /* Total number of halos stored for current tree */
-extern int MaxCurrentTreeHalos; /* Maximum number of halos allowed for current tree */
-extern int MaxWorkingHalos;
+extern int Ntrees; /* number of trees in current file  */
 extern int
-    HaloCounter; /* unique halo ID for main progenitor line in tree */
+    NumProcessedHalos; /* Total number of halos stored for current tree */
+extern int
+    MaxProcessedHalos; /* Maximum number of halos allowed for current tree */
+extern int MaxFoFWorkspace;
+extern int HaloCounter; /* unique halo ID for main progenitor line in tree */
 
 /* halo information */
 extern int TotHalos;
 extern int TotHalosPerSnap[ABSOLUTEMAXSNAPS];
-extern int *TreeHalosPerSnap[ABSOLUTEMAXSNAPS];
+extern int *InputHalosPerSnap[ABSOLUTEMAXSNAPS];
 extern int *FirstHaloInSnap;
 extern int *TreeNHalos;
 extern int *TreeFirstHalo;

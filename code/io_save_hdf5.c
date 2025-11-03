@@ -245,8 +245,8 @@ void prep_hdf5_file(char *fname) {
 
     // Make the table
     status =
-        H5TBmake_table("halo Table", snap_group_id, "Galaxies", HDF5_n_props,
-                       0, HDF5_dst_size, HDF5_field_names, HDF5_dst_offsets,
+        H5TBmake_table("halo Table", snap_group_id, "Galaxies", HDF5_n_props, 0,
+                       HDF5_dst_size, HDF5_field_names, HDF5_dst_offsets,
                        HDF5_field_types, chunk_size, fill_data, 0, NULL);
 
     H5Gclose(snap_group_id);
@@ -356,7 +356,7 @@ void write_hdf5_galsnap_data(int n, int filenr) {
  * 1. Opens the target HDF5 file
  * 2. Navigates to the correct snapshot group
  * 3. Adds attributes such as number of trees and number of objects
- * 4. Creates and writes the TreeHalosPerSnap dataset (objects per tree)
+ * 4. Creates and writes the InputHalosPerSnap dataset (objects per tree)
  *
  * These attributes are essential for readers to understand the file structure
  * and for tools to navigate and process the halo data efficiently.
@@ -416,8 +416,8 @@ void write_hdf5_attrs(int n, int filenr) {
                 (int)dims, ListOutputSnaps[n], filenr);
   }
   dataspace_id = H5Screate_simple(1, &dims, NULL);
-  dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT, dataspace_id,
-                         H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT,
+                         dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   status = H5Dclose(dataset_id);
 
   // Close the group.
@@ -612,8 +612,8 @@ void write_master_file(void) {
 
       // Create a dataset which will act as the soft link to the array storing
       // the number of objects per tree for this file.
-      sprintf(target_group, "Snap%03d/File%03d/TreeHalosPerSnap", ListOutputSnaps[n],
-              filenr);
+      sprintf(target_group, "Snap%03d/File%03d/TreeHalosPerSnap",
+              ListOutputSnaps[n], filenr);
       sprintf(source_ds, "Snap%03d/TreeHalosPerSnap", ListOutputSnaps[n]);
       DEBUG_LOG("Creating external DS link - %s", target_group);
       status = H5Lcreate_external(target_file, source_ds, master_file_id,
