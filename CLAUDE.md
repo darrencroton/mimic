@@ -102,6 +102,7 @@ deactivate
 - **io_tree_hdf5.c**: HDF5 format tree reader (Genesis format)
 - **io_save_binary.c**: Binary output format writer (halo properties only)
 - **io_save_hdf5.c**: HDF5 output format writer (halo properties only, 24 fields)
+  - I/O wrappers (`myfread`, `myfwrite`, `myfseek`) handle endianness and errors and call the C standard library (fread/fwrite/fseek). There is no custom buffering layer.
 
 ### Utilities
 - **util_memory.c**: Custom memory management with leak detection and categorization
@@ -117,7 +118,7 @@ deactivate
   - `struct HaloOutput`: Output format structure (24 fields, file writing)
   - `struct HaloAuxData`: Auxiliary processing metadata
   - `struct SageConfig`: Configuration parameters
-  - `struct SimulationState`: Runtime simulation state
+  - Runtime simulation state is tracked via individual global variables declared in `globals.h` (e.g., `Ntrees`, `FileNum`, `TreeID`, `NumProcessedHalos`).
 - **globals.h**: Global variable declarations for halo arrays
   - `InputTreeHalos`: Raw merger tree input (RawHalo*)
   - `FoFWorkspace`: Temporary FoF processing workspace (Halo*)
@@ -130,7 +131,7 @@ deactivate
 2. **Memory Categories**: Memory allocation is tracked by category (halos, trees, parameters, etc.)
 3. **Error Propagation**: Consistent error handling with context preservation throughout the call stack
 4. **Format Abstraction**: I/O operations abstracted to support multiple tree and output formats
-5. **State Management**: Simulation state cleanly separated from halo data
+5. **State Management**: Single source of truth via globals for runtime state
 
 ### Plotting System (output/sage-plot/)
 - **sage-plot.py**: Central plotting script with enhanced command-line interface
@@ -161,7 +162,7 @@ Parameter files use a key-value format with sections for:
 Uses custom allocator with categorized tracking:
 - MEM_HALOS: Halo tracking data structures (Halo structs)
 - MEM_TREES: Merger tree data (RawHalo structs)
-- MEM_IO: Input/output buffers
+- MEM_IO: I/O working data and temporary arrays
 - MEM_UTILITY: Utility arrays and buffers
 - MEM_GALAXIES: Legacy category (deprecated, use MEM_HALOS)
 Call `print_allocated()` or `print_allocated_by_category()` to check for memory leaks.

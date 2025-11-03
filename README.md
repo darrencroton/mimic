@@ -223,6 +223,7 @@ The SAGE codebase is organized around these key components:
   - `io_tree.c`: Tree loading and management
   - `io_save_binary.c`: Binary output format
   - `io_save_hdf5.c`: HDF5 output format
+  - I/O wrappers (`myfread`, `myfwrite`, `myfseek`) provide endianness-aware reads/writes using the C standard library. There is no custom buffering layer.
 
 - **Utility Files**: Helper functions
   - `util_numeric.c`: Numerical stability utilities
