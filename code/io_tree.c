@@ -43,10 +43,6 @@
  */
 static int file_endianness = SAGE_HOST_ENDIAN;
 
-/* Table of active I/O buffers */
-static IOBuffer *read_buffer = NULL;
-static IOBuffer *write_buffer = NULL;
-
 #ifndef MAX_BUF_SIZE
 #define MAX_BUF_SIZE (3 * MAX_STRING_LEN + 40)
 #endif
@@ -299,43 +295,7 @@ void set_file_endianness(int endianness) {
 int get_file_endianness(void) { return file_endianness; }
 
 /**
- * @brief   Initializes I/O buffering for SAGE
- *
- * This function sets up buffers for reading and writing operations.
- * It should be called once during program initialization.
- */
-void init_io_buffering(void) {
-  /* Release any existing buffers */
-  if (read_buffer != NULL) {
-    free_buffer(read_buffer);
-    read_buffer = NULL;
-  }
-
-  if (write_buffer != NULL) {
-    free_buffer(write_buffer);
-    write_buffer = NULL;
-  }
-
-  /* Buffers will be created on-demand when files are opened */
-}
-
-/**
- * @brief   Cleans up I/O buffering resources
- *
- * This function frees buffers used for I/O operations.
- * It should be called before program termination.
- */
-void cleanup_io_buffering(void) {
-  /* Global buffer references are just shortcuts - not allocations to free */
-  read_buffer = NULL;
-  write_buffer = NULL;
-
-  /* The actual buffers will be freed when file handles are closed */
-}
-
-/**
- * @brief   Enhanced wrapper for the fread function with buffering and
- * endianness handling
+ * @brief   Wrapper for fread with endianness handling
  *
  * @param   ptr      Pointer to the data buffer
  * @param   size     Size of each element
@@ -344,11 +304,10 @@ void cleanup_io_buffering(void) {
  * @return  Number of elements successfully read
  *
  * This function provides a wrapper around the standard fread function
- * with added buffering, endianness conversion, and error handling.
+ * with endianness conversion and error handling.
  */
 size_t myfread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
   size_t items_read;
-  IOBuffer *buffer;
 
   if (ptr == NULL || stream == NULL) {
     IO_ERROR_LOG(IO_ERROR_READ_FAILED, "myfread", NULL,
@@ -356,34 +315,8 @@ size_t myfread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
     return 0;
   }
 
-  /* Get buffer for this file */
-  buffer = get_buffer(stream);
-  if (buffer == NULL) {
-    /* No buffer yet, create one */
-    size_t buffer_size = get_optimal_buffer_size(stream);
-    buffer = create_buffer(buffer_size, IO_BUFFER_READ, stream);
-    if (buffer == NULL) {
-      /* Fall back to direct read if buffer creation fails */
-      WARNING_LOG("Failed to create read buffer - using direct read");
-      items_read = fread(ptr, size, nmemb, stream);
-
-      /* Perform endianness conversion if needed */
-      if (items_read > 0 && !is_same_endian(file_endianness)) {
-        /* Only swap if element size is appropriate */
-        if (size == 2 || size == 4 || size == 8) {
-          swap_bytes_if_needed(ptr, size, items_read, file_endianness);
-        }
-      }
-      return items_read;
-    }
-    register_buffer(stream, buffer);
-    if (read_buffer == NULL) {
-      read_buffer = buffer; /* Store global reference to the main read buffer */
-    }
-  }
-
-  /* Use buffered read */
-  items_read = buffered_read(buffer, ptr, size, nmemb);
+  /* Use standard library fread */
+  items_read = fread(ptr, size, nmemb, stream);
 
   /* Perform endianness conversion if needed */
   if (items_read > 0 && !is_same_endian(file_endianness)) {
@@ -397,8 +330,7 @@ size_t myfread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
 }
 
 /**
- * @brief   Enhanced wrapper for the fwrite function with buffering and
- * endianness handling
+ * @brief   Wrapper for fwrite with endianness handling
  *
  * @param   ptr      Pointer to the data buffer
  * @param   size     Size of each element
@@ -407,12 +339,11 @@ size_t myfread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
  * @return  Number of elements successfully written
  *
  * This function provides a wrapper around the standard fwrite function
- * with added buffering, endianness conversion, and error handling.
+ * with endianness conversion and error handling.
  */
 size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream) {
   void *tmp_buffer = NULL;
   size_t items_written;
-  IOBuffer *buffer;
 
   if (ptr == NULL || stream == NULL) {
     IO_ERROR_LOG(IO_ERROR_WRITE_FAILED, "myfwrite", NULL,
@@ -440,20 +371,8 @@ size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream) {
     swap_bytes_if_needed(tmp_buffer, size, nmemb, file_endianness);
   }
 
-  /* STEP 1: Try using our simplified buffer approach for better performance */
-  buffer = get_buffer(stream);
-  if (buffer != NULL) {
-    /* Use our simplified buffer implementation */
-    items_written = buffered_write(buffer, tmp_buffer, size, nmemb);
-
-    /* For large or critical data, force an immediate flush */
-    if (size > 100 || nmemb > 100) {
-      buffered_flush(stream);
-    }
-  } else {
-    /* Fallback to direct write if no buffer */
-    items_written = fwrite(tmp_buffer, size, nmemb, stream);
-  }
+  /* Use standard library fwrite */
+  items_written = fwrite(tmp_buffer, size, nmemb, stream);
 
   /* Free temporary buffer */
   free(tmp_buffer);
@@ -462,7 +381,7 @@ size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream) {
 }
 
 /**
- * @brief   Enhanced wrapper for the fseek function with buffering support
+ * @brief   Wrapper for fseek with error handling
  *
  * @param   stream   File stream to seek within
  * @param   offset   Offset from the position specified by whence
@@ -470,10 +389,9 @@ size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream) {
  * @return  0 on success, non-zero on error
  *
  * This function provides a wrapper around the standard fseek function
- * with added buffer management.
+ * with error handling.
  */
 int myfseek(FILE *stream, long offset, int whence) {
-  IOBuffer *buffer;
   int result;
 
   if (stream == NULL) {
@@ -482,23 +400,11 @@ int myfseek(FILE *stream, long offset, int whence) {
     return -1;
   }
 
-  /* Get buffer for this file */
-  buffer = get_buffer(stream);
-  if (buffer == NULL) {
-    /* No buffer, use direct seek */
-    result = fseek(stream, offset, whence);
-    if (result != 0) {
-      IO_ERROR_LOG(IO_ERROR_SEEK_FAILED, "myfseek", NULL,
-                   "fseek failed with error %d", result);
-    }
-    return result;
-  }
-
-  /* Use buffered seek */
-  result = buffered_seek(buffer, offset, whence);
+  /* Use standard library fseek */
+  result = fseek(stream, offset, whence);
   if (result != 0) {
     IO_ERROR_LOG(IO_ERROR_SEEK_FAILED, "myfseek", NULL,
-                 "buffered_seek failed with error %d", result);
+                 "fseek failed with error %d", result);
   }
   return result;
 }
