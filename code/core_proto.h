@@ -62,9 +62,4 @@ void read_snap_list(void);
 double time_to_present(double z);
 double integrand_time_to_present(double a, void *param);
 
-/* Simulation state functions */
-void initialize_sim_state(void);
-void sync_sim_state_to_globals(void);
-void sync_globals_to_sim_state(void);
-
 #endif /* #ifndef CORE_PROTO_H */

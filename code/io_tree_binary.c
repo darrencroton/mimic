@@ -63,9 +63,6 @@ static FILE *load_fd;
  * It allocates memory for tree metadata arrays and calculates the
  * starting index of each tree in the file. This information is used
  * later when loading individual trees.
- *
- * The function also updates the SimState structure to maintain consistency
- * with the global variables.
  */
 void load_tree_table_binary(int32_t filenr) {
   int i, totNHalos;
@@ -88,7 +85,6 @@ void load_tree_table_binary(int32_t filenr) {
   if (fread(&Ntrees, sizeof(int), 1, load_fd) != 1) {
     FATAL_ERROR("Failed to read Ntrees from file '%s'", buf);
   }
-  SimState.Ntrees = Ntrees; /* Update SimState directly */
 
   if (fread(&totNHalos, sizeof(int), 1, load_fd) != 1) {
     FATAL_ERROR("Failed to read totNHalos from file '%s'", buf);
@@ -101,13 +97,11 @@ void load_tree_table_binary(int32_t filenr) {
   if (InputTreeNHalos == NULL) {
     FATAL_ERROR("Failed to allocate memory for InputTreeNHalos array");
   }
-  SimState.InputTreeNHalos = InputTreeNHalos; /* Update SimState pointer directly */
 
   InputTreeFirstHalo = mymalloc(sizeof(int) * Ntrees);
   if (InputTreeFirstHalo == NULL) {
     FATAL_ERROR("Failed to allocate memory for InputTreeFirstHalo array");
   }
-  SimState.InputTreeFirstHalo = InputTreeFirstHalo; /* Update SimState pointer directly */
 
   // Read the number of halos per tree - using direct fread for now
   if (fread(InputTreeNHalos, sizeof(int), Ntrees, load_fd) != Ntrees) {

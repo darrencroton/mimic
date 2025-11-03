@@ -171,33 +171,4 @@ struct HaloAuxData {
   int FirstHalo;
 };
 
-/* Structure to hold runtime simulation state */
-struct SimulationState {
-  /* Tree and halo counts */
-  int Ntrees;            /* number of trees in current file */
-  int NumProcessedHalos; /* Total number of halos stored for current tree */
-  int MaxProcessedHalos; /* Maximum number of halos allowed for current tree */
-  int MaxFoFWorkspace;   /* Maximum number of halos for FoF group processing */
-  int HaloCounter;       /* unique halo ID for main progenitor line in tree */
-  int TotHalos;          /* Total number of halos */
-  int TotHalosPerSnap[ABSOLUTEMAXSNAPS]; /* Halo count per snapshot */
-
-  /* File and tree identifiers */
-  int FileNum; /* Current file number being processed */
-  int TreeID;  /* Current tree ID being processed */
-
-  /* Snapshot information */
-  int MAXSNAPS;                          /* Maximum number of snapshots */
-  int Snaplistlen;                       /* Length of snapshot list */
-  int NOUT;                              /* Number of outputs */
-  int ListOutputSnaps[ABSOLUTEMAXSNAPS]; /* List of output snapshot numbers */
-
-  /* Tree structure pointers */
-  int *InputHalosPerSnap[ABSOLUTEMAXSNAPS]; /* Array of halos per tree per
-                                               snapshot */
-  int *InputTreeNHalos;                          /* Array of halos per tree */
-  int *InputTreeFirstHalo;   /* Array of first halo in each tree */
-  int *FirstHaloInSnap; /* Array of first halo in each snapshot */
-};
-
 #endif /* #ifndef TYPES_H */

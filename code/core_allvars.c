@@ -11,11 +11,8 @@
  * 4. Physical constants and units
  * 5. File and output control variables
  *
- * Many of these global variables are being gradually migrated to the
- * SageConfig and SimState structures to improve encapsulation and make
- * the code more maintainable, but they are kept for backward compatibility
- * with existing code. New code should preferentially use the structured
- * approach rather than accessing these globals directly.
+ * Configuration parameters are stored in the SageConfig structure.
+ * Runtime simulation state is tracked via individual global variables.
  *
  * Note: This file contains only variable definitions - the declarations
  * are in globals.h and other header files.
@@ -27,9 +24,6 @@
 
 /*  Global configuration structure */
 struct SageConfig SageConfig;
-
-/*  Global simulation state structure */
-struct SimulationState SimState;
 
 /*  halo data  */
 struct Halo *FoFWorkspace, *ProcessedHalos;

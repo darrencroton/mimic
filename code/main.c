@@ -303,7 +303,6 @@ int main(int argc, char **argv) {
   /* Read parameter file and initialize simulation */
   read_parameter_file(argv[1]);
   init();
-  initialize_sim_state(); /* Initialize simulation state */
 
   /* Main loop to process merger tree files */
 #ifdef MPI
@@ -338,8 +337,7 @@ int main(int argc, char **argv) {
       fclose(fd);
 
     /* Load the tree table and process each tree */
-    SimState.FileNum = filenr;
-    sync_sim_state_to_globals(); /* Update FileNum global */
+    FileNum = filenr;
     load_tree_table(filenr, SageConfig.TreeType);
 
     for (treenr = 0; treenr < Ntrees; treenr++) {
@@ -357,16 +355,14 @@ int main(int argc, char **argv) {
       }
 
       /* Set the current tree ID and load the tree */
-      SimState.TreeID = treenr;
-      sync_sim_state_to_globals(); /* Update TreeID global */
+      TreeID = treenr;
       load_tree(filenr, treenr, SageConfig.TreeType);
 
       /* Random seed setting removed - not actually used in computation */
 
       /* Reset halo counters */
-      SimState.NumProcessedHalos = 0;
-      SimState.HaloCounter = 0;
-      sync_sim_state_to_globals(); /* Update halo counter globals */
+      NumProcessedHalos = 0;
+      HaloCounter = 0;
 
       /* Construct objects for each unprocessed halo in the tree */
       for (halonr = 0; halonr < InputTreeNHalos[treenr]; halonr++)

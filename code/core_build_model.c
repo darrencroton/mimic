@@ -198,8 +198,6 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
         MaxFoFWorkspace = new_size;
         FoFWorkspace =
             myrealloc(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
-        SimState.MaxFoFWorkspace =
-            MaxFoFWorkspace; /* Update SimState directly */
       }
       assert(ngal < MaxFoFWorkspace);
 
@@ -442,8 +440,6 @@ void update_halo_properties(int ngal, int centralgal, double deltaT) {
           InputTreeHalos[currenthalo].SnapNum; /* Update snapshot number */
       ProcessedHalos[NumProcessedHalos++] =
           FoFWorkspace[p]; /* Copy to permanent array and increment counter */
-      SimState.NumProcessedHalos =
-          NumProcessedHalos;         /* Update SimState after increment */
       HaloAux[currenthalo].NHalos++; /* Increment count for this halo */
     }
   }

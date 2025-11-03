@@ -168,7 +168,6 @@ void save_halos(int filenr, int tree) {
 
         /* Increment halo counters right after successful write */
         TotHalosPerSnap[n]++;
-        SimState.TotHalosPerSnap[n]++; /* Update SimState directly */
         InputHalosPerSnap[n][tree]++;
       }
     }

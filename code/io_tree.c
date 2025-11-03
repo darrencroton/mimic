@@ -98,8 +98,6 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
           "%zu bytes)",
           n, Ntrees, Ntrees * sizeof(int));
     }
-    SimState.InputHalosPerSnap[n] =
-        InputHalosPerSnap[n]; /* Update SimState pointer directly */
 
     for (i = 0; i < Ntrees; i++)
       InputHalosPerSnap[n][i] = 0;
@@ -114,7 +112,6 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
     }
     fclose(fd);
     TotHalosPerSnap[n] = 0;
-    SimState.TotHalosPerSnap[n] = 0; /* Update SimState directly */
   }
 }
 
@@ -140,16 +137,13 @@ void free_tree_table(enum Valid_TreeTypes my_TreeType) {
   for (n = NOUT - 1; n >= 0; n--) {
     myfree(InputHalosPerSnap[n]);
     InputHalosPerSnap[n] = NULL;
-    SimState.InputHalosPerSnap[n] = NULL; /* Update SimState pointer */
   }
 
   myfree(InputTreeFirstHalo);
   InputTreeFirstHalo = NULL;
-  SimState.InputTreeFirstHalo = NULL; /* Update SimState pointer */
 
   myfree(InputTreeNHalos);
   InputTreeNHalos = NULL;
-  SimState.InputTreeNHalos = NULL; /* Update SimState pointer */
 
   // Don't forget to free the open file handle
 
@@ -223,11 +217,6 @@ void load_tree(int filenr, int treenr, enum Valid_TreeTypes my_TreeType) {
   MaxFoFWorkspace = INITIAL_FOF_HALOS;
   if ((int)(0.1 * MaxProcessedHalos) > MaxFoFWorkspace)
     MaxFoFWorkspace = (int)(0.1 * MaxProcessedHalos);
-
-  /* Update SimulationState */
-  SimState.MaxProcessedHalos = MaxProcessedHalos;
-  SimState.MaxFoFWorkspace = MaxFoFWorkspace;
-  sync_sim_state_to_globals();
 
   HaloAux = mymalloc(sizeof(struct HaloAuxData) * InputTreeNHalos[treenr]);
   if (HaloAux == NULL) {
