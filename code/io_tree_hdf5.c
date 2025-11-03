@@ -85,17 +85,18 @@ void load_tree_table_hdf5(int filenr) {
 
   struct METADATA_NAMES metadata_names;
 
-  snprintf(buf, MAX_STRING_LEN, "%s/%s.%d%s", SimulationDir, TreeName, filenr,
-           TreeExtension);
+  snprintf(buf, MAX_STRING_LEN, "%s/%s.%d%s", SageConfig.SimulationDir,
+           SageConfig.TreeName, filenr, SageConfig.TreeExtension);
   hdf5_file = H5Fopen(buf, H5F_ACC_RDONLY, H5P_DEFAULT);
 
   if (hdf5_file < 0) {
     FATAL_ERROR("Failed to open HDF5 tree file '%s'", buf);
   }
 
-  status = fill_metadata_names(&metadata_names, TreeType);
+  status = fill_metadata_names(&metadata_names, SageConfig.TreeType);
   if (status != EXIT_SUCCESS) {
-    FATAL_ERROR("Failed to fill metadata names for tree type %d", TreeType);
+    FATAL_ERROR("Failed to fill metadata names for tree type %d",
+                SageConfig.TreeType);
   }
 
   status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_NTrees,

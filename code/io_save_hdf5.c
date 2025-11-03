@@ -31,6 +31,7 @@
 #include "core_proto.h"
 #include "io_save_hdf5.h"
 #include "util_error.h"
+#include "util_parameters.h"
 
 #define TRUE 1
 #define FALSE 0
@@ -91,14 +92,14 @@ void calc_hdf5_props(void) {
   HDF5_field_names[i] = "Type";
   HDF5_field_types[i++] = H5T_NATIVE_INT;
 
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, haloIndex);
-  HDF5_dst_sizes[i] = sizeof(galout.haloIndex);
-  HDF5_field_names[i] = "haloIndex";
+  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, HaloIndex);
+  HDF5_dst_sizes[i] = sizeof(galout.HaloIndex);
+  HDF5_field_names[i] = "HaloIndex";
   HDF5_field_types[i++] = H5T_NATIVE_LLONG;
 
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, CentralhaloIndex);
-  HDF5_dst_sizes[i] = sizeof(galout.CentralhaloIndex);
-  HDF5_field_names[i] = "CentralhaloIndex";
+  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, CentralHaloIndex);
+  HDF5_dst_sizes[i] = sizeof(galout.CentralHaloIndex);
+  HDF5_field_names[i] = "CentralHaloIndex";
   HDF5_field_types[i++] = H5T_NATIVE_LLONG;
 
   HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, SAGEHaloIndex);
@@ -248,12 +249,16 @@ void prep_hdf5_file(char *fname) {
         H5TBmake_table("halo Table", snap_group_id, "Galaxies", HDF5_n_props, 0,
                        HDF5_dst_size, HDF5_field_names, HDF5_dst_offsets,
                        HDF5_field_types, chunk_size, fill_data, 0, NULL);
+    if (status < 0) {
+      FATAL_ERROR("Failed to create HDF5 table for snapshot %d in file '%s'",
+                  ListOutputSnaps[i_snap], fname);
+    }
 
     H5Gclose(snap_group_id);
   }
 
   // Close the HDF5 file.
-  status = H5Fclose(file_id);
+  H5Fclose(file_id);
 }
 
 /**
@@ -286,7 +291,8 @@ void write_hdf5_halo(struct HaloOutput *halo_output, int n, int filenr) {
   char fname[1000];
 
   // Generate the filename to be opened.
-  sprintf(fname, "%s/%s_%03d.hdf5", OutputDir, FileNameGalaxies, filenr);
+  sprintf(fname, "%s/%s_%03d.hdf5", SageConfig.OutputDir,
+          SageConfig.FileNameGalaxies, filenr);
 
   DEBUG_LOG("Opening HDF5 file '%s' for writing halo data", fname);
   // Open the file.
@@ -299,12 +305,14 @@ void write_hdf5_halo(struct HaloOutput *halo_output, int n, int filenr) {
   // Write the halo.
   status = H5TBappend_records(group_id, "Galaxies", 1, HDF5_dst_size,
                               HDF5_dst_offsets, HDF5_dst_sizes, halo_output);
+  if (status < 0) {
+    FATAL_ERROR("Failed to append halo record to HDF5 file '%s', snapshot %d",
+                fname, ListOutputSnaps[n]);
+  }
 
-  // Close the group
-  status = H5Gclose(group_id);
-
-  // Close the file.
-  status = H5Fclose(file_id);
+  // Close the group and file
+  H5Gclose(group_id);
+  H5Fclose(file_id);
 }
 
 #ifdef MINIMIZE_IO
@@ -320,7 +328,8 @@ void write_hdf5_galsnap_data(int n, int filenr) {
   char fname[1000];
 
   // Generate the filename to be opened.
-  sprintf(fname, "%s/%s_%03d.hdf5", OutputDir, FileNameGalaxies, filenr);
+  sprintf(fname, "%s/%s_%03d.hdf5", SageConfig.OutputDir,
+          SageConfig.FileNameGalaxies, filenr);
 
   // Open the file.
   file_id = H5Fopen(fname, H5F_ACC_RDWR, H5P_DEFAULT);
@@ -335,13 +344,16 @@ void write_hdf5_galsnap_data(int n, int filenr) {
         group_id, "Galaxies", (hsize_t)(TotHalosPerSnap[n]), HDF5_dst_size,
         HDF5_dst_offsets, HDF5_dst_sizes,
         (struct HaloOutput *)(ptr_galsnapdata[n] + offset_galsnapdata[n]));
+    if (status < 0) {
+      FATAL_ERROR(
+          "Failed to append %d halo records to HDF5 file '%s', snapshot %d",
+          TotHalosPerSnap[n], fname, ListOutputSnaps[n]);
+    }
   }
 
-  // Close the group.
-  status = H5Gclose(group_id);
-
-  // Close the file.
-  status = H5Fclose(file_id);
+  // Close the group and file.
+  H5Gclose(group_id);
+  H5Fclose(file_id);
 }
 #endif //  MINIMIZE_IO
 
@@ -374,7 +386,8 @@ void write_hdf5_attrs(int n, int filenr) {
   char fname[1000];
 
   // Generate the filename to be opened.
-  sprintf(fname, "%s/%s_%03d.hdf5", OutputDir, FileNameGalaxies, filenr);
+  sprintf(fname, "%s/%s_%03d.hdf5", SageConfig.OutputDir,
+          SageConfig.FileNameGalaxies, filenr);
 
   // Open the output file and halo dataset.
   file_id = H5Fopen(fname, H5F_ACC_RDWR, H5P_DEFAULT);
@@ -393,19 +406,24 @@ void write_hdf5_attrs(int n, int filenr) {
   attribute_id = H5Acreate(dataset_id, "Ntrees", H5T_NATIVE_INT, dataspace_id,
                            H5P_DEFAULT, H5P_DEFAULT);
   status = H5Awrite(attribute_id, H5T_NATIVE_INT, &Ntrees);
-  status = H5Aclose(attribute_id);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write Ntrees attribute to HDF5 file '%s'", fname);
+  }
+  H5Aclose(attribute_id);
 
   // Write the total number of objects.
   attribute_id = H5Acreate(dataset_id, "TotHalosPerSnap", H5T_NATIVE_INT,
                            dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   status = H5Awrite(attribute_id, H5T_NATIVE_INT, &TotHalosPerSnap[n]);
-  status = H5Aclose(attribute_id);
+  if (status < 0) {
+    FATAL_ERROR(
+        "Failed to write TotHalosPerSnap attribute to HDF5 file '%s'", fname);
+  }
+  H5Aclose(attribute_id);
 
-  // Close the dataspace.
-  status = H5Sclose(dataspace_id);
-
-  // Close to the dataset.
-  status = H5Dclose(dataset_id);
+  // Close the dataspace and dataset.
+  H5Sclose(dataspace_id);
+  H5Dclose(dataset_id);
 
   // Create an array dataset to hold the number of objects per tree and write
   // it.
@@ -418,13 +436,11 @@ void write_hdf5_attrs(int n, int filenr) {
   dataspace_id = H5Screate_simple(1, &dims, NULL);
   dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT,
                          dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  status = H5Dclose(dataset_id);
+  H5Dclose(dataset_id);
 
-  // Close the group.
-  status = H5Gclose(group_id);
-
-  // Close the file.
-  status = H5Fclose(file_id);
+  // Close the group and file.
+  H5Gclose(group_id);
+  H5Fclose(file_id);
 }
 
 /**
@@ -467,6 +483,9 @@ static void store_run_properties(hid_t master_file_id) {
   dataspace_id = H5Screate_simple(1, &dims, NULL);
   str_type = H5Tcopy(H5T_C_S1);
   status = H5Tset_size(str_type, MAX_STRING_LEN);
+  if (status < 0) {
+    FATAL_ERROR("Failed to set HDF5 string type size for run properties");
+  }
 
   /* Store all parameters from the parameter table */
   for (i = 0; i < num_params; i++) {
@@ -477,17 +496,16 @@ static void store_run_properties(hid_t master_file_id) {
         attribute_id =
             H5Acreate(props_group_id, param_table[i].name, H5T_NATIVE_INT,
                       dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-        status = H5Awrite(attribute_id, H5T_NATIVE_INT, param_table[i].address);
-        status = H5Aclose(attribute_id);
+        H5Awrite(attribute_id, H5T_NATIVE_INT, param_table[i].address);
+        H5Aclose(attribute_id);
         break;
 
       case DOUBLE:
         attribute_id =
             H5Acreate(props_group_id, param_table[i].name, H5T_NATIVE_DOUBLE,
                       dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-        status =
-            H5Awrite(attribute_id, H5T_NATIVE_DOUBLE, param_table[i].address);
-        status = H5Aclose(attribute_id);
+        H5Awrite(attribute_id, H5T_NATIVE_DOUBLE, param_table[i].address);
+        H5Aclose(attribute_id);
         break;
 
       case STRING:
@@ -507,14 +525,14 @@ static void store_run_properties(hid_t master_file_id) {
           attribute_id =
               H5Acreate(props_group_id, param_table[i].name, str_type,
                         dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-          status = H5Awrite(attribute_id, str_type, tree_type_str);
-          status = H5Aclose(attribute_id);
+          H5Awrite(attribute_id, str_type, tree_type_str);
+          H5Aclose(attribute_id);
         } else if (param_table[i].address != NULL) {
           attribute_id =
               H5Acreate(props_group_id, param_table[i].name, str_type,
                         dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-          status = H5Awrite(attribute_id, str_type, param_table[i].address);
-          status = H5Aclose(attribute_id);
+          H5Awrite(attribute_id, str_type, param_table[i].address);
+          H5Aclose(attribute_id);
         }
         break;
       }
@@ -524,27 +542,32 @@ static void store_run_properties(hid_t master_file_id) {
   /* Add extra properties */
   attribute_id = H5Acreate(props_group_id, "NCores", H5T_NATIVE_INT,
                            dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  status = H5Awrite(attribute_id, H5T_NATIVE_INT, &NTask);
-  status = H5Aclose(attribute_id);
+#ifdef MPI
+  H5Awrite(attribute_id, H5T_NATIVE_INT, &NTask);
+#else
+  int ncores = 1;
+  H5Awrite(attribute_id, H5T_NATIVE_INT, &ncores);
+#endif
+  H5Aclose(attribute_id);
 
   time(&t);
   local = localtime(&t);
   attribute_id = H5Acreate(props_group_id, "RunEndTime", str_type, dataspace_id,
                            H5P_DEFAULT, H5P_DEFAULT);
-  status = H5Awrite(attribute_id, str_type, asctime(local));
-  status = H5Aclose(attribute_id);
+  H5Awrite(attribute_id, str_type, asctime(local));
+  H5Aclose(attribute_id);
 
   /* Add input simulation info if defined */
 #ifdef INPUTSIM
   attribute_id = H5Acreate(props_group_id, "InputSimulation", str_type,
                            dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-  status = H5Awrite(attribute_id, str_type, INPUTSIM);
-  status = H5Aclose(attribute_id);
+  H5Awrite(attribute_id, str_type, INPUTSIM);
+  H5Aclose(attribute_id);
 #endif
 
   /* Clean up */
-  status = H5Sclose(dataspace_id);
-  status = H5Gclose(props_group_id);
+  H5Sclose(dataspace_id);
+  H5Gclose(props_group_id);
 }
 
 void write_master_file(void) {
@@ -564,7 +587,8 @@ void write_master_file(void) {
   float redshift;
 
   // Open the master file.
-  sprintf(master_file, "%s/%s.hdf5", OutputDir, FileNameGalaxies);
+  sprintf(master_file, "%s/%s.hdf5", SageConfig.OutputDir,
+          SageConfig.FileNameGalaxies);
   DEBUG_LOG("Creating master HDF5 file '%s'", master_file);
   master_file_id =
       H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
@@ -585,22 +609,23 @@ void write_master_file(void) {
     attribute_id = H5Acreate(group_id, "Redshift", H5T_NATIVE_FLOAT,
                              dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
     redshift = (float)(ZZ[ListOutputSnaps[n]]);
-    status = H5Awrite(attribute_id, H5T_NATIVE_FLOAT, &redshift);
-    status = H5Aclose(attribute_id);
-    status = H5Sclose(dataspace_id);
-    status = H5Gclose(group_id);
+    H5Awrite(attribute_id, H5T_NATIVE_FLOAT, &redshift);
+    H5Aclose(attribute_id);
+    H5Sclose(dataspace_id);
+    H5Gclose(group_id);
 
     // Loop through each file for this snapshot.
-    for (filenr = FirstFile; filenr <= LastFile; filenr++) {
+    for (filenr = SageConfig.FirstFile; filenr <= SageConfig.LastFile;
+         filenr++) {
       // Create a group to hold this snapshot's data
       sprintf(target_group, "Snap%03d/File%03d", ListOutputSnaps[n], filenr);
       group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT,
                            H5P_DEFAULT, H5P_DEFAULT);
-      status = H5Gclose(group_id);
+      H5Gclose(group_id);
 
       ngal_in_file = 0;
       // Generate the *relative* path to the actual output file.
-      sprintf(target_file, "%s_%03d.hdf5", FileNameGalaxies, filenr);
+      sprintf(target_file, "%s_%03d.hdf5", SageConfig.FileNameGalaxies, filenr);
 
       // Create a dataset which will act as the soft link to the output
       sprintf(target_group, "Snap%03d/File%03d/Galaxies", ListOutputSnaps[n],
@@ -609,6 +634,10 @@ void write_master_file(void) {
       DEBUG_LOG("Creating external DS link - %s", target_group);
       status = H5Lcreate_external(target_file, source_ds, master_file_id,
                                   target_group, H5P_DEFAULT, H5P_DEFAULT);
+      if (status < 0) {
+        FATAL_ERROR(
+            "Failed to create external link for Galaxies in master file");
+      }
 
       // Create a dataset which will act as the soft link to the array storing
       // the number of objects per tree for this file.
@@ -618,18 +647,26 @@ void write_master_file(void) {
       DEBUG_LOG("Creating external DS link - %s", target_group);
       status = H5Lcreate_external(target_file, source_ds, master_file_id,
                                   target_group, H5P_DEFAULT, H5P_DEFAULT);
+      if (status < 0) {
+        FATAL_ERROR("Failed to create external link for TreeHalosPerSnap in "
+                    "master file");
+      }
 
       // Increment the total number of objects for this file.
-      sprintf(target_file, "%s/%s_%03d.hdf5", OutputDir, FileNameGalaxies,
-              filenr);
+      sprintf(target_file, "%s/%s_%03d.hdf5", SageConfig.OutputDir,
+              SageConfig.FileNameGalaxies, filenr);
       target_file_id = H5Fopen(target_file, H5F_ACC_RDONLY, H5P_DEFAULT);
       sprintf(source_ds, "Snap%03d/Galaxies", ListOutputSnaps[n]);
       dataset_id = H5Dopen(target_file_id, source_ds, H5P_DEFAULT);
       attribute_id = H5Aopen(dataset_id, "TotHalosPerSnap", H5P_DEFAULT);
       status = H5Aread(attribute_id, H5T_NATIVE_INT, &ngal_in_core);
-      status = H5Aclose(attribute_id);
-      status = H5Dclose(dataset_id);
-      status = H5Fclose(target_file_id);
+      if (status < 0) {
+        FATAL_ERROR("Failed to read TotHalosPerSnap attribute from file '%s'",
+                    target_file);
+      }
+      H5Aclose(attribute_id);
+      H5Dclose(dataset_id);
+      H5Fclose(target_file_id);
       ngal_in_file += ngal_in_core;
 
       // Save the total number of objects in this file.
@@ -639,10 +676,10 @@ void write_master_file(void) {
       group_id = H5Gopen(master_file_id, target_group, H5P_DEFAULT);
       attribute_id = H5Acreate(group_id, "TotHalosPerSnap", H5T_NATIVE_INT,
                                dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-      status = H5Awrite(attribute_id, H5T_NATIVE_INT, &ngal_in_file);
-      status = H5Aclose(attribute_id);
-      status = H5Gclose(group_id);
-      status = H5Sclose(dataspace_id);
+      H5Awrite(attribute_id, H5T_NATIVE_INT, &ngal_in_file);
+      H5Aclose(attribute_id);
+      H5Gclose(group_id);
+      H5Sclose(dataspace_id);
     }
   }
 
@@ -652,21 +689,21 @@ void write_master_file(void) {
 
   dims = 1;
   hid_t str_type = H5Tcopy(H5T_C_S1);
-  status = H5Tset_size(str_type, 45);
+  H5Tset_size(str_type, 45);
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
   sprintf(tempstr, GITREF_STR);
   attribute_id = H5Acreate(master_file_id, "GitRef", str_type, dataspace_id,
                            H5P_DEFAULT, H5P_DEFAULT);
-  status = H5Awrite(attribute_id, str_type, tempstr);
+  H5Awrite(attribute_id, str_type, tempstr);
 
   sprintf(tempstr, MODELNAME);
   attribute_id = H5Acreate(master_file_id, "Model", str_type, dataspace_id,
                            H5P_DEFAULT, H5P_DEFAULT);
-  status = H5Awrite(attribute_id, str_type, tempstr);
+  H5Awrite(attribute_id, str_type, tempstr);
 
-  status = H5Aclose(attribute_id);
-  status = H5Sclose(dataspace_id);
+  H5Aclose(attribute_id);
+  H5Sclose(dataspace_id);
 #endif
 
   // Finally - store the properites of the run...

@@ -6,8 +6,8 @@
 # To enable MPI for parallel processing, uncomment the following line:
 # USE-MPI = yes
 
-# To enable HDF5 for reading HDF5-format merger trees, uncomment the following line:
-# USE-HDF5 = yes
+# To enable HDF5 for reading/writing HDF5-format files, uncomment the following line:
+USE-HDF5 = yes
 
 
 # --- Compiler and Flags ---
@@ -58,12 +58,14 @@ endif
 # --- Conditional Compilation: HDF5 ---
 
 ifdef USE-HDF5
-    # Standard system paths (works for Homebrew, apt, etc.)
-    HDF5INCL :=
-    HDF5LIB := -lhdf5
+    # HDF5 paths for Homebrew on macOS (adjust for other systems)
+    # For Linux with apt: typically /usr/include and /usr/lib
+    # For custom installs: modify paths below or use h5cc compiler wrapper
+    HDF5INCL := -I/opt/homebrew/include
+    HDF5LIB := -L/opt/homebrew/lib -lhdf5_hl -lhdf5
 
     CFLAGS += $(HDF5INCL) -DHDF5
-    LDFLAGS += $(HDF5LIB)
+    LIBS += $(HDF5LIB)
 else
     # If HDF5 is not used, filter out HDF5-specific source files
     OBJS := $(filter-out $(SRC_DIR)/io_%hdf5.o, $(OBJS))
