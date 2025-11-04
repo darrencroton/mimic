@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
 """
-SAGE Snapshot to Redshift Mapper
+Mimic Snapshot to Redshift Mapper
 
 This module provides a class to handle mapping between snapshot numbers and redshifts
-for SAGE galaxy evolution plots.
+for Mimic galaxy evolution plots.
 """
 
 import os
@@ -22,9 +22,9 @@ class SnapshotRedshiftMapper:
         Initialize with parameter file and output directory paths.
 
         Args:
-            param_file: Path to SAGE parameter file
+            param_file: Path to Mimic parameter file
             params: Dictionary with already parsed parameters (optional)
-            output_dir: Path to SAGE output directory
+            output_dir: Path to Mimic output directory
         """
         self.param_file = param_file
         self.params = params  # Can pass already parsed params
@@ -35,7 +35,7 @@ class SnapshotRedshiftMapper:
             sys.exit(1)
         
         # Check for critical parameters
-        required_params = ["FileNameGalaxies"]
+        required_params = ["OutputFileBaseName"]
         missing_params = [p for p in required_params if p not in params]
         if missing_params:
             print(f"Error: Required parameters missing from parameter file: {', '.join(missing_params)}")
@@ -43,7 +43,7 @@ class SnapshotRedshiftMapper:
             
         # Set up the mapper
         self.output_dir = output_dir
-        self.file_name_base = params["FileNameGalaxies"]
+        self.file_name_base = params["OutputFileBaseName"]
         self.snapshots = []  # Snapshot indices (0 to n-1)
         self.redshifts = []  # Corresponding redshift values
         self.redshift_strs = []  # Formatted strings for filenames (e.g., "_z0.000")
@@ -91,7 +91,7 @@ class SnapshotRedshiftMapper:
         a_list_file = self.params["FileWithSnapList"]
         last_snapshot_nr = self.params["LastSnapshotNr"]
 
-        # The a_list_file path is already resolved by SAGEParameters class
+        # The a_list_file path is already resolved by MimicParameters class
         # No need for additional path manipulation
 
         if self.params.get("verbose", False):

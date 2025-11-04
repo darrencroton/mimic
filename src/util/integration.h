@@ -1,9 +1,9 @@
 /**
  * @file    util_integration.h
- * @brief   Numerical integration utilities for SAGE
+ * @brief   Numerical integration utilities for Mimic
  *
  * This file provides highly accurate numerical integration functions used
- * in the SAGE codebase. It implements adaptive integration methods for
+ * in the Mimic codebase. It implements adaptive integration methods for
  * precise calculations of cosmological quantities.
  */
 

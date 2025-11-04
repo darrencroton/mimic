@@ -11,7 +11,7 @@
  * operations
  *
  * This file provides utility functions to improve numerical stability in
- * the SAGE codebase by offering safer floating-point comparison operations,
+ * the Mimic codebase by offering safer floating-point comparison operations,
  * division checks, and value validation functions. Using these utilities
  * instead of direct floating-point operations helps avoid common numerical
  * issues.

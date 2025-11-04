@@ -1,53 +1,71 @@
-# Semi-Analytic Galaxy Evolution (SAGE) - Dark Matter Halo Tracker
+# Mimic: Physics-Agnostic Galaxy Evolution Framework
 
-[![DOI](https://zenodo.org/badge/13542/darrencroton/sage.svg)](https://zenodo.org/badge/latestdoi/13542/darrencroton/sage)
+**Mimic** is a physics-agnostic core framework for galaxy evolution modeling, designed around runtime-configurable physics modules and a clean separation between infrastructure and scientific implementations. The framework emphasizes scientific flexibility, maintainability, and extensibility.
 
-**Note:** This is a minimal dark matter halo tracking version of SAGE, with all baryonic physics removed. For the full semi-analytic galaxy formation model with baryonic physics, see the main SAGE repository at [github.com/darrencroton/sage](https://github.com/darrencroton/sage).
+## Vision
+
+Mimic embodies a **physics-agnostic architecture** where the core infrastructure has zero knowledge of specific physics implementations. Physics modules are pure add-ons that extend core functionality through well-defined interfaces, enabling:
+
+- **Scientific Flexibility**: Experiment with different physics combinations without recompilation
+- **Independent Development**: Core infrastructure and physics modules evolve independently
+- **Long-term Maintainability**: Clean separation of concerns reduces complexity
+- **Extensibility**: Add new physics modules following clear, documented patterns
+
+See [docs/architecture/vision.md](docs/architecture/vision.md) for the complete architectural vision and design principles.
+
+## Historical Context
+
+Mimic builds upon the **Semi-Analytic Galaxy Evolution (SAGE)** model developed by Croton et al. The current codebase represents a refactored foundation focusing on halo tracking infrastructure, with physics modules planned for future implementation following the modular architecture outlined in the vision document.
+
+### Related SAGE Resources
+
+- **Original SAGE**: [github.com/darrencroton/sage](https://github.com/darrencroton/sage) - Full semi-analytic galaxy formation model
+- **Publications**: [Croton et al. (2016)](http://arxiv.org/abs/1601.04709), [Croton et al. (2006)](http://arxiv.org/abs/astro-ph/0508046)
+- **ASCL Listing**: [ascl.net/1601.006](http://ascl.net/1601.006)
+- **TAO Platform**: [tao.asvo.org.au](https://tao.asvo.org.au/) - Hosts pre-computed SAGE models
+- **DOI**: [![DOI](https://zenodo.org/badge/13542/darrencroton/sage.svg)](https://zenodo.org/badge/latestdoi/13542/darrencroton/sage)
 
 ## Features
 
-- **Dark Matter Halo Tracking**: Processes halo properties from N-body merger trees (mass, position, velocity, spin)
-- **Computational Efficiency**: Processes large cosmological simulations on modest hardware
-- **Flexible Input**: Works with multiple N-body simulation formats (binary, HDF5)
-- **Modular Design**: Clean separation between halo tracking and physics modules
-- **Robust Memory Management**: Optimized for handling large merger trees
-- **Consistent Error Handling**: Comprehensive logging and error reporting
+- **Physics-Agnostic Core**: Infrastructure independent of specific physics implementations
+- **Runtime Modularity**: Module selection via configuration, not compile-time flags
+- **Flexible Input**: Multiple N-body simulation formats (binary, HDF5)
+- **Robust Memory Management**: Bounded, predictable memory usage optimized for large simulations
+- **Format-Agnostic I/O**: Unified interfaces supporting multiple input/output formats
+- **Type Safety**: Metadata-driven code generation with compile-time validation
+- **Computational Efficiency**: Processes large cosmological simulations efficiently
+- **Comprehensive Testing**: Multi-level test framework for scientific validation
+- **Extensive Documentation**: Professional coding standards with detailed documentation
 - **Integrated Visualization**: Dedicated plotting system for halo properties and distributions
-- **Well-Structured Code**: Organized headers and reduced global variable dependencies
-- **Numerical Stability**: Robust handling of floating-point operations
-- **Cross-Platform I/O**: Robust error checking and platform compatibility
-- **Extensive Documentation**: Detailed inline documentation of algorithms and implementation
 
 ## Quick Start
 
-For new users who want to get SAGE up and running immediately:
-
 ```bash
 # Clone the repository
-git clone https://github.com/darrencroton/sage.git
-cd sage
+git clone [repository-url]
+cd mimic
 
-# Run the automated setup script
+# Run automated setup (creates directories, downloads data, sets up Python environment)
 ./scripts/first_run.sh
 
-# Compile SAGE
+# Compile Mimic
 make
 
-# Run SAGE with the mini-Millennium simulation
-./sage input/millennium.par
+# Run with the mini-Millennium simulation
+./mimic input/millennium.par
 
 # Generate plots (using virtual environment)
-source sage_venv/bin/activate
-cd output/sage-plot
-python sage-plot.py --param-file=../../input/millennium.par
+source mimic_venv/bin/activate
+cd output/mimic-plot
+python mimic-plot.py --param-file=../../input/millennium.par
 deactivate
 ```
 
-The `scripts/first_run.sh` script will automatically:
-- Create necessary directories (`input/data/millennium`, `output/results/millennium`)
-- Download the mini-Millennium simulation trees
-- Set up a Python virtual environment (`sage_venv`) with plotting dependencies
-- Configure the parameter file with correct paths
+The `scripts/first_run.sh` script automatically:
+- Creates necessary directories
+- Downloads the mini-Millennium simulation trees
+- Sets up Python virtual environment (`mimic_venv`) with plotting dependencies
+- Configures paths in parameter files
 
 ## Installation
 
@@ -56,104 +74,18 @@ The `scripts/first_run.sh` script will automatically:
 - C compiler (gcc or compatible)
 - GNU Make
 - Python 3.x (for plotting)
-- (Optional) HDF5 libraries for HDF5 tree format support
+- (Optional) HDF5 libraries for HDF5 format support
+- (Optional) MPI for parallel processing
 - (Optional) clang-format for code formatting
-- (Optional) black and isort for Python code formatting
+- (Optional) black and isort for Python formatting
 
-### Building SAGE
+### Building Mimic
 
 ```bash
-# Clone the repository
-git clone https://github.com/darrencroton/sage.git
-cd sage
-
 # Basic compilation
 make
 
-# With HDF5 support (optional)
-make USE-HDF5=yes
-```
-
-### Manual Setup (Alternative to scripts/first_run.sh)
-
-If you prefer to set up SAGE manually or the automated script doesn't work for your system:
-
-#### 1. Create Directory Structure
-```bash
-mkdir -p input/data/millennium
-mkdir -p output/results/millennium
-```
-
-#### 2. Download Simulation Data
-Download the mini-Millennium simulation trees:
-```bash
-cd input/data/millennium
-
-# Using wget
-wget "https://www.dropbox.com/s/l5ukpo7ar3rgxo4/mini-millennium-treefiles.tar?dl=0" -O mini-millennium-treefiles.tar
-
-# Or using curl
-curl -L -o mini-millennium-treefiles.tar "https://www.dropbox.com/s/l5ukpo7ar3rgxo4/mini-millennium-treefiles.tar?dl=0"
-
-# Extract the files
-tar -xf mini-millennium-treefiles.tar
-rm mini-millennium-treefiles.tar
-
-cd ../../..
-```
-
-#### 3. Set Up Python Environment
-Install required Python packages for plotting using the provided `requirements.txt`. Due to modern Python environment management, you have several options:
-
-**Option 1 (Recommended): Use a virtual environment:**
-```bash
-python3 -m venv sage_venv
-source sage_venv/bin/activate
-pip install -r requirements.txt
-```
-
-**Option 2: Use --user flag:**
-```bash
-pip3 install --user -r requirements.txt
-```
-
-**Option 3: Use system package manager (macOS with Homebrew):**
-```bash
-brew install python-numpy python-matplotlib python-tqdm
-```
-
-**Option 4: Override system protection (not recommended):**
-```bash
-pip3 install --break-system-packages -r requirements.txt
-```
-
-#### 4. Configure Parameter File
-Update `input/millennium.par` with the correct absolute paths:
-- Set `OutputDir` to your full path + `/output/results/millennium/`
-- Set `SimulationDir` to your full path + `/input/data/millennium/`
-- Set `FileWithSnapList` to your full path + `/input/data/millennium/millennium.a_list`
-
-#### 5. Compile and Run
-```bash
-# Basic build
-make
-
 # With HDF5 support (recommended)
-make USE-HDF5=yes
-
-# Run simulation
-./sage input/millennium.par
-```
-
-## Basic Usage
-
-### Building
-
-```bash
-# Standard build
-make
-
-# With HDF5 support for reading/writing HDF5 files
 make USE-HDF5=yes
 
 # With MPI support for parallel processing
@@ -166,36 +98,71 @@ make clean
 make tidy
 ```
 
-Build artifacts are now organized in the `build/` directory with object files in `build/obj/` and dependency files in `build/deps/`.
+Build artifacts are organized in the `build/` directory.
 
-### Running a Simulation
+### Manual Setup
+
+If the automated script doesn't work for your system:
+
+#### 1. Create Directory Structure
+```bash
+mkdir -p input/data/millennium
+mkdir -p output/results/millennium
+```
+
+#### 2. Download Simulation Data
+```bash
+cd input/data/millennium
+
+# Using wget
+wget "https://www.dropbox.com/s/l5ukpo7ar3rgxo4/mini-millennium-treefiles.tar?dl=0" -O mini-millennium-treefiles.tar
+
+# Or using curl
+curl -L -o mini-millennium-treefiles.tar "https://www.dropbox.com/s/l5ukpo7ar3rgxo4/mini-millennium-treefiles.tar?dl=0"
+
+# Extract
+tar -xf mini-millennium-treefiles.tar
+rm mini-millennium-treefiles.tar
+cd ../../..
+```
+
+#### 3. Set Up Python Environment
+```bash
+# Recommended: Use virtual environment
+python3 -m venv mimic_venv
+source mimic_venv/bin/activate
+pip install -r requirements.txt
+```
+
+#### 4. Configure Parameter File
+Update `input/millennium.par` with absolute paths for:
+- `OutputDir`
+- `SimulationDir`
+- `FileWithSnapList`
+
+## Basic Usage
+
+### Running Simulations
 
 ```bash
 # Basic execution
-./sage <parameter_file>
+./mimic <parameter_file>
 
 # With command-line options
-./sage --verbose <parameter_file>
-
-# Show help
-./sage --help
+./mimic --verbose <parameter_file>  # Show debug messages
+./mimic --quiet <parameter_file>    # Show only warnings/errors
+./mimic --skip <parameter_file>     # Skip existing output files
+./mimic --help                      # Display help
 ```
 
-### Command-Line Options
-
-- `--verbose`: Show debug messages
-- `--quiet`: Show only warnings and errors
-- `--skip`: Skip existing output files
-- `--help`: Display help message
-
-### Parameter File Example
+### Parameter File Structure
 
 ```
 %------------------------------------------
-%----- SAGE output file information -------
+%----- Mimic output file information -----
 %------------------------------------------
 
-FileNameGalaxies       model 
+OutputFileBaseName     model
 OutputDir              /path/to/output/directory/
 
 FirstFile              0
@@ -205,69 +172,61 @@ LastFile               7
 %----- Snapshot output list ---------------
 %------------------------------------------
 
-NumOutputs             8   
+NumOutputs             8
 
-% List of output snapshots
+% List output snapshots after arrow, highest to lowest
 -> 63 37 32 27 23 20 18 16
 
 %------------------------------------------
-%----- Simulation information  ------------
+%----- Simulation information -------------
 %------------------------------------------
 
 TreeName               trees_063
-TreeType               lhalo_binary
+TreeType               lhalo_binary  % or 'genesis_lhalo_hdf5'
+OutputFormat           binary        % or 'hdf5'
 SimulationDir          /path/to/simulation/data/
 FileWithSnapList       /path/to/snapshot/list
 LastSnapshotNr         63
-NumSimulationTreeFiles 8
-BoxSize                62.5  
+BoxSize                62.5  % Mpc/h
 
 Omega                  0.25
 OmegaLambda            0.75
 Hubble_h               0.73
 PartMass               0.0860657
-
-%------------------------------------------
-%------------------------------------------
-% All baryonic physics parameters removed.
-% SAGE operates as a DM-only halo tracker.
 ```
 
-Note: A full example parameter file can be found in the `input` directory.
+See `input/millennium.par` for a complete example.
 
-## Code Structure
+## Code Architecture
 
-The SAGE codebase is organized around these key components:
+Mimic follows a hierarchical structure under `src/`:
 
-- **Core Files**: Main model framework and execution flow
-  - `main.c`: Program entry point and core execution
-  - `core_init.c`: Initialization routines
-  - `core_read_parameter_file.c`: Parameter handling
-  - `core_build_model.c`: Halo tracking and property updates
-  - `model_misc.c`: Halo initialization and virial property calculations
+### Directory Structure
+- **src/core/**: Core execution (main, initialization, halo tracking)
+- **src/io/**: Input/output operations
+  - **tree/**: Tree readers (interface, binary, HDF5 formats)
+  - **output/**: Output writers (binary, HDF5, utilities)
+- **src/util/**: Utility functions (memory, error, numeric, version)
+- **src/modules/**: Physics modules (halo properties with virial calculations)
+- **src/include/**: Public headers (types, globals, constants, config)
 
-- **I/O Files**: Input/output operations
-  - `io_tree.c`: Tree loading and management
-  - `io_save_binary.c`: Binary output format
-  - `io_save_hdf5.c`: HDF5 output format
-  - `io_save_util.c`: Shared output utilities for both binary and HDF5 formats
-  - I/O wrappers (`myfread`, `myfwrite`, `myfseek`) provide endianness-aware reads/writes using the C standard library. There is no custom buffering layer.
+### Key Design Patterns
 
-- **Utility Files**: Helper functions
-  - `util_numeric.c`: Numerical stability utilities
-  - `util_error.c`: Error handling system
-  - `util_memory.c`: Memory management
-  - `util_parameters.c`: Parameter processing
+1. **Three-Tier Halo Architecture**: Separation between input (InputTreeHalos), processing (FoFWorkspace), and storage (ProcessedHalos)
+2. **Memory Categories**: Tracked allocation by category (halos, trees, parameters, I/O)
+3. **Error Propagation**: Consistent error handling with context preservation
+4. **Format Abstraction**: I/O operations support multiple tree and output formats
+5. **State Management**: Single source of truth via globals for runtime state
 
-- **Header Files**: Declarations and configurations
-  - `constants.h`: Numerical constants
-  - `types.h`: Structure definitions (RawHalo, Halo, HaloOutput, HaloAuxData)
-  - `globals.h`: Global variable declarations (InputTreeHalos, FoFWorkspace, ProcessedHalos)
-  - `config.h`: Configuration parameters
+### Data Structures
+
+- **RawHalo**: Immutable merger tree input data
+- **Halo**: Mutable halo tracking structure (24 fields)
+- **HaloOutput**: Output format structure (24 fields)
+- **HaloAuxData**: Auxiliary processing metadata
+- **MimicConfig**: Configuration parameters
 
 ## Code Formatting
-
-SAGE includes a code formatting script to maintain consistent coding style:
 
 ```bash
 # Format all code (C and Python)
@@ -278,88 +237,74 @@ SAGE includes a code formatting script to maintain consistent coding style:
 
 # Format only Python code
 ./scripts/beautify.sh --py-only
-
-# See more options
-./scripts/beautify.sh --help
 ```
 
 ## Visualization System
 
-SAGE includes a plotting system (`sage-plot`) for analyzing halo properties. Located in `output/sage-plot/`, this tool provides:
+The **mimic-plot** system (`output/mimic-plot/`) provides comprehensive halo property analysis:
 
-- **6 halo plot types** covering halo mass functions, occupation statistics, spin/velocity distributions, and spatial distributions
-- **Physics plots archived**: 15 galaxy-physics plots available in `figures/archive/` for potential future use
-- **Default behavior**: Generates both snapshot and evolution plots automatically
-- **Cross-directory execution**: Works from any directory with robust path resolution
-- **Consistent styling** and interfaces across all visualizations
-- **Robust parameter parsing**: Handles comments, arrow notation, and various file formats
-- **Single entry point** for generating all plots with minimal configuration
-
-For detailed usage instructions, see the [sage-plot README](output/sage-plot/README.md).
+- **6 halo plot types**: Mass functions, occupation statistics, spin/velocity distributions, spatial distributions
+- **Snapshot & evolution plots**: Default generates both automatically
+- **Cross-directory execution**: Robust path resolution from any location
+- **Modular design**: Clean interfaces, consistent styling
+- **Single entry point**: Minimal configuration required
 
 Basic usage:
 ```bash
-# Activate the virtual environment first
-source sage_venv/bin/activate
+# Activate virtual environment
+source mimic_venv/bin/activate
 
-# Generate all halo plots (both snapshot and evolution)
-python output/sage-plot/sage-plot.py --param-file=input/millennium.par
+# Generate all plots (both snapshot and evolution)
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par
 
 # Generate only snapshot plots (5 plots)
-python output/sage-plot/sage-plot.py --param-file=input/millennium.par --snapshot-plots
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par --snapshot-plots
 
 # Generate only evolution plots (1 plot)
-python output/sage-plot/sage-plot.py --param-file=input/millennium.par --evolution-plots
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par --evolution-plots
 
 # Generate specific plots
-python output/sage-plot/sage-plot.py --param-file=input/millennium.par --plots=halo_mass_function,spin_distribution
-
-# Works from any directory!
-cd /tmp
-python /path/to/sage/output/sage-plot/sage-plot.py --param-file=/path/to/sage/input/millennium.par
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par --plots=halo_mass_function,spin_distribution
 
 # Deactivate when done
 deactivate
 ```
 
+See [output/mimic-plot/README.md](output/mimic-plot/README.md) for detailed usage.
+
 ## Sample Data
 
-For testing purposes, treefiles for the [mini-Millennium Simulation](http://arxiv.org/abs/astro-ph/0504097) are automatically downloaded and configured by the `scripts/first_run.sh` script. You can also manually download them from [here](https://data-portal.hpc.swin.edu.au/dataset/mini-millennium-simulation).
+The mini-Millennium Simulation ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)) is used for testing. Tree files are automatically downloaded by `scripts/first_run.sh`, or manually from [here](https://data-portal.hpc.swin.edu.au/dataset/mini-millennium-simulation).
 
 ## Documentation
 
-- **Architecture**: See [docs/architecture/](docs/architecture/) for system design and vision
-- **Developer Guide**: See [docs/developer/](docs/developer/) for coding standards and getting started
-- **User Guide**: See [docs/user/](docs/user/) for usage instructions (coming soon)
-
-## Citations
-
-If you use SAGE in your research, please cite:
-
-- [Croton et al. (2016)](http://arxiv.org/abs/1601.04709) - The current SAGE model
-- [Croton et al. (2006)](http://arxiv.org/abs/astro-ph/0508046) - The original model
-
-You can also find SAGE on [ascl.net](http://ascl.net/1601.006).
-
-## Related Resources
-
-- [Theoretical Astrophysical Observatory (TAO)](https://tao.asvo.org.au/) - Hosts pre-computed SAGE models on various simulations
-- [SAGE Calibration Notebook](https://github.com/darrencroton/sage/blob/master/output/SAGE_MM.ipynb) - Explore key calibration figures
+- **Architecture Vision**: [docs/architecture/vision.md](docs/architecture/vision.md) - Design principles and philosophy
+- **Developer Guide**: [docs/developer/](docs/developer/) - Coding standards and getting started
+- **Code Documentation**: Comprehensive inline documentation following professional standards
 
 ## Contributing
 
-Contributions to SAGE are welcome! Please consider:
+Contributions are welcome! Please consider:
 
-1. **Bug Reports**: File issues for any bugs or unexpected behavior
-2. **Feature Requests**: Suggest enhancements or new physical models
-3. **Pull Requests**: Submit code improvements or documentation updates
+1. **Bug Reports**: File issues for bugs or unexpected behavior
+2. **Feature Requests**: Suggest enhancements or new physics modules
+3. **Pull Requests**: Submit improvements following coding standards
+4. **Documentation**: Help improve documentation and examples
+
+## Development Guidelines
+
+- Follow professional coding standards (see [docs/developer/coding-standards.md](docs/developer/coding-standards.md))
+- Document as you code
+- Test thoroughly before submitting
+- Align with architectural vision
+- Never delete files - archive to `archive/` directory
 
 ## License
 
-SAGE is available under an open-source license. See the LICENSE file for details.
+Mimic is available under an open-source license. See the LICENSE file for details.
 
 ## Contact
 
-Questions and comments can be sent to Darren Croton: dcroton@swin.edu.au.
+Questions and comments can be sent to Darren Croton: dcroton@swin.edu.au
 
-Visit Darren's homepage at https://darrencroton.github.io for more information on SAGE and related projects.
+Visit [darrencroton.github.io](https://darrencroton.github.io) for more information.

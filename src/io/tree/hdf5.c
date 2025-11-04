@@ -5,7 +5,7 @@
  * This file implements functionality for loading merger trees from
  * HDF5 format files. It handles the reading of tree metadata and
  * halo data for individual trees, providing an interface to the core
- * SAGE code that is independent of the specific file format.
+ * Mimic code that is independent of the specific file format.
  *
  * HDF5 format trees are a newer, more flexible format compared to
  * the traditional binary format. The HDF5 format allows for:
@@ -85,18 +85,18 @@ void load_tree_table_hdf5(int filenr) {
 
   struct METADATA_NAMES metadata_names;
 
-  snprintf(buf, MAX_STRING_LEN, "%s/%s.%d%s", SageConfig.SimulationDir,
-           SageConfig.TreeName, filenr, SageConfig.TreeExtension);
+  snprintf(buf, MAX_STRING_LEN, "%s/%s.%d%s", MimicConfig.SimulationDir,
+           MimicConfig.TreeName, filenr, MimicConfig.TreeExtension);
   hdf5_file = H5Fopen(buf, H5F_ACC_RDONLY, H5P_DEFAULT);
 
   if (hdf5_file < 0) {
     FATAL_ERROR("Failed to open HDF5 tree file '%s'", buf);
   }
 
-  status = fill_metadata_names(&metadata_names, SageConfig.TreeType);
+  status = fill_metadata_names(&metadata_names, MimicConfig.TreeType);
   if (status != EXIT_SUCCESS) {
     FATAL_ERROR("Failed to fill metadata names for tree type %d",
-                SageConfig.TreeType);
+                MimicConfig.TreeType);
   }
 
   status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_NTrees,
@@ -137,7 +137,7 @@ void load_tree_table_hdf5(int filenr) {
     InputTreeFirstHalo[i] = InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
 }
 
-#define READ_TREE_PROPERTY(sage_name, hdf5_name, type_int, data_type)          \
+#define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)          \
   {                                                                            \
     snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr,             \
              #hdf5_name);                                                      \
@@ -147,11 +147,11 @@ void load_tree_table_hdf5(int filenr) {
                      "Failed to read property for tree %d", treenr);           \
     }                                                                          \
     for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {               \
-      InputTreeHalos[halo_idx].sage_name = ((data_type *)buffer)[halo_idx];    \
+      InputTreeHalos[halo_idx].field_name = ((data_type *)buffer)[halo_idx];    \
     }                                                                          \
   }
 
-#define READ_TREE_PROPERTY_MULTIPLEDIM(sage_name, hdf5_name, type_int,         \
+#define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int,         \
                                        data_type)                              \
   {                                                                            \
     snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr,             \
@@ -164,7 +164,7 @@ void load_tree_table_hdf5(int filenr) {
     }                                                                          \
     for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {               \
       for (dim = 0; dim < NDIM; ++dim) {                                       \
-        InputTreeHalos[halo_idx].sage_name[dim] =                              \
+        InputTreeHalos[halo_idx].field_name[dim] =                              \
             ((data_type *)buffer_multipledim)[halo_idx * NDIM + dim];          \
       }                                                                        \
     }                                                                          \
@@ -186,7 +186,7 @@ void load_tree_table_hdf5(int filenr) {
  * and multi-dimensional properties (like positions and velocities).
  *
  * The halos are stored in the global Halo array for processing by the
- * SAGE model.
+ * Mimic framework.
  */
 void load_tree_hdf5(int32_t treenr) {
 

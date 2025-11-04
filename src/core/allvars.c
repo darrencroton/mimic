@@ -1,9 +1,9 @@
 /**
  * @file    core_allvars.c
- * @brief   Defines global variables used throughout the SAGE model
+ * @brief   Defines global variables used throughout the Mimic framework
  *
  * This file contains the definitions of all global variables used by the
- * SAGE model. These variables fall into several categories:
+ * Mimic framework. These variables fall into several categories:
  *
  * 1. Core data structures (e.g. halos, auxiliary data)
  * 2. Configuration parameters and derived values
@@ -11,7 +11,7 @@
  * 4. Physical constants and units
  * 5. File and output control variables
  *
- * Configuration parameters are stored in the SageConfig structure.
+ * Configuration parameters are stored in the MimicConfig structure.
  * Runtime simulation state is tracked via individual global variables.
  *
  * Note: This file contains only variable definitions - the declarations
@@ -23,7 +23,7 @@
 #include "types.h"
 
 /*  Global configuration structure */
-struct SageConfig SageConfig;
+struct MimicConfig MimicConfig;
 
 /*  halo data  */
 struct Halo *FoFWorkspace, *ProcessedHalos;

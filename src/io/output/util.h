@@ -41,7 +41,7 @@
  *         Returns NULL if memory allocation fails (after calling FATAL_ERROR).
  *
  * @note Uses the global variables: ProcessedHalos, NumProcessedHalos,
- *       ListOutputSnaps, and SageConfig.NOUT
+ *       ListOutputSnaps, and MimicConfig.NOUT
  * @note Modifies ProcessedHalos[].mergeIntoID fields in-place
  * @note Memory is allocated using mymalloc_cat() with MEM_IO category
  */

@@ -7,10 +7,10 @@
  * include the specific headers needed rather than core_allvars.h.
  *
  * IMPORTANT NOTE:
- * When modifying global parameters that have been moved to the SageConfig
+ * When modifying global parameters that have been moved to the MimicConfig
  * structure, you must ensure that both the global variable and the structure
  * field are kept in sync. Some functions still use global variables and some
- * use the SageConfig structure.
+ * use the MimicConfig structure.
  */
 
 #include "config.h"

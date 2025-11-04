@@ -46,7 +46,7 @@ enum Valid_OutputFormats {
 };
 
 /* Configuration structure to hold global parameters */
-struct SageConfig {
+struct MimicConfig {
   /* file information */
   int FirstFile; /* first and last file for processing */
   int LastFile;
@@ -55,7 +55,7 @@ struct SageConfig {
 
   /* paths */
   char OutputDir[MAX_STRING_LEN];
-  char FileNameGalaxies[MAX_STRING_LEN];
+  char OutputFileBaseName[MAX_STRING_LEN];
   char TreeName[MAX_STRING_LEN];
   char TreeExtension[MAX_STRING_LEN];
   char SimulationDir[MAX_STRING_LEN];
@@ -109,8 +109,8 @@ struct HaloOutput {
 
   long long HaloIndex;
   long long CentralHaloIndex;
-  int SAGEHaloIndex;
-  int SAGETreeIndex;
+  int MimicHaloIndex;
+  int MimicTreeIndex;
   long long SimulationHaloIndex;
 
   int MergeStatus; /* 0=halo is active; 1=halo has merged and is no longer

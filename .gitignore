@@ -1,5 +1,5 @@
 # Executables
-sage
+mimic
 
 # Data and results
 input/data
@@ -37,4 +37,4 @@ __pycache__/
 .claude/
 
 # Python virtual environment
-sage_venv/
+mimic_venv/

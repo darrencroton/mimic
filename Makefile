@@ -1,5 +1,5 @@
 # Mimic Makefile
-EXEC = sage
+EXEC = mimic
 
 # Directories
 SRC_DIR = src

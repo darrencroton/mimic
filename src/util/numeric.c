@@ -3,7 +3,7 @@
  * @brief   Implementation of utility functions for numerical stability
  *
  * This file implements utility functions to improve numerical stability in
- * floating-point operations throughout the SAGE codebase. It provides
+ * floating-point operations throughout the Mimic codebase. It provides
  * safer alternatives to direct comparison operations, division, and
  * value bounds checking.
  */

@@ -1,9 +1,9 @@
 /**
  * @file    error_handling.c
- * @brief   Implementation of the SAGE error handling and logging system
+ * @brief   Implementation of the Mimic error handling and logging system
  *
  * This file implements a comprehensive error handling and logging system for
- * the SAGE model. It provides functions for logging messages at different
+ * the Mimic framework. It provides functions for logging messages at different
  * severity levels (debug, info, warning, error, fatal), with configurable
  * verbosity and output destination.
  *

@@ -1,7 +1,7 @@
 """
-SAGE Figure Modules
+Mimic Figure Modules
 
-This package contains self-contained modules for creating various plots from SAGE galaxy data.
+This package contains self-contained modules for creating various plots from Mimic halo data.
 """
 
 # Standard figure settings for consistent appearance

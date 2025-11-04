@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 
 """
-Setup script for the SAGE Plotting Tool package.
+Setup script for the Mimic Plotting Tool package.
 
 This file defines the package metadata, dependencies, and entry points
-for the SAGE Plotting Tool, which provides a centralized system for
-generating plots from SAGE galaxy formation model outputs.
+for the Mimic Plotting Tool, which provides a centralized system for
+generating plots from Mimic galaxy evolution framework outputs.
 """
 
 from setuptools import find_packages, setup
 
 setup(
-    name="sage-plot",
+    name="mimic-plot",
     version="0.1.0",
-    description="Centralized plotting tool for the SAGE galaxy formation model",
-    author="SAGE Team",
+    description="Centralized plotting tool for the Mimic galaxy evolution framework",
+    author="Mimic Development Team",
     packages=find_packages(),
     entry_points={
         "console_scripts": [
-            "sage-plot=sage_plot:main",
+            "mimic-plot=mimic_plot:main",
         ],
     },
     install_requires=[

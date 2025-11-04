@@ -2,7 +2,7 @@
 
 ## Building
 
-To compile SAGE:
+To compile Mimic:
 
 ```bash
 make clean && make
@@ -25,15 +25,15 @@ make clean && make USE-MPI=yes
 Basic execution:
 
 ```bash
-./sage input/millennium.par
+./mimic input/millennium.par
 ```
 
 With command-line options:
 
 ```bash
-./sage --verbose input/millennium.par
-./sage --quiet input/millennium.par
-./sage --skip input/millennium.par
+./mimic --verbose input/millennium.par
+./mimic --quiet input/millennium.par
+./mimic --skip input/millennium.par
 ```
 
 ## Code Style
@@ -56,7 +56,7 @@ After making changes, always verify:
 
 ```bash
 make clean && make
-./sage input/millennium.par
+./mimic input/millennium.par
 ```
 
 Check the exit code to ensure success:

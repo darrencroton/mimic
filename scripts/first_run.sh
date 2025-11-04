@@ -13,7 +13,7 @@ echo "=========================================="
 echo "MIMIC First Run Setup Script"
 echo "=========================================="
 echo ""
-echo "Welcome to MIMIC - Halo-only tracking based on SAGE!"
+echo "Welcome to MIMIC - Halo-only tracking based on Mimic!"
 echo "This script will set up MIMIC from a fresh GitHub clone."
 echo ""
 echo "For the latest updates, visit: https://github.com/darrencroton/sage"
@@ -142,7 +142,7 @@ fi
 echo "✓ Found pip: $($PIP_CMD --version | head -1)"
 
 # Set up Python virtual environment and install packages
-echo "Setting up Python virtual environment for sage-plot..."
+echo "Setting up Python virtual environment for mimic-plot..."
 
 # Check if requirements.txt exists
 if [[ ! -f "requirements.txt" ]]; then
@@ -150,7 +150,7 @@ if [[ ! -f "requirements.txt" ]]; then
     exit 1
 fi
 
-VENV_DIR="sage_venv"
+VENV_DIR="mimic_venv"
 
 # Check if virtual environment already exists
 if [[ -d "$VENV_DIR" ]]; then
@@ -291,7 +291,7 @@ if [[ ! -d "output/results/millennium" ]]; then
 fi
 
 # Check if MIMIC binary exists (optional)
-if [[ -f "sage" ]]; then
+if [[ -f "mimic" ]]; then
     echo "✓ MIMIC binary found"
 else
     echo "ℹ MIMIC binary not found - you'll need to compile it with 'make'"
@@ -316,17 +316,17 @@ echo "1. Compile MIMIC:"
 echo "   make"
 echo ""
 echo "2. Run MIMIC:"
-echo "   ./sage input/millennium.par"
+echo "   ./mimic input/millennium.par"
 echo ""
 echo "3. Generate plots (using the virtual environment):"
-echo "   source sage_venv/bin/activate"
-echo "   cd output/sage-plot"
-echo "   python sage-plot.py --param-file=../../input/millennium.par"
+echo "   source mimic_venv/bin/activate"
+echo "   cd output/mimic-plot"
+echo "   python mimic-plot.py --param-file=../../input/millennium.par"
 echo "   deactivate  # when done with plotting"
 echo ""
 echo "Virtual Environment Info:"
-echo "- Python packages are installed in: sage_venv/"
-echo "- Activate with: source sage_venv/bin/activate"
+echo "- Python packages are installed in: mimic_venv/"
+echo "- Activate with: source mimic_venv/bin/activate"
 echo "- Deactivate with: deactivate"
 echo "- Always activate before running plotting scripts"
 echo ""

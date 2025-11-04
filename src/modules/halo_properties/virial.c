@@ -2,7 +2,7 @@
  * @file    model_misc.c
  * @brief   Miscellaneous utility functions for halo tracking
  *
- * This file contains various utility functions used throughout the SAGE code
+ * This file contains various utility functions used throughout the Mimic code
  * for halo initialization, property calculation, and basic operations.
  * It includes functions for calculating halo properties (mass, velocity,
  * radius) and initializing halo tracking structures.
@@ -94,7 +94,7 @@ double get_virial_mass(int halonr) {
     return InputTreeHalos[halonr]
         .Mvir; /* take spherical overdensity mass estimate */
   else
-    return InputTreeHalos[halonr].Len * SageConfig.PartMass;
+    return InputTreeHalos[halonr].Len * MimicConfig.PartMass;
 }
 
 /**
@@ -151,9 +151,9 @@ double get_virial_radius(int halonr) {
   zplus1 = 1 + ZZ[InputTreeHalos[halonr].SnapNum];
   hubble_of_z_sq =
       Hubble * Hubble *
-      (SageConfig.Omega * zplus1 * zplus1 * zplus1 +
-       (1 - SageConfig.Omega - SageConfig.OmegaLambda) * zplus1 * zplus1 +
-       SageConfig.OmegaLambda);
+      (MimicConfig.Omega * zplus1 * zplus1 * zplus1 +
+       (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) * zplus1 * zplus1 +
+       MimicConfig.OmegaLambda);
 
   rhocrit = 3 * hubble_of_z_sq / (8 * M_PI * G);
   fac = 1 / (200 * 4 * M_PI / 3.0 * rhocrit);

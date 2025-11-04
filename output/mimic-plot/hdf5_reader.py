@@ -1,7 +1,7 @@
 """
-HDF5 data reader for SAGE output files.
+HDF5 data reader for Mimic output files.
 
-This module provides functions to read SAGE output in HDF5 format,
+This module provides functions to read Mimic output in HDF5 format,
 matching the structure defined in io_save_hdf5.c.
 """
 
@@ -12,7 +12,7 @@ from pathlib import Path
 
 def get_hdf5_dtype():
     """
-    Return the NumPy dtype matching SAGE HDF5 HaloOutput structure.
+    Return the NumPy dtype matching Mimic HDF5 HaloOutput structure.
 
     Must match the 24-field structure defined in types.h and io_save_hdf5.c:line87-203.
 
@@ -24,8 +24,8 @@ def get_hdf5_dtype():
         ("Type", np.int32),
         ("HaloIndex", np.int64),
         ("CentralHaloIndex", np.int64),
-        ("SAGEHaloIndex", np.int32),
-        ("SAGETreeIndex", np.int32),
+        ("MimicHaloIndex", np.int32),
+        ("MimicTreeIndex", np.int32),
         ("SimulationHaloIndex", np.int64),
         ("MergeStatus", np.int32),
         ("mergeIntoID", np.int32),
@@ -150,7 +150,7 @@ def read_hdf5_data(output_dir, file_base, first_file, last_file, snapshot_num):
     """
     Read halos from multiple HDF5 files for a given snapshot.
 
-    Matches the interface of the binary read_data() function in sage-plot.py.
+    Matches the interface of the binary read_data() function in mimic-plot.py.
 
     Args:
         output_dir (str): Directory containing output files

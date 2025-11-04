@@ -1,6 +1,6 @@
 /**
  * @file    util_version.c
- * @brief   Implementation of SAGE version tracking functionality
+ * @brief   Implementation of Mimic version tracking functionality
  *
  * This file implements the functions for gathering version information and
  * creating a metadata file in the output directory. This helps with
@@ -25,7 +25,7 @@
 #include "error.h"
 #include "version.h"
 
-/* No version number is defined for SAGE */
+/* No version number is defined for Mimic */
 
 /* Maximum length for various string buffers */
 #define MAX_CMD_LENGTH 1024
@@ -344,7 +344,7 @@ static int calculate_file_md5_checksum(const char *filepath,
  * @param   parameter_file     Path to the parameter file used for this run
  *
  * This function creates a JSON metadata file in the output directory
- * containing information about the SAGE version, build environment,
+ * containing information about the Mimic version, build environment,
  * git commit details, runtime parameters, and system information.
  *
  * If git information cannot be retrieved, those fields will be marked

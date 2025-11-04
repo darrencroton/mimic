@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-SAGE Spin Distribution Plot
+Mimic Spin Distribution Plot
 
 This module generates a plot showing the distribution of galaxy spin parameters.
 """
@@ -36,7 +36,7 @@ def plot(
         galaxies: Galaxy data as a numpy recarray
         volume: Simulation volume in (Mpc/h)^3
         metadata: Dictionary with additional metadata
-        params: Dictionary with SAGE parameters
+        params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
 
@@ -84,7 +84,7 @@ def plot(
 
     # Calculate spin parameter according to the formula:
     # λ = |J| / (√2 * Vvir * Rvir)
-    # where |J| is the magnitude of the angular momentum vector (Spin in SAGE)
+    # where |J| is the magnitude of the angular momentum vector (Spin in Mimic)
     spin_magnitude = np.sqrt(
         galaxies.Spin[valid_galaxies, 0] ** 2
         + galaxies.Spin[valid_galaxies, 1] ** 2
@@ -147,8 +147,8 @@ def plot(
     ax.plot(bin_centers, counts, "k-", lw=2, label="Simulation")
 
     # Add a theoretical log-normal distribution for comparison (optional)
-    # Parameters for log-normal are typical for dark matter halos
-    lambda_0 = 0.035  # Typical value for dark matter halos
+    # Parameters for log-normal are typical for halos
+    lambda_0 = 0.035  # Typical value for halos
     sigma = 0.5  # Typical value for width of the distribution
 
     # Create log-normal distribution (normalized to match the histogram peak)

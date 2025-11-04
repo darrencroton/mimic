@@ -12,7 +12,7 @@ For new repository clones, use the automated setup script:
 ./scripts/first_run.sh
 
 # This creates directories, downloads data, sets up Python environment
-# Creates sage_venv/ virtual environment with plotting dependencies
+# Creates mimic_venv/ virtual environment with plotting dependencies
 ```
 
 ## Build Commands
@@ -47,41 +47,41 @@ make tidy
 ./scripts/beautify.sh --py-only
 ```
 
-## Running SAGE
+## Running Mimic
 
 ```bash
 # Basic execution
-./sage input/millennium.par
+./mimic input/millennium.par
 
 # With command-line options
-./sage --verbose input/millennium.par
-./sage --quiet input/millennium.par
-./sage --skip input/millennium.par
+./mimic --verbose input/millennium.par
+./mimic --quiet input/millennium.par
+./mimic --skip input/millennium.par
 ```
 
 ## Testing
 
 ```bash
 # Test the plotting system (activate virtual environment first)
-source sage_venv/bin/activate
-cd output/sage-plot
+source mimic_venv/bin/activate
+cd output/mimic-plot
 ./test_plotting.sh
 
 # Generate all halo plots (both snapshot and evolution - default behavior)
-python sage-plot.py --param-file=../../input/millennium.par
+python mimic-plot.py --param-file=../../input/millennium.par
 
 # Generate specific plots
-python sage-plot.py --param-file=../../input/millennium.par --plots=halo_mass_function,spin_distribution
+python mimic-plot.py --param-file=../../input/millennium.par --plots=halo_mass_function,spin_distribution
 
 # Generate only snapshot plots (5 halo plots)
-python sage-plot.py --param-file=../../input/millennium.par --snapshot-plots
+python mimic-plot.py --param-file=../../input/millennium.par --snapshot-plots
 
 # Generate only evolution plots (1 halo plot)
-python sage-plot.py --param-file=../../input/millennium.par --evolution-plots
+python mimic-plot.py --param-file=../../input/millennium.par --evolution-plots
 
 # Cross-directory execution works from anywhere
 cd ../..
-python output/sage-plot/sage-plot.py --param-file=input/millennium.par --plots=halo_mass_function
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par --plots=halo_mass_function
 
 # Deactivate when done
 deactivate
@@ -131,7 +131,7 @@ The codebase follows a hierarchical structure under `src/`:
   - `struct Halo`: Mutable halo tracking structure (24 fields, core processing)
   - `struct HaloOutput`: Output format structure (24 fields, file writing)
   - `struct HaloAuxData`: Auxiliary processing metadata
-  - `struct SageConfig`: Configuration parameters
+  - `struct MimicConfig`: Configuration parameters
   - Runtime simulation state is tracked via individual global variables declared in `globals.h` (e.g., `Ntrees`, `FileNum`, `TreeID`, `NumProcessedHalos`).
 - **src/include/globals.h**: Global variable declarations for halo arrays
   - `InputTreeHalos`: Raw merger tree input (RawHalo*)
@@ -147,8 +147,8 @@ The codebase follows a hierarchical structure under `src/`:
 4. **Format Abstraction**: I/O operations abstracted to support multiple tree and output formats
 5. **State Management**: Single source of truth via globals for runtime state
 
-### Plotting System (output/sage-plot/)
-- **sage-plot.py**: Central plotting script with comprehensive command-line interface
+### Plotting System (output/mimic-plot/)
+- **mimic-plot.py**: Central plotting script with comprehensive command-line interface
 - **figures/**: Modular plot implementations (6 halo plot types)
   - 5 snapshot plots: halo_mass_function, halo_occupation, spin_distribution, velocity_distribution, spatial_distribution
   - 1 evolution plot: hmf_evolution (halo mass function evolution)
@@ -200,7 +200,7 @@ See also:
 ## Development Guidelines
 - All work to highest professional coding standards
 - Documentation-as-you-go always
-- When running sage always check the exit code for success or failure
+- When running mimic always check the exit code for success or failure
 - Never simplify tests - failing tests indicate real problems
 - Ask before committing to git
 - Never delete files! Archive to `archive/` instead

@@ -16,7 +16,7 @@
 /**
  * @brief   Detects the host system's endianness at runtime
  *
- * @return  SAGE_BIG_ENDIAN or SAGE_LITTLE_ENDIAN
+ * @return  MIMIC_BIG_ENDIAN or MIMIC_LITTLE_ENDIAN
  *
  * This function is used as a fallback when compile-time detection
  * is not possible. It determines the endianness by examining how a
@@ -28,7 +28,7 @@ int detect_host_endian(void) {
     char c[4];
   } test = {0x01020304};
 
-  return (test.c[0] == 1) ? SAGE_BIG_ENDIAN : SAGE_LITTLE_ENDIAN;
+  return (test.c[0] == 1) ? MIMIC_BIG_ENDIAN : MIMIC_LITTLE_ENDIAN;
 }
 
 /**
@@ -138,11 +138,11 @@ double swap_double(double value) {
 /**
  * @brief   Checks if the file endianness matches the host endianness
  *
- * @param   file_endian   The endianness of the file (SAGE_LITTLE_ENDIAN or
- * SAGE_BIG_ENDIAN)
+ * @param   file_endian   The endianness of the file (MIMIC_LITTLE_ENDIAN or
+ * MIMIC_BIG_ENDIAN)
  * @return  1 if same endianness, 0 if different
  */
-int is_same_endian(int file_endian) { return file_endian == SAGE_HOST_ENDIAN; }
+int is_same_endian(int file_endian) { return file_endian == MIMIC_HOST_ENDIAN; }
 
 /**
  * @brief   Swaps bytes in memory if host and file endianness differ
@@ -208,7 +208,7 @@ void *swap_bytes_if_needed(void *data, size_t size, size_t count,
 }
 
 /**
- * @brief   Writes a SAGE file header to a binary file
+ * @brief   Writes a Mimic file header to a binary file
  *
  * @param   file        File pointer to write to
  * @param   endianness  Endianness to record in the header
@@ -219,8 +219,8 @@ void *swap_bytes_if_needed(void *data, size_t size, size_t count,
  * The header is always written in the host endianness to avoid
  * the need for conversion when reading the header itself.
  */
-int write_sage_header(FILE *file, int endianness) {
-  struct SAGEFileHeader header;
+int write_mimic_header(FILE *file, int endianness) {
+  struct MimicFileHeader header;
   size_t written;
 
   if (file == NULL) {
@@ -230,13 +230,13 @@ int write_sage_header(FILE *file, int endianness) {
   }
 
   /* Initialize header */
-  header.magic = SAGE_MAGIC_NUMBER;
-  header.version = SAGE_FILE_VERSION;
+  header.magic = MIMIC_MAGIC_NUMBER;
+  header.version = MIMIC_FILE_VERSION;
   header.endianness = (uint8_t)endianness;
   header.reserved = 0;
 
   /* Write header to file */
-  written = fwrite(&header, sizeof(struct SAGEFileHeader), 1, file);
+  written = fwrite(&header, sizeof(struct MimicFileHeader), 1, file);
   if (written != 1) {
     IO_ERROR_LOG(IO_ERROR_WRITE_FAILED, "write_header", NULL,
                  "Failed to write file header (%zu bytes written)", written);
@@ -247,18 +247,18 @@ int write_sage_header(FILE *file, int endianness) {
 }
 
 /**
- * @brief   Reads a SAGE file header from a binary file
+ * @brief   Reads a Mimic file header from a binary file
  *
  * @param   file    File pointer to read from
  * @param   header  Pointer to header structure to fill
  * @return  0 on success, non-zero on error
  *
- * This function reads and validates a SAGE file header.
- * It checks for the magic number to identify valid SAGE files.
+ * This function reads and validates a Mimic file header.
+ * It checks for the magic number to identify valid Mimic files.
  * The function returns appropriate error codes if the file
  * doesn't have a valid header.
  */
-int read_sage_header(FILE *file, struct SAGEFileHeader *header) {
+int read_mimic_header(FILE *file, struct MimicFileHeader *header) {
   size_t read_items;
   long current_pos;
 
@@ -283,7 +283,7 @@ int read_sage_header(FILE *file, struct SAGEFileHeader *header) {
   }
 
   /* Read header from file */
-  read_items = fread(header, sizeof(struct SAGEFileHeader), 1, file);
+  read_items = fread(header, sizeof(struct MimicFileHeader), 1, file);
   if (read_items != 1) {
     /* Restore file position on error */
     fseek(file, current_pos, SEEK_SET);
@@ -293,13 +293,13 @@ int read_sage_header(FILE *file, struct SAGEFileHeader *header) {
   }
 
   /* Check for magic number */
-  if (header->magic != SAGE_MAGIC_NUMBER) {
-    /* Restore file position if this isn't a SAGE file */
+  if (header->magic != MIMIC_MAGIC_NUMBER) {
+    /* Restore file position if this isn't a Mimic file */
     fseek(file, current_pos, SEEK_SET);
     IO_WARNING_LOG(
         IO_ERROR_INVALID_HEADER, "read_header", NULL,
         "Invalid file header magic number: 0x%08X (expected: 0x%08X)",
-        header->magic, SAGE_MAGIC_NUMBER);
+        header->magic, MIMIC_MAGIC_NUMBER);
     return IO_ERROR_INVALID_HEADER;
   }
 
@@ -307,16 +307,16 @@ int read_sage_header(FILE *file, struct SAGEFileHeader *header) {
 }
 
 /**
- * @brief   Checks if a file is compatible with the current SAGE version
+ * @brief   Checks if a file is compatible with the current Mimic version
  *
  * @param   header  Pointer to the file header
  * @return  0 if compatible, non-zero if incompatible
  *
  * This function verifies the magic number and checks version compatibility.
- * It implements a backwards-compatibility policy where newer SAGE versions
+ * It implements a backwards-compatibility policy where newer Mimic versions
  * can read files created by older versions, but not vice versa.
  */
-int check_file_compatibility(const struct SAGEFileHeader *header) {
+int check_file_compatibility(const struct MimicFileHeader *header) {
   if (header == NULL) {
     IO_ERROR_LOG(IO_ERROR_INVALID_HEADER, "check_compatibility", NULL,
                  "Cannot check compatibility with NULL header");
@@ -324,26 +324,26 @@ int check_file_compatibility(const struct SAGEFileHeader *header) {
   }
 
   /* Verify magic number */
-  if (header->magic != SAGE_MAGIC_NUMBER) {
+  if (header->magic != MIMIC_MAGIC_NUMBER) {
     IO_ERROR_LOG(IO_ERROR_INVALID_HEADER, "check_compatibility", NULL,
                  "Invalid file header magic number: 0x%08X (expected: 0x%08X)",
-                 header->magic, SAGE_MAGIC_NUMBER);
+                 header->magic, MIMIC_MAGIC_NUMBER);
     return IO_ERROR_INVALID_HEADER;
   }
 
   /* Check version compatibility
-   * Policy: newer SAGE versions can read older file formats, but
-   * older SAGE versions cannot read newer file formats */
-  if (header->version > SAGE_FILE_VERSION) {
+   * Policy: newer Mimic versions can read older file formats, but
+   * older Mimic versions cannot read newer file formats */
+  if (header->version > MIMIC_FILE_VERSION) {
     IO_ERROR_LOG(IO_ERROR_VERSION_MISMATCH, "check_compatibility", NULL,
-                 "File format version %d is newer than this SAGE version (%d)",
-                 header->version, SAGE_FILE_VERSION);
+                 "File format version %d is newer than this Mimic version (%d)",
+                 header->version, MIMIC_FILE_VERSION);
     return IO_ERROR_VERSION_MISMATCH;
   }
 
   /* Validate endianness field */
-  if (header->endianness != SAGE_LITTLE_ENDIAN &&
-      header->endianness != SAGE_BIG_ENDIAN) {
+  if (header->endianness != MIMIC_LITTLE_ENDIAN &&
+      header->endianness != MIMIC_BIG_ENDIAN) {
     IO_ERROR_LOG(IO_ERROR_ENDIANNESS, "check_compatibility", NULL,
                  "Invalid endianness value in file header: %d",
                  header->endianness);

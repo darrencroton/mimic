@@ -76,11 +76,11 @@ void save_halos(int filenr, int tree) {
   OutputGalOrder = prepare_output_for_tree(OutputGalCount);
 
   // now prepare and write
-  for (n = 0; n < SageConfig.NOUT; n++) {
+  for (n = 0; n < MimicConfig.NOUT; n++) {
     // only open the file if it is not already open.
     if (!save_fd[n]) {
-      snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", SageConfig.OutputDir,
-               SageConfig.FileNameGalaxies, ZZ[ListOutputSnaps[n]], filenr);
+      snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
+               MimicConfig.OutputFileBaseName, ZZ[ListOutputSnaps[n]], filenr);
 
       /* Open in binary mode with update permissions */
       save_fd[n] = fopen(buf, "wb+");
@@ -179,7 +179,7 @@ void prepare_halo_for_output(int filenr, int tree, struct Halo *g,
 
   // assume that because there are so many files, the trees per file will be
   // less than 100000 required for limits of long long
-  if (SageConfig.LastFile >= 10000) {
+  if (MimicConfig.LastFile >= 10000) {
     assert(g->HaloNr < TREE_MUL_FAC); // breaking tree size assumption
     assert(tree < (FILENR_MUL_FAC / 10) / TREE_MUL_FAC);
     o->HaloIndex =
@@ -216,8 +216,8 @@ void prepare_halo_for_output(int filenr, int tree, struct Halo *g,
         TREE_MUL_FAC * tree + FILENR_MUL_FAC * filenr;
   }
 
-  o->SAGEHaloIndex = g->HaloNr;
-  o->SAGETreeIndex = tree;
+  o->MimicHaloIndex = g->HaloNr;
+  o->MimicTreeIndex = tree;
   o->SimulationHaloIndex = InputTreeHalos[g->HaloNr].MostBoundID;
 
   o->MergeStatus = g->MergeStatus;
@@ -274,7 +274,7 @@ void prepare_halo_for_output(int filenr, int tree, struct Halo *g,
 void finalize_halo_file(int filenr) {
   int n, nwritten;
 
-  for (n = 0; n < SageConfig.NOUT; n++) {
+  for (n = 0; n < MimicConfig.NOUT; n++) {
     // file must already be open.
     assert(save_fd[n]);
 

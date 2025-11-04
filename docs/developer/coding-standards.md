@@ -1,4 +1,4 @@
-# SAGE Documentation Standards
+# Mimic Documentation Standards
 
 ## Function Documentation Template
 

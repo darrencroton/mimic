@@ -1,8 +1,8 @@
 /**
  * @file    core_init.c
- * @brief   Initialization functions for the SAGE model
+ * @brief   Initialization functions for the Mimic framework
  *
- * This file contains functions responsible for initializing the SAGE model.
+ * This file contains functions responsible for initializing the Mimic framework.
  * It handles defining physical units, reading snapshot lists, calculating
  * lookback times, and initializing other components like cooling functions.
  *
@@ -31,10 +31,10 @@
 #include "integration.h"
 
 /**
- * @brief   Main initialization function for the SAGE model
+ * @brief   Main initialization function for the Mimic framework
  *
  * This function coordinates the initialization of all components required
- * by the SAGE model. It performs the following tasks:
+ * by the Mimic framework. It performs the following tasks:
  *
  * 1. Allocates memory for the Age array
  * 2. Initializes the random number generator
@@ -62,17 +62,17 @@ void init(void) {
   Age[0] = time_to_present(1000.0); // lookback time from z=1000
   Age++;
 
-  for (i = 0; i < SageConfig.Snaplistlen; i++) {
-    SageConfig.ZZ[i] = 1 / SageConfig.AA[i] - 1;
-    Age[i] = time_to_present(SageConfig.ZZ[i]);
-    ZZ[i] = SageConfig.ZZ[i]; // Sync with global for backward compatibility
+  for (i = 0; i < MimicConfig.Snaplistlen; i++) {
+    MimicConfig.ZZ[i] = 1 / MimicConfig.AA[i] - 1;
+    Age[i] = time_to_present(MimicConfig.ZZ[i]);
+    ZZ[i] = MimicConfig.ZZ[i]; // Sync with global for backward compatibility
   }
 }
 
 /**
  * @brief   Sets up physical units and derived constants
  *
- * This function defines the unit system used throughout the SAGE model
+ * This function defines the unit system used throughout the Mimic framework
  * and calculates derived constants. It:
  *
  * 1. Computes derived units (time, density, pressure, energy)
@@ -87,44 +87,44 @@ void init(void) {
  * with other units derived from these base units.
  */
 void set_units(void) {
-  // Calculate derived units and store in SageConfig
-  SageConfig.UnitTime_in_s =
-      SageConfig.UnitLength_in_cm / SageConfig.UnitVelocity_in_cm_per_s;
-  SageConfig.UnitTime_in_Megayears =
-      SageConfig.UnitTime_in_s / SEC_PER_MEGAYEAR;
-  SageConfig.G = GRAVITY / pow(SageConfig.UnitLength_in_cm, 3) *
-                 SageConfig.UnitMass_in_g * pow(SageConfig.UnitTime_in_s, 2);
-  SageConfig.UnitDensity_in_cgs =
-      SageConfig.UnitMass_in_g / pow(SageConfig.UnitLength_in_cm, 3);
-  SageConfig.UnitPressure_in_cgs = SageConfig.UnitMass_in_g /
-                                   SageConfig.UnitLength_in_cm /
-                                   pow(SageConfig.UnitTime_in_s, 2);
-  SageConfig.UnitCoolingRate_in_cgs =
-      SageConfig.UnitPressure_in_cgs / SageConfig.UnitTime_in_s;
-  SageConfig.UnitEnergy_in_cgs = SageConfig.UnitMass_in_g *
-                                 pow(SageConfig.UnitLength_in_cm, 2) /
-                                 pow(SageConfig.UnitTime_in_s, 2);
+  // Calculate derived units and store in MimicConfig
+  MimicConfig.UnitTime_in_s =
+      MimicConfig.UnitLength_in_cm / MimicConfig.UnitVelocity_in_cm_per_s;
+  MimicConfig.UnitTime_in_Megayears =
+      MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR;
+  MimicConfig.G = GRAVITY / pow(MimicConfig.UnitLength_in_cm, 3) *
+                 MimicConfig.UnitMass_in_g * pow(MimicConfig.UnitTime_in_s, 2);
+  MimicConfig.UnitDensity_in_cgs =
+      MimicConfig.UnitMass_in_g / pow(MimicConfig.UnitLength_in_cm, 3);
+  MimicConfig.UnitPressure_in_cgs = MimicConfig.UnitMass_in_g /
+                                   MimicConfig.UnitLength_in_cm /
+                                   pow(MimicConfig.UnitTime_in_s, 2);
+  MimicConfig.UnitCoolingRate_in_cgs =
+      MimicConfig.UnitPressure_in_cgs / MimicConfig.UnitTime_in_s;
+  MimicConfig.UnitEnergy_in_cgs = MimicConfig.UnitMass_in_g *
+                                 pow(MimicConfig.UnitLength_in_cm, 2) /
+                                 pow(MimicConfig.UnitTime_in_s, 2);
 
   // Convert some physical input parameters to internal units
-  SageConfig.Hubble = HUBBLE * SageConfig.UnitTime_in_s;
+  MimicConfig.Hubble = HUBBLE * MimicConfig.UnitTime_in_s;
 
   // Compute a few quantities
-  SageConfig.RhoCrit =
-      3 * SageConfig.Hubble * SageConfig.Hubble / (8 * M_PI * SageConfig.G);
+  MimicConfig.RhoCrit =
+      3 * MimicConfig.Hubble * MimicConfig.Hubble / (8 * M_PI * MimicConfig.G);
 
   // Synchronize with global variables (for backward compatibility)
-  UnitLength_in_cm = SageConfig.UnitLength_in_cm;
-  UnitMass_in_g = SageConfig.UnitMass_in_g;
-  UnitVelocity_in_cm_per_s = SageConfig.UnitVelocity_in_cm_per_s;
-  UnitTime_in_s = SageConfig.UnitTime_in_s;
-  UnitTime_in_Megayears = SageConfig.UnitTime_in_Megayears;
-  G = SageConfig.G;
-  UnitDensity_in_cgs = SageConfig.UnitDensity_in_cgs;
-  UnitPressure_in_cgs = SageConfig.UnitPressure_in_cgs;
-  UnitCoolingRate_in_cgs = SageConfig.UnitCoolingRate_in_cgs;
-  UnitEnergy_in_cgs = SageConfig.UnitEnergy_in_cgs;
-  Hubble = SageConfig.Hubble;
-  RhoCrit = SageConfig.RhoCrit;
+  UnitLength_in_cm = MimicConfig.UnitLength_in_cm;
+  UnitMass_in_g = MimicConfig.UnitMass_in_g;
+  UnitVelocity_in_cm_per_s = MimicConfig.UnitVelocity_in_cm_per_s;
+  UnitTime_in_s = MimicConfig.UnitTime_in_s;
+  UnitTime_in_Megayears = MimicConfig.UnitTime_in_Megayears;
+  G = MimicConfig.G;
+  UnitDensity_in_cgs = MimicConfig.UnitDensity_in_cgs;
+  UnitPressure_in_cgs = MimicConfig.UnitPressure_in_cgs;
+  UnitCoolingRate_in_cgs = MimicConfig.UnitCoolingRate_in_cgs;
+  UnitEnergy_in_cgs = MimicConfig.UnitEnergy_in_cgs;
+  Hubble = MimicConfig.Hubble;
+  RhoCrit = MimicConfig.RhoCrit;
 }
 
 /**
@@ -134,7 +134,7 @@ void set_units(void) {
  * file specified in the configuration. For each snapshot, it:
  *
  * 1. Reads the scale factor value (a = 1/(1+z))
- * 2. Stores it in the SageConfig.AA array
+ * 2. Stores it in the MimicConfig.AA array
  * 3. Counts the total number of snapshots
  *
  * The function also synchronizes the snapshot data with global variables
@@ -149,7 +149,7 @@ void set_units(void) {
  * file specified in the configuration. For each snapshot, it:
  *
  * 1. Reads the scale factor value (a = 1/(1+z))
- * 2. Stores it in the SageConfig.AA array
+ * 2. Stores it in the MimicConfig.AA array
  * 3. Counts the total number of snapshots
  *
  * The function also synchronizes the snapshot data with global variables
@@ -161,30 +161,30 @@ void read_snap_list(void) {
   FILE *fd;
   char fname[MAX_STRING_LEN + 1];
 
-  snprintf(fname, MAX_STRING_LEN, "%s", SageConfig.FileWithSnapList);
+  snprintf(fname, MAX_STRING_LEN, "%s", MimicConfig.FileWithSnapList);
 
   if (!(fd = fopen(fname, "r"))) {
     FATAL_ERROR("Can't read output list in file '%s'", fname);
   }
 
-  SageConfig.Snaplistlen = 0;
+  MimicConfig.Snaplistlen = 0;
   do {
-    if (fscanf(fd, " %lg ", &SageConfig.AA[SageConfig.Snaplistlen]) == 1)
-      SageConfig.Snaplistlen++;
+    if (fscanf(fd, " %lg ", &MimicConfig.AA[MimicConfig.Snaplistlen]) == 1)
+      MimicConfig.Snaplistlen++;
     else
       break;
-  } while (SageConfig.Snaplistlen < SageConfig.MAXSNAPS);
+  } while (MimicConfig.Snaplistlen < MimicConfig.MAXSNAPS);
 
   fclose(fd);
 
   // Synchronize with globals for backward compatibility
-  Snaplistlen = SageConfig.Snaplistlen;
-  memcpy(AA, SageConfig.AA, sizeof(double) * ABSOLUTEMAXSNAPS);
+  Snaplistlen = MimicConfig.Snaplistlen;
+  memcpy(AA, MimicConfig.AA, sizeof(double) * ABSOLUTEMAXSNAPS);
 
 #ifdef MPI
   if (ThisTask == 0)
 #endif
-    INFO_LOG("Found %d defined times in snaplist", SageConfig.Snaplistlen);
+    INFO_LOG("Found %d defined times in snaplist", MimicConfig.Snaplistlen);
 }
 
 /**
@@ -213,10 +213,10 @@ double time_to_present(double z) {
   F.params = NULL;
 
   // Use adaptive integration with GAUSS21 method
-  integration_qag(&F, 1.0 / (z + 1), 1.0, 1.0 / SageConfig.Hubble, 1.0e-8,
+  integration_qag(&F, 1.0 / (z + 1), 1.0, 1.0 / MimicConfig.Hubble, 1.0e-8,
                   WORKSIZE, INTEG_GAUSS21, workspace, &result, &abserr);
 
-  time = 1 / SageConfig.Hubble * result;
+  time = 1 / MimicConfig.Hubble * result;
 
   integration_workspace_free(workspace);
 
@@ -243,7 +243,7 @@ double integrand_time_to_present(double a, void *param) {
   /* Parameter unused but required by integration function signature */
   (void)param;
 
-  return 1 / sqrt(SageConfig.Omega / a +
-                  (1 - SageConfig.Omega - SageConfig.OmegaLambda) +
-                  SageConfig.OmegaLambda * a * a);
+  return 1 / sqrt(MimicConfig.Omega / a +
+                  (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) +
+                  MimicConfig.OmegaLambda * a * a);
 }

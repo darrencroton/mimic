@@ -1,8 +1,8 @@
 %------------------------------------------
-%----- SAGE output file information -------
+%----- Mimic output file information -----
 %------------------------------------------
 
-FileNameGalaxies       model 
+OutputFileBaseName     model
 OutputDir              ./output/results/millennium/
 
 FirstFile         0
@@ -41,10 +41,10 @@ PartMass        0.0860657
 
 
 %------------------------------------------
-%----- PHYSICS DISABLED -------------------
+%----- PHYSICS PARAMETERS -----------------
 %------------------------------------------
-% All baryonic physics parameters removed.
-% SAGE now operates as a DM-only halo tracker.
+% Physics modules are currently disabled.
+% Mimic operates as a physics-agnostic framework for halo tracking.
 
 
 

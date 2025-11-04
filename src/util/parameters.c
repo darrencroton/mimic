@@ -1,6 +1,6 @@
 /**
  * @file    parameter_table.c
- * @brief   Defines the parameter table for the SAGE model
+ * @brief   Defines the parameter table for the Mimic framework
  *
  * This file contains the definition of the parameter table, which centralizes
  * all model parameters in a structured format. Each parameter has a name,
@@ -32,11 +32,11 @@ static ParameterDefinition ParameterTable[] = {
     // max_value}
 
     // File information parameters
-    {"FileNameGalaxies", "Base name of output files", STRING,
-     &SageConfig.FileNameGalaxies, 1, 0.0, 0.0},
-    {"OutputDir", "Directory for output files", STRING, &SageConfig.OutputDir,
+    {"OutputFileBaseName", "Base name of output files", STRING,
+     &MimicConfig.OutputFileBaseName, 1, 0.0, 0.0},
+    {"OutputDir", "Directory for output files", STRING, &MimicConfig.OutputDir,
      1, 0.0, 0.0},
-    {"TreeName", "Base name of merger tree files", STRING, &SageConfig.TreeName,
+    {"TreeName", "Base name of merger tree files", STRING, &MimicConfig.TreeName,
      1, 0.0, 0.0},
     {"TreeType",
      "Type of merger tree files (lhalo_binary or genesis_lhalo_hdf5)", STRING,
@@ -44,38 +44,38 @@ static ParameterDefinition ParameterTable[] = {
     {"OutputFormat", "Output file format (binary or hdf5)", STRING, NULL, 1,
      0.0, 0.0}, // Special handling needed
     {"SimulationDir", "Directory containing simulation data", STRING,
-     &SageConfig.SimulationDir, 1, 0.0, 0.0},
+     &MimicConfig.SimulationDir, 1, 0.0, 0.0},
     {"FileWithSnapList", "File containing snapshot list", STRING,
-     &SageConfig.FileWithSnapList, 1, 0.0, 0.0},
+     &MimicConfig.FileWithSnapList, 1, 0.0, 0.0},
 
     // Simulation parameters
-    {"LastSnapshotNr", "Last snapshot number", INT, &SageConfig.LastSnapshotNr,
+    {"LastSnapshotNr", "Last snapshot number", INT, &MimicConfig.LastSnapshotNr,
      1, 0.0, ABSOLUTEMAXSNAPS - 1},
-    {"FirstFile", "First file to process", INT, &SageConfig.FirstFile, 1, 0.0,
+    {"FirstFile", "First file to process", INT, &MimicConfig.FirstFile, 1, 0.0,
      0.0},
-    {"LastFile", "Last file to process", INT, &SageConfig.LastFile, 1, 0.0,
+    {"LastFile", "Last file to process", INT, &MimicConfig.LastFile, 1, 0.0,
      0.0},
 
     // Output parameters
     {"NumOutputs", "Number of outputs (-1 for all snapshots)", INT,
-     &SageConfig.NOUT, 1, -1.0, ABSOLUTEMAXSNAPS},
+     &MimicConfig.NOUT, 1, -1.0, ABSOLUTEMAXSNAPS},
 
     // Cosmology parameters
-    {"Omega", "Matter density parameter", DOUBLE, &SageConfig.Omega, 1, 0.0,
+    {"Omega", "Matter density parameter", DOUBLE, &MimicConfig.Omega, 1, 0.0,
      1.0},
     {"OmegaLambda", "Dark energy density parameter", DOUBLE,
-     &SageConfig.OmegaLambda, 1, 0.0, 1.0},
-    {"Hubble_h", "Hubble parameter (H0/100)", DOUBLE, &SageConfig.Hubble_h, 1,
+     &MimicConfig.OmegaLambda, 1, 0.0, 1.0},
+    {"Hubble_h", "Hubble parameter (H0/100)", DOUBLE, &MimicConfig.Hubble_h, 1,
      0.0, 0.0},
-    {"PartMass", "Particle mass in simulation", DOUBLE, &SageConfig.PartMass, 1,
+    {"PartMass", "Particle mass in simulation", DOUBLE, &MimicConfig.PartMass, 1,
      0.0, 0.0},
 
     // Unit parameters
     {"UnitVelocity_in_cm_per_s", "Velocity unit in cm/s", DOUBLE,
-     &SageConfig.UnitVelocity_in_cm_per_s, 1, 0.0, 0.0},
+     &MimicConfig.UnitVelocity_in_cm_per_s, 1, 0.0, 0.0},
     {"UnitLength_in_cm", "Length unit in cm", DOUBLE,
-     &SageConfig.UnitLength_in_cm, 1, 0.0, 0.0},
-    {"UnitMass_in_g", "Mass unit in g", DOUBLE, &SageConfig.UnitMass_in_g, 1,
+     &MimicConfig.UnitLength_in_cm, 1, 0.0, 0.0},
+    {"UnitMass_in_g", "Mass unit in g", DOUBLE, &MimicConfig.UnitMass_in_g, 1,
      0.0, 0.0},
 
 };

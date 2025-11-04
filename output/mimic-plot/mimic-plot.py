@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 
 """
-SAGE Plotting Tool - Master plotting script for SAGE galaxy formation model output
+Mimic Plotting Tool - Master plotting script for Mimic galaxy evolution framework output
 
 Usage:
-  python sage-plot.py --param-file=<param_file> [options]
+  python mimic-plot.py --param-file=<param_file> [options]
 
 Options:
-  --param-file=<file>    SAGE parameter file (required)
+  --param-file=<file>    Mimic parameter file (required)
   --first-file=<num>     First file to read [default: 0]
   --last-file=<num>      Last file to read [default: use MaxFileNum from param file]
   --snapshot=<num>       Process only this snapshot number
@@ -57,14 +57,14 @@ from snapshot_redshift_mapper import SnapshotRedshiftMapper
 
 # Halo data structure definition (PHYSICS DISABLED: galaxy properties removed)
 def get_dtype():
-    """Return the NumPy dtype for SAGE halo data (DM-only tracker)."""
+    """Return the NumPy dtype for Mimic halo data (physics-agnostic framework)."""
     galdesc_full = [
         ("SnapNum", np.int32),
         ("Type", np.int32),
         ("HaloIndex", np.int64),
         ("CentralHaloIndex", np.int64),
-        ("SAGEHaloIndex", np.int32),
-        ("SAGETreeIndex", np.int32),
+        ("MimicHaloIndex", np.int32),
+        ("MimicTreeIndex", np.int32),
         ("SimulationHaloIndex", np.int64),
         ("MergeStatus", np.int32),
         ("mergeIntoID", np.int32),
@@ -91,7 +91,7 @@ def get_dtype():
 
 def resolve_relative_path(path, param_file_path):
     """
-    Resolve a path relative to the SAGE root directory (parent of parameter file directory).
+    Resolve a path relative to the Mimic root directory (parent of parameter file directory).
 
     Args:
         path: Path to resolve (can be relative or absolute)
@@ -103,19 +103,19 @@ def resolve_relative_path(path, param_file_path):
     if os.path.isabs(path):
         return path
 
-    # Get the directory containing the parameter file, then go up one level to get SAGE root
+    # Get the directory containing the parameter file, then go up one level to get Mimic root
     param_file_abs = os.path.abspath(param_file_path)
     param_dir = os.path.dirname(param_file_abs)
-    sage_root_dir = os.path.dirname(param_dir)  # Go up one level from input/ to sage-model/
+    mimic_root_dir = os.path.dirname(param_dir)  # Go up one level from input/ to mimic root/
 
-    # For paths starting with './', resolve relative to SAGE root directory
+    # For paths starting with './', resolve relative to Mimic root directory
     if path.startswith('./'):
-        # Remove the './' prefix and join with SAGE root directory
+        # Remove the './' prefix and join with Mimic root directory
         relative_part = path[2:]
-        resolved_path = os.path.join(sage_root_dir, relative_part)
+        resolved_path = os.path.join(mimic_root_dir, relative_part)
     else:
-        # For other relative paths, also resolve relative to SAGE root directory
-        resolved_path = os.path.join(sage_root_dir, path)
+        # For other relative paths, also resolve relative to Mimic root directory
+        resolved_path = os.path.join(mimic_root_dir, path)
 
     return os.path.abspath(resolved_path)
 
@@ -139,10 +139,10 @@ def validate_required_params(params, required_params, context=""):
     return missing
 
 
-class SAGEParameters:
-    """Class to parse and store SAGE parameter file settings."""
+class MimicParameters:
+    """Class to parse and store Mimic parameter file settings."""
 
-    # Comment markers used in SAGE parameter files
+    # Comment markers used in Mimic parameter files
     COMMENT_MARKERS = ("%", "#", ";")
 
     def __init__(self, param_file):
@@ -152,7 +152,7 @@ class SAGEParameters:
         self.parse_param_file()
 
     def parse_param_file(self):
-        """Parse the SAGE parameter file."""
+        """Parse the Mimic parameter file."""
         if not os.path.exists(self.param_file):
             raise FileNotFoundError(f"Parameter file not found: {self.param_file}")
 
@@ -274,13 +274,13 @@ def setup_matplotlib(use_tex=False):
 
 def read_data(model_path, first_file, last_file, params=None):
     """
-    Read galaxy data from SAGE output files.
+    Read galaxy data from Mimic output files.
 
     Args:
         model_path: Path to model files
         first_file: First file number to read
         last_file: Last file number to read
-        params: Dictionary with SAGE parameters
+        params: Dictionary with Mimic parameters
 
     Returns:
         Tuple containing:
@@ -291,13 +291,13 @@ def read_data(model_path, first_file, last_file, params=None):
     # This is important information, so show regardless of verbose flag
     print(f"Reading galaxy data from {model_path}")
     """
-    Read galaxy data from SAGE output files.
+    Read galaxy data from Mimic output files.
     
     Args:
         model_path: Path to model files
         first_file: First file number to read
         last_file: Last file number to read
-        params: Dictionary with SAGE parameters
+        params: Dictionary with Mimic parameters
     
     Returns:
         Tuple containing:
@@ -497,13 +497,13 @@ def read_data(model_path, first_file, last_file, params=None):
 
 def read_data_hdf5(model_path, first_file, last_file, params):
     """
-    Read galaxy data from SAGE HDF5 output files.
+    Read halo data from Mimic HDF5 output files.
 
     Args:
         model_path: Path to model files (base name, may include _z0.000 suffix from binary format)
         first_file: First file number to read
         last_file: Last file number to read
-        params: Dictionary with SAGE parameters
+        params: Dictionary with Mimic parameters
 
     Returns:
         Tuple containing:
@@ -642,8 +642,8 @@ def read_data_hdf5(model_path, first_file, last_file, params):
 
 def parse_arguments():
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="SAGE Plotting Tool")
-    parser.add_argument("--param-file", required=True, help="SAGE parameter file (required)")
+    parser = argparse.ArgumentParser(description="Mimic Plotting Tool")
+    parser.add_argument("--param-file", required=True, help="Mimic parameter file (required)")
     parser.add_argument("--first-file", type=int, help="First file to read (overrides parameter file)")
     parser.add_argument("--last-file", type=int, help="Last file to read (overrides parameter file)")
     parser.add_argument(
@@ -728,14 +728,14 @@ def main():
 
     # Parse the parameter file
     try:
-        params = SAGEParameters(args.param_file)
+        params = MimicParameters(args.param_file)
         if args.verbose:
             print(f"Loaded parameters from {args.param_file}")
 
             # Print important parameters
             important_params = [
                 "OutputDir",
-                "FileNameGalaxies",
+                "OutputFileBaseName",
                 "LastSnapshotNr",
                 "FirstFile",
                 "LastFile",
@@ -758,7 +758,7 @@ def main():
     # Verify all required parameters exist
     required_params = [
         "OutputDir",
-        "FileNameGalaxies",
+        "OutputFileBaseName",
         "FirstFile",
         "LastFile",
         "BoxSize",
@@ -779,7 +779,7 @@ def main():
         simulation_dir = resolve_relative_path(simulation_dir, args.param_file)
         params.params["SimulationDir"] = simulation_dir  # Update the params dictionary
 
-    file_name_base = params["FileNameGalaxies"]
+    file_name_base = params["OutputFileBaseName"]
 
     file_with_snap_list = resolve_relative_path(params["FileWithSnapList"], args.param_file)
     params.params["FileWithSnapList"] = file_with_snap_list  # Update the params dictionary
@@ -788,7 +788,7 @@ def main():
         print(f"Parameter file details:")
         print(f"  OutputDir: {output_dir}")
         print(f"  SimulationDir: {simulation_dir if simulation_dir else 'Not specified'}")
-        print(f"  FileNameGalaxies: {file_name_base}")
+        print(f"  OutputFileBaseName: {file_name_base}")
         print(f"  FirstFile: {params['FirstFile']}")
         print(f"  LastFile: {params['LastFile']}")
         print(f"  FileWithSnapList: {file_with_snap_list}")
@@ -864,8 +864,8 @@ def main():
             print("Error: OutputDir parameter is required in the parameter file.")
             sys.exit(1)
             
-        if "FileNameGalaxies" not in params:
-            print("Error: FileNameGalaxies parameter is required in the parameter file.")
+        if "OutputFileBaseName" not in params:
+            print("Error: OutputFileBaseName parameter is required in the parameter file.")
             sys.exit(1)
             
         # Get output model path and snapshot number (already resolved)
@@ -877,7 +877,7 @@ def main():
             sys.exit(1)
         
         # File name from parameter file
-        file_name_base = params["FileNameGalaxies"]
+        file_name_base = params["OutputFileBaseName"]
         
         if args.verbose:
             print(f"\nModel file discovery:")
@@ -945,7 +945,7 @@ def main():
                         "USING SAMPLE DATA: No real galaxy data was found, using generated test data instead."
                     )
                     print(
-                        "This is useful for testing the plotting code but the plots will not reflect real SAGE output."
+                        "This is useful for testing the plotting code but the plots will not reflect real Mimic output."
                     )
                 print(
                     f"Read {len(galaxies)} galaxies from volume {volume:.2f} (Mpc/h)³"

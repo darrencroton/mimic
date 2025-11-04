@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 """
-SAGE Halo Mass Function Plot
+Mimic Halo Mass Function Plot
 
-This module generates a halo mass function plot from SAGE halo data.
+This module generates a halo mass function plot from Mimic halo data.
 """
 
 import os
@@ -38,7 +38,7 @@ def plot(
         galaxies: Galaxy data as a numpy recarray (containing halo information)
         volume: Simulation volume in (Mpc/h)^3
         metadata: Dictionary with additional metadata
-        params: Dictionary with SAGE parameters
+        params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
 

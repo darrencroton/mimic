@@ -1,6 +1,6 @@
 /**
  * @file    util_integration.c
- * @brief   Numerical integration utilities for SAGE
+ * @brief   Numerical integration utilities for Mimic
  *
  * This file implements high-accuracy numerical integration functions.
  * It provides an adaptive Simpson's rule implementation for precise

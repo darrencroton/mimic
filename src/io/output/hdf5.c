@@ -103,14 +103,14 @@ void calc_hdf5_props(void) {
   HDF5_field_names[i] = "CentralHaloIndex";
   HDF5_field_types[i++] = H5T_NATIVE_LLONG;
 
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, SAGEHaloIndex);
-  HDF5_dst_sizes[i] = sizeof(galout.SAGEHaloIndex);
-  HDF5_field_names[i] = "SAGEHaloIndex";
+  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MimicHaloIndex);
+  HDF5_dst_sizes[i] = sizeof(galout.MimicHaloIndex);
+  HDF5_field_names[i] = "MimicHaloIndex";
   HDF5_field_types[i++] = H5T_NATIVE_INT;
 
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, SAGETreeIndex);
-  HDF5_dst_sizes[i] = sizeof(galout.SAGETreeIndex);
-  HDF5_field_names[i] = "SAGETreeIndex";
+  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MimicTreeIndex);
+  HDF5_dst_sizes[i] = sizeof(galout.MimicTreeIndex);
+  HDF5_field_names[i] = "MimicTreeIndex";
   HDF5_field_types[i++] = H5T_NATIVE_INT;
 
   HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, SimulationHaloIndex);
@@ -363,8 +363,8 @@ void write_hdf5_galsnap_data(int n, int filenr) {
   char fname[1000];
 
   // Generate the filename to be opened.
-  sprintf(fname, "%s/%s_%03d.hdf5", SageConfig.OutputDir,
-          SageConfig.FileNameGalaxies, filenr);
+  sprintf(fname, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
+          MimicConfig.OutputFileBaseName, filenr);
 
   // Open the file.
   file_id = H5Fopen(fname, H5F_ACC_RDWR, H5P_DEFAULT);
@@ -492,7 +492,7 @@ void write_hdf5_attrs(int n, int filenr) {
  * - RunEndTime: Timestamp when the simulation completed
  * - InputSimulation: Name of the input simulation
  *
- * Parameters are retrieved from the SageConfig structure through the parameter
+ * Parameters are retrieved from the MimicConfig structure through the parameter
  * table, ensuring that the most current values are stored.
  */
 static void store_run_properties(hid_t master_file_id) {
@@ -547,7 +547,7 @@ static void store_run_properties(hid_t master_file_id) {
         /* Special handling for TreeType which doesn't have a direct address */
         if (strcmp(param_table[i].name, "TreeType") == 0) {
           const char *tree_type_str;
-          switch (SageConfig.TreeType) {
+          switch (MimicConfig.TreeType) {
           case lhalo_binary:
             tree_type_str = "lhalo_binary";
             break;
@@ -629,8 +629,8 @@ void write_master_file(void) {
   float redshift;
 
   // Open the master file.
-  sprintf(master_file, "%s/%s.hdf5", SageConfig.OutputDir,
-          SageConfig.FileNameGalaxies);
+  sprintf(master_file, "%s/%s.hdf5", MimicConfig.OutputDir,
+          MimicConfig.OutputFileBaseName);
   DEBUG_LOG("Creating master HDF5 file '%s'", master_file);
   master_file_id =
       H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
@@ -655,7 +655,7 @@ void write_master_file(void) {
     H5Gclose(group_id);
 
     // Loop through each file for this snapshot.
-    for (filenr = SageConfig.FirstFile; filenr <= SageConfig.LastFile;
+    for (filenr = MimicConfig.FirstFile; filenr <= MimicConfig.LastFile;
          filenr++) {
       // Create a group to hold this snapshot's data
       sprintf(target_group, "Snap%03d/File%03d", ListOutputSnaps[n], filenr);
@@ -665,7 +665,7 @@ void write_master_file(void) {
 
       ngal_in_file = 0;
       // Generate the *relative* path to the actual output file.
-      sprintf(target_file, "%s_%03d.hdf5", SageConfig.FileNameGalaxies, filenr);
+      sprintf(target_file, "%s_%03d.hdf5", MimicConfig.OutputFileBaseName, filenr);
 
       // Create a dataset which will act as the soft link to the output
       sprintf(target_group, "Snap%03d/File%03d/Galaxies", ListOutputSnaps[n],
@@ -693,8 +693,8 @@ void write_master_file(void) {
       }
 
       // Increment the total number of objects for this file.
-      sprintf(target_file, "%s/%s_%03d.hdf5", SageConfig.OutputDir,
-              SageConfig.FileNameGalaxies, filenr);
+      sprintf(target_file, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
+              MimicConfig.OutputFileBaseName, filenr);
       target_file_id = H5Fopen(target_file, H5F_ACC_RDONLY, H5P_DEFAULT);
       sprintf(source_ds, "Snap%03d/Galaxies", ListOutputSnaps[n]);
       dataset_id = H5Dopen(target_file_id, source_ds, H5P_DEFAULT);
@@ -781,7 +781,7 @@ void save_halos_hdf5(int filenr, int tree) {
   OutputGalOrder = prepare_output_for_tree(OutputGalCount);
 
   // Now prepare and write halos to HDF5 (BATCH WRITE for performance)
-  for (n = 0; n < SageConfig.NOUT; n++) {
+  for (n = 0; n < MimicConfig.NOUT; n++) {
     if (OutputGalCount[n] == 0)
       continue; /* Skip snapshots with no halos */
 

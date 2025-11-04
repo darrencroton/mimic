@@ -1,15 +1,15 @@
-# SAGE Plotting Tool
+# Mimic Plotting Tool
 
-A centralized plotting tool for the SAGE dark matter halo tracker.
+A centralized plotting tool for the Mimic physics-agnostic galaxy evolution framework.
 
 ## Overview
 
-This tool provides a single, comprehensive entry point for generating plots from SAGE halo tracking outputs. It features:
+This tool provides a single, comprehensive entry point for generating plots from Mimic halo tracking outputs. It features:
 
-- A centralized `sage-plot.py` script that handles command-line arguments, parameter parsing, and plot management
+- A centralized `mimic-plot.py` script that handles command-line arguments, parameter parsing, and plot management
 - Self-contained figure modules in the `figures/` directory, each implementing a specific plot type
 - Support for both snapshot plots (single snapshots) and evolution plots (across multiple snapshots)
-- Integration with SAGE parameter files for consistent configuration
+- Integration with Mimic parameter files for consistent configuration
 - Customizable output formatting and figure selection
 - Consistent styling and formatting across all plot types
 - Robust error handling and fallback mechanisms
@@ -22,22 +22,22 @@ This tool provides a single, comprehensive entry point for generating plots from
 
 ```bash
 # Activate virtual environment (if using one)
-source ../../sage_venv/bin/activate  # or source plotting-env/bin/activate
+source ../../mimic_venv/bin/activate  # or source plotting-env/bin/activate
 
 # Generate both snapshot and evolution plots (default behavior)
-python sage-plot.py --param-file=/path/to/sage_params.par
+python mimic-plot.py --param-file=/path/to/mimic_params.par
 
 # Generate specific plots from both types
-python sage-plot.py --param-file=/path/to/sage_params.par --plots=halo_mass_function,hmf_evolution
+python mimic-plot.py --param-file=/path/to/mimic_params.par --plots=halo_mass_function,hmf_evolution
 
 # Generate only snapshot plots
-python sage-plot.py --param-file=/path/to/sage_params.par --snapshot-plots
+python mimic-plot.py --param-file=/path/to/mimic_params.par --snapshot-plots
 
 # Generate only evolution plots
-python sage-plot.py --param-file=/path/to/sage_params.par --evolution-plots
+python mimic-plot.py --param-file=/path/to/mimic_params.par --evolution-plots
 
 # Specify file range and output options
-python sage-plot.py --param-file=/path/to/sage_params.par --first-file=0 --last-file=7 --output-dir=my_plots --format=.pdf
+python mimic-plot.py --param-file=/path/to/mimic_params.par --first-file=0 --last-file=7 --output-dir=my_plots --format=.pdf
 
 # Deactivate virtual environment when done
 deactivate
@@ -46,7 +46,7 @@ deactivate
 ### Command-Line Options
 
 ```
---param-file=<file>    SAGE parameter file (required)
+--param-file=<file>    Mimic parameter file (required)
 --first-file=<num>     First file to read [default: 0]
 --last-file=<num>      Last file to read [default: use MaxFileNum from param file]
 --snapshot=<num>       Process only this snapshot number
@@ -95,7 +95,7 @@ To add a new plot type, follow these steps:
            halos: Halo data as a numpy recarray
            volume: Simulation volume in (Mpc/h)^3
            metadata: Dictionary with additional metadata
-           params: Dictionary with SAGE parameters
+           params: Dictionary with Mimic parameters
            output_dir: Output directory for the plot
            output_format: File format for the output
 
@@ -113,7 +113,7 @@ To add a new plot type, follow these steps:
 
        Args:
            snapshots: Dictionary mapping snapshot numbers to tuples of (halos, volume, metadata)
-           params: Dictionary with SAGE parameters
+           params: Dictionary with Mimic parameters
            output_dir: Output directory for the plot
            output_format: File format for the output
 
@@ -147,8 +147,8 @@ To add a new plot type, follow these steps:
 6. **Test your plot** with the central script:
    ```bash
    # Activate environment first
-   source ../../sage_venv/bin/activate
-   python sage-plot.py --param-file=params.par --plots=new_plot_type --verbose
+   source ../../mimic_venv/bin/activate
+   python mimic-plot.py --param-file=params.par --plots=new_plot_type --verbose
    ```
 
 ### Example Implementation
@@ -159,9 +159,9 @@ Here's a minimal example of a new plot module:
 #!/usr/bin/env python
 
 """
-SAGE Example Plot
+Mimic Example Plot
 
-This module generates an example plot from SAGE halo data.
+This module generates an example plot from Mimic halo data.
 """
 
 import os
@@ -177,7 +177,7 @@ def plot(halos, volume, metadata, params, output_dir="plots", output_format=".pn
         halos: Halo data as a numpy recarray
         volume: Simulation volume in (Mpc/h)^3
         metadata: Dictionary with additional metadata
-        params: Dictionary with SAGE parameters
+        params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
 
@@ -205,7 +205,7 @@ def plot(halos, volume, metadata, params, output_dir="plots", output_format=".pn
 
 The plotting system is organized around these key components:
 
-1. **Master Script (`sage-plot.py`)**: The central entry point that handles:
+1. **Master Script (`mimic-plot.py`)**: The central entry point that handles:
    - Command-line argument parsing
    - Parameter file reading
    - Data loading
@@ -222,13 +222,13 @@ The plotting system is organized around these key components:
 
 ### Quick Setup
 
-If you used the main SAGE setup script (`../../first_run.sh`), the Python environment is already configured. Simply activate it:
+If you used the main Mimic setup script (`../../first_run.sh`), the Python environment is already configured. Simply activate it:
 
 ```bash
-# From the main SAGE directory
-source sage_venv/bin/activate
-cd output/sage-plot
-python sage-plot.py --param-file=../../input/millennium.par
+# From the main Mimic directory
+source mimic_venv/bin/activate
+cd output/mimic-plot
+python mimic-plot.py --param-file=../../input/millennium.par
 ```
 
 ### Manual Setup
@@ -244,14 +244,14 @@ If you need to set up the plotting environment manually:
 
 #### Installation Options
 
-**Option 1 (Recommended): Use the main SAGE requirements.txt:**
+**Option 1 (Recommended): Use the main Mimic requirements.txt:**
 ```bash
-# From the main SAGE directory
+# From the main Mimic directory
 cd ../..
-python3 -m venv sage_venv
-source sage_venv/bin/activate
+python3 -m venv mimic_venv
+source mimic_venv/bin/activate
 pip install -r requirements.txt
-cd output/sage-plot
+cd output/mimic-plot
 ```
 
 **Option 2: Install packages directly:**
@@ -277,4 +277,4 @@ python -c "import numpy, matplotlib, tqdm; print('All packages available!')"
 
 ## License
 
-This tool is part of the SAGE dark matter halo tracker. Please see the main SAGE license for details.
+This tool is part of the Mimic physics-agnostic galaxy evolution framework. Please see the main Mimic license for details.

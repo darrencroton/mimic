@@ -5,9 +5,9 @@
  * This file implements functionality for loading merger trees from
  * binary format files. It handles the reading of tree metadata and
  * halo data for individual trees, providing an interface to the core
- * SAGE code that is independent of the specific file format.
+ * Mimic code that is independent of the specific file format.
  *
- * Binary format trees are the traditional SAGE input format, consisting
+ * Binary format trees are the traditional binary input format, consisting
  * of a simple structure with tree counts, halo counts, and arrays of
  * halo data. This format is efficient to read but less flexible than
  * newer formats like HDF5.
@@ -69,17 +69,17 @@ void load_tree_table_binary(int32_t filenr) {
   char buf[MAX_BUF_SIZE + 1];
 
   // Open the file
-  snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", SageConfig.SimulationDir,
-           SageConfig.TreeName, filenr, SageConfig.TreeExtension);
+  snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
+           MimicConfig.TreeName, filenr, MimicConfig.TreeExtension);
   if (!(load_fd = fopen(buf, "r"))) {
     FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf,
                 filenr);
   }
 
   // For simplicity, assume host endianness for legacy files
-  set_file_endianness(SAGE_HOST_ENDIAN);
+  set_file_endianness(MIMIC_HOST_ENDIAN);
   DEBUG_LOG("Using legacy headerless file format (assuming %s endian)",
-            (SAGE_HOST_ENDIAN == SAGE_LITTLE_ENDIAN) ? "little" : "big");
+            (MIMIC_HOST_ENDIAN == MIMIC_LITTLE_ENDIAN) ? "little" : "big");
 
   // Read the tree metadata
   if (fread(&Ntrees, sizeof(int), 1, load_fd) != 1) {
@@ -132,7 +132,7 @@ void load_tree_table_binary(int32_t filenr) {
  * for reading.
  *
  * The halos are stored in the global Halo array for processing by the
- * SAGE model.
+ * Mimic framework.
  */
 void load_tree_binary(int32_t treenr) {
 

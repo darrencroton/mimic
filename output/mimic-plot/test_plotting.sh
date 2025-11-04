@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Simple script to test the sage-plot.py functionality
-# This script assumes you're in the SAGE root directory
+# Simple script to test the mimic-plot.py functionality
+# This script assumes you're in the Mimic root directory
 
 # Find your parameter file
 if [ -f "input/millennium.par" ]; then
@@ -28,10 +28,10 @@ fi
 mkdir -p output/test-plots
 
 echo "=== Testing Stellar Mass Function ==="
-python output/sage-plot/sage-plot.py --param-file=$PARAM_FILE --output-dir=output/test-plots --plots=stellar_mass_function
+python output/mimic-plot/mimic-plot.py --param-file=$PARAM_FILE --output-dir=output/test-plots --plots=stellar_mass_function
 
 echo "=== Testing Evolution Plots ==="
-python output/sage-plot/sage-plot.py --param-file=$PARAM_FILE --output-dir=output/test-plots --plots=sfr_density_evolution --evolution-plots
+python output/mimic-plot/mimic-plot.py --param-file=$PARAM_FILE --output-dir=output/test-plots --plots=sfr_density_evolution --evolution-plots
 
 echo "=== Tests Complete ==="
 echo "Check output/test-plots directory for results"

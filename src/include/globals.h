@@ -6,7 +6,7 @@
 #include <stdio.h>
 
 /* Global configuration structure */
-extern struct SageConfig SageConfig;
+extern struct MimicConfig MimicConfig;
 
 #ifdef MPI
 extern int ThisTask, NTask, nodeNameLen;

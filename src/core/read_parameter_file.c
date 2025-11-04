@@ -5,7 +5,7 @@
  * This file contains the functionality for reading model parameters from
  * a configuration file. It parses the parameter file, validates parameter
  * values against allowed ranges, handles special cases for certain parameters,
- * and initializes both the SageConfig structure and global variables.
+ * and initializes both the MimicConfig structure and global variables.
  *
  * The parameter system uses a table-driven approach where parameters are
  * defined in a central parameter table with their types, default values,
@@ -43,13 +43,13 @@
  * @param   fname   Path to the parameter file
  *
  * This function reads model parameters from a configuration file, validates
- * them against allowed ranges, and initializes both the SageConfig structure
+ * them against allowed ranges, and initializes both the MimicConfig structure
  * and global variables. It performs the following tasks:
  *
  * 1. Opens and reads the parameter file line by line
  * 2. For each parameter, finds its definition in the parameter table
  * 3. Validates the parameter value against its allowed range
- * 4. Stores the value in the appropriate location (SageConfig and globals)
+ * 4. Stores the value in the appropriate location (MimicConfig and globals)
  * 5. Handles special cases for parameters like output directories and snapshot
  * lists
  * 6. Performs post-processing for certain parameter combinations
@@ -180,26 +180,26 @@ void read_parameter_file(char *fname) {
   }
 
   // Add trailing slash to OutputDir if needed
-  i = strlen(SageConfig.OutputDir);
-  if (i > 0 && SageConfig.OutputDir[i - 1] != '/')
-    strcat(SageConfig.OutputDir, "/");
+  i = strlen(MimicConfig.OutputDir);
+  if (i > 0 && MimicConfig.OutputDir[i - 1] != '/')
+    strcat(MimicConfig.OutputDir, "/");
 
   // Special handling for MAXSNAPS
-  if (!(SageConfig.LastSnapshotNr + 1 > 0 &&
-        SageConfig.LastSnapshotNr + 1 < ABSOLUTEMAXSNAPS)) {
+  if (!(MimicConfig.LastSnapshotNr + 1 > 0 &&
+        MimicConfig.LastSnapshotNr + 1 < ABSOLUTEMAXSNAPS)) {
     ERROR_LOG("LastSnapshotNr = %d should be in range [0, %d)",
-              SageConfig.LastSnapshotNr, ABSOLUTEMAXSNAPS);
+              MimicConfig.LastSnapshotNr, ABSOLUTEMAXSNAPS);
     errorFlag = 1;
   }
 
-  // Set MAXSNAPS in both SageConfig and global variable
-  SageConfig.MAXSNAPS = SageConfig.LastSnapshotNr + 1;
+  // Set MAXSNAPS in both MimicConfig and global variable
+  MimicConfig.MAXSNAPS = MimicConfig.LastSnapshotNr + 1;
   MAXSNAPS =
-      SageConfig.MAXSNAPS; // Synchronize with global for backward compatibility
+      MimicConfig.MAXSNAPS; // Synchronize with global for backward compatibility
 
   // Special handling for NumOutputs parameter
-  if (!(SageConfig.NOUT == -1 ||
-        (SageConfig.NOUT > 0 && SageConfig.NOUT <= ABSOLUTEMAXSNAPS))) {
+  if (!(MimicConfig.NOUT == -1 ||
+        (MimicConfig.NOUT > 0 && MimicConfig.NOUT <= ABSOLUTEMAXSNAPS))) {
     ERROR_LOG("NumOutputs must be -1 (all snapshots) or between 1 and %i",
               ABSOLUTEMAXSNAPS);
     errorFlag = 1;
@@ -207,15 +207,15 @@ void read_parameter_file(char *fname) {
 
   // Handle output snapshot list
   if (!errorFlag) {
-    if (SageConfig.NOUT == -1) {
-      SageConfig.NOUT = SageConfig.MAXSNAPS;
-      for (i = SageConfig.NOUT - 1; i >= 0; i--) {
-        SageConfig.ListOutputSnaps[i] = i;
+    if (MimicConfig.NOUT == -1) {
+      MimicConfig.NOUT = MimicConfig.MAXSNAPS;
+      for (i = MimicConfig.NOUT - 1; i >= 0; i--) {
+        MimicConfig.ListOutputSnaps[i] = i;
         ListOutputSnaps[i] = i; // Sync with global for backward compatibility
       }
-      INFO_LOG("All %i snapshots selected for output", SageConfig.NOUT);
+      INFO_LOG("All %i snapshots selected for output", MimicConfig.NOUT);
     } else {
-      INFO_LOG("%i snapshots selected for output:", SageConfig.NOUT);
+      INFO_LOG("%i snapshots selected for output:", MimicConfig.NOUT);
       // reopen the parameter file
       fd = fopen(fname, "r");
 
@@ -224,20 +224,20 @@ void read_parameter_file(char *fname) {
         // scan down to find the line with the snapshots
         fscanf(fd, "%s", buf1);
         if (strcmp(buf1, "->") == 0) {
-          // read the snapshots into both the SageConfig structure and global
+          // read the snapshots into both the MimicConfig structure and global
           // array
-          for (i = 0; i < SageConfig.NOUT; i++) {
-            if (fscanf(fd, "%d", &SageConfig.ListOutputSnaps[i]) != 1) {
+          for (i = 0; i < MimicConfig.NOUT; i++) {
+            if (fscanf(fd, "%d", &MimicConfig.ListOutputSnaps[i]) != 1) {
               ERROR_LOG("Could not read output snapshot list. Expected %d "
                         "values after '->' but couldn't read value %d",
-                        SageConfig.NOUT, i + 1);
+                        MimicConfig.NOUT, i + 1);
               errorFlag = 1;
               break;
             }
             ListOutputSnaps[i] =
-                SageConfig.ListOutputSnaps[i]; // Sync with global
+                MimicConfig.ListOutputSnaps[i]; // Sync with global
             DEBUG_LOG("Selected snapshot %i: %i", i,
-                      SageConfig.ListOutputSnaps[i]);
+                      MimicConfig.ListOutputSnaps[i]);
           }
           done = 1;
         }
@@ -254,15 +254,15 @@ void read_parameter_file(char *fname) {
   }
 
   // Sync the global variable with the config structure
-  NOUT = SageConfig.NOUT;
+  NOUT = MimicConfig.NOUT;
 
   // Handle TreeType
   if (!errorFlag) {
     // Check file type is valid.
     if (strcasecmp(my_treetype, "lhalo_binary") != 0) {
-      snprintf(SageConfig.TreeExtension, 511, ".hdf5");
+      snprintf(MimicConfig.TreeExtension, 511, ".hdf5");
 #ifndef HDF5
-      ERROR_LOG("TreeType '%s' requires HDF5 support, but SAGE was not "
+      ERROR_LOG("TreeType '%s' requires HDF5 support, but Mimic was not "
                 "compiled with HDF5 option enabled",
                 my_treetype);
       ERROR_LOG("Please check your file type and compiler options");
@@ -272,9 +272,9 @@ void read_parameter_file(char *fname) {
 
     // Recast the local treetype string to a global TreeType enum.
     if (strcasecmp(my_treetype, "genesis_lhalo_hdf5") == 0) {
-      SageConfig.TreeType = genesis_lhalo_hdf5;
+      MimicConfig.TreeType = genesis_lhalo_hdf5;
     } else if (strcasecmp(my_treetype, "lhalo_binary") == 0) {
-      SageConfig.TreeType = lhalo_binary;
+      MimicConfig.TreeType = lhalo_binary;
     } else {
       ERROR_LOG("TreeType '%s' is not supported. Valid options are "
                 "'genesis_lhalo_hdf5' or 'lhalo_binary'",
@@ -288,7 +288,7 @@ void read_parameter_file(char *fname) {
     // Check if HDF5 output is requested but HDF5 support is not compiled
     if (strcasecmp(my_outputformat, "hdf5") == 0) {
 #ifndef HDF5
-      ERROR_LOG("OutputFormat 'hdf5' requires HDF5 support, but SAGE was not "
+      ERROR_LOG("OutputFormat 'hdf5' requires HDF5 support, but Mimic was not "
                 "compiled with HDF5 option enabled");
       ERROR_LOG("Please recompile with 'make USE-HDF5=yes'");
       errorFlag = 1;
@@ -297,9 +297,9 @@ void read_parameter_file(char *fname) {
 
     // Convert the string to enum value
     if (strcasecmp(my_outputformat, "binary") == 0) {
-      SageConfig.OutputFormat = output_binary;
+      MimicConfig.OutputFormat = output_binary;
     } else if (strcasecmp(my_outputformat, "hdf5") == 0) {
-      SageConfig.OutputFormat = output_hdf5;
+      MimicConfig.OutputFormat = output_hdf5;
     } else {
       ERROR_LOG("OutputFormat '%s' is not supported. Valid options are "
                 "'binary' or 'hdf5'",

@@ -15,33 +15,33 @@
 #include <stdio.h>
 
 /* Endianness definitions */
-#define SAGE_LITTLE_ENDIAN 0
-#define SAGE_BIG_ENDIAN 1
+#define MIMIC_LITTLE_ENDIAN 0
+#define MIMIC_BIG_ENDIAN 1
 
 /* Determine host endianness at compile time if possible */
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define SAGE_HOST_ENDIAN SAGE_LITTLE_ENDIAN
+#define MIMIC_HOST_ENDIAN MIMIC_LITTLE_ENDIAN
 #elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define SAGE_HOST_ENDIAN SAGE_BIG_ENDIAN
+#define MIMIC_HOST_ENDIAN MIMIC_BIG_ENDIAN
 #elif defined(__LITTLE_ENDIAN__)
-#define SAGE_HOST_ENDIAN SAGE_LITTLE_ENDIAN
+#define MIMIC_HOST_ENDIAN MIMIC_LITTLE_ENDIAN
 #elif defined(__BIG_ENDIAN__)
-#define SAGE_HOST_ENDIAN SAGE_BIG_ENDIAN
+#define MIMIC_HOST_ENDIAN MIMIC_BIG_ENDIAN
 #else
 /* Runtime detection as fallback - implemented in io_util.c */
 int detect_host_endian(void);
-#define SAGE_HOST_ENDIAN detect_host_endian()
+#define MIMIC_HOST_ENDIAN detect_host_endian()
 #endif
 
-/* Define the magic number for SAGE binary files */
-#define SAGE_MAGIC_NUMBER 0x53414745 /* "SAGE" in ASCII */
+/* Define the magic number for MIMIC binary files */
+#define MIMIC_MAGIC_NUMBER 0x4D494D49 /* "MIMI" in ASCII (4 bytes for uint32_t) */
 
 /* Current binary file format version */
-#define SAGE_FILE_VERSION 1
+#define MIMIC_FILE_VERSION 1
 
 /* File header structure for binary files */
-struct SAGEFileHeader {
-  uint32_t magic;     /* Magic number for identification (SAGE_MAGIC_NUMBER) */
+struct MimicFileHeader {
+  uint32_t magic;     /* Magic number for identification (MIMIC_MAGIC_NUMBER) */
   uint8_t version;    /* File format version */
   uint8_t endianness; /* File endianness (0=little, 1=big) */
   uint16_t reserved;  /* Reserved for future use */
@@ -63,9 +63,9 @@ void *swap_bytes_if_needed(void *data, size_t size, size_t count,
                            int file_endian);
 
 /* File format utilities */
-int write_sage_header(FILE *file, int endianness);
-int read_sage_header(FILE *file, struct SAGEFileHeader *header);
-int check_file_compatibility(const struct SAGEFileHeader *header);
+int write_mimic_header(FILE *file, int endianness);
+int read_mimic_header(FILE *file, struct MimicFileHeader *header);
+int check_file_compatibility(const struct MimicFileHeader *header);
 int check_headerless_file(FILE *file);
 long get_file_size(FILE *file);
 

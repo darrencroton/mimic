@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-SAGE Halo Occupation Distribution Plot
+Mimic Halo Occupation Distribution Plot
 
 This module generates a plot showing the occupation number of galaxies vs. halo mass.
 """
@@ -36,7 +36,7 @@ def plot(
         galaxies: Galaxy data as a numpy recarray
         volume: Simulation volume in (Mpc/h)^3
         metadata: Dictionary with additional metadata
-        params: Dictionary with SAGE parameters
+        params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
 

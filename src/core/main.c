@@ -1,10 +1,10 @@
 /**
  * @file    main.c
- * @brief   Main entry point for the SAGE dark matter halo tracker
+ * @brief   Main entry point for the Mimic physics-agnostic galaxy evolution framework
  *
- * This file contains the main program flow for SAGE, handling initialization,
+ * This file contains the main program flow for Mimic, handling initialization,
  * file processing, and the halo tracking loop. It coordinates the overall
- * execution of the model, including:
+ * execution of the framework, including:
  * - Parameter file reading and initialization
  * - Command-line argument processing
  * - Error handling setup
@@ -172,7 +172,7 @@ int main(int argc, char **argv) {
   LogLevel log_level = LOG_LEVEL_INFO;
 
   /* Set default value for overwrite flag */
-  SageConfig.OverwriteOutputFiles = 1;
+  MimicConfig.OverwriteOutputFiles = 1;
 
   /* Parse command-line arguments for special flags like help, verbosity */
   int i;
@@ -182,9 +182,9 @@ int main(int argc, char **argv) {
       initialize_error_handling(log_level, NULL);
 
       /* Display help and exit */
-      INFO_LOG("SAGE Help");
-      printf("\nSAGE Semi-Analytic Galaxy Evolution Model\n");
-      printf("Usage: sage [options] <parameterfile>\n\n");
+      INFO_LOG("Mimic Help");
+      printf("\nMimic - Physics-Agnostic Galaxy Evolution Framework\n");
+      printf("Usage: mimic [options] <parameterfile>\n\n");
       printf("Options:\n");
       printf("  -h, --help       Display this help message and exit\n");
       printf("  -v, --verbose    Show debug messages (most verbose)\n");
@@ -214,7 +214,7 @@ int main(int argc, char **argv) {
       argc--;
       i--;
     } else if (strcmp(argv[i], "--skip") == 0) {
-      SageConfig.OverwriteOutputFiles = 0;
+      MimicConfig.OverwriteOutputFiles = 0;
       /* Remove the argument from argv */
       int k;
       for (k = i; k < argc - 1; k++) {
@@ -227,8 +227,8 @@ int main(int argc, char **argv) {
 
   /* Ensure we have exactly one parameter file specified */
   if (argc != 2) {
-    FATAL_ERROR("Incorrect usage! Please use: sage [options] <parameterfile>\n"
-                "For help, use: sage --help");
+    FATAL_ERROR("Incorrect usage! Please use: mimic [options] <parameterfile>\n"
+                "For help, use: mimic --help");
   }
 
   /* Register exit handler for cleanup */
@@ -248,9 +248,9 @@ int main(int argc, char **argv) {
   init_memory_system(0); /* Use default block limit */
 
   /* Log startup information */
-  DEBUG_LOG("Starting SAGE with verbosity level: %s",
+  DEBUG_LOG("Starting Mimic with verbosity level: %s",
             get_log_level_name(log_level));
-  INFO_LOG("SAGE Semi-Analytic Galaxy Evolution model starting up");
+  INFO_LOG("Mimic physics-agnostic galaxy evolution framework starting up");
 
   /* Log detailed command line arguments at debug level */
   DEBUG_LOG("Command line argument count: %d", argc);
@@ -265,7 +265,7 @@ int main(int argc, char **argv) {
 
   /* Initialize HDF5 output system if HDF5 format is selected */
 #ifdef HDF5
-  if (SageConfig.OutputFormat == output_hdf5) {
+  if (MimicConfig.OutputFormat == output_hdf5) {
     INFO_LOG("Initializing HDF5 output system");
     calc_hdf5_props();
   }
@@ -274,16 +274,16 @@ int main(int argc, char **argv) {
   /* Main loop to process merger tree files */
 #ifdef MPI
   /* In MPI mode, distribute files across processors using stride of NTask */
-  for (filenr = SageConfig.FirstFile + ThisTask; filenr <= SageConfig.LastFile;
+  for (filenr = MimicConfig.FirstFile + ThisTask; filenr <= MimicConfig.LastFile;
        filenr += NTask)
 #else
   /* In serial mode, process all files sequentially */
-  for (filenr = SageConfig.FirstFile; filenr <= SageConfig.LastFile; filenr++)
+  for (filenr = MimicConfig.FirstFile; filenr <= MimicConfig.LastFile; filenr++)
 #endif
   {
     /* Construct tree filename and check if it exists */
-    snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s.%d%s", SageConfig.SimulationDir,
-             SageConfig.TreeName, filenr, SageConfig.TreeExtension);
+    snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
+             MimicConfig.TreeName, filenr, MimicConfig.TreeExtension);
     if (!(fd = fopen(bufz0, "r"))) {
       INFO_LOG("Missing tree %s ... skipping", bufz0);
       continue; // tree file does not exist, move along
@@ -292,9 +292,9 @@ int main(int argc, char **argv) {
 
     /* Check if output file already exists (to avoid reprocessing unless
      * overwrite flag is set) */
-    snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_z%1.3f_%d", SageConfig.OutputDir,
-             SageConfig.FileNameGalaxies, ZZ[ListOutputSnaps[0]], filenr);
-    if (stat(bufz0, &filestatus) == 0 && !SageConfig.OverwriteOutputFiles) {
+    snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
+             MimicConfig.OutputFileBaseName, ZZ[ListOutputSnaps[0]], filenr);
+    if (stat(bufz0, &filestatus) == 0 && !MimicConfig.OverwriteOutputFiles) {
       INFO_LOG("Output for tree %s already exists ... skipping", bufz0);
       continue; // output seems to already exist, dont overwrite, move along
     }
@@ -305,7 +305,7 @@ int main(int argc, char **argv) {
 
     /* Load the tree table and process each tree */
     FileNum = filenr;
-    load_tree_table(filenr, SageConfig.TreeType);
+    load_tree_table(filenr, MimicConfig.TreeType);
 
     for (treenr = 0; treenr < Ntrees; treenr++) {
       /* Check if we've received a CPU time limit signal */
@@ -323,7 +323,7 @@ int main(int argc, char **argv) {
 
       /* Set the current tree ID and load the tree */
       TreeID = treenr;
-      load_tree(treenr, SageConfig.TreeType);
+      load_tree(treenr, MimicConfig.TreeType);
 
       /* Random seed setting removed - not actually used in computation */
 
@@ -338,7 +338,7 @@ int main(int argc, char **argv) {
 
       /* Save the processed halos (format depends on OutputFormat parameter) */
 #ifdef HDF5
-      if (SageConfig.OutputFormat == output_hdf5) {
+      if (MimicConfig.OutputFormat == output_hdf5) {
         save_halos_hdf5(filenr, treenr);
       } else {
         save_halos(filenr, treenr);
@@ -351,10 +351,10 @@ int main(int argc, char **argv) {
 
     /* Finalize output files (format depends on OutputFormat parameter) */
 #ifdef HDF5
-    if (SageConfig.OutputFormat == output_hdf5) {
+    if (MimicConfig.OutputFormat == output_hdf5) {
       /* Write metadata attributes for each output snapshot */
       int n;
-      for (n = 0; n < SageConfig.NOUT; n++) {
+      for (n = 0; n < MimicConfig.NOUT; n++) {
         write_hdf5_attrs(n, filenr);
       }
 
@@ -371,14 +371,14 @@ int main(int argc, char **argv) {
 #else
     finalize_halo_file(filenr);
 #endif
-    free_tree_table(SageConfig.TreeType);
+    free_tree_table(MimicConfig.TreeType);
 
     INFO_LOG("Completed processing file %d", filenr);
   }
 
   /* Create master HDF5 file and free HDF5 resources if using HDF5 output */
 #ifdef HDF5
-  if (SageConfig.OutputFormat == output_hdf5) {
+  if (MimicConfig.OutputFormat == output_hdf5) {
     INFO_LOG("Creating master HDF5 file");
     write_master_file();
     free_hdf5_ids();
@@ -406,7 +406,7 @@ int main(int argc, char **argv) {
 
   // Create metadata directory if it doesn't exist
   snprintf(metadata_dir, sizeof(metadata_dir), "%s/metadata",
-           SageConfig.OutputDir);
+           MimicConfig.OutputDir);
   mkdir(metadata_dir, 0777);
 
   // Copy parameter file
@@ -416,16 +416,16 @@ int main(int argc, char **argv) {
   if (copy_file(source_path, dest_path) == 0) {
     // Copy snapshot list file
     snprintf(source_path, sizeof(source_path), "%s",
-             SageConfig.FileWithSnapList);
+             MimicConfig.FileWithSnapList);
     snprintf(dest_path, sizeof(dest_path), "%s/%s", metadata_dir,
-             get_filename_from_path(SageConfig.FileWithSnapList));
+             get_filename_from_path(MimicConfig.FileWithSnapList));
     if (copy_file(source_path, dest_path) == 0) {
       INFO_LOG("Parameter file and snapshot list copied to %s", metadata_dir);
     }
   }
 
   // Create version metadata file
-  if (create_version_metadata(SageConfig.OutputDir, argv[1]) != 0) {
+  if (create_version_metadata(MimicConfig.OutputDir, argv[1]) != 0) {
     WARNING_LOG("Failed to create version metadata file");
   }
 

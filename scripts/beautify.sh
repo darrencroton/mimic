@@ -1,13 +1,13 @@
 #!/usr/bin/env zsh
 
-# beautify.sh - Format C and Python code in the SAGE codebase
+# beautify.sh - Format C and Python code in the Mimic codebase
 # Created: March 2025
 
 # Display help information
 show_help() {
     echo "Usage: ./beautify.sh [options]"
     echo ""
-    echo "Format C and Python code in the SAGE codebase using industry-standard tools."
+    echo "Format C and Python code in the Mimic codebase using industry-standard tools."
     echo ""
     echo "Options:"
     echo "  --help             Display this help message and exit"
@@ -69,7 +69,7 @@ YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 # Print banner
-echo "${YELLOW}=== SAGE Code Beautifier ===${NC}"
+echo "${YELLOW}=== Mimic Code Beautifier ===${NC}"
 
 # Format C code
 if $FORMAT_C; then

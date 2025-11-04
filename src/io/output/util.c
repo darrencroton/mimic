@@ -56,7 +56,7 @@ int *prepare_output_for_tree(int OutputGalCount[MAXSNAPS]) {
    * (O(N)). The crossover point is around NOUT=17. Current implementation
    * favors simplicity for typical use cases where NOUT < 20.
    */
-  for (n = 0; n < SageConfig.NOUT; n++) {
+  for (n = 0; n < MimicConfig.NOUT; n++) {
     for (i = 0; i < NumProcessedHalos; i++) {
       if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
         OutputGalOrder[i] = OutputGalCount[n];

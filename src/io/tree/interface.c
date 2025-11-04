@@ -42,7 +42,7 @@
 
 /* Global file endianness variable - initialized to host endianness by default
  */
-static int file_endianness = SAGE_HOST_ENDIAN;
+static int file_endianness = MIMIC_HOST_ENDIAN;
 
 #ifndef MAX_BUF_SIZE
 #define MAX_BUF_SIZE (3 * MAX_STRING_LEN + 40)
@@ -104,10 +104,10 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
 
   /* Create output files based on format */
 #ifdef HDF5
-  if (SageConfig.OutputFormat == output_hdf5) {
+  if (MimicConfig.OutputFormat == output_hdf5) {
     /* For HDF5, create one file per filenr with all snapshots */
-    snprintf(buf, MAX_BUF_SIZE, "%s/%s_%03d.hdf5", SageConfig.OutputDir,
-             SageConfig.FileNameGalaxies, filenr);
+    snprintf(buf, MAX_BUF_SIZE, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
+             MimicConfig.OutputFileBaseName, filenr);
     prep_hdf5_file(buf);
 
     /* Open the file and keep it open for fast writes */
@@ -120,8 +120,8 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
   } else {
     /* For binary, create one file per snapshot per filenr */
     for (n = 0; n < NOUT; n++) {
-      snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", SageConfig.OutputDir,
-               SageConfig.FileNameGalaxies, ZZ[ListOutputSnaps[n]], filenr);
+      snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
+               MimicConfig.OutputFileBaseName, ZZ[ListOutputSnaps[n]], filenr);
 
       if (!(fd = fopen(buf, "w"))) {
         FATAL_ERROR("Failed to create output halo file '%s' for snapshot %d "
@@ -134,8 +134,8 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
 #else
   /* Binary format only (no HDF5 support) */
   for (n = 0; n < NOUT; n++) {
-    snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", SageConfig.OutputDir,
-             SageConfig.FileNameGalaxies, ZZ[ListOutputSnaps[n]], filenr);
+    snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
+             MimicConfig.OutputFileBaseName, ZZ[ListOutputSnaps[n]], filenr);
 
     if (!(fd = fopen(buf, "w"))) {
       FATAL_ERROR("Failed to create output halo file '%s' for snapshot %d "
@@ -303,8 +303,8 @@ void free_halos_and_tree(void) {
 /**
  * @brief   Set the endianness for binary file operations
  *
- * @param   endianness    The endianness to use (SAGE_LITTLE_ENDIAN or
- * SAGE_BIG_ENDIAN)
+ * @param   endianness    The endianness to use (MIMIC_LITTLE_ENDIAN or
+ * MIMIC_BIG_ENDIAN)
  *
  * This function sets the global endianness value used for all binary file
  * operations. It's typically called after detecting the endianness of a file.
@@ -312,10 +312,10 @@ void free_halos_and_tree(void) {
  * necessary byte swapping.
  */
 void set_file_endianness(int endianness) {
-  if (endianness != SAGE_LITTLE_ENDIAN && endianness != SAGE_BIG_ENDIAN) {
+  if (endianness != MIMIC_LITTLE_ENDIAN && endianness != MIMIC_BIG_ENDIAN) {
     WARNING_LOG("Invalid endianness value %d. Using host endianness (%d).",
-                endianness, SAGE_HOST_ENDIAN);
-    file_endianness = SAGE_HOST_ENDIAN;
+                endianness, MIMIC_HOST_ENDIAN);
+    file_endianness = MIMIC_HOST_ENDIAN;
   } else {
     file_endianness = endianness;
   }
@@ -324,7 +324,7 @@ void set_file_endianness(int endianness) {
 /**
  * @brief   Get the current file endianness setting
  *
- * @return  Current file endianness (SAGE_LITTLE_ENDIAN or SAGE_BIG_ENDIAN)
+ * @return  Current file endianness (MIMIC_LITTLE_ENDIAN or MIMIC_BIG_ENDIAN)
  *
  * This function returns the global endianness value currently used for
  * binary file operations.

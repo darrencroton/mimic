@@ -1,16 +1,16 @@
 /**
  * @file    core_build_model.c
  *
- * This file contains the core algorithms for tracking dark matter halos from
- * merger trees. All baryonic physics has been removed.
+ * This file contains the core algorithms for tracking halos from
+ * merger trees and managing halo evolution through the simulation.
  *
  * Key functions:
  * - build_halo_tree(): Recursive function to build halo tracking structures
  * - join_progenitor_halos(): Integrates halos from progenitor structures
- * - process_halo_evolution(): Updates halo properties (no physics applied)
+ * - process_halo_evolution(): Updates halo properties through time
  *
- * All physical processes removed (cooling, star formation, feedback, mergers).
- * This code now only tracks dark matter halo properties.
+ * This file implements the core halo tracking infrastructure that forms the
+ * foundation for the physics-agnostic framework.
  *
  * References:
  * - Croton et al. (2006) - Original semi-analytic model framework

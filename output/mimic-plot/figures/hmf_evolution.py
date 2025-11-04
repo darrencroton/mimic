@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 """
-SAGE Halo Mass Function Evolution Plot
+Mimic Halo Mass Function Evolution Plot
 
-This module generates a halo mass function evolution plot from SAGE halo data.
+This module generates a halo mass function evolution plot from Mimic halo data.
 """
 
 import os
@@ -28,7 +28,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     Args:
         snapshots: Dictionary mapping snapshot numbers to tuples of (galaxies, volume, metadata)
-        params: Dictionary with SAGE parameters
+        params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
 
