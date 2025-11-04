@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# SAGE First Run Setup Script
-# This script sets up SAGE from a fresh GitHub clone by:
+# MIMIC First Run Setup Script
+# This script sets up MIMIC from a fresh GitHub clone by:
 # 1. Creating necessary directories
 # 2. Downloading mini-Millennium simulation trees
 # 3. Setting up Python plotting environment
@@ -10,26 +10,29 @@
 set -e  # Exit on any error
 
 echo "=========================================="
-echo "SAGE First Run Setup Script"
+echo "MIMIC First Run Setup Script"
 echo "=========================================="
 echo ""
-echo "Welcome to the Semi-Analytic Galaxy Evolution (SAGE) model!"
-echo "This script will set up SAGE from a fresh GitHub clone."
+echo "Welcome to MIMIC - Halo-only tracking based on SAGE!"
+echo "This script will set up MIMIC from a fresh GitHub clone."
 echo ""
 echo "For the latest updates, visit: https://github.com/darrencroton/sage"
 echo ""
 
 # Ensure we're in the correct directory
+# Script is in scripts/ subdirectory, so get parent directory (repo root)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-cd "$SCRIPT_DIR"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$REPO_ROOT"
 
-if [[ ! -f "README.md" ]] || [[ ! -f "Makefile" ]] || [[ ! -d "code" ]]; then
-    echo "ERROR: This script must be run from the root SAGE directory."
-    echo "Please ensure you're in the correct directory and try again."
+if [[ ! -f "README.md" ]] || [[ ! -f "Makefile" ]] || [[ ! -d "src" ]]; then
+    echo "ERROR: This script must be run from the scripts/ directory in the MIMIC repository."
+    echo "Current directory: $(pwd)"
+    echo "Please ensure you're running: ./scripts/first_run.sh"
     exit 1
 fi
 
-echo "✓ Confirmed we're in the SAGE root directory: $SCRIPT_DIR"
+echo "✓ Confirmed we're in the MIMIC root directory: $REPO_ROOT"
 echo ""
 
 # Step 1: Create directory structure
@@ -105,7 +108,7 @@ echo ""
 echo "Step 3: Setting up Python plotting environment..."
 echo "--------------------------------------------------"
 
-cd "$SCRIPT_DIR"
+cd "$REPO_ROOT"
 
 # Check Python version
 if command -v python3 &> /dev/null; then
@@ -232,7 +235,7 @@ echo ""
 echo "Step 4: Configuring parameter file..."
 echo "--------------------------------------"
 
-cd "$SCRIPT_DIR"
+cd "$REPO_ROOT"
 
 if [[ ! -f "input/millennium.par" ]]; then
     echo "ERROR: Parameter file input/millennium.par not found."
@@ -246,9 +249,9 @@ cp input/millennium.par input/millennium.par.backup
 echo "✓ Created backup: input/millennium.par.backup"
 
 # Update paths to absolute paths
-NEW_OUTPUT_DIR="OutputDir              $SCRIPT_DIR/output/results/millennium/"
-NEW_SIMULATION_DIR="SimulationDir               $SCRIPT_DIR/input/data/millennium/"
-NEW_SNAP_LIST="FileWithSnapList            $SCRIPT_DIR/input/data/millennium/millennium.a_list"
+NEW_OUTPUT_DIR="OutputDir              $REPO_ROOT/output/results/millennium/"
+NEW_SIMULATION_DIR="SimulationDir               $REPO_ROOT/input/data/millennium/"
+NEW_SNAP_LIST="FileWithSnapList            $REPO_ROOT/input/data/millennium/millennium.a_list"
 
 # Use sed to update the paths (compatible with both macOS and Linux)
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -287,11 +290,11 @@ if [[ ! -d "output/results/millennium" ]]; then
     VALIDATION_ERRORS+=("Output directory not created")
 fi
 
-# Check if SAGE binary exists (optional)
+# Check if MIMIC binary exists (optional)
 if [[ -f "sage" ]]; then
-    echo "✓ SAGE binary found"
+    echo "✓ MIMIC binary found"
 else
-    echo "ℹ SAGE binary not found - you'll need to compile it with 'make'"
+    echo "ℹ MIMIC binary not found - you'll need to compile it with 'make'"
 fi
 
 if [[ ${#VALIDATION_ERRORS[@]} -eq 0 ]]; then
@@ -305,14 +308,14 @@ fi
 
 echo ""
 echo "=========================================="
-echo "SAGE Setup Complete!"
+echo "MIMIC Setup Complete!"
 echo "=========================================="
 echo ""
 echo "Next steps:"
-echo "1. Compile SAGE:"
+echo "1. Compile MIMIC:"
 echo "   make"
 echo ""
-echo "2. Run SAGE:"
+echo "2. Run MIMIC:"
 echo "   ./sage input/millennium.par"
 echo ""
 echo "3. Generate plots (using the virtual environment):"
