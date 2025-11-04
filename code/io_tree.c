@@ -37,6 +37,7 @@
 #include "io_tree_binary.h"
 #ifdef HDF5
 #include "io_tree_hdf5.h"
+#include "io_save_hdf5.h"
 #endif
 
 /* Global file endianness variable - initialized to host endianness by default
@@ -98,6 +99,40 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
     for (i = 0; i < Ntrees; i++)
       InputHalosPerSnap[n][i] = 0;
 
+    TotHalosPerSnap[n] = 0;
+  }
+
+  /* Create output files based on format */
+#ifdef HDF5
+  if (SageConfig.OutputFormat == output_hdf5) {
+    /* For HDF5, create one file per filenr with all snapshots */
+    snprintf(buf, MAX_BUF_SIZE, "%s/%s_%03d.hdf5", SageConfig.OutputDir,
+             SageConfig.FileNameGalaxies, filenr);
+    prep_hdf5_file(buf);
+
+    /* Open the file and keep it open for fast writes */
+    HDF5_current_file_id = H5Fopen(buf, H5F_ACC_RDWR, H5P_DEFAULT);
+    if (HDF5_current_file_id < 0) {
+      FATAL_ERROR("Failed to open HDF5 file '%s' for writing", buf);
+    }
+    DEBUG_LOG("HDF5 file '%s' opened with ID %lld", buf, (long long)HDF5_current_file_id);
+  } else {
+    /* For binary, create one file per snapshot per filenr */
+    for (n = 0; n < NOUT; n++) {
+      snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", SageConfig.OutputDir,
+               SageConfig.FileNameGalaxies, ZZ[ListOutputSnaps[n]], filenr);
+
+      if (!(fd = fopen(buf, "w"))) {
+        FATAL_ERROR("Failed to create output halo file '%s' for snapshot %d "
+                    "(filenr %d)",
+                    buf, ListOutputSnaps[n], filenr);
+      }
+      fclose(fd);
+    }
+  }
+#else
+  /* Binary format only (no HDF5 support) */
+  for (n = 0; n < NOUT; n++) {
     snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", SageConfig.OutputDir,
              SageConfig.FileNameGalaxies, ZZ[ListOutputSnaps[n]], filenr);
 
@@ -107,8 +142,8 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
                   buf, ListOutputSnaps[n], filenr);
     }
     fclose(fd);
-    TotHalosPerSnap[n] = 0;
   }
+#endif
 }
 
 /**

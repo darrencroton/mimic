@@ -71,6 +71,7 @@ extern size_t *HDF5_dst_sizes;
 extern const char **HDF5_field_names;
 extern hid_t *HDF5_field_types;
 extern int HDF5_n_props;
+extern hid_t HDF5_current_file_id; /* Keep file open during processing */
 #endif
 
 #endif /* #ifndef GLOBALS_H */

@@ -38,6 +38,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
+# Import HDF5 reader module (optional dependency)
+try:
+    import hdf5_reader
+    HDF5_AVAILABLE = True
+except ImportError:
+    HDF5_AVAILABLE = False
+    print("Warning: h5py not available. HDF5 format reading will not be supported.")
+
 random.seed(42)  # For reproducibility with sample data
 
 # Import figure modules
@@ -305,10 +313,28 @@ def read_data(model_path, first_file, last_file, params=None):
     # Ensure required parameters exist
     if validate_required_params(params, ["Hubble_h", "BoxSize"], "galaxy data reading"):
         sys.exit(1)
-        
+
     hubble_h = params["Hubble_h"]
     box_size = params["BoxSize"]
-    
+
+    # Detect output format from parameter file
+    output_format = params.get("OutputFormat", "binary")
+    if isinstance(output_format, str):
+        output_format = output_format.lower()
+
+    # Handle HDF5 format
+    if output_format == "hdf5":
+        if not HDF5_AVAILABLE:
+            print("Error: OutputFormat=hdf5 specified in parameter file, but h5py is not installed.")
+            print("Please install h5py: pip install h5py")
+            sys.exit(1)
+
+        print(f"Using HDF5 format reader")
+        return read_data_hdf5(model_path, first_file, last_file, params)
+
+    # For binary format (default)
+    print(f"Using binary format reader")
+
     # For volume calculation, we'll use the number of good files read
     # No need for MaxTreeFiles parameter - we'll calculate based on actual files read
 
@@ -462,6 +488,151 @@ def read_data(model_path, first_file, last_file, params=None):
         "box_size": box_size,
         "volume": volume,
         "ntrees": tot_ntrees,
+        "ngals": tot_ngals,
+        "good_files": good_files,
+    }
+
+    return galaxies, volume, metadata
+
+
+def read_data_hdf5(model_path, first_file, last_file, params):
+    """
+    Read galaxy data from SAGE HDF5 output files.
+
+    Args:
+        model_path: Path to model files (base name, may include _z0.000 suffix from binary format)
+        first_file: First file number to read
+        last_file: Last file number to read
+        params: Dictionary with SAGE parameters
+
+    Returns:
+        Tuple containing:
+            - Numpy recarray of galaxy data
+            - Volume of the simulation
+            - Dictionary of metadata
+    """
+    print(f"Reading galaxy data from HDF5 files: {model_path}")
+
+    hubble_h = params["Hubble_h"]
+    box_size = params["BoxSize"]
+
+    # Get the directory and base name
+    dir_path = os.path.dirname(model_path)
+    base_name = os.path.basename(model_path)
+
+    # Extract redshift string from model_path to determine which snapshot to read
+    # Model path format: /path/to/model_z1.386 or /path/to/model
+    redshift_str = None
+    if '_z' in base_name:
+        # Extract the redshift string (e.g., "_z1.386")
+        parts = base_name.split('_z')
+        redshift_str = f"_z{parts[1]}"
+        base_name = parts[0]  # Remove the redshift suffix for HDF5 filename
+        if args.verbose:
+            print(f"Extracted redshift string: {redshift_str}, base name: {base_name}")
+
+    # Map redshift string to snapshot number using SnapshotRedshiftMapper
+    # We need to import and use the mapper to find which snapshot corresponds to this redshift
+    from snapshot_redshift_mapper import SnapshotRedshiftMapper
+
+    # Create mapper to find snapshot from redshift
+    mapper = SnapshotRedshiftMapper(args.param_file, params, dir_path)
+
+    # Find the snapshot number that matches the redshift string
+    snapshot_num = None
+    if redshift_str:
+        # Find matching snapshot in mapper's redshift_strs
+        try:
+            idx = mapper.redshift_strs.index(redshift_str)
+            snapshot_num = mapper.snapshots[idx]
+            if args.verbose:
+                print(f"Mapped {redshift_str} to snapshot {snapshot_num}")
+        except ValueError:
+            print(f"Error: Redshift string {redshift_str} not found in snapshot mapping")
+            print(f"Available redshift strings: {mapper.redshift_strs[:10]}...")
+            sys.exit(1)
+    else:
+        # No redshift suffix in model_path - use first snapshot from OutputSnapshots
+        # Note: OutputSnapshots order is defined by the parameter file (arrow notation)
+        # Typically listed in descending order (highest first), e.g., "-> 63 37 32..."
+        output_snapshots = params.get("OutputSnapshots", [])
+        if output_snapshots:
+            snapshot_num = output_snapshots[0]
+            if args.verbose:
+                print(f"No redshift in path, using first OutputSnapshot: {snapshot_num}")
+        else:
+            print("Error: No redshift in model path and no OutputSnapshots in parameter file")
+            sys.exit(1)
+
+    print(f"Reading snapshot {snapshot_num}")
+
+    # Try to find the master file first
+    master_file = os.path.join(dir_path, f"{base_name}.hdf5")
+
+    galaxies_list = []
+    tot_ngals = 0
+    good_files = 0
+
+    # Try master file first
+    if os.path.exists(master_file):
+        if args.verbose:
+            print(f"Found master file: {master_file}")
+        halos = hdf5_reader.read_hdf5_snapshot(master_file, snapshot_num)
+        if halos is not None:
+            tot_ngals = len(halos)
+            galaxies_list.append(halos)
+            good_files = last_file - first_file + 1  # All files represented in master
+            print(f"Read {tot_ngals} halos from master file")
+    else:
+        # Fall back to individual files
+        if args.verbose:
+            print(f"Master file not found, reading individual files...")
+
+        file_iterator = (
+            tqdm(range(first_file, last_file + 1), desc="Reading HDF5 files")
+            if args.verbose
+            else range(first_file, last_file + 1)
+        )
+
+        for fnr in file_iterator:
+            fname = os.path.join(dir_path, f"{base_name}_{fnr:03d}.hdf5")
+
+            if not os.path.isfile(fname):
+                continue
+
+            halos = hdf5_reader.read_hdf5_snapshot(fname, snapshot_num)
+            if halos is not None:
+                galaxies_list.append(halos)
+                tot_ngals += len(halos)
+                good_files += 1
+                print(f"Read {len(halos)} halos from {fname}")
+
+    if not galaxies_list:
+        print("Error: No halos found in HDF5 files.")
+        sys.exit(1)
+
+    # Concatenate all halos
+    galaxies = np.concatenate(galaxies_list)
+    galaxies = galaxies.view(np.recarray)
+
+    print(f"Total halos read: {tot_ngals}")
+
+    # Calculate volume
+    volume = box_size**3.0
+    if "FirstFile" in params and "LastFile" in params:
+        total_files = params.get("NumSimulationTreeFiles", good_files)
+        if total_files > 0 and good_files > 0:
+            volume = volume * good_files / total_files
+            if args.verbose:
+                print(f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}")
+                print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
+
+    # Create metadata dictionary
+    metadata = {
+        "hubble_h": hubble_h,
+        "box_size": box_size,
+        "volume": volume,
+        "ntrees": 0,  # Not tracked in HDF5 format
         "ngals": tot_ngals,
         "good_files": good_files,
     }

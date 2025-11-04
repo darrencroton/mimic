@@ -301,6 +301,14 @@ int main(int argc, char **argv) {
   read_parameter_file(argv[1]);
   init();
 
+  /* Initialize HDF5 output system if HDF5 format is selected */
+#ifdef HDF5
+  if (SageConfig.OutputFormat == output_hdf5) {
+    INFO_LOG("Initializing HDF5 output system");
+    calc_hdf5_props();
+  }
+#endif
+
   /* Main loop to process merger tree files */
 #ifdef MPI
   /* In MPI mode, distribute files across processors using stride of NTask */
@@ -366,17 +374,54 @@ int main(int argc, char **argv) {
         if (HaloAux[halonr].DoneFlag == 0)
           build_halo_tree(halonr, treenr);
 
-      /* Save the processed objects and free memory */
+      /* Save the processed halos (format depends on OutputFormat parameter) */
+#ifdef HDF5
+      if (SageConfig.OutputFormat == output_hdf5) {
+        save_halos_hdf5(filenr, treenr);
+      } else {
+        save_halos(filenr, treenr);
+      }
+#else
       save_halos(filenr, treenr);
+#endif
       free_halos_and_tree();
     }
 
-    /* Finalize output files and free memory */
+    /* Finalize output files (format depends on OutputFormat parameter) */
+#ifdef HDF5
+    if (SageConfig.OutputFormat == output_hdf5) {
+      /* Write metadata attributes for each output snapshot */
+      int n;
+      for (n = 0; n < SageConfig.NOUT; n++) {
+        write_hdf5_attrs(n, filenr);
+      }
+
+      /* Close the HDF5 file */
+      if (HDF5_current_file_id >= 0) {
+        DEBUG_LOG("Closing HDF5 file (ID %lld) for filenr %d",
+                  (long long)HDF5_current_file_id, filenr);
+        H5Fclose(HDF5_current_file_id);
+        HDF5_current_file_id = -1;
+      }
+    } else {
+      finalize_halo_file(filenr);
+    }
+#else
     finalize_halo_file(filenr);
+#endif
     free_tree_table(SageConfig.TreeType);
 
     INFO_LOG("Completed processing file %d", filenr);
   }
+
+  /* Create master HDF5 file and free HDF5 resources if using HDF5 output */
+#ifdef HDF5
+  if (SageConfig.OutputFormat == output_hdf5) {
+    INFO_LOG("Creating master HDF5 file");
+    write_master_file();
+    free_hdf5_ids();
+  }
+#endif
 
   /* Clean up allocated memory */
 

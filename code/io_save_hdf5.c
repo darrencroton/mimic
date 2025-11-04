@@ -279,40 +279,54 @@ void prep_hdf5_file(char *fname) {
  * as it is processed, enabling incremental output without requiring
  * all objects to be held in memory.
  */
-void write_hdf5_halo(struct HaloOutput *halo_output, int n, int filenr) {
-
-  /*
-   * Write a single halo to the hdf5 file table.
-   */
+/**
+ * @brief   Writes a batch of halos to an HDF5 file (OPTIMIZED)
+ *
+ * @param   halo_batch   Array of halos to write
+ * @param   num_halos    Number of halos in the batch
+ * @param   n            Snapshot index in ListOutputSnaps
+ * @param   filenr       File number
+ *
+ * This function writes multiple halos to the HDF5 file in a single operation.
+ * This is MUCH faster than writing halos one at a time because it:
+ * - Opens the group once
+ * - Writes all records in one HDF5 operation
+ * - Closes the group once
+ *
+ * This reduces HDF5 overhead from O(N) to O(1) per batch.
+ */
+void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, int filenr) {
 
   herr_t status;
-  hid_t file_id, group_id;
+  hid_t group_id;
   char target_group[100];
-  char fname[1000];
 
-  // Generate the filename to be opened.
-  sprintf(fname, "%s/%s_%03d.hdf5", SageConfig.OutputDir,
-          SageConfig.FileNameGalaxies, filenr);
-
-  DEBUG_LOG("Opening HDF5 file '%s' for writing halo data", fname);
-  // Open the file.
-  file_id = H5Fopen(fname, H5F_ACC_RDWR, H5P_DEFAULT);
-
-  // Open the relevant group.
-  sprintf(target_group, "Snap%03d", ListOutputSnaps[n]);
-  group_id = H5Gopen(file_id, target_group, H5P_DEFAULT);
-
-  // Write the halo.
-  status = H5TBappend_records(group_id, "Galaxies", 1, HDF5_dst_size,
-                              HDF5_dst_offsets, HDF5_dst_sizes, halo_output);
-  if (status < 0) {
-    FATAL_ERROR("Failed to append halo record to HDF5 file '%s', snapshot %d",
-                fname, ListOutputSnaps[n]);
+  // Verify file is open
+  if (HDF5_current_file_id < 0) {
+    FATAL_ERROR("HDF5 file not open for writing (file_id = %lld)",
+                (long long)HDF5_current_file_id);
   }
 
-  // Close the group and file
+  if (num_halos <= 0) return; /* Nothing to write */
+
+  // Open the relevant group
+  sprintf(target_group, "Snap%03d", ListOutputSnaps[n]);
+  group_id = H5Gopen(HDF5_current_file_id, target_group, H5P_DEFAULT);
+  if (group_id < 0) {
+    FATAL_ERROR("Failed to open HDF5 group '%s' for snapshot %d (filenr %d)",
+                target_group, ListOutputSnaps[n], filenr);
+  }
+
+  // Write entire batch at once
+  status = H5TBappend_records(group_id, "Galaxies", num_halos, HDF5_dst_size,
+                              HDF5_dst_offsets, HDF5_dst_sizes, halo_batch);
+  if (status < 0) {
+    FATAL_ERROR("Failed to append %d halo records to HDF5 file for snapshot %d "
+                "(filenr %d)", num_halos, ListOutputSnaps[n], filenr);
+  }
+
+  // Close only the group (file stays open)
   H5Gclose(group_id);
-  H5Fclose(file_id);
 }
 
 #ifdef MINIMIZE_IO
@@ -377,24 +391,23 @@ void write_hdf5_attrs(int n, int filenr) {
 
   /*
    * Write the HDF5 file attributes.
+   * Uses the already-open HDF5_current_file_id for performance.
    */
 
   herr_t status;
-  hid_t file_id, dataset_id, attribute_id, dataspace_id, group_id;
+  hid_t dataset_id, attribute_id, dataspace_id, group_id;
   hsize_t dims;
   char target_group[100];
-  char fname[1000];
 
-  // Generate the filename to be opened.
-  sprintf(fname, "%s/%s_%03d.hdf5", SageConfig.OutputDir,
-          SageConfig.FileNameGalaxies, filenr);
+  // Verify file is open
+  if (HDF5_current_file_id < 0) {
+    FATAL_ERROR("HDF5 file not open for writing attributes (file_id = %lld)",
+                (long long)HDF5_current_file_id);
+  }
 
-  // Open the output file and halo dataset.
-  file_id = H5Fopen(fname, H5F_ACC_RDWR, H5P_DEFAULT);
-
-  // Open the relevant group.
+  // Open the relevant group
   sprintf(target_group, "Snap%03d", ListOutputSnaps[n]);
-  group_id = H5Gopen(file_id, target_group, H5P_DEFAULT);
+  group_id = H5Gopen(HDF5_current_file_id, target_group, H5P_DEFAULT);
 
   dataset_id = H5Dopen(group_id, "Galaxies", H5P_DEFAULT);
 
@@ -407,7 +420,7 @@ void write_hdf5_attrs(int n, int filenr) {
                            H5P_DEFAULT, H5P_DEFAULT);
   status = H5Awrite(attribute_id, H5T_NATIVE_INT, &Ntrees);
   if (status < 0) {
-    FATAL_ERROR("Failed to write Ntrees attribute to HDF5 file '%s'", fname);
+    FATAL_ERROR("Failed to write Ntrees attribute to HDF5 file (filenr %d)", filenr);
   }
   H5Aclose(attribute_id);
 
@@ -417,7 +430,7 @@ void write_hdf5_attrs(int n, int filenr) {
   status = H5Awrite(attribute_id, H5T_NATIVE_INT, &TotHalosPerSnap[n]);
   if (status < 0) {
     FATAL_ERROR(
-        "Failed to write TotHalosPerSnap attribute to HDF5 file '%s'", fname);
+        "Failed to write TotHalosPerSnap attribute to HDF5 file (filenr %d)", filenr);
   }
   H5Aclose(attribute_id);
 
@@ -438,9 +451,8 @@ void write_hdf5_attrs(int n, int filenr) {
                          dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   H5Dclose(dataset_id);
 
-  // Close the group and file.
+  // Close only the group (file stays open, closed in main.c)
   H5Gclose(group_id);
-  H5Fclose(file_id);
 }
 
 /**
@@ -593,8 +605,6 @@ void write_master_file(void) {
   master_file_id =
       H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
-  printf("\n\nMaking one file to rule them all:\n\t%s\n", master_file);
-
   // Loop through each snapshot.
   for (n = 0; n < NOUT; n++) {
 
@@ -711,6 +721,95 @@ void write_master_file(void) {
 
   // Close the master file.
   H5Fclose(master_file_id);
+}
+
+/**
+ * @brief   Saves output files for all requested snapshots using HDF5 format
+ *
+ * @param   filenr    Current file number being processed
+ * @param   tree      Current tree number being processed
+ *
+ * This function writes all halos for the current tree to their respective
+ * HDF5 output files. It mirrors the functionality of save_halos() in the
+ * binary output system but uses HDF5 format. For each output snapshot, it:
+ *
+ * 1. Determines output ordering for halos
+ * 2. Updates mergeIntoID cross-references
+ * 3. Converts internal halo structures to output format
+ * 4. Writes halos to HDF5 files using write_hdf5_halo()
+ * 5. Updates halo counts for the file and tree
+ *
+ * The function handles the indexing system that allows cross-referencing
+ * between halos (e.g., for tracking merger destinations) across different
+ * trees and files.
+ */
+void save_halos_hdf5(int filenr, int tree) {
+  int i, n;
+  int OutputGalCount[MAXSNAPS], *OutputGalOrder;
+
+  OutputGalOrder = (int *)malloc(NumProcessedHalos * sizeof(int));
+  if (OutputGalOrder == NULL) {
+    FATAL_ERROR("Memory allocation failed for OutputGalOrder array (%d "
+                "elements, %zu bytes)",
+                NumProcessedHalos, NumProcessedHalos * sizeof(int));
+  }
+
+  // Reset the output halo count and order
+  for (i = 0; i < MAXSNAPS; i++)
+    OutputGalCount[i] = 0;
+  for (i = 0; i < NumProcessedHalos; i++)
+    OutputGalOrder[i] = -1;
+
+  // First update mergeIntoID to point to the correct halo in the output
+  for (n = 0; n < SageConfig.NOUT; n++) {
+    for (i = 0; i < NumProcessedHalos; i++) {
+      if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
+        OutputGalOrder[i] = OutputGalCount[n];
+        OutputGalCount[n]++;
+      }
+    }
+  }
+
+  for (i = 0; i < NumProcessedHalos; i++)
+    if (ProcessedHalos[i].mergeIntoID > -1)
+      ProcessedHalos[i].mergeIntoID =
+          OutputGalOrder[ProcessedHalos[i].mergeIntoID];
+
+  // Now prepare and write halos to HDF5 (BATCH WRITE for performance)
+  for (n = 0; n < SageConfig.NOUT; n++) {
+    if (OutputGalCount[n] == 0) continue; /* Skip snapshots with no halos */
+
+    /* Allocate array for batch writing */
+    struct HaloOutput *halo_batch = malloc(OutputGalCount[n] * sizeof(struct HaloOutput));
+    if (halo_batch == NULL) {
+      FATAL_ERROR("Memory allocation failed for HaloOutput batch array (%d halos, %zu bytes)",
+                  OutputGalCount[n], OutputGalCount[n] * sizeof(struct HaloOutput));
+    }
+
+    /* Prepare all halos for this snapshot */
+    int batch_idx = 0;
+    for (i = 0; i < NumProcessedHalos; i++) {
+      if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
+        prepare_halo_for_output(filenr, tree, &ProcessedHalos[i], &halo_batch[batch_idx]);
+        batch_idx++;
+
+        /* Increment halo counters */
+        TotHalosPerSnap[n]++;
+        InputHalosPerSnap[n][tree]++;
+      }
+    }
+
+    /* Write entire batch at once */
+    if (batch_idx > 0) {
+      write_hdf5_halo_batch(halo_batch, batch_idx, n, filenr);
+    }
+
+    /* Free batch array */
+    free(halo_batch);
+  }
+
+  // Free the workspace
+  free(OutputGalOrder);
 }
 
 void free_hdf5_ids(void) {

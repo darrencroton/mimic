@@ -38,6 +38,13 @@ enum Valid_TreeTypes {
   num_tree_types
 };
 
+/* Enum for output formats */
+enum Valid_OutputFormats {
+  output_binary = 0,
+  output_hdf5 = 1,
+  num_output_formats
+};
+
 /* Configuration structure to hold global parameters */
 struct SageConfig {
   /* file information */
@@ -90,6 +97,9 @@ struct SageConfig {
 
   /* Tree type */
   enum Valid_TreeTypes TreeType;
+
+  /* Output format */
+  enum Valid_OutputFormats OutputFormat;
 };
 
 /* This structure contains the properties that are output */

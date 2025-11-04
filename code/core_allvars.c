@@ -44,6 +44,7 @@ size_t *HDF5_dst_sizes;
 const char **HDF5_field_names;
 hid_t *HDF5_field_types;
 int HDF5_n_props;
+hid_t HDF5_current_file_id = -1; /* -1 means no file currently open */
 #endif
 
 int MaxProcessedHalos;

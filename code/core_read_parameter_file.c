@@ -70,6 +70,7 @@ void read_parameter_file(char *fname) {
   int i, done;
   int errorFlag = 0;
   char my_treetype[MAX_STRING_LEN]; // Special handling for tree type
+  char my_outputformat[MAX_STRING_LEN]; // Special handling for output format
 
   // Get parameter table
   ParameterDefinition *param_table = get_parameter_table();
@@ -81,11 +82,13 @@ void read_parameter_file(char *fname) {
     param_read[i] = 0;
   }
 
-  // Special handling for TreeType parameter
+  // Special handling for TreeType and OutputFormat parameters
   for (i = 0; i < num_params; i++) {
     if (strcmp(param_table[i].name, "TreeType") == 0) {
       param_table[i].address = my_treetype;
-      break;
+    }
+    if (strcmp(param_table[i].name, "OutputFormat") == 0) {
+      param_table[i].address = my_outputformat;
     }
   }
 
@@ -276,6 +279,31 @@ void read_parameter_file(char *fname) {
       ERROR_LOG("TreeType '%s' is not supported. Valid options are "
                 "'genesis_lhalo_hdf5' or 'lhalo_binary'",
                 my_treetype);
+      errorFlag = 1;
+    }
+  }
+
+  // Handle OutputFormat
+  if (!errorFlag) {
+    // Check if HDF5 output is requested but HDF5 support is not compiled
+    if (strcasecmp(my_outputformat, "hdf5") == 0) {
+#ifndef HDF5
+      ERROR_LOG("OutputFormat 'hdf5' requires HDF5 support, but SAGE was not "
+                "compiled with HDF5 option enabled");
+      ERROR_LOG("Please recompile with 'make USE-HDF5=yes'");
+      errorFlag = 1;
+#endif
+    }
+
+    // Convert the string to enum value
+    if (strcasecmp(my_outputformat, "binary") == 0) {
+      SageConfig.OutputFormat = output_binary;
+    } else if (strcasecmp(my_outputformat, "hdf5") == 0) {
+      SageConfig.OutputFormat = output_hdf5;
+    } else {
+      ERROR_LOG("OutputFormat '%s' is not supported. Valid options are "
+                "'binary' or 'hdf5'",
+                my_outputformat);
       errorFlag = 1;
     }
   }

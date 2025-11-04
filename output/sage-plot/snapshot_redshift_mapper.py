@@ -150,23 +150,26 @@ class SnapshotRedshiftMapper:
                 return False
 
             # Create the mapping - need to match snapshot numbers to redshifts
-            # Typically, the last expansion factor (largest) corresponds to the LastSnapshotNr
-            # The first expansion factor (smallest) corresponds to snapshot 0
+            # Standard convention: line N in a_list file corresponds to snapshot N-1 (0-indexed)
+            # If a_list has 64 lines, snapshots are numbered 0-63
             num_snapshots = len(expansion_factors)
 
-            # Calculate snapshot numbers
-            if num_snapshots <= 1:
-                self.snapshots = [last_snapshot_nr]
-            else:
-                # Handle case where we have multiple snapshots
-                # In typical format, snapshots run from 0 to LastSnapshotNr
-                snapshot_step = last_snapshot_nr / (num_snapshots - 1)
-                self.snapshots = [round(i * snapshot_step) for i in range(num_snapshots)]
+            # Snapshot numbers are simply sequential indices: 0, 1, 2, ..., N-1
+            self.snapshots = list(range(num_snapshots))
 
-                # Ensure last snapshot is exactly LastSnapshotNr
-                if self.snapshots[-1] != last_snapshot_nr:
+            # Verify that LastSnapshotNr matches the expected value
+            # LastSnapshotNr should equal (number of snapshots - 1)
+            expected_last_snap = num_snapshots - 1
+            if last_snapshot_nr != expected_last_snap:
+                print(f"Warning: LastSnapshotNr ({last_snapshot_nr}) does not match expected value ({expected_last_snap})")
+                print(f"  a_list file has {num_snapshots} expansion factors")
+                print(f"  Expected snapshots to be numbered 0 to {expected_last_snap}")
+                print(f"  Using LastSnapshotNr from parameter file anyway")
+                # Still use the parameter file value, but ensure our mapping is correct
+                # The last snapshot in our list should be last_snapshot_nr
+                if num_snapshots > 0:
                     self.snapshots[-1] = last_snapshot_nr
-                    
+
             # Ensure we have the same number of snapshots and redshifts
             if len(self.snapshots) != len(redshifts):
                 print(f"Error: Mismatch between number of snapshots ({len(self.snapshots)}) and redshifts ({len(redshifts)})")

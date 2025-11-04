@@ -41,6 +41,9 @@ static ParameterDefinition ParameterTable[] = {
     {"TreeType",
      "Type of merger tree files (lhalo_binary or genesis_lhalo_hdf5)", STRING,
      NULL, 1, 0.0, 0.0}, // Special handling needed
+    {"OutputFormat",
+     "Output file format (binary or hdf5)", STRING,
+     NULL, 1, 0.0, 0.0}, // Special handling needed
     {"SimulationDir", "Directory containing simulation data", STRING,
      &SageConfig.SimulationDir, 1, 0.0, 0.0},
     {"FileWithSnapList", "File containing snapshot list", STRING,
