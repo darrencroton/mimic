@@ -29,6 +29,7 @@
 #include "core_allvars.h"
 #include "core_proto.h"
 #include "io_save_binary.h"
+#include "io_save_util.h"
 #include "io_util.h"
 #include "util_error.h"
 
@@ -71,33 +72,8 @@ void save_halos(int filenr, int tree) {
 
   int OutputGalCount[MAXSNAPS], *OutputGalOrder, nwritten;
 
-  OutputGalOrder = (int *)malloc(NumProcessedHalos * sizeof(int));
-  if (OutputGalOrder == NULL) {
-    FATAL_ERROR("Memory allocation failed for OutputGalOrder array (%d "
-                "elements, %zu bytes)",
-                NumProcessedHalos, NumProcessedHalos * sizeof(int));
-  }
-
-  // reset the output halo count and order
-  for (i = 0; i < MAXSNAPS; i++)
-    OutputGalCount[i] = 0;
-  for (i = 0; i < NumProcessedHalos; i++)
-    OutputGalOrder[i] = -1;
-
-  // first update mergeIntoID to point to the correct halo in the output
-  for (n = 0; n < SageConfig.NOUT; n++) {
-    for (i = 0; i < NumProcessedHalos; i++) {
-      if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
-        OutputGalOrder[i] = OutputGalCount[n];
-        OutputGalCount[n]++;
-      }
-    }
-  }
-
-  for (i = 0; i < NumProcessedHalos; i++)
-    if (ProcessedHalos[i].mergeIntoID > -1)
-      ProcessedHalos[i].mergeIntoID =
-          OutputGalOrder[ProcessedHalos[i].mergeIntoID];
+  /* Prepare output ordering and update merger pointers using shared utility */
+  OutputGalOrder = prepare_output_for_tree(OutputGalCount);
 
   // now prepare and write
   for (n = 0; n < SageConfig.NOUT; n++) {
@@ -173,8 +149,8 @@ void save_halos(int filenr, int tree) {
     }
   }
 
-  // don't forget to free the workspace.
-  free(OutputGalOrder);
+  /* Free the workspace using tracked memory deallocation */
+  myfree(OutputGalOrder);
 }
 
 /**

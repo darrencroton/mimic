@@ -36,8 +36,8 @@
 
 #include "io_tree_binary.h"
 #ifdef HDF5
-#include "io_tree_hdf5.h"
 #include "io_save_hdf5.h"
+#include "io_tree_hdf5.h"
 #endif
 
 /* Global file endianness variable - initialized to host endianness by default
@@ -115,7 +115,8 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
     if (HDF5_current_file_id < 0) {
       FATAL_ERROR("Failed to open HDF5 file '%s' for writing", buf);
     }
-    DEBUG_LOG("HDF5 file '%s' opened with ID %lld", buf, (long long)HDF5_current_file_id);
+    DEBUG_LOG("HDF5 file '%s' opened with ID %lld", buf,
+              (long long)HDF5_current_file_id);
   } else {
     /* For binary, create one file per snapshot per filenr */
     for (n = 0; n < NOUT; n++) {
@@ -253,7 +254,8 @@ void load_tree(int filenr, int treenr, enum Valid_TreeTypes my_TreeType) {
   if (HaloAux == NULL) {
     FATAL_ERROR(
         "Memory allocation failed for HaloAux array (%d halos, %zu bytes)",
-        InputTreeNHalos[treenr], InputTreeNHalos[treenr] * sizeof(struct HaloAuxData));
+        InputTreeNHalos[treenr],
+        InputTreeNHalos[treenr] * sizeof(struct HaloAuxData));
   }
 
   ProcessedHalos = mymalloc(sizeof(struct Halo) * MaxProcessedHalos);

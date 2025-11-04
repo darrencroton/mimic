@@ -30,6 +30,7 @@
 
 #include "core_proto.h"
 #include "io_save_hdf5.h"
+#include "io_save_util.h"
 #include "util_error.h"
 #include "util_parameters.h"
 
@@ -227,8 +228,25 @@ void calc_hdf5_props(void) {
  */
 void prep_hdf5_file(char *fname) {
 
-  hsize_t chunk_size =
-      1000; // This value can have a significant impact on read performance!
+  /*
+   * HDF5 chunk size for table storage (number of records per chunk).
+   *
+   * This is the single most important parameter for HDF5 I/O performance
+   * tuning. Current value: 1000 records ≈ 140 KB per chunk (for HaloOutput
+   * struct).
+   *
+   * Performance considerations:
+   * - Too small (<100): Excessive metadata overhead, poor sequential I/O
+   * - Too large (>10000): Wasted memory for partial chunk reads/writes
+   * - Recommended range: 10 KB - 1 MB per chunk
+   * - System-dependent: Optimal value varies with filesystem (NFS, Lustre,
+   * local)
+   *
+   * For advanced HPC tuning, this could be made configurable via parameter
+   * file. Current default (1000) provides good performance for typical use
+   * cases.
+   */
+  hsize_t chunk_size = 1000;
   int *fill_data = NULL;
   hid_t file_id, snap_group_id;
   char target_group[100];
@@ -295,7 +313,8 @@ void prep_hdf5_file(char *fname) {
  *
  * This reduces HDF5 overhead from O(N) to O(1) per batch.
  */
-void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, int filenr) {
+void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n,
+                           int filenr) {
 
   herr_t status;
   hid_t group_id;
@@ -307,7 +326,8 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, 
                 (long long)HDF5_current_file_id);
   }
 
-  if (num_halos <= 0) return; /* Nothing to write */
+  if (num_halos <= 0)
+    return; /* Nothing to write */
 
   // Open the relevant group
   sprintf(target_group, "Snap%03d", ListOutputSnaps[n]);
@@ -322,7 +342,8 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, 
                               HDF5_dst_offsets, HDF5_dst_sizes, halo_batch);
   if (status < 0) {
     FATAL_ERROR("Failed to append %d halo records to HDF5 file for snapshot %d "
-                "(filenr %d)", num_halos, ListOutputSnaps[n], filenr);
+                "(filenr %d)",
+                num_halos, ListOutputSnaps[n], filenr);
   }
 
   // Close only the group (file stays open)
@@ -420,7 +441,8 @@ void write_hdf5_attrs(int n, int filenr) {
                            H5P_DEFAULT, H5P_DEFAULT);
   status = H5Awrite(attribute_id, H5T_NATIVE_INT, &Ntrees);
   if (status < 0) {
-    FATAL_ERROR("Failed to write Ntrees attribute to HDF5 file (filenr %d)", filenr);
+    FATAL_ERROR("Failed to write Ntrees attribute to HDF5 file (filenr %d)",
+                filenr);
   }
   H5Aclose(attribute_id);
 
@@ -430,7 +452,8 @@ void write_hdf5_attrs(int n, int filenr) {
   status = H5Awrite(attribute_id, H5T_NATIVE_INT, &TotHalosPerSnap[n]);
   if (status < 0) {
     FATAL_ERROR(
-        "Failed to write TotHalosPerSnap attribute to HDF5 file (filenr %d)", filenr);
+        "Failed to write TotHalosPerSnap attribute to HDF5 file (filenr %d)",
+        filenr);
   }
   H5Aclose(attribute_id);
 
@@ -587,6 +610,13 @@ void write_master_file(void) {
   /*
    * Generate a 'master' file that holds soft links to the data in all of the
    * standard output files.
+   *
+   * Known minor inefficiency: This function re-opens each HDF5 file to read
+   * the TotHalosPerSnap attribute (lines 667-681). The data was available in
+   * memory during processing but is reset between files. Fixing this would
+   * require a new 2D global array, adding complexity for minimal performance
+   * benefit (one-time file I/O after all computation). The current simple
+   * approach is preferred for code maintainability.
    */
 
   int filenr, n, ngal_in_file, ngal_in_core;
@@ -747,50 +777,30 @@ void save_halos_hdf5(int filenr, int tree) {
   int i, n;
   int OutputGalCount[MAXSNAPS], *OutputGalOrder;
 
-  OutputGalOrder = (int *)malloc(NumProcessedHalos * sizeof(int));
-  if (OutputGalOrder == NULL) {
-    FATAL_ERROR("Memory allocation failed for OutputGalOrder array (%d "
-                "elements, %zu bytes)",
-                NumProcessedHalos, NumProcessedHalos * sizeof(int));
-  }
-
-  // Reset the output halo count and order
-  for (i = 0; i < MAXSNAPS; i++)
-    OutputGalCount[i] = 0;
-  for (i = 0; i < NumProcessedHalos; i++)
-    OutputGalOrder[i] = -1;
-
-  // First update mergeIntoID to point to the correct halo in the output
-  for (n = 0; n < SageConfig.NOUT; n++) {
-    for (i = 0; i < NumProcessedHalos; i++) {
-      if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
-        OutputGalOrder[i] = OutputGalCount[n];
-        OutputGalCount[n]++;
-      }
-    }
-  }
-
-  for (i = 0; i < NumProcessedHalos; i++)
-    if (ProcessedHalos[i].mergeIntoID > -1)
-      ProcessedHalos[i].mergeIntoID =
-          OutputGalOrder[ProcessedHalos[i].mergeIntoID];
+  /* Prepare output ordering and update merger pointers using shared utility */
+  OutputGalOrder = prepare_output_for_tree(OutputGalCount);
 
   // Now prepare and write halos to HDF5 (BATCH WRITE for performance)
   for (n = 0; n < SageConfig.NOUT; n++) {
-    if (OutputGalCount[n] == 0) continue; /* Skip snapshots with no halos */
+    if (OutputGalCount[n] == 0)
+      continue; /* Skip snapshots with no halos */
 
-    /* Allocate array for batch writing */
-    struct HaloOutput *halo_batch = malloc(OutputGalCount[n] * sizeof(struct HaloOutput));
+    /* Allocate array for batch writing using tracked memory allocation */
+    struct HaloOutput *halo_batch = (struct HaloOutput *)mymalloc_cat(
+        OutputGalCount[n] * sizeof(struct HaloOutput), MEM_IO);
     if (halo_batch == NULL) {
-      FATAL_ERROR("Memory allocation failed for HaloOutput batch array (%d halos, %zu bytes)",
-                  OutputGalCount[n], OutputGalCount[n] * sizeof(struct HaloOutput));
+      FATAL_ERROR("Memory allocation failed for HaloOutput batch array (%d "
+                  "halos, %zu bytes)",
+                  OutputGalCount[n],
+                  OutputGalCount[n] * sizeof(struct HaloOutput));
     }
 
     /* Prepare all halos for this snapshot */
     int batch_idx = 0;
     for (i = 0; i < NumProcessedHalos; i++) {
       if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
-        prepare_halo_for_output(filenr, tree, &ProcessedHalos[i], &halo_batch[batch_idx]);
+        prepare_halo_for_output(filenr, tree, &ProcessedHalos[i],
+                                &halo_batch[batch_idx]);
         batch_idx++;
 
         /* Increment halo counters */
@@ -804,12 +814,12 @@ void save_halos_hdf5(int filenr, int tree) {
       write_hdf5_halo_batch(halo_batch, batch_idx, n, filenr);
     }
 
-    /* Free batch array */
-    free(halo_batch);
+    /* Free batch array using tracked memory deallocation */
+    myfree(halo_batch);
   }
 
-  // Free the workspace
-  free(OutputGalOrder);
+  /* Free the workspace using tracked memory deallocation */
+  myfree(OutputGalOrder);
 }
 
 void free_hdf5_ids(void) {

@@ -14,8 +14,8 @@
 - **Consistent Error Handling**: Comprehensive logging and error reporting
 - **Integrated Visualization**: Dedicated plotting system for halo properties and distributions
 - **Well-Structured Code**: Organized headers and reduced global variable dependencies
-- **Numerical Stability**: Enhanced handling of floating-point operations
-- **Cross-Platform I/O**: Improved error checking and platform compatibility
+- **Numerical Stability**: Robust handling of floating-point operations
+- **Cross-Platform I/O**: Robust error checking and platform compatibility
 - **Extensive Documentation**: Detailed inline documentation of algorithms and implementation
 
 ## Quick Start
@@ -203,7 +203,7 @@ PartMass               0.0860657
 %------------------------------------------
 %------------------------------------------
 % All baryonic physics parameters removed.
-% SAGE now operates as a DM-only halo tracker.
+% SAGE operates as a DM-only halo tracker.
 ```
 
 Note: A full example parameter file can be found in the `input` directory.
@@ -223,6 +223,7 @@ The SAGE codebase is organized around these key components:
   - `io_tree.c`: Tree loading and management
   - `io_save_binary.c`: Binary output format
   - `io_save_hdf5.c`: HDF5 output format
+  - `io_save_util.c`: Shared output utilities for both binary and HDF5 formats
   - I/O wrappers (`myfread`, `myfwrite`, `myfseek`) provide endianness-aware reads/writes using the C standard library. There is no custom buffering layer.
 
 - **Utility Files**: Helper functions
@@ -260,8 +261,8 @@ SAGE includes a code formatting script to maintain consistent coding style:
 SAGE includes a plotting system (`sage-plot`) for analyzing halo properties. Located in `output/sage-plot/`, this tool provides:
 
 - **6 halo plot types** covering halo mass functions, occupation statistics, spin/velocity distributions, and spatial distributions
-- **Physics plots archived**: 15 galaxy-physics plots moved to `figures/archive/` for potential future use
-- **Enhanced default behavior**: Generates both snapshot and evolution plots automatically
+- **Physics plots archived**: 15 galaxy-physics plots available in `figures/archive/` for potential future use
+- **Default behavior**: Generates both snapshot and evolution plots automatically
 - **Cross-directory execution**: Works from any directory with robust path resolution
 - **Consistent styling** and interfaces across all visualizations
 - **Robust parameter parsing**: Handles comments, arrow notation, and various file formats
@@ -274,7 +275,7 @@ Basic usage:
 # Activate the virtual environment first
 source sage_venv/bin/activate
 
-# Generate all halo plots (both snapshot and evolution - new default!)
+# Generate all halo plots (both snapshot and evolution)
 python output/sage-plot/sage-plot.py --param-file=input/millennium.par
 
 # Generate only snapshot plots (5 plots)

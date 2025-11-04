@@ -67,7 +67,7 @@ source sage_venv/bin/activate
 cd output/sage-plot
 ./test_plotting.sh
 
-# Generate all halo plots (both snapshot and evolution - new default behavior)
+# Generate all halo plots (both snapshot and evolution - default behavior)
 python sage-plot.py --param-file=../../input/millennium.par
 
 # Generate specific plots
@@ -79,7 +79,7 @@ python sage-plot.py --param-file=../../input/millennium.par --snapshot-plots
 # Generate only evolution plots (1 halo plot)
 python sage-plot.py --param-file=../../input/millennium.par --evolution-plots
 
-# Cross-directory execution now works from anywhere
+# Cross-directory execution works from anywhere
 cd ../..
 python output/sage-plot/sage-plot.py --param-file=input/millennium.par --plots=halo_mass_function
 
@@ -102,6 +102,7 @@ deactivate
 - **io_tree_hdf5.c**: HDF5 format tree reader (Genesis format)
 - **io_save_binary.c**: Binary output format writer (halo properties only)
 - **io_save_hdf5.c**: HDF5 output format writer (halo properties only, 24 fields)
+- **io_save_util.c**: Shared output utilities for both binary and HDF5 formats
   - I/O wrappers (`myfread`, `myfwrite`, `myfseek`) handle endianness and errors and call the C standard library (fread/fwrite/fseek). There is no custom buffering layer.
 
 ### Utilities
@@ -134,13 +135,13 @@ deactivate
 5. **State Management**: Single source of truth via globals for runtime state
 
 ### Plotting System (output/sage-plot/)
-- **sage-plot.py**: Central plotting script with enhanced command-line interface
+- **sage-plot.py**: Central plotting script with comprehensive command-line interface
 - **figures/**: Modular plot implementations (6 halo plot types)
   - 5 snapshot plots: halo_mass_function, halo_occupation, spin_distribution, velocity_distribution, spatial_distribution
   - 1 evolution plot: hmf_evolution (halo mass function evolution)
   - **figures/archive/**: 15 galaxy-physics plots archived for potential future use
 - **snapshot_redshift_mapper.py**: Handles snapshot-redshift conversions with robust path resolution
-- **Enhanced Features**:
+- **Features**:
   - Default behavior generates both snapshot and evolution plots
   - Cross-directory execution with automatic path resolution
   - Robust parameter file parsing (handles comments, arrow notation)

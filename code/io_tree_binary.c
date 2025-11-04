@@ -112,7 +112,8 @@ void load_tree_table_binary(int32_t filenr) {
   if (Ntrees > 0) {
     InputTreeFirstHalo[0] = 0;
     for (i = 1; i < Ntrees; i++)
-      InputTreeFirstHalo[i] = InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
+      InputTreeFirstHalo[i] =
+          InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
   }
 }
 

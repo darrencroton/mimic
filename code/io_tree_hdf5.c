@@ -117,11 +117,13 @@ void load_tree_table_hdf5(int filenr) {
 
   InputTreeNHalos = mymalloc(sizeof(int) * Ntrees);
 
-  status = read_attribute_int(hdf5_file, "/Header",
-                              metadata_names.name_InputTreeNHalos, InputTreeNHalos);
+  status =
+      read_attribute_int(hdf5_file, "/Header",
+                         metadata_names.name_InputTreeNHalos, InputTreeNHalos);
   if (status != EXIT_SUCCESS) {
     IO_FATAL_ERROR(IO_ERROR_HDF5, "read_attribute", buf,
-                   "Failed to read InputTreeNHalos attribute (status=%d)", status);
+                   "Failed to read InputTreeNHalos attribute (status=%d)",
+                   status);
   }
 
   InputTreeFirstHalo = mymalloc(sizeof(int) * Ntrees);

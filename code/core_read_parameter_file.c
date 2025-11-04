@@ -69,7 +69,7 @@ void read_parameter_file(char *fname) {
   char buf3[MAX_STRING_LEN];    // Extra (for comments)
   int i, done;
   int errorFlag = 0;
-  char my_treetype[MAX_STRING_LEN]; // Special handling for tree type
+  char my_treetype[MAX_STRING_LEN];     // Special handling for tree type
   char my_outputformat[MAX_STRING_LEN]; // Special handling for output format
 
   // Get parameter table
