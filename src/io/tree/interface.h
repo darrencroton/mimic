@@ -2,7 +2,7 @@
 #define IO_TREE_H
 
 /* Functions for tree I/O operations */
-void load_tree(int filenr, int treenr, enum Valid_TreeTypes TreeType);
+void load_tree(int treenr, enum Valid_TreeTypes TreeType);
 void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType);
 void free_tree_table(enum Valid_TreeTypes my_TreeType);
 void free_halos_and_tree(void);

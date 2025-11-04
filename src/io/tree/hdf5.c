@@ -173,7 +173,6 @@ void load_tree_table_hdf5(int filenr) {
 /**
  * @brief   Loads a specific merger tree from an HDF5 file
  *
- * @param   filenr    File number containing the tree
  * @param   treenr    Index of the tree to load
  *
  * This function reads the halo data for a specific merger tree from
@@ -189,9 +188,7 @@ void load_tree_table_hdf5(int filenr) {
  * The halos are stored in the global Halo array for processing by the
  * SAGE model.
  */
-void load_tree_hdf5(int32_t filenr, int32_t treenr) {
-  /* Parameter unused - file is already opened by load_tree_table_hdf5 */
-  (void)filenr;
+void load_tree_hdf5(int32_t treenr) {
 
   char dataset_name[MAX_STRING_LEN + 1];
   int32_t NHalos_ThisTree, status, halo_idx, dim;

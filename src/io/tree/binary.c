@@ -120,7 +120,6 @@ void load_tree_table_binary(int32_t filenr) {
 /**
  * @brief   Loads a specific merger tree from a binary file
  *
- * @param   filenr    File number containing the tree
  * @param   treenr    Index of the tree to load
  *
  * This function reads the halo data for a specific merger tree from
@@ -135,9 +134,7 @@ void load_tree_table_binary(int32_t filenr) {
  * The halos are stored in the global Halo array for processing by the
  * SAGE model.
  */
-void load_tree_binary(int32_t filenr, int32_t treenr) {
-  /* Parameter unused - file is already opened by load_tree_table_binary */
-  (void)filenr;
+void load_tree_binary(int32_t treenr) {
 
   // must have an FD
   assert(load_fd);

@@ -323,7 +323,7 @@ int main(int argc, char **argv) {
 
       /* Set the current tree ID and load the tree */
       TreeID = treenr;
-      load_tree(filenr, treenr, SageConfig.TreeType);
+      load_tree(treenr, SageConfig.TreeType);
 
       /* Random seed setting removed - not actually used in computation */
 

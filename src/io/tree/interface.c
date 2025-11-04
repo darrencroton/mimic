@@ -217,18 +217,18 @@ void free_tree_table(enum Valid_TreeTypes my_TreeType) {
  * ensuring efficient memory usage while providing sufficient space for the
  * objects that will be created during processing.
  */
-void load_tree(int filenr, int treenr, enum Valid_TreeTypes my_TreeType) {
+void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
   int32_t i;
 
   switch (my_TreeType) {
 
 #ifdef HDF5
   case genesis_lhalo_hdf5:
-    load_tree_hdf5(filenr, treenr);
+    load_tree_hdf5(treenr);
     break;
 #endif
   case lhalo_binary:
-    load_tree_binary(filenr, treenr);
+    load_tree_binary(treenr);
     break;
 
   default:

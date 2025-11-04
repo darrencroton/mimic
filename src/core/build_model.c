@@ -93,8 +93,7 @@ void build_halo_tree(int halonr, int tree) {
       fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
     }
 
-    process_halo_evolution(InputTreeHalos[halonr].FirstHaloInFOFgroup, ngal,
-                           tree);
+    process_halo_evolution(InputTreeHalos[halonr].FirstHaloInFOFgroup, ngal);
   }
 }
 
@@ -379,18 +378,12 @@ int join_progenitor_halos(int halonr, int ngalstart) {
  * @brief   Attaches halo tracking structures to halos for output
  *
  * @param   ngal          Total number of halos in this structure
- * @param   centralgal    Index of the central halo
- * @param   deltaT        Time interval for the entire timestep
  *
  * This function attaches halo tracking structures to halos for output.
  * Simply copies halo structures to output array (ProcessedHalos).
  */
-void update_halo_properties(int ngal, int centralgal, double deltaT) {
+void update_halo_properties(int ngal) {
   int p, i, currenthalo, offset;
-
-  /* Parameters unused in halo-only tracking mode */
-  (void)centralgal;
-  (void)deltaT;
 
   /* Attach final list to halos */
   offset = 0;
@@ -454,21 +447,16 @@ void update_halo_properties(int ngal, int centralgal, double deltaT) {
  *
  * @param   halonr    Index of the FOF-background subhalo (main halo)
  * @param   ngal      Total number of halos to process
- * @param   tree      Index of the current merger tree
  *
  * This function updates halo properties and prepares them for output.
  * All physics integration has been removed. Simply updates halo properties
  * and attaches to output structures.
  */
-void process_halo_evolution(int halonr, int ngal,
-                            int tree) /* Note: halonr is here the FOF-background
+void process_halo_evolution(int halonr, int ngal)
+                            /* Note: halonr is here the FOF-background
                                          subhalo (i.e. main halo) */
 {
-  double deltaT;
   int centralgal;
-
-  /* Parameter unused but kept for API consistency */
-  (void)tree;
 
   /* Identify the central object for this halo */
   centralgal = FoFWorkspace[0].CentralHalo;
@@ -476,6 +464,5 @@ void process_halo_evolution(int halonr, int ngal,
          FoFWorkspace[centralgal].HaloNr == halonr);
 
   /* Update final object properties and attach them to halos */
-  deltaT = Age[FoFWorkspace[0].SnapNum] - Age[InputTreeHalos[halonr].SnapNum];
-  update_halo_properties(ngal, centralgal, deltaT);
+  update_halo_properties(ngal);
 }

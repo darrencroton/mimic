@@ -11,8 +11,8 @@ size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream);
 int myfseek(FILE *stream, long offset, int whence);
 
 void build_halo_tree(int halonr, int tree);
-void process_halo_evolution(int halonr, int ngal, int tree);
-void update_halo_properties(int ngal, int centralgal, double deltaT);
+void process_halo_evolution(int halonr, int ngal);
+void update_halo_properties(int ngal);
 int join_progenitor_halos(int halonr, int nstart);
 int find_most_massive_progenitor(int halonr);
 int copy_progenitor_halos(int halonr, int nstart, int first_occupied);
@@ -21,7 +21,7 @@ void init(void);
 void set_units(void);
 
 void load_tree_table(int filenr, enum Valid_TreeTypes TreeType);
-void load_tree(int filenr, int treenr, enum Valid_TreeTypes TreeType);
+void load_tree(int treenr, enum Valid_TreeTypes TreeType);
 void save_halos(int filenr, int tree);
 
 void prepare_halo_for_output(int filenr, int tree, struct Halo *g,
