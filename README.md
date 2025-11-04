@@ -28,7 +28,7 @@ git clone https://github.com/darrencroton/sage.git
 cd sage
 
 # Run the automated setup script
-./first_run.sh
+./scripts/first_run.sh
 
 # Compile SAGE
 make
@@ -43,7 +43,7 @@ python sage-plot.py --param-file=../../input/millennium.par
 deactivate
 ```
 
-The `first_run.sh` script will automatically:
+The `scripts/first_run.sh` script will automatically:
 - Create necessary directories (`input/data/millennium`, `output/results/millennium`)
 - Download the mini-Millennium simulation trees
 - Set up a Python virtual environment (`sage_venv`) with plotting dependencies
@@ -74,7 +74,7 @@ make
 make USE-HDF5=yes
 ```
 
-### Manual Setup (Alternative to first_run.sh)
+### Manual Setup (Alternative to scripts/first_run.sh)
 
 If you prefer to set up SAGE manually or the automated script doesn't work for your system:
 
@@ -135,11 +135,38 @@ Update `input/millennium.par` with the correct absolute paths:
 
 #### 5. Compile and Run
 ```bash
+# Basic build
 make
+
+# With HDF5 support (recommended)
+make USE-HDF5=yes
+
+# Run simulation
 ./sage input/millennium.par
 ```
 
 ## Basic Usage
+
+### Building
+
+```bash
+# Standard build
+make
+
+# With HDF5 support for reading/writing HDF5 files
+make USE-HDF5=yes
+
+# With MPI support for parallel processing
+make USE-MPI=yes
+
+# Clean build artifacts
+make clean
+
+# Remove build directory only (keep executable)
+make tidy
+```
+
+Build artifacts are now organized in the `build/` directory with object files in `build/obj/` and dependency files in `build/deps/`.
 
 ### Running a Simulation
 
@@ -244,16 +271,16 @@ SAGE includes a code formatting script to maintain consistent coding style:
 
 ```bash
 # Format all code (C and Python)
-./beautify.sh
+./scripts/beautify.sh
 
 # Format only C code
-./beautify.sh --c-only
+./scripts/beautify.sh --c-only
 
 # Format only Python code
-./beautify.sh --py-only
+./scripts/beautify.sh --py-only
 
 # See more options
-./beautify.sh --help
+./scripts/beautify.sh --help
 ```
 
 ## Visualization System
@@ -297,7 +324,13 @@ deactivate
 
 ## Sample Data
 
-For testing purposes, treefiles for the [mini-Millennium Simulation](http://arxiv.org/abs/astro-ph/0504097) are automatically downloaded and configured by the `first_run.sh` script. You can also manually download them from [here](https://data-portal.hpc.swin.edu.au/dataset/mini-millennium-simulation).
+For testing purposes, treefiles for the [mini-Millennium Simulation](http://arxiv.org/abs/astro-ph/0504097) are automatically downloaded and configured by the `scripts/first_run.sh` script. You can also manually download them from [here](https://data-portal.hpc.swin.edu.au/dataset/mini-millennium-simulation).
+
+## Documentation
+
+- **Architecture**: See [docs/architecture/](docs/architecture/) for system design and vision
+- **Developer Guide**: See [docs/developer/](docs/developer/) for coding standards and getting started
+- **User Guide**: See [docs/user/](docs/user/) for usage instructions (coming soon)
 
 ## Citations
 

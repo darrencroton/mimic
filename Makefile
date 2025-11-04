@@ -1,127 +1,100 @@
-# =============================================================================
-# SAGE Makefile - Portable version for GNU and BSD make
-# =============================================================================
-
-# --- Configuration Flags ---
-# To enable MPI for parallel processing, uncomment the following line:
-# USE-MPI = yes
-
-# To enable HDF5 for reading/writing HDF5-format files, uncomment the following line:
-USE-HDF5 = yes
-
-
-# --- Compiler and Flags ---
-
-# Default compiler is 'cc'. This will be overridden if MPI is enabled.
-CC = cc
-
-# Compiler flags:
-# -g: Include debugging symbols
-# -O2: Level 2 optimization
-# -Wall: Enable all standard warnings
-# -I./code: Add the 'code' directory to the include path
-# -MMD -MP: Generate dependency files (.d) for automatic header tracking (GNU compatible)
-OPTIMIZE := -g -O2 -Wall
-CFLAGS   := $(OPTIMIZE) -I./code -MMD -MP
-
-# Linker flags and libraries
-LDFLAGS :=
-LIBS    := -lm
-
-
-# --- Source, Object, and Executable Definitions ---
-
-# Name of the final executable
-EXEC := sage
+# Mimic Makefile
+EXEC = sage
 
 # Directories
-SRC_DIR := ./code
+SRC_DIR = src
+BUILD_DIR = build
+OBJ_DIR = $(BUILD_DIR)/obj
+DEP_DIR = $(BUILD_DIR)/deps
 
-# Automatically find all C source files using a portable shell command
+# Source files (recursive find)
 SOURCES := $(shell find $(SRC_DIR) -name '*.c')
+OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES))
+DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
 
-# Generate object file names from source files
-OBJS := $(SOURCES:.c=.o)
+# Compiler
+CC ?= cc
+CFLAGS = -g -O2 -Wall -Wextra
+CFLAGS += -I$(SRC_DIR)/include
+CFLAGS += -I$(SRC_DIR)/core
+CFLAGS += -I$(SRC_DIR)/io
+CFLAGS += -I$(SRC_DIR)/util
+CFLAGS += -I$(SRC_DIR)/modules
 
-# Generate dependency file names (for header tracking)
-DEPS := $(OBJS:.o=.d)
+# Dependency generation
+CFLAGS += -MMD -MP
 
+# Libraries
+LDFLAGS =
+LIBS = -lm
 
-# --- Conditional Compilation: MPI ---
+# Optional: HDF5 support
+ifdef USE-HDF5
+    CFLAGS += -DHDF5
+    HDF5_PREFIX ?= /opt/homebrew
+    CFLAGS += -I$(HDF5_PREFIX)/include
+    LDFLAGS += -L$(HDF5_PREFIX)/lib
+    LIBS += -lhdf5_hl -lhdf5
+else
+    # If HDF5 is not enabled, exclude HDF5-specific source files
+    SOURCES := $(filter-out %hdf5.c,$(SOURCES))
+    OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES))
+    DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
+endif
 
+# Optional: MPI support
 ifdef USE-MPI
-    CC := mpicc
+    CC = mpicc
     CFLAGS += -DMPI
 endif
 
+# Git version tracking
+GIT_VERSION_H = $(SRC_DIR)/include/git_version.h
 
-# --- Conditional Compilation: HDF5 ---
+# Build targets
+.PHONY: all clean tidy help
 
-ifdef USE-HDF5
-    # HDF5 paths for Homebrew on macOS (adjust for other systems)
-    # For Linux with apt: typically /usr/include and /usr/lib
-    # For custom installs: modify paths below or use h5cc compiler wrapper
-    HDF5INCL := -I/opt/homebrew/include
-    HDF5LIB := -L/opt/homebrew/lib -lhdf5_hl -lhdf5
-
-    CFLAGS += $(HDF5INCL) -DHDF5
-    LIBS += $(HDF5LIB)
-else
-    # If HDF5 is not used, filter out HDF5-specific source files
-    OBJS := $(filter-out $(SRC_DIR)/io_%hdf5.o, $(OBJS))
-endif
-
-
-# --- Git Versioning ---
-
-GIT_VERSION_IN := ./code/git_version.h.in
-GIT_VERSION_H  := ./code/git_version.h
-
-
-# =============================================================================
-# Build Targets
-# =============================================================================
-
-# The default target when running 'make'
-.PHONY: all
 all: $(EXEC)
 
-# Rule to link the final executable
-$(EXEC): $(OBJS)
-	@echo "==> Linking executable: $@"
-	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LIBS) -o $@
-	@echo "==> Build complete: ./$(EXEC)"
+$(GIT_VERSION_H): .git/HEAD .git/index
+	@echo "Generating git version..."
+	@echo "#ifndef GIT_VERSION_H" > $@
+	@echo "#define GIT_VERSION_H" >> $@
+	@echo "#define GIT_COMMIT \"$$(git rev-parse HEAD 2>/dev/null || echo 'unknown')\"" >> $@
+	@echo "#define GIT_BRANCH \"$$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')\"" >> $@
+	@echo "#define GIT_DATE \"$$(git log -1 --format=%cd --date=short 2>/dev/null || echo 'unknown')\"" >> $@
+	@echo "#define BUILD_DATE \"$$(date '+%Y-%m-%d')\"" >> $@
+	@echo "#endif" >> $@
 
-# Rule to generate the Git version header.
-# Marked as .PHONY to ensure it's regenerated on every build.
-.PHONY: $(GIT_VERSION_H)
-$(GIT_VERSION_H): $(GIT_VERSION_IN)
-	@echo "==> Generating Git version header"
-	@sed -e "s/@GIT_COMMIT_HASH@/$$(git rev-parse HEAD)/g" \
-	     -e "s/@GIT_BRANCH_NAME@/$$(git rev-parse --abbrev-ref HEAD)/g" \
-	     $< > $@
+$(EXEC): $(OBJECTS)
+	@echo "Linking $@..."
+	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+	@echo "Build complete"
 
-# This rule ensures the git header is created before any compilation starts.
-# It's a dependency for all object files.
-$(OBJS): $(GIT_VERSION_H)
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(GIT_VERSION_H)
+	@mkdir -p $(dir $@) $(dir $(DEP_DIR)/$*.d)
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) -MF $(DEP_DIR)/$*.d -c $< -o $@
 
-# Include all the auto-generated dependency files.
-# The '-' prefix tells Make to ignore errors if the files don't exist yet.
 -include $(DEPS)
 
-
-# =============================================================================
-# Cleaning Targets
-# =============================================================================
-
-.PHONY: clean tidy
-
-# 'clean' removes all build artifacts, including the executable and git header
 clean:
-	@echo "==> Cleaning all build files"
-	rm -f $(OBJS) $(DEPS) $(EXEC) $(GIT_VERSION_H)
+	@echo "Cleaning..."
+	rm -rf $(BUILD_DIR) $(EXEC) $(GIT_VERSION_H)
+	@echo "Clean complete"
 
-# 'tidy' removes object files and the executable, but keeps the git header
 tidy:
-	@echo "==> Tidying build files"
-	rm -f $(OBJS) $(DEPS) $(EXEC)
+	@echo "Removing build artifacts..."
+	rm -rf $(BUILD_DIR)
+
+help:
+	@echo "Mimic Build System"
+	@echo ""
+	@echo "Targets:"
+	@echo "  make              - Build executable"
+	@echo "  make clean        - Remove all build artifacts"
+	@echo "  make tidy         - Remove build directory only"
+	@echo ""
+	@echo "Options:"
+	@echo "  make USE-HDF5=yes - Enable HDF5 support"
+	@echo "  make USE-MPI=yes  - Enable MPI support"

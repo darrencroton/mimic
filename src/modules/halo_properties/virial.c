@@ -1,0 +1,162 @@
+/**
+ * @file    model_misc.c
+ * @brief   Miscellaneous utility functions for halo tracking
+ *
+ * This file contains various utility functions used throughout the SAGE code
+ * for halo initialization, property calculation, and basic operations.
+ * It includes functions for calculating halo properties (mass, velocity,
+ * radius) and initializing halo tracking structures.
+ *
+ * Key functions:
+ * - init_halo): Initializes a new halo tracking object
+ * - get_virial_mass/velocity/radius(): Calculate halo virial properties
+ */
+
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "allvars.h"
+#include "proto.h"
+
+/**
+ * @brief   Initializes a new halo tracking object with default properties
+ *
+ * @param   p       Index in the Gal array (name retained for compatibility)
+ * @param   halonr  Index of the halo in the Halo array
+ *
+ * This function initializes a new halo tracking object with default values.
+ * It sets up the object's position, velocity, and halo properties based on
+ * the input merger tree halo data. Each object is assigned a unique
+ * number for identification and tracking through cosmic time.
+ */
+void init_halo(int p, int halonr) {
+  int j;
+
+  assert(halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup);
+
+  FoFWorkspace[p].Type = 0;
+
+  FoFWorkspace[p].HaloNr = HaloCounter;
+  HaloCounter++;
+
+  FoFWorkspace[p].HaloNr = halonr;
+  FoFWorkspace[p].MostBoundID = InputTreeHalos[halonr].MostBoundID;
+  FoFWorkspace[p].SnapNum = InputTreeHalos[halonr].SnapNum - 1;
+
+  FoFWorkspace[p].MergeStatus = 0;
+  FoFWorkspace[p].mergeIntoID = -1;
+  FoFWorkspace[p].mergeIntoSnapNum = -1;
+  FoFWorkspace[p].dT = -1.0;
+
+  for (j = 0; j < 3; j++) {
+    FoFWorkspace[p].Pos[j] = InputTreeHalos[halonr].Pos[j];
+    FoFWorkspace[p].Vel[j] = InputTreeHalos[halonr].Vel[j];
+  }
+
+  FoFWorkspace[p].Len = InputTreeHalos[halonr].Len;
+  FoFWorkspace[p].Vmax = InputTreeHalos[halonr].Vmax;
+  FoFWorkspace[p].Vvir = get_virial_velocity(halonr);
+  FoFWorkspace[p].Mvir = get_virial_mass(halonr);
+  FoFWorkspace[p].Rvir = get_virial_radius(halonr);
+
+  FoFWorkspace[p].deltaMvir = 0.0;
+
+  FoFWorkspace[p].MergTime = 999.9;
+
+  // infall properties
+  FoFWorkspace[p].infallMvir = -1.0;
+  FoFWorkspace[p].infallVvir = -1.0;
+  FoFWorkspace[p].infallVmax = -1.0;
+}
+
+/**
+ * @brief   Returns the virial mass of a halo
+ *
+ * @param   halonr  Index of the halo in the Halo array
+ * @return  Virial mass in 10^10 Msun/h
+ *
+ * This function returns the virial mass of a halo, using the spherical
+ * overdensity mass if available for central halos. For satellite subhalos
+ * or when spherical overdensity mass is not available, it returns the mass
+ * estimated from particle counts.
+ *
+ * For central halos (FirstHaloInFOFgroup), it uses the Mvir property if
+ * available. Otherwise, it calculates mass as number of particles × particle
+ * mass.
+ */
+double get_virial_mass(int halonr) {
+  if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup &&
+      InputTreeHalos[halonr].Mvir >= 0.0)
+    return InputTreeHalos[halonr]
+        .Mvir; /* take spherical overdensity mass estimate */
+  else
+    return InputTreeHalos[halonr].Len * SageConfig.PartMass;
+}
+
+/**
+ * @brief   Calculates the virial velocity of a halo
+ *
+ * @param   halonr  Index of the halo in the Halo array
+ * @return  Virial velocity in km/s
+ *
+ * This function calculates the virial velocity of a halo based on its
+ * virial mass and radius using the formula:
+ * Vvir = sqrt(G * Mvir / Rvir)
+ *
+ * The virial velocity represents the circular velocity at the virial radius
+ * and is an important parameter for many halo formation processes.
+ *
+ * Returns 0.0 if the virial radius is zero or negative.
+ */
+double get_virial_velocity(int halonr) {
+  double Rvir;
+
+  Rvir = get_virial_radius(halonr);
+
+  if (Rvir > 0.0)
+    return sqrt(G * get_virial_mass(halonr) / Rvir);
+  else
+    return 0.0;
+}
+
+/**
+ * @brief   Calculates the virial radius of a halo
+ *
+ * @param   halonr  Index of the halo in the Halo array
+ * @return  Virial radius in Mpc/h
+ *
+ * This function calculates the virial radius of a halo based on its
+ * virial mass and the critical density of the universe at the halo's redshift.
+ * The virial radius is defined as the radius within which the mean density
+ * is 200 times the critical density.
+ *
+ * The calculation uses the formula:
+ * Rvir = [3 * Mvir / (4 * π * 200 * ρcrit)]^(1/3)
+ *
+ * Where ρcrit is the critical density at the halo's redshift, calculated
+ * using the cosmological parameters.
+ *
+ * Note: For certain simulations like Bolshoi, the Rvir property from the
+ * halo catalog could be used directly instead of this calculation.
+ */
+double get_virial_radius(int halonr) {
+  // return InputTreeHalos[halonr].Rvir;  // Used for Bolshoi
+
+  double zplus1, hubble_of_z_sq, rhocrit, fac;
+
+  zplus1 = 1 + ZZ[InputTreeHalos[halonr].SnapNum];
+  hubble_of_z_sq =
+      Hubble * Hubble *
+      (SageConfig.Omega * zplus1 * zplus1 * zplus1 +
+       (1 - SageConfig.Omega - SageConfig.OmegaLambda) * zplus1 * zplus1 +
+       SageConfig.OmegaLambda);
+
+  rhocrit = 3 * hubble_of_z_sq / (8 * M_PI * G);
+  fac = 1 / (200 * 4 * M_PI / 3.0 * rhocrit);
+
+  return cbrt(get_virial_mass(halonr) * fac);
+}

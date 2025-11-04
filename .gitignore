@@ -1,15 +1,37 @@
+# Executables
 sage
+
+# Data and results
 input/data
 output/results
+
+# Archive and scratch space
 ignore/
 archive/
+
+# Build artifacts
+build/
 *.o
 *.d
+
+# Generated files
+src/include/git_version.h
+
+# Editor artifacts
 *.*~
+*.swp
+*.swo
+*~
+
+# IDE files
+.vscode/
+.idea/
+.DS_Store
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-code/git_version.h
 
 # Claude Code session data
 .claude/

@@ -9,7 +9,7 @@ For new repository clones, use the automated setup script:
 
 ```bash
 # Complete setup from fresh clone
-./first_run.sh
+./scripts/first_run.sh
 
 # This creates directories, downloads data, sets up Python environment
 # Creates sage_venv/ virtual environment with plotting dependencies
@@ -38,13 +38,13 @@ make tidy
 
 ```bash
 # Format all C and Python code
-./beautify.sh
+./scripts/beautify.sh
 
 # Format only C code (requires clang-format)
-./beautify.sh --c-only
+./scripts/beautify.sh --c-only
 
 # Format only Python code (requires black and isort)
-./beautify.sh --py-only
+./scripts/beautify.sh --py-only
 ```
 
 ## Running SAGE
@@ -89,43 +89,56 @@ deactivate
 
 ## Code Architecture
 
+The codebase follows a hierarchical structure under `src/`:
+
+### Directory Structure
+- **src/core/**: Core execution (main, initialization, model building, parameter reading)
+- **src/io/**: Input/output operations
+  - **tree/**: Tree readers (interface, binary, HDF5 formats)
+  - **output/**: Output writers (binary, HDF5, utilities)
+- **src/util/**: Utility functions (memory, error, numeric, version, etc.)
+- **src/modules/**: Physics modules (halo_properties with virial calculations)
+- **src/include/**: Public headers (types, globals, constants, config, proto)
+
 ### Core Execution Flow
-- **main.c**: Program entry point, handles initialization, file processing loop, and cleanup
-- **core_init.c**: System initialization, memory setup, parameter validation
-- **core_read_parameter_file.c**: Parameter file parsing and configuration setup
-- **core_build_model.c**: Halo tracking and property updates through merger trees
-- **model_misc.c**: Halo initialization and virial property calculations
+- **src/core/main.c**: Program entry point, handles initialization, file processing loop, and cleanup
+- **src/core/init.c**: System initialization, memory setup, parameter validation
+- **src/core/read_parameter_file.c**: Parameter file parsing and configuration setup
+- **src/core/build_model.c**: Halo tracking and property updates through merger trees
+- **src/modules/halo_properties/virial.c**: Halo initialization and virial property calculations
 
 ### I/O System
-- **io_tree.c**: Master tree loading interface
-- **io_tree_binary.c**: Binary format tree reader (LHalo format)
-- **io_tree_hdf5.c**: HDF5 format tree reader (Genesis format)
-- **io_save_binary.c**: Binary output format writer (halo properties only)
-- **io_save_hdf5.c**: HDF5 output format writer (halo properties only, 24 fields)
-- **io_save_util.c**: Shared output utilities for both binary and HDF5 formats
+- **src/io/tree/interface.c**: Master tree loading interface
+- **src/io/tree/binary.c**: Binary format tree reader (LHalo format)
+- **src/io/tree/hdf5.c**: HDF5 format tree reader (Genesis format)
+- **src/io/output/binary.c**: Binary output format writer (halo properties only)
+- **src/io/output/hdf5.c**: HDF5 output format writer (halo properties only, 24 fields)
+- **src/io/output/util.c**: Shared output utilities for both binary and HDF5 formats
   - I/O wrappers (`myfread`, `myfwrite`, `myfseek`) handle endianness and errors and call the C standard library (fread/fwrite/fseek). There is no custom buffering layer.
 
 ### Utilities
-- **util_memory.c**: Custom memory management with leak detection and categorization
-- **util_error.c**: Comprehensive error handling and logging system
-- **util_numeric.c**: Numerical stability functions and safe math operations
-- **util_parameters.c**: Parameter processing and validation
-- **util_integration.c**: Numerical integration routines
+- **src/util/memory.c**: Custom memory management with leak detection and categorization
+- **src/util/error.c**: Comprehensive error handling and logging system
+- **src/util/numeric.c**: Numerical stability functions and safe math operations
+- **src/util/parameters.c**: Parameter processing and validation
+- **src/util/integration.c**: Numerical integration routines
+- **src/util/io.c**: File I/O utilities (file copying, etc.)
+- **src/util/version.c**: Version tracking and metadata generation
 
 ### Data Structures
-- **types.h**: Core data structures - three-tier halo tracking architecture
+- **src/include/types.h**: Core data structures - three-tier halo tracking architecture
   - `struct RawHalo`: Immutable merger tree input data (from simulation files)
   - `struct Halo`: Mutable halo tracking structure (24 fields, core processing)
   - `struct HaloOutput`: Output format structure (24 fields, file writing)
   - `struct HaloAuxData`: Auxiliary processing metadata
   - `struct SageConfig`: Configuration parameters
   - Runtime simulation state is tracked via individual global variables declared in `globals.h` (e.g., `Ntrees`, `FileNum`, `TreeID`, `NumProcessedHalos`).
-- **globals.h**: Global variable declarations for halo arrays
+- **src/include/globals.h**: Global variable declarations for halo arrays
   - `InputTreeHalos`: Raw merger tree input (RawHalo*)
   - `FoFWorkspace`: Temporary FoF processing workspace (Halo*)
   - `ProcessedHalos`: Permanent storage for current tree (Halo*)
-- **constants.h**: Numerical constants
-- **config.h**: Compile-time configuration options
+- **src/include/constants.h**: Numerical constants
+- **src/include/config.h**: Compile-time configuration options
 
 ### Key Design Patterns
 1. **Three-Tier Halo Architecture**: Clear separation between input (InputTreeHalos), processing (FoFWorkspace), and storage (ProcessedHalos)
@@ -174,11 +187,15 @@ Call `print_allocated()` or `print_allocated_by_category()` to check for memory 
 - `ProcessedHalos[]`: Accumulates all processed halos for current tree (written to output)
 
 ### Documentation Standards
-Follow the documentation template in `code/doc_standards.md`:
+Follow the documentation template in `docs/developer/coding-standards.md`:
 - Function headers with @brief, @param, @return
 - File headers explaining purpose and key functions
 - Inline comments for complex calculations
 - Units explicitly stated for physical quantities
+
+See also:
+- **docs/architecture/vision.md**: Architectural principles and future vision
+- **docs/developer/getting-started.md**: Developer setup and workflow
 
 ## Development Guidelines
 - All work to highest professional coding standards
