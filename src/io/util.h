@@ -33,7 +33,7 @@ int detect_host_endian(void);
 #define MIMIC_HOST_ENDIAN detect_host_endian()
 #endif
 
-/* Define the magic number for MIMIC binary files */
+/* Define the magic number for Mimic binary files */
 #define MIMIC_MAGIC_NUMBER 0x4D494D49 /* "MIMI" in ASCII (4 bytes for uint32_t) */
 
 /* Current binary file format version */

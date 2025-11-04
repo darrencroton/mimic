@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# MIMIC First Run Setup Script
-# This script sets up MIMIC from a fresh GitHub clone by:
+# Mimic First Run Setup Script
+# This script sets up Mimic from a fresh GitHub clone by:
 # 1. Creating necessary directories
 # 2. Downloading mini-Millennium simulation trees
 # 3. Setting up Python plotting environment
@@ -10,11 +10,11 @@
 set -e  # Exit on any error
 
 echo "=========================================="
-echo "MIMIC First Run Setup Script"
+echo "Mimic First Run Setup Script"
 echo "=========================================="
 echo ""
-echo "Welcome to MIMIC - Halo-only tracking based on Mimic!"
-echo "This script will set up MIMIC from a fresh GitHub clone."
+echo "Welcome to Mimic - Halo-only tracking based on Mimic!"
+echo "This script will set up Mimic from a fresh GitHub clone."
 echo ""
 echo "For the latest updates, visit: https://github.com/darrencroton/sage"
 echo ""
@@ -26,13 +26,13 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT"
 
 if [[ ! -f "README.md" ]] || [[ ! -f "Makefile" ]] || [[ ! -d "src" ]]; then
-    echo "ERROR: This script must be run from the scripts/ directory in the MIMIC repository."
+    echo "ERROR: This script must be run from the scripts/ directory in the Mimic repository."
     echo "Current directory: $(pwd)"
     echo "Please ensure you're running: ./scripts/first_run.sh"
     exit 1
 fi
 
-echo "✓ Confirmed we're in the MIMIC root directory: $REPO_ROOT"
+echo "✓ Confirmed we're in the Mimic root directory: $REPO_ROOT"
 echo ""
 
 # Step 1: Create directory structure
@@ -290,11 +290,11 @@ if [[ ! -d "output/results/millennium" ]]; then
     VALIDATION_ERRORS+=("Output directory not created")
 fi
 
-# Check if MIMIC binary exists (optional)
+# Check if Mimic binary exists (optional)
 if [[ -f "mimic" ]]; then
-    echo "✓ MIMIC binary found"
+    echo "✓ Mimic binary found"
 else
-    echo "ℹ MIMIC binary not found - you'll need to compile it with 'make'"
+    echo "ℹ Mimic binary not found - you'll need to compile it with 'make'"
 fi
 
 if [[ ${#VALIDATION_ERRORS[@]} -eq 0 ]]; then
@@ -308,14 +308,14 @@ fi
 
 echo ""
 echo "=========================================="
-echo "MIMIC Setup Complete!"
+echo "Mimic Setup Complete!"
 echo "=========================================="
 echo ""
 echo "Next steps:"
-echo "1. Compile MIMIC:"
+echo "1. Compile Mimic:"
 echo "   make"
 echo ""
-echo "2. Run MIMIC:"
+echo "2. Run Mimic:"
 echo "   ./mimic input/millennium.par"
 echo ""
 echo "3. Generate plots (using the virtual environment):"
