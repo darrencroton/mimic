@@ -2,7 +2,7 @@
 
 **Document Status**: Strategic Planning
 **Created**: 2025-11-05
-**Updated**: 2025-11-05 (clarified scope)
+**Updated**: 2025-11-05 (simplified to user-controlled module ordering)
 **Purpose**: Transform Mimic to support modular galaxy physics with metadata-driven properties
 
 ---
@@ -174,7 +174,7 @@ The transformation adds **three new layers** on top of existing infrastructure:
 
 ```c
 struct Module {
-  const char *name;              // "cooling", "star_formation", etc.
+  const char *name;              // "cooling_SD93", "star_formation_KS98", etc.
   const char *version;           // "1.0.0"
 
   // Lifecycle
@@ -184,34 +184,37 @@ struct Module {
   // Execution - THE KEY ABSTRACTION
   int (*process_galaxy)(int halonr, struct Halo *halos, int ngal);
 
-  // Dependencies
-  const char **requires;         // NULL-terminated list
+  // Runtime control
   int enabled;                   // Runtime flag from config
 };
 ```
+
+**Key simplification**: No dependency tracking. User controls execution order via parameter file.
 
 ### Registration Pattern
 
 **Auto-registration** (compile-time):
 ```c
-// In src/modules/cooling/cooling_module.c
-static struct Module cooling_module = {
-  .name = "cooling",
+// In src/modules/cooling_SD93/cooling_SD93.c
+static struct Module cooling_SD93_module = {
+  .name = "cooling_SD93",
   .version = "1.0.0",
-  .init = cooling_init,
-  .cleanup = cooling_cleanup,
-  .process_galaxy = cooling_process,
-  .requires = (const char*[]){"star_formation", NULL}  // Example dependency
+  .init = cooling_SD93_init,
+  .cleanup = cooling_SD93_cleanup,
+  .process_galaxy = cooling_SD93_process,
+  .enabled = 0  // Disabled by default, enabled from config
 };
 
 // Auto-register when compiled in
 __attribute__((constructor))
-static void register_cooling(void) {
-  register_module(&cooling_module);
+static void register_cooling_SD93(void) {
+  register_module(&cooling_SD93_module);
 }
 ```
 
 All modules in `src/modules/` auto-register this way. Core discovers them automatically.
+
+**Order-independent registration**: Modules register in any order at compile-time. Execution order determined by user at runtime.
 
 ### Execution Integration
 
@@ -233,33 +236,46 @@ void process_halo_evolution(int halonr, int ngal) {
 **Module pipeline** (new):
 ```c
 int execute_module_pipeline(int halonr, struct Halo *halos, int ngal) {
-  // Execute each enabled module in dependency order
-  for (int i = 0; i < num_modules; i++) {
-    if (!modules[i]->enabled) continue;
+  // Execute each enabled module in user-specified order
+  // Order determined by EnabledModules in parameter file
+  for (int i = 0; i < num_enabled_modules; i++) {
+    struct Module *module = enabled_modules[i];
 
-    int result = modules[i]->process_galaxy(halonr, halos, ngal);
-    if (result != 0) return result;  // Propagate errors
+    DEBUG_LOG("Executing module: %s", module->name);
+    int result = module->process_galaxy(halonr, halos, ngal);
+    if (result != 0) {
+      ERROR_LOG("Module %s failed at position %d", module->name, i);
+      return result;
+    }
   }
   return 0;
 }
 ```
+
+**Order matters**: Execution order = order in parameter file. User controls physics sequence.
 
 ### Design Decisions
 
 **1. Auto-registration vs Explicit Table**
 - **Choice**: Auto-registration with `__attribute__((constructor))`
 - **Rationale**: Modules self-register, no manual list to maintain
-- **Trade-off**: Registration order undefined (use dependency resolution)
+- **Trade-off**: Registration order undefined (but execution order from config)
 
-**2. Single-phase vs Multi-phase**
+**2. User-Controlled Ordering vs Automatic Dependency Resolution**
+- **Choice**: User specifies execution order in parameter file
+- **Rationale**:
+  - **Simpler**: No dependency graph, topological sort, or cycle detection (~100+ lines saved)
+  - **User control**: Scientists know their physics dependencies
+  - **Explicit**: Order visible in config file, not hidden in code
+  - **Flexible**: Users can experiment with different orderings
+  - **Clearer errors**: "Module X failed at position Y" vs dependency errors
+- **Trade-off**: User must understand physics ordering (but they should anyway!)
+- **Implementation**: Parse parameter file, enable modules in specified order
+
+**3. Single-phase vs Multi-phase**
 - **Choice**: Single-phase initially (one execution point per halo)
 - **Rationale**: Simpler, sufficient for most physics
 - **Extension**: Can add phases later if needed (pre/post evolution, etc.)
-
-**3. Dependency Resolution**
-- **Choice**: Simple topological sort
-- **Rationale**: Ensures correct execution order (e.g., cooling before star formation)
-- **Implementation**: Standard graph algorithm, ~100 lines
 
 ---
 
@@ -512,7 +528,9 @@ make PROFILE=all
 %----- GALAXY PHYSICS MODULES -------------
 %------------------------------------------
 
-EnabledModules    cooling,star_formation,feedback
+# Order matters! Execution order = order listed below
+# Typical physics sequence: cooling → star formation → feedback
+EnabledModules    cooling_SD93,star_formation_KS98,feedback_simple
 
 # Module-specific parameters
 Cooling_Model           sutherland_dopita_1993
@@ -526,36 +544,42 @@ Feedback_Epsilon         0.01
 - Minimal disruption
 - Can migrate to JSON later if needed for complex module config
 
+**Critical**: Order in `EnabledModules` determines execution order. User controls physics sequence.
+
 ### Module Selection Flow
 
 ```
 1. Startup: All compiled modules auto-register
-   → cooling, star_formation, feedback, mergers all register
+   → cooling_SD93, cooling_G12, star_formation_KS98, feedback_simple all register
+   → Registration order doesn't matter
 
 2. Read parameter file
-   → EnabledModules = cooling,star_formation
+   → EnabledModules = cooling_SD93,star_formation_KS98,feedback_simple
+   → Parse module names in order
 
-3. Enable configured modules, disable others
-   → cooling.enabled = true
-   → star_formation.enabled = true
-   → feedback.enabled = false (compiled but not run)
+3. Build execution pipeline in user-specified order
+   → enabled_modules[0] = cooling_SD93
+   → enabled_modules[1] = star_formation_KS98
+   → enabled_modules[2] = feedback_simple
+   → Execution order = order in parameter file
 
-4. Resolve dependencies
-   → star_formation requires cooling
-   → Execution order: cooling → star_formation
+4. Initialize enabled modules (in order)
+   → cooling_SD93.init()
+   → star_formation_KS98.init()
+   → feedback_simple.init()
 
-5. Initialize enabled modules
-   → cooling.init()
-   → star_formation.init()
+5. Main loop: Execute enabled modules (in order)
+   → cooling_SD93.process_galaxy()
+   → star_formation_KS98.process_galaxy()
+   → feedback_simple.process_galaxy()
 
-6. Main loop: Execute enabled modules only
-   → cooling.process_galaxy()
-   → star_formation.process_galaxy()
-
-7. Cleanup: Shutdown enabled modules
-   → star_formation.cleanup()
-   → cooling.cleanup()
+6. Cleanup: Shutdown enabled modules (reverse order)
+   → feedback_simple.cleanup()
+   → star_formation_KS98.cleanup()
+   → cooling_SD93.cleanup()
 ```
+
+**Key principle**: User specifies order → system executes in that order. No hidden logic.
 
 ### Memory Management
 
@@ -603,10 +627,11 @@ Disabled modules: no memory allocated, no execution overhead.
 - **Rationale**: Minimal change, users understand it
 - **Extension**: Can migrate to JSON when complexity increases
 
-**4. Automatic vs Manual Dependencies**
-- **Choice**: Automatic dependency resolution
-- **Rationale**: User just lists what they want, system figures out order
-- **Example**: Request "star_formation" → auto-enables "cooling"
+**4. User-Specified Order vs Order-Independent**
+- **Choice**: Order in parameter file determines execution order
+- **Rationale**: User controls physics, sees order clearly, can experiment
+- **Example**: `EnabledModules cooling,star_formation` executes cooling first
+- **Documentation**: Explain typical ordering requirements in module docs
 
 ---
 
@@ -617,21 +642,25 @@ Disabled modules: no memory allocated, no execution overhead.
 **Goal**: Infrastructure for galaxy physics modules (none exist yet, just the system)
 
 **Deliverables**:
-- Module registry and registration
+- Module registry and auto-registration
 - Module lifecycle management (init/cleanup)
-- Module execution pipeline
-- Dependency resolution
+- Module execution pipeline (user-ordered)
+- Parameter file parsing for module order
 
 **Changes**:
 - Move `src/modules/halo_properties/` → `src/core/halo_properties/`
-- Create `src/core/module_registry.c/h`
-- Create `src/core/module_pipeline.c/h`
+- Create `src/core/module_registry.c/h` - registration and lookup
+- Create `src/core/module_pipeline.c/h` - ordered execution
 - Add pipeline execution to `build_model.c`
 - Add module init/cleanup to `main.c`
+- Extend parameter parser to read `EnabledModules` with ordering
 
 **Validation**:
 - Core executes with zero modules → bit-identical output to current
 - Module system ready for first galaxy module
+- Order preservation: modules execute in config file order
+
+**Code simplification**: ~100 lines saved by removing dependency resolution logic.
 
 ### Phase 2: Property System (2-3 weeks)
 
@@ -662,25 +691,25 @@ Disabled modules: no memory allocated, no execution overhead.
 **Deliverables**:
 - Makefile build-time module selection (`MODULES` variable)
 - Predefined profiles (`PROFILE` variable for common models)
-- Extended .par format with `EnabledModules`
+- Extended .par format with `EnabledModules` (order-preserving)
 - Module enable/disable logic
-- Dependency resolution
+- Ordered execution pipeline
 - Conditional memory allocation
 
 **Changes**:
 - Update Makefile to support `MODULES` and `PROFILE` variables
 - Add profile definitions for common models (croton2006, henriques2015, etc.)
-- Extend parameter parser for `EnabledModules`
-- Add dependency resolution to module registry
-- Update init to respect enabled flags
-- Update execution pipeline to skip disabled modules
+- Extend parameter parser to read `EnabledModules` with order preservation
+- Build ordered execution array from config
+- Update init to respect enabled flags and order
+- Update execution pipeline to run modules in specified order
 
 **Validation**:
 - Build with specific modules → only those compiled
 - Build with PROFILE → correct module set
 - Runtime enable/disable → bit-identical when same modules enabled
 - Invalid module name → clear error message
-- Dependency auto-resolution works
+- Module order preserved: execution matches config file order
 
 ### Phase 4: First Galaxy Module (1-2 weeks)
 
@@ -752,9 +781,10 @@ Merge only after validation passes. Can revert independently.
 
 ### After Phase 1 (Module System)
 - [ ] Module registry can register 0, 1, or N modules
-- [ ] Module pipeline executes in dependency order
+- [ ] Module pipeline executes in user-specified order
 - [ ] Output identical with zero modules enabled
 - [ ] Infrastructure ready for galaxy modules
+- [ ] Order preservation: config file order = execution order
 
 ### After Phase 2 (Property System)
 - [ ] All 24 halo properties defined in YAML
@@ -766,10 +796,11 @@ Merge only after validation passes. Can revert independently.
 - [ ] Build-time module selection via `MODULES` variable works
 - [ ] Predefined profiles (`PROFILE=croton2006`) work correctly
 - [ ] Runtime enable/disable via .par file works
-- [ ] Dependency resolution works automatically
-- [ ] Clear error messages for invalid config
+- [ ] Module execution order matches config file order
+- [ ] Clear error messages for invalid config (unknown module, etc.)
 - [ ] Memory allocated only for enabled modules
 - [ ] Can switch between compiled modules without recompilation
+- [ ] Can change module ordering without recompilation
 
 ### After Phase 4 (First Galaxy Module)
 - [ ] Cooling module implemented and working
@@ -793,6 +824,7 @@ Merge only after validation passes. Can revert independently.
 | **Module compilation** | Build-time selection + runtime enable/disable | Small executables (HPC performance), runtime flexibility |
 | **Module selection** | Makefile MODULES + predefined PROFILES | Custom combinations + reproducible models |
 | **Module registration** | Auto-registration | Self-contained modules, no manual lists |
+| **Module execution order** | User-controlled via config file | User knows physics dependencies, simpler code (~100 lines saved) |
 | **Property metadata** | YAML + Python generator | Standard, readable, good tooling |
 | **Property accessors** | Macros (zero-overhead) | HPC performance critical |
 | **Property scope** | Unified halo + galaxy | Single source of truth |
