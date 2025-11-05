@@ -26,13 +26,46 @@ Mimic currently has **excellent halo-tracking infrastructure** (~21k LOC) with s
 
 ### Compilation Model
 
-**All available modules compiled into executable** + **Runtime selection via parameter file**
-- Developer writes new cooling module → recompilation needed (add new code)
-- User switches between cooling models → NO recompilation (just edit parameter file)
-- `EnabledModules cooling,star_formation` in .par file selects which modules execute
-- Memory allocated for enabled modules only
+**Three-level module control** for optimal flexibility and performance:
 
-This is simpler than full dynamic loading while providing scientific flexibility.
+**1. Write New Module** (C code development)
+- Add new galaxy physics module source code
+- Requires: Writing C code in `src/modules/`
+- Triggers: Recompilation
+
+**2. Select Modules to Compile** (Build-time)
+- Choose which modules to compile into executable
+- Method: `make MODULES="cooling_SD93 star_formation_KS98"` or predefined profiles
+- Triggers: Recompilation
+- Result: Smaller executable with only needed code
+
+**3. Enable/Disable Compiled Modules** (Runtime)
+- Choose which compiled modules to execute
+- Method: `EnabledModules cooling_SD93,star_formation_KS98` in .par file
+- Triggers: NO recompilation (just edit parameter file)
+- Result: Memory allocated only for enabled modules
+
+**Example workflow**:
+```bash
+# Build with specific module set (compile-time selection)
+make MODULES="cooling_SD93 cooling_G12 star_formation_KS98"
+
+# Run with subset (runtime selection)
+EnabledModules cooling_SD93,star_formation_KS98  # Fast cooling
+EnabledModules cooling_G12,star_formation_KS98   # Slow cooling (no recompile!)
+
+# Add new module version (requires recompile)
+make MODULES="cooling_SD93 cooling_G12 cooling_new star_formation_KS98"
+```
+
+**Module Profiles** (predefined sets for common models):
+```bash
+make PROFILE=croton2006    # Croton+2006 modules
+make PROFILE=henriques2015 # Henriques+2015 modules
+make PROFILE=all           # All available modules (exploration mode)
+```
+
+This approach balances performance (small executables) with flexibility (runtime switching).
 
 ---
 
@@ -401,16 +434,76 @@ void calc_hdf5_props(void) {
 
 ---
 
-## Layer 3: Runtime Module Selection
+## Layer 3: Build-Time + Runtime Module Selection
 
 ### The Goal
 
-**Select which galaxy physics modules to run via parameter file.**
+**Two-level module control for performance and flexibility.**
 
 **Current**: N/A (no modules yet)
-**After**: `EnabledModules cooling,star_formation` in .par file
+**After**:
+- Build-time: Select modules to compile (`make MODULES="..."`)
+- Runtime: Enable/disable compiled modules (`EnabledModules ...` in .par file)
 
-### Configuration Format
+### Build-Time Module Selection
+
+**Makefile approach** (simple, flexible):
+
+```makefile
+# Default module set
+MODULES ?= cooling_SD93 star_formation_KS98 feedback_simple
+
+# User can override:
+# make MODULES="cooling_G12 star_formation_KMT09 AGN_bondi"
+
+# Compile only specified modules
+MODULE_SRCS = $(foreach mod,$(MODULES),src/modules/$(mod)/$(mod).c)
+```
+
+**Predefined profiles** for common models:
+
+```makefile
+# In Makefile
+PROFILE ?= default
+
+ifeq ($(PROFILE),croton2006)
+    MODULES = cooling_SD93 star_formation_KS98 feedback_croton06 mergers_guo11
+else ifeq ($(PROFILE),henriques2015)
+    MODULES = cooling_G12 star_formation_KMT09 AGN_bondi feedback_H15
+else ifeq ($(PROFILE),all)
+    MODULES = $(wildcard src/modules/*/*)  # All available
+else
+    MODULES = cooling_SD93 star_formation_KS98  # Default
+endif
+```
+
+**User workflow**:
+```bash
+# Use predefined profile
+make PROFILE=croton2006
+./mimic millennium.par
+
+# Custom module selection
+make MODULES="cooling_SD93 cooling_G12 star_formation_KS98"
+./mimic millennium.par
+
+# Exploration mode (compile everything)
+make PROFILE=all
+./mimic millennium.par
+```
+
+**Benefits**:
+- **Small executables**: Only needed code compiled (~2-5 MB vs 10-20 MB with all modules)
+- **Fast loading**: Important on HPC network filesystems
+- **Clear dependencies**: Makefile shows exactly what's compiled
+- **Reproducible**: Can document exact module set used for published results
+
+**Performance impact**:
+- Compiled modules have zero runtime overhead when disabled
+- Each disabled module: one `if (!enabled) continue;` check (~1 CPU cycle)
+- With 5-10 compiled modules: <0.01% overhead
+
+### Runtime Module Configuration
 
 **Extend existing .par format** (minimal user disruption):
 
@@ -489,17 +582,28 @@ Disabled modules: no memory allocated, no execution overhead.
 
 ### Design Decisions
 
-**1. Compile-time vs Runtime Loading**
-- **Choice**: All modules compiled, runtime enable/disable
-- **Rationale**: Simpler than dlopen(), sufficient for science use case
-- **Trade-off**: Slightly larger executable (acceptable)
+**1. Build-Time Selection + Runtime Enable/Disable**
+- **Choice**: Two-level control (compile selected modules, runtime enable/disable)
+- **Rationale**:
+  - Small executables (performance on HPC)
+  - Runtime flexibility (no recompile to switch between compiled modules)
+  - Simpler than dynamic loading (no dlopen/platform issues)
+- **Trade-off**: Must recompile to add new module set (acceptable)
 
-**2. .par vs JSON vs YAML**
+**2. Module Profiles vs Manual Selection**
+- **Choice**: Support both (`PROFILE=croton2006` and `MODULES="..."`)
+- **Rationale**:
+  - Profiles for reproducibility (published models)
+  - Manual for flexibility (custom combinations)
+  - `PROFILE=all` for exploration
+- **Implementation**: Makefile conditionals (~20 lines)
+
+**3. .par vs JSON vs YAML**
 - **Choice**: Extend .par format initially
 - **Rationale**: Minimal change, users understand it
 - **Extension**: Can migrate to JSON when complexity increases
 
-**3. Automatic vs Manual Dependencies**
+**4. Automatic vs Manual Dependencies**
 - **Choice**: Automatic dependency resolution
 - **Rationale**: User just lists what they want, system figures out order
 - **Example**: Request "star_formation" → auto-enables "cooling"
@@ -551,25 +655,30 @@ Disabled modules: no memory allocated, no execution overhead.
 - Adding test property works end-to-end
 - Output system automatically includes new properties
 
-### Phase 3: Runtime Selection (1-2 weeks)
+### Phase 3: Build-Time + Runtime Selection (1-2 weeks)
 
-**Goal**: Enable/disable modules via parameter file
+**Goal**: Two-level module control (compile selection + runtime enable/disable)
 
 **Deliverables**:
+- Makefile build-time module selection (`MODULES` variable)
+- Predefined profiles (`PROFILE` variable for common models)
 - Extended .par format with `EnabledModules`
 - Module enable/disable logic
 - Dependency resolution
 - Conditional memory allocation
 
 **Changes**:
+- Update Makefile to support `MODULES` and `PROFILE` variables
+- Add profile definitions for common models (croton2006, henriques2015, etc.)
 - Extend parameter parser for `EnabledModules`
 - Add dependency resolution to module registry
 - Update init to respect enabled flags
 - Update execution pipeline to skip disabled modules
 
 **Validation**:
-- Enabling all modules → bit-identical output
-- Disabling all modules → bit-identical to Phase 1
+- Build with specific modules → only those compiled
+- Build with PROFILE → correct module set
+- Runtime enable/disable → bit-identical when same modules enabled
 - Invalid module name → clear error message
 - Dependency auto-resolution works
 
@@ -653,11 +762,14 @@ Merge only after validation passes. Can revert independently.
 - [ ] Output system uses property metadata
 - [ ] Adding property requires only YAML edit
 
-### After Phase 3 (Runtime Selection)
-- [ ] Modules enabled/disabled via .par file
+### After Phase 3 (Build-Time + Runtime Selection)
+- [ ] Build-time module selection via `MODULES` variable works
+- [ ] Predefined profiles (`PROFILE=croton2006`) work correctly
+- [ ] Runtime enable/disable via .par file works
 - [ ] Dependency resolution works automatically
 - [ ] Clear error messages for invalid config
 - [ ] Memory allocated only for enabled modules
+- [ ] Can switch between compiled modules without recompilation
 
 ### After Phase 4 (First Galaxy Module)
 - [ ] Cooling module implemented and working
@@ -678,7 +790,8 @@ Merge only after validation passes. Can revert independently.
 | Decision Point | Choice | Rationale |
 |----------------|--------|-----------|
 | **Halo code** | Keep in core (not modular) | Solid infrastructure, no need to change |
-| **Module compilation** | All compiled, runtime selection | Simpler than dynamic loading, scientifically flexible |
+| **Module compilation** | Build-time selection + runtime enable/disable | Small executables (HPC performance), runtime flexibility |
+| **Module selection** | Makefile MODULES + predefined PROFILES | Custom combinations + reproducible models |
 | **Module registration** | Auto-registration | Self-contained modules, no manual lists |
 | **Property metadata** | YAML + Python generator | Standard, readable, good tooling |
 | **Property accessors** | Macros (zero-overhead) | HPC performance critical |
@@ -719,11 +832,15 @@ Once the infrastructure is complete:
 This transformation **prepares Mimic for galaxy physics** while preserving excellent halo infrastructure:
 
 **What Stays**: Halo tracking, tree processing, memory management, I/O (all solid)
-**What's Added**: Module system, property metadata, runtime configuration
+**What's Added**: Module system, property metadata, build-time + runtime configuration
 **What It Enables**: Rapid galaxy physics development without core changes
 
 **Timeline**: 6-9 weeks for complete infrastructure + proof of concept
 **Risk**: LOW (additive changes, bit-identical validation, phased approach)
-**Benefit**: Galaxy modules in hours (not days), properties in minutes (not hours)
+**Benefit**:
+- Galaxy modules in hours (not days)
+- Properties in minutes (not hours)
+- Small executables optimized for HPC (build-time selection)
+- Runtime flexibility to switch between compiled modules (no recompilation)
 
 **Recommendation**: Proceed with Phase 1 (Module System). The infrastructure is well-designed, minimal, and focused on enabling scientific productivity.
