@@ -43,9 +43,10 @@ See [coding-standards.md](coding-standards.md) for code style requirements.
 ## Directory Structure
 
 - `src/core/` - Core execution (main, initialization, model building)
+  - `src/core/halo_properties/` - Halo virial calculations and properties
 - `src/io/` - Input/output operations (tree readers, output writers)
 - `src/util/` - Utility functions (memory, error handling, etc.)
-- `src/modules/` - Physics modules (halo properties, etc.)
+- `src/modules/` - Physics modules (currently empty, will contain galaxy physics)
 - `src/include/` - Public headers (types, globals, constants)
 - `tests/` - Test framework (future)
 - `docs/` - Documentation

@@ -364,10 +364,10 @@ join_progenitor_halos(halonr, ngal)
 │  │     │
 │  │     ├─ [IF from most massive progenitor]:
 │  │     │  └─ [Update Virial Properties]
-│  │     │     ├─ get_virial_mass()    // src/modules/halo_properties/virial.c:91
-│  │     │     ├─ get_virial_radius()  // src/modules/halo_properties/virial.c:146
+│  │     │     ├─ get_virial_mass()    // src/core/halo_properties/virial.c:91
+│  │     │     ├─ get_virial_radius()  // src/core/halo_properties/virial.c:146
 │  │     │     │  └─ Calculate from critical density
-│  │     │     └─ get_virial_velocity() // src/modules/halo_properties/virial.c:115
+│  │     │     └─ get_virial_velocity() // src/core/halo_properties/virial.c:115
 │  │     │        └─ get_virial_radius() // Nested call
 │  │     │
 │  │     ├─ [Handle Type Transitions]
@@ -378,7 +378,7 @@ join_progenitor_halos(halonr, ngal)
 │  │     └─ Increment ngal
 │  │
 │  └─ [IF no progenitors with halos]:
-│     └─ init_halo()                    // src/modules/halo_properties/virial.c:36
+│     └─ init_halo()                    // src/core/halo_properties/virial.c:36
 │        ├─ Initialize with default properties
 │        ├─ Copy position/velocity from InputTreeHalos
 │        ├─ get_virial_velocity()

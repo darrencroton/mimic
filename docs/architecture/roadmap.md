@@ -15,7 +15,7 @@ Mimic currently has **excellent halo-tracking infrastructure** (~21k LOC) with s
 
 **What is CORE (not modular)**:
 - All halo physics: virial calculations, halo tracking, FoF processing
-- Current code in `src/modules/halo_properties/` → moving to `src/core/`
+- Code in `src/core/halo_properties/` (halo virial calculations and tracking)
 - Memory management, tree processing, I/O systems
 - This code stays as-is (it's solid infrastructure)
 
@@ -216,7 +216,7 @@ The transformation adds **three new layers** on top of existing infrastructure:
 - `src/core/build_model.c` - Add module pipeline execution point
 - `src/core/main.c` - Initialize/cleanup module system
 
-**Moved Files**:
+**Moved Files** (✅ COMPLETED):
 - `src/modules/halo_properties/` → `src/core/halo_properties/` (it's core, not a module)
 
 ### Module Interface (Minimal)
@@ -697,7 +697,7 @@ Disabled modules: no memory allocated, no execution overhead.
 - Parameter file parsing for module order
 
 **Changes**:
-- Move `src/modules/halo_properties/` → `src/core/halo_properties/`
+- ✅ Move `src/modules/halo_properties/` → `src/core/halo_properties/`
 - Create `src/core/module_registry.c/h` - registration and lookup
 - Create `src/core/module_pipeline.c/h` - ordered execution
 - Add pipeline execution to `build_model.c`

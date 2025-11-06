@@ -97,7 +97,7 @@ The codebase follows a hierarchical structure under `src/`:
   - **tree/**: Tree readers (interface, binary, HDF5 formats)
   - **output/**: Output writers (binary, HDF5, utilities)
 - **src/util/**: Utility functions (memory, error, numeric, version, etc.)
-- **src/modules/**: Physics modules (halo_properties with virial calculations)
+- **src/modules/**: Physics modules (currently empty, will contain galaxy physics modules)
 - **src/include/**: Public headers (types, globals, constants, config, proto)
 
 ### Core Execution Flow
@@ -105,7 +105,7 @@ The codebase follows a hierarchical structure under `src/`:
 - **src/core/init.c**: System initialization, memory setup, parameter validation
 - **src/core/read_parameter_file.c**: Parameter file parsing and configuration setup
 - **src/core/build_model.c**: Halo tracking and property updates through merger trees
-- **src/modules/halo_properties/virial.c**: Halo initialization and virial property calculations
+- **src/core/halo_properties/virial.c**: Halo initialization and virial property calculations
 
 ### I/O System
 - **src/io/tree/interface.c**: Master tree loading interface

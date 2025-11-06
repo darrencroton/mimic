@@ -1,7 +1,9 @@
 # Physics Modules
 
-**Purpose:** Runtime-loadable physics modules.
+**Purpose:** Runtime-loadable galaxy physics modules.
 
-**Current:** halo_properties/ (virial calculations, moved from model_misc.c)
+**Current:** Empty (awaiting Phase 1 implementation of module system)
 
-**Future:** Module system will be designed in future sprint. See architectural vision for details.
+**Note:** Halo physics (virial calculations, tracking) are in `src/core/halo_properties/` as they are core infrastructure, not modular physics.
+
+**Future:** This directory will contain galaxy physics modules (cooling, star formation, feedback, etc.) once the module system is implemented. See `docs/architecture/roadmap.md` for details.

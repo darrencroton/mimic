@@ -9,7 +9,7 @@
  */
 
 #include "module.h"
-#include "../../util/error.h"
+#include "../util/error.h"
 
 /**
  * @brief   Initialize the halo properties module

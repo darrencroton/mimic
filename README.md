@@ -203,11 +203,12 @@ Mimic follows a hierarchical structure under `src/`:
 
 ### Directory Structure
 - **src/core/**: Core execution (main, initialization, halo tracking)
+  - **halo_properties/**: Halo virial calculations and properties
 - **src/io/**: Input/output operations
   - **tree/**: Tree readers (interface, binary, HDF5 formats)
   - **output/**: Output writers (binary, HDF5, utilities)
 - **src/util/**: Utility functions (memory, error, numeric, version)
-- **src/modules/**: Physics modules (halo properties with virial calculations)
+- **src/modules/**: Physics modules (currently empty, will contain galaxy physics modules)
 - **src/include/**: Public headers (types, globals, constants, config)
 
 ### Key Design Patterns

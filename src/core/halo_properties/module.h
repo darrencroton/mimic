@@ -8,8 +8,8 @@
  * the system is implemented.
  */
 
-#ifndef MODULE_HALO_PROPERTIES_H
-#define MODULE_HALO_PROPERTIES_H
+#ifndef CORE_HALO_PROPERTIES_H
+#define CORE_HALO_PROPERTIES_H
 
 /**
  * @brief   Initialize the halo properties module
@@ -23,4 +23,4 @@ int halo_properties_init(void);
  */
 int halo_properties_cleanup(void);
 
-#endif  // MODULE_HALO_PROPERTIES_H
+#endif  // CORE_HALO_PROPERTIES_H
