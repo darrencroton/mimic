@@ -6,8 +6,8 @@ input/data
 output/results
 
 # Archive and scratch space
-ignore/
-archive/
+ignore
+archive
 obsidian-inbox
 
 # Build artifacts
