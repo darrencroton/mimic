@@ -88,7 +88,7 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
   }
 
   for (n = 0; n < NOUT; n++) {
-    InputHalosPerSnap[n] = mymalloc(sizeof(int) * Ntrees);
+    InputHalosPerSnap[n] = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
     if (InputHalosPerSnap[n] == NULL) {
       FATAL_ERROR(
           "Memory allocation failed for InputHalosPerSnap[%d] array (%d trees, "
@@ -250,7 +250,7 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
   if ((int)(0.1 * MaxProcessedHalos) > MaxFoFWorkspace)
     MaxFoFWorkspace = (int)(0.1 * MaxProcessedHalos);
 
-  HaloAux = mymalloc(sizeof(struct HaloAuxData) * InputTreeNHalos[treenr]);
+  HaloAux = mymalloc_cat(sizeof(struct HaloAuxData) * InputTreeNHalos[treenr], MEM_HALOS);
   if (HaloAux == NULL) {
     FATAL_ERROR(
         "Memory allocation failed for HaloAux array (%d halos, %zu bytes)",
@@ -258,14 +258,14 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
         InputTreeNHalos[treenr] * sizeof(struct HaloAuxData));
   }
 
-  ProcessedHalos = mymalloc(sizeof(struct Halo) * MaxProcessedHalos);
+  ProcessedHalos = mymalloc_cat(sizeof(struct Halo) * MaxProcessedHalos, MEM_HALOS);
   if (ProcessedHalos == NULL) {
     FATAL_ERROR("Memory allocation failed for ProcessedHalos array (%d halos, "
                 "%zu bytes)",
                 MaxProcessedHalos, MaxProcessedHalos * sizeof(struct Halo));
   }
 
-  FoFWorkspace = mymalloc(sizeof(struct Halo) * MaxFoFWorkspace);
+  FoFWorkspace = mymalloc_cat(sizeof(struct Halo) * MaxFoFWorkspace, MEM_HALOS);
   if (FoFWorkspace == NULL) {
     FATAL_ERROR(
         "Memory allocation failed for FoFWorkspace array (%d halos, %zu bytes)",

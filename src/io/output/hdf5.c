@@ -71,13 +71,13 @@ void calc_hdf5_props(void) {
   hid_t array3f_tid = H5Tarray_create(H5T_NATIVE_FLOAT, 1, (hsize_t[]){3});
 
   // Calculate the offsets of our struct members in memory
-  HDF5_dst_offsets = mymalloc(sizeof(size_t) * HDF5_n_props);
+  HDF5_dst_offsets = mymalloc_cat(sizeof(size_t) * HDF5_n_props, MEM_IO);
   // Calculate the sizes of our struct members in memory.
-  HDF5_dst_sizes = mymalloc(sizeof(size_t) * HDF5_n_props);
+  HDF5_dst_sizes = mymalloc_cat(sizeof(size_t) * HDF5_n_props, MEM_IO);
   // Give each halo property a field name in the table
-  HDF5_field_names = mymalloc(sizeof(const char *) * HDF5_n_props);
+  HDF5_field_names = mymalloc_cat(sizeof(const char *) * HDF5_n_props, MEM_IO);
   // Assign a type to each halo property field in the table.
-  HDF5_field_types = mymalloc(sizeof(hid_t) * HDF5_n_props);
+  HDF5_field_types = mymalloc_cat(sizeof(hid_t) * HDF5_n_props, MEM_IO);
 
   i = 0; // Initialise dummy counter
 

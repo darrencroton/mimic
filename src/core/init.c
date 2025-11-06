@@ -50,7 +50,7 @@
 void init(void) {
   int i;
 
-  Age = mymalloc(ABSOLUTEMAXSNAPS * sizeof(*Age));
+  Age = mymalloc_cat(ABSOLUTEMAXSNAPS * sizeof(*Age), MEM_UTILITY);
 
   // No need for random number generator as it's not actually used in the code
 

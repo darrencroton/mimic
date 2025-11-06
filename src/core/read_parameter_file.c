@@ -77,7 +77,7 @@ void read_parameter_file(char *fname) {
   int num_params = get_parameter_table_size();
 
   // Array to track which parameters have been read
-  int *param_read = mymalloc(sizeof(int) * num_params);
+  int *param_read = mymalloc_cat(sizeof(int) * num_params, MEM_UTILITY);
   for (i = 0; i < num_params; i++) {
     param_read[i] = 0;
   }

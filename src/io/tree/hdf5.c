@@ -115,7 +115,7 @@ void load_tree_table_hdf5(int filenr) {
 
   printf("There are %d trees and %d total halos\n", Ntrees, totNHalos);
 
-  InputTreeNHalos = mymalloc(sizeof(int) * Ntrees);
+  InputTreeNHalos = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
 
   status =
       read_attribute_int(hdf5_file, "/Header",
@@ -126,7 +126,7 @@ void load_tree_table_hdf5(int filenr) {
                    status);
   }
 
-  InputTreeFirstHalo = mymalloc(sizeof(int) * Ntrees);
+  InputTreeFirstHalo = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
 
   for (i = 0; i < 20; ++i)
     printf("Tree %d: NHalos %d\n", i, InputTreeNHalos[i]);
@@ -207,7 +207,7 @@ void load_tree_hdf5(int32_t treenr) {
 
   NHalos_ThisTree = InputTreeNHalos[treenr];
 
-  InputTreeHalos = mymalloc(sizeof(struct RawHalo) * NHalos_ThisTree);
+  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * NHalos_ThisTree, MEM_TREES);
 
   buffer = calloc(NHalos_ThisTree, sizeof(*(buffer)));
   if (buffer == NULL) {

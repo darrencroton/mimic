@@ -93,12 +93,12 @@ void load_tree_table_binary(int32_t filenr) {
   DEBUG_LOG("Reading %d trees with %d total halos", Ntrees, totNHalos);
 
   // Allocate arrays for tree data
-  InputTreeNHalos = mymalloc(sizeof(int) * Ntrees);
+  InputTreeNHalos = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
   if (InputTreeNHalos == NULL) {
     FATAL_ERROR("Failed to allocate memory for InputTreeNHalos array");
   }
 
-  InputTreeFirstHalo = mymalloc(sizeof(int) * Ntrees);
+  InputTreeFirstHalo = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
   if (InputTreeFirstHalo == NULL) {
     FATAL_ERROR("Failed to allocate memory for InputTreeFirstHalo array");
   }
@@ -139,7 +139,7 @@ void load_tree_binary(int32_t treenr) {
   // must have an FD
   assert(load_fd);
 
-  InputTreeHalos = mymalloc(sizeof(struct RawHalo) * InputTreeNHalos[treenr]);
+  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * InputTreeNHalos[treenr], MEM_TREES);
   if (InputTreeHalos == NULL) {
     FATAL_ERROR("Failed to allocate memory for Halo array with %d halos",
                 InputTreeNHalos[treenr]);
