@@ -85,40 +85,4 @@ bool is_less_or_equal(double x, double y);
  */
 bool is_within(double x, double min, double max);
 
-/**
- * @brief   Performs division with protection against division by zero
- *
- * @param   num           Numerator
- * @param   denom         Denominator
- * @param   default_val   Value to return if denominator is zero
- * @return  num/denom if denom is not zero, default_val otherwise
- */
-double safe_div(double num, double denom, double default_val);
-
-/**
- * @brief   Clamps a value between minimum and maximum bounds
- *
- * @param   val   Value to clamp
- * @param   min   Minimum bound
- * @param   max   Maximum bound
- * @return  Value clamped to the range [min, max]
- */
-double clamp(double val, double min, double max);
-
-/**
- * @brief   Checks if a value is finite (not NaN or infinity)
- *
- * @param   x   Value to check
- * @return  true if x is a finite number, false otherwise
- */
-bool is_finite_value(double x);
-
-/**
- * @brief   Calculates the sign of a value (-1, 0, or 1)
- *
- * @param   x   Value to get sign of
- * @return  -1 if x < 0, 0 if x is zero, 1 if x > 0
- */
-int sign(double x);
-
 #endif /* UTIL_NUMERIC_H */

@@ -122,31 +122,27 @@ int get_parameter_table_size(void) { return NParameters; }
  *
  * The function is used during parameter reading to ensure that parameter
  * values are within acceptable ranges.
+ *
+ * @note min_value or max_value of 0.0 means "unbounded". This works correctly
+ *       for all current parameters which are positive, but would not work for
+ *       parameters that can be negative.
  */
 int is_parameter_valid(ParameterDefinition *param, void *value) {
-  if (param->type == INT) {
-    int val = *((int *)value);
-    // Check min value if specified
-    if (param->min_value != 0.0 && val < param->min_value) {
-      return 0;
-    }
-    // Check max value if specified
-    if (param->max_value != 0.0 && val > param->max_value) {
-      return 0;
-    }
-  } else if (param->type == DOUBLE) {
-    double val = *((double *)value);
-    // Check min value if specified
-    if (param->min_value != 0.0 && val < param->min_value) {
-      return 0;
-    }
-    // Check max value if specified
-    if (param->max_value != 0.0 && val > param->max_value) {
-      return 0;
-    }
-  }
-  // String type doesn't need validation here
-  return 1;
+  // Strings are always valid (for now)
+  if (param->type == STRING)
+    return 1;
+
+  // Convert to double for unified numeric comparison
+  double val = (param->type == INT) ? (double)(*((int *)value))
+                                    : *((double *)value);
+
+  // Validate against bounds (0.0 means "no bound set")
+  if (param->min_value > 0.0 && val < param->min_value)
+    return 0;
+  if (param->max_value > 0.0 && val > param->max_value)
+    return 0;
+
+  return 1; // Valid
 }
 
 /**

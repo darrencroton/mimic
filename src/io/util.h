@@ -33,40 +33,9 @@ int detect_host_endian(void);
 #define MIMIC_HOST_ENDIAN detect_host_endian()
 #endif
 
-/* Define the magic number for Mimic binary files */
-#define MIMIC_MAGIC_NUMBER 0x4D494D49 /* "MIMI" in ASCII (4 bytes for uint32_t) */
-
-/* Current binary file format version */
-#define MIMIC_FILE_VERSION 1
-
-/* File header structure for binary files */
-struct MimicFileHeader {
-  uint32_t magic;     /* Magic number for identification (MIMIC_MAGIC_NUMBER) */
-  uint8_t version;    /* File format version */
-  uint8_t endianness; /* File endianness (0=little, 1=big) */
-  uint16_t reserved;  /* Reserved for future use */
-};
-
-/* Function prototypes for endianness conversion */
-uint16_t swap_uint16(uint16_t value);
-uint32_t swap_uint32(uint32_t value);
-uint64_t swap_uint64(uint64_t value);
-int16_t swap_int16(int16_t value);
-int32_t swap_int32(int32_t value);
-int64_t swap_int64(int64_t value);
-float swap_float(float value);
-double swap_double(double value);
-
 /* Endianness utilities */
 int is_same_endian(int file_endian);
 void *swap_bytes_if_needed(void *data, size_t size, size_t count,
                            int file_endian);
-
-/* File format utilities */
-int write_mimic_header(FILE *file, int endianness);
-int read_mimic_header(FILE *file, struct MimicFileHeader *header);
-int check_file_compatibility(const struct MimicFileHeader *header);
-int check_headerless_file(FILE *file);
-long get_file_size(FILE *file);
 
 #endif /* IO_UTIL_H */

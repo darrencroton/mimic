@@ -69,6 +69,26 @@ void termination_handler(int signum) {
 }
 
 /**
+ * @brief   Removes a command-line argument and shifts remaining arguments
+ *
+ * @param   argv    Argument vector
+ * @param   argc    Pointer to argument count
+ * @param   index   Index of argument to remove
+ * @return  Adjusted index for loop continuation (index - 1)
+ *
+ * This helper function removes a command-line argument at the specified index
+ * by shifting all subsequent arguments left, decrementing the argument count,
+ * and returning the adjusted index for the calling loop.
+ */
+static int remove_arg(char **argv, int *argc, int index) {
+  for (int k = index; k < *argc - 1; k++) {
+    argv[k] = argv[k + 1];
+  }
+  (*argc)--;
+  return index - 1;
+}
+
+/**
  * @brief   Exit handler for controlled program termination
  *
  * @param   signum    Exit code to be passed to the OS
@@ -196,32 +216,13 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--verbose") == 0) {
       log_level = LOG_LEVEL_DEBUG;
-      /* Remove the argument from argv to simplify later parameter file handling
-       */
-      int k;
-      for (k = i; k < argc - 1; k++) {
-        argv[k] = argv[k + 1];
-      }
-      argc--;
-      i--;
+      i = remove_arg(argv, &argc, i);
     } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
       log_level = LOG_LEVEL_WARNING;
-      /* Remove the argument from argv */
-      int k;
-      for (k = i; k < argc - 1; k++) {
-        argv[k] = argv[k + 1];
-      }
-      argc--;
-      i--;
+      i = remove_arg(argv, &argc, i);
     } else if (strcmp(argv[i], "--skip") == 0) {
       MimicConfig.OverwriteOutputFiles = 0;
-      /* Remove the argument from argv */
-      int k;
-      for (k = i; k < argc - 1; k++) {
-        argv[k] = argv[k + 1];
-      }
-      argc--;
-      i--;
+      i = remove_arg(argv, &argc, i);
     }
   }
 
@@ -312,7 +313,7 @@ int main(int argc, char **argv) {
       assert(!gotXCPU);
 
       /* Log progress periodically */
-      if (treenr % 10000 == 0) {
+      if (treenr % TREE_PROGRESS_INTERVAL == 0) {
 #ifdef MPI
         INFO_LOG("Processing task: %d node: %s file: %i tree: %i of %i",
                  ThisTask, ThisNode, filenr, treenr, Ntrees);

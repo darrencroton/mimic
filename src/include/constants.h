@@ -16,6 +16,12 @@
 #define MAXTAGS 300 /* Max number of parameters */
 #define MAX_STRING_LEN 1024 /* Max length of a string containing a name */
 
+/* Cosmological constants */
+#define INITIAL_REDSHIFT 1000.0 /* Recombination era (CMB formation) */
+
+/* Progress reporting */
+#define TREE_PROGRESS_INTERVAL 10000 /* Log progress every N trees */
+
 /* Memory allocation parameters */
 #define HALO_ARRAY_GROWTH_FACTOR                                               \
   1.5 /* Factor to grow arrays by (1.5 = 50% growth) */
@@ -24,6 +30,7 @@
 #define MAX_HALO_ARRAY_SIZE                                                    \
   1000000000                   /* Upper limit to prevent excessive allocation */
 #define INITIAL_FOF_HALOS 1000 /* Initial size for FOF halo arrays */
+#define MEMORY_REPORT_THRESHOLD_MB 10.0 /* Report if > 10 MB allocated */
 
 /* Physical constants */
 #define GRAVITY 6.672e-8

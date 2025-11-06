@@ -59,7 +59,7 @@ void init(void) {
 
   read_snap_list();
 
-  Age[0] = time_to_present(1000.0); // lookback time from z=1000
+  Age[0] = time_to_present(INITIAL_REDSHIFT); // lookback time from z=1000 (recombination era)
   Age++;
 
   for (i = 0; i < MimicConfig.Snaplistlen; i++) {
