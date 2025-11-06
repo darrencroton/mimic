@@ -203,4 +203,5 @@ See also:
 - When running mimic always check the exit code for success or failure
 - Never simplify tests - failing tests indicate real problems
 - Ask before committing to git
+- When asked to write to obsidian, use `obsidian-inbox/`
 - Never delete files! Archive to `archive/` instead

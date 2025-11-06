@@ -194,8 +194,7 @@ void read_parameter_file(char *fname) {
 
   // Set MAXSNAPS in both MimicConfig and global variable
   MimicConfig.MAXSNAPS = MimicConfig.LastSnapshotNr + 1;
-  MAXSNAPS =
-      MimicConfig.MAXSNAPS; // Synchronize with global for backward compatibility
+  SYNC_CONFIG_INT(MAXSNAPS); // Phase 1: explicit synchronization
 
   // Special handling for NumOutputs parameter
   if (!(MimicConfig.NOUT == -1 ||
@@ -211,7 +210,8 @@ void read_parameter_file(char *fname) {
       MimicConfig.NOUT = MimicConfig.MAXSNAPS;
       for (i = MimicConfig.NOUT - 1; i >= 0; i--) {
         MimicConfig.ListOutputSnaps[i] = i;
-        ListOutputSnaps[i] = i; // Sync with global for backward compatibility
+        // Synchronize array element (Phase 1)
+        ListOutputSnaps[i] = i;
       }
       INFO_LOG("All %i snapshots selected for output", MimicConfig.NOUT);
     } else {
@@ -234,8 +234,8 @@ void read_parameter_file(char *fname) {
               errorFlag = 1;
               break;
             }
-            ListOutputSnaps[i] =
-                MimicConfig.ListOutputSnaps[i]; // Sync with global
+            // Synchronize array element (Phase 1)
+            ListOutputSnaps[i] = MimicConfig.ListOutputSnaps[i];
             DEBUG_LOG("Selected snapshot %i: %i", i,
                       MimicConfig.ListOutputSnaps[i]);
           }
@@ -253,8 +253,8 @@ void read_parameter_file(char *fname) {
     }
   }
 
-  // Sync the global variable with the config structure
-  NOUT = MimicConfig.NOUT;
+  // Synchronize with global using explicit pattern (Phase 1)
+  SYNC_CONFIG_INT(NOUT);
 
   // Handle TreeType
   if (!errorFlag) {

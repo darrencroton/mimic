@@ -118,7 +118,7 @@ double get_virial_velocity(int halonr) {
   Rvir = get_virial_radius(halonr);
 
   if (Rvir > 0.0)
-    return sqrt(G * get_virial_mass(halonr) / Rvir);
+    return sqrt(MimicConfig.G * get_virial_mass(halonr) / Rvir);
   else
     return 0.0;
 }
@@ -148,14 +148,14 @@ double get_virial_radius(int halonr) {
 
   double zplus1, hubble_of_z_sq, rhocrit, fac;
 
-  zplus1 = 1 + ZZ[InputTreeHalos[halonr].SnapNum];
+  zplus1 = 1 + MimicConfig.ZZ[InputTreeHalos[halonr].SnapNum];
   hubble_of_z_sq =
-      Hubble * Hubble *
+      MimicConfig.Hubble * MimicConfig.Hubble *
       (MimicConfig.Omega * zplus1 * zplus1 * zplus1 +
        (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) * zplus1 * zplus1 +
        MimicConfig.OmegaLambda);
 
-  rhocrit = 3 * hubble_of_z_sq / (8 * M_PI * G);
+  rhocrit = 3 * hubble_of_z_sq / (8 * M_PI * MimicConfig.G);
   fac = 1 / (200 * 4 * M_PI / 3.0 * rhocrit);
 
   return cbrt(get_virial_mass(halonr) * fac);

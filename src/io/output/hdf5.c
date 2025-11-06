@@ -257,8 +257,8 @@ void prep_hdf5_file(char *fname) {
   file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
   // Create a group for each output snapshot
-  for (i_snap = 0; i_snap < NOUT; i_snap++) {
-    sprintf(target_group, "Snap%03d", ListOutputSnaps[i_snap]);
+  for (i_snap = 0; i_snap < MimicConfig.NOUT; i_snap++) {
+    sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[i_snap]);
     snap_group_id =
         H5Gcreate(file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 
@@ -269,7 +269,7 @@ void prep_hdf5_file(char *fname) {
                        HDF5_field_types, chunk_size, fill_data, 0, NULL);
     if (status < 0) {
       FATAL_ERROR("Failed to create HDF5 table for snapshot %d in file '%s'",
-                  ListOutputSnaps[i_snap], fname);
+                  MimicConfig.ListOutputSnaps[i_snap], fname);
     }
 
     H5Gclose(snap_group_id);
@@ -330,11 +330,11 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n,
     return; /* Nothing to write */
 
   // Open the relevant group
-  sprintf(target_group, "Snap%03d", ListOutputSnaps[n]);
+  sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
   group_id = H5Gopen(HDF5_current_file_id, target_group, H5P_DEFAULT);
   if (group_id < 0) {
     FATAL_ERROR("Failed to open HDF5 group '%s' for snapshot %d (filenr %d)",
-                target_group, ListOutputSnaps[n], filenr);
+                target_group, MimicConfig.ListOutputSnaps[n], filenr);
   }
 
   // Write entire batch at once
@@ -343,7 +343,7 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n,
   if (status < 0) {
     FATAL_ERROR("Failed to append %d halo records to HDF5 file for snapshot %d "
                 "(filenr %d)",
-                num_halos, ListOutputSnaps[n], filenr);
+                num_halos, MimicConfig.ListOutputSnaps[n], filenr);
   }
 
   // Close only the group (file stays open)
@@ -370,7 +370,7 @@ void write_hdf5_galsnap_data(int n, int filenr) {
   file_id = H5Fopen(fname, H5F_ACC_RDWR, H5P_DEFAULT);
 
   // Open the relevant group.
-  sprintf(target_group, "Snap%03d", ListOutputSnaps[n]);
+  sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
   group_id = H5Gopen(file_id, target_group, H5P_DEFAULT);
 
   // Write
@@ -382,7 +382,7 @@ void write_hdf5_galsnap_data(int n, int filenr) {
     if (status < 0) {
       FATAL_ERROR(
           "Failed to append %d halo records to HDF5 file '%s', snapshot %d",
-          TotHalosPerSnap[n], fname, ListOutputSnaps[n]);
+          TotHalosPerSnap[n], fname, MimicConfig.ListOutputSnaps[n]);
     }
   }
 
@@ -427,7 +427,7 @@ void write_hdf5_attrs(int n, int filenr) {
   }
 
   // Open the relevant group
-  sprintf(target_group, "Snap%03d", ListOutputSnaps[n]);
+  sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
   group_id = H5Gopen(HDF5_current_file_id, target_group, H5P_DEFAULT);
 
   dataset_id = H5Dopen(group_id, "Galaxies", H5P_DEFAULT);
@@ -467,7 +467,7 @@ void write_hdf5_attrs(int n, int filenr) {
   if (dims <= 0) {
     FATAL_ERROR("Invalid number of trees (Ntrees=%d) in write_hdf5_attrs for "
                 "snapshot %d (filenr %d)",
-                (int)dims, ListOutputSnaps[n], filenr);
+                (int)dims, MimicConfig.ListOutputSnaps[n], filenr);
   }
   dataspace_id = H5Screate_simple(1, &dims, NULL);
   dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT,
@@ -636,10 +636,10 @@ void write_master_file(void) {
       H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
   // Loop through each snapshot.
-  for (n = 0; n < NOUT; n++) {
+  for (n = 0; n < MimicConfig.NOUT; n++) {
 
     // Create a group to hold this snapshot's data
-    sprintf(target_group, "Snap%03d", ListOutputSnaps[n]);
+    sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
     group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT, H5P_DEFAULT,
                          H5P_DEFAULT);
 
@@ -648,7 +648,7 @@ void write_master_file(void) {
     dataspace_id = H5Screate_simple(1, &dims, NULL);
     attribute_id = H5Acreate(group_id, "Redshift", H5T_NATIVE_FLOAT,
                              dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-    redshift = (float)(ZZ[ListOutputSnaps[n]]);
+    redshift = (float)(MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]]);
     H5Awrite(attribute_id, H5T_NATIVE_FLOAT, &redshift);
     H5Aclose(attribute_id);
     H5Sclose(dataspace_id);
@@ -658,7 +658,7 @@ void write_master_file(void) {
     for (filenr = MimicConfig.FirstFile; filenr <= MimicConfig.LastFile;
          filenr++) {
       // Create a group to hold this snapshot's data
-      sprintf(target_group, "Snap%03d/File%03d", ListOutputSnaps[n], filenr);
+      sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
       group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT,
                            H5P_DEFAULT, H5P_DEFAULT);
       H5Gclose(group_id);
@@ -668,9 +668,9 @@ void write_master_file(void) {
       sprintf(target_file, "%s_%03d.hdf5", MimicConfig.OutputFileBaseName, filenr);
 
       // Create a dataset which will act as the soft link to the output
-      sprintf(target_group, "Snap%03d/File%03d/Galaxies", ListOutputSnaps[n],
+      sprintf(target_group, "Snap%03d/File%03d/Galaxies", MimicConfig.ListOutputSnaps[n],
               filenr);
-      sprintf(source_ds, "Snap%03d/Galaxies", ListOutputSnaps[n]);
+      sprintf(source_ds, "Snap%03d/Galaxies", MimicConfig.ListOutputSnaps[n]);
       DEBUG_LOG("Creating external DS link - %s", target_group);
       status = H5Lcreate_external(target_file, source_ds, master_file_id,
                                   target_group, H5P_DEFAULT, H5P_DEFAULT);
@@ -682,8 +682,8 @@ void write_master_file(void) {
       // Create a dataset which will act as the soft link to the array storing
       // the number of objects per tree for this file.
       sprintf(target_group, "Snap%03d/File%03d/TreeHalosPerSnap",
-              ListOutputSnaps[n], filenr);
-      sprintf(source_ds, "Snap%03d/TreeHalosPerSnap", ListOutputSnaps[n]);
+              MimicConfig.ListOutputSnaps[n], filenr);
+      sprintf(source_ds, "Snap%03d/TreeHalosPerSnap", MimicConfig.ListOutputSnaps[n]);
       DEBUG_LOG("Creating external DS link - %s", target_group);
       status = H5Lcreate_external(target_file, source_ds, master_file_id,
                                   target_group, H5P_DEFAULT, H5P_DEFAULT);
@@ -696,7 +696,7 @@ void write_master_file(void) {
       sprintf(target_file, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
               MimicConfig.OutputFileBaseName, filenr);
       target_file_id = H5Fopen(target_file, H5F_ACC_RDONLY, H5P_DEFAULT);
-      sprintf(source_ds, "Snap%03d/Galaxies", ListOutputSnaps[n]);
+      sprintf(source_ds, "Snap%03d/Galaxies", MimicConfig.ListOutputSnaps[n]);
       dataset_id = H5Dopen(target_file_id, source_ds, H5P_DEFAULT);
       attribute_id = H5Aopen(dataset_id, "TotHalosPerSnap", H5P_DEFAULT);
       status = H5Aread(attribute_id, H5T_NATIVE_INT, &ngal_in_core);
@@ -712,7 +712,7 @@ void write_master_file(void) {
       // Save the total number of objects in this file.
       dims = 1;
       dataspace_id = H5Screate_simple(1, &dims, NULL);
-      sprintf(target_group, "Snap%03d/File%03d", ListOutputSnaps[n], filenr);
+      sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
       group_id = H5Gopen(master_file_id, target_group, H5P_DEFAULT);
       attribute_id = H5Acreate(group_id, "TotHalosPerSnap", H5T_NATIVE_INT,
                                dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
@@ -798,7 +798,7 @@ void save_halos_hdf5(int filenr, int tree) {
     /* Prepare all halos for this snapshot */
     int batch_idx = 0;
     for (i = 0; i < NumProcessedHalos; i++) {
-      if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
+      if (ProcessedHalos[i].SnapNum == MimicConfig.ListOutputSnaps[n]) {
         prepare_halo_for_output(filenr, tree, &ProcessedHalos[i],
                                 &halo_batch[batch_idx]);
         batch_idx++;

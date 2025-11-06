@@ -294,7 +294,7 @@ int main(int argc, char **argv) {
     /* Check if output file already exists (to avoid reprocessing unless
      * overwrite flag is set) */
     snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-             MimicConfig.OutputFileBaseName, ZZ[ListOutputSnaps[0]], filenr);
+             MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[0]], filenr);
     if (stat(bufz0, &filestatus) == 0 && !MimicConfig.OverwriteOutputFiles) {
       INFO_LOG("Output for tree %s already exists ... skipping", bufz0);
       continue; // output seems to already exist, dont overwrite, move along

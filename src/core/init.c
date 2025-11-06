@@ -65,7 +65,8 @@ void init(void) {
   for (i = 0; i < MimicConfig.Snaplistlen; i++) {
     MimicConfig.ZZ[i] = 1 / MimicConfig.AA[i] - 1;
     Age[i] = time_to_present(MimicConfig.ZZ[i]);
-    ZZ[i] = MimicConfig.ZZ[i]; // Sync with global for backward compatibility
+    // Synchronize array element (Phase 1) - manual assignment required for array elements
+    ZZ[i] = MimicConfig.ZZ[i];
   }
 }
 
@@ -112,19 +113,19 @@ void set_units(void) {
   MimicConfig.RhoCrit =
       3 * MimicConfig.Hubble * MimicConfig.Hubble / (8 * M_PI * MimicConfig.G);
 
-  // Synchronize with global variables (for backward compatibility)
-  UnitLength_in_cm = MimicConfig.UnitLength_in_cm;
-  UnitMass_in_g = MimicConfig.UnitMass_in_g;
-  UnitVelocity_in_cm_per_s = MimicConfig.UnitVelocity_in_cm_per_s;
-  UnitTime_in_s = MimicConfig.UnitTime_in_s;
-  UnitTime_in_Megayears = MimicConfig.UnitTime_in_Megayears;
-  G = MimicConfig.G;
-  UnitDensity_in_cgs = MimicConfig.UnitDensity_in_cgs;
-  UnitPressure_in_cgs = MimicConfig.UnitPressure_in_cgs;
-  UnitCoolingRate_in_cgs = MimicConfig.UnitCoolingRate_in_cgs;
-  UnitEnergy_in_cgs = MimicConfig.UnitEnergy_in_cgs;
-  Hubble = MimicConfig.Hubble;
-  RhoCrit = MimicConfig.RhoCrit;
+  // Synchronize with global variables using explicit macros (Phase 1)
+  SYNC_CONFIG_DOUBLE(UnitLength_in_cm);
+  SYNC_CONFIG_DOUBLE(UnitMass_in_g);
+  SYNC_CONFIG_DOUBLE(UnitVelocity_in_cm_per_s);
+  SYNC_CONFIG_DOUBLE(UnitTime_in_s);
+  SYNC_CONFIG_DOUBLE(UnitTime_in_Megayears);
+  SYNC_CONFIG_DOUBLE(G);
+  SYNC_CONFIG_DOUBLE(UnitDensity_in_cgs);
+  SYNC_CONFIG_DOUBLE(UnitPressure_in_cgs);
+  SYNC_CONFIG_DOUBLE(UnitCoolingRate_in_cgs);
+  SYNC_CONFIG_DOUBLE(UnitEnergy_in_cgs);
+  SYNC_CONFIG_DOUBLE(Hubble);
+  SYNC_CONFIG_DOUBLE(RhoCrit);
 }
 
 /**
@@ -177,8 +178,8 @@ void read_snap_list(void) {
 
   fclose(fd);
 
-  // Synchronize with globals for backward compatibility
-  Snaplistlen = MimicConfig.Snaplistlen;
+  // Synchronize with globals using explicit pattern (Phase 1)
+  SYNC_CONFIG_INT(Snaplistlen);
   memcpy(AA, MimicConfig.AA, sizeof(double) * ABSOLUTEMAXSNAPS);
 
 #ifdef MPI

@@ -87,7 +87,7 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
                 my_TreeType);
   }
 
-  for (n = 0; n < NOUT; n++) {
+  for (n = 0; n < MimicConfig.NOUT; n++) {
     InputHalosPerSnap[n] = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
     if (InputHalosPerSnap[n] == NULL) {
       FATAL_ERROR(
@@ -119,28 +119,28 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
               (long long)HDF5_current_file_id);
   } else {
     /* For binary, create one file per snapshot per filenr */
-    for (n = 0; n < NOUT; n++) {
+    for (n = 0; n < MimicConfig.NOUT; n++) {
       snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-               MimicConfig.OutputFileBaseName, ZZ[ListOutputSnaps[n]], filenr);
+               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]], filenr);
 
       if (!(fd = fopen(buf, "w"))) {
         FATAL_ERROR("Failed to create output halo file '%s' for snapshot %d "
                     "(filenr %d)",
-                    buf, ListOutputSnaps[n], filenr);
+                    buf, MimicConfig.ListOutputSnaps[n], filenr);
       }
       fclose(fd);
     }
   }
 #else
   /* Binary format only (no HDF5 support) */
-  for (n = 0; n < NOUT; n++) {
+  for (n = 0; n < MimicConfig.NOUT; n++) {
     snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-             MimicConfig.OutputFileBaseName, ZZ[ListOutputSnaps[n]], filenr);
+             MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]], filenr);
 
     if (!(fd = fopen(buf, "w"))) {
       FATAL_ERROR("Failed to create output halo file '%s' for snapshot %d "
                   "(filenr %d)",
-                  buf, ListOutputSnaps[n], filenr);
+                  buf, MimicConfig.ListOutputSnaps[n], filenr);
     }
     fclose(fd);
   }
@@ -166,7 +166,7 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
 void free_tree_table(enum Valid_TreeTypes my_TreeType) {
   int n;
 
-  for (n = NOUT - 1; n >= 0; n--) {
+  for (n = MimicConfig.NOUT - 1; n >= 0; n--) {
     myfree(InputHalosPerSnap[n]);
     InputHalosPerSnap[n] = NULL;
   }

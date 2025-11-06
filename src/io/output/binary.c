@@ -80,14 +80,14 @@ void save_halos(int filenr, int tree) {
     // only open the file if it is not already open.
     if (!save_fd[n]) {
       snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-               MimicConfig.OutputFileBaseName, ZZ[ListOutputSnaps[n]], filenr);
+               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]], filenr);
 
       /* Open in binary mode with update permissions */
       save_fd[n] = fopen(buf, "wb+");
       if (save_fd[n] == NULL) {
         FATAL_ERROR("Failed to open output halo file '%s' for snapshot %d "
                     "(filenr %d)",
-                    buf, ListOutputSnaps[n], filenr);
+                    buf, MimicConfig.ListOutputSnaps[n], filenr);
       }
 
       /* Disable stdio buffering to maximize reliability */
@@ -104,7 +104,7 @@ void save_halos(int filenr, int tree) {
       if (tmp_buf == NULL) {
         FATAL_ERROR("Memory allocation failed for header buffer (%zu bytes) "
                     "for snapshot %d (filenr %d)",
-                    size, ListOutputSnaps[n], filenr);
+                    size, MimicConfig.ListOutputSnaps[n], filenr);
       }
 
       memset(tmp_buf, 0, size);
@@ -125,7 +125,7 @@ void save_halos(int filenr, int tree) {
     }
 
     for (i = 0; i < NumProcessedHalos; i++) {
-      if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
+      if (ProcessedHalos[i].SnapNum == MimicConfig.ListOutputSnaps[n]) {
         /* Use stack allocation instead of dynamic allocation */
         struct HaloOutput halo_output = {0}; /* Zero-initialize */
 
@@ -139,7 +139,7 @@ void save_halos(int filenr, int tree) {
         if (nwritten != 1) {
           FATAL_ERROR("Failed to write halo data for halo %d (tree %d, "
                       "filenr %d, snapshot %d)",
-                      i, tree, filenr, ListOutputSnaps[n]);
+                      i, tree, filenr, MimicConfig.ListOutputSnaps[n]);
         }
 
         /* Increment halo counters right after successful write */

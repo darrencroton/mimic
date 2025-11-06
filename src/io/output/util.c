@@ -58,7 +58,7 @@ int *prepare_output_for_tree(int OutputGalCount[MAXSNAPS]) {
    */
   for (n = 0; n < MimicConfig.NOUT; n++) {
     for (i = 0; i < NumProcessedHalos; i++) {
-      if (ProcessedHalos[i].SnapNum == ListOutputSnaps[n]) {
+      if (ProcessedHalos[i].SnapNum == MimicConfig.ListOutputSnaps[n]) {
         OutputGalOrder[i] = OutputGalCount[n];
         OutputGalCount[n]++;
       }
