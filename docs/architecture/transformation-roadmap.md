@@ -94,6 +94,55 @@ This approach balances performance (small executables) with flexibility (runtime
 
 ---
 
+## Pre-Transformation Optimization (COMPLETED)
+
+**Status**: ✅ Complete (15 hours, November 2025)
+**Goal**: Strengthen foundation before transformation phases begin
+
+### Completed Improvements
+
+| Optimization | Impact | Benefit for Transformation |
+|-------------|--------|----------------------------|
+| **Memory Categorization** | All 15 allocations categorized (MEM_TREES, MEM_HALOS, MEM_IO, MEM_UTILITY) | Essential for debugging Phase 4 galaxy modules - clear subsystem breakdown |
+| **Single Source of Truth** | ~60 references updated to use MimicConfig.* directly | Establishes Principle 4 foundation - eliminates 50+ lines of sync code |
+| **Dead Code Removal** | 12 unused functions removed (~250 lines) | Reduces maintenance burden before transformation |
+| **Function Simplification** | prepare_halo_for_output() reduced from 83 to ~60 lines | Better understanding of output requirements for Phase 2 generator |
+| **Const Correctness** | Added const to 3 key functions (prepare_halo_for_output, is_parameter_valid, read_parameter_file) | Improves type safety foundation for generated accessors |
+| **Data Structure Lifecycles** | Comprehensive documentation of InputTreeHalos → FoFWorkspace → ProcessedHalos flow | Critical for Phase 1-2 as galaxy properties are added |
+
+### Total Impact
+
+- **~410 lines** removed/simplified
+- **Zero functional changes** - all optimizations are purely architectural
+- **Builds verified** with both `make` and `make USE-HDF5=yes`
+- **Single source of truth** established for all configuration parameters
+- **Memory tracking** ready for Phase 4 galaxy module allocations
+
+### Key Architectural Improvements
+
+1. **SYNC_CONFIG Macros** (Temporary scaffolding for transition):
+   - Formalizes synchronization pattern between MimicConfig and legacy globals
+   - Makes dependencies explicit and searchable
+   - Will be removed in Phase 3 (post-transformation)
+
+2. **Three-Tier Data Flow Documentation** (See globals.h):
+   ```
+   InputTreeHalos (RawHalo*) → IMMUTABLE INPUT from merger trees
+   FoFWorkspace (Halo*)      → TEMPORARY processing workspace
+   ProcessedHalos (Halo*)    → PERMANENT storage for current tree
+   HaloAux (HaloAuxData*)    → PROCESSING METADATA
+   ```
+   - Allocation pattern documented in load_tree()
+   - Deallocation pattern documented in free_halos_and_tree()
+   - Critical for understanding where galaxy properties will be stored
+
+3. **Vision Principle Alignment**:
+   - ✅ Principle 4 (Single Source of Truth): Config accessed via MimicConfig.* throughout
+   - ✅ Principle 6 (Memory Efficiency): Categorized tracking enables precise leak detection
+   - ✅ Principle 8 (Type Safety): Const correctness improved for read-only parameters
+
+---
+
 ## Vision Principles - Current Compliance
 
 ```
@@ -856,6 +905,119 @@ Once the infrastructure is complete:
 - Module parallelization (OpenMP for independent modules)
 - Property lazy evaluation (compute only when needed)
 - Output optimization (write only used properties)
+
+---
+
+## Deferred Optimizations (Post-Transformation Priority)
+
+These optimizations were identified during pre-transformation analysis but deferred because:
+1. They touch areas that will be significantly changed by the transformation
+2. Small effort now would be replaced by larger transformation work
+3. Better to complete transformation first, then optimize the new architecture
+
+### Deferred Items
+
+| Optimization | Effort | Priority | When to Address |
+|--------------|--------|----------|-----------------|
+| **Runtime State Consolidation** | 40+ hours | HIGH | After Phase 4 when module system stable |
+| **Complete Global Variable Elimination (Phase 3)** | 1 hour | MEDIUM | After Phase 4 |
+| **Naming Convention Standardization** | 4-6 hours | LOW | After transformation complete |
+| **System Info Platform Split** | 1 hour | LOW | Pure refactoring, anytime |
+
+### 1. Runtime State Consolidation (HIGH Priority)
+
+**Current State**: Runtime state scattered across 10+ global variables:
+```c
+extern int Ntrees, FileNum, TreeID, NumProcessedHalos;
+extern int MaxProcessedHalos, MaxFoFWorkspace, HaloCounter;
+extern int TotHalos, Snaplistlen;
+// ... more ...
+```
+
+**Target State**: Consolidated MimicRuntimeState struct:
+```c
+struct MimicRuntimeState {
+  // File-level state
+  int file_num;
+  int num_trees;
+
+  // Tree-level state
+  int tree_id;
+  int halo_counter;
+
+  // Processing state
+  int num_processed_halos;
+  int max_processed_halos;
+  int max_fof_workspace;
+
+  // Snapshot state
+  int snaplistlen;
+  int tot_halos;
+};
+```
+
+**Benefits**:
+- Makes function dependencies explicit (pass state as parameter)
+- Enables better testing (create isolated state contexts)
+- Prepares for potential multi-threading (thread-local state)
+- Clarifies what state is per-file vs per-tree vs global
+
+**Why Deferred**: Phase 4 will add significant new state for galaxy modules. Better to consolidate after we understand the full state requirements.
+
+**Estimated Effort**: 40+ hours (touches ~100+ call sites)
+
+### 2. Complete Global Variable Elimination (MEDIUM Priority)
+
+**Current State**: SYNC_CONFIG macros formalize temporary synchronization:
+```c
+SYNC_CONFIG_INT(MAXSNAPS);  // MAXSNAPS = MimicConfig.MAXSNAPS
+```
+
+**Target State**: Remove standalone globals entirely:
+- Delete global variable declarations (globals.h)
+- Remove all SYNC_CONFIG macro calls
+- Remove temporary macros from config.h
+
+**Why Deferred**:
+- Phase 1 is complete (all code uses MimicConfig.*)
+- Phase 2 deferred until after transformation
+- Synchronization code uses explicit macros (easy to find and remove)
+- No rush - macros are clear scaffolding that won't cause problems
+
+**Estimated Effort**: 1 hour (straightforward cleanup)
+
+### 3. Naming Convention Standardization (LOW Priority)
+
+**Current State**: Mixed naming conventions:
+- Some camelCase: `InputTreeHalos`, `NumProcessedHalos`
+- Some underscore: `get_virial_mass`, `load_tree_table`
+- Some PascalCase: `RawHalo`, `MimicConfig`
+
+**Target State**: Follow documented standards in coding-standards.md:
+- Functions: `snake_case` (get_virial_mass)
+- Structs: `PascalCase` (RawHalo)
+- Variables: `snake_case` (num_processed_halos)
+- Constants/Macros: `UPPER_SNAKE` (TREE_MUL_FAC)
+
+**Why Deferred**:
+- Pure refactoring with no functional benefit
+- Better to standardize after transformation when code is stable
+- Risk of merge conflicts if done during active transformation
+
+**Estimated Effort**: 4-6 hours (systematic search-and-replace)
+
+### 4. System Info Platform Split (LOW Priority)
+
+**Current State**: get_system_info() has platform-specific #ifdef blocks
+
+**Target State**: Split into platform-specific functions:
+- `get_system_info_darwin()`
+- `get_system_info_linux()`
+- etc.
+
+**Why Deferred**: Pure refactoring, no urgency
+
+**Estimated Effort**: 1 hour
 
 ---
 

@@ -13,6 +13,69 @@ extern int ThisTask, NTask, nodeNameLen;
 extern char *ThisNode;
 #endif
 
+/*
+ * Halo Data Structure Lifecycle Documentation
+ * ============================================
+ *
+ * Mimic uses a three-tier architecture for halo tracking through merger trees.
+ * Understanding this flow is critical for Phase 1-2 transformations.
+ *
+ * Data Flow: InputTreeHalos → FoFWorkspace → ProcessedHalos
+ *
+ * 1. InputTreeHalos (struct RawHalo*) - IMMUTABLE INPUT
+ *    - Source: Read from merger tree files (binary or HDF5)
+ *    - Lifetime: Per-tree (allocated in load_tree(), freed in
+ * free_halos_and_tree())
+ *    - Ownership: Read-only reference to simulation data
+ *    - Size: InputTreeNHalos[treenr] elements
+ *    - Purpose: Provides immutable snapshot of halo properties from simulation
+ *    - Memory: Allocated via mymalloc_cat(..., MEM_TREES)
+ *
+ * 2. FoFWorkspace (struct Halo*) - TEMPORARY PROCESSING
+ *    - Source: Created during FoF processing in build_halo_tree()
+ *    - Lifetime: Per-tree, grows dynamically during processing
+ *    - Ownership: Temporary working space, contents copied to ProcessedHalos
+ *    - Size: MaxFoFWorkspace elements (grows as needed via myrealloc_cat)
+ *    - Purpose: Accumulates halos during recursive tree building
+ *    - Memory: Allocated via mymalloc_cat(..., MEM_HALOS)
+ *
+ * 3. ProcessedHalos (struct Halo*) - PERMANENT STORAGE
+ *    - Source: Final halos copied from FoFWorkspace after tree processing
+ *    - Lifetime: Per-tree (allocated in load_tree(), freed in
+ * free_halos_and_tree())
+ *    - Ownership: Master copy for output, indexed by NumProcessedHalos
+ *    - Size: MaxProcessedHalos elements (initial estimate, grows via
+ * myrealloc_cat)
+ *    - Purpose: Stores all processed halos for current tree until output
+ *    - Memory: Allocated via mymalloc_cat(..., MEM_HALOS)
+ *
+ * 4. HaloAux (struct HaloAuxData*) - PROCESSING METADATA
+ *    - Source: Auxiliary data for tracking processing state
+ *    - Lifetime: Per-tree (parallel to InputTreeHalos)
+ *    - Ownership: Processing metadata, indexed by InputTreeHalos indices
+ *    - Size: InputTreeNHalos[treenr] elements
+ *    - Purpose: Tracks DoneFlag, HaloFlag, NHalos for each input halo
+ *    - Memory: Allocated via mymalloc_cat(..., MEM_HALOS)
+ *
+ * Allocation Pattern (per tree):
+ *   load_tree():
+ *     InputTreeHalos = mymalloc_cat(InputTreeNHalos[treenr] * sizeof(RawHalo),
+ * MEM_TREES) HaloAux = mymalloc_cat(InputTreeNHalos[treenr] *
+ * sizeof(HaloAuxData), MEM_HALOS) ProcessedHalos =
+ * mymalloc_cat(MaxProcessedHalos * sizeof(Halo), MEM_HALOS) FoFWorkspace =
+ * mymalloc_cat(MaxFoFWorkspace * sizeof(Halo), MEM_HALOS)
+ *
+ *   free_halos_and_tree():
+ *     myfree(FoFWorkspace)
+ *     myfree(ProcessedHalos)
+ *     myfree(HaloAux)
+ *     myfree(InputTreeHalos)
+ *
+ * IMPORTANT: Phase 1-2 transformations will add galaxy properties to the Halo
+ * struct. The lifecycle pattern established here must be preserved to ensure
+ * proper memory management as the structure grows.
+ */
+
 /* halo data pointers */
 extern struct Halo *FoFWorkspace, *ProcessedHalos;
 extern struct RawHalo *InputTreeHalos;

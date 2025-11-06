@@ -20,7 +20,7 @@ typedef struct {
 // Function declarations
 extern int get_parameter_table_size(void);
 extern ParameterDefinition *get_parameter_table(void);
-extern int is_parameter_valid(ParameterDefinition *param, void *value);
+extern int is_parameter_valid(const ParameterDefinition *param, const void *value);
 extern const char *get_parameter_type_string(int type);
 
 #endif /* #ifndef PARAMETER_TABLE_H */

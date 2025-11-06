@@ -61,7 +61,7 @@
  * If any errors are encountered (missing required parameters, invalid values),
  * the function will terminate the program with an appropriate error message.
  */
-void read_parameter_file(char *fname) {
+void read_parameter_file(const char *fname) {
   FILE *fd;
   char buf[MAX_STRING_LEN * 3]; // Buffer for reading lines
   char buf1[MAX_STRING_LEN];    // Parameter name

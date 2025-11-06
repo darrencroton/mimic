@@ -170,51 +170,37 @@ void save_halos(int filenr, int tree) {
  *
  * Note: Only halo properties from merger trees are output (no physics).
  */
-void prepare_halo_for_output(int filenr, int tree, struct Halo *g,
+void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
                              struct HaloOutput *o) {
   int j;
 
   o->SnapNum = g->SnapNum;
   o->Type = g->Type;
 
-  // assume that because there are so many files, the trees per file will be
-  // less than 100000 required for limits of long long
-  if (MimicConfig.LastFile >= 10000) {
-    assert(g->HaloNr < TREE_MUL_FAC); // breaking tree size assumption
-    assert(tree < (FILENR_MUL_FAC / 10) / TREE_MUL_FAC);
-    o->HaloIndex =
-        g->HaloNr + TREE_MUL_FAC * tree + (FILENR_MUL_FAC / 10) * filenr;
-    assert((o->HaloIndex - g->HaloNr - TREE_MUL_FAC * tree) /
-               (FILENR_MUL_FAC / 10) ==
-           filenr);
-    assert((o->HaloIndex - g->HaloNr - (FILENR_MUL_FAC / 10) * filenr) /
-               TREE_MUL_FAC ==
-           tree);
-    assert(o->HaloIndex - TREE_MUL_FAC * tree -
-               (FILENR_MUL_FAC / 10) * filenr ==
-           g->HaloNr);
-    o->CentralHaloIndex =
-        ProcessedHalos[HaloAux[InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup]
-                           .FirstHalo]
-            .HaloNr +
-        TREE_MUL_FAC * tree + (FILENR_MUL_FAC / 10) * filenr;
-  } else {
-    assert(g->HaloNr < TREE_MUL_FAC); // breaking tree size assumption
-    assert(tree < FILENR_MUL_FAC / TREE_MUL_FAC);
-    o->HaloIndex = g->HaloNr + TREE_MUL_FAC * tree + FILENR_MUL_FAC * filenr;
-    assert((o->HaloIndex - g->HaloNr - TREE_MUL_FAC * tree) / FILENR_MUL_FAC ==
-           filenr);
-    assert((o->HaloIndex - g->HaloNr - FILENR_MUL_FAC * filenr) /
-               TREE_MUL_FAC ==
-           tree);
-    assert(o->HaloIndex - TREE_MUL_FAC * tree - FILENR_MUL_FAC * filenr ==
-           g->HaloNr);
-    o->CentralHaloIndex =
-        ProcessedHalos[HaloAux[InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup]
-                           .FirstHalo]
-            .HaloNr +
-        TREE_MUL_FAC * tree + FILENR_MUL_FAC * filenr;
-  }
+  /* Calculate unique halo index encoding file, tree, and halo number.
+   * For large file counts (>=10000), use smaller file multiplier to fit in
+   * long long. */
+  long long file_mul_fac =
+      (MimicConfig.LastFile >= 10000) ? (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
+  long long tree_mul = TREE_MUL_FAC * tree;
+  long long file_mul = file_mul_fac * filenr;
+  int central_halo_nr =
+      ProcessedHalos[HaloAux[InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup]
+                         .FirstHalo]
+          .HaloNr;
+
+  /* Verify tree size assumptions */
+  assert(g->HaloNr < TREE_MUL_FAC);
+  assert(tree < file_mul_fac / TREE_MUL_FAC);
+
+  /* Compute indices */
+  o->HaloIndex = g->HaloNr + tree_mul + file_mul;
+  o->CentralHaloIndex = central_halo_nr + tree_mul + file_mul;
+
+  /* Verify index encoding/decoding correctness */
+  assert((o->HaloIndex - g->HaloNr - tree_mul) / file_mul_fac == filenr);
+  assert((o->HaloIndex - g->HaloNr - file_mul) / TREE_MUL_FAC == tree);
+  assert(o->HaloIndex - tree_mul - file_mul == g->HaloNr);
 
   o->MimicHaloIndex = g->HaloNr;
   o->MimicTreeIndex = tree;

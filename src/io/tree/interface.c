@@ -237,6 +237,21 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
                 my_TreeType);
   }
 
+  /*
+   * LIFECYCLE: Allocation Phase
+   * See globals.h for complete data structure lifecycle documentation.
+   *
+   * At this point:
+   * - InputTreeHalos has been populated by format-specific loader
+   * - We now allocate the processing structures:
+   *   1. HaloAux: Parallel metadata for each InputTreeHalo
+   *   2. ProcessedHalos: Storage for processed halos (grows dynamically)
+   *   3. FoFWorkspace: Temporary workspace for FoF processing (grows
+   * dynamically)
+   *
+   * All allocations use MEM_HALOS except InputTreeHalos (MEM_TREES).
+   */
+
   /* Calculate MaxProcessedHalos based on number of halos with a sensible
    * minimum */
   MaxProcessedHalos = (int)(MAXHALOFAC * InputTreeNHalos[treenr]);
@@ -244,12 +259,12 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
     MaxProcessedHalos = MIN_HALO_ARRAY_GROWTH;
 
   /* Start with a reasonable size for MaxFoFWorkspace based on tree
-   * characteristics
-   */
+   * characteristics */
   MaxFoFWorkspace = INITIAL_FOF_HALOS;
   if ((int)(0.1 * MaxProcessedHalos) > MaxFoFWorkspace)
     MaxFoFWorkspace = (int)(0.1 * MaxProcessedHalos);
 
+  /* Allocate auxiliary metadata (parallel to InputTreeHalos) */
   HaloAux = mymalloc_cat(sizeof(struct HaloAuxData) * InputTreeNHalos[treenr], MEM_HALOS);
   if (HaloAux == NULL) {
     FATAL_ERROR(
@@ -258,6 +273,7 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
         InputTreeNHalos[treenr] * sizeof(struct HaloAuxData));
   }
 
+  /* Allocate permanent storage for processed halos */
   ProcessedHalos = mymalloc_cat(sizeof(struct Halo) * MaxProcessedHalos, MEM_HALOS);
   if (ProcessedHalos == NULL) {
     FATAL_ERROR("Memory allocation failed for ProcessedHalos array (%d halos, "
@@ -265,6 +281,7 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
                 MaxProcessedHalos, MaxProcessedHalos * sizeof(struct Halo));
   }
 
+  /* Allocate temporary workspace for FoF processing */
   FoFWorkspace = mymalloc_cat(sizeof(struct Halo) * MaxFoFWorkspace, MEM_HALOS);
   if (FoFWorkspace == NULL) {
     FATAL_ERROR(
@@ -282,22 +299,31 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
 /**
  * @brief   Frees memory allocated for the current merger tree
  *
- * This function releases all memory allocated for halo and halo data
- * structures after a merger tree has been processed. It frees:
+ * LIFECYCLE: Deallocation Phase
+ * See globals.h for complete data structure lifecycle documentation.
  *
- * 1. The temporary halo array used during processing (Gal)
- * 2. The permanent halo array for output (HaloGal)
- * 3. The halo auxiliary data array (HaloAux)
- * 4. The halo data array (Halo)
+ * This function releases all memory allocated for the current merger tree
+ * after it has been fully processed and output. It frees (in reverse
+ * allocation order):
+ *
+ * 1. FoFWorkspace: Temporary workspace (MEM_HALOS)
+ * 2. ProcessedHalos: Permanent storage for processed halos (MEM_HALOS)
+ * 3. HaloAux: Auxiliary metadata (MEM_HALOS)
+ * 4. InputTreeHalos: Raw merger tree input (MEM_TREES)
+ *
+ * IMPORTANT: The deallocation order (reverse of allocation) is critical for
+ * proper memory management. Phase 1-2 transformations must preserve this
+ * pattern as additional galaxy properties are added to the Halo struct.
  *
  * This cleanup is performed after each tree is fully processed, allowing
  * the memory to be reused for the next tree.
  */
 void free_halos_and_tree(void) {
-  myfree(FoFWorkspace);
-  myfree(ProcessedHalos);
-  myfree(HaloAux);
-  myfree(InputTreeHalos);
+  /* Free in reverse allocation order - see load_tree() */
+  myfree(FoFWorkspace);       // Temporary FoF workspace
+  myfree(ProcessedHalos);     // Permanent processed halo storage
+  myfree(HaloAux);            // Auxiliary metadata
+  myfree(InputTreeHalos);     // Raw input from merger tree files
 }
 
 /**
