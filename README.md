@@ -11,7 +11,7 @@ Mimic embodies a **physics-agnostic architecture** where the core infrastructure
 - **Long-term Maintainability**: Clean separation of concerns reduces complexity
 - **Extensibility**: Add new physics modules following clear, documented patterns
 
-See [docs/architecture/vision.md](docs/architecture/vision.md) for the complete architectural vision and design principles.
+See [docs/architecture/vision.md](docs/architecture/vision.md) for the complete architectural vision and [docs/architecture/roadmap.md](docs/architecture/roadmap.md) for the transformation roadmap.
 
 ## Historical Context
 
