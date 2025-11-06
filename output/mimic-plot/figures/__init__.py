@@ -59,6 +59,12 @@ def get_halo_mass_label():
     return x_label
 
 
+def get_stellar_mass_label():
+    """Return consistent x-axis label for stellar mass plots."""
+    x_label = r"log$_{10}$ M$_{*}$ (M$_{\odot}$)"
+    return x_label
+
+
 def get_spin_parameter_label():
     """Return consistent x-axis label for spin parameter plots."""
     x_label = r"Spin Parameter"
@@ -83,8 +89,10 @@ from . import (
     halo_mass_function,
     halo_occupation,
     hmf_evolution,
+    smf_evolution,
     spatial_distribution,
     spin_distribution,
+    stellar_mass_function,
     velocity_distribution,
 )
 
@@ -92,6 +100,7 @@ from . import (
 """List of all available snapshot plot modules (halo properties only)."""
 SNAPSHOT_PLOTS = [
     "halo_mass_function",
+    "stellar_mass_function",
     "halo_occupation",
     "spin_distribution",
     "velocity_distribution",
@@ -101,6 +110,7 @@ SNAPSHOT_PLOTS = [
 """List of all available evolution plot modules (halo properties only)."""
 EVOLUTION_PLOTS = [
     "hmf_evolution",
+    "smf_evolution",
 ]
 
 # Make sure this dictionary matches the classifications above
@@ -108,8 +118,10 @@ EVOLUTION_PLOTS = [
 """Mapping of plot names to their corresponding functions (halo properties only)."""
 PLOT_FUNCS = {
     "halo_mass_function": halo_mass_function.plot,
+    "stellar_mass_function": stellar_mass_function.plot,
     "halo_occupation": halo_occupation.plot,
     "hmf_evolution": hmf_evolution.plot,
+    "smf_evolution": smf_evolution.plot,
     "spin_distribution": spin_distribution.plot,
     "velocity_distribution": velocity_distribution.plot,
     "spatial_distribution": spatial_distribution.plot,

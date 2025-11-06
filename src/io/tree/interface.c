@@ -319,6 +319,14 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
  * the memory to be reused for the next tree.
  */
 void free_halos_and_tree(void) {
+  /* Free galaxy data for all processed halos */
+  for (int i = 0; i < NumProcessedHalos; i++) {
+    if (ProcessedHalos[i].galaxy != NULL) {
+      myfree(ProcessedHalos[i].galaxy);
+      ProcessedHalos[i].galaxy = NULL;
+    }
+  }
+
   /* Free in reverse allocation order - see load_tree() */
   myfree(FoFWorkspace);       // Temporary FoF workspace
   myfree(ProcessedHalos);     // Permanent processed halo storage

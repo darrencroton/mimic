@@ -238,6 +238,13 @@ void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
     o->infallVvir = 0.0;
     o->infallVmax = 0.0;
   }
+
+  // galaxy properties
+  if (g->galaxy != NULL) {
+    o->StellarMass = g->galaxy->StellarMass;
+  } else {
+    o->StellarMass = 0.0;
+  }
 }
 
 /**

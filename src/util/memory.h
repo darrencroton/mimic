@@ -21,7 +21,7 @@ typedef enum {
 
 /* Configuration */
 #ifndef DEFAULT_MAX_MEMORY_BLOCKS
-#define DEFAULT_MAX_MEMORY_BLOCKS 1024 /* Increased from 256 */
+#define DEFAULT_MAX_MEMORY_BLOCKS 65536 /* Increased for galaxy data allocations (2x for galaxy structs) */
 #endif
 
 /* Memory allocation utilities */

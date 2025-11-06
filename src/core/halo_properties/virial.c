@@ -71,6 +71,12 @@ void init_halo(int p, int halonr) {
   FoFWorkspace[p].infallMvir = -1.0;
   FoFWorkspace[p].infallVvir = -1.0;
   FoFWorkspace[p].infallVmax = -1.0;
+
+  // Allocate galaxy data (physics-agnostic)
+  FoFWorkspace[p].galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_GALAXIES);
+
+  // Initialize galaxy properties to zero
+  FoFWorkspace[p].galaxy->StellarMass = 0.0;
 }
 
 /**

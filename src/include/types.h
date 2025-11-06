@@ -2,6 +2,7 @@
 #define TYPES_H
 
 #include "constants.h"
+#include "galaxy_types.h"
 
 /* Raw merger tree input structure read from treefiles */
 struct RawHalo {
@@ -135,6 +136,9 @@ struct HaloOutput {
   float infallMvir;
   float infallVvir;
   float infallVmax;
+
+  /* galaxy properties */
+  float StellarMass; /**< Total stellar mass in 10^10 Msun/h */
 };
 
 /* This structure contains the properties used within the code */
@@ -171,6 +175,9 @@ struct Halo {
   float infallMvir;
   float infallVvir;
   float infallVmax;
+
+  /* galaxy data (physics-agnostic pointer) */
+  struct GalaxyData *galaxy; /**< Galaxy properties (allocated separately) */
 };
 
 /* auxiliary halo data */

@@ -83,6 +83,7 @@ def get_dtype():
         ("infallMvir", np.float32),
         ("infallVvir", np.float32),
         ("infallVmax", np.float32),
+        ("StellarMass", np.float32),
     ]
     names = [galdesc_full[i][0] for i in range(len(galdesc_full))]
     formats = [galdesc_full[i][1] for i in range(len(galdesc_full))]

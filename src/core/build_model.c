@@ -28,6 +28,7 @@
 
 #include "config.h"
 #include "proto.h"
+#include "module_registry.h"
 #include "globals.h"
 #include "types.h"
 #include "numeric.h"
@@ -206,6 +207,17 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
       // properties and evolving them they are copied to the end of the list of
       // permanent halos ProcessedHalos[xxx]
       FoFWorkspace[ngal] = ProcessedHalos[HaloAux[prog].FirstHalo + i];
+
+      // Deep copy galaxy data from progenitor (physics-agnostic inheritance)
+      if (ProcessedHalos[HaloAux[prog].FirstHalo + i].galaxy != NULL) {
+        FoFWorkspace[ngal].galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_GALAXIES);
+        memcpy(FoFWorkspace[ngal].galaxy,
+               ProcessedHalos[HaloAux[prog].FirstHalo + i].galaxy,
+               sizeof(struct GalaxyData));
+      } else {
+        FoFWorkspace[ngal].galaxy = NULL;
+      }
+
       FoFWorkspace[ngal].HaloNr = halonr;
       FoFWorkspace[ngal].dT = -1.0;
 
@@ -462,6 +474,9 @@ void process_halo_evolution(int halonr, int ngal)
   centralgal = FoFWorkspace[0].CentralHalo;
   assert(FoFWorkspace[centralgal].Type == 0 &&
          FoFWorkspace[centralgal].HaloNr == halonr);
+
+  /* Execute galaxy physics modules (if any registered) */
+  module_execute_pipeline(FoFWorkspace, ngal);
 
   /* Update final object properties and attach them to halos */
   update_halo_properties(ngal);

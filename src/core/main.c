@@ -39,6 +39,8 @@
 #include "output/hdf5.h"
 #include "version.h"
 #include "io.h"
+#include "module_registry.h"
+#include "../modules/stellar_mass/stellar_mass.h"
 
 #define MAX_BUFZ0_SIZE (3 * MAX_STRING_LEN + 25)
 static char
@@ -264,6 +266,11 @@ int main(int argc, char **argv) {
   read_parameter_file(argv[1]);
   init();
 
+  /* Register and initialize galaxy physics modules */
+  INFO_LOG("Initializing galaxy physics module system");
+  stellar_mass_register();
+  module_system_init();
+
   /* Initialize HDF5 output system if HDF5 format is selected */
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
@@ -394,6 +401,10 @@ int main(int argc, char **argv) {
   myfree(Age);
 
   /* Random generator freeing removed - not actually used in computation */
+
+  /* Cleanup galaxy physics modules */
+  INFO_LOG("Cleaning up galaxy physics module system");
+  module_system_cleanup();
 
   /* Check for memory leaks and clean up memory system */
   check_memory_leaks();
