@@ -319,7 +319,35 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
  * the memory to be reused for the next tree.
  */
 void free_halos_and_tree(void) {
-  /* Free in reverse allocation order - see load_tree() */
+  /* First, free all galaxy data structures
+   * Note: Multiple ProcessedHalos entries may share the same galaxy pointer
+   * (when a halo exists across multiple snapshots). We must free each unique
+   * pointer exactly once to avoid double-free errors. */
+  for (int i = 0; i < NumProcessedHalos; i++) {
+    if (ProcessedHalos[i].galaxy != NULL) {
+      void *galaxy_ptr = ProcessedHalos[i].galaxy;
+
+      /* Free this galaxy allocation */
+      myfree(galaxy_ptr);
+
+      /* Nullify this and any duplicate pointers in remaining entries
+       * to prevent double-free. This handles cases where a halo exists
+       * in multiple snapshots and shares the same galaxy pointer. */
+      for (int j = i; j < NumProcessedHalos; j++) {
+        if (ProcessedHalos[j].galaxy == galaxy_ptr) {
+          ProcessedHalos[j].galaxy = NULL;
+        }
+      }
+    }
+  }
+
+  /* Also nullify galaxy pointers in FoFWorkspace
+   * (these point to the same memory we just freed) */
+  for (int i = 0; i < MaxFoFWorkspace; i++) {
+    FoFWorkspace[i].galaxy = NULL;
+  }
+
+  /* Free halo arrays in reverse allocation order - see load_tree() */
   myfree(FoFWorkspace);       // Temporary FoF workspace
   myfree(ProcessedHalos);     // Permanent processed halo storage
   myfree(HaloAux);            // Auxiliary metadata

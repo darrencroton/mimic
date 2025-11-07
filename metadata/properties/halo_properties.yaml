@@ -1,0 +1,307 @@
+# Mimic Halo Properties Metadata
+#
+# This file defines ALL 24 core halo tracking properties used in Mimic.
+# These properties are part of the physics-agnostic infrastructure.
+#
+# Property counts:
+#   - struct Halo: 21 properties (internal processing)
+#   - struct HaloOutput: 24 properties (file output)
+#   - Difference: HaloIndex, CentralHaloIndex, MimicHaloIndex, MimicTreeIndex,
+#                 SimulationHaloIndex, Spin[3], VelDisp (output only)
+#                 HaloNr, MostBoundID, deltaMvir, MergTime (processing only)
+#
+# For schema documentation, see:
+#   docs/architecture/property-metadata-schema.md
+
+halo_properties:
+  # ===========================================================================
+  # METADATA PROPERTIES
+  # ===========================================================================
+
+  - name: SnapNum
+    type: int
+    units: "dimensionless"
+    description: "Snapshot number (index in simulation output)"
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+
+  - name: Type
+    type: int
+    units: "dimensionless"
+    description: "Halo type (0=central, 1=satellite, 2=orphan)"
+    output: true
+    init_source: default
+    init_value: 0
+    output_source: copy_direct
+
+  - name: UniqueHaloID
+    type: int
+    units: "dimensionless"
+    description: "Internal unique halo identifier (working variable, not output)"
+    output: false
+    init_source: skip  # Set in build_model.c, not in init_halo()
+
+  - name: CentralHalo
+    type: int
+    units: "dimensionless"
+    description: "Index of central halo in FoF group (working variable, not output)"
+    output: false
+    init_source: skip  # Set in build_model.c, not in init_halo()
+
+  - name: HaloNr
+    type: int
+    units: "dimensionless"
+    description: "Halo number in tree (internal index, output as MimicHaloIndex)"
+    output: false
+    init_source: skip  # Custom: set to halonr parameter directly
+
+  - name: MostBoundID
+    type: long long
+    units: "dimensionless"
+    description: "ID of most bound particle (internal, output as SimulationHaloIndex)"
+    output: false
+    init_source: copy_from_tree
+
+  # ===========================================================================
+  # OUTPUT-ONLY INDEX PROPERTIES (not in struct Halo)
+  # ===========================================================================
+
+  - name: HaloIndex
+    type: long long
+    units: "dimensionless"
+    description: "Unique halo index encoding file number, tree number, and halo number"
+    output: true
+    init_source: skip  # Not in struct Halo
+    output_source: custom  # Complex encoding in prepare_halo_for_output()
+
+  - name: CentralHaloIndex
+    type: long long
+    units: "dimensionless"
+    description: "HaloIndex of the central halo in this FoF group"
+    output: true
+    init_source: skip  # Not in struct Halo
+    output_source: custom  # Complex calculation in prepare_halo_for_output()
+
+  - name: MimicHaloIndex
+    type: int
+    units: "dimensionless"
+    description: "Halo number within merger tree (same as internal HaloNr)"
+    output: true
+    init_source: skip  # Not in struct Halo
+    output_source: custom  # Copy from g->HaloNr in prepare_halo_for_output()
+
+  - name: MimicTreeIndex
+    type: int
+    units: "dimensionless"
+    description: "Merger tree number within file"
+    output: true
+    init_source: skip  # Not in struct Halo
+    output_source: custom  # Pass tree parameter in prepare_halo_for_output()
+
+  - name: SimulationHaloIndex
+    type: long long
+    units: "dimensionless"
+    description: "Original simulation halo ID (most bound particle ID)"
+    output: true
+    init_source: skip  # Not in struct Halo
+    output_source: custom  # Copy from InputTreeHalos[g->HaloNr].MostBoundID
+
+  # ===========================================================================
+  # MERGE TRACKING PROPERTIES
+  # ===========================================================================
+
+  - name: MergeStatus
+    type: int
+    units: "dimensionless"
+    description: "Merge status (0=active, 1=merged and no longer tracked)"
+    output: true
+    init_source: default
+    init_value: 0
+    output_source: copy_direct
+
+  - name: mergeIntoID
+    type: int
+    units: "dimensionless"
+    description: "HaloNr of halo this merged into (-1 if not merged)"
+    output: true
+    init_source: default
+    init_value: -1
+    output_source: copy_direct
+
+  - name: mergeIntoSnapNum
+    type: int
+    units: "dimensionless"
+    description: "Snapshot number when merger occurred (-1 if not merged)"
+    output: true
+    init_source: default
+    init_value: -1
+    output_source: copy_direct
+
+  - name: dT
+    type: float
+    units: "Myr"
+    description: "Time elapsed since progenitor snapshot (lookback time difference)"
+    output: true
+    init_source: default
+    init_value: -1.0
+    output_source: custom  # Copy with unit conversion to Myr
+
+  # ===========================================================================
+  # PHYSICAL PROPERTIES (Position and Velocity)
+  # ===========================================================================
+
+  - name: Pos
+    type: vec3_float
+    units: "Mpc/h"
+    description: "3D position vector (comoving coordinates)"
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+
+  - name: Vel
+    type: vec3_float
+    units: "km/s"
+    description: "3D velocity vector (peculiar velocity)"
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+
+  - name: Spin
+    type: vec3_float
+    units: "dimensionless"
+    description: "Dimensionless spin parameter (Bullock definition)"
+    output: true
+    init_source: skip  # Not in struct Halo
+    output_source: copy_from_tree_array
+    output_tree_field: Spin
+
+  # ===========================================================================
+  # PHYSICAL PROPERTIES (Masses and Scales)
+  # ===========================================================================
+
+  - name: Len
+    type: int
+    units: "particles"
+    description: "Number of particles in halo"
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+
+  - name: Mvir
+    type: float
+    units: "1e10 Msun/h"
+    description: "Virial mass (M200c definition)"
+    output: true
+    init_source: calculate
+    init_function: get_virial_mass
+    output_source: copy_direct
+
+  - name: deltaMvir
+    type: float
+    units: "1e10 Msun/h"
+    description: "Change in virial mass since last snapshot (internal, not output)"
+    output: false
+    init_source: default
+    init_value: 0.0
+
+  - name: CentralMvir
+    type: float
+    units: "1e10 Msun/h"
+    description: "Virial mass of the central halo in this FoF group"
+    output: true
+    init_source: skip  # Not in struct Halo
+    output_source: recalculate
+    output_function: get_virial_mass
+    output_function_arg: "InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup"
+
+  - name: Rvir
+    type: float
+    units: "Mpc/h"
+    description: "Virial radius (radius at which density is 200 * critical density)"
+    output: true
+    init_source: calculate
+    init_function: get_virial_radius
+    output_source: recalculate
+    output_function: get_virial_radius
+    output_function_arg: "g->HaloNr"
+
+  - name: Vvir
+    type: float
+    units: "km/s"
+    description: "Virial velocity (circular velocity at virial radius)"
+    output: true
+    init_source: calculate
+    init_function: get_virial_velocity
+    output_source: recalculate
+    output_function: get_virial_velocity
+    output_function_arg: "g->HaloNr"
+
+  - name: Vmax
+    type: float
+    units: "km/s"
+    description: "Maximum circular velocity"
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+
+  - name: VelDisp
+    type: float
+    units: "km/s"
+    description: "Velocity dispersion"
+    output: true
+    init_source: skip  # Not in struct Halo
+    output_source: copy_from_tree
+    output_tree_field: VelDisp
+
+  # ===========================================================================
+  # MISC PROPERTIES
+  # ===========================================================================
+
+  - name: MergTime
+    type: float
+    units: "Gyr"
+    description: "Merger timescale (internal, not output)"
+    output: false
+    init_source: default
+    init_value: 999.9
+
+  # ===========================================================================
+  # INFALL PROPERTIES (Satellites Only)
+  # ===========================================================================
+
+  - name: infallMvir
+    type: float
+    units: "1e10 Msun/h"
+    description: "Virial mass at infall (satellites only, 0 for centrals)"
+    output: true
+    init_source: default
+    init_value: -1.0
+    output_source: conditional
+    output_condition: "g->Type != 0"
+    output_true_value: "g->infallMvir"
+    output_false_value: "0.0"
+
+  - name: infallVvir
+    type: float
+    units: "km/s"
+    description: "Virial velocity at infall (satellites only, 0 for centrals)"
+    output: true
+    init_source: default
+    init_value: -1.0
+    output_source: conditional
+    output_condition: "g->Type != 0"
+    output_true_value: "g->infallVvir"
+    output_false_value: "0.0"
+
+  - name: infallVmax
+    type: float
+    units: "km/s"
+    description: "Maximum circular velocity at infall (satellites only, 0 for centrals)"
+    output: true
+    init_source: default
+    init_value: -1.0
+    output_source: conditional
+    output_condition: "g->Type != 0"
+    output_true_value: "g->infallVmax"
+    output_false_value: "0.0"

@@ -52,7 +52,7 @@ endif
 GIT_VERSION_H = $(SRC_DIR)/include/git_version.h
 
 # Build targets
-.PHONY: all clean tidy help
+.PHONY: all clean tidy help generate check-generated
 
 all: $(EXEC)
 
@@ -94,7 +94,18 @@ help:
 	@echo "  make              - Build executable"
 	@echo "  make clean        - Remove all build artifacts"
 	@echo "  make tidy         - Remove build directory only"
+	@echo "  make generate     - Generate property code from metadata"
+	@echo "  make check-generated - Verify generated code is up-to-date (CI)"
 	@echo ""
 	@echo "Options:"
 	@echo "  make USE-HDF5=yes - Enable HDF5 support"
 	@echo "  make USE-MPI=yes  - Enable MPI support"
+
+# Property metadata code generation
+generate:
+	@echo "Generating property code from metadata..."
+	@python3 scripts/generate_properties.py
+	@echo "Done. Generated files are in src/include/generated/"
+
+check-generated:
+	@python3 scripts/check_generated.py

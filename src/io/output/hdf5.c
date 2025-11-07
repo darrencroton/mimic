@@ -60,148 +60,24 @@ void calc_hdf5_props(void) {
 
   struct HaloOutput galout;
 
-  int i; // dummy
-
-  HDF5_n_props = 24; // Reduced from 36 to only halo properties
-
-  // Size of a single halo entry.
+  /* Size of a single halo entry */
   HDF5_dst_size = sizeof(struct HaloOutput);
 
-  // Create datatypes for different size arrays
+  /* Create datatypes for different size arrays */
   hid_t array3f_tid = H5Tarray_create(H5T_NATIVE_FLOAT, 1, (hsize_t[]){3});
 
-  // Calculate the offsets of our struct members in memory
+  /* AUTO-GENERATED: Set property count and allocate arrays */
+  #include "../../include/generated/hdf5_field_count.inc"
+
+  /* Allocate arrays for field metadata */
   HDF5_dst_offsets = mymalloc_cat(sizeof(size_t) * HDF5_n_props, MEM_IO);
-  // Calculate the sizes of our struct members in memory.
   HDF5_dst_sizes = mymalloc_cat(sizeof(size_t) * HDF5_n_props, MEM_IO);
-  // Give each halo property a field name in the table
   HDF5_field_names = mymalloc_cat(sizeof(const char *) * HDF5_n_props, MEM_IO);
-  // Assign a type to each halo property field in the table.
   HDF5_field_types = mymalloc_cat(sizeof(hid_t) * HDF5_n_props, MEM_IO);
 
-  i = 0; // Initialise dummy counter
-
-  // Go through each halo property and calculate everything we need...
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, SnapNum);
-  HDF5_dst_sizes[i] = sizeof(galout.SnapNum);
-  HDF5_field_names[i] = "SnapNum";
-  HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Type);
-  HDF5_dst_sizes[i] = sizeof(galout.Type);
-  HDF5_field_names[i] = "Type";
-  HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, HaloIndex);
-  HDF5_dst_sizes[i] = sizeof(galout.HaloIndex);
-  HDF5_field_names[i] = "HaloIndex";
-  HDF5_field_types[i++] = H5T_NATIVE_LLONG;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, CentralHaloIndex);
-  HDF5_dst_sizes[i] = sizeof(galout.CentralHaloIndex);
-  HDF5_field_names[i] = "CentralHaloIndex";
-  HDF5_field_types[i++] = H5T_NATIVE_LLONG;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MimicHaloIndex);
-  HDF5_dst_sizes[i] = sizeof(galout.MimicHaloIndex);
-  HDF5_field_names[i] = "MimicHaloIndex";
-  HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MimicTreeIndex);
-  HDF5_dst_sizes[i] = sizeof(galout.MimicTreeIndex);
-  HDF5_field_names[i] = "MimicTreeIndex";
-  HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, SimulationHaloIndex);
-  HDF5_dst_sizes[i] = sizeof(galout.SimulationHaloIndex);
-  HDF5_field_names[i] = "SimulationHaloIndex";
-  HDF5_field_types[i++] = H5T_NATIVE_LLONG;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MergeStatus);
-  HDF5_dst_sizes[i] = sizeof(galout.MergeStatus);
-  HDF5_field_names[i] = "MergeStatus";
-  HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, mergeIntoID);
-  HDF5_dst_sizes[i] = sizeof(galout.mergeIntoID);
-  HDF5_field_names[i] = "mergeIntoID";
-  HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, mergeIntoSnapNum);
-  HDF5_dst_sizes[i] = sizeof(galout.mergeIntoSnapNum);
-  HDF5_field_names[i] = "mergeIntoSnapNum";
-  HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, dT);
-  HDF5_dst_sizes[i] = sizeof(galout.dT);
-  HDF5_field_names[i] = "dT";
-  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Pos);
-  HDF5_dst_sizes[i] = sizeof(galout.Pos);
-  HDF5_field_names[i] = "Pos";
-  HDF5_field_types[i++] = array3f_tid;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Vel);
-  HDF5_dst_sizes[i] = sizeof(galout.Vel);
-  HDF5_field_names[i] = "Vel";
-  HDF5_field_types[i++] = array3f_tid;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Spin);
-  HDF5_dst_sizes[i] = sizeof(galout.Spin);
-  HDF5_field_names[i] = "Spin";
-  HDF5_field_types[i++] = array3f_tid;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Len);
-  HDF5_dst_sizes[i] = sizeof(galout.Len);
-  HDF5_field_names[i] = "Len";
-  HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Mvir);
-  HDF5_dst_sizes[i] = sizeof(galout.Mvir);
-  HDF5_field_names[i] = "Mvir";
-  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, CentralMvir);
-  HDF5_dst_sizes[i] = sizeof(galout.CentralMvir);
-  HDF5_field_names[i] = "CentralMvir";
-  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Rvir);
-  HDF5_dst_sizes[i] = sizeof(galout.Rvir);
-  HDF5_field_names[i] = "Rvir";
-  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Vvir);
-  HDF5_dst_sizes[i] = sizeof(galout.Vvir);
-  HDF5_field_names[i] = "Vvir";
-  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Vmax);
-  HDF5_dst_sizes[i] = sizeof(galout.Vmax);
-  HDF5_field_names[i] = "Vmax";
-  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, VelDisp);
-  HDF5_dst_sizes[i] = sizeof(galout.VelDisp);
-  HDF5_field_names[i] = "VelDisp";
-  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, infallMvir);
-  HDF5_dst_sizes[i] = sizeof(galout.infallMvir);
-  HDF5_field_names[i] = "infallMvir";
-  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, infallVvir);
-  HDF5_dst_sizes[i] = sizeof(galout.infallVvir);
-  HDF5_field_names[i] = "infallVvir";
-  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, infallVmax);
-  HDF5_dst_sizes[i] = sizeof(galout.infallVmax);
-  HDF5_field_names[i] = "infallVmax";
-  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
+  /* AUTO-GENERATED: Define all HDF5 fields from metadata
+   * This replaces ~150 lines of manual field definitions */
+  #include "../../include/generated/hdf5_field_definitions.inc"
 
   /* Validate property count */
   if (i != HDF5_n_props) {

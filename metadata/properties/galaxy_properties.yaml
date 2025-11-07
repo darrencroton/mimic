@@ -1,0 +1,69 @@
+# Mimic Galaxy Properties Metadata
+#
+# This file defines galaxy baryonic physics properties used in Mimic.
+# These properties are created and modified by physics modules.
+#
+# Current properties: 2 (validated in feature/minimal-module-poc)
+#   - ColdGas (simple_cooling module)
+#   - StellarMass (stellar_mass module)
+#
+# Planned expansion: ~50 properties for full SAM
+#   - HotGas, MetalsCold, MetalsHot, BlackHoleMass, DiskMass, BulgeMass, etc.
+#
+# For schema documentation, see:
+#   docs/architecture/property-metadata-schema.md
+
+galaxy_properties:
+  # ===========================================================================
+  # BARYONIC MASS COMPONENTS
+  # ===========================================================================
+
+  - name: ColdGas
+    type: float
+    units: "1e10 Msun/h"
+    description: "Cold gas mass available for star formation"
+    output: false  # Disabled until physics modules implemented (Phase 2)
+    created_by: simple_cooling
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+
+  - name: StellarMass
+    type: float
+    units: "1e10 Msun/h"
+    description: "Total stellar mass"
+    output: false  # Disabled until physics modules implemented (Phase 2)
+    created_by: stellar_mass
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+
+  # ===========================================================================
+  # FUTURE PROPERTIES (Examples for expansion)
+  # ===========================================================================
+  #
+  # Planned properties for full SAM implementation:
+  #
+  # - name: HotGas
+  #   type: float
+  #   units: "1e10 Msun/h"
+  #   description: "Hot gas mass in halo atmosphere"
+  #   created_by: cooling_module
+  #
+  # - name: BlackHoleMass
+  #   type: float
+  #   units: "1e10 Msun/h"
+  #   description: "Central supermassive black hole mass"
+  #   created_by: agn_module
+  #
+  # - name: MetalsCold
+  #   type: float
+  #   units: "1e10 Msun/h"
+  #   description: "Metal mass in cold gas"
+  #   created_by: enrichment_module
+  #
+  # Adding properties is simple:
+  #   1. Uncomment or add property definition above
+  #   2. Run: make generate
+  #   3. Property immediately available in modules
+  #   4. Total time: <2 minutes

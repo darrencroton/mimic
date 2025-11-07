@@ -172,14 +172,8 @@ void save_halos(int filenr, int tree) {
  */
 void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
                              struct HaloOutput *o) {
-  int j;
-
-  o->SnapNum = g->SnapNum;
-  o->Type = g->Type;
-
-  /* Calculate unique halo index encoding file, tree, and halo number.
-   * For large file counts (>=10000), use smaller file multiplier to fit in
-   * long long. */
+  /* CUSTOM: Calculate unique halo index encoding file, tree, and halo number.
+   * For large file counts (>=10000), use smaller file multiplier to fit in long long. */
   long long file_mul_fac =
       (MimicConfig.LastFile >= 10000) ? (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
   long long tree_mul = TREE_MUL_FAC * tree;
@@ -202,42 +196,16 @@ void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
   assert((o->HaloIndex - g->HaloNr - file_mul) / TREE_MUL_FAC == tree);
   assert(o->HaloIndex - tree_mul - file_mul == g->HaloNr);
 
+  /* CUSTOM: Mimic-specific indices */
   o->MimicHaloIndex = g->HaloNr;
   o->MimicTreeIndex = tree;
   o->SimulationHaloIndex = InputTreeHalos[g->HaloNr].MostBoundID;
 
-  o->MergeStatus = g->MergeStatus;
-  o->mergeIntoID = g->mergeIntoID;
-  o->mergeIntoSnapNum = g->mergeIntoSnapNum;
+  /* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */
+  #include "../../include/generated/copy_to_output.inc"
+
+  /* CUSTOM: dT unit conversion (internal uses seconds, output uses Myr) */
   o->dT = g->dT * UnitTime_in_s / SEC_PER_MEGAYEAR;
-
-  for (j = 0; j < 3; j++) {
-    o->Pos[j] = g->Pos[j];
-    o->Vel[j] = g->Vel[j];
-    o->Spin[j] = InputTreeHalos[g->HaloNr].Spin[j];
-  }
-
-  o->Len = g->Len;
-  o->Mvir = g->Mvir;
-  o->CentralMvir =
-      get_virial_mass(InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup);
-  o->Rvir = get_virial_radius(
-      g->HaloNr); // output the actual Rvir, not the maximum Rvir
-  o->Vvir = get_virial_velocity(
-      g->HaloNr); // output the actual Vvir, not the maximum Vvir
-  o->Vmax = g->Vmax;
-  o->VelDisp = InputTreeHalos[g->HaloNr].VelDisp;
-
-  // infall properties
-  if (g->Type != 0) {
-    o->infallMvir = g->infallMvir;
-    o->infallVvir = g->infallVvir;
-    o->infallVmax = g->infallVmax;
-  } else {
-    o->infallMvir = 0.0;
-    o->infallVvir = 0.0;
-    o->infallVmax = 0.0;
-  }
 }
 
 /**

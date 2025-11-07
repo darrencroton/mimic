@@ -34,43 +34,26 @@
  * number for identification and tracking through cosmic time.
  */
 void init_halo(int p, int halonr) {
-  int j;
-
+  /* Verify this is a central halo (FOF group center) */
   assert(halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup);
 
-  FoFWorkspace[p].Type = 0;
-
-  FoFWorkspace[p].HaloNr = HaloCounter;
-  HaloCounter++;
-
+  /* Custom initialization: HaloNr is set directly from parameter */
   FoFWorkspace[p].HaloNr = halonr;
-  FoFWorkspace[p].MostBoundID = InputTreeHalos[halonr].MostBoundID;
+
+  /* AUTO-GENERATED: Initialize all halo properties from metadata */
+  #include "../../include/generated/init_halo_properties.inc"
+
+  /* Custom override: SnapNum needs -1 adjustment for internal indexing */
   FoFWorkspace[p].SnapNum = InputTreeHalos[halonr].SnapNum - 1;
 
-  FoFWorkspace[p].MergeStatus = 0;
-  FoFWorkspace[p].mergeIntoID = -1;
-  FoFWorkspace[p].mergeIntoSnapNum = -1;
-  FoFWorkspace[p].dT = -1.0;
+  /* Allocate galaxy data (physics-agnostic core always allocates)
+   * Modules will populate these properties; if no modules run, values stay at zero */
+  FoFWorkspace[p].galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
 
-  for (j = 0; j < 3; j++) {
-    FoFWorkspace[p].Pos[j] = InputTreeHalos[halonr].Pos[j];
-    FoFWorkspace[p].Vel[j] = InputTreeHalos[halonr].Vel[j];
-  }
+  /* AUTO-GENERATED: Initialize all galaxy properties from metadata */
+  #include "../../include/generated/init_galaxy_properties.inc"
 
-  FoFWorkspace[p].Len = InputTreeHalos[halonr].Len;
-  FoFWorkspace[p].Vmax = InputTreeHalos[halonr].Vmax;
-  FoFWorkspace[p].Vvir = get_virial_velocity(halonr);
-  FoFWorkspace[p].Mvir = get_virial_mass(halonr);
-  FoFWorkspace[p].Rvir = get_virial_radius(halonr);
-
-  FoFWorkspace[p].deltaMvir = 0.0;
-
-  FoFWorkspace[p].MergTime = 999.9;
-
-  // infall properties
-  FoFWorkspace[p].infallMvir = -1.0;
-  FoFWorkspace[p].infallVvir = -1.0;
-  FoFWorkspace[p].infallVmax = -1.0;
+  /* Note: UniqueHaloID and CentralHalo are set in build_model.c, not here */
 }
 
 /**

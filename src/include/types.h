@@ -2,6 +2,7 @@
 #define TYPES_H
 
 #include "constants.h"
+#include "generated/property_defs.h"
 
 /* Raw merger tree input structure read from treefiles */
 struct RawHalo {
@@ -102,76 +103,14 @@ struct MimicConfig {
   enum Valid_OutputFormats OutputFormat;
 };
 
-/* This structure contains the properties that are output */
-struct HaloOutput {
-  int SnapNum;
-  int Type;
-
-  long long HaloIndex;
-  long long CentralHaloIndex;
-  int MimicHaloIndex;
-  int MimicTreeIndex;
-  long long SimulationHaloIndex;
-
-  int MergeStatus; /* 0=halo is active; 1=halo has merged and is no longer
-                      tracked */
-  int mergeIntoID;
-  int mergeIntoSnapNum;
-  float dT;
-
-  /* (sub)halo properties */
-  float Pos[3];
-  float Vel[3];
-  float Spin[3];
-  int Len;
-  float Mvir;
-  float CentralMvir;
-  float Rvir;
-  float Vvir;
-  float Vmax;
-  float VelDisp;
-
-  /* infall properties */
-  float infallMvir;
-  float infallVvir;
-  float infallVmax;
-};
-
-/* This structure contains the properties used within the code */
-struct Halo {
-  int SnapNum;
-  int Type;
-
-  int UniqueHaloID;
-  int CentralHalo;
-  int HaloNr;
-  long long MostBoundID;
-
-  int MergeStatus; /* 0=halo is active; 1=halo has merged and is no longer
-                      tracked */
-  int mergeIntoID;
-  int mergeIntoSnapNum;
-  float dT;
-
-  /* (sub)halo properties */
-  float Pos[3];
-  float Vel[3];
-  int Len;
-  float Mvir;
-  float deltaMvir;
-  float CentralMvir;
-  float Rvir;
-  float Vvir;
-  float Vmax;
-
-  /* misc */
-  float MergTime;
-
-  /* infall properties */
-  float infallMvir;
-  float infallVvir;
-  float infallVmax;
-};
+/* Halo tracking structures defined in generated/property_defs.h:
+ *   - struct Halo         (internal processing, 23 properties + galaxy pointer)
+ *   - struct GalaxyData   (baryonic physics properties)
+ *   - struct HaloOutput   (file output, 26 properties)
+ *
+ * These are auto-generated from metadata/properties/ YAML files
+ * To regenerate: make generate
+ */
 
 /* auxiliary halo data */
 struct HaloAuxData {

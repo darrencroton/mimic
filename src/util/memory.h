@@ -21,7 +21,7 @@ typedef enum {
 
 /* Configuration */
 #ifndef DEFAULT_MAX_MEMORY_BLOCKS
-#define DEFAULT_MAX_MEMORY_BLOCKS 1024 /* Increased from 256 */
+#define DEFAULT_MAX_MEMORY_BLOCKS 5000 /* Sufficient for single-tree processing with proper cleanup */
 #endif
 
 /* Memory allocation utilities */
