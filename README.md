@@ -11,7 +11,7 @@ Mimic embodies a **physics-agnostic architecture** where the core infrastructure
 - **Long-term Maintainability**: Clean separation of concerns reduces complexity
 - **Extensibility**: Add new physics modules following clear, documented patterns
 
-See [docs/architecture/vision.md](docs/architecture/vision.md) for the complete architectural vision and [docs/architecture/roadmap.md](docs/architecture/roadmap.md) for the transformation roadmap.
+See [docs/architecture/vision.md](docs/architecture/vision.md) for the complete architectural vision and [docs/architecture/roadmap_v3.md](docs/architecture/roadmap_v3.md) for the transformation roadmap.
 
 ## Historical Context
 
@@ -90,6 +90,12 @@ make USE-HDF5=yes
 
 # With MPI support for parallel processing
 make USE-MPI=yes
+
+# Regenerate property code from metadata (after editing YAML files)
+make generate
+
+# Verify generated code is current (CI check)
+make check-generated
 
 # Clean build artifacts
 make clean
@@ -210,6 +216,9 @@ Mimic follows a hierarchical structure under `src/`:
 - **src/util/**: Utility functions (memory, error, numeric, version)
 - **src/modules/**: Physics modules (currently empty, will contain galaxy physics modules)
 - **src/include/**: Public headers (types, globals, constants, config)
+  - **generated/**: Auto-generated property code (from metadata)
+- **metadata/properties/**: Property metadata YAML files (single source of truth)
+- **scripts/**: Code generation and development tools
 
 ### Key Design Patterns
 

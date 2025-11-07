@@ -1,12 +1,7 @@
 # Tools Directory
 
-**Purpose:** Code generation scripts and build utilities.
+**Purpose:** Utility tools and scripts.
 
-**Status:** Placeholder for future development.
+**Status:** Placeholder for future utilities.
 
-**Future contents:**
-- `generate_properties.py` - Generate structs/accessors from metadata
-- `generate_parameters.py` - Generate config from metadata
-- `validate_metadata.py` - YAML validation
-
-See architectural vision for details on code generation system.
+**Note:** Code generation scripts are located in `scripts/` directory.

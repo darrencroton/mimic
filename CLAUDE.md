@@ -21,6 +21,12 @@ For new repository clones, use the automated setup script:
 # Basic compilation
 make
 
+# Regenerate property code from metadata (after editing YAML files)
+make generate
+
+# Verify generated code is up-to-date (CI check)
+make check-generated
+
 # With HDF5 support for HDF5 tree format
 make USE-HDF5=yes
 
@@ -128,10 +134,12 @@ The codebase follows a hierarchical structure under `src/`:
 ### Data Structures
 - **src/include/types.h**: Core data structures - three-tier halo tracking architecture
   - `struct RawHalo`: Immutable merger tree input data (from simulation files)
-  - `struct Halo`: Mutable halo tracking structure (24 fields, core processing)
-  - `struct HaloOutput`: Output format structure (24 fields, file writing)
+  - `struct Halo`: Mutable halo tracking structure (auto-generated from metadata)
+  - `struct GalaxyData`: Baryonic physics properties (auto-generated from metadata)
+  - `struct HaloOutput`: Output format structure (auto-generated from metadata)
   - `struct HaloAuxData`: Auxiliary processing metadata
   - `struct MimicConfig`: Configuration parameters
+  - **Property Metadata System**: Halo/galaxy properties defined in `metadata/properties/*.yaml` and auto-generated into C code via `make generate`
   - Runtime simulation state is tracked via individual global variables declared in `globals.h` (e.g., `Ntrees`, `FileNum`, `TreeID`, `NumProcessedHalos`).
 - **src/include/globals.h**: Global variable declarations for halo arrays
   - `InputTreeHalos`: Raw merger tree input (RawHalo*)

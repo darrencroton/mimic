@@ -20,6 +20,20 @@ To enable MPI support:
 make clean && make USE-MPI=yes
 ```
 
+### Property Metadata System
+
+After editing property metadata files (`metadata/properties/*.yaml`), regenerate C code:
+
+```bash
+make generate
+```
+
+To verify generated code is current (CI check):
+
+```bash
+make check-generated
+```
+
 ## Running
 
 Basic execution:
@@ -48,6 +62,9 @@ See [coding-standards.md](coding-standards.md) for code style requirements.
 - `src/util/` - Utility functions (memory, error handling, etc.)
 - `src/modules/` - Physics modules (currently empty, will contain galaxy physics)
 - `src/include/` - Public headers (types, globals, constants)
+  - `src/include/generated/` - Auto-generated property code (from metadata)
+- `metadata/properties/` - Property metadata YAML files (single source of truth)
+- `scripts/` - Code generation and development tools
 - `tests/` - Test framework (future)
 - `docs/` - Documentation
 

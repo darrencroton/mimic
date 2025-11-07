@@ -10,7 +10,7 @@ This directory contains comprehensive documentation for Mimic development and ar
 
 ### Understanding the Architecture
 - **[Vision](architecture/vision.md)** - 8 core architectural principles guiding Mimic's design
-- **[Roadmap](architecture/roadmap.md)** - Transformation plan for modular galaxy physics
+- **[Roadmap v3](architecture/roadmap_v3.md)** - Implementation roadmap (Phase 1 complete: Property Metadata System)
 - **[Execution Flow](developer/execution-flow-reference.md)** - Complete function call trace from entry to exit
 
 ## Documentation Structure
@@ -20,7 +20,8 @@ docs/
 ├── README.md (this file)
 ├── architecture/
 │   ├── vision.md            - Architectural principles and design philosophy
-│   └── roadmap.md           - Transformation plan and implementation phases
+│   ├── roadmap_v3.md        - Implementation roadmap (Phase 1 complete)
+│   └── property-metadata-schema.md - Property system specification
 └── developer/
     ├── getting-started.md   - Build, run, and test instructions
     ├── coding-standards.md  - Documentation and code style standards
