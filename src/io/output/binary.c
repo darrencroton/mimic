@@ -242,8 +242,10 @@ void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
   // galaxy properties
   if (g->galaxy != NULL) {
     o->StellarMass = g->galaxy->StellarMass;
+    o->ColdGas = g->galaxy->ColdGas;
   } else {
     o->StellarMass = 0.0;
+    o->ColdGas = 0.0;
   }
 }
 

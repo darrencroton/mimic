@@ -45,6 +45,7 @@ def get_hdf5_dtype():
         ("infallVvir", np.float32),
         ("infallVmax", np.float32),
         ("StellarMass", np.float32),
+        ("ColdGas", np.float32),
     ])
 
 

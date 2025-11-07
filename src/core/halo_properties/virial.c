@@ -50,7 +50,16 @@ void init_halo(int p, int halonr) {
   FoFWorkspace[p].MergeStatus = 0;
   FoFWorkspace[p].mergeIntoID = -1;
   FoFWorkspace[p].mergeIntoSnapNum = -1;
-  FoFWorkspace[p].dT = -1.0;
+
+  // Calculate time step from previous snapshot to current snapshot
+  // Note: Age[] is lookback time, so it decreases with snapshot number
+  // Therefore dT = Age[prev] - Age[current] gives positive timestep
+  int current_snap = InputTreeHalos[halonr].SnapNum;
+  if (current_snap > 0) {
+    FoFWorkspace[p].dT = Age[current_snap - 1] - Age[current_snap];
+  } else {
+    FoFWorkspace[p].dT = 0.0;  // No previous snapshot (earliest time)
+  }
 
   for (j = 0; j < 3; j++) {
     FoFWorkspace[p].Pos[j] = InputTreeHalos[halonr].Pos[j];
@@ -77,6 +86,7 @@ void init_halo(int p, int halonr) {
 
   // Initialize galaxy properties to zero
   FoFWorkspace[p].galaxy->StellarMass = 0.0;
+  FoFWorkspace[p].galaxy->ColdGas = 0.0;
 }
 
 /**

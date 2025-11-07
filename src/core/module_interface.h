@@ -26,10 +26,14 @@
  *     return 0;
  * }
  *
- * static int my_module_process(struct Halo *halos, int ngal) {
+ * static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
  *     for (int i = 0; i < ngal; i++) {
+ *         // Access simulation context
+ *         double z = ctx->redshift;
+ *         double hubble_h = ctx->params->Hubble_h;
+ *
  *         // Update galaxy properties
- *         halos[i].galaxy->SomeProperty = compute_physics(halos[i]);
+ *         halos[i].galaxy->SomeProperty = compute_physics(halos[i], z);
  *     }
  *     return 0;
  * }
@@ -56,6 +60,41 @@
 #define MODULE_INTERFACE_H
 
 #include "types.h"
+
+/**
+ * @brief Module execution context
+ *
+ * Provides modules with access to simulation state and core infrastructure.
+ * This context is passed to modules during execution to provide information
+ * beyond the halo array (e.g., redshift, time, cosmological parameters).
+ *
+ * This is a minimal viable context for PoC Round 2. Additional fields will
+ * be added as needed during roadmap implementation (Phase 1.5).
+ */
+struct ModuleContext {
+    /**
+     * @brief Current snapshot redshift
+     *
+     * Redshift of the current snapshot being processed. Use for redshift-dependent
+     * physics (e.g., UV background, cooling rates).
+     */
+    double redshift;
+
+    /**
+     * @brief Current cosmic time
+     *
+     * Lookback time from z=0 in internal units. Use for time-dependent physics.
+     */
+    double time;
+
+    /**
+     * @brief Read-only access to configuration parameters
+     *
+     * Provides modules with access to simulation parameters (cosmology, units, etc.).
+     * Modules should NOT modify these parameters.
+     */
+    const struct MimicConfig *params;
+};
 
 /**
  * @brief Galaxy physics module interface
@@ -98,12 +137,14 @@ struct Module {
      * - Update galaxy properties (halos[i].galaxy->SomeProperty)
      * - Preserve halo properties (read-only)
      * - Handle all halo types (central, satellite, orphan)
+     * - Access simulation context via ctx (redshift, time, params)
      *
+     * @param ctx Module execution context (redshift, time, params)
      * @param halos Array of halos in the FOF group (FoFWorkspace)
      * @param ngal Number of halos in the array
      * @return 0 on success, non-zero on failure
      */
-    int (*process_halos)(struct Halo *halos, int ngal);
+    int (*process_halos)(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 
     /**
      * @brief Cleanup module

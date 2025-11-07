@@ -139,6 +139,7 @@ struct HaloOutput {
 
   /* galaxy properties */
   float StellarMass; /**< Total stellar mass in 10^10 Msun/h */
+  float ColdGas;     /**< Cold gas mass in 10^10 Msun/h */
 };
 
 /* This structure contains the properties used within the code */

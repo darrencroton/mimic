@@ -219,7 +219,14 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
       }
 
       FoFWorkspace[ngal].HaloNr = halonr;
-      FoFWorkspace[ngal].dT = -1.0;
+
+      // Calculate time step from progenitor snapshot to current snapshot
+      // FoFWorkspace[ngal] contains progenitor data copied from ProcessedHalos
+      // Note: Age[] is lookback time, so it decreases with snapshot number
+      // Therefore dT = Age[progenitor] - Age[current] gives positive timestep
+      int current_snap = InputTreeHalos[halonr].SnapNum;
+      int progenitor_snap = FoFWorkspace[ngal].SnapNum;  // From copied progenitor
+      FoFWorkspace[ngal].dT = Age[progenitor_snap] - Age[current_snap];
 
       // this deals with the central halos of (sub)halos
       if (FoFWorkspace[ngal].Type == 0 || FoFWorkspace[ngal].Type == 1) {
@@ -476,7 +483,7 @@ void process_halo_evolution(int halonr, int ngal)
          FoFWorkspace[centralgal].HaloNr == halonr);
 
   /* Execute galaxy physics modules (if any registered) */
-  module_execute_pipeline(FoFWorkspace, ngal);
+  module_execute_pipeline(halonr, FoFWorkspace, ngal);
 
   /* Update final object properties and attach them to halos */
   update_halo_properties(ngal);

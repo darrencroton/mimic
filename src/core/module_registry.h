@@ -50,11 +50,12 @@ int module_system_init(void);
  * Called from process_halo_evolution() after halo tracking is complete
  * but before halos are moved to output storage.
  *
+ * @param halonr Index of the main halo in InputTreeHalos (for context information)
  * @param halos Array of halos in the FOF group (FoFWorkspace)
  * @param ngal Number of halos in the array
  * @return 0 on success, non-zero if any module processing fails
  */
-int module_execute_pipeline(struct Halo *halos, int ngal);
+int module_execute_pipeline(int halonr, struct Halo *halos, int ngal);
 
 /**
  * @brief Cleanup all registered modules

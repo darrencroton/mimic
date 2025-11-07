@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "module_registry.h"
+#include "module_interface.h"
+#include "globals.h"
 #include "error.h"
 
 /** Maximum number of modules that can be registered */
@@ -95,21 +97,29 @@ int module_system_init(void)
  *
  * Calls process_halos() on all registered modules in registration order.
  *
+ * @param halonr Index of the main halo in InputTreeHalos (for context information)
  * @param halos Array of halos in the FOF group (FoFWorkspace)
  * @param ngal Number of halos in the array
  * @return 0 on success, non-zero if any module processing fails
  */
-int module_execute_pipeline(struct Halo *halos, int ngal)
+int module_execute_pipeline(int halonr, struct Halo *halos, int ngal)
 {
     if (halos == NULL || ngal <= 0) {
         return 0; // Nothing to process
     }
 
+    // Populate module execution context
+    struct ModuleContext ctx;
+    int snap = InputTreeHalos[halonr].SnapNum;
+    ctx.redshift = ZZ[snap];
+    ctx.time = Age[snap];
+    ctx.params = &MimicConfig;
+
     for (int i = 0; i < num_registered_modules; i++) {
         struct Module *mod = registered_modules[i];
-        DEBUG_LOG("Executing module: %s (ngal=%d)", mod->name, ngal);
+        DEBUG_LOG("Executing module: %s (ngal=%d, z=%.3f)", mod->name, ngal, ctx.redshift);
 
-        int result = mod->process_halos(halos, ngal);
+        int result = mod->process_halos(&ctx, halos, ngal);
         if (result != 0) {
             ERROR_LOG("Module '%s' processing failed with code %d",
                       mod->name, result);

@@ -86,6 +86,7 @@ def get_vmax_label():
 # PHYSICS DISABLED: Only halo-property plots remain
 # Import all the figure modules so they can be discovered
 from . import (
+    cold_gas_function,
     halo_mass_function,
     halo_occupation,
     hmf_evolution,
@@ -101,6 +102,7 @@ from . import (
 SNAPSHOT_PLOTS = [
     "halo_mass_function",
     "stellar_mass_function",
+    "cold_gas_function",
     "halo_occupation",
     "spin_distribution",
     "velocity_distribution",
@@ -119,6 +121,7 @@ EVOLUTION_PLOTS = [
 PLOT_FUNCS = {
     "halo_mass_function": halo_mass_function.plot,
     "stellar_mass_function": stellar_mass_function.plot,
+    "cold_gas_function": cold_gas_function.plot,
     "halo_occupation": halo_occupation.plot,
     "hmf_evolution": hmf_evolution.plot,
     "smf_evolution": smf_evolution.plot,

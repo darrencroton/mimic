@@ -30,9 +30,11 @@
  *
  * Current properties:
  * - StellarMass: Total stellar mass (set by stellar_mass module)
+ * - ColdGas: Cold gas mass in disk (set by simple_cooling module)
  */
 struct GalaxyData {
     float StellarMass; /**< Total stellar mass in 10^10 Msun/h */
+    float ColdGas;     /**< Cold gas mass in 10^10 Msun/h */
 };
 
 #endif // GALAXY_TYPES_H

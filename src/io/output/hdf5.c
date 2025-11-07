@@ -62,7 +62,7 @@ void calc_hdf5_props(void) {
 
   int i; // dummy
 
-  HDF5_n_props = 24; // Reduced from 36 to only halo properties
+  HDF5_n_props = 25; // Halo properties (23) + galaxy properties (2: StellarMass, ColdGas)
 
   // Size of a single halo entry.
   HDF5_dst_size = sizeof(struct HaloOutput);
@@ -201,6 +201,16 @@ void calc_hdf5_props(void) {
   HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, infallVmax);
   HDF5_dst_sizes[i] = sizeof(galout.infallVmax);
   HDF5_field_names[i] = "infallVmax";
+  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
+
+  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, StellarMass);
+  HDF5_dst_sizes[i] = sizeof(galout.StellarMass);
+  HDF5_field_names[i] = "StellarMass";
+  HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
+
+  HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, ColdGas);
+  HDF5_dst_sizes[i] = sizeof(galout.ColdGas);
+  HDF5_field_names[i] = "ColdGas";
   HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
   /* Validate property count */

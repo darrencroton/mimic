@@ -40,6 +40,7 @@
 #include "version.h"
 #include "io.h"
 #include "module_registry.h"
+#include "../modules/simple_cooling/simple_cooling.h"
 #include "../modules/stellar_mass/stellar_mass.h"
 
 #define MAX_BUFZ0_SIZE (3 * MAX_STRING_LEN + 25)
@@ -268,6 +269,9 @@ int main(int argc, char **argv) {
 
   /* Register and initialize galaxy physics modules */
   INFO_LOG("Initializing galaxy physics module system");
+  /* CRITICAL: Module registration order matters for property dependencies */
+  /* simple_cooling must run before stellar_mass (provides ColdGas) */
+  simple_cooling_register();
   stellar_mass_register();
   module_system_init();
 
