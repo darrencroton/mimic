@@ -1,0 +1,112 @@
+name: Mimic CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libhdf5-dev
+
+    - name: Build Mimic
+      run: |
+        make clean
+        make
+
+    - name: Check property metadata is up-to-date
+      run: |
+        make check-generated
+
+    - name: Run unit tests
+      run: |
+        make test-unit
+
+    - name: Run integration tests
+      run: |
+        make test-integration
+
+    - name: Check for memory leaks
+      run: |
+        if grep -riq "memory leak" tests/data/expected/test/metadata/*.log 2>/dev/null; then
+          echo "Memory leak detected!"
+          grep -i "memory leak" tests/data/expected/test/metadata/*.log
+          exit 1
+        fi
+        echo "No memory leaks detected"
+
+    - name: Upload test results
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results
+        path: |
+          tests/unit/build/*.log
+          tests/data/expected/test/metadata/*.log
+
+  test-hdf5:
+    name: Build and Test with HDF5
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libhdf5-dev
+
+    - name: Build Mimic with HDF5
+      run: |
+        make clean
+        make USE-HDF5=yes
+
+    - name: Run integration tests (HDF5)
+      run: |
+        make test-integration
+
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Check for trailing whitespace
+      run: |
+        if git diff --check HEAD~1 HEAD; then
+          echo "No trailing whitespace found"
+        else
+          echo "Trailing whitespace detected"
+          exit 1
+        fi
+
+    - name: Check file permissions
+      run: |
+        # Check that scripts are executable
+        test -x tests/unit/run_tests.sh || (echo "run_tests.sh not executable" && exit 1)
+        test -x tests/integration/test_full_pipeline.py || (echo "test_full_pipeline.py not executable" && exit 1)
+        echo "File permissions OK"

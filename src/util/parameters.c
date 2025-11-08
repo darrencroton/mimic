@@ -55,6 +55,8 @@ static ParameterDefinition ParameterTable[] = {
      0.0},
     {"LastFile", "Last file to process", INT, &MimicConfig.LastFile, 1, 0.0,
      0.0},
+    {"BoxSize", "Simulation box size (Mpc/h)", DOUBLE, &MimicConfig.BoxSize, 1,
+     0.0, 0.0},
 
     // Output parameters
     {"NumOutputs", "Number of outputs (-1 for all snapshots)", INT,

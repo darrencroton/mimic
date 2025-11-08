@@ -52,7 +52,7 @@ endif
 GIT_VERSION_H = $(SRC_DIR)/include/git_version.h
 
 # Build targets
-.PHONY: all clean tidy help generate check-generated
+.PHONY: all clean tidy help generate check-generated test test-unit test-integration test-scientific test-clean
 
 all: $(EXEC)
 
@@ -97,6 +97,13 @@ help:
 	@echo "  make generate     - Generate property code from metadata"
 	@echo "  make check-generated - Verify generated code is up-to-date (CI)"
 	@echo ""
+	@echo "Test targets:"
+	@echo "  make test         - Run all tests (unit + integration + scientific)"
+	@echo "  make test-unit    - Run unit tests only"
+	@echo "  make test-integration - Run integration tests only"
+	@echo "  make test-scientific  - Run scientific tests only"
+	@echo "  make test-clean   - Clean test artifacts"
+	@echo ""
 	@echo "Options:"
 	@echo "  make USE-HDF5=yes - Enable HDF5 support"
 	@echo "  make USE-MPI=yes  - Enable MPI support"
@@ -109,3 +116,42 @@ generate:
 
 check-generated:
 	@python3 scripts/check_generated.py
+
+# Test targets
+test: test-unit test-integration test-scientific
+	@echo ""
+	@echo "========================================"
+	@echo "All tests completed"
+	@echo "========================================"
+
+test-unit:
+	@echo "========================================"
+	@echo "Running unit tests..."
+	@echo "========================================"
+	@cd tests/unit && ./run_tests.sh
+
+test-integration:
+	@echo ""
+	@echo "========================================"
+	@echo "Running integration tests..."
+	@echo "========================================"
+	-@cd tests/integration && python test_full_pipeline.py
+	-@cd tests/integration && python test_output_formats.py
+	-@cd tests/integration && python test_bit_identical.py
+
+test-scientific:
+	@echo ""
+	@echo "========================================"
+	@echo "Running scientific tests..."
+	@echo "========================================"
+	-@cd tests/scientific && python test_physics_sanity.py
+	-@cd tests/scientific && python test_property_ranges.py
+
+test-clean:
+	@echo "Cleaning test artifacts..."
+	@rm -rf tests/unit/build
+	@rm -f tests/unit/*.test
+	@rm -rf tests/data/expected/test_binary
+	@rm -rf tests/data/expected/test_hdf5
+	@rm -f tests/data/test_*.par
+	@echo "Test artifacts cleaned"

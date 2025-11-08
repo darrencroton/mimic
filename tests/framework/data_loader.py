@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""
+Data Loader for Mimic Binary Output
+
+Provides utilities for loading and validating Mimic binary output files.
+Used by scientific tests to validate halo properties.
+
+Author: Mimic Testing Team
+Date: 2025-11-08
+"""
+
+import numpy as np
+from pathlib import Path
+
+
+def get_halo_dtype():
+    """
+    Return the NumPy dtype for Mimic halo data (binary output format).
+
+    This must match the HaloOutput structure defined in the C code.
+    """
+    halo_dtype = [
+        ("SnapNum", np.int32),
+        ("Type", np.int32),
+        ("HaloIndex", np.int64),
+        ("CentralHaloIndex", np.int64),
+        ("MimicHaloIndex", np.int32),
+        ("MimicTreeIndex", np.int32),
+        ("SimulationHaloIndex", np.int64),
+        ("MergeStatus", np.int32),
+        ("mergeIntoID", np.int32),
+        ("mergeIntoSnapNum", np.int32),
+        ("dT", np.float32),
+        ("Pos", (np.float32, 3)),
+        ("Vel", (np.float32, 3)),
+        ("Spin", (np.float32, 3)),
+        ("Len", np.int32),
+        ("Mvir", np.float32),
+        ("CentralMvir", np.float32),
+        ("Rvir", np.float32),
+        ("Vvir", np.float32),
+        ("Vmax", np.float32),
+        ("VelDisp", np.float32),
+        ("infallMvir", np.float32),
+        ("infallVvir", np.float32),
+        ("infallVmax", np.float32),
+    ]
+    names = [halo_dtype[i][0] for i in range(len(halo_dtype))]
+    formats = [halo_dtype[i][1] for i in range(len(halo_dtype))]
+    return np.dtype({"names": names, "formats": formats}, align=True)
+
+
+def load_binary_halos(file_path):
+    """
+    Load halos from a Mimic binary output file.
+
+    Args:
+        file_path (str or Path): Path to binary output file
+
+    Returns:
+        tuple: (halos, metadata)
+            halos: NumPy recarray containing halo data
+            metadata: Dictionary with file metadata (Ntrees, TotHalos, etc.)
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If file format is invalid
+    """
+    file_path = Path(file_path)
+
+    if not file_path.exists():
+        raise FileNotFoundError(f"Binary file not found: {file_path}")
+
+    if file_path.stat().st_size == 0:
+        raise ValueError(f"Binary file is empty: {file_path}")
+
+    # Get halo dtype
+    dtype = get_halo_dtype()
+
+    # Read file
+    with open(file_path, 'rb') as f:
+        # Read header
+        Ntrees = np.fromfile(f, np.int32, 1)[0]
+        TotHalos = np.fromfile(f, np.int32, 1)[0]
+
+        # Validate header
+        if Ntrees < 0 or Ntrees > 1000000:
+            raise ValueError(f"Invalid Ntrees value: {Ntrees}")
+        if TotHalos < 0 or TotHalos > 100000000:
+            raise ValueError(f"Invalid TotHalos value: {TotHalos}")
+
+        # Read halos per tree array
+        halos_per_tree = np.fromfile(f, np.int32, Ntrees)
+
+        # Validate consistency
+        sum_halos = np.sum(halos_per_tree)
+        if sum_halos != TotHalos:
+            raise ValueError(
+                f"Inconsistent header: sum of halos per tree ({sum_halos}) "
+                f"!= TotHalos ({TotHalos})"
+            )
+
+        # Read halo data
+        halos = np.fromfile(f, dtype, TotHalos)
+
+        # Verify we read the expected number
+        if len(halos) != TotHalos:
+            raise ValueError(
+                f"Expected {TotHalos} halos, but read {len(halos)}"
+            )
+
+    # Convert to recarray for attribute access
+    halos = halos.view(np.recarray)
+
+    # Create metadata dictionary
+    metadata = {
+        'Ntrees': Ntrees,
+        'TotHalos': TotHalos,
+        'halos_per_tree': halos_per_tree,
+        'file_path': str(file_path),
+    }
+
+    return halos, metadata
+
+
+def validate_no_nans(halos):
+    """
+    Check that no halo properties contain NaN values.
+
+    Args:
+        halos: NumPy recarray of halo data
+
+    Returns:
+        dict: {field_name: count_of_nans} for fields with NaNs, empty if all clean
+    """
+    nan_counts = {}
+
+    for field in halos.dtype.names:
+        # Get field data
+        data = halos[field]
+
+        # Check for NaNs (only for float fields)
+        if np.issubdtype(halos.dtype[field], np.floating):
+            if data.ndim == 1:
+                # Scalar field
+                nan_count = np.sum(np.isnan(data))
+                if nan_count > 0:
+                    nan_counts[field] = nan_count
+            else:
+                # Vector field (e.g., Pos, Vel, Spin)
+                nan_count = np.sum(np.isnan(data))
+                if nan_count > 0:
+                    nan_counts[field] = nan_count
+
+    return nan_counts
+
+
+def validate_no_infs(halos):
+    """
+    Check that no halo properties contain infinite values.
+
+    Args:
+        halos: NumPy recarray of halo data
+
+    Returns:
+        dict: {field_name: count_of_infs} for fields with infs, empty if all clean
+    """
+    inf_counts = {}
+
+    for field in halos.dtype.names:
+        # Get field data
+        data = halos[field]
+
+        # Check for infinities (only for float fields)
+        if np.issubdtype(halos.dtype[field], np.floating):
+            if data.ndim == 1:
+                # Scalar field
+                inf_count = np.sum(np.isinf(data))
+                if inf_count > 0:
+                    inf_counts[field] = inf_count
+            else:
+                # Vector field
+                inf_count = np.sum(np.isinf(data))
+                if inf_count > 0:
+                    inf_counts[field] = inf_count
+
+    return inf_counts
+
+
+def validate_range(halos, field, min_val, max_val):
+    """
+    Validate that a field's values are within expected range.
+
+    Args:
+        halos: NumPy recarray of halo data
+        field: Field name to check
+        min_val: Minimum allowed value (inclusive)
+        max_val: Maximum allowed value (inclusive)
+
+    Returns:
+        dict: Validation results with keys:
+            - 'passed': bool
+            - 'count_below': number of values below min_val
+            - 'count_above': number of values above max_val
+            - 'min_value': actual minimum value in data
+            - 'max_value': actual maximum value in data
+            - 'example_violations': list of (index, value) tuples for first few violations
+    """
+    data = halos[field]
+
+    # Handle vector fields by checking magnitude
+    if data.ndim > 1:
+        data = np.linalg.norm(data, axis=1)
+
+    # Count violations
+    below_mask = data < min_val
+    above_mask = data > max_val
+
+    count_below = np.sum(below_mask)
+    count_above = np.sum(above_mask)
+
+    # Get example violations (first 5 of each type)
+    examples_below = []
+    examples_above = []
+
+    if count_below > 0:
+        indices = np.where(below_mask)[0][:5]
+        examples_below = [(int(i), float(data[i])) for i in indices]
+
+    if count_above > 0:
+        indices = np.where(above_mask)[0][:5]
+        examples_above = [(int(i), float(data[i])) for i in indices]
+
+    return {
+        'passed': (count_below == 0 and count_above == 0),
+        'count_below': int(count_below),
+        'count_above': int(count_above),
+        'min_value': float(np.min(data)),
+        'max_value': float(np.max(data)),
+        'examples_below': examples_below,
+        'examples_above': examples_above,
+    }
