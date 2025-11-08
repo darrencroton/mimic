@@ -151,7 +151,9 @@ test-clean:
 	@echo "Cleaning test artifacts..."
 	@rm -rf tests/unit/build
 	@rm -f tests/unit/*.test
-	@rm -rf tests/data/expected/test_binary
-	@rm -rf tests/data/expected/test_hdf5
+	@rm -rf tests/data/output/binary
+	@rm -rf tests/data/output/hdf5
 	@rm -f tests/data/test_*.par
+	@rm -rf tests/**/__pycache__
+	@rm -f tests/**/*.pyc
 	@echo "Test artifacts cleaned"

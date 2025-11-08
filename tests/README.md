@@ -69,13 +69,15 @@ tests/
 ├── scientific/                # Python scientific tests (physics validation)
 │   ├── test_physics_sanity.py
 │   └── test_property_ranges.py
-├── data/                      # Test data and baselines
-│   ├── millennium/            # Mini-Millennium test data
+├── data/                      # Test data
+│   ├── input/                 # Input test data
 │   │   ├── trees_063.0        # Single tree file (17M)
 │   │   └── millennium.a_list  # Snapshot ages (577B)
 │   ├── test.par               # Test parameter file
-│   └── expected/              # Known-good test outputs
-│       └── test/              # Output from test.par runs
+│   └── output/                # Test outputs
+│       ├── baseline/          # Known-good baseline outputs (committed to git)
+│       ├── binary/            # Binary format test outputs (generated, not in git)
+│       └── hdf5/              # HDF5 format test outputs (generated, not in git)
 └── framework/                 # Test framework and shared utilities
     ├── test_framework.h       # C testing framework
     ├── data_loader.py         # Binary output file loader (Python)
@@ -88,9 +90,9 @@ tests/
 
 ## Test Data
 
-### Mini-Millennium Test Data
+### Input Test Data
 
-**Location**: `tests/data/millennium/`
+**Location**: `tests/data/input/`
 
 **Files**:
 - `trees_063.0` (17M) - Single merger tree file from mini-Millennium simulation
@@ -366,7 +368,7 @@ if __name__ == "__main__":
 → Run `make generate` to regenerate property code
 
 ### Memory leak detected
-→ Check test log files in `tests/data/expected/test/metadata/`
+→ Check test log files in `tests/data/output/baseline/metadata/`
 → Use Valgrind for detailed analysis
 
 ### Integration tests can't find Mimic executable

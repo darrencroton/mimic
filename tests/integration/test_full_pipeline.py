@@ -130,7 +130,7 @@ def test_output_files_created():
 
     # Expected output location (from test.par)
     # Binary format uses redshift-based naming: model_z{redshift}_{filenr}
-    output_dir = TEST_DATA_DIR / "expected" / "test"
+    output_dir = TEST_DATA_DIR / "output" / "baseline"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
     # Run Mimic if output doesn't exist
@@ -165,7 +165,7 @@ def test_no_memory_leaks():
     assert returncode == 0, "Mimic execution failed"
 
     # Check for memory leaks in output logs
-    output_dir = TEST_DATA_DIR / "expected" / "test"
+    output_dir = TEST_DATA_DIR / "output" / "baseline"
     has_leaks = not check_no_memory_leaks(output_dir)
 
     assert not has_leaks, "Memory leaks detected in Mimic run"
@@ -184,7 +184,7 @@ def test_output_loadable():
 
     # Expected output file
     # Binary format uses redshift-based naming: model_z{redshift}_{filenr}
-    output_dir = TEST_DATA_DIR / "expected" / "test"
+    output_dir = TEST_DATA_DIR / "output" / "baseline"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
     # Ensure output exists

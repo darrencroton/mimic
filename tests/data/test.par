@@ -11,14 +11,14 @@
 %   ./mimic tests/data/test.par
 %
 % Output location:
-%   tests/data/expected/test/
+%   tests/data/output/baseline/
 
 %------------------------------------------
 %----- Mimic output file information -----
 %------------------------------------------
 
 OutputFileBaseName     model
-OutputDir              ./tests/data/expected/test/
+OutputDir              ./tests/data/output/baseline/
 
 FirstFile         0
 LastFile          0   ; Process only trees_063.0 for fast testing
@@ -42,8 +42,8 @@ TreeName                    trees_063   ; assumes the trees are named TreeName.n
 TreeType                    lhalo_binary ; either 'genesis_lhalo_hdf5' or 'lhalo_binary'
 OutputFormat                binary ; either 'binary' or 'hdf5'
 
-SimulationDir               ./tests/data/millennium/
-FileWithSnapList            ./tests/data/millennium/millennium.a_list
+SimulationDir               ./tests/data/input/
+FileWithSnapList            ./tests/data/input/millennium.a_list
 LastSnapshotNr              63
 NumSimulationTreeFiles      1     ; Only one file for testing
 BoxSize                     62.5  ; in Mpc/h

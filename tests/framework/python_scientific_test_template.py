@@ -59,7 +59,7 @@ def test_physics_sanity_check():
 
     # ===== LOAD DATA =====
     # Load halo properties from test output
-    # halos = load_halos("tests/data/expected/test/model_063.dat")
+    # halos = load_halos("tests/data/output/baseline/model_z0.000_0")
 
     # ===== VALIDATE RANGES =====
     # Check that physical quantities are in reasonable ranges
@@ -90,7 +90,7 @@ def test_conservation_law():
 
     # ===== LOAD DATA =====
     # Load halos from output
-    # halos = load_halos("tests/data/expected/test/model_063.dat")
+    # halos = load_halos("tests/data/output/baseline/model_z0.000_0")
 
     # ===== CALCULATE QUANTITY =====
     # Compute total conserved quantity
@@ -120,7 +120,7 @@ def test_property_ranges():
     print("Testing [property ranges]...")
 
     # ===== LOAD DATA =====
-    # halos = load_halos("tests/data/expected/test/model_063.dat")
+    # halos = load_halos("tests/data/output/baseline/model_z0.000_0")
 
     # ===== VALIDATE INDIVIDUAL PROPERTIES =====
 
@@ -157,7 +157,7 @@ def test_statistical_properties():
     print("Testing [statistical properties]...")
 
     # ===== LOAD DATA =====
-    # halos = load_halos("tests/data/expected/test/model_063.dat")
+    # halos = load_halos("tests/data/output/baseline/model_z0.000_0")
 
     # ===== CALCULATE STATISTICS =====
     # median_mass = np.median(halos['Mvir'])

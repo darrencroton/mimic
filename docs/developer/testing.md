@@ -133,11 +133,17 @@ tests/
 │   ├── test_physics_sanity.py
 │   └── test_property_ranges.py
 ├── data/                      # Test data
-│   ├── millennium/            # Mini-Millennium (trees_063.0)
+│   ├── input/                 # Input test data
+│   │   ├── trees_063.0        # Single tree file (17M)
+│   │   └── millennium.a_list  # Snapshot ages (577B)
 │   ├── test.par               # Test parameter file
-│   └── expected/              # Known-good outputs
+│   └── output/                # Test outputs
+│       ├── baseline/          # Known-good baseline outputs (committed to git)
+│       ├── binary/            # Binary format test outputs (generated, not in git)
+│       └── hdf5/              # HDF5 format test outputs (generated, not in git)
 └── framework/                 # Test framework and templates
     ├── test_framework.h
+    ├── data_loader.py         # Binary output file loader (Python)
     ├── c_unit_test_template.c
     ├── python_integration_test_template.py
     └── python_scientific_test_template.py
@@ -145,7 +151,7 @@ tests/
 
 ### Test Data
 
-**Location**: `tests/data/millennium/`
+**Location**: `tests/data/input/`
 
 **Files**:
 - `trees_063.0` (17M) - Single tree file from mini-Millennium
@@ -156,6 +162,11 @@ tests/
 - Small enough for fast tests (~10s execution)
 - Representative of production workloads
 - Committed to repository (self-contained)
+
+**Output Data**:
+- `tests/data/output/baseline/` - Known-good outputs (committed to git, used for regression testing)
+- `tests/data/output/binary/` - Generated test outputs in binary format (not in git)
+- `tests/data/output/hdf5/` - Generated test outputs in HDF5 format (not in git)
 
 ---
 
@@ -416,7 +427,7 @@ def test_new_format():
     assert returncode == 0, "Execution failed"
 
     # Validate output
-    output_file = Path("tests/data/expected/test/model_063.newformat")
+    output_file = Path("tests/data/output/baseline/model_063.newformat")
     assert output_file.exists(), "Output file not created"
     assert output_file.stat().st_size > 0, "Output file empty"
 ```
@@ -609,7 +620,7 @@ print_allocated_by_category();
 ./mimic tests/data/test.par
 
 # Check logs
-cat tests/data/expected/test/metadata/*.log
+cat tests/data/output/baseline/metadata/*.log
 ```
 
 **Problem**: Output file not created
@@ -628,7 +639,7 @@ cd tests/integration
 python test_bit_identical.py
 
 # If intentional change, update baseline
-rm tests/data/expected/baseline_checksums.txt
+rm ../data/output/baseline_checksums.txt
 python test_bit_identical.py
 ```
 
@@ -696,7 +707,7 @@ make test-unit
 make test-integration
 
 # Check for memory leaks
-grep -i "memory leak" tests/data/expected/test/metadata/*.log
+grep -i "memory leak" tests/data/output/baseline/metadata/*.log
 ```
 
 ---
@@ -772,9 +783,9 @@ grep -i "memory leak" tests/data/expected/test/metadata/*.log
 **A**:
 ```bash
 cd tests/integration
-rm ../data/expected/baseline_checksums.txt
+rm ../data/output/baseline_checksums.txt
 python test_bit_identical.py  # Establishes new baseline
-git add ../data/expected/baseline_checksums.txt
+git add ../data/output/baseline_checksums.txt
 git commit -m "Update regression baseline (reason)"
 ```
 

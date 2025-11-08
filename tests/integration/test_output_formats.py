@@ -56,7 +56,7 @@ def run_mimic_with_format(output_format):
         if line.strip().startswith("OutputFormat"):
             modified_lines.append(f"OutputFormat {output_format}\n")
         elif line.strip().startswith("OutputDir"):
-            modified_lines.append(f"OutputDir ./tests/data/expected/test_{output_format}/\n")
+            modified_lines.append(f"OutputDir ./tests/data/output/{output_format}/\n")
         else:
             modified_lines.append(line)
 
@@ -66,7 +66,7 @@ def run_mimic_with_format(output_format):
         f.writelines(modified_lines)
 
     # Ensure output directory exists
-    output_dir = TEST_DATA_DIR / "expected" / f"test_{output_format}"
+    output_dir = TEST_DATA_DIR / "output" / output_format
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Run Mimic
@@ -78,7 +78,7 @@ def run_mimic_with_format(output_format):
     )
 
     # Determine output file path
-    output_dir = TEST_DATA_DIR / "expected" / f"test_{output_format}"
+    output_dir = TEST_DATA_DIR / "output" / output_format
     if output_format == "binary":
         # Binary format uses redshift-based naming
         output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0

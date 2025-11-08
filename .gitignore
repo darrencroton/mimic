@@ -18,6 +18,13 @@ build/
 # Generated files
 src/include/git_version.h
 
+# Test artifacts
+tests/unit/build/
+tests/unit/*.test
+tests/data/output/binary/
+tests/data/output/hdf5/
+tests/data/test_*.par
+
 # Editor artifacts
 *.*~
 *.swp
