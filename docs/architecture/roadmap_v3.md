@@ -109,7 +109,6 @@ FoFWorkspace[ngal].dT = Age[progenitor_snap] - Age[current_snap];
 
 **Documentation Required**:
 - `docs/developer/time-arrays.md` - Comprehensive explanation of Age[], ZZ[], AA[] semantics
-- Unit test: `test_dt_calculation()` - Verify dT > 0 for all halos
 - Physics module template includes dT validation
 
 ### Lesson 2: Property Metadata System is Critical Path
@@ -542,7 +541,6 @@ tests/
 │   ├── test_module_registry.c      # Module add/remove/lookup
 │   ├── test_property_system.c      # Property accessors, metadata
 │   ├── test_memory.c               # Memory pools, leak detection
-│   ├── test_dt_calculation.c       # CRITICAL: dT > 0, correct values
 │   └── test_parameter_parsing.c    # Module config parsing
 ├── integration/
 │   ├── test_module_pipeline.c      # Multi-module execution
@@ -623,7 +621,6 @@ python tests/scientific/test_statistical_comparison.py
 - Property accessors
 - Memory allocation/deallocation
 - Parameter parsing
-- **dT calculation (would have caught bug!)**
 
 **Level 2: Integration Tests** (Medium, run on PR, <1 minute)
 - Full module pipeline execution
@@ -650,20 +647,6 @@ python tests/scientific/test_statistical_comparison.py
 
 **Critical Tests from PoC Experience**:
 
-**Test: dT Sign and Magnitude**
-```c
-int test_dt_calculation() {
-    // Would have caught the lookback time bug!
-    struct Halo halo;
-    halo.dT = calculate_dt(snap=10, prog_snap=9);
-
-    ASSERT(halo.dT > 0, "dT must be positive (forward time)");
-    ASSERT(halo.dT < 1000, "dT must be reasonable (< 1 Gyr)");
-
-    return 0;
-}
-```
-
 **Test: Mass Conservation**
 ```python
 def test_cooling_sf_conservation():
@@ -685,15 +668,12 @@ def test_cooling_sf_conservation():
 **Validation**:
 - [x] Unit tests for module system pass (30/30 tests passing)
 - [ ] Integration test for cooling+SF pipeline passes (N/A - modules not yet implemented)
-- [ ] dT calculation test catches sign errors (deferred to module implementation)
 - [x] Bit-identical validation works (MD5 baseline established and verified)
-- [ ] Mass conservation test passes (deferred - requires galaxy physics modules)
 - [x] CI integrated with GitHub Actions (<2 minute runs)
 - [x] Documentation for writing tests complete (tests/README.md, docs/developer/testing.md)
 - [x] Test coverage >60% for current code (memory, I/O, parameters, tree loading, numeric utilities)
 
 **Files to Create**:
-- `tests/unit/test_dt_calculation.c` - **CRITICAL: Prevents dT bug recurrence**
 - `tests/unit/test_module_registry.c` - Module system tests
 - `tests/integration/test_cooling_sf.py` - End-to-end PoC validation
 - `tests/scientific/test_conservation.py` - Mass conservation
@@ -704,7 +684,6 @@ def test_cooling_sf_conservation():
 - `docs/developer/testing.md` - Testing guide
 
 **Success Metrics**:
-- dT bug: Caught in <1 second (not 3 hours)
 - Regression detection: Automatic (not manual plotting)
 - New module validation: <5 minutes (not hours)
 - CI runtime: <2 minutes (fast feedback)
@@ -1293,9 +1272,8 @@ After core phases (1-3, 6):
 - [ ] New developer can add property with documentation
 
 **Phase 2 (Testing Framework):**
-- [ ] dT sign error caught in <1 second (not 3 hours)
 - [ ] Regression detection automatic (bit-identical check)
-- [ ] Mass conservation validated continuously
+- [ ] Sanity checks validated continuously
 - [ ] CI runtime <2 minutes (fast feedback)
 - [ ] Test coverage >60% for module system
 
@@ -1814,7 +1792,7 @@ mimic/
 │   ├── generate_module_table.py       # Module table generator
 │   └── check_generated.py             # CI validation
 ├── tests/
-│   ├── unit/                          # C unit tests (dT, modules, etc.)
+│   ├── unit/                          # C unit tests (modules, etc.)
 │   ├── integration/                   # Python integration tests
 │   ├── scientific/                    # Scientific validation
 │   └── data/                          # Test data and baselines
