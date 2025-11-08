@@ -27,6 +27,7 @@ Author: Property Metadata System (Phase 1)
 Date: 2025-11-07
 """
 
+import hashlib
 import os
 import sys
 from datetime import datetime
@@ -185,7 +186,18 @@ def validate_properties(halo_props: List[Dict], galaxy_props: List[Dict]) -> Non
 # C CODE GENERATION
 # ==============================================================================
 
-def generate_header():
+def compute_yaml_hash() -> str:
+    """Compute MD5 hash of YAML input files for validation."""
+    md5 = hashlib.md5()
+
+    # Hash both YAML files in order (halo, then galaxy)
+    for yaml_file in [HALO_PROPERTIES_YAML, GALAXY_PROPERTIES_YAML]:
+        with open(yaml_file, 'rb') as f:
+            md5.update(f.read())
+
+    return md5.hexdigest()
+
+def generate_header(yaml_hash: str):
     """Generate common header for all generated files."""
     return f"""/* AUTO-GENERATED CODE - DO NOT EDIT
  *
@@ -196,15 +208,16 @@ def generate_header():
  *   - metadata/properties/halo_properties.yaml
  *   - metadata/properties/galaxy_properties.yaml
  *
+ * Source MD5: {yaml_hash}
  * To regenerate: make generate
  */
 
 """
 
-def generate_property_defs_h(halo_props: List[Dict], galaxy_props: List[Dict]) -> str:
+def generate_property_defs_h(halo_props: List[Dict], galaxy_props: List[Dict], yaml_hash: str) -> str:
     """Generate property_defs.h with struct definitions."""
 
-    code = generate_header()
+    code = generate_header(yaml_hash)
     code += "#ifndef GENERATED_PROPERTY_DEFS_H\n"
     code += "#define GENERATED_PROPERTY_DEFS_H\n\n"
 
@@ -265,10 +278,10 @@ def generate_property_defs_h(halo_props: List[Dict], galaxy_props: List[Dict]) -
     code += "#endif /* GENERATED_PROPERTY_DEFS_H */\n"
     return code
 
-def generate_init_halo_properties(halo_props: List[Dict]) -> str:
+def generate_init_halo_properties(halo_props: List[Dict], yaml_hash: str) -> str:
     """Generate init_halo_properties.inc initialization code."""
 
-    code = generate_header()
+    code = generate_header(yaml_hash)
     code += "/* Initialize halo properties in init_halo(int p, int halonr) */\n\n"
 
     for prop in halo_props:
@@ -309,10 +322,10 @@ def generate_init_halo_properties(halo_props: List[Dict]) -> str:
 
     return code
 
-def generate_init_galaxy_properties(galaxy_props: List[Dict]) -> str:
+def generate_init_galaxy_properties(galaxy_props: List[Dict], yaml_hash: str) -> str:
     """Generate init_galaxy_properties.inc initialization code."""
 
-    code = generate_header()
+    code = generate_header(yaml_hash)
     code += "/* Initialize galaxy properties after allocating FoFWorkspace[p].galaxy */\n\n"
 
     for prop in galaxy_props:
@@ -325,10 +338,10 @@ def generate_init_galaxy_properties(galaxy_props: List[Dict]) -> str:
 
     return code
 
-def generate_copy_to_output(halo_props: List[Dict], galaxy_props: List[Dict]) -> str:
+def generate_copy_to_output(halo_props: List[Dict], galaxy_props: List[Dict], yaml_hash: str) -> str:
     """Generate copy_to_output.inc for prepare_halo_for_output()."""
 
-    code = generate_header()
+    code = generate_header(yaml_hash)
     code += "/* Copy properties from struct Halo to struct HaloOutput\n"
     code += " * Used in prepare_halo_for_output(int filenr, int tree, const struct Halo *g, struct HaloOutput *o)\n"
     code += " */\n\n"
@@ -395,22 +408,22 @@ def generate_copy_to_output(halo_props: List[Dict], galaxy_props: List[Dict]) ->
 
     return code
 
-def generate_hdf5_field_count(halo_props: List[Dict], galaxy_props: List[Dict]) -> str:
+def generate_hdf5_field_count(halo_props: List[Dict], galaxy_props: List[Dict], yaml_hash: str) -> str:
     """Generate hdf5_field_count.inc for HDF5 output."""
 
     n_output = sum(1 for p in halo_props if p['output']) + sum(1 for p in galaxy_props if p['output'])
 
-    code = generate_header()
+    code = generate_header(yaml_hash)
     code += f"/* HDF5 field count and counter initialization */\n\n"
     code += f"HDF5_n_props = {n_output};\n"
     code += "int i = 0;\n"
 
     return code
 
-def generate_hdf5_field_definitions(halo_props: List[Dict], galaxy_props: List[Dict]) -> str:
+def generate_hdf5_field_definitions(halo_props: List[Dict], galaxy_props: List[Dict], yaml_hash: str) -> str:
     """Generate hdf5_field_definitions.inc for HDF5 output."""
 
-    code = generate_header()
+    code = generate_header(yaml_hash)
     code += "/* HDF5 field definitions for calc_hdf5_props() */\n"
     code += "/* Requires: struct HaloOutput galout; */\n\n"
 
@@ -448,7 +461,24 @@ def generate_hdf5_field_definitions(halo_props: List[Dict], galaxy_props: List[D
 # PYTHON CODE GENERATION
 # ==============================================================================
 
-def generate_python_dtype(halo_props: List[Dict], galaxy_props: List[Dict]) -> str:
+def _generate_dtype_fields(halo_props: List[Dict], galaxy_props: List[Dict]) -> str:
+    """Helper: Generate dtype field tuples for output properties."""
+    fields = ""
+
+    # Add all output properties (halo then galaxy)
+    for prop in halo_props:
+        if prop['output']:
+            numpy_type = TYPE_MAP[prop['type']]['numpy_type']
+            fields += f'        ("{prop["name"]}", {numpy_type}),\n'
+
+    for prop in galaxy_props:
+        if prop['output']:
+            numpy_type = TYPE_MAP[prop['type']]['numpy_type']
+            fields += f'        ("{prop["name"]}", {numpy_type}),\n'
+
+    return fields
+
+def generate_python_dtype(halo_props: List[Dict], galaxy_props: List[Dict], yaml_hash: str) -> str:
     """Generate generated_dtype.py for Python plotting tools."""
 
     code = f'''"""AUTO-GENERATED CODE - DO NOT EDIT
@@ -460,6 +490,7 @@ Source files:
   - metadata/properties/halo_properties.yaml
   - metadata/properties/galaxy_properties.yaml
 
+Source MD5: {yaml_hash}
 To regenerate: make generate
 """
 
@@ -470,16 +501,8 @@ def get_binary_dtype():
     return np.dtype([
 '''
 
-    # Add all output properties
-    for prop in halo_props:
-        if prop['output']:
-            numpy_type = TYPE_MAP[prop['type']]['numpy_type']
-            code += f'        ("{prop["name"]}", {numpy_type}),\n'
-
-    for prop in galaxy_props:
-        if prop['output']:
-            numpy_type = TYPE_MAP[prop['type']]['numpy_type']
-            code += f'        ("{prop["name"]}", {numpy_type}),\n'
+    # Add dtype fields using helper
+    code += _generate_dtype_fields(halo_props, galaxy_props)
 
     code += '''    ], align=True)
 
@@ -488,16 +511,8 @@ def get_hdf5_dtype():
     return np.dtype([
 '''
 
-    # Same fields for HDF5
-    for prop in halo_props:
-        if prop['output']:
-            numpy_type = TYPE_MAP[prop['type']]['numpy_type']
-            code += f'        ("{prop["name"]}", {numpy_type}),\n'
-
-    for prop in galaxy_props:
-        if prop['output']:
-            numpy_type = TYPE_MAP[prop['type']]['numpy_type']
-            code += f'        ("{prop["name"]}", {numpy_type}),\n'
+    # Add dtype fields using helper (same fields as binary)
+    code += _generate_dtype_fields(halo_props, galaxy_props)
 
     code += '    ])\n'
 
@@ -545,6 +560,9 @@ def main():
     print(f"  Galaxy properties: {GALAXY_PROPERTIES_YAML.relative_to(REPO_ROOT)}")
     print()
 
+    # Compute YAML hash for validation
+    yaml_hash = compute_yaml_hash()
+
     # Load YAML
     with open(HALO_PROPERTIES_YAML) as f:
         halo_data = yaml.safe_load(f)
@@ -572,25 +590,25 @@ def main():
 
     # C header files
     write_file(GENERATED_DIR / 'property_defs.h',
-              generate_property_defs_h(halo_props, galaxy_props))
+              generate_property_defs_h(halo_props, galaxy_props, yaml_hash))
 
     # C initialization files
     write_file(GENERATED_DIR / 'init_halo_properties.inc',
-              generate_init_halo_properties(halo_props))
+              generate_init_halo_properties(halo_props, yaml_hash))
     write_file(GENERATED_DIR / 'init_galaxy_properties.inc',
-              generate_init_galaxy_properties(galaxy_props))
+              generate_init_galaxy_properties(galaxy_props, yaml_hash))
 
     # C output files
     write_file(GENERATED_DIR / 'copy_to_output.inc',
-              generate_copy_to_output(halo_props, galaxy_props))
+              generate_copy_to_output(halo_props, galaxy_props, yaml_hash))
     write_file(GENERATED_DIR / 'hdf5_field_count.inc',
-              generate_hdf5_field_count(halo_props, galaxy_props))
+              generate_hdf5_field_count(halo_props, galaxy_props, yaml_hash))
     write_file(GENERATED_DIR / 'hdf5_field_definitions.inc',
-              generate_hdf5_field_definitions(halo_props, galaxy_props))
+              generate_hdf5_field_definitions(halo_props, galaxy_props, yaml_hash))
 
     # Python dtype
     write_file(PLOT_DIR / 'generated_dtype.py',
-              generate_python_dtype(halo_props, galaxy_props))
+              generate_python_dtype(halo_props, galaxy_props, yaml_hash))
 
     print()
     print("=" * 70)

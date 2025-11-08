@@ -49,19 +49,43 @@ GENERATED_FILES = [
 # UTILITIES
 # ==============================================================================
 
-def file_md5(path: Path) -> str:
-    """Calculate MD5 hash of file contents (excluding timestamp lines)."""
+def compute_yaml_hash() -> str:
+    """Compute MD5 hash of YAML input files (same logic as generator)."""
+    md5 = hashlib.md5()
+
+    # Hash both YAML files in order (halo, then galaxy)
+    for yaml_file in YAML_FILES:
+        if not yaml_file.exists():
+            return ""
+        with open(yaml_file, 'rb') as f:
+            md5.update(f.read())
+
+    return md5.hexdigest()
+
+def extract_yaml_hash_from_file(path: Path) -> str:
+    """Extract 'Source MD5:' hash from generated file header."""
     if not path.exists():
         return ""
 
-    md5 = hashlib.md5()
-    with open(path, 'rb') as f:
-        for line in f:
-            # Skip timestamp lines in generated files
-            if b'Generated on:' in line:
-                continue
-            md5.update(line)
-    return md5.hexdigest()
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            # Read first 20 lines (hash should be in header)
+            for _ in range(20):
+                line = f.readline()
+                if not line:
+                    break
+                # Look for "Source MD5: <hash>"
+                if 'Source MD5:' in line:
+                    # Extract hash (32 hex chars)
+                    parts = line.split('Source MD5:')
+                    if len(parts) >= 2:
+                        hash_str = parts[1].strip().strip('*/').strip()
+                        if len(hash_str) == 32:  # MD5 is 32 hex chars
+                            return hash_str
+    except Exception:
+        return ""
+
+    return ""
 
 def check_file_exists(path: Path, description: str) -> bool:
     """Check if file exists and report."""
@@ -91,32 +115,46 @@ def validate_generated_files() -> bool:
             all_exist = False
     return all_exist
 
-def check_timestamps() -> bool:
-    """Check if generated files are newer than YAML files."""
+def check_yaml_hashes() -> bool:
+    """Check if generated files match current YAML content (via MD5 hash)."""
 
-    # Get newest YAML timestamp
-    yaml_times = [f.stat().st_mtime for f in YAML_FILES if f.exists()]
-    if not yaml_times:
-        print("✗ ERROR: No YAML metadata files found")
+    # Compute current YAML hash
+    current_yaml_hash = compute_yaml_hash()
+    if not current_yaml_hash:
+        print("✗ ERROR: Cannot compute YAML hash (files missing or unreadable)")
         return False
-    newest_yaml_time = max(yaml_times)
 
-    # Check each generated file
-    out_of_date = []
+    # Check each generated file's embedded hash
+    mismatches = []
+    missing_hash = []
+
     for gen_file in GENERATED_FILES:
         if not gen_file.exists():
-            out_of_date.append(gen_file.name)
+            mismatches.append(gen_file.name)
             continue
 
-        gen_time = gen_file.stat().st_mtime
-        if gen_time < newest_yaml_time:
-            out_of_date.append(gen_file.name)
+        embedded_hash = extract_yaml_hash_from_file(gen_file)
+        if not embedded_hash:
+            missing_hash.append(gen_file.name)
+            continue
 
-    if out_of_date:
-        print("✗ OUT OF DATE: Generated files are older than YAML metadata")
+        if embedded_hash != current_yaml_hash:
+            mismatches.append(gen_file.name)
+
+    if missing_hash:
+        print("✗ WARNING: Some files missing embedded hash (may be old format)")
+        for filename in missing_hash:
+            print(f"    - {filename}")
+        print()
+
+    if mismatches:
+        print("✗ OUT OF DATE: YAML metadata changed, generated files need updating")
+        print()
+        print(f"  Current YAML hash:  {current_yaml_hash}")
+        print(f"  Embedded hash:      {embedded_hash if embedded_hash else '(missing)'}")
         print()
         print("  Files need regeneration:")
-        for filename in out_of_date:
+        for filename in mismatches:
             print(f"    - {filename}")
         return False
 
@@ -176,10 +214,10 @@ def main():
         checks_passed += 1
     print()
 
-    # Check 3: Timestamps
-    print("[3/4] Checking file timestamps...")
-    if check_timestamps():
-        print("✓ Generated files are up-to-date (newer than YAML)")
+    # Check 3: YAML hash consistency
+    print("[3/4] Checking YAML hash consistency...")
+    if check_yaml_hashes():
+        print("✓ Generated files match current YAML metadata (hash verified)")
         checks_passed += 1
     print()
 
