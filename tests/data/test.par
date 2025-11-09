@@ -11,14 +11,19 @@
 %   ./mimic tests/data/test.par
 %
 % Output location:
-%   tests/data/output/baseline/
+%   tests/data/output/binary/  (test output, compared against baseline/)
+%
+% Directory structure:
+%   baseline/ - Static reference data (NEVER regenerated, committed to git)
+%   binary/   - Test output from binary format runs (gitignored)
+%   hdf5/     - Test output from HDF5 format runs (gitignored)
 
 %------------------------------------------
 %----- Mimic output file information -----
 %------------------------------------------
 
 OutputFileBaseName     model
-OutputDir              ./tests/data/output/baseline/
+OutputDir              ./tests/data/output/binary/
 
 FirstFile         0
 LastFile          0   ; Process only trees_063.0 for fast testing

@@ -62,7 +62,8 @@ def run_mimic_if_needed():
     Returns:
         Path: Path to output file
     """
-    output_dir = TEST_DATA_DIR / "output" / "baseline"
+    # test.par writes to binary/ directory
+    output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
     if not output_file.exists():

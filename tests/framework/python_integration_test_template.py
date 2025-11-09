@@ -108,7 +108,7 @@ def check_no_memory_leaks(log_dir):
         bool: True if no leaks, False if leaks detected
 
     Example:
-        assert check_no_memory_leaks("tests/data/output/baseline/metadata/")
+        assert check_no_memory_leaks("tests/data/output/binary/metadata/")
     """
     log_dir = Path(log_dir)
     if not log_dir.exists():
@@ -139,7 +139,7 @@ def test_basic_integration():
     # ===== SETUP =====
     # Prepare test environment
     param_file = "tests/data/test.par"
-    output_dir = Path("tests/data/output/baseline/")
+    output_dir = Path("tests/data/output/binary/")
 
     # Clean previous test output if needed
     # if output_dir.exists():
