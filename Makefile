@@ -120,30 +120,35 @@ check-generated:
 # Test targets
 test: test-unit test-integration test-scientific
 	@echo ""
-	@echo "========================================"
-	@echo "All tests completed"
-	@echo "========================================"
+	@echo ""
+	@echo "============================================================"
+	@echo "ALL TESTS COMPLETED"
+	@echo "============================================================"
+	@echo ""
 
 test-unit:
-	@echo "========================================"
-	@echo "Running unit tests..."
-	@echo "========================================"
+	@echo ""
+	@echo "============================================================"
+	@echo "RUNNING UNIT TESTS"
+	@echo "============================================================"
 	@cd tests/unit && ./run_tests.sh
 
 test-integration:
 	@echo ""
-	@echo "========================================"
-	@echo "Running integration tests..."
-	@echo "========================================"
+	@echo ""
+	@echo "============================================================"
+	@echo "RUNNING INTEGRATION TESTS"
+	@echo "============================================================"
 	-@cd tests/integration && python test_full_pipeline.py
 	-@cd tests/integration && python test_output_formats.py
 	-@cd tests/integration && python test_bit_identical.py
 
 test-scientific:
 	@echo ""
-	@echo "========================================"
-	@echo "Running scientific tests..."
-	@echo "========================================"
+	@echo ""
+	@echo "============================================================"
+	@echo "RUNNING SCIENTIFIC VALIDATION TESTS"
+	@echo "============================================================"
 	-@cd tests/scientific && python test_physics_sanity.py
 	-@cd tests/scientific && python test_property_ranges.py
 

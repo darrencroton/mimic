@@ -56,8 +56,11 @@ CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC
 IO_SRCS="${SRC_DIR}/io/tree/interface.c ${SRC_DIR}/io/tree/binary.c ${SRC_DIR}/io/output/util.c ${SRC_DIR}/io/util.c"
 TEST_STUBS="${TEST_DIR}/test_stubs.c"
 
+# Module system sources (Phase 3)
+MODULE_SRCS="${SRC_DIR}/core/module_registry.c ${SRC_DIR}/modules/simple_cooling/simple_cooling.c ${SRC_DIR}/modules/simple_sfr/simple_sfr.c ${SRC_DIR}/modules/module_init.c"
+
 # Combine all necessary sources (excluding main.c)
-ALL_SRCS="${UTIL_SRCS} ${CORE_SRCS} ${IO_SRCS} ${TEST_STUBS}"
+ALL_SRCS="${UTIL_SRCS} ${CORE_SRCS} ${IO_SRCS} ${MODULE_SRCS} ${TEST_STUBS}"
 
 # Test list (can be overridden by command line argument)
 if [ $# -gt 0 ]; then
@@ -65,15 +68,17 @@ if [ $# -gt 0 ]; then
     TESTS="$@"
 else
     # Run all tests
-    TESTS="test_memory_system test_property_metadata test_parameter_parsing test_tree_loading test_numeric_utilities"
+    TESTS="test_memory_system test_property_metadata test_parameter_parsing test_tree_loading test_numeric_utilities test_module_configuration"
 fi
 
-echo "========================================"
+echo ""
+echo "============================================================"
 echo "Mimic Unit Test Runner"
-echo "========================================"
+echo "============================================================"
 echo "Repository: $REPO_ROOT"
 echo "Compiler: $CC"
 echo "Build directory: $BUILD_DIR"
+echo "============================================================"
 echo ""
 
 ###############################################################################
@@ -105,17 +110,20 @@ compile_and_run_test() {
     fi
 
     # Run test
-    echo -e "${BLUE}Running ${test_name}...${NC}"
-    echo "----------------------------------------"
+    echo ""
+    echo -e "${BLUE}Running test: ${test_name}${NC}"
+    echo "------------------------------------------------------------"
 
     if $test_exe; then
-        echo "----------------------------------------"
+        echo "------------------------------------------------------------"
         echo -e "${GREEN}✓ ${test_name} PASSED${NC}"
+        echo "============================================================"
         PASSED_TESTS=$((PASSED_TESTS + 1))
         return 0
     else
-        echo "----------------------------------------"
+        echo "------------------------------------------------------------"
         echo -e "${RED}✗ ${test_name} FAILED${NC}"
+        echo "============================================================"
         FAILED_TESTS=$((FAILED_TESTS + 1))
         return 1
     fi
@@ -133,20 +141,21 @@ done
 
 # Print summary
 echo ""
-echo "========================================"
-echo "Test Summary"
-echo "========================================"
-echo "Total tests:   $TOTAL_TESTS"
-echo -e "Passed:        ${GREEN}$PASSED_TESTS${NC}"
+echo ""
+echo "============================================================"
+echo "Unit Test Summary"
+echo "============================================================"
+echo "Total tests:    $TOTAL_TESTS"
+echo -e "Passed:         ${GREEN}$PASSED_TESTS${NC}"
 if [ $FAILED_TESTS -gt 0 ]; then
-    echo -e "Failed:        ${RED}$FAILED_TESTS${NC}"
+    echo -e "Failed:         ${RED}$FAILED_TESTS${NC}"
 else
-    echo "Failed:        $FAILED_TESTS"
+    echo "Failed:         $FAILED_TESTS"
 fi
 if [ $COMPILE_ERRORS -gt 0 ]; then
     echo -e "Compile errors: ${YELLOW}$COMPILE_ERRORS${NC}"
 fi
-echo "========================================"
+echo "============================================================"
 
 # Final result
 if [ $FAILED_TESTS -eq 0 ] && [ $COMPILE_ERRORS -eq 0 ]; then

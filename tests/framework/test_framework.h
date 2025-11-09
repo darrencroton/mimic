@@ -126,7 +126,7 @@
  */
 #define TEST_RUN(test_func)                                                   \
     do {                                                                      \
-        printf("Running %-50s ", #test_func "...");                           \
+        printf("\nRunning: %-50s ", #test_func);                              \
         fflush(stdout);                                                       \
         if (test_func() == 0) {                                               \
             printf("✓ PASS\n");                                               \
@@ -149,18 +149,19 @@
 #define TEST_SUMMARY()                                                        \
     do {                                                                      \
         printf("\n");                                                         \
-        printf("=========================================\n");                 \
+        printf("\n============================================================\n"); \
         printf("Test Summary\n");                                             \
-        printf("=========================================\n");                 \
+        printf("============================================================\n"); \
         printf("Passed: %d\n", passed);                                       \
         printf("Failed: %d\n", failed);                                       \
         printf("Total:  %d\n", passed + failed);                              \
-        printf("=========================================\n");                 \
+        printf("============================================================\n"); \
         if (failed == 0) {                                                    \
             printf("✓ All tests passed!\n");                                  \
         } else {                                                              \
             printf("✗ %d test(s) failed\n", failed);                          \
         }                                                                     \
+        printf("============================================================\n"); \
     } while (0)
 
 /**

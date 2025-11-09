@@ -1,0 +1,165 @@
+/**
+ * @file    module_interface.h
+ * @brief   Galaxy physics module interface
+ *
+ * This file defines the standard interface that all galaxy physics modules
+ * must implement. Modules register themselves with the module registry and
+ * are executed through a unified pipeline.
+ *
+ * Vision Principle 1 (Physics-Agnostic Core): The core has zero knowledge of
+ * specific physics implementations. Modules interact with core only through
+ * this well-defined interface.
+ *
+ * Vision Principle 2 (Runtime Modularity): Module combinations are configurable
+ * at runtime without recompilation.
+ *
+ * Module Lifecycle:
+ * 1. Module registers itself via module_registry_add() during program start
+ * 2. Core calls init() during program initialization
+ * 3. Core calls process_halos() for each FOF group during tree processing
+ * 4. Core calls cleanup() during program shutdown
+ *
+ * Example module implementation:
+ * @code
+ * static int my_module_init(void) {
+ *     INFO_LOG("My module initialized");
+ *     return 0;
+ * }
+ *
+ * static int my_module_process(struct ModuleContext *ctx, struct Halo *halos,
+ *                               int ngal) {
+ *     for (int i = 0; i < ngal; i++) {
+ *         // Access simulation context
+ *         double z = ctx->redshift;
+ *         double hubble_h = ctx->params->Hubble_h;
+ *
+ *         // Update galaxy properties
+ *         halos[i].galaxy->SomeProperty = compute_physics(halos[i], z);
+ *     }
+ *     return 0;
+ * }
+ *
+ * static int my_module_cleanup(void) {
+ *     INFO_LOG("My module cleaned up");
+ *     return 0;
+ * }
+ *
+ * static struct Module my_module = {
+ *     .name = "my_module",
+ *     .init = my_module_init,
+ *     .process_halos = my_module_process,
+ *     .cleanup = my_module_cleanup
+ * };
+ *
+ * void my_module_register(void) {
+ *     module_registry_add(&my_module);
+ * }
+ * @endcode
+ */
+
+#ifndef MODULE_INTERFACE_H
+#define MODULE_INTERFACE_H
+
+#include "types.h"
+
+/**
+ * @brief   Module execution context
+ *
+ * Provides modules with access to simulation state and core infrastructure.
+ * This context is passed to modules during execution to provide information
+ * beyond the halo array (e.g., redshift, time, cosmological parameters).
+ *
+ * Phase 3: Minimal context sufficient for basic physics modules.
+ * Phase 4 may add additional fields based on realistic module requirements.
+ */
+struct ModuleContext {
+  /**
+   * @brief Current snapshot redshift
+   *
+   * Redshift of the current snapshot being processed. Use for
+   * redshift-dependent physics (e.g., UV background, cooling rates).
+   */
+  double redshift;
+
+  /**
+   * @brief Current cosmic time
+   *
+   * Lookback time from z=0 in internal units. Use for time-dependent physics.
+   */
+  double time;
+
+  /**
+   * @brief Read-only access to configuration parameters
+   *
+   * Provides modules with access to simulation parameters (cosmology, units,
+   * etc.). Modules should NOT modify these parameters.
+   */
+  const struct MimicConfig *params;
+};
+
+/**
+ * @brief   Galaxy physics module interface
+ *
+ * All galaxy physics modules must implement this interface. The core calls
+ * these functions at appropriate points in the execution pipeline.
+ */
+struct Module {
+  /**
+   * @brief Module name (must be unique)
+   *
+   * Used for logging, diagnostics, and runtime configuration. Should be
+   * lowercase with underscores, e.g., "stellar_mass", "cooling_sd93",
+   * "star_formation_ks98".
+   */
+  const char *name;
+
+  /**
+   * @brief Initialize module
+   *
+   * Called once during program startup. Use for:
+   * - Loading module parameters from configuration
+   * - Allocating persistent memory
+   * - Initializing lookup tables
+   * - Logging module configuration
+   *
+   * @return 0 on success, non-zero on failure
+   */
+  int (*init)(void);
+
+  /**
+   * @brief Process halos in a FOF group
+   *
+   * Called for each FOF group after halo tracking is complete but before
+   * output is written. This is where galaxy physics is computed.
+   *
+   * The halos array is in FoFWorkspace (temporary processing space). All
+   * halos in the array belong to the same FOF group at the same snapshot.
+   *
+   * Modules should:
+   * - Update galaxy properties (halos[i].galaxy->SomeProperty)
+   * - Preserve halo properties (read-only)
+   * - Handle all halo types (central, satellite, orphan)
+   * - Access simulation context via ctx (redshift, time, params)
+   *
+   * @param ctx   Module execution context (redshift, time, params)
+   * @param halos Array of halos in the FOF group (FoFWorkspace)
+   * @param ngal  Number of halos in the array
+   * @return 0 on success, non-zero on failure
+   */
+  int (*process_halos)(struct ModuleContext *ctx, struct Halo *halos,
+                       int ngal);
+
+  /**
+   * @brief Cleanup module
+   *
+   * Called once during program shutdown. Use for:
+   * - Freeing persistent memory
+   * - Closing files
+   * - Logging final statistics
+   *
+   * @return 0 on success, non-zero on failure
+   */
+  int (*cleanup)(void);
+};
+
+#endif // MODULE_INTERFACE_H

@@ -40,6 +40,9 @@
 #include "version.h"
 #include "io.h"
 
+/* Module system (physics-agnostic) */
+#include "module_registry.h"
+
 #define MAX_BUFZ0_SIZE (3 * MAX_STRING_LEN + 25)
 static char
     bufz0[MAX_BUFZ0_SIZE + 1]; /* 3 strings + max 19 bytes for a number */
@@ -264,6 +267,15 @@ int main(int argc, char **argv) {
   read_parameter_file(argv[1]);
   init();
 
+  /* Register and initialize galaxy physics modules */
+  INFO_LOG("Initializing galaxy physics module system");
+  register_all_modules(); /* Physics-agnostic: core doesn't know which modules
+                             exist */
+  if (module_system_init() != 0) {
+    ERROR_LOG("Module system initialization failed");
+    myexit(1);
+  }
+
   /* Initialize HDF5 output system if HDF5 format is selected */
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
@@ -394,6 +406,10 @@ int main(int argc, char **argv) {
   myfree(Age);
 
   /* Random generator freeing removed - not actually used in computation */
+
+  /* Cleanup galaxy physics modules */
+  INFO_LOG("Cleaning up galaxy physics module system");
+  module_system_cleanup();
 
   /* Check for memory leaks and clean up memory system */
   check_memory_leaks();

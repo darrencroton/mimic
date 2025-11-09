@@ -126,6 +126,7 @@ extern int FileNum;
 
 /* HDF5 specific globals */
 #ifdef HDF5
+#include <hdf5.h>
 extern int HDF5Output;
 extern char *core_output_file;
 extern size_t HDF5_dst_size;

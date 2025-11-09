@@ -1,8 +1,8 @@
 # Mimic Testing Guide
 
-**Version**: 1.0 (Phase 2 Complete)
+**Version**: 1.1 (Phase 3 Complete)
 **Status**: Production
-**Last Updated**: 2025-11-08
+**Last Updated**: 2025-11-09
 
 This comprehensive guide explains how to use Mimic's testing infrastructure, write new tests, and debug test failures.
 
@@ -12,16 +12,17 @@ This comprehensive guide explains how to use Mimic's testing infrastructure, wri
 
 1. [Quick Start](#quick-start)
 2. [Testing Philosophy](#testing-philosophy)
-3. [Test Organization](#test-organization)
-4. [Running Tests](#running-tests)
-5. [Writing Unit Tests (C)](#writing-unit-tests-c)
-6. [Writing Integration Tests (Python)](#writing-integration-tests-python)
-7. [Writing Scientific Tests (Python)](#writing-scientific-tests-python)
-8. [Test Templates](#test-templates)
-9. [Debugging Test Failures](#debugging-test-failures)
-10. [CI Integration](#ci-integration)
-11. [Best Practices](#best-practices)
-12. [FAQ](#faq)
+3. [Test Output Standards](#test-output-standards)
+4. [Test Organization](#test-organization)
+5. [Running Tests](#running-tests)
+6. [Writing Unit Tests (C)](#writing-unit-tests-c)
+7. [Writing Integration Tests (Python)](#writing-integration-tests-python)
+8. [Writing Scientific Tests (Python)](#writing-scientific-tests-python)
+9. [Test Templates](#test-templates)
+10. [Debugging Test Failures](#debugging-test-failures)
+11. [CI Integration](#ci-integration)
+12. [Best Practices](#best-practices)
+13. [FAQ](#faq)
 
 ---
 
@@ -111,6 +112,70 @@ Mimic follows the **testing pyramid** approach:
 
 ---
 
+## Test Output Standards
+
+All test output must provide clear, meaningful feedback that enables rapid diagnosis of issues.
+
+### Requirements
+
+Test output must be:
+1. **Descriptive**: Clearly state what is being tested
+2. **Informative**: Provide context about the test's purpose
+3. **Formatted**: Use consistent visual separation between tests and test groups
+4. **Actionable**: When tests fail, provide enough information to debug
+
+### Visual Formatting
+
+- **Separator lines**: 60 characters (`============================================================`)
+- **Test groups**: Separated by double newlines with clear headers
+- **Individual tests**: Single newline before each test
+- **Pass/Fail indicators**: Use ✓/✗ symbols for clarity
+
+### Example Output
+
+**Good test output**:
+```
+============================================================
+RUNNING UNIT TESTS
+============================================================
+
+Running test: test_module_configuration
+------------------------------------------------------------
+
+Module Configuration System Tests
+
+Running: test_module_registry_init                          ✓ PASS
+Running: test_module_parameter_parsing                      ✓ PASS
+Running: test_enabled_modules_parsing                       ✓ PASS
+
+============================================================
+Test Summary
+============================================================
+Passed: 3
+Failed: 0
+Total:  3
+============================================================
+✓ All tests passed!
+============================================================
+```
+
+**Good failure output**:
+```
+Running: test_basic_allocation                              ✗ FAIL
+
+✗ FAIL: Small allocation should succeed
+  Location: test_memory_system.c:45
+  Condition: small != NULL
+```
+
+### Implementation
+
+- **C tests**: Use macros from `tests/framework/test_framework.h` (TEST_RUN, TEST_SUMMARY)
+- **Python tests**: Print descriptive messages at test start and completion
+- **Test runners**: Provide clear headers and summaries for test groups
+
+---
+
 ## Test Organization
 
 ### Directory Structure
@@ -123,12 +188,14 @@ tests/
 │   ├── test_parameter_parsing.c
 │   ├── test_tree_loading.c
 │   ├── test_numeric_utilities.c
+│   ├── test_module_configuration.c
 │   ├── run_tests.sh           # Test runner
 │   └── build/                 # Compiled tests
 ├── integration/               # Python integration tests
 │   ├── test_full_pipeline.py
 │   ├── test_output_formats.py
-│   └── test_bit_identical.py
+│   ├── test_bit_identical.py
+│   └── test_module_pipeline.py
 ├── scientific/                # Python scientific tests
 │   ├── test_physics_sanity.py
 │   └── test_property_ranges.py
@@ -234,30 +301,42 @@ pytest -v
 
 **Successful run**:
 ```
+============================================================
+RUNNING UNIT TESTS
+============================================================
+
+Running test: test_memory_system
+------------------------------------------------------------
+
 ========================================
 Test Suite: Memory System
 ========================================
 
-Running test_memory_init...                       ✓ PASS
-Running test_basic_allocation...                  ✓ PASS
-Running test_categorized_allocation...            ✓ PASS
-Running test_reallocation...                      ✓ PASS
-Running test_leak_detection...                    ✓ PASS
-Running test_multiple_alloc_free_cycles...        ✓ PASS
+Running: test_memory_init                                   ✓ PASS
+Running: test_basic_allocation                              ✓ PASS
+Running: test_categorized_allocation                        ✓ PASS
+Running: test_reallocation                                  ✓ PASS
+Running: test_leak_detection                                ✓ PASS
+Running: test_multiple_alloc_free_cycles                    ✓ PASS
 
-=========================================
+
+============================================================
 Test Summary
-=========================================
+============================================================
 Passed: 6
 Failed: 0
 Total:  6
-=========================================
+============================================================
 ✓ All tests passed!
+============================================================
+------------------------------------------------------------
+✓ test_memory_system PASSED
+============================================================
 ```
 
 **Failed test**:
 ```
-Running test_basic_allocation...                  ✗ FAIL
+Running: test_basic_allocation                              ✗ FAIL
 
 ✗ FAIL: Small allocation should succeed
   Location: test_memory_system.c:45
@@ -830,10 +909,15 @@ make test-integration
 
 Mimic's testing framework provides:
 - **Fast feedback**: Unit tests run in seconds
-- **Comprehensive coverage**: 10 tests covering core functionality
+- **Comprehensive coverage**: 12 tests covering core functionality and modules
 - **Scientific validation**: Physics correctness verified
 - **CI integration**: Automated testing on every commit
 - **Developer-friendly**: Templates and clear documentation
+
+**Current test coverage** (Phase 3):
+- 6 unit tests (memory, properties, parameters, trees, numerics, modules)
+- 4 integration tests (pipeline, formats, regression, module workflows)
+- 2 scientific tests (physics sanity, property ranges)
 
 **Testing is not optional**. It catches bugs early, prevents regressions, and ensures scientific accuracy.
 
@@ -850,4 +934,4 @@ Mimic's testing framework provides:
 - Architecture docs: `docs/architecture/`
 - CI logs: GitHub Actions tab
 
-**Last Updated**: 2025-11-08 (Phase 2 Complete)
+**Last Updated**: 2025-11-09 (Phase 3 Complete)

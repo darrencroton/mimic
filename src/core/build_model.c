@@ -28,6 +28,7 @@
 
 #include "config.h"
 #include "proto.h"
+#include "module_registry.h"
 #include "globals.h"
 #include "types.h"
 #include "numeric.h"
@@ -462,6 +463,9 @@ void process_halo_evolution(int halonr, int ngal)
   centralgal = FoFWorkspace[0].CentralHalo;
   assert(FoFWorkspace[centralgal].Type == 0 &&
          FoFWorkspace[centralgal].HaloNr == halonr);
+
+  /* Execute galaxy physics modules (if any registered) */
+  module_execute_pipeline(halonr, FoFWorkspace, ngal);
 
   /* Update final object properties and attach them to halos */
   update_halo_properties(ngal);

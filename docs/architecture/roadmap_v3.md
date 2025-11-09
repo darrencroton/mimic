@@ -914,13 +914,20 @@ int cooling_cleanup(struct ModuleContext *ctx) {
 
 **Status**: LOW priority - Deployment optimization, not critical path
 
-**Context**: Currently all modules are always compiled. For deployment flexibility and performance (especially HPC), enable build-time selection.
+**Context**: Currently all modules are always compiled. For deployment flexibility and performance (especially HPC), enable build-time selection. Additionally, `src/modules/module_init.c` is manually maintained (hardcoded module registration), which violates the metadata-driven architecture principle.
 
-**Goal**: Compile-time module selection with predefined profiles
+**Goal**: Compile-time module selection with predefined profiles, plus auto-generation of module registration code
 
 **Two-Level Control**:
 1. **Build-time**: Which modules to compile
 2. **Runtime**: Which compiled modules to execute (Phase 3)
+
+**Auto-Generation of Module Registration**:
+- Replace manual `src/modules/module_init.c` with auto-generated version
+- Scan `src/modules/*/` directories for `module_info.yaml` metadata files
+- Generate `register_all_modules()` function from discovered modules
+- Maintains physics-agnostic core (core still calls `register_all_modules()` without knowing which modules exist)
+- Enables/disables modules via build configuration (similar to property metadata system)
 
 **Deliverables**:
 - Makefile MODULES variable for custom selection

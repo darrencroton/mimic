@@ -117,9 +117,11 @@ void read_parameter_file(const char *fname) {
       continue;
 
     // Look up parameter in the table
+    int found = 0;
     for (i = 0; i < num_params; i++) {
       if (strcmp(buf1, param_table[i].name) == 0) {
         param_read[i] = 1;
+        found = 1;
 
         // Print parameter value being read
 #ifdef MPI
@@ -164,6 +166,73 @@ void read_parameter_file(const char *fname) {
           errorFlag = 1;
         }
         break;
+      }
+    }
+
+    // Phase 3: Handle module configuration if not found in standard table
+    if (!found) {
+      // Check for EnabledModules parameter
+      if (strcmp(buf1, "EnabledModules") == 0) {
+        // Parse comma-separated module list
+        char *token = strtok(buf2, ",");
+        MimicConfig.NumEnabledModules = 0;
+        while (token != NULL && MimicConfig.NumEnabledModules < 32) {
+          // Trim whitespace
+          while (*token == ' ' || *token == '\t')
+            token++;
+          strncpy(MimicConfig.EnabledModules[MimicConfig.NumEnabledModules],
+                  token, MAX_STRING_LEN - 1);
+          MimicConfig
+              .EnabledModules[MimicConfig.NumEnabledModules][MAX_STRING_LEN -
+                                                             1] = '\0';
+          MimicConfig.NumEnabledModules++;
+          token = strtok(NULL, ",");
+        }
+#ifdef MPI
+        if (ThisTask == 0)
+#endif
+          INFO_LOG("Enabled %d module(s): %s", MimicConfig.NumEnabledModules,
+                   buf2);
+        found = 1;
+      }
+      // Check for module-specific parameter (contains underscore)
+      else if (strchr(buf1, '_') != NULL) {
+        // Parse ModuleName_ParameterName format
+        char module_name[MAX_STRING_LEN];
+        char param_name[MAX_STRING_LEN];
+        char *underscore = strchr(buf1, '_');
+        size_t module_len = underscore - buf1;
+
+        if (module_len < MAX_STRING_LEN && underscore[1] != '\0') {
+          // Extract module name and parameter name
+          strncpy(module_name, buf1, module_len);
+          module_name[module_len] = '\0';
+          strncpy(param_name, underscore + 1, MAX_STRING_LEN - 1);
+          param_name[MAX_STRING_LEN - 1] = '\0';
+
+          // Store in module parameters array
+          if (MimicConfig.NumModuleParams < 256) {
+            strncpy(MimicConfig.ModuleParams[MimicConfig.NumModuleParams]
+                        .module_name,
+                    module_name, MAX_STRING_LEN - 1);
+            strncpy(MimicConfig.ModuleParams[MimicConfig.NumModuleParams]
+                        .param_name,
+                    param_name, MAX_STRING_LEN - 1);
+            strncpy(
+                MimicConfig.ModuleParams[MimicConfig.NumModuleParams].value,
+                buf2, MAX_STRING_LEN - 1);
+            MimicConfig.NumModuleParams++;
+
+#ifdef MPI
+            if (ThisTask == 0)
+#endif
+              DEBUG_LOG("%-35s = %-20s (module parameter)", buf1, buf2);
+            found = 1;
+          } else {
+            ERROR_LOG("Too many module parameters (max 256)");
+            errorFlag = 1;
+          }
+        }
       }
     }
   }

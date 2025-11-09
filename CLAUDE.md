@@ -138,6 +138,15 @@ The codebase follows a hierarchical structure under `src/`:
 - **src/io/output/util.c**: Shared output utilities for both binary and HDF5 formats
   - I/O wrappers (`myfread`, `myfwrite`, `myfseek`) handle endianness and errors and call the C standard library (fread/fwrite/fseek). There is no custom buffering layer.
 
+### Module System
+- **src/core/module_interface.h**: Module API definition (lifecycle: init → process → cleanup)
+- **src/core/module_registry.{c,h}**: Module registration and execution pipeline management
+- **src/modules/module_init.c**: Module registration (manually maintained in Phase 3, will be auto-generated in Phase 5)
+- **src/modules/simple_cooling/**: Placeholder cooling module (provides ColdGas property)
+- **src/modules/simple_sfr/**: Placeholder star formation module (converts ColdGas → StellarMass)
+- **Module Configuration**: Enabled via `EnabledModules` parameter in `.par` files, module-specific parameters use `ModuleName_ParameterName` format
+- **Physics-Agnostic Core**: Core has zero knowledge of specific physics modules, all interaction through well-defined interfaces
+
 ### Utilities
 - **src/util/memory.c**: Custom memory management with leak detection and categorization
 - **src/util/error.c**: Comprehensive error handling and logging system
@@ -166,10 +175,13 @@ The codebase follows a hierarchical structure under `src/`:
 
 ### Key Design Patterns
 1. **Three-Tier Halo Architecture**: Clear separation between input (InputTreeHalos), processing (FoFWorkspace), and storage (ProcessedHalos)
-2. **Memory Categories**: Memory allocation is tracked by category (halos, trees, parameters, etc.)
-3. **Error Propagation**: Consistent error handling with context preservation throughout the call stack
-4. **Format Abstraction**: I/O operations abstracted to support multiple tree and output formats
-5. **State Management**: Single source of truth via globals for runtime state
+2. **Physics-Agnostic Core**: Core infrastructure has zero knowledge of specific physics modules; all interaction through module interfaces
+3. **Runtime Modularity**: Physics modules can be enabled/disabled via parameter files without recompilation
+4. **Metadata-Driven Architecture**: Property definitions and (future) module registration auto-generated from YAML metadata
+5. **Memory Categories**: Memory allocation is tracked by category (halos, trees, parameters, etc.)
+6. **Error Propagation**: Consistent error handling with context preservation throughout the call stack
+7. **Format Abstraction**: I/O operations abstracted to support multiple tree and output formats
+8. **State Management**: Single source of truth via globals for runtime state
 
 ### Plotting System (output/mimic-plot/)
 - **mimic-plot.py**: Central plotting script with comprehensive command-line interface
@@ -189,6 +201,9 @@ The codebase follows a hierarchical structure under `src/`:
 Parameter files use a key-value format with sections for:
 - File information (FirstFile, LastFile, OutputDir)
 - Simulation parameters (BoxSize, Hubble_h, Omega, PartMass)
+- Module configuration (EnabledModules, module-specific parameters)
+  - Example: `EnabledModules simple_cooling,simple_sfr`
+  - Module parameters: `SimpleCooling_BaryonFraction 0.15`
 
 ### Tree Processing Flow
 1. **load_tree_table()**: Load tree metadata and structure
@@ -220,6 +235,9 @@ Follow the documentation template in `docs/developer/coding-standards.md`:
 See also:
 - **docs/architecture/vision.md**: Architectural principles and future vision
 - **docs/developer/getting-started.md**: Developer setup and workflow
+- **docs/developer/testing.md**: Comprehensive testing guide and standards
+- **docs/user/module-configuration.md**: Guide to configuring physics modules
+- **docs/architecture/roadmap_v3.md**: Development roadmap and phase implementation details
 
 ## Development Guidelines
 - All work to highest professional coding standards
