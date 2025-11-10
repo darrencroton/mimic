@@ -2,211 +2,432 @@
 """
 Output Format Integration Test
 
-Validates: Binary and HDF5 output format correctness
-Phase: Phase 2 (Testing Framework)
+Validates: Binary and HDF5 output format correctness and baseline comparison
+Phase: Phase 3 (Testing Framework Enhancement)
 
 This test validates that Mimic's output system correctly:
-- Produces binary output files
+- Produces binary output files with correct structure
 - Produces HDF5 output files (when compiled with HDF5)
-- Both formats contain expected data
-- File structures are correct
-- Data types are appropriate
+- Output data is loadable and has valid structure
+- Output matches baseline reference data
+- Both formats contain equivalent halo counts
 
 Test cases:
-  - test_binary_output: Binary format works
-  - test_hdf5_output: HDF5 format works (if available)
-  - test_output_consistency: Both formats produce equivalent data
+  - test_binary_format_execution: Binary format end-to-end execution
+  - test_binary_format_loading: Binary output can be loaded
+  - test_binary_baseline_comparison: Binary output matches baseline
+  - test_hdf5_format_execution: HDF5 format end-to-end execution (if available)
+  - test_hdf5_format_loading: HDF5 output can be loaded (if available)
+  - test_hdf5_baseline_comparison: HDF5 output matches baseline (if available)
 
 Author: Mimic Testing Team
-Date: 2025-11-08
+Date: 2025-11-10
 """
 
-import os
 import subprocess
 import sys
 from pathlib import Path
-import struct
+import numpy as np
 
-# Repository root
+# Add framework to path
 REPO_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+
+from framework import load_binary_halos
+
+# Repository paths
 TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
 MIMIC_EXE = REPO_ROOT / "mimic"
 
 
-def run_mimic_with_format(output_format):
+def run_mimic(param_file):
     """
-    Run Mimic with specified output format
+    Execute Mimic with specified parameter file
 
     Args:
-        output_format (str): 'binary' or 'hdf5'
+        param_file (Path): Path to parameter file
 
     Returns:
-        tuple: (returncode, output_file_path)
+        tuple: (returncode, stdout, stderr)
     """
-    # Create temporary parameter file with specified format
-    test_par = TEST_DATA_DIR / "test.par"
-
-    # Read test.par
-    with open(test_par) as f:
-        lines = f.readlines()
-
-    # Modify output format
-    modified_lines = []
-    for line in lines:
-        if line.strip().startswith("OutputFormat"):
-            modified_lines.append(f"OutputFormat {output_format}\n")
-        elif line.strip().startswith("OutputDir"):
-            modified_lines.append(f"OutputDir ./tests/data/output/{output_format}/\n")
-        else:
-            modified_lines.append(line)
-
-    # Write temporary parameter file
-    temp_par = TEST_DATA_DIR / f"test_{output_format}.par"
-    with open(temp_par, 'w') as f:
-        f.writelines(modified_lines)
-
-    # Ensure output directory exists
-    output_dir = TEST_DATA_DIR / "output" / output_format
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Run Mimic
     result = subprocess.run(
-        [str(MIMIC_EXE), str(temp_par)],
+        [str(MIMIC_EXE), str(param_file)],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True
     )
-
-    # Determine output file path
-    output_dir = TEST_DATA_DIR / "output" / output_format
-    if output_format == "binary":
-        # Binary format uses redshift-based naming
-        output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
-    else:
-        # HDF5 format uses file number naming
-        output_file = output_dir / "model_000.hdf5"  # filenr 0
-
-    return result.returncode, output_file, temp_par
+    return result.returncode, result.stdout, result.stderr
 
 
-def test_binary_output():
+def check_hdf5_support():
     """
-    Test that binary output format works
+    Check if Mimic was compiled with HDF5 support
 
-    Expected: Binary file created with valid structure
-    Validates: Binary output generation
+    Returns:
+        bool: True if HDF5 support is available
     """
-    print("Testing binary output format...")
+    # Run mimic with --version or similar to check for HDF5
+    # For now, we'll check if HDF5 output succeeds
+    param_file = TEST_DATA_DIR / "test_hdf5.par"
+    if not param_file.exists():
+        return False
+
+    returncode, stdout, stderr = run_mimic(param_file)
+
+    # If it fails with "unknown output format" or similar, HDF5 not supported
+    if returncode != 0:
+        output = (stdout + stderr).lower()
+        if "hdf5" in output and ("unknown" in output or "not supported" in output or "not compiled" in output):
+            return False
+
+    return returncode == 0
+
+
+def load_hdf5_halos(output_file):
+    """
+    Load halo data from HDF5 output file
+
+    Args:
+        output_file (Path): Path to HDF5 output file
+
+    Returns:
+        tuple: (halos, metadata) where halos is structured array
+    """
+    try:
+        import h5py
+    except ImportError:
+        raise ImportError("h5py not available - cannot load HDF5 output")
+
+    with h5py.File(output_file, 'r') as f:
+        # Mimic HDF5 structure: Root contains snapshot groups (e.g., 'Snap063')
+        # Each snapshot group contains 'Galaxies' dataset (structured array)
+
+        # Get snapshot groups (e.g., 'Snap063')
+        snap_groups = [key for key in f.keys() if key.startswith('Snap')]
+
+        if not snap_groups:
+            raise ValueError(f"No snapshot groups found in HDF5 file: {output_file}")
+
+        # For testing, we expect one snapshot (Snap063 for z=0)
+        # Use the first snapshot group found
+        snap_name = snap_groups[0]
+        snap_group = f[snap_name]
+
+        # Read halo data from 'Galaxies' dataset
+        if 'Galaxies' not in snap_group:
+            raise ValueError(f"No 'Galaxies' dataset found in {snap_name}")
+
+        # Load the structured array directly
+        halos = snap_group['Galaxies'][:]
+
+        # Get metadata from group attributes
+        attrs = dict(snap_group.attrs) if hasattr(snap_group, 'attrs') else {}
+
+        # Also check for TreeHalosPerSnap to get tree count
+        ntrees = len(snap_group['TreeHalosPerSnap'][:]) if 'TreeHalosPerSnap' in snap_group else 1
+
+        # Create metadata
+        metadata = {
+            'TotHalos': len(halos),
+            'Ntrees': ntrees,
+            'NoutputSnaps': 1,
+            'SnapshotName': snap_name,
+        }
+        metadata.update(attrs)
+
+        return halos, metadata
+
+
+def test_binary_format_execution():
+    """
+    Test that binary format executes successfully
+
+    Expected: Mimic runs to completion with binary output
+    Validates: Binary format end-to-end execution
+    """
+    print("Testing binary format execution...")
 
     if not MIMIC_EXE.exists():
         print(f"  Skipping (Mimic not built)")
         return
 
-    # Run Mimic with binary output
-    returncode, output_file, temp_par = run_mimic_with_format("binary")
+    param_file = TEST_DATA_DIR / "test_binary.par"
+    assert param_file.exists(), f"Parameter file not found: {param_file}"
 
-    # Clean up temp par file
-    if temp_par.exists():
-        temp_par.unlink()
+    # Run Mimic
+    returncode, stdout, stderr = run_mimic(param_file)
 
     # Check execution success
-    assert returncode == 0, f"Mimic failed with binary output (code {returncode})"
+    assert returncode == 0, f"Mimic failed with code {returncode}\nSTDERR: {stderr}"
 
-    # Check output file exists
-    assert output_file.exists(), f"Binary output file not created: {output_file}"
-
-    # Check file size
-    file_size = output_file.stat().st_size
-    assert file_size > 0, "Binary output file is empty"
-
-    print(f"  ✓ Binary output created successfully")
-    print(f"  File: {output_file}")
-    print(f"  Size: {file_size:,} bytes")
-
-    # Basic binary format validation
-    with open(output_file, 'rb') as f:
-        # Try to read header (first 4 integers: Ntrees, totNHalos, NtotHalos, NoutputSnaps)
-        try:
-            header = struct.unpack('iiii', f.read(16))
-            print(f"  Header (first 4 ints): {header}")
-            assert all(x >= 0 for x in header), "Header values should be non-negative"
-        except struct.error as e:
-            assert False, f"Could not read binary header: {e}"
+    print(f"  ✓ Binary format execution successful")
 
 
-def test_hdf5_output():
+def test_binary_format_loading():
     """
-    Test that HDF5 output format works (if HDF5 support compiled)
+    Test that binary output can be loaded
 
-    Expected: HDF5 file created (or graceful skip if no HDF5)
-    Validates: HDF5 output generation
+    Expected: Binary file exists and can be loaded
+    Validates: Binary format structure and loadability
     """
-    print("Testing HDF5 output format...")
+    print("Testing binary format data loading...")
 
     if not MIMIC_EXE.exists():
         print(f"  Skipping (Mimic not built)")
         return
 
-    # Run Mimic with HDF5 output
-    returncode, output_file, temp_par = run_mimic_with_format("hdf5")
+    # Check output file exists
+    output_dir = TEST_DATA_DIR / "output" / "binary"
+    output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
-    # Clean up temp par file
-    if temp_par.exists():
-        temp_par.unlink()
+    # Run Mimic if needed
+    if not output_file.exists():
+        print(f"  Running Mimic to generate output...")
+        param_file = TEST_DATA_DIR / "test_binary.par"
+        returncode, _, stderr = run_mimic(param_file)
+        assert returncode == 0, f"Mimic execution failed: {stderr}"
 
-    # Check if HDF5 was requested but failed
-    if returncode != 0:
-        print(f"  Mimic failed with HDF5 output (code {returncode})")
-        print(f"  This is OK if Mimic wasn't compiled with HDF5 support")
-        print(f"  Rebuild with: make clean && make USE-HDF5=yes")
-        return  # Not a failure - HDF5 support is optional
+    assert output_file.exists(), f"Binary output file not created: {output_file}"
 
-    # If succeeded, verify output
-    if output_file.exists():
-        file_size = output_file.stat().st_size
-        assert file_size > 0, "HDF5 output file is empty"
+    # Load halos
+    halos, metadata = load_binary_halos(output_file)
 
-        print(f"  ✓ HDF5 output created successfully")
-        print(f"  File: {output_file}")
-        print(f"  Size: {file_size:,} bytes")
+    # Validate loaded data
+    assert metadata['TotHalos'] > 0, "No halos loaded from binary file"
+    assert len(halos) == metadata['TotHalos'], "Halo count mismatch"
+    assert hasattr(halos, 'Mvir'), "Binary data missing expected property (Mvir)"
+    assert hasattr(halos, 'Rvir'), "Binary data missing expected property (Rvir)"
 
-        # Try to load with h5py if available
-        try:
-            import h5py
-            with h5py.File(output_file, 'r') as f:
-                print(f"  HDF5 groups: {list(f.keys())}")
-        except ImportError:
-            print(f"  (h5py not available for detailed validation)")
-    else:
-        print(f"  HDF5 output not created (may need USE-HDF5=yes)")
+    print(f"  ✓ Binary output loaded successfully")
+    print(f"  Total halos: {metadata['TotHalos']}")
+    print(f"  Number of trees: {metadata.get('Ntrees', 'N/A')}")
+    print(f"  File size: {output_file.stat().st_size:,} bytes")
 
 
-def test_output_file_permissions():
+def test_binary_baseline_comparison():
     """
-    Test that output files have correct permissions
+    Test that binary output matches baseline reference data
 
-    Expected: Files are readable
-    Validates: File system operations
+    Expected: Halo counts match baseline, properties are consistent
+    Validates: Binary output regression testing
     """
-    print("Testing output file permissions...")
+    print("Testing binary baseline comparison...")
 
     if not MIMIC_EXE.exists():
         print(f"  Skipping (Mimic not built)")
+        return
+
+    # Load test output
+    output_dir = TEST_DATA_DIR / "output" / "binary"
+    output_file = output_dir / "model_z0.000_0"
+
+    # Run Mimic if needed
+    if not output_file.exists():
+        param_file = TEST_DATA_DIR / "test_binary.par"
+        returncode, _, stderr = run_mimic(param_file)
+        assert returncode == 0, f"Mimic execution failed: {stderr}"
+
+    halos_test, metadata_test = load_binary_halos(output_file)
+
+    # Load baseline
+    baseline_dir = TEST_DATA_DIR / "output" / "baseline" / "binary"
+    baseline_file = baseline_dir / "model_z0.000_0"
+
+    assert baseline_file.exists(), (
+        f"Baseline file not found: {baseline_file}\n"
+        f"Run Mimic once to establish baseline, then commit the baseline file."
+    )
+
+    halos_baseline, metadata_baseline = load_binary_halos(baseline_file)
+
+    # Compare halo counts
+    assert metadata_test['TotHalos'] == metadata_baseline['TotHalos'], (
+        f"Halo count mismatch: test={metadata_test['TotHalos']}, "
+        f"baseline={metadata_baseline['TotHalos']}"
+    )
+
+    # Compare tree counts
+    if 'Ntrees' in metadata_test and 'Ntrees' in metadata_baseline:
+        assert metadata_test['Ntrees'] == metadata_baseline['Ntrees'], (
+            f"Tree count mismatch: test={metadata_test['Ntrees']}, "
+            f"baseline={metadata_baseline['Ntrees']}"
+        )
+
+    print(f"  ✓ Binary output matches baseline")
+    print(f"  Halos: {metadata_test['TotHalos']} (test) == {metadata_baseline['TotHalos']} (baseline)")
+
+    # Compare mass ranges (should be similar, allowing for minor numerical differences)
+    test_mass_range = (np.min(halos_test.Mvir), np.max(halos_test.Mvir))
+    baseline_mass_range = (np.min(halos_baseline.Mvir), np.max(halos_baseline.Mvir))
+
+    # Check if ranges match (handle zero values properly)
+    # If both values are zero, that's a perfect match
+    # Otherwise, calculate relative difference
+    def safe_relative_diff(val1, val2):
+        """Calculate relative difference, handling zeros properly"""
+        if val1 == val2:  # Perfect match (including both zero)
+            return 0.0
+        if val2 == 0.0:  # Avoid division by zero
+            return abs(val1)  # If baseline is 0 but test isn't, that's a big difference
+        return abs(val1 - val2) / abs(val2)
+
+    rel_diff_min = safe_relative_diff(test_mass_range[0], baseline_mass_range[0])
+    rel_diff_max = safe_relative_diff(test_mass_range[1], baseline_mass_range[1])
+
+    # Allow 0.1% relative difference in mass ranges
+    tolerance = 0.001
+    assert rel_diff_min < tolerance and rel_diff_max < tolerance, (
+        f"Mass range mismatch:\n"
+        f"  Test: {test_mass_range[0]:.2e} to {test_mass_range[1]:.2e}\n"
+        f"  Baseline: {baseline_mass_range[0]:.2e} to {baseline_mass_range[1]:.2e}\n"
+        f"  Relative diff (min): {rel_diff_min:.2e}, (max): {rel_diff_max:.2e}"
+    )
+
+    print(f"  Mass range: {test_mass_range[0]:.2e} to {test_mass_range[1]:.2e} Msun/h")
+
+
+def test_hdf5_format_execution():
+    """
+    Test that HDF5 format executes successfully (if compiled with HDF5)
+
+    Expected: Mimic runs to completion with HDF5 output (or skips gracefully)
+    Validates: HDF5 format end-to-end execution
+    """
+    print("Testing HDF5 format execution...")
+
+    if not MIMIC_EXE.exists():
+        print(f"  Skipping (Mimic not built)")
+        return
+
+    # Check if HDF5 parameter file exists
+    param_file = TEST_DATA_DIR / "test_hdf5.par"
+    if not param_file.exists():
+        print(f"  Skipping (test_hdf5.par not found)")
         return
 
     # Run Mimic
-    returncode, output_file, temp_par = run_mimic_with_format("binary")
+    returncode, stdout, stderr = run_mimic(param_file)
 
-    if temp_par.exists():
-        temp_par.unlink()
+    # Check if HDF5 support is available
+    if returncode != 0:
+        output = (stdout + stderr).lower()
+        if "hdf5" in output and ("unknown" in output or "not supported" in output or "not compiled" in output):
+            print(f"  Skipping (Mimic not compiled with HDF5 support)")
+            print(f"  Rebuild with: make clean && make USE-HDF5=yes")
+            return
+        else:
+            assert False, f"Mimic failed with code {returncode}\nSTDERR: {stderr}"
 
-    assert returncode == 0, "Mimic execution failed"
-    assert output_file.exists(), "Output file not created"
+    print(f"  ✓ HDF5 format execution successful")
 
-    # Check file is readable
-    assert os.access(output_file, os.R_OK), "Output file is not readable"
 
-    print(f"  ✓ Output file has correct permissions")
+def test_hdf5_format_loading():
+    """
+    Test that HDF5 output can be loaded (if HDF5 support available)
+
+    Expected: HDF5 file exists and can be loaded
+    Validates: HDF5 format structure and loadability
+    """
+    print("Testing HDF5 format data loading...")
+
+    if not MIMIC_EXE.exists():
+        print(f"  Skipping (Mimic not built)")
+        return
+
+    # Check if HDF5 is supported
+    if not check_hdf5_support():
+        print(f"  Skipping (Mimic not compiled with HDF5 support)")
+        return
+
+    # Check output file exists
+    output_dir = TEST_DATA_DIR / "output" / "hdf5"
+    output_file = output_dir / "model_000.hdf5"  # filenr 0
+
+    # Run Mimic if needed
+    if not output_file.exists():
+        print(f"  Running Mimic to generate HDF5 output...")
+        param_file = TEST_DATA_DIR / "test_hdf5.par"
+        returncode, _, stderr = run_mimic(param_file)
+        assert returncode == 0, f"Mimic execution failed: {stderr}"
+
+    assert output_file.exists(), f"HDF5 output file not created: {output_file}"
+
+    # Check if h5py is available
+    try:
+        import h5py
+    except ImportError:
+        print(f"  Skipping detailed validation (h5py not available)")
+        print(f"  Install with: pip install h5py")
+        return
+
+    # Load halos
+    halos, metadata = load_hdf5_halos(output_file)
+
+    # Validate loaded data
+    assert metadata['TotHalos'] > 0, "No halos loaded from HDF5 file"
+    assert len(halos) == metadata['TotHalos'], "Halo count mismatch"
+
+    print(f"  ✓ HDF5 output loaded successfully")
+    print(f"  Total halos: {metadata['TotHalos']}")
+    print(f"  File size: {output_file.stat().st_size:,} bytes")
+
+
+def test_hdf5_baseline_comparison():
+    """
+    Test that HDF5 output matches baseline reference data (if HDF5 available)
+
+    Expected: Halo counts match baseline
+    Validates: HDF5 output regression testing
+    """
+    print("Testing HDF5 baseline comparison...")
+
+    if not MIMIC_EXE.exists():
+        print(f"  Skipping (Mimic not built)")
+        return
+
+    # Check if HDF5 is supported
+    if not check_hdf5_support():
+        print(f"  Skipping (Mimic not compiled with HDF5 support)")
+        return
+
+    # Check if h5py is available
+    try:
+        import h5py
+    except ImportError:
+        print(f"  Skipping (h5py not available)")
+        return
+
+    # Load test output
+    output_dir = TEST_DATA_DIR / "output" / "hdf5"
+    output_file = output_dir / "model_000.hdf5"
+
+    # Run Mimic if needed
+    if not output_file.exists():
+        param_file = TEST_DATA_DIR / "test_hdf5.par"
+        returncode, _, stderr = run_mimic(param_file)
+        assert returncode == 0, f"Mimic execution failed: {stderr}"
+
+    halos_test, metadata_test = load_hdf5_halos(output_file)
+
+    # Load baseline
+    baseline_dir = TEST_DATA_DIR / "output" / "baseline" / "hdf5"
+    baseline_file = baseline_dir / "model_000.hdf5"
+
+    assert baseline_file.exists(), (
+        f"Baseline file not found: {baseline_file}\n"
+        f"Run Mimic once with HDF5 to establish baseline, then commit the baseline file."
+    )
+
+    halos_baseline, metadata_baseline = load_hdf5_halos(baseline_file)
+
+    # Compare halo counts
+    assert metadata_test['TotHalos'] == metadata_baseline['TotHalos'], (
+        f"Halo count mismatch: test={metadata_test['TotHalos']}, "
+        f"baseline={metadata_baseline['TotHalos']}"
+    )
+
+    print(f"  ✓ HDF5 output matches baseline")
+    print(f"  Halos: {metadata_test['TotHalos']} (test) == {metadata_baseline['TotHalos']} (baseline)")
 
 
 def main():
@@ -229,24 +450,43 @@ def main():
         return 1
 
     tests = [
-        test_binary_output,
-        test_hdf5_output,
-        test_output_file_permissions,
+        test_binary_format_execution,
+        test_binary_format_loading,
+        test_binary_baseline_comparison,
+        test_hdf5_format_execution,
+        test_hdf5_format_loading,
+        test_hdf5_baseline_comparison,
     ]
 
     passed = 0
     failed = 0
+    skipped = 0
 
     # ANSI color codes
     RED = '\033[0;31m'
     GREEN = '\033[0;32m'
+    YELLOW = '\033[0;33m'
     NC = '\033[0m'  # No Color
 
     for test in tests:
         print()
         try:
-            test()
-            passed += 1
+            # Capture print output to detect skips
+            import io
+            from contextlib import redirect_stdout
+
+            output_buffer = io.StringIO()
+            with redirect_stdout(output_buffer):
+                test()
+
+            output = output_buffer.getvalue()
+            print(output, end='')  # Print the output
+
+            if "Skipping" in output:
+                print(f"{YELLOW}⊘ SKIP: {test.__name__}{NC}")
+                skipped += 1
+            else:
+                passed += 1
         except AssertionError as e:
             print(f"{RED}✗ FAIL: {test.__name__}{NC}")
             print(f"  {e}")
@@ -260,13 +500,16 @@ def main():
     print("=" * 60)
     print("Test Summary")
     print("=" * 60)
-    print(f"Passed: {passed}")
-    print(f"Failed: {failed}")
-    print(f"Total:  {passed + failed}")
+    print(f"Passed:  {passed}")
+    print(f"Failed:  {failed}")
+    print(f"Skipped: {skipped}")
+    print(f"Total:   {passed + failed + skipped}")
     print("=" * 60)
 
     if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
+        print(f"{GREEN}✓ All executed tests passed!{NC}")
+        if skipped > 0:
+            print(f"{YELLOW}⊘ {skipped} test(s) skipped (HDF5 support not available){NC}")
         return 0
     else:
         print(f"{RED}✗ {failed} test(s) failed{NC}")

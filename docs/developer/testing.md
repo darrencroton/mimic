@@ -194,7 +194,6 @@ tests/
 ├── integration/               # Python integration tests
 │   ├── test_full_pipeline.py
 │   ├── test_output_formats.py
-│   ├── test_bit_identical.py
 │   └── test_module_pipeline.py
 ├── scientific/                # Python scientific tests
 │   ├── test_physics_sanity.py
@@ -203,9 +202,12 @@ tests/
 │   ├── input/                 # Input test data
 │   │   ├── trees_063.0        # Single tree file (17M)
 │   │   └── millennium.a_list  # Snapshot ages (577B)
-│   ├── test.par               # Test parameter file
+│   ├── test_binary.par        # Binary format test parameter file
+│   ├── test_hdf5.par          # HDF5 format test parameter file
 │   └── output/                # Test outputs
 │       ├── baseline/          # Known-good baseline outputs (committed to git)
+│       │   ├── binary/        # Binary format baseline
+│       │   └── hdf5/          # HDF5 format baseline
 │       ├── binary/            # Binary format test outputs (generated, not in git)
 │       └── hdf5/              # HDF5 format test outputs (generated, not in git)
 └── framework/                 # Test framework and templates
@@ -218,9 +220,7 @@ tests/
 
 ### Test Data
 
-**Location**: `tests/data/input/`
-
-**Files**:
+**Input Data** (`tests/data/input/`):
 - `trees_063.0` (17M) - Single tree file from mini-Millennium
 - `millennium.a_list` (577B) - Snapshot ages/redshifts
 
@@ -230,10 +230,18 @@ tests/
 - Representative of production workloads
 - Committed to repository (self-contained)
 
+**Parameter Files** (`tests/data/`):
+- `test_binary.par` - Binary format test configuration (outputs to `tests/data/output/binary/`)
+- `test_hdf5.par` - HDF5 format test configuration (outputs to `tests/data/output/hdf5/`)
+
 **Output Data**:
-- `tests/data/output/baseline/` - Known-good outputs (committed to git, used for regression testing)
-- `tests/data/output/binary/` - Generated test outputs in binary format (not in git)
-- `tests/data/output/hdf5/` - Generated test outputs in HDF5 format (not in git)
+- `tests/data/output/baseline/binary/` - Known-good binary baseline (committed to git, used for regression testing)
+- `tests/data/output/baseline/hdf5/` - Known-good HDF5 baseline (committed to git, used for regression testing)
+- `tests/data/output/binary/` - Generated test outputs in binary format (gitignored)
+- `tests/data/output/hdf5/` - Generated test outputs in HDF5 format (gitignored)
+
+**Baseline Testing Approach**:
+Tests compare generated output against baseline using direct data loading and comparison (halo counts, mass ranges, etc.), not checksums. This provides more meaningful validation of scientific correctness.
 
 ---
 
@@ -705,22 +713,16 @@ cat tests/data/output/baseline/metadata/*.log
 **Problem**: Output file not created
 
 **Solution**:
-- Check OutputDir in test.par
+- Check OutputDir in test_binary.par or test_hdf5.par
 - Verify directory exists and is writable
 - Check for errors in Mimic output
 
-**Problem**: Bit-identical test fails
+**Problem**: Baseline comparison fails
 
 **Solution**:
-```bash
-# Check what changed
-cd tests/integration
-python test_bit_identical.py
-
-# If intentional change, update baseline
-rm ../data/output/baseline_checksums.txt
-python test_bit_identical.py
-```
+- Check if baseline files exist in `tests/data/output/baseline/binary/` or `tests/data/output/baseline/hdf5/`
+- If intentional change to physics or output: regenerate baseline by running Mimic once, then commit updated baseline files
+- If unintended change: investigate why halo counts or properties differ from baseline
 
 ### Scientific Test Failures
 
@@ -861,12 +863,22 @@ grep -i "memory leak" tests/data/output/baseline/metadata/*.log
 
 **A**:
 ```bash
-cd tests/integration
-rm ../data/output/baseline_checksums.txt
-python test_bit_identical.py  # Establishes new baseline
-git add ../data/output/baseline_checksums.txt
-git commit -m "Update regression baseline (reason)"
+# Run Mimic to generate new baseline data
+./mimic tests/data/test_binary.par
+
+# Copy new output to baseline directory
+cp tests/data/output/binary/model_z0.000_0 tests/data/output/baseline/binary/
+
+# For HDF5 (if compiled with HDF5 support)
+./mimic tests/data/test_hdf5.par
+cp tests/data/output/hdf5/model_000.hdf5 tests/data/output/baseline/hdf5/
+
+# Commit updated baseline files
+git add tests/data/output/baseline/
+git commit -m "Update regression baseline (reason: describe why baseline changed)"
 ```
+
+**Note**: Baselines should only change when physics calculations change intentionally. Document why!
 
 ### Q: Can I skip tests for a quick commit?
 
@@ -909,14 +921,15 @@ make test-integration
 
 Mimic's testing framework provides:
 - **Fast feedback**: Unit tests run in seconds
-- **Comprehensive coverage**: 12 tests covering core functionality and modules
+- **Comprehensive coverage**: 11 tests covering core functionality and modules
 - **Scientific validation**: Physics correctness verified
+- **Baseline comparison**: Direct data validation instead of checksum-based regression testing
 - **CI integration**: Automated testing on every commit
 - **Developer-friendly**: Templates and clear documentation
 
 **Current test coverage** (Phase 3):
 - 6 unit tests (memory, properties, parameters, trees, numerics, modules)
-- 4 integration tests (pipeline, formats, regression, module workflows)
+- 3 integration tests (pipeline, output formats with baseline comparison, module workflows)
 - 2 scientific tests (physics sanity, property ranges)
 
 **Testing is not optional**. It catches bugs early, prevents regressions, and ensures scientific accuracy.

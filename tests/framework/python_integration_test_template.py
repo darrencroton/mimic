@@ -41,7 +41,7 @@ def run_mimic(param_file, cwd=None):
         tuple: (returncode, stdout, stderr)
 
     Example:
-        returncode, stdout, stderr = run_mimic("tests/data/test.par")
+        returncode, stdout, stderr = run_mimic("tests/data/test_binary.par")
         assert returncode == 0, f"Mimic failed: {stderr}"
     """
     if cwd is None:
@@ -138,7 +138,7 @@ def test_basic_integration():
 
     # ===== SETUP =====
     # Prepare test environment
-    param_file = "tests/data/test.par"
+    param_file = "tests/data/test_binary.par"
     output_dir = Path("tests/data/output/binary/")
 
     # Clean previous test output if needed

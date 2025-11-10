@@ -23,7 +23,10 @@ tests/unit/build/
 tests/unit/*.test
 tests/data/output/binary/
 tests/data/output/hdf5/
+# Ignore temp test .par files but NOT test_binary.par and test_hdf5.par
 tests/data/test_*.par
+!tests/data/test_binary.par
+!tests/data/test_hdf5.par
 
 # Editor artifacts
 *.*~

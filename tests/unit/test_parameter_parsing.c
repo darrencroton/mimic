@@ -13,7 +13,7 @@
  * - Populates MimicConfig structure correctly
  *
  * Test cases:
- *   - test_basic_parsing: Parse test.par successfully
+ *   - test_basic_parsing: Parse test_binary.par successfully
  *   - test_integer_parameters: Integer parameters read correctly
  *   - test_float_parameters: Float parameters read correctly
  *   - test_string_parameters: String parameters read correctly
@@ -44,7 +44,7 @@ extern struct MimicConfig MimicConfig;
  * @test    test_basic_parsing
  * @brief   Test that parameter file can be parsed without errors
  *
- * Expected: test.par loads successfully
+ * Expected: test_binary.par loads successfully
  * Validates: Parser can read and process parameter file
  */
 int test_basic_parsing(void) {
@@ -54,7 +54,7 @@ int test_basic_parsing(void) {
 
     /* ===== EXECUTE ===== */
     /* Read test parameter file */
-    read_parameter_file("tests/data/test.par");
+    read_parameter_file("tests/data/test_binary.par");
 
     /* ===== VALIDATE ===== */
     /* If we got here without crashing, parsing succeeded */
@@ -79,7 +79,7 @@ int test_integer_parameters(void) {
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test.par");
+    read_parameter_file("tests/data/test_binary.par");
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(MimicConfig.FirstFile == 0, "FirstFile should be 0");
@@ -111,7 +111,7 @@ int test_float_parameters(void) {
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test.par");
+    read_parameter_file("tests/data/test_binary.par");
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.BoxSize, 62.5, 0.01,
@@ -141,7 +141,7 @@ int test_string_parameters(void) {
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test.par");
+    read_parameter_file("tests/data/test_binary.par");
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT_STRING_EQUAL(MimicConfig.OutputFileBaseName, "model",
@@ -177,7 +177,7 @@ int test_cosmology_parameters(void) {
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test.par");
+    read_parameter_file("tests/data/test_binary.par");
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.Omega, 0.25, 0.001,
@@ -215,7 +215,7 @@ int test_snapshot_list(void) {
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test.par");
+    read_parameter_file("tests/data/test_binary.par");
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(MimicConfig.NOUT == 1, "Should have 1 output snapshot");

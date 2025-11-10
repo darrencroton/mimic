@@ -8,7 +8,7 @@
 % Used by: tests/unit/, tests/integration/, tests/scientific/
 %
 % To run manually:
-%   ./mimic tests/data/test.par
+%   ./mimic tests/data/test_binary.par
 %
 % Output location:
 %   tests/data/output/binary/  (test output, compared against baseline/)

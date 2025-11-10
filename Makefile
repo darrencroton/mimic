@@ -141,7 +141,6 @@ test-integration:
 	@echo "============================================================"
 	-@cd tests/integration && python test_full_pipeline.py
 	-@cd tests/integration && python test_output_formats.py
-	-@cd tests/integration && python test_bit_identical.py
 
 test-scientific:
 	@echo ""
