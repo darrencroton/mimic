@@ -305,8 +305,21 @@ int main(int argc, char **argv) {
 
     /* Check if output file already exists (to avoid reprocessing unless
      * overwrite flag is set) */
+#ifdef HDF5
+    if (MimicConfig.OutputFormat == output_hdf5) {
+      /* HDF5 format: one file per filenr (e.g., model_000.hdf5) */
+      snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
+               MimicConfig.OutputFileBaseName, filenr);
+    } else {
+      /* Binary format: one file per snapshot per filenr (e.g., model_z0.000_0) */
+      snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
+               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[0]], filenr);
+    }
+#else
+    /* Binary format only (no HDF5 support compiled in) */
     snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
              MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[0]], filenr);
+#endif
     if (stat(bufz0, &filestatus) == 0 && !MimicConfig.OverwriteOutputFiles) {
       INFO_LOG("Output for tree %s already exists ... skipping", bufz0);
       continue; // output seems to already exist, dont overwrite, move along
