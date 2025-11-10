@@ -52,12 +52,12 @@ Tests follow the **testing pyramid** approach:
 **Tests**: full pipeline, output formats, regression, module workflows
 
 ### 3. Scientific Tests (`scientific/`)
-- **Purpose**: Validate physics correctness
+- **Purpose**: Validate physics correctness and reasonable property ranges
 - **Language**: Python
 - **Runtime**: <5 minutes total
-- **Count**: 2 tests
+- **Count**: 1 comprehensive test
 
-**Tests**: physics sanity checks, property range validation
+**Tests**: numerical validity (NaN/Inf), zero value warnings, physical range validation
 
 ---
 
@@ -152,4 +152,4 @@ All tests run automatically on every commit via GitHub Actions.
 
 ---
 
-**Last Updated**: 2025-11-09 (Phase 3 Complete)
+**Last Updated**: 2025-11-10 (Phase 3 Complete - Scientific tests consolidated)

@@ -139,6 +139,10 @@ test-integration:
 	@echo "============================================================"
 	@echo "RUNNING INTEGRATION TESTS"
 	@echo "============================================================"
+	@echo "Building mimic with HDF5 support for integration tests..."
+	@$(MAKE) clean > /dev/null 2>&1
+	@$(MAKE) USE-HDF5=yes
+	@echo ""
 	-@cd tests/integration && python test_full_pipeline.py
 	-@cd tests/integration && python test_output_formats.py
 
@@ -148,8 +152,11 @@ test-scientific:
 	@echo "============================================================"
 	@echo "RUNNING SCIENTIFIC VALIDATION TESTS"
 	@echo "============================================================"
-	-@cd tests/scientific && python test_physics_sanity.py
-	-@cd tests/scientific && python test_property_ranges.py
+	@echo "Building mimic with HDF5 support for scientific tests..."
+	@$(MAKE) clean > /dev/null 2>&1
+	@$(MAKE) USE-HDF5=yes
+	@echo ""
+	-@cd tests/scientific && python test_scientific.py
 
 test-clean:
 	@echo "Cleaning test artifacts..."

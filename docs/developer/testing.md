@@ -98,9 +98,9 @@ Mimic follows the **testing pyramid** approach:
    - **When**: Before commits
 
 3. **Scientific Tests** (Python)
-   - **Purpose**: Validate physics correctness
+   - **Purpose**: Validate physics correctness and property ranges
    - **Runtime**: <5 minutes total
-   - **Coverage**: Conservation laws, property ranges, physics sanity
+   - **Coverage**: Numerical validity (NaN/Inf), zero value warnings, physical ranges
    - **When**: Before releases or physics changes
 
 ### Why This Approach?
@@ -196,8 +196,7 @@ tests/
 │   ├── test_output_formats.py
 │   └── test_module_pipeline.py
 ├── scientific/                # Python scientific tests
-│   ├── test_physics_sanity.py
-│   └── test_property_ranges.py
+│   └── test_scientific.py
 ├── data/                      # Test data
 │   ├── input/                 # Input test data
 │   │   ├── trees_063.0        # Single tree file (17M)
@@ -299,10 +298,10 @@ pytest -v
 cd tests/scientific
 
 # Run standalone
-python test_physics_sanity.py
+python test_scientific.py
 
 # Run with pytest
-pytest -v
+pytest test_scientific.py -v
 ```
 
 ### Expected Output
@@ -538,42 +537,39 @@ def test_new_format():
 
 ## Writing Scientific Tests (Python)
 
-### Step-by-Step Guide
+The scientific test validates physical correctness through three levels:
 
-1. **Copy template**:
-   ```bash
-   cp tests/framework/python_scientific_test_template.py tests/scientific/test_yourname.py
-   chmod +x tests/scientific/test_yourname.py
-   ```
+1. **Numerical Validity** (FAIL): NaN or Inf values are critical failures
+2. **Zero Values** (WARNING): Counted and reported but not failures
+3. **Physical Ranges** (FAIL): Properties outside reasonable bounds
 
-2. **Define physical expectations**:
-   ```python
-   EXPECTED_RANGES = {
-       'property_min': value,
-       'property_max': value,
-       'tolerance': value,
-   }
-   ```
+### Test Structure
 
-3. **Implement validation**:
-   ```python
-   def test_conservation_law():
-       """Test specific conservation law"""
-       halos = load_halos("output.dat")
+The test is organized into sections:
 
-       # Calculate conserved quantity
-       total = np.sum(halos['Mass'])
-       expected = known_value
+```python
+def test_numerical_validity():
+    """Check for NaN/Inf - critical failures"""
+    # Returns: (passed: bool, failures: int)
 
-       # Validate within tolerance
-       relative_error = abs(total - expected) / expected
-       assert relative_error < 0.01, f"Not conserved: {relative_error*100}% error"
-   ```
+def test_zero_values():
+    """Check for zeros - warnings only"""
+    # Returns: (passed: bool, warning_count: int)
 
-4. **Document physics**:
-   - Reference papers if comparing to literature
-   - Explain tolerance choices
-   - Note assumptions
+def test_physical_ranges():
+    """Check reasonable ranges - failures"""
+    # Mass: 1e-5 to 10000.0 (10^10 Msun/h units)
+    # Radii: 0.001 to 10.0 Mpc/h
+    # Velocities: 10 to 5000 km/s
+    # Returns: (passed: bool, failures: int)
+```
+
+### Key Features
+
+- **5 examples shown** for each property that fails
+- **Yellow warnings** for zero values (not failures)
+- **Red failures** for NaN, Inf, or out-of-range values
+- **Correct units**: Mass in 10^10 Msun/h (internal units)
 
 ### Example: Testing Conservation Law
 
@@ -602,17 +598,17 @@ def test_baryon_conservation():
 ### Scientific Test Best Practices
 
 ✅ **DO**:
-- Use physically motivated tolerances
-- Document expected ranges and why
-- Reference published results when comparing
-- Test conservation laws
-- Explain physics assumptions
+- Distinguish between warnings (zeros) and failures (NaN/Inf/out-of-range)
+- Use physically motivated ranges based on simulation properties
+- Show limited examples (5 per property) for readability
+- Document units clearly (especially internal units like 10^10 Msun/h)
+- Update ranges if simulation parameters change
 
 ❌ **DON'T**:
-- Use overly tight tolerances (numerical precision limits)
-- Test implementation details
-- Expect exact matches to literature (different codes)
-- Skip documenting tolerance choices
+- Fail tests for zero values (these are warnings)
+- Use overly tight ranges (allow for edge cases)
+- Show all failing halos (limits to 5 examples)
+- Forget internal units (mass is 10^10 Msun/h, not Msun/h)
 
 ---
 
@@ -726,21 +722,29 @@ cat tests/data/output/baseline/metadata/*.log
 
 ### Scientific Test Failures
 
-**Problem**: Conservation law violated
+**Problem**: NaN or Inf values found (FAIL)
 
 **Solution**:
-- Check tolerance is appropriate
-- Verify physics implementation
-- Check for numerical instability
-- Compare to baseline (known-good run)
+- Check for division by zero in calculations
+- Verify input data integrity
+- Check for numerical overflow/underflow
+- Review recent physics changes
 
-**Problem**: Property out of range
+**Problem**: Zero values reported (WARNING)
 
 **Solution**:
-- Check if range is too restrictive
-- Verify property calculation
-- Look for NaN/Inf propagation
-- Check input data quality
+- These are informational, not failures
+- Review if counts are unexpectedly high
+- Check if halos should be filtered earlier
+- Verify initialization of properties
+
+**Problem**: Property out of physical range (FAIL)
+
+**Solution**:
+- Check if range is appropriate for simulation
+- Verify property calculations
+- Update EXPECTED_RANGES if simulation changed
+- Review mass units (internal: 10^10 Msun/h)
 
 ---
 
@@ -930,7 +934,7 @@ Mimic's testing framework provides:
 **Current test coverage** (Phase 3):
 - 6 unit tests (memory, properties, parameters, trees, numerics, modules)
 - 3 integration tests (pipeline, output formats with baseline comparison, module workflows)
-- 2 scientific tests (physics sanity, property ranges)
+- 1 scientific test (comprehensive validation: numerical validity, zero warnings, physical ranges)
 
 **Testing is not optional**. It catches bugs early, prevents regressions, and ensures scientific accuracy.
 
@@ -947,4 +951,4 @@ Mimic's testing framework provides:
 - Architecture docs: `docs/architecture/`
 - CI logs: GitHub Actions tab
 
-**Last Updated**: 2025-11-09 (Phase 3 Complete)
+**Last Updated**: 2025-11-10 (Phase 3 Complete - Scientific tests consolidated)

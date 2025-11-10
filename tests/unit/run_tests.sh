@@ -45,6 +45,10 @@ BUILD_DIR="tests/unit/build"
 # Create build directory
 mkdir -p "$BUILD_DIR"
 
+# Create test output directories (gitignored, needed for unit tests)
+mkdir -p "tests/data/output/binary"
+mkdir -p "tests/data/output/hdf5"
+
 # Common compiler flags
 CC="${CC:-gcc}"
 CFLAGS="-Wall -Wextra -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -g -O0"

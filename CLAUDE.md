@@ -74,12 +74,12 @@ make test
 # Run specific test tiers
 make test-unit          # C unit tests (fast, <10s)
 make test-integration   # Python integration tests (medium, <1min)
-make test-scientific    # Python scientific tests (slow, <5min)
+make test-scientific    # Python scientific validation (slow, <5min)
 
 # Run individual tests
 cd tests/unit && ./test_memory_system.test
 cd tests/integration && python test_full_pipeline.py
-cd tests/scientific && python test_physics_sanity.py
+cd tests/scientific && python test_scientific.py
 
 # Test data loader (shared framework for scientific tests)
 cd tests && python -c "from framework import load_binary_halos; print(load_binary_halos.__doc__)"
