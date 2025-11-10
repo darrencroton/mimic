@@ -255,7 +255,7 @@ int test_tree_cleanup(void) {
 int main(void) {
     printf("========================================\n");
     printf("Test Suite: Tree Loading\n");
-    printf("========================================\n\n");
+    printf("========================================\n");
 
     /* Initialize error handling for tests */
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);

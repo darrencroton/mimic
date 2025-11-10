@@ -1340,7 +1340,7 @@ After roadmap completion:
 - **Impact**: High (tests not run → bugs not caught)
 - **PoC Evidence**: dT bug took 3 hours without tests
 - **Mitigation**:
-  - Make tests easy to run (`make test`)
+  - Make tests easy to run (`make tests`)
   - Fast feedback (<2 minutes CI)
   - Clear test failure messages
   - Integrate into developer workflow
@@ -1844,7 +1844,7 @@ make MODULES="simple_cooling stellar_mass"
 make PROFILE=minimal
 
 # Run tests (Phase 2)
-make test                    # All tests
+make tests                    # All tests
 make test-unit              # Unit tests only
 make test-integration       # Integration tests
 make test-scientific        # Scientific validation

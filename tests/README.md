@@ -11,7 +11,7 @@ This directory contains Mimic's automated testing infrastructure. For detailed i
 
 ```bash
 # Run all tests
-make test
+make tests
 
 # Run specific test tiers
 make test-unit          # C unit tests (<10s)
@@ -106,7 +106,7 @@ tests/
 2. Copy appropriate template from `framework/`
 3. Implement test following the template structure
 4. Add to test runner (C tests: `unit/run_tests.sh`)
-5. Verify: `make test`
+5. Verify: `make tests`
 
 See **[`docs/developer/testing.md`](../docs/developer/testing.md)** for detailed instructions and examples.
 

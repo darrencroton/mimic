@@ -69,7 +69,7 @@ make tidy
 
 ```bash
 # Run all tests (unit + integration + scientific)
-make test
+make tests
 
 # Run specific test tiers
 make test-unit          # C unit tests (fast, <10s)

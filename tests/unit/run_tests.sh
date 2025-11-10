@@ -49,6 +49,32 @@ mkdir -p "$BUILD_DIR"
 mkdir -p "tests/data/output/binary"
 mkdir -p "tests/data/output/hdf5"
 
+# Generate git_version.h if it doesn't exist (needed by version.c)
+GIT_VERSION_H="${SRC_DIR}/include/git_version.h"
+if [ ! -f "$GIT_VERSION_H" ]; then
+    echo "Generating git version header for unit tests..."
+    mkdir -p "$(dirname "$GIT_VERSION_H")"
+    cat > "$GIT_VERSION_H" << 'EOF'
+#ifndef GIT_VERSION_H
+#define GIT_VERSION_H
+#define GIT_COMMIT "unknown"
+#define GIT_BRANCH "unknown"
+#define GIT_DATE "unknown"
+#endif
+EOF
+    # Try to get actual git info if available
+    if command -v git &> /dev/null && [ -d .git ]; then
+        {
+            echo "#ifndef GIT_VERSION_H"
+            echo "#define GIT_VERSION_H"
+            echo "#define GIT_COMMIT \"$(git rev-parse HEAD 2>/dev/null || echo 'unknown')\""
+            echo "#define GIT_BRANCH \"$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')\""
+            echo "#define GIT_DATE \"$(git log -1 --format=%cd --date=short 2>/dev/null || echo 'unknown')\""
+            echo "#endif"
+        } > "$GIT_VERSION_H"
+    fi
+fi
+
 # Common compiler flags
 CC="${CC:-gcc}"
 CFLAGS="-Wall -Wextra -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -g -O0"
@@ -75,15 +101,9 @@ else
     TESTS="test_memory_system test_property_metadata test_parameter_parsing test_tree_loading test_numeric_utilities test_module_configuration"
 fi
 
-echo ""
-echo "============================================================"
-echo "Mimic Unit Test Runner"
-echo "============================================================"
 echo "Repository: $REPO_ROOT"
 echo "Compiler: $CC"
 echo "Build directory: $BUILD_DIR"
-echo "============================================================"
-echo ""
 
 ###############################################################################
 # Function: compile_and_run_test
@@ -114,20 +134,17 @@ compile_and_run_test() {
     fi
 
     # Run test
-    echo ""
     echo -e "${BLUE}Running test: ${test_name}${NC}"
     echo "------------------------------------------------------------"
 
     if $test_exe; then
         echo "------------------------------------------------------------"
         echo -e "${GREEN}✓ ${test_name} PASSED${NC}"
-        echo "============================================================"
         PASSED_TESTS=$((PASSED_TESTS + 1))
         return 0
     else
         echo "------------------------------------------------------------"
         echo -e "${RED}✗ ${test_name} FAILED${NC}"
-        echo "============================================================"
         FAILED_TESTS=$((FAILED_TESTS + 1))
         return 1
     fi
@@ -144,7 +161,6 @@ for test in $TESTS; do
 done
 
 # Print summary
-echo ""
 echo ""
 echo "============================================================"
 echo "Unit Test Summary"

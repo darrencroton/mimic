@@ -52,7 +52,7 @@ endif
 GIT_VERSION_H = $(SRC_DIR)/include/git_version.h
 
 # Build targets
-.PHONY: all clean tidy help generate check-generated test test-unit test-integration test-scientific test-clean
+.PHONY: all clean tidy help generate check-generated tests test-unit test-integration test-scientific test-clean
 
 all: $(EXEC)
 
@@ -78,7 +78,7 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(GIT_VERSION_H)
 
 -include $(DEPS)
 
-clean:
+clean: test-clean
 	@echo "Cleaning..."
 	rm -rf $(BUILD_DIR) $(EXEC) $(GIT_VERSION_H)
 	@echo "Clean complete"
@@ -98,7 +98,7 @@ help:
 	@echo "  make check-generated - Verify generated code is up-to-date (CI)"
 	@echo ""
 	@echo "Test targets:"
-	@echo "  make test         - Run all tests (unit + integration + scientific)"
+	@echo "  make tests        - Run all tests (unit + integration + scientific)"
 	@echo "  make test-unit    - Run unit tests only"
 	@echo "  make test-integration - Run integration tests only"
 	@echo "  make test-scientific  - Run scientific tests only"
@@ -118,7 +118,7 @@ check-generated:
 	@python3 scripts/check_generated.py
 
 # Test targets
-test: test-unit test-integration test-scientific
+tests: test-unit test-integration test-scientific
 	@echo ""
 	@echo ""
 	@echo "============================================================"
@@ -128,30 +128,31 @@ test: test-unit test-integration test-scientific
 
 test-unit:
 	@echo ""
-	@echo "============================================================"
-	@echo "RUNNING UNIT TESTS"
-	@echo "============================================================"
+	@echo "\033[0;34m============================================================\033[0m"
+	@echo "\033[0;34mRUNNING UNIT TESTS\033[0m"
+	@echo "\033[0;34m============================================================\033[0m"
 	@cd tests/unit && ./run_tests.sh
 
 test-integration:
 	@echo ""
 	@echo ""
-	@echo "============================================================"
-	@echo "RUNNING INTEGRATION TESTS"
-	@echo "============================================================"
+	@echo "\033[0;34m============================================================\033[0m"
+	@echo "\033[0;34mRUNNING INTEGRATION TESTS\033[0m"
+	@echo "\033[0;34m============================================================\033[0m"
 	@echo "Building mimic with HDF5 support for integration tests..."
 	@$(MAKE) clean > /dev/null 2>&1
 	@$(MAKE) USE-HDF5=yes
 	@echo ""
 	-@cd tests/integration && python test_full_pipeline.py
+	@echo ""
 	-@cd tests/integration && python test_output_formats.py
 
 test-scientific:
 	@echo ""
 	@echo ""
-	@echo "============================================================"
-	@echo "RUNNING SCIENTIFIC VALIDATION TESTS"
-	@echo "============================================================"
+	@echo "\033[0;34m============================================================\033[0m"
+	@echo "\033[0;34mRUNNING SCIENTIFIC VALIDATION TESTS\033[0m"
+	@echo "\033[0;34m============================================================\033[0m"
 	@echo "Building mimic with HDF5 support for scientific tests..."
 	@$(MAKE) clean > /dev/null 2>&1
 	@$(MAKE) USE-HDF5=yes
@@ -161,10 +162,10 @@ test-scientific:
 test-clean:
 	@echo "Cleaning test artifacts..."
 	@rm -rf tests/unit/build
-	@rm -f tests/unit/*.test
-	@rm -rf tests/data/output/binary
-	@rm -rf tests/data/output/hdf5
-	@rm -f tests/data/test_*.par
+	@rm -rf tests/data/output/binary/*
+	@rm -rf tests/data/output/hdf5/*
+	@mkdir -p tests/data/output/binary
+	@mkdir -p tests/data/output/hdf5
 	@rm -rf tests/**/__pycache__
 	@rm -f tests/**/*.pyc
 	@echo "Test artifacts cleaned"

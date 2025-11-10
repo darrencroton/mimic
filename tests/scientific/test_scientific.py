@@ -33,6 +33,21 @@ from framework import load_binary_halos
 TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
 MIMIC_EXE = REPO_ROOT / "mimic"
 
+
+def ensure_output_dirs():
+    """
+    Create output directories if they don't exist
+
+    Creates the binary and HDF5 output directories required by test parameter files.
+    This ensures tests work correctly after make test-clean or in fresh clones.
+    """
+    (TEST_DATA_DIR / "output" / "binary").mkdir(parents=True, exist_ok=True)
+    (TEST_DATA_DIR / "output" / "hdf5").mkdir(parents=True, exist_ok=True)
+
+
+# Ensure output directories exist before any tests run
+ensure_output_dirs()
+
 # Expected ranges
 # Mass units: 10^10 Msun/h (internal units)
 # So 1e-5 = 10^5 Msun/h, 10000.0 = 10^14 Msun/h
@@ -218,7 +233,8 @@ def test_numerical_validity():
     """
     Test for NaN and Inf values (critical failures)
     """
-    print("\n" + "="*60)
+    print()
+    print("="*60)
     print("NUMERICAL VALIDITY (NaN/Inf checks)")
     print("="*60)
 
@@ -258,7 +274,8 @@ def test_zero_values():
     """
     Check for zero values (warnings, not failures)
     """
-    print("\n" + "="*60)
+    print()
+    print("="*60)
     print("ZERO VALUE CHECKS (warnings)")
     print("="*60)
 
@@ -278,7 +295,6 @@ def test_zero_values():
             print(f"  {field}: {info['count']} zero values out of {total_halos} total")
             for idx, val in info['examples']:
                 print(f"    Halo {idx}: {field} = {val}")
-        print()
         return True, len(zero_counts)  # Warnings, not failures
     else:
         print(f"{GREEN}✓ No zero values found{NC}")
@@ -289,7 +305,8 @@ def test_physical_ranges():
     """
     Test that all properties are within physically reasonable ranges
     """
-    print("\n" + "="*60)
+    print()
+    print("="*60)
     print("PHYSICAL RANGE VALIDATION")
     print("="*60)
 
@@ -393,15 +410,13 @@ def main():
     """
     Main test runner
     """
-    print("=" * 60)
-    print("SCIENTIFIC VALIDATION TEST")
-    print("=" * 60)
+    print("Scientific Validation Test")
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
 
     # Check prerequisites
     if not MIMIC_EXE.exists():
-        print(f"\n{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
+        print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
         print("Build it first with: make")
         return 1
 
@@ -431,8 +446,8 @@ def main():
         failed_sections += failures
 
     # Summary
-    print("\n" + "=" * 60)
-    print("TEST SUMMARY")
+    print("=" * 60)
+    print("Test Summary: Scientific Validation")
     print("=" * 60)
     print(f"Sections passed: {passed_sections}")
     print(f"Sections failed: {failed_sections}")

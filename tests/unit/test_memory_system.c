@@ -255,7 +255,7 @@ int test_multiple_alloc_free_cycles(void) {
 int main(void) {
     printf("========================================\n");
     printf("Test Suite: Memory System\n");
-    printf("========================================\n\n");
+    printf("========================================\n");
 
     /* Initialize error handling for tests */
     initialize_error_handling(LOG_LEVEL_DEBUG, NULL);

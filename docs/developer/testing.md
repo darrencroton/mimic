@@ -35,7 +35,7 @@ This comprehensive guide explains how to use Mimic's testing infrastructure, wri
 make
 
 # Run all tests
-make test
+make tests
 
 # Run specific test tiers
 make test-unit          # C unit tests (<10s)
@@ -65,7 +65,7 @@ python test_physics_sanity.py
 2. Copy appropriate template from `tests/framework/`
 3. Implement test functions
 4. Add to test runner (for unit tests: `run_tests.sh`)
-5. Verify: `make test`
+5. Verify: `make tests`
 
 ---
 
@@ -250,7 +250,7 @@ Tests compare generated output against baseline using direct data loading and co
 
 ```bash
 # All tests
-make test
+make tests
 
 # Specific tiers
 make test-unit          # Unit tests only
@@ -851,7 +851,7 @@ grep -i "memory leak" tests/data/output/baseline/metadata/*.log
 2. Copy appropriate template
 3. Implement test functions
 4. Add to test runner
-5. Verify with `make test`
+5. Verify with `make tests`
 
 ### Q: My test fails in CI but passes locally. Why?
 
@@ -940,7 +940,7 @@ Mimic's testing framework provides:
 
 **Next steps**:
 - Familiarize yourself with test structure
-- Run `make test` to see tests in action
+- Run `make tests` to see tests in action
 - Add tests for your features using templates
 - Keep tests passing at all times
 

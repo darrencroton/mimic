@@ -291,7 +291,7 @@ int test_field_offsets(void) {
 int main(void) {
     printf("========================================\n");
     printf("Test Suite: Property Metadata System\n");
-    printf("========================================\n\n");
+    printf("========================================\n");
 
     /* Initialize error handling for tests */
     initialize_error_handling(LOG_LEVEL_DEBUG, NULL);

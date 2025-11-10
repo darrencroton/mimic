@@ -40,6 +40,21 @@ TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
 MIMIC_EXE = REPO_ROOT / "mimic"
 
 
+def ensure_output_dirs():
+    """
+    Create output directories if they don't exist
+
+    Creates the binary and HDF5 output directories required by test parameter files.
+    This ensures tests work correctly after make test-clean or in fresh clones.
+    """
+    (TEST_DATA_DIR / "output" / "binary").mkdir(parents=True, exist_ok=True)
+    (TEST_DATA_DIR / "output" / "hdf5").mkdir(parents=True, exist_ok=True)
+
+
+# Ensure output directories exist before any tests run
+ensure_output_dirs()
+
+
 def run_mimic(param_file):
     """
     Execute Mimic with specified parameter file
@@ -436,12 +451,9 @@ def main():
 
     Executes all test cases and reports results.
     """
-    print("=" * 60)
     print("Integration Test: Output Formats")
-    print("=" * 60)
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
-    print()
 
     # Check prerequisites
     if not MIMIC_EXE.exists():
@@ -498,7 +510,7 @@ def main():
 
     print()
     print("=" * 60)
-    print("Test Summary")
+    print("Test Summary: Output Formats")
     print("=" * 60)
     print(f"Passed:  {passed}")
     print(f"Failed:  {failed}")

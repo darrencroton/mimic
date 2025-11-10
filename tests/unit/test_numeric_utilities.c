@@ -298,7 +298,7 @@ int test_consistency(void) {
 int main(void) {
     printf("========================================\n");
     printf("Test Suite: Numeric Utilities\n");
-    printf("========================================\n\n");
+    printf("========================================\n");
 
     /* Initialize error handling for tests */
     initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
