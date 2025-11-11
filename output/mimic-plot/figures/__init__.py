@@ -52,7 +52,7 @@ def get_mass_function_labels():
     return y_label
 
 
-# PHYSICS DISABLED: Halo-only utility functions
+# Halo property utility functions
 def get_halo_mass_label():
     """Return consistent x-axis label for halo mass plots."""
     x_label = r"log$_{10}$ M$_{\rm halo}$ (M$_{\odot}$)"
@@ -77,35 +77,95 @@ def get_vmax_label():
     return x_label
 
 
-# PHYSICS DISABLED: Only halo-property plots remain
+# Galaxy physics utility functions (require physics modules)
+def get_stellar_mass_label():
+    """Return consistent x-axis label for stellar mass plots."""
+    x_label = r"log$_{10}$ M$_{*}$ [M$_{\odot}$]"
+    return x_label
+
+
+def get_cold_gas_label():
+    """Return consistent x-axis label for cold gas plots."""
+    x_label = r"log$_{10}$ M$_{\rm cold~gas}$ [M$_{\odot}$]"
+    return x_label
+
+
+# Property availability checking
+def check_required_properties(galaxies, required_properties):
+    """
+    Check if galaxy data contains required properties.
+
+    Args:
+        galaxies: NumPy recarray with galaxy data
+        required_properties: List of property names required for plot
+
+    Returns:
+        tuple: (available, missing) where available is bool and missing is list of str
+    """
+    if galaxies is None or len(galaxies) == 0:
+        return False, required_properties
+
+    # Get available fields from dtype
+    available_fields = set(galaxies.dtype.names)
+
+    # Check which required properties are missing
+    missing = [prop for prop in required_properties if prop not in available_fields]
+
+    return len(missing) == 0, missing
+
+
 # Import all the figure modules so they can be discovered
 from . import (
+    cold_gas_function,
     halo_mass_function,
     halo_occupation,
     hmf_evolution,
+    smf_evolution,
     spatial_distribution,
     spin_distribution,
+    stellar_mass_function,
     velocity_distribution,
 )
 
 # Define available plot types
-"""List of all available snapshot plot modules (halo properties only)."""
+"""List of all available snapshot plot modules."""
 SNAPSHOT_PLOTS = [
+    # Halo property plots (always available)
     "halo_mass_function",
     "halo_occupation",
     "spin_distribution",
     "velocity_distribution",
     "spatial_distribution",
+    # Galaxy physics plots (require physics modules)
+    "stellar_mass_function",
+    "cold_gas_function",
 ]
 
-"""List of all available evolution plot modules (halo properties only)."""
+"""List of all available evolution plot modules."""
 EVOLUTION_PLOTS = [
+    # Halo property evolution (always available)
     "hmf_evolution",
+    # Galaxy physics evolution (require physics modules)
+    "smf_evolution",
 ]
 
-# Make sure this dictionary matches the classifications above
+# Define property requirements for each plot
+"""Mapping of plot names to required properties."""
+PLOT_REQUIREMENTS = {
+    # Halo plots (no extra properties needed beyond base halos)
+    "halo_mass_function": [],
+    "halo_occupation": [],
+    "hmf_evolution": [],
+    "spin_distribution": [],
+    "velocity_distribution": [],
+    "spatial_distribution": [],
+    # Galaxy physics plots (require specific properties)
+    "stellar_mass_function": ["StellarMass"],
+    "cold_gas_function": ["ColdGas"],
+    "smf_evolution": ["StellarMass"],
+}
 
-"""Mapping of plot names to their corresponding functions (halo properties only)."""
+"""Mapping of plot names to their corresponding functions."""
 PLOT_FUNCS = {
     "halo_mass_function": halo_mass_function.plot,
     "halo_occupation": halo_occupation.plot,
@@ -113,4 +173,7 @@ PLOT_FUNCS = {
     "spin_distribution": spin_distribution.plot,
     "velocity_distribution": velocity_distribution.plot,
     "spatial_distribution": spatial_distribution.plot,
+    "stellar_mass_function": stellar_mass_function.plot,
+    "cold_gas_function": cold_gas_function.plot,
+    "smf_evolution": smf_evolution.plot,
 }

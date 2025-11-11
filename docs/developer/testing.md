@@ -234,13 +234,33 @@ tests/
 - `test_hdf5.par` - HDF5 format test configuration (outputs to `tests/data/output/hdf5/`)
 
 **Output Data**:
-- `tests/data/output/baseline/binary/` - Known-good binary baseline (committed to git, used for regression testing)
-- `tests/data/output/baseline/hdf5/` - Known-good HDF5 baseline (committed to git, used for regression testing)
+- `tests/data/output/baseline/hdf5/` - Known-good HDF5 baseline (committed to git, used for regression testing of core physics)
 - `tests/data/output/binary/` - Generated test outputs in binary format (gitignored)
 - `tests/data/output/hdf5/` - Generated test outputs in HDF5 format (gitignored)
 
-**Baseline Testing Approach**:
-Tests compare generated output against baseline using direct data loading and comparison (halo counts, mass ranges, etc.), not checksums. This provides more meaningful validation of scientific correctness.
+**Baseline Testing Strategy (Three-Tier Validation)**:
+
+Mimic uses a three-tier approach to validate correctness while supporting schema evolution:
+
+1. **HDF5 Baseline Comparison** - Validates core determinism
+   - Tests core physics (halo tracking, virial properties) without modules
+   - HDF5's self-describing format handles schema evolution (new properties added)
+   - Baseline remains valid as modules/properties evolve
+   - Compares halo counts and core halo properties
+
+2. **Binary vs HDF5 Equivalence** - Validates format consistency
+   - Tests that binary and HDF5 formats write identical data
+   - Compares halo counts, field structure, and property values
+   - Ensures both formats stay synchronized via property metadata system
+   - Works regardless of which modules are enabled
+
+3. **Module Integration Tests** - Validates module functionality
+   - Tests with modules enabled (no baseline comparison)
+   - Validates expected properties exist and have reasonable values
+   - Ensures modules execute successfully and produce valid output
+
+**Why No Binary Baseline?**
+Binary format requires exact struct size matching - it cannot read files when the output schema changes (e.g., new properties added). Since runtime module configuration means output structure varies, a binary baseline would need regeneration for every property change, making it unmaintainable. Instead, we validate binary correctness through equivalence with HDF5, which is validated against the baseline.
 
 ---
 
@@ -713,12 +733,22 @@ cat tests/data/output/baseline/metadata/*.log
 - Verify directory exists and is writable
 - Check for errors in Mimic output
 
-**Problem**: Baseline comparison fails
+**Problem**: HDF5 baseline comparison fails
 
 **Solution**:
-- Check if baseline files exist in `tests/data/output/baseline/binary/` or `tests/data/output/baseline/hdf5/`
-- If intentional change to physics or output: regenerate baseline by running Mimic once, then commit updated baseline files
-- If unintended change: investigate why halo counts or properties differ from baseline
+- Check if baseline file exists: `tests/data/output/baseline/hdf5/model_000.hdf5`
+- Verify test parameter file has NO modules enabled (physics-free mode for baseline)
+- If intentional change to **core physics** (not modules): regenerate HDF5 baseline and document why
+- If unintended change: investigate why halo counts or core properties differ from baseline
+- **Note**: Binary format has no baseline test - binary correctness validated via equivalence with HDF5
+
+**Problem**: Binary vs HDF5 equivalence test fails
+
+**Solution**:
+- This indicates binary and HDF5 formats are writing different data (serious bug!)
+- Check property metadata system: both formats should use same generated output struct
+- Verify both formats ran with same input data and same modules enabled
+- Check for format-specific bugs in `src/io/output/binary.c` or `src/io/output/hdf5.c`
 
 ### Scientific Test Failures
 
@@ -867,22 +897,29 @@ grep -i "memory leak" tests/data/output/baseline/metadata/*.log
 
 **A**:
 ```bash
-# Run Mimic to generate new baseline data
-./mimic tests/data/test_binary.par
+# IMPORTANT: Only HDF5 baseline needs regeneration (binary has no baseline)
+# Ensure test parameter files have NO modules enabled (physics-free mode)
+
+# Build with HDF5 support
+make clean && make USE-HDF5=yes
+
+# Run Mimic to generate new baseline data (must have NO modules enabled)
+./mimic tests/data/test_hdf5.par
 
 # Copy new output to baseline directory
-cp tests/data/output/binary/model_z0.000_0 tests/data/output/baseline/binary/
-
-# For HDF5 (if compiled with HDF5 support)
-./mimic tests/data/test_hdf5.par
 cp tests/data/output/hdf5/model_000.hdf5 tests/data/output/baseline/hdf5/
 
-# Commit updated baseline files
-git add tests/data/output/baseline/
-git commit -m "Update regression baseline (reason: describe why baseline changed)"
+# Commit updated baseline file
+git add tests/data/output/baseline/hdf5/
+git commit -m "Update HDF5 regression baseline (reason: describe why baseline changed)"
 ```
 
-**Note**: Baselines should only change when physics calculations change intentionally. Document why!
+**Important Notes**:
+- **Binary format has NO baseline** - binary correctness validated via equivalence with HDF5
+- **Baseline must be physics-free** - test parameter files must have no `EnabledModules` parameter (or empty)
+- **Baselines validate core only** - halo tracking and virial properties without module physics
+- **Schema evolution safe** - HDF5 baseline remains valid even when properties are added to output struct
+- **Document changes** - Baselines should only change when core physics calculations change intentionally
 
 ### Q: Can I skip tests for a quick commit?
 
