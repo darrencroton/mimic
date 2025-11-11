@@ -4,6 +4,8 @@
 
 This document provides a detailed traversal of every function in the Mimic codebase, documenting the execution flow from program startup through output writing and exit. Use this as a reference for understanding code structure and execution order.
 
+**⚠️ IMPORTANT**: This document contains specific line number references (e.g., `src/core/main.c:149`) that are accurate as of the document creation date but may drift as code evolves. Treat line numbers as approximate guidance rather than exact locations. Use grep/search to find current locations of referenced functions.
+
 ---
 
 ## Table of Contents

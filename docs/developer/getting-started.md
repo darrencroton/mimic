@@ -76,12 +76,12 @@ See [coding-standards.md](coding-standards.md) for code style requirements.
   - `src/core/halo_properties/` - Halo virial calculations and properties
 - `src/io/` - Input/output operations (tree readers, output writers)
 - `src/util/` - Utility functions (memory, error handling, etc.)
-- `src/modules/` - Physics modules (currently empty, will contain galaxy physics)
+- `src/modules/` - Galaxy physics modules (simple_cooling, simple_sfr)
 - `src/include/` - Public headers (types, globals, constants)
   - `src/include/generated/` - Auto-generated property code (from metadata)
 - `metadata/properties/` - Property metadata YAML files (single source of truth)
 - `scripts/` - Code generation and development tools
-- `tests/` - Test framework (future)
+- `tests/` - Test framework (unit, integration, scientific)
 - `docs/` - Documentation
 
 ## Testing

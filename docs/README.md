@@ -10,7 +10,7 @@ This directory contains comprehensive documentation for Mimic development and ar
 
 ### Understanding the Architecture
 - **[Vision](architecture/vision.md)** - 8 core architectural principles guiding Mimic's design
-- **[Roadmap v3](architecture/roadmap_v4.md)** - Implementation roadmap (Phase 1 complete: Property Metadata System)
+- **[Roadmap v4](architecture/roadmap_v4.md)** - Implementation roadmap (Phases 1-3 complete)
 - **[Execution Flow](developer/execution-flow-reference.md)** - Complete function call trace from entry to exit
 
 ## Documentation Structure
@@ -20,12 +20,16 @@ docs/
 ├── README.md (this file)
 ├── architecture/
 │   ├── vision.md            - Architectural principles and design philosophy
-│   ├── roadmap_v3.md        - Implementation roadmap (Phase 1 complete)
+│   ├── roadmap_v4.md        - Implementation roadmap (Phases 1-3 complete)
 │   └── property-metadata-schema.md - Property system specification
-└── developer/
-    ├── getting-started.md   - Build, run, and test instructions
-    ├── coding-standards.md  - Documentation and code style standards
-    └── execution-flow-reference.md - Detailed function call reference
+├── developer/
+│   ├── getting-started.md   - Build, run, and test instructions
+│   ├── coding-standards.md  - Documentation and code style standards
+│   ├── testing.md           - Comprehensive testing guide
+│   └── execution-flow-reference.md - Function call trace reference
+└── user/
+    ├── module-configuration.md - Configuring physics modules at runtime
+    └── output-formats.md    - Binary and HDF5 output format guide
 ```
 
 ## Contributing
@@ -39,5 +43,7 @@ When adding new features or modules:
 ## Questions?
 
 - Architecture questions → See [vision.md](architecture/vision.md)
-- Implementation questions → See [roadmap.md](architecture/roadmap.md)
+- Implementation questions → See [roadmap_v4.md](architecture/roadmap_v4.md)
 - Code flow questions → See [execution-flow-reference.md](developer/execution-flow-reference.md)
+- Module configuration → See [module-configuration.md](user/module-configuration.md)
+- Testing → See [testing.md](developer/testing.md)
