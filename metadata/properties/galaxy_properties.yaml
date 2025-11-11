@@ -27,6 +27,8 @@ galaxy_properties:
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (generous upper bound)
+    sentinels: [0.0]  # Legitimate to have no cold gas
 
   - name: StellarMass
     type: float
@@ -37,6 +39,8 @@ galaxy_properties:
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (generous upper bound)
+    sentinels: [0.0]  # Legitimate to have no stars yet
 
   # ===========================================================================
   # FUTURE PROPERTIES (Examples for expansion)

@@ -1,8 +1,8 @@
 # Mimic Testing Guide
 
-**Version**: 1.1 (Phase 3 Complete)
+**Version**: 1.2 (Metadata-Driven Validation)
 **Status**: Production
-**Last Updated**: 2025-11-09
+**Last Updated**: 2025-11-11
 
 This comprehensive guide explains how to use Mimic's testing infrastructure, write new tests, and debug test failures.
 
@@ -557,41 +557,111 @@ def test_new_format():
 
 ## Writing Scientific Tests (Python)
 
+**NEW in Phase 3**: Scientific tests are now **fully metadata-driven**. Validation rules come from YAML property definitions, not hardcoded test logic.
+
 The scientific test validates physical correctness through three levels:
 
-1. **Numerical Validity** (FAIL): NaN or Inf values are critical failures
-2. **Zero Values** (WARNING): Counted and reported but not failures
-3. **Physical Ranges** (FAIL): Properties outside reasonable bounds
+1. **Numerical Validity** (FAIL): NaN or Inf values in ALL floating-point properties
+2. **Zero Values** (WARNING): Zero values in ALL numeric properties (respects sentinels)
+3. **Physical Ranges** (FAIL): Properties outside ranges defined in YAML metadata
+
+### Metadata-Driven Validation
+
+**Key Principle**: The test automatically validates ALL output properties by reading validation rules from `tests/generated/property_ranges.json`, which is auto-generated from property YAML files.
+
+**To add validation for a property**:
+1. Edit `metadata/properties/halo_properties.yaml` or `galaxy_properties.yaml`
+2. Add `range: [min, max]` for the property
+3. Optionally add `sentinels: [...]` for special values to exclude
+4. Run `make generate` to regenerate the validation manifest
+5. Tests automatically pick up the new validation rules
+
+**Example YAML**:
+```yaml
+- name: Mvir
+  type: float
+  units: "1e10 Msun/h"
+  description: "Virial mass"
+  output: true
+  range: [1.0e-5, 1.0e4]  # 10^5 to 10^14 Msun/h
+
+- name: infallMvir
+  type: float
+  units: "1e10 Msun/h"
+  description: "Virial mass at infall (satellites only)"
+  output: true
+  range: [1.0e-5, 1.0e4]
+  sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
+```
 
 ### Test Structure
 
-The test is organized into sections:
+The test is organized into three automated sections:
 
 ```python
 def test_numerical_validity():
-    """Check for NaN/Inf - critical failures"""
+    """Check for NaN/Inf in ALL floating-point properties"""
+    # Dynamically checks ALL properties with dtype.kind == 'f'
+    # No hardcoded property lists
     # Returns: (passed: bool, failures: int)
 
 def test_zero_values():
-    """Check for zeros - warnings only"""
+    """Check for zeros in ALL numeric properties"""
+    # Dynamically checks ALL properties with dtype.kind in ('f', 'i')
+    # Respects sentinels: skips properties with 0/0.0 in sentinels list
     # Returns: (passed: bool, warning_count: int)
 
 def test_physical_ranges():
-    """Check reasonable ranges - failures"""
-    # Mass: 1e-5 to 10000.0 (10^10 Msun/h units)
-    # Radii: 0.001 to 10.0 Mpc/h
-    # Velocities: 10 to 5000 km/s
+    """Check ranges for properties defined in YAML metadata"""
+    # Loads tests/generated/property_ranges.json
+    # Validates each property with a 'range' field
+    # Excludes sentinel values from range checks
     # Returns: (passed: bool, failures: int)
 ```
 
 ### Key Features
 
-- **5 examples shown** for each property that fails
-- **Yellow warnings** for zero values (not failures)
-- **Red failures** for NaN, Inf, or out-of-range values
-- **Correct units**: Mass in 10^10 Msun/h (internal units)
+- **Fully automatic**: Adapts to property changes without test code modifications
+- **Metadata-driven**: Validation rules defined once in YAML, used everywhere
+- **Sentinel-aware**: Respects special values (e.g., 0.0, -1.0) in all checks
+- **Comprehensive**: Validates ALL output properties, not just a hardcoded subset
+- **Clear output**: Shows property names, ranges, and failure counts
+- **Examples shown**: Up to 5 examples for each failing property
+
+### Adding Validation for New Properties
+
+**Scenario**: You add a new property `HotGas` to `galaxy_properties.yaml`
+
+**Step 1**: Define the property with validation fields
+```yaml
+- name: HotGas
+  type: float
+  units: "1e10 Msun/h"
+  description: "Hot gas mass in halo atmosphere"
+  output: true
+  created_by: cooling_module
+  init_source: default
+  init_value: 0.0
+  output_source: galaxy_property
+  range: [0.0, 1.0e5]     # Physically reasonable range
+  sentinels: [0.0]        # Zero is legitimate (no hot gas yet)
+```
+
+**Step 2**: Regenerate validation manifest
+```bash
+make generate
+```
+
+**Step 3**: Run tests
+```bash
+make test-scientific
+```
+
+The test automatically validates `HotGas` for NaN/Inf (always), zeros (respects sentinel), and range violations (checks [0.0, 1.0e5]).
 
 ### Example: Testing Conservation Law
+
+For custom physics validation beyond basic range checking:
 
 ```python
 def test_baryon_conservation():
@@ -602,7 +672,11 @@ def test_baryon_conservation():
     Tolerance: 1% (numerical precision + physics approximations)
     Reference: Croton et al. 2006, Eq. 15
     """
-    halos = load_halos("output.dat")
+    # Load validation manifest (for reference, optional)
+    with open(VALIDATION_MANIFEST_PATH) as f:
+        manifest = json.load(f)
+
+    halos = load_binary_halos("output.dat")
 
     total_baryons = (halos['ColdGas'] +
                      halos['StellarMass'] +
@@ -618,17 +692,25 @@ def test_baryon_conservation():
 ### Scientific Test Best Practices
 
 ✅ **DO**:
-- Distinguish between warnings (zeros) and failures (NaN/Inf/out-of-range)
-- Use physically motivated ranges based on simulation properties
-- Show limited examples (5 per property) for readability
-- Document units clearly (especially internal units like 10^10 Msun/h)
-- Update ranges if simulation parameters change
+- **Add validation to YAML**, not test code (single source of truth)
+- Use physically motivated ranges based on simulation and physics
+- Add `sentinels` for legitimate special values (0.0, -1.0, etc.)
+- Regenerate (`make generate`) after editing YAML
+- Document units clearly in YAML (especially 10^10 Msun/h for masses)
+- Be generous with ranges (account for edge cases and numerical precision)
+
+✅ **NEW Metadata-Driven Approach**:
+- Validation rules in YAML, not Python
+- Tests automatically adapt to property changes
+- No hardcoded property lists in tests
+- Sentinel values declared once, respected everywhere
 
 ❌ **DON'T**:
-- Fail tests for zero values (these are warnings)
+- Hardcode validation logic in test files (use YAML instead)
+- Fail tests for zero values with `sentinels: [0.0]` (these are intentional)
 - Use overly tight ranges (allow for edge cases)
-- Show all failing halos (limits to 5 examples)
-- Forget internal units (mass is 10^10 Msun/h, not Msun/h)
+- Forget to regenerate after YAML changes
+- Skip `range` fields for physical quantities (masses, velocities, etc.)
 
 ---
 

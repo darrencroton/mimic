@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
 """
-Scientific Validation Test
+Scientific Validation Test (Metadata-Driven)
 
-Validates: Physical correctness and reasonable ranges of halo properties
-Phase: Phase 2 (Testing Framework)
+Validates: Physical correctness and reasonable ranges of ALL output properties
+Phase: Phase 3 (Metadata-Driven Testing)
 
-This comprehensive test validates all halo properties:
-- No NaN or Inf values (FAIL if found)
-- Zero values (WARNING - counted but not failure)
-- Physical ranges for all properties
-- Positions within simulation box
-- Minimum particle counts
+This comprehensive test dynamically validates ALL output properties based on YAML metadata:
+- NaN/Inf Detection: Checks ALL floating-point properties (FAIL if found)
+- Zero Value Warnings: Checks ALL numeric properties (WARNING only, respects sentinels)
+- Range Validation: Checks properties with defined ranges in YAML (FAIL if violated)
+
+Key Features:
+- Fully metadata-driven: validation rules come from property YAML files
+- No hardcoded property lists: automatically adapts to property changes
+- Sentinel awareness: respects sentinel values (e.g., 0.0, -1.0) in validation
+
+Validation Rules Source:
+- Generated from: metadata/properties/*.yaml
+- Manifest file: tests/generated/property_ranges.json
+- Regenerate: make generate
 
 Note: Internal units are 10^10 Msun/h for masses
 
 Author: Mimic Testing Team
-Date: 2025-11-10
+Date: 2025-11-11 (Updated for metadata-driven validation)
 """
 
 import subprocess
@@ -88,7 +96,7 @@ def run_mimic_if_needed():
 
 def check_nans_infs(halos):
     """
-    Check for NaN and Inf values in all fields
+    Check for NaN and Inf values in ALL output fields dynamically
 
     Returns:
         dict: Results with 'passed', 'nan_fields', 'inf_fields'
@@ -96,34 +104,38 @@ def check_nans_infs(halos):
     nan_fields = {}
     inf_fields = {}
 
-    # Check scalar fields
-    for field in ['Mvir', 'Rvir', 'Vvir', 'Vmax', 'Len', 'SnapNum']:
+    # Check all fields in the dtype
+    for field in halos.dtype.names:
         data = getattr(halos, field)
 
-        nan_count = np.sum(np.isnan(data))
-        if nan_count > 0:
-            indices = np.where(np.isnan(data))[0][:5]
-            nan_fields[field] = {
-                'count': nan_count,
-                'examples': [(int(i), float(data[i])) for i in indices]
-            }
+        # Check for NaN (only for float types)
+        if data.dtype.kind == 'f':  # floating point
+            if data.ndim == 1:
+                # Scalar field
+                nan_count = np.sum(np.isnan(data))
+                if nan_count > 0:
+                    indices = np.where(np.isnan(data))[0][:5]
+                    nan_fields[field] = {
+                        'count': nan_count,
+                        'examples': [(int(i), float(data[i])) for i in indices]
+                    }
 
-        inf_count = np.sum(np.isinf(data))
-        if inf_count > 0:
-            indices = np.where(np.isinf(data))[0][:5]
-            inf_fields[field] = {
-                'count': inf_count,
-                'examples': [(int(i), float(data[i])) for i in indices]
-            }
+                inf_count = np.sum(np.isinf(data))
+                if inf_count > 0:
+                    indices = np.where(np.isinf(data))[0][:5]
+                    inf_fields[field] = {
+                        'count': inf_count,
+                        'examples': [(int(i), float(data[i])) for i in indices]
+                    }
+            else:
+                # Vector field
+                nan_count = np.sum(np.isnan(data))
+                if nan_count > 0:
+                    nan_fields[field] = {'count': nan_count, 'examples': []}
 
-    # Check position vector
-    nan_pos = np.sum(np.isnan(halos.Pos))
-    if nan_pos > 0:
-        nan_fields['Pos'] = {'count': nan_pos, 'examples': []}
-
-    inf_pos = np.sum(np.isinf(halos.Pos))
-    if inf_pos > 0:
-        inf_fields['Pos'] = {'count': inf_pos, 'examples': []}
+                inf_count = np.sum(np.isinf(data))
+                if inf_count > 0:
+                    inf_fields[field] = {'count': inf_count, 'examples': []}
 
     return {
         'passed': len(nan_fields) == 0 and len(inf_fields) == 0,
@@ -132,27 +144,45 @@ def check_nans_infs(halos):
     }
 
 
-def check_zeros(halos):
+def check_zeros(halos, manifest):
     """
-    Check for zero values in physical quantities
+    Check for zero values in ALL numeric output properties dynamically
+    Suppress warnings for properties with sentinels that include 0 or 0.0
     These are warnings, not failures
 
     Returns:
         dict: Field name -> count and examples
     """
     zero_counts = {}
+    props = manifest.get('properties', {})
 
-    for field in ['Mvir', 'Rvir', 'Vvir', 'Vmax']:
+    # Check all numeric fields in the dtype
+    for field in halos.dtype.names:
         data = getattr(halos, field)
-        zero_mask = data == 0.0
-        count = np.sum(zero_mask)
 
-        if count > 0:
-            indices = np.where(zero_mask)[0][:5]
-            zero_counts[field] = {
-                'count': count,
-                'examples': [(int(i), float(data[i])) for i in indices]
-            }
+        # Only check numeric types (not in vectors for now, to keep output manageable)
+        if data.ndim == 1 and data.dtype.kind in ('f', 'i'):  # float or int
+            # Check if this property has 0/0.0 in sentinels
+            spec = props.get(field, {})
+            sentinels = set(spec.get('sentinels', []))
+
+            # Skip zero check if 0 or 0.0 is in sentinels (intentional)
+            if 0 in sentinels or 0.0 in sentinels:
+                continue
+
+            # Check for zeros
+            if data.dtype.kind == 'f':
+                zero_mask = data == 0.0
+            else:
+                zero_mask = data == 0
+
+            count = np.sum(zero_mask)
+            if count > 0:
+                indices = np.where(zero_mask)[0][:5]
+                zero_counts[field] = {
+                    'count': count,
+                    'examples': [(int(i), float(data[i]) if data.dtype.kind == 'f' else int(data[i])) for i in indices]
+                }
 
     return zero_counts
 
@@ -263,12 +293,27 @@ def test_numerical_validity():
 
 def test_zero_values():
     """
-    Check for zero values (warnings, not failures)
+    Check for zero values dynamically for ALL properties (warnings, not failures)
+    Respects sentinels - suppresses warnings for properties where 0/0.0 is intentional
     """
     print()
     print("="*60)
-    print("ZERO VALUE CHECKS (warnings)")
+    print("ZERO VALUE CHECKS (warnings, respects sentinels)")
     print("="*60)
+
+    # Load validation manifest
+    if not VALIDATION_MANIFEST_PATH.exists():
+        print(f"{YELLOW}⚠ WARNING: Validation manifest not found: {VALIDATION_MANIFEST_PATH}{NC}")
+        print("  Run 'make generate' to create property_ranges.json from YAML metadata.")
+        print("  Skipping zero-value checks.")
+        return True, 0
+
+    try:
+        with open(VALIDATION_MANIFEST_PATH) as f:
+            manifest = json.load(f)
+    except Exception as e:
+        print(f"{RED}✗ FAIL: Could not parse validation manifest: {e}{NC}")
+        return False, 1
 
     if not MIMIC_EXE.exists():
         print(f"  Skipping (Mimic not built)")
@@ -278,17 +323,18 @@ def test_zero_values():
     halos, metadata = load_binary_halos(output_file)
     total_halos = metadata['TotHalos']
 
-    zero_counts = check_zeros(halos)
+    zero_counts = check_zeros(halos, manifest)
 
     if zero_counts:
         print(f"{YELLOW}⚠ WARNING: Found zero values in {len(zero_counts)} field(s):{NC}")
+        print(f"(Properties with sentinel 0/0.0 are not shown)")
         for field, info in zero_counts.items():
             print(f"  {field}: {info['count']} zero values out of {total_halos} total")
-            for idx, val in info['examples']:
+            for idx, val in info['examples'][:3]:  # Limit to 3 examples
                 print(f"    Halo {idx}: {field} = {val}")
         return True, len(zero_counts)  # Warnings, not failures
     else:
-        print(f"{GREEN}✓ No zero values found{NC}")
+        print(f"{GREEN}✓ No unexpected zero values found{NC}")
         return True, 0
 
 
@@ -355,10 +401,14 @@ def test_physical_ranges():
 
             below = np.sum(values < rmin)
             above = np.sum(values > rmax)
-            if below > 0 or above > 0:
+            total_checked = len(values)
+            total_failed = below + above
+
+            if total_failed > 0:
                 failures += 1
                 print(f"{RED}✗ FAIL: {field} outside [{rmin}, {rmax}] inclusive{NC}")
                 print(f"  Actual range: {np.min(values):.4g} to {np.max(values):.4g}")
+                print(f"  Failed: {total_failed} out of {total_checked} halos ({100.0*total_failed/total_checked:.1f}%)")
             else:
                 print(f"{GREEN}✓ PASS: {field} within [{rmin}, {rmax}] (inclusive){NC}")
 
@@ -366,6 +416,8 @@ def test_physical_ranges():
             # Vector field: check each component against same range
             # Note: sentinel handling for vectors is not applied unless exact scalar sentinels match per-component
             comp_fail = 0
+            all_comp_values = []  # Track all component values for min/max reporting
+
             for ci in range(data.shape[1]):
                 comp = data[:, ci]
                 mask = np.ones_like(comp, dtype=bool)
@@ -373,13 +425,23 @@ def test_physical_ranges():
                     for s in sentinels:
                         mask &= (comp != s)
                 values = comp[mask]
+                all_comp_values.extend(values)  # Collect values from all components
+
                 below = np.sum(values < rmin)
                 above = np.sum(values > rmax)
                 if below > 0 or above > 0:
                     comp_fail += 1
+
             if comp_fail > 0:
                 failures += 1
+                all_vals = np.array(all_comp_values)
+                # Count how many values failed across all components
+                total_failed = np.sum((all_vals < rmin) | (all_vals > rmax))
+                total_checked = len(all_vals)
+
                 print(f"{RED}✗ FAIL: {field} component(s) outside [{rmin}, {rmax}] inclusive{NC}")
+                print(f"  Actual range: {np.min(all_vals):.4g} to {np.max(all_vals):.4g} (across all components)")
+                print(f"  Failed: {total_failed} out of {total_checked} values ({100.0*total_failed/total_checked:.1f}%)")
             else:
                 print(f"{GREEN}✓ PASS: {field} components within [{rmin}, {rmax}] (inclusive){NC}")
 

@@ -14,8 +14,9 @@ This document defines the YAML schema for property metadata in Mimic. Property m
 - Property initialization code (in `init_halo()`)
 - Property output code (in `prepare_halo_for_output()`, HDF5 field definitions)
 - Python data types (for plotting and analysis tools)
+- Validation rules and test generation (scientific tests)
 
-By defining properties once in metadata, we eliminate manual synchronization across 8+ files and enable rapid property addition (<2 minutes vs 30 minutes).
+By defining properties once in metadata, we eliminate manual synchronization across 10+ files and enable rapid property addition (<2 minutes vs 30 minutes).
 
 ---
 
@@ -66,6 +67,10 @@ property_name:
   output_condition: string  # C expression (if output_source: conditional)
   output_true_value: string # Expression if condition true
   output_false_value: string # Expression if condition false
+
+  # VALIDATION CONTROL (controls test generation)
+  range: [min, max]         # Physical bounds for validation (inclusive)
+  sentinels: [val1, ...]    # Special values excluded from validation
 
   # GALAXY PROPERTY EXTRAS
   created_by: string        # Module name (documentation, validation)
@@ -354,6 +359,180 @@ Defines how property is copied from `struct Halo` to `struct HaloOutput` in `pre
     type: float
     created_by: simple_cooling  # This module creates the property
   ```
+
+---
+
+## Validation Control
+
+Validation fields control automated testing and quality checks. These fields are used by `tests/scientific/test_scientific.py` to validate output data.
+
+### range (optional)
+
+**Format**: `[min, max]` (two-element list)
+
+**Purpose**: Define physically reasonable bounds for property values (inclusive)
+
+**When to use**:
+- All physical quantities (masses, velocities, positions, etc.)
+- Properties where you can define reasonable scientific bounds
+- Helps catch bugs, numerical issues, and unphysical results
+
+**Requirements**:
+- Must be a list of exactly 2 numbers
+- First value (min) must be ≤ second value (max)
+- Range is **inclusive** on both ends
+- Only applies to properties with `output: true`
+
+**Examples**:
+```yaml
+# Mass property (internal units: 10^10 Msun/h)
+- name: Mvir
+  type: float
+  units: "1e10 Msun/h"
+  range: [1.0e-5, 1.0e4]  # 10^5 Msun/h to 10^14 Msun/h
+  description: "Virial mass"
+
+# Velocity property
+- name: Vvir
+  type: float
+  units: "km/s"
+  range: [10.0, 5000.0]  # Physical halo velocities
+  description: "Virial velocity"
+
+# Position in simulation box
+- name: Pos
+  type: vec3_float
+  units: "Mpc/h"
+  range: [0.0, 62.5]  # BoxSize for test data
+  description: "3D position (comoving)"
+
+# Particle count
+- name: Len
+  type: int
+  units: "particles"
+  range: [20, 1.0e9]  # Resolution limit to max particles
+  description: "Number of particles in halo"
+```
+
+**Vector properties**: Each component is checked against the same range independently.
+
+### sentinels (optional)
+
+**Format**: `[value1, value2, ...]` (list of numbers)
+
+**Purpose**: Define special values that should be **excluded** from range and zero checks
+
+**When to use**:
+- Sentinel values indicating "not set" (e.g., `-1.0`)
+- Placeholder values for invalid/inapplicable states (e.g., `0.0` for central halos where infall properties don't apply)
+- Properties that legitimately can be zero in valid scientific contexts
+
+**Requirements**:
+- Must be a list of numbers (can be empty)
+- Values must match the property's type (int for int properties, float for float properties)
+- Sentinel values are excluded from ALL validation checks (range, zero warnings)
+
+**Examples**:
+```yaml
+# Infall property (only valid for satellites)
+- name: infallMvir
+  type: float
+  units: "1e10 Msun/h"
+  range: [1.0e-5, 1.0e4]
+  sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
+  description: "Virial mass at infall time (satellites only)"
+
+# Time between snapshots (can be -1 for orphans)
+- name: dT
+  type: float
+  units: "Myr"
+  range: [0.0, 2000.0]
+  sentinels: [-1.0]  # Orphan halos have dT = -1
+  description: "Time since last snapshot"
+
+# Galaxy property (can legitimately be zero)
+- name: StellarMass
+  type: float
+  units: "1e10 Msun/h"
+  range: [0.0, 1.0e5]
+  sentinels: [0.0]  # Halos with no stars yet
+  description: "Total stellar mass"
+```
+
+**Vector properties**: Sentinel checking applies component-wise (each component can independently match a sentinel value).
+
+### Validation Manifest Generation
+
+When you run `make generate`, the validation fields are extracted into `tests/generated/property_ranges.json`:
+
+```json
+{
+  "schema_version": 1,
+  "generated_at": "2025-11-11T17:28:27",
+  "properties": {
+    "Mvir": {
+      "name": "Mvir",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [1.0e-5, 10000.0]
+    },
+    "infallMvir": {
+      "name": "infallMvir",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [1.0e-5, 10000.0],
+      "sentinels": [0.0, -1.0]
+    }
+  }
+}
+```
+
+This manifest is consumed by `tests/scientific/test_scientific.py` to validate ALL output properties dynamically.
+
+### Automated Quality Checks
+
+For ALL properties with `output: true`, the scientific test automatically performs:
+
+1. **NaN/Inf Detection** (always checked, always fails if found)
+   - No configuration needed
+   - Applied to all output properties
+   - Critical errors that always fail tests
+
+2. **Zero Value Warnings** (always checked, warns but doesn't fail)
+   - No configuration needed
+   - Applied to all numeric output properties
+   - Warnings help identify potential issues but don't fail tests
+   - Use `sentinels: [0.0]` to suppress warnings for properties where zero is expected
+
+3. **Range Validation** (only if `range` specified)
+   - Fails if values outside `[min, max]` (inclusive)
+   - Sentinel values are excluded before checking
+   - Vector components checked independently
+
+### Validation Best Practices
+
+**Always add ranges for**:
+- Physical quantities (masses, radii, velocities)
+- Positions (bounded by simulation box)
+- Counts (particle numbers, snapshot indices)
+
+**Use sentinels for**:
+- Type-specific properties (e.g., infall properties only valid for satellites)
+- Time properties that can be -1 for special cases
+- Properties that legitimately can be zero
+
+**Don't add ranges for**:
+- Internal tracking indices (HaloNr, UniqueHaloID)
+- Encoded composite values (HaloIndex)
+- Properties with no clear physical bounds
+
+**Choosing range values**:
+- Be generous but realistic (account for numerical precision)
+- Use simulation parameters (e.g., BoxSize for positions)
+- Consider resolution limits (e.g., minimum particle count)
+- Check actual data ranges from test runs
 
 ---
 

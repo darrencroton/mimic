@@ -205,7 +205,12 @@ void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
   #include "../../include/generated/copy_to_output.inc"
 
   /* CUSTOM: dT unit conversion (internal uses seconds, output uses Myr) */
-  o->dT = g->dT * UnitTime_in_s / SEC_PER_MEGAYEAR;
+  /* Don't convert sentinel value (-1.0 indicates no progenitor/invalid) */
+  if (g->dT == -1.0) {
+    o->dT = -1.0;
+  } else {
+    o->dT = g->dT * UnitTime_in_s / SEC_PER_MEGAYEAR;
+  }
 }
 
 /**

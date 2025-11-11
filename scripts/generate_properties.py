@@ -545,25 +545,54 @@ def _prop_to_validation_entry(prop: Dict[str, Any]) -> Dict[str, Any]:
       - range: [min, max] (inclusive)
       - sentinels: list of values to ignore for range checking (e.g., -1.0, 0.0)
     """
+    prop_name = prop['name']
+    prop_type = prop['type']
+
     entry: Dict[str, Any] = {
-        'name': prop['name'],
-        'type': prop['type'],
+        'name': prop_name,
+        'type': prop_type,
         'units': prop.get('units', ''),
-        'is_vector': TYPE_MAP[prop['type']].get('is_array', False),
+        'is_vector': TYPE_MAP[prop_type].get('is_array', False),
     }
 
     # Optional inclusive range
     rng = prop.get('range')
     if rng is not None:
         if not isinstance(rng, list) or len(rng) != 2:
-            raise ValueError(f"Property '{prop['name']}' has invalid range; expected [min, max]")
+            raise ValueError(f"Property '{prop_name}' has invalid range; expected [min, max]")
+
+        # Validate that range values are numbers
+        if not isinstance(rng[0], (int, float)) or not isinstance(rng[1], (int, float)):
+            raise ValueError(f"Property '{prop_name}' range values must be numbers, got {rng}")
+
+        # Validate that min <= max
+        if rng[0] > rng[1]:
+            raise ValueError(f"Property '{prop_name}' range invalid: min ({rng[0]}) > max ({rng[1]})")
+
         entry['range'] = rng
 
     # Optional sentinel values to be excluded from range checks
     sentinels = prop.get('sentinels')
     if sentinels is not None:
         if not isinstance(sentinels, list):
-            raise ValueError(f"Property '{prop['name']}' sentinels must be a list")
+            raise ValueError(f"Property '{prop_name}' sentinels must be a list")
+
+        # Validate sentinel types match property type
+        is_numeric_type = prop_type in ['float', 'double', 'int', 'long long']
+        if is_numeric_type:
+            for s in sentinels:
+                if not isinstance(s, (int, float)):
+                    raise ValueError(
+                        f"Property '{prop_name}' (type {prop_type}) has non-numeric sentinel: {s} (type {type(s).__name__})"
+                    )
+
+            # For integer types, warn if sentinels contain floats (might be unintended)
+            if prop_type in ['int', 'long long']:
+                for s in sentinels:
+                    if isinstance(s, float) and s != int(s):
+                        print(f"WARNING: Property '{prop_name}' (type {prop_type}) has non-integer sentinel: {s}",
+                              file=sys.stderr)
+
         entry['sentinels'] = sentinels
 
     return entry

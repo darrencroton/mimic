@@ -25,6 +25,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree
     output_source: copy_direct
+    range: [0, 1000]  # Generous range to handle various simulations
 
   - name: Type
     type: int
@@ -34,6 +35,7 @@ halo_properties:
     init_source: default
     init_value: 0
     output_source: copy_direct
+    range: [0, 2]  # 0=central, 1=satellite, 2=orphan
 
   - name: UniqueHaloID
     type: int
@@ -119,6 +121,7 @@ halo_properties:
     init_source: default
     init_value: 0
     output_source: copy_direct
+    range: [0, 1]  # Binary flag
 
   - name: mergeIntoID
     type: int
@@ -128,6 +131,8 @@ halo_properties:
     init_source: default
     init_value: -1
     output_source: copy_direct
+    range: [0, 100000]  # Valid halo indices
+    sentinels: [-1]  # -1 means not merged
 
   - name: mergeIntoSnapNum
     type: int
@@ -137,6 +142,8 @@ halo_properties:
     init_source: default
     init_value: -1
     output_source: copy_direct
+    range: [0, 1000]  # Valid snapshot numbers
+    sentinels: [-1]  # -1 means not merged
 
   - name: dT
     type: float
@@ -146,6 +153,8 @@ halo_properties:
     init_source: default
     init_value: -1.0
     output_source: custom  # Copy with unit conversion to Myr
+    range: [0.0, 2000.0]  # Reasonable time between snapshots
+    sentinels: [-1.0]  # -1 for unset/invalid
 
   # ===========================================================================
   # PHYSICAL PROPERTIES (Position and Velocity)
@@ -158,6 +167,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
+    range: [0.0, 100.0]  # Conservative range for typical simulation boxes
 
   - name: Vel
     type: vec3_float
@@ -166,6 +176,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
+    range: [-5000.0, 5000.0]  # Peculiar velocities (can be negative)
 
   - name: Spin
     type: vec3_float
@@ -175,6 +186,7 @@ halo_properties:
     init_source: skip  # Not in struct Halo
     output_source: copy_from_tree_array
     output_tree_field: Spin
+    range: [-20.0, 20.0]  # Dimensionless spin components (can be negative)
 
   # ===========================================================================
   # PHYSICAL PROPERTIES (Masses and Scales)
@@ -187,6 +199,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree
     output_source: copy_direct
+    range: [20, 1000000000]  # Resolution limit (20 particles) to maximum
 
   - name: Mvir
     type: float
@@ -196,6 +209,7 @@ halo_properties:
     init_source: calculate
     init_function: get_virial_mass
     output_source: copy_direct
+    range: [0.00001, 10000.0]  # 10^5 Msun/h to 10^14 Msun/h
 
   - name: deltaMvir
     type: float
@@ -214,6 +228,7 @@ halo_properties:
     output_source: recalculate
     output_function: get_virial_mass
     output_function_arg: "InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup"
+    range: [0.00001, 10000.0]  # Same as Mvir
 
   - name: Rvir
     type: float
@@ -225,6 +240,7 @@ halo_properties:
     output_source: recalculate
     output_function: get_virial_radius
     output_function_arg: "g->HaloNr"
+    range: [0.001, 10.0]  # 1 kpc/h to 10 Mpc/h
 
   - name: Vvir
     type: float
@@ -236,6 +252,7 @@ halo_properties:
     output_source: recalculate
     output_function: get_virial_velocity
     output_function_arg: "g->HaloNr"
+    range: [10.0, 5000.0]  # Physical halo velocities
 
   - name: Vmax
     type: float
@@ -244,6 +261,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree
     output_source: copy_direct
+    range: [10.0, 5000.0]  # Physical halo velocities
 
   - name: VelDisp
     type: float
@@ -253,6 +271,7 @@ halo_properties:
     init_source: skip  # Not in struct Halo
     output_source: copy_from_tree
     output_tree_field: VelDisp
+    range: [0.0, 5000.0]  # Velocity dispersion is positive
 
   # ===========================================================================
   # MISC PROPERTIES
@@ -281,6 +300,8 @@ halo_properties:
     output_condition: "g->Type != 0"
     output_true_value: "g->infallMvir"
     output_false_value: "0.0"
+    range: [0.00001, 10000.0]  # Same as Mvir
+    sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
 
   - name: infallVvir
     type: float
@@ -293,6 +314,8 @@ halo_properties:
     output_condition: "g->Type != 0"
     output_true_value: "g->infallVvir"
     output_false_value: "0.0"
+    range: [10.0, 5000.0]  # Same as Vvir
+    sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
 
   - name: infallVmax
     type: float
@@ -305,3 +328,5 @@ halo_properties:
     output_condition: "g->Type != 0"
     output_true_value: "g->infallVmax"
     output_false_value: "0.0"
+    range: [10.0, 5000.0]  # Same as Vmax
+    sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
