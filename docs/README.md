@@ -10,7 +10,7 @@ This directory contains comprehensive documentation for Mimic development and ar
 
 ### Understanding the Architecture
 - **[Vision](architecture/vision.md)** - 8 core architectural principles guiding Mimic's design
-- **[Roadmap v3](architecture/roadmap_v3.md)** - Implementation roadmap (Phase 1 complete: Property Metadata System)
+- **[Roadmap v3](architecture/roadmap_v4.md)** - Implementation roadmap (Phase 1 complete: Property Metadata System)
 - **[Execution Flow](developer/execution-flow-reference.md)** - Complete function call trace from entry to exit
 
 ## Documentation Structure
