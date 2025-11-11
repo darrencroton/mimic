@@ -205,8 +205,8 @@ tests/
 │   ├── test_hdf5.par          # HDF5 format test parameter file
 │   └── output/                # Test outputs
 │       ├── baseline/          # Known-good baseline outputs (committed to git)
-│       │   ├── binary/        # Binary format baseline
-│       │   └── hdf5/          # HDF5 format baseline
+│       │   ├── binary/        # Binary format baseline (not used for testing, kept for reference)
+│       │   └── hdf5/          # HDF5 format baseline (used for core property validation)
 │       ├── binary/            # Binary format test outputs (generated, not in git)
 │       └── hdf5/              # HDF5 format test outputs (generated, not in git)
 └── framework/                 # Test framework and templates
@@ -234,7 +234,8 @@ tests/
 - `test_hdf5.par` - HDF5 format test configuration (outputs to `tests/data/output/hdf5/`)
 
 **Output Data**:
-- `tests/data/output/baseline/hdf5/` - Known-good HDF5 baseline (committed to git, used for regression testing of core physics)
+- `tests/data/output/baseline/hdf5/` - Known-good HDF5 baseline (committed to git, used for core property validation)
+- `tests/data/output/baseline/binary/` - Binary baseline files (committed to git, not used for testing, kept for reference)
 - `tests/data/output/binary/` - Generated test outputs in binary format (gitignored)
 - `tests/data/output/hdf5/` - Generated test outputs in HDF5 format (gitignored)
 

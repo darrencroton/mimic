@@ -26,6 +26,7 @@ Date: 2025-11-10
 
 import subprocess
 import sys
+from io import StringIO
 from pathlib import Path
 import numpy as np
 
@@ -38,6 +39,17 @@ from framework import load_binary_halos
 # Repository paths
 TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
 MIMIC_EXE = REPO_ROOT / "mimic"
+
+# Core halo properties (physics-agnostic, always present)
+# These 24 properties are defined in metadata/properties/halo_properties.yaml
+# and should be present in all Mimic output, regardless of enabled physics modules
+CORE_HALO_PROPERTIES = {
+    'SnapNum', 'Type', 'HaloIndex', 'CentralHaloIndex', 'MimicHaloIndex',
+    'MimicTreeIndex', 'SimulationHaloIndex', 'MergeStatus', 'mergeIntoID',
+    'mergeIntoSnapNum', 'dT', 'Pos', 'Vel', 'Spin', 'Len', 'Mvir',
+    'CentralMvir', 'Rvir', 'Vvir', 'Vmax', 'VelDisp', 'infallMvir',
+    'infallVvir', 'infallVmax'
+}
 
 
 def ensure_output_dirs():
@@ -156,11 +168,176 @@ def load_hdf5_halos(output_file):
     return halos, metadata
 
 
+def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="dataset2", rtol=1e-6, properties_to_compare=None):
+    """
+    Comprehensive comparison of all properties for all halos between two datasets.
+
+    Compares every property of every halo, using appropriate comparison methods:
+    - Integers: Exact match required
+    - Floats: Relative tolerance (default 1e-6)
+    - Vectors: Component-wise relative tolerance
+    - Sentinels: Must match exactly (e.g., -1 for unset values)
+
+    Args:
+        halos1: First halo array (numpy recarray)
+        halos2: Second halo array (numpy recarray)
+        label1: Descriptive label for first dataset (e.g., "test")
+        label2: Descriptive label for second dataset (e.g., "baseline")
+        rtol: Relative tolerance for floating-point comparisons (default 1e-6)
+        properties_to_compare: Optional set of property names to compare.
+                             If None, compares all common properties.
+                             If provided, only compares properties in this set.
+
+    Returns:
+        tuple: (passed, report_text) where passed is bool and report_text is str
+    """
+    report = StringIO()
+    all_passed = True
+
+    # Check halo counts match
+    if len(halos1) != len(halos2):
+        report.write(f"\n❌ HALO COUNT MISMATCH:\n")
+        report.write(f"  {label1}: {len(halos1)} halos\n")
+        report.write(f"  {label2}: {len(halos2)} halos\n")
+        return False, report.getvalue()
+
+    n_halos = len(halos1)
+
+    # Get all property names
+    props1 = set(halos1.dtype.names)
+    props2 = set(halos2.dtype.names)
+
+    # Determine which properties to compare
+    if properties_to_compare is not None:
+        # Filter to requested properties that exist in both datasets
+        common_props = sorted((props1 & props2) & properties_to_compare)
+
+        # Report if some requested properties are missing
+        missing_in_1 = properties_to_compare - props1
+        missing_in_2 = properties_to_compare - props2
+
+        report.write(f"\nComparing {n_halos} halos across {len(common_props)} core properties...\n")
+
+        if missing_in_1:
+            report.write(f"⚠️  Core properties missing in {label1}: {', '.join(sorted(missing_in_1))}\n")
+            all_passed = False
+        if missing_in_2:
+            report.write(f"⚠️  Core properties missing in {label2}: {', '.join(sorted(missing_in_2))}\n")
+            all_passed = False
+
+        # Report non-core properties (informational only)
+        extra_in_1 = props1 - properties_to_compare
+        extra_in_2 = props2 - properties_to_compare
+        if extra_in_1 or extra_in_2:
+            report.write(f"ℹ️  Additional properties present but not compared:\n")
+            if extra_in_1:
+                report.write(f"  In {label1}: {', '.join(sorted(extra_in_1))}\n")
+            if extra_in_2:
+                report.write(f"  In {label2}: {', '.join(sorted(extra_in_2))}\n")
+    else:
+        # Compare all common properties
+        common_props = sorted(props1 & props2)
+        report.write(f"\nComparing {n_halos} halos across all {len(common_props)} properties...\n")
+
+        if props1 != props2:
+            report.write(f"\n⚠️  Property sets differ:\n")
+            only_in_1 = props1 - props2
+            only_in_2 = props2 - props1
+            if only_in_1:
+                report.write(f"  Only in {label1}: {', '.join(sorted(only_in_1))}\n")
+            if only_in_2:
+                report.write(f"  Only in {label2}: {', '.join(sorted(only_in_2))}\n")
+
+    for prop_name in common_props:
+        arr1 = halos1[prop_name]
+        arr2 = halos2[prop_name]
+
+        # Determine property type
+        dtype = arr1.dtype
+
+        # Handle vector properties (3-component arrays)
+        if len(arr1.shape) > 1 and arr1.shape[1] == 3:
+            # Vector property (Pos, Vel, Spin)
+            mismatches = []
+            for component in range(3):
+                comp_name = ['x', 'y', 'z'][component]
+
+                # Compare with relative tolerance for floats
+                if not np.allclose(arr1[:, component], arr2[:, component], rtol=rtol, atol=0, equal_nan=False):
+                    # Find which halos differ
+                    diffs = ~np.isclose(arr1[:, component], arr2[:, component], rtol=rtol, atol=0, equal_nan=False)
+                    for halo_idx in np.where(diffs)[0]:
+                        val1 = arr1[halo_idx, component]
+                        val2 = arr2[halo_idx, component]
+                        rel_diff = abs(val1 - val2) / (abs(val2) + 1e-30)  # Avoid division by zero
+                        mismatches.append((halo_idx, comp_name, val1, val2, rel_diff))
+
+            if mismatches:
+                all_passed = False
+                report.write(f"\n❌ Property '{prop_name}' mismatches (showing first 10 of {len(mismatches)}):\n")
+                for halo_idx, comp, v1, v2, rel_diff in mismatches[:10]:
+                    report.write(f"  Halo {halo_idx} [{comp}]: {label1}={v1:.6e}, {label2}={v2:.6e} (rel_diff={rel_diff:.2e})\n")
+                if len(mismatches) > 10:
+                    report.write(f"  ... and {len(mismatches) - 10} more mismatches\n")
+                report.write(f"  Summary: {len(mismatches)} component mismatches across {n_halos * 3} total components ({100.0 * len(mismatches) / (n_halos * 3):.2f}%)\n")
+
+        # Handle scalar integer properties
+        elif np.issubdtype(dtype, np.integer):
+            # Exact comparison for integers
+            if not np.array_equal(arr1, arr2):
+                diffs = arr1 != arr2
+                diff_indices = np.where(diffs)[0]
+
+                all_passed = False
+                report.write(f"\n❌ Property '{prop_name}' mismatches (showing first 10 of {len(diff_indices)}):\n")
+                for halo_idx in diff_indices[:10]:
+                    val1 = arr1[halo_idx]
+                    val2 = arr2[halo_idx]
+                    report.write(f"  Halo {halo_idx}: {label1}={val1}, {label2}={val2}\n")
+                if len(diff_indices) > 10:
+                    report.write(f"  ... and {len(diff_indices) - 10} more mismatches\n")
+                report.write(f"  Summary: {len(diff_indices)} of {n_halos} halos differ ({100.0 * len(diff_indices) / n_halos:.2f}%)\n")
+
+        # Handle scalar floating-point properties
+        elif np.issubdtype(dtype, np.floating):
+            # Relative tolerance comparison for floats
+            if not np.allclose(arr1, arr2, rtol=rtol, atol=0, equal_nan=False):
+                diffs = ~np.isclose(arr1, arr2, rtol=rtol, atol=0, equal_nan=False)
+                diff_indices = np.where(diffs)[0]
+
+                all_passed = False
+                report.write(f"\n❌ Property '{prop_name}' mismatches (showing first 10 of {len(diff_indices)}):\n")
+                for halo_idx in diff_indices[:10]:
+                    val1 = arr1[halo_idx]
+                    val2 = arr2[halo_idx]
+                    # Calculate relative difference safely
+                    if val2 == 0.0:
+                        rel_diff = abs(val1)  # Absolute difference when baseline is zero
+                    else:
+                        rel_diff = abs(val1 - val2) / abs(val2)
+                    report.write(f"  Halo {halo_idx}: {label1}={val1:.6e}, {label2}={val2:.6e} (rel_diff={rel_diff:.2e})\n")
+                if len(diff_indices) > 10:
+                    report.write(f"  ... and {len(diff_indices) - 10} more mismatches\n")
+                report.write(f"  Summary: {len(diff_indices)} of {n_halos} halos differ ({100.0 * len(diff_indices) / n_halos:.2f}%)\n")
+
+        else:
+            # Unknown type - try exact comparison
+            if not np.array_equal(arr1, arr2):
+                report.write(f"\n⚠️  Property '{prop_name}' (type {dtype}) differs but comparison method unknown\n")
+                all_passed = False
+
+    if all_passed:
+        report.write(f"\n✓ All {len(common_props)} properties match for all {n_halos} halos\n")
+
+    return all_passed, report.getvalue()
+
+
 def test_binary_format_execution():
     """
-    Test that binary format executes successfully
+    Test that Mimic runs successfully with binary output format
 
-    Expected: Mimic runs to completion with binary output
+    What: Executes Mimic with test_binary.par (binary output format)
+    Expected: Zero exit code, no crashes
     Validates: Binary format end-to-end execution
     """
     print("Testing binary format execution...")
@@ -173,7 +350,7 @@ def test_binary_format_execution():
     assert param_file.exists(), f"Parameter file not found: {param_file}"
 
     # Run Mimic
-    returncode, stdout, stderr = run_mimic(param_file)
+    returncode, _stdout, stderr = run_mimic(param_file)
 
     # Check execution success
     assert returncode == 0, f"Mimic failed with code {returncode}\nSTDERR: {stderr}"
@@ -183,10 +360,11 @@ def test_binary_format_execution():
 
 def test_binary_format_loading():
     """
-    Test that binary output can be loaded
+    Test that binary output file can be loaded and parsed
 
-    Expected: Binary file exists and can be loaded
-    Validates: Binary format structure and loadability
+    What: Loads model_z0.000_0 using load_binary_halos() framework function
+    Expected: File exists, halos array is populated, metadata is valid
+    Validates: Binary format structure is readable by analysis tools
     """
     print("Testing binary format data loading...")
 
@@ -208,6 +386,7 @@ def test_binary_format_loading():
     assert output_file.exists(), f"Binary output file not created: {output_file}"
 
     # Load halos
+    print(f"  Loading: {output_file.relative_to(REPO_ROOT)}")
     halos, metadata = load_binary_halos(output_file)
 
     # Validate loaded data
@@ -216,18 +395,26 @@ def test_binary_format_loading():
     assert hasattr(halos, 'Mvir'), "Binary data missing expected property (Mvir)"
     assert hasattr(halos, 'Rvir'), "Binary data missing expected property (Rvir)"
 
-    print(f"  ✓ Binary output loaded successfully")
-    print(f"  Total halos: {metadata['TotHalos']}")
-    print(f"  Number of trees: {metadata.get('Ntrees', 'N/A')}")
-    print(f"  File size: {output_file.stat().st_size:,} bytes")
+    print(f"  ✓ Loaded {metadata['TotHalos']} halos from CURRENT binary output")
+    print(f"    Trees: {metadata.get('Ntrees', 'N/A')}, File size: {output_file.stat().st_size:,} bytes")
 
 
 def test_binary_baseline_comparison():
     """
-    Test that binary output matches baseline reference data
+    CURRENTLY DISABLED - Binary baseline comparison
 
-    Expected: Halo counts match baseline, properties are consistent
-    Validates: Binary output regression testing
+    Status: This test is disabled because binary format cannot handle schema evolution.
+            The binary format is not self-describing, so the loader uses the current
+            dtype (from generated code) which may differ from the baseline's dtype.
+
+    Alternative validation:
+            - test_hdf5_baseline_comparison validates core property determinism
+            - test_format_equivalence validates binary matches HDF5 output
+            Together, these provide complete binary output validation.
+
+    Original purpose: Compare current binary output against committed baseline (core only)
+
+    Kept for: Potential future use if binary format versioning is implemented
     """
     print("Testing binary baseline comparison...")
 
@@ -235,7 +422,7 @@ def test_binary_baseline_comparison():
         print(f"  Skipping (Mimic not built)")
         return
 
-    # Load test output
+    # Load current test output
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"
 
@@ -245,9 +432,11 @@ def test_binary_baseline_comparison():
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"Mimic execution failed: {stderr}"
 
+    print(f"  Loading CURRENT: {output_file.relative_to(REPO_ROOT)}")
     halos_test, metadata_test = load_binary_halos(output_file)
+    print(f"    → {metadata_test['TotHalos']} halos, {metadata_test.get('Ntrees', 'N/A')} trees")
 
-    # Load baseline
+    # Load committed baseline
     baseline_dir = TEST_DATA_DIR / "output" / "baseline" / "binary"
     baseline_file = baseline_dir / "model_z0.000_0"
 
@@ -256,7 +445,9 @@ def test_binary_baseline_comparison():
         f"Run Mimic once to establish baseline, then commit the baseline file."
     )
 
+    print(f"  Loading BASELINE: {baseline_file.relative_to(REPO_ROOT)}")
     halos_baseline, metadata_baseline = load_binary_halos(baseline_file)
+    print(f"    → {metadata_baseline['TotHalos']} halos, {metadata_baseline.get('Ntrees', 'N/A')} trees")
 
     # Compare halo counts
     assert metadata_test['TotHalos'] == metadata_baseline['TotHalos'], (
@@ -271,44 +462,36 @@ def test_binary_baseline_comparison():
             f"baseline={metadata_baseline['Ntrees']}"
         )
 
-    print(f"  ✓ Binary output matches baseline")
-    print(f"  Halos: {metadata_test['TotHalos']} (test) == {metadata_baseline['TotHalos']} (baseline)")
-
-    # Compare mass ranges (should be similar, allowing for minor numerical differences)
-    test_mass_range = (np.min(halos_test.Mvir), np.max(halos_test.Mvir))
-    baseline_mass_range = (np.min(halos_baseline.Mvir), np.max(halos_baseline.Mvir))
-
-    # Check if ranges match (handle zero values properly)
-    # If both values are zero, that's a perfect match
-    # Otherwise, calculate relative difference
-    def safe_relative_diff(val1, val2):
-        """Calculate relative difference, handling zeros properly"""
-        if val1 == val2:  # Perfect match (including both zero)
-            return 0.0
-        if val2 == 0.0:  # Avoid division by zero
-            return abs(val1)  # If baseline is 0 but test isn't, that's a big difference
-        return abs(val1 - val2) / abs(val2)
-
-    rel_diff_min = safe_relative_diff(test_mass_range[0], baseline_mass_range[0])
-    rel_diff_max = safe_relative_diff(test_mass_range[1], baseline_mass_range[1])
-
-    # Allow 0.1% relative difference in mass ranges
-    tolerance = 0.001
-    assert rel_diff_min < tolerance and rel_diff_max < tolerance, (
-        f"Mass range mismatch:\n"
-        f"  Test: {test_mass_range[0]:.2e} to {test_mass_range[1]:.2e}\n"
-        f"  Baseline: {baseline_mass_range[0]:.2e} to {baseline_mass_range[1]:.2e}\n"
-        f"  Relative diff (min): {rel_diff_min:.2e}, (max): {rel_diff_max:.2e}"
+    # Comprehensive comparison of core properties for all halos
+    # Only compare core (physics-agnostic) properties since baseline may have
+    # been generated with different physics modules enabled
+    print(f"  Comparing all core properties for all halos...")
+    passed, report = compare_halos_comprehensive(
+        halos_test, halos_baseline,
+        label1="test", label2="baseline",
+        rtol=1e-6,
+        properties_to_compare=CORE_HALO_PROPERTIES
     )
 
-    print(f"  Mass range: {test_mass_range[0]:.2e} to {test_mass_range[1]:.2e} Msun/h")
+    # Print report
+    print(report)
+
+    # Assert that comparison passed
+    assert passed, (
+        f"Binary output does not match baseline.\n"
+        f"In physics-free mode, all core halo properties should be identical.\n"
+        f"See detailed comparison report above."
+    )
+
+    print(f"  ✓ Binary output matches baseline - all core properties validated")
 
 
 def test_hdf5_format_execution():
     """
-    Test that HDF5 format executes successfully (if compiled with HDF5)
+    Test that Mimic runs successfully with HDF5 output format
 
-    Expected: Mimic runs to completion with HDF5 output (or skips gracefully)
+    What: Executes Mimic with test_hdf5.par (HDF5 output format)
+    Expected: Zero exit code, no crashes (or skips if HDF5 not compiled)
     Validates: HDF5 format end-to-end execution
     """
     print("Testing HDF5 format execution...")
@@ -341,10 +524,12 @@ def test_hdf5_format_execution():
 
 def test_hdf5_format_loading():
     """
-    Test that HDF5 output can be loaded (if HDF5 support available)
+    Test that HDF5 output file can be loaded and parsed
 
-    Expected: HDF5 file exists and can be loaded
-    Validates: HDF5 format structure and loadability
+    What: Loads model_000.hdf5 using load_hdf5_halos() function
+    Expected: File exists, halos array is populated, metadata is valid
+    Validates: HDF5 format structure is readable by analysis tools
+    Requires: h5py library (skips if not available)
     """
     print("Testing HDF5 format data loading...")
 
@@ -372,30 +557,45 @@ def test_hdf5_format_loading():
 
     # Check if h5py is available
     try:
-        import h5py
+        import h5py  # noqa: F401 - import used only for availability check
     except ImportError:
         print(f"  Skipping detailed validation (h5py not available)")
         print(f"  Install with: pip install h5py")
         return
 
     # Load halos
+    print(f"  Loading: {output_file.relative_to(REPO_ROOT)}")
     halos, metadata = load_hdf5_halos(output_file)
 
     # Validate loaded data
     assert metadata['TotHalos'] > 0, "No halos loaded from HDF5 file"
     assert len(halos) == metadata['TotHalos'], "Halo count mismatch"
 
-    print(f"  ✓ HDF5 output loaded successfully")
-    print(f"  Total halos: {metadata['TotHalos']}")
-    print(f"  File size: {output_file.stat().st_size:,} bytes")
+    print(f"  ✓ Loaded {metadata['TotHalos']} halos from CURRENT HDF5 output")
+    print(f"    File size: {output_file.stat().st_size:,} bytes")
 
 
 def test_hdf5_baseline_comparison():
     """
-    Test that HDF5 output matches baseline reference data (if HDF5 available)
+    Test that current HDF5 output matches committed baseline (core properties only)
 
-    Expected: Halo counts match baseline
-    Validates: HDF5 output regression testing
+    What: Compares tests/data/output/hdf5/model_000.hdf5 (current test run)
+          against tests/data/output/baseline/hdf5/model_000.hdf5 (committed baseline)
+
+    Comparison: All 24 CORE halo properties for ALL halos
+                (Physics-agnostic properties only: Mvir, Rvir, Pos, Vel, etc.)
+                Module properties (ColdGas, StellarMass) are NOT compared
+
+    Tolerance: 1e-6 relative for floats, exact for integers
+
+    Expected: All core properties match exactly (within tolerance)
+
+    Validates: Core halo tracking is deterministic and hasn't regressed
+
+    Requires: h5py library (skips if not available)
+
+    Note: If this test fails after a deliberate core change, regenerate baseline with:
+          cp tests/data/output/hdf5/model_000.hdf5 tests/data/output/baseline/hdf5/
     """
     print("Testing HDF5 baseline comparison...")
 
@@ -410,12 +610,12 @@ def test_hdf5_baseline_comparison():
 
     # Check if h5py is available
     try:
-        import h5py
+        import h5py  # noqa: F401 - import used only for availability check
     except ImportError:
         print(f"  Skipping (h5py not available)")
         return
 
-    # Load test output
+    # Load current test output
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     output_file = output_dir / "model_000.hdf5"
 
@@ -425,9 +625,11 @@ def test_hdf5_baseline_comparison():
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"Mimic execution failed: {stderr}"
 
+    print(f"  Loading CURRENT: {output_file.relative_to(REPO_ROOT)}")
     halos_test, metadata_test = load_hdf5_halos(output_file)
+    print(f"    → {metadata_test['TotHalos']} halos")
 
-    # Load baseline
+    # Load committed baseline
     baseline_dir = TEST_DATA_DIR / "output" / "baseline" / "hdf5"
     baseline_file = baseline_dir / "model_000.hdf5"
 
@@ -436,7 +638,9 @@ def test_hdf5_baseline_comparison():
         f"Run Mimic once with HDF5 to establish baseline, then commit the baseline file."
     )
 
+    print(f"  Loading BASELINE: {baseline_file.relative_to(REPO_ROOT)}")
     halos_baseline, metadata_baseline = load_hdf5_halos(baseline_file)
+    print(f"    → {metadata_baseline['TotHalos']} halos")
 
     # Compare halo counts
     assert metadata_test['TotHalos'] == metadata_baseline['TotHalos'], (
@@ -444,16 +648,51 @@ def test_hdf5_baseline_comparison():
         f"baseline={metadata_baseline['TotHalos']}"
     )
 
-    print(f"  ✓ HDF5 output matches baseline")
-    print(f"  Halos: {metadata_test['TotHalos']} (test) == {metadata_baseline['TotHalos']} (baseline)")
+    # Comprehensive comparison of core properties for all halos
+    # Only compare core (physics-agnostic) properties since baseline may have
+    # been generated with different physics modules enabled
+    print(f"  Comparing all core properties for all halos...")
+    passed, report = compare_halos_comprehensive(
+        halos_test, halos_baseline,
+        label1="test", label2="baseline",
+        rtol=1e-6,
+        properties_to_compare=CORE_HALO_PROPERTIES
+    )
+
+    # Print report
+    print(report)
+
+    # Assert that comparison passed
+    assert passed, (
+        f"HDF5 output does not match baseline.\n"
+        f"In physics-free mode, all core halo properties should be identical.\n"
+        f"See detailed comparison report above."
+    )
+
+    print(f"  ✓ HDF5 output matches baseline - all core properties validated")
 
 
 def test_format_equivalence():
     """
-    Test that binary and HDF5 formats produce identical output
+    Test that binary and HDF5 formats produce identical output (all properties)
 
-    Expected: Both formats contain same halo count and equivalent data
-    Validates: Format consistency - both formats write same information
+    What: Compares tests/data/output/binary/model_z0.000_0 (binary format)
+          against tests/data/output/hdf5/model_000.hdf5 (HDF5 format)
+          Both generated in same test run with same modules enabled
+
+    Comparison: ALL properties for ALL halos (core + modules)
+                Including: ColdGas, StellarMass, and any other module properties
+
+    Tolerance: 1e-6 relative for floats, exact for integers
+
+    Expected: Perfect agreement - both formats write identical values
+
+    Validates: Format consistency - output format doesn't affect results
+
+    Requires: h5py library (skips if not available)
+
+    Note: This test compares ALL properties because both files are generated
+          in the same run, so they should have identical property sets
     """
     print("Testing binary vs HDF5 format equivalence...")
 
@@ -468,12 +707,12 @@ def test_format_equivalence():
 
     # Check if h5py is available
     try:
-        import h5py
+        import h5py  # noqa: F401 - import used only for availability check
     except ImportError:
         print(f"  Skipping (h5py not available)")
         return
 
-    # Load binary output
+    # Load current binary output
     binary_dir = TEST_DATA_DIR / "output" / "binary"
     binary_file = binary_dir / "model_z0.000_0"
 
@@ -484,9 +723,11 @@ def test_format_equivalence():
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"Binary Mimic execution failed: {stderr}"
 
+    print(f"  Loading BINARY: {binary_file.relative_to(REPO_ROOT)}")
     halos_binary, metadata_binary = load_binary_halos(binary_file)
+    print(f"    → {metadata_binary['TotHalos']} halos")
 
-    # Load HDF5 output
+    # Load current HDF5 output
     hdf5_dir = TEST_DATA_DIR / "output" / "hdf5"
     hdf5_file = hdf5_dir / "model_000.hdf5"
 
@@ -497,7 +738,9 @@ def test_format_equivalence():
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"HDF5 Mimic execution failed: {stderr}"
 
+    print(f"  Loading HDF5: {hdf5_file.relative_to(REPO_ROOT)}")
     halos_hdf5, metadata_hdf5 = load_hdf5_halos(hdf5_file)
+    print(f"    → {metadata_hdf5['TotHalos']} halos")
 
     # Compare halo counts
     assert metadata_binary['TotHalos'] == metadata_hdf5['TotHalos'], (
@@ -505,63 +748,31 @@ def test_format_equivalence():
         f"hdf5={metadata_hdf5['TotHalos']}"
     )
 
-    print(f"  ✓ Both formats contain same halo count: {metadata_binary['TotHalos']}")
+    print(f"  ✓ Halo count matches: {metadata_binary['TotHalos']} halos in both formats")
 
-    # Compare data structure - check that both have same fields
-    binary_fields = set(halos_binary.dtype.names)
-    hdf5_fields = set(halos_hdf5.dtype.names)
-
-    # Both should have at least core halo properties
-    core_properties = {'Mvir', 'Rvir', 'Vmax', 'Spin'}
-    assert core_properties.issubset(binary_fields), f"Binary missing core properties: {core_properties - binary_fields}"
-    assert core_properties.issubset(hdf5_fields), f"HDF5 missing core properties: {core_properties - hdf5_fields}"
-
-    print(f"  ✓ Both formats contain core halo properties")
-
-    # Report any field differences (informational, not a failure)
-    if binary_fields != hdf5_fields:
-        only_binary = binary_fields - hdf5_fields
-        only_hdf5 = hdf5_fields - binary_fields
-        if only_binary:
-            print(f"  Note: Fields only in binary: {', '.join(sorted(only_binary))}")
-        if only_hdf5:
-            print(f"  Note: Fields only in HDF5: {', '.join(sorted(only_hdf5))}")
-    else:
-        print(f"  ✓ Both formats have identical field structure ({len(binary_fields)} fields)")
-
-    # Compare mass ranges - should be identical for same input data
-    binary_mass_range = (np.min(halos_binary.Mvir), np.max(halos_binary.Mvir))
-    hdf5_mass_range = (np.min(halos_hdf5.Mvir), np.max(halos_hdf5.Mvir))
-
-    # Mass ranges should match exactly (same calculation, same data)
-    assert np.allclose(binary_mass_range[0], hdf5_mass_range[0], rtol=1e-10), (
-        f"Minimum mass mismatch: binary={binary_mass_range[0]:.6e}, hdf5={hdf5_mass_range[0]:.6e}"
-    )
-    assert np.allclose(binary_mass_range[1], hdf5_mass_range[1], rtol=1e-10), (
-        f"Maximum mass mismatch: binary={binary_mass_range[1]:.6e}, hdf5={hdf5_mass_range[1]:.6e}"
+    # Comprehensive comparison of all properties for all halos
+    print(f"  Comparing all properties for all halos between formats...")
+    passed, report = compare_halos_comprehensive(
+        halos_binary, halos_hdf5,
+        label1="binary", label2="HDF5",
+        rtol=1e-6
     )
 
-    print(f"  ✓ Mass ranges match: {binary_mass_range[0]:.2e} to {binary_mass_range[1]:.2e} Msun/h")
+    # Print report
+    print(report)
 
-    # Compare a sample of halo properties for identical values
-    # Take first 10 halos (or fewer if less available)
-    n_sample = min(10, len(halos_binary), len(halos_hdf5))
+    # Assert that comparison passed
+    assert passed, (
+        f"Binary and HDF5 formats do not produce identical output.\n"
+        f"Both formats should write exactly the same property values.\n"
+        f"See detailed comparison report above."
+    )
 
-    for i in range(n_sample):
-        # Check Mvir matches
-        assert np.allclose(halos_binary.Mvir[i], halos_hdf5.Mvir[i], rtol=1e-10), (
-            f"Halo {i} Mvir mismatch: binary={halos_binary.Mvir[i]:.6e}, hdf5={halos_hdf5.Mvir[i]:.6e}"
-        )
-        # Check Rvir matches
-        assert np.allclose(halos_binary.Rvir[i], halos_hdf5.Rvir[i], rtol=1e-10), (
-            f"Halo {i} Rvir mismatch: binary={halos_binary.Rvir[i]:.6e}, hdf5={halos_hdf5.Rvir[i]:.6e}"
-        )
+    print(f"  ✓ Binary and HDF5 formats produce identical output - all properties validated")
 
-    print(f"  ✓ Sample halo properties match (checked {n_sample} halos)")
+    # Print file size comparison (informational)
     print(f"  Binary file size: {binary_file.stat().st_size:,} bytes")
     print(f"  HDF5 file size:   {hdf5_file.stat().st_size:,} bytes")
-
-    # Calculate size ratio
     size_ratio = hdf5_file.stat().st_size / binary_file.stat().st_size
     print(f"  Size ratio (HDF5/binary): {size_ratio:.2f}x")
 
@@ -582,15 +793,20 @@ def main():
         print("Build it first with: make")
         return 1
 
+    # Testing Strategy:
+    # - HDF5 baseline test validates core property determinism
+    # - Format equivalence test validates binary matches HDF5 output
+    # - Binary baseline test is DISABLED: binary format cannot handle schema evolution
+    #   (not self-describing, loader uses current dtype which may differ from baseline)
+
     tests = [
         test_binary_format_execution,
         test_binary_format_loading,
-        # test_binary_baseline_comparison removed - binary format can't handle schema evolution
-        # Core determinism validated via HDF5 baseline + format equivalence tests
+        # test_binary_baseline_comparison,  # DISABLED: See note above
         test_hdf5_format_execution,
         test_hdf5_format_loading,
-        test_hdf5_baseline_comparison,
-        test_format_equivalence,
+        test_hdf5_baseline_comparison,  # Validates core property determinism
+        test_format_equivalence,  # Validates binary matches HDF5 (all properties)
     ]
 
     passed = 0
@@ -623,10 +839,18 @@ def main():
             else:
                 passed += 1
         except AssertionError as e:
+            # Print captured output before showing failure
+            output = output_buffer.getvalue()
+            if output:
+                print(output, end='')
             print(f"{RED}✗ FAIL: {test.__name__}{NC}")
             print(f"  {e}")
             failed += 1
         except Exception as e:
+            # Print captured output before showing error
+            output = output_buffer.getvalue()
+            if output:
+                print(output, end='')
             print(f"{RED}✗ ERROR: {test.__name__}{NC}")
             print(f"  {e}")
             failed += 1
