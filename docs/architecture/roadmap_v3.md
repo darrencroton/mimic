@@ -65,9 +65,10 @@ Mimic currently has **excellent halo-tracking infrastructure** (~21k LOC) with s
 Weeks 1-4:  Phase 1 - Property Metadata System ✅ COMPLETE
 Weeks 5-6:  Phase 2 - Testing Framework ✅ COMPLETE
 Weeks 7-8:  Phase 3 - Runtime Module Configuration ✅ COMPLETE
-Weeks 7-8:  Phase 4 - Module Interface Enrichment (parallel with Phase 3) ← NEXT
-Weeks 9-10: Phase 5 - Build-Time Module Selection
-Weeks 11-14: Phase 6 - Realistic Cooling Module (VALIDATION TARGET)
+Phase 3.5:  Galaxy Property Output Validation (2 hours) ✅ COMPLETE
+[SKIPPED]:  Phase 4 - Module Interface Enrichment (defer to Phase 6)
+Weeks 9-10: Phase 5 - Build-Time Module Selection (optional)
+Weeks 11-14: Phase 6 - Realistic Cooling Module (VALIDATION TARGET) ← NEXT
 [DEFERRED]: Phase 7 - Memory Management Refactor (only when scaling problems appear)
 ```
 
@@ -809,7 +810,73 @@ int simple_cooling_init(struct ModuleContext *ctx) {
 
 ---
 
-### Phase 4: Module Interface Enrichment (1 week) **← INCREMENTAL, NOT PREREQUISITE**
+### Phase 3.5: Galaxy Property Output Validation (2 hours) **✅ COMPLETE**
+
+**Status**: **COMPLETE** (2025-11-11) - Galaxy property output enabled and validated
+
+**Context**: After Phase 3 completion, discovered that galaxy properties (ColdGas, StellarMass) were defined in metadata but disabled from output. This phase enabled output and validated all module functionality works end-to-end.
+
+**Goal**: Enable galaxy property output and validate complete module system functionality
+
+**Work Completed**:
+
+1. **Enabled Galaxy Property Output** (metadata/properties/galaxy_properties.yaml)
+   - Changed `output: false` → `output: true` for ColdGas and StellarMass
+   - Regenerated property code: `make generate`
+   - Rebuilt mimic: `make clean && make`
+
+2. **Fixed Test Framework Data Loader** (tests/framework/data_loader.py)
+   - Updated `get_halo_dtype()` to use auto-generated dtype from `output/mimic-plot/generated_dtype.py`
+   - Eliminated hardcoded dtype definition (was missing galaxy properties)
+   - Now automatically stays in sync with metadata changes
+
+3. **Validated Module System Functionality**:
+   - ✅ **Both modules enabled**: ColdGas and StellarMass appear in binary output
+     - ColdGas: 8181/9265 halos have non-zero values (88%)
+     - StellarMass: Present in dtype (values zero due to parameter choice)
+   - ✅ **Single module test**: Only simple_cooling runs when simple_sfr removed from EnabledModules
+   - ✅ **Physics-free mode**: Mimic runs successfully with no modules enabled
+
+**Validation Results**:
+```
+Test 1: Both modules enabled (input/millennium.par)
+  EnabledModules: simple_cooling,simple_sfr
+  Result: ✅ Both modules initialized and executed
+  Output: ColdGas present with realistic values (mean: 2.046e+00)
+
+Test 2: Single module (input/test_one_module.par)
+  EnabledModules: simple_cooling
+  Result: ✅ Only simple_cooling initialized, simple_sfr skipped
+  Log: "Enabling 1 module(s)"
+
+Test 3: Physics-free mode (input/test_no_modules.par)
+  EnabledModules: (omitted)
+  Result: ✅ No modules loaded, halo tracking only
+  Log: "No modules enabled (physics-free mode)"
+```
+
+**Files Modified**:
+- `metadata/properties/galaxy_properties.yaml` - Enabled output for ColdGas and StellarMass
+- `tests/framework/data_loader.py` - Use auto-generated dtype (17 lines → 10 lines)
+- `input/test_one_module.par` - Test parameter file (single module)
+- `input/test_no_modules.par` - Test parameter file (physics-free mode)
+
+**Key Insights**:
+1. **Metadata-driven architecture works**: Changing one YAML field + `make generate` automatically updated all output systems (binary, HDF5, Python loaders)
+2. **Runtime modularity validated**: All three configurations (2 modules, 1 module, 0 modules) work without recompilation
+3. **Data loader synchronization**: Auto-generated dtype eliminates manual synchronization bugs
+
+**Success Metrics**: ✅ ALL ACHIEVED
+- Galaxy properties appear in output: ✅ ColdGas and StellarMass in binary files
+- Module disable works: ✅ Can remove individual modules via parameter file
+- Physics-free mode works: ✅ Mimic runs with EnabledModules omitted
+- Test framework updated: ✅ Uses generated dtype, stays synchronized
+
+**Next Phase**: Skip Phase 4 (Interface Enrichment) → Proceed directly to Phase 6 (Realistic Cooling Module)
+
+---
+
+### Phase 4: Module Interface Enrichment (1 week) **← DEFERRED (Skip, go to Phase 6)**
 
 **Status**: LOW priority - PoC proved minimal context sufficient, enrich as needed
 

@@ -22,7 +22,7 @@ galaxy_properties:
     type: float
     units: "1e10 Msun/h"
     description: "Cold gas mass available for star formation"
-    output: false  # Disabled until physics modules implemented (Phase 2)
+    output: true  # Enabled for Phase 3 validation
     created_by: simple_cooling
     init_source: default
     init_value: 0.0
@@ -32,7 +32,7 @@ galaxy_properties:
     type: float
     units: "1e10 Msun/h"
     description: "Total stellar mass"
-    output: false  # Disabled until physics modules implemented (Phase 2)
+    output: true  # Enabled for Phase 3 validation
     created_by: stellar_mass
     init_source: default
     init_value: 0.0
