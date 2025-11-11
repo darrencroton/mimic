@@ -33,7 +33,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Total stellar mass"
     output: true  # Enabled for Phase 3 validation
-    created_by: stellar_mass
+    created_by: simple_sfr
     init_source: default
     init_value: 0.0
     output_source: galaxy_property

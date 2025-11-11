@@ -194,10 +194,15 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
         INFO_LOG("Growing halo array from %d to %d elements", MaxFoFWorkspace,
                  new_size);
 
+        int old_size = MaxFoFWorkspace;
+
         /* Reallocate with new size */
         MaxFoFWorkspace = new_size;
         FoFWorkspace =
             myrealloc(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
+
+        /* Zero the newly allocated entries to ensure galaxy pointers are NULL */
+        memset(&FoFWorkspace[old_size], 0, (new_size - old_size) * sizeof(struct Halo));
       }
       assert(ngal < MaxFoFWorkspace);
 
@@ -207,8 +212,26 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
       // properties and evolving them they are copied to the end of the list of
       // permanent halos ProcessedHalos[xxx]
       FoFWorkspace[ngal] = ProcessedHalos[HaloAux[prog].FirstHalo + i];
+
+      // Deep copy galaxy data to prevent shared memory corruption across snapshots
+      // Without this, multiple halos would share the same galaxy pointer, causing
+      // module updates to corrupt previous snapshots' data
+      if (ProcessedHalos[HaloAux[prog].FirstHalo + i].galaxy != NULL) {
+        FoFWorkspace[ngal].galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
+        memcpy(FoFWorkspace[ngal].galaxy,
+               ProcessedHalos[HaloAux[prog].FirstHalo + i].galaxy,
+               sizeof(struct GalaxyData));
+      }
+
       FoFWorkspace[ngal].HaloNr = halonr;
-      FoFWorkspace[ngal].dT = -1.0;
+
+      // Calculate time step from progenitor snapshot to current snapshot
+      // FoFWorkspace[ngal] contains progenitor data copied from ProcessedHalos
+      // Note: Age[] is lookback time, so it decreases with snapshot number
+      // Therefore dT = Age[progenitor] - Age[current] gives positive timestep
+      int current_snap = InputTreeHalos[halonr].SnapNum;
+      int progenitor_snap = FoFWorkspace[ngal].SnapNum;  // From copied progenitor
+      FoFWorkspace[ngal].dT = Age[progenitor_snap] - Age[current_snap];
 
       // this deals with the central halos of (sub)halos
       if (FoFWorkspace[ngal].Type == 0 || FoFWorkspace[ngal].Type == 1) {

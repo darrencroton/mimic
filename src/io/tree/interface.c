@@ -280,6 +280,8 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
                 "%zu bytes)",
                 MaxProcessedHalos, MaxProcessedHalos * sizeof(struct Halo));
   }
+  /* Zero the array to ensure uninitialized galaxy pointers are NULL */
+  memset(ProcessedHalos, 0, sizeof(struct Halo) * MaxProcessedHalos);
 
   /* Allocate temporary workspace for FoF processing */
   FoFWorkspace = mymalloc_cat(sizeof(struct Halo) * MaxFoFWorkspace, MEM_HALOS);
@@ -288,6 +290,8 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
         "Memory allocation failed for FoFWorkspace array (%d halos, %zu bytes)",
         MaxFoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
   }
+  /* Zero the workspace to ensure uninitialized galaxy pointers are NULL */
+  memset(FoFWorkspace, 0, sizeof(struct Halo) * MaxFoFWorkspace);
 
   for (i = 0; i < InputTreeNHalos[treenr]; i++) {
     HaloAux[i].DoneFlag = 0;
@@ -319,33 +323,21 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
  * the memory to be reused for the next tree.
  */
 void free_halos_and_tree(void) {
-  /* First, free all galaxy data structures
-   * Note: Multiple ProcessedHalos entries may share the same galaxy pointer
-   * (when a halo exists across multiple snapshots). We must free each unique
-   * pointer exactly once to avoid double-free errors. */
+  /* Free all galaxy data structures in ProcessedHalos
+   * Since we now perform deep copies in copy_progenitor_halos(), each halo
+   * has its own independent galaxy data allocation. Note that FoFWorkspace
+   * galaxy pointers are moved to ProcessedHalos (not copied), so we only
+   * free from ProcessedHalos to avoid double-free errors. */
   for (int i = 0; i < NumProcessedHalos; i++) {
     if (ProcessedHalos[i].galaxy != NULL) {
-      void *galaxy_ptr = ProcessedHalos[i].galaxy;
-
-      /* Free this galaxy allocation */
-      myfree(galaxy_ptr);
-
-      /* Nullify this and any duplicate pointers in remaining entries
-       * to prevent double-free. This handles cases where a halo exists
-       * in multiple snapshots and shares the same galaxy pointer. */
-      for (int j = i; j < NumProcessedHalos; j++) {
-        if (ProcessedHalos[j].galaxy == galaxy_ptr) {
-          ProcessedHalos[j].galaxy = NULL;
-        }
-      }
+      myfree(ProcessedHalos[i].galaxy);
+      ProcessedHalos[i].galaxy = NULL;
     }
   }
 
-  /* Also nullify galaxy pointers in FoFWorkspace
-   * (these point to the same memory we just freed) */
-  for (int i = 0; i < MaxFoFWorkspace; i++) {
-    FoFWorkspace[i].galaxy = NULL;
-  }
+  /* Note: FoFWorkspace galaxy pointers are transferred to ProcessedHalos
+   * via struct copy (line 455-456 in build_model.c), so they are freed
+   * above. We do not free them here to avoid double-free errors. */
 
   /* Free halo arrays in reverse allocation order - see load_tree() */
   myfree(FoFWorkspace);       // Temporary FoF workspace
