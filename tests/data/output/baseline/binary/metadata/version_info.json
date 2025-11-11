@@ -1,11 +1,11 @@
 {
-  "git_commit": "e77a1b71cfbc1a1b201ec3ceaf8d33bc89942bfd",
+  "git_commit": "b10934e791a12293b8e0dadf963b6831041a806d",
   "git_branch": "main",
-  "github_url": "https://github.com/darrencroton/mimic/commit/e77a1b71cfbc1a1b201ec3ceaf8d33bc89942bfd",
-  "build_date": "Nov 10 2025",
-  "run_date": "2025-11-10T10:12:28Z",
+  "github_url": "https://github.com/darrencroton/mimic/commit/b10934e791a12293b8e0dadf963b6831041a806d",
+  "build_date": "Nov 11 2025",
+  "run_date": "2025-11-11T22:43:45Z",
   "parameters": {
-    "file_path": "tests/data/test_binary.par",
+    "file_path": "/Users/dcroton/Local/git-repos/mimic/tests/data/test_binary.par",
     "parameter_md5_checksum": "4aceb29aac35bb345e4d4e1f45e51cdc"
   },
   "compiler": "gcc 4.2.1",
