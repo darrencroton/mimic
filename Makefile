@@ -78,6 +78,34 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(GIT_VERSION_H)
 
 -include $(DEPS)
 
+# -----------------------------------------------------------------------------
+# Property metadata auto-generation
+# -----------------------------------------------------------------------------
+
+# YAML metadata inputs for property generation
+PROP_YAML := metadata/properties/halo_properties.yaml \
+             metadata/properties/galaxy_properties.yaml
+
+# Generated headers and include fragments required by the C build
+GEN_DIR := $(SRC_DIR)/include/generated
+GENERATED_HEADERS := \
+    $(GEN_DIR)/property_defs.h \
+    $(GEN_DIR)/init_halo_properties.inc \
+    $(GEN_DIR)/init_galaxy_properties.inc \
+    $(GEN_DIR)/copy_to_output.inc \
+    $(GEN_DIR)/hdf5_field_count.inc \
+    $(GEN_DIR)/hdf5_field_definitions.inc
+
+# Ensure all object files wait for generated headers; this lets `make` rebuild
+# them automatically when YAML changes without requiring a manual `make generate`.
+$(OBJECTS): $(GENERATED_HEADERS)
+
+# Rule to (re)generate property code whenever YAML or generator changes
+$(GENERATED_HEADERS): $(PROP_YAML) scripts/generate_properties.py
+	@echo "Generating property code from metadata (auto)..."
+	@python3 scripts/generate_properties.py
+	@echo "Done. Generated files are in $(GEN_DIR)/ and output/mimic-plot/"
+
 clean: test-clean
 	@echo "Cleaning..."
 	rm -rf $(BUILD_DIR) $(EXEC) $(GIT_VERSION_H)
@@ -94,7 +122,7 @@ help:
 	@echo "  make              - Build executable"
 	@echo "  make clean        - Remove all build artifacts"
 	@echo "  make tidy         - Remove build directory only"
-	@echo "  make generate     - Generate property code from metadata"
+	@echo "  make generate     - Manually generate property code from metadata"
 	@echo "  make check-generated - Verify generated code is up-to-date (CI)"
 	@echo ""
 	@echo "Test targets:"
@@ -107,6 +135,19 @@ help:
 	@echo "Options:"
 	@echo "  make USE-HDF5=yes - Enable HDF5 support"
 	@echo "  make USE-MPI=yes  - Enable MPI support"
+	@echo ""
+	@echo "Notes:"
+	@echo "  Property code is auto-regenerated when YAML changes:"
+	@echo "    - metadata/properties/halo_properties.yaml"
+	@echo "    - metadata/properties/galaxy_properties.yaml"
+	@echo "  The following generated files are kept in sync and included during build:"
+	@echo "    - src/include/generated/property_defs.h"
+	@echo "    - src/include/generated/init_halo_properties.inc"
+	@echo "    - src/include/generated/init_galaxy_properties.inc"
+	@echo "    - src/include/generated/copy_to_output.inc"
+	@echo "    - src/include/generated/hdf5_field_count.inc"
+	@echo "    - src/include/generated/hdf5_field_definitions.inc"
+	@echo "    - output/mimic-plot/generated_dtype.py"
 
 # Property metadata code generation
 generate:

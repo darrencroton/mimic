@@ -34,6 +34,22 @@ To verify generated code is current (CI check):
 make check-generated
 ```
 
+Note: Auto-regeneration is enabled
+
+- The build automatically regenerates property code when the YAML changes (no manual step required for normal builds).
+- Manual `make generate` remains available if you want to run the generator explicitly.
+
+Optional: enable the pre-commit hook locally to prevent drift
+
+```bash
+# Tell git to use the repo's .githooks directory for hooks
+git config core.hooksPath .githooks
+
+# Ensure the pre-commit hook is executable
+chmod +x .githooks/pre-commit
+```
+This hook runs a quick check (`make check-generated` logic) and blocks commits if the generated files are out-of-date, prompting you to run `make generate`.
+
 ## Running
 
 Basic execution:

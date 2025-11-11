@@ -780,6 +780,16 @@ cat tests/data/output/baseline/metadata/*.log
 
 ## CI Integration
 
+### Generated-code drift protection
+
+- CI runs `make check-generated` to ensure generated files match the current YAML metadata. If they drift, CI fails with clear instructions.
+- Locally, you can enable the provided pre-commit hook to catch this before pushing:
+
+```bash
+git config core.hooksPath .githooks
+chmod +x .githooks/pre-commit
+```
+
 ### GitHub Actions Workflow
 
 **Location**: `.github/workflows/ci.yml`

@@ -21,8 +21,13 @@ For new repository clones, use the automated setup script:
 # Basic compilation
 make
 
+# Note: Property code auto-regenerates during `make` when YAML changes
+
 # Regenerate property code from metadata (after editing YAML files)
 make generate
+
+# Verify generated code is up-to-date (CI check)
+make check-generated
 
 # Verify generated code is up-to-date (CI check)
 make check-generated

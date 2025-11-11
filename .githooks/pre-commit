@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Pre-commit hook for Mimic
+# Ensures property metadata-generated code is current before committing.
+# Fails fast if drift is detected; instructs developer how to regenerate.
+
+set -euo pipefail
+
+echo "[pre-commit] Verifying generated property code is up-to-date..."
+
+# Run the checker quietly; capture output
+if ! python3 scripts/check_generated.py > /dev/null 2>&1 ; then
+  echo "[pre-commit] Detected out-of-date generated files." >&2
+  echo "[pre-commit] Run: make generate" >&2
+  echo "[pre-commit] Then add and re-commit." >&2
+  exit 1
+fi
+
+echo "[pre-commit] Generated property code is current."
+exit 0
