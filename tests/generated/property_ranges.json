@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "generated_at": "2025-11-11T17:28:27",
+  "properties": {
+    "SnapNum": {
+      "name": "SnapNum",
+      "type": "int",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "Type": {
+      "name": "Type",
+      "type": "int",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "HaloIndex": {
+      "name": "HaloIndex",
+      "type": "long long",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "CentralHaloIndex": {
+      "name": "CentralHaloIndex",
+      "type": "long long",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "MimicHaloIndex": {
+      "name": "MimicHaloIndex",
+      "type": "int",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "MimicTreeIndex": {
+      "name": "MimicTreeIndex",
+      "type": "int",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "SimulationHaloIndex": {
+      "name": "SimulationHaloIndex",
+      "type": "long long",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "MergeStatus": {
+      "name": "MergeStatus",
+      "type": "int",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "mergeIntoID": {
+      "name": "mergeIntoID",
+      "type": "int",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "mergeIntoSnapNum": {
+      "name": "mergeIntoSnapNum",
+      "type": "int",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "dT": {
+      "name": "dT",
+      "type": "float",
+      "units": "Myr",
+      "is_vector": false
+    },
+    "Pos": {
+      "name": "Pos",
+      "type": "vec3_float",
+      "units": "Mpc/h",
+      "is_vector": true
+    },
+    "Vel": {
+      "name": "Vel",
+      "type": "vec3_float",
+      "units": "km/s",
+      "is_vector": true
+    },
+    "Spin": {
+      "name": "Spin",
+      "type": "vec3_float",
+      "units": "dimensionless",
+      "is_vector": true
+    },
+    "Len": {
+      "name": "Len",
+      "type": "int",
+      "units": "particles",
+      "is_vector": false
+    },
+    "Mvir": {
+      "name": "Mvir",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false
+    },
+    "CentralMvir": {
+      "name": "CentralMvir",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false
+    },
+    "Rvir": {
+      "name": "Rvir",
+      "type": "float",
+      "units": "Mpc/h",
+      "is_vector": false
+    },
+    "Vvir": {
+      "name": "Vvir",
+      "type": "float",
+      "units": "km/s",
+      "is_vector": false
+    },
+    "Vmax": {
+      "name": "Vmax",
+      "type": "float",
+      "units": "km/s",
+      "is_vector": false
+    },
+    "VelDisp": {
+      "name": "VelDisp",
+      "type": "float",
+      "units": "km/s",
+      "is_vector": false
+    },
+    "infallMvir": {
+      "name": "infallMvir",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false
+    },
+    "infallVvir": {
+      "name": "infallVvir",
+      "type": "float",
+      "units": "km/s",
+      "is_vector": false
+    },
+    "infallVmax": {
+      "name": "infallVmax",
+      "type": "float",
+      "units": "km/s",
+      "is_vector": false
+    },
+    "ColdGas": {
+      "name": "ColdGas",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false
+    },
+    "StellarMass": {
+      "name": "StellarMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false
+    }
+  },
+  "notes": "Auto-generated from metadata/properties/*.yaml. Range is inclusive; sentinels are exempt."
+}

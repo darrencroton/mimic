@@ -28,6 +28,7 @@ Date: 2025-11-07
 """
 
 import hashlib
+import json
 import os
 import sys
 from datetime import datetime
@@ -106,6 +107,7 @@ GALAXY_PROPERTIES_YAML = REPO_ROOT / 'metadata' / 'properties' / 'galaxy_propert
 # Output directories
 GENERATED_DIR = REPO_ROOT / 'src' / 'include' / 'generated'
 PLOT_DIR = REPO_ROOT / 'output' / 'mimic-plot'
+TESTS_GENERATED_DIR = REPO_ROOT / 'tests' / 'generated'
 
 # ==============================================================================
 # VALIDATION
@@ -533,6 +535,66 @@ def write_file(path: Path, content: str) -> None:
     print(f"  Generated: {path.relative_to(REPO_ROOT)}")
 
 # ==============================================================================
+# VALIDATION MANIFEST GENERATION (for tests)
+# ==============================================================================
+
+def _prop_to_validation_entry(prop: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a YAML property dict to a validation manifest entry.
+
+    Supported optional fields in YAML:
+      - range: [min, max] (inclusive)
+      - sentinels: list of values to ignore for range checking (e.g., -1.0, 0.0)
+    """
+    entry: Dict[str, Any] = {
+        'name': prop['name'],
+        'type': prop['type'],
+        'units': prop.get('units', ''),
+        'is_vector': TYPE_MAP[prop['type']].get('is_array', False),
+    }
+
+    # Optional inclusive range
+    rng = prop.get('range')
+    if rng is not None:
+        if not isinstance(rng, list) or len(rng) != 2:
+            raise ValueError(f"Property '{prop['name']}' has invalid range; expected [min, max]")
+        entry['range'] = rng
+
+    # Optional sentinel values to be excluded from range checks
+    sentinels = prop.get('sentinels')
+    if sentinels is not None:
+        if not isinstance(sentinels, list):
+            raise ValueError(f"Property '{prop['name']}' sentinels must be a list")
+        entry['sentinels'] = sentinels
+
+    return entry
+
+def generate_validation_manifest(halo_props: List[Dict], galaxy_props: List[Dict]) -> str:
+    """Generate a JSON manifest consumed by scientific tests for range checks.
+
+    Only includes properties with output=true so tests validate exactly what is written.
+    """
+    props: Dict[str, Any] = {}
+
+    # Halo output properties
+    for prop in halo_props:
+        if prop.get('output', False):
+            props[prop['name']] = _prop_to_validation_entry(prop)
+
+    # Galaxy output properties
+    for prop in galaxy_props:
+        if prop.get('output', False):
+            props[prop['name']] = _prop_to_validation_entry(prop)
+
+    manifest = {
+        'schema_version': 1,
+        'generated_at': datetime.now().isoformat(timespec='seconds'),
+        'properties': props,
+        'notes': 'Auto-generated from metadata/properties/*.yaml. Range is inclusive; sentinels are exempt.'
+    }
+
+    return json.dumps(manifest, indent=2)
+
+# ==============================================================================
 # MAIN
 # ==============================================================================
 
@@ -587,6 +649,7 @@ def main():
     # Ensure output directories exist
     ensure_dir(GENERATED_DIR)
     ensure_dir(PLOT_DIR)
+    ensure_dir(TESTS_GENERATED_DIR)
 
     # C header files
     write_file(GENERATED_DIR / 'property_defs.h',
@@ -609,6 +672,10 @@ def main():
     # Python dtype
     write_file(PLOT_DIR / 'generated_dtype.py',
               generate_python_dtype(halo_props, galaxy_props, yaml_hash))
+
+    # Validation manifest for tests
+    write_file(TESTS_GENERATED_DIR / 'property_ranges.json',
+               generate_validation_manifest(halo_props, galaxy_props))
 
     print()
     print("=" * 70)
