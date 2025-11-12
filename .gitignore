@@ -7,7 +7,6 @@ output/results
 
 # Archive and scratch space
 ignore
-archive
 obsidian-inbox
 
 # Build artifacts

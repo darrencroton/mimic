@@ -174,4 +174,4 @@ See also:
 - Ask before committing to git
 - Commit messages must be meaningful and list every changed file, grouped logically, with a brief reason for each
 - When asked to write to obsidian, use `obsidian-inbox/`
-- Never delete files! Archive to `archive/` instead
+- Never delete files! Archive to `ignore/` instead
