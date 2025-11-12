@@ -2,23 +2,53 @@
  * @file    test_simple_sfr.c
  * @brief   Placeholder unit test for simple_sfr module
  *
- * NOTE: simple_sfr is a Phase 3 infrastructure testing module.
- *       Tested via test_module_pipeline.c (generic module system tests).
- *
+ * Validates: Infrastructure module lifecycle
  * Phase: Phase 3 (Runtime Module Configuration)
+ *
+ * NOTE: simple_sfr is a Phase 3 infrastructure testing module,
+ *       not production physics. Comprehensive module testing happens
+ *       via test_module_configuration.c (generic module system tests).
+ *
+ * @author  Mimic Testing Team
+ * @date    2025-11-12
  */
 
-#include "../../../tests/framework/test_framework.h"
+#include "framework/test_framework.h"
 
+#include <stdio.h>
+
+/* Test statistics (required for TEST_RUN macro) */
 static int passed = 0;
 static int failed = 0;
 
-int test_placeholder(void) {
+/**
+ * @test    test_placeholder
+ * @brief   Placeholder test for infrastructure module
+ *
+ * Expected: Always passes
+ * Validates: Module tested via generic module system tests
+ */
+int test_placeholder(void)
+{
+    /* simple_sfr tested via generic module pipeline tests */
     return TEST_PASS;
 }
 
-int main(void) {
+/**
+ * @brief   Main test runner
+ *
+ * Executes placeholder test for infrastructure module.
+ */
+int main(void)
+{
+    printf("========================================\n");
+    printf("Test Suite: simple_sfr\n");
+    printf("========================================\n");
+
+    /* Run all test cases */
     TEST_RUN(test_placeholder);
+
+    /* Print summary and return result */
     TEST_SUMMARY();
     return TEST_RESULT();
 }

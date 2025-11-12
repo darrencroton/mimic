@@ -291,20 +291,18 @@ int test_property_access(void)
 /**
  * @brief   Main test runner
  *
- * Executes all sage_infall software quality tests and reports results
+ * Executes all sage_infall software quality tests and reports results.
  */
 int main(void)
 {
-    printf("\n");
     printf("========================================\n");
-    printf("  sage_infall Software Quality Tests\n");
+    printf("Test Suite: sage_infall\n");
     printf("========================================\n");
-    printf("\n");
-    printf("NOTE: Physics validation deferred to Phase 4.3+\n");
-    printf("      These tests validate software engineering aspects only.\n");
-    printf("\n");
 
-    /* Run all tests */
+    /* Initialize error handling for tests */
+    initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
+
+    /* Run all test cases */
     TEST_RUN(test_module_registration);
     TEST_RUN(test_module_initialization);
     TEST_RUN(test_parameter_reading);

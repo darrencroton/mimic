@@ -229,17 +229,17 @@ test-integration:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING INTEGRATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
-	@echo "Building mimic for integration tests..."
+	@echo "Building mimic with HDF5 support for integration tests..."
 	@$(MAKE) clean > /dev/null 2>&1
 	@$(MAKE) generate-test-registry > /dev/null 2>&1
-	@$(MAKE)
+	@$(MAKE) USE-HDF5=yes
 	@echo ""
 	@echo "Running core integration tests..."
-	-@cd tests/integration && python3 test_full_pipeline.py
+	-@python3 tests/integration/test_full_pipeline.py
 	@echo ""
-	-@cd tests/integration && python3 test_output_formats.py
+	-@python3 tests/integration/test_output_formats.py
 	@echo ""
-	-@cd tests/integration && python3 test_module_pipeline.py
+	-@python3 tests/integration/test_module_pipeline.py
 	@echo ""
 	@echo "Running module integration tests from registry..."
 	@for test in $$(grep -v '^#' build/generated_test_lists/integration_tests.txt | grep -v '^$$'); do \
@@ -254,13 +254,13 @@ test-scientific:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING SCIENTIFIC VALIDATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
-	@echo "Building mimic for scientific tests..."
+	@echo "Building mimic with HDF5 support for scientific tests..."
 	@$(MAKE) clean > /dev/null 2>&1
 	@$(MAKE) generate-test-registry > /dev/null 2>&1
-	@$(MAKE)
+	@$(MAKE) USE-HDF5=yes
 	@echo ""
 	@echo "Running core scientific tests..."
-	-@cd tests/scientific && python3 test_scientific.py
+	-@python3 tests/scientific/test_scientific.py
 	@echo ""
 	@echo "Running module scientific tests from registry..."
 	@for test in $$(grep -v '^#' build/generated_test_lists/scientific_tests.txt | grep -v '^$$'); do \
