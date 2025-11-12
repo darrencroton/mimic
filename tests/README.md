@@ -1,9 +1,11 @@
 # Mimic Testing Infrastructure
 
-**Status**: Phase 3 Complete (Module System Testing)
-**Last Updated**: 2025-11-09
+**Status**: Phase 4 Complete (Module Testing with Auto-Discovery)
+**Last Updated**: 2025-11-13
 
-This directory contains Mimic's automated testing infrastructure. For detailed information on writing tests, debugging failures, and CI integration, see **[`docs/developer/testing.md`](../docs/developer/testing.md)**.
+This directory contains Mimic's automated testing infrastructure for **core infrastructure only**. Module tests are co-located with module code in `src/modules/*/test_*.{c,py}` and auto-discovered via metadata.
+
+For detailed information on writing tests, debugging failures, and CI integration, see **[`docs/developer/testing.md`](../docs/developer/testing.md)**.
 
 ---
 
@@ -23,61 +25,125 @@ make test-scientific    # Python scientific tests (<5min)
 
 ## Test Organization
 
-Tests follow the **testing pyramid** approach:
+Mimic has **two separate test systems**:
+
+### 1. Core Tests (This Directory)
+
+Tests for **physics-agnostic infrastructure** (memory, I/O, tree processing, module system):
 
 ```
          /\
-        /  \       Scientific Tests (physics validation)
+        /  \       Scientific Tests (core property validation)
        /____\
-      /      \     Integration Tests (end-to-end workflows)
+      /      \     Integration Tests (pipeline, formats)
      /________\
-    /          \   Unit Tests (component testing)
+    /          \   Unit Tests (infrastructure components)
    /____________\
 ```
 
-### 1. Unit Tests (`unit/`)
-- **Purpose**: Test individual components in isolation
+**Unit Tests** (`unit/`)
+- **Purpose**: Test individual infrastructure components in isolation
 - **Language**: C
 - **Runtime**: <10 seconds total
-- **Count**: 6 tests
+- **Count**: 6 core tests
+- **Examples**: `test_memory_system.c`, `test_parameter_parsing.c`, `test_tree_loading.c`
 
-**Tests**: memory, properties, parameters, trees, numerics, module configuration
-
-### 2. Integration Tests (`integration/`)
-- **Purpose**: Test complete workflows end-to-end
+**Integration Tests** (`integration/`)
+- **Purpose**: Test complete core workflows end-to-end
 - **Language**: Python
 - **Runtime**: <1 minute total
-- **Count**: 4 tests
+- **Count**: 3 core tests
+- **Examples**: `test_full_pipeline.py`, `test_output_formats.py`, `test_module_pipeline.py`
 
-**Tests**: full pipeline, output formats, regression, module workflows
-
-### 3. Scientific Tests (`scientific/`)
-- **Purpose**: Validate physics correctness and reasonable property ranges
+**Scientific Tests** (`scientific/`)
+- **Purpose**: Validate core property correctness (NaN/Inf, ranges)
 - **Language**: Python
 - **Runtime**: <5 minutes total
-- **Count**: 1 comprehensive test
+- **Count**: 1 comprehensive core test
+- **Example**: `test_scientific.py` (validates all output properties)
 
-**Tests**: numerical validity (NaN/Inf), zero value warnings, physical range validation
+### 2. Module Tests (Co-Located with Modules)
+
+Tests for **physics modules** in `src/modules/*/test_*.{c,py}`:
+
+- **Auto-discovered** from `module_info.yaml` declarations
+- **Co-located** with module source code
+- **Three tiers** per module: unit (C), integration (Python), scientific (Python)
+- **Count**: Currently 3 modules × 3 test tiers = 9 module tests
+- **Examples**:
+  - `src/modules/sage_infall/test_unit_sage_infall.c`
+  - `src/modules/sage_infall/test_integration_sage_infall.py`
+  - `src/modules/sage_infall/test_scientific_sage_infall_validation.py`
+
+**See [docs/developer/testing.md](../docs/developer/testing.md) for complete module testing guide.**
 
 ---
 
 ## Directory Structure
 
+**Core Tests** (this directory):
 ```
 tests/
-├── unit/                      # C unit tests
-├── integration/               # Python integration tests
-├── scientific/                # Python scientific tests
+├── unit/                      # C unit tests for core infrastructure
+│   ├── test_memory_system.c
+│   ├── test_parameter_parsing.c
+│   ├── test_tree_loading.c
+│   ├── test_property_metadata.c
+│   ├── test_numeric_utilities.c
+│   ├── test_module_configuration.c
+│   ├── run_tests.sh           # Test runner (auto-discovers module tests too)
+│   └── build/                 # Compiled tests
+├── integration/               # Python integration tests for core
+│   ├── test_full_pipeline.py
+│   ├── test_output_formats.py
+│   └── test_module_pipeline.py
+├── scientific/                # Python scientific tests for core
+│   └── test_scientific.py     # Validates all output properties
 ├── data/                      # Test data and outputs
 │   ├── input/                 # Input test data (trees_063.0, millennium.a_list)
 │   └── output/                # Test outputs
-│       ├── baseline/          # Static reference (committed to git, never regenerated)
+│       ├── baseline/          # Static reference (committed to git)
 │       ├── binary/            # Test output, binary format (gitignored)
 │       └── hdf5/              # Test output, HDF5 format (gitignored)
-└── framework/                 # Test framework and templates
+└── framework/                 # Test framework and templates (CORE ONLY)
     ├── test_framework.h       # C testing macros
     ├── data_loader.py         # Binary file loader
-    └── *_template.*           # Templates for new tests
+    ├── c_unit_test_template.c              # Template for core unit tests
+    ├── python_integration_test_template.py # Template for core integration tests
+    └── python_scientific_test_template.py  # Template for core scientific tests
+```
+
+**Module Tests** (co-located with modules):
+```
+src/modules/
+├── sage_infall/
+│   ├── sage_infall.c
+│   ├── sage_infall.h
+│   ├── module_info.yaml                    # Declares test files
+│   ├── test_unit_sage_infall.c             # Module unit test
+│   ├── test_integration_sage_infall.py     # Module integration test
+│   └── test_scientific_sage_infall_validation.py  # Module scientific test
+├── simple_cooling/
+│   ├── simple_cooling.c
+│   ├── module_info.yaml
+│   ├── test_unit_simple_cooling.c
+│   ├── test_integration_simple_cooling.py
+│   └── test_scientific_simple_cooling.py
+└── simple_sfr/
+    ├── simple_sfr.c
+    ├── module_info.yaml
+    ├── test_unit_simple_sfr.c
+    ├── test_integration_simple_sfr.py
+    └── test_scientific_simple_sfr.py
+```
+
+**Test Registry** (auto-generated):
+```
+build/generated_test_lists/
+├── unit_tests.txt              # Auto-discovered module unit tests
+├── integration_tests.txt       # Auto-discovered module integration tests
+├── scientific_tests.txt        # Auto-discovered module scientific tests
+└── test_registry_hash.txt      # Registry validation hash
 ```
 
 ---
@@ -102,13 +168,36 @@ tests/
 
 ## Adding New Tests
 
+### For Core Infrastructure Tests
+
 1. Choose test type (unit/integration/scientific)
 2. Copy appropriate template from `framework/`
 3. Implement test following the template structure
-4. Add to test runner (C tests: `unit/run_tests.sh`)
-5. Verify: `make tests`
+4. Add to test runner (C tests: add to `CORE_TESTS` in `unit/run_tests.sh`)
+5. Place in appropriate directory (`tests/unit/`, `tests/integration/`, `tests/scientific/`)
+6. Verify: `make tests`
 
-See **[`docs/developer/testing.md`](../docs/developer/testing.md)** for detailed instructions and examples.
+### For Module Tests
+
+1. **Copy existing module test as example** (e.g., from `src/modules/sage_infall/test_*`)
+2. **Adapt for your module's functionality**
+3. **Place in module directory**: `src/modules/YOUR_MODULE/test_*.{c,py}`
+4. **Declare in `module_info.yaml`**:
+   ```yaml
+   tests:
+     unit: test_unit_YOUR_MODULE.c
+     integration: test_integration_YOUR_MODULE.py
+     scientific: test_scientific_YOUR_MODULE_validation.py
+   ```
+5. **Run `make generate-test-registry`** to register tests
+6. **Verify**: `make tests` (tests are auto-discovered and run)
+
+**Important**:
+- **Core test templates** (in `framework/`) are for core infrastructure only
+- **Module tests** should use existing module tests as examples (in `src/modules/*/`)
+- Module tests must follow naming convention: `test_unit_*.c`, `test_integration_*.py`, `test_scientific_*_validation.py`
+
+See **[`docs/developer/testing.md`](../docs/developer/testing.md)** for comprehensive module testing guide with complete examples.
 
 ---
 
