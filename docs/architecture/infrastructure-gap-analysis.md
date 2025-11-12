@@ -158,9 +158,9 @@ module:
 
   # Testing requirements
   tests:
-    unit: test_sage_infall.c
-    integration: test_sage_infall.py
-    scientific: test_sage_infall_validation.py
+    unit: test_unit_sage_infall.c
+    integration: test_integration_sage_infall.py
+    scientific: test_scientific_sage_infall_validation.py
 
   # Documentation
   docs:

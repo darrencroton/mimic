@@ -244,13 +244,13 @@ This ensures metal enrichment history is correctly tracked through all baryon cy
 
 ### Software Quality Testing ✅
 
-**Unit Tests** (`tests/unit/test_sage_infall.c`):
+**Unit Tests** (`src/modules/sage_infall/test_unit_sage_infall.c`):
 - ✅ Module registration and initialization
 - ✅ Parameter reading and configuration
 - ✅ Memory safety (no leaks)
 - ✅ Property access patterns
 
-**Integration Tests** (`tests/integration/test_sage_infall.py`):
+**Integration Tests** (`src/modules/sage_infall/test_integration_sage_infall.py`):
 - ✅ Module loads and executes
 - ✅ Output properties appear in files
 - ✅ Parameters configurable via .par files
@@ -314,4 +314,4 @@ This ensures metal enrichment history is correctly tracked through all baryon cy
 For questions about this module:
 - See `docs/developer/module-developer-guide.md` for development patterns
 - See `docs/architecture/module-implementation-log.md` for implementation notes
-- Check `tests/integration/test_sage_infall.py` for usage examples
+- Check `src/modules/sage_infall/test_integration_sage_infall.py` for usage examples

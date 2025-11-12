@@ -219,15 +219,15 @@ src/modules/
 │   ├── sage_infall.c
 │   ├── sage_infall.h
 │   ├── module_info.yaml       # Declares test files
-│   ├── test_sage_infall.c     # Unit tests (software quality)
-│   ├── test_sage_infall.py    # Integration tests (software quality)
-│   └── test_sage_infall_validation.py  # Scientific tests (physics validation)
+│   ├── test_unit_sage_infall.c     # Unit tests (software quality)
+│   ├── test_integration_sage_infall.py    # Integration tests (software quality)
+│   └── test_scientific_sage_infall_validation.py  # Scientific tests (physics validation)
 ├── simple_cooling/
 │   ├── simple_cooling.c
 │   ├── module_info.yaml       # Declares test files
-│   ├── test_simple_cooling.c
-│   ├── test_simple_cooling.py
-│   └── test_simple_cooling_basic.py
+│   ├── test_unit_simple_cooling.c
+│   ├── test_integration_simple_cooling.py
+│   └── test_scientific_simple_cooling.py
 └── ...
 ```
 
@@ -247,9 +247,9 @@ Mimic uses a **metadata-driven test discovery system** to maintain the physics-a
 1. **Module Metadata**: Each module's `module_info.yaml` declares its test files:
    ```yaml
    tests:
-     unit: test_sage_infall.c
-     integration: test_sage_infall.py
-     scientific: test_sage_infall_validation.py
+     unit: test_unit_sage_infall.c
+     integration: test_integration_sage_infall.py
+     scientific: test_scientific_sage_infall_validation.py
    ```
 
 2. **Registry Generation**: `make generate-test-registry` scans all modules and generates test lists:

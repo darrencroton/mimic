@@ -326,8 +326,12 @@ def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="datas
                 report.write(f"\n⚠️  Property '{prop_name}' (type {dtype}) differs but comparison method unknown\n")
                 all_passed = False
 
+    # ANSI color codes
+    GREEN = '\033[0;32m'
+    NC = '\033[0m'  # No Color
+
     if all_passed:
-        report.write(f"\n✓ All {len(common_props)} properties match for all {n_halos} halos\n")
+        report.write(f"\n{GREEN}✓ All {len(common_props)} properties match for all {n_halos} halos{NC}\n")
 
     return all_passed, report.getvalue()
 
@@ -473,8 +477,12 @@ def test_binary_baseline_comparison():
         properties_to_compare=CORE_HALO_PROPERTIES
     )
 
+    # ANSI color codes
+    GREEN = '\033[0;32m'
+    NC = '\033[0m'  # No Color
+
     # Print report
-    print(report)
+    print(report, end='')  # Remove blank line after report
 
     # Assert that comparison passed
     assert passed, (
@@ -483,7 +491,7 @@ def test_binary_baseline_comparison():
         f"See detailed comparison report above."
     )
 
-    print(f"  ✓ Binary output matches baseline - all core properties validated")
+    print(f"{GREEN}  ✓ Binary output matches baseline - all core properties validated{NC}")
 
 
 def test_hdf5_format_execution():
@@ -659,8 +667,12 @@ def test_hdf5_baseline_comparison():
         properties_to_compare=CORE_HALO_PROPERTIES
     )
 
+    # ANSI color codes
+    GREEN = '\033[0;32m'
+    NC = '\033[0m'  # No Color
+
     # Print report
-    print(report)
+    print(report, end='')  # Remove blank line after report
 
     # Assert that comparison passed
     assert passed, (
@@ -669,7 +681,7 @@ def test_hdf5_baseline_comparison():
         f"See detailed comparison report above."
     )
 
-    print(f"  ✓ HDF5 output matches baseline - all core properties validated")
+    print(f"{GREEN}  ✓ HDF5 output matches baseline - all core properties validated{NC}")
 
 
 def test_format_equivalence():
@@ -758,8 +770,12 @@ def test_format_equivalence():
         rtol=1e-6
     )
 
+    # ANSI color codes
+    GREEN = '\033[0;32m'
+    NC = '\033[0m'  # No Color
+
     # Print report
-    print(report)
+    print(report, end='')  # Remove blank line after report
 
     # Assert that comparison passed
     assert passed, (
@@ -768,7 +784,7 @@ def test_format_equivalence():
         f"See detailed comparison report above."
     )
 
-    print(f"  ✓ Binary and HDF5 formats produce identical output - all properties validated")
+    print(f"{GREEN}  ✓ Binary and HDF5 formats produce identical output - all properties validated{NC}")
 
     # Print file size comparison (informational)
     print(f"  Binary file size: {binary_file.stat().st_size:,} bytes")

@@ -59,9 +59,9 @@ module:
   # ===========================================================================
 
   tests:
-    unit: test_simple_cooling.c
-    integration: test_simple_cooling.py
-    scientific: test_simple_cooling_basic.py
+    unit: test_unit_simple_cooling.c
+    integration: test_integration_simple_cooling.py
+    scientific: test_scientific_simple_cooling.py
 
   # ===========================================================================
   # Documentation

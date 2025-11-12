@@ -493,7 +493,7 @@ SageInfall_Reionization_z0  8.0
 **Example**:
 ```yaml
 tests:
-  unit: test_sage_infall.c
+  unit: test_unit_sage_infall.c
 ```
 
 **Generated**: Automatically included in test build system
@@ -503,14 +503,15 @@ tests:
 **Purpose**: Path to integration test file for this module
 
 **Rules**:
-- Relative to `tests/integration/` directory
+- Co-located with module in `src/modules/MODULE_NAME/` directory
 - Should test module in full pipeline context
 - Examples: module loads, properties appear in output, parameter configuration
+- Naming convention: `test_integration_MODULE_NAME.py`
 
 **Example**:
 ```yaml
 tests:
-  integration: test_sage_infall.py
+  integration: test_integration_sage_infall.py
 ```
 
 #### tests.scientific (string, optional)
@@ -518,14 +519,15 @@ tests:
 **Purpose**: Path to scientific validation test file
 
 **Rules**:
-- Relative to `tests/scientific/` directory
+- Co-located with module in `src/modules/MODULE_NAME/` directory
 - Should validate physics against reference results
 - Examples: SAGE comparison, published results, mass conservation
+- Naming convention: `test_scientific_MODULE_NAME*.py`
 
 **Example**:
 ```yaml
 tests:
-  scientific: test_sage_infall_validation.py
+  scientific: test_scientific_sage_infall_validation.py
 ```
 
 ---
@@ -699,9 +701,9 @@ module:
 
   # Testing
   tests:
-    unit: test_sage_infall.c
-    integration: test_sage_infall.py
-    scientific: test_sage_infall_validation.py
+    unit: test_unit_sage_infall.c
+    integration: test_integration_sage_infall.py
+    scientific: test_scientific_sage_infall_validation.py
 
   # Documentation
   docs:
@@ -764,9 +766,9 @@ module:
 
   # Testing
   tests:
-    unit: test_simple_cooling.c
-    integration: test_simple_cooling.py
-    scientific: test_simple_cooling_basic.py
+    unit: test_unit_simple_cooling.c
+    integration: test_integration_simple_cooling.py
+    scientific: test_scientific_simple_cooling.py
 
   # Documentation
   docs:
