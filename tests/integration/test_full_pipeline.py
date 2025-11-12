@@ -89,16 +89,21 @@ def check_no_memory_leaks(output_dir):
     Returns:
         bool: True if no leaks, False if leaks detected
     """
+    # ANSI color codes
+    YELLOW = '\033[1;33m'
+    RED = '\033[0;31m'
+    NC = '\033[0m'  # No Color
+
     log_dir = output_dir / "metadata"
     if not log_dir.exists():
-        print(f"Warning: Log directory not found: {log_dir}")
+        print(f"{YELLOW}Warning: Log directory not found: {log_dir}{NC}")
         return True  # Can't check, assume OK
 
     for log_file in log_dir.glob("*.log"):
         with open(log_file) as f:
             content = f.read().lower()
             if "memory leak" in content:
-                print(f"Memory leak detected in {log_file}")
+                print(f"{RED}Memory leak detected in {log_file}{NC}")
                 # Print the relevant lines
                 with open(log_file) as f2:
                     for line in f2:
@@ -116,11 +121,15 @@ def test_basic_execution():
     Expected: Exit code 0, no crashes
     Validates: Basic pipeline execution
     """
+    # ANSI color codes
+    RED = '\033[0;31m'
+    NC = '\033[0m'  # No Color
+
     print("Testing basic Mimic execution...")
 
     # Run Mimic on test parameter file
     param_file = TEST_DATA_DIR / "test_binary.par"
-    assert param_file.exists(), f"Test parameter file not found: {param_file}"
+    assert param_file.exists(), f"{RED}Test parameter file not found: {param_file}{NC}"
 
     returncode, stdout, stderr = run_mimic(param_file)
 
@@ -128,7 +137,7 @@ def test_basic_execution():
     if returncode != 0:
         print(f"STDOUT:\n{stdout}")
         print(f"STDERR:\n{stderr}")
-        assert False, f"Mimic execution failed with code {returncode}"
+        assert False, f"{RED}Mimic execution failed with code {returncode}{NC}"
 
     print("  ✓ Mimic executed successfully")
     print(f"  Exit code: {returncode}")
@@ -148,19 +157,23 @@ def test_output_files_created():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
+    # ANSI color codes
+    RED = '\033[0;31m'
+    NC = '\033[0m'  # No Color
+
     # Run Mimic if output doesn't exist
     if not output_file.exists():
         print("  Running Mimic to generate output...")
         param_file = TEST_DATA_DIR / "test_binary.par"
         returncode, stdout, stderr = run_mimic(param_file)
-        assert returncode == 0, "Mimic execution failed"
+        assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
     # Check output file exists
-    assert output_file.exists(), f"Output file not created: {output_file}"
+    assert output_file.exists(), f"{RED}Output file not created: {output_file}{NC}"
 
     # Check file size is reasonable (not empty)
     file_size = output_file.stat().st_size
-    assert file_size > 0, f"Output file is empty"
+    assert file_size > 0, f"{RED}Output file is empty{NC}"
     print(f"  ✓ Output file created: {output_file}")
     print(f"  File size: {file_size:,} bytes")
 
@@ -172,18 +185,22 @@ def test_no_memory_leaks():
     Expected: Zero memory leaks reported in logs
     Validates: Memory management correctness
     """
+    # ANSI color codes
+    RED = '\033[0;31m'
+    NC = '\033[0m'  # No Color
+
     print("Testing for memory leaks...")
 
     # Run Mimic
     param_file = TEST_DATA_DIR / "test_binary.par"
     returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, "Mimic execution failed"
+    assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
     # Check for memory leaks in output logs (test_binary.par writes to binary/)
     output_dir = TEST_DATA_DIR / "output" / "binary"
     has_leaks = not check_no_memory_leaks(output_dir)
 
-    assert not has_leaks, "Memory leaks detected in Mimic run"
+    assert not has_leaks, f"{RED}Memory leaks detected in Mimic run{NC}"
 
     print("  ✓ No memory leaks detected")
 
@@ -202,18 +219,22 @@ def test_output_loadable():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
+    # ANSI color codes
+    RED = '\033[0;31m'
+    NC = '\033[0m'  # No Color
+
     # Ensure output exists
     if not output_file.exists():
         param_file = TEST_DATA_DIR / "test_binary.par"
         returncode, stdout, stderr = run_mimic(param_file)
-        assert returncode == 0, "Mimic execution failed"
+        assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
     # Try to load output file
     # Note: This is a basic check - just verify we can read binary data
     with open(output_file, 'rb') as f:
         # Read first few bytes
         header = f.read(16)
-        assert len(header) == 16, "Could not read file header"
+        assert len(header) == 16, f"{RED}Could not read file header{NC}"
 
     print(f"  ✓ Output file is readable")
     print(f"  File: {output_file}")
@@ -226,20 +247,24 @@ def test_stdout_content():
     Expected: Key progress messages in stdout
     Validates: Execution flow and logging
     """
+    # ANSI color codes
+    RED = '\033[0;31m'
+    NC = '\033[0m'  # No Color
+
     print("Testing stdout content...")
 
     param_file = TEST_DATA_DIR / "test_binary.par"
     returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, "Mimic execution failed"
+    assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
     # Check for key messages
     assert "Mimic" in stdout or "Mimic" in stderr, \
-        "Should mention 'Mimic' in output"
+        f"{RED}Should mention 'Mimic' in output{NC}"
 
     # Check for processing messages
     # (specific messages may vary, this is a basic check)
     output_combined = stdout + stderr
-    assert len(output_combined) > 0, "Should produce some output"
+    assert len(output_combined) > 0, f"{RED}Should produce some output{NC}"
 
     print("  ✓ Stdout contains expected content")
 
@@ -251,13 +276,17 @@ def main():
     Executes all test cases and reports results.
     Can be run directly or via pytest.
     """
+    # ANSI color codes
+    RED = '\033[0;31m'
+    NC = '\033[0m'  # No Color
+
     print("Integration Test: Full Pipeline")
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
 
     # Check prerequisites
     if not MIMIC_EXE.exists():
-        print(f"ERROR: Mimic executable not found: {MIMIC_EXE}")
+        print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
         print("Build it first with: make")
         return 1
 

@@ -120,10 +120,14 @@ def load_hdf5_halos(output_file):
     Returns:
         tuple: (halos, metadata) where halos is structured array
     """
+    # ANSI color codes
+    RED = '\033[0;31m'
+    NC = '\033[0m'  # No Color
+
     try:
         import h5py
     except ImportError:
-        raise ImportError("h5py not available - cannot load HDF5 output")
+        raise ImportError(f"{RED}h5py not available - cannot load HDF5 output{NC}")
 
     with h5py.File(output_file, 'r') as f:
         # Mimic HDF5 structure: Root contains snapshot groups (e.g., 'Snap063')
@@ -133,7 +137,7 @@ def load_hdf5_halos(output_file):
         snap_groups = [key for key in f.keys() if key.startswith('Snap')]
 
         if not snap_groups:
-            raise ValueError(f"No snapshot groups found in HDF5 file: {output_file}")
+            raise ValueError(f"{RED}No snapshot groups found in HDF5 file: {output_file}{NC}")
 
         # For testing, we expect one snapshot (Snap063 for z=0)
         # Use the first snapshot group found
@@ -142,7 +146,7 @@ def load_hdf5_halos(output_file):
 
         # Read halo data from 'Galaxies' dataset
         if 'Galaxies' not in snap_group:
-            raise ValueError(f"No 'Galaxies' dataset found in {snap_name}")
+            raise ValueError(f"{RED}No 'Galaxies' dataset found in {snap_name}{NC}")
 
         # Load the structured array directly
         halos = snap_group['Galaxies'][:]
@@ -444,9 +448,13 @@ def test_binary_baseline_comparison():
     baseline_dir = TEST_DATA_DIR / "output" / "baseline" / "binary"
     baseline_file = baseline_dir / "model_z0.000_0"
 
+    # ANSI color codes
+    RED = '\033[0;31m'
+    NC = '\033[0m'  # No Color
+
     assert baseline_file.exists(), (
-        f"Baseline file not found: {baseline_file}\n"
-        f"Run Mimic once to establish baseline, then commit the baseline file."
+        f"{RED}Baseline file not found: {baseline_file}\n"
+        f"Run Mimic once to establish baseline, then commit the baseline file.{NC}"
     )
 
     print(f"  Loading BASELINE: {baseline_file.relative_to(REPO_ROOT)}")
@@ -455,15 +463,15 @@ def test_binary_baseline_comparison():
 
     # Compare halo counts
     assert metadata_test['TotHalos'] == metadata_baseline['TotHalos'], (
-        f"Halo count mismatch: test={metadata_test['TotHalos']}, "
-        f"baseline={metadata_baseline['TotHalos']}"
+        f"{RED}Halo count mismatch: test={metadata_test['TotHalos']}, "
+        f"baseline={metadata_baseline['TotHalos']}{NC}"
     )
 
     # Compare tree counts
     if 'Ntrees' in metadata_test and 'Ntrees' in metadata_baseline:
         assert metadata_test['Ntrees'] == metadata_baseline['Ntrees'], (
-            f"Tree count mismatch: test={metadata_test['Ntrees']}, "
-            f"baseline={metadata_baseline['Ntrees']}"
+            f"{RED}Tree count mismatch: test={metadata_test['Ntrees']}, "
+            f"baseline={metadata_baseline['Ntrees']}{NC}"
         )
 
     # Comprehensive comparison of core properties for all halos
@@ -486,9 +494,9 @@ def test_binary_baseline_comparison():
 
     # Assert that comparison passed
     assert passed, (
-        f"Binary output does not match baseline.\n"
+        f"{RED}Binary output does not match baseline.\n"
         f"In physics-free mode, all core halo properties should be identical.\n"
-        f"See detailed comparison report above."
+        f"See detailed comparison report above.{NC}"
     )
 
     print(f"{GREEN}  ✓ Binary output matches baseline - all core properties validated{NC}")
@@ -637,13 +645,18 @@ def test_hdf5_baseline_comparison():
     halos_test, metadata_test = load_hdf5_halos(output_file)
     print(f"    → {metadata_test['TotHalos']} halos")
 
+    # ANSI color codes
+    RED = '\033[0;31m'
+    GREEN = '\033[0;32m'
+    NC = '\033[0m'  # No Color
+
     # Load committed baseline
     baseline_dir = TEST_DATA_DIR / "output" / "baseline" / "hdf5"
     baseline_file = baseline_dir / "model_000.hdf5"
 
     assert baseline_file.exists(), (
-        f"Baseline file not found: {baseline_file}\n"
-        f"Run Mimic once with HDF5 to establish baseline, then commit the baseline file."
+        f"{RED}Baseline file not found: {baseline_file}\n"
+        f"Run Mimic once with HDF5 to establish baseline, then commit the baseline file.{NC}"
     )
 
     print(f"  Loading BASELINE: {baseline_file.relative_to(REPO_ROOT)}")
@@ -652,8 +665,8 @@ def test_hdf5_baseline_comparison():
 
     # Compare halo counts
     assert metadata_test['TotHalos'] == metadata_baseline['TotHalos'], (
-        f"Halo count mismatch: test={metadata_test['TotHalos']}, "
-        f"baseline={metadata_baseline['TotHalos']}"
+        f"{RED}Halo count mismatch: test={metadata_test['TotHalos']}, "
+        f"baseline={metadata_baseline['TotHalos']}{NC}"
     )
 
     # Comprehensive comparison of core properties for all halos
@@ -667,18 +680,14 @@ def test_hdf5_baseline_comparison():
         properties_to_compare=CORE_HALO_PROPERTIES
     )
 
-    # ANSI color codes
-    GREEN = '\033[0;32m'
-    NC = '\033[0m'  # No Color
-
     # Print report
     print(report, end='')  # Remove blank line after report
 
     # Assert that comparison passed
     assert passed, (
-        f"HDF5 output does not match baseline.\n"
+        f"{RED}HDF5 output does not match baseline.\n"
         f"In physics-free mode, all core halo properties should be identical.\n"
-        f"See detailed comparison report above."
+        f"See detailed comparison report above.{NC}"
     )
 
     print(f"{GREEN}  ✓ HDF5 output matches baseline - all core properties validated{NC}")
@@ -750,14 +759,19 @@ def test_format_equivalence():
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"HDF5 Mimic execution failed: {stderr}"
 
+    # ANSI color codes
+    RED = '\033[0;31m'
+    GREEN = '\033[0;32m'
+    NC = '\033[0m'  # No Color
+
     print(f"  Loading HDF5: {hdf5_file.relative_to(REPO_ROOT)}")
     halos_hdf5, metadata_hdf5 = load_hdf5_halos(hdf5_file)
     print(f"    → {metadata_hdf5['TotHalos']} halos")
 
     # Compare halo counts
     assert metadata_binary['TotHalos'] == metadata_hdf5['TotHalos'], (
-        f"Halo count mismatch: binary={metadata_binary['TotHalos']}, "
-        f"hdf5={metadata_hdf5['TotHalos']}"
+        f"{RED}Halo count mismatch: binary={metadata_binary['TotHalos']}, "
+        f"hdf5={metadata_hdf5['TotHalos']}{NC}"
     )
 
     print(f"  ✓ Halo count matches: {metadata_binary['TotHalos']} halos in both formats")
@@ -770,18 +784,14 @@ def test_format_equivalence():
         rtol=1e-6
     )
 
-    # ANSI color codes
-    GREEN = '\033[0;32m'
-    NC = '\033[0m'  # No Color
-
     # Print report
     print(report, end='')  # Remove blank line after report
 
     # Assert that comparison passed
     assert passed, (
-        f"Binary and HDF5 formats do not produce identical output.\n"
+        f"{RED}Binary and HDF5 formats do not produce identical output.\n"
         f"Both formats should write exactly the same property values.\n"
-        f"See detailed comparison report above."
+        f"See detailed comparison report above.{NC}"
     )
 
     print(f"{GREEN}  ✓ Binary and HDF5 formats produce identical output - all properties validated{NC}")
@@ -803,9 +813,13 @@ def main():
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
 
+    # ANSI color codes
+    RED = '\033[0;31m'
+    NC = '\033[0m'  # No Color
+
     # Check prerequisites
     if not MIMIC_EXE.exists():
-        print(f"ERROR: Mimic executable not found: {MIMIC_EXE}")
+        print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
         print("Build it first with: make")
         return 1
 
