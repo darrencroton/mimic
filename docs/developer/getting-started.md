@@ -20,12 +20,24 @@ To enable MPI support:
 make clean && make USE-MPI=yes
 ```
 
-### Property Metadata System
+### Metadata-Driven Code Generation
 
-After editing property metadata files (`metadata/properties/*.yaml`), regenerate C code:
+Mimic uses metadata to automatically generate code, eliminating manual synchronization.
+
+**Property Metadata** (`metadata/properties/*.yaml`):
+- Defines galaxy properties (e.g., StellarMass, ColdGas)
+- Auto-generates C structs, accessors, output code, Python dtypes
+
+**Module Metadata** (`src/modules/*/module_info.yaml`):
+- Defines physics modules and their dependencies
+- Auto-generates module registration, test configuration, documentation
+
+After editing metadata files, regenerate code:
 
 ```bash
-make generate
+make generate          # Regenerate both properties and modules
+make generate-modules  # Regenerate modules only
+make validate-modules  # Validate module metadata
 ```
 
 To verify generated code is current (CI check):
@@ -34,10 +46,7 @@ To verify generated code is current (CI check):
 make check-generated
 ```
 
-Note: Auto-regeneration is enabled
-
-- The build automatically regenerates property code when the YAML changes (no manual step required for normal builds).
-- Manual `make generate` remains available if you want to run the generator explicitly.
+**Note**: Auto-regeneration is enabled. The build automatically regenerates code when YAML files change.
 
 Optional: enable the pre-commit hook locally to prevent drift
 

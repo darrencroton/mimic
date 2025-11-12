@@ -17,6 +17,10 @@ build/
 
 # Generated files
 src/include/git_version.h
+src/modules/module_init.c
+tests/unit/module_sources.mk
+docs/user/module-reference.md
+build/module_registry_hash.txt
 
 # Test artifacts
 tests/unit/build/

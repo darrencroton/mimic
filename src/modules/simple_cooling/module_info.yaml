@@ -1,0 +1,86 @@
+# Module Metadata: simple_cooling
+#
+# Simple cooling model for Proof-of-Concept testing. This is a placeholder module
+# that demonstrates module system infrastructure rather than realistic physics.
+#
+# For schema documentation, see:
+#   docs/developer/module-metadata-schema.md
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: simple_cooling
+  display_name: "Simple Cooling"
+  description: "Simple cooling model for Proof-of-Concept testing."
+  version: "0.1.0"
+  author: "Mimic Development Team"
+  category: gas_physics
+
+  # ===========================================================================
+  # Source Files
+  # ===========================================================================
+
+  sources:
+    - simple_cooling.c
+
+  headers:
+    - simple_cooling.h
+
+  register_function: simple_cooling_register
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  dependencies:
+    # This simple module creates gas from scratch, no dependencies
+    requires: []
+
+    # Properties created/modified by this module
+    provides:
+      - ColdGas
+
+  # ===========================================================================
+  # Parameters
+  # ===========================================================================
+
+  parameters:
+    - name: BaryonFraction
+      type: double
+      default: 0.15
+      range: [0.0, 1.0]
+      description: "Fraction of accreted halo mass that becomes cold gas"
+      units: "dimensionless"
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+
+  tests:
+    unit: test_simple_cooling.c
+    integration: test_simple_cooling.py
+    scientific: test_simple_cooling_basic.py
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: docs/physics/simple-cooling.md
+    user_guide_section: "Simple Cooling (PoC)"
+
+  # ===========================================================================
+  # References
+  # ===========================================================================
+
+  references:
+    - "Simplified model for testing infrastructure only"
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []
+  default_enabled: false  # PoC module, not for production

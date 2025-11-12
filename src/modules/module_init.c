@@ -1,48 +1,37 @@
-/**
- * @file    module_init.c
- * @brief   Module registration initialization
+/* AUTO-GENERATED FILE - DO NOT EDIT MANUALLY */
+/* Generated from module metadata by scripts/generate_module_registry.py */
+/* Source: src/modules/[MODULE]/module_info.yaml */
+/*
+ * To regenerate:
+ *   make generate-modules
  *
- * This file contains the module registration code, isolating physics-specific
- * knowledge from the core infrastructure. The core (main.c) calls
- * register_all_modules() without knowing which specific modules exist.
+ * To validate:
+ *   make validate-modules
  *
- * Vision Principle 1 (Physics-Agnostic Core): By isolating module registration
- * here, the core infrastructure has zero knowledge of specific physics
- * implementations.
- *
- * Phase 5 Implementation Note: This file will be auto-generated from module
- * metadata (module_info.yaml files) to enable build-time module selection.
- * For Phase 3, it's manually maintained but architecturally separated from
- * core.
+ * Generated: 2025-11-12 16:35:36
+ * Source MD5: cb8c41a3333437433d443d9a8ffe3479
  */
 
 #include "module_registry.h"
 
-/* Module headers - isolated from core */
+/* Auto-generated module includes (sorted alphabetically) */
 #include "sage_infall/sage_infall.h"
 #include "simple_cooling/simple_cooling.h"
 #include "simple_sfr/simple_sfr.h"
 
 /**
- * @brief   Register all available physics modules
+ * @brief Register all available physics modules
  *
- * This function registers all physics modules that are compiled into the
- * current build. The core calls this function without knowing which specific
- * modules exist.
+ * Modules registered: 3
  *
- * Module registration order matters for property dependencies:
- * - sage_infall provides HotGas, MetalsHotGas, EjectedMass, ICS
- * - simple_cooling provides ColdGas
- * - simple_sfr consumes ColdGas
- *
- * Therefore modules must be registered in dependency order.
- *
- * Phase 4.2: SAGE physics modules added
- * Phase 5: Auto-generated from module metadata and build configuration
+ * Dependency order:
+ * 1. sage_infall: provides [HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons]
+ * 2. simple_cooling: provides [ColdGas]
+ * 3. simple_sfr: requires [ColdGas] → provides [StellarMass]
  */
 void register_all_modules(void) {
-  /* Register modules in dependency order */
-  sage_infall_register();   /* Provides: HotGas, MetalsHotGas, etc. */
-  simple_cooling_register(); /* Provides: ColdGas */
-  simple_sfr_register();     /* Consumes: ColdGas */
+    /* Register in dependency-resolved order */
+    sage_infall_register();  /* Provides: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons */
+    simple_cooling_register();  /* Provides: ColdGas */
+    simple_sfr_register();  /* Requires: ColdGas → Provides: StellarMass */
 }

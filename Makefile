@@ -52,7 +52,7 @@ endif
 GIT_VERSION_H = $(SRC_DIR)/include/git_version.h
 
 # Build targets
-.PHONY: all clean tidy help generate check-generated tests test-unit test-integration test-scientific test-clean
+.PHONY: all clean tidy help generate check-generated tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules
 
 all: $(EXEC)
 
@@ -106,6 +106,30 @@ $(GENERATED_HEADERS): $(PROP_YAML) scripts/generate_properties.py
 	@python3 scripts/generate_properties.py
 	@echo "Done. Generated files are in $(GEN_DIR)/ and output/mimic-plot/"
 
+# -----------------------------------------------------------------------------
+# Module metadata auto-generation
+# -----------------------------------------------------------------------------
+
+# YAML metadata inputs for module generation
+MODULE_YAML := $(wildcard $(SRC_DIR)/modules/*/module_info.yaml)
+
+# Generated module registration files
+MODULE_INIT_C := $(SRC_DIR)/modules/module_init.c
+MODULE_SOURCES_MK := tests/unit/module_sources.mk
+MODULE_REFERENCE_MD := docs/user/module-reference.md
+
+# Module validation script
+MODULE_VALIDATOR := scripts/validate_modules.py
+
+# Ensure module_init.o waits for generated module registration code
+$(OBJ_DIR)/modules/module_init.o: $(MODULE_INIT_C)
+
+# Rule to (re)generate module registration code whenever YAML or generator changes
+$(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py
+	@echo "Generating module registration code from metadata (auto)..."
+	@python3 scripts/generate_module_registry.py
+	@echo "Done. Generated files for $(words $(MODULE_YAML)) module(s)"
+
 clean: test-clean
 	@echo "Cleaning..."
 	rm -rf $(BUILD_DIR) $(EXEC) $(GIT_VERSION_H)
@@ -122,8 +146,12 @@ help:
 	@echo "  make              - Build executable"
 	@echo "  make clean        - Remove all build artifacts"
 	@echo "  make tidy         - Remove build directory only"
-	@echo "  make generate     - Manually generate property code from metadata"
+	@echo "  make generate     - Generate all code from metadata (properties + modules)"
 	@echo "  make check-generated - Verify generated code is up-to-date (CI)"
+	@echo ""
+	@echo "Module targets:"
+	@echo "  make generate-modules  - Generate module registration code"
+	@echo "  make validate-modules  - Validate module metadata"
 	@echo ""
 	@echo "Test targets:"
 	@echo "  make tests        - Run all tests (unit + integration + scientific)"
@@ -137,23 +165,35 @@ help:
 	@echo "  make USE-MPI=yes  - Enable MPI support"
 	@echo ""
 	@echo "Notes:"
-	@echo "  Property code is auto-regenerated when YAML changes:"
-	@echo "    - metadata/properties/halo_properties.yaml"
-	@echo "    - metadata/properties/galaxy_properties.yaml"
-	@echo "  The following generated files are kept in sync and included during build:"
+	@echo "  Code is auto-regenerated when YAML metadata changes:"
+	@echo ""
+	@echo "  Property metadata (metadata/properties/*.yaml):"
 	@echo "    - src/include/generated/property_defs.h"
-	@echo "    - src/include/generated/init_halo_properties.inc"
-	@echo "    - src/include/generated/init_galaxy_properties.inc"
+	@echo "    - src/include/generated/init_*_properties.inc"
 	@echo "    - src/include/generated/copy_to_output.inc"
-	@echo "    - src/include/generated/hdf5_field_count.inc"
-	@echo "    - src/include/generated/hdf5_field_definitions.inc"
+	@echo "    - src/include/generated/hdf5_field_*.inc"
 	@echo "    - output/mimic-plot/generated_dtype.py"
+	@echo ""
+	@echo "  Module metadata (src/modules/*/module_info.yaml):"
+	@echo "    - src/modules/module_init.c"
+	@echo "    - tests/unit/module_sources.mk"
+	@echo "    - docs/user/module-reference.md"
 
 # Property metadata code generation
 generate:
-	@echo "Generating property code from metadata..."
+	@echo "Generating code from metadata..."
 	@python3 scripts/generate_properties.py
-	@echo "Done. Generated files are in src/include/generated/"
+	@python3 scripts/generate_module_registry.py
+	@echo "Done. Generated files in src/include/generated/ and src/modules/"
+
+# Module-specific generation targets
+generate-modules:
+	@echo "Generating module registration code..."
+	@python3 scripts/generate_module_registry.py
+
+validate-modules:
+	@echo "Validating module metadata..."
+	@python3 scripts/validate_modules.py
 
 check-generated:
 	@python3 scripts/check_generated.py

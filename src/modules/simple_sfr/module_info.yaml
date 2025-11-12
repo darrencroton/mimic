@@ -1,0 +1,88 @@
+# Module Metadata: simple_sfr
+#
+# Simple star formation rate model for Proof-of-Concept testing. This is a
+# placeholder module that demonstrates module system infrastructure and inter-module
+# dependencies.
+#
+# For schema documentation, see:
+#   docs/developer/module-metadata-schema.md
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: simple_sfr
+  display_name: "Simple Star Formation"
+  description: "Simple star formation model for Proof-of-Concept testing."
+  version: "0.1.0"
+  author: "Mimic Development Team"
+  category: star_formation
+
+  # ===========================================================================
+  # Source Files
+  # ===========================================================================
+
+  sources:
+    - simple_sfr.c
+
+  headers:
+    - simple_sfr.h
+
+  register_function: simple_sfr_register
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  dependencies:
+    # This module requires cold gas from cooling module
+    requires:
+      - ColdGas
+
+    # Properties created/modified by this module
+    provides:
+      - StellarMass
+
+  # ===========================================================================
+  # Parameters
+  # ===========================================================================
+
+  parameters:
+    - name: Efficiency
+      type: double
+      default: 0.02
+      range: [0.0, 1.0]
+      description: "Star formation efficiency"
+      units: "dimensionless"
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+
+  tests:
+    unit: test_simple_sfr.c
+    integration: test_simple_sfr.py
+    scientific: test_simple_sfr_basic.py
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: docs/physics/simple-sfr.md
+    user_guide_section: "Simple Star Formation (PoC)"
+
+  # ===========================================================================
+  # References
+  # ===========================================================================
+
+  references:
+    - "Simplified Kennicutt-Schmidt-like model for testing only"
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []
+  default_enabled: false  # PoC module, not for production

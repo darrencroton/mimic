@@ -90,6 +90,8 @@ struct ModuleContext {
 
 ## Quick Start: Creating Your First Module
 
+**NEW (Phase 4.2.5)**: Module registration is now **automatic** via metadata. No manual code editing required!
+
 ### Step 1: Copy the Template
 
 ```bash
@@ -104,7 +106,43 @@ mv template_module.h my_module.h
 mv template_module.c my_module.c
 ```
 
-### Step 3: Update File Contents
+### Step 3: Create Module Metadata
+
+Create `src/modules/my_module/module_info.yaml`:
+
+```yaml
+module:
+  # Core metadata
+  name: my_module
+  display_name: "My Module"
+  description: "Brief description of what this module does."
+  version: "1.0.0"
+  author: "Your Name"
+  category: gas_physics  # or star_formation, mergers, etc.
+
+  # Source files
+  sources:
+    - my_module.c
+  headers:
+    - my_module.h
+  register_function: my_module_register
+
+  # Dependencies
+  dependencies:
+    requires: []  # Properties your module needs
+    provides: []  # Properties your module creates
+
+  # Parameters
+  parameters: []  # Add your parameters here
+
+  # Build configuration
+  compilation_requires: []
+  default_enabled: true
+```
+
+See `docs/developer/module-metadata-schema.md` for complete schema documentation.
+
+### Step 4: Update File Contents
 
 Edit `my_module.h` and `my_module.c`:
 - Replace all occurrences of `template_module` with `my_module`
@@ -112,7 +150,7 @@ Edit `my_module.h` and `my_module.c`:
 - Update file documentation
 - Implement your physics logic
 
-### Step 4: Define Properties (if needed)
+### Step 5: Define Properties (if needed)
 
 If your module needs new galaxy properties:
 
@@ -129,24 +167,36 @@ vim metadata/properties/galaxy_properties.yaml
 #   created_by: my_module
 #   init_source: default
 #   init_value: 0.0
+#   output_source: galaxy_property
+
+# Add to module_info.yaml dependencies.provides:
+# provides:
+#   - MyProperty
 
 # Generate code
 make generate
 ```
 
-### Step 5: Register Module
+### Step 6: Build and Test
 
-Edit `src/modules/module_init.c`:
+```bash
+# Validate metadata
+make validate-modules
 
-```c
-#include "my_module/my_module.h"
+# Generate registration code (automatic during build, but you can test it)
+make generate-modules
 
-void register_all_modules(void) {
-    simple_cooling_register();
-    simple_sfr_register();
-    my_module_register();  // Add your module
-}
+# Build
+make
+
+# Your module is now automatically registered!
 ```
+
+**That's it!** No manual editing of `module_init.c` or test scripts required. The build system automatically:
+- Generates module registration code
+- Updates test build configuration
+- Creates module documentation
+- Validates dependencies
 
 ### Step 6: Build and Test
 

@@ -1,0 +1,124 @@
+# Module Metadata: sage_infall
+#
+# Cosmological gas infall and satellite stripping from the SAGE galaxy evolution model.
+# This module handles the initial gas accretion onto dark matter halos and the
+# redistribution of baryons in satellite galaxies.
+#
+# For schema documentation, see:
+#   docs/developer/module-metadata-schema.md
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: sage_infall
+  display_name: "SAGE Infall"
+  description: "Cosmological gas infall and satellite stripping from SAGE model."
+  version: "1.0.0"
+  author: "Mimic Team (ported from SAGE)"
+  category: gas_physics
+
+  # ===========================================================================
+  # Source Files
+  # ===========================================================================
+
+  sources:
+    - sage_infall.c
+
+  headers:
+    - sage_infall.h
+
+  register_function: sage_infall_register
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  dependencies:
+    # This module creates initial baryonic components from scratch
+    requires: []
+
+    # Properties created/modified by this module
+    provides:
+      - HotGas
+      - MetalsHotGas
+      - EjectedMass
+      - MetalsEjectedMass
+      - ICS
+      - MetalsICS
+      - TotalSatelliteBaryons
+
+  # ===========================================================================
+  # Parameters
+  # ===========================================================================
+
+  parameters:
+    - name: BaryonFrac
+      type: double
+      default: 0.17
+      range: [0.0, 1.0]
+      description: "Cosmic baryon fraction (Omega_b / Omega_m)"
+      units: "dimensionless"
+
+    - name: ReionizationOn
+      type: int
+      default: 1
+      range: [0, 1]
+      description: "Enable reionization suppression (0=off, 1=on)"
+      units: "dimensionless"
+
+    - name: Reionization_z0
+      type: double
+      default: 8.0
+      range: [0.0, 20.0]
+      description: "Redshift when UV background turns on"
+      units: "dimensionless"
+
+    - name: Reionization_zr
+      type: double
+      default: 7.0
+      range: [0.0, 20.0]
+      description: "Redshift of full reionization"
+      units: "dimensionless"
+
+    - name: StrippingSteps
+      type: int
+      default: 10
+      range: [1, 100]
+      description: "Number of substeps for satellite stripping"
+      units: "dimensionless"
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+
+  tests:
+    unit: test_sage_infall.c
+    integration: test_sage_infall.py
+    scientific: test_sage_infall_validation.py
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: docs/physics/sage-infall.md
+    user_guide_section: "SAGE Infall Module"
+
+  # ===========================================================================
+  # References
+  # ===========================================================================
+
+  references:
+    - "Gnedin (2000) - Reionization model"
+    - "Kravtsov et al. (2004) - Filtering mass formulas"
+    - "Croton et al. (2016) - SAGE model description"
+    - "SAGE source: sage-code/model_infall.c"
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []
+  default_enabled: true

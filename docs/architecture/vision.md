@@ -50,11 +50,14 @@ These principles guide all design decisions and implementation choices in Mimic:
 
 **Requirements**:
 - Galaxy properties (e.g., `StellarMass`, `ColdGas`) are defined in metadata files (YAML), not hardcoded in C structs.
+- Physics modules are defined in metadata with automatic registration generation.
 - Parameters are defined in metadata with automatic validation generation.
-- The build system generates type-safe C code (headers, accessors) from metadata.
+- The build system generates type-safe C code (headers, accessors, registration) from metadata.
 - Output formats adapt automatically to properties defined in metadata.
 
 **Benefits**: Reduces code duplication, eliminates manual synchronization between different representations, enables build-time optimization, and simplifies maintenance by creating a single source of truth.
+
+**In Practice**: Adding a new galaxy property requires editing a single YAML file and running `make generate`. Adding a new physics module requires creating `module_info.yaml` and running `make generate-modules`. All C code, documentation, and build configuration is automatically generated.
 
 ### 4. Single Source of Truth
 
@@ -123,8 +126,10 @@ These principles guide all design decisions and implementation choices in Mimic:
 
 ### Metadata-Driven Development
 - **Single Source of Truth**: YAML metadata prevents synchronization bugs between code representations.
+- **Property Metadata** (`metadata/properties/*.yaml`): Galaxy/halo properties auto-generate C structs, accessors, output code, and Python dtypes.
+- **Module Metadata** (`src/modules/*/module_info.yaml`): Physics modules auto-generate registration code, test configuration, and documentation.
 - **Code Generation**: Type-safe C code is automatically generated from metadata definitions.
-- **Build Integration**: Code generation is integrated into the build system.
+- **Build Integration**: Code generation is integrated into the build system with automatic regeneration on metadata changes.
 
 ### Physics-Agnostic Core
 - **Zero Physics Knowledge**: Core infrastructure has no understanding of specific physics processes.
@@ -178,8 +183,8 @@ These principles guide all design decisions and implementation choices in Mimic:
 ### Data Flow
 
 1. **Configuration Loading**: Configuration files are loaded and validated.
-2. **Module Registration**: Physics modules self-register based on configuration.
-3. **Pipeline Creation**: An execution pipeline is built from registered modules.
+2. **Module Registration**: Physics modules auto-register from metadata in dependency-resolved order.
+3. **Pipeline Creation**: An execution pipeline is built from registered modules based on configuration.
 4. **Tree Processing**: The core loads and processes merger trees using a unified algorithm.
 5. **Module Execution**: Physics modules execute in dependency-resolved order.
 6. **Output Generation**: A property-based output system adapts to available properties.
