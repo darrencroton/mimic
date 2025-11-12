@@ -6,6 +6,24 @@
 
 ---
 
+## ⚠️ Important: Automatic Module Discovery Now Available
+
+**NEW (Phase 4.2.5 - Completed 2025-11-12)**: Module registration is now **fully automatic** via metadata!
+
+**Old Workflow** (manual - DON'T DO THIS):
+- ❌ Manually edit `src/modules/module_init.c` to add includes and registration
+- ❌ Manually edit `tests/unit/run_tests.sh` to add module sources
+- ❌ Manually update documentation
+
+**New Workflow** (automatic - DO THIS):
+1. ✅ Create module implementation (`module_name.c`, `module_name.h`)
+2. ✅ Create `module_info.yaml` from template
+3. ✅ Run `make generate-modules` - everything auto-generated!
+
+See `docs/developer/module-metadata-schema.md` for complete metadata documentation.
+
+---
+
 ## Immediate Next Steps
 
 ### Module 1: sage_infall - Testing & Documentation (Tasks 7-10)
@@ -204,11 +222,18 @@ Then: `make generate`
 
 ### Tasks 15-18: Implement sage_cooling Module
 
-**Similar process to sage_infall**:
-1. Copy template
-2. Implement init (load tables, read parameters)
-3. Implement process (cooling physics, NO AGN)
-4. Register module
+**Workflow (using automatic module discovery)**:
+1. Copy template: `cp -r src/modules/_template src/modules/sage_cooling`
+2. Implement `sage_cooling.c` and `sage_cooling.h`
+   - `sage_cooling_init()` - Load cooling tables, read parameters
+   - `sage_cooling_process()` - Cooling physics (NO AGN)
+   - `sage_cooling_cleanup()` - Free cooling tables
+3. Create `module_info.yaml` from template
+   - Define module metadata (name, description, version)
+   - List dependencies: requires HotGas (from sage_infall), provides ColdGas
+   - Define parameters: CoolFunctionsDir, etc.
+4. Run `make generate-modules` - Automatic registration!
+5. Build and test: `make clean && make`
 
 **Key Physics**:
 - Calculate virial temperature: T_vir = 35.9 × V_vir²
