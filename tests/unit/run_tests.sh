@@ -86,8 +86,8 @@ CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC
 IO_SRCS="${SRC_DIR}/io/tree/interface.c ${SRC_DIR}/io/tree/binary.c ${SRC_DIR}/io/output/util.c ${SRC_DIR}/io/util.c"
 TEST_STUBS="${TEST_DIR}/test_stubs.c"
 
-# Module system sources (Phase 3)
-MODULE_SRCS="${SRC_DIR}/core/module_registry.c ${SRC_DIR}/modules/simple_cooling/simple_cooling.c ${SRC_DIR}/modules/simple_sfr/simple_sfr.c ${SRC_DIR}/modules/module_init.c"
+# Module system sources (Phase 3 + Phase 4.2)
+MODULE_SRCS="${SRC_DIR}/core/module_registry.c ${SRC_DIR}/modules/sage_infall/sage_infall.c ${SRC_DIR}/modules/simple_cooling/simple_cooling.c ${SRC_DIR}/modules/simple_sfr/simple_sfr.c ${SRC_DIR}/modules/module_init.c"
 
 # Combine all necessary sources (excluding main.c)
 ALL_SRCS="${UTIL_SRCS} ${CORE_SRCS} ${IO_SRCS} ${MODULE_SRCS} ${TEST_STUBS}"
