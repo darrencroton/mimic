@@ -554,75 +554,115 @@ Document parameters in:
 
 ### Test Tiers
 
-Mimic uses three test levels (see `docs/developer/testing.md` for details):
+Mimic uses three test levels (see `docs/developer/testing.md` for details). **Tests are co-located with module code** and auto-discovered via the test registry system.
 
-#### 1. Unit Tests (`tests/unit/`)
+#### 1. Unit Tests (C)
 
-**Purpose**: Test pure physics calculations in isolation
+**Purpose**: Test module software quality (lifecycle, memory, integration)
 
-**Example**: `tests/unit/test_my_module.c`
+**Location**: `src/modules/my_module/test_my_module.c`
+
+**Example**:
 
 ```c
-#include "test_framework.h"
+#include "framework/test_framework.h"
+#include "../../core/module_registry.h"
+#include "my_module.h"
 
-void test_cooling_rate_calculation() {
-    // Test specific physics calculation
-    double rate = calculate_cooling_rate(1e6, 0.02);  // T=1e6K, Z=0.02
+int test_module_initialization(void) {
+    reset_config();
+    init_memory_system(0);
 
-    ASSERT_FLOAT_EQ(rate, 1.5e-22, 1e-24);  // Expected value ± tolerance
+    strcpy(MimicConfig.EnabledModules[0], "my_module");
+    MimicConfig.NumEnabledModules = 1;
+
+    int result = module_system_init();
+    TEST_ASSERT(result == 0, "Module initialization should succeed");
+
+    module_system_cleanup();
+    check_memory_leaks();
+    return TEST_PASS;
 }
 
-int main() {
-    RUN_TEST(test_cooling_rate_calculation);
+int main(void) {
+    init_test_suite("My Module");
+
+    register_test(test_module_initialization, "test_module_initialization");
     // ... more tests
-    return TEST_REPORT();
+
+    return run_all_tests();
 }
 ```
 
 **What to test**:
-- Pure physics functions (no halo dependencies)
-- Edge cases (zero, negative, very large values)
-- Parameter validation
-- Lookup table interpolation
+- Module registration and initialization
+- Parameter reading from config
+- Memory safety (no leaks during operation)
+- Property access patterns
+- Error handling
 
-#### 2. Integration Tests (`tests/integration/`)
+**Declared in**: `module_info.yaml`:
+```yaml
+tests:
+  unit: test_my_module.c
+```
 
-**Purpose**: Test module in full pipeline
+#### 2. Integration Tests (Python)
 
-**Example**: `tests/integration/test_my_module.py`
+**Purpose**: Test module in full pipeline execution
+
+**Location**: `src/modules/my_module/test_my_module.py`
+
+**Example**:
 
 ```python
-import subprocess
+#!/usr/bin/env python3
 import os
+import sys
+import unittest
 
-def test_my_module_runs():
-    """Test module executes without errors"""
-    result = subprocess.run(['./mimic', 'input/test.par'],
-                          capture_output=True, text=True)
-    assert result.returncode == 0, f"Module failed: {result.stderr}"
+# Add tests directory to path for framework import
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
+sys.path.insert(0, os.path.join(repo_root, 'tests'))
+from framework import load_binary_halos
 
-def test_my_module_output():
-    """Test module produces expected output"""
-    # Read output file
-    data = read_binary_halos('output/test_00.dat')
+class TestMyModule(unittest.TestCase):
+    def test_module_loads(self):
+        """Test module executes without errors"""
+        returncode, stdout, stderr = self._run_mimic(param_file)
+        self.assertEqual(returncode, 0)
 
-    # Check property exists and has reasonable values
-    assert 'MyProperty' in data.dtype.names
-    assert data['MyProperty'].min() >= 0.0
-    assert data['MyProperty'].max() < 1e5
+    def test_output_properties(self):
+        """Test module produces expected output properties"""
+        halos = load_binary_halos('output/test_00.dat')
+        self.assertIn('MyProperty', halos.dtype.names)
+        self.assertGreater(halos['MyProperty'].min(), 0.0)
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)
 ```
 
 **What to test**:
 - Module runs without crashes
 - Properties appear in output
 - Module respects configuration
-- Memory leaks (check with `print_allocated_by_category()`)
+- Memory safety (no leaks)
+- Multi-module pipeline integration
 
-#### 3. Scientific Validation (`tests/scientific/`)
+**Declared in**: `module_info.yaml`:
+```yaml
+tests:
+  unit: test_my_module.c
+  integration: test_my_module.py
+```
 
-**Purpose**: Verify physics correctness
+#### 3. Scientific Validation (Python)
 
-**Example**: `tests/scientific/test_my_module_physics.py`
+**Purpose**: Verify physics correctness (often deferred until dependencies ready)
+
+**Location**: `src/modules/my_module/test_my_module_validation.py`
+
+**Example**:
 
 ```python
 def test_mass_conservation():
@@ -653,21 +693,47 @@ def test_vs_sage_results():
 - Published results reproduction
 - Physical plausibility checks
 
+**Declared in**: `module_info.yaml`:
+```yaml
+tests:
+  unit: test_my_module.c
+  integration: test_my_module.py
+  scientific: test_my_module_validation.py
+```
+
+### Test Auto-Discovery
+
+Tests are automatically discovered via the test registry system:
+
+1. **Declare tests** in `module_info.yaml`
+2. **Generate registry**: `make generate-test-registry` (done automatically by `make tests`)
+3. **Tests auto-run**: Test runners read registry and execute all module tests
+
+**Benefits**:
+- Tests co-located with module code
+- Adding/removing modules automatically updates test suite
+- Physics-agnostic core maintained
+- No manual test list maintenance
+
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all tests (auto-discovers all module tests)
 make tests
 
-# Run specific tier
+# Run specific tier (auto-discovers module tests for that tier)
 make test-unit
 make test-integration
 make test-scientific
 
-# Run individual test
-cd tests/unit && ./test_my_module.test
-cd tests/integration && python test_my_module.py
+# Regenerate test registry (done automatically)
+make generate-test-registry
+
+# Validate test registry (checks declared tests exist)
+make validate-test-registry
 ```
+
+See `docs/developer/testing.md` for comprehensive testing guide.
 
 ---
 

@@ -77,7 +77,7 @@ fi
 
 # Common compiler flags
 CC="${CC:-gcc}"
-CFLAGS="-Wall -Wextra -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -g -O0"
+CFLAGS="-Wall -Wextra -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -Itests -g -O0"
 LDFLAGS="-lm"
 
 # Source files needed for tests (non-main files)
@@ -109,8 +109,27 @@ if [ $# -gt 0 ]; then
     # Specific test requested
     TESTS="$@"
 else
-    # Run all tests
-    TESTS="test_memory_system test_property_metadata test_parameter_parsing test_tree_loading test_numeric_utilities test_module_configuration"
+    # Core infrastructure tests (not module-specific)
+    CORE_TESTS="test_memory_system test_property_metadata test_parameter_parsing test_tree_loading test_numeric_utilities test_module_configuration"
+
+    # Auto-discover module tests from registry
+    MODULE_TESTS=""
+    MODULE_TEST_REGISTRY="${REPO_ROOT}/build/generated_test_lists/unit_tests.txt"
+    if [ -f "$MODULE_TEST_REGISTRY" ]; then
+        # Read module test paths and extract test names
+        while IFS= read -r test_path; do
+            # Skip comments and empty lines
+            [[ "$test_path" =~ ^#.*$ ]] && continue
+            [[ -z "$test_path" ]] && continue
+
+            # Extract test name from path (e.g., src/modules/sage_infall/test_sage_infall.c -> test_sage_infall)
+            test_name=$(basename "$test_path" .c)
+            MODULE_TESTS="$MODULE_TESTS $test_name"
+        done < "$MODULE_TEST_REGISTRY"
+    fi
+
+    # Combine core and module tests
+    TESTS="$CORE_TESTS $MODULE_TESTS"
 fi
 
 echo "Repository: $REPO_ROOT"
@@ -128,9 +147,19 @@ compile_and_run_test() {
 
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-    # Check if test file exists
+    # Check if test file exists in tests/unit/ (core tests)
     if [ ! -f "$test_file" ]; then
-        echo -e "${RED}✗ Test file not found: ${test_file}${NC}"
+        # Try module directory (auto-discovered tests)
+        # Look up full path from registry
+        local registry_path=$(grep "/${test_name}.c$" "${REPO_ROOT}/build/generated_test_lists/unit_tests.txt" 2>/dev/null | head -1)
+        if [ -n "$registry_path" ]; then
+            test_file="${REPO_ROOT}/${registry_path}"
+        fi
+    fi
+
+    # Final check if test file exists
+    if [ ! -f "$test_file" ]; then
+        echo -e "${RED}✗ Test file not found: ${test_name}.c${NC}"
         FAILED_TESTS=$((FAILED_TESTS + 1))
         return 1
     fi

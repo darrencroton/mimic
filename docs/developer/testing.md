@@ -1,8 +1,8 @@
 # Mimic Testing Guide
 
-**Version**: 1.2 (Metadata-Driven Validation)
+**Version**: 1.3 (Automated Test Discovery)
 **Status**: Production
-**Last Updated**: 2025-11-11
+**Last Updated**: 2025-11-12
 
 This comprehensive guide explains how to use Mimic's testing infrastructure, write new tests, and debug test failures.
 
@@ -180,23 +180,18 @@ Running: test_basic_allocation                              ✗ FAIL
 
 ### Directory Structure
 
+**Core Tests** (physics-agnostic infrastructure):
 ```
 tests/
-├── unit/                      # C unit tests
+├── unit/                      # C unit tests for core infrastructure
 │   ├── test_memory_system.c
 │   ├── test_property_metadata.c
 │   ├── test_parameter_parsing.c
 │   ├── test_tree_loading.c
 │   ├── test_numeric_utilities.c
 │   ├── test_module_configuration.c
-│   ├── run_tests.sh           # Test runner
+│   ├── run_tests.sh           # Test runner (auto-discovers module tests)
 │   └── build/                 # Compiled tests
-├── integration/               # Python integration tests
-│   ├── test_full_pipeline.py
-│   ├── test_output_formats.py
-│   └── test_module_pipeline.py
-├── scientific/                # Python scientific tests
-│   └── test_scientific.py
 ├── data/                      # Test data
 │   ├── input/                 # Input test data
 │   │   ├── trees_063.0        # Single tree file (17M)
@@ -210,11 +205,76 @@ tests/
 │       ├── binary/            # Binary format test outputs (generated, not in git)
 │       └── hdf5/              # HDF5 format test outputs (generated, not in git)
 └── framework/                 # Test framework and templates
-    ├── test_framework.h
+    ├── test_framework.h       # C unit test framework
     ├── data_loader.py         # Binary output file loader (Python)
     ├── c_unit_test_template.c
     ├── python_integration_test_template.py
     └── python_scientific_test_template.py
+```
+
+**Module Tests** (co-located with physics modules):
+```
+src/modules/
+├── sage_infall/
+│   ├── sage_infall.c
+│   ├── sage_infall.h
+│   ├── module_info.yaml       # Declares test files
+│   ├── test_sage_infall.c     # Unit tests (software quality)
+│   ├── test_sage_infall.py    # Integration tests (software quality)
+│   └── test_sage_infall_validation.py  # Scientific tests (physics validation)
+├── simple_cooling/
+│   ├── simple_cooling.c
+│   ├── module_info.yaml       # Declares test files
+│   ├── test_simple_cooling.c
+│   ├── test_simple_cooling.py
+│   └── test_simple_cooling_basic.py
+└── ...
+```
+
+**Test Registry** (auto-generated):
+```
+build/generated_test_lists/
+├── unit_tests.txt             # Auto-discovered C unit tests
+├── integration_tests.txt      # Auto-discovered Python integration tests
+├── scientific_tests.txt       # Auto-discovered Python scientific tests
+└── test_registry_hash.txt     # Registry consistency hash
+```
+
+### Automated Test Discovery
+
+Mimic uses a **metadata-driven test discovery system** to maintain the physics-agnostic core principle:
+
+1. **Module Metadata**: Each module's `module_info.yaml` declares its test files:
+   ```yaml
+   tests:
+     unit: test_sage_infall.c
+     integration: test_sage_infall.py
+     scientific: test_sage_infall_validation.py
+   ```
+
+2. **Registry Generation**: `make generate-test-registry` scans all modules and generates test lists:
+   - `build/generated_test_lists/unit_tests.txt`
+   - `build/generated_test_lists/integration_tests.txt`
+   - `build/generated_test_lists/scientific_tests.txt`
+
+3. **Auto-Discovery**: Test runners automatically discover and run all registered tests:
+   - `tests/unit/run_tests.sh` reads registry and compiles/runs unit tests
+   - `make test-integration` iterates through integration test registry
+   - `make test-scientific` iterates through scientific test registry
+
+**Benefits**:
+- Module tests stay co-located with module code (true self-containment)
+- Core has zero knowledge of specific module tests (physics-agnostic)
+- Adding/removing modules automatically updates test suite
+- No manual test list maintenance required
+
+**Commands**:
+```bash
+# Regenerate test registry (done automatically by make tests)
+make generate-test-registry
+
+# Validate test registry (checks declared tests exist)
+make validate-test-registry
 ```
 
 ### Test Data

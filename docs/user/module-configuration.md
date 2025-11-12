@@ -125,6 +125,69 @@ SimpleSFR_Efficiency  0.02
 
 ---
 
+### sage_infall
+
+**Purpose**: SAGE model implementation of cosmological gas infall and satellite stripping.
+
+**Physics**:
+- Gas infall: infallingMass = f_reion * BaryonFrac * Mvir - (total baryons)
+- Reionization suppression following Gnedin (2000)
+- Environmental stripping of satellite hot gas
+
+**Parameters**:
+- `SageInfall_BaryonFrac` (optional, default=0.17)
+  - Cosmic baryon fraction (Ωb/Ωm)
+  - Valid range: 0.0 - 1.0
+  - Planck value: ~0.17
+
+- `SageInfall_ReionizationOn` (optional, default=1)
+  - Enable (1) or disable (0) reionization suppression
+  - Valid values: 0 or 1
+  - Disable for testing or pre-reionization runs
+
+- `SageInfall_Reionization_z0` (optional, default=8.0)
+  - Redshift when UV background turns on
+  - Valid range: 0.0 - 20.0
+  - Typical value: 8.0
+
+- `SageInfall_Reionization_zr` (optional, default=7.0)
+  - Redshift of full reionization
+  - Valid range: 0.0 - 20.0
+  - Typical value: 7.0
+
+- `SageInfall_StrippingSteps` (optional, default=10)
+  - Number of substeps for gradual satellite stripping
+  - Valid range: 1 - 100
+  - Higher = smoother stripping, slightly more computational cost
+
+**Dependencies**: None (provides initial hot gas reservoir)
+
+**Provides**: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons
+
+**Execution Order**: Should run **early** in pipeline (before cooling, star formation)
+
+**Example Configuration**:
+```
+# Basic usage with defaults
+EnabledModules  sage_infall
+
+# Custom reionization parameters
+EnabledModules  sage_infall
+SageInfall_BaryonFrac            0.17
+SageInfall_ReionizationOn        1
+SageInfall_Reionization_z0       8.0
+SageInfall_Reionization_zr       7.0
+SageInfall_StrippingSteps        10
+
+# Disable reionization (for testing)
+EnabledModules  sage_infall
+SageInfall_ReionizationOn        0
+```
+
+**Note**: Physics validation deferred to Phase 4.3+ when downstream modules are implemented. See `docs/physics/sage-infall.md` for complete documentation.
+
+---
+
 ## Complete Example Parameter File
 
 ```

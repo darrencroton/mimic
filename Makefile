@@ -7,8 +7,8 @@ BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
 DEP_DIR = $(BUILD_DIR)/deps
 
-# Source files (recursive find, excluding template)
-SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_template/*')
+# Source files (recursive find, excluding template and test files)
+SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_template/*' ! -name 'test_*.c')
 OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES))
 DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
 
@@ -159,6 +159,8 @@ help:
 	@echo "  make test-integration - Run integration tests only"
 	@echo "  make test-scientific  - Run scientific tests only"
 	@echo "  make test-clean   - Clean test artifacts"
+	@echo "  make generate-test-registry - Auto-discover module tests"
+	@echo "  make validate-test-registry - Validate test declarations"
 	@echo ""
 	@echo "Options:"
 	@echo "  make USE-HDF5=yes - Enable HDF5 support"
@@ -198,6 +200,13 @@ validate-modules:
 check-generated:
 	@python3 scripts/check_generated.py
 
+# Test registry generation (auto-discovers module tests)
+generate-test-registry:
+	@python3 scripts/generate_test_registry.py
+
+validate-test-registry:
+	@python3 scripts/validate_module_tests.py
+
 # Test targets
 tests: test-unit test-integration test-scientific
 	@echo ""
@@ -220,13 +229,24 @@ test-integration:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING INTEGRATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
-	@echo "Building mimic with HDF5 support for integration tests..."
+	@echo "Building mimic for integration tests..."
 	@$(MAKE) clean > /dev/null 2>&1
-	@$(MAKE) USE-HDF5=yes
+	@$(MAKE) generate-test-registry > /dev/null 2>&1
+	@$(MAKE)
 	@echo ""
-	-@cd tests/integration && python test_full_pipeline.py
+	@echo "Running core integration tests..."
+	-@cd tests/integration && python3 test_full_pipeline.py
 	@echo ""
-	-@cd tests/integration && python test_output_formats.py
+	-@cd tests/integration && python3 test_output_formats.py
+	@echo ""
+	-@cd tests/integration && python3 test_module_pipeline.py
+	@echo ""
+	@echo "Running module integration tests from registry..."
+	@for test in $$(grep -v '^#' build/generated_test_lists/integration_tests.txt | grep -v '^$$'); do \
+		echo ""; \
+		echo "\033[0;34mRunning: $$test\033[0m"; \
+		python3 $$test || exit 1; \
+	done
 
 test-scientific:
 	@echo ""
@@ -234,11 +254,20 @@ test-scientific:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING SCIENTIFIC VALIDATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
-	@echo "Building mimic with HDF5 support for scientific tests..."
+	@echo "Building mimic for scientific tests..."
 	@$(MAKE) clean > /dev/null 2>&1
-	@$(MAKE) USE-HDF5=yes
+	@$(MAKE) generate-test-registry > /dev/null 2>&1
+	@$(MAKE)
 	@echo ""
-	-@cd tests/scientific && python test_scientific.py
+	@echo "Running core scientific tests..."
+	-@cd tests/scientific && python3 test_scientific.py
+	@echo ""
+	@echo "Running module scientific tests from registry..."
+	@for test in $$(grep -v '^#' build/generated_test_lists/scientific_tests.txt | grep -v '^$$'); do \
+		echo ""; \
+		echo "\033[0;34mRunning: $$test\033[0m"; \
+		python3 $$test || exit 1; \
+	done
 
 test-clean:
 	@echo "Cleaning test artifacts..."
