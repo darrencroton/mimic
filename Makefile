@@ -48,6 +48,9 @@ ifdef USE-MPI
     CFLAGS += -DMPI
 endif
 
+# Python for tests (use virtual environment if available)
+PYTHON := $(shell if [ -f mimic_venv/bin/python3 ]; then echo mimic_venv/bin/python3; else echo python3; fi)
+
 # Git version tracking
 GIT_VERSION_H = $(SRC_DIR)/include/git_version.h
 
@@ -235,17 +238,17 @@ test-integration:
 	@$(MAKE) USE-HDF5=yes
 	@echo ""
 	@echo "Running core integration tests..."
-	-@python3 tests/integration/test_full_pipeline.py
+	-@$(PYTHON) tests/integration/test_full_pipeline.py
 	@echo ""
-	-@python3 tests/integration/test_output_formats.py
+	-@$(PYTHON) tests/integration/test_output_formats.py
 	@echo ""
-	-@python3 tests/integration/test_module_pipeline.py
+	-@$(PYTHON) tests/integration/test_module_pipeline.py
 	@echo ""
 	@echo "Running module integration tests from registry..."
 	@for test in $$(grep -v '^#' build/generated_test_lists/integration_tests.txt | grep -v '^$$'); do \
 		echo ""; \
 		echo "\033[0;34mRunning: $$test\033[0m"; \
-		python3 $$test || exit 1; \
+		$(PYTHON) $$test || exit 1; \
 	done
 
 test-scientific:
@@ -260,13 +263,13 @@ test-scientific:
 	@$(MAKE) USE-HDF5=yes
 	@echo ""
 	@echo "Running core scientific tests..."
-	-@python3 tests/scientific/test_scientific.py
+	-@$(PYTHON) tests/scientific/test_scientific.py
 	@echo ""
 	@echo "Running module scientific tests from registry..."
 	@for test in $$(grep -v '^#' build/generated_test_lists/scientific_tests.txt | grep -v '^$$'); do \
 		echo ""; \
 		echo "\033[0;34mRunning: $$test\033[0m"; \
-		python3 $$test || exit 1; \
+		$(PYTHON) $$test || exit 1; \
 	done
 
 test-clean:
