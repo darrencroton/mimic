@@ -732,6 +732,96 @@ tests:
   scientific: test_my_module_validation.py
 ```
 
+#### Deferring Scientific Validation
+
+It's acceptable to defer physics validation tests when module dependencies are incomplete. However, you must still create the test file as a placeholder.
+
+**When to defer:**
+
+1. **Dependencies incomplete**: Module requires downstream modules for validation
+   - Example: `sage_infall` needs `sage_cooling` + `sage_starformation_feedback` to validate mass flows
+2. **End-to-end validation required**: Physics can only be validated in full pipeline
+3. **Reference data not yet available**: SAGE comparison data requires complete pipeline run
+
+**Requirements for deferral:**
+
+1. ✅ **Create placeholder test file** - Don't skip the file entirely
+2. ✅ **Software quality tests complete** - Unit and integration tests must pass
+3. ✅ **Document the deferral** - README explains when/how validation will occur
+4. ✅ **Clear plan** - State what validation will be done and when
+
+**Placeholder Example:**
+
+```python
+#!/usr/bin/env python3
+"""
+Scientific validation tests for sage_infall module.
+
+STATUS: DEFERRED to Phase 4.3+
+
+RATIONALE:
+Physics validation requires downstream modules (sage_cooling,
+sage_starformation_feedback, sage_reincorporation) to validate
+complete mass flows through the galaxy formation pipeline.
+
+PLAN:
+After downstream modules are implemented:
+- Compare Mimic vs SAGE outputs on identical trees
+- Validate mass conservation through full pipeline
+- Check reionization suppression curves
+- Verify statistical galaxy properties (stellar mass functions, etc.)
+
+For now, unit and integration tests verify software quality.
+"""
+
+import unittest
+
+class TestSageInflallValidation(unittest.TestCase):
+    """Scientific validation tests - deferred until dependencies complete."""
+
+    def test_deferred_placeholder(self):
+        """Placeholder test - validation deferred to Phase 4.3+"""
+        self.skipTest("Physics validation deferred until sage_cooling, "
+                     "sage_starformation_feedback, sage_reincorporation complete")
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)
+```
+
+**Document in README:**
+
+```markdown
+## Testing Status
+
+### Software Quality Testing ✅
+
+**Unit Tests**: ✅ 5 tests passing
+**Integration Tests**: ✅ 7 tests passing
+
+### Physics Validation ⏸️
+
+**Status**: Deferred to Phase 4.3+
+
+**Rationale**: Physics validation requires comparing complete mass flows
+through the full galaxy formation pipeline. With only `sage_infall`
+implemented, we cannot validate:
+- Correct HotGas amounts (requires cooling module to consume it)
+- Baryon cycling (requires star formation and feedback)
+- Reionization suppression effects (requires seeing impact on galaxy populations)
+
+**Plan**: After downstream modules complete, conduct comprehensive validation:
+- Compare Mimic vs SAGE outputs on identical trees
+- Validate mass conservation through full pipeline
+- Check reionization suppression curves
+```
+
+**What NOT to defer:**
+- ❌ Unit tests - Always implement (test software quality)
+- ❌ Integration tests - Always implement (test pipeline integration)
+- ❌ Simple physics checks - If testable in isolation, test it now
+
+**Reference:** See `src/modules/sage_infall/test_scientific_sage_infall_validation.py` for production placeholder example.
+
 ### Test Auto-Discovery
 
 Tests are automatically discovered via the test registry system:
@@ -890,6 +980,133 @@ static float interpolate_cooling(float temperature) {
     return c0 + frac * (c1 - c0);
 }
 ```
+
+### Pattern 6: Multi-File Module Organization
+
+**When to use:** Complex modules with multiple physics components or large data processing routines.
+
+For complex modules, factor physics into multiple files to improve maintainability:
+
+```
+src/modules/my_module/
+├── my_module.c           # Main module lifecycle (init, process, cleanup)
+├── my_module.h           # Public module interface
+├── physics_helper.c      # Physics calculations and algorithms
+├── physics_helper.h      # Helper function declarations
+├── data_loader.c         # Data file loading and interpolation
+├── data_loader.h         # Data loader interface
+└── data/                 # Module-specific data files
+    ├── table1.dat
+    ├── table2.dat
+    └── README.txt        # Data file documentation
+```
+
+**Example from sage_cooling:**
+
+```c
+// sage_cooling.h - Main module interface
+#ifndef SAGE_COOLING_H
+#define SAGE_COOLING_H
+
+#include "types.h"
+
+void sage_cooling_register(void);
+
+#endif
+
+// cooling_tables.h - Helper for table operations
+#ifndef COOLING_TABLES_H
+#define COOLING_TABLES_H
+
+int load_cooling_tables(const char *dir);
+double get_cooling_rate(double temp, double metallicity);
+void cleanup_cooling_tables(void);
+
+#endif
+```
+
+**Benefits:**
+- Separates module lifecycle from physics implementation
+- Easier to test individual components
+- Clearer code organization for complex physics
+- Better collaboration (different developers can work on different files)
+
+**When to keep single-file:**
+- Simple modules (<500 lines)
+- Single physics process
+- No complex data loading
+
+**Reference:** See `src/modules/sage_cooling/` for a production example with separate `cooling_tables.c/h` files.
+
+### Pattern 7: Module-Specific Data Files
+
+**Principle:** Module-specific data files (tables, yields, etc.) should be stored WITH the module, not in global directories.
+
+**✅ CORRECT - Data co-located with module:**
+```
+src/modules/sage_cooling/
+├── sage_cooling.c
+├── sage_cooling.h
+└── CoolFunctions/              # Data WITH module
+    ├── stripped_mzero.cie
+    ├── stripped_m-30.cie
+    └── ABOUT.txt
+```
+
+**❌ WRONG - Data in global directory:**
+```
+input/
+└── CoolFunctions/              # Violates module isolation
+    └── *.cie
+
+src/modules/sage_cooling/
+├── sage_cooling.c              # Far from its data
+└── sage_cooling.h
+```
+
+**Loading Data from Module Directory:**
+
+```c
+// In module_info.yaml, define parameter with default to module directory
+parameters:
+  - name: CoolFunctionsDir
+    type: string
+    default: "src/modules/sage_cooling/CoolFunctions"
+    description: "Directory containing cooling function tables"
+
+// In init(): Load from configurable path (with sensible default)
+static char COOL_FUNCTIONS_DIR[512] = "src/modules/sage_cooling/CoolFunctions";
+
+static int my_module_init(void) {
+    // Read parameter (allows override if needed)
+    module_get_parameter("SageCooling", "CoolFunctionsDir",
+                        COOL_FUNCTIONS_DIR, sizeof(COOL_FUNCTIONS_DIR),
+                        "src/modules/sage_cooling/CoolFunctions");
+
+    // Load tables from module directory
+    if (load_cooling_tables(COOL_FUNCTIONS_DIR) != 0) {
+        ERROR_LOG("Failed to load cooling tables from %s", COOL_FUNCTIONS_DIR);
+        return -1;
+    }
+
+    INFO_LOG("Loaded cooling tables from %s", COOL_FUNCTIONS_DIR);
+    return 0;
+}
+```
+
+**Benefits:**
+- **Modules are self-contained** - All module files in one directory
+- **No global state pollution** - Each module owns its data
+- **Easy to archive/remove** - Delete module directory, done
+- **Clear ownership** - No ambiguity about which module uses what data
+- **Version control** - Data versioned with module code
+
+**When to use global data:**
+- Simulation input files (merger trees, cosmology)
+- Shared across ALL modules (e.g., cosmological constants)
+- User-provided data (not module-specific)
+
+**Reference:** See `src/modules/sage_cooling/CoolFunctions/` for production example with 16 data files co-located with module code.
 
 ---
 
