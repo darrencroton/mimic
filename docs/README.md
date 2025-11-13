@@ -1,31 +1,277 @@
 # Mimic Documentation
 
-This directory contains comprehensive documentation for Mimic development and architecture.
-
-## Start Here
-
-**New to Mimic?** Start with the **[Getting Started Guide](getting-started.md)** - your entry point for users, developers, and AI coders.
+**Mimic** is a **physics-agnostic galaxy evolution framework** with runtime-configurable physics modules. This modular architecture enables researchers to experiment with different physics combinations without recompilation.
 
 ---
 
-## Quick Navigation by Role
+## Quick Start
 
-### For Users
-- **[Getting Started](getting-started.md)** - Setup, running simulations, configuration
-- **[Module Configuration](user/module-configuration.md)** - Configure physics modules at runtime
-- **[Output Formats](user/output-formats.md)** - Understanding Mimic's output files
+**First time here?** Choose your path:
 
-### For Developers
-- **[Getting Started](getting-started.md)** - Build, test, and development workflow
-- **[Module Developer Guide](developer/module-developer-guide.md)** - Creating physics modules
-- **[Testing Guide](developer/testing.md)** - Three-tier testing framework
-- **[Coding Standards](developer/coding-standards.md)** - Code style and documentation
-- **[Execution Flow Reference](developer/execution-flow-reference.md)** - Complete function call trace
+| I want to... | Go to... |
+|--------------|----------|
+| **Run simulations** | [For Users](#for-users) below |
+| **Develop features or modules** | [For Developers](#for-developers) below |
+| **Get AI coding context** | [For AI Coders](#for-ai-coders) below |
+| **Understand the architecture** | [Architecture & Design](#architecture--design) |
+| **Find specific documentation** | [Documentation by Topic](#documentation-by-topic) |
 
-### For AI Coders
-- **[Getting Started](getting-started.md)** - Essential context and documentation map
-- **[Architecture Vision](architecture/vision.md)** - 8 core architectural principles
-- **[Roadmap](architecture/roadmap_v4.md)** - Current implementation status
+---
+
+## First Time Setup
+
+### Prerequisites
+
+- C compiler (gcc/clang)
+- Python 3.6+ (for testing and code generation)
+- Optional: HDF5 library, MPI
+
+### Build and Run
+
+```bash
+# Clone and setup (creates directories, downloads data, sets up Python environment)
+./scripts/first_run.sh
+
+# Build Mimic
+make
+
+# Run a test simulation
+./mimic input/millennium.par
+
+# Verify success (should output 0)
+echo $?
+```
+
+**That's it!** You're ready to use Mimic.
+
+---
+
+## For Users
+
+### Running Simulations
+
+**Basic execution:**
+```bash
+./mimic input/millennium.par
+```
+
+**Command-line options:**
+```bash
+./mimic --verbose input/millennium.par  # Detailed output
+./mimic --quiet input/millennium.par    # Minimal output
+./mimic --skip input/millennium.par     # Skip certain operations
+```
+
+### Configuring Physics Modules
+
+Mimic's physics is configured at runtime via the `.par` file. **No recompilation needed.**
+
+**Example configuration:**
+```
+# Select modules to run (order matters for dependencies)
+EnabledModules  sage_infall,sage_cooling
+
+# Configure module parameters
+SageInfall_BaryonFrac  0.17
+SageInfall_ReionizationOn  1
+SageCooling_CoolFunctionsDir  input/CoolFunctions
+```
+
+**Documentation:**
+- **[Module Configuration Guide](user/module-configuration.md)** - All available modules and parameters
+- **[Output Formats](user/output-formats.md)** - Binary and HDF5 output specifications
+
+### Plotting Results
+
+```bash
+# Activate plotting environment
+source mimic_venv/bin/activate
+
+# Generate all plots
+cd output/mimic-plot
+python mimic-plot.py --param-file=../../input/millennium.par
+
+# Deactivate when done
+deactivate
+```
+
+---
+
+## For Developers
+
+### Core Concepts
+
+Mimic uses a **metadata-driven architecture** where properties and modules are defined in YAML files and code is auto-generated.
+
+**Key Systems:**
+1. **Property Metadata** (`metadata/properties/*.yaml`) - Defines galaxy/halo properties
+2. **Module Metadata** (`src/modules/*/module_info.yaml`) - Defines physics modules
+3. **Auto-Generation** - Code generated from metadata via `make generate`
+
+### Development Workflow
+
+**1. Making Code Changes:**
+```bash
+# Edit source files
+vim src/core/model_building.c
+
+# Format code
+./scripts/beautify.sh
+
+# Build and test
+make clean && make
+./mimic input/millennium.par
+```
+
+**2. Adding a New Property:**
+```bash
+# Edit metadata
+vim metadata/properties/galaxy_properties.yaml
+
+# Add your property definition (see property-metadata-schema.md)
+# Regenerate code
+make generate
+
+# Build and test
+make clean && make
+```
+
+**3. Adding a New Module:**
+```bash
+# Copy module template
+cp -r src/modules/_template src/modules/my_module
+
+# Implement module (my_module.c, my_module.h)
+# Create module_info.yaml from template
+
+# Auto-register module
+make generate-modules
+
+# Build and test
+make clean && make
+```
+
+### Essential Developer Documentation
+
+| Document | Purpose | Lines |
+|----------|---------|-------|
+| **[Architecture Vision](architecture/vision.md)** | 8 core architectural principles | 227 |
+| **[Module Developer Guide](developer/module-developer-guide.md)** | Creating physics modules | 1122 |
+| **[Testing Guide](developer/testing.md)** | Three-tier testing framework | 2127 |
+| **[Module Metadata Schema](developer/module-metadata-schema.md)** | Module YAML specification | 1237 |
+| **[Property Metadata Schema](architecture/property-metadata-schema.md)** | Property YAML specification | 990 |
+| **[Execution Flow Reference](developer/execution-flow-reference.md)** | Complete function call trace | 1028 |
+| **[Coding Standards](developer/coding-standards.md)** | Code style requirements | 71 |
+
+**All reference docs include quick-start summaries at the top.**
+
+### Testing Your Changes
+
+```bash
+# Run all tests
+make tests
+
+# Run specific test tiers
+make test-unit          # C unit tests (fast, <10s)
+make test-integration   # Python integration tests (<1min)
+make test-scientific    # Python scientific validation (<5min)
+```
+
+**See [Testing Guide](developer/testing.md) for comprehensive testing documentation.**
+
+---
+
+## For AI Coders
+
+### Essential Context
+
+**What is Mimic?**
+- Physics-agnostic galaxy evolution framework
+- Runtime-configurable physics modules (no recompilation needed)
+- Metadata-driven architecture (YAML → auto-generated C code)
+- Comprehensive testing (unit + integration + scientific validation)
+
+**Core Principles:**
+1. **Physics-Agnostic Core** - Core has zero knowledge of specific physics
+2. **Runtime Modularity** - Configure modules via `.par` files
+3. **Metadata-Driven** - Single source of truth in YAML files
+4. **Single Source of Truth** - No manual synchronization
+5. **Unified Processing Model** - Consistent module lifecycle
+
+**See [Architecture Vision](architecture/vision.md) for complete principles.**
+
+### Code Organization
+
+```
+mimic/
+├── src/
+│   ├── core/          # Core execution (physics-agnostic)
+│   ├── io/            # Input/output (tree readers, writers)
+│   ├── util/          # Utilities (memory, error, numeric)
+│   ├── modules/       # Physics modules (modular, hot-swappable)
+│   └── include/       # Headers + auto-generated code
+├── metadata/
+│   └── properties/    # Property definitions (YAML)
+├── tests/             # Three-tier testing (unit/integration/scientific)
+├── docs/              # Documentation (architecture/developer/user)
+├── scripts/           # Code generation and development tools
+└── output/            # Simulation output and plotting
+```
+
+### Key Documentation Map
+
+**Architecture & Design:**
+- `docs/architecture/vision.md` - 8 core principles
+- `docs/architecture/roadmap_v4.md` - Implementation status and roadmap
+
+**Development:**
+- `docs/developer/module-developer-guide.md` - Creating physics modules
+- `docs/developer/testing.md` - Testing framework and standards
+- `docs/developer/coding-standards.md` - Code style requirements
+
+**Reference:**
+- `docs/developer/module-metadata-schema.md` - Module YAML specification
+- `docs/architecture/property-metadata-schema.md` - Property YAML specification
+- `docs/developer/execution-flow-reference.md` - Function call trace
+
+**User Guides:**
+- `docs/user/module-configuration.md` - Configuring physics modules
+- `docs/user/output-formats.md` - Output file specifications
+
+### Common AI Coding Tasks
+
+| Task | Documentation |
+|------|---------------|
+| Implement a new physics module | [Module Developer Guide](developer/module-developer-guide.md) |
+| Add a new property | [Property Metadata Schema](architecture/property-metadata-schema.md) quick start |
+| Understand code flow | [Execution Flow Reference](developer/execution-flow-reference.md) |
+| Add tests | [Testing Guide](developer/testing.md) |
+| Fix a bug | Ensure `make tests` passes |
+
+### Build System
+
+```bash
+# Standard build
+make
+
+# With HDF5 support
+make USE-HDF5=yes
+
+# With MPI support
+make USE-MPI=yes
+
+# Regenerate code from metadata
+make generate          # Both properties and modules
+make generate-modules  # Modules only
+make validate-modules  # Validate module metadata
+
+# Verify generated code is current (CI check)
+make check-generated
+
+# Clean
+make clean  # Remove all build artifacts
+make tidy   # Remove object files, keep executable
+```
 
 ---
 
@@ -37,10 +283,10 @@ This directory contains comprehensive documentation for Mimic development and ar
 - **[Property Metadata Schema](architecture/property-metadata-schema.md)** - Property system specification
 
 ### Development Guides
-- **[Module Developer Guide](developer/module-developer-guide.md)** - Creating physics modules (1100+ lines)
-- **[Module Metadata Schema](developer/module-metadata-schema.md)** - Module YAML specification (1200+ lines)
-- **[Testing Guide](developer/testing.md)** - Comprehensive testing framework (2100+ lines)
-- **[Execution Flow Reference](developer/execution-flow-reference.md)** - Function call trace (1000+ lines)
+- **[Module Developer Guide](developer/module-developer-guide.md)** - Creating physics modules (1122 lines)
+- **[Module Metadata Schema](developer/module-metadata-schema.md)** - Module YAML specification (1237 lines)
+- **[Testing Guide](developer/testing.md)** - Comprehensive testing framework (2127 lines)
+- **[Execution Flow Reference](developer/execution-flow-reference.md)** - Function call trace (1028 lines)
 - **[Coding Standards](developer/coding-standards.md)** - Code style requirements
 
 ### User Guides
@@ -56,12 +302,12 @@ This directory contains comprehensive documentation for Mimic development and ar
 
 ```
 docs/
-├── getting-started.md       ⭐ START HERE - Entry point for all users
-├── README.md                This file - Documentation navigation
+├── README.md (this file)        ⭐ START HERE - Entry point for all users
 ├── architecture/
-│   ├── vision.md            - 8 core architectural principles
-│   ├── roadmap_v4.md        - Implementation roadmap (Phases 1-3 complete)
-│   └── property-metadata-schema.md - Property system specification
+│   ├── vision.md                - 8 core architectural principles
+│   ├── roadmap_v4.md            - Implementation roadmap
+│   ├── property-metadata-schema.md - Property system specification
+│   └── next-task.md             - Current development tasks
 ├── developer/
 │   ├── module-developer-guide.md   - Creating physics modules
 │   ├── module-metadata-schema.md   - Module YAML specification
@@ -71,9 +317,41 @@ docs/
 ├── user/
 │   ├── module-configuration.md     - Configuring physics modules
 │   └── output-formats.md           - Output file formats
-└── physics/
-    └── sage-infall.md              - SAGE infall module documentation
+├── physics/
+│   └── sage-infall.md              - SAGE infall module documentation
+└── review/
+    ├── getting-started-old.md      - Previous getting-started doc
+    ├── infrastructure-gap-analysis.md - Resolved infrastructure analysis
+    └── module-implementation-log.md   - Log of completed module work
 ```
+
+---
+
+## Common Questions
+
+**Q: How do I build and run Mimic?**
+→ See [First Time Setup](#first-time-setup) above
+
+**Q: How do I add a new physics module?**
+→ See [Module Developer Guide](developer/module-developer-guide.md) - complete workflow with examples
+
+**Q: How do I add a new property?**
+→ See [Property Metadata Schema](architecture/property-metadata-schema.md) - quick start at top
+
+**Q: How do I configure modules at runtime?**
+→ See [Module Configuration](user/module-configuration.md) - all modules and parameters
+
+**Q: Where is the detailed function call trace?**
+→ See [Execution Flow Reference](developer/execution-flow-reference.md) - complete trace from entry to exit
+
+**Q: What are Mimic's architectural principles?**
+→ See [Architecture Vision](architecture/vision.md) - 8 core principles
+
+**Q: What's the current implementation status?**
+→ See [Roadmap](architecture/roadmap_v4.md) - Phases 1-3 complete, Phase 4 in progress
+
+**Q: How do I run tests?**
+→ See [Testing Guide](developer/testing.md) quick reference or run `make tests`
 
 ---
 
@@ -88,25 +366,34 @@ When adding new features or modules:
 
 ---
 
-## Common Questions
+## Directory Structure Reference
 
-**Q: How do I build and run Mimic?**
-→ See **[Getting Started](getting-started.md)**
-
-**Q: How do I add a new physics module?**
-→ See **[Module Developer Guide](developer/module-developer-guide.md)**
-
-**Q: How do I add a new property?**
-→ See **[Property Metadata Schema](architecture/property-metadata-schema.md)** quick start
-
-**Q: How do I configure modules at runtime?**
-→ See **[Module Configuration](user/module-configuration.md)**
-
-**Q: Where is the detailed function call trace?**
-→ See **[Execution Flow Reference](developer/execution-flow-reference.md)**
-
-**Q: What are Mimic's architectural principles?**
-→ See **[Vision](architecture/vision.md)**
-
-**Q: What's the implementation status?**
-→ See **[Roadmap](architecture/roadmap_v4.md)**
+```
+mimic/
+├── CLAUDE.md              # Claude Code instructions
+├── README.md              # Project overview
+├── Makefile               # Build system
+├── src/                   # Source code
+│   ├── core/              # Core execution (main, init, model building)
+│   ├── io/                # Input/output (tree readers, writers)
+│   ├── util/              # Utilities (memory, error, numeric)
+│   ├── modules/           # Physics modules
+│   │   ├── _template/     # Module template
+│   │   ├── sage_infall/   # SAGE infall module
+│   │   └── test_fixture/  # Testing infrastructure module
+│   └── include/           # Headers
+│       └── generated/     # Auto-generated code
+├── metadata/
+│   └── properties/        # Property metadata (YAML)
+├── tests/                 # Testing framework
+│   ├── unit/              # C unit tests
+│   ├── integration/       # Python integration tests
+│   ├── scientific/        # Physics validation tests
+│   └── framework/         # Test utilities and templates
+├── docs/                  # Documentation (you are here)
+├── scripts/               # Development tools
+├── input/                 # Input files and data
+├── output/                # Simulation output
+│   └── mimic-plot/        # Plotting system
+└── mimic_venv/            # Python virtual environment
+```
