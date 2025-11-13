@@ -179,25 +179,68 @@ Then: `make generate`
 
 ---
 
-## Task 23: Joint Module Pipeline Testing
+## Task 23: Joint Module Pipeline Testing (Cross-Module Validation)
 
 **Goal**: Verify sage_infall → sage_cooling chain works correctly
 
-**Tests**:
-1. Module execution order matters
-2. HotGas from infall feeds cooling
-3. Mass flows: Mvir → HotGas → ColdGas
-4. End-to-end mass conservation
-5. Metallicity tracking through pipeline
+**Context**: This addresses the "Cross-Module Physics Validation" recommendation from the comprehensive testing framework code review (2025-11-13). While `test_module_pipeline.py` tests that modules can run together, this validates the **scientific interaction** between modules.
+
+**Test File**: `tests/integration/test_infall_cooling_pipeline.py`
+
+**Validation Points**:
+1. **Execution Order**: sage_infall must execute before sage_cooling
+2. **Property Flow**: HotGas produced by sage_infall feeds into sage_cooling
+3. **Mass Conservation**: Track mass flow: Mvir → HotGas → ColdGas
+4. **Metallicity Tracking**: MetalsHotGas → MetalsColdGas flow is correct
+5. **Physics Consistency**: Cooling respects virial properties from infall
+
+**Test Structure**:
+```python
+def test_infall_cooling_execution_order():
+    """Test that sage_infall runs before sage_cooling."""
+    # Verify order in stdout logs
+    # Check that HotGas exists before cooling starts
+
+def test_hotgas_property_flow():
+    """Test that HotGas from infall feeds cooling."""
+    # Run with both modules
+    # Verify HotGas > 0 after infall
+    # Verify ColdGas increases after cooling
+
+def test_mass_conservation_chain():
+    """Test mass conservation: Mvir → HotGas → ColdGas."""
+    # Sum all gas components
+    # Verify total matches baryon fraction * Mvir
+    # Allow tolerance for numerical precision
+
+def test_metallicity_tracking():
+    """Test metallicity flow through pipeline."""
+    # Verify MetalsHotGas/HotGas ratio maintained
+    # Check MetalsColdGas/ColdGas consistent after cooling
+
+def test_virial_property_consistency():
+    """Test cooling respects virial properties."""
+    # Verify cooling uses correct Vvir, Rvir from infall
+    # Check cooling radius calculation uses virial values
+```
 
 **Parameter File**:
 ```
 EnabledModules  sage_infall,sage_cooling
 SageInfall_BaryonFrac  0.17
+SageInfall_ReionizationOn  1
 SageCooling_CoolFunctionsDir  input/CoolFunctions
 ```
 
+**Success Criteria**:
+- All 5 validation tests pass
+- Mass conservation within 1e-6 relative tolerance
+- Metallicity ratios consistent across gas phases
+- Module execution order verified in logs
+
 **Estimated Time**: 1 day
+
+**Note**: This test validates the **software quality** of module integration. Full physics validation (comparing to SAGE reference) will be added in Phase 4.3+ after more modules are implemented.
 
 ---
 

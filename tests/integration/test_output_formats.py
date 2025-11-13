@@ -24,7 +24,6 @@ Author: Mimic Testing Team
 Date: 2025-11-10
 """
 
-import subprocess
 import sys
 from io import StringIO
 from pathlib import Path
@@ -34,11 +33,13 @@ import numpy as np
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import load_binary_halos
-
-# Repository paths
-TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
-MIMIC_EXE = REPO_ROOT / "mimic"
+from framework import (
+    load_binary_halos,
+    TEST_DATA_DIR,
+    MIMIC_EXE,
+    ensure_output_dirs,
+    run_mimic,
+)
 
 # Core halo properties (physics-agnostic, always present)
 # These 24 properties are defined in metadata/properties/halo_properties.yaml
@@ -51,39 +52,8 @@ CORE_HALO_PROPERTIES = {
     'infallVvir', 'infallVmax'
 }
 
-
-def ensure_output_dirs():
-    """
-    Create output directories if they don't exist
-
-    Creates the binary and HDF5 output directories required by test parameter files.
-    This ensures tests work correctly after make test-clean or in fresh clones.
-    """
-    (TEST_DATA_DIR / "output" / "binary").mkdir(parents=True, exist_ok=True)
-    (TEST_DATA_DIR / "output" / "hdf5").mkdir(parents=True, exist_ok=True)
-
-
 # Ensure output directories exist before any tests run
 ensure_output_dirs()
-
-
-def run_mimic(param_file):
-    """
-    Execute Mimic with specified parameter file
-
-    Args:
-        param_file (Path): Path to parameter file
-
-    Returns:
-        tuple: (returncode, stdout, stderr)
-    """
-    result = subprocess.run(
-        [str(MIMIC_EXE), str(param_file)],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True
-    )
-    return result.returncode, result.stdout, result.stderr
 
 
 def check_hdf5_support():

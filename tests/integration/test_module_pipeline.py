@@ -21,6 +21,18 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
+
+# Add framework to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from framework import (
+    REPO_ROOT,
+    MIMIC_EXE,
+    read_param_file,
+    create_test_param_file,
+    run_mimic,
+)
 
 class TestModulePipeline(unittest.TestCase):
     """Integration tests for module configuration and execution."""
@@ -28,18 +40,16 @@ class TestModulePipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test environment once for all tests."""
-        # Get repository root (two levels up from tests/integration/)
-        cls.repo_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..")
-        )
+        # Get repository root
+        cls.repo_root = str(REPO_ROOT)
 
         # Path to mimic executable
-        cls.mimic_exe = os.path.join(cls.repo_root, "mimic")
+        cls.mimic_exe = str(MIMIC_EXE)
 
         # Check mimic is compiled
-        if not os.path.exists(cls.mimic_exe):
+        if not MIMIC_EXE.exists():
             raise RuntimeError(
-                f"Mimic executable not found at {cls.mimic_exe}. "
+                f"Mimic executable not found at {MIMIC_EXE}. "
                 "Run 'make' to compile."
             )
 
@@ -58,116 +68,19 @@ class TestModulePipeline(unittest.TestCase):
         if os.path.exists(cls.temp_dir):
             shutil.rmtree(cls.temp_dir)
 
-    def _read_param_file(self, param_file):
-        """Read parameter file and return as dictionary."""
-        params = {}
-        with open(param_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                # Skip comments and empty lines
-                if not line or line.startswith('%') or line.startswith('#'):
-                    continue
-                # Handle arrow notation (-> means skip)
-                if '->' in line:
-                    continue
-                # Parse key-value pairs
-                parts = line.split()
-                if len(parts) >= 2:
-                    params[parts[0]] = ' '.join(parts[1:])
-        return params
-
-    def _create_test_param_file(self, output_name, enabled_modules=None,
-                                module_params=None, first_file=0, last_file=0):
-        """
-        Create a test parameter file with specified module configuration.
-
-        Args:
-            output_name: Name for output directory
-            enabled_modules: List of module names to enable (None = physics-free)
-            module_params: Dict of {ModuleName_ParameterName: value}
-            first_file: First file to process
-            last_file: Last file to process
-
-        Returns:
-            Path to created parameter file
-        """
-        # Read reference parameter file
-        ref_params = self._read_param_file(self.ref_param_file)
-
-        # Create output directory
-        output_dir = os.path.join(self.temp_dir, output_name)
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Update parameters
-        ref_params['OutputDir'] = output_dir
-        ref_params['FirstFile'] = str(first_file)
-        ref_params['LastFile'] = str(last_file)
-
-        # Write test parameter file
-        param_path = os.path.join(self.temp_dir, f"{output_name}.par")
-        with open(param_path, 'w') as f:
-            f.write("%------------------------------------------\n")
-            f.write("%----- Module Configuration Test ----------\n")
-            f.write("%------------------------------------------\n\n")
-
-            # Write basic parameters
-            for key in ['OutputFileBaseName', 'OutputDir', 'FirstFile',
-                       'LastFile', 'TreeName', 'TreeType', 'OutputFormat',
-                       'SimulationDir', 'FileWithSnapList', 'LastSnapshotNr',
-                       'BoxSize', 'Omega', 'OmegaLambda', 'Hubble_h',
-                       'PartMass', 'UnitLength_in_cm', 'UnitMass_in_g',
-                       'UnitVelocity_in_cm_per_s']:
-                if key in ref_params:
-                    f.write(f"{key:30s} {ref_params[key]}\n")
-
-            # Write snapshot output list
-            f.write("\nNumOutputs        8\n")
-            f.write("-> 63 37 32 27 23 20 18 16\n\n")
-
-            # Write module configuration
-            f.write("%------------------------------------------\n")
-            f.write("%----- Galaxy Physics Modules -------------\n")
-            f.write("%------------------------------------------\n")
-
-            if enabled_modules:
-                f.write(f"EnabledModules          {','.join(enabled_modules)}\n\n")
-
-                # Write module parameters
-                if module_params:
-                    for param_name, value in module_params.items():
-                        f.write(f"{param_name:30s} {value}\n")
-            else:
-                f.write("# Physics-free mode (no modules enabled)\n")
-                f.write("EnabledModules\n")
-
-        return param_path
-
-    def _run_mimic(self, param_file):
-        """
-        Run mimic with specified parameter file.
-
-        Returns:
-            (returncode, stdout, stderr)
-        """
-        result = subprocess.run(
-            [self.mimic_exe, param_file],
-            capture_output=True,
-            text=True
-        )
-        return result.returncode, result.stdout, result.stderr
-
     def test_physics_free_mode(self):
         """Test physics-free mode (no modules enabled)."""
         # Create parameter file with no modules
-        param_file = self._create_test_param_file(
+        param_file, output_dir, _ = create_test_param_file(
             output_name="physics_free",
             enabled_modules=None,  # No modules
             first_file=0,
-            last_file=0
+            last_file=0,
+            temp_dir=self.temp_dir
         )
 
         # Run mimic
-        returncode, stdout, stderr = self._run_mimic(param_file)
+        returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution succeeded
         self.assertEqual(returncode, 0,
@@ -178,25 +91,25 @@ class TestModulePipeline(unittest.TestCase):
                      "Should log physics-free mode")
 
         # Verify output directory was created
-        output_dir = os.path.join(self.temp_dir, "physics_free")
-        self.assertTrue(os.path.exists(output_dir),
+        self.assertTrue(output_dir.exists(),
                        "Output directory should be created")
 
     def test_single_module_execution(self):
         """Test single module execution in isolation."""
         # Create parameter file with only test_fixture
-        param_file = self._create_test_param_file(
+        param_file, output_dir, _ = create_test_param_file(
             output_name="single_module",
             enabled_modules=["test_fixture"],
             module_params={
                 "TestFixture_DummyParameter": "2.5"
             },
             first_file=0,
-            last_file=0
+            last_file=0,
+            temp_dir=self.temp_dir
         )
 
         # Run mimic
-        returncode, stdout, stderr = self._run_mimic(param_file)
+        returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution succeeded
         self.assertEqual(returncode, 0,
@@ -207,14 +120,13 @@ class TestModulePipeline(unittest.TestCase):
         self.assertIn("DummyParameter = 2.500", stdout)
 
         # Verify output directory was created
-        output_dir = os.path.join(self.temp_dir, "single_module")
-        self.assertTrue(os.path.exists(output_dir),
+        self.assertTrue(output_dir.exists(),
                        "Output directory should be created")
 
     def test_multiple_modules_execution(self):
         """Test multiple module execution together."""
         # Create parameter file with test_fixture enabled twice (tests module list handling)
-        param_file = self._create_test_param_file(
+        param_file, output_dir, _ = create_test_param_file(
             output_name="multiple_modules",
             enabled_modules=["test_fixture", "test_fixture"],
             module_params={
@@ -222,11 +134,12 @@ class TestModulePipeline(unittest.TestCase):
                 "TestFixture_EnableLogging": "0"
             },
             first_file=0,
-            last_file=0
+            last_file=0,
+            temp_dir=self.temp_dir
         )
 
         # Run mimic
-        returncode, stdout, stderr = self._run_mimic(param_file)
+        returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution succeeded
         self.assertEqual(returncode, 0,
@@ -238,25 +151,25 @@ class TestModulePipeline(unittest.TestCase):
         self.assertIn("EnableLogging = 0", stdout)
 
         # Verify output directory was created
-        output_dir = os.path.join(self.temp_dir, "multiple_modules")
-        self.assertTrue(os.path.exists(output_dir),
+        self.assertTrue(output_dir.exists(),
                        "Output directory should be created")
 
     def test_custom_parameter_values(self):
         """Test that custom parameter values are actually used."""
         # Run with non-default dummy parameter
-        param_file = self._create_test_param_file(
+        param_file, output_dir, _ = create_test_param_file(
             output_name="custom_params",
             enabled_modules=["test_fixture"],
             module_params={
                 "TestFixture_DummyParameter": "3.14"  # Non-default
             },
             first_file=0,
-            last_file=0
+            last_file=0,
+            temp_dir=self.temp_dir
         )
 
         # Run mimic
-        returncode, stdout, stderr = self._run_mimic(param_file)
+        returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution succeeded
         self.assertEqual(returncode, 0,
@@ -269,15 +182,16 @@ class TestModulePipeline(unittest.TestCase):
     def test_unknown_module_error(self):
         """Test that unknown module names produce clear errors."""
         # Create parameter file with invalid module
-        param_file = self._create_test_param_file(
+        param_file, output_dir, _ = create_test_param_file(
             output_name="unknown_module",
             enabled_modules=["nonexistent_module"],
             first_file=0,
-            last_file=0
+            last_file=0,
+            temp_dir=self.temp_dir
         )
 
         # Run mimic
-        returncode, stdout, stderr = self._run_mimic(param_file)
+        returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution failed
         self.assertNotEqual(returncode, 0,
@@ -300,18 +214,19 @@ class TestModulePipeline(unittest.TestCase):
         dependencies are implemented (e.g., sage_cooling depends on sage_infall).
         """
         # Create parameter file with test_fixture
-        param_file = self._create_test_param_file(
+        param_file, output_dir, _ = create_test_param_file(
             output_name="execution_order",
             enabled_modules=["test_fixture"],
             module_params={
                 "TestFixture_DummyParameter": "1.0"
             },
             first_file=0,
-            last_file=0
+            last_file=0,
+            temp_dir=self.temp_dir
         )
 
         # Run mimic
-        returncode, stdout, stderr = self._run_mimic(param_file)
+        returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution succeeded
         self.assertEqual(returncode, 0,

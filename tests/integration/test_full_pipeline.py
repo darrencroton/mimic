@@ -23,95 +23,23 @@ Author: Mimic Testing Team
 Date: 2025-11-08
 """
 
-import subprocess
 import sys
 from pathlib import Path
-import os
 
-# Repository root
-REPO_ROOT = Path(__file__).parent.parent.parent
-TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
-MIMIC_EXE = REPO_ROOT / "mimic"
+# Add framework to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-
-def ensure_output_dirs():
-    """
-    Create output directories if they don't exist
-
-    Creates the binary and HDF5 output directories required by test parameter files.
-    This ensures tests work correctly after make test-clean or in fresh clones.
-    """
-    (TEST_DATA_DIR / "output" / "binary").mkdir(parents=True, exist_ok=True)
-    (TEST_DATA_DIR / "output" / "hdf5").mkdir(parents=True, exist_ok=True)
-
+from framework import (
+    REPO_ROOT,
+    TEST_DATA_DIR,
+    MIMIC_EXE,
+    ensure_output_dirs,
+    run_mimic,
+    check_no_memory_leaks,
+)
 
 # Ensure output directories exist before any tests run
 ensure_output_dirs()
-
-
-def run_mimic(param_file, cwd=None):
-    """
-    Execute Mimic with specified parameter file
-
-    Args:
-        param_file (str or Path): Path to parameter file
-        cwd (str or Path): Working directory for execution (default: repo root)
-
-    Returns:
-        tuple: (returncode, stdout, stderr)
-    """
-    if cwd is None:
-        cwd = REPO_ROOT
-
-    if not MIMIC_EXE.exists():
-        raise FileNotFoundError(
-            f"Mimic executable not found at {MIMIC_EXE}. "
-            f"Build it first with: make"
-        )
-
-    result = subprocess.run(
-        [str(MIMIC_EXE), str(param_file)],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True
-    )
-
-    return result.returncode, result.stdout, result.stderr
-
-
-def check_no_memory_leaks(output_dir):
-    """
-    Check that Mimic run had no memory leaks
-
-    Args:
-        output_dir (Path): Output directory containing metadata/logs
-
-    Returns:
-        bool: True if no leaks, False if leaks detected
-    """
-    # ANSI color codes
-    YELLOW = '\033[1;33m'
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
-
-    log_dir = output_dir / "metadata"
-    if not log_dir.exists():
-        print(f"{YELLOW}Warning: Log directory not found: {log_dir}{NC}")
-        return True  # Can't check, assume OK
-
-    for log_file in log_dir.glob("*.log"):
-        with open(log_file) as f:
-            content = f.read().lower()
-            if "memory leak" in content:
-                print(f"{RED}Memory leak detected in {log_file}{NC}")
-                # Print the relevant lines
-                with open(log_file) as f2:
-                    for line in f2:
-                        if "memory leak" in line.lower():
-                            print(f"  {line.strip()}")
-                return False
-
-    return True
 
 
 def test_basic_execution():

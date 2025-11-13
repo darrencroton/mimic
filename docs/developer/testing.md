@@ -286,6 +286,209 @@ Running: test_basic_allocation                              ✗ FAIL
 
 ---
 
+## Test Harness Utilities
+
+The `tests/framework/harness.py` module provides centralized test utilities for integration and scientific testing. These utilities eliminate code duplication and provide consistent patterns for test development.
+
+### Available Utilities
+
+#### Path Constants
+
+```python
+from framework import REPO_ROOT, TEST_DATA_DIR, MIMIC_EXE
+
+# REPO_ROOT: Path to repository root
+# TEST_DATA_DIR: Path to tests/data/
+# MIMIC_EXE: Path to mimic executable
+```
+
+#### Core Functions
+
+**`ensure_output_dirs()`**
+Creates required test output directories. Call once at module level or in `setUpClass()`.
+
+```python
+from framework import ensure_output_dirs
+
+# Call once at module level
+ensure_output_dirs()  # Creates tests/data/output/{binary,hdf5}
+```
+
+**`run_mimic(param_file, cwd=None)`**
+Execute Mimic with specified parameter file.
+
+```python
+from framework import run_mimic
+
+returncode, stdout, stderr = run_mimic("input/millennium.par")
+assert returncode == 0, f"Mimic failed: {stderr}"
+```
+
+**`read_param_file(param_file)`**
+Parse a Mimic parameter file into a dictionary.
+
+```python
+from framework import read_param_file
+
+params = read_param_file("input/millennium.par")
+output_dir = params['OutputDir']
+hubble_h = float(params['Hubble_h'])
+```
+
+**`create_test_param_file(output_name, enabled_modules=None, module_params=None, first_file=0, last_file=0, ref_param_file=None, temp_dir=None)`**
+Generate a test parameter file with custom module configuration.
+
+```python
+from framework import create_test_param_file
+import shutil
+
+# Physics-free mode
+param_file, output_dir, temp_dir = create_test_param_file("test_run")
+
+# With modules
+param_file, output_dir, temp_dir = create_test_param_file(
+    output_name="cooling_test",
+    enabled_modules=["sage_infall", "sage_cooling"],
+    module_params={
+        "SageInfall_BaryonFrac": "0.17",
+        "SageCooling_CoolFunctionsDir": "input/CoolFunctions"
+    },
+    first_file=0,
+    last_file=0
+)
+
+# Cleanup when done
+shutil.rmtree(temp_dir)
+```
+
+**`check_no_memory_leaks(output_dir)`**
+Scan log files for memory leak indicators.
+
+```python
+from framework import check_no_memory_leaks
+from pathlib import Path
+
+output_dir = Path("tests/data/output/binary")
+has_leaks = not check_no_memory_leaks(output_dir)
+assert not has_leaks, "Memory leaks detected"
+```
+
+### Usage Examples
+
+#### Simple Integration Test
+
+```python
+#!/usr/bin/env python3
+"""Test sage_infall module integration."""
+
+import sys
+from pathlib import Path
+
+# Add framework to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from framework import (
+    REPO_ROOT,
+    TEST_DATA_DIR,
+    ensure_output_dirs,
+    run_mimic,
+    check_no_memory_leaks,
+)
+
+# Ensure output directories exist
+ensure_output_dirs()
+
+def test_module_execution():
+    """Test that sage_infall executes successfully."""
+    param_file = TEST_DATA_DIR / "test_infall.par"
+    returncode, stdout, stderr = run_mimic(param_file)
+
+    assert returncode == 0, f"Mimic failed: {stderr}"
+    assert "sage_infall initialized" in stdout
+
+    # Check for memory leaks
+    output_dir = TEST_DATA_DIR / "output" / "binary"
+    assert check_no_memory_leaks(output_dir), "Memory leaks detected"
+
+if __name__ == "__main__":
+    test_module_execution()
+    print("✓ All tests passed!")
+```
+
+#### Test with Custom Configuration
+
+```python
+#!/usr/bin/env python3
+"""Test module with custom parameters."""
+
+import sys
+import shutil
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from framework import create_test_param_file, run_mimic
+
+def test_custom_parameters():
+    """Test module with custom parameter values."""
+    # Create test configuration
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="custom_test",
+        enabled_modules=["sage_infall"],
+        module_params={
+            "SageInfall_BaryonFrac": "0.15",  # Non-default value
+            "SageInfall_ReionizationOn": "0"  # Disable reionization
+        },
+        first_file=0,
+        last_file=0
+    )
+
+    try:
+        # Run mimic
+        returncode, stdout, stderr = run_mimic(param_file)
+        assert returncode == 0, f"Mimic failed: {stderr}"
+
+        # Verify custom parameters were used
+        assert "BaryonFrac = 0.150" in stdout
+        assert "ReionizationOn = 0" in stdout
+
+    finally:
+        # Cleanup
+        shutil.rmtree(temp_dir)
+
+if __name__ == "__main__":
+    test_custom_parameters()
+    print("✓ Custom parameter test passed!")
+```
+
+### Migration Guide
+
+If you have existing test code with duplicated helpers:
+
+**Before** (duplicated code):
+```python
+def run_mimic(param_file):
+    result = subprocess.run([str(MIMIC_EXE), str(param_file)], ...)
+    return result.returncode, result.stdout, result.stderr
+```
+
+**After** (using harness):
+```python
+from framework import run_mimic
+
+returncode, stdout, stderr = run_mimic(param_file)
+```
+
+### Best Practices
+
+1. **Always call `ensure_output_dirs()` at module level** - Prevents "directory not found" errors
+2. **Use `create_test_param_file()` for custom configs** - Eliminates boilerplate parameter file creation
+3. **Clean up temp directories** - Use `shutil.rmtree(temp_dir)` in finally blocks or `tearDown()`
+4. **Check memory leaks** - Call `check_no_memory_leaks()` in integration tests
+5. **Import from `framework`** - All harness utilities are re-exported from `tests/framework/__init__.py`
+
+---
+
 ## Test Organization
 
 ### Directory Structure
@@ -476,6 +679,110 @@ Mimic uses a three-tier approach to validate correctness while supporting schema
 
 **Why No Binary Baseline?**
 Binary format requires exact struct size matching - it cannot read files when the output schema changes (e.g., new properties added). Since runtime module configuration means output structure varies, a binary baseline would need regeneration for every property change, making it unmaintainable. Instead, we validate binary correctness through equivalence with HDF5, which is validated against the baseline.
+
+### Baseline Management
+
+The HDF5 baseline file (`tests/data/output/baseline/hdf5/model_000.hdf5`) is the reference for core property validation. **Only regenerate the baseline after deliberate, validated changes to core halo tracking algorithms.**
+
+#### When to Regenerate Baseline
+
+Regenerate the baseline when:
+- ✅ Core halo tracking algorithm is intentionally modified
+- ✅ Virial property calculations are updated
+- ✅ Tree traversal logic changes
+- ✅ Property inheritance rules change
+- ✅ Bug fixes that correct known incorrect behavior
+
+**Never** regenerate the baseline when:
+- ❌ Test is failing and you don't know why
+- ❌ Module properties change (baseline only checks core properties)
+- ❌ Scientific validation fails (fix the physics, not the baseline)
+- ❌ Trying to make tests pass without understanding the failure
+
+#### How to Regenerate Baseline
+
+**Automated Method** (recommended):
+```bash
+# Run automated script
+./scripts/regenerate_baseline.sh
+
+# Script will:
+# 1. Verify mimic has HDF5 support
+# 2. Check parameter file is physics-free
+# 3. Run mimic to generate baseline
+# 4. Backup existing baseline
+# 5. Install new baseline
+# 6. Validate baseline comparison test passes
+# 7. Provide git commit instructions
+```
+
+**Manual Method** (if script unavailable):
+```bash
+# 1. Ensure mimic is compiled with HDF5
+make clean && make USE-HDF5=yes
+
+# 2. Run physics-free test (IMPORTANT: no modules enabled!)
+./mimic tests/data/test_hdf5.par
+
+# 3. Backup existing baseline
+cp tests/data/output/baseline/hdf5/model_000.hdf5 \
+   tests/data/output/baseline/hdf5/model_000.hdf5.backup
+
+# 4. Copy new baseline
+cp tests/data/output/hdf5/model_000.hdf5 \
+   tests/data/output/baseline/hdf5/
+
+# 5. Verify tests pass
+make test-integration
+
+# 6. Commit with detailed message
+git add tests/data/output/baseline/hdf5/model_000.hdf5
+git commit -m "test: regenerate HDF5 baseline after [specific reason]"
+```
+
+#### Validation After Regeneration
+
+After regenerating the baseline:
+
+1. **Run full test suite**:
+   ```bash
+   make tests
+   ```
+   All tests must pass. If any fail, investigate before committing.
+
+2. **Compare baseline changes** (if updating existing baseline):
+   ```bash
+   git diff tests/data/output/baseline/hdf5/model_000.hdf5
+   ```
+   Binary diff, but size changes indicate property schema evolution.
+
+3. **Check baseline test specifically**:
+   ```bash
+   cd tests/integration
+   python test_output_formats.py
+   ```
+   The `test_hdf5_baseline_comparison` must pass.
+
+4. **Document the change**:
+   - Update `CHANGELOG.md` if user-facing change
+   - Add comment to git commit explaining why baseline changed
+   - Update relevant documentation if halo tracking behavior changed
+
+#### Baseline Test Details
+
+The baseline comparison test (`test_hdf5_baseline_comparison` in `test_output_formats.py`):
+- Compares **only core halo properties** (24 properties)
+- Ignores module-specific properties (ColdGas, StellarMass, etc.)
+- Uses 1e-6 relative tolerance for floats
+- Requires exact match for integers
+- Reports detailed differences if comparison fails
+
+**Core properties validated**:
+- Structural: SnapNum, Type, HaloIndex, CentralHaloIndex, MimicHaloIndex, MimicTreeIndex, SimulationHaloIndex
+- Tracking: MergeStatus, mergeIntoID, mergeIntoSnapNum, dT
+- Physical: Pos, Vel, Spin, Len
+- Virial: Mvir, CentralMvir, Rvir, Vvir, Vmax, VelDisp
+- Infall: infallMvir, infallVvir, infallVmax
 
 ---
 

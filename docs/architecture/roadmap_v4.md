@@ -408,7 +408,93 @@ This workflow applies to each module. Refine based on lessons learned.
 
 ---
 
-#### **4.5 Success Criteria for Phase 4**
+#### **4.5 Testing Framework Enhancements (Continuous)**
+
+**Context**: Following comprehensive code review of testing framework (2025-11-13), several refinements have been implemented and others deferred to appropriate phases.
+
+**Philosophy**: Let demonstrated needs during module implementation drive testing improvements. Avoid premature optimization of test infrastructure.
+
+##### **Completed (Phase 4.2 - November 2025)**
+
+**Centralized Test Harness** (`tests/framework/harness.py`):
+- Eliminated code duplication across integration tests
+- Centralized utilities: `run_mimic()`, `create_test_param_file()`, `read_param_file()`, `ensure_output_dirs()`, `check_no_memory_leaks()`
+- Documented in `docs/developer/testing.md` with usage examples
+- **Impact**: Reduced test boilerplate, consistent patterns for test development
+
+**Baseline Management** (`scripts/regenerate_baseline.sh`):
+- Automated HDF5 baseline regeneration with validation
+- Documented when/how to regenerate baseline
+- Enforces physics-free mode requirement
+- Provides git commit instructions for auditability
+- **Impact**: Prevents baseline corruption, ensures reproducibility
+
+##### **Scheduled (Phase 4.2 - During sage_cooling)**
+
+**Cross-Module Physics Validation** (Task 23 in next-task.md):
+- Test file: `tests/integration/test_infall_cooling_pipeline.py`
+- Validates sage_infall → sage_cooling property flow
+- Checks: execution order, mass conservation, metallicity tracking
+- **Timeline**: After sage_cooling Tasks 11-22 complete
+- **Impact**: Validates scientific correctness of module interactions
+
+##### **Deferred to Phase 4.3 (After 2-3 More SAGE Modules)**
+
+**Module Test Automation Script** (`scripts/create_module_tests.sh`):
+- **Why defer**: Need 2-3 more modules to identify stable patterns
+- **Benefit**: Auto-generate test skeletons for new modules
+- **Timing**: After sage_reincorporation and sage_starformation_feedback
+- **Estimated effort**: 1 day
+- **ROI**: Streamlines module development, reduces copy-paste errors
+
+**C Test Runner Improvements** (optional refinement):
+- **Why defer**: Current `run_tests.sh` is functional, no demonstrated pain points
+- **Potential improvements**: Better error messages, more defensive parsing
+- **Timing**: Opportunistic - if pain points emerge
+- **Estimated effort**: 1 day
+- **Approach**: Incremental improvements, not full rewrite to Python
+
+##### **Deferred to Phase 5+ (Post-SAGE Implementation)**
+
+**Performance Regression Testing**:
+- **Why defer**: Performance optimization premature before all physics implemented
+- **Implementation**: `make test-performance` target with baseline tracking
+- **Benefit**: Automated detection of performance regressions (>10-15% slower)
+- **Timing**: After all 6 SAGE modules complete and performance matters
+- **Estimated effort**: 2-3 days
+
+**HDF5 Input Tree Testing**:
+- **Why defer**: Low impact - most users use binary format, no reported issues
+- **Implementation**: Integration test for `genesis_lhalo_hdf5` reader
+- **Benefit**: Edge case coverage for HDF5 input format
+- **Timing**: Opportunistic or when user reports issues
+- **Estimated effort**: 1-2 days
+
+##### **Recommendations Not Adopted**
+
+**C Framework Setup/Teardown Functions**:
+- **Reasoning**: Current explicit pattern is clear and idiomatic for C
+- **Boilerplate**: Minimal (~2-3 lines per test)
+- **Decision**: Only reconsider if boilerplate grows significantly (>10 lines/test)
+
+**Kitchen Sink Integration Test**:
+- **Reasoning**: Conflicts with modular testing philosophy
+- **Alternative**: Module-specific tests + integration tests provide better coverage
+- **Maintenance burden**: Would break whenever any module changes
+- **Decision**: Rejected - current approach is preferable
+
+##### **Process for Evaluating Future Enhancements**
+
+1. **Document needs** in `module-implementation-log.md` during Phase 4
+2. **Periodic reviews** after every 2-3 modules
+3. **Prioritize** based on demonstrated ROI, not speculation
+4. **Implement** when ≥3 modules need same capability or pain point affects multiple modules
+
+**This approach ensures**: Testing framework evolves based on real needs, not premature optimization.
+
+---
+
+#### **4.6 Success Criteria for Phase 4**
 
 Phase 4 is complete when:
 
