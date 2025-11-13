@@ -6,6 +6,37 @@
 
 ---
 
+## Quick Reference
+
+**Creating a module in 5 steps:**
+
+1. **Copy template**: `cp -r src/modules/_template src/modules/my_module`
+2. **Implement 3 functions**: `init()`, `process_halos()`, `cleanup()`
+3. **Define metadata**: Edit `module_info.yaml` (name, parameters, dependencies)
+4. **Auto-register**: Run `make generate-modules`
+5. **Test**: Unit tests + integration tests + scientific validation
+
+**Module interface (must implement):**
+- `init()` - Initialize module (load data, allocate memory)
+- `process_halos()` - Process each FOF group (main physics)
+- `cleanup()` - Free resources and shut down
+
+**Key patterns:**
+- Access galaxy data via property accessors: `get_ColdGas(gal)`, `set_StellarMass(gal, value)`
+- Read parameters from `MimicConfig`: Named as `ModuleName_ParameterName`
+- Add properties in `metadata/properties/galaxy_properties.yaml`, run `make generate`
+- Co-locate tests with module code (auto-discovered)
+
+**Most important sections:**
+- [Quick Start](#quick-start-creating-your-first-module) - Step-by-step module creation
+- [Module Lifecycle](#module-lifecycle) - When each function is called
+- [Property System](#property-system-integration) - Working with galaxy data
+- [Testing Your Module](#testing-your-module) - Three-tier testing approach
+
+**This is a 1100+ line comprehensive guide. Jump to what you need using the table of contents.**
+
+---
+
 ## Table of Contents
 
 1. [Introduction](#introduction)

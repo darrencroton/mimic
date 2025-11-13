@@ -8,6 +8,32 @@ This comprehensive guide explains how to use Mimic's testing infrastructure, wri
 
 ---
 
+## Quick Reference
+
+**Need to know in 30 seconds:**
+
+| What | Command | Time |
+|------|---------|------|
+| **Run all tests** | `make tests` | <6 min |
+| **Fast tests only** | `make test-unit` | <10 sec |
+| **Integration tests** | `make test-integration` | <1 min |
+| **Scientific validation** | `make test-scientific` | <5 min |
+
+**Three test tiers:**
+1. **Unit (C)** - Fast component tests, run every change
+2. **Integration (Python)** - End-to-end pipeline, run before commits
+3. **Scientific (Python)** - Physics validation, run before releases
+
+**Most common tasks:**
+- Adding a test → See [Quick Start](#quick-start) below
+- Module tests → Declare in `module_info.yaml`, auto-discovered
+- Infrastructure tests → Use `test_fixture` module (see [Infrastructure Testing Conventions](#infrastructure-testing-conventions))
+- Test failed → See [Debugging Test Failures](#debugging-test-failures)
+
+**This is a 2100+ line reference document. Use the table of contents to jump to what you need.**
+
+---
+
 ## Table of Contents
 
 1. [Quick Start](#quick-start)

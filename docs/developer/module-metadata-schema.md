@@ -7,6 +7,50 @@
 
 ---
 
+## Quick Start
+
+**Creating a new module?** Here's the minimum you need to know:
+
+1. **Copy the template**: `cp -r src/modules/_template src/modules/your_module`
+2. **Edit `module_info.yaml`** with your module's details (name, parameters, dependencies)
+3. **Required fields**: `name`, `display_name`, `description`, `sources`, `register_function`
+4. **Run**: `make generate-modules` (auto-generates registration code)
+5. **Build**: `make clean && make`
+
+**Minimal example:**
+```yaml
+name: my_module
+display_name: "My Module"
+description: "Does physics stuff"
+version: "1.0.0"
+category: physics
+
+sources: [my_module.c]
+headers: [my_module.h]
+register_function: my_module_register
+
+dependencies:
+  requires: []  # List modules this depends on
+  provides: []  # List properties this module creates
+
+parameters: []  # Add your module's parameters here
+tests:
+  unit: test_unit_my_module.c
+  integration: test_integration_my_module.py
+```
+
+**Most common fields:**
+- `name` - Internal identifier (matches directory name)
+- `sources` / `headers` - Your C files
+- `register_function` - Name of your `*_register()` function
+- `dependencies.requires` - Modules you need data from
+- `dependencies.provides` - Properties you create
+- `parameters` - Runtime configuration options
+
+**Full schema details below.** This is a 1200+ line reference - use Ctrl+F to find what you need.
+
+---
+
 ## Overview
 
 This document defines the YAML schema for physics module metadata in Mimic. Module metadata is the **single source of truth** for:

@@ -7,6 +7,61 @@
 
 ---
 
+## Quick Start
+
+**Adding a new property? Here's what you need:**
+
+1. **Edit the right file:**
+   - Halo properties (core): `metadata/properties/halo_properties.yaml`
+   - Galaxy properties (physics): `metadata/properties/galaxy_properties.yaml`
+
+2. **Minimal property definition:**
+```yaml
+- name: MyNewProperty
+  type: float
+  units: "Msun"
+  description: "My new galaxy property"
+  output: true
+  init_source: default
+  init_value: 0.0f
+```
+
+3. **Regenerate code:**
+```bash
+make generate
+```
+
+4. **Use in your module:**
+```c
+float mass = get_MyNewProperty(galaxy);
+set_MyNewProperty(galaxy, 1.5);
+```
+
+**Required fields:**
+- `name` - C identifier (PascalCase recommended)
+- `type` - Data type (`float`, `double`, `int`, `long`)
+- `units` - Physical units (documentation)
+- `description` - What this property represents
+- `output` - Include in output files? (`true`/`false`)
+- `init_source` - How to initialize (`default`, `copy_from_tree`, `calculate`)
+
+**Common patterns:**
+- Simple property: `init_source: default`, provide `init_value`
+- From merger tree: `init_source: copy_from_tree`, provide tree field name
+- Calculated: `init_source: calculate`, provide function name
+- Output copy: Most properties use `output_source: copy_from_processing`
+
+**Generated outputs:**
+- `src/include/generated/properties.h` - Struct definitions
+- `src/include/generated/property_accessors.h` - Getter/setter macros
+- `src/core/init_halo.c` (partially) - Initialization code
+- HDF5 field definitions
+- Python dtypes for plotting
+
+**Full schema details below.** This is a 990-line reference document - use Ctrl+F to find what you need.
+
+---
+
 ## Overview
 
 This document defines the YAML schema for property metadata in Mimic. Property metadata is the **single source of truth** for:
