@@ -53,57 +53,6 @@ This comprehensive guide explains how to use Mimic's testing infrastructure, wri
 
 ---
 
-## Quick Start
-
-### Running All Tests
-
-```bash
-# Build Mimic first
-make
-
-# Run all tests
-make tests
-
-# Run specific test tiers
-make test-unit          # C unit tests (<10s)
-make test-integration   # Python integration tests (<1min)
-make test-scientific    # Python scientific tests (<5min)
-```
-
-### Running Individual Tests
-
-```bash
-# Unit test
-cd tests/unit
-./test_memory_system.test
-
-# Integration test
-cd tests/integration
-python test_full_pipeline.py
-
-# Scientific test
-cd tests/scientific
-python test_physics_sanity.py
-```
-
-### Adding a New Test
-
-**For Core Infrastructure Tests**:
-1. Choose test type (unit/integration/scientific)
-2. Copy appropriate template from `tests/framework/`
-3. Implement test functions
-4. Add to test runner (for unit tests: add to `CORE_TESTS` in `run_tests.sh`)
-5. Verify: `make tests`
-
-**For Module Tests**:
-1. Copy existing module test as example (e.g., from `src/modules/sage_infall/`)
-2. Adapt for your module's functionality
-3. Declare test files in `module_info.yaml` under `tests:` section
-4. Run `make generate-test-registry` to register tests
-5. Verify: `make tests` (tests are auto-discovered and run)
-
----
-
 ## Testing Philosophy
 
 Mimic follows the **testing pyramid** approach:
