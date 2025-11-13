@@ -263,204 +263,48 @@ Running: test_basic_allocation                              ✗ FAIL
 
 ## Test Harness Utilities
 
-The `tests/framework/harness.py` module provides centralized test utilities for integration and scientific testing. These utilities eliminate code duplication and provide consistent patterns for test development.
+The `tests/framework/harness.py` module provides centralized test utilities. These eliminate code duplication and provide consistent patterns for test development.
 
-### Available Utilities
+### Quick Reference
 
-#### Path Constants
+| Function | Purpose |
+|----------|---------|
+| `ensure_output_dirs()` | Create test output directories |
+| `run_mimic(param_file)` | Execute Mimic with parameter file |
+| `read_param_file(param_file)` | Parse parameter files to dict |
+| `create_test_param_file(...)` | Generate custom test parameter files |
+| `check_no_memory_leaks(output_dir)` | Scan logs for memory leaks |
+| `load_binary_halos(file_path)` | Load binary output files as NumPy arrays |
+| `load_hdf5_halos(file_path)` | Load HDF5 output files (requires h5py) |
 
-```python
-from framework import REPO_ROOT, TEST_DATA_DIR, MIMIC_EXE
+**Path constants:** `REPO_ROOT`, `TEST_DATA_DIR`, `MIMIC_EXE`
 
-# REPO_ROOT: Path to repository root
-# TEST_DATA_DIR: Path to tests/data/
-# MIMIC_EXE: Path to mimic executable
-```
-
-#### Core Functions
-
-**`ensure_output_dirs()`**
-Creates required test output directories. Call once at module level or in `setUpClass()`.
-
-```python
-from framework import ensure_output_dirs
-
-# Call once at module level
-ensure_output_dirs()  # Creates tests/data/output/{binary,hdf5}
-```
-
-**`run_mimic(param_file, cwd=None)`**
-Execute Mimic with specified parameter file.
+### Usage Example
 
 ```python
-from framework import run_mimic
-
-returncode, stdout, stderr = run_mimic("input/millennium.par")
-assert returncode == 0, f"Mimic failed: {stderr}"
-```
-
-**`read_param_file(param_file)`**
-Parse a Mimic parameter file into a dictionary.
-
-```python
-from framework import read_param_file
-
-params = read_param_file("input/millennium.par")
-output_dir = params['OutputDir']
-hubble_h = float(params['Hubble_h'])
-```
-
-**`create_test_param_file(output_name, enabled_modules=None, module_params=None, first_file=0, last_file=0, ref_param_file=None, temp_dir=None)`**
-Generate a test parameter file with custom module configuration.
-
-```python
-from framework import create_test_param_file
+from framework import run_mimic, load_binary_halos, create_test_param_file
 import shutil
 
-# Physics-free mode
-param_file, output_dir, temp_dir = create_test_param_file("test_run")
-
-# With modules
+# Create custom test parameter file
 param_file, output_dir, temp_dir = create_test_param_file(
-    output_name="cooling_test",
-    enabled_modules=["sage_infall", "sage_cooling"],
-    module_params={
-        "SageInfall_BaryonFrac": "0.17",
-        "SageCooling_CoolFunctionsDir": "input/CoolFunctions"
-    },
-    first_file=0,
-    last_file=0
+    output_name="my_test",
+    enabled_modules=["sage_infall"],
+    module_params={"SageInfall_BaryonFrac": "0.17"}
 )
 
-# Cleanup when done
+# Run Mimic
+returncode, stdout, stderr = run_mimic(param_file)
+assert returncode == 0
+
+# Load and analyze output
+halos = load_binary_halos(f"{output_dir}/my_test_00.dat")
+print(f"Loaded {len(halos)} halos with properties: {halos.dtype.names}")
+
+# Cleanup
 shutil.rmtree(temp_dir)
 ```
 
-**`check_no_memory_leaks(output_dir)`**
-Scan log files for memory leak indicators.
-
-```python
-from framework import check_no_memory_leaks
-from pathlib import Path
-
-output_dir = Path("tests/data/output/binary")
-has_leaks = not check_no_memory_leaks(output_dir)
-assert not has_leaks, "Memory leaks detected"
-```
-
-### Usage Examples
-
-#### Simple Integration Test
-
-```python
-#!/usr/bin/env python3
-"""Test sage_infall module integration."""
-
-import sys
-from pathlib import Path
-
-# Add framework to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from framework import (
-    REPO_ROOT,
-    TEST_DATA_DIR,
-    ensure_output_dirs,
-    run_mimic,
-    check_no_memory_leaks,
-)
-
-# Ensure output directories exist
-ensure_output_dirs()
-
-def test_module_execution():
-    """Test that sage_infall executes successfully."""
-    param_file = TEST_DATA_DIR / "test_infall.par"
-    returncode, stdout, stderr = run_mimic(param_file)
-
-    assert returncode == 0, f"Mimic failed: {stderr}"
-    assert "sage_infall initialized" in stdout
-
-    # Check for memory leaks
-    output_dir = TEST_DATA_DIR / "output" / "binary"
-    assert check_no_memory_leaks(output_dir), "Memory leaks detected"
-
-if __name__ == "__main__":
-    test_module_execution()
-    print("✓ All tests passed!")
-```
-
-#### Test with Custom Configuration
-
-```python
-#!/usr/bin/env python3
-"""Test module with custom parameters."""
-
-import sys
-import shutil
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from framework import create_test_param_file, run_mimic
-
-def test_custom_parameters():
-    """Test module with custom parameter values."""
-    # Create test configuration
-    param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="custom_test",
-        enabled_modules=["sage_infall"],
-        module_params={
-            "SageInfall_BaryonFrac": "0.15",  # Non-default value
-            "SageInfall_ReionizationOn": "0"  # Disable reionization
-        },
-        first_file=0,
-        last_file=0
-    )
-
-    try:
-        # Run mimic
-        returncode, stdout, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic failed: {stderr}"
-
-        # Verify custom parameters were used
-        assert "BaryonFrac = 0.150" in stdout
-        assert "ReionizationOn = 0" in stdout
-
-    finally:
-        # Cleanup
-        shutil.rmtree(temp_dir)
-
-if __name__ == "__main__":
-    test_custom_parameters()
-    print("✓ Custom parameter test passed!")
-```
-
-### Migration Guide
-
-If you have existing test code with duplicated helpers:
-
-**Before** (duplicated code):
-```python
-def run_mimic(param_file):
-    result = subprocess.run([str(MIMIC_EXE), str(param_file)], ...)
-    return result.returncode, result.stdout, result.stderr
-```
-
-**After** (using harness):
-```python
-from framework import run_mimic
-
-returncode, stdout, stderr = run_mimic(param_file)
-```
-
-### Best Practices
-
-1. **Always call `ensure_output_dirs()` at module level** - Prevents "directory not found" errors
-2. **Use `create_test_param_file()` for custom configs** - Eliminates boilerplate parameter file creation
-3. **Clean up temp directories** - Use `shutil.rmtree(temp_dir)` in finally blocks or `tearDown()`
-4. **Check memory leaks** - Call `check_no_memory_leaks()` in integration tests
-5. **Import from `framework`** - All harness utilities are re-exported from `tests/framework/__init__.py`
+**Full API documentation:** See docstrings in `tests/framework/harness.py`
 
 ---
 
@@ -1213,471 +1057,63 @@ def test_baryon_conservation():
 
 ## Writing Module Tests
 
-**NEW**: Module tests are co-located with module code and auto-discovered via metadata. This section explains how to create tests for physics modules.
+**Module tests are co-located with module code and automatically discovered via metadata.**
 
-### Overview
+### Quick Summary
 
-When creating a new physics module (e.g., `src/modules/my_cooling/`), you should create three test files:
-1. **Unit test** (C): `test_unit_my_cooling.c` - Software quality (lifecycle, memory, parameters)
-2. **Integration test** (Python): `test_integration_my_cooling.py` - Pipeline integration
-3. **Scientific test** (Python): `test_scientific_my_cooling_validation.py` - Physics validation
+When creating a physics module, you create three test files:
+1. **Unit test** (C): `test_unit_MODULE.c` - Software quality (lifecycle, memory, parameters)
+2. **Integration test** (Python): `test_integration_MODULE.py` - Pipeline integration  
+3. **Scientific test** (Python): `test_scientific_MODULE_validation.py` - Physics validation
 
-These tests are declared in `module_info.yaml` and automatically discovered by the test system.
+These tests are declared in `module_info.yaml` and auto-discovered by the test registry system.
 
-### Step 1: Declare Tests in Module Metadata
+### Test Discovery System
 
-Edit `src/modules/my_cooling/module_info.yaml`:
-
+**1. Declare tests in `module_info.yaml`:**
 ```yaml
-module:
-  name: my_cooling
-  # ... other metadata ...
-
-  tests:
-    unit: test_unit_my_cooling.c
-    integration: test_integration_my_cooling.py
-    scientific: test_scientific_my_cooling_validation.py
+tests:
+  unit: test_unit_my_module.c
+  integration: test_integration_my_module.py
+  scientific: test_scientific_my_module_validation.py
 ```
 
-### Step 2: Create Unit Test (C)
-
-**Purpose**: Test module software quality (not physics correctness)
-
-**File**: `src/modules/my_cooling/test_unit_my_cooling.c`
-
-**What to test**:
-- Module registration and initialization
-- Parameter reading from configuration
-- Memory safety (no leaks)
-- Property access patterns
-- Null pointer safety
-
-**Template**: Use existing module unit tests as templates (e.g., `src/modules/sage_infall/test_unit_sage_infall.c`)
-
-**Example structure**:
-
-```c
-/**
- * @file    test_unit_my_cooling.c
- * @brief   Software quality unit tests for my_cooling module
- *
- * Validates: Module lifecycle, memory safety, parameter handling
- * Phase: [Your phase number]
- */
-
-#include "../../tests/framework/test_framework.h"
-#include "../../core/module_registry.h"
-#include "../../core/module_interface.h"
-#include "my_cooling.h"
-#include "../../include/types.h"
-#include "../../include/proto.h"
-#include "../../include/globals.h"
-
-static int passed = 0;
-static int failed = 0;
-static int modules_registered = 0;
-
-static void reset_config(void) {
-    memset(&MimicConfig, 0, sizeof(MimicConfig));
-}
-
-static void ensure_modules_registered(void) {
-    if (!modules_registered) {
-        register_all_modules();
-        modules_registered = 1;
-    }
-}
-
-int test_module_registration(void) {
-    reset_config();
-    init_memory_system(0);
-
-    ensure_modules_registered();
-
-    struct Module *mod = find_module("MyCooling");
-    TEST_ASSERT(mod != NULL, "Module should be registered");
-    TEST_ASSERT(strcmp(mod->name, "MyCooling") == 0, "Module name should match");
-
-    check_memory_leaks();
-    return TEST_PASS;
-}
-
-int test_module_initialization(void) {
-    reset_config();
-    init_memory_system(0);
-
-    // Set up parameters
-    strcpy(MimicConfig.ModuleParams[0].module_name, "MyCooling");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "CoolingEfficiency");
-    strcpy(MimicConfig.ModuleParams[0].value, "0.5");
-    MimicConfig.NumModuleParams = 1;
-
-    // Enable module
-    strcpy(MimicConfig.EnabledModules[0], "my_cooling");
-    MimicConfig.NumEnabledModules = 1;
-
-    ensure_modules_registered();
-    int result = module_system_init();
-
-    TEST_ASSERT(result == 0, "Module initialization should succeed");
-
-    module_system_cleanup();
-    check_memory_leaks();
-    return TEST_PASS;
-}
-
-int test_memory_safety(void) {
-    // Test that module doesn't leak memory during normal operation
-    reset_config();
-    init_memory_system(0);
-
-    strcpy(MimicConfig.EnabledModules[0], "my_cooling");
-    MimicConfig.NumEnabledModules = 1;
-
-    ensure_modules_registered();
-    module_system_init();
-
-    // Run multiple times to detect leaks
-    for (int i = 0; i < 10; i++) {
-        // Simulate processing (if needed)
-    }
-
-    module_system_cleanup();
-    check_memory_leaks();
-    return TEST_PASS;
-}
-
-int main(void) {
-    TEST_SUITE_START("My Cooling Module - Software Quality");
-
-    TEST_RUN(test_module_registration);
-    TEST_RUN(test_module_initialization);
-    TEST_RUN(test_memory_safety);
-
-    TEST_SUMMARY();
-    return TEST_RESULT();
-}
-```
-
-**Key points**:
-- Include path is `../../tests/framework/test_framework.h` (relative from module directory)
-- Always test for memory leaks with `check_memory_leaks()`
-- Test registration, initialization, and cleanup lifecycle
-- Do NOT test physics calculations (that's for scientific tests)
-
-### Step 3: Create Integration Test (Python)
-
-**Purpose**: Test module in full pipeline execution
-
-**File**: `src/modules/my_cooling/test_integration_my_cooling.py`
-
-**What to test**:
-- Module loads and executes without errors
-- Module respects configuration parameters
-- Output properties appear in output files
-- No memory leaks during execution
-- Multi-module pipeline integration
-
-**Template**: Use existing module integration tests as templates (e.g., `src/modules/sage_infall/test_integration_sage_infall.py`)
-
-**Example structure**:
-
-```python
-#!/usr/bin/env python3
-"""
-My Cooling Module - Integration Test
-
-Validates: Module lifecycle, configuration, and pipeline integration
-Phase: [Your phase number]
-
-Test cases:
-  - test_module_loads: Module registration and initialization
-  - test_output_properties_exist: Output properties in files
-  - test_parameters_configurable: Parameter reading
-  - test_memory_safety: No memory leaks
-  - test_execution_completes: Full pipeline completion
-"""
-
-import os
-import sys
-import subprocess
-import tempfile
-from pathlib import Path
-
-# Repository root
-REPO_ROOT = Path(__file__).parent.parent.parent.parent
-MIMIC_EXE = REPO_ROOT / "mimic"
-
-# Add tests directory to path
-sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import load_binary_halos
-
-def run_mimic(param_file):
-    """Execute Mimic with parameter file"""
-    result = subprocess.run(
-        [str(MIMIC_EXE), str(param_file)],
-        capture_output=True,
-        text=True,
-        timeout=60
-    )
-    return result.returncode, result.stdout, result.stderr
-
-def test_module_loads():
-    """Test that my_cooling module loads and executes"""
-    # Create test parameter file with module enabled
-    # ... implementation ...
-    returncode, stdout, stderr = run_mimic(param_file)
-    assert returncode == 0, f"Mimic execution failed: {stderr}"
-    print("✓ Module loads and executes successfully")
-
-def test_output_properties_exist():
-    """Test that module properties appear in output"""
-    # Run Mimic with module enabled
-    # ... implementation ...
-
-    # Load output
-    halos = load_binary_halos(output_file)
-
-    # Check properties exist
-    assert 'CoolGas' in halos.dtype.names, "CoolGas property missing"
-    assert halos['CoolGas'].sum() > 0, "CoolGas has no non-zero values"
-    print("✓ Module output properties exist and have data")
-
-def test_parameters_configurable():
-    """Test that module parameters are configurable"""
-    # Test different parameter values
-    # ... implementation ...
-    print("✓ Module parameters configurable via .par file")
-
-def test_memory_safety():
-    """Test for memory leaks"""
-    # Run Mimic and check logs
-    # ... implementation ...
-
-    # Check for memory leaks in log
-    log_files = list(Path(output_dir).glob("metadata/*.log"))
-    for log_file in log_files:
-        with open(log_file) as f:
-            content = f.read()
-            assert "memory leak" not in content.lower(), \
-                f"Memory leak detected in {log_file}"
-    print("✓ No memory leaks detected")
-
-if __name__ == '__main__':
-    print("=" * 60)
-    print("My Cooling Module - Integration Tests")
-    print("=" * 60)
-
-    test_module_loads()
-    test_output_properties_exist()
-    test_parameters_configurable()
-    test_memory_safety()
-
-    print("=" * 60)
-    print("✓ ALL INTEGRATION TESTS PASSED")
-    print("=" * 60)
-```
-
-**Key points**:
-- Path to test framework: `REPO_ROOT / "tests"` (4 levels up from module directory)
-- Use `load_binary_halos()` from test framework to read output
-- Create temporary parameter files for testing
-- Always check for memory leaks in log files
-- Test that parameters can be configured
-
-### Step 4: Create Scientific Test (Python)
-
-**Purpose**: Validate physics correctness
-
-**File**: `src/modules/my_cooling/test_scientific_my_cooling_validation.py`
-
-**What to test**:
-- Physics calculations produce expected results
-- Properties within physically reasonable ranges
-- Conservation laws (if applicable)
-- Scaling relations (if applicable)
-
-**Template**: Use existing module scientific tests as templates (e.g., `src/modules/sage_infall/test_scientific_sage_infall_validation.py`)
-
-**Example structure**:
-
-```python
-#!/usr/bin/env python3
-"""
-My Cooling Module - Scientific Validation
-
-Validates: Physics correctness and property ranges
-Phase: [Your phase number]
-
-Test cases:
-  - test_cooling_rate_scaling: Cooling rate scales correctly with mass
-  - test_property_ranges: Properties within physical bounds
-  - test_conservation: Mass conservation during cooling
-"""
-
-import sys
-from pathlib import Path
-import numpy as np
-
-# Repository root
-REPO_ROOT = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import load_binary_halos
-
-def test_cooling_rate_scaling():
-    """Test that cooling rate scales correctly with halo mass"""
-    halos = load_binary_halos(output_file)
-
-    # Filter to halos with cooling
-    cooling_halos = halos[halos['CoolGas'] > 0]
-
-    # Test scaling relationship
-    # e.g., cooling rate ~ M_vir^(2/3)
-    # ... physics validation ...
-
-    print("✓ Cooling rate scaling validated")
-
-def test_property_ranges():
-    """Test that module properties are within physical ranges"""
-    halos = load_binary_halos(output_file)
-
-    # Check for NaN/Inf
-    assert not np.any(np.isnan(halos['CoolGas'])), "NaN found in CoolGas"
-    assert not np.any(np.isinf(halos['CoolGas'])), "Inf found in CoolGas"
-
-    # Check physical ranges
-    assert np.all(halos['CoolGas'] >= 0), "Negative cooling found"
-    assert np.all(halos['CoolGas'] < 1e6), "Unrealistic cooling rate"
-
-    print("✓ Property ranges validated")
-
-def test_conservation():
-    """Test mass conservation during cooling"""
-    # ... conservation law validation ...
-    print("✓ Mass conservation validated")
-
-if __name__ == '__main__':
-    print("=" * 60)
-    print("My Cooling Module - Scientific Validation")
-    print("=" * 60)
-
-    test_cooling_rate_scaling()
-    test_property_ranges()
-    test_conservation()
-
-    print("=" * 60)
-    print("✓ ALL SCIENTIFIC TESTS PASSED")
-    print("=" * 60)
-```
-
-**Key points**:
-- Test actual physics, not just software quality
-- Use physically motivated ranges and scaling relations
-- Reference published papers for expected behavior
-- Document physics assumptions in test docstrings
-
-### Step 5: Run Tests
-
-Once tests are created and declared in `module_info.yaml`:
-
+**2. Auto-register tests:**
 ```bash
-# Regenerate test registry (automatically discovers new tests)
-make generate-test-registry
-
-# Run all tests (includes your new module tests)
-make tests
-
-# Run specific tiers
-make test-unit          # Includes module unit tests
-make test-integration   # Includes module integration tests
-make test-scientific    # Includes module scientific tests
-
-# Run single module test directly
-cd src/modules/my_cooling
-./test_unit_my_cooling.test  # After compiling
-python3 test_integration_my_cooling.py
-python3 test_scientific_my_cooling_validation.py
+make generate-test-registry  # Scans all module_info.yaml files
 ```
 
-### Module Test Naming Conventions
-
-**Strict naming required for auto-discovery**:
-
-- **Unit tests**: `test_unit_<module_name>.c`
-  - Example: `test_unit_sage_infall.c`
-  - Located in: `src/modules/sage_infall/`
-
-- **Integration tests**: `test_integration_<module_name>.py`
-  - Example: `test_integration_sage_infall.py`
-  - Located in: `src/modules/sage_infall/`
-
-- **Scientific tests**: `test_scientific_<module_name>_validation.py`
-  - Example: `test_scientific_sage_infall_validation.py`
-  - Located in: `src/modules/sage_infall/`
-
-**Why strict naming?**
-- Auto-discovery system scans for these patterns
-- Consistency across all modules
-- Clear distinction from core tests
-- Enables automated test running
-
-### Module Test Best Practices
-
-✅ **DO**:
-- **Co-locate tests with module code** - Keep tests in `src/modules/MODULE_NAME/`
-- **Declare tests in `module_info.yaml`** - Required for auto-discovery
-- **Use existing modules as templates** - Copy and adapt from `sage_infall/`, `simple_cooling/`, etc.
-- **Follow naming conventions** - `test_unit_*.c`, `test_integration_*.py`, `test_scientific_*_validation.py`
-- **Test software quality in unit/integration** - Lifecycle, memory, parameters, pipeline integration
-- **Test physics in scientific tests** - Physical ranges, scaling relations, conservation laws
-- **Check for memory leaks** - Always use `check_memory_leaks()` in C tests
-- **Document physics assumptions** - Reference papers and equations in scientific tests
-
-❌ **DON'T**:
-- **Don't use core test templates for modules** - Core templates are in `tests/framework/`, not applicable to modules
-- **Don't put module tests in `tests/` directory** - Module tests must be co-located with module code
-- **Don't hardcode module tests in test runners** - They're auto-discovered from metadata
-- **Don't skip test declaration** - Tests must be declared in `module_info.yaml`
-- **Don't test physics in unit tests** - Unit tests are for software quality only
-- **Don't forget memory leak checks** - Critical for C unit tests
-- **Don't skip scientific validation** - Required for physics correctness
-
-### Debugging Module Tests
-
-**Problem**: Module test not discovered
-
-**Solution**:
+**3. Run tests:**
 ```bash
-# Check test is declared in module_info.yaml
-cat src/modules/my_module/module_info.yaml
-
-# Regenerate test registry
-make generate-test-registry
-
-# Check registry contains your test
-cat build/generated_test_lists/unit_tests.txt
-cat build/generated_test_lists/integration_tests.txt
-cat build/generated_test_lists/scientific_tests.txt
+make tests  # Automatically discovers and runs all module tests
 ```
 
-**Problem**: Unit test compilation fails
+### How to Write Module Tests
 
-**Solution**:
-- Check include paths are relative: `../../tests/framework/test_framework.h`
-- Ensure test file named correctly: `test_unit_MODULE.c`
-- Check test is in same directory as module source
+**For complete instructions on writing module tests, see:**
+- **[Module Developer Guide - Testing Your Module](module-developer-guide.md#testing-your-module)**
 
-**Problem**: Integration test can't import framework
+That section covers:
+- Unit test structure and what to test
+- Integration test patterns
+- Scientific validation approaches
+- Test templates and examples
+- Common pitfalls and troubleshooting
 
-**Solution**:
-```python
-# Ensure correct path to tests directory (4 levels up)
-REPO_ROOT = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import load_binary_halos
+### Test Organization
+
+Module tests live with module code:
+```
+src/modules/my_module/
+├── my_module.c
+├── my_module.h
+├── module_info.yaml
+├── test_unit_my_module.c           # Unit tests
+├── test_integration_my_module.py   # Integration tests
+└── test_scientific_my_module_validation.py  # Scientific tests
 ```
 
----
+This co-location maintains the physics-agnostic core principle - infrastructure tests stay in `tests/`, module-specific tests stay with modules.
 
 ## Test Templates
 
