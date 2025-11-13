@@ -10,7 +10,7 @@ validation and reference purposes.
 import h5py
 import numpy as np
 from pathlib import Path
-from generated_dtype import get_hdf5_dtype
+from generated.dtype import get_hdf5_dtype
 
 
 def get_expected_dtype():

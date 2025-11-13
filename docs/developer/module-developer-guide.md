@@ -440,7 +440,7 @@ static int my_module_cleanup(void) {
 ### Understanding the Property System
 
 Galaxy properties are defined in `metadata/properties/galaxy_properties.yaml` and auto-generated into:
-- C struct `GalaxyData` (in `src/include/generated/galaxy_properties.h`)
+- C struct `GalaxyData` (in `src/include/generated/property_defs.h`)
 - Type-safe accessors
 - Output formatting code
 - Python dtypes for analysis

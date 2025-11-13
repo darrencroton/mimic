@@ -71,7 +71,7 @@ def get_dtype():
     Returns:
         np.dtype: NumPy dtype matching struct HaloOutput in C code
     """
-    from generated_dtype import get_binary_dtype
+    from generated.dtype import get_binary_dtype
     return get_binary_dtype()
 
 

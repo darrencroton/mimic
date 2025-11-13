@@ -21,7 +21,9 @@ The property metadata system eliminates manual synchronization across 8+ files b
 - `src/include/generated/copy_to_output.inc` - Output copy logic
 - `src/include/generated/hdf5_field_count.inc` - HDF5 field count
 - `src/include/generated/hdf5_field_definitions.inc` - HDF5 field definitions
-- `output/mimic-plot/generated_dtype.py` - NumPy dtypes for plotting
+- `output/mimic-plot/generated/dtype.py` - NumPy dtypes for plotting
+- `output/mimic-plot/generated/__init__.py` - Python package init
+- `tests/generated/property_ranges.json` - Validation ranges for tests
 
 **Usage:**
 ```bash

@@ -381,11 +381,19 @@ src/modules/
 
 **Test Registry** (auto-generated):
 ```
-build/generated_test_lists/
+build/generated/
 ├── unit_tests.txt             # Auto-discovered C unit tests
 ├── integration_tests.txt      # Auto-discovered Python integration tests
 ├── scientific_tests.txt       # Auto-discovered Python scientific tests
-└── test_registry_hash.txt     # Registry consistency hash
+├── test_registry_hash.txt     # Registry consistency hash
+└── git_version.h              # Git version metadata for builds
+```
+
+**Test Generated Metadata**:
+```
+tests/generated/
+├── property_ranges.json       # Property validation ranges (from property metadata)
+└── module_sources.mk          # Module source paths for unit test builds
 ```
 
 ### Automated Test Discovery
@@ -401,9 +409,9 @@ Mimic uses a **metadata-driven test discovery system** to maintain the physics-a
    ```
 
 2. **Registry Generation**: `make generate-test-registry` scans all modules and generates test lists:
-   - `build/generated_test_lists/unit_tests.txt`
-   - `build/generated_test_lists/integration_tests.txt`
-   - `build/generated_test_lists/scientific_tests.txt`
+   - `build/generated/unit_tests.txt`
+   - `build/generated/integration_tests.txt`
+   - `build/generated/scientific_tests.txt`
 
 3. **Auto-Discovery**: Test runners automatically discover and run all registered tests:
    - `tests/unit/run_tests.sh` reads registry and compiles/runs unit tests

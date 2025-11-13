@@ -14,12 +14,12 @@ from pathlib import Path
 import sys
 import importlib.util
 
-# Add output/mimic-plot to path to import generated dtype
+# Add output/mimic-plot/generated to path to import generated dtype
 _mimic_root = Path(__file__).resolve().parent.parent.parent
-_generated_dtype_path = _mimic_root / "output" / "mimic-plot" / "generated_dtype.py"
+_generated_dtype_path = _mimic_root / "output" / "mimic-plot" / "generated" / "dtype.py"
 
-# Import generated_dtype module dynamically
-_spec = importlib.util.spec_from_file_location("generated_dtype", _generated_dtype_path)
+# Import generated.dtype module dynamically
+_spec = importlib.util.spec_from_file_location("generated.dtype", _generated_dtype_path)
 _generated_dtype = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_generated_dtype)
 get_binary_dtype = _generated_dtype.get_binary_dtype

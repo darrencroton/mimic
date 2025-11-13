@@ -20,6 +20,7 @@ CFLAGS += -I$(SRC_DIR)/core
 CFLAGS += -I$(SRC_DIR)/io
 CFLAGS += -I$(SRC_DIR)/util
 CFLAGS += -I$(SRC_DIR)/modules
+CFLAGS += -I$(BUILD_DIR)/generated
 
 # Dependency generation
 CFLAGS += -MMD -MP
@@ -52,7 +53,7 @@ endif
 PYTHON := $(shell if [ -f mimic_venv/bin/python3 ]; then echo mimic_venv/bin/python3; else echo python3; fi)
 
 # Git version tracking
-GIT_VERSION_H = $(SRC_DIR)/include/git_version.h
+GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 
 # Build targets
 .PHONY: all clean tidy help generate check-generated tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules
@@ -61,6 +62,7 @@ all: $(EXEC)
 
 $(GIT_VERSION_H): .git/HEAD .git/index
 	@echo "Generating git version..."
+	@mkdir -p $(BUILD_DIR)/generated
 	@echo "#ifndef GIT_VERSION_H" > $@
 	@echo "#define GIT_VERSION_H" >> $@
 	@echo "#define GIT_COMMIT \"$$(git rev-parse HEAD 2>/dev/null || echo 'unknown')\"" >> $@
@@ -117,9 +119,9 @@ $(GENERATED_HEADERS): $(PROP_YAML) scripts/generate_properties.py
 MODULE_YAML := $(wildcard $(SRC_DIR)/modules/*/module_info.yaml)
 
 # Generated module registration files
-MODULE_INIT_C := $(SRC_DIR)/modules/module_init.c
-MODULE_SOURCES_MK := tests/unit/module_sources.mk
-MODULE_REFERENCE_MD := docs/user/module-reference.md
+MODULE_INIT_C := $(SRC_DIR)/modules/generated/module_init.c
+MODULE_SOURCES_MK := tests/generated/module_sources.mk
+MODULE_REFERENCE_MD := docs/generated/module-reference.md
 
 # Module validation script
 MODULE_VALIDATOR := scripts/validate_modules.py
@@ -177,12 +179,12 @@ help:
 	@echo "    - src/include/generated/init_*_properties.inc"
 	@echo "    - src/include/generated/copy_to_output.inc"
 	@echo "    - src/include/generated/hdf5_field_*.inc"
-	@echo "    - output/mimic-plot/generated_dtype.py"
+	@echo "    - output/mimic-plot/generated/dtype.py"
 	@echo ""
 	@echo "  Module metadata (src/modules/*/module_info.yaml):"
-	@echo "    - src/modules/module_init.c"
-	@echo "    - tests/unit/module_sources.mk"
-	@echo "    - docs/user/module-reference.md"
+	@echo "    - src/modules/generated/module_init.c"
+	@echo "    - tests/generated/module_sources.mk"
+	@echo "    - docs/generated/module-reference.md"
 
 # Property metadata code generation
 generate:
@@ -245,7 +247,7 @@ test-integration:
 	-@$(PYTHON) tests/integration/test_module_pipeline.py
 	@echo ""
 	@echo "Running module integration tests from registry..."
-	@for test in $$(grep -v '^#' build/generated_test_lists/integration_tests.txt | grep -v '^$$'); do \
+	@for test in $$(grep -v '^#' build/generated/integration_tests.txt | grep -v '^$$'); do \
 		echo ""; \
 		echo "\033[0;34mRunning: $$test\033[0m"; \
 		$(PYTHON) $$test || exit 1; \
@@ -266,7 +268,7 @@ test-scientific:
 	-@$(PYTHON) tests/scientific/test_scientific.py
 	@echo ""
 	@echo "Running module scientific tests from registry..."
-	@for test in $$(grep -v '^#' build/generated_test_lists/scientific_tests.txt | grep -v '^$$'); do \
+	@for test in $$(grep -v '^#' build/generated/scientific_tests.txt | grep -v '^$$'); do \
 		echo ""; \
 		echo "\033[0;34mRunning: $$test\033[0m"; \
 		$(PYTHON) $$test || exit 1; \

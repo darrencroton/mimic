@@ -121,12 +121,18 @@ src/
 │   ├── tree/      Tree readers (binary, HDF5 formats)
 │   └── output/    Output writers (binary, HDF5)
 ├── util/          Utilities (memory, error, numeric, version, I/O)
-├── modules/       Physics modules (simple_cooling, simple_sfr)
-└── include/       Headers (types, globals, constants, generated code)
+├── modules/       Physics modules (sage_infall, sage_cooling, etc.)
+│   └── generated/ Auto-generated module registration code
+└── include/       Headers (types, globals, constants)
+    └── generated/ Auto-generated property code
 
-metadata/properties/  Property definitions (YAML → auto-generated C code)
+build/generated/     Build-time generated files (git_version.h, test lists)
+metadata/properties/ Property definitions (YAML → auto-generated C code)
 tests/               Unit, integration, and scientific tests
+  └── generated/     Auto-generated test metadata
+docs/generated/      Auto-generated documentation
 output/mimic-plot/   Plotting system (6 halo plots, modular figures)
+  └── generated/     Auto-generated Python dtypes
 ```
 
 ### Key Concepts

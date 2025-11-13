@@ -15,10 +15,9 @@ build/
 *.d
 
 # Generated files
-src/include/git_version.h
-src/modules/module_init.c
-tests/unit/module_sources.mk
-docs/user/module-reference.md
+src/modules/generated/module_init.c
+tests/generated/module_sources.mk
+docs/generated/module-reference.md
 build/module_registry_hash.txt
 
 # Test artifacts

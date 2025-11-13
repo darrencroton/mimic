@@ -9,10 +9,10 @@ Usage:
     python scripts/generate_test_registry.py
 
 Generates:
-    build/generated_test_lists/unit_tests.txt        - Unit test paths
-    build/generated_test_lists/integration_tests.txt - Integration test paths
-    build/generated_test_lists/scientific_tests.txt  - Scientific test paths
-    build/generated_test_lists/test_registry_hash.txt - Validation hash
+    build/generated/unit_tests.txt        - Unit test paths
+    build/generated/integration_tests.txt - Integration test paths
+    build/generated/scientific_tests.txt  - Scientific test paths
+    build/generated/test_registry_hash.txt - Validation hash
 
 Author: Mimic Development Team
 Date: 2025-11-12
@@ -35,7 +35,7 @@ def generate_test_registry():
     # Paths
     repo_root = Path(__file__).parent.parent
     module_dir = repo_root / "src" / "modules"
-    output_dir = repo_root / "build" / "generated_test_lists"
+    output_dir = repo_root / "build" / "generated"
 
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)

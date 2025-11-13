@@ -52,11 +52,14 @@ set_MyNewProperty(galaxy, 1.5);
 - Output copy: Most properties use `output_source: copy_from_processing`
 
 **Generated outputs:**
-- `src/include/generated/properties.h` - Struct definitions
-- `src/include/generated/property_accessors.h` - Getter/setter macros
-- `src/core/init_halo.c` (partially) - Initialization code
-- HDF5 field definitions
-- Python dtypes for plotting
+- `src/include/generated/property_defs.h` - Struct definitions (Halo, GalaxyData, HaloOutput)
+- `src/include/generated/init_halo_properties.inc` - Halo initialization code
+- `src/include/generated/init_galaxy_properties.inc` - Galaxy initialization code
+- `src/include/generated/copy_to_output.inc` - Output copy logic
+- `src/include/generated/hdf5_field_count.inc` - HDF5 field count
+- `src/include/generated/hdf5_field_definitions.inc` - HDF5 field definitions
+- `output/mimic-plot/generated/dtype.py` - Python NumPy dtypes
+- `tests/generated/property_ranges.json` - Validation ranges
 
 **Full schema details below.** This is a 990-line reference document - use Ctrl+F to find what you need.
 

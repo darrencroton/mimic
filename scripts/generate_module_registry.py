@@ -13,9 +13,9 @@ Reads:
     src/modules/*/module_info.yaml
 
 Generates:
-    src/modules/module_init.c              - Module registration code
-    tests/unit/module_sources.mk           - Test build configuration
-    docs/user/module-reference.md          - Module documentation
+    src/modules/generated/module_init.c    - Module registration code
+    tests/generated/module_sources.mk      - Test build configuration
+    docs/generated/module-reference.md     - Module documentation
     build/module_registry_hash.txt         - Validation hash
 
 Exit codes:
@@ -51,9 +51,9 @@ REPO_ROOT = Path(__file__).parent.parent
 MODULES_DIR = REPO_ROOT / "src" / "modules"
 
 # Output files
-MODULE_INIT_C = REPO_ROOT / "src" / "modules" / "module_init.c"
-MODULE_SOURCES_MK = REPO_ROOT / "tests" / "unit" / "module_sources.mk"
-MODULE_REFERENCE_MD = REPO_ROOT / "docs" / "user" / "module-reference.md"
+MODULE_INIT_C = REPO_ROOT / "src" / "modules" / "generated" / "module_init.c"
+MODULE_SOURCES_MK = REPO_ROOT / "tests" / "generated" / "module_sources.mk"
+MODULE_REFERENCE_MD = REPO_ROOT / "docs" / "generated" / "module-reference.md"
 MODULE_HASH_FILE = REPO_ROOT / "build" / "module_registry_hash.txt"
 
 # ==============================================================================
@@ -359,7 +359,7 @@ def generate_module_sources_mk(
                 lines.append(f"    $(SRC_DIR)/{rel_path}/{source} \\")
 
     # Add module_init.c last (no backslash)
-    lines.append("    $(SRC_DIR)/modules/module_init.c")
+    lines.append("    $(SRC_DIR)/modules/generated/module_init.c")
     lines.append("")
 
     # Write file

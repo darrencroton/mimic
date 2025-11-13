@@ -42,7 +42,8 @@ GENERATED_FILES = [
     REPO_ROOT / "src" / "include" / "generated" / "copy_to_output.inc",
     REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_count.inc",
     REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_definitions.inc",
-    REPO_ROOT / "output" / "mimic-plot" / "generated_dtype.py",
+    REPO_ROOT / "output" / "mimic-plot" / "generated" / "dtype.py",
+    REPO_ROOT / "output" / "mimic-plot" / "generated" / "__init__.py",
 ]
 
 # ==============================================================================

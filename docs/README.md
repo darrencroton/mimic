@@ -371,20 +371,27 @@ mimic/
 │   ├── modules/           # Physics modules
 │   │   ├── _template/     # Module template
 │   │   ├── sage_infall/   # SAGE infall module
-│   │   └── test_fixture/  # Testing infrastructure module
+│   │   ├── test_fixture/  # Testing infrastructure module
+│   │   └── generated/     # Auto-generated module registration
 │   └── include/           # Headers
-│       └── generated/     # Auto-generated code
+│       └── generated/     # Auto-generated property code
+├── build/                 # Build artifacts (gitignored)
+│   └── generated/         # Build-time generated files (git_version.h, test lists)
 ├── metadata/
 │   └── properties/        # Property metadata (YAML)
 ├── tests/                 # Testing framework
 │   ├── unit/              # C unit tests
 │   ├── integration/       # Python integration tests
 │   ├── scientific/        # Physics validation tests
-│   └── framework/         # Test utilities and templates
+│   ├── framework/         # Test utilities and templates
+│   └── generated/         # Auto-generated test metadata
 ├── docs/                  # Documentation (you are here)
+│   ├── generated/         # Auto-generated documentation
+│   └── user/              # User guides
 ├── scripts/               # Development tools
 ├── input/                 # Input files and data
 ├── output/                # Simulation output
 │   └── mimic-plot/        # Plotting system
+│       └── generated/     # Auto-generated Python dtypes
 └── mimic_venv/            # Python virtual environment
 ```
