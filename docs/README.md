@@ -311,13 +311,9 @@ docs/
 │   ├── testing.md                  - Comprehensive testing guide
 │   ├── execution-flow-reference.md - Function call trace reference
 │   └── coding-standards.md         - Code style standards
-├── user/
-│   ├── module-configuration.md     - Configuring physics modules
-│   └── output-formats.md           - Output file formats
-└── review/
-    ├── getting-started-old.md      - Previous getting-started doc
-    ├── infrastructure-gap-analysis.md - Resolved infrastructure analysis
-    └── module-implementation-log.md   - Log of completed module work
+└── user/
+    ├── module-configuration.md     - Configuring physics modules
+    └── output-formats.md           - Output file formats
 ```
 
 ---
