@@ -87,6 +87,30 @@ This section summarizes the capabilities of the codebase *right now*. The detail
     - `src/modules/test_fixture/README.md` - Test fixture documentation
 -   **Lesson Learned**: Early architectural violations caught early prevent downstream pain. Test fixtures are industry standard for separating infrastructure tests from production code.
 
+#### ✅ **7. SAGE Physics Modules** (Phase 4.2 - In Progress, 2/6 Complete)
+-   **Goal**: Systematically port production-quality SAGE physics modules into Mimic's modular architecture.
+-   **Completed Modules**:
+    1. **sage_infall** (November 2025) - Gas accretion from dark matter halos
+        - Properties: `HotGas`, `MetalsHotGas`, `EjectedMass`, `MetalsEjectedMass`
+        - Features: Reionization suppression, ram pressure stripping, metallicity tracking
+        - Testing: 5 unit tests + 7 integration tests, all passing
+        - Documentation: Complete physics README in module directory
+    2. **sage_cooling** (November 2025) - Gas cooling + AGN feedback
+        - Properties: `ColdGas`, `MetalsColdGas`, `BlackHoleMass`, `Cooling`, `Heating`, `r_heat`
+        - Features: Sutherland & Dopita cooling tables, 2D interpolation (T, Z), 3 AGN accretion modes, Eddington-limited black hole growth
+        - Testing: 9 unit tests + 7 integration tests, all passing
+        - Documentation: Comprehensive physics README (~450 lines) in module directory
+-   **Impact**:
+    - **Production Physics**: First 2 SAGE modules successfully ported with full physics fidelity
+    - **Module Workflow Validated**: Standard implementation workflow proven through 2 complete modules
+    - **Testing Framework Validated**: Multi-tier testing (unit + integration + scientific) works effectively
+    - **Automatic Registration**: Both modules use metadata-driven `module_info.yaml` for zero-touch registration
+-   **Architecture Corrections Applied**:
+    - Cooling tables co-located with module (not in global `input/` directory) - validates self-contained module principle
+    - Module documentation in module directory (not in global `docs/`) - validates physics-agnostic core
+    - Uses core `dT` property for time steps (not approximations) - validates property-driven design
+-   **Status**: 2/6 modules complete. Ready for sage_reincorporation (Priority 3).
+
 ---
 
 ### Quick Start Guide for Phase 4 Developers
@@ -193,19 +217,23 @@ The following physics modules from SAGE's `code/` directory has been ported to M
 
 | Priority | SAGE Source File | Mimic Module Name | Physics | Est. Time | Status |
 |----------|-----------------|-------------------|---------|-----------|--------|
-| 1 | `model_cooling_heating.c` | `cooling_heating` | Gas cooling/heating processes | 2-3 weeks | Not Started |
-| 2 | `model_infall.c` | `infall` | Gas accretion from halos | 2-3 weeks | Not Started |
-| 3 | `model_reincorporation.c` | `reincorporation` | Gas return to galaxies | 1-2 weeks | Not Started |
-| 4 | `model_starformation_and_feedback.c` | `starformation_feedback` | SF + SN/AGN feedback | 3-4 weeks | Not Started |
-| 5 | `model_mergers.c` | `mergers` | Galaxy merger physics | 2-3 weeks | Not Started |
-| 6 | `model_disk_instability.c` | `disk_instability` | Disk instability/bulges | 2-3 weeks | Not Started |
+| 1 | `model_infall.c` | `sage_infall` | Gas accretion from halos | 2-3 weeks | ✅ **COMPLETE** (Nov 2025) |
+| 2 | `model_cooling_heating.c` | `sage_cooling` | Gas cooling + AGN heating | 2-3 weeks | ✅ **COMPLETE** (Nov 2025) |
+| 3 | `model_reincorporation.c` | `sage_reincorporation` | Gas return to galaxies | 1-2 weeks | Not Started |
+| 4 | `model_starformation_and_feedback.c` | `sage_starformation_feedback` | SF + SN/AGN feedback | 3-4 weeks | Not Started |
+| 5 | `model_mergers.c` | `sage_mergers` | Galaxy merger physics | 2-3 weeks | Not Started |
+| 6 | `model_disk_instability.c` | `sage_disk_instability` | Disk instability/bulges | 2-3 weeks | Not Started |
+
+**Completed Modules (2/6)**:
+- ✅ **sage_infall**: Full implementation with reionization suppression, stripping, metallicity tracking. 5 unit tests + 7 integration tests passing.
+- ✅ **sage_cooling**: Full cooling physics + 3 AGN modes (empirical, Bondi-Hoyle, cold cloud), Sutherland & Dopita cooling tables, black hole growth. 9 unit tests + 7 integration tests passing.
 
 **Priority Rationale**:
-- Start with gas processes (cooling, infall, reincorporation) as foundation
+- Start with gas processes (infall, cooling, reincorporation) as foundation
 - Star formation and feedback builds on gas physics
 - Mergers and disk instability are more complex but less interdependent
 
-**Total Estimated Time**: 6-12 months for complete SAGE physics port
+**Total Estimated Time**: 6-12 months for complete SAGE physics port (2/6 modules complete, ~3-4 months elapsed)
 
 ---
 

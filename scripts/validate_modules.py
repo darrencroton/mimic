@@ -26,9 +26,9 @@ Date: 2025-11-12
 import argparse
 import re
 import sys
-from graphlib import TopologicalSorter, CycleError
+from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import yaml
@@ -44,39 +44,42 @@ except ImportError:
 REPO_ROOT = Path(__file__).parent.parent
 
 # Module directory
-MODULES_DIR = REPO_ROOT / 'src' / 'modules'
+MODULES_DIR = REPO_ROOT / "src" / "modules"
 
 # Property metadata (for dependency validation)
-GALAXY_PROPERTIES_YAML = REPO_ROOT / 'metadata' / 'properties' / 'galaxy_properties.yaml'
+GALAXY_PROPERTIES_YAML = (
+    REPO_ROOT / "metadata" / "properties" / "galaxy_properties.yaml"
+)
 
 # ==============================================================================
 # SCHEMA DEFINITIONS
 # ==============================================================================
 
 VALID_CATEGORIES = [
-    'gas_physics',
-    'star_formation',
-    'stellar_evolution',
-    'black_holes',
-    'mergers',
-    'environment',
-    'reionization',
-    'miscellaneous',
+    "gas_physics",
+    "star_formation",
+    "stellar_evolution",
+    "black_holes",
+    "mergers",
+    "environment",
+    "reionization",
+    "miscellaneous",
 ]
 
-VALID_PARAMETER_TYPES = ['double', 'int', 'string']
+VALID_PARAMETER_TYPES = ["double", "int", "string"]
 
-VALID_COMPILATION_FEATURES = ['HDF5', 'MPI', 'GSL']
+VALID_COMPILATION_FEATURES = ["HDF5", "MPI", "GSL"]
 
 # Semantic versioning pattern
-VERSION_PATTERN = re.compile(r'^\d+\.\d+\.\d+$')
+VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
 # C identifier pattern
-C_IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+C_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 # ==============================================================================
 # ERROR TRACKING
 # ==============================================================================
+
 
 class ValidationError:
     """Track validation errors with severity and exit code."""
@@ -100,11 +103,11 @@ class ValidationResults:
 
     def add_error(self, module_name: str, exit_code: int, message: str):
         """Add an error (validation failure)."""
-        self.errors.append(ValidationError(module_name, 'ERROR', exit_code, message))
+        self.errors.append(ValidationError(module_name, "ERROR", exit_code, message))
 
     def add_warning(self, module_name: str, message: str):
         """Add a warning (non-critical issue)."""
-        self.warnings.append(ValidationError(module_name, 'WARNING', 0, message))
+        self.warnings.append(ValidationError(module_name, "WARNING", 0, message))
 
     def has_errors(self) -> bool:
         """Check if any errors were recorded."""
@@ -139,26 +142,29 @@ class ValidationResults:
             print("✓ VALIDATION PASSED")
             print("=" * 70)
 
+
 # ==============================================================================
 # YAML LOADING
 # ==============================================================================
 
+
 def load_module_metadata(module_dir: Path) -> Optional[Dict[str, Any]]:
     """Load module_info.yaml from module directory."""
-    yaml_path = module_dir / 'module_info.yaml'
+    yaml_path = module_dir / "module_info.yaml"
 
     if not yaml_path.exists():
         return None
 
     try:
-        with open(yaml_path, 'r', encoding='utf-8') as f:
+        with open(yaml_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
             if data is None:
                 return None
-            return data.get('module', None)
+            return data.get("module", None)
     except yaml.YAMLError as e:
         print(f"ERROR: Failed to parse {yaml_path}: {e}", file=sys.stderr)
         return None
+
 
 def discover_modules() -> List[Tuple[Path, Optional[Dict[str, Any]]]]:
     """Discover all modules in src/modules/ directory."""
@@ -173,7 +179,7 @@ def discover_modules() -> List[Tuple[Path, Optional[Dict[str, Any]]]]:
             continue
 
         # Skip template directory
-        if item.name.startswith('_'):
+        if item.name.startswith("_"):
             continue
 
         metadata = load_module_metadata(item)
@@ -181,190 +187,251 @@ def discover_modules() -> List[Tuple[Path, Optional[Dict[str, Any]]]]:
 
     return modules
 
+
 def load_galaxy_properties() -> List[str]:
     """Load list of galaxy property names from metadata."""
     if not GALAXY_PROPERTIES_YAML.exists():
         return []
 
     try:
-        with open(GALAXY_PROPERTIES_YAML, 'r', encoding='utf-8') as f:
+        with open(GALAXY_PROPERTIES_YAML, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-            if data and 'galaxy_properties' in data:
-                return [prop['name'] for prop in data['galaxy_properties'] if 'name' in prop]
+            if data and "galaxy_properties" in data:
+                return [
+                    prop["name"] for prop in data["galaxy_properties"] if "name" in prop
+                ]
     except Exception:
         pass
 
     return []
 
+
 # ==============================================================================
 # SCHEMA VALIDATION
 # ==============================================================================
 
-def validate_required_fields(module: Dict[str, Any], module_name: str,
-                             results: ValidationResults) -> bool:
+
+def validate_required_fields(
+    module: Dict[str, Any], module_name: str, results: ValidationResults
+) -> bool:
     """Validate that all required fields are present."""
 
-    required_core = ['name', 'display_name', 'description', 'version', 'author', 'category']
-    required_sources = ['sources', 'headers', 'register_function']
-    required_deps = ['dependencies']
-    required_params = ['parameters']
+    required_core = [
+        "name",
+        "display_name",
+        "description",
+        "version",
+        "author",
+        "category",
+    ]
+    required_sources = ["sources", "headers", "register_function"]
+    required_deps = ["dependencies"]
+    required_params = ["parameters"]
 
     all_required = required_core + required_sources + required_deps + required_params
 
     missing = [field for field in all_required if field not in module]
 
     if missing:
-        results.add_error(module_name, 1,
-                         f"Missing required fields: {', '.join(missing)}")
+        results.add_error(
+            module_name, 1, f"Missing required fields: {', '.join(missing)}"
+        )
         return False
 
     # Check dependencies subfields
-    deps = module.get('dependencies', {})
-    if 'requires' not in deps or 'provides' not in deps:
-        results.add_error(module_name, 1,
-                         "dependencies must have both 'requires' and 'provides' fields")
+    deps = module.get("dependencies", {})
+    if "requires" not in deps or "provides" not in deps:
+        results.add_error(
+            module_name,
+            1,
+            "dependencies must have both 'requires' and 'provides' fields",
+        )
         return False
 
     return True
 
-def validate_field_types(module: Dict[str, Any], module_name: str,
-                        results: ValidationResults) -> bool:
+
+def validate_field_types(
+    module: Dict[str, Any], module_name: str, results: ValidationResults
+) -> bool:
     """Validate field types match schema."""
 
     valid = True
 
     # String fields
-    for field in ['name', 'display_name', 'description', 'version', 'author',
-                  'category', 'register_function']:
+    for field in [
+        "name",
+        "display_name",
+        "description",
+        "version",
+        "author",
+        "category",
+        "register_function",
+    ]:
         if field in module and not isinstance(module[field], str):
             results.add_error(module_name, 1, f"Field '{field}' must be a string")
             valid = False
 
     # List fields
-    for field in ['sources', 'headers']:
+    for field in ["sources", "headers"]:
         if field in module:
             if not isinstance(module[field], list):
                 results.add_error(module_name, 1, f"Field '{field}' must be a list")
                 valid = False
             elif not all(isinstance(item, str) for item in module[field]):
-                results.add_error(module_name, 1, f"All items in '{field}' must be strings")
+                results.add_error(
+                    module_name, 1, f"All items in '{field}' must be strings"
+                )
                 valid = False
 
     # Dependencies
-    if 'dependencies' in module:
-        deps = module['dependencies']
+    if "dependencies" in module:
+        deps = module["dependencies"]
         if not isinstance(deps, dict):
             results.add_error(module_name, 1, "Field 'dependencies' must be a dict")
             valid = False
         else:
-            for field in ['requires', 'provides']:
+            for field in ["requires", "provides"]:
                 if field in deps:
                     if not isinstance(deps[field], list):
-                        results.add_error(module_name, 1,
-                                        f"dependencies.{field} must be a list")
+                        results.add_error(
+                            module_name, 1, f"dependencies.{field} must be a list"
+                        )
                         valid = False
                     elif not all(isinstance(item, str) for item in deps[field]):
-                        results.add_error(module_name, 1,
-                                        f"All items in dependencies.{field} must be strings")
+                        results.add_error(
+                            module_name,
+                            1,
+                            f"All items in dependencies.{field} must be strings",
+                        )
                         valid = False
 
     # Parameters
-    if 'parameters' in module:
-        params = module['parameters']
+    if "parameters" in module:
+        params = module["parameters"]
         if not isinstance(params, list):
             results.add_error(module_name, 1, "Field 'parameters' must be a list")
             valid = False
         elif params:  # If not empty, check structure
             for i, param in enumerate(params):
                 if not isinstance(param, dict):
-                    results.add_error(module_name, 1,
-                                    f"parameters[{i}] must be a dict")
+                    results.add_error(module_name, 1, f"parameters[{i}] must be a dict")
                     valid = False
                 else:
                     # Check required parameter fields
-                    required_param_fields = ['name', 'type', 'default', 'description']
+                    required_param_fields = ["name", "type", "default", "description"]
                     missing = [f for f in required_param_fields if f not in param]
                     if missing:
-                        results.add_error(module_name, 1,
-                                        f"parameters[{i}] missing fields: {', '.join(missing)}")
+                        results.add_error(
+                            module_name,
+                            1,
+                            f"parameters[{i}] missing fields: {', '.join(missing)}",
+                        )
                         valid = False
 
     # Optional boolean fields
-    if 'default_enabled' in module and not isinstance(module['default_enabled'], bool):
+    if "default_enabled" in module and not isinstance(module["default_enabled"], bool):
         results.add_error(module_name, 1, "Field 'default_enabled' must be a boolean")
         valid = False
 
     return valid
 
-def validate_category(module: Dict[str, Any], module_name: str,
-                     results: ValidationResults) -> bool:
+
+def validate_category(
+    module: Dict[str, Any], module_name: str, results: ValidationResults
+) -> bool:
     """Validate category is in approved list."""
 
-    category = module.get('category', '')
+    category = module.get("category", "")
     if category not in VALID_CATEGORIES:
-        results.add_error(module_name, 1,
-                         f"Invalid category '{category}'. Must be one of: {', '.join(VALID_CATEGORIES)}")
+        results.add_error(
+            module_name,
+            1,
+            f"Invalid category '{category}'. Must be one of: {', '.join(VALID_CATEGORIES)}",
+        )
         return False
 
     return True
 
-def validate_version(module: Dict[str, Any], module_name: str,
-                    results: ValidationResults) -> bool:
+
+def validate_version(
+    module: Dict[str, Any], module_name: str, results: ValidationResults
+) -> bool:
     """Validate version follows semantic versioning."""
 
-    version = module.get('version', '')
+    version = module.get("version", "")
     if not VERSION_PATTERN.match(version):
-        results.add_error(module_name, 1,
-                         f"Invalid version '{version}'. Must follow semantic versioning (e.g., '1.0.0')")
+        results.add_error(
+            module_name,
+            1,
+            f"Invalid version '{version}'. Must follow semantic versioning (e.g., '1.0.0')",
+        )
         return False
 
     return True
 
-def validate_name(module: Dict[str, Any], module_name: str, module_dir: Path,
-                 results: ValidationResults) -> bool:
+
+def validate_name(
+    module: Dict[str, Any],
+    module_name: str,
+    module_dir: Path,
+    results: ValidationResults,
+) -> bool:
     """Validate module name is valid C identifier and matches directory."""
 
-    name = module.get('name', '')
+    name = module.get("name", "")
 
     # Check C identifier
     if not C_IDENTIFIER_PATTERN.match(name):
-        results.add_error(module_name, 4,
-                         f"Module name '{name}' is not a valid C identifier")
+        results.add_error(
+            module_name, 4, f"Module name '{name}' is not a valid C identifier"
+        )
         return False
 
     # Check lowercase with underscores convention
-    if not name.islower() or not all(c.isalnum() or c == '_' for c in name):
-        results.add_warning(module_name,
-                           f"Module name '{name}' should be lowercase_with_underscores")
+    if not name.islower() or not all(c.isalnum() or c == "_" for c in name):
+        results.add_warning(
+            module_name, f"Module name '{name}' should be lowercase_with_underscores"
+        )
 
     # Check matches directory name
     if name != module_dir.name:
-        results.add_error(module_name, 4,
-                         f"Module name '{name}' doesn't match directory name '{module_dir.name}'")
+        results.add_error(
+            module_name,
+            4,
+            f"Module name '{name}' doesn't match directory name '{module_dir.name}'",
+        )
         return False
 
     return True
 
-def validate_register_function(module: Dict[str, Any], module_name: str,
-                               results: ValidationResults) -> bool:
+
+def validate_register_function(
+    module: Dict[str, Any], module_name: str, results: ValidationResults
+) -> bool:
     """Validate register function follows naming convention."""
 
-    name = module.get('name', '')
-    register_func = module.get('register_function', '')
+    name = module.get("name", "")
+    register_func = module.get("register_function", "")
 
     expected = f"{name}_register"
     if register_func != expected:
-        results.add_error(module_name, 4,
-                         f"Register function '{register_func}' should be '{expected}'")
+        results.add_error(
+            module_name,
+            4,
+            f"Register function '{register_func}' should be '{expected}'",
+        )
         return False
 
     return True
 
-def validate_parameters(module: Dict[str, Any], module_name: str,
-                       results: ValidationResults) -> bool:
+
+def validate_parameters(
+    module: Dict[str, Any], module_name: str, results: ValidationResults
+) -> bool:
     """Validate parameter definitions."""
 
-    params = module.get('parameters', [])
+    params = module.get("parameters", [])
     if not params:
         return True  # Empty list is valid
 
@@ -372,184 +439,228 @@ def validate_parameters(module: Dict[str, Any], module_name: str,
     param_names = []
 
     for i, param in enumerate(params):
-        param_name = param.get('name', f'<parameter {i}>')
+        param_name = param.get("name", f"<parameter {i}>")
 
         # Check type
-        param_type = param.get('type', '')
+        param_type = param.get("type", "")
         if param_type not in VALID_PARAMETER_TYPES:
-            results.add_error(module_name, 5,
-                             f"Parameter '{param_name}' has invalid type '{param_type}'. "
-                             f"Must be one of: {', '.join(VALID_PARAMETER_TYPES)}")
+            results.add_error(
+                module_name,
+                5,
+                f"Parameter '{param_name}' has invalid type '{param_type}'. "
+                f"Must be one of: {', '.join(VALID_PARAMETER_TYPES)}",
+            )
             valid = False
 
         # Check default value type matches
-        default = param.get('default')
+        default = param.get("default")
         if default is not None:
-            if param_type == 'int' and not isinstance(default, int):
-                results.add_error(module_name, 5,
-                                 f"Parameter '{param_name}' type is int but default is {type(default).__name__}")
+            if param_type == "int" and not isinstance(default, int):
+                results.add_error(
+                    module_name,
+                    5,
+                    f"Parameter '{param_name}' type is int but default is {type(default).__name__}",
+                )
                 valid = False
-            elif param_type == 'double' and not isinstance(default, (int, float)):
-                results.add_error(module_name, 5,
-                                 f"Parameter '{param_name}' type is double but default is {type(default).__name__}")
+            elif param_type == "double" and not isinstance(default, (int, float)):
+                results.add_error(
+                    module_name,
+                    5,
+                    f"Parameter '{param_name}' type is double but default is {type(default).__name__}",
+                )
                 valid = False
-            elif param_type == 'string' and not isinstance(default, str):
-                results.add_error(module_name, 5,
-                                 f"Parameter '{param_name}' type is string but default is {type(default).__name__}")
+            elif param_type == "string" and not isinstance(default, str):
+                results.add_error(
+                    module_name,
+                    5,
+                    f"Parameter '{param_name}' type is string but default is {type(default).__name__}",
+                )
                 valid = False
 
         # Check range for numeric types
-        if 'range' in param:
-            if param_type not in ['int', 'double']:
-                results.add_warning(module_name,
-                                   f"Parameter '{param_name}' has range but type is '{param_type}'")
+        if "range" in param:
+            if param_type not in ["int", "double"]:
+                results.add_warning(
+                    module_name,
+                    f"Parameter '{param_name}' has range but type is '{param_type}'",
+                )
             else:
-                range_val = param['range']
+                range_val = param["range"]
                 if not isinstance(range_val, list) or len(range_val) != 2:
-                    results.add_error(module_name, 5,
-                                     f"Parameter '{param_name}' range must be [min, max]")
+                    results.add_error(
+                        module_name,
+                        5,
+                        f"Parameter '{param_name}' range must be [min, max]",
+                    )
                     valid = False
                 elif range_val[0] > range_val[1]:
-                    results.add_error(module_name, 5,
-                                     f"Parameter '{param_name}' range min > max")
+                    results.add_error(
+                        module_name, 5, f"Parameter '{param_name}' range min > max"
+                    )
                     valid = False
 
         # Check for duplicates
         if param_name in param_names:
-            results.add_error(module_name, 5,
-                             f"Duplicate parameter name '{param_name}'")
+            results.add_error(
+                module_name, 5, f"Duplicate parameter name '{param_name}'"
+            )
             valid = False
         param_names.append(param_name)
 
         # Validate naming convention (PascalCase recommended)
         if not C_IDENTIFIER_PATTERN.match(param_name):
-            results.add_error(module_name, 4,
-                             f"Parameter name '{param_name}' is not a valid C identifier")
+            results.add_error(
+                module_name,
+                4,
+                f"Parameter name '{param_name}' is not a valid C identifier",
+            )
             valid = False
 
     return valid
 
-def validate_compilation_requires(module: Dict[str, Any], module_name: str,
-                                 results: ValidationResults) -> bool:
+
+def validate_compilation_requires(
+    module: Dict[str, Any], module_name: str, results: ValidationResults
+) -> bool:
     """Validate compilation requirements are recognized features."""
 
-    if 'compilation_requires' not in module:
+    if "compilation_requires" not in module:
         return True
 
-    reqs = module['compilation_requires']
+    reqs = module["compilation_requires"]
     if not isinstance(reqs, list):
-        results.add_error(module_name, 1,
-                         "compilation_requires must be a list")
+        results.add_error(module_name, 1, "compilation_requires must be a list")
         return False
 
     invalid = [req for req in reqs if req not in VALID_COMPILATION_FEATURES]
     if invalid:
-        results.add_error(module_name, 1,
-                         f"Invalid compilation requirements: {', '.join(invalid)}. "
-                         f"Must be one of: {', '.join(VALID_COMPILATION_FEATURES)}")
+        results.add_error(
+            module_name,
+            1,
+            f"Invalid compilation requirements: {', '.join(invalid)}. "
+            f"Must be one of: {', '.join(VALID_COMPILATION_FEATURES)}",
+        )
         return False
 
     return True
+
 
 # ==============================================================================
 # FILE EXISTENCE VALIDATION
 # ==============================================================================
 
-def validate_source_files(module: Dict[str, Any], module_name: str, module_dir: Path,
-                         results: ValidationResults) -> bool:
+
+def validate_source_files(
+    module: Dict[str, Any],
+    module_name: str,
+    module_dir: Path,
+    results: ValidationResults,
+) -> bool:
     """Validate that all source files exist."""
 
     valid = True
 
-    for source in module.get('sources', []):
+    for source in module.get("sources", []):
         source_path = module_dir / source
         if not source_path.exists():
-            results.add_error(module_name, 2,
-                             f"Source file not found: {source}")
+            results.add_error(module_name, 2, f"Source file not found: {source}")
             valid = False
 
-    for header in module.get('headers', []):
+    for header in module.get("headers", []):
         header_path = module_dir / header
         if not header_path.exists():
-            results.add_error(module_name, 2,
-                             f"Header file not found: {header}")
+            results.add_error(module_name, 2, f"Header file not found: {header}")
             valid = False
 
     return valid
 
-def validate_test_files(module: Dict[str, Any], module_name: str,
-                       results: ValidationResults) -> bool:
+
+def validate_test_files(
+    module: Dict[str, Any], module_name: str, results: ValidationResults
+) -> bool:
     """Validate that test files exist (warnings only)."""
 
-    if 'tests' not in module:
+    if "tests" not in module:
         results.add_warning(module_name, "No test files specified")
         return True
 
-    tests = module['tests']
+    tests = module["tests"]
 
-    if 'unit' in tests:
-        unit_test_path = REPO_ROOT / 'tests' / 'unit' / tests['unit']
+    if "unit" in tests:
+        unit_test_path = REPO_ROOT / "tests" / "unit" / tests["unit"]
         if not unit_test_path.exists():
-            results.add_warning(module_name,
-                               f"Unit test file not found: {tests['unit']}")
+            results.add_warning(
+                module_name, f"Unit test file not found: {tests['unit']}"
+            )
 
-    if 'integration' in tests:
-        int_test_path = REPO_ROOT / 'tests' / 'integration' / tests['integration']
+    if "integration" in tests:
+        int_test_path = REPO_ROOT / "tests" / "integration" / tests["integration"]
         if not int_test_path.exists():
-            results.add_warning(module_name,
-                               f"Integration test file not found: {tests['integration']}")
+            results.add_warning(
+                module_name, f"Integration test file not found: {tests['integration']}"
+            )
 
-    if 'scientific' in tests:
-        sci_test_path = REPO_ROOT / 'tests' / 'scientific' / tests['scientific']
+    if "scientific" in tests:
+        sci_test_path = REPO_ROOT / "tests" / "scientific" / tests["scientific"]
         if not sci_test_path.exists():
-            results.add_warning(module_name,
-                               f"Scientific test file not found: {tests['scientific']}")
+            results.add_warning(
+                module_name, f"Scientific test file not found: {tests['scientific']}"
+            )
 
     return True
 
-def validate_doc_files(module: Dict[str, Any], module_name: str,
-                      results: ValidationResults) -> bool:
+
+def validate_doc_files(
+    module: Dict[str, Any], module_name: str, results: ValidationResults
+) -> bool:
     """Validate that documentation files exist (warnings only)."""
 
-    if 'docs' not in module:
+    if "docs" not in module:
         results.add_warning(module_name, "No documentation specified")
         return True
 
-    docs = module['docs']
+    docs = module["docs"]
 
-    if 'physics' in docs:
-        physics_doc_path = REPO_ROOT / docs['physics']
+    if "physics" in docs:
+        physics_doc_path = REPO_ROOT / docs["physics"]
         if not physics_doc_path.exists():
-            results.add_warning(module_name,
-                               f"Physics documentation not found: {docs['physics']}")
+            results.add_warning(
+                module_name, f"Physics documentation not found: {docs['physics']}"
+            )
 
     return True
+
 
 # ==============================================================================
 # CODE VERIFICATION
 # ==============================================================================
 
-def validate_register_function_exists(module: Dict[str, Any], module_name: str,
-                                     module_dir: Path, results: ValidationResults) -> bool:
+
+def validate_register_function_exists(
+    module: Dict[str, Any],
+    module_name: str,
+    module_dir: Path,
+    results: ValidationResults,
+) -> bool:
     """Verify register function exists in source code."""
 
-    register_func = module.get('register_function', '')
+    register_func = module.get("register_function", "")
     if not register_func:
         return False
 
     # Search all source files for function definition
     found = False
 
-    for source in module.get('sources', []):
+    for source in module.get("sources", []):
         source_path = module_dir / source
         if not source_path.exists():
             continue
 
         try:
-            with open(source_path, 'r', encoding='utf-8') as f:
+            with open(source_path, "r", encoding="utf-8") as f:
                 content = f.read()
                 # Look for function definition (basic pattern match)
-                pattern = rf'\bvoid\s+{re.escape(register_func)}\s*\('
+                pattern = rf"\bvoid\s+{re.escape(register_func)}\s*\("
                 if re.search(pattern, content):
                     found = True
                     break
@@ -557,17 +668,24 @@ def validate_register_function_exists(module: Dict[str, Any], module_name: str,
             pass
 
     if not found:
-        results.add_error(module_name, 6,
-                         f"Register function '{register_func}' not found in source files")
+        results.add_error(
+            module_name,
+            6,
+            f"Register function '{register_func}' not found in source files",
+        )
         return False
 
     return True
+
 
 # ==============================================================================
 # DEPENDENCY VALIDATION
 # ==============================================================================
 
-def build_dependency_graph(modules: List[Tuple[str, Dict[str, Any]]]) -> Dict[str, List[str]]:
+
+def build_dependency_graph(
+    modules: List[Tuple[str, Dict[str, Any]]],
+) -> Dict[str, List[str]]:
     """Build module dependency graph for topological sort."""
 
     graph = {}
@@ -575,7 +693,7 @@ def build_dependency_graph(modules: List[Tuple[str, Dict[str, Any]]]) -> Dict[st
     # Build module name -> provides mapping
     provides_map = {}
     for name, module in modules:
-        provides = module.get('dependencies', {}).get('provides', [])
+        provides = module.get("dependencies", {}).get("provides", [])
         for prop in provides:
             if prop not in provides_map:
                 provides_map[prop] = []
@@ -583,7 +701,7 @@ def build_dependency_graph(modules: List[Tuple[str, Dict[str, Any]]]) -> Dict[st
 
     # Build dependency edges
     for name, module in modules:
-        requires = module.get('dependencies', {}).get('requires', [])
+        requires = module.get("dependencies", {}).get("requires", [])
         dependencies = []
 
         for req_prop in requires:
@@ -595,9 +713,12 @@ def build_dependency_graph(modules: List[Tuple[str, Dict[str, Any]]]) -> Dict[st
 
     return graph
 
-def validate_dependencies(modules: List[Tuple[Path, Dict[str, Any]]],
-                         galaxy_properties: List[str],
-                         results: ValidationResults) -> bool:
+
+def validate_dependencies(
+    modules: List[Tuple[Path, Dict[str, Any]]],
+    galaxy_properties: List[str],
+    results: ValidationResults,
+) -> bool:
     """Validate module dependencies and check for cycles."""
 
     if not modules:
@@ -609,23 +730,27 @@ def validate_dependencies(modules: List[Tuple[Path, Dict[str, Any]]],
     # Check that required/provided properties exist
     valid = True
     for module_dir, module in modules:
-        module_name = module.get('name', module_dir.name)
+        module_name = module.get("name", module_dir.name)
 
-        deps = module.get('dependencies', {})
-        requires = deps.get('requires', [])
-        provides = deps.get('provides', [])
+        deps = module.get("dependencies", {})
+        requires = deps.get("requires", [])
+        provides = deps.get("provides", [])
 
         # Validate requires against galaxy properties
         for req in requires:
             if req not in galaxy_properties:
-                results.add_warning(module_name,
-                                   f"Required property '{req}' not found in galaxy_properties.yaml")
+                results.add_warning(
+                    module_name,
+                    f"Required property '{req}' not found in galaxy_properties.yaml",
+                )
 
         # Validate provides against galaxy properties
         for prov in provides:
             if prov not in galaxy_properties:
-                results.add_warning(module_name,
-                                   f"Provided property '{prov}' not found in galaxy_properties.yaml")
+                results.add_warning(
+                    module_name,
+                    f"Provided property '{prov}' not found in galaxy_properties.yaml",
+                )
 
     # Build dependency graph
     try:
@@ -644,16 +769,22 @@ def validate_dependencies(modules: List[Tuple[Path, Dict[str, Any]]],
 
     return valid
 
+
 # ==============================================================================
 # MAIN VALIDATION FUNCTION
 # ==============================================================================
 
-def validate_module(module_dir: Path, module: Dict[str, Any],
-                   galaxy_properties: List[str],
-                   results: ValidationResults, verbose: bool = False) -> bool:
+
+def validate_module(
+    module_dir: Path,
+    module: Dict[str, Any],
+    galaxy_properties: List[str],
+    results: ValidationResults,
+    verbose: bool = False,
+) -> bool:
     """Validate a single module (all checks)."""
 
-    module_name = module.get('name', module_dir.name)
+    module_name = module.get("name", module_dir.name)
 
     if verbose:
         print(f"Validating module: {module_name}")
@@ -698,16 +829,20 @@ def validate_module(module_dir: Path, module: Dict[str, Any],
 
     return True
 
+
 # ==============================================================================
 # MAIN
 # ==============================================================================
 
+
 def main():
     """Main entry point."""
 
-    parser = argparse.ArgumentParser(description='Validate Mimic module metadata')
-    parser.add_argument('module_path', nargs='?', help='Path to specific module directory')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    parser = argparse.ArgumentParser(description="Validate Mimic module metadata")
+    parser.add_argument(
+        "module_path", nargs="?", help="Path to specific module directory"
+    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -751,7 +886,9 @@ def main():
     valid_modules = []
     for module_dir, metadata in modules:
         if metadata is None:
-            results.add_error(module_dir.name, 1, "module_info.yaml not found or invalid")
+            results.add_error(
+                module_dir.name, 1, "module_info.yaml not found or invalid"
+            )
             continue
 
         validate_module(module_dir, metadata, galaxy_properties, results, args.verbose)
@@ -768,5 +905,5 @@ def main():
     return results.get_exit_code()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

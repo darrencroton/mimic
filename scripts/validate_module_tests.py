@@ -18,8 +18,9 @@ Phase: Phase 4.2 (Test Architecture Refactor)
 """
 
 import sys
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 def validate_module_tests():
@@ -59,10 +60,10 @@ def validate_module_tests():
         modules_checked += 1
 
         # Get test declarations
-        tests = metadata.get('module', {}).get('tests', {})
+        tests = metadata.get("module", {}).get("tests", {})
 
         # Validate each test type
-        for test_type in ['unit', 'integration', 'scientific']:
+        for test_type in ["unit", "integration", "scientific"]:
             if test_type in tests:
                 test_file = tests[test_type]
                 test_path = module_path / test_file
@@ -71,13 +72,17 @@ def validate_module_tests():
                     print(f"✓ {module_name:20s} {test_type:12s} test: {test_file}")
                     tests_validated += 1
                 else:
-                    print(f"✗ {module_name:20s} {test_type:12s} test: {test_file} NOT FOUND")
-                    missing_tests.append({
-                        'module': module_name,
-                        'type': test_type,
-                        'file': test_file,
-                        'expected_path': test_path
-                    })
+                    print(
+                        f"✗ {module_name:20s} {test_type:12s} test: {test_file} NOT FOUND"
+                    )
+                    missing_tests.append(
+                        {
+                            "module": module_name,
+                            "type": test_type,
+                            "file": test_file,
+                            "expected_path": test_path,
+                        }
+                    )
                     all_valid = False
 
     # Print summary

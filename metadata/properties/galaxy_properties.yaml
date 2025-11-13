@@ -155,6 +155,62 @@ galaxy_properties:
     sentinels: [0.0]
 
   # ===========================================================================
+  # BLACK HOLE PROPERTIES (Phase 4.2: sage_cooling module)
+  # ===========================================================================
+
+  - name: BlackHoleMass
+    type: float
+    units: "1e10 Msun/h"
+    description: "Central supermassive black hole mass"
+    output: true
+    created_by: sage_cooling
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 1.0]  # 0 to 10^10 Msun/h (BH masses are typically much smaller than galaxy masses)
+    sentinels: [0.0]  # Can legitimately be zero (no BH seeding yet)
+
+  # ===========================================================================
+  # ENERGY TRACKING (Phase 4.2: sage_cooling module)
+  # ===========================================================================
+
+  - name: Cooling
+    type: double  # Note: double precision for energy accumulation over time
+    units: "(km/s)^2 * 1e10 Msun/h"
+    description: "Cumulative cooling energy (0.5 * m * V_vir^2)"
+    output: true
+    created_by: sage_cooling
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 1000000.0]  # Energy can accumulate to very large values
+    sentinels: [0.0]  # Can be zero if no cooling has occurred
+
+  - name: Heating
+    type: double  # Note: double precision for energy accumulation over time
+    units: "(km/s)^2 * 1e10 Msun/h"
+    description: "Cumulative AGN heating energy (0.5 * m * V_vir^2)"
+    output: true
+    created_by: sage_cooling
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 1000000.0]  # Energy can accumulate to very large values
+    sentinels: [0.0]  # Can be zero if no AGN heating has occurred
+
+  - name: r_heat
+    type: float
+    units: "Mpc/h"
+    description: "Heating radius from past AGN feedback events"
+    output: true
+    created_by: sage_cooling
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 10.0]  # Comparable to virial radius
+    sentinels: [0.0]  # Can be zero if no AGN heating has occurred
+
+  # ===========================================================================
   # TESTING INFRASTRUCTURE (DO NOT USE IN PRODUCTION)
   # ===========================================================================
 

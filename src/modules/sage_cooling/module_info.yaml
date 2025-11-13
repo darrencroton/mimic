@@ -1,0 +1,113 @@
+# Module Metadata: sage_cooling
+#
+# Gas cooling from hot halos to cold disks with AGN feedback from the SAGE model.
+# This module handles cooling physics, black hole accretion, and radio-mode AGN
+# feedback that suppresses cooling in massive halos.
+#
+# For schema documentation, see:
+#   docs/developer/module-metadata-schema.md
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: sage_cooling
+  display_name: "SAGE Cooling & AGN Heating"
+  description: "Gas cooling from hot halo to cold disk with AGN feedback from SAGE model."
+  version: "1.0.0"
+  author: "Mimic Team (ported from SAGE)"
+  category: gas_physics
+
+  # ===========================================================================
+  # Source Files
+  # ===========================================================================
+
+  sources:
+    - sage_cooling.c
+    - cooling_tables.c
+
+  headers:
+    - sage_cooling.h
+    - cooling_tables.h
+
+  register_function: sage_cooling_register
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  dependencies:
+    # Requires hot gas from sage_infall module
+    requires:
+      - HotGas
+      - MetalsHotGas
+
+    # Properties created/modified by this module
+    provides:
+      - ColdGas
+      - MetalsColdGas
+      - BlackHoleMass
+      - Cooling
+      - Heating
+      - r_heat
+
+  # ===========================================================================
+  # Parameters
+  # ===========================================================================
+
+  parameters:
+    - name: RadioModeEfficiency
+      type: double
+      default: 0.01
+      range: [0.0, 1.0]
+      description: "Efficiency of radio-mode AGN feedback"
+      units: "dimensionless"
+
+    - name: AGNrecipeOn
+      type: int
+      default: 1
+      range: [0, 3]
+      description: "AGN accretion mode (0=off, 1=empirical, 2=Bondi-Hoyle, 3=cold cloud)"
+      units: "dimensionless"
+
+    - name: CoolFunctionsDir
+      type: string
+      default: "src/modules/sage_cooling/CoolFunctions"
+      description: "Path to directory containing cooling function tables"
+      units: "path"
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+
+  tests:
+    unit: test_unit_sage_cooling.c
+    integration: test_integration_sage_cooling.py
+    scientific: test_scientific_sage_cooling_validation.py
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: docs/physics/sage-cooling.md
+    user_guide_section: "SAGE Cooling & AGN Heating Module"
+
+  # ===========================================================================
+  # References
+  # ===========================================================================
+
+  references:
+    - "White & Frenk (1991) - Cooling model framework"
+    - "Croton et al. (2006) - AGN feedback implementation"
+    - "Sutherland & Dopita (1993) - Cooling function tables"
+    - "Croton et al. (2016) - SAGE model description"
+    - "SAGE source: sage-code/model_cooling_heating.c, core_cool_func.c"
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []
+  default_enabled: true

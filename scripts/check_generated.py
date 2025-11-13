@@ -30,24 +30,25 @@ REPO_ROOT = Path(__file__).parent.parent
 
 # Input YAML files
 YAML_FILES = [
-    REPO_ROOT / 'metadata' / 'properties' / 'halo_properties.yaml',
-    REPO_ROOT / 'metadata' / 'properties' / 'galaxy_properties.yaml',
+    REPO_ROOT / "metadata" / "properties" / "halo_properties.yaml",
+    REPO_ROOT / "metadata" / "properties" / "galaxy_properties.yaml",
 ]
 
 # Generated files to check
 GENERATED_FILES = [
-    REPO_ROOT / 'src' / 'include' / 'generated' / 'property_defs.h',
-    REPO_ROOT / 'src' / 'include' / 'generated' / 'init_halo_properties.inc',
-    REPO_ROOT / 'src' / 'include' / 'generated' / 'init_galaxy_properties.inc',
-    REPO_ROOT / 'src' / 'include' / 'generated' / 'copy_to_output.inc',
-    REPO_ROOT / 'src' / 'include' / 'generated' / 'hdf5_field_count.inc',
-    REPO_ROOT / 'src' / 'include' / 'generated' / 'hdf5_field_definitions.inc',
-    REPO_ROOT / 'output' / 'mimic-plot' / 'generated_dtype.py',
+    REPO_ROOT / "src" / "include" / "generated" / "property_defs.h",
+    REPO_ROOT / "src" / "include" / "generated" / "init_halo_properties.inc",
+    REPO_ROOT / "src" / "include" / "generated" / "init_galaxy_properties.inc",
+    REPO_ROOT / "src" / "include" / "generated" / "copy_to_output.inc",
+    REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_count.inc",
+    REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_definitions.inc",
+    REPO_ROOT / "output" / "mimic-plot" / "generated_dtype.py",
 ]
 
 # ==============================================================================
 # UTILITIES
 # ==============================================================================
+
 
 def compute_yaml_hash() -> str:
     """Compute MD5 hash of YAML input files (same logic as generator)."""
@@ -57,10 +58,11 @@ def compute_yaml_hash() -> str:
     for yaml_file in YAML_FILES:
         if not yaml_file.exists():
             return ""
-        with open(yaml_file, 'rb') as f:
+        with open(yaml_file, "rb") as f:
             md5.update(f.read())
 
     return md5.hexdigest()
+
 
 def extract_yaml_hash_from_file(path: Path) -> str:
     """Extract 'Source MD5:' hash from generated file header."""
@@ -68,24 +70,25 @@ def extract_yaml_hash_from_file(path: Path) -> str:
         return ""
 
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, "r", encoding="utf-8") as f:
             # Read first 20 lines (hash should be in header)
             for _ in range(20):
                 line = f.readline()
                 if not line:
                     break
                 # Look for "Source MD5: <hash>"
-                if 'Source MD5:' in line:
+                if "Source MD5:" in line:
                     # Extract hash (32 hex chars)
-                    parts = line.split('Source MD5:')
+                    parts = line.split("Source MD5:")
                     if len(parts) >= 2:
-                        hash_str = parts[1].strip().strip('*/').strip()
+                        hash_str = parts[1].strip().strip("*/").strip()
                         if len(hash_str) == 32:  # MD5 is 32 hex chars
                             return hash_str
     except Exception:
         return ""
 
     return ""
+
 
 def check_file_exists(path: Path, description: str) -> bool:
     """Check if file exists and report."""
@@ -95,9 +98,11 @@ def check_file_exists(path: Path, description: str) -> bool:
         return False
     return True
 
+
 # ==============================================================================
 # VALIDATION
 # ==============================================================================
+
 
 def validate_yaml_files() -> bool:
     """Check that YAML metadata files exist."""
@@ -107,6 +112,7 @@ def validate_yaml_files() -> bool:
             all_exist = False
     return all_exist
 
+
 def validate_generated_files() -> bool:
     """Check that all generated files exist."""
     all_exist = True
@@ -114,6 +120,7 @@ def validate_generated_files() -> bool:
         if not check_file_exists(gen_file, f"Generated file: {gen_file.name}"):
             all_exist = False
     return all_exist
+
 
 def check_yaml_hashes() -> bool:
     """Check if generated files match current YAML content (via MD5 hash)."""
@@ -151,7 +158,9 @@ def check_yaml_hashes() -> bool:
         print("✗ OUT OF DATE: YAML metadata changed, generated files need updating")
         print()
         print(f"  Current YAML hash:  {current_yaml_hash}")
-        print(f"  Embedded hash:      {embedded_hash if embedded_hash else '(missing)'}")
+        print(
+            f"  Embedded hash:      {embedded_hash if embedded_hash else '(missing)'}"
+        )
         print()
         print("  Files need regeneration:")
         for filename in mismatches:
@@ -160,17 +169,18 @@ def check_yaml_hashes() -> bool:
 
     return True
 
+
 def check_file_marker() -> bool:
     """Check that generated files have the AUTO-GENERATED marker."""
 
-    marker = b'AUTO-GENERATED'
+    marker = b"AUTO-GENERATED"
     missing_marker = []
 
     for gen_file in GENERATED_FILES:
         if not gen_file.exists():
             continue
 
-        with open(gen_file, 'rb') as f:
+        with open(gen_file, "rb") as f:
             first_100_bytes = f.read(100)
             if marker not in first_100_bytes:
                 missing_marker.append(gen_file.name)
@@ -185,9 +195,11 @@ def check_file_marker() -> bool:
 
     return True
 
+
 # ==============================================================================
 # MAIN
 # ==============================================================================
+
 
 def main():
     """Main entry point."""
@@ -248,5 +260,6 @@ def main():
         print()
         return 1
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     sys.exit(main())

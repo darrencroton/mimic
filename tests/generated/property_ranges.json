@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2025-11-13T11:37:38",
+  "generated_at": "2025-11-13T18:08:28",
   "properties": {
     "SnapNum": {
       "name": "SnapNum",
@@ -355,6 +355,58 @@
       "range": [
         0.0,
         100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "BlackHoleMass": {
+      "name": "BlackHoleMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        1.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "Cooling": {
+      "name": "Cooling",
+      "type": "double",
+      "units": "(km/s)^2 * 1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        1000000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "Heating": {
+      "name": "Heating",
+      "type": "double",
+      "units": "(km/s)^2 * 1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        1000000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "r_heat": {
+      "name": "r_heat",
+      "type": "float",
+      "units": "Mpc/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        10.0
       ],
       "sentinels": [
         0.0
