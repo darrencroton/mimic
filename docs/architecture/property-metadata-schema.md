@@ -593,7 +593,7 @@ For ALL properties with `output: true`, the scientific test automatically perfor
 
 ## Complete Examples
 
-### Example 1: Simple Property (Direct Copy)
+### Example 1: Simple Property (Direct Copy from Tree)
 
 ```yaml
 - name: SnapNum
@@ -605,13 +605,12 @@ For ALL properties with `output: true`, the scientific test automatically perfor
   output_source: copy_direct
 ```
 
-Generated initialization:
+Generates:
 ```c
+// Initialization:
 FoFWorkspace[p].SnapNum = InputTreeHalos[halonr].SnapNum;
-```
 
-Generated output:
-```c
+// Output:
 o->SnapNum = g->SnapNum;
 ```
 
@@ -628,123 +627,16 @@ o->SnapNum = g->SnapNum;
   output_source: copy_direct
 ```
 
-Generated initialization:
+Generates:
 ```c
+// Initialization:
 FoFWorkspace[p].Mvir = get_virial_mass(halonr);
-```
 
-Generated output:
-```c
+// Output:
 o->Mvir = g->Mvir;
 ```
 
-### Example 3: Array Property
-
-```yaml
-- name: Pos
-  type: vec3_float
-  units: "Mpc/h"
-  description: "3D position (comoving)"
-  output: true
-  init_source: copy_from_tree_array
-  output_source: copy_direct_array
-```
-
-Generated initialization:
-```c
-for (int j = 0; j < 3; j++) {
-    FoFWorkspace[p].Pos[j] = InputTreeHalos[halonr].Pos[j];
-}
-```
-
-Generated output:
-```c
-for (int j = 0; j < 3; j++) {
-    o->Pos[j] = g->Pos[j];
-}
-```
-
-### Example 4: Conditional Property (Satellites Only)
-
-```yaml
-- name: infallMvir
-  type: float
-  units: "1e10 Msun/h"
-  description: "Virial mass at infall (satellites only)"
-  output: true
-  init_source: default
-  init_value: -1.0
-  output_source: conditional
-  output_condition: "g->Type != 0"
-  output_true_value: "g->infallMvir"
-  output_false_value: "0.0"
-```
-
-Generated initialization:
-```c
-FoFWorkspace[p].infallMvir = -1.0;
-```
-
-Generated output:
-```c
-if (g->Type != 0) {
-    o->infallMvir = g->infallMvir;
-} else {
-    o->infallMvir = 0.0;
-}
-```
-
-### Example 5: Recalculated at Output
-
-```yaml
-- name: Rvir
-  type: float
-  units: "Mpc/h"
-  description: "Virial radius (recalculated at output)"
-  output: true
-  init_source: calculate
-  init_function: get_virial_radius
-  output_source: recalculate
-  output_function: get_virial_radius
-  output_function_arg: "g->HaloNr"
-```
-
-Generated initialization:
-```c
-FoFWorkspace[p].Rvir = get_virial_radius(halonr);
-```
-
-Generated output:
-```c
-o->Rvir = get_virial_radius(g->HaloNr);
-```
-
-### Example 6: Tree Property (Not in Struct Halo)
-
-```yaml
-- name: Spin
-  type: vec3_float
-  units: "dimensionless"
-  description: "Dimensionless spin parameter (Bullock definition)"
-  output: true
-  init_source: skip  # Not in struct Halo
-  output_source: copy_from_tree_array
-  output_tree_field: Spin
-```
-
-Generated initialization:
-```c
-/* Spin: skip (not in struct Halo) */
-```
-
-Generated output:
-```c
-for (int j = 0; j < 3; j++) {
-    o->Spin[j] = InputTreeHalos[g->HaloNr].Spin[j];
-}
-```
-
-### Example 7: Galaxy Property
+### Example 3: Galaxy Property (Physics Module)
 
 ```yaml
 - name: ColdGas
@@ -758,41 +650,19 @@ for (int j = 0; j < 3; j++) {
   output_source: galaxy_property
 ```
 
-Generated initialization (in `init_halo()`, after galaxy allocation):
+Generates:
 ```c
+// Initialization (after galaxy allocation):
 FoFWorkspace[p].galaxy->ColdGas = 0.0;
-```
 
-Generated output:
-```c
+// Output:
 o->ColdGas = g->galaxy->ColdGas;
 ```
 
-### Example 8: Custom Logic
+**Additional examples** (arrays, conditionals, recalculation, custom logic) are available in:
+- `metadata/properties/halo_properties.yaml` - Core halo properties
+- `metadata/properties/galaxy_properties.yaml` - Baryonic physics properties
 
-```yaml
-- name: HaloIndex
-  type: long long
-  units: "dimensionless"
-  description: "Unique halo index (encoded: filenr * tree * halonr)"
-  output: true
-  init_source: skip  # Not in struct Halo
-  output_source: custom  # Hand-written encoding logic
-```
-
-Generated output:
-```c
-/* CUSTOM: HaloIndex - see prepare_halo_for_output() for hand-written code */
-```
-
-Hand-written code remains in `binary.c`:
-```c
-long long file_mul_fac = (MimicConfig.LastFile >= 10000) ?
-                         (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
-o->HaloIndex = g->HaloNr + TREE_MUL_FAC * tree + file_mul_fac * filenr;
-```
-
----
 
 ## Property Categories
 
