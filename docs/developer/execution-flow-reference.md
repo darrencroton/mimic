@@ -8,6 +8,50 @@ This document provides a detailed traversal of every function in the Mimic codeb
 
 ---
 
+## Quick Reference
+
+**High-level execution flow:**
+
+```
+1. Startup (main.c)
+   → Initialize memory, error handling, parameters
+   → Register and initialize physics modules
+
+2. Tree Processing Loop (for each snapshot)
+   → Load tree metadata
+   → Build halo structures
+   → Execute module pipeline on each FOF group
+   → Write output
+
+3. Cleanup
+   → Module cleanup (reverse order)
+   → Free memory
+   → Exit
+```
+
+**Key entry points:**
+- **Program start**: `main()` in `src/core/main.c`
+- **Tree loading**: `load_tree_table()` in `src/io/tree/load_tree_table.c`
+- **Halo processing**: `build_halo_tree()` in `src/core/model_building.c`
+- **Module execution**: `module_execute_pipeline()` in `src/core/module_registry.c`
+- **Output writing**: `save_halos()` in `src/io/output/save_halos.c`
+
+**Module system hooks:**
+- Modules register via `register_all_modules()` (auto-generated)
+- `module_system_init()` calls each module's `init()`
+- `module_execute_pipeline()` calls each module's `process_halos()` per FOF group
+- `module_system_cleanup()` calls each module's `cleanup()` in reverse order
+
+**When to use this document:**
+- Debugging execution flow issues
+- Understanding where to add new functionality
+- Tracing memory allocation/deallocation
+- Understanding module integration points
+
+**This is a 1000+ line detailed trace. Use Ctrl+F or the table of contents to find what you need.**
+
+---
+
 ## Table of Contents
 
 1. [Program Startup & Initialization](#1-program-startup--initialization)

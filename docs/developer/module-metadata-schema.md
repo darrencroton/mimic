@@ -7,6 +7,50 @@
 
 ---
 
+## Quick Start
+
+**Creating a new module?** Here's the minimum you need to know:
+
+1. **Copy the template**: `cp -r src/modules/_template src/modules/your_module`
+2. **Edit `module_info.yaml`** with your module's details (name, parameters, dependencies)
+3. **Required fields**: `name`, `display_name`, `description`, `sources`, `register_function`
+4. **Run**: `make generate-modules` (auto-generates registration code)
+5. **Build**: `make clean && make`
+
+**Minimal example:**
+```yaml
+name: my_module
+display_name: "My Module"
+description: "Does physics stuff"
+version: "1.0.0"
+category: physics
+
+sources: [my_module.c]
+headers: [my_module.h]
+register_function: my_module_register
+
+dependencies:
+  requires: []  # List modules this depends on
+  provides: []  # List properties this module creates
+
+parameters: []  # Add your module's parameters here
+tests:
+  unit: test_unit_my_module.c
+  integration: test_integration_my_module.py
+```
+
+**Most common fields:**
+- `name` - Internal identifier (matches directory name)
+- `sources` / `headers` - Your C files
+- `register_function` - Name of your `*_register()` function
+- `dependencies.requires` - Modules you need data from
+- `dependencies.provides` - Properties you create
+- `parameters` - Runtime configuration options
+
+**Full schema details below.** This is a 1200+ line reference - use Ctrl+F to find what you need.
+
+---
+
 ## Overview
 
 This document defines the YAML schema for physics module metadata in Mimic. Module metadata is the **single source of truth** for:
@@ -630,7 +674,7 @@ default_enabled: false  # Optional experimental module
 
 ## Complete Examples
 
-### Example 1: SAGE Infall Module
+### Example: SAGE Infall Module (Complete)
 
 ```yaml
 # src/modules/sage_infall/module_info.yaml
@@ -644,23 +688,14 @@ module:
   category: gas_physics
 
   # Source Files
-  sources:
-    - sage_infall.c
-  headers:
-    - sage_infall.h
+  sources: [sage_infall.c]
+  headers: [sage_infall.h]
   register_function: sage_infall_register
 
   # Dependencies
   dependencies:
-    requires: []  # Creates initial gas, doesn't depend on other properties
-    provides:
-      - HotGas
-      - MetalsHotGas
-      - EjectedMass
-      - MetalsEjectedMass
-      - ICS
-      - MetalsICS
-      - TotalSatelliteBaryons
+    requires: []  # Creates initial gas
+    provides: [HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS]
 
   # Parameters
   parameters:
@@ -675,28 +710,14 @@ module:
       type: int
       default: 1
       range: [0, 1]
-      description: "Enable reionization suppression (0=off, 1=on)"
+      description: "Enable reionization suppression of infall (0=off, 1=on)"
       units: "dimensionless"
 
-    - name: Reionization_z0
+    - name: ReionizationModifier
       type: double
-      default: 8.0
-      range: [0.0, 20.0]
-      description: "Redshift when UV background turns on"
-      units: "dimensionless"
-
-    - name: Reionization_zr
-      type: double
-      default: 7.0
-      range: [0.0, 20.0]
-      description: "Redshift of full reionization"
-      units: "dimensionless"
-
-    - name: StrippingSteps
-      type: int
-      default: 10
-      range: [1, 100]
-      description: "Number of substeps for satellite stripping"
+      default: 1.0
+      range: [0.0, 10.0]
+      description: "Reionization suppression strength multiplier"
       units: "dimensionless"
 
   # Testing
@@ -706,146 +727,19 @@ module:
     scientific: test_scientific_sage_infall_validation.py
 
   # Documentation
-  docs:
-    physics: docs/physics/sage-infall.md
-    user_guide_section: "SAGE Infall Module"
-
-  # References
-  references:
-    - "Gnedin (2000) - Reionization model"
-    - "Kravtsov et al. (2004) - Filtering mass formulas"
-    - "Croton et al. (2016) - SAGE model description"
-    - "SAGE source: sage-code/model_infall.c"
-
-  # Build Configuration
-  compilation_requires: []
-  default_enabled: true
+  documentation:
+    reference_papers:
+      - "Croton et al. 2006, MNRAS, 365, 11"
+      - "Guo et al. 2011, MNRAS, 413, 101"
+    file: docs/physics/sage-infall.md
 ```
 
-### Example 2: Simple Cooling Module
+**Additional examples** available in existing modules:
+- `src/modules/sage_cooling/module_info.yaml` - Physics module with multiple parameters
+- `src/modules/test_fixture/module_info.yaml` - Minimal testing module
+- `src/modules/_template/module_info.yaml.template` - Template for new modules
 
-```yaml
-# src/modules/simple_cooling/module_info.yaml
-module:
-  # Core Metadata
-  name: simple_cooling
-  display_name: "Simple Cooling"
-  description: "Simple cooling model for Proof-of-Concept testing."
-  version: "0.1.0"
-  author: "Mimic Development Team"
-  category: gas_physics
-
-  # Source Files
-  sources:
-    - simple_cooling.c
-  headers:
-    - simple_cooling.h
-  register_function: simple_cooling_register
-
-  # Dependencies
-  dependencies:
-    requires: []
-    provides:
-      - ColdGas
-
-  # Parameters
-  parameters:
-    - name: BaryonFraction
-      type: double
-      default: 0.17
-      range: [0.0, 1.0]
-      description: "Fraction of halo mass in baryons"
-      units: "dimensionless"
-
-    - name: CoolingEfficiency
-      type: double
-      default: 0.5
-      range: [0.0, 1.0]
-      description: "Fraction of baryons that cool onto galaxy"
-      units: "dimensionless"
-
-  # Testing
-  tests:
-    unit: test_unit_simple_cooling.c
-    integration: test_integration_simple_cooling.py
-    scientific: test_scientific_simple_cooling.py
-
-  # Documentation
-  docs:
-    physics: docs/physics/simple-cooling.md
-    user_guide_section: "Simple Cooling (PoC)"
-
-  # References
-  references:
-    - "Simplified model for testing infrastructure only"
-
-  # Build Configuration
-  compilation_requires: []
-  default_enabled: false  # PoC module, not for production
-```
-
-### Example 3: Module with Multiple Source Files
-
-```yaml
-# src/modules/sage_cooling/module_info.yaml
-module:
-  name: sage_cooling
-  display_name: "SAGE Cooling"
-  description: "Metal-dependent radiative cooling with Sutherland & Dopita (1993) tables."
-  version: "1.0.0"
-  author: "Mimic Team (ported from SAGE)"
-  category: gas_physics
-
-  # Source Files
-  sources:
-    - sage_cooling.c
-    - cooling_tables.c
-  headers:
-    - sage_cooling.h
-    - cooling_tables.h
-  register_function: sage_cooling_register
-
-  # Dependencies
-  dependencies:
-    requires:
-      - HotGas
-      - MetalsHotGas
-    provides:
-      - ColdGas
-      - MetalsColdGas
-      - CoolingRate
-      - rcool
-
-  # Parameters
-  parameters:
-    - name: CoolFunctionsDir
-      type: string
-      default: "input/CoolFunctions"
-      description: "Directory containing Sutherland & Dopita cooling tables"
-
-  # Testing
-  tests:
-    unit: test_sage_cooling.c
-    integration: test_sage_cooling.py
-    scientific: test_sage_cooling_validation.py
-
-  # Documentation
-  docs:
-    physics: docs/physics/sage-cooling.md
-    user_guide_section: "SAGE Cooling Module"
-
-  # References
-  references:
-    - "Sutherland & Dopita (1993) - Cooling function tables"
-    - "Croton et al. (2016) - SAGE model implementation"
-    - "SAGE source: sage-code/model_cooling_heating.c"
-
-  # Build Configuration
-  compilation_requires: []
-  default_enabled: true
-```
-
----
+**For field-by-field reference**, see [Schema Definition](#schema-definition) section above.
 
 ## Generated Code Structure
 
