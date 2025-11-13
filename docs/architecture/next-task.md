@@ -2,7 +2,19 @@
 
 **Current Status**: sage_infall module COMPLETE with test architecture refactor (10/26 tasks done)
 
-**Date**: 2025-11-12
+**Date**: 2025-11-13
+
+---
+
+## ✅ Infrastructure Fix: Test Fixture Architecture (2025-11-13)
+
+**Problem Discovered**: Infrastructure tests (unit and integration) violated Vision Principle #1 by hardcoding production module names (`simple_cooling`, `simple_sfr`). This meant archiving modules required updating core test code.
+
+**Solution Implemented**: Created `src/modules/test_fixture/` - a minimal, stable test module for infrastructure testing only. Updated all infrastructure tests to use `test_fixture` instead of production modules.
+
+**Impact**: Production modules can now be archived with ZERO infrastructure test changes. Validates physics-agnostic core principle.
+
+**Next**: Ready to archive `simple_cooling` (being replaced by `sage_cooling`) to `src/modules/_archive/` with zero test breakage.
 
 ---
 

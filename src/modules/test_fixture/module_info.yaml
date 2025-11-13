@@ -1,0 +1,101 @@
+# Module Metadata: test_fixture
+#
+# ⚠️  WARNING: This module is for TESTING INFRASTRUCTURE ONLY ⚠️
+#
+# DO NOT USE IN PRODUCTION RUNS
+#
+# Purpose: Provides a minimal, stable module for testing core module system
+# functionality (configuration, registration, pipeline execution) without
+# coupling infrastructure tests to production physics modules.
+#
+# This maintains Vision Principle #1: Physics-Agnostic Core Infrastructure
+#
+# For schema documentation, see:
+#   docs/developer/module-metadata-schema.md
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: test_fixture
+  display_name: "Test Fixture Module"
+  description: "Minimal module for infrastructure testing only. NOT FOR PRODUCTION."
+  version: "1.0.0"
+  author: "Mimic Development Team"
+  category: testing
+
+  # ===========================================================================
+  # Source Files
+  # ===========================================================================
+
+  sources:
+    - fixture.c
+
+  headers:
+    - fixture.h
+
+  register_function: test_fixture_register
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  dependencies:
+    # No dependencies - minimal standalone module for testing
+    requires: []
+
+    # Provides a dummy property for testing property system
+    provides:
+      - TestDummyProperty
+
+  # ===========================================================================
+  # Parameters
+  # ===========================================================================
+
+  parameters:
+    - name: DummyParameter
+      type: double
+      default: 1.0
+      range: [0.0, 10.0]
+      description: "Dummy parameter for testing parameter API (no physical meaning)"
+      units: "dimensionless"
+
+    - name: EnableLogging
+      type: int
+      default: 0
+      range: [0, 1]
+      description: "Enable verbose logging for test validation (0=off, 1=on)"
+      units: "dimensionless"
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+
+  tests:
+    unit: test_unit_test_fixture.c
+    integration: test_integration_test_fixture.py
+    scientific: null  # No scientific validation for test fixture
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: null  # No physics documentation - this is a test fixture
+    user_guide_section: "Test Fixture Module (Infrastructure Testing Only)"
+
+  # ===========================================================================
+  # References
+  # ===========================================================================
+
+  references:
+    - "Created to fix architectural violation: infrastructure tests hardcoding production modules"
+    - "See: docs/architecture/module-implementation-log.md (2025-11-13 entry)"
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []
+  default_enabled: false  # Never enable by default (testing only)

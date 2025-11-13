@@ -7,8 +7,8 @@ BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
 DEP_DIR = $(BUILD_DIR)/deps
 
-# Source files (recursive find, excluding template and test files)
-SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_template/*' ! -name 'test_*.c')
+# Source files (recursive find, excluding template, archive, and test files)
+SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_template/*' ! -path '*/modules/_archive/*' ! -name 'test_*.c')
 OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES))
 DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
 

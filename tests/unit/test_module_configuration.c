@@ -130,18 +130,18 @@ int test_enabled_modules_parsing(void) {
     reset_config();
 
     /* ===== EXECUTE ===== */
-    /* Simulate EnabledModules = "simple_cooling,simple_sfr" */
-    strcpy(MimicConfig.EnabledModules[0], "simple_cooling");
-    strcpy(MimicConfig.EnabledModules[1], "simple_sfr");
+    /* Simulate EnabledModules = "test_fixture,test_fixture" */
+    strcpy(MimicConfig.EnabledModules[0], "test_fixture");
+    strcpy(MimicConfig.EnabledModules[1], "test_fixture");
     MimicConfig.NumEnabledModules = 2;
 
     /* ===== VERIFY ===== */
     TEST_ASSERT_EQUAL(MimicConfig.NumEnabledModules, 2,
                       "Should have 2 enabled modules");
-    TEST_ASSERT_STRING_EQUAL(MimicConfig.EnabledModules[0], "simple_cooling",
-                             "First module should be simple_cooling");
-    TEST_ASSERT_STRING_EQUAL(MimicConfig.EnabledModules[1], "simple_sfr",
-                             "Second module should be simple_sfr");
+    TEST_ASSERT_STRING_EQUAL(MimicConfig.EnabledModules[0], "test_fixture",
+                             "First module should be test_fixture");
+    TEST_ASSERT_STRING_EQUAL(MimicConfig.EnabledModules[1], "test_fixture",
+                             "Second module should be test_fixture");
 
     return TEST_PASS;
 }
@@ -158,19 +158,19 @@ int test_module_parameter_api(void) {
     reset_config();
 
     /* Configure a test parameter */
-    strcpy(MimicConfig.ModuleParams[0].module_name, "SimpleCooling");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "BaryonFraction");
-    strcpy(MimicConfig.ModuleParams[0].value, "0.17");
+    strcpy(MimicConfig.ModuleParams[0].module_name, "TestFixture");
+    strcpy(MimicConfig.ModuleParams[0].param_name, "DummyParameter");
+    strcpy(MimicConfig.ModuleParams[0].value, "2.5");
     MimicConfig.NumModuleParams = 1;
 
     /* ===== EXECUTE ===== */
-    double baryon_fraction = 0.0;
+    double dummy_param = 0.0;
     int result =
-        module_get_double("SimpleCooling", "BaryonFraction", &baryon_fraction, 0.15);
+        module_get_double("TestFixture", "DummyParameter", &dummy_param, 1.0);
 
     /* ===== VERIFY ===== */
     TEST_ASSERT_EQUAL(result, 0, "module_get_double should succeed");
-    TEST_ASSERT_DOUBLE_EQUAL(baryon_fraction, 0.17, 1e-6,
+    TEST_ASSERT_DOUBLE_EQUAL(dummy_param, 2.5, 1e-6,
                              "Should retrieve configured value");
 
     return TEST_PASS;
@@ -273,8 +273,8 @@ int test_valid_module_initialization(void) {
     ensure_modules_registered();
 
     /* Enable valid modules */
-    strcpy(MimicConfig.EnabledModules[0], "simple_cooling");
-    strcpy(MimicConfig.EnabledModules[1], "simple_sfr");
+    strcpy(MimicConfig.EnabledModules[0], "test_fixture");
+    strcpy(MimicConfig.EnabledModules[1], "test_fixture");
     MimicConfig.NumEnabledModules = 2;
 
     /* ===== EXECUTE ===== */
@@ -330,8 +330,8 @@ int test_single_module_initialization(void) {
     reset_config();
     ensure_modules_registered();
 
-    /* Enable only simple_cooling */
-    strcpy(MimicConfig.EnabledModules[0], "simple_cooling");
+    /* Enable only test_fixture */
+    strcpy(MimicConfig.EnabledModules[0], "test_fixture");
     MimicConfig.NumEnabledModules = 1;
 
     /* ===== EXECUTE ===== */

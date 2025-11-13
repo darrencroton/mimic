@@ -75,36 +75,39 @@ def generate_test_registry():
         # Unit tests
         if 'unit' in tests:
             unit_test_file = tests['unit']
-            unit_test_path = module_path / unit_test_file
-            if unit_test_path.exists():
-                # Store relative path from repo root
-                rel_path = unit_test_path.relative_to(repo_root)
-                unit_tests.append(str(rel_path))
-                has_tests = True
-            else:
-                print(f"WARNING: {module_name} declares unit test '{unit_test_file}' but file not found")
+            if unit_test_file is not None:  # Allow null/None if no unit test needed
+                unit_test_path = module_path / unit_test_file
+                if unit_test_path.exists():
+                    # Store relative path from repo root
+                    rel_path = unit_test_path.relative_to(repo_root)
+                    unit_tests.append(str(rel_path))
+                    has_tests = True
+                else:
+                    print(f"WARNING: {module_name} declares unit test '{unit_test_file}' but file not found")
 
         # Integration tests
         if 'integration' in tests:
             integration_test_file = tests['integration']
-            integration_test_path = module_path / integration_test_file
-            if integration_test_path.exists():
-                rel_path = integration_test_path.relative_to(repo_root)
-                integration_tests.append(str(rel_path))
-                has_tests = True
-            else:
-                print(f"WARNING: {module_name} declares integration test '{integration_test_file}' but file not found")
+            if integration_test_file is not None:  # Allow null/None if no integration test needed
+                integration_test_path = module_path / integration_test_file
+                if integration_test_path.exists():
+                    rel_path = integration_test_path.relative_to(repo_root)
+                    integration_tests.append(str(rel_path))
+                    has_tests = True
+                else:
+                    print(f"WARNING: {module_name} declares integration test '{integration_test_file}' but file not found")
 
         # Scientific tests
         if 'scientific' in tests:
             scientific_test_file = tests['scientific']
-            scientific_test_path = module_path / scientific_test_file
-            if scientific_test_path.exists():
-                rel_path = scientific_test_path.relative_to(repo_root)
-                scientific_tests.append(str(rel_path))
-                has_tests = True
-            else:
-                print(f"WARNING: {module_name} declares scientific test '{scientific_test_file}' but file not found")
+            if scientific_test_file is not None:  # Allow null/None for test fixtures
+                scientific_test_path = module_path / scientific_test_file
+                if scientific_test_path.exists():
+                    rel_path = scientific_test_path.relative_to(repo_root)
+                    scientific_tests.append(str(rel_path))
+                    has_tests = True
+                else:
+                    print(f"WARNING: {module_name} declares scientific test '{scientific_test_file}' but file not found")
 
         if has_tests:
             modules_with_tests.append(module_name)

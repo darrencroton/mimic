@@ -12,17 +12,18 @@ This comprehensive guide explains how to use Mimic's testing infrastructure, wri
 
 1. [Quick Start](#quick-start)
 2. [Testing Philosophy](#testing-philosophy)
-3. [Test Output Standards](#test-output-standards)
-4. [Test Organization](#test-organization)
-5. [Running Tests](#running-tests)
-6. [Writing Unit Tests (C)](#writing-unit-tests-c)
-7. [Writing Integration Tests (Python)](#writing-integration-tests-python)
-8. [Writing Scientific Tests (Python)](#writing-scientific-tests-python)
-9. [Test Templates](#test-templates)
-10. [Debugging Test Failures](#debugging-test-failures)
-11. [CI Integration](#ci-integration)
-12. [Best Practices](#best-practices)
-13. [FAQ](#faq)
+3. [Infrastructure Testing Conventions](#infrastructure-testing-conventions)
+4. [Test Output Standards](#test-output-standards)
+5. [Test Organization](#test-organization)
+6. [Running Tests](#running-tests)
+7. [Writing Unit Tests (C)](#writing-unit-tests-c)
+8. [Writing Integration Tests (Python)](#writing-integration-tests-python)
+9. [Writing Scientific Tests (Python)](#writing-scientific-tests-python)
+10. [Test Templates](#test-templates)
+11. [Debugging Test Failures](#debugging-test-failures)
+12. [CI Integration](#ci-integration)
+13. [Best Practices](#best-practices)
+14. [FAQ](#faq)
 
 ---
 
@@ -117,6 +118,107 @@ Mimic follows the **testing pyramid** approach:
 - **Comprehensive coverage**: Integration tests catch system-level bugs
 - **Scientific accuracy**: Scientific tests validate physics
 - **Maintainable**: Clear separation of concerns
+
+---
+
+## Infrastructure Testing Conventions
+
+**IMPORTANT**: Infrastructure tests must maintain physics-agnostic principles.
+
+### The Problem: Hardcoded Production Modules
+
+Infrastructure tests verify core module system functionality (configuration parsing, registration, pipeline execution). These tests previously hardcoded production physics module names (`simple_cooling`, `simple_sfr`), creating architectural violations:
+
+❌ **Violates**: Vision Principle #1 (Physics-Agnostic Core Infrastructure)
+❌ **Problem**: Production module changes break infrastructure tests
+❌ **Problem**: Archiving production modules requires updating core tests
+
+### The Solution: test_fixture Module
+
+Use the `test_fixture` module for ALL infrastructure testing:
+
+✅ **Maintains**: Physics-agnostic core principle
+✅ **Benefit**: Production modules can be archived without touching infrastructure tests
+✅ **Benefit**: Infrastructure tests remain stable and focused
+
+### Rules for Infrastructure Tests
+
+**Infrastructure tests** are tests in `tests/unit/` and `tests/integration/` that verify:
+- Module configuration system
+- Module registration and lifecycle
+- Parameter parsing and validation
+- Pipeline execution order
+- Error handling for invalid modules
+
+**MUST** use `test_fixture` module:
+
+```c
+// ✅ CORRECT: Use test_fixture in infrastructure tests
+strcpy(MimicConfig.EnabledModules[0], "test_fixture");
+strcpy(MimicConfig.ModuleParams[0].module_name, "TestFixture");
+strcpy(MimicConfig.ModuleParams[0].param_name, "DummyParameter");
+```
+
+```python
+# ✅ CORRECT: Use test_fixture in infrastructure tests
+param_file = create_test_param_file(
+    enabled_modules=["test_fixture"],
+    module_params={"TestFixture_DummyParameter": "2.5"}
+)
+```
+
+**NEVER** use production modules:
+
+```c
+// ❌ WRONG: Hardcoding production modules violates architecture
+strcpy(MimicConfig.EnabledModules[0], "simple_cooling");  // BAD!
+```
+
+### Module-Specific Tests vs Infrastructure Tests
+
+| Test Type | Location | Purpose | Uses |
+|-----------|----------|---------|------|
+| **Module-Specific** | `src/modules/MODULE_NAME/` | Test specific module's physics | Production modules (sage_infall, etc.) |
+| **Infrastructure** | `tests/unit/`, `tests/integration/` | Test core module system | `test_fixture` only |
+
+### About test_fixture Module
+
+The `test_fixture` module is a minimal, stable module created specifically for infrastructure testing:
+
+- **Location**: `src/modules/test_fixture/`
+- **Purpose**: Testing infrastructure only (NOT FOR PRODUCTION)
+- **Parameters**: `TestFixture_DummyParameter`, `TestFixture_EnableLogging`
+- **Properties**: `TestDummyProperty` (not output)
+- **Behavior**: Minimal do-nothing module that validates infrastructure works
+
+See `src/modules/test_fixture/README.md` for full documentation.
+
+### Examples
+
+**Testing module configuration system** (infrastructure test):
+```c
+// Use test_fixture to test that configuration system works
+strcpy(MimicConfig.EnabledModules[0], "test_fixture");
+int result = module_system_init();
+TEST_ASSERT_EQUAL(result, 0, "Module system should initialize");
+```
+
+**Testing sage_infall physics** (module-specific test):
+```c
+// Use sage_infall to test infall physics calculations
+strcpy(MimicConfig.EnabledModules[0], "sage_infall");
+// ... test infall-specific physics ...
+```
+
+### Migration from Old Tests
+
+If you find infrastructure tests using production modules:
+
+1. Identify what's being tested (infrastructure vs physics)
+2. If testing infrastructure → change to `test_fixture`
+3. If testing module physics → move test to module directory
+
+**This was completed 2025-11-13**: All infrastructure tests now use `test_fixture`.
 
 ---
 

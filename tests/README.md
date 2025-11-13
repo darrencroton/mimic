@@ -69,13 +69,27 @@ Tests for **physics modules** in `src/modules/*/test_*.{c,py}`:
 - **Auto-discovered** from `module_info.yaml` declarations
 - **Co-located** with module source code
 - **Three tiers** per module: unit (C), integration (Python), scientific (Python)
-- **Count**: Currently 3 modules × 3 test tiers = 9 module tests
+- **Count**: Currently 4 modules × 3 test tiers = 12 module tests
 - **Examples**:
   - `src/modules/sage_infall/test_unit_sage_infall.c`
   - `src/modules/sage_infall/test_integration_sage_infall.py`
   - `src/modules/sage_infall/test_scientific_sage_infall_validation.py`
 
 **See [docs/developer/testing.md](../docs/developer/testing.md) for complete module testing guide.**
+
+### 3. Test Fixture Module (Special Purpose)
+
+The **`test_fixture` module** exists solely for **infrastructure testing**:
+
+- **Purpose**: Provides stable test interface for core infrastructure tests
+- **Location**: `src/modules/test_fixture/`
+- **Usage**: Referenced by core unit/integration tests in this directory
+- **NOT FOR PRODUCTION**: Never use in scientific runs
+- **Benefit**: Decouples infrastructure tests from production physics modules
+
+This ensures core infrastructure tests remain physics-agnostic (Vision Principle #1), allowing production modules to be archived without breaking core tests.
+
+**See [src/modules/test_fixture/README.md](../src/modules/test_fixture/README.md) for details.**
 
 ---
 
@@ -123,6 +137,12 @@ src/modules/
 │   ├── test_unit_sage_infall.c             # Module unit test
 │   ├── test_integration_sage_infall.py     # Module integration test
 │   └── test_scientific_sage_infall_validation.py  # Module scientific test
+├── test_fixture/                            # Infrastructure testing only
+│   ├── fixture.c
+│   ├── module_info.yaml
+│   ├── test_unit_test_fixture.c
+│   ├── test_integration_test_fixture.py
+│   └── README.md                            # Explains special purpose
 ├── simple_cooling/
 │   ├── simple_cooling.c
 │   ├── module_info.yaml

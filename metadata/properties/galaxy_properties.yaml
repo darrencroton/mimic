@@ -155,6 +155,22 @@ galaxy_properties:
     sentinels: [0.0]
 
   # ===========================================================================
+  # TESTING INFRASTRUCTURE (DO NOT USE IN PRODUCTION)
+  # ===========================================================================
+
+  - name: TestDummyProperty
+    type: float
+    units: "dimensionless"
+    description: "Test property for infrastructure testing only (NOT FOR PRODUCTION)"
+    output: false  # Don't clutter production output
+    created_by: test_fixture
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 1.0]  # Simple range for testing
+    sentinels: []  # No special sentinels
+
+  # ===========================================================================
   # FUTURE PROPERTIES (Examples for expansion)
   # ===========================================================================
   #

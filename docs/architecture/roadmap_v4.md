@@ -73,6 +73,20 @@ This section summarizes the capabilities of the codebase *right now*. The detail
     - **Foundation for Phase 5**: Build-time module selection infrastructure ready
 -   **Status**: ✅ **PRODUCTION READY** - All tests passing, build system integrated, documentation complete
 
+#### ✅ **6. Test Infrastructure Architecture Fix** (Phase 4.2.6 - Completed 2025-11-13)
+-   **Problem**: Infrastructure tests violated Vision Principle #1 (Physics-Agnostic Core) by hardcoding production module names (simple_cooling, simple_sfr). Archiving modules required updating core test code, breaking zero-touch modularity.
+-   **Solution**: Created `test_fixture` module - a minimal, stable test module for infrastructure testing only. Infrastructure tests now use test_fixture, making them physics-agnostic.
+-   **Impact**:
+    - **Architectural Integrity**: Eliminated 15 violations across 9 test methods in `tests/unit/test_module_configuration.c` and `tests/integration/test_module_pipeline.py`
+    - **Zero-Touch Modularity**: Production modules can now be archived with ZERO infrastructure test changes
+    - **Validation**: Core infrastructure validates Vision Principle #1 (physics-agnostic) - tests decouple from production physics
+-   **Deliverables**:
+    - `src/modules/test_fixture/` - Minimal test module (~150 lines)
+    - Updated infrastructure tests use test_fixture exclusively
+    - `docs/developer/testing.md` - Infrastructure Testing Conventions section
+    - `src/modules/test_fixture/README.md` - Test fixture documentation
+-   **Lesson Learned**: Early architectural violations caught early prevent downstream pain. Test fixtures are industry standard for separating infrastructure tests from production code.
+
 ---
 
 ### Quick Start Guide for Phase 4 Developers

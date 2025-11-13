@@ -370,13 +370,12 @@ def test_multiple_module_pipeline():
     print("Testing multi-module pipeline...")
 
     # ===== SETUP =====
-    # Test sage_infall with simple_cooling and simple_sfr
+    # Test sage_infall with simple_sfr (simple_cooling archived)
     param_file = create_test_param_file(
         output_name="sage_infall_multi",
-        enabled_modules=["sage_infall", "simple_cooling", "simple_sfr"],
+        enabled_modules=["sage_infall", "simple_sfr"],
         module_params={
             "SageInfall_BaryonFrac": "0.17",
-            "SimpleCooling_BaryonFraction": "0.15",
             "SimpleSFR_Efficiency": "0.02"
         }
     )
@@ -386,12 +385,13 @@ def test_multiple_module_pipeline():
 
     # ===== VALIDATE =====
     assert returncode == 0, \
-        "Multi-module pipeline should execute successfully"
+        f"Multi-module pipeline should execute successfully\nStderr: {stderr}"
 
     # Verify all modules initialized
-    assert "SAGE infall module initialized" in stdout
-    assert "Simple cooling module initialized" in stdout
-    assert "Simple star formation rate module initialized" in stdout
+    assert "SAGE infall module initialized" in stdout, \
+        "sage_infall should initialize"
+    assert "Simple star formation rate module initialized" in stdout, \
+        "simple_sfr should initialize"
 
     print("  ✓ Multi-module pipeline works")
 

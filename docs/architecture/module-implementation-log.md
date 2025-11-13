@@ -480,6 +480,120 @@ This implementation triggered a major infrastructure improvement:
 
 ---
 
+## test_fixture Module - Architecture Fix - 2025-11-13
+
+**Type**: Infrastructure / Architecture Fix
+**Developer**: Claude Code
+**Implementation Time**: 3-4 hours
+**Status**: ✅ Complete
+
+### Overview
+
+Created `test_fixture` module to fix architectural violation where infrastructure tests hardcoded production physics module names (`simple_cooling`, `simple_sfr`), violating Vision Principle #1 (Physics-Agnostic Core Infrastructure).
+
+**Problem Discovered**: During simple_cooling archival planning, investigation revealed 15 architectural violations across 9 test methods in `tests/unit/` and `tests/integration/` where infrastructure tests that verify core module system functionality (configuration, registration, pipeline) hardcoded production module names.
+
+**Solution**: Created minimal `test_fixture` module specifically for infrastructure testing, providing a stable test interface that never changes regardless of production module lifecycle.
+
+### Module Specification
+
+**test_fixture Module:**
+- **Location**: `src/modules/test_fixture/`
+- **Purpose**: Infrastructure testing only (NOT FOR PRODUCTION)
+- **Implementation**: ~150 lines (fixture.c/h) - minimal do-nothing module
+- **Parameters**: `TestFixture_DummyParameter` (double), `TestFixture_EnableLogging` (int)
+- **Properties**: `TestDummyProperty` (float, not output)
+- **Dependencies**: None
+- **Tests**: test_unit_test_fixture.c, test_integration_test_fixture.py
+
+### Files Created/Modified
+
+**Created:**
+- `src/modules/test_fixture/fixture.c` - Minimal module implementation
+- `src/modules/test_fixture/fixture.h` - Module interface
+- `src/modules/test_fixture/module_info.yaml` - Module metadata
+- `src/modules/test_fixture/README.md` - Comprehensive documentation
+- `src/modules/test_fixture/test_unit_test_fixture.c` - Unit tests for fixture
+- `src/modules/test_fixture/test_integration_test_fixture.py` - Integration tests
+- `metadata/properties/galaxy_properties.yaml` - Added TestDummyProperty
+
+**Modified (Architecture Fixes):**
+- `tests/unit/test_module_configuration.c` - 4 test methods updated (9 violations fixed)
+- `tests/integration/test_module_pipeline.py` - 5 test methods updated (6 violations fixed)
+- `docs/developer/testing.md` - Added "Infrastructure Testing Conventions" section
+- `docs/architecture/module-implementation-log.md` - This entry
+
+### Implementation Challenges
+
+1. **Module naming conflict with test file exclusion**
+   - **Problem**: Initially named files `test_fixture.c/h`, which matched Makefile's `test_*.c` exclusion pattern for test files
+   - **Solution**: Renamed to `fixture.c/h` while keeping module name as `test_fixture` in metadata
+   - **Lesson**: Module source files must not match test file patterns (`test_*`)
+
+2. **Module struct signature mismatch**
+   - **Problem**: Initially used incorrect field names (`.process` instead of `.process_halos`) and wrong return type for cleanup
+   - **Solution**: Corrected to match `module_interface.h`: `.process_halos` and `int (*cleanup)(void)`
+   - **Lesson**: Always reference existing modules or module_interface.h for struct signatures
+
+3. **Underscore prefix exclusion**
+   - **Problem**: Initially named directory `_test_fixture`, which was excluded by module discovery (like `_template`)
+   - **Solution**: Renamed to `test_fixture` (no underscore) so it's registered but still clearly a test module
+   - **Lesson**: Only `_template` and `_archive` should use underscore prefix for exclusion
+
+### What Went Well
+
+- **Architectural principle validated**: Fixing this proved the metadata-driven system works correctly
+- **Clear documentation**: test_fixture README and testing.md section provide excellent guidance
+- **Fast implementation**: Despite challenges, completed in one session
+- **Zero-touch archival validated**: This fix enables future module archives with zero infrastructure test changes
+
+### What Could Improve
+
+- **Earlier detection**: This violation existed since Phase 3 (runtime module configuration)
+- **Automated checking**: Could add linting rule to detect production module names in infrastructure tests
+- **Template improvements**: Module template could include naming guidance for test files
+
+### Testing
+
+- **Unit Tests**: 5 tests validating test_fixture itself (lifecycle, parameters, properties, memory)
+- **Integration Tests**: 4 tests validating test_fixture in pipeline
+- **Infrastructure Test Updates**: 9 test methods across 2 files updated to use test_fixture
+- **Verification**: All tests passing with test_fixture
+
+### Impact
+
+**Architectural Violations Fixed**: 15 violations across 9 test methods
+**Files With Violations Fixed**: 2 (test_module_configuration.c, test_module_pipeline.py)
+**Zero-Touch Archival Enabled**: Future production modules can be archived without modifying infrastructure tests
+
+### Recommendations for Future Developers
+
+1. **Always use test_fixture** for infrastructure tests in `tests/unit/` and `tests/integration/`
+2. **Never hardcode production module names** in infrastructure tests
+3. **Module-specific tests** belong in `src/modules/MODULE_NAME/`, not in core test directories
+4. **Read testing.md** section on Infrastructure Testing Conventions before writing tests
+5. **Avoid `test_*` prefix** for module source files (conflicts with test file exclusion)
+
+### Infrastructure Improvements Identified
+
+- ✅ **test_fixture module created** - Permanent infrastructure for testing
+- ✅ **Infrastructure testing conventions** - Documented in testing.md
+- **Suggested**: Linting rule to catch hardcoded module names in infrastructure tests
+- **Suggested**: Pre-commit hook to verify infrastructure tests only reference test_fixture
+
+### Related Documentation
+
+- **Module README**: `src/modules/test_fixture/README.md`
+- **Testing Conventions**: `docs/developer/testing.md` (Infrastructure Testing Conventions section)
+- **Vision Principles**: `docs/architecture/vision.md` (Principle #1)
+- **Roadmap**: `docs/architecture/roadmap_v4.md` (Phase 4 progress)
+
+### Next Steps
+
+This infrastructure fix unblocks Part 2 (Archive simple_cooling), which can now proceed with zero infrastructure test modifications, validating the metadata-driven architecture works as designed.
+
+---
+
 ## Implementation Summary Table
 
 Track overall progress across all modules:
