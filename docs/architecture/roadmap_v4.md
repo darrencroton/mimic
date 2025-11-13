@@ -62,10 +62,10 @@ This section summarizes the capabilities of the codebase *right now*. The detail
     - **Build Integration**: Makefile targets for `generate-modules`, `validate-modules`, automatic regeneration on YAML changes
     - **Module Metadata Files**: `module_info.yaml` for all existing modules (sage_infall, simple_cooling, simple_sfr)
 -   **Generated Outputs**:
-    - `src/modules/module_init.c` - Auto-generated registration code
-    - `tests/unit/module_sources.mk` - Test build configuration
-    - `docs/user/module-reference.md` - Module documentation
-    - `build/module_registry_hash.txt` - Validation hash
+    - `src/modules/generated/module_init.c` - Auto-generated registration code
+    - `tests/generated/module_sources.mk` - Test build configuration
+    - `docs/generated/module-reference.md` - Module documentation (symlinked from docs/user/)
+    - `build/generated/module_registry_hash.txt` - Validation hash
 -   **Impact**:
     - **75% reduction in error opportunities** (5 manual steps → 1 metadata file)
     - **Time savings**: 20-50 minutes/module eliminated through automation
@@ -87,7 +87,37 @@ This section summarizes the capabilities of the codebase *right now*. The detail
     - `src/modules/test_fixture/README.md` - Test fixture documentation
 -   **Lesson Learned**: Early architectural violations caught early prevent downstream pain. Test fixtures are industry standard for separating infrastructure tests from production code.
 
-#### ✅ **7. SAGE Physics Modules** (Phase 4.2 - In Progress, 2/6 Complete)
+#### ✅ **7. Generated Files Reorganization** (Phase 4.2.7 - Completed 2025-11-13)
+-   **Problem**: Generated files were scattered across the codebase in inconsistent locations, mixing with source code and making it unclear which files were auto-generated vs hand-written. This obscured the metadata-driven architecture principle.
+-   **Solution**: Comprehensive reorganization consolidating all 16 generated files into consistent `generated/` subdirectories with self-documenting README files.
+-   **Changes**:
+    - `src/modules/generated/` - Module registration code (was: src/modules/)
+    - `output/mimic-plot/generated/` - Python dtypes (was: output/mimic-plot/)
+    - `build/generated/` - Build artifacts including git_version.h (was: mixed locations)
+    - `tests/generated/` - Test metadata (was: tests/unit/)
+    - `docs/generated/` - Generated documentation (was: docs/user/)
+    - Archived unused `src/generated/` directory
+-   **Impact**:
+    - **Architectural Clarity**: Clear visual separation of generated vs source code reinforces Vision Principle #3 (Metadata-Driven Architecture)
+    - **Self-Documenting**: 5 README files explain generation process in each generated/ subdirectory
+    - **Build Hygiene**: Build artifacts properly isolated in build/ directory
+    - **Maintainability**: Future developers immediately understand file organization
+    - **Documentation Accuracy**: Fixed existing bugs in property-metadata-schema.md, updated 10+ documentation files
+-   **Technical Changes**:
+    - Added `-Ibuild/generated` to compiler flags for git_version.h
+    - Updated all generator scripts with new output paths
+    - Fixed module_sources.mk to reference new module_init.c path
+    - Created symlink for module-reference.md user discoverability
+    - Updated Python imports: `from generated.dtype import ...`
+-   **Validation**: ✅ All tests passing (unit: 6/6, integration: all, scientific: all), clean build, executable runs successfully
+-   **Deliverables**:
+    - 32 files modified: 8 generators, 7 property files, 6 docs, 4 test files, 3 plotting files, 2 READMEs, Makefile, .gitignore
+    - 5 new README files in generated/ subdirectories
+    - Comprehensive commit documenting all changes
+-   **Architectural Alignment**: Strongly enhances Vision Principles #3 (Metadata-Driven) and #4 (Single Source of Truth)
+-   **Lesson Learned**: Consistent structure is as important as functionality. Clear separation of concerns prevents confusion and accidental editing of generated files.
+
+#### ✅ **8. SAGE Physics Modules** (Phase 4.2 - In Progress, 2/6 Complete)
 -   **Goal**: Systematically port production-quality SAGE physics modules into Mimic's modular architecture.
 -   **Completed Modules**:
     1. **sage_infall** (November 2025) - Gas accretion from dark matter halos
