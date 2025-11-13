@@ -25,7 +25,7 @@ NumOutputs        8   ; sets the desired number of galaxy outputs; use -1 for al
 
 TreeName                    trees_063   ; assumes the trees are named TreeName.n where n is the file number
 TreeType                    lhalo_binary ; either 'genesis_lhalo_hdf5' or 'lhalo_binary'
-OutputFormat                hdf5 ; either 'binary' or 'hdf5'
+OutputFormat                binary ; either 'binary' or 'hdf5'
 
 SimulationDir               ./input/data/millennium/
 FileWithSnapList            ./input/data/millennium/millennium.a_list
@@ -62,7 +62,7 @@ UnitVelocity_in_cm_per_s  100000      ;WATCH OUT: km/s
 %------------------------------------------
 # Enable galaxy physics modules (comma-separated, order matters)
 # Leave empty or omit for physics-free mode (halo tracking only)
-EnabledModules          sage_infall,simple_cooling,simple_sfr
+EnabledModules          sage_infall,simple_sfr
 
 # Simple cooling module parameters
 SimpleCooling_BaryonFraction    0.15
