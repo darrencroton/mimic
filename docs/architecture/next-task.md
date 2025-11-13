@@ -269,9 +269,8 @@ SageCooling_CoolFunctionsDir  input/CoolFunctions
 ## Task 25: Complete Documentation
 
 **Files to Update**:
-- `docs/physics/sage-cooling.md` - New file
+- `src/modules/sage_cooling/README.md` - Physics documentation in module directory
 - `docs/user/module-configuration.md` - Add both modules
-- `docs/architecture/module-implementation-log.md` - Both module entries
 - `README.md` - Update features list
 
 **Include**:

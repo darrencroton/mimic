@@ -103,7 +103,7 @@ module:
   # ===========================================================================
 
   docs:
-    physics: docs/physics/sage-infall.md
+    physics: src/modules/sage_infall/README.md
     user_guide_section: "SAGE Infall Module"
 
   # ===========================================================================

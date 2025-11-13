@@ -577,7 +577,7 @@ static int my_module_init(void) {
 Document parameters in:
 1. **Module code comments**: Explain physics meaning
 2. **User documentation**: `docs/user/module-configuration.md`
-3. **Physics documentation**: `docs/physics/module-name.md`
+3. **Physics documentation**: Module's `README.md` in the module directory
 
 ---
 

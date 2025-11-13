@@ -68,7 +68,7 @@ module:
   # ===========================================================================
 
   docs:
-    physics: docs/physics/simple-cooling.md
+    physics: src/modules/simple_cooling/README.md
     user_guide_section: "Simple Cooling (PoC)"
 
   # ===========================================================================

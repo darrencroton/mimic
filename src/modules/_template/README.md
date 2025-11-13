@@ -185,9 +185,9 @@ static float compute_cooling_rate(float mvir, double redshift) {
 After customizing the template:
 
 1. **Write Tests**: Add unit, integration, and scientific tests
-2. **Document Physics**: Create `docs/physics/your-module.md`
+2. **Document Physics**: Create comprehensive `README.md` in your module directory
 3. **Update User Guide**: Add to `docs/user/module-configuration.md`
-4. **Log Lessons**: Document in `docs/architecture/module-implementation-log.md`
+4. **Update module_info.yaml**: Ensure `docs.physics` points to your module's `README.md`
 
 See `docs/developer/module-developer-guide.md` for comprehensive documentation.
 
