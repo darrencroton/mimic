@@ -590,7 +590,7 @@ tests:
 **Example**:
 ```yaml
 docs:
-  physics: docs/physics/sage-infall.md
+  physics: src/modules/sage_infall/README.md
 ```
 
 **Generated**: Linked in module reference documentation
@@ -731,7 +731,7 @@ module:
     reference_papers:
       - "Croton et al. 2006, MNRAS, 365, 11"
       - "Guo et al. 2011, MNRAS, 413, 101"
-    file: docs/physics/sage-infall.md
+    file: src/modules/sage_infall/README.md
 ```
 
 **Additional examples** available in existing modules:
@@ -835,7 +835,7 @@ Cosmological gas infall and satellite stripping from SAGE model.
 - Kravtsov et al. (2004) - Filtering mass formulas
 - Croton et al. (2016) - SAGE model description
 
-**Physics Documentation**: [docs/physics/sage-infall.md](../physics/sage-infall.md)
+**Physics Documentation**: [src/modules/sage_infall/README.md](../../src/modules/sage_infall/README.md)
 
 ---
 

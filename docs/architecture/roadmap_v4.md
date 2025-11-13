@@ -318,7 +318,7 @@ This workflow applies to each module. Refine based on lessons learned.
 **Goal**: Complete documentation for users and future developers.
 
 **Tasks**:
-- **Physics Documentation** (`docs/physics/module-name.md`):
+- **Physics Documentation** (module's `README.md` in module directory):
   - Physics equations and assumptions
   - References to papers and SAGE implementation
   - Parameter descriptions and typical values

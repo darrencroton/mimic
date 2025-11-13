@@ -70,7 +70,7 @@ module:
   # ===========================================================================
 
   docs:
-    physics: docs/physics/simple-sfr.md
+    physics: src/modules/simple_sfr/README.md
     user_guide_section: "Simple Star Formation (PoC)"
 
   # ===========================================================================

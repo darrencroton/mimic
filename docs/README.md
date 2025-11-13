@@ -293,9 +293,6 @@ make tidy   # Remove object files, keep executable
 - **[Module Configuration](user/module-configuration.md)** - Runtime module configuration
 - **[Output Formats](user/output-formats.md)** - Binary and HDF5 output specifications
 
-### Physics Documentation
-- **[SAGE Infall](physics/sage-infall.md)** - Cosmological infall module
-
 ---
 
 ## Documentation Structure
@@ -317,8 +314,6 @@ docs/
 ├── user/
 │   ├── module-configuration.md     - Configuring physics modules
 │   └── output-formats.md           - Output file formats
-├── physics/
-│   └── sage-infall.md              - SAGE infall module documentation
 └── review/
     ├── getting-started-old.md      - Previous getting-started doc
     ├── infrastructure-gap-analysis.md - Resolved infrastructure analysis

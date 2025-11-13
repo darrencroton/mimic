@@ -71,8 +71,8 @@ module:
   # ===========================================================================
 
   docs:
-    physics: docs/physics/template-module.md  # Physics equations and references
-    user_guide_section: "Template Module"     # Section title in user guide
+    physics: src/modules/YOUR_MODULE_NAME/README.md  # Physics equations and references in module directory
+    user_guide_section: "Template Module"            # Section title in user guide
 
   # ===========================================================================
   # References (OPTIONAL)

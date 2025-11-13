@@ -184,7 +184,7 @@ EnabledModules  sage_infall
 SageInfall_ReionizationOn        0
 ```
 
-**Note**: Physics validation deferred to Phase 4.3+ when downstream modules are implemented. See `docs/physics/sage-infall.md` for complete documentation.
+**Note**: Physics validation deferred to Phase 4.3+ when downstream modules are implemented. See `src/modules/sage_infall/README.md` for complete documentation.
 
 ---
 
