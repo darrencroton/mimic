@@ -249,8 +249,8 @@ The following physics modules from SAGE's `code/` directory has been ported to M
 |----------|-----------------|-------------------|---------|-----------|--------|
 | 1 | `model_infall.c` | `sage_infall` | Gas accretion from halos | 2-3 weeks | ✅ **COMPLETE** (Nov 2025) |
 | 2 | `model_cooling_heating.c` | `sage_cooling` | Gas cooling + AGN heating | 2-3 weeks | ✅ **COMPLETE** (Nov 2025) |
-| 3 | `model_reincorporation.c` | `sage_reincorporation` | Gas return to galaxies | 1-2 weeks | Not Started |
-| 4 | `model_starformation_and_feedback.c` | `sage_starformation_feedback` | SF + SN/AGN feedback | 3-4 weeks | Not Started |
+| 3 | `model_starformation_and_feedback.c` | `sage_starformation_feedback` | SF + SN/AGN feedback | 3-4 weeks | **NEXT** |
+| 4 | `model_reincorporation.c` | `sage_reincorporation` | Gas return to galaxies | 1-2 weeks | Not Started |
 | 5 | `model_mergers.c` | `sage_mergers` | Galaxy merger physics | 2-3 weeks | Not Started |
 | 6 | `model_disk_instability.c` | `sage_disk_instability` | Disk instability/bulges | 2-3 weeks | Not Started |
 
@@ -259,9 +259,10 @@ The following physics modules from SAGE's `code/` directory has been ported to M
 - ✅ **sage_cooling**: Full cooling physics + 3 AGN modes (empirical, Bondi-Hoyle, cold cloud), Sutherland & Dopita cooling tables, black hole growth. 9 unit tests + 7 integration tests passing.
 
 **Priority Rationale**:
-- Start with gas processes (infall, cooling, reincorporation) as foundation
-- Star formation and feedback builds on gas physics
-- Mergers and disk instability are more complex but less interdependent
+- Modules 1-2: Foundation gas processes (infall, cooling) - COMPLETE
+- Module 3: Star formation & feedback - central to galaxy formation physics
+- Module 4: Reincorporation - returns ejected gas (depends on SF&F)
+- Modules 5-6: Mergers and disk instability - complex but less interdependent
 
 **Total Estimated Time**: 6-12 months for complete SAGE physics port (2/6 modules complete, ~3-4 months elapsed)
 
@@ -336,7 +337,28 @@ This workflow applies to each module. Refine based on lessons learned.
 
 **Reference**: See `src/modules/simple_cooling/` for working example
 
-##### **Step 4: Testing & Validation (2-4 days)**
+##### **Step 4: Visual Validation & Plotting (1-2 days, optional)**
+
+**Goal**: Create diagnostic figures for module validation and scientific analysis.
+
+**Tasks**:
+- Discuss with developer which figures are relevant for this module
+- Review `output/mimic-plot/README.md` for implementation patterns
+- Add figure functions to `output/mimic-plot/mimic-plot.py`
+- Test figures with module output
+- Use figures for visual validation of physics
+
+**Notes**:
+- mimic-plot supports both core and physics-specific figures
+- Figures automatically skip if required properties unavailable
+- Physics figures co-exist with core figures
+- Useful for spotting anomalies and comparing to observations
+
+**Deliverables**:
+- Module-relevant diagnostic figures (if appropriate)
+- Visual validation of physics implementation
+
+##### **Step 5: Testing & Validation (2-4 days)**
 
 **Goal**: Verify physics correctness and integration, where possible.
 
@@ -371,7 +393,7 @@ This workflow applies to each module. Refine based on lessons learned.
 - Comprehensive passing test suite
 - Performance baseline measurements
 
-##### **Step 5: Documentation (1-2 days)**
+##### **Step 6: Documentation (1-2 days)**
 
 **Goal**: Complete documentation for users and future developers.
 
@@ -404,7 +426,7 @@ This workflow applies to each module. Refine based on lessons learned.
 - Updated user and developer guides
 - Implementation log entry
 
-##### **Step 6: Review & Refinement (1-2 days)**
+##### **Step 7: Review & Refinement (1-2 days)**
 
 **Goal**: Ensure production quality and identify improvements.
 
