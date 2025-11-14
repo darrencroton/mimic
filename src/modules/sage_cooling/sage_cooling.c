@@ -43,6 +43,7 @@
 
 #include "constants.h"
 #include "error.h"
+#include "../shared/metallicity.h"  // Shared utility for metallicity calculations
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -93,21 +94,8 @@ static char COOL_FUNCTIONS_DIR[512] = "src/modules/sage_cooling/CoolFunctions";
 // HELPER FUNCTIONS (Physics Calculations)
 // ============================================================================
 
-/**
- * @brief   Calculate metallicity from gas mass and metal mass
- *
- * Returns the metallicity (metal mass fraction) with safety checks.
- *
- * @param   gas      Total gas mass
- * @param   metals   Metal mass in gas
- * @return  Metallicity (metals / gas), or 0 if gas <= 0
- */
-static inline float get_metallicity(float gas, float metals)
-{
-    if (gas <= EPSILON_SMALL)
-        return 0.0f;
-    return metals / gas;
-}
+// Metallicity calculation now provided by shared utility: mimic_get_metallicity()
+// See: src/modules/shared/metallicity/metallicity.h
 
 /**
  * @brief   Calculates gas cooling based on halo properties and cooling functions
@@ -322,7 +310,7 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
         }
 
         /* Update galaxy properties based on black hole accretion */
-        metallicity = get_metallicity(hot_gas, metals_hot_gas);
+        metallicity = mimic_get_metallicity(hot_gas, metals_hot_gas);
 
         halo->galaxy->BlackHoleMass += AGNaccreted;  /* Grow the black hole */
         halo->galaxy->HotGas -= AGNaccreted;         /* Remove accreted gas from hot phase */
@@ -367,11 +355,11 @@ static void cool_gas_onto_galaxy(struct Halo *halo, double coolingGas, float vvi
     /* Check if we're trying to cool more gas than is available in the hot halo */
     if (coolingGas < halo->galaxy->HotGas) {
         /* Normal case: cooling doesn't deplete hot gas completely */
-        metallicity = get_metallicity(halo->galaxy->HotGas, halo->galaxy->MetalsHotGas);
+        metallicity = mimic_get_metallicity(halo->galaxy->HotGas, halo->galaxy->MetalsHotGas);
     } else {
         /* Edge case: cooling all remaining hot gas */
         coolingGas = halo->galaxy->HotGas;
-        metallicity = get_metallicity(halo->galaxy->HotGas, halo->galaxy->MetalsHotGas);
+        metallicity = mimic_get_metallicity(halo->galaxy->HotGas, halo->galaxy->MetalsHotGas);
     }
 
     /* Transfer gas from hot to cold reservoir */

@@ -1108,6 +1108,50 @@ static int my_module_init(void) {
 
 **Reference:** See `src/modules/sage_cooling/CoolFunctions/` for production example with 16 data files co-located with module code.
 
+### Pattern 8: Using Shared Physics Utilities
+
+**Principle:** When multiple modules need identical physics functions (e.g., metallicity calculations), use shared utilities to avoid code duplication while maintaining a single source of truth.
+
+**Location:** `src/modules/shared/UTILITY_NAME/`
+
+**Using a shared utility:**
+
+```c
+// In your module .c file, include with relative path
+#include "../shared/metallicity/metallicity.h"
+
+static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+    for (int i = 0; i < ngal; i++) {
+        // Use shared utility function
+        float Z = mimic_get_metallicity(halos[i].galaxy->HotGas,
+                                       halos[i].galaxy->MetalsHotGas);
+
+        // Use in your physics
+        float cooling_rate = compute_cooling(temperature, Z);
+        // ...
+    }
+    return 0;
+}
+```
+
+**Benefits:**
+- Single source of truth (edit once, all modules update automatically)
+- Clear dependencies (relative path shows exactly what you're using)
+- Automatic propagation (Make rebuilds dependent modules when utility changes)
+- No build system complexity (simple relative includes)
+
+**When to use:**
+- Function appears identically in 2+ modules
+- Physics calculation is generic (not module-specific)
+- Function is simple and focused (good candidate for header-only utility)
+
+**When NOT to use:**
+- Module-specific physics variants (keep in module directory)
+- Complex state management (consider module-level implementation)
+- Only one module uses it (premature abstraction)
+
+**Reference:** See `src/modules/shared/README.md` for creating new shared utilities.
+
 ---
 
 ## Anti-Patterns and Pitfalls

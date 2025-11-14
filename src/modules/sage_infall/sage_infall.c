@@ -41,6 +41,7 @@
 
 #include "constants.h"
 #include "error.h"
+#include "../shared/metallicity.h"  // Shared utility for metallicity calculations
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -109,22 +110,8 @@ static int STRIPPING_STEPS = 10;
 // HELPER FUNCTIONS (Physics Calculations)
 // ============================================================================
 
-/**
- * @brief   Calculate metallicity from gas mass and metal mass
- *
- * Returns the metallicity (metal mass fraction) with safety checks
- * to prevent division by zero.
- *
- * @param   gas      Total gas mass
- * @param   metals   Metal mass in gas
- * @return  Metallicity (metals / gas), or 0 if gas <= 0
- */
-static inline float get_metallicity(float gas, float metals) {
-  if (gas <= 0.0f) {
-    return 0.0f;
-  }
-  return metals / gas;
-}
+// Metallicity calculation now provided by shared utility: mimic_get_metallicity()
+// See: src/modules/shared/metallicity/metallicity.h
 
 /**
  * @brief   Calculates the reionization suppression factor for gas accretion
@@ -384,7 +371,7 @@ static void strip_from_satellite(struct Halo *halos, int central_idx,
   /* Only proceed if there is positive stripping */
   if (strippedGas > 0.0) {
     /* Calculate metals in stripped gas */
-    metallicity = get_metallicity(halos[sat_idx].galaxy->HotGas,
+    metallicity = mimic_get_metallicity(halos[sat_idx].galaxy->HotGas,
                                    halos[sat_idx].galaxy->MetalsHotGas);
     strippedGasMetals = strippedGas * metallicity;
 
@@ -423,7 +410,7 @@ static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
   /* Handle mass loss case (negative infall) */
   if (infallingGas < 0.0 && galaxy->EjectedMass > 0.0f) {
     /* First remove from ejected gas reservoir */
-    metallicity = get_metallicity(galaxy->EjectedMass, galaxy->MetalsEjectedMass);
+    metallicity = mimic_get_metallicity(galaxy->EjectedMass, galaxy->MetalsEjectedMass);
 
     /* Update ejected metals */
     galaxy->MetalsEjectedMass += (float)(infallingGas * metallicity);
@@ -446,7 +433,7 @@ static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
 
   /* If we still have mass loss, remove from hot gas metals */
   if (infallingGas < 0.0 && galaxy->MetalsHotGas > 0.0f) {
-    metallicity = get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
+    metallicity = mimic_get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
 
     galaxy->MetalsHotGas += (float)(infallingGas * metallicity);
     if (galaxy->MetalsHotGas < 0.0f) {
