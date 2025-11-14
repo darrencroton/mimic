@@ -102,15 +102,29 @@ GENERATED_HEADERS := \
     $(GEN_DIR)/hdf5_field_count.inc \
     $(GEN_DIR)/hdf5_field_definitions.inc
 
-# Ensure all object files wait for generated headers; this lets `make` rebuild
-# them automatically when YAML changes without requiring a manual `make generate`.
-$(OBJECTS): $(GENERATED_HEADERS)
+# Sentinel file to track that generated code has been verified
+GEN_VERIFIED := $(BUILD_DIR)/.generated_verified
 
-# Rule to (re)generate property code whenever YAML or generator changes
+# Verify generated code is up-to-date before building
+# This catches cases where git pull changes files but timestamps don't reflect dependencies
+$(GEN_VERIFIED): $(PROP_YAML) $(MODULE_YAML) scripts/generate_properties.py scripts/generate_module_registry.py scripts/check_generated.py
+	@echo "Verifying generated code is up-to-date..."
+	@if ! python3 scripts/check_generated.py > /dev/null 2>&1; then \
+		echo "Generated code out of date - auto-regenerating..."; \
+		python3 scripts/generate_properties.py; \
+		python3 scripts/generate_module_registry.py; \
+	fi
+	@mkdir -p $(BUILD_DIR)
+	@touch $@
+
+# Ensure all object files wait for verification (which ensures generated headers exist and are current)
+$(OBJECTS): $(GEN_VERIFIED)
+
+# Fallback rule to (re)generate property code when explicitly needed
+# This is kept for direct make dependencies and manual regeneration
 $(GENERATED_HEADERS): $(PROP_YAML) scripts/generate_properties.py
-	@echo "Generating property code from metadata (auto)..."
+	@echo "Generating property code from metadata..."
 	@python3 scripts/generate_properties.py
-	@echo "Done. Generated files are in $(GEN_DIR)/ and output/mimic-plot/"
 
 # -----------------------------------------------------------------------------
 # Module metadata auto-generation
@@ -138,7 +152,7 @@ $(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py
 
 clean: test-clean
 	@echo "Cleaning..."
-	rm -rf $(BUILD_DIR) $(EXEC) $(GIT_VERSION_H)
+	rm -rf $(BUILD_DIR) $(EXEC)
 	@echo "Clean complete"
 
 tidy:
