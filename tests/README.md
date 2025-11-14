@@ -82,14 +82,14 @@ Tests for **physics modules** in `src/modules/*/test_*.{c,py}`:
 The **`test_fixture` module** exists solely for **infrastructure testing**:
 
 - **Purpose**: Provides stable test interface for core infrastructure tests
-- **Location**: `src/modules/test_fixture/`
+- **Location**: `src/modules/_system/test_fixture/`
 - **Usage**: Referenced by core unit/integration tests in this directory
 - **NOT FOR PRODUCTION**: Never use in scientific runs
 - **Benefit**: Decouples infrastructure tests from production physics modules
 
 This ensures core infrastructure tests remain physics-agnostic (Vision Principle #1), allowing production modules to be archived without breaking core tests.
 
-**See [src/modules/test_fixture/README.md](../src/modules/test_fixture/README.md) for details.**
+**See [src/modules/_system/test_fixture/README.md](../src/modules/_system/test_fixture/README.md) for details.**
 
 ---
 

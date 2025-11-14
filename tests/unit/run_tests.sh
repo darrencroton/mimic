@@ -114,7 +114,7 @@ else
 
     # Auto-discover module tests from registry
     MODULE_TESTS=""
-    MODULE_TEST_REGISTRY="${REPO_ROOT}/build/generated_test_lists/unit_tests.txt"
+    MODULE_TEST_REGISTRY="${REPO_ROOT}/build/generated/unit_tests.txt"
     if [ -f "$MODULE_TEST_REGISTRY" ]; then
         # Read module test paths and extract test names
         while IFS= read -r test_path; do
@@ -151,7 +151,7 @@ compile_and_run_test() {
     if [ ! -f "$test_file" ]; then
         # Try module directory (auto-discovered tests)
         # Look up full path from registry
-        local registry_path=$(grep "/${test_name}.c$" "${REPO_ROOT}/build/generated_test_lists/unit_tests.txt" 2>/dev/null | head -1)
+        local registry_path=$(grep "/${test_name}.c$" "${REPO_ROOT}/build/generated/unit_tests.txt" 2>/dev/null | head -1)
         if [ -n "$registry_path" ]; then
             test_file="${REPO_ROOT}/${registry_path}"
         fi

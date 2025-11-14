@@ -18,7 +18,7 @@ build/
 *.d
 
 # Generated files
-src/modules/generated/module_init.c
+src/modules/_system/generated/module_init.c
 tests/generated/module_sources.mk
 docs/generated/module-reference.md
 build/module_registry_hash.txt

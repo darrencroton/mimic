@@ -147,8 +147,16 @@ src/
 │   ├── tree/      Tree readers (binary, HDF5 formats)
 │   └── output/    Output writers (binary, HDF5)
 ├── util/          Utilities (memory, error, numeric, version, I/O)
-├── modules/       Physics modules (sage_infall, sage_cooling, etc.)
-│   └── generated/ Auto-generated module registration code
+├── modules/       Physics modules
+│   ├── _archive/           Archived modules (historical reference)
+│   ├── _system/            System infrastructure (don't touch)
+│   │   ├── generated/      Auto-generated module registration
+│   │   ├── template/       Template for creating new modules
+│   │   └── test_fixture/   Infrastructure testing module
+│   ├── shared/             Shared physics utilities
+│   ├── sage_cooling/       Production: SAGE cooling model
+│   ├── sage_infall/        Production: SAGE infall/stripping
+│   └── simple_sfr/         PoC: Simple star formation
 └── include/       Headers (types, globals, constants)
     └── generated/ Auto-generated property code
 

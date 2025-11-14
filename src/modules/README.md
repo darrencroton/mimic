@@ -4,12 +4,29 @@
 
 **Status:** Module system complete (Phase 4). Contains production modules with comprehensive testing.
 
-**Current Modules:**
-- `sage_infall/` - Cosmological gas infall and satellite stripping (SAGE model)
-- `simple_cooling/` - Simple gas cooling module
-- `simple_sfr/` - Simple star formation module
-- `_template/` - Template for creating new modules
-- `module_init.c` - Module registration (auto-generated from metadata)
+**Directory Structure:**
+```
+src/modules/
+├── _archive/          # Archived modules (historical reference)
+├── _system/           # System infrastructure (don't touch)
+│   ├── generated/     # Auto-generated module registration
+│   ├── template/      # Template for creating new modules
+│   └── test_fixture/  # Infrastructure testing module
+├── shared/            # Shared physics utilities for modules
+├── sage_cooling/      # Production: SAGE gas cooling model
+├── sage_infall/       # Production: SAGE infall and stripping
+└── simple_sfr/        # Proof-of-concept: Simple star formation
+```
+
+**User-Facing Content:**
+- **Physics Modules**: `sage_infall/`, `sage_cooling/`, `simple_sfr/`
+- **Shared Utilities**: `shared/` - Reusable physics utilities (e.g., metallicity calculations)
+
+**System Infrastructure** (underscore prefix = don't touch):
+- `_system/template/` - Template for creating new modules
+- `_system/generated/` - Auto-generated module registration code
+- `_system/test_fixture/` - Infrastructure testing module (not for production use)
+- `_archive/` - Archived modules for historical reference
 
 **Note:** Core halo physics (virial calculations, tracking) are in `src/core/halo_properties/` as they are core infrastructure, not modular galaxy physics.
 
@@ -21,11 +38,11 @@
 
 1. **Copy template**:
    ```bash
-   cp -r src/modules/_template src/modules/my_module
+   cp -r src/modules/_system/template src/modules/my_module
    cd src/modules/my_module
    ```
 
-2. **Create module code** (see `_template/README.md` for detailed instructions)
+2. **Create module code** (see `_system/template/README.md` for detailed instructions)
 
 3. **Create module metadata** (`module_info.yaml`) declaring tests
 
@@ -144,8 +161,9 @@ See **[docs/developer/testing.md](../../docs/developer/testing.md)** for:
 
 ## Module Development Resources
 
-- **Template**: `src/modules/_template/` - Boilerplate for new modules
-- **Examples**: `sage_infall/`, `simple_cooling/`, `simple_sfr/` - Working examples
+- **Template**: `src/modules/_system/template/` - Boilerplate for new modules
+- **Examples**: `sage_infall/`, `sage_cooling/`, `simple_sfr/` - Working examples
+- **Shared Utilities**: `shared/` - Reusable physics utilities (metallicity, etc.)
 - **Developer Guide**: [docs/developer/module-developer-guide.md](../../docs/developer/module-developer-guide.md)
 - **Testing Guide**: [docs/developer/testing.md](../../docs/developer/testing.md)
 - **Architecture**: [docs/architecture/vision.md](../../docs/architecture/vision.md)

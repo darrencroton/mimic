@@ -272,7 +272,7 @@ Module complete when:
 - sage_cooling: Complex module with data files, helper functions
 
 **Development Workflow**:
-1. Copy template: `cp -r src/modules/_template src/modules/sage_starformation_feedback`
+1. Copy template: `cp -r src/modules/_system/template src/modules/sage_starformation_feedback`
 2. Create `module_info.yaml` from template
 3. Implement incrementally (SF first, then feedback)
 4. Test continuously (don't wait until end)

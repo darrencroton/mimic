@@ -11,7 +11,7 @@
 ### 1. Copy Template
 
 ```bash
-cp -r src/modules/_template src/modules/YOUR_MODULE_NAME
+cp -r src/modules/_system/template src/modules/YOUR_MODULE_NAME
 cd src/modules/YOUR_MODULE_NAME
 ```
 
@@ -61,19 +61,38 @@ Edit `your_module.c`:
 - Update `your_module_process()` with your physics logic
 - Update `your_module_cleanup()` to free any resources
 
-### 6. Register Module
+### 6. Create Module Metadata
 
-Edit `src/modules/module_init.c`:
+Create `module_info.yaml` in your module directory (see existing modules for examples):
 
-```c
-#include "your_module/your_module.h"
+```yaml
+module:
+  name: your_module
+  display_name: "Your Module"
+  description: "Brief description"
+  version: "1.0.0"
+  author: "Your Name"
+  category: gas_physics
 
-void register_all_modules(void) {
-    simple_cooling_register();
-    simple_sfr_register();
-    your_module_register();  // Add this line
-}
+  sources:
+    - your_module.c
+  headers:
+    - your_module.h
+  register_function: your_module_register
+
+  dependencies:
+    requires: []  # Properties this module needs
+    provides: []  # Properties this module creates
+
+  parameters: []  # Module parameters
+
+  tests:
+    unit: test_unit_your_module.c
+    integration: test_integration_your_module.py
+    scientific: test_scientific_your_module_validation.py
 ```
+
+Module registration is **auto-generated** from this metadata - no manual code needed!
 
 ### 7. Build and Test
 

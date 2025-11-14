@@ -139,7 +139,7 @@ make clean && make
 **3. Adding a New Module:**
 ```bash
 # Copy module template
-cp -r src/modules/_template src/modules/my_module
+cp -r src/modules/_system/template src/modules/my_module
 
 # Implement module (my_module.c, my_module.h)
 # Create module_info.yaml from template

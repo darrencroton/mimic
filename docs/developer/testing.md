@@ -160,13 +160,13 @@ strcpy(MimicConfig.EnabledModules[0], "simple_cooling");  // BAD!
 
 The `test_fixture` module is a minimal, stable module created specifically for infrastructure testing:
 
-- **Location**: `src/modules/test_fixture/`
+- **Location**: `src/modules/_system/test_fixture/`
 - **Purpose**: Testing infrastructure only (NOT FOR PRODUCTION)
 - **Parameters**: `TestFixture_DummyParameter`, `TestFixture_EnableLogging`
 - **Properties**: `TestDummyProperty` (not output)
 - **Behavior**: Minimal do-nothing module that validates infrastructure works
 
-See `src/modules/test_fixture/README.md` for full documentation.
+See `src/modules/_system/test_fixture/README.md` for full documentation.
 
 ### Examples
 

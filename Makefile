@@ -7,8 +7,9 @@ BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
 DEP_DIR = $(BUILD_DIR)/deps
 
-# Source files (recursive find, excluding template, archive, and test files)
-SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_template/*' ! -path '*/modules/_archive/*' ! -name 'test_*.c')
+# Source files (recursive find, excluding system template, archive, and test files)
+# Note: Includes _system/generated/ and _system/test_fixture/ but excludes _system/template/
+SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_system/template/*' ! -path '*/modules/_archive/*' ! -name 'test_*.c')
 OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES))
 DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
 
@@ -119,7 +120,7 @@ $(GENERATED_HEADERS): $(PROP_YAML) scripts/generate_properties.py
 MODULE_YAML := $(wildcard $(SRC_DIR)/modules/*/module_info.yaml)
 
 # Generated module registration files
-MODULE_INIT_C := $(SRC_DIR)/modules/generated/module_init.c
+MODULE_INIT_C := $(SRC_DIR)/modules/_system/generated/module_init.c
 MODULE_SOURCES_MK := tests/generated/module_sources.mk
 MODULE_REFERENCE_MD := docs/generated/module-reference.md
 
@@ -127,7 +128,7 @@ MODULE_REFERENCE_MD := docs/generated/module-reference.md
 MODULE_VALIDATOR := scripts/validate_modules.py
 
 # Ensure module_init.o waits for generated module registration code
-$(OBJ_DIR)/modules/module_init.o: $(MODULE_INIT_C)
+$(OBJ_DIR)/modules/_system/generated/module_init.o: $(MODULE_INIT_C)
 
 # Rule to (re)generate module registration code whenever YAML or generator changes
 $(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py
@@ -182,7 +183,7 @@ help:
 	@echo "    - output/mimic-plot/generated/dtype.py"
 	@echo ""
 	@echo "  Module metadata (src/modules/*/module_info.yaml):"
-	@echo "    - src/modules/generated/module_init.c"
+	@echo "    - src/modules/_system/generated/module_init.c"
 	@echo "    - tests/generated/module_sources.mk"
 	@echo "    - docs/generated/module-reference.md"
 
@@ -226,6 +227,7 @@ test-unit:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING UNIT TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
+	@$(MAKE) generate-test-registry > /dev/null 2>&1
 	@cd tests/unit && ./run_tests.sh
 
 test-integration:

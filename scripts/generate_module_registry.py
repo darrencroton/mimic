@@ -13,10 +13,10 @@ Reads:
     src/modules/*/module_info.yaml
 
 Generates:
-    src/modules/generated/module_init.c    - Module registration code
-    tests/generated/module_sources.mk      - Test build configuration
-    docs/generated/module-reference.md     - Module documentation
-    build/module_registry_hash.txt         - Validation hash
+    src/modules/_system/generated/module_init.c    - Module registration code
+    tests/generated/module_sources.mk              - Test build configuration
+    docs/generated/module-reference.md             - Module documentation
+    build/module_registry_hash.txt                 - Validation hash
 
 Exit codes:
     0 - Success
@@ -51,7 +51,7 @@ REPO_ROOT = Path(__file__).parent.parent
 MODULES_DIR = REPO_ROOT / "src" / "modules"
 
 # Output files
-MODULE_INIT_C = REPO_ROOT / "src" / "modules" / "generated" / "module_init.c"
+MODULE_INIT_C = REPO_ROOT / "src" / "modules" / "_system" / "generated" / "module_init.c"
 MODULE_SOURCES_MK = REPO_ROOT / "tests" / "generated" / "module_sources.mk"
 MODULE_REFERENCE_MD = REPO_ROOT / "docs" / "generated" / "module-reference.md"
 MODULE_HASH_FILE = REPO_ROOT / "build" / "module_registry_hash.txt"
@@ -95,10 +95,20 @@ def discover_modules() -> List[Dict[str, Any]]:
         if not item.is_dir():
             continue
 
-        # Skip template directory
-        if item.name.startswith("_"):
+        # Skip directories starting with underscore, except _system
+        if item.name.startswith("_") and item.name != "_system":
             continue
 
+        # Handle _system directory specially - only include test_fixture
+        if item.name == "_system":
+            test_fixture_dir = item / "test_fixture"
+            if test_fixture_dir.exists() and test_fixture_dir.is_dir():
+                metadata = load_module_metadata(test_fixture_dir)
+                if metadata:
+                    modules.append(metadata)
+            continue
+
+        # Regular module directory
         metadata = load_module_metadata(item)
         if metadata:
             modules.append(metadata)
@@ -359,7 +369,7 @@ def generate_module_sources_mk(
                 lines.append(f"    $(SRC_DIR)/{rel_path}/{source} \\")
 
     # Add module_init.c last (no backslash)
-    lines.append("    $(SRC_DIR)/modules/generated/module_init.c")
+    lines.append("    $(SRC_DIR)/modules/_system/generated/module_init.c")
     lines.append("")
 
     # Write file

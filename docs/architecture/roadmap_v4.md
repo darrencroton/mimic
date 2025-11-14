@@ -49,7 +49,7 @@ This section summarizes the capabilities of the codebase *right now*. The detail
 -   **Capability**: Complete development environment for creating new physics modules.
 -   **Components**:
     - **Module Developer Guide** (`docs/developer/module-developer-guide.md`): Comprehensive 500+ line guide covering module lifecycle, patterns, testing, and best practices
-    - **Module Template** (`src/modules/_template/`): Annotated boilerplate code for rapid module creation
+    - **Module Template** (`src/modules/_system/template/`): Annotated boilerplate code for rapid module creation
     - **Module Implementation Log** (`docs/architecture/module-implementation-log.md`): Structured framework for capturing lessons learned
 -   **Impact**: Developers can create new modules following proven patterns with clear documentation. Template provides working boilerplate code. Implementation log ensures institutional knowledge is preserved across module implementations.
 
@@ -62,7 +62,7 @@ This section summarizes the capabilities of the codebase *right now*. The detail
     - **Build Integration**: Makefile targets for `generate-modules`, `validate-modules`, automatic regeneration on YAML changes
     - **Module Metadata Files**: `module_info.yaml` for all existing modules (sage_infall, simple_cooling, simple_sfr)
 -   **Generated Outputs**:
-    - `src/modules/generated/module_init.c` - Auto-generated registration code
+    - `src/modules/_system/generated/module_init.c` - Auto-generated registration code
     - `tests/generated/module_sources.mk` - Test build configuration
     - `docs/generated/module-reference.md` - Module documentation (symlinked from docs/user/)
     - `build/generated/module_registry_hash.txt` - Validation hash
@@ -81,17 +81,17 @@ This section summarizes the capabilities of the codebase *right now*. The detail
     - **Zero-Touch Modularity**: Production modules can now be archived with ZERO infrastructure test changes
     - **Validation**: Core infrastructure validates Vision Principle #1 (physics-agnostic) - tests decouple from production physics
 -   **Deliverables**:
-    - `src/modules/test_fixture/` - Minimal test module (~150 lines)
+    - `src/modules/_system/test_fixture/` - Minimal test module (~150 lines)
     - Updated infrastructure tests use test_fixture exclusively
     - `docs/developer/testing.md` - Infrastructure Testing Conventions section
-    - `src/modules/test_fixture/README.md` - Test fixture documentation
+    - `src/modules/_system/test_fixture/README.md` - Test fixture documentation
 -   **Lesson Learned**: Early architectural violations caught early prevent downstream pain. Test fixtures are industry standard for separating infrastructure tests from production code.
 
 #### ✅ **7. Generated Files Reorganization** (Phase 4.2.7 - Completed 2025-11-13)
 -   **Problem**: Generated files were scattered across the codebase in inconsistent locations, mixing with source code and making it unclear which files were auto-generated vs hand-written. This obscured the metadata-driven architecture principle.
 -   **Solution**: Comprehensive reorganization consolidating all 16 generated files into consistent `generated/` subdirectories with self-documenting README files.
 -   **Changes**:
-    - `src/modules/generated/` - Module registration code (was: src/modules/)
+    - `src/modules/_system/generated/` - Module registration code (was: src/modules/generated/)
     - `output/mimic-plot/generated/` - Python dtypes (was: output/mimic-plot/)
     - `build/generated/` - Build artifacts including git_version.h (was: mixed locations)
     - `tests/generated/` - Test metadata (was: tests/unit/)
@@ -206,7 +206,7 @@ Before implementing physics modules, establish the developer experience:
    - Example code snippets and anti-patterns
    - References to PoC modules as examples
 
-2. **Module Template** (`src/modules/_template/`)
+2. **Module Template** (`src/modules/_system/template/`)
    - Skeleton `.c` and `.h` files with complete boilerplate
    - Annotated comments explaining each section
    - Standard init/process/cleanup structure
@@ -229,7 +229,7 @@ Before implementing physics modules, establish the developer experience:
 
 **Deliverables Created**:
 - `docs/developer/module-developer-guide.md` - 500+ line comprehensive guide
-- `src/modules/_template/` - Fully annotated template with README
+- `src/modules/_system/template/` - Fully annotated template with README
 - `docs/architecture/module-implementation-log.md` - Structured logging framework
 - `Makefile` - Updated to exclude template from build
 

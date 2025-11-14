@@ -10,7 +10,7 @@
 
 **Creating a module in 5 steps:**
 
-1. **Copy template**: `cp -r src/modules/_template src/modules/my_module`
+1. **Copy template**: `cp -r src/modules/_system/template src/modules/my_module`
 2. **Implement 3 functions**: `init()`, `process_halos()`, `cleanup()`
 3. **Define metadata**: Edit `module_info.yaml` (name, parameters, dependencies)
 4. **Auto-register**: Run `make generate-modules`
@@ -126,7 +126,7 @@ struct ModuleContext {
 ### Step 1: Copy the Template
 
 ```bash
-cp -r src/modules/_template src/modules/my_module
+cp -r src/modules/_system/template src/modules/my_module
 ```
 
 ### Step 2: Rename Files
@@ -1351,9 +1351,9 @@ for (int i = 0; i < ngal; i++) {
 
 - **Module Interface**: `src/core/module_interface.h`
 - **Module Registry**: `src/core/module_registry.h`
-- **Example Modules**: `src/modules/simple_cooling/`, `src/modules/simple_sfr/`
+- **Example Modules**: `src/modules/sage_infall/`, `src/modules/sage_cooling/`, `src/modules/simple_sfr/`
 - **Property Metadata**: `metadata/properties/galaxy_properties.yaml`
-- **Module Template**: `src/modules/_template/`
+- **Module Template**: `src/modules/_system/template/`
 
 ### Key Functions
 
@@ -1411,4 +1411,4 @@ When implementing a module, ensure:
 
 ---
 
-**Next Steps**: After reading this guide, proceed to `src/modules/_template/` to start implementing your module following the patterns documented here.
+**Next Steps**: After reading this guide, proceed to `src/modules/_system/template/` to start implementing your module following the patterns documented here.

@@ -49,13 +49,24 @@ def generate_test_registry():
     modules_found = []
     modules_with_tests = []
 
-    # Scan for module metadata
-    for module_info_file in sorted(module_dir.glob("*/module_info.yaml")):
+    # Scan for module metadata (including nested _system/test_fixture)
+    module_info_files = []
+
+    # Get top-level modules
+    for item in sorted(module_dir.glob("*/module_info.yaml")):
+        module_info_files.append(item)
+
+    # Also check _system/test_fixture
+    system_test_fixture = module_dir / "_system" / "test_fixture" / "module_info.yaml"
+    if system_test_fixture.exists():
+        module_info_files.append(system_test_fixture)
+
+    for module_info_file in sorted(module_info_files):
         module_path = module_info_file.parent
         module_name = module_path.name
 
-        # Skip template module
-        if module_name == "_template":
+        # Skip template and system directories (but test_fixture from _system is included above)
+        if module_name in ["_template", "_system", "_archive", "template", "generated"]:
             continue
 
         # Load metadata

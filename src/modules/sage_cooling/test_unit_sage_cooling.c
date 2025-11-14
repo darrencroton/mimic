@@ -94,7 +94,8 @@ int test_module_registration(void)
 
     /* Check module is registered by trying to enable it */
     reset_config();
-    strcpy(MimicConfig.EnabledModules, "sage_cooling");
+    strcpy(MimicConfig.EnabledModules[0], "sage_cooling");
+    MimicConfig.NumEnabledModules = 1;
     MimicConfig.NumModuleParams = 0;
 
     /* Should fail if module not registered */
@@ -306,12 +307,10 @@ int test_memory_safety(void)
 {
     ensure_modules_registered();
 
-    /* Record initial memory state */
-    size_t initial_mem = get_allocated_memory();
-
     /* Initialize module */
     reset_config();
-    strcpy(MimicConfig.EnabledModules, "sage_cooling");
+    strcpy(MimicConfig.EnabledModules[0], "sage_cooling");
+    MimicConfig.NumEnabledModules = 1;
     set_default_sage_cooling_params();
 
     int result = module_system_init();
@@ -321,10 +320,7 @@ int test_memory_safety(void)
     module_system_cleanup();
 
     /* Check for leaks */
-    size_t final_mem = get_allocated_memory();
-
-    TEST_ASSERT(final_mem == initial_mem,
-                "No memory leaks after module init/cleanup cycle");
+    check_memory_leaks();
 
     return 0;
 }
@@ -341,7 +337,8 @@ int test_parameter_reading(void)
     ensure_modules_registered();
 
     reset_config();
-    strcpy(MimicConfig.EnabledModules, "sage_cooling");
+    strcpy(MimicConfig.EnabledModules[0], "sage_cooling");
+    MimicConfig.NumEnabledModules = 1;
 
     /* Set custom parameters */
     strcpy(MimicConfig.ModuleParams[0].module_name, "SageCooling");

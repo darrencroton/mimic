@@ -11,7 +11,7 @@
 
 **Creating a new module?** Here's the minimum you need to know:
 
-1. **Copy the template**: `cp -r src/modules/_template src/modules/your_module`
+1. **Copy the template**: `cp -r src/modules/_system/template src/modules/your_module`
 2. **Edit `module_info.yaml`** with your module's details (name, parameters, dependencies)
 3. **Required fields**: `name`, `display_name`, `description`, `sources`, `register_function`
 4. **Run**: `make generate-modules` (auto-generates registration code)
@@ -736,8 +736,8 @@ module:
 
 **Additional examples** available in existing modules:
 - `src/modules/sage_cooling/module_info.yaml` - Physics module with multiple parameters
-- `src/modules/test_fixture/module_info.yaml` - Minimal testing module
-- `src/modules/_template/module_info.yaml.template` - Template for new modules
+- `src/modules/_system/test_fixture/module_info.yaml` - Minimal testing module
+- `src/modules/_system/template/module_info.yaml.template` - Template for new modules
 
 **For field-by-field reference**, see [Schema Definition](#schema-definition) section above.
 
@@ -930,7 +930,7 @@ The validator uses specific exit codes for different error types:
 
 **Step 1**: Copy template
 ```bash
-cp -r src/modules/_template src/modules/my_new_module
+cp -r src/modules/_system/template src/modules/my_new_module
 ```
 
 **Step 2**: Create `module_info.yaml`
