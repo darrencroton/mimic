@@ -16,7 +16,7 @@ Key Features:
 - Sentinel awareness: respects sentinel values (e.g., 0.0, -1.0) in validation
 
 Validation Rules Source:
-- Generated from: metadata/properties/*.yaml
+- Generated from: metadata/*.yaml
 - Manifest file: tests/generated/property_ranges.json
 - Regenerate: make generate
 

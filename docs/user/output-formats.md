@@ -80,7 +80,7 @@ make USE-HDF5=yes
 
 Both formats contain **identical data** - all halo properties and galaxy properties from enabled modules. The formats are automatically synchronized via the property metadata system:
 
-1. Properties defined in `metadata/properties/*.yaml`
+1. Properties defined in `metadata/*.yaml`
 2. Auto-generated into C structs (HaloOutput)
 3. Auto-generated into Python dtypes (for reading)
 4. Both formats write the same fields
@@ -318,7 +318,7 @@ make USE-HDF5=yes
 **Problem**: Trying to access a property that wasn't included in output
 
 **Solution**: Check which modules were enabled during the run. Properties are only output if:
-1. Defined with `output: true` in `metadata/properties/*.yaml`
+1. Defined with `output: true` in `metadata/*.yaml`
 2. Set by a module during the run
 3. Non-zero values written
 

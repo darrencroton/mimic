@@ -89,8 +89,8 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(GIT_VERSION_H)
 # -----------------------------------------------------------------------------
 
 # YAML metadata inputs for property generation
-PROP_YAML := metadata/properties/halo_properties.yaml \
-             metadata/properties/galaxy_properties.yaml
+PROP_YAML := metadata/halo_properties.yaml \
+             metadata/galaxy_properties.yaml
 
 # Generated headers and include fragments required by the C build
 GEN_DIR := $(SRC_DIR)/include/generated
@@ -175,7 +175,7 @@ help:
 	@echo "Notes:"
 	@echo "  Code is auto-regenerated when YAML metadata changes:"
 	@echo ""
-	@echo "  Property metadata (metadata/properties/*.yaml):"
+	@echo "  Property metadata (metadata/*.yaml):"
 	@echo "    - src/include/generated/property_defs.h"
 	@echo "    - src/include/generated/init_*_properties.inc"
 	@echo "    - src/include/generated/copy_to_output.inc"

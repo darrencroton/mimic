@@ -12,8 +12,8 @@
 **Adding a new property? Here's what you need:**
 
 1. **Edit the right file:**
-   - Halo properties (core): `metadata/properties/halo_properties.yaml`
-   - Galaxy properties (physics): `metadata/properties/galaxy_properties.yaml`
+   - Halo properties (core): `metadata/halo_properties.yaml`
+   - Galaxy properties (physics): `metadata/galaxy_properties.yaml`
 
 2. **Minimal property definition:**
 ```yaml
@@ -83,7 +83,7 @@ By defining properties once in metadata, we eliminate manual synchronization acr
 ### Location
 
 ```
-metadata/properties/
+metadata/
 ├── halo_properties.yaml      # Core halo tracking properties (24 fields)
 └── galaxy_properties.yaml    # Baryonic physics properties (expandable)
 ```
@@ -663,8 +663,8 @@ o->ColdGas = g->galaxy->ColdGas;
 ```
 
 **Additional examples** (arrays, conditionals, recalculation, custom logic) are available in:
-- `metadata/properties/halo_properties.yaml` - Core halo properties
-- `metadata/properties/galaxy_properties.yaml` - Baryonic physics properties
+- `metadata/halo_properties.yaml` - Core halo properties
+- `metadata/galaxy_properties.yaml` - Baryonic physics properties
 
 
 ## Property Categories

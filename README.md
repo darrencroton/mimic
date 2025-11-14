@@ -217,7 +217,7 @@ Mimic follows a hierarchical structure under `src/`:
 - **src/modules/**: Physics modules (currently empty, will contain galaxy physics modules)
 - **src/include/**: Public headers (types, globals, constants, config)
   - **generated/**: Auto-generated property code (from metadata)
-- **metadata/properties/**: Property metadata YAML files (single source of truth)
+- **metadata/**: Property metadata YAML files (single source of truth)
 - **scripts/**: Code generation and development tools
 
 ### Key Design Patterns
