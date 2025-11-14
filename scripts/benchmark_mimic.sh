@@ -218,6 +218,7 @@ verbose_log "Using parameter file: ${PARAM_FILE}"
 OUTPUT_DIR=$(grep "^OutputDir" "${PARAM_FILE}" | awk '{print $2}' | sed 's|/$||')
 OUTPUT_FORMAT=$(grep "^OutputFormat" "${PARAM_FILE}" | awk '{print $2}' | tr -d '\r')
 OUTPUT_BASENAME=$(grep "^OutputFileBaseName" "${PARAM_FILE}" | awk '{print $2}' | tr -d '\r')
+TREE_TYPE=$(grep "^TreeType" "${PARAM_FILE}" | awk '{print $2}' | tr -d '\r')
 
 # Resolve OUTPUT_DIR if it's a relative path
 if [[ "$OUTPUT_DIR" != /* ]]; then
@@ -228,6 +229,20 @@ fi
 verbose_log "Detected OutputDir: ${OUTPUT_DIR}"
 verbose_log "Detected OutputFormat: ${OUTPUT_FORMAT}"
 verbose_log "Detected OutputFileBaseName: ${OUTPUT_BASENAME}"
+verbose_log "Detected TreeType: ${TREE_TYPE}"
+
+# Auto-detect if HDF5 support is needed and add to MAKE_FLAGS
+if [[ "$OUTPUT_FORMAT" == "hdf5" ]] || [[ "$TREE_TYPE" == *"hdf5"* ]]; then
+    # Check if USE-HDF5 is already in MAKE_FLAGS
+    if [[ ! "$MAKE_FLAGS" =~ USE-HDF5 ]]; then
+        if [[ -z "$MAKE_FLAGS" ]]; then
+            MAKE_FLAGS="USE-HDF5=yes"
+        else
+            MAKE_FLAGS="${MAKE_FLAGS} USE-HDF5=yes"
+        fi
+        verbose_log "Auto-detected HDF5 requirement, added USE-HDF5=yes to build flags"
+    fi
+fi
 
 echo "=== Mimic Performance Benchmark ==="
 echo "Timestamp: $(date)"
