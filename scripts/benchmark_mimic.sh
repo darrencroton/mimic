@@ -88,6 +88,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Determine script and root directories - can run from anywhere
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_PATH")"
+
 # Function to display error and exit
 error_exit() {
     echo "ERROR: $1"
@@ -183,10 +187,6 @@ TROUBLESHOOTING:
 EOF
     exit 0
 fi
-
-# Determine script and root directories - can run from anywhere
-SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_PATH")"
 
 verbose_log "Script location: ${SCRIPT_PATH}"
 verbose_log "Root directory: ${ROOT_DIR}"
