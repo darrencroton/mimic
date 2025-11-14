@@ -7,17 +7,16 @@
 # performance metrics to help developers track performance changes over time.
 #
 # USAGE:
-#   ./benchmark_mimic.sh             # Run with default settings
-#   ./benchmark_mimic.sh --verbose   # Run with detailed output
-#   ./benchmark_mimic.sh --help      # Show help information
-#   ./benchmark_mimic.sh --format hdf5  # Benchmark HDF5 output (default: binary)
+#   ./benchmark_mimic.sh                           # Run with default settings
+#   ./benchmark_mimic.sh --verbose                 # Run with detailed output
+#   ./benchmark_mimic.sh --help                    # Show help information
+#   ./benchmark_mimic.sh --param-file custom.par   # Use custom parameter file
+#   ./benchmark_mimic.sh input/millennium.par      # Positional parameter file argument
 #
 # REQUIREMENTS:
 #   - Must be run from the scripts/ directory
 #   - GNU Make must be available
-#   - Test data must exist in tests/data/input/
-#   - bc calculator (for memory calculations)
-#   - time command (for performance measurement)
+#   - Parameter file must exist (default: input/millennium.par)
 #
 # OUTPUT:
 #   Results are stored in JSON format in the benchmarks/ directory
@@ -29,14 +28,18 @@
 #   MAKE_FLAGS        - Additional make flags (e.g., "USE-HDF5=yes USE-MPI=yes")
 #
 # EXAMPLES:
-#   # Basic benchmark
+#   # Basic benchmark (uses default input/millennium.par)
 #   ./benchmark_mimic.sh
+#
+#   # Benchmark with custom parameter file
+#   ./benchmark_mimic.sh --param-file ../tests/data/test_binary.par
+#   ./benchmark_mimic.sh ../tests/data/test_binary.par
 #
 #   # Benchmark with MPI
 #   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh
 #
 #   # HDF5 build benchmark
-#   MAKE_FLAGS="USE-HDF5=yes" ./benchmark_mimic.sh --format hdf5
+#   MAKE_FLAGS="USE-HDF5=yes" ./benchmark_mimic.sh
 #
 #   # Compare two benchmark runs
 #   diff ../benchmarks/baseline_20250101_120000.json ../benchmarks/baseline_20250102_120000.json
@@ -50,11 +53,11 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BENCHMARK_RESULTS="${BENCHMARK_DIR}/baseline_${TIMESTAMP}.json"
 VERBOSE=0
 SHOW_HELP=0
-OUTPUT_FORMAT="binary"  # Default to binary format
+PARAM_FILE=""  # Will be set to default later if not specified
 
 # Process command line arguments
-for arg in "$@"; do
-    case $arg in
+while [[ $# -gt 0 ]]; do
+    case $1 in
         --help)
             SHOW_HELP=1
             shift
@@ -63,32 +66,46 @@ for arg in "$@"; do
             VERBOSE=1
             shift
             ;;
-        --format)
+        --param-file)
             shift
-            OUTPUT_FORMAT="$1"
+            PARAM_FILE="$1"
             shift
             ;;
-        --format=*)
-            OUTPUT_FORMAT="${arg#*=}"
+        --param-file=*)
+            PARAM_FILE="${1#*=}"
             shift
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--help] [--verbose] [--param-file FILE] [PARAM_FILE]"
+            exit 1
             ;;
         *)
-            echo "Unknown option: $arg"
-            echo "Usage: $0 [--help] [--verbose] [--format binary|hdf5]"
-            exit 1
+            # Positional argument - treat as parameter file
+            PARAM_FILE="$1"
+            shift
             ;;
     esac
 done
 
+# Set default parameter file if not specified
+if [[ -z "$PARAM_FILE" ]]; then
+    PARAM_FILE="../input/millennium.par"
+fi
+
 # Show help if requested
 if [ $SHOW_HELP -eq 1 ]; then
     cat << 'EOF'
-Usage: ./benchmark_mimic.sh [OPTIONS]
+Usage: ./benchmark_mimic.sh [OPTIONS] [PARAM_FILE]
 
 OPTIONS:
   --help                Show this help message
   --verbose             Run with detailed output and timing information
-  --format FORMAT       Output format to benchmark (binary or hdf5, default: binary)
+  --param-file FILE     Parameter file to use for benchmarking
+
+ARGUMENTS:
+  PARAM_FILE            Parameter file to benchmark (default: ../input/millennium.par)
+                        Can be specified as positional argument or with --param-file
 
 PURPOSE:
   This script establishes performance baselines for the Mimic galaxy formation
@@ -114,17 +131,21 @@ OUTPUT:
   - configuration: Build and runtime configuration
 
 EXAMPLES:
-  # Basic benchmark
+  # Basic benchmark (uses default input/millennium.par)
   ./benchmark_mimic.sh
 
-  # Verbose output with HDF5 format
-  ./benchmark_mimic.sh --verbose --format hdf5
+  # Benchmark with custom parameter file
+  ./benchmark_mimic.sh --param-file ../tests/data/test_binary.par
+  ./benchmark_mimic.sh ../tests/data/test_binary.par
+
+  # Verbose output
+  ./benchmark_mimic.sh --verbose
 
   # MPI benchmark
   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh
 
   # HDF5 build benchmark
-  MAKE_FLAGS="USE-HDF5=yes" ./benchmark_mimic.sh --format hdf5
+  MAKE_FLAGS="USE-HDF5=yes" ./benchmark_mimic.sh
 
 COMPARING RESULTS:
   # Simple diff
@@ -146,12 +167,6 @@ EOF
     exit 0
 fi
 
-# Validate output format
-if [[ "$OUTPUT_FORMAT" != "binary" && "$OUTPUT_FORMAT" != "hdf5" ]]; then
-    echo "ERROR: Invalid output format '$OUTPUT_FORMAT'. Must be 'binary' or 'hdf5'."
-    exit 1
-fi
-
 # Determine script directories - we should be in scripts/ directory
 SCRIPT_DIR=$(pwd)
 if [[ ! "$(basename "$SCRIPT_DIR")" == "scripts" ]]; then
@@ -162,7 +177,6 @@ if [[ ! "$(basename "$SCRIPT_DIR")" == "scripts" ]]; then
 fi
 
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-TEST_DATA_DIR="${ROOT_DIR}/tests/data"
 
 # Create benchmark directory if it doesn't exist
 mkdir -p "${ROOT_DIR}/benchmarks"
@@ -181,17 +195,32 @@ verbose_log() {
     fi
 }
 
+# Validate parameter file exists
+if [[ ! -f "${PARAM_FILE}" ]]; then
+    # Try with ROOT_DIR prepended if it's a relative path
+    if [[ ! -f "${ROOT_DIR}/${PARAM_FILE}" ]]; then
+        error_exit "Parameter file not found: ${PARAM_FILE}"
+    fi
+    PARAM_FILE="${ROOT_DIR}/${PARAM_FILE}"
+fi
+
+verbose_log "Using parameter file: ${PARAM_FILE}"
+
+# Parse output directory and format from parameter file
+OUTPUT_DIR=$(grep "^OutputDir" "${PARAM_FILE}" | awk '{print $2}' | sed 's|/$||')
+OUTPUT_FORMAT=$(grep "^OutputFormat" "${PARAM_FILE}" | awk '{print $2}' | tr -d '\r')
+OUTPUT_BASENAME=$(grep "^OutputFileBaseName" "${PARAM_FILE}" | awk '{print $2}' | tr -d '\r')
+
+verbose_log "Detected OutputDir: ${OUTPUT_DIR}"
+verbose_log "Detected OutputFormat: ${OUTPUT_FORMAT}"
+verbose_log "Detected OutputFileBaseName: ${OUTPUT_BASENAME}"
+
 echo "=== Mimic Performance Benchmark ==="
 echo "Timestamp: $(date)"
-echo "Output format: $OUTPUT_FORMAT"
+echo "Parameter file: ${PARAM_FILE}"
+echo "Output format: ${OUTPUT_FORMAT}"
 echo "Saving results to: ${ROOT_DIR}/benchmarks/$(basename "$BENCHMARK_RESULTS")"
 echo
-
-# Check if test data exists
-verbose_log "Checking for test data..."
-if [ ! -f "${TEST_DATA_DIR}/input/trees_063.0" ]; then
-    error_exit "Test data not found. Please run ./first_run.sh to set up test data."
-fi
 
 # Build Mimic using Make
 echo "Building Mimic using Make..."
@@ -219,30 +248,22 @@ fi
 
 verbose_log "Using Mimic executable: $MIMIC_EXECUTABLE"
 
-# Create parameter file for benchmark
+# Prepare benchmark run
 echo "Preparing benchmark run..."
-PARAM_FILE=$(mktemp)
-if [[ "$OUTPUT_FORMAT" == "hdf5" ]]; then
-    cp "${TEST_DATA_DIR}/test_hdf5.par" "${PARAM_FILE}" || error_exit "Could not copy HDF5 parameter file"
-else
-    cp "${TEST_DATA_DIR}/test_binary.par" "${PARAM_FILE}" || error_exit "Could not copy binary parameter file"
-fi
 
 # Clean any previous benchmark output
-if [[ "$OUTPUT_FORMAT" == "hdf5" ]]; then
-    rm -f "${TEST_DATA_DIR}"/output/hdf5/model*
-else
-    rm -f "${TEST_DATA_DIR}"/output/binary/model*
+if [[ -d "${OUTPUT_DIR}" ]]; then
+    verbose_log "Cleaning previous output in ${OUTPUT_DIR}"
+    rm -f "${OUTPUT_DIR}"/${OUTPUT_BASENAME}*
 fi
 
-verbose_log "Parameter file configured for $OUTPUT_FORMAT output"
 if [ $VERBOSE -eq 1 ]; then
-    echo "Parameter file contents (key settings):"
-    grep -E "^(OutputFormat|OutputDir|TreeName)" "${PARAM_FILE}"
+    echo "Parameter file settings:"
+    grep -E "^(OutputFormat|OutputDir|TreeName|FirstFile|LastFile)" "${PARAM_FILE}"
 fi
 
 # ======= Time and memory measurement =======
-echo "Running Mimic benchmark (format: $OUTPUT_FORMAT)..."
+echo "Running Mimic benchmark..."
 cd "${ROOT_DIR}" || error_exit "Could not change to root directory"
 
 # Get number of MPI processes for later use
@@ -306,22 +327,25 @@ rm -f "${RUN_OUTPUT}"
 GIT_VERSION=$(git describe --always --dirty 2>/dev/null || echo 'unknown')
 BUILD_FLAGS="${MAKE_FLAGS:-none}"
 
-# Verify output was created
-if [[ "$OUTPUT_FORMAT" == "hdf5" ]]; then
-    OUTPUT_FILE="${TEST_DATA_DIR}/output/hdf5/model_z0.000_0"
+# Verify output was created - find any output file
+if [[ -d "${OUTPUT_DIR}" ]]; then
+    OUTPUT_FILE=$(find "${OUTPUT_DIR}" -name "${OUTPUT_BASENAME}_z*" -type f 2>/dev/null | head -1)
+    if [[ -z "$OUTPUT_FILE" ]]; then
+        error_exit "Mimic did not produce any output files in: ${OUTPUT_DIR}"
+    fi
 else
-    OUTPUT_FILE="${TEST_DATA_DIR}/output/binary/model_z0.000_0"
-fi
-
-if [ ! -f "$OUTPUT_FILE" ]; then
-    error_exit "Mimic did not produce expected output file: $OUTPUT_FILE"
+    error_exit "Output directory not found: ${OUTPUT_DIR}"
 fi
 
 verbose_log "Benchmark run completed successfully"
 verbose_log "Output file created: $OUTPUT_FILE"
 
-# Clean up temporary files
-rm -f "${PARAM_FILE}"
+# Get total size of all output files
+TOTAL_OUTPUT_SIZE=$(find "${OUTPUT_DIR}" -name "${OUTPUT_BASENAME}_z*" -type f -exec stat -f%z {} + 2>/dev/null | awk '{s+=$1} END {print s}')
+if [[ -z "$TOTAL_OUTPUT_SIZE" ]]; then
+    TOTAL_OUTPUT_SIZE=$(find "${OUTPUT_DIR}" -name "${OUTPUT_BASENAME}_z*" -type f -exec stat -c%s {} + 2>/dev/null | awk '{s+=$1} END {print s}')
+fi
+TOTAL_OUTPUT_SIZE=${TOTAL_OUTPUT_SIZE:-0}
 
 # Create comprehensive JSON output
 echo "Generating benchmark results..."
@@ -337,11 +361,11 @@ cat > "${ROOT_DIR}/benchmarks/baseline_${TIMESTAMP}.json" << EOF
     "cpu_count": "$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 'unknown')"
   },
   "test_case": {
-    "name": "Mini-Millennium (single tree file)",
+    "parameter_file": "$PARAM_FILE",
     "output_format": "$OUTPUT_FORMAT",
+    "output_directory": "$OUTPUT_DIR",
     "num_processes": $NUM_MIMIC_PROCS,
-    "mpi_command": "${MPI_RUN_COMMAND:-none}",
-    "parameter_file": "tests/data/test_${OUTPUT_FORMAT}.par"
+    "mpi_command": "${MPI_RUN_COMMAND:-none}"
   },
   "configuration": {
     "build_flags": "$BUILD_FLAGS",
@@ -351,7 +375,8 @@ cat > "${ROOT_DIR}/benchmarks/baseline_${TIMESTAMP}.json" << EOF
   "overall_performance": {
     "wall_time_seconds": $REAL_TIME,
     "max_memory_mb": "$MAX_MEMORY",
-    "output_file_size_bytes": $(stat -f%z "$OUTPUT_FILE" 2>/dev/null || stat -c%s "$OUTPUT_FILE" 2>/dev/null || echo 0)
+    "total_output_size_bytes": $TOTAL_OUTPUT_SIZE,
+    "sample_output_file": "$OUTPUT_FILE"
   },
   "notes": {
     "memory_measurement": "Memory measurement requires /usr/bin/time or similar tools. Consider adding instrumentation to Mimic for accurate memory tracking."
@@ -363,6 +388,7 @@ EOF
 echo "Benchmark completed successfully."
 echo
 echo "=== Performance Summary ==="
+echo "Parameter File: ${PARAM_FILE}"
 echo "Wall Clock Time: ${REAL_TIME} seconds"
 echo "Maximum Memory Usage: ${MAX_MEMORY} MB"
 echo "Output Format: $OUTPUT_FORMAT"
@@ -375,7 +401,7 @@ echo
 echo "USAGE NOTES:"
 echo "  - Run this script regularly to track performance changes"
 echo "  - Compare JSON files to identify performance regressions"
-echo "  - Use different --format options to benchmark I/O performance"
+echo "  - Specify different parameter files to benchmark different datasets"
 echo "  - Set MAKE_FLAGS for optimized builds (e.g., USE-HDF5=yes)"
 echo "  - Use MPI_RUN_COMMAND for parallel performance testing"
 echo

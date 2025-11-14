@@ -115,14 +115,16 @@ deactivate
 
 ```bash
 # Run performance benchmark (from scripts/ directory)
+# Default uses input/millennium.par
 cd scripts
 ./benchmark_mimic.sh
 
+# Benchmark with custom parameter file
+./benchmark_mimic.sh --param-file ../tests/data/test_binary.par
+./benchmark_mimic.sh ../tests/data/test_binary.par
+
 # Benchmark with verbose output
 ./benchmark_mimic.sh --verbose
-
-# Benchmark HDF5 format
-./benchmark_mimic.sh --format hdf5
 
 # Benchmark with specific build flags
 MAKE_FLAGS="USE-HDF5=yes" ./benchmark_mimic.sh

@@ -288,9 +288,9 @@ Track performance changes over time with the benchmarking script:
 
 ```bash
 cd scripts
-./benchmark_mimic.sh              # Basic benchmark
+./benchmark_mimic.sh              # Basic benchmark (uses input/millennium.par)
+./benchmark_mimic.sh custom.par   # Benchmark with custom parameter file
 ./benchmark_mimic.sh --verbose    # Detailed output
-./benchmark_mimic.sh --format hdf5  # Test HDF5 I/O
 ```
 
 Results are saved to `benchmarks/` (gitignored) in JSON format for easy comparison.
