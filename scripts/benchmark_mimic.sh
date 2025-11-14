@@ -88,9 +88,23 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Function to display error and exit
+error_exit() {
+    echo "ERROR: $1"
+    echo "Benchmark failed."
+    exit 1
+}
+
+# Function to log verbose output
+verbose_log() {
+    if [ $VERBOSE -eq 1 ]; then
+        echo "[VERBOSE] $1"
+    fi
+}
+
 # Set default parameter file if not specified
 if [[ -z "$PARAM_FILE" ]]; then
-    PARAM_FILE="../input/millennium.par"
+    PARAM_FILE="${ROOT_DIR}/input/millennium.par"
 fi
 
 # Show help if requested
@@ -104,8 +118,9 @@ OPTIONS:
   --param-file FILE     Parameter file to use for benchmarking
 
 ARGUMENTS:
-  PARAM_FILE            Parameter file to benchmark (default: ../input/millennium.par)
+  PARAM_FILE            Parameter file to benchmark (default: input/millennium.par)
                         Can be specified as positional argument or with --param-file
+                        Supports both absolute and relative paths
 
 PURPOSE:
   This script establishes performance baselines for the Mimic galaxy formation
@@ -132,76 +147,69 @@ OUTPUT:
 
 EXAMPLES:
   # Basic benchmark (uses default input/millennium.par)
-  ./benchmark_mimic.sh
+  # Can run from anywhere:
+  ./scripts/benchmark_mimic.sh
+  cd scripts && ./benchmark_mimic.sh
 
   # Benchmark with custom parameter file
-  ./benchmark_mimic.sh --param-file ../tests/data/test_binary.par
-  ./benchmark_mimic.sh ../tests/data/test_binary.par
+  ./scripts/benchmark_mimic.sh --param-file tests/data/test_binary.par
+  ./scripts/benchmark_mimic.sh tests/data/test_binary.par
 
   # Verbose output
-  ./benchmark_mimic.sh --verbose
+  ./scripts/benchmark_mimic.sh --verbose
 
   # MPI benchmark
-  MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh
+  MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
 
   # HDF5 build benchmark
-  MAKE_FLAGS="USE-HDF5=yes" ./benchmark_mimic.sh
+  MAKE_FLAGS="USE-HDF5=yes" ./scripts/benchmark_mimic.sh
 
 COMPARING RESULTS:
   # Simple diff
-  diff ../benchmarks/baseline_old.json ../benchmarks/baseline_new.json
+  diff benchmarks/baseline_old.json benchmarks/baseline_new.json
 
   # Extract key metrics
-  grep "wall_time\|max_memory" ../benchmarks/baseline_*.json
+  grep "wall_time\|max_memory" benchmarks/baseline_*.json
 
   # Plot trends over time (requires custom analysis script)
-  python plot_benchmark_trends.py ../benchmarks/
+  python plot_benchmark_trends.py benchmarks/
 
 TROUBLESHOOTING:
-  - Ensure you're running from the scripts/ directory
+  - Script can be run from any directory
   - Check that GNU Make and build tools are installed
-  - Verify test data exists in tests/data/input/
-  - For memory measurement issues, check 'time' command availability
+  - Verify parameter file exists and contains valid settings
+  - For best accuracy, ensure /usr/bin/time is available
   - For MPI issues, verify MPI installation and mpirun availability
 EOF
     exit 0
 fi
 
-# Determine script directories - we should be in scripts/ directory
-SCRIPT_DIR=$(pwd)
-if [[ ! "$(basename "$SCRIPT_DIR")" == "scripts" ]]; then
-    echo "ERROR: This script must be run from the scripts/ directory"
-    echo "Current directory: $SCRIPT_DIR"
-    echo "Please cd to the scripts/ directory and run ./benchmark_mimic.sh"
-    exit 1
-fi
+# Determine script and root directories - can run from anywhere
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_PATH")"
 
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+verbose_log "Script location: ${SCRIPT_PATH}"
+verbose_log "Root directory: ${ROOT_DIR}"
 
 # Create benchmark directory if it doesn't exist
 mkdir -p "${ROOT_DIR}/benchmarks"
 
-# Function to display error and exit
-error_exit() {
-    echo "ERROR: $1"
-    echo "Benchmark failed."
-    exit 1
-}
-
-# Function to log verbose output
-verbose_log() {
-    if [ $VERBOSE -eq 1 ]; then
-        echo "[VERBOSE] $1"
-    fi
-}
-
-# Validate parameter file exists
-if [[ ! -f "${PARAM_FILE}" ]]; then
-    # Try with ROOT_DIR prepended if it's a relative path
-    if [[ ! -f "${ROOT_DIR}/${PARAM_FILE}" ]]; then
+# Validate parameter file exists and resolve path
+if [[ "$PARAM_FILE" = /* ]]; then
+    # Absolute path
+    if [[ ! -f "${PARAM_FILE}" ]]; then
         error_exit "Parameter file not found: ${PARAM_FILE}"
     fi
-    PARAM_FILE="${ROOT_DIR}/${PARAM_FILE}"
+else
+    # Relative path - try as-is first, then relative to ROOT_DIR
+    if [[ -f "${PARAM_FILE}" ]]; then
+        # Resolve to absolute path
+        PARAM_FILE="$(cd "$(dirname "${PARAM_FILE}")" && pwd)/$(basename "${PARAM_FILE}")"
+    elif [[ -f "${ROOT_DIR}/${PARAM_FILE}" ]]; then
+        PARAM_FILE="${ROOT_DIR}/${PARAM_FILE}"
+    else
+        error_exit "Parameter file not found: ${PARAM_FILE} (also tried ${ROOT_DIR}/${PARAM_FILE})"
+    fi
 fi
 
 verbose_log "Using parameter file: ${PARAM_FILE}"
@@ -210,6 +218,12 @@ verbose_log "Using parameter file: ${PARAM_FILE}"
 OUTPUT_DIR=$(grep "^OutputDir" "${PARAM_FILE}" | awk '{print $2}' | sed 's|/$||')
 OUTPUT_FORMAT=$(grep "^OutputFormat" "${PARAM_FILE}" | awk '{print $2}' | tr -d '\r')
 OUTPUT_BASENAME=$(grep "^OutputFileBaseName" "${PARAM_FILE}" | awk '{print $2}' | tr -d '\r')
+
+# Resolve OUTPUT_DIR if it's a relative path
+if [[ "$OUTPUT_DIR" != /* ]]; then
+    # Relative path - resolve relative to ROOT_DIR
+    OUTPUT_DIR="${ROOT_DIR}/${OUTPUT_DIR}"
+fi
 
 verbose_log "Detected OutputDir: ${OUTPUT_DIR}"
 verbose_log "Detected OutputFormat: ${OUTPUT_FORMAT}"
@@ -274,46 +288,103 @@ fi
 
 verbose_log "Running with $NUM_MIMIC_PROCS processes"
 
-# Simple portable timing measurement
-verbose_log "Using portable time measurement"
-start_time=$(date +%s)
-
-# Run Mimic
+# Platform-specific timing and memory measurement
 RUN_OUTPUT=$(mktemp)
-if [[ -n "${MPI_RUN_COMMAND}" ]]; then
-    ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
-    RUN_STATUS=$?
-else
-    "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
-    RUN_STATUS=$?
-fi
+TIME_OUTPUT=$(mktemp)
 
-end_time=$(date +%s)
+# Check if /usr/bin/time is available
+if [ -x "/usr/bin/time" ]; then
+    verbose_log "Using /usr/bin/time for accurate measurement"
+
+    # Platform-specific time command
+    if [ "$(uname)" = "Darwin" ]; then
+        # macOS version
+        verbose_log "Detected macOS"
+        if [[ -n "${MPI_RUN_COMMAND}" ]]; then
+            /usr/bin/time -l ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            RUN_STATUS=$?
+        else
+            /usr/bin/time -l "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            RUN_STATUS=$?
+        fi
+
+        # Extract wall clock time (user + system)
+        USER_TIME=$(grep "user" "${TIME_OUTPUT}" | awk '{print $1}')
+        SYS_TIME=$(grep "sys" "${TIME_OUTPUT}" | awk '{print $1}')
+        if command -v bc > /dev/null 2>&1; then
+            REAL_TIME=$(echo "$USER_TIME + $SYS_TIME" | bc)
+        else
+            REAL_TIME=$(awk "BEGIN {print $USER_TIME + $SYS_TIME}")
+        fi
+
+        # Memory usage (convert bytes to MB)
+        MAX_MEMORY=$(grep "maximum resident set size" "${TIME_OUTPUT}" | awk '{print $1}')
+        if command -v bc > /dev/null 2>&1 && [[ -n "$MAX_MEMORY" ]]; then
+            MAX_MEMORY=$(echo "scale=2; ${MAX_MEMORY} / 1048576" | bc)
+        else
+            MAX_MEMORY=$(awk "BEGIN {printf \"%.2f\", ${MAX_MEMORY:-0} / 1048576}")
+        fi
+    else
+        # Linux version
+        verbose_log "Detected Linux"
+        if [[ -n "${MPI_RUN_COMMAND}" ]]; then
+            /usr/bin/time -v ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            RUN_STATUS=$?
+        else
+            /usr/bin/time -v "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            RUN_STATUS=$?
+        fi
+
+        # Extract wall clock time from format "h:mm:ss or m:ss.ss"
+        TIME_STR=$(grep "Elapsed (wall clock) time" "${TIME_OUTPUT}" | sed 's/.*: //')
+        # Convert to seconds
+        if [[ $TIME_STR == *:*:* ]]; then
+            # Format h:mm:ss
+            REAL_TIME=$(echo "$TIME_STR" | awk -F: '{print ($1 * 3600) + ($2 * 60) + $3}')
+        else
+            # Format m:ss.ss
+            REAL_TIME=$(echo "$TIME_STR" | awk -F: '{print ($1 * 60) + $2}')
+        fi
+
+        # Memory usage (convert KB to MB)
+        MAX_MEMORY=$(grep "Maximum resident set size" "${TIME_OUTPUT}" | awk '{print $NF}')
+        if command -v bc > /dev/null 2>&1 && [[ -n "$MAX_MEMORY" ]]; then
+            MAX_MEMORY=$(echo "scale=2; ${MAX_MEMORY} / 1024" | bc)
+        else
+            MAX_MEMORY=$(awk "BEGIN {printf \"%.2f\", ${MAX_MEMORY:-0} / 1024}")
+        fi
+    fi
+
+    if [ $VERBOSE -eq 1 ]; then
+        echo "Time measurement output:"
+        cat "${TIME_OUTPUT}"
+    fi
+else
+    # Fallback: simple timing without /usr/bin/time
+    verbose_log "Using fallback time measurement (no /usr/bin/time)"
+    start_time=$(date +%s)
+
+    if [[ -n "${MPI_RUN_COMMAND}" ]]; then
+        ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
+        RUN_STATUS=$?
+    else
+        "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
+        RUN_STATUS=$?
+    fi
+
+    end_time=$(date +%s)
+    REAL_TIME=$((end_time - start_time))
+    MAX_MEMORY="N/A"
+    verbose_log "Memory measurement not available without /usr/bin/time"
+fi
 
 # Check if run was successful
 if [ $RUN_STATUS -ne 0 ]; then
     echo "ERROR: Mimic execution failed with exit code $RUN_STATUS"
-    if [ $VERBOSE -eq 1 ]; then
-        echo "Output:"
-        cat "${RUN_OUTPUT}"
-    fi
-    rm -f "${RUN_OUTPUT}"
+    echo "Output:"
+    cat "${RUN_OUTPUT}"
+    rm -f "${RUN_OUTPUT}" "${TIME_OUTPUT}"
     error_exit "Mimic execution failed"
-fi
-
-# Calculate elapsed time
-REAL_TIME=$((end_time - start_time))
-
-# Try to get memory usage from /proc if available (Linux)
-MAX_MEMORY=0
-if [ -f /proc/meminfo ]; then
-    # This is a simple approximation - actual peak memory would require monitoring during execution
-    # For production use, consider using /usr/bin/time if available, or add instrumentation to Mimic
-    verbose_log "Memory measurement not available in this environment (no /usr/bin/time)"
-    MAX_MEMORY="N/A"
-else
-    verbose_log "Memory measurement not available on this platform"
-    MAX_MEMORY="N/A"
 fi
 
 if [ $VERBOSE -eq 1 ]; then
@@ -321,7 +392,7 @@ if [ $VERBOSE -eq 1 ]; then
     cat "${RUN_OUTPUT}"
 fi
 
-rm -f "${RUN_OUTPUT}"
+rm -f "${RUN_OUTPUT}" "${TIME_OUTPUT}"
 
 # Get system and build information
 GIT_VERSION=$(git describe --always --dirty 2>/dev/null || echo 'unknown')
@@ -379,7 +450,7 @@ cat > "${ROOT_DIR}/benchmarks/baseline_${TIMESTAMP}.json" << EOF
     "sample_output_file": "$OUTPUT_FILE"
   },
   "notes": {
-    "memory_measurement": "Memory measurement requires /usr/bin/time or similar tools. Consider adding instrumentation to Mimic for accurate memory tracking."
+    "memory_measurement": "Memory measured using $([[ -x /usr/bin/time ]] && echo '/usr/bin/time' || echo 'fallback method (less accurate)')"
   }
 }
 EOF
