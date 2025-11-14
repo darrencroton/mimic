@@ -42,7 +42,7 @@ from framework import (
 )
 
 # Core halo properties (physics-agnostic, always present)
-# These 24 properties are defined in metadata/properties/halo_properties.yaml
+# These 24 properties are defined in metadata/halo_properties.yaml
 # and should be present in all Mimic output, regardless of enabled physics modules
 CORE_HALO_PROPERTIES = {
     'SnapNum', 'Type', 'HaloIndex', 'CentralHaloIndex', 'MimicHaloIndex',

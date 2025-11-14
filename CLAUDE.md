@@ -153,7 +153,7 @@ src/
     └── generated/ Auto-generated property code
 
 build/generated/     Build-time generated files (git_version.h, test lists)
-metadata/properties/ Property definitions (YAML → auto-generated C code)
+metadata/            Property definitions (YAML → auto-generated C code)
 tests/               Unit, integration, and scientific tests
   └── generated/     Auto-generated test metadata
 docs/generated/      Auto-generated documentation
@@ -169,7 +169,7 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 - `ProcessedHalos`: Final processed halos (written to output)
 
 **Metadata-Driven Property System:**
-- Properties defined in `metadata/properties/*.yaml`
+- Properties defined in `metadata/*.yaml`
 - Auto-generated into C structs via `make generate`
 - Includes: struct Halo, struct GalaxyData, struct HaloOutput
 - Python dtypes auto-generated for reading output

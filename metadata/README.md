@@ -6,13 +6,13 @@
 
 ## Current Implementation
 
-### Property Definitions (`properties/`)
+### Property Definitions
 
 The property metadata system eliminates manual synchronization across 8+ files by defining all halo and galaxy properties in YAML. Code generation automatically creates C structures, initialization code, output code, and Python dtypes.
 
 **Files:**
-- `properties/halo_properties.yaml` - 30 core halo tracking properties (physics-agnostic)
-- `properties/galaxy_properties.yaml` - 2 validated galaxy properties (ColdGas, StellarMass)
+- `halo_properties.yaml` - 30 core halo tracking properties (physics-agnostic)
+- `galaxy_properties.yaml` - 2 validated galaxy properties (ColdGas, StellarMass)
 
 **Generated Output:**
 - `src/include/generated/property_defs.h` - Struct definitions

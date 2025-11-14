@@ -30,8 +30,8 @@ REPO_ROOT = Path(__file__).parent.parent
 
 # Input YAML files
 YAML_FILES = [
-    REPO_ROOT / "metadata" / "properties" / "halo_properties.yaml",
-    REPO_ROOT / "metadata" / "properties" / "galaxy_properties.yaml",
+    REPO_ROOT / "metadata" / "halo_properties.yaml",
+    REPO_ROOT / "metadata" / "galaxy_properties.yaml",
 ]
 
 # Generated files to check

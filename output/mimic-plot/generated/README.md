@@ -17,13 +17,13 @@ NumPy dtype definitions for reading Mimic binary output files. Auto-generated fr
 - Property field definitions matching C structs
 
 **Regenerated when:**
-- Property metadata changes (`metadata/properties/*.yaml`)
+- Property metadata changes (`metadata/*.yaml`)
 - Running `make generate`
 - Automatic during `make` if YAML changes
 
 **Source metadata:**
-- `metadata/properties/halo_properties.yaml`
-- `metadata/properties/galaxy_properties.yaml`
+- `metadata/halo_properties.yaml`
+- `metadata/galaxy_properties.yaml`
 
 **Used by:**
 - `mimic-plot.py` - Main plotting script

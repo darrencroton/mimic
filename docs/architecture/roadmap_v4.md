@@ -164,7 +164,7 @@ This section summarizes the capabilities of the codebase *right now*. The detail
 
 4. **Key Resources**:
    - Module examples: `src/modules/simple_*/`
-   - Property system: `metadata/properties/galaxy_properties.yaml`
+   - Property system: `metadata/galaxy_properties.yaml`
    - Testing guide: `docs/developer/testing.md`
    - Coding standards: `docs/developer/coding-standards.md`
 
@@ -296,7 +296,7 @@ This workflow applies to each module. Refine based on lessons learned.
 **Goal**: Define the data contract for this module.
 
 **Tasks**:
-- Add new properties to `metadata/properties/galaxy_properties.yaml`
+- Add new properties to `metadata/galaxy_properties.yaml`
 - Define property types, units, descriptions
 - Run `make generate` to create property accessors
 - Verify generated code compiles
@@ -645,7 +645,7 @@ This section contains essential context for the developer.
 #### **Validated Development Workflow**
 This is the established pattern for adding new physics.
 
-1.  **Define Properties (2 min)**: Add property definitions to `metadata/properties/galaxy_properties.yaml`.
+1.  **Define Properties (2 min)**: Add property definitions to `metadata/galaxy_properties.yaml`.
 2.  **Generate Code (5 sec)**: Run `make generate`.
 3.  **Implement Module Logic**: Create a new directory in `src/modules/` and implement the `init`, `process`, and `cleanup` functions. Access galaxy data via the auto-generated `halos[i].galaxy->PropertyName` accessors.
 4.  **Write Tests**: Add unit tests for pure logic and scientific validation tests in Python to verify physical outputs.

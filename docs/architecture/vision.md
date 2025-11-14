@@ -126,7 +126,7 @@ These principles guide all design decisions and implementation choices in Mimic:
 
 ### Metadata-Driven Development
 - **Single Source of Truth**: YAML metadata prevents synchronization bugs between code representations.
-- **Property Metadata** (`metadata/properties/*.yaml`): Galaxy/halo properties auto-generate C structs, accessors, output code, and Python dtypes.
+- **Property Metadata** (`metadata/*.yaml`): Galaxy/halo properties auto-generate C structs, accessors, output code, and Python dtypes.
 - **Module Metadata** (`src/modules/*/module_info.yaml`): Physics modules auto-generate registration code, test configuration, and documentation.
 - **Code Generation**: Type-safe C code is automatically generated from metadata definitions.
 - **Build Integration**: Code generation is integrated into the build system with automatic regeneration on metadata changes.

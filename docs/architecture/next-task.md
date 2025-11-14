@@ -69,7 +69,7 @@
 
 ### Step 2: Property & Parameter Design (1 day)
 
-**Properties to Add** (`metadata/properties/galaxy_properties.yaml`):
+**Properties to Add** (`metadata/galaxy_properties.yaml`):
 ```yaml
 - name: StellarMass
   type: float

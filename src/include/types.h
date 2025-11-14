@@ -121,7 +121,7 @@ struct MimicConfig {
  *   - struct GalaxyData   (baryonic physics properties)
  *   - struct HaloOutput   (file output, 26 properties)
  *
- * These are auto-generated from metadata/properties/ YAML files
+ * These are auto-generated from metadata/ YAML files
  * To regenerate: make generate
  */
 
