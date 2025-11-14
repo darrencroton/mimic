@@ -111,6 +111,32 @@ python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par --plots
 deactivate
 ```
 
+## Benchmarking
+
+```bash
+# Run performance benchmark (from scripts/ directory)
+# Default uses input/millennium.par
+cd scripts
+./benchmark_mimic.sh
+
+# Benchmark with custom parameter file
+./benchmark_mimic.sh --param-file ../tests/data/test_binary.par
+./benchmark_mimic.sh ../tests/data/test_binary.par
+
+# Benchmark with verbose output
+./benchmark_mimic.sh --verbose
+
+# Benchmark with specific build flags
+MAKE_FLAGS="USE-HDF5=yes" ./benchmark_mimic.sh
+
+# Benchmark with MPI
+MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh
+
+# Results saved to benchmarks/ directory (gitignored)
+# Compare benchmark results between runs
+diff ../benchmarks/baseline_YYYYMMDD_HHMMSS.json ../benchmarks/baseline_YYYYMMDD_HHMMSS.json
+```
+
 ## Code Architecture
 
 ### Directory Structure

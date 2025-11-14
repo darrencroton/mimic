@@ -282,6 +282,19 @@ deactivate
 
 See [output/mimic-plot/README.md](output/mimic-plot/README.md) for detailed usage.
 
+## Performance Benchmarking
+
+Track performance changes over time with the benchmarking script:
+
+```bash
+cd scripts
+./benchmark_mimic.sh              # Basic benchmark (uses input/millennium.par)
+./benchmark_mimic.sh custom.par   # Benchmark with custom parameter file
+./benchmark_mimic.sh --verbose    # Detailed output
+```
+
+Results are saved to `benchmarks/` (gitignored) in JSON format for easy comparison.
+
 ## Sample Data
 
 The mini-Millennium Simulation ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)) is used for testing. Tree files are automatically downloaded by `scripts/first_run.sh`, or manually from [here](https://data-portal.hpc.swin.edu.au/dataset/mini-millennium-simulation).

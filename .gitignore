@@ -5,6 +5,9 @@ mimic
 input/data
 output/results
 
+# Benchmark results
+benchmarks/
+
 # Archive and scratch space
 ignore
 obsidian-inbox
