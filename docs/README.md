@@ -145,7 +145,7 @@ cp -r src/modules/_system/template src/modules/my_module
 # Create module_info.yaml from template
 
 # Auto-register module
-make generate-modules
+make generate
 
 # Build and test
 make clean && make
@@ -259,9 +259,8 @@ make USE-HDF5=yes
 # With MPI support
 make USE-MPI=yes
 
-# Regenerate code from metadata
-make generate          # Both properties and modules
-make generate-modules  # Modules only
+# Regenerate code from metadata (smart - only regenerates what changed)
+make generate          # All code (properties + modules)
 make validate-modules  # Validate module metadata
 
 # Verify generated code is current (CI check)

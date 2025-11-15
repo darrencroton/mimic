@@ -14,7 +14,7 @@
 1. **Copy the template**: `cp -r src/modules/_system/template src/modules/your_module`
 2. **Edit `module_info.yaml`** with your module's details (name, parameters, dependencies)
 3. **Required fields**: `name`, `display_name`, `description`, `sources`, `register_function`
-4. **Run**: `make generate-modules` (auto-generates registration code)
+4. **Run**: `make generate` (auto-generates registration code)
 5. **Build**: `make clean && make`
 
 **Minimal example:**
@@ -751,7 +751,7 @@ module:
 /* Source: src/modules/*/module_info.yaml */
 /*
  * To regenerate:
- *   make generate-modules
+ *   make generate
  *
  * To validate:
  *   make validate-modules
@@ -948,7 +948,7 @@ cp module_info.yaml.template module_info.yaml
 **Step 4**: Validate and generate
 ```bash
 make validate-modules  # Check for errors
-make generate-modules  # Generate registration code
+make generate  # Generate registration code
 ```
 
 **Step 5**: Build and test
@@ -967,7 +967,7 @@ That's it! No manual synchronization required.
 
 **Step 2**: Regenerate
 ```bash
-make generate-modules
+make generate
 ```
 
 **Step 3**: Rebuild
@@ -1006,7 +1006,7 @@ python3 scripts/validate_modules.py src/modules/existing_module/module_info.yaml
 
 **Step 4**: Regenerate all
 ```bash
-make generate-modules
+make generate
 ```
 
 **Step 5**: Verify
@@ -1074,7 +1074,7 @@ module:
   name: my_new_module
   register_function: my_new_module_register
 ```
-Then run `make generate-modules`.
+Then run `make generate`.
 
 ### ❌ Wrong: Inconsistent naming
 ```yaml

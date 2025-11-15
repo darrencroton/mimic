@@ -212,6 +212,23 @@ def compute_metadata_hash(modules: List[Dict[str, Any]]) -> str:
     return md5.hexdigest()
 
 
+def load_saved_hash() -> str:
+    """Load the previously saved module metadata hash.
+
+    Returns:
+        The saved hash, or empty string if not found.
+    """
+    if MODULE_HASH_FILE.exists():
+        try:
+            with open(MODULE_HASH_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("MODULE_HASH="):
+                        return line.split("=", 1)[1].strip()
+        except Exception:
+            pass
+    return ""
+
+
 # ==============================================================================
 # CODE GENERATION - module_init.c
 # ==============================================================================
@@ -235,7 +252,7 @@ def generate_module_init_c(
     lines.append("/* Source: src/modules/[MODULE]/module_info.yaml */")
     lines.append("/*")
     lines.append(" * To regenerate:")
-    lines.append(" *   make generate-modules")
+    lines.append(" *   make generate")
     lines.append(" *")
     lines.append(" * To validate:")
     lines.append(" *   make validate-modules")
@@ -630,6 +647,28 @@ def main():
     metadata_hash = compute_metadata_hash(modules)
     if args.verbose:
         print(f"Metadata hash: {metadata_hash}")
+        print()
+
+    # Check if regeneration is needed (skip in dry-run mode)
+    if not args.dry_run:
+        saved_hash = load_saved_hash()
+        if saved_hash == metadata_hash:
+            print("✓ Module metadata unchanged - skipping regeneration")
+            print(f"  Hash: {metadata_hash}")
+            print()
+            print("=" * 70)
+            print("✓ SKIPPED (no changes)")
+            print("=" * 70)
+            return 0
+
+        # Hash mismatch or missing - regeneration needed
+        if saved_hash:
+            print(f"Module metadata changed - regenerating...")
+            print(f"  Old hash: {saved_hash}")
+            print(f"  New hash: {metadata_hash}")
+        else:
+            print("No previous hash found - generating for first time...")
+            print(f"  Hash: {metadata_hash}")
         print()
 
     # Generate files

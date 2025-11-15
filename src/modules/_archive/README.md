@@ -36,12 +36,12 @@ When archiving a module:
 
 3. **Regenerate code**:
    ```bash
-   make generate-modules
+   make generate
    make clean && make
    ```
 
 4. **Verify**:
-   - Confirm module doesn't appear in `make generate-modules` output
+   - Confirm module doesn't appear in `make generate` output
    - Confirm tests still pass
    - Confirm no compilation references remain
 

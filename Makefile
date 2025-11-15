@@ -201,16 +201,9 @@ help:
 	@echo "    - tests/generated/module_sources.mk"
 	@echo "    - docs/generated/module-reference.md"
 
-# Property metadata code generation
+# Code generation from metadata (smart - only regenerates what changed)
 generate:
-	@echo "Generating code from metadata..."
 	@python3 scripts/generate_properties.py
-	@python3 scripts/generate_module_registry.py
-	@echo "Done. Generated files in src/include/generated/ and src/modules/"
-
-# Module-specific generation targets
-generate-modules:
-	@echo "Generating module registration code..."
 	@python3 scripts/generate_module_registry.py
 
 validate-modules:

@@ -50,8 +50,8 @@ src/modules/
 
 5. **Generate and build**:
    ```bash
-   make generate-modules  # Auto-generates registration code
-   make                   # Build
+   make generate  # Auto-generates registration code
+   make           # Build
    ```
 
 See **[docs/developer/module-developer-guide.md](../../docs/developer/module-developer-guide.md)** for comprehensive module development guide.

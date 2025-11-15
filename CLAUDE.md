@@ -23,7 +23,8 @@ make
 
 # Note: Property code auto-regenerates during `make` when YAML changes
 
-# Regenerate property code from metadata (after editing YAML files)
+# Regenerate all code from metadata (smart - only regenerates what changed)
+# Run after editing property YAML files or module metadata
 make generate
 
 # Verify generated code is up-to-date (CI check)

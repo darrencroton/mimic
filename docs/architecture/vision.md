@@ -57,7 +57,7 @@ These principles guide all design decisions and implementation choices in Mimic:
 
 **Benefits**: Reduces code duplication, eliminates manual synchronization between different representations, enables build-time optimization, and simplifies maintenance by creating a single source of truth.
 
-**In Practice**: Adding a new galaxy property requires editing a single YAML file and running `make generate`. Adding a new physics module requires creating `module_info.yaml` and running `make generate-modules`. All C code, documentation, and build configuration is automatically generated.
+**In Practice**: Adding a new galaxy property requires editing a single YAML file and running `make generate`. Adding a new physics module requires creating `module_info.yaml` and running `make generate`. All C code, documentation, and build configuration is automatically generated. The `make generate` command is smart - it only regenerates files when their source metadata has changed.
 
 ### 4. Single Source of Truth
 

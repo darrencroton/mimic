@@ -122,6 +122,10 @@ GALAXY_PROPERTIES_YAML = REPO_ROOT / "metadata" / "galaxy_properties.yaml"
 GENERATED_DIR = REPO_ROOT / "src" / "include" / "generated"
 PLOT_GENERATED_DIR = REPO_ROOT / "output" / "mimic-plot" / "generated"
 TESTS_GENERATED_DIR = REPO_ROOT / "tests" / "generated"
+BUILD_DIR = REPO_ROOT / "build"
+
+# Hash tracking file
+PROPERTY_HASH_FILE = BUILD_DIR / "property_hash.txt"
 
 # ==============================================================================
 # VALIDATION
@@ -239,6 +243,27 @@ def compute_yaml_hash() -> str:
             md5.update(f.read())
 
     return md5.hexdigest()
+
+
+def load_saved_hash() -> str:
+    """Load the previously saved hash from disk.
+
+    Returns:
+        The saved hash, or empty string if not found.
+    """
+    if PROPERTY_HASH_FILE.exists():
+        return PROPERTY_HASH_FILE.read_text().strip()
+    return ""
+
+
+def save_hash(yaml_hash: str) -> None:
+    """Save the current hash to disk for future comparison.
+
+    Args:
+        yaml_hash: The MD5 hash to save.
+    """
+    ensure_dir(BUILD_DIR)
+    PROPERTY_HASH_FILE.write_text(yaml_hash + "\n")
 
 
 def generate_header(yaml_hash: str):
@@ -749,6 +774,24 @@ def main():
     # Compute YAML hash for validation
     yaml_hash = compute_yaml_hash()
 
+    # Check if regeneration is needed
+    saved_hash = load_saved_hash()
+    if saved_hash == yaml_hash:
+        print("✓ Property metadata unchanged - skipping regeneration")
+        print(f"  Hash: {yaml_hash}")
+        print()
+        return 0
+
+    # Hash mismatch or missing - regeneration needed
+    if saved_hash:
+        print(f"Property metadata changed - regenerating...")
+        print(f"  Old hash: {saved_hash}")
+        print(f"  New hash: {yaml_hash}")
+    else:
+        print("No previous hash found - generating for first time...")
+        print(f"  Hash: {yaml_hash}")
+    print()
+
     # Load YAML
     with open(HALO_PROPERTIES_YAML) as f:
         halo_data = yaml.safe_load(f)
@@ -834,6 +877,9 @@ To regenerate: make generate
         TESTS_GENERATED_DIR / "property_ranges.json",
         generate_validation_manifest(halo_props, galaxy_props),
     )
+
+    # Save hash for future comparison
+    save_hash(yaml_hash)
 
     print()
     print("=" * 70)

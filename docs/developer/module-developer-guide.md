@@ -13,7 +13,7 @@
 1. **Copy template**: `cp -r src/modules/_system/template src/modules/my_module`
 2. **Implement 3 functions**: `init()`, `process_halos()`, `cleanup()`
 3. **Define metadata**: Edit `module_info.yaml` (name, parameters, dependencies)
-4. **Auto-register**: Run `make generate-modules`
+4. **Auto-register**: Run `make generate`
 5. **Test**: Unit tests + integration tests + scientific validation
 
 **Module interface (must implement):**
@@ -215,7 +215,7 @@ make generate
 make validate-modules
 
 # Generate registration code (automatic during build, but you can test it)
-make generate-modules
+make generate
 
 # Build
 make

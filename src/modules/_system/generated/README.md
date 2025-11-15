@@ -18,7 +18,7 @@ Module registration and initialization code automatically generated from all `mo
 
 **Regenerated when:**
 - Any `module_info.yaml` file changes
-- Running `make generate` or `make generate-modules`
+- Running `make generate` (smart - only regenerates if metadata changed)
 - Automatic during `make` if metadata changes
 
 **Source metadata:**
