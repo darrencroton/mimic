@@ -102,7 +102,7 @@ Mimic follows the **testing pyramid** approach:
 
 ### The Problem: Hardcoded Production Modules
 
-Infrastructure tests verify core module system functionality (configuration parsing, registration, pipeline execution). These tests previously hardcoded production physics module names (`simple_cooling`, `simple_sfr`), creating architectural violations:
+Infrastructure tests verify core module system functionality (configuration parsing, registration, pipeline execution). These tests previously hardcoded production physics module names, creating architectural violations:
 
 ❌ **Violates**: Vision Principle #1 (Physics-Agnostic Core Infrastructure)
 ❌ **Problem**: Production module changes break infrastructure tests
@@ -153,7 +153,7 @@ strcpy(MimicConfig.EnabledModules[0], "simple_cooling");  // BAD!
 
 | Test Type | Location | Purpose | Uses |
 |-----------|----------|---------|------|
-| **Module-Specific** | `src/modules/MODULE_NAME/` | Test specific module's physics | Production modules (sage_infall, etc.) |
+| **Module-Specific** | `src/modules/MODULE_NAME/` | Test specific module's physics | Specific production modules |
 | **Infrastructure** | `tests/unit/`, `tests/integration/` | Test core module system | `test_fixture` only |
 
 ### About test_fixture Module
@@ -178,10 +178,10 @@ int result = module_system_init();
 TEST_ASSERT_EQUAL(result, 0, "Module system should initialize");
 ```
 
-**Testing sage_infall physics** (module-specific test):
+**Testing module physics** (module-specific test):
 ```c
-// Use sage_infall to test infall physics calculations
-strcpy(MimicConfig.EnabledModules[0], "sage_infall");
+// Use specific module to test its physics calculations
+strcpy(MimicConfig.EnabledModules[0], "infall_model");
 // ... test infall-specific physics ...
 ```
 
@@ -288,8 +288,8 @@ import shutil
 # Create custom test parameter file
 param_file, output_dir, temp_dir = create_test_param_file(
     output_name="my_test",
-    enabled_modules=["sage_infall"],
-    module_params={"SageInfall_BaryonFrac": "0.17"}
+    enabled_modules=["infall_model"],
+    module_params={"InflallModel_BaryonFrac": "0.17"}
 )
 
 # Run Mimic
@@ -358,25 +358,25 @@ src/modules/
 │   ├── template_module.h
 │   ├── module_info.yaml.template
 │   └── README.md              # Module creation guide
-├── sage_infall/
-│   ├── sage_infall.c
-│   ├── sage_infall.h
+├── module_a/
+│   ├── module_a.c
+│   ├── module_a.h
 │   ├── module_info.yaml       # Declares test files
-│   ├── test_unit_sage_infall.c              # Unit tests (software quality)
-│   ├── test_integration_sage_infall.py      # Integration tests (pipeline integration)
-│   └── test_scientific_sage_infall_validation.py  # Scientific tests (physics validation)
-├── simple_cooling/
-│   ├── simple_cooling.c
+│   ├── test_unit_module_a.c              # Unit tests (software quality)
+│   ├── test_integration_module_a.py      # Integration tests (pipeline integration)
+│   └── test_scientific_module_a_validation.py  # Scientific tests (physics validation)
+├── module_b/
+│   ├── module_b.c
 │   ├── module_info.yaml       # Declares test files
-│   ├── test_unit_simple_cooling.c
-│   ├── test_integration_simple_cooling.py
-│   └── test_scientific_simple_cooling.py
-└── simple_sfr/
-    ├── simple_sfr.c
+│   ├── test_unit_module_b.c
+│   ├── test_integration_module_b.py
+│   └── test_scientific_module_b.py
+└── module_c/
+    ├── module_c.c
     ├── module_info.yaml       # Declares test files
-    ├── test_unit_simple_sfr.c
-    ├── test_integration_simple_sfr.py
-    └── test_scientific_simple_sfr.py
+    ├── test_unit_module_c.c
+    ├── test_integration_module_c.py
+    └── test_scientific_module_c.py
 ```
 
 **Test Registry** (auto-generated):
@@ -403,9 +403,9 @@ Mimic uses a **metadata-driven test discovery system** to maintain the physics-a
 1. **Module Metadata**: Each module's `module_info.yaml` declares its test files:
    ```yaml
    tests:
-     unit: test_unit_sage_infall.c
-     integration: test_integration_sage_infall.py
-     scientific: test_scientific_sage_infall_validation.py
+     unit: test_unit_module_a.c
+     integration: test_integration_module_a.py
+     scientific: test_scientific_module_a_validation.py
    ```
 
 2. **Registry Generation**: `make generate-test-registry` scans all modules and generates test lists:
@@ -447,7 +447,7 @@ make validate-test-registry
 #### Module Tests (co-located with modules)
 - **Purpose**: Test specific physics module functionality (software quality and physics validation)
 - **Location**: `src/modules/MODULE_NAME/test_*.{c,py}` (co-located with module code)
-- **Templates**: See existing module tests (e.g., `sage_infall/test_*` files) as examples
+- **Templates**: See existing module tests in `src/modules/` as examples
 - **Naming**: `test_unit_MODULE.c`, `test_integration_MODULE.py`, `test_scientific_MODULE_validation.py`
 - **When to add**: When creating or modifying a physics module
 
@@ -1160,22 +1160,22 @@ This co-location maintains the physics-agnostic core principle - infrastructure 
 
 **Available examples**:
 
-1. **src/modules/sage_infall/test_unit_sage_infall.c**
-   - Complete example of module unit test
+1. **Module unit tests** (`test_unit_*.c`)
+   - Complete examples of module unit tests in existing modules
    - Shows registration, initialization, parameter handling, memory safety
-   - **Copy and adapt this** for new module unit tests
+   - **Copy and adapt from existing modules** for new module unit tests
 
-2. **src/modules/sage_infall/test_integration_sage_infall.py**
-   - Complete example of module integration test
+2. **Module integration tests** (`test_integration_*.py`)
+   - Complete examples of module integration tests in existing modules
    - Shows module loading, property verification, parameter configuration
-   - **Copy and adapt this** for new module integration tests
+   - **Copy and adapt from existing modules** for new module integration tests
 
-3. **src/modules/sage_infall/test_scientific_sage_infall_validation.py**
-   - Complete example of module scientific test
+3. **Module scientific tests** (`test_scientific_*_validation.py`)
+   - Complete examples of module scientific tests in existing modules
    - Shows physics validation, property ranges, conservation
-   - **Copy and adapt this** for new module scientific tests
+   - **Copy and adapt from existing modules** for new module scientific tests
 
-**Additional examples**: See `src/modules/simple_cooling/` and `src/modules/simple_sfr/` for more patterns
+**Additional examples**: See module implementations in `src/modules/` for more patterns
 
 ### Template Usage Decision Tree
 
@@ -1188,7 +1188,7 @@ Are you testing core infrastructure?
 │
 └─ NO → Testing a physics module?
         ├─ YES → Use existing module tests as examples
-        │         - Copy from src/modules/sage_infall/test_*
+        │         - Copy from existing module test files in src/modules/
         │         - Adapt for your module's physics
         │         - Place tests in src/modules/YOUR_MODULE/
         │         - Declare in module_info.yaml

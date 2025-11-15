@@ -242,7 +242,7 @@ make test-integration # Run integration tests
 Add to your `.par` file:
 
 ```
-EnabledModules  simple_cooling,simple_sfr,my_module
+EnabledModules  existing_module_a,existing_module_b,my_module
 MyModule_SomeParameter  1.5
 ```
 
@@ -707,20 +707,20 @@ def test_mass_conservation():
     # Allow 1% tolerance
     np.testing.assert_allclose(total_mass, expected, rtol=0.01)
 
-def test_vs_sage_results():
-    """Compare against SAGE reference"""
+def test_vs_reference_results():
+    """Compare against reference implementation"""
     mimic_data = read_binary_halos('output/my_module_test.dat')
-    sage_data = read_sage_output('sage_reference/model.dat')
+    reference_data = read_reference_output('reference/model.dat')
 
     # Statistical comparison
     assert_distributions_similar(mimic_data['MyProperty'],
-                                sage_data['MyProperty'],
+                                reference_data['MyProperty'],
                                 tolerance=0.1)
 ```
 
 **What to test**:
 - Mass/energy conservation
-- Comparison to SAGE results
+- Comparison to reference implementation results
 - Published results reproduction
 - Physical plausibility checks
 
@@ -739,9 +739,9 @@ It's acceptable to defer physics validation tests when module dependencies are i
 **When to defer:**
 
 1. **Dependencies incomplete**: Module requires downstream modules for validation
-   - Example: `sage_infall` needs `sage_cooling` + `sage_starformation_feedback` to validate mass flows
+   - Example: `infall_module` needs `cooling_module` + `starformation_module` to validate mass flows
 2. **End-to-end validation required**: Physics can only be validated in full pipeline
-3. **Reference data not yet available**: SAGE comparison data requires complete pipeline run
+3. **Reference data not yet available**: Reference comparison data requires complete pipeline run
 
 **Requirements for deferral:**
 
@@ -755,18 +755,18 @@ It's acceptable to defer physics validation tests when module dependencies are i
 ```python
 #!/usr/bin/env python3
 """
-Scientific validation tests for sage_infall module.
+Scientific validation tests for infall_module.
 
-STATUS: DEFERRED to Phase 4.3+
+STATUS: DEFERRED
 
 RATIONALE:
-Physics validation requires downstream modules (sage_cooling,
-sage_starformation_feedback, sage_reincorporation) to validate
+Physics validation requires downstream modules (cooling_module,
+starformation_module, reincorporation_module) to validate
 complete mass flows through the galaxy formation pipeline.
 
 PLAN:
 After downstream modules are implemented:
-- Compare Mimic vs SAGE outputs on identical trees
+- Compare Mimic vs reference outputs on identical trees
 - Validate mass conservation through full pipeline
 - Check reionization suppression curves
 - Verify statistical galaxy properties (stellar mass functions, etc.)
@@ -776,13 +776,13 @@ For now, unit and integration tests verify software quality.
 
 import unittest
 
-class TestSageInflallValidation(unittest.TestCase):
+class TestInflallModuleValidation(unittest.TestCase):
     """Scientific validation tests - deferred until dependencies complete."""
 
     def test_deferred_placeholder(self):
-        """Placeholder test - validation deferred to Phase 4.3+"""
-        self.skipTest("Physics validation deferred until sage_cooling, "
-                     "sage_starformation_feedback, sage_reincorporation complete")
+        """Placeholder test - validation deferred until dependencies complete"""
+        self.skipTest("Physics validation deferred until cooling_module, "
+                     "starformation_module, reincorporation_module complete")
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
@@ -800,17 +800,17 @@ if __name__ == '__main__':
 
 ### Physics Validation ⏸️
 
-**Status**: Deferred to Phase 4.3+
+**Status**: Deferred
 
 **Rationale**: Physics validation requires comparing complete mass flows
-through the full galaxy formation pipeline. With only `sage_infall`
+through the full galaxy formation pipeline. With only `infall_module`
 implemented, we cannot validate:
 - Correct HotGas amounts (requires cooling module to consume it)
 - Baryon cycling (requires star formation and feedback)
 - Reionization suppression effects (requires seeing impact on galaxy populations)
 
 **Plan**: After downstream modules complete, conduct comprehensive validation:
-- Compare Mimic vs SAGE outputs on identical trees
+- Compare Mimic vs reference outputs on identical trees
 - Validate mass conservation through full pipeline
 - Check reionization suppression curves
 ```
@@ -820,7 +820,7 @@ implemented, we cannot validate:
 - ❌ Integration tests - Always implement (test pipeline integration)
 - ❌ Simple physics checks - If testable in isolation, test it now
 
-**Reference:** See `src/modules/sage_infall/test_scientific_sage_infall_validation.py` for production placeholder example.
+**Reference:** See module-specific test files for production placeholder examples.
 
 ### Test Auto-Discovery
 
@@ -1001,16 +1001,16 @@ src/modules/my_module/
     └── README.txt        # Data file documentation
 ```
 
-**Example from sage_cooling:**
+**Example from cooling module:**
 
 ```c
-// sage_cooling.h - Main module interface
-#ifndef SAGE_COOLING_H
-#define SAGE_COOLING_H
+// cooling_model.h - Main module interface
+#ifndef COOLING_MODEL_H
+#define COOLING_MODEL_H
 
 #include "types.h"
 
-void sage_cooling_register(void);
+void cooling_model_register(void);
 
 #endif
 
@@ -1036,7 +1036,7 @@ void cleanup_cooling_tables(void);
 - Single physics process
 - No complex data loading
 
-**Reference:** See `src/modules/sage_cooling/` for a production example with separate `cooling_tables.c/h` files.
+**Reference:** See module implementations for production examples with separate helper files.
 
 ### Pattern 7: Module-Specific Data Files
 
@@ -1044,12 +1044,12 @@ void cleanup_cooling_tables(void);
 
 **✅ CORRECT - Data co-located with module:**
 ```
-src/modules/sage_cooling/
-├── sage_cooling.c
-├── sage_cooling.h
+src/modules/cooling_model/
+├── cooling_model.c
+├── cooling_model.h
 └── CoolFunctions/              # Data WITH module
-    ├── stripped_mzero.cie
-    ├── stripped_m-30.cie
+    ├── table_mzero.dat
+    ├── table_m-30.dat
     └── ABOUT.txt
 ```
 
@@ -1057,11 +1057,11 @@ src/modules/sage_cooling/
 ```
 input/
 └── CoolFunctions/              # Violates module isolation
-    └── *.cie
+    └── *.dat
 
-src/modules/sage_cooling/
-├── sage_cooling.c              # Far from its data
-└── sage_cooling.h
+src/modules/cooling_model/
+├── cooling_model.c             # Far from its data
+└── cooling_model.h
 ```
 
 **Loading Data from Module Directory:**
@@ -1071,17 +1071,17 @@ src/modules/sage_cooling/
 parameters:
   - name: CoolFunctionsDir
     type: string
-    default: "src/modules/sage_cooling/CoolFunctions"
+    default: "src/modules/cooling_model/CoolFunctions"
     description: "Directory containing cooling function tables"
 
 // In init(): Load from configurable path (with sensible default)
-static char COOL_FUNCTIONS_DIR[512] = "src/modules/sage_cooling/CoolFunctions";
+static char COOL_FUNCTIONS_DIR[512] = "src/modules/cooling_model/CoolFunctions";
 
 static int my_module_init(void) {
     // Read parameter (allows override if needed)
-    module_get_parameter("SageCooling", "CoolFunctionsDir",
+    module_get_parameter("CoolingModel", "CoolFunctionsDir",
                         COOL_FUNCTIONS_DIR, sizeof(COOL_FUNCTIONS_DIR),
-                        "src/modules/sage_cooling/CoolFunctions");
+                        "src/modules/cooling_model/CoolFunctions");
 
     // Load tables from module directory
     if (load_cooling_tables(COOL_FUNCTIONS_DIR) != 0) {
@@ -1106,7 +1106,7 @@ static int my_module_init(void) {
 - Shared across ALL modules (e.g., cosmological constants)
 - User-provided data (not module-specific)
 
-**Reference:** See `src/modules/sage_cooling/CoolFunctions/` for production example with 16 data files co-located with module code.
+**Reference:** See module implementations for production examples with data files co-located with module code.
 
 ### Pattern 8: Using Shared Physics Utilities
 
@@ -1351,7 +1351,7 @@ for (int i = 0; i < ngal; i++) {
 
 - **Module Interface**: `src/core/module_interface.h`
 - **Module Registry**: `src/core/module_registry.h`
-- **Example Modules**: `src/modules/sage_infall/`, `src/modules/sage_cooling/`, `src/modules/simple_sfr/`
+- **Example Modules**: See existing module implementations in `src/modules/`
 - **Property Metadata**: `metadata/galaxy_properties.yaml`
 - **Module Template**: `src/modules/_system/template/`
 

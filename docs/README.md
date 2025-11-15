@@ -69,12 +69,12 @@ Mimic's physics is configured at runtime via the `.par` file. **No recompilation
 **Example configuration:**
 ```
 # Select modules to run (order matters for dependencies)
-EnabledModules  sage_infall,sage_cooling
+EnabledModules  infall_model,cooling_model
 
 # Configure module parameters
-SageInfall_BaryonFrac  0.17
-SageInfall_ReionizationOn  1
-SageCooling_CoolFunctionsDir  input/CoolFunctions
+InflallModel_BaryonFrac  0.17
+InflallModel_ReionizationOn  1
+CoolingModel_CoolFunctionsDir  input/CoolFunctions
 ```
 
 **Documentation:**
@@ -368,7 +368,8 @@ mimic/
 │   ├── util/              # Utilities (memory, error, numeric)
 │   ├── modules/           # Physics modules
 │   │   ├── _template/     # Module template
-│   │   ├── sage_infall/   # SAGE infall module
+│   │   ├── module_a/      # Example physics module
+│   │   ├── module_b/      # Example physics module
 │   │   ├── test_fixture/  # Testing infrastructure module
 │   │   └── generated/     # Auto-generated module registration
 │   └── include/           # Headers

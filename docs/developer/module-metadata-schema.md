@@ -120,13 +120,13 @@ Each physics module has its own metadata file:
 
 ```
 src/modules/
-├── sage_infall/
-│   ├── sage_infall.c
-│   ├── sage_infall.h
+├── module_a/
+│   ├── module_a.c
+│   ├── module_a.h
 │   └── module_info.yaml        ← Module metadata
-├── simple_cooling/
-│   ├── simple_cooling.c
-│   ├── simple_cooling.h
+├── module_b/
+│   ├── module_b.c
+│   ├── module_b.h
 │   └── module_info.yaml        ← Module metadata
 └── _template/
     ├── template_module.c
@@ -208,12 +208,12 @@ module:
 
 **Examples**:
 ```yaml
-name: sage_infall
-name: simple_cooling
-name: starformation_feedback
+name: infall_model
+name: cooling_model
+name: starformation_model
 ```
 
-**Validation**: Must match directory name (e.g., `sage_infall` module in `src/modules/sage_infall/`)
+**Validation**: Must match directory name (e.g., `infall_model` module in `src/modules/infall_model/`)
 
 #### display_name (string, required)
 
@@ -324,7 +324,7 @@ category: mergers
 **Examples**:
 ```yaml
 sources:
-  - sage_infall.c
+  - infall_model.c
 
 sources:
   - cooling_main.c
@@ -346,7 +346,7 @@ sources:
 **Examples**:
 ```yaml
 headers:
-  - sage_infall.h
+  - infall_model.h
 
 headers:
   - cooling.h
@@ -368,8 +368,8 @@ headers:
 
 **Examples**:
 ```yaml
-register_function: sage_infall_register
-register_function: simple_cooling_register
+register_function: infall_model_register
+register_function: cooling_model_register
 ```
 
 **Validation**:
@@ -394,16 +394,16 @@ register_function: simple_cooling_register
 **Examples**:
 ```yaml
 dependencies:
-  requires: []  # No dependencies (e.g., sage_infall)
+  requires: []  # No dependencies (e.g., infall_model)
 
 dependencies:
   requires:
-    - HotGas       # simple_cooling needs HotGas
+    - HotGas       # cooling_model needs HotGas
     - MetalsHotGas
 
 dependencies:
   requires:
-    - ColdGas      # simple_sfr needs ColdGas
+    - ColdGas      # starformation_model needs ColdGas
 ```
 
 **Validation**:
@@ -433,11 +433,11 @@ dependencies:
 
 dependencies:
   provides:
-    - ColdGas      # simple_cooling creates ColdGas
+    - ColdGas      # cooling_model creates ColdGas
 
 dependencies:
   provides:
-    - StellarMass  # simple_sfr creates StellarMass
+    - StellarMass  # starformation_model creates StellarMass
 ```
 
 **Validation**:
@@ -537,7 +537,7 @@ SageInfall_Reionization_z0  8.0
 **Example**:
 ```yaml
 tests:
-  unit: test_unit_sage_infall.c
+  unit: test_unit_infall_model.c
 ```
 
 **Generated**: Automatically included in test build system
@@ -555,7 +555,7 @@ tests:
 **Example**:
 ```yaml
 tests:
-  integration: test_integration_sage_infall.py
+  integration: test_integration_infall_model.py
 ```
 
 #### tests.scientific (string, optional)
@@ -571,7 +571,7 @@ tests:
 **Example**:
 ```yaml
 tests:
-  scientific: test_scientific_sage_infall_validation.py
+  scientific: test_scientific_infall_model_validation.py
 ```
 
 ---
@@ -590,7 +590,7 @@ tests:
 **Example**:
 ```yaml
 docs:
-  physics: src/modules/sage_infall/README.md
+  physics: src/modules/infall_model/README.md
 ```
 
 **Generated**: Linked in module reference documentation
@@ -674,23 +674,23 @@ default_enabled: false  # Optional experimental module
 
 ## Complete Examples
 
-### Example: SAGE Infall Module (Complete)
+### Example: Infall Module (Complete)
 
 ```yaml
-# src/modules/sage_infall/module_info.yaml
+# src/modules/infall_model/module_info.yaml
 module:
   # Core Metadata
-  name: sage_infall
-  display_name: "SAGE Infall"
-  description: "Cosmological gas infall and satellite stripping from SAGE model."
+  name: infall_model
+  display_name: "Gas Infall Model"
+  description: "Cosmological gas infall and satellite stripping module."
   version: "1.0.0"
-  author: "Mimic Team (ported from SAGE)"
+  author: "Your Team"
   category: gas_physics
 
   # Source Files
-  sources: [sage_infall.c]
-  headers: [sage_infall.h]
-  register_function: sage_infall_register
+  sources: [infall_model.c]
+  headers: [infall_model.h]
+  register_function: infall_model_register
 
   # Dependencies
   dependencies:
@@ -722,20 +722,19 @@ module:
 
   # Testing
   tests:
-    unit: test_unit_sage_infall.c
-    integration: test_integration_sage_infall.py
-    scientific: test_scientific_sage_infall_validation.py
+    unit: test_unit_infall_model.c
+    integration: test_integration_infall_model.py
+    scientific: test_scientific_infall_model_validation.py
 
   # Documentation
   documentation:
     reference_papers:
-      - "Croton et al. 2006, MNRAS, 365, 11"
-      - "Guo et al. 2011, MNRAS, 413, 101"
-    file: src/modules/sage_infall/README.md
+      - "Author et al. 2020, Journal, Volume, Page"
+    file: src/modules/infall_model/README.md
 ```
 
 **Additional examples** available in existing modules:
-- `src/modules/sage_cooling/module_info.yaml` - Physics module with multiple parameters
+- Existing module implementations in `src/modules/` - Physics modules with various configurations
 - `src/modules/_system/test_fixture/module_info.yaml` - Minimal testing module
 - `src/modules/_system/template/module_info.yaml.template` - Template for new modules
 
@@ -760,9 +759,9 @@ module:
 #include "module_registry.h"
 
 /* Auto-generated module includes (sorted alphabetically) */
-#include "sage_infall/sage_infall.h"
-#include "simple_cooling/simple_cooling.h"
-#include "simple_sfr/simple_sfr.h"
+#include "infall_model/infall_model.h"
+#include "cooling_model/cooling_model.h"
+#include "starformation_model/starformation_model.h"
 
 /**
  * @brief Register all available physics modules
@@ -770,15 +769,15 @@ module:
  * Modules registered: 3
  *
  * Dependency order:
- * 1. sage_infall: provides HotGas, MetalsHotGas, ...
- * 2. simple_cooling: requires [] → provides ColdGas
- * 3. simple_sfr: requires ColdGas → provides StellarMass
+ * 1. infall_model: provides HotGas, MetalsHotGas, ...
+ * 2. cooling_model: requires [] → provides ColdGas
+ * 3. starformation_model: requires ColdGas → provides StellarMass
  */
 void register_all_modules(void) {
     /* Register in dependency-resolved order */
-    sage_infall_register();      /* Provides: HotGas, MetalsHotGas, EjectedMass, ... */
-    simple_cooling_register();   /* Requires: [] → Provides: ColdGas */
-    simple_sfr_register();       /* Requires: ColdGas → Provides: StellarMass */
+    infall_model_register();         /* Provides: HotGas, MetalsHotGas, EjectedMass, ... */
+    cooling_model_register();        /* Requires: [] → Provides: ColdGas */
+    starformation_model_register();  /* Requires: ColdGas → Provides: StellarMass */
 }
 ```
 
@@ -791,9 +790,9 @@ void register_all_modules(void) {
 # Module source files for unit testing
 MODULE_SRCS = \
     $(SRC_DIR)/core/module_registry.c \
-    $(SRC_DIR)/modules/sage_infall/sage_infall.c \
-    $(SRC_DIR)/modules/simple_cooling/simple_cooling.c \
-    $(SRC_DIR)/modules/simple_sfr/simple_sfr.c \
+    $(SRC_DIR)/modules/infall_model/infall_model.c \
+    $(SRC_DIR)/modules/cooling_model/cooling_model.c \
+    $(SRC_DIR)/modules/starformation_model/starformation_model.c \
     $(SRC_DIR)/modules/module_init.c
 ```
 

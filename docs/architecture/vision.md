@@ -28,7 +28,7 @@ These principles guide all design decisions and implementation choices in Mimic:
 
 **Benefits**: Enables independent development of physics and infrastructure, simplifies testing, allows for physics module hot-swapping, and reduces complexity in core systems.
 
-**In Practice**: The core evolution loop does not contain `#include "model_cooling.h"` or direct calls to `starformation_and_feedback()`. Instead, it iterates through registered physics modules and calls a generic `execute()` function on each.
+**In Practice**: The core evolution loop does not contain `#include "physics_module.h"` or direct calls to specific physics functions. Instead, it iterates through registered physics modules and calls a generic `execute()` function on each.
 
 ### 2. Runtime Modularity
 
@@ -42,7 +42,7 @@ These principles guide all design decisions and implementation choices in Mimic:
 
 **Benefits**: Provides scientific flexibility for different research questions, makes it easy to experiment with physics combinations, offers deployment flexibility, and simplifies testing of different physics scenarios.
 
-**In Practice**: Users can switch from one cooling model to another, or disable AGN feedback entirely, by changing a configuration file and re-running the executable.
+**In Practice**: Users can switch from one physics model to another, or disable specific physics modules entirely, by changing a configuration file and re-running the executable.
 
 ### 3. Metadata-Driven Architecture
 
@@ -174,8 +174,8 @@ These principles guide all design decisions and implementation choices in Mimic:
 ├─────────────────────────────────────────────────────────────┤
 │                    Physics Modules                         │
 │  ┌─────────────────┬─────────────────┬─────────────────┐   │
-│  │ Cooling         │ Star Formation  │ AGN Feedback    │   │
-│  │ Mergers         │ Reincorporation │ Disk Instability│   │
+│  │ Module A        │ Module B        │ Module C        │   │
+│  │ Module D        │ Module E        │ Module F        │   │
 │  └─────────────────┴─────────────────┴─────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```

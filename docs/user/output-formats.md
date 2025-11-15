@@ -142,16 +142,16 @@ Properties are provided by modules. To get specific properties:
 | Property | Required Module | Configuration |
 |----------|----------------|---------------|
 | Mvir, Rvir, Vmax, Spin | Core (always) | No modules needed |
-| ColdGas | simple_cooling | `EnabledModules simple_cooling` |
-| StellarMass | simple_sfr + cooling | `EnabledModules simple_cooling,simple_sfr` |
+| ColdGas | Cooling module | `EnabledModules cooling_model` |
+| StellarMass | Star formation + cooling | `EnabledModules cooling_model,starformation_model` |
 
 **Example**: To get both ColdGas and StellarMass in output:
 
 ```
-EnabledModules  simple_cooling,simple_sfr
+EnabledModules  cooling_model,starformation_model
 
-SimpleCooling_BaryonFraction  0.15
-SimpleSFR_Efficiency  0.02
+CoolingModel_BaryonFraction      0.15
+StarformationModel_Efficiency    0.02
 ```
 
 ## Reading Output Files

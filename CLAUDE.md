@@ -155,9 +155,9 @@ src/
 │   │   ├── template/       Template for creating new modules
 │   │   └── test_fixture/   Infrastructure testing module
 │   ├── shared/             Shared physics utilities
-│   ├── sage_cooling/       Production: SAGE cooling model
-│   ├── sage_infall/        Production: SAGE infall/stripping
-│   └── simple_sfr/         PoC: Simple star formation
+│   ├── module_a/           Example physics module
+│   ├── module_b/           Example physics module
+│   └── module_c/           Example physics module
 └── include/       Headers (types, globals, constants)
     └── generated/ Auto-generated property code
 

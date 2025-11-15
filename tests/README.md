@@ -70,10 +70,7 @@ Tests for **physics modules** in `src/modules/*/test_*.{c,py}`:
 - **Co-located** with module source code
 - **Three tiers** per module: unit (C), integration (Python), scientific (Python)
 - **Count**: Currently 4 modules × 3 test tiers = 12 module tests
-- **Examples**:
-  - `src/modules/sage_infall/test_unit_sage_infall.c`
-  - `src/modules/sage_infall/test_integration_sage_infall.py`
-  - `src/modules/sage_infall/test_scientific_sage_infall_validation.py`
+- **Examples**: See test files co-located with modules in `src/modules/*/test_*`
 
 **See [docs/developer/testing.md](../docs/developer/testing.md) for complete module testing guide.**
 
@@ -130,31 +127,26 @@ tests/
 **Module Tests** (co-located with modules):
 ```
 src/modules/
-├── sage_infall/
-│   ├── sage_infall.c
-│   ├── sage_infall.h
+├── module_a/
+│   ├── module_a.c
+│   ├── module_a.h
 │   ├── module_info.yaml                    # Declares test files
-│   ├── test_unit_sage_infall.c             # Module unit test
-│   ├── test_integration_sage_infall.py     # Module integration test
-│   └── test_scientific_sage_infall_validation.py  # Module scientific test
+│   ├── test_unit_module_a.c                # Module unit test
+│   ├── test_integration_module_a.py        # Module integration test
+│   └── test_scientific_module_a_validation.py  # Module scientific test
+├── module_b/
+│   ├── module_b.c
+│   ├── module_info.yaml
+│   ├── test_unit_module_b.c
+│   ├── test_integration_module_b.py
+│   └── test_scientific_module_b.py
 ├── test_fixture/                            # Infrastructure testing only
 │   ├── fixture.c
 │   ├── module_info.yaml
 │   ├── test_unit_test_fixture.c
 │   ├── test_integration_test_fixture.py
 │   └── README.md                            # Explains special purpose
-├── simple_cooling/
-│   ├── simple_cooling.c
-│   ├── module_info.yaml
-│   ├── test_unit_simple_cooling.c
-│   ├── test_integration_simple_cooling.py
-│   └── test_scientific_simple_cooling.py
-└── simple_sfr/
-    ├── simple_sfr.c
-    ├── module_info.yaml
-    ├── test_unit_simple_sfr.c
-    ├── test_integration_simple_sfr.py
-    └── test_scientific_simple_sfr.py
+└── [other modules...]
 ```
 
 **Test Registry** (auto-generated):
@@ -199,7 +191,7 @@ build/generated_test_lists/
 
 ### For Module Tests
 
-1. **Copy existing module test as example** (e.g., from `src/modules/sage_infall/test_*`)
+1. **Copy existing module test as example** (from `src/modules/*/test_*`)
 2. **Adapt for your module's functionality**
 3. **Place in module directory**: `src/modules/YOUR_MODULE/test_*.{c,py}`
 4. **Declare in `module_info.yaml`**:

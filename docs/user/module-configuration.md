@@ -15,7 +15,7 @@ Mimic's modular architecture allows you to enable/disable galaxy physics modules
 Modules are enabled via the `EnabledModules` parameter in your `.par` file:
 
 ```
-EnabledModules  simple_cooling,simple_sfr
+EnabledModules  cooling_model,starformation_model
 ```
 
 **Format:**
@@ -30,10 +30,10 @@ Modules execute in the order listed. If Module B depends on properties created b
 
 ```
 # CORRECT: cooling provides ColdGas for star formation
-EnabledModules  simple_cooling,simple_sfr
+EnabledModules  cooling_model,starformation_model
 
-# WRONG: simple_sfr runs first, sees no cold gas!
-EnabledModules  simple_sfr,simple_cooling
+# WRONG: starformation runs first, sees no cold gas!
+EnabledModules  starformation_model,cooling_model
 ```
 
 ### Physics-Free Mode
@@ -62,27 +62,27 @@ ModuleName_ParameterName  value
 - **Parameter name**: Defined by each module
 - **Value**: String (modules parse to appropriate type)
 
-### Example: Simple Cooling Module
+### Example: Single Module
 
 ```
-# Enable simple cooling
-EnabledModules  simple_cooling
+# Enable a cooling module
+EnabledModules  cooling_model
 
 # Configure cooling parameters
-SimpleCooling_BaryonFraction  0.15
+CoolingModel_BaryonFraction  0.15
 ```
 
 ### Example: Multiple Modules
 
 ```
 # Enable multiple modules
-EnabledModules  simple_cooling,simple_sfr
+EnabledModules  cooling_model,starformation_model
 
-# Simple cooling parameters
-SimpleCooling_BaryonFraction  0.15
+# Cooling module parameters
+CoolingModel_BaryonFraction  0.15
 
 # Star formation parameters
-SimpleSFR_Efficiency  0.02
+StarformationModel_Efficiency  0.02
 ```
 
 ## Available Modules (Phase 3)
@@ -229,13 +229,13 @@ UnitMass_in_g                  1.989e+43
 %------------------------------------------
 %----- Galaxy Physics Modules -------------
 %------------------------------------------
-EnabledModules          simple_cooling,simple_sfr
+EnabledModules          cooling_model,starformation_model
 
-# Simple cooling module
-SimpleCooling_BaryonFraction    0.15
+# Cooling module parameters
+CoolingModel_BaryonFraction    0.15
 
-# Star formation module
-SimpleSFR_Efficiency          0.02
+# Star formation module parameters
+StarformationModel_Efficiency  0.02
 ```
 
 ## Error Handling
@@ -252,8 +252,9 @@ EnabledModules  fake_module
 ```
 ERROR: Module 'fake_module' listed in EnabledModules but not registered
 Available modules:
-  - simple_cooling
-  - simple_sfr
+  - module_a
+  - module_b
+  - module_c
 ```
 
 **Solution**: Check module name spelling or verify module is compiled

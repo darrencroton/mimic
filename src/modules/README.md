@@ -68,15 +68,15 @@ Each module directory must contain:
 
 1. **Unit test (C)**: `test_unit_MODULE_NAME.c`
    - Tests module lifecycle, initialization, parameters, memory safety
-   - Example: `sage_infall/test_unit_sage_infall.c`
+   - See existing module test files for examples
 
 2. **Integration test (Python)**: `test_integration_MODULE_NAME.py`
    - Tests module in full pipeline, property output, configuration
-   - Example: `sage_infall/test_integration_sage_infall.py`
+   - See existing module test files for examples
 
 3. **Scientific test (Python)**: `test_scientific_MODULE_NAME_validation.py`
    - Tests physics correctness, property ranges, conservation laws
-   - Example: `sage_infall/test_scientific_sage_infall_validation.py`
+   - See existing module test files for examples
 
 ### Test Declaration
 
@@ -100,14 +100,14 @@ module:
 **Instead, copy existing module tests as examples**:
 
 ```bash
-# Copy from sage_infall (most complete example)
-cp src/modules/sage_infall/test_unit_sage_infall.c \
+# Copy from an existing module with similar physics
+cp src/modules/existing_module/test_unit_existing_module.c \
    src/modules/my_module/test_unit_my_module.c
 
-cp src/modules/sage_infall/test_integration_sage_infall.py \
+cp src/modules/existing_module/test_integration_existing_module.py \
    src/modules/my_module/test_integration_my_module.py
 
-cp src/modules/sage_infall/test_scientific_sage_infall_validation.py \
+cp src/modules/existing_module/test_scientific_existing_module_validation.py \
    src/modules/my_module/test_scientific_my_module_validation.py
 
 # Then adapt for your module's physics
@@ -136,7 +136,7 @@ make test-scientific    # Runs core + module scientific tests
 - Co-locate tests with module code in `src/modules/MODULE_NAME/`
 - Declare tests in `module_info.yaml` under `tests:` section
 - Follow strict naming: `test_unit_*.c`, `test_integration_*.py`, `test_scientific_*_validation.py`
-- Use existing module tests as templates (copy from `sage_infall/`, `simple_cooling/`, etc.)
+- Use existing module tests as templates (copy from existing modules)
 - Test software quality in unit/integration tests
 - Test physics correctness in scientific tests
 - Check for memory leaks in C unit tests
