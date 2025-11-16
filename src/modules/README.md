@@ -12,15 +12,17 @@ src/modules/
 │   ├── generated/     # Auto-generated module registration
 │   ├── template/      # Template for creating new modules
 │   └── test_fixture/  # Infrastructure testing module
-├── shared/            # Shared physics utilities for modules
-├── sage_cooling/      # Production: SAGE gas cooling model
-├── sage_infall/       # Production: SAGE infall and stripping
-└── simple_sfr/        # Proof-of-concept: Simple star formation
+├── shared/            # Shared physics utilities (header-only, no subdirs)
+├── module_a/          # Example: Physics module
+├── module_b/          # Example: Physics module
+└── module_c/          # Example: Physics module
 ```
 
 **User-Facing Content:**
-- **Physics Modules**: `sage_infall/`, `sage_cooling/`, `simple_sfr/`
-- **Shared Utilities**: `shared/` - Reusable physics utilities (e.g., metallicity calculations)
+- **Physics Modules**: Individual module directories - each contains code, tests, and metadata
+- **Shared Utilities**: `shared/` - Reusable physics utilities (e.g., `metallicity.h`, `disk_radius.h`)
+  - Header-only utilities placed directly in `shared/` (no subdirectories)
+  - See `shared/README.md` for creating new shared utilities
 
 **System Infrastructure** (underscore prefix = don't touch):
 - `_system/template/` - Template for creating new modules
@@ -162,8 +164,8 @@ See **[docs/developer/testing.md](../../docs/developer/testing.md)** for:
 ## Module Development Resources
 
 - **Template**: `src/modules/_system/template/` - Boilerplate for new modules
-- **Examples**: `sage_infall/`, `sage_cooling/`, `simple_sfr/` - Working examples
-- **Shared Utilities**: `shared/` - Reusable physics utilities (metallicity, etc.)
+- **Examples**: Existing module implementations in `src/modules/` - Working examples to study
+- **Shared Utilities**: `shared/` - Reusable physics utilities (see `shared/README.md`)
 - **Developer Guide**: [docs/developer/module-developer-guide.md](../../docs/developer/module-developer-guide.md)
 - **Testing Guide**: [docs/developer/testing.md](../../docs/developer/testing.md)
 - **Architecture**: [docs/architecture/vision.md](../../docs/architecture/vision.md)

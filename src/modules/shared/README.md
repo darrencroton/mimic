@@ -4,21 +4,21 @@ This directory contains physics utilities shared across multiple modules to avoi
 
 ## Available Utilities
 
-- **`metallicity/`** - Metallicity calculation (metal mass fraction)
-- **`disk_radius/`** - Disk scale radius calculation (Mo, Mao & White 1998)
+- **`metallicity.h`** - Metallicity calculation (metal mass fraction)
+- **`disk_radius.h`** - Disk scale radius calculation (Mo, Mao & White 1998)
 
 ## How It Works
 
-- Utilities live in `src/modules/shared/UTILITY_NAME/`
-- Modules include them using **relative paths**: `#include "../shared/UTILITY_NAME/utility.h"`
+- Utilities are **header-only files** placed directly in `src/modules/shared/`
+- Modules include them using **relative paths**: `#include "../shared/utility_name.h"`
 - Make's dependency tracking (`-MMD -MP`) automatically rebuilds modules when utilities change
-- NO copying, NO code generation, NO build system magic
+- NO copying, NO code generation, NO build system magic - just simple includes
 
 ## Using a Shared Utility
 
 ```c
 // In your module's .c file
-#include "../shared/metallicity/metallicity.h"
+#include "../shared/metallicity.h"
 
 // Use the utility function
 float Z = mimic_get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
@@ -33,9 +33,9 @@ Changes to shared utilities automatically propagate to all modules that use them
 
 ## Creating a New Shared Utility
 
-1. **Create directory**: `mkdir src/modules/shared/my_utility`
+1. **Create header file**: `src/modules/shared/my_utility.h`
 
-2. **Implement header** (`my_utility.h`):
+2. **Implement as header-only** (using `static inline`):
 ```c
 #ifndef MIMIC_SHARED_MY_UTILITY_H
 #define MIMIC_SHARED_MY_UTILITY_H
@@ -56,10 +56,10 @@ static inline double mimic_my_function(double x) {
 
 3. **Use in modules**:
 ```c
-#include "../shared/my_utility/my_utility.h"
+#include "../shared/my_utility.h"
 ```
 
-4. **Write tests**: Create `test_unit_my_utility.c` in the utility directory
+4. **Write tests**: Create `test_unit_my_utility.c` in `shared/` directory
 
 ## Design Principles
 
@@ -84,4 +84,4 @@ All physics code (including shared utilities) lives in `src/modules/`. The core 
 
 ---
 
-*Shared utilities maintain Mimic's architectural principles while eliminating code duplication through simple, explicit relative path includes.*
+**Design Philosophy**: Keep it simple. Header-only utilities placed directly in `shared/` with no subdirectories. This maintains Mimic's architectural principles while eliminating code duplication through simple, explicit relative path includes.
