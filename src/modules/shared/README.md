@@ -2,6 +2,11 @@
 
 This directory contains physics utilities shared across multiple modules to avoid code duplication while maintaining a single source of truth.
 
+## Available Utilities
+
+- **`metallicity/`** - Metallicity calculation (metal mass fraction)
+- **`disk_radius/`** - Disk scale radius calculation (Mo, Mao & White 1998)
+
 ## How It Works
 
 - Utilities live in `src/modules/shared/UTILITY_NAME/`
