@@ -111,7 +111,7 @@ static int STRIPPING_STEPS = 10;
 // ============================================================================
 
 // Metallicity calculation now provided by shared utility: mimic_get_metallicity()
-// See: src/modules/shared/metallicity/metallicity.h
+// See: src/modules/shared/metallicity.h
 
 /**
  * @brief   Calculates the reionization suppression factor for gas accretion

@@ -11,7 +11,7 @@
  * - Bullock et al. (2001) - Spin parameter definition
  *
  * @note This file is part of the shared utilities system in src/modules/shared/.
- *       Modules include it using relative paths: #include "../shared/disk_radius/disk_radius.h"
+ *       Modules include it using relative paths: #include "../shared/disk_radius.h"
  */
 
 #ifndef MIMIC_SHARED_DISK_RADIUS_H

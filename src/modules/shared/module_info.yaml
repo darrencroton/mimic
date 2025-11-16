@@ -1,0 +1,37 @@
+# Shared Physics Utilities Test Registry
+#
+# This file enables automatic test discovery for shared physics utilities.
+# Shared utilities are header-only functions used by multiple physics modules.
+#
+# To add a new utility test:
+# 1. Create test file: e.g. test_unit_UTILITY_NAME.c, test_integration_UTILITY_NAME.py, test_scientific_UTILITY_NAME.py
+# 2. Add filename to tests list below
+# 3. Run: make generate-test-registry
+# 4. Tests auto-run with: make test-unit, make test-integration, make test-scientific
+#
+# Tests can be listed in block format or inline:
+#   E.g. inline:
+#     integration: [test_integration_foo.py, test_integration_bar.py]
+#   E.g. block (recommended for readability):
+#     integration:
+#       - test_integration_foo.py
+#       - test_integration_bar.py
+#
+# See: src/modules/shared/README.md for shared utility development guide
+
+module:
+  name: shared_utilities
+  display_name: "Shared Physics Utilities"
+  description: "Collection of shared physics utilities used by multiple modules"
+  category: shared_utility
+
+  # Mark as utility collection (not a runtime physics module)
+  is_utility: true
+
+  # List of tests (add new tests here)
+  tests:
+    unit:
+      - test_unit_disk_radius.c
+
+    integration: []
+    scientific: []

@@ -95,7 +95,7 @@ static char COOL_FUNCTIONS_DIR[512] = "src/modules/sage_cooling/CoolFunctions";
 // ============================================================================
 
 // Metallicity calculation now provided by shared utility: mimic_get_metallicity()
-// See: src/modules/shared/metallicity/metallicity.h
+// See: src/modules/shared/metallicity.h
 
 /**
  * @brief   Calculates gas cooling based on halo properties and cooling functions

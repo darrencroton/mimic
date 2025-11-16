@@ -6,7 +6,7 @@
  * edge cases, and numerical stability.
  */
 
-#include "../../../../tests/framework/test_framework.h"
+#include "../../../tests/framework/test_framework.h"
 #include "disk_radius.h"
 #include <math.h>
 #include <stdio.h>

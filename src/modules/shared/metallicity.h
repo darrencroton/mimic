@@ -5,9 +5,8 @@
  * This shared utility provides robust metallicity calculations used by
  * multiple physics modules (sage_infall, sage_cooling, etc.).
  *
- * @note This file is part of the shared utilities system. It is automatically
- *       copied into module directories at build time when declared in
- *       module_info.yaml via the utility_requires field.
+ * @note This file is part of the shared utilities system in src/modules/shared/.
+ *       Modules include it using relative paths: #include "../shared/metallicity.h"
  */
 
 #ifndef MIMIC_SHARED_METALLICITY_H

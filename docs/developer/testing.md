@@ -459,7 +459,46 @@ make validate-test-registry
 | Discovery | Hardcoded in `run_tests.sh` | Auto-discovered from `module_info.yaml` |
 | Templates | `tests/framework/` | Use existing modules as examples |
 | Purpose | Infrastructure quality | Physics module quality + validation |
-| File naming | `test_NAME.{c,py}` | `test_unit_NAME.c`, `test_integration_NAME.py`, `test_scientific_NAME_validation.py` |
+| File naming | `test_NAME.{c,py}` | `test_unit_NAME.c`, `test_integration_MODULE.py`, `test_scientific_MODULE_validation.py` |
+
+### Shared Utility Tests
+
+**Purpose**: Test shared physics utilities used by multiple modules (e.g., `metallicity.h`, `disk_radius.h`)
+
+**Location**: `src/modules/shared/` (flat directory structure)
+
+**Test Organization**:
+- Tests co-located with utilities in `shared/` directory
+- Single `module_info.yaml` lists all shared utility tests
+- Naming: `test_unit_UTILITY_NAME.c` (same pattern as module tests)
+- Auto-discovered via test registry system
+
+**Example**:
+```yaml
+# src/modules/shared/module_info.yaml
+module:
+  name: shared_utilities
+  is_utility: true
+
+  tests:
+    unit:
+      - test_unit_disk_radius.c
+      - test_unit_metallicity.c
+```
+
+**Adding a new utility test**:
+1. Create test file: `src/modules/shared/test_unit_UTILITY_NAME.c`
+2. Add to `module_info.yaml` tests list
+3. Run `make generate-test-registry` to register
+4. Tests auto-run with `make test-unit`
+
+**Key Characteristics**:
+- `is_utility: true` flag distinguishes from physics modules
+- Supports list format for multiple tests (unlike physics modules with single test per tier)
+- Tests verify utility function correctness (not full pipeline integration)
+- Header-only utilities require no special build steps
+
+See `src/modules/shared/README.md` for shared utility development guide.
 
 ### Test Data
 

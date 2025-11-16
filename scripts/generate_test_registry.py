@@ -26,6 +26,38 @@ from pathlib import Path
 import yaml
 
 
+def process_test_entries(test_value, module_path, repo_root, test_type, module_name):
+    """
+    Process test entries from module_info.yaml.
+
+    Handles both formats:
+    - String: single test file (legacy format for physics modules)
+    - List: multiple test files (for shared utilities)
+
+    Returns list of relative test paths.
+    """
+    test_paths = []
+
+    if test_value is None:
+        # No tests declared (allowed for test fixtures)
+        return test_paths
+
+    # Support both string (single test) and list (multiple tests)
+    test_files = test_value if isinstance(test_value, list) else [test_value]
+
+    for test_file in test_files:
+        test_path = module_path / test_file
+        if test_path.exists():
+            rel_path = test_path.relative_to(repo_root)
+            test_paths.append(str(rel_path))
+        else:
+            print(
+                f"WARNING: {module_name} declares {test_type} test '{test_file}' but file not found"
+            )
+
+    return test_paths
+
+
 def generate_test_registry():
     """Generate test registry from module metadata."""
 
@@ -84,50 +116,32 @@ def generate_test_registry():
 
         has_tests = False
 
-        # Unit tests
+        # Process unit tests (supports both string and list formats)
         if "unit" in tests:
-            unit_test_file = tests["unit"]
-            if unit_test_file is not None:  # Allow null/None if no unit test needed
-                unit_test_path = module_path / unit_test_file
-                if unit_test_path.exists():
-                    # Store relative path from repo root
-                    rel_path = unit_test_path.relative_to(repo_root)
-                    unit_tests.append(str(rel_path))
-                    has_tests = True
-                else:
-                    print(
-                        f"WARNING: {module_name} declares unit test '{unit_test_file}' but file not found"
-                    )
+            found_tests = process_test_entries(
+                tests["unit"], module_path, repo_root, "unit", module_name
+            )
+            unit_tests.extend(found_tests)
+            if found_tests:
+                has_tests = True
 
-        # Integration tests
+        # Process integration tests (supports both string and list formats)
         if "integration" in tests:
-            integration_test_file = tests["integration"]
-            if (
-                integration_test_file is not None
-            ):  # Allow null/None if no integration test needed
-                integration_test_path = module_path / integration_test_file
-                if integration_test_path.exists():
-                    rel_path = integration_test_path.relative_to(repo_root)
-                    integration_tests.append(str(rel_path))
-                    has_tests = True
-                else:
-                    print(
-                        f"WARNING: {module_name} declares integration test '{integration_test_file}' but file not found"
-                    )
+            found_tests = process_test_entries(
+                tests["integration"], module_path, repo_root, "integration", module_name
+            )
+            integration_tests.extend(found_tests)
+            if found_tests:
+                has_tests = True
 
-        # Scientific tests
+        # Process scientific tests (supports both string and list formats)
         if "scientific" in tests:
-            scientific_test_file = tests["scientific"]
-            if scientific_test_file is not None:  # Allow null/None for test fixtures
-                scientific_test_path = module_path / scientific_test_file
-                if scientific_test_path.exists():
-                    rel_path = scientific_test_path.relative_to(repo_root)
-                    scientific_tests.append(str(rel_path))
-                    has_tests = True
-                else:
-                    print(
-                        f"WARNING: {module_name} declares scientific test '{scientific_test_file}' but file not found"
-                    )
+            found_tests = process_test_entries(
+                tests["scientific"], module_path, repo_root, "scientific", module_name
+            )
+            scientific_tests.extend(found_tests)
+            if found_tests:
+                has_tests = True
 
         if has_tests:
             modules_with_tests.append(module_name)

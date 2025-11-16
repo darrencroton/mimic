@@ -1112,13 +1112,13 @@ static int my_module_init(void) {
 
 **Principle:** When multiple modules need identical physics functions (e.g., metallicity calculations), use shared utilities to avoid code duplication while maintaining a single source of truth.
 
-**Location:** `src/modules/shared/UTILITY_NAME/`
+**Location:** `src/modules/shared/` (flat directory structure)
 
 **Using a shared utility:**
 
 ```c
 // In your module .c file, include with relative path
-#include "../shared/metallicity/metallicity.h"
+#include "../shared/metallicity.h"
 
 static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
     for (int i = 0; i < ngal; i++) {

@@ -242,6 +242,9 @@ def generate_module_init_c(
 ) -> bool:
     """Generate module registration code."""
 
+    # Filter out utilities (is_utility: true) - they're test-only, not runtime modules
+    runtime_modules = [m for m in modules if not m.get("is_utility", False)]
+
     lines = []
 
     # Header
@@ -268,7 +271,7 @@ def generate_module_init_c(
 
     # Auto-generated module includes (sorted alphabetically)
     lines.append("/* Auto-generated module includes (sorted alphabetically) */")
-    for module in sorted(modules, key=lambda m: m["name"]):
+    for module in sorted(runtime_modules, key=lambda m: m["name"]):
         module_dir = module.get("_module_dir")
         if module_dir:
             rel_path = module_dir.relative_to(MODULES_DIR)
@@ -281,11 +284,11 @@ def generate_module_init_c(
     lines.append("/**")
     lines.append(" * @brief Register all available physics modules")
     lines.append(" *")
-    lines.append(f" * Modules registered: {len(modules)}")
+    lines.append(f" * Modules registered: {len(runtime_modules)}")
     lines.append(" *")
-    if modules:
+    if runtime_modules:
         lines.append(" * Dependency order:")
-        for i, module in enumerate(modules, 1):
+        for i, module in enumerate(runtime_modules, 1):
             name = module["name"]
             provides = module.get("dependencies", {}).get("provides", [])
             requires = module.get("dependencies", {}).get("requires", [])
@@ -305,9 +308,9 @@ def generate_module_init_c(
     lines.append(" */")
     lines.append("void register_all_modules(void) {")
 
-    if modules:
+    if runtime_modules:
         lines.append("    /* Register in dependency-resolved order */")
-        for module in modules:
+        for module in runtime_modules:
             name = module["name"]
             register_func = module.get("register_function", f"{name}_register")
             provides = module.get("dependencies", {}).get("provides", [])
@@ -361,6 +364,9 @@ def generate_module_sources_mk(
 ) -> bool:
     """Generate makefile fragment for test system."""
 
+    # Filter out utilities (is_utility: true) - they have no runtime source files
+    runtime_modules = [m for m in modules if not m.get("is_utility", False)]
+
     lines = []
 
     # Header
@@ -377,7 +383,7 @@ def generate_module_sources_mk(
     lines.append("    $(SRC_DIR)/core/module_registry.c \\")
 
     # Add each module's source files
-    for module in modules:
+    for module in runtime_modules:
         module_dir = module.get("_module_dir")
         if module_dir:
             rel_path = module_dir.relative_to(REPO_ROOT / "src")
