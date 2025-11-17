@@ -37,3 +37,11 @@ bool is_less_or_equal(double x, double y) { return x <= y + EPSILON_SMALL; }
 bool is_within(double x, double min, double max) {
   return is_greater_or_equal(x, min) && is_less_or_equal(x, max);
 }
+
+/* Perform division with protection against division by zero */
+double safe_div(double numerator, double denominator, double default_value) {
+  if (is_zero(denominator)) {
+    return default_value;
+  }
+  return numerator / denominator;
+}
