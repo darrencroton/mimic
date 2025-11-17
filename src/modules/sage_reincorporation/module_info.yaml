@@ -1,0 +1,92 @@
+# Module Metadata: sage_reincorporation
+#
+# Gas reincorporation from ejected reservoir back to hot halo gas from the SAGE model.
+# This module handles the return of gas that was previously ejected by supernova
+# feedback, with reincorporation rates depending on halo virial velocity.
+#
+# For schema documentation, see:
+#   docs/developer/module-metadata-schema.md
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: sage_reincorporation
+  display_name: "SAGE Gas Reincorporation"
+  description: "Gas reincorporation from ejected reservoir to hot halo from SAGE model."
+  version: "1.0.0"
+  author: "Mimic Team (ported from SAGE)"
+  category: gas_physics
+
+  # ===========================================================================
+  # Source Files
+  # ===========================================================================
+
+  sources:
+    - sage_reincorporation.c
+
+  headers:
+    - sage_reincorporation.h
+
+  register_function: sage_reincorporation_register
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  dependencies:
+    # Requires ejected gas from sage_infall module
+    requires:
+      - EjectedMass
+      - MetalsEjectedMass
+      - HotGas
+      - MetalsHotGas
+
+    # Properties modified by this module (no new properties created)
+    provides: []
+
+  # ===========================================================================
+  # Parameters
+  # ===========================================================================
+
+  parameters:
+    - name: ReIncorporationFactor
+      type: double
+      default: 1.0
+      range: [0.0, 10.0]
+      description: "Tunable parameter multiplying critical virial velocity for reincorporation"
+      units: "dimensionless"
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+
+  tests:
+    unit: test_unit_sage_reincorporation.c
+    integration: test_integration_sage_reincorporation.py
+    scientific: test_scientific_sage_reincorporation_validation.py
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: README.md
+    user_guide_section: "SAGE Gas Reincorporation Module"
+
+  # ===========================================================================
+  # References
+  # ===========================================================================
+
+  references:
+    - "Croton et al. (2016) - SAGE model description"
+    - "Guo et al. (2011) - Reincorporation timescale discussion"
+    - "SAGE source: sage-code/model_reincorporation.c"
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []
+  default_enabled: true
