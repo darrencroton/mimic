@@ -1,0 +1,179 @@
+# Module Metadata: sage_mergers
+#
+# Galaxy merger physics from the SAGE galaxy evolution model.
+# Implements dynamical friction, merger-induced starbursts, black hole growth,
+# quasar feedback, and morphological transformations.
+#
+# For schema documentation, see:
+#   docs/developer/module-metadata-schema.md
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: sage_mergers
+  display_name: "SAGE Mergers"
+  description: "Galaxy merger physics: dynamical friction, starbursts, BH growth, morphology from SAGE model."
+  version: "1.0.0"
+  author: "Mimic Team (ported from SAGE)"
+  category: mergers
+
+  # ===========================================================================
+  # Source Files
+  # ===========================================================================
+
+  sources:
+    - sage_mergers.c
+
+  headers:
+    - sage_mergers.h
+
+  register_function: sage_mergers_register
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  dependencies:
+    # Properties required from other modules
+    requires:
+      - ColdGas
+      - StellarMass
+      - HotGas
+      - MetalsHotGas
+      - MetalsColdGas
+      - EjectedMass
+      - MetalsEjectedMass
+      - ICS
+      - MetalsICS
+      - BlackHoleMass
+
+    # Properties created/modified by this module
+    provides:
+      - BulgeMass
+      - MetalsStellarMass
+      - MetalsBulgeMass
+      - QuasarModeBHaccretionMass
+      - TimeOfLastMajorMerger
+      - TimeOfLastMinorMerger
+      - OutflowRate
+      - DiskScaleRadius
+
+  # ===========================================================================
+  # Parameters
+  # ===========================================================================
+
+  parameters:
+    - name: BlackHoleGrowthRate
+      type: double
+      default: 0.01
+      range: [0.0, 1.0]
+      description: "Black hole growth efficiency during mergers (Kauffmann & Haehnelt 2000)"
+      units: "dimensionless"
+
+    - name: QuasarModeEfficiency
+      type: double
+      default: 0.001
+      range: [0.0, 1.0]
+      description: "Quasar-mode AGN feedback efficiency"
+      units: "dimensionless"
+
+    - name: ThreshMajorMerger
+      type: double
+      default: 0.3
+      range: [0.0, 1.0]
+      description: "Mass ratio threshold for major mergers (disk destruction)"
+      units: "dimensionless"
+
+    - name: RecycleFraction
+      type: double
+      default: 0.43
+      range: [0.0, 1.0]
+      description: "Stellar recycling fraction (instantaneous recycling approximation)"
+      units: "dimensionless"
+
+    - name: Yield
+      type: double
+      default: 0.03
+      range: [0.0, 0.1]
+      description: "Metal yield per unit stellar mass formed"
+      units: "dimensionless"
+
+    - name: FracZleaveDisk
+      type: double
+      default: 0.3
+      range: [0.0, 1.0]
+      description: "Fraction of newly produced metals that leave the disk"
+      units: "dimensionless"
+
+    - name: FeedbackReheatingEpsilon
+      type: double
+      default: 3.0
+      range: [0.0, 10.0]
+      description: "Supernova feedback reheating efficiency"
+      units: "dimensionless"
+
+    - name: FeedbackEjectionEfficiency
+      type: double
+      default: 0.3
+      range: [0.0, 10.0]
+      description: "Supernova feedback ejection efficiency"
+      units: "dimensionless"
+
+    - name: AGNrecipeOn
+      type: int
+      default: 1
+      range: [0, 1]
+      description: "Enable AGN feedback during mergers (0=off, 1=on)"
+      units: "dimensionless"
+
+    - name: SupernovaRecipeOn
+      type: int
+      default: 1
+      range: [0, 1]
+      description: "Enable supernova feedback in merger bursts (0=off, 1=on)"
+      units: "dimensionless"
+
+    - name: DiskInstabilityOn
+      type: int
+      default: 0
+      range: [0, 1]
+      description: "Enable disk instability checks (0=off, 1=on) - DEFERRED, requires separate module"
+      units: "dimensionless"
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+
+  tests:
+    unit: test_unit_sage_mergers.c
+    integration: test_integration_sage_mergers.py
+    scientific: test_scientific_sage_mergers_validation.py
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: src/modules/sage_mergers/README.md
+    user_guide_section: "SAGE Mergers Module"
+
+  # ===========================================================================
+  # References
+  # ===========================================================================
+
+  references:
+    - "Binney & Tremaine (1987) - Dynamical friction formulation"
+    - "Somerville et al. (2001) - Merger-induced starburst model"
+    - "Kauffmann & Haehnelt (2000) - Black hole growth during mergers"
+    - "Cox (PhD thesis) - Updated starburst efficiency parameterization"
+    - "Krumholz & Dekel (2011) - Metal distribution in disk galaxies"
+    - "SAGE source: sage-code/model_mergers.c"
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []
+  default_enabled: true
