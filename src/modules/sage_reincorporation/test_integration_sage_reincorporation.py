@@ -101,7 +101,8 @@ def get_available_modules():
             [str(MIMIC_EXE), str(test_param)],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
+            cwd=REPO_ROOT  # Run from repo root so relative paths work
         )
 
         # Parse available modules from error output
@@ -138,7 +139,8 @@ def run_mimic(param_file):
         [str(MIMIC_EXE), str(param_file)],
         capture_output=True,
         text=True,
-        timeout=60  # 60 second timeout for integration tests
+        timeout=60,  # 60 second timeout for integration tests
+        cwd=REPO_ROOT  # Run from repo root so relative paths work
     )
     return result.returncode, result.stdout, result.stderr
 
@@ -171,8 +173,9 @@ def create_test_param_file(output_file, **overrides):
     # Apply overrides
     params.update(overrides)
 
-    # Ensure binary output format
+    # Ensure binary output format and output directory points to temp dir
     params['OutputFormat'] = 'binary'
+    params['OutputDir'] = str(temp_dir / "output")
 
     # Write parameter file
     with open(output_file, 'w') as f:
@@ -290,7 +293,7 @@ def test_execution_completes():
 
     # Check that output files were created
     output_dir = Path(temp_dir) / "output"
-    output_files = list(output_dir.glob("*.dat"))
+    output_files = list(output_dir.glob("model_*"))  # Binary output files like model_z0.000_0
 
     if len(output_files) == 0:
         print(f"  {RED}✗ FAIL:{NC} No output files created")
@@ -360,7 +363,7 @@ def test_property_modification():
 
     # Load output and check properties exist
     output_dir = Path(temp_dir) / "output"
-    output_files = sorted(output_dir.glob("*.dat"))
+    output_files = sorted(output_dir.glob("model_*"))  # Binary output files like model_z0.000_0
 
     if len(output_files) == 0:
         print(f"  {RED}✗ FAIL:{NC} No output files created")
@@ -368,7 +371,7 @@ def test_property_modification():
 
     # Read first output file
     try:
-        halos = load_binary_halos(output_files[0])
+        halos, metadata = load_binary_halos(output_files[0])
 
         # Check that required properties exist
         required_props = ['EjectedMass', 'HotGas', 'MetalsEjectedMass', 'MetalsHotGas']
