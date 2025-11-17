@@ -137,9 +137,9 @@ static double do_reionization(float mvir, double redshift, double omega,
   const double EPSILON = 1e-10;
 
   /* Calculate scale factor and ratios */
-  double a = 1.0 / (1.0 + redshift);
-  double a_on_a0 = a / a0;
-  double a_on_ar = a / ar;
+  double a = safe_div(1.0, 1.0 + redshift, 0.0);
+  double a_on_a0 = safe_div(a, a0, 0.0);
+  double a_on_ar = safe_div(a, ar, 0.0);
 
   /* Calculate f_of_a from Kravtsov et al. (2004) fitting formula */
   double f_of_a;
@@ -149,13 +149,13 @@ static double do_reionization(float mvir, double redshift, double omega,
              pow(a_on_a0, alpha);
   } else if (a < ar) {
     /* During partial reionization */
-    f_of_a = (3.0 / a) * a0 * a0 *
+    f_of_a = safe_div(3.0, a, 0.0) * a0 * a0 *
                  (1.0 / (2.0 + alpha) -
                   2.0 * pow(a_on_a0, -0.5) / (5.0 + 2.0 * alpha)) +
              a * a / 10.0 - (a0 * a0 / 10.0) * (5.0 - 4.0 * pow(a_on_a0, -0.5));
   } else {
     /* After full reionization */
-    f_of_a = (3.0 / a) *
+    f_of_a = safe_div(3.0, a, 0.0) *
                  (a0 * a0 *
                       (1.0 / (2.0 + alpha) -
                        2.0 * pow(a_on_a0, -0.5) / (5.0 + 2.0 * alpha)) +

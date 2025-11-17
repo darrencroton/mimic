@@ -22,6 +22,7 @@
 
 #include "error.h"
 #include "cooling_tables.h"
+#include "numeric.h"
 
 #define TABSIZE 91  /* Number of temperature points in each cooling table */
 
@@ -186,7 +187,7 @@ double get_metaldependent_cooling_rate(double logTemp, double logZ)
     rate2 = get_rate(i + 1, logTemp);
 
     /* Linear interpolation in log(Z) space */
-    rate = rate1 + (rate2 - rate1) / (metallicities[i + 1] - metallicities[i]) *
+    rate = rate1 + safe_div(rate2 - rate1, metallicities[i + 1] - metallicities[i], 0.0) *
                        (logZ - metallicities[i]);
 
     /* Convert from log(Lambda) to Lambda */
