@@ -1,0 +1,170 @@
+# Module Metadata: sage_starformation_feedback
+#
+# Star formation and supernova feedback from the SAGE galaxy evolution model.
+# This module handles star formation following the Kennicutt-Schmidt law and
+# implements supernova-driven feedback (reheating and ejection).
+#
+# For schema documentation, see:
+#   docs/developer/module-metadata-schema.md
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: sage_starformation_feedback
+  display_name: "SAGE Star Formation & Feedback"
+  description: "Star formation (Kennicutt-Schmidt law) and supernova feedback (reheating & ejection) from SAGE model."
+  version: "1.0.0"
+  author: "Mimic Team (ported from SAGE)"
+  category: star_formation
+
+  # ===========================================================================
+  # Source Files
+  # ===========================================================================
+
+  sources:
+    - sage_starformation_feedback.c
+
+  headers:
+    - sage_starformation_feedback.h
+
+  register_function: sage_starformation_feedback_register
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  dependencies:
+    # Properties required from upstream modules
+    requires:
+      - HotGas               # From sage_infall
+      - MetalsHotGas         # From sage_infall
+      - EjectedMass          # From sage_infall
+      - MetalsEjectedMass    # From sage_infall
+      - ColdGas              # From sage_cooling
+      - MetalsColdGas        # From sage_cooling
+
+    # Properties created/modified by this module
+    provides:
+      - StellarMass          # Modified (incremented)
+      - MetalsStellarMass    # Created
+      - DiskScaleRadius      # Created
+      - OutflowRate          # Created
+
+  # ===========================================================================
+  # Parameters
+  # ===========================================================================
+
+  parameters:
+    - name: SFprescription
+      type: int
+      default: 0
+      range: [0, 0]
+      description: "Star formation prescription (0 = Kennicutt-Schmidt with threshold, only option)"
+      units: "dimensionless"
+
+    - name: SfrEfficiency
+      type: double
+      default: 0.02
+      range: [0.0, 1.0]
+      description: "Star formation efficiency (ε_SF in SFR formula)"
+      units: "dimensionless"
+
+    - name: SupernovaRecipeOn
+      type: int
+      default: 1
+      range: [0, 1]
+      description: "Enable supernova feedback (0=off, 1=on)"
+      units: "dimensionless"
+
+    - name: FeedbackReheatingEpsilon
+      type: double
+      default: 3.0
+      range: [0.0, 100.0]
+      description: "Reheating efficiency (ε_reheat): m_reheat = ε_reheat * m_stars"
+      units: "dimensionless"
+
+    - name: FeedbackEjectionEfficiency
+      type: double
+      default: 0.3
+      range: [0.0, 100.0]
+      description: "Ejection efficiency (ε_eject) in energy-driven outflow formula"
+      units: "dimensionless"
+
+    - name: EnergySNcode
+      type: double
+      default: 1.0
+      range: [0.0, 100.0]
+      description: "Supernova energy in code units (E_SN)"
+      units: "code_units"
+
+    - name: EtaSNcode
+      type: double
+      default: 0.5
+      range: [0.0, 10.0]
+      description: "Supernova efficiency in code units (η = SNe per unit stellar mass)"
+      units: "code_units"
+
+    - name: RecycleFraction
+      type: double
+      default: 0.43
+      range: [0.0, 1.0]
+      description: "Fraction of stellar mass immediately recycled to ISM"
+      units: "dimensionless"
+
+    - name: Yield
+      type: double
+      default: 0.03
+      range: [0.0, 1.0]
+      description: "Metal yield from star formation (new metals per unit stellar mass)"
+      units: "dimensionless"
+
+    - name: FracZleaveDisk
+      type: double
+      default: 0.3
+      range: [0.0, 1.0]
+      description: "Normalization for metals leaving disk (Krumholz & Dekel 2011)"
+      units: "dimensionless"
+
+    - name: DiskInstabilityOn
+      type: int
+      default: 0
+      range: [0, 1]
+      description: "Enable disk instability checks (0=off, 1=on, currently stubbed)"
+      units: "dimensionless"
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+
+  tests:
+    unit: test_unit_sage_starformation_feedback.c
+    integration: test_integration_sage_starformation_feedback.py
+    scientific: test_scientific_sage_starformation_feedback_validation.py
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: src/modules/sage_starformation_feedback/README.md
+    user_guide_section: "SAGE Star Formation & Feedback Module"
+
+  # ===========================================================================
+  # References
+  # ===========================================================================
+
+  references:
+    - "Kennicutt (1998) - Star formation law"
+    - "Kauffmann (1996) - Critical gas density threshold"
+    - "Krumholz & Dekel (2011) - Metal distribution model"
+    - "Croton et al. (2016) - SAGE model description"
+    - "SAGE source: sage-code/model_starformation_and_feedback.c"
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []
+  default_enabled: true
