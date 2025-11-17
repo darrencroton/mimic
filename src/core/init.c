@@ -29,6 +29,7 @@
 #include "proto.h"
 #include "error.h"
 #include "integration.h"
+#include "numeric.h"
 
 /**
  * @brief   Main initialization function for the Mimic framework
@@ -63,7 +64,7 @@ void init(void) {
   Age++;
 
   for (i = 0; i < MimicConfig.Snaplistlen; i++) {
-    MimicConfig.ZZ[i] = 1 / MimicConfig.AA[i] - 1;
+    MimicConfig.ZZ[i] = safe_div(1.0, MimicConfig.AA[i], 0.0) - 1;
     Age[i] = time_to_present(MimicConfig.ZZ[i]);
     // Synchronize array element (Phase 1) - manual assignment required for array elements
     ZZ[i] = MimicConfig.ZZ[i];
