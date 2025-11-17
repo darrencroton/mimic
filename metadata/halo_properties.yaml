@@ -123,6 +123,16 @@ halo_properties:
     output_source: copy_direct
     range: [0, 1]  # Binary flag
 
+  - name: mergeType
+    type: int
+    units: "dimensionless"
+    description: "Merger type (0=none, 1=minor, 2=major, 3=disk instability, 4=disruption to ICS)"
+    output: true
+    init_source: default
+    init_value: 0
+    output_source: copy_direct
+    range: [0, 4]  # 5 possible merger types
+
   - name: mergeIntoID
     type: int
     units: "dimensionless"

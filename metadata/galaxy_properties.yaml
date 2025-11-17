@@ -227,6 +227,74 @@ galaxy_properties:
     sentinels: [0.0]  # Primordial stars (Pop III) would have zero metals
 
   # ===========================================================================
+  # BULGE PROPERTIES (Phase 4.2: sage_mergers module)
+  # ===========================================================================
+
+  - name: BulgeMass
+    type: float
+    units: "1e10 Msun/h"
+    description: "Stellar mass in bulge component"
+    output: true
+    created_by: sage_mergers
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= StellarMass
+    sentinels: [0.0]  # Can be zero for pure disk galaxies
+
+  - name: MetalsBulgeMass
+    type: float
+    units: "1e10 Msun/h"
+    description: "Metal mass in bulge component"
+    output: true
+    created_by: sage_mergers
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= BulgeMass
+    sentinels: [0.0]  # Can be zero
+
+  # ===========================================================================
+  # MERGER TRACKING (Phase 4.2: sage_mergers module)
+  # ===========================================================================
+
+  - name: QuasarModeBHaccretionMass
+    type: float
+    units: "1e10 Msun/h"
+    description: "Cumulative black hole accretion mass in quasar mode"
+    output: true
+    created_by: sage_mergers
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 1.0]  # Typically << galaxy mass
+    sentinels: [0.0]  # Zero if no quasar-mode accretion
+
+  - name: TimeOfLastMajorMerger
+    type: float
+    units: "Gyr"
+    description: "Cosmic time of last major merger (mass ratio > threshold)"
+    output: true
+    created_by: sage_mergers
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 14.0]  # Age of universe
+    sentinels: [0.0]  # Zero if no major merger occurred
+
+  - name: TimeOfLastMinorMerger
+    type: float
+    units: "Gyr"
+    description: "Cosmic time of last minor merger (mass ratio > 0.1)"
+    output: true
+    created_by: sage_mergers
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 14.0]  # Age of universe
+    sentinels: [0.0]  # Zero if no minor merger occurred
+
+  # ===========================================================================
   # DISK STRUCTURE (Phase 4.2: sage_starformation_feedback module)
   # ===========================================================================
 

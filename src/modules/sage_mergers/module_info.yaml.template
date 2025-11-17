@@ -1,0 +1,90 @@
+# Module Metadata Template
+#
+# Copy this file to module_info.yaml and customize for your module.
+# See docs/developer/module-metadata-schema.md for complete documentation.
+
+module:
+  # ===========================================================================
+  # Core Metadata (REQUIRED)
+  # ===========================================================================
+
+  name: template_module  # CHANGE: lowercase_with_underscores, must match directory name
+  display_name: "Template Module"  # CHANGE: Human-readable name
+  description: "Brief one-sentence description of module physics."  # CHANGE: What does this module do?
+  version: "1.0.0"  # Semantic versioning: MAJOR.MINOR.PATCH
+  author: "Your Name"  # CHANGE: Your name or team
+  category: miscellaneous  # CHANGE: gas_physics, star_formation, mergers, etc.
+
+  # ===========================================================================
+  # Source Files (REQUIRED)
+  # ===========================================================================
+
+  sources:
+    - template_module.c  # CHANGE: Your module's .c files
+
+  headers:
+    - template_module.h  # CHANGE: Your module's .h files
+
+  register_function: template_module_register  # CHANGE: Must be {module_name}_register
+
+  # ===========================================================================
+  # Dependencies (REQUIRED)
+  # ===========================================================================
+
+  dependencies:
+    # Properties your module READS (must be provided by other modules or themselves)
+    requires: []
+    # Example:
+    #   - HotGas
+    #   - ColdGas
+
+    # Properties your module CREATES or MODIFIES
+    provides: []
+    # Example:
+    #   - StellarMass
+    #   - MetalsMass
+
+  # ===========================================================================
+  # Parameters (REQUIRED, can be empty list)
+  # ===========================================================================
+
+  parameters: []
+  # Example parameter:
+  #   - name: Efficiency  # Becomes ModuleName_Efficiency in .par file
+  #     type: double      # double, int, or string
+  #     default: 0.5
+  #     range: [0.0, 1.0]  # Optional: for numeric types
+  #     description: "Star formation efficiency"
+  #     units: "dimensionless"
+
+  # ===========================================================================
+  # Testing (OPTIONAL but recommended)
+  # ===========================================================================
+
+  tests:
+    unit: test_template_module.c            # tests/unit/
+    integration: test_template_module.py    # tests/integration/
+    scientific: test_template_validation.py  # tests/scientific/
+
+  # ===========================================================================
+  # Documentation (OPTIONAL but recommended)
+  # ===========================================================================
+
+  docs:
+    physics: src/modules/YOUR_MODULE_NAME/README.md  # Physics equations and references in module directory
+    user_guide_section: "Template Module"            # Section title in user guide
+
+  # ===========================================================================
+  # References (OPTIONAL)
+  # ===========================================================================
+
+  references:
+    - "Author et al. (YEAR) - Paper title"
+    - "Source implementation: path/to/reference/code"
+
+  # ===========================================================================
+  # Build Configuration (OPTIONAL)
+  # ===========================================================================
+
+  compilation_requires: []  # External dependencies: HDF5, MPI, GSL
+  default_enabled: true     # Include in default EnabledModules list?
