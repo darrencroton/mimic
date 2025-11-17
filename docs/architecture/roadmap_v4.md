@@ -117,29 +117,57 @@ This section summarizes the capabilities of the codebase *right now*. The detail
 -   **Architectural Alignment**: Strongly enhances Vision Principles #3 (Metadata-Driven) and #4 (Single Source of Truth)
 -   **Lesson Learned**: Consistent structure is as important as functionality. Clear separation of concerns prevents confusion and accidental editing of generated files.
 
-#### ✅ **8. SAGE Physics Modules** (Phase 4.2 - In Progress, 2/6 Complete)
+#### ✅ **8. SAGE Physics Modules** (Phase 4.2 - All Merged, Integration In Progress)
 -   **Goal**: Systematically port production-quality SAGE physics modules into Mimic's modular architecture.
--   **Completed Modules**:
-    1. **sage_infall** (November 2025) - Gas accretion from dark matter halos
-        - Properties: `HotGas`, `MetalsHotGas`, `EjectedMass`, `MetalsEjectedMass`
+-   **Status**: All 6 SAGE module branches merged to main (November 18, 2025). Integration and testing in progress.
+
+-   **Fully Integrated Modules** (2/6 - Production Ready):
+    1. **sage_infall** - Gas accretion from dark matter halos
+        - Properties: `HotGas`, `MetalsHotGas`, `EjectedMass`, `MetalsEjectedMass`, `ICS`, `MetalsICS`
         - Features: Reionization suppression, ram pressure stripping, metallicity tracking
-        - Testing: 5 unit tests + 7 integration tests, all passing
-        - Documentation: Complete physics README in module directory
-    2. **sage_cooling** (November 2025) - Gas cooling + AGN feedback
+        - Testing: ✅ 5 unit tests + 7 integration tests, all passing
+        - Status: ✅ Production ready
+    2. **sage_cooling** - Gas cooling + AGN feedback
         - Properties: `ColdGas`, `MetalsColdGas`, `BlackHoleMass`, `Cooling`, `Heating`, `r_heat`
-        - Features: Sutherland & Dopita cooling tables, 2D interpolation (T, Z), 3 AGN accretion modes, Eddington-limited black hole growth
-        - Testing: 9 unit tests + 7 integration tests, all passing
-        - Documentation: Comprehensive physics README (~450 lines) in module directory
--   **Impact**:
-    - **Production Physics**: First 2 SAGE modules successfully ported with full physics fidelity
-    - **Module Workflow Validated**: Standard implementation workflow proven through 2 complete modules
-    - **Testing Framework Validated**: Multi-tier testing (unit + integration + scientific) works effectively
-    - **Automatic Registration**: Both modules use metadata-driven `module_info.yaml` for zero-touch registration
--   **Architecture Corrections Applied**:
-    - Cooling tables co-located with module (not in global `input/` directory) - validates self-contained module principle
-    - Module documentation in module directory (not in global `docs/`) - validates physics-agnostic core
-    - Uses core `dT` property for time steps (not approximations) - validates property-driven design
--   **Status**: 2/6 modules complete. Ready for sage_reincorporation (Priority 3).
+        - Features: Sutherland & Dopita cooling tables, 2D interpolation (T, Z), 3 AGN accretion modes
+        - Testing: ✅ 9 unit tests + 7 integration tests, all passing
+        - Status: ✅ Production ready
+
+-   **Merged Modules** (4/6 - Require Integration Work):
+    3. **sage_starformation_feedback** - Star formation & supernova feedback
+        - Properties: `MetalsStellarMass`, `DiskScaleRadius`, `OutflowRate`
+        - Features: Kennicutt-Schmidt SF law, SN feedback, metal enrichment
+        - Testing: ✅ 6 unit tests + 7 integration tests
+        - Status: ⏸️ Ready for integration testing
+    4. **sage_reincorporation** - Gas return from ejected reservoir
+        - Properties: None (modifies existing)
+        - Features: Velocity-dependent gas reincorporation
+        - Testing: ✅ 6 unit tests + 7 integration tests
+        - Status: ⏸️ Ready for integration testing
+    5. **sage_mergers** - Galaxy merger physics
+        - Properties: `BulgeMass`, `MetalsBulgeMass`, `QuasarModeBHaccretionMass`, `TimeOfLastMajorMerger`, `TimeOfLastMinorMerger`
+        - Features: Dynamical friction, starbursts, BH growth, quasar feedback, morphology
+        - Testing: ❌ Placeholder tests only (physics complete but untestable)
+        - Status: ⚠️ **BLOCKED** - Requires core merger triggering implementation
+    6. **sage_disk_instability** - Disk instability & bulge formation
+        - Properties: Uses `BulgeMass`, `MetalsBulgeMass` from sage_mergers
+        - Features: Stability criterion (Mo, Mao & White 1998), stellar mass transfer
+        - Testing: ✅ 7 unit tests + 8 integration tests (for implemented features)
+        - Status: ⏸️ Partial - Gas processing deferred (needs sage_mergers functions)
+
+-   **Integration Challenges Identified**:
+    - **Merger Triggering**: Core doesn't detect when satellites should merge (CRITICAL BLOCKER)
+    - **Module Execution Pipeline**: Need systematic validation of module ordering and property flow
+    - **Shared Functions**: Need architecture for functions used by multiple modules
+    - **Property Ownership**: Module metadata needs verification (created_by vs modifies)
+    - **Cross-Module Testing**: Need comprehensive pipeline validation tests
+
+-   **Architecture Validations**:
+    - ✅ Metadata-driven registration works for all 8 modules
+    - ✅ Property conflicts resolved during merge (MetalsStellarMass, DiskScaleRadius, OutflowRate)
+    - ✅ Duplicate properties removed (BulgeMass, MetalsBulgeMass)
+    - ✅ Build system handles 6 SAGE modules + 2 system modules successfully
+    - ✅ All modules compile (with expected unused function warnings in sage_mergers)
 
 ---
 
@@ -574,7 +602,63 @@ This workflow applies to each module. Refine based on lessons learned.
 
 ---
 
-#### **4.6 Success Criteria for Phase 4**
+#### **4.6 Phase 4.3: Module Integration & Validation** (Current Phase - November 2025)
+
+**Status**: All 6 SAGE modules merged to main. Now entering systematic integration and validation phase.
+
+**Goal**: Transform merged module code into a fully integrated, validated SAGE physics pipeline.
+
+**Current Situation**:
+- ✅ All module code merged and compiling
+- ✅ 2/6 modules production-ready (sage_infall, sage_cooling)
+- ⏸️ 4/6 modules require integration work
+- ⚠️ Critical blocker: Core merger triggering not implemented
+
+**Integration Approach** (To Be Designed):
+The exact integration strategy is still being determined. Key decisions needed:
+
+1. **Module Enabling Strategy**:
+   - Start with minimal working pipeline (infall → cooling)
+   - Add modules one at a time, validating each addition
+   - Document module ordering requirements
+   - Identify and resolve module interdependencies
+
+2. **Core Infrastructure Decisions**:
+   - **Merger Triggering**: How/where to implement in core (design TBD)
+   - **Module Calling Pipeline**: Enhance execution flow (design TBD)
+   - **Shared Functions**: Architecture for cross-module function calls (design TBD)
+   - **Property Lifecycle**: Verify created_by vs modifies semantics
+
+3. **Validation Strategy**:
+   - **Property Organization**: Review and verify all galaxy property definitions
+   - **Module Dependencies**: Map and validate execution order requirements
+   - **Mass Conservation**: Cross-module conservation validation
+   - **Performance**: Profile full pipeline on Millennium data
+
+**Known Challenges**:
+- sage_mergers requires core merger triggering (cannot test until implemented)
+- sage_disk_instability needs sage_mergers functions (architectural decision needed)
+- Module metadata may need corrections (created_by values)
+- Cross-module testing infrastructure needs design
+
+**Open Questions** (To Be Resolved):
+- How to handle functions needed by multiple modules?
+- Where should merger detection logic live in core?
+- How to enhance module calling pipeline for better diagnostics?
+- What validation tests are needed for full pipeline?
+- How to organize galaxy properties for clarity?
+
+**Next Immediate Steps** (To Be Defined in next-task.md):
+1. Design systematic module integration plan
+2. Start with minimal pipeline validation
+3. Identify architectural decisions needed
+4. Create integration task list
+
+**Timeline**: TBD (depends on architectural decisions and merger triggering complexity)
+
+---
+
+#### **4.7 Success Criteria for Phase 4**
 
 Phase 4 is complete when:
 
