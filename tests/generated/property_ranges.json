@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2025-11-17T10:26:22",
+  "generated_at": "2025-11-17T08:26:43",
   "properties": {
     "SnapNum": {
       "name": "SnapNum",
@@ -264,6 +264,58 @@
       "range": [
         0.0,
         100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "BulgeMass": {
+      "name": "BulgeMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsStellarMass": {
+      "name": "MetalsStellarMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsBulgeMass": {
+      "name": "MetalsBulgeMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "DiskScaleRadius": {
+      "name": "DiskScaleRadius",
+      "type": "float",
+      "units": "Mpc/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        1.0
       ],
       "sentinels": [
         0.0
