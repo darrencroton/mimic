@@ -1,0 +1,133 @@
+# Module Metadata: sage_disk_instability
+#
+# Disk instability detection and mass redistribution from the SAGE galaxy evolution model.
+# This module implements the Mo, Mao & White (1998) disk stability criterion and
+# transfers unstable mass from disk to bulge components.
+#
+# For schema documentation, see:
+#   docs/developer/module-metadata-schema.md
+
+module:
+  # ===========================================================================
+  # Core Metadata
+  # ===========================================================================
+
+  name: sage_disk_instability
+  display_name: "SAGE Disk Instability"
+  description: "Disk stability criterion and mass redistribution from SAGE model."
+  version: "1.0.0"
+  author: "Mimic Team (ported from SAGE)"
+  category: stellar_physics
+
+  # ===========================================================================
+  # Source Files
+  # ===========================================================================
+
+  sources:
+    - sage_disk_instability.c
+
+  headers:
+    - sage_disk_instability.h
+
+  register_function: sage_disk_instability_register
+
+  # ===========================================================================
+  # Dependencies
+  # ===========================================================================
+
+  dependencies:
+    # This module requires mass components and halo properties
+    requires:
+      - ColdGas           # Cold gas mass (from sage_cooling)
+      - MetalsColdGas     # Metal mass in cold gas (from sage_cooling)
+      - StellarMass       # Total stellar mass (from star formation)
+      - Vmax              # Maximum circular velocity (from halo)
+
+    # Properties created/modified by this module
+    provides:
+      - BulgeMass         # Stellar mass in bulge
+      - MetalsBulgeMass   # Metal mass in bulge
+      - MetalsStellarMass # Total metal mass in stars
+      - DiskScaleRadius   # Disk scale radius
+
+  # ===========================================================================
+  # Parameters
+  # ===========================================================================
+
+  parameters:
+    - name: DiskInstabilityOn
+      type: int
+      default: 1
+      range: [0, 1]
+      description: "Enable disk instability physics (0=off, 1=on)"
+      units: "dimensionless"
+
+    - name: DiskRadiusFactor
+      type: double
+      default: 3.0
+      range: [1.0, 10.0]
+      description: "Factor for disk effective radius (N × scale radius)"
+      units: "dimensionless"
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+
+  tests:
+    unit: test_unit_sage_disk_instability.c
+    integration: test_integration_sage_disk_instability.py
+    scientific: test_scientific_sage_disk_instability.py
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: src/modules/sage_disk_instability/README.md
+    user_guide_section: "SAGE Disk Instability Module"
+
+  # ===========================================================================
+  # References
+  # ===========================================================================
+
+  references:
+    - "Mo, Mao & White (1998) - Disk stability criterion"
+    - "Efstathiou et al. (1982) - Disk formation in halos"
+    - "Croton et al. (2016) - SAGE model description"
+    - "SAGE source: sage-code/model_disk_instability.c"
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []
+  default_enabled: true
+
+  # ===========================================================================
+  # Implementation Notes
+  # ===========================================================================
+  #
+  # PARTIAL IMPLEMENTATION (Version 1.0.0):
+  #
+  # This is a self-contained partial implementation that provides core
+  # disk stability physics while deferring components that depend on
+  # sage_mergers module (Priority 5, not yet implemented).
+  #
+  # IMPLEMENTED NOW:
+  #   - Disk stability criterion calculation (Mo, Mao & White 1998)
+  #   - Direct stellar mass transfer (unstable disk stars → bulge)
+  #   - Metallicity preservation during transfers
+  #   - Property tracking and initialization
+  #
+  # DEFERRED (requires sage_mergers module):
+  #   - Starburst triggering (needs collisional_starburst_recipe())
+  #   - Black hole growth (needs grow_black_hole())
+  #   - Gas handling beyond property tracking
+  #
+  # When sage_mergers is implemented, this module will be extended to:
+  #   1. Call collisional_starburst_recipe() for unstable gas
+  #   2. Call grow_black_hole() if AGN recipe is enabled
+  #   3. Complete the full SAGE disk instability physics
+  #
+  # See README.md for detailed implementation status and future roadmap.
+  #

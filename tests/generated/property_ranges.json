@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2025-11-17T09:57:04",
+  "generated_at": "2025-11-17T08:26:43",
   "properties": {
     "SnapNum": {
       "name": "SnapNum",
@@ -60,16 +60,6 @@
       "range": [
         0,
         1
-      ]
-    },
-    "mergeType": {
-      "name": "mergeType",
-      "type": "int",
-      "units": "dimensionless",
-      "is_vector": false,
-      "range": [
-        0,
-        4
       ]
     },
     "mergeIntoID": {
@@ -279,6 +269,58 @@
         0.0
       ]
     },
+    "BulgeMass": {
+      "name": "BulgeMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsStellarMass": {
+      "name": "MetalsStellarMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsBulgeMass": {
+      "name": "MetalsBulgeMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "DiskScaleRadius": {
+      "name": "DiskScaleRadius",
+      "type": "float",
+      "units": "Mpc/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        1.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
     "HotGas": {
       "name": "HotGas",
       "type": "float",
@@ -417,110 +459,6 @@
       "range": [
         0.0,
         10.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "BulgeMass": {
-      "name": "BulgeMass",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "MetalsStellarMass": {
-      "name": "MetalsStellarMass",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "MetalsBulgeMass": {
-      "name": "MetalsBulgeMass",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "QuasarModeBHaccretionMass": {
-      "name": "QuasarModeBHaccretionMass",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        1.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "TimeOfLastMajorMerger": {
-      "name": "TimeOfLastMajorMerger",
-      "type": "float",
-      "units": "Gyr",
-      "is_vector": false,
-      "range": [
-        0.0,
-        14.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "TimeOfLastMinorMerger": {
-      "name": "TimeOfLastMinorMerger",
-      "type": "float",
-      "units": "Gyr",
-      "is_vector": false,
-      "range": [
-        0.0,
-        14.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "OutflowRate": {
-      "name": "OutflowRate",
-      "type": "float",
-      "units": "1e10 Msun/h / Gyr",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "DiskScaleRadius": {
-      "name": "DiskScaleRadius",
-      "type": "float",
-      "units": "Mpc/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        1.0
       ],
       "sentinels": [
         0.0
