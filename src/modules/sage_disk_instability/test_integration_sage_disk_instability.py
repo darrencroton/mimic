@@ -222,7 +222,13 @@ def test_output_properties_exist():
 
     # Load output and check for disk instability properties
     try:
-        halos = load_binary_halos(temp_dir, file_num=0)
+        # Construct output file path (model_z0.000_0 for snapshot 63 at z=0)
+        output_file = temp_dir / "model_z0.000_0"
+        if not output_file.exists():
+            print(f"{RED}✗ FAIL{NC}: Output file not created: {output_file}")
+            return False
+
+        halos, metadata = load_binary_halos(output_file)
 
         # Check that bulge properties exist
         required_props = ['BulgeMass', 'MetalsBulgeMass', 'MetalsStellarMass', 'DiskScaleRadius']
@@ -343,7 +349,13 @@ def test_stability_physics():
 
     # Load output and check disk scale radii
     try:
-        halos = load_binary_halos(temp_dir, file_num=0)
+        # Construct output file path
+        output_file = temp_dir / "model_z0.000_0"
+        if not output_file.exists():
+            print(f"{RED}✗ FAIL{NC}: Output file not created: {output_file}")
+            return False
+
+        halos, metadata = load_binary_halos(output_file)
 
         if len(halos) == 0:
             print(f"{YELLOW}⚠ WARNING{NC}: No halos in output")
@@ -413,7 +425,13 @@ def test_stellar_conservation():
 
     # Load output and check mass conservation
     try:
-        halos = load_binary_halos(temp_dir, file_num=0)
+        # Construct output file path
+        output_file = temp_dir / "model_z0.000_0"
+        if not output_file.exists():
+            print(f"{RED}✗ FAIL{NC}: Output file not created: {output_file}")
+            return False
+
+        halos, metadata = load_binary_halos(output_file)
 
         if len(halos) == 0:
             print(f"{YELLOW}⚠ WARNING{NC}: No halos in output")
@@ -478,10 +496,23 @@ def test_memory_safety():
         print(f"{RED}✗ FAIL{NC}: Mimic execution failed")
         return False
 
-    # Check for memory leak messages
+    # Check for memory leak messages (WARNING or ERROR level, not INFO)
+    # Note: "No memory leaks detected" is a success message, not a failure
     output = result.stdout + result.stderr
-    if 'MEMORY LEAK' in output or 'memory leak' in output:
-        print(f"{RED}✗ FAIL{NC}: Memory leak detected")
+
+    # Look for actual leak warnings (exclude success messages)
+    leak_detected = False
+    for line in output.split('\n'):
+        line_lower = line.lower()
+        if 'memory leak' in line_lower or 'leak detected' in line_lower:
+            # Exclude success messages
+            if 'no memory leak' not in line_lower and 'warning' in line_lower or 'error' in line_lower:
+                print(f"{RED}✗ FAIL{NC}: Memory leak detected")
+                print(f"  {line}")
+                leak_detected = True
+                break
+
+    if leak_detected:
         return False
 
     print(f"{GREEN}✓ PASS{NC}: No memory leaks detected")
