@@ -136,7 +136,7 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx,
     }
 
     /* Calculate dynamical time of the halo (approximation for cooling time) */
-    tcool = rvir / vvir;
+    tcool = safe_div(rvir, vvir, 0.0);
 
     /* Calculate virial temperature from virial velocity
      * T = 35.9 * V^2 where V is in km/s and T is in Kelvin
@@ -144,10 +144,12 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx,
     temp = 35.9 * vvir * vvir;
 
     /* Calculate log of metallicity (Z/Z_sun) for cooling function lookup */
-    if (metals_hot_gas > EPSILON_SMALL)
-        logZ = log10(metals_hot_gas / hot_gas);
-    else
+    if (metals_hot_gas > EPSILON_SMALL) {
+        double Z = safe_div(metals_hot_gas, hot_gas, 0.0);
+        logZ = (Z > 0.0) ? log10(Z) : -10.0;
+    } else {
         logZ = -10.0;  /* Very low metallicity if no metals */
+    }
 
     /* Get cooling rate (lambda) from interpolation tables
      * Returns Lambda in units of erg cm^3 s^-1 */
@@ -163,24 +165,24 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx,
     /* Calculate density at cooling radius
      * Factor 0.885 = 3/2 * mu, where mu=0.59 for fully ionized gas
      * This is the density where cooling time equals dynamical time */
-    rho_rcool = (*x) / tcool * 0.885;
+    rho_rcool = safe_div(*x, tcool, 0.0) * 0.885;
 
     /* Calculate central density assuming isothermal profile for hot gas */
-    rho0 = hot_gas / (4.0 * M_PI * rvir);
+    rho0 = safe_div(hot_gas, 4.0 * M_PI * rvir, 0.0);
 
     /* Calculate cooling radius where tcool = tdyn */
-    *rcool = sqrt(rho0 / rho_rcool);
+    *rcool = sqrt(safe_div(rho0, rho_rcool, 0.0));
 
     /* Determine cooling regime and calculate cooled gas mass */
     if (*rcool > rvir) {
         /* "Cold accretion" regime - rapid cooling throughout the halo
          * All hot gas cools on the dynamical timescale */
-        coolingGas = hot_gas * (vvir / rvir) * dt;
+        coolingGas = hot_gas * safe_div(vvir, rvir, 0.0) * dt;
     } else {
         /* "Hot halo cooling" regime - cooling only within cooling radius
          * This follows from integrating the isothermal density profile
          * within rcool and dividing by the cooling time */
-        coolingGas = (hot_gas / rvir) * (*rcool / (2.0 * tcool)) * dt;
+        coolingGas = safe_div(hot_gas, rvir, 0.0) * safe_div(*rcool, 2.0 * tcool, 0.0) * dt;
     }
 
     /* Apply limits to ensure physically sensible cooling */
@@ -233,7 +235,7 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
     /* First, reduce cooling rate based on past AGN heating events
      * This models the cumulative effect of multiple AGN outbursts */
     if (r_heat < rcool)
-        coolingGas = (1.0 - r_heat / rcool) * coolingGas;
+        coolingGas = (1.0 - safe_div(r_heat, rcool, 0.0)) * coolingGas;
     else
         coolingGas = 0.0;  /* Complete suppression if heating radius exceeds cooling radius */
 
@@ -253,8 +255,8 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
             /* Cold cloud accretion model
              * Triggered when BH mass exceeds threshold related to cooling properties
              * Accretion rate = 0.01% of cooling rate when triggered */
-            if (black_hole_mass > 0.0001 * mvir * pow(rcool / rvir, 3.0))
-                AGNrate = 0.0001 * (coolingGas / dt);
+            if (black_hole_mass > 0.0001 * mvir * pow(safe_div(rcool, rvir, 0.0), 3.0))
+                AGNrate = 0.0001 * safe_div(coolingGas, dt, 0.0);
             else
                 AGNrate = 0.0;
 
@@ -269,7 +271,7 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
                 AGNrate = RADIO_MODE_EFFICIENCY / unit_conv *
                          (black_hole_mass / 0.01) *
                          pow(vvir / 200.0, 3.0) *
-                         ((hot_gas / mvir) / 0.1);
+                         (safe_div(hot_gas, mvir, 0.0) / 0.1);
             else
                 AGNrate = RADIO_MODE_EFFICIENCY / unit_conv *
                          (black_hole_mass / 0.01) *
@@ -297,7 +299,7 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
         /* Calculate heating efficiency coefficient
          * 1.34e5 = sqrt(2*eta*c^2), where eta=0.1 is standard efficiency
          * and c is speed of light in km/s */
-        AGNcoeff = pow(1.34e5 / vvir, 2.0);
+        AGNcoeff = pow(safe_div(1.34e5, vvir, 1.0), 2.0);
 
         /* Calculate mass of cooling gas that can be suppressed by this heating */
         AGNheating = AGNcoeff * AGNaccreted;
@@ -305,7 +307,7 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
         /* Limit heating to current cooling rate for energy conservation
          * If heating would exceed cooling, reduce accretion accordingly */
         if (AGNheating > coolingGas) {
-            AGNaccreted = coolingGas / AGNcoeff;
+            AGNaccreted = safe_div(coolingGas, AGNcoeff, 0.0);
             AGNheating = coolingGas;
         }
 
@@ -319,7 +321,7 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
         /* Update the heating radius - this affects future cooling suppression
          * The heating radius grows when effective heating occurs */
         if (r_heat < rcool && coolingGas > EPSILON_SMALL) {
-            r_heat_new = (AGNheating / coolingGas) * rcool;
+            r_heat_new = safe_div(AGNheating, coolingGas, 0.0) * rcool;
             if (r_heat_new > r_heat)
                 halo->galaxy->r_heat = r_heat_new;
         }

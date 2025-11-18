@@ -29,6 +29,7 @@
 #include "proto.h"
 #include "error.h"
 #include "integration.h"
+#include "numeric.h"
 
 /**
  * @brief   Main initialization function for the Mimic framework
@@ -63,7 +64,7 @@ void init(void) {
   Age++;
 
   for (i = 0; i < MimicConfig.Snaplistlen; i++) {
-    MimicConfig.ZZ[i] = 1 / MimicConfig.AA[i] - 1;
+    MimicConfig.ZZ[i] = safe_div(1.0, MimicConfig.AA[i], 0.0) - 1;
     Age[i] = time_to_present(MimicConfig.ZZ[i]);
     // Synchronize array element (Phase 1) - manual assignment required for array elements
     ZZ[i] = MimicConfig.ZZ[i];
@@ -214,10 +215,10 @@ double time_to_present(double z) {
   F.params = NULL;
 
   // Use adaptive integration with GAUSS21 method
-  integration_qag(&F, 1.0 / (z + 1), 1.0, 1.0 / MimicConfig.Hubble, 1.0e-8,
+  integration_qag(&F, safe_div(1.0, z + 1, 1.0), 1.0, safe_div(1.0, MimicConfig.Hubble, 0.0), 1.0e-8,
                   WORKSIZE, INTEG_GAUSS21, workspace, &result, &abserr);
 
-  time = 1 / MimicConfig.Hubble * result;
+  time = safe_div(1.0, MimicConfig.Hubble, 0.0) * result;
 
   integration_workspace_free(workspace);
 
@@ -244,7 +245,7 @@ double integrand_time_to_present(double a, void *param) {
   /* Parameter unused but required by integration function signature */
   (void)param;
 
-  return 1 / sqrt(MimicConfig.Omega / a +
+  return safe_div(1.0, sqrt(safe_div(MimicConfig.Omega, a, 0.0) +
                   (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) +
-                  MimicConfig.OmegaLambda * a * a);
+                  MimicConfig.OmegaLambda * a * a), 0.0);
 }

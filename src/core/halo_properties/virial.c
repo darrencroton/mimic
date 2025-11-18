@@ -21,6 +21,7 @@
 
 #include "allvars.h"
 #include "proto.h"
+#include "numeric.h"
 
 /**
  * @brief   Initializes a new halo tracking object with default properties
@@ -138,8 +139,8 @@ double get_virial_radius(int halonr) {
        (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) * zplus1 * zplus1 +
        MimicConfig.OmegaLambda);
 
-  rhocrit = 3 * hubble_of_z_sq / (8 * M_PI * MimicConfig.G);
-  fac = 1 / (200 * 4 * M_PI / 3.0 * rhocrit);
+  rhocrit = safe_div(3 * hubble_of_z_sq, 8 * M_PI * MimicConfig.G, 0.0);
+  fac = safe_div(1.0, 200 * 4 * M_PI / 3.0 * rhocrit, 0.0);
 
   return cbrt(get_virial_mass(halonr) * fac);
 }

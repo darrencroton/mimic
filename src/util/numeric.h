@@ -85,4 +85,24 @@ bool is_less_or_equal(double x, double y);
  */
 bool is_within(double x, double min, double max);
 
+/**
+ * @brief   Performs division with protection against division by zero
+ *
+ * @param   numerator      The numerator value
+ * @param   denominator    The denominator value
+ * @param   default_value  Value to return if denominator is effectively zero
+ * @return  numerator/denominator if denominator is not zero (within
+ * EPSILON_SMALL), default_value otherwise
+ *
+ * This function provides safe division that avoids division by zero errors.
+ * If the denominator is effectively zero (within EPSILON_SMALL), the function
+ * returns the specified default value instead of performing the division.
+ *
+ * Example usage:
+ *   double ratio = safe_div(mass, volume, 0.0);  // Returns 0.0 if volume ~ 0
+ *   double efficiency = safe_div(output, input, 1.0);  // Returns 1.0 if input
+ * ~ 0
+ */
+double safe_div(double numerator, double denominator, double default_value);
+
 #endif /* UTIL_NUMERIC_H */
