@@ -2,6 +2,30 @@
  * @file    test_unit_sage_disk_instability.c
  * @brief   Software quality unit tests for sage_disk_instability module
  *
+ * ============================================================================
+ * ⚠️  STATUS: CURRENTLY NON-FUNCTIONAL - REQUIRES UPDATING FOR PHASE 4.3
+ * ============================================================================
+ *
+ * This test file is currently BROKEN and will not compile due to outdated API
+ * usage. It was written for an earlier module testing framework and needs to
+ * be updated to match the current testing infrastructure.
+ *
+ * Issues:
+ *   - Uses undefined TEST_BEGIN/TEST_PASS macros (old API)
+ *   - Calls module_system_init() with wrong signature (now takes void)
+ *   - References undefined functions (module_system_process, etc.)
+ *   - Uses deprecated testing patterns
+ *
+ * Roadmap Status: Per Phase 4.3 - "Integration testing infrastructure needs design"
+ *
+ * Action Required: Rewrite this test file to match current testing framework
+ *                  (see test_unit_sage_infall.c or test_unit_sage_cooling.c)
+ *
+ * Until then: This file is expected to fail compilation. The sage_disk_instability
+ *            module itself is functional and tested via integration tests.
+ * ============================================================================
+ *
+ * Original Intent:
  * Validates: Module lifecycle, stability criterion, mass transfers, metallicity preservation
  * Phase: Phase 4.6 (SAGE Disk Instability Module - Partial Implementation)
  *

@@ -416,6 +416,8 @@ static int sage_starformation_feedback_init(void) {
  */
 static int sage_starformation_feedback_process(struct ModuleContext *ctx,
                                                 struct Halo *halos, int ngal) {
+    (void)ctx;  /* Context available for future use (e.g., redshift, time) */
+
     /* Validate inputs */
     if (halos == NULL || ngal <= 0) {
         return 0;  /* Nothing to process */

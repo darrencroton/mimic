@@ -170,6 +170,19 @@ static void update_from_feedback(struct GalaxyData *gal, struct GalaxyData *cent
 // ============================================================================
 // MERGER PHYSICS FUNCTIONS
 // ============================================================================
+//
+// NOTE: The following functions are complete implementations but currently
+//       UNUSED because they require core merger triggering infrastructure
+//       that has not yet been implemented (Phase 4.3).
+//
+//       These functions will be activated when the core identifies satellites
+//       that have merged with their host halos. Compiler warnings about
+//       unused functions are expected and documented in roadmap_v4.md.
+//
+//       Status: Per roadmap - "sage_mergers requires core merger triggering"
+//       Functions blocked: estimate_merging_time(), deal_with_galaxy_merger(),
+//                         disrupt_satellite_to_ICS()
+// ============================================================================
 
 /**
  * @brief   Estimates dynamical friction timescale for satellite galaxies
@@ -180,6 +193,8 @@ static void update_from_feedback(struct GalaxyData *gal, struct GalaxyData *cent
  * @param   mother_halo  Host halo array index
  * @param   halos        Halo array
  * @return  Merger time in Gyr, or -1.0 if calculation fails
+ *
+ * @note    CURRENTLY UNUSED - Awaiting core merger triggering (Phase 4.3)
  */
 static double estimate_merging_time(int sat_halo, int mother_halo, struct Halo *halos) {
   /* Sanity check: satellite and host must be different */
@@ -451,6 +466,8 @@ static void collisional_starburst_recipe(double mass_ratio, struct GalaxyData *m
  * 4. Merger-induced starburst
  * 5. Morphological transformation (for major mergers)
  * 6. Merger timing updates
+ *
+ * @note    CURRENTLY UNUSED - Awaiting core merger triggering (Phase 4.3)
  */
 static void deal_with_galaxy_merger(struct Halo *satellite, struct Halo *central,
                                      double time, double dt) {
@@ -512,6 +529,8 @@ static void deal_with_galaxy_merger(struct Halo *satellite, struct Halo *central
  *
  * Handles complete tidal disruption where satellite's dark matter halo
  * is stripped and stars are dispersed into intracluster component.
+ *
+ * @note    CURRENTLY UNUSED - Awaiting core merger triggering (Phase 4.3)
  */
 static void disrupt_satellite_to_ICS(struct Halo *central, struct Halo *satellite) {
   if (central->galaxy == NULL || satellite->galaxy == NULL) {

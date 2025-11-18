@@ -136,6 +136,8 @@ static int sage_reincorporation_process_halos(struct ModuleContext *ctx,
                                               struct Halo *halos,
                                               int ngal)
 {
+    (void)ctx;  // Context available for future use (e.g., redshift, time)
+
     // Validate inputs
     if (halos == NULL || ngal <= 0) {
         return 0;  // Nothing to process
