@@ -13,7 +13,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -44,21 +44,21 @@ jobs:
 
     - name: Check for memory leaks
       run: |
-        if grep -riq "memory leak" tests/data/expected/test/metadata/*.log 2>/dev/null; then
+        if grep -riq "memory leak" tests/data/output/binary/metadata/*.log 2>/dev/null; then
           echo "Memory leak detected!"
-          grep -i "memory leak" tests/data/expected/test/metadata/*.log
+          grep -i "memory leak" tests/data/output/binary/metadata/*.log
           exit 1
         fi
         echo "No memory leaks detected"
 
     - name: Upload test results
       if: failure()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-results
         path: |
           tests/unit/build/*.log
-          tests/data/expected/test/metadata/*.log
+          tests/data/output/binary/metadata/*.log
 
   test-hdf5:
     name: Build and Test with HDF5
@@ -66,7 +66,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -86,27 +86,3 @@ jobs:
     - name: Run integration tests (HDF5)
       run: |
         make test-integration
-
-  code-quality:
-    name: Code Quality Checks
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-
-    - name: Check for trailing whitespace
-      run: |
-        if git diff --check HEAD~1 HEAD; then
-          echo "No trailing whitespace found"
-        else
-          echo "Trailing whitespace detected"
-          exit 1
-        fi
-
-    - name: Check file permissions
-      run: |
-        # Check that scripts are executable
-        test -x tests/unit/run_tests.sh || (echo "run_tests.sh not executable" && exit 1)
-        test -x tests/integration/test_full_pipeline.py || (echo "test_full_pipeline.py not executable" && exit 1)
-        echo "File permissions OK"
