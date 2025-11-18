@@ -272,14 +272,16 @@ def test_output_properties_exist():
     # Check execution completed successfully
     assert returncode == 0, f"Mimic execution failed:\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
 
-    # Find output file
-    output_files = list(output_dir.glob("*.dat"))
-    assert len(output_files) > 0, f"No output files found in {output_dir}"
-
-    output_file = output_files[0]
+    # Find output file (binary format: model_z0.000_0)
+    # Binary output files have no extension
+    output_file = output_dir / "model_z0.000_0"
+    if not output_file.exists():
+        # List what files exist for debugging
+        existing = list(output_dir.glob("*"))
+        assert False, f"Output file {output_file} not found. Files in {output_dir}: {existing}"
 
     # Load output halos
-    halos = load_binary_halos(str(output_file))
+    halos, metadata = load_binary_halos(str(output_file))
 
     # Check for expected properties
     required_properties = ['StellarMass', 'MetalsStellarMass', 'DiskScaleRadius', 'OutflowRate']
@@ -475,12 +477,12 @@ def test_execution_completes():
     # Check execution completed successfully
     assert returncode == 0, f"Execution failed:\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
 
-    # Check output files exist
-    output_files = list(output_dir.glob("*.dat"))
-    assert len(output_files) > 0, f"No output files produced"
+    # Check output file exists (binary format: model_z0.000_0)
+    output_file = output_dir / "model_z0.000_0"
+    assert output_file.exists(), f"Output file {output_file} not produced"
 
     print(f"{GREEN}✓ Execution completed successfully{NC}")
-    print(f"  Output files: {len(output_files)}")
+    print(f"  Output file: {output_file.name}")
 
 
 def test_three_module_pipeline():
@@ -516,11 +518,11 @@ def test_three_module_pipeline():
     # Check execution completed successfully
     assert returncode == 0, f"Three-module pipeline failed:\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
 
-    # Load output and verify property flow
-    output_files = list(output_dir.glob("*.dat"))
-    assert len(output_files) > 0, "No output files produced"
+    # Load output and verify property flow (binary format: model_z0.000_0)
+    output_file = output_dir / "model_z0.000_0"
+    assert output_file.exists(), f"Output file {output_file} not produced"
 
-    halos = load_binary_halos(str(output_files[0]))
+    halos, metadata = load_binary_halos(str(output_file))
 
     # Check all expected properties present
     expected_props = [
