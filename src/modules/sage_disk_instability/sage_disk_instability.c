@@ -132,7 +132,7 @@ static double calculate_critical_disk_mass(float vmax, float disk_scale_radius,
   double reff = DISK_RADIUS_FACTOR * disk_scale_radius;
 
   /* Stability criterion: Mcrit = Vmax^2 * Reff / G */
-  double mcrit = vmax * vmax * reff / G_code;
+  double mcrit = safe_div(vmax * vmax * reff, G_code, 0.0);
 
   return mcrit;
 }
@@ -241,11 +241,6 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
     double disk_stellar_mass = galaxy->StellarMass - galaxy->BulgeMass;
     double disk_mass = galaxy->ColdGas + disk_stellar_mass;
 
-    /* Only proceed if disk has positive mass */
-    if (disk_mass <= 0.0) {
-      continue;
-    }
-
     /* Calculate critical disk mass for stability */
     double mcrit = calculate_critical_disk_mass(halo->Vmax, galaxy->DiskScaleRadius,
                                                 G_code);
@@ -256,8 +251,8 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
     }
 
     /* Calculate mass fractions in disk */
-    double gas_fraction = galaxy->ColdGas / disk_mass;
-    double star_fraction = disk_stellar_mass / disk_mass;
+    double gas_fraction = safe_div(galaxy->ColdGas, disk_mass, 0.0);
+    double star_fraction = safe_div(disk_stellar_mass, disk_mass, 0.0);
 
     /* Calculate unstable masses that exceed stability criterion */
     double unstable_gas = gas_fraction * (disk_mass - mcrit);
@@ -282,8 +277,8 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
         WARNING_LOG("Disk instability: bulge mass exceeds total stellar mass in halo %d. "
                    "Bulge/Total = %.4f (stars) or %.4f (metals)",
                    halo->HaloNr,
-                   galaxy->BulgeMass / galaxy->StellarMass,
-                   galaxy->MetalsBulgeMass / galaxy->MetalsStellarMass);
+                   safe_div(galaxy->BulgeMass, galaxy->StellarMass, 0.0),
+                   safe_div(galaxy->MetalsBulgeMass, galaxy->MetalsStellarMass, 0.0));
       }
     }
 

@@ -477,18 +477,15 @@ static int sage_starformation_feedback_process(struct ModuleContext *ctx,
             float reff = 3.0f * gal->DiskScaleRadius;
 
             /* Calculate dynamical time of the disk */
-            float tdyn = 0.0f;
-            if (halos[i].Vvir > EPSILON_SMALL) {
-                tdyn = reff / halos[i].Vvir;
-            }
+            float tdyn = safe_div(reff, halos[i].Vvir, 0.0f);
 
             /* Calculate critical cold gas mass (Kauffmann 1996 eq7 × πR²) */
             float cold_crit = 0.19f * halos[i].Vvir * reff;
 
             /* Star formation occurs only if gas mass exceeds critical threshold */
-            if (gal->ColdGas > cold_crit && tdyn > EPSILON_SMALL) {
-                strdot = (float)SFR_EFFICIENCY * (gal->ColdGas - cold_crit) /
-                         tdyn;
+            if (gal->ColdGas > cold_crit) {
+                strdot = (float)SFR_EFFICIENCY *
+                         safe_div(gal->ColdGas - cold_crit, tdyn, 0.0f);
             } else {
                 strdot = 0.0f;
             }
@@ -512,9 +509,8 @@ static int sage_starformation_feedback_process(struct ModuleContext *ctx,
         }
 
         /* Ensure total gas used doesn't exceed available cold gas */
-        if (stars + reheated_mass > gal->ColdGas &&
-            stars + reheated_mass > EPSILON_SMALL) {
-            float fac = gal->ColdGas / (stars + reheated_mass);
+        if (stars + reheated_mass > gal->ColdGas) {
+            float fac = safe_div(gal->ColdGas, (stars + reheated_mass), 1.0f);
             stars *= fac;
             reheated_mass *= fac;
         }
@@ -522,18 +518,14 @@ static int sage_starformation_feedback_process(struct ModuleContext *ctx,
         /* Calculate gas ejection due to powerful feedback */
         float ejected_mass = 0.0f;
         if (SUPERNOVA_RECIPE_ON == 1) {
-            if (halos[central_idx].Vvir > EPSILON_SMALL) {
-                /* Energy-driven outflow model */
-                float vvir_sq =
-                    halos[central_idx].Vvir * halos[central_idx].Vvir;
-                ejected_mass =
-                    ((float)FEEDBACK_EJECTION_EFFICIENCY *
-                         (float)(ETA_SN_CODE * ENERGY_SN_CODE) / vvir_sq -
-                     (float)FEEDBACK_REHEATING_EPSILON) *
-                    stars;
-            } else {
-                ejected_mass = 0.0f;
-            }
+            /* Energy-driven outflow model */
+            float vvir_sq = halos[central_idx].Vvir * halos[central_idx].Vvir;
+            ejected_mass =
+                ((float)FEEDBACK_EJECTION_EFFICIENCY *
+                     safe_div((float)(ETA_SN_CODE * ENERGY_SN_CODE), vvir_sq,
+                              0.0f) -
+                 (float)FEEDBACK_REHEATING_EPSILON) *
+                stars;
 
             /* Ensure ejected mass is non-negative */
             if (ejected_mass < 0.0f) {

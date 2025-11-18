@@ -40,6 +40,7 @@
 #include "error.h"
 #include "module_interface.h"
 #include "module_registry.h"
+#include "numeric.h"
 #include "sage_mergers.h"
 #include "types.h"
 
@@ -98,27 +99,7 @@ static double ENERGY_SN_CODE = 0.0;  // Calculated in init
  * @brief   Calculate metallicity from mass and metal mass
  */
 static inline float get_metallicity(float mass, float metals) {
-  if (mass > 1.0e-10f) {
-    return metals / mass;
-  }
-  return 0.0f;
-}
-
-/**
- * @brief   Safe division with fallback value
- */
-static inline double safe_div(double numerator, double denominator, double fallback) {
-  if (fabs(denominator) > 1.0e-10) {
-    return numerator / denominator;
-  }
-  return fallback;
-}
-
-/**
- * @brief   Check if value a is greater than value b (with tolerance)
- */
-static inline int is_greater(double a, double b) {
-  return (a - b) > 1.0e-10;
+  return safe_div(metals, mass, 0.0f);
 }
 
 // ============================================================================
@@ -207,7 +188,8 @@ static double estimate_merging_time(int sat_halo, int mother_halo, struct Halo *
   }
 
   /* Calculate Coulomb logarithm from particle number ratio */
-  double coulomb = log((double)halos[mother_halo].Len / (double)halos[sat_halo].Len + 1.0);
+  double coulomb = log(safe_div((double)halos[mother_halo].Len,
+                                (double)halos[sat_halo].Len, 1.0) + 1.0);
 
   /* Calculate total satellite mass (dark matter + baryons) */
   double sat_mass = halos[sat_halo].Mvir;
@@ -222,14 +204,11 @@ static double estimate_merging_time(int sat_halo, int mother_halo, struct Halo *
   /* Calculate merger timescale (Binney & Tremaine 1987)
    * T_merge = 2.0 * 1.17 * R² * V / (ln(M_host/M_sat) * G * M_sat)
    */
-  double mergtime = -1.0;
-  if (sat_mass > 0.0 && coulomb > 0.0) {
-    /* G is in Mimic units from MimicConfig */
-    double G = 43.0071;  // Gravitational constant in 1e10 Msun/h, (Mpc/h), (km/s) units
+  /* G is in Mimic units from MimicConfig */
+  double G = 43.0071;  // Gravitational constant in 1e10 Msun/h, (Mpc/h), (km/s) units
 
-    mergtime = 2.0 * 1.17 * sat_radius * sat_radius * vvir /
-               (coulomb * G * sat_mass);
-  }
+  double mergtime = safe_div(2.0 * 1.17 * sat_radius * sat_radius * vvir,
+                             coulomb * G * sat_mass, -1.0);
 
   return mergtime;
 }
@@ -408,16 +387,17 @@ static void collisional_starburst_recipe(double mass_ratio, struct GalaxyData *m
 
   /* Ensure mass conservation: can't exceed available cold gas */
   if (stars + reheated_mass > merger_gal->ColdGas) {
-    double fac = merger_gal->ColdGas / (stars + reheated_mass);
+    double fac = safe_div(merger_gal->ColdGas, (stars + reheated_mass), 1.0);
     stars *= fac;
     reheated_mass *= fac;
   }
 
   /* Calculate gas ejection from halo (energy-driven) */
   double ejected_mass = 0.0;
-  if (SUPERNOVA_RECIPE_ON == 1 && vvir > 0.0) {
-    ejected_mass = (FEEDBACK_EJECTION_EFFICIENCY * (ETA_SN_CODE * ENERGY_SN_CODE) /
-                    (vvir * vvir) - FEEDBACK_REHEATING_EPSILON) * stars;
+  if (SUPERNOVA_RECIPE_ON == 1) {
+    ejected_mass = (FEEDBACK_EJECTION_EFFICIENCY *
+                    safe_div(ETA_SN_CODE * ENERGY_SN_CODE, (vvir * vvir), 0.0) -
+                    FEEDBACK_REHEATING_EPSILON) * stars;
 
     if (ejected_mass < 0.0) {
       ejected_mass = 0.0;
@@ -494,7 +474,7 @@ static void deal_with_galaxy_merger(struct Halo *satellite, struct Halo *central
   }
 
   /* Calculate mass ratio, default to 1.0 if no baryons */
-  mass_ratio = (ma > 0.0) ? (mi / ma) : 1.0;
+  mass_ratio = safe_div(mi, ma, 1.0);
 
   /* Add all components of satellite to central */
   add_galaxies_together(central->galaxy, satellite->galaxy);

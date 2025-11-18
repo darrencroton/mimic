@@ -178,13 +178,6 @@ static int sage_reincorporation_process_halos(struct ModuleContext *ctx,
             continue;
         }
 
-        // Validate halo properties
-        if (Rvir <= EPSILON_SMALL) {
-            DEBUG_LOG("Halo %d: Invalid Rvir=%.3e, skipping reincorporation",
-                     i, Rvir);
-            continue;
-        }
-
         // Check if virial velocity exceeds critical velocity
         if (Vvir <= Vcrit) {
             // Virial velocity too low for reincorporation
@@ -193,8 +186,8 @@ static int sage_reincorporation_process_halos(struct ModuleContext *ctx,
 
         // Calculate reincorporation rate
         // Rate = (Vvir/Vcrit - 1) * M_ejected * (Vvir/Rvir) * dt
-        double velocity_factor = (Vvir / Vcrit) - 1.0;
-        double dynamical_rate = Vvir / Rvir;  // 1/t_dyn = Vvir/Rvir
+        double velocity_factor = safe_div(Vvir, Vcrit, 0.0) - 1.0;
+        double dynamical_rate = safe_div(Vvir, Rvir, 0.0);  // 1/t_dyn = Vvir/Rvir
         float reincorporated = velocity_factor * ejected_mass * dynamical_rate * dt;
 
         // Limit to available ejected mass (cannot exceed reservoir)
