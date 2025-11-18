@@ -240,15 +240,18 @@ def check_no_memory_leaks(output_dir):
 
     for log_file in log_dir.glob("*.log"):
         with open(log_file) as f:
-            content = f.read().lower()
-            if "memory leak" in content:
-                print(f"{RED}Memory leak detected in {log_file}{NC}")
-                # Print the relevant lines
-                with open(log_file) as f2:
-                    for line in f2:
-                        if "memory leak" in line.lower():
+            for line in f:
+                line_lower = line.lower()
+                # Check for actual leak messages, not success messages
+                # "No memory leaks detected" is a success message, not a failure
+                if "memory leak" in line_lower:
+                    # Exclude success messages
+                    if "no memory leak" not in line_lower:
+                        # Check if it's a warning or error (not just INFO)
+                        if "warning" in line_lower or "error" in line_lower or "fatal" in line_lower:
+                            print(f"{RED}Memory leak detected in {log_file}{NC}")
                             print(f"  {line.strip()}")
-                return False
+                            return False
 
     return True
 

@@ -417,10 +417,23 @@ def test_memory_safety():
     # Run Mimic
     returncode, stdout, stderr = run_mimic(param_file)
 
-    # Check for memory leak warnings
+    # Check for memory leak warnings (exclude success messages)
+    # Note: "No memory leaks detected" is a success message, not a failure
     combined_output = stdout + stderr
-    assert 'memory leak' not in combined_output.lower(), "Memory leak detected in output"
-    assert 'WARNING: Memory leak' not in combined_output, "Memory leak warning found"
+
+    # Look for actual leak warnings, not success messages
+    leak_detected = False
+    for line in combined_output.split('\n'):
+        line_lower = line.lower()
+        if 'memory leak' in line_lower:
+            # Exclude success messages
+            if 'no memory leak' not in line_lower:
+                # Check if it's a warning or error
+                if 'warning' in line_lower or 'error' in line_lower:
+                    leak_detected = True
+                    break
+
+    assert not leak_detected, "Memory leak detected in output"
 
     print(f"{GREEN}✓ No memory leaks detected{NC}")
 

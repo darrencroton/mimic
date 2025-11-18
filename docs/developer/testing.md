@@ -1415,8 +1415,8 @@ make check-generated
 make test-unit
 make test-integration
 
-# Check for memory leaks
-grep -i "memory leak" tests/data/output/baseline/metadata/*.log
+# Check for memory leaks (exclude success messages)
+grep -i "memory leak" tests/data/output/baseline/metadata/*.log | grep -v "No memory leak"
 ```
 
 ---
