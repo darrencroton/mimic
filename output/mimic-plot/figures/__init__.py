@@ -116,6 +116,7 @@ def check_required_properties(galaxies, required_properties):
 
 # Import all the figure modules so they can be discovered
 from . import (
+    baryon_fraction,
     cold_gas_function,
     halo_mass_function,
     halo_occupation,
@@ -139,6 +140,7 @@ SNAPSHOT_PLOTS = [
     # Galaxy physics plots (require physics modules)
     "stellar_mass_function",
     "cold_gas_function",
+    "baryon_fraction",
 ]
 
 """List of all available evolution plot modules."""
@@ -163,6 +165,7 @@ PLOT_REQUIREMENTS = {
     "stellar_mass_function": ["StellarMass"],
     "cold_gas_function": ["ColdGas"],
     "smf_evolution": ["StellarMass"],
+    "baryon_fraction": ["Mvir", "Type"],  # Baryonic properties checked internally
 }
 
 """Mapping of plot names to their corresponding functions."""
@@ -176,4 +179,5 @@ PLOT_FUNCS = {
     "stellar_mass_function": stellar_mass_function.plot,
     "cold_gas_function": cold_gas_function.plot,
     "smf_evolution": smf_evolution.plot,
+    "baryon_fraction": baryon_fraction.plot,
 }
