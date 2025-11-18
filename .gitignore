@@ -6,7 +6,7 @@ input/data
 output/results
 
 # Benchmark results
-benchmarks/
+benchmarks
 
 # Archive and scratch space
 ignore
