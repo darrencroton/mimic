@@ -30,6 +30,9 @@ make generate
 # Verify generated code is up-to-date (CI check)
 make check-generated
 
+# Validate module metadata (checks dependencies, properties, files)
+make validate-modules
+
 # With HDF5 support for HDF5 tree format
 make USE-HDF5=yes
 
@@ -71,10 +74,11 @@ make tidy
 ## Testing
 
 ```bash
-# Run all tests (unit + integration + scientific)
+# Run all tests (validates metadata first, then runs all test tiers)
 make tests
 
-# Run specific test tiers
+# Run specific steps
+make validate-modules   # Validate module metadata only
 make test-unit          # C unit tests (fast, <10s)
 make test-integration   # Python integration tests (medium, <1min)
 make test-scientific    # Python scientific validation (slow, <5min)

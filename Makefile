@@ -221,7 +221,7 @@ validate-test-registry:
 	@python3 scripts/validate_module_tests.py
 
 # Test targets
-tests: test-unit test-integration test-scientific
+tests: validate-modules test-unit test-integration test-scientific
 	@echo ""
 	@echo ""
 	@echo "============================================================"

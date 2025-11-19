@@ -818,11 +818,69 @@ The validation script (`scripts/validate_modules.py`) performs comprehensive che
 - Register function has correct signature
 - Module struct properly defined
 
-### 5. Dependency Validation
-- No circular dependencies
-- All required properties exist (check against property metadata)
-- All provided properties exist (check against property metadata)
-- Dependency graph is valid (topological sort succeeds)
+### 5. Dependency Validation (Enhanced - Phase 4.2.10)
+
+**Property Existence (ERROR - Blocking)**:
+- All properties in `requires` must exist in `galaxy_properties.yaml` OR `halo_properties.yaml`
+- All properties in `provides` must exist in `galaxy_properties.yaml` OR `halo_properties.yaml`
+- Missing properties will cause validation to FAIL
+- Error message specifies which property files to check
+
+**Property Metadata (Informational)**:
+- Property type and units displayed in verbose mode
+- Source file (galaxy vs halo) shown for each dependency
+- Helps developers understand property characteristics
+
+**Circular Dependencies (ERROR - Blocking)**:
+- Dependency graph must be acyclic
+- Topological sort must succeed
+- Circular dependencies cause validation to FAIL
+
+**Common Validation Errors and Fixes**:
+
+```yaml
+# ERROR: Required property doesn't exist
+dependencies:
+  requires:
+    - HotGasss  # Typo! Should be HotGas
+
+# FIX: Check property spelling against property files
+dependencies:
+  requires:
+    - HotGas  # Correct - exists in galaxy_properties.yaml
+```
+
+```yaml
+# ERROR: Provided property doesn't exist
+dependencies:
+  provides:
+    - NewPropertyName  # Not defined in property metadata
+
+# FIX: Add property to galaxy_properties.yaml first
+# Then update module metadata
+```
+
+```yaml
+# SUCCESS: Using halo properties
+dependencies:
+  requires:
+    - Mvir   # Halo property - validated against halo_properties.yaml
+    - Vmax   # Halo property - validated against halo_properties.yaml
+  provides:
+    - ColdGas  # Galaxy property - validated against galaxy_properties.yaml
+```
+
+**Verbose Mode Output Example**:
+```bash
+$ python3 scripts/validate_modules.py --verbose
+
+Loaded 54 properties (23 galaxy, 31 halo)
+
+sage_cooling requires HotGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml
+sage_cooling requires MetalsHotGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml
+sage_cooling provides ColdGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml
+...
+```
 
 ### 6. Parameter Validation
 - Default values match declared types

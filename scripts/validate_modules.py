@@ -46,8 +46,9 @@ REPO_ROOT = Path(__file__).parent.parent
 # Module directory
 MODULES_DIR = REPO_ROOT / "src" / "modules"
 
-# Property metadata (for dependency validation)
+# Property metadata files (for dependency validation)
 GALAXY_PROPERTIES_YAML = REPO_ROOT / "src" / "modules" / "galaxy_properties.yaml"
+HALO_PROPERTIES_YAML = REPO_ROOT / "src" / "core" / "halo_properties.yaml"
 
 # ==============================================================================
 # SCHEMA DEFINITIONS
@@ -175,22 +176,63 @@ def discover_modules() -> List[Tuple[Path, Optional[Dict[str, Any]]]]:
     return modules
 
 
-def load_galaxy_properties() -> List[str]:
-    """Load list of galaxy property names from metadata."""
-    if not GALAXY_PROPERTIES_YAML.exists():
-        return []
+def load_property_metadata() -> Dict[str, Dict[str, Any]]:
+    """
+    Load both galaxy and halo property metadata.
 
-    try:
-        with open(GALAXY_PROPERTIES_YAML, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-            if data and "galaxy_properties" in data:
-                return [
-                    prop["name"] for prop in data["galaxy_properties"] if "name" in prop
-                ]
-    except Exception:
-        pass
+    Returns:
+        Dict mapping property name to full metadata:
+        {
+            "ColdGas": {
+                "name": "ColdGas",
+                "type": "float",
+                "units": "1e10 Msun/h",
+                "description": "...",
+                "source": "galaxy_properties.yaml"
+            },
+            "Mvir": {
+                "name": "Mvir",
+                "type": "float",
+                "units": "1e10 Msun/h",
+                "description": "...",
+                "source": "halo_properties.yaml"
+            },
+            ...
+        }
+    """
+    properties = {}
 
-    return []
+    # Load galaxy properties
+    if GALAXY_PROPERTIES_YAML.exists():
+        try:
+            with open(GALAXY_PROPERTIES_YAML, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                if data and "galaxy_properties" in data:
+                    for prop in data["galaxy_properties"]:
+                        if "name" in prop:
+                            properties[prop["name"]] = {
+                                **prop,
+                                "source": "galaxy_properties.yaml"
+                            }
+        except Exception as e:
+            print(f"WARNING: Failed to load galaxy properties: {e}", file=sys.stderr)
+
+    # Load halo properties
+    if HALO_PROPERTIES_YAML.exists():
+        try:
+            with open(HALO_PROPERTIES_YAML, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                if data and "halo_properties" in data:
+                    for prop in data["halo_properties"]:
+                        if "name" in prop:
+                            properties[prop["name"]] = {
+                                **prop,
+                                "source": "halo_properties.yaml"
+                            }
+        except Exception as e:
+            print(f"WARNING: Failed to load halo properties: {e}", file=sys.stderr)
+
+    return properties
 
 
 # ==============================================================================
@@ -544,7 +586,10 @@ def validate_source_files(
 
 
 def validate_test_files(
-    module: Dict[str, Any], module_name: str, results: ValidationResults
+    module: Dict[str, Any],
+    module_name: str,
+    module_dir: Path,
+    results: ValidationResults
 ) -> bool:
     """Validate that test files exist (warnings only)."""
 
@@ -554,26 +599,65 @@ def validate_test_files(
 
     tests = module["tests"]
 
+    # Unit tests can be in tests/unit/ OR co-located with module
     if "unit" in tests:
-        unit_test_path = REPO_ROOT / "tests" / "unit" / tests["unit"]
-        if not unit_test_path.exists():
-            results.add_warning(
-                module_name, f"Unit test file not found: {tests['unit']}"
-            )
+        unit_test = tests["unit"]
+        # Handle list format (e.g., shared utilities with multiple tests)
+        if isinstance(unit_test, list):
+            for test_file in unit_test:
+                # Check module directory first (co-located)
+                module_test_path = module_dir / test_file
+                # Check tests/unit/ directory second (centralized)
+                central_test_path = REPO_ROOT / "tests" / "unit" / test_file
+                if not module_test_path.exists() and not central_test_path.exists():
+                    results.add_warning(
+                        module_name, f"Unit test file not found: {test_file}"
+                    )
+        else:
+            # Check module directory first (co-located)
+            module_test_path = module_dir / unit_test
+            # Check tests/unit/ directory second (centralized)
+            central_test_path = REPO_ROOT / "tests" / "unit" / unit_test
+            if not module_test_path.exists() and not central_test_path.exists():
+                results.add_warning(
+                    module_name, f"Unit test file not found: {unit_test}"
+                )
 
+    # Integration tests are co-located with module
     if "integration" in tests:
-        int_test_path = REPO_ROOT / "tests" / "integration" / tests["integration"]
-        if not int_test_path.exists():
-            results.add_warning(
-                module_name, f"Integration test file not found: {tests['integration']}"
-            )
+        integration_test = tests["integration"]
+        # Handle list format
+        if isinstance(integration_test, list):
+            for test_file in integration_test:
+                int_test_path = module_dir / test_file
+                if not int_test_path.exists():
+                    results.add_warning(
+                        module_name, f"Integration test file not found: {test_file}"
+                    )
+        else:
+            int_test_path = module_dir / integration_test
+            if not int_test_path.exists():
+                results.add_warning(
+                    module_name, f"Integration test file not found: {integration_test}"
+                )
 
+    # Scientific tests are co-located with module
     if "scientific" in tests:
-        sci_test_path = REPO_ROOT / "tests" / "scientific" / tests["scientific"]
-        if not sci_test_path.exists():
-            results.add_warning(
-                module_name, f"Scientific test file not found: {tests['scientific']}"
-            )
+        scientific_test = tests["scientific"]
+        # Handle list format
+        if isinstance(scientific_test, list):
+            for test_file in scientific_test:
+                sci_test_path = module_dir / test_file
+                if not sci_test_path.exists():
+                    results.add_warning(
+                        module_name, f"Scientific test file not found: {test_file}"
+                    )
+        else:
+            sci_test_path = module_dir / scientific_test
+            if not sci_test_path.exists():
+                results.add_warning(
+                    module_name, f"Scientific test file not found: {scientific_test}"
+                )
 
     return True
 
@@ -682,10 +766,76 @@ def build_dependency_graph(
     return graph
 
 
+def validate_module_dependencies(
+    module: Dict[str, Any],
+    module_name: str,
+    property_metadata: Dict[str, Dict[str, Any]],
+    results: ValidationResults,
+    verbose: bool = False,
+) -> bool:
+    """Validate module dependencies against property metadata."""
+
+    deps = module.get("dependencies", {})
+    requires = deps.get("requires", [])
+    provides = deps.get("provides", [])
+
+    valid = True
+
+    # Validate required properties
+    for req in requires:
+        if req not in property_metadata:
+            results.add_error(
+                module_name,
+                3,
+                f"Required property '{req}' not found in property metadata. "
+                f"Check galaxy_properties.yaml and halo_properties.yaml."
+            )
+            valid = False
+        elif verbose:
+            prop_meta = property_metadata[req]
+            print(f"  {module_name} requires {req}: "
+                  f"type={prop_meta.get('type', 'unknown')}, "
+                  f"units={prop_meta.get('units', 'unknown')}, "
+                  f"source={prop_meta.get('source', 'unknown')}")
+
+    # Validate provided properties
+    for prov in provides:
+        if prov not in property_metadata:
+            results.add_error(
+                module_name,
+                3,
+                f"Provided property '{prov}' not found in property metadata. "
+                f"Add to galaxy_properties.yaml or check spelling."
+            )
+            valid = False
+        elif verbose:
+            prop_meta = property_metadata[prov]
+            print(f"  {module_name} provides {prov}: "
+                  f"type={prop_meta.get('type', 'unknown')}, "
+                  f"units={prop_meta.get('units', 'unknown')}, "
+                  f"source={prop_meta.get('source', 'unknown')}")
+
+    # Check for property modification pattern (requires AND provides same property)
+    modifies = set(requires) & set(provides)
+    for prop_name in modifies:
+        if prop_name in property_metadata:
+            prop_meta = property_metadata[prop_name]
+            if verbose:
+                results.add_warning(
+                    module_name,
+                    f"Module both requires and provides '{prop_name}' "
+                    f"(modification pattern). Type: {prop_meta.get('type', 'unknown')}, "
+                    f"Units: {prop_meta.get('units', 'unknown')}"
+                )
+
+    return valid
+
+
 def validate_dependencies(
     modules: List[Tuple[Path, Dict[str, Any]]],
-    galaxy_properties: List[str],
+    property_metadata: Dict[str, Dict[str, Any]],
     results: ValidationResults,
+    verbose: bool = False,
 ) -> bool:
     """Validate module dependencies and check for cycles."""
 
@@ -700,25 +850,8 @@ def validate_dependencies(
     for module_dir, module in modules:
         module_name = module.get("name", module_dir.name)
 
-        deps = module.get("dependencies", {})
-        requires = deps.get("requires", [])
-        provides = deps.get("provides", [])
-
-        # Validate requires against galaxy properties
-        for req in requires:
-            if req not in galaxy_properties:
-                results.add_warning(
-                    module_name,
-                    f"Required property '{req}' not found in galaxy_properties.yaml",
-                )
-
-        # Validate provides against galaxy properties
-        for prov in provides:
-            if prov not in galaxy_properties:
-                results.add_warning(
-                    module_name,
-                    f"Provided property '{prov}' not found in galaxy_properties.yaml",
-                )
+        if not validate_module_dependencies(module, module_name, property_metadata, results, verbose):
+            valid = False
 
     # Build dependency graph
     try:
@@ -746,7 +879,7 @@ def validate_dependencies(
 def validate_module(
     module_dir: Path,
     module: Dict[str, Any],
-    galaxy_properties: List[str],
+    property_metadata: Dict[str, Dict[str, Any]],
     results: ValidationResults,
     verbose: bool = False,
 ) -> bool:
@@ -757,7 +890,32 @@ def validate_module(
     if verbose:
         print(f"Validating module: {module_name}")
 
-    # Schema validation
+    # Check if this is a utility module (different validation rules)
+    is_utility = module.get("is_utility", False)
+
+    # Utility modules have relaxed validation (only tests need to be specified)
+    if is_utility:
+        if verbose:
+            print(f"  {module_name} is a utility module (relaxed validation)")
+
+        # Validate only basic fields and tests
+        if "name" not in module:
+            results.add_error(module_name, 1, "Missing required field: name")
+            return False
+
+        # Validate name matches directory
+        if not validate_name(module, module_name, module_dir, results):
+            return False
+
+        # Validate test files if specified
+        validate_test_files(module, module_name, module_dir, results)
+
+        if verbose:
+            print(f"  ✓ {module_name} validated (utility module)")
+
+        return True
+
+    # Schema validation (for regular modules)
     if not validate_required_fields(module, module_name, results):
         return False
 
@@ -783,7 +941,7 @@ def validate_module(
     if not validate_source_files(module, module_name, module_dir, results):
         return False
 
-    validate_test_files(module, module_name, results)
+    validate_test_files(module, module_name, module_dir, results)
     validate_doc_files(module, module_name, results)
 
     # Code verification
@@ -817,10 +975,15 @@ def main():
 
     results = ValidationResults()
 
-    # Load galaxy properties for dependency validation
-    galaxy_properties = load_galaxy_properties()
-    if args.verbose and galaxy_properties:
-        print(f"Loaded {len(galaxy_properties)} galaxy properties")
+    # Load property metadata (both galaxy and halo) for dependency validation
+    property_metadata = load_property_metadata()
+    if property_metadata:
+        galaxy_count = sum(1 for p in property_metadata.values() if p.get('source') == 'galaxy_properties.yaml')
+        halo_count = sum(1 for p in property_metadata.values() if p.get('source') == 'halo_properties.yaml')
+        print(f"Loaded {len(property_metadata)} properties "
+              f"({galaxy_count} galaxy, {halo_count} halo)")
+        if args.verbose:
+            print()
 
     # Discover modules
     if args.module_path:
@@ -856,13 +1019,13 @@ def main():
             )
             continue
 
-        validate_module(module_dir, metadata, galaxy_properties, results, args.verbose)
+        validate_module(module_dir, metadata, property_metadata, results, args.verbose)
         valid_modules.append((module_dir, metadata))
 
     # Global dependency validation (only if we have valid modules)
     if valid_modules:
         print("\nValidating cross-module dependencies...")
-        validate_dependencies(valid_modules, galaxy_properties, results)
+        validate_dependencies(valid_modules, property_metadata, results, args.verbose)
 
     # Print summary
     results.print_summary()

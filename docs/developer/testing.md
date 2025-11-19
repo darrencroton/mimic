@@ -15,9 +15,12 @@ This comprehensive guide explains how to use Mimic's testing infrastructure, wri
 | What | Command | Time |
 |------|---------|------|
 | **Run all tests** | `make tests` | <6 min |
+| **Validate metadata** | `make validate-modules` | <1 sec |
 | **Fast tests only** | `make test-unit` | <10 sec |
 | **Integration tests** | `make test-integration` | <1 min |
 | **Scientific validation** | `make test-scientific` | <5 min |
+
+**Note**: `make tests` automatically validates module metadata before running tests.
 
 **Three test tiers:**
 1. **Unit (C)** - Fast component tests, run every change

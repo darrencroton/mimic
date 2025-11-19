@@ -1287,6 +1287,55 @@ assert(cold_gas >= 0.0f);
 assert(dt > 0.0f && dt < 10.0f);  // Sanity check
 ```
 
+### Property Dependency Validation
+
+**Validate module metadata before building**:
+
+```bash
+# Validate all modules
+make validate-modules
+
+# Validate specific module (with verbose property info)
+python3 scripts/validate_modules.py src/modules/my_module --verbose
+```
+
+**Common validation errors**:
+
+```
+ERROR: Required property 'HotGasss' not found in property metadata.
+Check galaxy_properties.yaml and halo_properties.yaml.
+
+FIX: Check property spelling
+  - HotGasss → HotGas (typo)
+  - Verify property exists in galaxy_properties.yaml OR halo_properties.yaml
+```
+
+```
+ERROR: Provided property 'NewProperty' not found in property metadata.
+Add to galaxy_properties.yaml or check spelling.
+
+FIX: Add property to galaxy_properties.yaml first
+  1. Edit src/modules/galaxy_properties.yaml
+  2. Add property definition
+  3. Run: make generate
+  4. Update module_info.yaml dependencies.provides
+  5. Run: make validate-modules
+```
+
+**Verbose mode shows property details**:
+
+```bash
+$ python3 scripts/validate_modules.py --verbose
+
+my_module requires HotGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml
+my_module requires Mvir: type=float, units=1e10 Msun/h, source=halo_properties.yaml
+my_module provides ColdGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml
+```
+
+**Property sources**:
+- `galaxy_properties.yaml` - Baryonic physics properties (created by modules)
+- `halo_properties.yaml` - Dark matter halo properties (from simulation/core)
+
 ---
 
 ## Performance Considerations

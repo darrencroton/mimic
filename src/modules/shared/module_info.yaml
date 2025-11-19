@@ -20,7 +20,7 @@
 # See: src/modules/shared/README.md for shared utility development guide
 
 module:
-  name: shared_utilities
+  name: shared
   display_name: "Shared Physics Utilities"
   description: "Collection of shared physics utilities used by multiple modules"
 

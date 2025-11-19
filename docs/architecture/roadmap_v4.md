@@ -182,7 +182,42 @@ This section summarizes the capabilities of the codebase *right now*. The detail
 -   **Validation**: ✅ All tests passing (unit: 6/6, integration: all, scientific: all), clean build with `make generate && make`
 -   **Lesson Learned**: Terminology matters - using precise language (provides vs creates) prevents confusion about system behavior. Code locality improves - placing metadata files alongside the code they describe makes the system more intuitive and maintainable.
 
-#### ✅ **10. SAGE Physics Modules** (Phase 4.2 - All Merged, Code Quality Complete)
+#### ✅ **10. Property Validation Enhancement** (Phase 4.2.10 - Completed 2025-11-19)
+-   **Problem**: Module validation only checked if property names existed in `galaxy_properties.yaml`, ignoring halo properties entirely. Validation used WARNING level (non-blocking), allowing invalid modules to pass. No type or unit information was available during validation to help developers understand property characteristics.
+-   **Solution**: Enhanced validation script to load both galaxy and halo property metadata, validate all dependencies against both property files, upgrade to ERROR level (blocking), and provide property type/unit information in verbose mode.
+-   **Changes**:
+    - **Property Metadata Loader** (`scripts/validate_modules.py`):
+      - Created `load_property_metadata()` function to load BOTH `galaxy_properties.yaml` AND `halo_properties.yaml`
+      - Returns unified dictionary mapping property name to full metadata (name, type, units, description, source)
+      - Replaces old `load_galaxy_properties()` that only returned property names
+    - **Enhanced Dependency Validation**:
+      - Upgraded property existence checks from WARNING (non-blocking) to ERROR (blocking)
+      - Validates against both galaxy and halo properties
+      - Provides detailed error messages specifying which property files to check
+      - Added `validate_module_dependencies()` function for per-module validation
+    - **Type and Unit Reporting**:
+      - Verbose mode displays property type, units, and source file for all dependencies
+      - Helps developers understand property characteristics during validation
+      - Example: `sage_cooling requires HotGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml`
+    - **Documentation Updates**:
+      - Updated `docs/developer/module-metadata-schema.md` with "Dependency Validation Rules" section
+      - Added common validation errors and fixes with examples
+      - Updated `docs/developer/module-developer-guide.md` with "Property Dependency Validation" troubleshooting section
+      - Added `make validate-modules` to `CLAUDE.md` build commands
+-   **Impact**:
+    - **Error Prevention**: Missing or misspelled properties now cause validation to FAIL (not just warn)
+    - **Halo Property Support**: Modules can now use halo properties (Mvir, Vmax, etc.) in dependencies
+    - **Better Developer Experience**: Verbose mode shows property types and units for debugging
+    - **Architectural Integrity**: Strongly enforces Vision Principles #3 (Metadata-Driven), #4 (Single Source of Truth), #8 (Type Safety & Validation)
+-   **Files Modified**: 3 total
+    - `scripts/validate_modules.py` - Enhanced with property metadata loader and dependency validation
+    - `docs/developer/module-metadata-schema.md` - Added validation rules section
+    - `docs/developer/module-developer-guide.md` - Added troubleshooting section
+    - `CLAUDE.md` - Added validate-modules command
+-   **Validation**: ✅ Enhanced validator tested on all 6 SAGE modules + system modules, correctly validates 54 properties (23 galaxy, 31 halo)
+-   **Lesson Learned**: Upgrading validation severity from WARNING to ERROR is essential for catching problems early. Property metadata should include type and unit information to help developers understand dependencies. Supporting both galaxy and halo properties makes the validation system complete and prevents developer confusion.
+
+#### ✅ **11. SAGE Physics Modules** (Phase 4.2 - All Merged, Code Quality Complete)
 -   **Goal**: Systematically port production-quality SAGE physics modules into Mimic's modular architecture.
 -   **Status**: All 6 SAGE module branches merged to main (November 18, 2025). Code quality improvements complete. Integration testing in progress.
 
