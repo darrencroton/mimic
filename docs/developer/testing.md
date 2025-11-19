@@ -734,7 +734,6 @@ Running: test_reallocation                                  ✓ PASS
 Running: test_leak_detection                                ✓ PASS
 Running: test_multiple_alloc_free_cycles                    ✓ PASS
 
-
 ============================================================
 Test Summary
 ============================================================
@@ -1027,7 +1026,6 @@ def test_physical_ranges():
   units: "1e10 Msun/h"
   description: "Hot gas mass in halo atmosphere"
   output: true
-  created_by: cooling_module
   init_source: default
   init_value: 0.0
   output_source: galaxy_property

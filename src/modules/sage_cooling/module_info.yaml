@@ -17,7 +17,6 @@ module:
   description: "Gas cooling from hot halo to cold disk with AGN feedback from SAGE model."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
-  category: gas_physics
 
   # ===========================================================================
   # Source Files
@@ -92,18 +91,6 @@ module:
 
   docs:
     physics: docs/physics/sage-cooling.md
-    user_guide_section: "SAGE Cooling & AGN Heating Module"
-
-  # ===========================================================================
-  # References
-  # ===========================================================================
-
-  references:
-    - "White & Frenk (1991) - Cooling model framework"
-    - "Croton et al. (2006) - AGN feedback implementation"
-    - "Sutherland & Dopita (1993) - Cooling function tables"
-    - "Croton et al. (2016) - SAGE model description"
-    - "SAGE source: sage-code/model_cooling_heating.c, core_cool_func.c"
 
   # ===========================================================================
   # Build Configuration

@@ -17,7 +17,6 @@ module:
   description: "Cosmological gas infall and satellite stripping from SAGE model."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
-  category: gas_physics
 
   # ===========================================================================
   # Source Files
@@ -104,17 +103,6 @@ module:
 
   docs:
     physics: src/modules/sage_infall/README.md
-    user_guide_section: "SAGE Infall Module"
-
-  # ===========================================================================
-  # References
-  # ===========================================================================
-
-  references:
-    - "Gnedin (2000) - Reionization model"
-    - "Kravtsov et al. (2004) - Filtering mass formulas"
-    - "Croton et al. (2016) - SAGE model description"
-    - "SAGE source: sage-code/model_infall.c"
 
   # ===========================================================================
   # Build Configuration

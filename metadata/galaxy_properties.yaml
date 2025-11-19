@@ -23,7 +23,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Cold gas mass available for star formation"
     output: true  # Enabled for Phase 3 validation
-    created_by: simple_cooling
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -35,7 +35,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Total stellar mass"
     output: true  # Enabled for Phase 3 validation
-    created_by: simple_sfr
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -51,7 +51,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Hot gas mass in halo atmosphere"
     output: true
-    created_by: sage_infall
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -63,7 +63,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Metal mass in hot gas reservoir"
     output: true
-    created_by: sage_infall
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -75,7 +75,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Metal mass in cold gas reservoir"
     output: true
-    created_by: sage_cooling
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -91,7 +91,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Mass of gas ejected from galaxy by feedback"
     output: true
-    created_by: sage_infall
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -103,7 +103,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Metal mass in ejected gas reservoir"
     output: true
-    created_by: sage_infall
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -119,7 +119,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Intracluster stellar mass (from disrupted satellites)"
     output: true
-    created_by: sage_infall
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -131,7 +131,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Metal mass in intracluster stars"
     output: true
-    created_by: sage_infall
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -147,7 +147,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Total baryonic mass in satellite galaxies (tracking variable)"
     output: false  # Internal tracking variable, not needed in output
-    created_by: sage_infall
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -163,7 +163,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Central supermassive black hole mass"
     output: true
-    created_by: sage_cooling
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -179,7 +179,7 @@ galaxy_properties:
     units: "(km/s)^2 * 1e10 Msun/h"
     description: "Cumulative cooling energy (0.5 * m * V_vir^2)"
     output: true
-    created_by: sage_cooling
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -191,7 +191,7 @@ galaxy_properties:
     units: "(km/s)^2 * 1e10 Msun/h"
     description: "Cumulative AGN heating energy (0.5 * m * V_vir^2)"
     output: true
-    created_by: sage_cooling
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -203,7 +203,7 @@ galaxy_properties:
     units: "Mpc/h"
     description: "Heating radius from past AGN feedback events"
     output: true
-    created_by: sage_cooling
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -219,7 +219,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Metal mass in stellar component"
     output: true
-    created_by: sage_starformation_feedback
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -235,7 +235,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Stellar mass in bulge component"
     output: true
-    created_by: sage_mergers
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -247,7 +247,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Metal mass in bulge component"
     output: true
-    created_by: sage_mergers
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -263,7 +263,7 @@ galaxy_properties:
     units: "1e10 Msun/h"
     description: "Cumulative black hole accretion mass in quasar mode"
     output: true
-    created_by: sage_mergers
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -275,7 +275,7 @@ galaxy_properties:
     units: "Gyr"
     description: "Cosmic time of last major merger (mass ratio > threshold)"
     output: true
-    created_by: sage_mergers
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -287,7 +287,7 @@ galaxy_properties:
     units: "Gyr"
     description: "Cosmic time of last minor merger (mass ratio > 0.1)"
     output: true
-    created_by: sage_mergers
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -303,7 +303,7 @@ galaxy_properties:
     units: "Mpc/h"
     description: "Disk scale radius (exponential disk scale length)"
     output: true
-    created_by: sage_starformation_feedback
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -319,7 +319,7 @@ galaxy_properties:
     units: "1e10 Msun/h / time_unit"
     description: "Current gas outflow rate from supernova feedback"
     output: true
-    created_by: sage_starformation_feedback
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -335,7 +335,7 @@ galaxy_properties:
     units: "dimensionless"
     description: "Test property for infrastructure testing only (NOT FOR PRODUCTION)"
     output: false  # Don't clutter production output
-    created_by: test_fixture
+
     init_source: default
     init_value: 0.0
     output_source: galaxy_property

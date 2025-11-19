@@ -149,7 +149,6 @@ module:
   description: "Brief description of what this module does."
   version: "1.0.0"
   author: "Your Name"
-  category: gas_physics  # or star_formation, mergers, etc.
 
   # Source files
   sources:
@@ -195,7 +194,6 @@ vim metadata/galaxy_properties.yaml
 #   units: "1e10 Msun/h"
 #   description: "My physics quantity"
 #   output: true
-#   created_by: my_module
 #   init_source: default
 #   init_value: 0.0
 #   output_source: galaxy_property
@@ -458,7 +456,6 @@ galaxy_properties:
     units: "1e10 Msun/h"           # Physical units
     description: "Brief description of physics"
     output: true                   # Include in output files
-    created_by: my_module          # Module that creates this
     init_source: default           # How to initialize
     init_value: 0.0                # Initial value
     output_source: galaxy_property # Where to get for output

@@ -13,7 +13,6 @@ module:
   description: "Brief one-sentence description of module physics."  # CHANGE: What does this module do?
   version: "1.0.0"  # Semantic versioning: MAJOR.MINOR.PATCH
   author: "Your Name"  # CHANGE: Your name or team
-  category: miscellaneous  # CHANGE: gas_physics, star_formation, mergers, etc.
 
   # ===========================================================================
   # Source Files (REQUIRED)
@@ -72,15 +71,6 @@ module:
 
   docs:
     physics: src/modules/YOUR_MODULE_NAME/README.md  # Physics equations and references in module directory
-    user_guide_section: "Template Module"            # Section title in user guide
-
-  # ===========================================================================
-  # References (OPTIONAL)
-  # ===========================================================================
-
-  references:
-    - "Author et al. (YEAR) - Paper title"
-    - "Source implementation: path/to/reference/code"
 
   # ===========================================================================
   # Build Configuration (OPTIONAL)

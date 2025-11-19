@@ -131,7 +131,6 @@ property_name:
   sentinels: [val1, ...]    # Special values excluded from validation
 
   # GALAXY PROPERTY EXTRAS
-  created_by: string        # Module name (documentation, validation)
 ```
 
 ---
@@ -406,24 +405,6 @@ Defines how property is copied from `struct Halo` to `struct HaloOutput` in `pre
 
 ## Galaxy Property Extras
 
-### created_by (optional)
-
-- Module name that creates/modifies this property
-- Used for documentation and validation
-- Helps track property provenance
-- Example:
-  ```yaml
-  - name: ColdGas
-    type: float
-    created_by: simple_cooling  # This module creates the property
-  ```
-
----
-
-## Validation Control
-
-Validation fields control automated testing and quality checks. These fields are used by `tests/scientific/test_scientific.py` to validate output data.
-
 ### range (optional)
 
 **Format**: `[min, max]` (two-element list)
@@ -647,7 +628,6 @@ o->Mvir = g->Mvir;
   units: "1e10 Msun/h"
   description: "Cold gas mass available for star formation"
   output: true
-  created_by: simple_cooling
   init_source: default
   init_value: 0.0
   output_source: galaxy_property
@@ -665,7 +645,6 @@ o->ColdGas = g->galaxy->ColdGas;
 **Additional examples** (arrays, conditionals, recalculation, custom logic) are available in:
 - `metadata/halo_properties.yaml` - Core halo properties
 - `metadata/galaxy_properties.yaml` - Baryonic physics properties
-
 
 ## Property Categories
 

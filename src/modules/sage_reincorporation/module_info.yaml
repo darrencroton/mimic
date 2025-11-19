@@ -17,7 +17,6 @@ module:
   description: "Gas reincorporation from ejected reservoir to hot halo from SAGE model."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
-  category: gas_physics
 
   # ===========================================================================
   # Source Files
@@ -73,16 +72,6 @@ module:
 
   docs:
     physics: README.md
-    user_guide_section: "SAGE Gas Reincorporation Module"
-
-  # ===========================================================================
-  # References
-  # ===========================================================================
-
-  references:
-    - "Croton et al. (2016) - SAGE model description"
-    - "Guo et al. (2011) - Reincorporation timescale discussion"
-    - "SAGE source: sage-code/model_reincorporation.c"
 
   # ===========================================================================
   # Build Configuration

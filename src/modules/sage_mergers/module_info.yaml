@@ -17,7 +17,6 @@ module:
   description: "Galaxy merger physics: dynamical friction, starbursts, BH growth, morphology from SAGE model."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
-  category: mergers
 
   # ===========================================================================
   # Source Files
@@ -157,19 +156,6 @@ module:
 
   docs:
     physics: src/modules/sage_mergers/README.md
-    user_guide_section: "SAGE Mergers Module"
-
-  # ===========================================================================
-  # References
-  # ===========================================================================
-
-  references:
-    - "Binney & Tremaine (1987) - Dynamical friction formulation"
-    - "Somerville et al. (2001) - Merger-induced starburst model"
-    - "Kauffmann & Haehnelt (2000) - Black hole growth during mergers"
-    - "Cox (PhD thesis) - Updated starburst efficiency parameterization"
-    - "Krumholz & Dekel (2011) - Metal distribution in disk galaxies"
-    - "SAGE source: sage-code/model_mergers.c"
 
   # ===========================================================================
   # Build Configuration

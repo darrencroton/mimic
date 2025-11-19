@@ -16,7 +16,6 @@ module:
   description: "Simple cooling model for Proof-of-Concept testing."
   version: "0.1.0"
   author: "Mimic Development Team"
-  category: gas_physics
 
   # ===========================================================================
   # Source Files
@@ -69,14 +68,6 @@ module:
 
   docs:
     physics: src/modules/simple_cooling/README.md
-    user_guide_section: "Simple Cooling (PoC)"
-
-  # ===========================================================================
-  # References
-  # ===========================================================================
-
-  references:
-    - "Simplified model for testing infrastructure only"
 
   # ===========================================================================
   # Build Configuration

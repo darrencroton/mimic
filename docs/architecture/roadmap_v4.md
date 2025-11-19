@@ -117,7 +117,36 @@ This section summarizes the capabilities of the codebase *right now*. The detail
 -   **Architectural Alignment**: Strongly enhances Vision Principles #3 (Metadata-Driven) and #4 (Single Source of Truth)
 -   **Lesson Learned**: Consistent structure is as important as functionality. Clear separation of concerns prevents confusion and accidental editing of generated files.
 
-#### ✅ **8. SAGE Physics Modules** (Phase 4.2 - All Merged, Code Quality Complete)
+#### ✅ **8. Metadata System Cleanup** (Phase 4.2.8 - Completed 2025-11-19)
+-   **Problem**: Redundant auto-generated module documentation violated Vision Principle #4 (Single Source of Truth) by duplicating information already maintained in hand-written module README.md files. Additionally, several metadata fields served only documentation purposes without runtime function.
+-   **Solution**: Removed auto-generated documentation system and streamlined metadata to eliminate redundancy while preserving essential system metadata.
+-   **Changes**:
+    - **Documentation Generation Removed**: Deleted `generate_module_reference_md()` function from `scripts/generate_module_registry.py` (~140 lines removed)
+    - **Module Metadata Streamlined**: Removed 3 fields from all `module_info.yaml` files (10 modules updated):
+      - `category` - Used only for organizing auto-generated docs
+      - `docs.user_guide_section` - Auto-doc section title
+      - `references` - Better maintained in module README.md files
+    - **Property Metadata Streamlined**: Removed `created_by` field from `metadata/galaxy_properties.yaml` (23 properties updated) - redundant with `provides` field in module metadata
+    - **Validation Updated**: Removed validation for eliminated fields from `scripts/validate_modules.py`
+    - **Template Updated**: Updated `src/modules/_system/template/module_info.yaml.template` to reflect simplified schema
+    - **Documentation Updated**: 5 documentation files updated to remove references to eliminated fields (module-metadata-schema.md, property-metadata-schema.md, module-developer-guide.md, testing.md, and this roadmap)
+-   **Impact**:
+    - **Architectural Integrity**: Strongly reinforces Vision Principle #4 (Single Source of Truth) - module documentation now lives exclusively in module README.md files
+    - **Reduced Complexity**: Removed ~200 lines of code from generators, validators, and metadata files
+    - **Clearer Boundaries**: Clear separation between system metadata (for build/runtime) and user documentation (in README files)
+    - **Easier Maintenance**: No duplication between auto-generated docs and hand-written README files
+    - **Metadata Simplification**: Module metadata reduced from 18 to 15 fields; property metadata reduced from 12 to 11 fields
+-   **Files Modified**: 33 total
+    - 2 Python scripts: `generate_module_registry.py`, `validate_modules.py`
+    - 11 metadata files: `galaxy_properties.yaml`, 10x `module_info.yaml`
+    - 1 template: `module_info.yaml.template`
+    - 5 documentation files: `module-metadata-schema.md` (-51 lines), `property-metadata-schema.md` (-21 lines), `module-developer-guide.md` (-3 lines), `testing.md` (-2 lines), `roadmap_v4.md` (this file)
+    - 1 file deleted: `docs/generated/module-reference.md`
+    - 1 README updated: `docs/generated/README.md`
+-   **Validation**: ✅ All changes implemented, no remaining references to removed fields
+-   **Lesson Learned**: Eliminate duplication early. Auto-generated documentation that duplicates hand-maintained content creates synchronization burden without benefit. Keep metadata focused on system needs; user-facing documentation belongs in dedicated README files.
+
+#### ✅ **9. SAGE Physics Modules** (Phase 4.2 - All Merged, Code Quality Complete)
 -   **Goal**: Systematically port production-quality SAGE physics modules into Mimic's modular architecture.
 -   **Status**: All 6 SAGE module branches merged to main (November 18, 2025). Code quality improvements complete. Integration testing in progress.
 

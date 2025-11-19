@@ -17,7 +17,6 @@ module:
   description: "Disk stability criterion and mass redistribution from SAGE model."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
-  category: stellar_physics
 
   # ===========================================================================
   # Source Files
@@ -84,17 +83,6 @@ module:
 
   docs:
     physics: src/modules/sage_disk_instability/README.md
-    user_guide_section: "SAGE Disk Instability Module"
-
-  # ===========================================================================
-  # References
-  # ===========================================================================
-
-  references:
-    - "Mo, Mao & White (1998) - Disk stability criterion"
-    - "Efstathiou et al. (1982) - Disk formation in halos"
-    - "Croton et al. (2016) - SAGE model description"
-    - "SAGE source: sage-code/model_disk_instability.c"
 
   # ===========================================================================
   # Build Configuration

@@ -196,6 +196,7 @@ static void update_from_feedback(struct GalaxyData *gal, struct GalaxyData *cent
  *
  * @note    CURRENTLY UNUSED - Awaiting core merger triggering (Phase 4.3)
  */
+__attribute__((unused))
 static double estimate_merging_time(int sat_halo, int mother_halo, struct Halo *halos) {
   /* Sanity check: satellite and host must be different */
   if (sat_halo == mother_halo) {
@@ -469,6 +470,7 @@ static void collisional_starburst_recipe(double mass_ratio, struct GalaxyData *m
  *
  * @note    CURRENTLY UNUSED - Awaiting core merger triggering (Phase 4.3)
  */
+__attribute__((unused))
 static void deal_with_galaxy_merger(struct Halo *satellite, struct Halo *central,
                                      double time, double dt) {
   /* Validate galaxy data exists */
@@ -532,6 +534,7 @@ static void deal_with_galaxy_merger(struct Halo *satellite, struct Halo *central
  *
  * @note    CURRENTLY UNUSED - Awaiting core merger triggering (Phase 4.3)
  */
+__attribute__((unused))
 static void disrupt_satellite_to_ICS(struct Halo *central, struct Halo *satellite) {
   if (central->galaxy == NULL || satellite->galaxy == NULL) {
     ERROR_LOG("Disruption called with NULL galaxy data");

@@ -23,7 +23,6 @@ module:
   description: "Minimal module for infrastructure testing only. NOT FOR PRODUCTION."
   version: "1.0.0"
   author: "Mimic Development Team"
-  category: testing
 
   # ===========================================================================
   # Source Files
@@ -83,15 +82,6 @@ module:
 
   docs:
     physics: null  # No physics documentation - this is a test fixture
-    user_guide_section: "Test Fixture Module (Infrastructure Testing Only)"
-
-  # ===========================================================================
-  # References
-  # ===========================================================================
-
-  references:
-    - "Created to fix architectural violation: infrastructure tests hardcoding production modules"
-    - "See: docs/architecture/module-implementation-log.md (2025-11-13 entry)"
 
   # ===========================================================================
   # Build Configuration

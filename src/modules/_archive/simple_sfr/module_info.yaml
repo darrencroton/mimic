@@ -17,7 +17,6 @@ module:
   description: "Simple star formation model for Proof-of-Concept testing."
   version: "0.1.0"
   author: "Mimic Development Team"
-  category: star_formation
 
   # ===========================================================================
   # Source Files
@@ -71,14 +70,6 @@ module:
 
   docs:
     physics: src/modules/simple_sfr/README.md
-    user_guide_section: "Simple Star Formation (PoC)"
-
-  # ===========================================================================
-  # References
-  # ===========================================================================
-
-  references:
-    - "Simplified Kennicutt-Schmidt-like model for testing only"
 
   # ===========================================================================
   # Build Configuration

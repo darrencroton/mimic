@@ -23,7 +23,6 @@ name: my_module
 display_name: "My Module"
 description: "Does physics stuff"
 version: "1.0.0"
-category: physics
 
 sources: [my_module.c]
 headers: [my_module.h]
@@ -156,7 +155,6 @@ module:
   description: string
   version: string
   author: string
-  category: string
 
   # Source Files (required)
   sources: [string, ...]
@@ -180,10 +178,8 @@ module:
   # Documentation (optional, but recommended)
   docs:
     physics: string
-    user_guide_section: string
 
   # References (optional)
-  references: [string, ...]
 
   # Build Configuration (optional)
   compilation_requires: [string, ...]
@@ -281,35 +277,7 @@ author: "D. Croton"
 author: "Mimic Development Team"
 ```
 
-#### category (string, required)
-
-**Purpose**: Organize modules by physics type for documentation
-
-**Rules**:
-- Must be one of predefined categories (validated)
-- Used to organize module documentation
-- Helps users find related modules
-
-**Valid Categories**:
-- `gas_physics` - Cooling, heating, infall
-- `star_formation` - SF recipes and feedback
-- `stellar_evolution` - Stellar mass, recycling
-- `black_holes` - AGN, quasar mode
-- `mergers` - Galaxy mergers, morphology
-- `environment` - Ram pressure, tides
-- `reionization` - UV background, suppression
-- `miscellaneous` - Utilities, tracking
-
-**Examples**:
-```yaml
-category: gas_physics
-category: star_formation
-category: mergers
-```
-
----
-
-### Source Files
+#### Source Files
 
 #### sources (list of strings, required)
 
@@ -595,45 +563,6 @@ docs:
 
 **Generated**: Linked in module reference documentation
 
-#### docs.user_guide_section (string, optional)
-
-**Purpose**: Section title for user guide documentation
-
-**Rules**:
-- Human-readable section title
-- Used in auto-generated documentation
-- Should match display_name for consistency
-
-**Example**:
-```yaml
-docs:
-  user_guide_section: "SAGE Infall Module"
-```
-
----
-
-### References (optional but recommended)
-
-#### references (list of strings, optional)
-
-**Purpose**: Citation information for module physics
-
-**Rules**:
-- List of paper citations or source references
-- Free-form text (citation style not enforced)
-- Used in generated documentation
-
-**Example**:
-```yaml
-references:
-  - "Gnedin (2000) - Reionization model"
-  - "Kravtsov et al. (2004) - Filtering mass formulas"
-  - "Croton et al. (2016) - SAGE model description"
-  - "SAGE source: sage-code/model_infall.c"
-```
-
----
-
 ### Build Configuration (optional)
 
 #### compilation_requires (list of strings, optional)
@@ -685,7 +614,6 @@ module:
   description: "Cosmological gas infall and satellite stripping module."
   version: "1.0.0"
   author: "Your Team"
-  category: gas_physics
 
   # Source Files
   sources: [infall_model.c]
@@ -870,7 +798,7 @@ The validation script (`scripts/validate_modules.py`) performs comprehensive che
 ### 1. Schema Validation
 - All required fields present
 - Field types correct (string, list, dict)
-- Enum values valid (category, parameter types)
+- Enum values valid (parameter types)
 - Version follows semantic versioning
 
 ### 2. File Existence Checks
@@ -904,7 +832,6 @@ The validation script (`scripts/validate_modules.py`) performs comprehensive che
 
 ### 7. Consistency Checks
 - Version format valid
-- Category is recognized
 - No duplicate module names
 
 ---

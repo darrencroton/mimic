@@ -17,7 +17,6 @@ module:
   description: "Star formation (Kennicutt-Schmidt law) and supernova feedback (reheating & ejection) from SAGE model."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
-  category: star_formation
 
   # ===========================================================================
   # Source Files
@@ -149,18 +148,6 @@ module:
 
   docs:
     physics: src/modules/sage_starformation_feedback/README.md
-    user_guide_section: "SAGE Star Formation & Feedback Module"
-
-  # ===========================================================================
-  # References
-  # ===========================================================================
-
-  references:
-    - "Kennicutt (1998) - Star formation law"
-    - "Kauffmann (1996) - Critical gas density threshold"
-    - "Krumholz & Dekel (2011) - Metal distribution model"
-    - "Croton et al. (2016) - SAGE model description"
-    - "SAGE source: sage-code/model_starformation_and_feedback.c"
 
   # ===========================================================================
   # Build Configuration

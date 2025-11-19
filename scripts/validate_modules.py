@@ -55,17 +55,6 @@ GALAXY_PROPERTIES_YAML = (
 # SCHEMA DEFINITIONS
 # ==============================================================================
 
-VALID_CATEGORIES = [
-    "gas_physics",
-    "star_formation",
-    "stellar_evolution",
-    "black_holes",
-    "mergers",
-    "environment",
-    "reionization",
-    "miscellaneous",
-]
-
 VALID_PARAMETER_TYPES = ["double", "int", "string"]
 
 VALID_COMPILATION_FEATURES = ["HDF5", "MPI", "GSL"]
@@ -222,7 +211,6 @@ def validate_required_fields(
         "description",
         "version",
         "author",
-        "category",
     ]
     required_sources = ["sources", "headers", "register_function"]
     required_deps = ["dependencies"]
@@ -265,7 +253,6 @@ def validate_field_types(
         "description",
         "version",
         "author",
-        "category",
         "register_function",
     ]:
         if field in module and not isinstance(module[field], str):
@@ -335,23 +322,6 @@ def validate_field_types(
         valid = False
 
     return valid
-
-
-def validate_category(
-    module: Dict[str, Any], module_name: str, results: ValidationResults
-) -> bool:
-    """Validate category is in approved list."""
-
-    category = module.get("category", "")
-    if category not in VALID_CATEGORIES:
-        results.add_error(
-            module_name,
-            1,
-            f"Invalid category '{category}'. Must be one of: {', '.join(VALID_CATEGORIES)}",
-        )
-        return False
-
-    return True
 
 
 def validate_version(
@@ -794,9 +764,6 @@ def validate_module(
         return False
 
     if not validate_field_types(module, module_name, results):
-        return False
-
-    if not validate_category(module, module_name, results):
         return False
 
     if not validate_version(module, module_name, results):

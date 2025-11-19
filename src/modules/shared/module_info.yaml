@@ -23,7 +23,6 @@ module:
   name: shared_utilities
   display_name: "Shared Physics Utilities"
   description: "Collection of shared physics utilities used by multiple modules"
-  category: shared_utility
 
   # Mark as utility collection (not a runtime physics module)
   is_utility: true

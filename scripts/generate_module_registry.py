@@ -2,9 +2,9 @@
 """
 Module Registry Generator for Mimic
 
-Generates module registration code, test configurations, and documentation from
-module_info.yaml metadata files. This eliminates manual synchronization and
-implements the metadata-driven module architecture.
+Generates module registration code and test configurations from module_info.yaml
+metadata files. This eliminates manual synchronization and implements the
+metadata-driven module architecture.
 
 Usage:
     python3 scripts/generate_module_registry.py [--dry-run] [--verbose]
@@ -15,7 +15,6 @@ Reads:
 Generates:
     src/modules/_system/generated/module_init.c    - Module registration code
     tests/generated/module_sources.mk              - Test build configuration
-    docs/generated/module-reference.md             - Module documentation
     build/module_registry_hash.txt                 - Validation hash
 
 Exit codes:
@@ -53,7 +52,6 @@ MODULES_DIR = REPO_ROOT / "src" / "modules"
 # Output files
 MODULE_INIT_C = REPO_ROOT / "src" / "modules" / "_system" / "generated" / "module_init.c"
 MODULE_SOURCES_MK = REPO_ROOT / "tests" / "generated" / "module_sources.mk"
-MODULE_REFERENCE_MD = REPO_ROOT / "docs" / "generated" / "module-reference.md"
 MODULE_HASH_FILE = REPO_ROOT / "build" / "module_registry_hash.txt"
 
 # ==============================================================================
@@ -415,153 +413,6 @@ def generate_module_sources_mk(
 
 
 # ==============================================================================
-# CODE GENERATION - module-reference.md
-# ==============================================================================
-
-
-def generate_module_reference_md(
-    modules: List[Dict[str, Any]], output_path: Path, dry_run: bool = False
-) -> bool:
-    """Generate module reference documentation."""
-
-    lines = []
-
-    # Header
-    lines.append("# Module Reference")
-    lines.append("")
-    lines.append(
-        "Auto-generated from module metadata. "
-        f"Last updated: {datetime.now().strftime('%Y-%m-%d')}"
-    )
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-
-    # Summary
-    lines.append(f"## Available Modules ({len(modules)} modules)")
-    lines.append("")
-
-    # Group by category
-    categories = {}
-    for module in modules:
-        category = module.get("category", "miscellaneous")
-        if category not in categories:
-            categories[category] = []
-        categories[category].append(module)
-
-    # Category display names
-    category_names = {
-        "gas_physics": "Gas Physics",
-        "star_formation": "Star Formation",
-        "stellar_evolution": "Stellar Evolution",
-        "black_holes": "Black Holes",
-        "mergers": "Mergers",
-        "environment": "Environment",
-        "reionization": "Reionization",
-        "miscellaneous": "Miscellaneous",
-    }
-
-    # Output each category
-    for category in sorted(categories.keys()):
-        category_modules = categories[category]
-        display_name = category_names.get(category, category.title())
-
-        lines.append(f"### {display_name} ({len(category_modules)} modules)")
-        lines.append("")
-
-        for module in category_modules:
-            name = module["name"]
-            display_name = module.get("display_name", name)
-            description = module.get("description", "No description")
-            version = module.get("version", "1.0.0")
-            author = module.get("author", "Unknown")
-
-            lines.append(f"#### {name} - {display_name}")
-            lines.append("")
-            lines.append(description)
-            lines.append("")
-            lines.append(f"**Version**: {version}  ")
-            lines.append(f"**Author**: {author}")
-            lines.append("")
-
-            # Dependencies
-            deps = module.get("dependencies", {})
-            requires = deps.get("requires", [])
-            provides = deps.get("provides", [])
-
-            lines.append("**Dependencies**:")
-            if requires:
-                lines.append(f"- Requires: {', '.join(requires)}")
-            else:
-                lines.append("- Requires: (none)")
-
-            if provides:
-                lines.append(f"- Provides: {', '.join(provides)}")
-            else:
-                lines.append("- Provides: (none)")
-            lines.append("")
-
-            # Parameters
-            parameters = module.get("parameters", [])
-            if parameters:
-                lines.append("**Parameters**:")
-                for param in parameters:
-                    param_name = param["name"]
-                    param_type = param["type"]
-                    param_default = param.get("default", "N/A")
-                    param_range = param.get("range", None)
-                    param_desc = param.get("description", "No description")
-
-                    # Format parameter line
-                    param_line = f"- `{name}_{param_name}` ({param_type}, default: {param_default}"
-                    if param_range:
-                        param_line += f", range: {param_range}"
-                    param_line += ")"
-
-                    lines.append(param_line)
-                    lines.append(f"  {param_desc}")
-                lines.append("")
-
-            # References
-            references = module.get("references", [])
-            if references:
-                lines.append("**References**:")
-                for ref in references:
-                    lines.append(f"- {ref}")
-                lines.append("")
-
-            # Documentation link
-            docs = module.get("docs", {})
-            physics_doc = docs.get("physics")
-            if physics_doc:
-                lines.append(
-                    f"**Physics Documentation**: [{physics_doc}](../{physics_doc})"
-                )
-                lines.append("")
-
-            lines.append("---")
-            lines.append("")
-
-    # Write file
-    content = "\n".join(lines)
-
-    if dry_run:
-        print("\n=== module-reference.md (DRY RUN) ===")
-        print(content[:500] + "\n... (truncated)")
-        return True
-
-    try:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        print(f"✓ Generated: {output_path.relative_to(REPO_ROOT)}")
-        return True
-    except Exception as e:
-        print(f"ERROR: Failed to write {output_path}: {e}", file=sys.stderr)
-        return False
-
-
-# ==============================================================================
 # CODE GENERATION - Hash File
 # ==============================================================================
 
@@ -686,9 +537,6 @@ def main():
     )
     success &= generate_module_sources_mk(
         sorted_modules, MODULE_SOURCES_MK, args.dry_run
-    )
-    success &= generate_module_reference_md(
-        sorted_modules, MODULE_REFERENCE_MD, args.dry_run
     )
     success &= generate_hash_file(metadata_hash, MODULE_HASH_FILE, args.dry_run)
 
