@@ -47,9 +47,7 @@ REPO_ROOT = Path(__file__).parent.parent
 MODULES_DIR = REPO_ROOT / "src" / "modules"
 
 # Property metadata (for dependency validation)
-GALAXY_PROPERTIES_YAML = (
-    REPO_ROOT / "metadata" / "properties" / "galaxy_properties.yaml"
-)
+GALAXY_PROPERTIES_YAML = REPO_ROOT / "src" / "modules" / "galaxy_properties.yaml"
 
 # ==============================================================================
 # SCHEMA DEFINITIONS

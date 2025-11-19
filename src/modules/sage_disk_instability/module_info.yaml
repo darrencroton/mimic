@@ -42,7 +42,7 @@ module:
       - StellarMass       # Total stellar mass (from star formation)
       - Vmax              # Maximum circular velocity (from halo)
 
-    # Properties created/modified by this module
+    # Properties provided by this module
     provides:
       - BulgeMass         # Stellar mass in bulge
       - MetalsBulgeMass   # Metal mass in bulge

@@ -352,7 +352,6 @@ galaxy_properties:
   #   type: float
   #   units: "1e10 Msun/h"
   #   description: "Central supermassive black hole mass"
-  #   created_by: agn_module
   #
   # Adding properties is simple:
   #   1. Uncomment or add property definition above

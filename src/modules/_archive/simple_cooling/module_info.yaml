@@ -34,10 +34,10 @@ module:
   # ===========================================================================
 
   dependencies:
-    # This simple module creates gas from scratch, no dependencies
+    # This simple module provides gas from scratch, no dependencies
     requires: []
 
-    # Properties created/modified by this module
+    # Properties provided by this module
     provides:
       - ColdGas
 

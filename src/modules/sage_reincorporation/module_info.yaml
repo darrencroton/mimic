@@ -42,7 +42,7 @@ module:
       - HotGas
       - MetalsHotGas
 
-    # Properties modified by this module (no new properties created)
+    # Properties modified by this module (does not provide new properties)
     provides: []
 
   # ===========================================================================

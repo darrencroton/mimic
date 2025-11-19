@@ -48,7 +48,7 @@ module:
       - MetalsICS
       - BlackHoleMass
 
-    # Properties created/modified by this module
+    # Properties provided by this module
     provides:
       - BulgeMass
       - MetalsStellarMass

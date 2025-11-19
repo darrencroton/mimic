@@ -89,8 +89,8 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(GIT_VERSION_H)
 # -----------------------------------------------------------------------------
 
 # YAML metadata inputs for property generation
-PROP_YAML := metadata/halo_properties.yaml \
-             metadata/galaxy_properties.yaml
+PROP_YAML := src/core/halo_properties.yaml \
+             src/modules/galaxy_properties.yaml
 
 # Generated headers and include fragments required by the C build
 GEN_DIR := $(SRC_DIR)/include/generated

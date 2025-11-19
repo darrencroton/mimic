@@ -42,7 +42,7 @@ module:
       - HotGas
       - MetalsHotGas
 
-    # Properties created/modified by this module
+    # Properties provided by this module
     provides:
       - ColdGas
       - MetalsColdGas

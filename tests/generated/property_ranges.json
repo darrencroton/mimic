@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2025-11-19T16:22:21",
+  "generated_at": "2025-11-19T16:37:59",
   "properties": {
     "SnapNum": {
       "name": "SnapNum",
@@ -527,5 +527,5 @@
       ]
     }
   },
-  "notes": "Auto-generated from metadata/*.yaml. Range is inclusive; sentinels are exempt."
+  "notes": "Auto-generated from src/core/halo_properties.yaml and src/modules/galaxy_properties.yaml. Range is inclusive; sentinels are exempt."
 }

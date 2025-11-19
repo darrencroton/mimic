@@ -146,7 +146,43 @@ This section summarizes the capabilities of the codebase *right now*. The detail
 -   **Validation**: ✅ All changes implemented, no remaining references to removed fields
 -   **Lesson Learned**: Eliminate duplication early. Auto-generated documentation that duplicates hand-maintained content creates synchronization burden without benefit. Keep metadata focused on system needs; user-facing documentation belongs in dedicated README files.
 
-#### ✅ **9. SAGE Physics Modules** (Phase 4.2 - All Merged, Code Quality Complete)
+#### ✅ **9. Property Ownership Terminology & Metadata Relocation** (Phase 4.2.9 - Completed 2025-11-19)
+-   **Problem**: Property ownership terminology ("creates", "owns", "created_by") incorrectly implied modules create properties, when they actually populate pre-existing struct members. Additionally, property metadata files located in standalone `metadata/` directory obscured code locality and separation of concerns.
+-   **Solution**: Updated terminology throughout codebase to use accurate language ("provides", "computes") and relocated property metadata files to co-locate with relevant code.
+-   **Changes**:
+    - **Terminology Updates** (45 files modified):
+      - Updated all `module_info.yaml` comments from "Properties created/modified" → "Properties provided" (10 modules)
+      - Updated documentation references from "created_by" → "provides" (4 documentation files)
+      - Removed deprecated `created_by` field examples from galaxy_properties.yaml and template README
+      - Updated roadmap and next-task references to use "provides vs modifies" terminology
+    - **Metadata File Relocation**:
+      - Moved `metadata/galaxy_properties.yaml` → `src/modules/galaxy_properties.yaml` (co-located with physics modules)
+      - Moved `metadata/halo_properties.yaml` → `src/core/halo_properties.yaml` (co-located with core tracking code)
+      - Removed empty `metadata/` directory
+    - **Path References Updated** (50+ files):
+      - Updated 3 Python scripts: `generate_properties.py`, `validate_modules.py`, `check_generated.py`
+      - Updated `Makefile` path constants
+      - Updated 10+ documentation files
+      - Updated template README
+      - Regenerated all generated files with new paths in headers
+-   **Impact**:
+    - **Architectural Clarity**: Vision Principle #3 (Metadata-Driven Architecture) - improved code locality by co-locating metadata with relevant code
+    - **Terminology Accuracy**: Eliminated confusion about property creation - modules provide values for pre-existing struct members
+    - **Code Locality**: Galaxy properties now live with physics modules, halo properties with core tracking code
+    - **Simplified Structure**: Removed unnecessary top-level directory, flattened organization
+    - **Consistency**: All generated file headers now reference correct source paths
+-   **Files Modified**: 60+ total
+    - 10 module_info.yaml files (terminology updates)
+    - 3 Python generator scripts (path updates)
+    - 1 Makefile (path constants)
+    - 10+ documentation files (CLAUDE.md, docs/README.md, testing.md, module-developer-guide.md, etc.)
+    - 45+ generated files (auto-regenerated with new paths)
+    - 2 metadata files relocated
+    - 1 directory removed
+-   **Validation**: ✅ All tests passing (unit: 6/6, integration: all, scientific: all), clean build with `make generate && make`
+-   **Lesson Learned**: Terminology matters - using precise language (provides vs creates) prevents confusion about system behavior. Code locality improves - placing metadata files alongside the code they describe makes the system more intuitive and maintainable.
+
+#### ✅ **10. SAGE Physics Modules** (Phase 4.2 - All Merged, Code Quality Complete)
 -   **Goal**: Systematically port production-quality SAGE physics modules into Mimic's modular architecture.
 -   **Status**: All 6 SAGE module branches merged to main (November 18, 2025). Code quality improvements complete. Integration testing in progress.
 
@@ -197,7 +233,7 @@ This section summarizes the capabilities of the codebase *right now*. The detail
     - **Merger Triggering**: Core doesn't detect when satellites should merge (CRITICAL BLOCKER)
     - **Module Execution Pipeline**: Need systematic validation of module ordering and property flow
     - **Shared Functions**: Need architecture for functions used by multiple modules
-    - **Property Ownership**: Module metadata needs verification (created_by vs modifies)
+    - **Property Ownership**: Module metadata needs verification (provides vs modifies)
     - **Cross-Module Testing**: Need comprehensive pipeline validation tests
 
 -   **Architecture Validations**:
@@ -665,7 +701,7 @@ The exact integration strategy is still being determined. Key decisions needed:
    - **Merger Triggering**: How/where to implement in core (design TBD)
    - **Module Calling Pipeline**: Enhance execution flow (design TBD)
    - **Shared Functions**: Architecture for cross-module function calls (design TBD)
-   - **Property Lifecycle**: Verify created_by vs modifies semantics
+   - **Property Lifecycle**: Verify provides vs modifies semantics
 
 3. **Validation Strategy**:
    - **Property Organization**: Review and verify all galaxy property definitions
@@ -676,7 +712,7 @@ The exact integration strategy is still being determined. Key decisions needed:
 **Known Challenges**:
 - sage_mergers requires core merger triggering (cannot test until implemented)
 - sage_disk_instability needs sage_mergers functions (architectural decision needed)
-- Module metadata may need corrections (created_by values)
+- Module metadata may need corrections (provides values)
 - Cross-module testing infrastructure needs design
 
 **Open Questions** (To Be Resolved):

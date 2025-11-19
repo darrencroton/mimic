@@ -144,25 +144,26 @@ diff ../benchmarks/baseline_YYYYMMDD_HHMMSS.json ../benchmarks/baseline_YYYYMMDD
 ```
 src/
 ├── core/          Core execution (main, init, build_model, parameter reading)
+│   └── halo_properties.yaml    Halo property metadata (auto-generates C code)
 ├── io/
 │   ├── tree/      Tree readers (binary, HDF5 formats)
 │   └── output/    Output writers (binary, HDF5)
 ├── util/          Utilities (memory, error, numeric, version, I/O)
 ├── modules/       Physics modules
-│   ├── _archive/           Archived modules (historical reference)
-│   ├── _system/            System infrastructure (don't touch)
-│   │   ├── generated/      Auto-generated module registration
-│   │   ├── template/       Template for creating new modules
-│   │   └── test_fixture/   Infrastructure testing module
-│   ├── shared/             Shared physics utilities
-│   ├── module_a/           Example physics module
-│   ├── module_b/           Example physics module
-│   └── module_c/           Example physics module
+│   ├── galaxy_properties.yaml  Galaxy property metadata (auto-generates C code)
+│   ├── _archive/               Archived modules (historical reference)
+│   ├── _system/                System infrastructure (don't touch)
+│   │   ├── generated/          Auto-generated module registration
+│   │   ├── template/           Template for creating new modules
+│   │   └── test_fixture/       Infrastructure testing module
+│   ├── shared/                 Shared physics utilities
+│   ├── module_a/               Example physics module
+│   ├── module_b/               Example physics module
+│   └── module_c/               Example physics module
 └── include/       Headers (types, globals, constants)
     └── generated/ Auto-generated property code
 
 build/generated/     Build-time generated files (git_version.h, test lists)
-metadata/            Property definitions (YAML → auto-generated C code)
 tests/               Unit, integration, and scientific tests
   └── generated/     Auto-generated test metadata
 docs/generated/      Auto-generated documentation
@@ -178,7 +179,8 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 - `ProcessedHalos`: Final processed halos (written to output)
 
 **Metadata-Driven Property System:**
-- Properties defined in `metadata/*.yaml`
+- Halo properties: `src/core/halo_properties.yaml`
+- Galaxy properties: `src/modules/galaxy_properties.yaml`
 - Auto-generated into C structs via `make generate`
 - Includes: struct Halo, struct GalaxyData, struct HaloOutput
 - Python dtypes auto-generated for reading output

@@ -104,7 +104,9 @@ deactivate
 Mimic uses a **metadata-driven architecture** where properties and modules are defined in YAML files and code is auto-generated.
 
 **Key Systems:**
-1. **Property Metadata** (`metadata/*.yaml`) - Defines galaxy/halo properties
+1. **Property Metadata** - Defines galaxy/halo properties
+   - Halo properties: `src/core/halo_properties.yaml`
+   - Galaxy properties: `src/modules/galaxy_properties.yaml`
 2. **Module Metadata** (`src/modules/*/module_info.yaml`) - Defines physics modules
 3. **Auto-Generation** - Code generated from metadata via `make generate`
 
@@ -126,7 +128,7 @@ make clean && make
 **2. Adding a New Property:**
 ```bash
 # Edit metadata
-vim metadata/galaxy_properties.yaml
+vim src/modules/galaxy_properties.yaml
 
 # Add your property definition (see property-metadata-schema.md)
 # Regenerate code
@@ -206,11 +208,12 @@ make test-scientific    # Python scientific validation (<5min)
 mimic/
 ├── src/
 │   ├── core/          # Core execution (physics-agnostic)
+│   │   └── halo_properties.yaml    # Halo property metadata
 │   ├── io/            # Input/output (tree readers, writers)
 │   ├── util/          # Utilities (memory, error, numeric)
 │   ├── modules/       # Physics modules (modular, hot-swappable)
+│   │   └── galaxy_properties.yaml  # Galaxy property metadata
 │   └── include/       # Headers + auto-generated code
-├── metadata/          # Property definitions (YAML)
 ├── tests/             # Three-tier testing (unit/integration/scientific)
 ├── docs/              # Documentation (architecture/developer/user)
 ├── scripts/           # Code generation and development tools
@@ -372,11 +375,14 @@ mimic/
 │   │   ├── module_b/      # Example physics module
 │   │   ├── test_fixture/  # Testing infrastructure module
 │   │   └── generated/     # Auto-generated module registration
+│   ├── modules/           # Physics modules
+│   │   └── galaxy_properties.yaml  # Galaxy property metadata
+│   ├── core/              # Core execution
+│   │   └── halo_properties.yaml    # Halo property metadata
 │   └── include/           # Headers
 │       └── generated/     # Auto-generated property code
 ├── build/                 # Build artifacts (gitignored)
 │   └── generated/         # Build-time generated files (git_version.h, test lists)
-├── metadata/              # Property metadata (YAML)
 ├── tests/                 # Testing framework
 │   ├── unit/              # C unit tests
 │   ├── integration/       # Python integration tests

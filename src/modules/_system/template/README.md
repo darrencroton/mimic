@@ -36,7 +36,7 @@ If your module creates new galaxy properties:
 
 ```bash
 # Edit metadata
-vim metadata/galaxy_properties.yaml
+vim src/modules/galaxy_properties.yaml
 
 # Add your properties:
 #   - name: YourProperty
@@ -44,7 +44,6 @@ vim metadata/galaxy_properties.yaml
 #     units: "1e10 Msun/h"
 #     description: "Your physics quantity"
 #     output: true
-#     created_by: your_module
 #     init_source: default
 #     init_value: 0.0
 

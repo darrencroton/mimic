@@ -39,7 +39,7 @@ module:
     requires:
       - ColdGas
 
-    # Properties created/modified by this module
+    # Properties provided by this module
     provides:
       - StellarMass
 

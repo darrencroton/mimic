@@ -132,7 +132,7 @@ Before proceeding with systematic integration, several architectural and impleme
 - Want to verify no duplicates/conflicts
 
 **Tasks Needed**:
-- Review all property `created_by` values
+- Review property ownership (provides fields in module metadata)
 - Verify module `provides` vs `requires` in metadata
 - Check for missing properties
 - Organize properties logically in YAML
@@ -184,8 +184,8 @@ Before proceeding with systematic integration, several architectural and impleme
 12. What's the testing strategy for shared utilities?
 
 ### Property System
-13. Are all `created_by` values correct?
-14. Which modules modify vs create each property?
+13. Are all `provides` values correct in module metadata?
+14. Which modules provide vs modify each property?
 15. Missing any properties for full SAGE physics?
 16. How to document property lifecycle clearly?
 

@@ -44,12 +44,12 @@ module:
       - ColdGas              # From sage_cooling
       - MetalsColdGas        # From sage_cooling
 
-    # Properties created/modified by this module
+    # Properties provided by this module
     provides:
       - StellarMass          # Modified (incremented)
-      - MetalsStellarMass    # Created
-      - DiskScaleRadius      # Created
-      - OutflowRate          # Created
+      - MetalsStellarMass    # Computed
+      - DiskScaleRadius      # Computed
+      - OutflowRate          # Computed
 
   # ===========================================================================
   # Parameters

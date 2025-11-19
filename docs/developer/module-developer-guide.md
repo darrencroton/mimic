@@ -24,7 +24,7 @@
 **Key patterns:**
 - Access galaxy data via property accessors: `get_ColdGas(gal)`, `set_StellarMass(gal, value)`
 - Read parameters from `MimicConfig`: Named as `ModuleName_ParameterName`
-- Add properties in `metadata/galaxy_properties.yaml`, run `make generate`
+- Add properties in `src/modules/galaxy_properties.yaml`, run `make generate`
 - Co-locate tests with module code (auto-discovered)
 
 **Most important sections:**
@@ -186,7 +186,7 @@ If your module needs new galaxy properties:
 
 ```bash
 # Edit property metadata
-vim metadata/galaxy_properties.yaml
+vim src/modules/galaxy_properties.yaml
 
 # Add your property:
 # - name: MyProperty
@@ -437,7 +437,7 @@ static int my_module_cleanup(void) {
 
 ### Understanding the Property System
 
-Galaxy properties are defined in `metadata/galaxy_properties.yaml` and auto-generated into:
+Galaxy properties are defined in `src/modules/galaxy_properties.yaml` and auto-generated into:
 - C struct `GalaxyData` (in `src/include/generated/property_defs.h`)
 - Type-safe accessors
 - Output formatting code
@@ -447,7 +447,7 @@ Galaxy properties are defined in `metadata/galaxy_properties.yaml` and auto-gene
 
 **Step 1: Define in YAML**
 
-Edit `metadata/galaxy_properties.yaml`:
+Edit `src/modules/galaxy_properties.yaml`:
 
 ```yaml
 galaxy_properties:
@@ -1349,7 +1349,7 @@ for (int i = 0; i < ngal; i++) {
 - **Module Interface**: `src/core/module_interface.h`
 - **Module Registry**: `src/core/module_registry.h`
 - **Example Modules**: See existing module implementations in `src/modules/`
-- **Property Metadata**: `metadata/galaxy_properties.yaml`
+- **Property Metadata**: `src/modules/galaxy_properties.yaml`
 - **Module Template**: `src/modules/_system/template/`
 
 ### Key Functions

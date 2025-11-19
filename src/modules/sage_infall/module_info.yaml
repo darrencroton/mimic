@@ -35,10 +35,10 @@ module:
   # ===========================================================================
 
   dependencies:
-    # This module creates initial baryonic components from scratch
+    # This module provides initial baryonic components from scratch
     requires: []
 
-    # Properties created/modified by this module
+    # Properties provided by this module
     provides:
       - HotGas
       - MetalsHotGas
