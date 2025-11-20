@@ -384,6 +384,42 @@ The module carefully handles unit conversions:
 
 ---
 
+## Known Limitations
+
+### Compared to SAGE
+
+1. **Linear Interpolation**: Cooling tables use linear interpolation in both log(T) and log(Z) dimensions. SAGE uses the same approach, so results are equivalent.
+
+2. **Timestep Dependence**: Cooling and AGN feedback rates depend on the timestep Δt (from halo property `dT`). Results are physically consistent as long as timesteps are reasonable (Δt << tcool for most halos).
+
+3. **Static Cooling Tables**: The cooling function tables are loaded at initialization and remain fixed. Temperature and metallicity evolution within a single timestep are not tracked dynamically.
+
+### Numerical Approximations
+
+1. **Isothermal Density Profile**: Assumes hot gas follows an isothermal sphere (ρ ∝ 1/r²). This is a standard approximation that matches SAGE.
+
+2. **Instantaneous Energy Balance**: AGN heating is applied instantaneously within each timestep. The heating radius (`r_heat`) tracks cumulative effects across timesteps.
+
+3. **Cooling Radius Calculation**: Uses the approximate relation rcool = sqrt(ρ₀/ρ_rcool) rather than solving the full integral. This matches SAGE's implementation.
+
+### Physical Simplifications
+
+1. **No Partial Ionization**: Assumes fully ionized gas (μ = 0.59). Neutral/molecular gas cooling not modeled separately.
+
+2. **No Metal Cooling Physics**: While metallicity affects the cooling rate via tables, individual metal species and their ionization states are not tracked.
+
+3. **Single-Phase Gas Model**: Hot gas is treated as a single-temperature phase. Temperature stratification and multi-phase structure not resolved.
+
+### Known Differences from SAGE
+
+1. **String Parameters**: The `CoolFunctionsDir` parameter is now runtime-configurable (previously hardcoded in original SAGE).
+
+2. **Error Handling**: Mimic provides more detailed error messages for missing cooling table files with full path information.
+
+3. **Memory Management**: Uses Mimic's centralized memory tracking system instead of SAGE's direct malloc/free.
+
+---
+
 ## Version History
 
 ### v1.0.0 (2025-11-13)

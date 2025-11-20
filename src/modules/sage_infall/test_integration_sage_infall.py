@@ -461,7 +461,7 @@ def test_multiple_module_pipeline():
     if "sage_cooling" in available_modules:
         companion_module = "sage_cooling"
         companion_params = {
-            "SageCooling_CoolFunctionsDir": "input/CoolFunctions"
+            "SageCooling_CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
         }
         companion_init_msg = "SAGE cooling & AGN heating module initialized"
 

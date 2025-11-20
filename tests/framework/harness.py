@@ -159,7 +159,7 @@ def create_test_param_file(output_name, enabled_modules=None,
             enabled_modules=["sage_infall", "sage_cooling"],
             module_params={
                 "SageInfall_BaryonFrac": "0.17",
-                "SageCooling_CoolFunctionsDir": "input/CoolFunctions"
+                "SageCooling_CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
             },
             first_file=0,
             last_file=0

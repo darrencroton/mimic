@@ -90,7 +90,7 @@ module:
   # ===========================================================================
 
   docs:
-    physics: docs/physics/sage-cooling.md
+    physics: src/modules/sage_cooling/README.md
 
   # ===========================================================================
   # Build Configuration

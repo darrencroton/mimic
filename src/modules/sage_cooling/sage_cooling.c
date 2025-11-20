@@ -39,7 +39,6 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "constants.h"
 #include "error.h"
@@ -91,6 +90,49 @@ static int AGN_RECIPE_ON = 1;
 static char COOL_FUNCTIONS_DIR[512] = "src/modules/sage_cooling/CoolFunctions";
 
 // ============================================================================
+// PHYSICS CONSTANTS
+// ============================================================================
+
+/**
+ * @brief   Virial temperature coefficient
+ *
+ * Coefficient relating virial velocity to virial temperature:
+ * T_vir = VIRIAL_TEMP_COEFF * V_vir^2
+ * where V_vir is in km/s and T_vir is in Kelvin
+ *
+ * Derived from: T = (μ * m_p * V^2) / (2 * k_B)
+ * with μ = 0.59 for fully ionized gas
+ * Result: (0.59 * m_p) / (2 * k_B) ≈ 35.9 K / (km/s)^2
+ */
+static const double VIRIAL_TEMP_COEFF = 35.9;
+
+/**
+ * @brief   Eddington luminosity coefficient
+ *
+ * L_Edd = EDDINGTON_LUM_COEFF * M_BH
+ * where M_BH is in solar masses and L_Edd is in erg/s
+ *
+ * Standard value: 1.3×10^38 erg/s per solar mass
+ */
+static const double EDDINGTON_LUM_COEFF = 1.3e38;
+
+/**
+ * @brief   Radiative efficiency for thin accretion disk
+ *
+ * Fraction of rest mass energy converted to radiation: η = 0.1
+ * Used in Eddington rate calculation: L = η * dM/dt * c^2
+ */
+static const double RADIATIVE_EFFICIENCY = 0.1;
+
+/**
+ * @brief   Speed of light squared in CGS units
+ *
+ * c^2 = 9×10^20 cm^2/s^2
+ * Used for converting mass accretion rate to energy
+ */
+static const double C_SQUARED_CGS = 9.0e20;
+
+// ============================================================================
 // HELPER FUNCTIONS (Physics Calculations)
 // ============================================================================
 
@@ -135,13 +177,11 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx,
         return 0.0;
     }
 
-    /* Calculate dynamical time of the halo (approximation for cooling time) */
+    /* Dynamical time: tcool = R_vir / V_vir (approximation for cooling time) */
     tcool = safe_div(rvir, vvir, 0.0);
 
-    /* Calculate virial temperature from virial velocity
-     * T = 35.9 * V^2 where V is in km/s and T is in Kelvin
-     * This comes from T = (μ*m_p*V^2)/(2*k_B) with μ=0.59 for ionized gas */
-    temp = 35.9 * vvir * vvir;
+    /* Calculate virial temperature from virial velocity */
+    temp = VIRIAL_TEMP_COEFF * vvir * vvir;
 
     /* Calculate log of metallicity (Z/Z_sun) for cooling function lookup */
     if (metals_hot_gas > EPSILON_SMALL) {
@@ -241,29 +281,42 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
 
     assert(coolingGas >= 0.0);
 
-    /* Calculate the new heating rate from black hole accretion */
+    /* Calculate the new heating rate from black hole accretion
+     * Three different accretion modes available (set by AGNrecipeOn parameter):
+     *   Mode 1: Empirical scaling (default)
+     *   Mode 2: Bondi-Hoyle accretion
+     *   Mode 3: Cold cloud accretion */
     if (hot_gas > EPSILON_SMALL) {
-        /* Choose accretion model based on configuration */
         if (AGN_RECIPE_ON == 2) {
-            /* Bondi-Hoyle accretion recipe
-             * Based on BH mass and local gas properties
-             * Formula: AGNrate ~ G * rho * M_BH^2 / c_s^3 */
+            /* ============================================================
+             * AGN ACCRETION MODE 2: Bondi-Hoyle
+             * ============================================================
+             * Physics: Spherical accretion onto black hole
+             * Formula: dM/dt ~ G * rho * M_BH^2 / c_s^3
+             * Depends on: Black hole mass, gas density, sound speed */
             AGNrate = (2.5 * M_PI * ctx->params->G) * (0.375 * 0.6 * x) *
                      black_hole_mass * RADIO_MODE_EFFICIENCY;
 
         } else if (AGN_RECIPE_ON == 3) {
-            /* Cold cloud accretion model
-             * Triggered when BH mass exceeds threshold related to cooling properties
-             * Accretion rate = 0.01% of cooling rate when triggered */
-            if (black_hole_mass > 0.0001 * mvir * pow(safe_div(rcool, rvir, 0.0), 3.0))
+            /* ============================================================
+             * AGN ACCRETION MODE 3: Cold Cloud
+             * ============================================================
+             * Physics: Accretion triggered when BH exceeds mass threshold
+             * Condition: M_BH > 0.0001 * M_vir * (r_cool / R_vir)^3
+             * Rate: 0.01% of current cooling rate when triggered */
+            double bh_mass_threshold = 0.0001 * mvir * pow(safe_div(rcool, rvir, 0.0), 3.0);
+            if (black_hole_mass > bh_mass_threshold)
                 AGNrate = 0.0001 * safe_div(coolingGas, dt, 0.0);
             else
                 AGNrate = 0.0;
 
         } else {
-            /* Empirical (standard) accretion recipe
-             * Scales with black hole mass, virial velocity, and hot gas fraction
-             * Formula based on simulation fits */
+            /* ============================================================
+             * AGN ACCRETION MODE 1: Empirical (Default)
+             * ============================================================
+             * Physics: Empirical scaling from simulations
+             * Formula: dM/dt ~ η * (M_BH/0.01) * (V_vir/200)^3 * (f_hot/0.1)
+             * Depends on: Black hole mass, virial velocity, hot gas fraction */
             double unit_conv = ctx->params->UnitMass_in_g / ctx->params->UnitTime_in_s *
                              SEC_PER_YEAR / SOLAR_MASS;
 
@@ -279,11 +332,11 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
         }
 
         /* Calculate Eddington accretion rate limit
-         * L_Edd = 1.3e38 * (M_BH/M_sun) erg/s
-         * Convert to mass accretion rate using E = 0.1 * m * c^2 efficiency */
-        EDDrate = (1.3e38 * black_hole_mass * 1e10 / ctx->params->Hubble_h) /
+         * L_Edd = EDDINGTON_LUM_COEFF * M_BH (in erg/s)
+         * Convert luminosity to mass accretion rate: L = η * dM/dt * c^2 */
+        EDDrate = (EDDINGTON_LUM_COEFF * black_hole_mass * 1e10 / ctx->params->Hubble_h) /
                  (ctx->params->UnitEnergy_in_cgs / ctx->params->UnitTime_in_s) /
-                 (0.1 * 9e10);
+                 (RADIATIVE_EFFICIENCY * C_SQUARED_CGS);
 
         /* Limit accretion to Eddington rate */
         if (AGNrate > EDDrate)
@@ -394,10 +447,9 @@ static int sage_cooling_init(void)
     /* Read module parameters from parameter file */
     module_get_double("SageCooling", "RadioModeEfficiency", &RADIO_MODE_EFFICIENCY, 0.01);
     module_get_int("SageCooling", "AGNrecipeOn", &AGN_RECIPE_ON, 1);
-
-    /* Note: CoolFunctionsDir is set to default value "input/CoolFunctions"
-     * String parameters not yet supported by module_get_* interface.
-     * TODO: Add module_get_string() support for string parameters */
+    module_get_parameter("SageCooling", "CoolFunctionsDir", COOL_FUNCTIONS_DIR,
+                        sizeof(COOL_FUNCTIONS_DIR),
+                        "src/modules/sage_cooling/CoolFunctions");
 
     /* Validate parameters */
     if (RADIO_MODE_EFFICIENCY < 0.0) {

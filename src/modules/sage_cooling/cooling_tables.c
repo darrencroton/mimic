@@ -24,7 +24,12 @@
 #include "cooling_tables.h"
 #include "numeric.h"
 
-#define TABSIZE 91  /* Number of temperature points in each cooling table */
+#define TABSIZE 91              /* Number of temperature points in each cooling table */
+#define LOG_TEMP_MIN 4.0        /* log10(T_min) = 10^4 K */
+#define LOG_TEMP_MAX 8.5        /* log10(T_max) = 10^8.5 K */
+#define LOG_TEMP_STEP 0.05      /* Temperature bin spacing (dex) */
+#define TEMP_INDEX_MAX (TABSIZE - 1)  /* Maximum valid temperature index */
+#define SOLAR_METALLICITY 0.02  /* Z_sun by mass (Asplund et al. 2009) */
 
 /* Names of the cooling function data files */
 static const char *cooling_file_names[] = {
@@ -64,31 +69,31 @@ static int tables_initialized = 0;
  * @return  Log10 of cooling rate (erg cm^3 s^-1)
  *
  * Performs linear interpolation within a single metallicity cooling table.
- * Temperature range is log(T) = 4.0 to 8.5 with 0.05 dex spacing.
+ * Temperature range is log(T) = LOG_TEMP_MIN to LOG_TEMP_MAX with LOG_TEMP_STEP dex spacing.
  */
 static double get_rate(int tab, double logTemp)
 {
     int index;
     double rate1, rate2, rate, logTindex;
 
-    /* Enforce minimum temperature (10^4 K) */
-    if (logTemp < 4.0)
-        logTemp = 4.0;
+    /* Enforce minimum temperature */
+    if (logTemp < LOG_TEMP_MIN)
+        logTemp = LOG_TEMP_MIN;
 
     /* Find temperature bin */
-    index = (int)((logTemp - 4.0) / 0.05);
-    if (index >= 90)
-        index = 89;  /* Enforce maximum temperature (10^8.5 K) */
+    index = (int)((logTemp - LOG_TEMP_MIN) / LOG_TEMP_STEP);
+    if (index >= TEMP_INDEX_MAX)
+        index = TEMP_INDEX_MAX - 1;  /* Enforce maximum temperature */
 
     /* Calculate exact log(T) at the index */
-    logTindex = 4.0 + 0.05 * index;
+    logTindex = LOG_TEMP_MIN + LOG_TEMP_STEP * index;
 
     /* Get cooling rates at bracketing temperature points */
     rate1 = CoolRate[tab][index];
     rate2 = CoolRate[tab][index + 1];
 
     /* Linear interpolation in log(T) space */
-    rate = rate1 + (rate2 - rate1) / 0.05 * (logTemp - logTindex);
+    rate = rate1 + (rate2 - rate1) / LOG_TEMP_STEP * (logTemp - logTindex);
 
     return rate;
 }
@@ -109,10 +114,9 @@ int cooling_tables_init(const char *cool_functions_dir)
         return 0;
     }
 
-    /* Convert metallicities from [Fe/H] to absolute log(Z) by adding log10(Z_sun)
-     * where Z_sun = 0.02 (solar metallicity by mass) */
+    /* Convert metallicities from [Fe/H] to absolute log(Z) by adding log10(Z_sun) */
     for (i = 0; i < 8; i++)
-        metallicities[i] += log10(0.02);
+        metallicities[i] += log10(SOLAR_METALLICITY);
 
     /* Load each cooling function table */
     for (i = 0; i < 8; i++) {
