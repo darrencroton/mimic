@@ -25,19 +25,19 @@ This tool provides a single, comprehensive entry point for generating plots from
 source ../../mimic_venv/bin/activate  # or source plotting-env/bin/activate
 
 # Generate both snapshot and evolution plots (default behavior)
-python mimic-plot.py --param-file=/path/to/mimic_params.par
+python mimic-plot.py --param-file=/path/to/mimic_params.yaml
 
 # Generate specific plots from both types
-python mimic-plot.py --param-file=/path/to/mimic_params.par --plots=halo_mass_function,hmf_evolution
+python mimic-plot.py --param-file=/path/to/mimic_params.yaml --plots=halo_mass_function,hmf_evolution
 
 # Generate only snapshot plots
-python mimic-plot.py --param-file=/path/to/mimic_params.par --snapshot-plots
+python mimic-plot.py --param-file=/path/to/mimic_params.yaml --snapshot-plots
 
 # Generate only evolution plots
-python mimic-plot.py --param-file=/path/to/mimic_params.par --evolution-plots
+python mimic-plot.py --param-file=/path/to/mimic_params.yaml --evolution-plots
 
 # Specify file range and output options
-python mimic-plot.py --param-file=/path/to/mimic_params.par --first-file=0 --last-file=7 --output-dir=my_plots --format=.pdf
+python mimic-plot.py --param-file=/path/to/mimic_params.yaml --first-file=0 --last-file=7 --output-dir=my_plots --format=.pdf
 
 # Deactivate virtual environment when done
 deactivate
@@ -148,7 +148,7 @@ To add a new plot type, follow these steps:
    ```bash
    # Activate environment first
    source ../../mimic_venv/bin/activate
-   python mimic-plot.py --param-file=params.par --plots=new_plot_type --verbose
+   python mimic-plot.py --param-file=params.yaml --plots=new_plot_type --verbose
    ```
 
 ### Example Implementation
@@ -228,7 +228,7 @@ If you used the main Mimic setup script (`../../first_run.sh`), the Python envir
 # From the main Mimic directory
 source mimic_venv/bin/activate
 cd output/mimic-plot
-python mimic-plot.py --param-file=../../input/millennium.par
+python mimic-plot.py --param-file=../../input/millennium.yaml
 ```
 
 ### Manual Setup

@@ -337,8 +337,8 @@ tests/
 │   ├── input/                 # Input test data
 │   │   ├── trees_063.0        # Single tree file (17M)
 │   │   └── millennium.a_list  # Snapshot ages (577B)
-│   ├── test_binary.par        # Binary format test parameter file
-│   ├── test_hdf5.par          # HDF5 format test parameter file
+│   ├── test_binary.yaml       # Binary format test parameter file
+│   ├── test_hdf5.yaml         # HDF5 format test parameter file
 │   └── output/                # Test outputs
 │       ├── baseline/          # Known-good baseline outputs (committed to git)
 │       │   ├── binary/        # Binary format baseline (not used for testing, kept for reference)
@@ -516,8 +516,8 @@ See `src/modules/shared/README.md` for shared utility development guide.
 - Committed to repository (self-contained)
 
 **Parameter Files** (`tests/data/`):
-- `test_binary.par` - Binary format test configuration (outputs to `tests/data/output/binary/`)
-- `test_hdf5.par` - HDF5 format test configuration (outputs to `tests/data/output/hdf5/`)
+- `test_binary.yaml` - Binary format test configuration (outputs to `tests/data/output/binary/`)
+- `test_hdf5.yaml` - HDF5 format test configuration (outputs to `tests/data/output/hdf5/`)
 
 **Output Data**:
 - `tests/data/output/baseline/hdf5/` - Known-good HDF5 baseline (committed to git, used for core property validation)
@@ -591,7 +591,7 @@ Regenerate the baseline when:
 make clean && make USE-HDF5=yes
 
 # 2. Run physics-free test (IMPORTANT: no modules enabled!)
-./mimic tests/data/test_hdf5.par
+./mimic tests/data/test_hdf5.yaml
 
 # 3. Backup existing baseline
 cp tests/data/output/baseline/hdf5/model_000.hdf5 \
@@ -882,7 +882,7 @@ int test_safe_division(void) {
    def test_specific_workflow():
        """Test description"""
        # Execute
-       returncode, stdout, stderr = run_mimic("tests/data/test.par")
+       returncode, stdout, stderr = run_mimic("tests/data/test.yaml")
 
        # Validate
        assert returncode == 0, f"Mimic failed: {stderr}"
@@ -1305,7 +1305,7 @@ print_allocated_by_category();
 **Solution**:
 ```bash
 # Run Mimic manually to see errors
-./mimic tests/data/test.par
+./mimic tests/data/test.yaml
 
 # Check logs
 cat tests/data/output/baseline/metadata/*.log
@@ -1314,7 +1314,7 @@ cat tests/data/output/baseline/metadata/*.log
 **Problem**: Output file not created
 
 **Solution**:
-- Check OutputDir in test_binary.par or test_hdf5.par
+- Check output.directory in test_binary.yaml or test_hdf5.yaml
 - Verify directory exists and is writable
 - Check for errors in Mimic output
 
@@ -1499,7 +1499,7 @@ grep -i "memory leak" tests/data/output/baseline/metadata/*.log | grep -v "No me
 make clean && make USE-HDF5=yes
 
 # Run Mimic to generate new baseline data (must have NO modules enabled)
-./mimic tests/data/test_hdf5.par
+./mimic tests/data/test_hdf5.yaml
 
 # Copy new output to baseline directory
 cp tests/data/output/hdf5/model_000.hdf5 tests/data/output/baseline/hdf5/

@@ -36,7 +36,7 @@
 make
 
 # Run a test simulation
-./mimic input/millennium.par
+./mimic input/millennium.yaml
 
 # Verify success (should output 0)
 echo $?
@@ -52,29 +52,32 @@ echo $?
 
 **Basic execution:**
 ```bash
-./mimic input/millennium.par
+./mimic input/millennium.yaml
 ```
 
 **Command-line options:**
 ```bash
-./mimic --verbose input/millennium.par  # Detailed output
-./mimic --quiet input/millennium.par    # Minimal output
-./mimic --skip input/millennium.par     # Skip certain operations
+./mimic --verbose input/millennium.yaml  # Detailed output
+./mimic --quiet input/millennium.yaml    # Minimal output
+./mimic --skip input/millennium.yaml     # Skip certain operations
 ```
 
 ### Configuring Physics Modules
 
-Mimic's physics is configured at runtime via the `.par` file. **No recompilation needed.**
+Mimic's physics is configured at runtime via YAML files. **No recompilation needed.**
 
 **Example configuration:**
-```
-# Select modules to run (order matters for dependencies)
-EnabledModules  infall_model,cooling_model
-
-# Configure module parameters
-InflallModel_BaryonFrac  0.17
-InflallModel_ReionizationOn  1
-CoolingModel_CoolFunctionsDir  input/CoolFunctions
+```yaml
+modules:
+  enabled:
+  - infall_model
+  - cooling_model
+  parameters:
+    InflallModel:
+      BaryonFrac: 0.17
+      ReionizationOn: 1
+    CoolingModel:
+      CoolFunctionsDir: input/CoolFunctions
 ```
 
 **Documentation:**
@@ -89,7 +92,7 @@ source mimic_venv/bin/activate
 
 # Generate all plots
 cd output/mimic-plot
-python mimic-plot.py --param-file=../../input/millennium.par
+python mimic-plot.py --param-file=../../input/millennium.yaml
 
 # Deactivate when done
 deactivate
@@ -122,7 +125,7 @@ vim src/core/model_building.c
 
 # Build and test
 make clean && make
-./mimic input/millennium.par
+./mimic input/millennium.yaml
 ```
 
 **2. Adding a New Property:**
@@ -195,7 +198,7 @@ make test-scientific    # Python scientific validation (<5min)
 
 **Core Principles:**
 1. **Physics-Agnostic Core** - Core has zero knowledge of specific physics
-2. **Runtime Modularity** - Configure modules via `.par` files
+2. **Runtime Modularity** - Configure modules via YAML files
 3. **Metadata-Driven** - Single source of truth in YAML files
 4. **Single Source of Truth** - No manual synchronization
 5. **Unified Processing Model** - Consistent module lifecycle

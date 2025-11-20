@@ -5,7 +5,7 @@
   "build_date": "Nov 11 2025",
   "run_date": "2025-11-11T22:43:47Z",
   "parameters": {
-    "file_path": "/Users/dcroton/Local/git-repos/mimic/tests/data/test_hdf5.par",
+    "file_path": "/Users/dcroton/Local/git-repos/mimic/tests/data/test_hdf5.yaml",
     "parameter_md5_checksum": "2dbdf7e123731a326408643d1008e7e2"
   },
   "compiler": "gcc 4.2.1",

@@ -30,6 +30,12 @@ CFLAGS += -MMD -MP
 LDFLAGS =
 LIBS = -lm
 
+# YAML library (required for parameter file parsing)
+YAML_PREFIX ?= /opt/homebrew/Cellar/libyaml/0.2.5
+CFLAGS += -I$(YAML_PREFIX)/include
+LDFLAGS += -L$(YAML_PREFIX)/lib
+LIBS += -lyaml
+
 # Optional: HDF5 support
 ifdef USE-HDF5
     CFLAGS += -DHDF5

@@ -237,17 +237,23 @@ make test-integration # Run integration tests
 
 ### Step 7: Configure and Run
 
-Add to your `.par` file:
+Add to your YAML configuration file:
 
-```
-EnabledModules  existing_module_a,existing_module_b,my_module
-MyModule_SomeParameter  1.5
+```yaml
+modules:
+  enabled:
+  - existing_module_a
+  - existing_module_b
+  - my_module
+  parameters:
+    MyModule:
+      SomeParameter: 1.5
 ```
 
 Run:
 
 ```bash
-./mimic input/millennium.par
+./mimic input/millennium.yaml
 ```
 
 ---
@@ -913,9 +919,12 @@ static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int 
 }
 ```
 
-**Configuration**: Ensure modules run in correct order in `.par` file:
-```
-EnabledModules  simple_cooling,my_module  # cooling provides ColdGas
+**Configuration**: Ensure modules run in correct order in YAML configuration:
+```yaml
+modules:
+  enabled:
+  - simple_cooling  # cooling provides ColdGas
+  - my_module
 ```
 
 ### Pattern 4: Type-Specific Physics
@@ -1253,7 +1262,7 @@ ERROR_LOG("Critical error occurred");        // Always shown, to stderr
 Check for memory leaks after running:
 
 ```bash
-./mimic input/test.par
+./mimic input/test.yaml
 # At end of output, check for:
 # "Total allocated: 0 bytes" (no leaks)
 # or
@@ -1272,7 +1281,7 @@ print_allocated_by_category();
 Enable debug logging:
 
 ```bash
-./mimic --verbose input/test.par
+./mimic --verbose input/test.yaml
 ```
 
 ### Validation Checks
@@ -1346,7 +1355,7 @@ Profile your module on full-scale simulations:
 
 ```bash
 # Run with timing
-time ./mimic input/millennium.par
+time ./mimic input/millennium.yaml
 
 # Check per-module performance in logs
 # INFO_LOG in module code can show timing

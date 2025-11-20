@@ -10,13 +10,13 @@
 #   ./benchmark_mimic.sh                           # Run with default settings
 #   ./benchmark_mimic.sh --verbose                 # Run with detailed output
 #   ./benchmark_mimic.sh --help                    # Show help information
-#   ./benchmark_mimic.sh --param-file custom.par   # Use custom parameter file
-#   ./benchmark_mimic.sh input/millennium.par      # Positional parameter file argument
+#   ./benchmark_mimic.sh --param-file custom.yaml   # Use custom parameter file
+#   ./benchmark_mimic.sh input/millennium.yaml      # Positional parameter file argument
 #
 # REQUIREMENTS:
 #   - Must be run from the scripts/ directory
 #   - GNU Make must be available
-#   - Parameter file must exist (default: input/millennium.par)
+#   - Parameter file must exist (default: input/millennium.yaml)
 #
 # OUTPUT:
 #   Results are stored in JSON format in the benchmarks/ directory
@@ -28,12 +28,12 @@
 #   MAKE_FLAGS        - Additional make flags (e.g., "USE-HDF5=yes USE-MPI=yes")
 #
 # EXAMPLES:
-#   # Basic benchmark (uses default input/millennium.par)
+#   # Basic benchmark (uses default input/millennium.yaml)
 #   ./benchmark_mimic.sh
 #
 #   # Benchmark with custom parameter file
-#   ./benchmark_mimic.sh --param-file ../tests/data/test_binary.par
-#   ./benchmark_mimic.sh ../tests/data/test_binary.par
+#   ./benchmark_mimic.sh --param-file ../tests/data/test_binary.yaml
+#   ./benchmark_mimic.sh ../tests/data/test_binary.yaml
 #
 #   # Benchmark with MPI
 #   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh
@@ -108,7 +108,7 @@ verbose_log() {
 
 # Set default parameter file if not specified
 if [[ -z "$PARAM_FILE" ]]; then
-    PARAM_FILE="${ROOT_DIR}/input/millennium.par"
+    PARAM_FILE="${ROOT_DIR}/input/millennium.yaml"
 fi
 
 # Show help if requested
@@ -122,7 +122,7 @@ OPTIONS:
   --param-file FILE     Parameter file to use for benchmarking
 
 ARGUMENTS:
-  PARAM_FILE            Parameter file to benchmark (default: input/millennium.par)
+  PARAM_FILE            Parameter file to benchmark (default: input/millennium.yaml)
                         Can be specified as positional argument or with --param-file
                         Supports both absolute and relative paths
 
@@ -150,14 +150,14 @@ OUTPUT:
   - configuration: Build and runtime configuration
 
 EXAMPLES:
-  # Basic benchmark (uses default input/millennium.par)
+  # Basic benchmark (uses default input/millennium.yaml)
   # Can run from anywhere:
   ./scripts/benchmark_mimic.sh
   cd scripts && ./benchmark_mimic.sh
 
   # Benchmark with custom parameter file
-  ./scripts/benchmark_mimic.sh --param-file tests/data/test_binary.par
-  ./scripts/benchmark_mimic.sh tests/data/test_binary.par
+  ./scripts/benchmark_mimic.sh --param-file tests/data/test_binary.yaml
+  ./scripts/benchmark_mimic.sh tests/data/test_binary.yaml
 
   # Verbose output
   ./scripts/benchmark_mimic.sh --verbose
@@ -214,16 +214,40 @@ fi
 
 verbose_log "Using parameter file: ${PARAM_FILE}"
 
-# Parse output directory and format from parameter file
-OUTPUT_DIR=$(grep "^OutputDir" "${PARAM_FILE}" | awk '{print $2}' | sed 's|/$||')
-OUTPUT_FORMAT=$(grep "^OutputFormat" "${PARAM_FILE}" | awk '{print $2}' | tr -d '\r')
-OUTPUT_BASENAME=$(grep "^OutputFileBaseName" "${PARAM_FILE}" | awk '{print $2}' | tr -d '\r')
-TREE_TYPE=$(grep "^TreeType" "${PARAM_FILE}" | awk '{print $2}' | tr -d '\r')
+# Parse output directory and format from YAML parameter file using Python
+read -r OUTPUT_DIR OUTPUT_FORMAT OUTPUT_BASENAME TREE_TYPE <<< $(python3 -c "
+import sys
+import yaml
+
+param_file = '${PARAM_FILE}'
+
+try:
+    with open(param_file, 'r') as f:
+        config = yaml.safe_load(f)
+
+    output_dir = config.get('output', {}).get('directory', './output/')
+    output_format = config.get('output', {}).get('format', 'binary')
+    output_basename = config.get('output', {}).get('file_base_name', 'model')
+    tree_type = config.get('input', {}).get('tree_type', 'lhalo_binary')
+
+    # Remove trailing slash from output_dir
+    output_dir = output_dir.rstrip('/')
+
+    print(f'{output_dir} {output_format} {output_basename} {tree_type}')
+except Exception as e:
+    print(f'ERROR: Failed to parse YAML: {e}', file=sys.stderr)
+    sys.exit(1)
+")
 
 # Resolve OUTPUT_DIR if it's a relative path
 if [[ "$OUTPUT_DIR" != /* ]]; then
     # Relative path - resolve relative to ROOT_DIR
     OUTPUT_DIR="${ROOT_DIR}/${OUTPUT_DIR}"
+fi
+
+# CRITICAL SAFETY CHECK: Ensure variables are not empty
+if [[ -z "${OUTPUT_DIR}" ]] || [[ -z "${OUTPUT_BASENAME}" ]]; then
+    error_exit "CRITICAL: Failed to parse parameter file. OUTPUT_DIR='${OUTPUT_DIR}' OUTPUT_BASENAME='${OUTPUT_BASENAME}'. Aborting to prevent accidental deletion."
 fi
 
 verbose_log "Detected OutputDir: ${OUTPUT_DIR}"
@@ -281,14 +305,27 @@ verbose_log "Using Mimic executable: $MIMIC_EXECUTABLE"
 echo "Preparing benchmark run..."
 
 # Clean any previous benchmark output
+# CRITICAL SAFETY CHECK: Double-check variables before deletion
+if [[ -z "${OUTPUT_DIR}" ]] || [[ -z "${OUTPUT_BASENAME}" ]]; then
+    error_exit "CRITICAL SAFETY: OUTPUT_DIR or OUTPUT_BASENAME is empty. Refusing to delete files."
+fi
+
 if [[ -d "${OUTPUT_DIR}" ]]; then
     verbose_log "Cleaning previous output in ${OUTPUT_DIR}"
-    rm -f "${OUTPUT_DIR}"/${OUTPUT_BASENAME}*
+    # Additional safety: ensure OUTPUT_DIR is an absolute path and contains 'output' or 'benchmark'
+    if [[ "${OUTPUT_DIR}" == /* ]] && [[ "${OUTPUT_DIR}" == *output* || "${OUTPUT_DIR}" == *benchmark* ]]; then
+        rm -f "${OUTPUT_DIR}"/${OUTPUT_BASENAME}*
+    else
+        error_exit "CRITICAL SAFETY: OUTPUT_DIR='${OUTPUT_DIR}' does not look like a safe output directory. Refusing to delete files."
+    fi
 fi
 
 if [ $VERBOSE -eq 1 ]; then
     echo "Parameter file settings:"
-    grep -E "^(OutputFormat|OutputDir|TreeName|FirstFile|LastFile)" "${PARAM_FILE}"
+    echo "  OutputDir: ${OUTPUT_DIR}"
+    echo "  OutputFormat: ${OUTPUT_FORMAT}"
+    echo "  OutputBaseName: ${OUTPUT_BASENAME}"
+    echo "  TreeType: ${TREE_TYPE}"
 fi
 
 # ======= Time and memory measurement =======

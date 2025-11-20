@@ -1,33 +1,17 @@
 /**
- * @file    core_read_parameter_file.c
- * @brief   Functions for reading and validating model parameter files
+ * @file    read_parameter_file.c
+ * @brief   YAML parameter file parser using libyaml DOM API
  *
- * This file contains the functionality for reading model parameters from
- * a configuration file. It parses the parameter file, validates parameter
- * values against allowed ranges, handles special cases for certain parameters,
- * and initializes both the MimicConfig structure and global variables.
+ * Reads YAML configuration files using libyaml's document API (DOM-style).
+ * This provides simple tree navigation for configuration parsing.
  *
- * The parameter system uses a table-driven approach where parameters are
- * defined in a central parameter table with their types, default values,
- * valid ranges, and descriptions. This allows for consistent parameter
- * handling and validation throughout the code.
- *
- * Key functions:
- * - read_parameter_file(): Main function that reads and processes the parameter
- * file
- *
- * The code includes special handling for parameters like output directories,
- * snapshot selections, file types, and handles error cases with appropriate
- * error messages.
+ * Structure: YAML file -> Document tree -> Navigate sections -> Extract values
  */
 
-#include <assert.h>
-#include <ctype.h>
-#include <limits.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <yaml.h>
 
 #include "config.h"
 #include "constants.h"
@@ -35,356 +19,491 @@
 #include "globals.h"
 #include "types.h"
 #include "error.h"
-#include "parameters.h"
+
+/* Helper functions for DOM navigation */
+static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key);
+static const char *get_scalar_value(yaml_node_t *node);
+static int get_int_value(yaml_node_t *node);
+static double get_double_value(yaml_node_t *node);
+static void parse_output_section(yaml_document_t *doc, yaml_node_t *section);
+static void parse_input_section(yaml_document_t *doc, yaml_node_t *section);
+static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section);
+static void parse_units_section(yaml_document_t *doc, yaml_node_t *section);
+static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section);
+static void validate_and_postprocess(void);
 
 /**
- * @brief   Reads and validates parameters from a configuration file
+ * @brief   Read and parse YAML parameter file
  *
- * @param   fname   Path to the parameter file
+ * @param   fname   Path to YAML parameter file
  *
- * This function reads model parameters from a configuration file, validates
- * them against allowed ranges, and initializes both the MimicConfig structure
- * and global variables. It performs the following tasks:
- *
- * 1. Opens and reads the parameter file line by line
- * 2. For each parameter, finds its definition in the parameter table
- * 3. Validates the parameter value against its allowed range
- * 4. Stores the value in the appropriate location (MimicConfig and globals)
- * 5. Handles special cases for parameters like output directories and snapshot
- * lists
- * 6. Performs post-processing for certain parameter combinations
- *
- * The function uses a table-driven approach where parameters are defined
- * centrally with their types, defaults, and valid ranges. This ensures
- * consistent parameter handling throughout the code.
- *
- * If any errors are encountered (missing required parameters, invalid values),
- * the function will terminate the program with an appropriate error message.
+ * Uses libyaml's document API to load the entire YAML file into a DOM tree,
+ * then navigates the tree to extract configuration values.
  */
 void read_parameter_file(const char *fname) {
-  FILE *fd;
-  char buf[MAX_STRING_LEN * 3]; // Buffer for reading lines
-  char buf1[MAX_STRING_LEN];    // Parameter name
-  char buf2[MAX_STRING_LEN];    // Parameter value
-  char buf3[MAX_STRING_LEN];    // Extra (for comments)
-  int i, done;
-  int errorFlag = 0;
-  char my_treetype[MAX_STRING_LEN];     // Special handling for tree type
-  char my_outputformat[MAX_STRING_LEN]; // Special handling for output format
+  FILE *fh;
+  yaml_parser_t parser;
+  yaml_document_t document;
 
-  // Get parameter table
-  ParameterDefinition *param_table = get_parameter_table();
-  int num_params = get_parameter_table_size();
+  INFO_LOG("Reading YAML parameter file: %s", fname);
 
-  // Array to track which parameters have been read
-  int *param_read = mymalloc_cat(sizeof(int) * num_params, MEM_UTILITY);
-  for (i = 0; i < num_params; i++) {
-    param_read[i] = 0;
+  /* Open file */
+  fh = fopen(fname, "r");
+  if (!fh) {
+    ERROR_LOG("Cannot open parameter file '%s'", fname);
+    FATAL_ERROR("Failed to open parameter file");
   }
 
-  // Special handling for TreeType and OutputFormat parameters
-  for (i = 0; i < num_params; i++) {
-    if (strcmp(param_table[i].name, "TreeType") == 0) {
-      param_table[i].address = my_treetype;
-    }
-    if (strcmp(param_table[i].name, "OutputFormat") == 0) {
-      param_table[i].address = my_outputformat;
-    }
+  /* Initialize parser */
+  if (!yaml_parser_initialize(&parser)) {
+    fclose(fh);
+    FATAL_ERROR("Failed to initialize YAML parser");
   }
 
-#ifdef MPI
-  if (ThisTask == 0)
-#endif
-    INFO_LOG("Reading parameter file: %s", fname);
+  yaml_parser_set_input_file(&parser, fh);
 
-  fd = fopen(fname, "r");
-  if (fd == NULL) {
-    ERROR_LOG("Parameter file '%s' not found or cannot be opened.", fname);
-    errorFlag = 1;
-    goto error_exit;
+  /* Load document (builds DOM tree) */
+  if (!yaml_parser_load(&parser, &document)) {
+    ERROR_LOG("YAML parse error at line %zu: %s",
+              parser.problem_mark.line + 1, parser.problem);
+    yaml_parser_delete(&parser);
+    fclose(fh);
+    FATAL_ERROR("Failed to parse YAML file");
   }
 
-  // Read parameter file
-  while (!feof(fd)) {
-    buf[0] = 0;
-    fgets(buf, sizeof(buf), fd);
+  /* Get root node */
+  yaml_node_t *root = yaml_document_get_root_node(&document);
+  if (!root || root->type != YAML_MAPPING_NODE) {
+    ERROR_LOG("YAML root must be a mapping");
+    yaml_document_delete(&document);
+    yaml_parser_delete(&parser);
+    fclose(fh);
+    FATAL_ERROR("Invalid YAML structure");
+  }
 
-    // Skip if line is too short or starts with comment character
-    if (sscanf(buf, "%s%s%s", buf1, buf2, buf3) < 2)
-      continue;
+  /* Parse each top-level section */
+  yaml_node_t *section;
 
-    if (buf1[0] == '%' || buf1[0] == '-' || buf1[0] == '#')
-      continue;
+  section = get_mapping_value(&document, root, "output");
+  if (section) parse_output_section(&document, section);
 
-    // Look up parameter in the table
-    int found = 0;
-    for (i = 0; i < num_params; i++) {
-      if (strcmp(buf1, param_table[i].name) == 0) {
-        param_read[i] = 1;
-        found = 1;
+  section = get_mapping_value(&document, root, "input");
+  if (section) parse_input_section(&document, section);
 
-        // Print parameter value being read
-#ifdef MPI
-        if (ThisTask == 0)
-#endif
-          DEBUG_LOG("%-35s = %-20s", buf1, buf2);
+  section = get_mapping_value(&document, root, "simulation");
+  if (section) parse_simulation_section(&document, section);
 
-        // Store parameter value based on type
-        switch (param_table[i].type) {
-        case DOUBLE: {
-          double val = atof(buf2);
-          // Validate value
-          if (!is_parameter_valid(&param_table[i], &val)) {
-            ERROR_LOG("Parameter '%s' value %g is outside valid range [%g, %g]",
-                      param_table[i].name, val, param_table[i].min_value,
-                      param_table[i].max_value > 0 ? param_table[i].max_value
-                                                   : HUGE_VAL);
-            errorFlag = 1;
-          }
-          *((double *)param_table[i].address) = val;
-          break;
-        }
-        case STRING:
-          strcpy((char *)param_table[i].address, buf2);
-          break;
-        case INT: {
-          int val = atoi(buf2);
-          // Validate value
-          if (!is_parameter_valid(&param_table[i], &val)) {
-            ERROR_LOG("Parameter '%s' value %d is outside valid range [%g, %g]",
-                      param_table[i].name, val, param_table[i].min_value,
-                      param_table[i].max_value > 0 ? param_table[i].max_value
-                                                   : INT_MAX);
-            errorFlag = 1;
-          }
-          *((int *)param_table[i].address) = val;
-          break;
-        }
-        default:
-          ERROR_LOG("Unknown parameter type for parameter '%s'",
-                    param_table[i].name);
-          errorFlag = 1;
-        }
-        break;
-      }
-    }
+  section = get_mapping_value(&document, root, "units");
+  if (section) parse_units_section(&document, section);
 
-    // Phase 3: Handle module configuration if not found in standard table
-    if (!found) {
-      // Check for EnabledModules parameter
-      if (strcmp(buf1, "EnabledModules") == 0) {
-        // Parse comma-separated module list
-        char *token = strtok(buf2, ",");
-        MimicConfig.NumEnabledModules = 0;
-        while (token != NULL && MimicConfig.NumEnabledModules < 32) {
-          // Trim whitespace
-          while (*token == ' ' || *token == '\t')
-            token++;
-          strncpy(MimicConfig.EnabledModules[MimicConfig.NumEnabledModules],
-                  token, MAX_STRING_LEN - 1);
-          MimicConfig
-              .EnabledModules[MimicConfig.NumEnabledModules][MAX_STRING_LEN -
-                                                             1] = '\0';
-          MimicConfig.NumEnabledModules++;
-          token = strtok(NULL, ",");
-        }
-#ifdef MPI
-        if (ThisTask == 0)
-#endif
-          INFO_LOG("Enabled %d module(s): %s", MimicConfig.NumEnabledModules,
-                   buf2);
-        found = 1;
-      }
-      // Check for module-specific parameter (contains underscore)
-      else if (strchr(buf1, '_') != NULL) {
-        // Parse ModuleName_ParameterName format
-        char module_name[MAX_STRING_LEN];
-        char param_name[MAX_STRING_LEN];
-        char *underscore = strchr(buf1, '_');
-        size_t module_len = underscore - buf1;
+  section = get_mapping_value(&document, root, "modules");
+  if (section) parse_modules_section(&document, section);
 
-        if (module_len < MAX_STRING_LEN && underscore[1] != '\0') {
-          // Extract module name and parameter name
-          strncpy(module_name, buf1, module_len);
-          module_name[module_len] = '\0';
-          strncpy(param_name, underscore + 1, MAX_STRING_LEN - 1);
-          param_name[MAX_STRING_LEN - 1] = '\0';
+  /* Cleanup */
+  yaml_document_delete(&document);
+  yaml_parser_delete(&parser);
+  fclose(fh);
 
-          // Store in module parameters array
-          if (MimicConfig.NumModuleParams < 256) {
-            strncpy(MimicConfig.ModuleParams[MimicConfig.NumModuleParams]
-                        .module_name,
-                    module_name, MAX_STRING_LEN - 1);
-            strncpy(MimicConfig.ModuleParams[MimicConfig.NumModuleParams]
-                        .param_name,
-                    param_name, MAX_STRING_LEN - 1);
-            strncpy(
-                MimicConfig.ModuleParams[MimicConfig.NumModuleParams].value,
-                buf2, MAX_STRING_LEN - 1);
-            MimicConfig.NumModuleParams++;
+  /* Validate and post-process */
+  validate_and_postprocess();
 
-#ifdef MPI
-            if (ThisTask == 0)
-#endif
-              DEBUG_LOG("%-35s = %-20s (module parameter)", buf1, buf2);
-            found = 1;
-          } else {
-            ERROR_LOG("Too many module parameters (max 256)");
-            errorFlag = 1;
-          }
-        }
+  INFO_LOG("Parameter file '%s' read successfully", fname);
+}
+
+/**
+ * @brief   Get value node for a key in a mapping
+ *
+ * @param   doc      YAML document
+ * @param   mapping  Mapping node to search
+ * @param   key      Key to find
+ * @return  Value node, or NULL if not found
+ */
+static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key) {
+  if (!mapping || mapping->type != YAML_MAPPING_NODE) {
+    return NULL;
+  }
+
+  yaml_node_pair_t *pair;
+  for (pair = mapping->data.mapping.pairs.start;
+       pair < mapping->data.mapping.pairs.top; pair++) {
+    yaml_node_t *key_node = yaml_document_get_node(doc, pair->key);
+    if (key_node && key_node->type == YAML_SCALAR_NODE) {
+      if (strcmp((char *)key_node->data.scalar.value, key) == 0) {
+        return yaml_document_get_node(doc, pair->value);
       }
     }
   }
+  return NULL;
+}
 
-  fclose(fd);
+/**
+ * @brief   Get scalar value as string
+ */
+static const char *get_scalar_value(yaml_node_t *node) {
+  if (!node || node->type != YAML_SCALAR_NODE) {
+    return NULL;
+  }
+  return (const char *)node->data.scalar.value;
+}
 
-  // Check for missing required parameters
-  for (i = 0; i < num_params; i++) {
-    if (param_read[i] == 0 && param_table[i].required) {
-      ERROR_LOG("Required parameter '%s' (%s) missing in parameter file '%s'",
-                param_table[i].name, param_table[i].description, fname);
-      errorFlag = 1;
+/**
+ * @brief   Get scalar value as integer
+ */
+static int get_int_value(yaml_node_t *node) {
+  const char *str = get_scalar_value(node);
+  return str ? atoi(str) : 0;
+}
+
+/**
+ * @brief   Get scalar value as double
+ */
+static double get_double_value(yaml_node_t *node) {
+  const char *str = get_scalar_value(node);
+  return str ? atof(str) : 0.0;
+}
+
+/**
+ * @brief   Parse output section
+ */
+static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
+  yaml_node_t *node;
+  const char *str;
+
+  DEBUG_LOG("Parsing output section");
+
+  node = get_mapping_value(doc, section, "file_base_name");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.OutputFileBaseName, str, MAX_STRING_LEN - 1);
+    DEBUG_LOG("OutputFileBaseName = %s", str);
+  }
+
+  node = get_mapping_value(doc, section, "directory");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.OutputDir, str, MAX_STRING_LEN - 1);
+    DEBUG_LOG("OutputDir = %s", str);
+  }
+
+  node = get_mapping_value(doc, section, "snapshot_count");
+  if (node) {
+    MimicConfig.NOUT = get_int_value(node);
+    DEBUG_LOG("NumOutputs = %d", MimicConfig.NOUT);
+  }
+
+  node = get_mapping_value(doc, section, "format");
+  if (node && (str = get_scalar_value(node))) {
+    if (strcasecmp(str, "binary") == 0) {
+      MimicConfig.OutputFormat = output_binary;
+    } else if (strcasecmp(str, "hdf5") == 0) {
+#ifndef HDF5
+      ERROR_LOG("OutputFormat 'hdf5' requires HDF5 support");
+      FATAL_ERROR("Recompile with 'make USE-HDF5=yes'");
+#else
+      MimicConfig.OutputFormat = output_hdf5;
+#endif
+    }
+    DEBUG_LOG("OutputFormat = %s", str);
+  }
+
+  /* Parse snapshot list array */
+  node = get_mapping_value(doc, section, "snapshot_list");
+  if (node && node->type == YAML_SEQUENCE_NODE) {
+    yaml_node_item_t *item;
+    int idx = 0;
+    for (item = node->data.sequence.items.start;
+         item < node->data.sequence.items.top && idx < ABSOLUTEMAXSNAPS; item++) {
+      yaml_node_t *value_node = yaml_document_get_node(doc, *item);
+      if (value_node) {
+        int snap = get_int_value(value_node);
+        MimicConfig.ListOutputSnaps[idx] = snap;
+        ListOutputSnaps[idx] = snap;
+        DEBUG_LOG("Snapshot[%d] = %d", idx, snap);
+        idx++;
+      }
+    }
+  }
+}
+
+/**
+ * @brief   Parse input section
+ */
+static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
+  yaml_node_t *node;
+  const char *str;
+
+  DEBUG_LOG("Parsing input section");
+
+  node = get_mapping_value(doc, section, "first_file");
+  if (node) {
+    MimicConfig.FirstFile = get_int_value(node);
+    DEBUG_LOG("FirstFile = %d", MimicConfig.FirstFile);
+  }
+
+  node = get_mapping_value(doc, section, "last_file");
+  if (node) {
+    MimicConfig.LastFile = get_int_value(node);
+    DEBUG_LOG("LastFile = %d", MimicConfig.LastFile);
+  }
+
+  node = get_mapping_value(doc, section, "tree_name");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.TreeName, str, MAX_STRING_LEN - 1);
+    DEBUG_LOG("TreeName = %s", str);
+  }
+
+  node = get_mapping_value(doc, section, "tree_type");
+  if (node && (str = get_scalar_value(node))) {
+    if (strcasecmp(str, "lhalo_binary") == 0) {
+      MimicConfig.TreeType = lhalo_binary;
+    } else if (strcasecmp(str, "genesis_lhalo_hdf5") == 0) {
+#ifndef HDF5
+      ERROR_LOG("TreeType '%s' requires HDF5 support", str);
+      FATAL_ERROR("Recompile with 'make USE-HDF5=yes'");
+#else
+      MimicConfig.TreeType = genesis_lhalo_hdf5;
+      strncpy(MimicConfig.TreeExtension, ".hdf5", MAX_STRING_LEN - 1);
+#endif
+    }
+    DEBUG_LOG("TreeType = %s", str);
+  }
+
+  node = get_mapping_value(doc, section, "simulation_dir");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.SimulationDir, str, MAX_STRING_LEN - 1);
+    DEBUG_LOG("SimulationDir = %s", str);
+  }
+
+  node = get_mapping_value(doc, section, "snapshot_list_file");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.FileWithSnapList, str, MAX_STRING_LEN - 1);
+    DEBUG_LOG("FileWithSnapList = %s", str);
+  }
+
+  node = get_mapping_value(doc, section, "last_snapshot");
+  if (node) {
+    MimicConfig.LastSnapshotNr = get_int_value(node);
+    DEBUG_LOG("LastSnapshotNr = %d", MimicConfig.LastSnapshotNr);
+  }
+}
+
+/**
+ * @brief   Parse simulation section
+ */
+static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section) {
+  yaml_node_t *node, *cosmology;
+
+  DEBUG_LOG("Parsing simulation section");
+
+  /* Parse cosmology subsection */
+  cosmology = get_mapping_value(doc, section, "cosmology");
+  if (cosmology) {
+    node = get_mapping_value(doc, cosmology, "omega_matter");
+    if (node) {
+      MimicConfig.Omega = get_double_value(node);
+      DEBUG_LOG("Omega = %g", MimicConfig.Omega);
+    }
+
+    node = get_mapping_value(doc, cosmology, "omega_lambda");
+    if (node) {
+      MimicConfig.OmegaLambda = get_double_value(node);
+      DEBUG_LOG("OmegaLambda = %g", MimicConfig.OmegaLambda);
+    }
+
+    node = get_mapping_value(doc, cosmology, "hubble_h");
+    if (node) {
+      MimicConfig.Hubble_h = get_double_value(node);
+      DEBUG_LOG("Hubble_h = %g", MimicConfig.Hubble_h);
     }
   }
 
-  // Add trailing slash to OutputDir if needed
-  i = strlen(MimicConfig.OutputDir);
-  if (i > 0 && MimicConfig.OutputDir[i - 1] != '/')
-    strcat(MimicConfig.OutputDir, "/");
+  node = get_mapping_value(doc, section, "box_size");
+  if (node) {
+    MimicConfig.BoxSize = get_double_value(node);
+    DEBUG_LOG("BoxSize = %g", MimicConfig.BoxSize);
+  }
 
-  // Special handling for MAXSNAPS
-  if (!(MimicConfig.LastSnapshotNr + 1 > 0 &&
-        MimicConfig.LastSnapshotNr + 1 < ABSOLUTEMAXSNAPS)) {
-    ERROR_LOG("LastSnapshotNr = %d should be in range [0, %d)",
+  node = get_mapping_value(doc, section, "particle_mass");
+  if (node) {
+    MimicConfig.PartMass = get_double_value(node);
+    DEBUG_LOG("PartMass = %g", MimicConfig.PartMass);
+  }
+}
+
+/**
+ * @brief   Parse units section
+ */
+static void parse_units_section(yaml_document_t *doc, yaml_node_t *section) {
+  yaml_node_t *node;
+
+  DEBUG_LOG("Parsing units section");
+
+  node = get_mapping_value(doc, section, "length_in_cm");
+  if (node) {
+    MimicConfig.UnitLength_in_cm = get_double_value(node);
+    DEBUG_LOG("UnitLength_in_cm = %g", MimicConfig.UnitLength_in_cm);
+  }
+
+  node = get_mapping_value(doc, section, "mass_in_g");
+  if (node) {
+    MimicConfig.UnitMass_in_g = get_double_value(node);
+    DEBUG_LOG("UnitMass_in_g = %g", MimicConfig.UnitMass_in_g);
+  }
+
+  node = get_mapping_value(doc, section, "velocity_in_cm_per_s");
+  if (node) {
+    MimicConfig.UnitVelocity_in_cm_per_s = get_double_value(node);
+    DEBUG_LOG("UnitVelocity_in_cm_per_s = %g", MimicConfig.UnitVelocity_in_cm_per_s);
+  }
+}
+
+/**
+ * @brief   Parse modules section
+ */
+static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
+  yaml_node_t *node, *params_node;
+
+  DEBUG_LOG("Parsing modules section");
+
+  /* Parse enabled modules array */
+  node = get_mapping_value(doc, section, "enabled");
+  if (node && node->type == YAML_SEQUENCE_NODE) {
+    yaml_node_item_t *item;
+    int idx = 0;
+    for (item = node->data.sequence.items.start;
+         item < node->data.sequence.items.top && idx < 32; item++) {
+      yaml_node_t *value_node = yaml_document_get_node(doc, *item);
+      const char *module_name = get_scalar_value(value_node);
+      if (module_name) {
+        strncpy(MimicConfig.EnabledModules[idx], module_name, MAX_STRING_LEN - 1);
+        DEBUG_LOG("EnabledModule[%d] = %s", idx, module_name);
+        idx++;
+      }
+    }
+    MimicConfig.NumEnabledModules = idx;
+  }
+
+  /* Parse module parameters */
+  params_node = get_mapping_value(doc, section, "parameters");
+  if (params_node && params_node->type == YAML_MAPPING_NODE) {
+    yaml_node_pair_t *module_pair;
+
+    /* Iterate over each module in parameters */
+    for (module_pair = params_node->data.mapping.pairs.start;
+         module_pair < params_node->data.mapping.pairs.top; module_pair++) {
+
+      yaml_node_t *module_key = yaml_document_get_node(doc, module_pair->key);
+      yaml_node_t *module_params = yaml_document_get_node(doc, module_pair->value);
+
+      const char *module_name = get_scalar_value(module_key);
+      if (!module_name || !module_params || module_params->type != YAML_MAPPING_NODE) {
+        continue;
+      }
+
+      /* Iterate over parameters for this module */
+      yaml_node_pair_t *param_pair;
+      for (param_pair = module_params->data.mapping.pairs.start;
+           param_pair < module_params->data.mapping.pairs.top; param_pair++) {
+
+        yaml_node_t *param_key = yaml_document_get_node(doc, param_pair->key);
+        yaml_node_t *param_value = yaml_document_get_node(doc, param_pair->value);
+
+        const char *param_name = get_scalar_value(param_key);
+        const char *param_val = get_scalar_value(param_value);
+
+        if (param_name && param_val && MimicConfig.NumModuleParams < 256) {
+          int idx = MimicConfig.NumModuleParams;
+          strncpy(MimicConfig.ModuleParams[idx].module_name, module_name, MAX_STRING_LEN - 1);
+          strncpy(MimicConfig.ModuleParams[idx].param_name, param_name, MAX_STRING_LEN - 1);
+          strncpy(MimicConfig.ModuleParams[idx].value, param_val, MAX_STRING_LEN - 1);
+          DEBUG_LOG("%s_%s = %s (module parameter)", module_name, param_name, param_val);
+          MimicConfig.NumModuleParams++;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * @brief   Validate required parameters and post-process
+ */
+static void validate_and_postprocess(void) {
+  int errors = 0;
+
+  /* Check required parameters */
+  if (strlen(MimicConfig.OutputDir) == 0) {
+    ERROR_LOG("Required parameter 'output.directory' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.OutputFileBaseName) == 0) {
+    ERROR_LOG("Required parameter 'output.file_base_name' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.SimulationDir) == 0) {
+    ERROR_LOG("Required parameter 'input.simulation_dir' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.TreeName) == 0) {
+    ERROR_LOG("Required parameter 'input.tree_name' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.FileWithSnapList) == 0) {
+    ERROR_LOG("Required parameter 'input.snapshot_list_file' missing");
+    errors++;
+  }
+  if (MimicConfig.LastSnapshotNr == 0) {
+    ERROR_LOG("Required parameter 'input.last_snapshot' missing or zero");
+    errors++;
+  }
+  if (MimicConfig.BoxSize == 0.0) {
+    ERROR_LOG("Required parameter 'simulation.box_size' missing or zero");
+    errors++;
+  }
+  if (MimicConfig.Hubble_h == 0.0) {
+    ERROR_LOG("Required parameter 'simulation.cosmology.hubble_h' missing or zero");
+    errors++;
+  }
+
+  /* Validate ranges */
+  if (MimicConfig.LastSnapshotNr < 0 || MimicConfig.LastSnapshotNr >= ABSOLUTEMAXSNAPS) {
+    ERROR_LOG("LastSnapshotNr = %d outside valid range [0, %d)",
               MimicConfig.LastSnapshotNr, ABSOLUTEMAXSNAPS);
-    errorFlag = 1;
+    errors++;
   }
 
-  // Set MAXSNAPS in both MimicConfig and global variable
+  if (MimicConfig.NOUT <= 0 || MimicConfig.NOUT > ABSOLUTEMAXSNAPS) {
+    ERROR_LOG("NumOutputs = %d outside valid range (1, %d]",
+              MimicConfig.NOUT, ABSOLUTEMAXSNAPS);
+    errors++;
+  }
+
+  if (errors > 0) {
+    FATAL_ERROR("Parameter validation failed");
+  }
+
+  /* Post-process parameters */
+
+  /* Add trailing slash to OutputDir */
+  int len = strlen(MimicConfig.OutputDir);
+  if (len > 0 && MimicConfig.OutputDir[len - 1] != '/') {
+    strcat(MimicConfig.OutputDir, "/");
+  }
+
+  /* Set MAXSNAPS */
   MimicConfig.MAXSNAPS = MimicConfig.LastSnapshotNr + 1;
-  SYNC_CONFIG_INT(MAXSNAPS); // Phase 1: explicit synchronization
+  SYNC_CONFIG_INT(MAXSNAPS);
 
-  // Special handling for NumOutputs parameter
-  if (!(MimicConfig.NOUT == -1 ||
-        (MimicConfig.NOUT > 0 && MimicConfig.NOUT <= ABSOLUTEMAXSNAPS))) {
-    ERROR_LOG("NumOutputs must be -1 (all snapshots) or between 1 and %i",
-              ABSOLUTEMAXSNAPS);
-    errorFlag = 1;
-  }
-
-  // Handle output snapshot list
-  if (!errorFlag) {
-    if (MimicConfig.NOUT == -1) {
-      MimicConfig.NOUT = MimicConfig.MAXSNAPS;
-      for (i = MimicConfig.NOUT - 1; i >= 0; i--) {
-        MimicConfig.ListOutputSnaps[i] = i;
-        // Synchronize array element (Phase 1)
-        ListOutputSnaps[i] = i;
-      }
-      INFO_LOG("All %i snapshots selected for output", MimicConfig.NOUT);
-    } else {
-      INFO_LOG("%i snapshots selected for output:", MimicConfig.NOUT);
-      // reopen the parameter file
-      fd = fopen(fname, "r");
-
-      done = 0;
-      while (!feof(fd) && !done) {
-        // scan down to find the line with the snapshots
-        fscanf(fd, "%s", buf1);
-        if (strcmp(buf1, "->") == 0) {
-          // read the snapshots into both the MimicConfig structure and global
-          // array
-          for (i = 0; i < MimicConfig.NOUT; i++) {
-            if (fscanf(fd, "%d", &MimicConfig.ListOutputSnaps[i]) != 1) {
-              ERROR_LOG("Could not read output snapshot list. Expected %d "
-                        "values after '->' but couldn't read value %d",
-                        MimicConfig.NOUT, i + 1);
-              errorFlag = 1;
-              break;
-            }
-            // Synchronize array element (Phase 1)
-            ListOutputSnaps[i] = MimicConfig.ListOutputSnaps[i];
-            DEBUG_LOG("Selected snapshot %i: %i", i,
-                      MimicConfig.ListOutputSnaps[i]);
-          }
-          done = 1;
-        }
-      }
-
-      fclose(fd);
-      if (!done && !errorFlag) {
-        ERROR_LOG("Could not find output snapshot list (expected line starting "
-                  "with '->') in parameter file");
-        errorFlag = 1;
-      }
-      // Removed newline print
-    }
-  }
-
-  // Synchronize with global using explicit pattern (Phase 1)
+  /* Synchronize NOUT */
   SYNC_CONFIG_INT(NOUT);
 
-  // Handle TreeType
-  if (!errorFlag) {
-    // Check file type is valid.
-    if (strcasecmp(my_treetype, "lhalo_binary") != 0) {
-      snprintf(MimicConfig.TreeExtension, 511, ".hdf5");
-#ifndef HDF5
-      ERROR_LOG("TreeType '%s' requires HDF5 support, but Mimic was not "
-                "compiled with HDF5 option enabled",
-                my_treetype);
-      ERROR_LOG("Please check your file type and compiler options");
-      errorFlag = 1;
-#endif
-    }
+  /* Log summary */
+  INFO_LOG("Configuration: %d output snapshots, %d enabled modules",
+           MimicConfig.NOUT, MimicConfig.NumEnabledModules);
 
-    // Recast the local treetype string to a global TreeType enum.
-    if (strcasecmp(my_treetype, "genesis_lhalo_hdf5") == 0) {
-      MimicConfig.TreeType = genesis_lhalo_hdf5;
-    } else if (strcasecmp(my_treetype, "lhalo_binary") == 0) {
-      MimicConfig.TreeType = lhalo_binary;
-    } else {
-      ERROR_LOG("TreeType '%s' is not supported. Valid options are "
-                "'genesis_lhalo_hdf5' or 'lhalo_binary'",
-                my_treetype);
-      errorFlag = 1;
+  if (MimicConfig.NumEnabledModules > 0) {
+    char module_list[MAX_STRING_LEN * 4] = {0};
+    for (int i = 0; i < MimicConfig.NumEnabledModules; i++) {
+      if (i > 0) strcat(module_list, ", ");
+      strcat(module_list, MimicConfig.EnabledModules[i]);
     }
+    INFO_LOG("Enabled modules: %s", module_list);
   }
-
-  // Handle OutputFormat
-  if (!errorFlag) {
-    // Check if HDF5 output is requested but HDF5 support is not compiled
-    if (strcasecmp(my_outputformat, "hdf5") == 0) {
-#ifndef HDF5
-      ERROR_LOG("OutputFormat 'hdf5' requires HDF5 support, but Mimic was not "
-                "compiled with HDF5 option enabled");
-      ERROR_LOG("Please recompile with 'make USE-HDF5=yes'");
-      errorFlag = 1;
-#endif
-    }
-
-    // Convert the string to enum value
-    if (strcasecmp(my_outputformat, "binary") == 0) {
-      MimicConfig.OutputFormat = output_binary;
-    } else if (strcasecmp(my_outputformat, "hdf5") == 0) {
-      MimicConfig.OutputFormat = output_hdf5;
-    } else {
-      ERROR_LOG("OutputFormat '%s' is not supported. Valid options are "
-                "'binary' or 'hdf5'",
-                my_outputformat);
-      errorFlag = 1;
-    }
-  }
-
-error_exit:
-  // Free memory and exit if errors
-  myfree(param_read);
-
-  if (errorFlag) {
-    FATAL_ERROR("Parameter file processing failed with one or more errors");
-  }
-
-  // Print success message
-  INFO_LOG("Parameter file '%s' read successfully", fname);
 }

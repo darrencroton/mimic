@@ -162,10 +162,10 @@ The `mimic-plot` tool automatically detects available properties and adapts:
 
 ```bash
 # Auto-detects format (binary or HDF5) and available properties
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml
 
 # Generate specific plots (skips plots requiring unavailable properties)
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par \
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml \
     --plots=halo_mass_function,stellar_mass_function
 ```
 
@@ -310,7 +310,7 @@ model_000.hdf5
 ```bash
 make clean
 make USE-HDF5=yes
-./mimic input/millennium.par
+./mimic input/millennium.yaml
 ```
 
 ### "Property not found in output"

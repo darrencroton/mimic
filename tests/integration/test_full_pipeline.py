@@ -56,7 +56,7 @@ def test_basic_execution():
     print("Testing basic Mimic execution...")
 
     # Run Mimic on test parameter file
-    param_file = TEST_DATA_DIR / "test_binary.par"
+    param_file = TEST_DATA_DIR / "test_binary.yaml"
     assert param_file.exists(), f"{RED}Test parameter file not found: {param_file}{NC}"
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -80,7 +80,7 @@ def test_output_files_created():
     """
     print("Testing output file creation...")
 
-    # Expected output location (from test_binary.par: writes to binary/)
+    # Expected output location (from test_binary.yaml: writes to binary/)
     # Binary format uses redshift-based naming: model_z{redshift}_{filenr}
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
@@ -92,7 +92,7 @@ def test_output_files_created():
     # Run Mimic if output doesn't exist
     if not output_file.exists():
         print("  Running Mimic to generate output...")
-        param_file = TEST_DATA_DIR / "test_binary.par"
+        param_file = TEST_DATA_DIR / "test_binary.yaml"
         returncode, stdout, stderr = run_mimic(param_file)
         assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
@@ -120,11 +120,11 @@ def test_no_memory_leaks():
     print("Testing for memory leaks...")
 
     # Run Mimic
-    param_file = TEST_DATA_DIR / "test_binary.par"
+    param_file = TEST_DATA_DIR / "test_binary.yaml"
     returncode, stdout, stderr = run_mimic(param_file)
     assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
-    # Check for memory leaks in output logs (test_binary.par writes to binary/)
+    # Check for memory leaks in output logs (test_binary.yaml writes to binary/)
     output_dir = TEST_DATA_DIR / "output" / "binary"
     has_leaks = not check_no_memory_leaks(output_dir)
 
@@ -142,7 +142,7 @@ def test_output_loadable():
     """
     print("Testing output file structure...")
 
-    # Expected output file (test_binary.par writes to binary/)
+    # Expected output file (test_binary.yaml writes to binary/)
     # Binary format uses redshift-based naming: model_z{redshift}_{filenr}
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
@@ -153,7 +153,7 @@ def test_output_loadable():
 
     # Ensure output exists
     if not output_file.exists():
-        param_file = TEST_DATA_DIR / "test_binary.par"
+        param_file = TEST_DATA_DIR / "test_binary.yaml"
         returncode, stdout, stderr = run_mimic(param_file)
         assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
@@ -181,7 +181,7 @@ def test_stdout_content():
 
     print("Testing stdout content...")
 
-    param_file = TEST_DATA_DIR / "test_binary.par"
+    param_file = TEST_DATA_DIR / "test_binary.yaml"
     returncode, stdout, stderr = run_mimic(param_file)
     assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 

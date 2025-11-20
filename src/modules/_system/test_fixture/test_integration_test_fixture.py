@@ -70,90 +70,108 @@ def run_mimic(param_file):
 
 
 def read_param_file(param_file):
-    """Read parameter file and return as dictionary."""
-    params = {}
+    """Read YAML parameter file and return as dictionary."""
+    import yaml
+
     with open(param_file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            # Skip comments and empty lines
-            if not line or line.startswith('%') or line.startswith('#'):
-                continue
-            # Handle arrow notation (-> means skip)
-            if '->' in line:
-                continue
-            # Parse key-value pairs
-            parts = line.split()
-            if len(parts) >= 2:
-                params[parts[0]] = ' '.join(parts[1:])
+        config = yaml.safe_load(f)
+
+    # Flatten hierarchical structure
+    params = {}
+    if 'output' in config:
+        params['OutputFileBaseName'] = config['output'].get('file_base_name', 'model')
+        params['OutputDir'] = config['output'].get('directory', './')
+        params['OutputFormat'] = config['output'].get('format', 'binary')
+    if 'input' in config:
+        params['FirstFile'] = str(config['input'].get('first_file', 0))
+        params['LastFile'] = str(config['input'].get('last_file', 0))
+        params['TreeName'] = config['input'].get('tree_name', '')
+        params['TreeType'] = config['input'].get('tree_type', 'lhalo_binary')
+        params['SimulationDir'] = config['input'].get('simulation_dir', './')
+        params['FileWithSnapList'] = config['input'].get('snapshot_list_file', '')
+        params['LastSnapshotNr'] = str(config['input'].get('last_snapshot', 0))
+    if 'simulation' in config:
+        params['BoxSize'] = str(config['simulation'].get('box_size', 0.0))
+        params['PartMass'] = str(config['simulation'].get('particle_mass', 0.0))
+        if 'cosmology' in config['simulation']:
+            params['Omega'] = str(config['simulation']['cosmology'].get('omega_matter', 0.0))
+            params['OmegaLambda'] = str(config['simulation']['cosmology'].get('omega_lambda', 0.0))
+            params['Hubble_h'] = str(config['simulation']['cosmology'].get('hubble_h', 0.0))
+    if 'units' in config:
+        params['UnitLength_in_cm'] = str(config['units'].get('length_in_cm', 0.0))
+        params['UnitMass_in_g'] = str(config['units'].get('mass_in_g', 0.0))
+        params['UnitVelocity_in_cm_per_s'] = str(config['units'].get('velocity_in_cm_per_s', 0.0))
+
     return params
 
 
 def create_test_param_file(output_name, enabled_modules=None,
                            module_params=None, first_file=0, last_file=0):
     """
-    Create a test parameter file with specified module configuration.
+    Create a test YAML parameter file with specified module configuration.
 
     Args:
         output_name (str): Output file name
         enabled_modules (list): List of modules to enable
-        module_params (dict): Module parameters {param_name: value}
+        module_params (dict): Module parameters {ModuleName_ParamName: value}
         first_file (int): First tree file number
         last_file (int): Last tree file number
 
     Returns:
         Path: Path to created parameter file
     """
+    import yaml
+
     if enabled_modules is None:
         enabled_modules = []
     if module_params is None:
         module_params = {}
 
-    # Read reference parameter file
-    ref_params = read_param_file(ref_param_file)
+    # Use test data parameter file instead of millennium.yaml
+    test_ref_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
+    with open(test_ref_file, 'r') as f:
+        config = yaml.safe_load(f)
 
     # Create output directory
     output_dir = Path(temp_dir) / output_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Update parameters
-    ref_params['OutputDir'] = str(output_dir)
-    ref_params['FirstFile'] = str(first_file)
-    ref_params['LastFile'] = str(last_file)
-    ref_params['OutputFormat'] = 'binary'  # Use binary format for testing
+    # Update configuration
+    config['output']['directory'] = str(output_dir)
+    config['output']['format'] = 'binary'
+    config['input']['first_file'] = first_file
+    config['input']['last_file'] = last_file
 
-    # Write test parameter file
-    param_path = Path(temp_dir) / f"{output_name}.par"
+    # Update module configuration
+    config['modules']['enabled'] = enabled_modules
+
+    # Parse and add module parameters
+    if module_params:
+        if 'parameters' not in config['modules']:
+            config['modules']['parameters'] = {}
+
+        for param_name, value in module_params.items():
+            # Parse ModuleName_ParameterName format
+            if '_' in param_name:
+                module_name, param_key = param_name.split('_', 1)
+                if module_name not in config['modules']['parameters']:
+                    config['modules']['parameters'][module_name] = {}
+                # Try to convert to appropriate type
+                try:
+                    value = float(value)
+                    if value.is_integer():
+                        value = int(value)
+                except (ValueError, AttributeError):
+                    pass  # Keep as string
+                config['modules']['parameters'][module_name][param_key] = value
+
+    # Write test parameter file as YAML
+    param_path = Path(temp_dir) / f"{output_name}.yaml"
     with open(param_path, 'w') as f:
-        f.write("%------------------------------------------\n")
-        f.write("%----- test_fixture Integration Test -----\n")
-        f.write("%------------------------------------------\n\n")
-
-        # Write basic parameters
-        for key in ['OutputFileBaseName', 'OutputDir', 'FirstFile',
-                   'LastFile', 'TreeName', 'TreeType', 'OutputFormat',
-                   'SimulationDir', 'FileWithSnapList', 'LastSnapshotNr',
-                   'BoxSize', 'Omega', 'OmegaLambda', 'Hubble_h',
-                   'PartMass', 'UnitLength_in_cm', 'UnitMass_in_g',
-                   'UnitVelocity_in_cm_per_s']:
-            if key in ref_params:
-                f.write(f"{key:30s} {ref_params[key]}\n")
-
-        # Write snapshot output list
-        f.write("\nNumOutputs        8\n")
-        f.write("-> 63 37 32 27 23 20 18 16\n\n")
-
-        # Write module configuration
-        f.write("%------------------------------------------\n")
-        f.write("%----- Galaxy Physics Modules -------------\n")
-        f.write("%------------------------------------------\n")
-
-        if enabled_modules:
-            f.write(f"EnabledModules          {','.join(enabled_modules)}\n\n")
-
-            # Write module parameters
-            if module_params:
-                for param_name, value in module_params.items():
-                    f.write(f"{param_name:30s} {value}\n")
+        f.write("#" + "="*77 + "\n")
+        f.write("# test_fixture Integration Test\n")
+        f.write("#" + "="*77 + "\n\n")
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     return param_path
 
@@ -163,7 +181,8 @@ def setup_module():
     global temp_dir, ref_param_file
     temp_dir = tempfile.mkdtemp(prefix="mimic_test_fixture_")
     os.makedirs(f"{temp_dir}/output", exist_ok=True)
-    ref_param_file = REPO_ROOT / "input" / "millennium.par"
+    # Use test data parameter file which has correct test paths
+    ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
 
     print("\n" + "=" * 71)
     print("TEST FIXTURE MODULE - INTEGRATION TESTS")
@@ -205,6 +224,11 @@ def test_module_loads():
     returncode, stdout, stderr = run_mimic(param_file)
 
     # Validate
+    if returncode != 0:
+        print(f"\n{RED}Test failed: Mimic should exit successfully (got {returncode}){NC}")
+        print(f"\nGenerated param file: {param_file}")
+        print(f"\nSTDOUT:\n{stdout}")
+        print(f"\nSTDERR:\n{stderr}\n")
     assert returncode == 0, f"Mimic should exit successfully (got {returncode})"
     assert "Test fixture module initialized" in stdout, \
         "Module initialization message should appear in output"

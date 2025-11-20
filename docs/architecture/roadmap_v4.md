@@ -41,7 +41,7 @@ This section summarizes the capabilities of the codebase *right now*. The detail
 -   **Impact**: Prevents critical, hard-to-find bugs like the `dT` calculation error discovered during the PoCs. Ensures that new development is safe, and the science is correct.
 
 #### ✅ **3. Runtime Module Configuration** (Formerly Phases 3 & 3.5)
--   **Capability**: Users can select which physics modules to run, in what order, and configure their parameters directly from the `.par` file.
+-   **Capability**: Users can select which physics modules to run, in what order, and configure their parameters directly from the parameter file (YAML format).
 -   **How**: The `EnabledModules` parameter controls the execution pipeline. Module-specific parameters (e.g., `SimpleCooling_BaryonFraction`) are parsed and passed to the correct module.
 -   **Impact**: Provides maximum scientific flexibility. Researchers can easily compare different physics combinations without needing to recompile the code. Mimic can also be run in a "physics-free" mode for pure halo tracking.
 
@@ -217,7 +217,42 @@ This section summarizes the capabilities of the codebase *right now*. The detail
 -   **Validation**: ✅ Enhanced validator tested on all 6 SAGE modules + system modules, correctly validates 54 properties (23 galaxy, 31 halo)
 -   **Lesson Learned**: Upgrading validation severity from WARNING to ERROR is essential for catching problems early. Property metadata should include type and unit information to help developers understand dependencies. Supporting both galaxy and halo properties makes the validation system complete and prevents developer confusion.
 
-#### ✅ **11. SAGE Physics Modules** (Phase 4.2 - All Merged, Code Quality Complete)
+#### ✅ **11. Parameter File Migration (.par → YAML)** (Phase 4.2.11 - Completed 2025-11-20)
+-   **Problem**: Custom `.par` format was inconsistent with rest of codebase (which uses YAML for all metadata). Parsing logic duplicated across C, Python plotting, and Python test code.
+-   **Solution**: Complete migration to industry-standard YAML format with native C DOM parser using libyaml. Clean implementation with zero backward compatibility overhead.
+-   **Changes**:
+    - **YAML Parameter File Format**: Created `input/millennium.yaml` with hierarchical structure (output, input, simulation, units, modules sections)
+    - **Native YAML Parser**: Completely rewrote `src/core/read_parameter_file.c` using libyaml's DOM API
+      - Clean tree navigation (load document → get root → navigate sections → extract values)
+      - 510 lines of professional, maintainable code
+      - Replaces 600+ lines of custom .par parser code
+    - **Test Infrastructure**: Created YAML test parameter files
+      - `tests/data/test_binary.yaml` - Binary format test configuration
+      - `tests/data/test_hdf5.yaml` - HDF5 format test configuration
+      - Updated `tests/framework/harness.py` for YAML-only operation
+    - **Build System**: Makefile uses libyaml (via pkg-config), `scripts/first_run.sh` checks for libyaml installation
+    - **Clean Removal**: All .par parsing code removed, no dead code remaining
+      - Old .par files archived to `ignore/legacy-par-files/`
+      - Event-driven parser attempt archived to `ignore/deprecated-converters/`
+    - **Documentation**: Complete update of all docs to remove .par references
+-   **Impact**:
+    - **Architectural Alignment**: Strongly reinforces Vision Principle #3 (Metadata-Driven Architecture) - all configuration now in YAML (modules, properties, parameters)
+    - **Standard Tools**: Leverages industry-standard format with proven libyaml DOM parser
+    - **Maintainability**: Single YAML format, no duplicated parsing code, clean implementation
+    - **Code Quality**: Professional DOM-based parser vs complex event-driven approach
+    - **User Experience**: Better structure, hierarchical organization, IDE support (syntax highlighting, validation)
+    - **Zero Legacy Code**: Complete clean migration, no backward compatibility overhead
+-   **Files Modified**: 20+ total
+    - Core implementation: `read_parameter_file.c` (complete rewrite - 510 lines)
+    - Test files: `test_binary.yaml` (NEW), `test_hdf5.yaml` (NEW), `harness.py` (updated)
+    - Documentation: `CLAUDE.md`, `README.md`, `docs/README.md`, `docs/user/module-configuration.md`, `docs/developer/testing.md`, `output/mimic-plot/README.md`, `docs/architecture/vision.md`, `docs/developer/module-developer-guide.md`
+    - Archived: 3 .par files, yaml_parser.c, convert_par_to_yaml.py, yaml_to_par.py
+-   **Validation**: ✅ End-to-end testing successful - `./mimic input/millennium.yaml` exits with code 0, all 8 files processed, no memory leaks, clean DOM implementation
+-   **Design Document**: `obsidian-inbox/yaml-migration-design.md` captured design decisions
+-   **Summary Document**: `obsidian-inbox/phase-4-2-11-summary.md` documents complete implementation
+-   **Lesson Learned**: Professional code requires the right approach from the start - DOM parsing is the industry standard for config files. Event-driven parsing adds unnecessary complexity for small files. Clean, simple DOM navigation (510 lines) beats complex state machines (600+ lines). When a better approach is identified, completely rewrite rather than accumulate bandaid fixes.
+
+#### ✅ **12. SAGE Physics Modules** (Phase 4.2 - All Merged, Code Quality Complete)
 -   **Goal**: Systematically port production-quality SAGE physics modules into Mimic's modular architecture.
 -   **Status**: All 6 SAGE module branches merged to main (November 18, 2025). Code quality improvements complete. Integration testing in progress.
 
@@ -838,11 +873,11 @@ This section contains essential context for the developer.
 #### **Validated Development Workflow**
 This is the established pattern for adding new physics.
 
-1.  **Define Properties (2 min)**: Add property definitions to `metadata/galaxy_properties.yaml`.
+1.  **Define Properties (2 min)**: Add property definitions to `src/modules/galaxy_properties.yaml`.
 2.  **Generate Code (5 sec)**: Run `make generate`.
 3.  **Implement Module Logic**: Create a new directory in `src/modules/` and implement the `init`, `process`, and `cleanup` functions. Access galaxy data via the auto-generated `halos[i].galaxy->PropertyName` accessors.
 4.  **Write Tests**: Add unit tests for pure logic and scientific validation tests in Python to verify physical outputs.
-5.  **Configure & Run**: Add the new module to the `EnabledModules` list in your `.par` file and run the simulation.
+5.  **Configure & Run**: Add the new module to the `EnabledModules` list in your parameter file (YAML format) and run the simulation.
 
 ---
 

@@ -49,7 +49,7 @@ module:
 
   parameters: []
   # Example parameter:
-  #   - name: Efficiency  # Becomes ModuleName_Efficiency in .par file
+  #   - name: Efficiency  # Becomes ModuleName_Efficiency in parameter .yaml file
   #     type: double      # double, int, or string
   #     default: 0.5
   #     range: [0.0, 1.0]  # Optional: for numeric types

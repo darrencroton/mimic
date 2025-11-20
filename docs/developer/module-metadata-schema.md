@@ -425,7 +425,7 @@ dependencies:
 - List of parameter definitions (see Parameter Structure below)
 - Empty list `[]` if module has no parameters
 - Parameters are read via `module_get_*()` functions
-- Naming convention: `{ModuleName}_{ParameterName}` in `.par` file
+- Stored in YAML configuration under `modules.parameters.{ModuleName}.{ParameterName}`
 
 **Parameter Structure**:
 
@@ -481,12 +481,14 @@ parameters:
 - Range must be valid for numeric types (min ≤ max)
 - Generated documentation includes all parameters
 
-**Usage in .par file**:
-```
-# Module parameters follow ModuleName_ParameterName convention
-SageInfall_BaryonFrac  0.17
-SageInfall_ReionizationOn  1
-SageInfall_Reionization_z0  8.0
+**Usage in YAML configuration**:
+```yaml
+modules:
+  parameters:
+    SageInfall:
+      BaryonFrac: 0.17
+      ReionizationOn: 1
+      Reionization_z0: 8.0
 ```
 
 ---

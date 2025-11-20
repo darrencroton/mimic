@@ -77,8 +77,10 @@ fi
 
 # Common compiler flags
 CC="${CC:-gcc}"
-CFLAGS="-Wall -Wextra -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -I${SRC_DIR}/modules -Ibuild/generated -Itests -g -O0"
-LDFLAGS="-lm"
+YAML_CFLAGS="$(pkg-config --cflags yaml-0.1 2>/dev/null || echo '')"
+YAML_LDFLAGS="$(pkg-config --libs yaml-0.1 2>/dev/null || echo '-lyaml')"
+CFLAGS="-Wall -Wextra -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -I${SRC_DIR}/modules -Ibuild/generated -Itests -g -O0 ${YAML_CFLAGS}"
+LDFLAGS="-lm ${YAML_LDFLAGS}"
 
 # Source files needed for tests (non-main files)
 UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/parameters.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c"

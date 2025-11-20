@@ -79,7 +79,7 @@ def run_mimic_if_needed():
 
     if not output_file.exists():
         print("  Running Mimic to generate output...")
-        param_file = TEST_DATA_DIR / "test_binary.par"
+        param_file = TEST_DATA_DIR / "test_binary.yaml"
         result = subprocess.run(
             [str(MIMIC_EXE), str(param_file)],
             cwd=str(REPO_ROOT),

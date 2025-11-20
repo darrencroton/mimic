@@ -135,7 +135,12 @@ class MimicParameters:
         """Initialize with parameter file path."""
         self.param_file = os.path.abspath(param_file)
         self.params = {}
-        self.parse_param_file()
+
+        # Detect format by extension
+        if param_file.endswith('.yaml') or param_file.endswith('.yml'):
+            self.parse_yaml_file()
+        else:
+            self.parse_param_file()
 
     def parse_param_file(self):
         """Parse the Mimic parameter file."""
@@ -210,6 +215,52 @@ class MimicParameters:
                     # Don't add trailing slash to file paths
 
                 self.params[key] = value
+
+    def parse_yaml_file(self):
+        """Parse YAML format parameter file."""
+        import yaml
+
+        with open(self.param_file, 'r') as f:
+            config = yaml.safe_load(f)
+
+        # Flatten hierarchical YAML structure for compatibility
+        # Output section
+        if 'output' in config:
+            self.params['OutputFileBaseName'] = config['output'].get('file_base_name', 'model')
+            self.params['OutputDir'] = config['output'].get('directory', './')
+            self.params['OutputFormat'] = config['output'].get('format', 'binary')
+            self.params['NumOutputs'] = config['output'].get('snapshot_count', -1)
+            self.params['OutputSnapshots'] = config['output'].get('snapshot_list', [])
+
+        # Input section
+        if 'input' in config:
+            self.params['FirstFile'] = config['input'].get('first_file', 0)
+            self.params['LastFile'] = config['input'].get('last_file', 0)
+            self.params['TreeName'] = config['input'].get('tree_name', '')
+            self.params['TreeType'] = config['input'].get('tree_type', 'lhalo_binary')
+            self.params['SimulationDir'] = config['input'].get('simulation_dir', './')
+            self.params['FileWithSnapList'] = config['input'].get('snapshot_list_file', '')
+            self.params['LastSnapshotNr'] = config['input'].get('last_snapshot', 63)
+            self.params['NumSimulationTreeFiles'] = config['input'].get('num_tree_files', 1)
+
+        # Simulation section
+        if 'simulation' in config:
+            self.params['BoxSize'] = config['simulation'].get('box_size', 0.0)
+            self.params['PartMass'] = config['simulation'].get('particle_mass', 0.0)
+            if 'cosmology' in config['simulation']:
+                self.params['Omega'] = config['simulation']['cosmology'].get('omega_matter', 0.0)
+                self.params['OmegaLambda'] = config['simulation']['cosmology'].get('omega_lambda', 0.0)
+                self.params['Hubble_h'] = config['simulation']['cosmology'].get('hubble_h', 0.0)
+
+        # Units section
+        if 'units' in config:
+            self.params['UnitLength_in_cm'] = config['units'].get('length_in_cm', 0.0)
+            self.params['UnitMass_in_g'] = config['units'].get('mass_in_g', 0.0)
+            self.params['UnitVelocity_in_cm_per_s'] = config['units'].get('velocity_in_cm_per_s', 0.0)
+
+        # Modules section (for reference, though not used in plotting currently)
+        if 'modules' in config:
+            self.params['EnabledModules'] = config['modules'].get('enabled', [])
 
     def _is_float(self, value):
         """Check if a string can be converted to float."""

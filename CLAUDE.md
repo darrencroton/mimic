@@ -63,12 +63,12 @@ make tidy
 
 ```bash
 # Basic execution
-./mimic input/millennium.par
+./mimic input/millennium.yaml
 
 # With command-line options
-./mimic --verbose input/millennium.par
-./mimic --quiet input/millennium.par
-./mimic --skip input/millennium.par
+./mimic --verbose input/millennium.yaml
+./mimic --quiet input/millennium.yaml
+./mimic --skip input/millennium.yaml
 ```
 
 ## Testing
@@ -97,20 +97,20 @@ cd output/mimic-plot
 ./test_plotting.sh
 
 # Generate all halo plots (both snapshot and evolution - default behavior)
-python mimic-plot.py --param-file=../../input/millennium.par
+python mimic-plot.py --param-file=../../input/millennium.yaml
 
 # Generate specific plots
-python mimic-plot.py --param-file=../../input/millennium.par --plots=halo_mass_function,spin_distribution
+python mimic-plot.py --param-file=../../input/millennium.yaml --plots=halo_mass_function,spin_distribution
 
 # Generate only snapshot plots (5 halo plots)
-python mimic-plot.py --param-file=../../input/millennium.par --snapshot-plots
+python mimic-plot.py --param-file=../../input/millennium.yaml --snapshot-plots
 
 # Generate only evolution plots (1 halo plot)
-python mimic-plot.py --param-file=../../input/millennium.par --evolution-plots
+python mimic-plot.py --param-file=../../input/millennium.yaml --evolution-plots
 
 # Cross-directory execution works from anywhere
 cd ../..
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par --plots=halo_mass_function
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml --plots=halo_mass_function
 
 # Deactivate when done
 deactivate
@@ -120,13 +120,13 @@ deactivate
 
 ```bash
 # Run performance benchmark (from scripts/ directory)
-# Default uses input/millennium.par
+# Default uses input/millennium.yaml
 cd scripts
 ./benchmark_mimic.sh
 
 # Benchmark with custom parameter file
-./benchmark_mimic.sh --param-file ../tests/data/test_binary.par
-./benchmark_mimic.sh ../tests/data/test_binary.par
+./benchmark_mimic.sh --param-file ../tests/data/test_binary.yaml
+./benchmark_mimic.sh ../tests/data/test_binary.yaml
 
 # Benchmark with verbose output
 ./benchmark_mimic.sh --verbose

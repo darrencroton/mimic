@@ -41,7 +41,7 @@ def run_mimic(param_file, cwd=None):
         tuple: (returncode, stdout, stderr)
 
     Example:
-        returncode, stdout, stderr = run_mimic("tests/data/test_binary.par")
+        returncode, stdout, stderr = run_mimic("tests/data/test_binary.yaml")
         assert returncode == 0, f"Mimic failed: {stderr}"
     """
     if cwd is None:
@@ -138,7 +138,7 @@ def test_basic_integration():
 
     # ===== SETUP =====
     # Prepare test environment
-    param_file = "tests/data/test_binary.par"
+    param_file = "tests/data/test_binary.yaml"
     output_dir = Path("tests/data/output/binary/")
 
     # Clean previous test output if needed
@@ -206,7 +206,7 @@ def test_error_handling_integration():
 
     # ===== VALIDATE =====
     # Verify error detected and handled gracefully
-    # returncode, stdout, stderr = run_mimic("invalid.par")
+    # returncode, stdout, stderr = run_mimic("invalid.yaml")
     # assert returncode != 0, "Should fail with invalid config"
     # assert "error" in stderr.lower(), "Should report error"
 

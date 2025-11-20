@@ -141,6 +141,30 @@ fi
 
 echo "✓ Found pip: $($PIP_CMD --version | head -1)"
 
+# Check for libyaml (required for YAML parameter files)
+echo ""
+echo "Checking for libyaml library..."
+if pkg-config --exists yaml-0.1 2>/dev/null; then
+    echo "✓ Found libyaml: $(pkg-config --modversion yaml-0.1)"
+elif [[ -f "/usr/include/yaml.h" ]] || [[ -f "/usr/local/include/yaml.h" ]]; then
+    echo "✓ Found libyaml (header detected)"
+else
+    echo "⚠ libyaml not found - required for YAML parameter files"
+    echo ""
+    echo "To install libyaml:"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "  macOS: brew install libyaml"
+    elif [[ -f "/etc/debian_version" ]]; then
+        echo "  Debian/Ubuntu: sudo apt-get install libyaml-dev"
+    elif [[ -f "/etc/redhat-release" ]]; then
+        echo "  RedHat/CentOS: sudo yum install libyaml-devel"
+    else
+        echo "  See: https://pyyaml.org/wiki/LibYAML"
+    fi
+    echo ""
+    echo "Installation will continue, but you'll need libyaml to compile Mimic."
+fi
+
 # Set up Python virtual environment and install packages
 echo "Setting up Python virtual environment for mimic-plot..."
 
@@ -237,16 +261,16 @@ echo "--------------------------------------"
 
 cd "$REPO_ROOT"
 
-if [[ ! -f "input/millennium.par" ]]; then
-    echo "ERROR: Parameter file input/millennium.par not found."
+if [[ ! -f "input/millennium.yaml" ]]; then
+    echo "ERROR: Parameter file input/millennium.yaml not found."
     exit 1
 fi
 
-echo "Updating paths in millennium.par..."
+echo "Updating paths in millennium.yaml..."
 
 # Create backup
-cp input/millennium.par input/millennium.par.backup
-echo "✓ Created backup: input/millennium.par.backup"
+cp input/millennium.yaml input/millennium.yaml.backup
+echo "✓ Created backup: input/millennium.yaml.backup"
 
 # Update paths to absolute paths
 NEW_OUTPUT_DIR="OutputDir              $REPO_ROOT/output/results/millennium/"
@@ -256,14 +280,14 @@ NEW_SNAP_LIST="FileWithSnapList            $REPO_ROOT/input/data/millennium/mill
 # Use sed to update the paths (compatible with both macOS and Linux)
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS
-    sed -i "" "s|^OutputDir.*|$NEW_OUTPUT_DIR|g" input/millennium.par
-    sed -i "" "s|^SimulationDir.*|$NEW_SIMULATION_DIR|g" input/millennium.par
-    sed -i "" "s|^FileWithSnapList.*|$NEW_SNAP_LIST|g" input/millennium.par
+    sed -i "" "s|^OutputDir.*|$NEW_OUTPUT_DIR|g" input/millennium.yaml
+    sed -i "" "s|^SimulationDir.*|$NEW_SIMULATION_DIR|g" input/millennium.yaml
+    sed -i "" "s|^FileWithSnapList.*|$NEW_SNAP_LIST|g" input/millennium.yaml
 else
     # Linux
-    sed -i "s|^OutputDir.*|$NEW_OUTPUT_DIR|g" input/millennium.par
-    sed -i "s|^SimulationDir.*|$NEW_SIMULATION_DIR|g" input/millennium.par
-    sed -i "s|^FileWithSnapList.*|$NEW_SNAP_LIST|g" input/millennium.par
+    sed -i "s|^OutputDir.*|$NEW_OUTPUT_DIR|g" input/millennium.yaml
+    sed -i "s|^SimulationDir.*|$NEW_SIMULATION_DIR|g" input/millennium.yaml
+    sed -i "s|^FileWithSnapList.*|$NEW_SNAP_LIST|g" input/millennium.yaml
 fi
 
 echo "✓ Updated parameter file with absolute paths"
@@ -316,12 +340,12 @@ echo "1. Compile Mimic:"
 echo "   make"
 echo ""
 echo "2. Run Mimic:"
-echo "   ./mimic input/millennium.par"
+echo "   ./mimic input/millennium.yaml"
 echo ""
 echo "3. Generate plots (using the virtual environment):"
 echo "   source mimic_venv/bin/activate"
 echo "   cd output/mimic-plot"
-echo "   python mimic-plot.py --param-file=../../input/millennium.par"
+echo "   python mimic-plot.py --param-file=../../input/millennium.yaml"
 echo "   deactivate  # when done with plotting"
 echo ""
 echo "Virtual Environment Info:"

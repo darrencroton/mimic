@@ -12,7 +12,7 @@ Mimic's modular architecture allows you to enable/disable galaxy physics modules
 
 ### EnabledModules Parameter
 
-Modules are enabled via the `EnabledModules` parameter in your `.par` file:
+Modules are enabled via the `modules.enabled` list in your YAML configuration file:
 
 ```
 EnabledModules  cooling_model,starformation_model

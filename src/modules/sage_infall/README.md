@@ -99,7 +99,7 @@ The module consolidates satellite baryonic components to their central galaxies:
 
 ## Module Parameters
 
-All parameters are configured in the `.par` file with the `SageInfall_` prefix.
+All parameters are configured in the YAML file under `modules.parameters.SageInfall`.
 
 | Parameter | Type | Default | Range | Description |
 |-----------|------|---------|-------|-------------|
@@ -253,7 +253,7 @@ This ensures metal enrichment history is correctly tracked through all baryon cy
 **Integration Tests** (`src/modules/sage_infall/test_integration_sage_infall.py`):
 - ✅ Module loads and executes
 - ✅ Output properties appear in files
-- ✅ Parameters configurable via .par files
+- ✅ Parameters configurable via YAML files
 - ✅ No memory leaks
 - ✅ Works in multi-module pipeline
 

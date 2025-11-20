@@ -52,12 +52,12 @@ cd mimic
 make
 
 # Run with the mini-Millennium simulation
-./mimic input/millennium.par
+./mimic input/millennium.yaml
 
 # Generate plots (using virtual environment)
 source mimic_venv/bin/activate
 cd output/mimic-plot
-python mimic-plot.py --param-file=../../input/millennium.par
+python mimic-plot.py --param-file=../../input/millennium.yaml
 deactivate
 ```
 
@@ -141,10 +141,10 @@ pip install -r requirements.txt
 ```
 
 #### 4. Configure Parameter File
-Update `input/millennium.par` with absolute paths for:
-- `OutputDir`
-- `SimulationDir`
-- `FileWithSnapList`
+Update `input/millennium.yaml` with absolute paths for:
+- `output.directory`
+- `input.simulation_dir`
+- `input.snapshot_list_file`
 
 ## Basic Usage
 
@@ -163,45 +163,63 @@ Update `input/millennium.par` with absolute paths for:
 
 ### Parameter File Structure
 
+```yaml
+#=============================================================================
+# Mimic Configuration File (YAML format)
+#=============================================================================
+
+#-----------------------------------------------------------------------------
+# Output Configuration
+#-----------------------------------------------------------------------------
+output:
+  file_base_name: model
+  directory: /path/to/output/directory/
+  snapshot_count: 8
+  format: binary  # or 'hdf5'
+  snapshot_list:
+  - 63
+  - 37
+  - 32
+  - 27
+  - 23
+  - 20
+  - 18
+  - 16
+
+#-----------------------------------------------------------------------------
+# Input Files
+#-----------------------------------------------------------------------------
+input:
+  first_file: 0
+  last_file: 7
+  tree_name: trees_063
+  tree_type: lhalo_binary  # or 'genesis_lhalo_hdf5'
+  simulation_dir: /path/to/simulation/data/
+  snapshot_list_file: /path/to/snapshot/list
+  last_snapshot: 63
+  num_tree_files: 8
+
+#-----------------------------------------------------------------------------
+# Simulation Properties
+#-----------------------------------------------------------------------------
+simulation:
+  cosmology:
+    omega_matter: 0.25
+    omega_lambda: 0.75
+    hubble_h: 0.73
+  box_size: 62.5  # Mpc/h
+  particle_mass: 0.0860657
+
+#-----------------------------------------------------------------------------
+# Units
+#-----------------------------------------------------------------------------
+units:
+  length_in_cm: 3.08568e+24      # Mpc/h
+  mass_in_g: 1.989e+43           # 10^10 Msun
+  velocity_in_cm_per_s: 100000   # km/s
 ```
-%------------------------------------------
-%----- Mimic output file information -----
-%------------------------------------------
 
-OutputFileBaseName     model
-OutputDir              /path/to/output/directory/
-
-FirstFile              0
-LastFile               7
-
-%------------------------------------------
-%----- Snapshot output list ---------------
-%------------------------------------------
-
-NumOutputs             8
-
-% List output snapshots after arrow, highest to lowest
--> 63 37 32 27 23 20 18 16
-
-%------------------------------------------
-%----- Simulation information -------------
-%------------------------------------------
-
-TreeName               trees_063
-TreeType               lhalo_binary  % or 'genesis_lhalo_hdf5'
-OutputFormat           binary        % or 'hdf5'
-SimulationDir          /path/to/simulation/data/
-FileWithSnapList       /path/to/snapshot/list
-LastSnapshotNr         63
-BoxSize                62.5  % Mpc/h
-
-Omega                  0.25
-OmegaLambda            0.75
-Hubble_h               0.73
-PartMass               0.0860657
-```
-
-See `input/millennium.par` for a complete example.
+See `input/millennium.yaml` for a complete example.
 
 ## Code Architecture
 
@@ -265,16 +283,16 @@ Basic usage:
 source mimic_venv/bin/activate
 
 # Generate all plots (both snapshot and evolution)
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml
 
 # Generate only snapshot plots (5 plots)
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par --snapshot-plots
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml --snapshot-plots
 
 # Generate only evolution plots (1 plot)
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par --evolution-plots
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml --evolution-plots
 
 # Generate specific plots
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.par --plots=halo_mass_function,spin_distribution
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml --plots=halo_mass_function,spin_distribution
 
 # Deactivate when done
 deactivate
@@ -288,8 +306,8 @@ Track performance changes over time with the benchmarking script:
 
 ```bash
 cd scripts
-./benchmark_mimic.sh              # Basic benchmark (uses input/millennium.par)
-./benchmark_mimic.sh custom.par   # Benchmark with custom parameter file
+./benchmark_mimic.sh              # Basic benchmark (uses input/millennium.yaml)
+./benchmark_mimic.sh custom.yaml   # Benchmark with custom parameter file
 ./benchmark_mimic.sh --verbose    # Detailed output
 ```
 

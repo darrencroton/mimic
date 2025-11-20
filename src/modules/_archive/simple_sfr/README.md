@@ -57,7 +57,7 @@ For each central galaxy (Type=0):
 
 ## Module Parameters
 
-All parameters are configured in the `.par` file with the `SimpleSFR_` prefix.
+All parameters are configured in the YAML file under `modules.parameters.SimpleSFR`.
 
 | Parameter | Type | Default | Range | Description |
 |-----------|------|---------|-------|-------------|
@@ -135,7 +135,7 @@ This is a **Proof-of-Concept module** with intentional simplifications:
 **Integration Tests** (`test_integration_simple_sfr.py`):
 - ✅ Module loads and executes
 - ✅ Interacts correctly with cooling module
-- ✅ Parameters configurable via .par files
+- ✅ Parameters configurable via YAML files
 
 **Scientific Tests** (`test_scientific_simple_sfr.py`):
 - ✅ Mass conservation

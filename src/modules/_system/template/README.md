@@ -103,18 +103,24 @@ make test-integration # Run integration tests
 
 ### 8. Configure and Run
 
-Add to your `.par` file:
+Add to your YAML configuration:
 
-```
-EnabledModules  simple_cooling,simple_sfr,your_module
-YourModule_Parameter1  1.5
-YourModule_Parameter2  0.8
+```yaml
+modules:
+  enabled:
+  - simple_cooling
+  - simple_sfr
+  - your_module
+  parameters:
+    YourModule:
+      Parameter1: 1.5
+      Parameter2: 0.8
 ```
 
 Run:
 
 ```bash
-./mimic input/millennium.par
+./mimic input/millennium.yaml
 ```
 
 ---

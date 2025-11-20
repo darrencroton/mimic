@@ -50,7 +50,7 @@ def run_mimic(param_file, cwd=None):
         FileNotFoundError: If Mimic executable not found
 
     Usage:
-        returncode, stdout, stderr = run_mimic("input/millennium.par")
+        returncode, stdout, stderr = run_mimic("input/millennium.yaml")
         assert returncode == 0, f"Mimic failed: {stderr}"
     """
     if cwd is None:
@@ -74,36 +74,54 @@ def run_mimic(param_file, cwd=None):
 
 def read_param_file(param_file):
     """
-    Read parameter file and return as dictionary
+    Read YAML parameter file and return as dictionary
 
-    Parses a Mimic parameter file (.par) and returns key-value pairs.
-    Handles comments, empty lines, and arrow notation (->).
+    Parses a Mimic YAML parameter file and returns key-value pairs.
 
     Args:
-        param_file (str or Path): Path to parameter file
+        param_file (str or Path): Path to YAML parameter file
 
     Returns:
         dict: Parameter name -> value mapping
 
     Usage:
-        params = read_param_file("input/millennium.par")
+        params = read_param_file("input/millennium.yaml")
         output_dir = params['OutputDir']
         hubble_h = float(params['Hubble_h'])
     """
-    params = {}
+    import yaml
+
+    param_file = Path(param_file)
+
     with open(param_file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            # Skip comments and empty lines
-            if not line or line.startswith('%') or line.startswith('#'):
-                continue
-            # Handle arrow notation (-> means skip)
-            if '->' in line:
-                continue
-            # Parse key-value pairs
-            parts = line.split()
-            if len(parts) >= 2:
-                params[parts[0]] = ' '.join(parts[1:])
+        config = yaml.safe_load(f)
+
+    # Flatten hierarchical structure
+    params = {}
+    if 'output' in config:
+        params['OutputDir'] = config['output'].get('directory', './')
+        params['OutputFileBaseName'] = config['output'].get('file_base_name', 'model')
+        params['OutputFormat'] = config['output'].get('format', 'binary')
+    if 'input' in config:
+        params['FirstFile'] = str(config['input'].get('first_file', 0))
+        params['LastFile'] = str(config['input'].get('last_file', 0))
+        params['TreeName'] = config['input'].get('tree_name', '')
+        params['TreeType'] = config['input'].get('tree_type', 'lhalo_binary')
+        params['SimulationDir'] = config['input'].get('simulation_dir', './')
+        params['FileWithSnapList'] = config['input'].get('snapshot_list_file', '')
+        params['LastSnapshotNr'] = str(config['input'].get('last_snapshot', 0))
+    if 'simulation' in config:
+        params['BoxSize'] = str(config['simulation'].get('box_size', 0.0))
+        params['PartMass'] = str(config['simulation'].get('particle_mass', 0.0))
+        if 'cosmology' in config['simulation']:
+            params['Omega'] = str(config['simulation']['cosmology'].get('omega_matter', 0.0))
+            params['OmegaLambda'] = str(config['simulation']['cosmology'].get('omega_lambda', 0.0))
+            params['Hubble_h'] = str(config['simulation']['cosmology'].get('hubble_h', 0.0))
+    if 'units' in config:
+        params['UnitLength_in_cm'] = str(config['units'].get('length_in_cm', 0.0))
+        params['UnitMass_in_g'] = str(config['units'].get('mass_in_g', 0.0))
+        params['UnitVelocity_in_cm_per_s'] = str(config['units'].get('velocity_in_cm_per_s', 0.0))
+
     return params
 
 
@@ -111,9 +129,9 @@ def create_test_param_file(output_name, enabled_modules=None,
                             module_params=None, first_file=0, last_file=0,
                             ref_param_file=None, temp_dir=None):
     """
-    Create a test parameter file with specified module configuration
+    Create a test YAML parameter file with specified module configuration
 
-    Generates a parameter file for testing, based on a reference parameter file
+    Generates a YAML parameter file for testing, based on a reference parameter file
     with custom module configuration and file range.
 
     Args:
@@ -122,7 +140,7 @@ def create_test_param_file(output_name, enabled_modules=None,
         module_params (dict): Dict of {ModuleName_ParameterName: value}
         first_file (int): First file to process (default: 0)
         last_file (int): Last file to process (default: 0)
-        ref_param_file (str or Path): Reference parameter file (default: millennium.par)
+        ref_param_file (str or Path): Reference YAML parameter file (default: millennium.yaml)
         temp_dir (str or Path): Temporary directory for outputs (default: create new)
 
     Returns:
@@ -151,62 +169,65 @@ def create_test_param_file(output_name, enabled_modules=None,
         import shutil
         shutil.rmtree(temp_dir)
     """
+    import yaml
+
     # Set defaults
     if ref_param_file is None:
-        ref_param_file = REPO_ROOT / "input" / "millennium.par"
+        ref_param_file = REPO_ROOT / "input" / "millennium.yaml"
     if temp_dir is None:
         temp_dir = tempfile.mkdtemp(prefix="mimic_test_")
     else:
         temp_dir = Path(temp_dir)
 
-    # Read reference parameter file
-    ref_params = read_param_file(ref_param_file)
+    # Read reference parameter file (YAML)
+    with open(ref_param_file, 'r') as f:
+        config = yaml.safe_load(f)
 
     # Create output directory
     output_dir = Path(temp_dir) / output_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Update parameters
-    ref_params['OutputDir'] = str(output_dir)
-    ref_params['FirstFile'] = str(first_file)
-    ref_params['LastFile'] = str(last_file)
+    # Update configuration
+    config['output']['directory'] = str(output_dir)
+    config['input']['first_file'] = first_file
+    config['input']['last_file'] = last_file
 
-    # Write test parameter file
-    param_path = Path(temp_dir) / f"{output_name}.par"
+    # Update module configuration
+    if enabled_modules:
+        config['modules']['enabled'] = enabled_modules
+
+        # Parse and add module parameters
+        if module_params:
+            if 'parameters' not in config['modules']:
+                config['modules']['parameters'] = {}
+
+            for param_name, value in module_params.items():
+                # Parse ModuleName_ParameterName format
+                if '_' in param_name:
+                    module_name, param_key = param_name.split('_', 1)
+                    if module_name not in config['modules']['parameters']:
+                        config['modules']['parameters'][module_name] = {}
+                    # Try to convert to appropriate type
+                    try:
+                        value = float(value)
+                        if value.is_integer():
+                            value = int(value)
+                    except (ValueError, AttributeError):
+                        pass  # Keep as string
+                    config['modules']['parameters'][module_name][param_key] = value
+    else:
+        config['modules']['enabled'] = []
+        config['modules']['parameters'] = {}
+
+    # Write test parameter file as YAML
+    param_path = Path(temp_dir) / f"{output_name}.yaml"
     with open(param_path, 'w') as f:
-        f.write("%------------------------------------------\n")
-        f.write("%----- Test Configuration -----------------\n")
-        f.write("%------------------------------------------\n\n")
-
-        # Write basic parameters
-        for key in ['OutputFileBaseName', 'OutputDir', 'FirstFile',
-                   'LastFile', 'TreeName', 'TreeType', 'OutputFormat',
-                   'SimulationDir', 'FileWithSnapList', 'LastSnapshotNr',
-                   'BoxSize', 'Omega', 'OmegaLambda', 'Hubble_h',
-                   'PartMass', 'UnitLength_in_cm', 'UnitMass_in_g',
-                   'UnitVelocity_in_cm_per_s']:
-            if key in ref_params:
-                f.write(f"{key:30s} {ref_params[key]}\n")
-
-        # Write snapshot output list
-        f.write("\nNumOutputs        8\n")
-        f.write("-> 63 37 32 27 23 20 18 16\n\n")
-
-        # Write module configuration
-        f.write("%------------------------------------------\n")
-        f.write("%----- Galaxy Physics Modules -------------\n")
-        f.write("%------------------------------------------\n")
-
-        if enabled_modules:
-            f.write(f"EnabledModules          {','.join(enabled_modules)}\n\n")
-
-            # Write module parameters
-            if module_params:
-                for param_name, value in module_params.items():
-                    f.write(f"{param_name:30s} {value}\n")
-        else:
-            f.write("# Physics-free mode (no modules enabled)\n")
-            f.write("EnabledModules\n")
+        f.write("#" + "="*77 + "\n")
+        f.write("# Mimic Test Configuration\n")
+        f.write("#" + "="*77 + "\n")
+        f.write("# Auto-generated test parameter file\n")
+        f.write("#" + "="*77 + "\n\n")
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     return param_path, output_dir, Path(temp_dir)
 

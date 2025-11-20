@@ -5,7 +5,7 @@
   "build_date": "Nov 11 2025",
   "run_date": "2025-11-11T22:43:45Z",
   "parameters": {
-    "file_path": "/Users/dcroton/Local/git-repos/mimic/tests/data/test_binary.par",
+    "file_path": "/Users/dcroton/Local/git-repos/mimic/tests/data/test_binary.yaml",
     "parameter_md5_checksum": "4aceb29aac35bb345e4d4e1f45e51cdc"
   },
   "compiler": "gcc 4.2.1",

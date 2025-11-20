@@ -1,0 +1,72 @@
+#=============================================================================
+# Mimic Test Parameter File (HDF5 Output)
+#=============================================================================
+# This is a minimal configuration for fast automated testing.
+# It processes only a single tree file (trees_063.0) and outputs
+# only snapshot 63 to keep test runtime under 10 seconds.
+#
+# Used by: tests/unit/, tests/integration/, tests/scientific/
+#
+# To run manually:
+#   ./mimic tests/data/test_hdf5.yaml
+#
+# Output location:
+#   tests/data/output/hdf5/  (test output, compared against baseline/)
+#
+# Directory structure:
+#   baseline/ - Static reference data (NEVER regenerated, committed to git)
+#   binary/   - Test output from binary format runs (gitignored)
+#   hdf5/     - Test output from HDF5 format runs (gitignored)
+#=============================================================================
+
+#-----------------------------------------------------------------------------
+# Output Configuration
+#-----------------------------------------------------------------------------
+output:
+  file_base_name: model
+  directory: ./tests/data/output/hdf5/
+  snapshot_count: 1  # Single snapshot for fast testing
+  format: hdf5
+  snapshot_list:
+  - 63
+
+#-----------------------------------------------------------------------------
+# Input Files
+#-----------------------------------------------------------------------------
+input:
+  first_file: 0
+  last_file: 0  # Process only trees_063.0 for fast testing
+  tree_name: trees_063
+  tree_type: lhalo_binary
+  simulation_dir: ./tests/data/input/
+  snapshot_list_file: ./tests/data/input/millennium.a_list
+  last_snapshot: 63
+  num_tree_files: 1  # Only one file for testing
+
+#-----------------------------------------------------------------------------
+# Simulation Properties
+#-----------------------------------------------------------------------------
+simulation:
+  cosmology:
+    omega_matter: 0.25
+    omega_lambda: 0.75
+    hubble_h: 0.73
+  box_size: 62.5  # Mpc/h
+  particle_mass: 0.0860657
+
+#-----------------------------------------------------------------------------
+# Units
+#-----------------------------------------------------------------------------
+units:
+  length_in_cm: 3.08568e+24  # Mpc/h
+  mass_in_g: 1.989e+43       # 10^10 Msun
+  velocity_in_cm_per_s: 100000  # km/s
+
+#-----------------------------------------------------------------------------
+# Physics Modules
+#-----------------------------------------------------------------------------
+# Physics modules currently disabled for baseline testing
+# Mimic operates as a physics-agnostic framework for halo tracking
+modules:
+  enabled: []
+  parameters: {}

@@ -55,7 +55,7 @@ class TestModulePipeline(unittest.TestCase):
 
         # Reference parameter file
         cls.ref_param_file = os.path.join(
-            cls.repo_root, "input", "millennium.par"
+            cls.repo_root, "input", "millennium.yaml"
         )
 
         # Create temporary directory for test outputs

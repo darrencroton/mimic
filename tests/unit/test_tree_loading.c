@@ -56,7 +56,7 @@ int test_tree_table_loading(void) {
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
     /* Load parameter file and initialize (mirrors main.c flow) */
-    read_parameter_file("tests/data/test_binary.par");
+    read_parameter_file("tests/data/test_binary.yaml");
     init();  /* Initializes units, reads snapshot list, populates ZZ[] array */
 
     /* ===== EXECUTE ===== */
@@ -92,7 +92,7 @@ int test_tree_data_loading(void) {
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
     /* Load parameter file, initialize, and load tree table */
-    read_parameter_file("tests/data/test_binary.par");
+    read_parameter_file("tests/data/test_binary.yaml");
     init();
     load_tree_table(0, lhalo_binary);
 
@@ -128,7 +128,7 @@ int test_tree_halo_count(void) {
     init_memory_system(0);
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-    read_parameter_file("tests/data/test_binary.par");
+    read_parameter_file("tests/data/test_binary.yaml");
     init();
     load_tree_table(0, lhalo_binary);
 
@@ -162,7 +162,7 @@ int test_tree_data_validity(void) {
     init_memory_system(0);
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-    read_parameter_file("tests/data/test_binary.par");
+    read_parameter_file("tests/data/test_binary.yaml");
     init();
     load_tree_table(0, lhalo_binary);
     load_tree(0, lhalo_binary);
@@ -225,7 +225,7 @@ int test_tree_cleanup(void) {
     init_memory_system(0);
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-    read_parameter_file("tests/data/test_binary.par");
+    read_parameter_file("tests/data/test_binary.yaml");
     init();
     load_tree_table(0, lhalo_binary);
     load_tree(0, lhalo_binary);

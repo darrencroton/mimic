@@ -157,7 +157,7 @@ These principles guide all design decisions and implementation choices in Mimic:
 │                    Mimic Application                       │
 ├─────────────────────────────────────────────────────────────┤
 │  Configuration System     │  Module System                  │
-│  - JSON/Legacy .par       │  - Runtime loading              │
+│  - YAML configuration     │  - Runtime loading              │
 │  - Schema validation      │  - Dependency resolution        │
 ├─────────────────────────────────────────────────────────────┤
 │                  Physics-Agnostic Core                     │

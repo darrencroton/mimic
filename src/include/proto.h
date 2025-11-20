@@ -32,6 +32,7 @@ void free_tree_table(enum Valid_TreeTypes TreeType);
 void print_allocated(void);
 
 void read_parameter_file(const char *fname);
+void read_yaml_parameter_file(const char *fname);
 void init_memory_system(unsigned long max_blocks);
 void *mymalloc(size_t n);
 void *mymalloc_cat(size_t size, MemoryCategory category);

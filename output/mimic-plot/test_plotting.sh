@@ -4,15 +4,15 @@
 # This script assumes you're in the Mimic root directory
 
 # Find your parameter file
-if [ -f "input/millennium.par" ]; then
-    PARAM_FILE="input/millennium.par"
-    echo "Using millennium.par for testing"
-elif [ -f "input/mini-millennium.par" ]; then
-    PARAM_FILE="input/mini-millennium.par"
-    echo "Using mini-millennium.par for testing"
+if [ -f "input/millennium.yaml" ]; then
+    PARAM_FILE="input/millennium.yaml"
+    echo "Using millennium.yaml for testing"
+elif [ -f "input/mini-millennium.yaml" ]; then
+    PARAM_FILE="input/mini-millennium.yaml"
+    echo "Using mini-millennium.yaml for testing"
 else
     # Create a test parameter file if none exists
-    PARAM_FILE="input/test.par"
+    PARAM_FILE="input/test.yaml"
     mkdir -p input
     echo "Creating test parameter file at $PARAM_FILE"
     echo "OutputDir = ./output/" > $PARAM_FILE

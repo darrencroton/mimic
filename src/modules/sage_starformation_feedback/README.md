@@ -266,7 +266,7 @@ SageStarformationFeedback_DiskInstabilityOn  0
 **Integration Tests** (7 tests passing):
 - Module loads correctly
 - Output properties present (StellarMass, MetalsStellarMass, DiskScaleRadius, OutflowRate)
-- Parameters configurable via .par files
+- Parameters configurable via YAML files
 - Feedback toggle works (SupernovaRecipeOn)
 - No memory leaks
 - Full pipeline execution

@@ -7,7 +7,7 @@ Phase: Phase 4.6 (SAGE Disk Instability Module - Partial Implementation)
 
 This test validates software quality aspects of the sage_disk_instability module:
 - Module loads and initializes correctly
-- Parameters can be configured via .par files
+- Parameters can be configured via YAML files
 - Module executes without errors or memory leaks
 - Output properties appear in output files (BulgeMass, DiskScaleRadius)
 - Module works in multi-module pipelines
@@ -64,39 +64,19 @@ def get_available_modules():
     Returns:
         set: Set of available module names, or empty set if query fails
     """
+    import yaml
+
     try:
-        # Create a complete param file with invalid module to trigger error message
-        test_param = temp_dir / "_query_modules.par"
+        test_param = temp_dir / "_query_modules.yaml"
 
-        # Copy ENTIRE reference parameter file to preserve snapshot list and format
-        with open(ref_param_file, 'r') as src:
-            content = src.read()
+        with open(ref_param_file, 'r') as f:
+            config = yaml.safe_load(f)
 
-        # Replace EnabledModules line (or add if missing)
-        lines = content.split('\n')
-        new_lines = []
-        found_modules = False
-        for line in lines:
-            if line.strip().startswith('EnabledModules'):
-                new_lines.append('EnabledModules  __nonexistent_module__')
-                found_modules = True
-            else:
-                new_lines.append(line)
-
-        # If EnabledModules wasn't in file, add it
-        if not found_modules:
-            new_lines.append('\nEnabledModules  __nonexistent_module__\n')
-
-        # Ensure OutputFormat is binary (not HDF5)
-        final_lines = []
-        for line in new_lines:
-            if line.strip().startswith('OutputFormat'):
-                final_lines.append('OutputFormat  binary')
-            else:
-                final_lines.append(line)
+        config['modules']['enabled'] = ['__nonexistent_module__']
+        config['output']['format'] = 'binary'
 
         with open(test_param, 'w') as f:
-            f.write('\n'.join(final_lines))
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
         result = subprocess.run(
             [str(MIMIC_EXE), str(test_param)],
@@ -140,7 +120,7 @@ def setup():
     temp_dir = Path(tempfile.mkdtemp(prefix="test_sage_disk_instability_"))
 
     # Reference parameter file
-    ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.par"
+    ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
 
     if not MIMIC_EXE.exists():
         print(f"{RED}ERROR: Mimic executable not found at {MIMIC_EXE}{NC}")
@@ -182,29 +162,21 @@ def test_module_loads():
 
 def test_output_properties_exist():
     """Test that disk instability properties appear in output"""
+    import yaml
+
     print(f"\n{BLUE}Test: Output properties exist{NC}")
 
-    # Create parameter file with disk instability enabled
-    test_param = temp_dir / "test_properties.par"
+    test_param = temp_dir / "test_properties.yaml"
 
-    with open(ref_param_file, 'r') as src:
-        content = src.read()
+    with open(ref_param_file, 'r') as f:
+        config = yaml.safe_load(f)
 
-    # Modify for disk instability
-    lines = content.split('\n')
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith('EnabledModules'):
-            new_lines.append('EnabledModules  sage_disk_instability')
-        elif line.strip().startswith('OutputDir'):
-            new_lines.append(f'OutputDir  {temp_dir}')
-        elif line.strip().startswith('OutputFormat'):
-            new_lines.append('OutputFormat  binary')
-        else:
-            new_lines.append(line)
+    config['modules']['enabled'] = ['sage_disk_instability']
+    config['output']['directory'] = str(temp_dir)
+    config['output']['format'] = 'binary'
 
     with open(test_param, 'w') as f:
-        f.write('\n'.join(new_lines))
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # Run Mimic
     result = subprocess.run(
@@ -259,34 +231,29 @@ def test_output_properties_exist():
 
 def test_parameters_configurable():
     """Test that module parameters can be configured"""
+    import yaml
+
     print(f"\n{BLUE}Test: Parameters configurable{NC}")
 
-    # Create parameter file with custom parameters
-    test_param = temp_dir / "test_params.par"
+    test_param = temp_dir / "test_params.yaml"
 
-    with open(ref_param_file, 'r') as src:
-        content = src.read()
+    with open(ref_param_file, 'r') as f:
+        config = yaml.safe_load(f)
 
-    # Add custom parameters
-    lines = content.split('\n')
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith('EnabledModules'):
-            new_lines.append('EnabledModules  sage_disk_instability')
-        elif line.strip().startswith('OutputDir'):
-            new_lines.append(f'OutputDir  {temp_dir}')
-        elif line.strip().startswith('OutputFormat'):
-            new_lines.append('OutputFormat  binary')
-        else:
-            new_lines.append(line)
+    config['modules']['enabled'] = ['sage_disk_instability']
+    config['output']['directory'] = str(temp_dir)
+    config['output']['format'] = 'binary'
 
-    # Add module parameters
-    new_lines.append('\n# Disk instability parameters')
-    new_lines.append('SageDiskInstability_DiskInstabilityOn  1')
-    new_lines.append('SageDiskInstability_DiskRadiusFactor  5.0')
+    if 'parameters' not in config['modules']:
+        config['modules']['parameters'] = {}
+    if 'SageDiskInstability' not in config['modules']['parameters']:
+        config['modules']['parameters']['SageDiskInstability'] = {}
+
+    config['modules']['parameters']['SageDiskInstability']['DiskInstabilityOn'] = 1
+    config['modules']['parameters']['SageDiskInstability']['DiskRadiusFactor'] = 5.0
 
     with open(test_param, 'w') as f:
-        f.write('\n'.join(new_lines))
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # Run Mimic
     result = subprocess.run(
@@ -312,28 +279,21 @@ def test_parameters_configurable():
 
 def test_stability_physics():
     """Test that disk scale radius is calculated"""
+    import yaml
+
     print(f"\n{BLUE}Test: Disk stability physics{NC}")
 
-    # Create parameter file
-    test_param = temp_dir / "test_stability.par"
+    test_param = temp_dir / "test_stability.yaml"
 
-    with open(ref_param_file, 'r') as src:
-        content = src.read()
+    with open(ref_param_file, 'r') as f:
+        config = yaml.safe_load(f)
 
-    lines = content.split('\n')
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith('EnabledModules'):
-            new_lines.append('EnabledModules  sage_disk_instability')
-        elif line.strip().startswith('OutputDir'):
-            new_lines.append(f'OutputDir  {temp_dir}')
-        elif line.strip().startswith('OutputFormat'):
-            new_lines.append('OutputFormat  binary')
-        else:
-            new_lines.append(line)
+    config['modules']['enabled'] = ['sage_disk_instability']
+    config['output']['directory'] = str(temp_dir)
+    config['output']['format'] = 'binary'
 
     with open(test_param, 'w') as f:
-        f.write('\n'.join(new_lines))
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # Run Mimic
     result = subprocess.run(
@@ -388,28 +348,21 @@ def test_stability_physics():
 
 def test_stellar_conservation():
     """Test that stellar mass is conserved"""
+    import yaml
+
     print(f"\n{BLUE}Test: Stellar mass conservation{NC}")
 
-    # Create parameter file
-    test_param = temp_dir / "test_conservation.par"
+    test_param = temp_dir / "test_conservation.yaml"
 
-    with open(ref_param_file, 'r') as src:
-        content = src.read()
+    with open(ref_param_file, 'r') as f:
+        config = yaml.safe_load(f)
 
-    lines = content.split('\n')
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith('EnabledModules'):
-            new_lines.append('EnabledModules  sage_disk_instability')
-        elif line.strip().startswith('OutputDir'):
-            new_lines.append(f'OutputDir  {temp_dir}')
-        elif line.strip().startswith('OutputFormat'):
-            new_lines.append('OutputFormat  binary')
-        else:
-            new_lines.append(line)
+    config['modules']['enabled'] = ['sage_disk_instability']
+    config['output']['directory'] = str(temp_dir)
+    config['output']['format'] = 'binary'
 
     with open(test_param, 'w') as f:
-        f.write('\n'.join(new_lines))
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # Run Mimic
     result = subprocess.run(
@@ -461,28 +414,21 @@ def test_stellar_conservation():
 
 def test_memory_safety():
     """Test that module executes without memory leaks"""
+    import yaml
+
     print(f"\n{BLUE}Test: Memory safety{NC}")
 
-    # Create parameter file
-    test_param = temp_dir / "test_memory.par"
+    test_param = temp_dir / "test_memory.yaml"
 
-    with open(ref_param_file, 'r') as src:
-        content = src.read()
+    with open(ref_param_file, 'r') as f:
+        config = yaml.safe_load(f)
 
-    lines = content.split('\n')
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith('EnabledModules'):
-            new_lines.append('EnabledModules  sage_disk_instability')
-        elif line.strip().startswith('OutputDir'):
-            new_lines.append(f'OutputDir  {temp_dir}')
-        elif line.strip().startswith('OutputFormat'):
-            new_lines.append('OutputFormat  binary')
-        else:
-            new_lines.append(line)
+    config['modules']['enabled'] = ['sage_disk_instability']
+    config['output']['directory'] = str(temp_dir)
+    config['output']['format'] = 'binary'
 
     with open(test_param, 'w') as f:
-        f.write('\n'.join(new_lines))
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # Run Mimic
     result = subprocess.run(
@@ -521,28 +467,21 @@ def test_memory_safety():
 
 def test_execution_completes():
     """Test that module executes to completion"""
+    import yaml
+
     print(f"\n{BLUE}Test: Execution completes{NC}")
 
-    # Create parameter file
-    test_param = temp_dir / "test_completion.par"
+    test_param = temp_dir / "test_completion.yaml"
 
-    with open(ref_param_file, 'r') as src:
-        content = src.read()
+    with open(ref_param_file, 'r') as f:
+        config = yaml.safe_load(f)
 
-    lines = content.split('\n')
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith('EnabledModules'):
-            new_lines.append('EnabledModules  sage_disk_instability')
-        elif line.strip().startswith('OutputDir'):
-            new_lines.append(f'OutputDir  {temp_dir}')
-        elif line.strip().startswith('OutputFormat'):
-            new_lines.append('OutputFormat  binary')
-        else:
-            new_lines.append(line)
+    config['modules']['enabled'] = ['sage_disk_instability']
+    config['output']['directory'] = str(temp_dir)
+    config['output']['format'] = 'binary'
 
     with open(test_param, 'w') as f:
-        f.write('\n'.join(new_lines))
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # Run Mimic
     result = subprocess.run(
@@ -567,12 +506,12 @@ def test_execution_completes():
 
 def test_multiple_module_pipeline():
     """Test module works in multi-module pipeline"""
+    import yaml
+
     print(f"\n{BLUE}Test: Multi-module pipeline integration{NC}")
 
-    # Get available modules
     available = get_available_modules()
 
-    # Use sage_infall and sage_cooling if available
     modules_to_test = []
     if 'sage_infall' in available:
         modules_to_test.append('sage_infall')
@@ -584,26 +523,17 @@ def test_multiple_module_pipeline():
         print(f"{YELLOW}⚠ SKIP{NC}: Not enough modules available for multi-module test")
         return True
 
-    # Create parameter file with multiple modules
-    test_param = temp_dir / "test_multi.par"
+    test_param = temp_dir / "test_multi.yaml"
 
-    with open(ref_param_file, 'r') as src:
-        content = src.read()
+    with open(ref_param_file, 'r') as f:
+        config = yaml.safe_load(f)
 
-    lines = content.split('\n')
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith('EnabledModules'):
-            new_lines.append(f'EnabledModules  {", ".join(modules_to_test)}')
-        elif line.strip().startswith('OutputDir'):
-            new_lines.append(f'OutputDir  {temp_dir}')
-        elif line.strip().startswith('OutputFormat'):
-            new_lines.append('OutputFormat  binary')
-        else:
-            new_lines.append(line)
+    config['modules']['enabled'] = modules_to_test
+    config['output']['directory'] = str(temp_dir)
+    config['output']['format'] = 'binary'
 
     with open(test_param, 'w') as f:
-        f.write('\n'.join(new_lines))
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # Run Mimic
     result = subprocess.run(

@@ -7,7 +7,7 @@ Phase: Phase 4.2 (SAGE Physics Module Implementation)
 
 This test validates software quality aspects of the sage_starformation_feedback module:
 - Module loads and initializes correctly
-- Parameters can be configured via .par files
+- Parameters can be configured via YAML files
 - Module executes without errors or memory leaks
 - Output properties appear in output files (StellarMass, MetalsStellarMass, DiskScaleRadius, OutflowRate)
 - Module works in multi-module pipelines (after sage_infall and sage_cooling)
@@ -62,34 +62,19 @@ def get_available_modules():
     Returns:
         set: Set of available module names, or empty set if query fails
     """
+    import yaml
+
     try:
-        test_param = temp_dir / "_query_modules.par"
+        test_param = temp_dir / "_query_modules.yaml"
 
-        with open(ref_param_file, 'r') as src:
-            content = src.read()
+        with open(ref_param_file, 'r') as f:
+            config = yaml.safe_load(f)
 
-        lines = content.split('\n')
-        new_lines = []
-        found_modules = False
-        for line in lines:
-            if line.strip().startswith('EnabledModules'):
-                new_lines.append('EnabledModules  __nonexistent_module__')
-                found_modules = True
-            else:
-                new_lines.append(line)
-
-        if not found_modules:
-            new_lines.append('\nEnabledModules  __nonexistent_module__\n')
-
-        final_lines = []
-        for line in new_lines:
-            if line.strip().startswith('OutputFormat'):
-                final_lines.append('OutputFormat  binary')
-            else:
-                final_lines.append(line)
+        config['modules']['enabled'] = ['__nonexistent_module__']
+        config['output']['format'] = 'binary'
 
         with open(test_param, 'w') as f:
-            f.write('\n'.join(final_lines))
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
         result = subprocess.run(
             [str(MIMIC_EXE), str(test_param)],
@@ -137,59 +122,58 @@ def run_mimic(param_file):
 
 
 def read_param_file(param_file):
-    """Read parameter file contents"""
+    """Read YAML parameter file contents"""
+    import yaml
+
     with open(param_file, 'r') as f:
-        return f.read()
+        return yaml.safe_load(f)
 
 
 def create_test_param_file(output_dir, modules, module_params=None):
     """
-    Create a test parameter file
+    Create a test YAML parameter file
 
     Args:
         output_dir (Path): Output directory
         modules (list): List of module names to enable
-        module_params (dict): Optional module parameters {param_name: value}
+        module_params (dict): Optional module parameters {ModuleName_ParamName: value}
 
     Returns:
         Path: Path to created parameter file
     """
-    param_file = temp_dir / "test.par"
+    import yaml
 
-    # Read reference file to preserve structure
+    param_file = temp_dir / "test.yaml"
+
     with open(ref_param_file, 'r') as f:
-        lines = f.readlines()
+        config = yaml.safe_load(f)
 
-    # Modify key parameters
-    new_lines = []
-    for line in lines:
-        stripped = line.strip()
-
-        # Update OutputDir
-        if stripped.startswith('OutputDir'):
-            new_lines.append(f'OutputDir  {output_dir}\n')
-
-        # Update EnabledModules
-        elif stripped.startswith('EnabledModules'):
-            modules_str = ','.join(modules)
-            new_lines.append(f'EnabledModules  {modules_str}\n')
-
-        # Force binary output
-        elif stripped.startswith('OutputFormat'):
-            new_lines.append('OutputFormat  binary\n')
-
-        # Keep other lines
-        else:
-            new_lines.append(line)
+    # Update configuration
+    config['output']['directory'] = str(output_dir)
+    config['output']['format'] = 'binary'
+    config['modules']['enabled'] = modules
 
     # Add module-specific parameters if provided
     if module_params:
-        new_lines.append('\n% Module parameters for testing\n')
+        if 'parameters' not in config['modules']:
+            config['modules']['parameters'] = {}
+
         for param_name, value in module_params.items():
-            new_lines.append(f'{param_name}  {value}\n')
+            # Parse ModuleName_ParameterName format
+            if '_' in param_name:
+                module_name, param_key = param_name.split('_', 1)
+                if module_name not in config['modules']['parameters']:
+                    config['modules']['parameters'][module_name] = {}
+                try:
+                    value = float(value)
+                    if value.is_integer():
+                        value = int(value)
+                except (ValueError, AttributeError):
+                    pass
+                config['modules']['parameters'][module_name][param_key] = value
 
     with open(param_file, 'w') as f:
-        f.writelines(new_lines)
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     return param_file
 
@@ -202,7 +186,7 @@ def setup_module():
     temp_dir = Path(tempfile.mkdtemp(prefix='mimic_test_sage_sf_'))
 
     # Use test parameter file as reference
-    ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.par"
+    ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
 
     # Ensure Mimic executable exists
     if not MIMIC_EXE.exists():

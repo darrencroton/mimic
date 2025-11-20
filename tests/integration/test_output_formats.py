@@ -65,7 +65,7 @@ def check_hdf5_support():
     """
     # Run mimic with --version or similar to check for HDF5
     # For now, we'll check if HDF5 output succeeds
-    param_file = TEST_DATA_DIR / "test_hdf5.par"
+    param_file = TEST_DATA_DIR / "test_hdf5.yaml"
     if not param_file.exists():
         return False
 
@@ -314,7 +314,7 @@ def test_binary_format_execution():
     """
     Test that Mimic runs successfully with binary output format
 
-    What: Executes Mimic with test_binary.par (binary output format)
+    What: Executes Mimic with test_binary.yaml (binary output format)
     Expected: Zero exit code, no crashes
     Validates: Binary format end-to-end execution
     """
@@ -324,7 +324,7 @@ def test_binary_format_execution():
         print(f"  Skipping (Mimic not built)")
         return
 
-    param_file = TEST_DATA_DIR / "test_binary.par"
+    param_file = TEST_DATA_DIR / "test_binary.yaml"
     assert param_file.exists(), f"Parameter file not found: {param_file}"
 
     # Run Mimic
@@ -357,7 +357,7 @@ def test_binary_format_loading():
     # Run Mimic if needed
     if not output_file.exists():
         print(f"  Running Mimic to generate output...")
-        param_file = TEST_DATA_DIR / "test_binary.par"
+        param_file = TEST_DATA_DIR / "test_binary.yaml"
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"Mimic execution failed: {stderr}"
 
@@ -406,7 +406,7 @@ def test_binary_baseline_comparison():
 
     # Run Mimic if needed
     if not output_file.exists():
-        param_file = TEST_DATA_DIR / "test_binary.par"
+        param_file = TEST_DATA_DIR / "test_binary.yaml"
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"Mimic execution failed: {stderr}"
 
@@ -476,7 +476,7 @@ def test_hdf5_format_execution():
     """
     Test that Mimic runs successfully with HDF5 output format
 
-    What: Executes Mimic with test_hdf5.par (HDF5 output format)
+    What: Executes Mimic with test_hdf5.yaml (HDF5 output format)
     Expected: Zero exit code, no crashes (or skips if HDF5 not compiled)
     Validates: HDF5 format end-to-end execution
     """
@@ -487,9 +487,9 @@ def test_hdf5_format_execution():
         return
 
     # Check if HDF5 parameter file exists
-    param_file = TEST_DATA_DIR / "test_hdf5.par"
+    param_file = TEST_DATA_DIR / "test_hdf5.yaml"
     if not param_file.exists():
-        print(f"  Skipping (test_hdf5.par not found)")
+        print(f"  Skipping (test_hdf5.yaml not found)")
         return
 
     # Run Mimic
@@ -535,7 +535,7 @@ def test_hdf5_format_loading():
     # Run Mimic if needed
     if not output_file.exists():
         print(f"  Running Mimic to generate HDF5 output...")
-        param_file = TEST_DATA_DIR / "test_hdf5.par"
+        param_file = TEST_DATA_DIR / "test_hdf5.yaml"
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"Mimic execution failed: {stderr}"
 
@@ -607,7 +607,7 @@ def test_hdf5_baseline_comparison():
 
     # Run Mimic if needed
     if not output_file.exists():
-        param_file = TEST_DATA_DIR / "test_hdf5.par"
+        param_file = TEST_DATA_DIR / "test_hdf5.yaml"
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"Mimic execution failed: {stderr}"
 
@@ -710,7 +710,7 @@ def test_format_equivalence():
     # Run Mimic if needed
     if not binary_file.exists():
         print(f"  Running Mimic to generate binary output...")
-        param_file = TEST_DATA_DIR / "test_binary.par"
+        param_file = TEST_DATA_DIR / "test_binary.yaml"
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"Binary Mimic execution failed: {stderr}"
 
@@ -725,7 +725,7 @@ def test_format_equivalence():
     # Run Mimic if needed
     if not hdf5_file.exists():
         print(f"  Running Mimic to generate HDF5 output...")
-        param_file = TEST_DATA_DIR / "test_hdf5.par"
+        param_file = TEST_DATA_DIR / "test_hdf5.yaml"
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"HDF5 Mimic execution failed: {stderr}"
 

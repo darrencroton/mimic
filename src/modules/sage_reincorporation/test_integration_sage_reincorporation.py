@@ -7,7 +7,7 @@ Phase: Phase 4.2 (SAGE Physics Module Implementation)
 
 This test validates software quality aspects of the sage_reincorporation module:
 - Module loads and initializes correctly
-- Parameters can be configured via .par files
+- Parameters can be configured via YAML files
 - Module executes without errors or memory leaks
 - Module works in multi-module pipelines
 - Properties modified correctly (EjectedMass → HotGas)
@@ -63,39 +63,19 @@ def get_available_modules():
     Returns:
         set: Set of available module names, or empty set if query fails
     """
+    import yaml
+
     try:
-        # Create a complete param file with invalid module to trigger error message
-        test_param = temp_dir / "_query_modules.par"
+        test_param = temp_dir / "_query_modules.yaml"
 
-        # Copy ENTIRE reference parameter file to preserve snapshot list and format
-        with open(ref_param_file, 'r') as src:
-            content = src.read()
+        with open(ref_param_file, 'r') as f:
+            config = yaml.safe_load(f)
 
-        # Replace EnabledModules line (or add if missing)
-        lines = content.split('\n')
-        new_lines = []
-        found_modules = False
-        for line in lines:
-            if line.strip().startswith('EnabledModules'):
-                new_lines.append('EnabledModules  __nonexistent_module__')
-                found_modules = True
-            else:
-                new_lines.append(line)
-
-        # If EnabledModules wasn't in file, add it
-        if not found_modules:
-            new_lines.append('\nEnabledModules  __nonexistent_module__\n')
-
-        # Ensure OutputFormat is binary (not HDF5)
-        final_lines = []
-        for line in new_lines:
-            if line.strip().startswith('OutputFormat'):
-                final_lines.append('OutputFormat  binary')
-            else:
-                final_lines.append(line)
+        config['modules']['enabled'] = ['__nonexistent_module__']
+        config['output']['format'] = 'binary'
 
         with open(test_param, 'w') as f:
-            f.write('\n'.join(final_lines))
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
         result = subprocess.run(
             [str(MIMIC_EXE), str(test_param)],
@@ -146,42 +126,79 @@ def run_mimic(param_file):
 
 
 def read_param_file(param_file):
-    """Read parameter file into dictionary"""
-    params = {}
+    """Read YAML parameter file and return as dictionary."""
+    import yaml
+
     with open(param_file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            parts = line.split()
-            if len(parts) >= 2:
-                params[parts[0]] = ' '.join(parts[1:])
+        config = yaml.safe_load(f)
+
+    # Flatten hierarchical structure
+    params = {}
+    if 'output' in config:
+        params['OutputFileBaseName'] = config['output'].get('file_base_name', 'model')
+        params['OutputDir'] = config['output'].get('directory', './')
+        params['OutputFormat'] = config['output'].get('format', 'binary')
+    if 'input' in config:
+        params['FirstFile'] = str(config['input'].get('first_file', 0))
+        params['LastFile'] = str(config['input'].get('last_file', 0))
+        params['TreeName'] = config['input'].get('tree_name', '')
+        params['TreeType'] = config['input'].get('tree_type', 'lhalo_binary')
+        params['SimulationDir'] = config['input'].get('simulation_dir', './')
+        params['FileWithSnapList'] = config['input'].get('snapshot_list_file', '')
+        params['LastSnapshotNr'] = str(config['input'].get('last_snapshot', 0))
+    if 'simulation' in config:
+        params['BoxSize'] = str(config['simulation'].get('box_size', 0.0))
+        params['PartMass'] = str(config['simulation'].get('particle_mass', 0.0))
+        if 'cosmology' in config['simulation']:
+            params['Omega'] = str(config['simulation']['cosmology'].get('omega_matter', 0.0))
+            params['OmegaLambda'] = str(config['simulation']['cosmology'].get('omega_lambda', 0.0))
+            params['Hubble_h'] = str(config['simulation']['cosmology'].get('hubble_h', 0.0))
+    if 'units' in config:
+        params['UnitLength_in_cm'] = str(config['units'].get('length_in_cm', 0.0))
+        params['UnitMass_in_g'] = str(config['units'].get('mass_in_g', 0.0))
+        params['UnitVelocity_in_cm_per_s'] = str(config['units'].get('velocity_in_cm_per_s', 0.0))
     return params
 
 
 def create_test_param_file(output_file, **overrides):
     """
-    Create test parameter file with overrides
+    Create test YAML parameter file with overrides
 
     Args:
         output_file (Path): Path to write parameter file
-        **overrides: Parameter overrides (key=value)
+        **overrides: Parameter overrides (e.g., EnabledModules='sage_reincorporation')
     """
-    # Read reference parameter file
-    params = read_param_file(ref_param_file)
+    import yaml
 
-    # Apply overrides
-    params.update(overrides)
+    # Use test data parameter file as reference
+    test_ref_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
+    with open(test_ref_file, 'r') as f:
+        config = yaml.safe_load(f)
 
     # Ensure binary output format and output directory points to temp dir
-    params['OutputFormat'] = 'binary'
-    params['OutputDir'] = str(temp_dir / "output")
+    config['output']['format'] = 'binary'
+    config['output']['directory'] = str(temp_dir / "output")
 
-    # Write parameter file
+    # Apply overrides
+    for key, value in overrides.items():
+        if key == 'EnabledModules':
+            # Split comma-separated list and update modules.enabled
+            modules = [m.strip() for m in value.split(',')]
+            config['modules']['enabled'] = modules
+        elif key.startswith('Sage') and '_' in key:
+            # Module parameter: SageModuleName_ParameterName
+            module_name, param_key = key.split('_', 1)
+            if 'parameters' not in config['modules']:
+                config['modules']['parameters'] = {}
+            if module_name not in config['modules']['parameters']:
+                config['modules']['parameters'][module_name] = {}
+            config['modules']['parameters'][module_name][param_key] = value
+        # Add more override handling as needed
+
+    # Write parameter file as YAML
     with open(output_file, 'w') as f:
         f.write("# Test parameter file for sage_reincorporation module\n\n")
-        for key, value in params.items():
-            f.write(f"{key}  {value}\n")
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
 
 def check_memory_leaks(stderr):
@@ -206,7 +223,7 @@ def test_module_loads():
         return False
 
     # Create parameter file with sage_reincorporation enabled
-    param_file = temp_dir / "test_module_loads.par"
+    param_file = temp_dir / "test_module_loads.yaml"
     create_test_param_file(param_file, EnabledModules='sage_reincorporation')
 
     # Run Mimic
@@ -226,7 +243,7 @@ def test_parameters_configurable():
     print(f"\n{BLUE}TEST:{NC} Parameters configurable")
 
     # Create parameter file with custom ReIncorporationFactor
-    param_file = temp_dir / "test_parameters.par"
+    param_file = temp_dir / "test_parameters.yaml"
     create_test_param_file(
         param_file,
         EnabledModules='sage_reincorporation',
@@ -255,7 +272,7 @@ def test_memory_safety():
     print(f"\n{BLUE}TEST:{NC} Memory safety (no leaks)")
 
     # Create parameter file
-    param_file = temp_dir / "test_memory.par"
+    param_file = temp_dir / "test_memory.yaml"
     create_test_param_file(param_file, EnabledModules='sage_reincorporation')
 
     # Run Mimic
@@ -280,7 +297,7 @@ def test_execution_completes():
     print(f"\n{BLUE}TEST:{NC} Full execution completes")
 
     # Create parameter file
-    param_file = temp_dir / "test_execution.par"
+    param_file = temp_dir / "test_execution.yaml"
     create_test_param_file(param_file, EnabledModules='sage_reincorporation')
 
     # Run Mimic
@@ -314,7 +331,7 @@ def test_multi_module_pipeline():
         return True  # Skip, not a failure
 
     # Create parameter file with sage_infall + sage_reincorporation
-    param_file = temp_dir / "test_multi_module.par"
+    param_file = temp_dir / "test_multi_module.yaml"
     create_test_param_file(
         param_file,
         EnabledModules='sage_infall,sage_reincorporation',
@@ -346,7 +363,7 @@ def test_property_modification():
         return True  # Skip, not a failure
 
     # Create parameter file with modules that populate ejected reservoir
-    param_file = temp_dir / "test_properties.par"
+    param_file = temp_dir / "test_properties.yaml"
     create_test_param_file(
         param_file,
         EnabledModules='sage_infall,sage_reincorporation',
@@ -397,7 +414,7 @@ def test_critical_velocity_threshold():
     # We can't easily control halo Vvir from parameter file,
     # but we can verify execution doesn't crash with various parameters
 
-    param_file = temp_dir / "test_vcrit.par"
+    param_file = temp_dir / "test_vcrit.yaml"
     create_test_param_file(
         param_file,
         EnabledModules='sage_reincorporation',
@@ -428,7 +445,7 @@ def setup():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Reference parameter file
-    ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.par"
+    ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
 
     if not ref_param_file.exists():
         raise FileNotFoundError(f"Reference parameter file not found: {ref_param_file}")

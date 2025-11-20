@@ -145,7 +145,7 @@ Before proceeding with systematic integration, several architectural and impleme
 ## Immediate Next Steps (This Week)
 
 ### Step 1: Parameter File Cleanup
-- Remove all modules from `input/millennium.par` except sage_infall + sage_cooling
+- Remove all modules from `input/millennium.yaml` except sage_infall + sage_cooling
 - Verify minimal pipeline runs successfully
 - Document baseline behavior
 
