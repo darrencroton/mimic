@@ -90,6 +90,42 @@ def get_cold_gas_label():
     return x_label
 
 
+def get_baryonic_mass_label():
+    """Return consistent x-axis label for baryonic mass plots."""
+    x_label = r"log$_{10}$ M$_{\rm bar}$ (M$_{\odot}$)"
+    return x_label
+
+
+def get_gas_mass_label():
+    """Return consistent x-axis label for gas mass plots."""
+    x_label = r"log$_{10}$ M$_{\rm X}$ (M$_{\odot}$)"
+    return x_label
+
+
+def get_sfr_density_label():
+    """Return consistent y-axis label for SFR density plots."""
+    y_label = r"log$_{10}$ SFR density (M$_{\odot}$ yr$^{-1}$ Mpc$^{-3}$)"
+    return y_label
+
+
+def get_ssfr_label():
+    """Return consistent y-axis label for specific SFR plots."""
+    y_label = r"log$_{10}$ sSFR (yr$^{-1}$)"
+    return y_label
+
+
+def get_black_hole_mass_label():
+    """Return consistent x-axis label for black hole mass plots."""
+    x_label = r"log$_{10}$ M$_{\rm BH}$ (M$_{\odot}$)"
+    return x_label
+
+
+def get_bulge_mass_label():
+    """Return consistent x-axis label for bulge mass plots."""
+    x_label = r"log$_{10}$ M$_{\rm bulge}$ (M$_{\odot}$)"
+    return x_label
+
+
 # Property availability checking
 def check_required_properties(galaxies, required_properties):
     """
@@ -117,13 +153,25 @@ def check_required_properties(galaxies, required_properties):
 # Import all the figure modules so they can be discovered
 from . import (
     baryon_fraction,
+    baryonic_mass_function,
+    baryonic_tully_fisher,
+    black_hole_bulge_relation,
+    bulge_mass_fraction,
     cold_gas_function,
+    gas_fraction,
+    gas_mass_function,
     halo_mass_function,
     halo_occupation,
     hmf_evolution,
+    mass_reservoir_scatter,
+    metallicity,
+    quiescent_fraction,
+    sfr_density_evolution,
     smf_evolution,
     spatial_distribution,
+    specific_sfr,
     spin_distribution,
+    stellar_mass_density_evolution,
     stellar_mass_function,
     velocity_distribution,
 )
@@ -141,6 +189,16 @@ SNAPSHOT_PLOTS = [
     "stellar_mass_function",
     "cold_gas_function",
     "baryon_fraction",
+    "baryonic_mass_function",
+    "gas_mass_function",
+    "baryonic_tully_fisher",
+    "specific_sfr",
+    "black_hole_bulge_relation",
+    "gas_fraction",
+    "metallicity",
+    "bulge_mass_fraction",
+    "quiescent_fraction",
+    "mass_reservoir_scatter",
 ]
 
 """List of all available evolution plot modules."""
@@ -149,6 +207,8 @@ EVOLUTION_PLOTS = [
     "hmf_evolution",
     # Galaxy physics evolution (require physics modules)
     "smf_evolution",
+    "sfr_density_evolution",
+    "stellar_mass_density_evolution",
 ]
 
 # Define property requirements for each plot
@@ -166,6 +226,18 @@ PLOT_REQUIREMENTS = {
     "cold_gas_function": ["ColdGas"],
     "smf_evolution": ["StellarMass"],
     "baryon_fraction": ["Mvir", "Type"],  # Baryonic properties checked internally
+    "baryonic_mass_function": ["StellarMass", "ColdGas"],
+    "gas_mass_function": ["ColdGas"],  # SfrDisk, SfrBulge checked internally for coloring
+    "baryonic_tully_fisher": ["StellarMass", "ColdGas", "Vmax"],  # DiskScaleRadius optional
+    "specific_sfr": ["StellarMass"],  # SfrDisk, SfrBulge checked internally
+    "black_hole_bulge_relation": ["BlackHoleMass", "BulgeMass"],
+    "gas_fraction": ["StellarMass", "ColdGas"],
+    "metallicity": ["StellarMass", "ColdGas", "MetalsColdGas"],
+    "bulge_mass_fraction": ["StellarMass", "BulgeMass"],
+    "quiescent_fraction": ["StellarMass"],  # SfrDisk, SfrBulge checked internally
+    "mass_reservoir_scatter": ["StellarMass", "ColdGas", "HotGas"],
+    "sfr_density_evolution": [],  # SfrDisk, SfrBulge checked internally
+    "stellar_mass_density_evolution": ["StellarMass"],
 }
 
 """Mapping of plot names to their corresponding functions."""
@@ -180,4 +252,16 @@ PLOT_FUNCS = {
     "cold_gas_function": cold_gas_function.plot,
     "smf_evolution": smf_evolution.plot,
     "baryon_fraction": baryon_fraction.plot,
+    "baryonic_mass_function": baryonic_mass_function.plot,
+    "gas_mass_function": gas_mass_function.plot,
+    "baryonic_tully_fisher": baryonic_tully_fisher.plot,
+    "specific_sfr": specific_sfr.plot,
+    "black_hole_bulge_relation": black_hole_bulge_relation.plot,
+    "gas_fraction": gas_fraction.plot,
+    "metallicity": metallicity.plot,
+    "bulge_mass_fraction": bulge_mass_fraction.plot,
+    "quiescent_fraction": quiescent_fraction.plot,
+    "mass_reservoir_scatter": mass_reservoir_scatter.plot,
+    "sfr_density_evolution": sfr_density_evolution.plot,
+    "stellar_mass_density_evolution": stellar_mass_density_evolution.plot,
 }
