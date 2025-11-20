@@ -36,8 +36,8 @@
  */
 
 #include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <stdio.h>   /* Required for error.h logging macros */
+#include <stdlib.h>  /* Required for error.h logging macros */
 
 #include "constants.h"
 #include "error.h"
@@ -106,6 +106,15 @@ static double ar = 0.0; /* Scale factor at full reionization */
  */
 static int STRIPPING_STEPS = 10;
 
+/**
+ * @brief   Reionization model constants (Gnedin 2000)
+ *
+ * These constants define the reionization suppression model parameters.
+ * They are used in the do_reionization() function.
+ */
+static const double REIONIZATION_ALPHA = 6.0;  /* Best fit to Gnedin data */
+static const double REIONIZATION_TVIR = 1e4;   /* Virial temperature threshold (K) */
+
 // ============================================================================
 // HELPER FUNCTIONS (Physics Calculations)
 // ============================================================================
@@ -132,10 +141,6 @@ static int STRIPPING_STEPS = 10;
  */
 static double do_reionization(float mvir, double redshift, double omega,
                               double omega_lambda, double hubble_h) {
-  const double alpha = 6.0;   /* Best fit to Gnedin data */
-  const double Tvir = 1e4;    /* Virial temperature (K) */
-  const double EPSILON = 1e-10;
-
   /* Calculate scale factor and ratios */
   double a = safe_div(1.0, 1.0 + redshift, 0.0);
   double a_on_a0 = safe_div(a, a0, 0.0);
@@ -145,36 +150,39 @@ static double do_reionization(float mvir, double redshift, double omega,
   double f_of_a;
   if (a <= a0) {
     /* Before UV background turns on */
-    f_of_a = 3.0 * a / ((2.0 + alpha) * (5.0 + 2.0 * alpha)) *
-             pow(a_on_a0, alpha);
+    f_of_a = 3.0 * a / ((2.0 + REIONIZATION_ALPHA) * (5.0 + 2.0 * REIONIZATION_ALPHA)) *
+             pow(a_on_a0, REIONIZATION_ALPHA);
   } else if (a < ar) {
     /* During partial reionization */
     f_of_a = safe_div(3.0, a, 0.0) * a0 * a0 *
-                 (1.0 / (2.0 + alpha) -
-                  2.0 * pow(a_on_a0, -0.5) / (5.0 + 2.0 * alpha)) +
+                 (1.0 / (2.0 + REIONIZATION_ALPHA) -
+                  2.0 * pow(a_on_a0, -0.5) / (5.0 + 2.0 * REIONIZATION_ALPHA)) +
              a * a / 10.0 - (a0 * a0 / 10.0) * (5.0 - 4.0 * pow(a_on_a0, -0.5));
   } else {
     /* After full reionization */
     f_of_a = safe_div(3.0, a, 0.0) *
                  (a0 * a0 *
-                      (1.0 / (2.0 + alpha) -
-                       2.0 * pow(a_on_a0, -0.5) / (5.0 + 2.0 * alpha)) +
+                      (1.0 / (2.0 + REIONIZATION_ALPHA) -
+                       2.0 * pow(a_on_a0, -0.5) / (5.0 + 2.0 * REIONIZATION_ALPHA)) +
                   (ar * ar / 10.0) * (5.0 - 4.0 * pow(a_on_ar, -0.5)) -
                   (a0 * a0 / 10.0) * (5.0 - 4.0 * pow(a_on_a0, -0.5)) +
                   a * ar / 3.0 - (ar * ar / 3.0) * (3.0 - 2.0 * pow(a_on_ar, -0.5)));
   }
 
   /* Calculate filtering mass (in units of 1e10 Msun/h) */
-  /* Note: mu=0.59 and mu^-1.5 = 2.21 for fully ionized gas */
+  /* Jeans mass calculation: Mjeans = 25 * Omega^-0.5 * mu^-1.5
+   * For fully ionized gas: mu=0.59, so mu^-1.5 = 0.59^-1.5 ≈ 2.21 */
   double Mjeans = 25.0 * pow(omega, -0.5) * 2.21;
   double Mfiltering = Mjeans * pow(f_of_a, 1.5);
 
   /* Calculate characteristic mass from virial temperature */
-  double Vchar = sqrt(Tvir / 36.0); /* Characteristic velocity */
+  /* Characteristic velocity: Vchar = sqrt(Tvir / (mu * m_p / k_B))
+   * For Tvir=10^4 K and mean molecular weight, coefficient ≈ 36.0 km/s */
+  double Vchar = sqrt(REIONIZATION_TVIR / 36.0);
 
   /* Cosmological parameters at current redshift */
   double omegaZ = omega * pow(1.0 + redshift, 3.0) /
-                  (omega * pow(1.0 + redshift, 3.0) + omega_lambda + EPSILON);
+                  (omega * pow(1.0 + redshift, 3.0) + omega_lambda + EPSILON_SMALL);
   double xZ = omegaZ - 1.0;
   double deltacritZ =
       18.0 * M_PI * M_PI + 82.0 * xZ - 39.0 * xZ * xZ; /* Critical overdensity */
@@ -191,14 +199,15 @@ static double do_reionization(float mvir, double redshift, double omega,
 
   /* Calculate characteristic mass */
   double Mchar = Vchar * Vchar * Vchar /
-                 (G_code * HubbleZ * sqrt(0.5 * deltacritZ) + EPSILON);
+                 (G_code * HubbleZ * sqrt(0.5 * deltacritZ) + EPSILON_SMALL);
 
   /* Use maximum of filtering mass and characteristic mass */
   double mass_to_use = fmax(Mfiltering, Mchar);
 
-  /* Calculate suppression modifier */
+  /* Calculate suppression modifier using Gnedin (2000) fitting formula
+   * Coefficient 0.26 from Kravtsov et al. (2004) Appendix B */
   double modifier =
-      1.0 / pow(1.0 + 0.26 * mass_to_use / (mvir + EPSILON), 3.0);
+      1.0 / pow(1.0 + 0.26 * mass_to_use / (mvir + EPSILON_SMALL), 3.0);
 
   return modifier;
 }
@@ -262,12 +271,14 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx,
 
     /* Move satellite ejected gas to central galaxy's ejected reservoir */
     if (i != central_idx) {
+      /* Zero satellite values - mass already transferred to central's tot_ejected above */
       halos[i].galaxy->EjectedMass = 0.0f;
       halos[i].galaxy->MetalsEjectedMass = 0.0f;
     }
 
     /* Move satellite intracluster stars to central galaxy */
     if (i != central_idx) {
+      /* Zero satellite values - mass already transferred to central's tot_ICS above */
       halos[i].galaxy->ICS = 0.0f;
       halos[i].galaxy->MetalsICS = 0.0f;
     }

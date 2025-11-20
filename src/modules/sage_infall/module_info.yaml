@@ -36,6 +36,8 @@ module:
 
   dependencies:
     # This module provides initial baryonic components from scratch
+    # Note: Reads StellarMass and ColdGas for baryon accounting, but these
+    # are not strict requirements (will be 0 if not set by previous modules)
     requires: []
 
     # Properties provided by this module

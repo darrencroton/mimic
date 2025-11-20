@@ -22,8 +22,7 @@
  *   - Provides: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS
  *
  * Parameters:
- *   - SageInfall_BaryonFrac: Cosmic baryon fraction (default: 0.17)
- *   - SageInfall_ReionizationOn: Enable reionization suppression (default: 1)
+ *   See module_info.yaml for complete parameter list (5 parameters)
  */
 
 #ifndef SAGE_INFALL_H
