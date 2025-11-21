@@ -69,64 +69,60 @@ static void set_default_sf_feedback_params(void)
 {
     int idx = 0;
 
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
+    /* All 11 parameters with correct module name and parameter names */
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
+    strcpy(MimicConfig.ModuleParams[idx].param_name, "SFprescription");
+    strcpy(MimicConfig.ModuleParams[idx].value, "0");
+    idx++;
+
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
     strcpy(MimicConfig.ModuleParams[idx].param_name, "SfrEfficiency");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.015");
+    strcpy(MimicConfig.ModuleParams[idx].value, "0.02");
     idx++;
 
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "SfrCriticalDensity");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.15");
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
+    strcpy(MimicConfig.ModuleParams[idx].param_name, "SupernovaRecipeOn");
+    strcpy(MimicConfig.ModuleParams[idx].value, "1");
     idx++;
 
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
     strcpy(MimicConfig.ModuleParams[idx].param_name, "FeedbackReheatingEpsilon");
     strcpy(MimicConfig.ModuleParams[idx].value, "3.0");
     idx++;
 
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
     strcpy(MimicConfig.ModuleParams[idx].param_name, "FeedbackEjectionEfficiency");
     strcpy(MimicConfig.ModuleParams[idx].value, "0.3");
     idx++;
 
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
+    strcpy(MimicConfig.ModuleParams[idx].param_name, "EnergySNcode");
+    strcpy(MimicConfig.ModuleParams[idx].value, "1.0");
+    idx++;
+
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
+    strcpy(MimicConfig.ModuleParams[idx].param_name, "EtaSNcode");
+    strcpy(MimicConfig.ModuleParams[idx].value, "0.5");
+    idx++;
+
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
     strcpy(MimicConfig.ModuleParams[idx].param_name, "RecycleFraction");
     strcpy(MimicConfig.ModuleParams[idx].value, "0.43");
     idx++;
 
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
     strcpy(MimicConfig.ModuleParams[idx].param_name, "Yield");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.025");
+    strcpy(MimicConfig.ModuleParams[idx].value, "0.03");
     idx++;
 
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "EnergySNcode");
-    strcpy(MimicConfig.ModuleParams[idx].value, "1.0e51");
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
+    strcpy(MimicConfig.ModuleParams[idx].param_name, "FracZleaveDisk");
+    strcpy(MimicConfig.ModuleParams[idx].value, "0.3");
     idx++;
 
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "EtaSNcode");
-    strcpy(MimicConfig.ModuleParams[idx].value, "5.0e-3");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "ReheatPreVelocity");
-    strcpy(MimicConfig.ModuleParams[idx].value, "70.0");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "ReheatSlope");
-    strcpy(MimicConfig.ModuleParams[idx].value, "3.5");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "EjectPreVelocity");
-    strcpy(MimicConfig.ModuleParams[idx].value, "70.0");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "EjectSlope");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.0");
+    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
+    strcpy(MimicConfig.ModuleParams[idx].param_name, "DiskInstabilityOn");
+    strcpy(MimicConfig.ModuleParams[idx].value, "0");
     idx++;
 
     MimicConfig.NumModuleParams = idx;

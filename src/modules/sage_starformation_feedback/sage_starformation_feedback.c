@@ -372,9 +372,29 @@ static int sage_starformation_feedback_init(void) {
         return -1;
     }
 
-    if (YIELD < 0.0) {
-        ERROR_LOG("SageStarformationFeedback_Yield = %.3f must be non-negative",
+    if (YIELD < 0.0 || YIELD > 1.0) {
+        ERROR_LOG("SageStarformationFeedback_Yield = %.3f is outside "
+                 "valid range [0.0, 1.0]",
                  YIELD);
+        return -1;
+    }
+
+    if (ENERGY_SN_CODE < 0.0) {
+        ERROR_LOG("SageStarformationFeedback_EnergySNcode = %.3e must be non-negative",
+                 ENERGY_SN_CODE);
+        return -1;
+    }
+
+    if (ETA_SN_CODE < 0.0) {
+        ERROR_LOG("SageStarformationFeedback_EtaSNcode = %.3f must be non-negative",
+                 ETA_SN_CODE);
+        return -1;
+    }
+
+    if (FRAC_Z_LEAVE_DISK < 0.0 || FRAC_Z_LEAVE_DISK > 1.0) {
+        ERROR_LOG("SageStarformationFeedback_FracZleaveDisk = %.3f is outside "
+                 "valid range [0.0, 1.0]",
+                 FRAC_Z_LEAVE_DISK);
         return -1;
     }
 
@@ -423,28 +443,27 @@ static int sage_starformation_feedback_process(struct ModuleContext *ctx,
         return 0;  /* Nothing to process */
     }
 
+    /* Find central galaxy (Type == 0) once before processing - only one per FOF group */
+    int central_idx = -1;
+    for (int j = 0; j < ngal; j++) {
+        if (halos[j].Type == 0) {
+            central_idx = j;
+            break;
+        }
+    }
+
+    /* Skip entire FOF group if no central found (shouldn't happen in well-formed groups) */
+    if (central_idx < 0) {
+        DEBUG_LOG("No central galaxy found in FOF group, skipping all %d halos", ngal);
+        return 0;
+    }
+
     /* Process each halo */
     for (int i = 0; i < ngal; i++) {
         /* Validate galaxy data */
         if (halos[i].galaxy == NULL) {
             ERROR_LOG("Halo %d has NULL galaxy data", i);
             return -1;
-        }
-
-        /* Find central galaxy (Type == 0) - only one per FOF group */
-        int central_idx = -1;
-        for (int j = 0; j < ngal; j++) {
-            if (halos[j].Type == 0) {
-                central_idx = j;
-                break;
-            }
-        }
-
-        /* Skip if no central found (shouldn't happen in well-formed FOF groups) */
-        if (central_idx < 0) {
-            DEBUG_LOG("Halo %d: No central galaxy found in FOF group, skipping",
-                     i);
-            continue;
         }
 
         /* Get pointers to galaxy data */

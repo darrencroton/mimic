@@ -50,7 +50,9 @@ REPO_ROOT = Path(__file__).parent.parent
 MODULES_DIR = REPO_ROOT / "src" / "modules"
 
 # Output files
-MODULE_INIT_C = REPO_ROOT / "src" / "modules" / "_system" / "generated" / "module_init.c"
+MODULE_INIT_C = (
+    REPO_ROOT / "src" / "modules" / "_system" / "generated" / "module_init.c"
+)
 MODULE_SOURCES_MK = REPO_ROOT / "tests" / "generated" / "module_sources.mk"
 MODULE_HASH_FILE = REPO_ROOT / "build" / "module_registry_hash.txt"
 

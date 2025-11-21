@@ -212,7 +212,7 @@ def load_property_metadata() -> Dict[str, Dict[str, Any]]:
                         if "name" in prop:
                             properties[prop["name"]] = {
                                 **prop,
-                                "source": "galaxy_properties.yaml"
+                                "source": "galaxy_properties.yaml",
                             }
         except Exception as e:
             print(f"WARNING: Failed to load galaxy properties: {e}", file=sys.stderr)
@@ -227,7 +227,7 @@ def load_property_metadata() -> Dict[str, Dict[str, Any]]:
                         if "name" in prop:
                             properties[prop["name"]] = {
                                 **prop,
-                                "source": "halo_properties.yaml"
+                                "source": "halo_properties.yaml",
                             }
         except Exception as e:
             print(f"WARNING: Failed to load halo properties: {e}", file=sys.stderr)
@@ -589,7 +589,7 @@ def validate_test_files(
     module: Dict[str, Any],
     module_name: str,
     module_dir: Path,
-    results: ValidationResults
+    results: ValidationResults,
 ) -> bool:
     """Validate that test files exist (warnings only)."""
 
@@ -788,15 +788,17 @@ def validate_module_dependencies(
                 module_name,
                 3,
                 f"Required property '{req}' not found in property metadata. "
-                f"Check galaxy_properties.yaml and halo_properties.yaml."
+                f"Check galaxy_properties.yaml and halo_properties.yaml.",
             )
             valid = False
         elif verbose:
             prop_meta = property_metadata[req]
-            print(f"  {module_name} requires {req}: "
-                  f"type={prop_meta.get('type', 'unknown')}, "
-                  f"units={prop_meta.get('units', 'unknown')}, "
-                  f"source={prop_meta.get('source', 'unknown')}")
+            print(
+                f"  {module_name} requires {req}: "
+                f"type={prop_meta.get('type', 'unknown')}, "
+                f"units={prop_meta.get('units', 'unknown')}, "
+                f"source={prop_meta.get('source', 'unknown')}"
+            )
 
     # Validate provided properties
     for prov in provides:
@@ -805,15 +807,17 @@ def validate_module_dependencies(
                 module_name,
                 3,
                 f"Provided property '{prov}' not found in property metadata. "
-                f"Add to galaxy_properties.yaml or check spelling."
+                f"Add to galaxy_properties.yaml or check spelling.",
             )
             valid = False
         elif verbose:
             prop_meta = property_metadata[prov]
-            print(f"  {module_name} provides {prov}: "
-                  f"type={prop_meta.get('type', 'unknown')}, "
-                  f"units={prop_meta.get('units', 'unknown')}, "
-                  f"source={prop_meta.get('source', 'unknown')}")
+            print(
+                f"  {module_name} provides {prov}: "
+                f"type={prop_meta.get('type', 'unknown')}, "
+                f"units={prop_meta.get('units', 'unknown')}, "
+                f"source={prop_meta.get('source', 'unknown')}"
+            )
 
     # Check for property modification pattern (requires AND provides same property)
     modifies = set(requires) & set(provides)
@@ -825,7 +829,7 @@ def validate_module_dependencies(
                     module_name,
                     f"Module both requires and provides '{prop_name}' "
                     f"(modification pattern). Type: {prop_meta.get('type', 'unknown')}, "
-                    f"Units: {prop_meta.get('units', 'unknown')}"
+                    f"Units: {prop_meta.get('units', 'unknown')}",
                 )
 
     return valid
@@ -850,7 +854,9 @@ def validate_dependencies(
     for module_dir, module in modules:
         module_name = module.get("name", module_dir.name)
 
-        if not validate_module_dependencies(module, module_name, property_metadata, results, verbose):
+        if not validate_module_dependencies(
+            module, module_name, property_metadata, results, verbose
+        ):
             valid = False
 
     # Build dependency graph
@@ -978,10 +984,20 @@ def main():
     # Load property metadata (both galaxy and halo) for dependency validation
     property_metadata = load_property_metadata()
     if property_metadata:
-        galaxy_count = sum(1 for p in property_metadata.values() if p.get('source') == 'galaxy_properties.yaml')
-        halo_count = sum(1 for p in property_metadata.values() if p.get('source') == 'halo_properties.yaml')
-        print(f"Loaded {len(property_metadata)} properties "
-              f"({galaxy_count} galaxy, {halo_count} halo)")
+        galaxy_count = sum(
+            1
+            for p in property_metadata.values()
+            if p.get("source") == "galaxy_properties.yaml"
+        )
+        halo_count = sum(
+            1
+            for p in property_metadata.values()
+            if p.get("source") == "halo_properties.yaml"
+        )
+        print(
+            f"Loaded {len(property_metadata)} properties "
+            f"({galaxy_count} galaxy, {halo_count} halo)"
+        )
         if args.verbose:
             print()
 
