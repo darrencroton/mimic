@@ -40,13 +40,13 @@ module:
       - ColdGas           # Cold gas mass (from sage_cooling)
       - MetalsColdGas     # Metal mass in cold gas (from sage_cooling)
       - StellarMass       # Total stellar mass (from star formation)
+      - MetalsStellarMass # Total metal mass in stars (from sage_starformation_feedback)
       - Vmax              # Maximum circular velocity (from halo)
 
     # Properties provided by this module
     provides:
       - BulgeMass         # Stellar mass in bulge
       - MetalsBulgeMass   # Metal mass in bulge
-      - MetalsStellarMass # Total metal mass in stars
       - DiskScaleRadius   # Disk scale radius
 
   # ===========================================================================
