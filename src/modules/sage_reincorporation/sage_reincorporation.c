@@ -31,10 +31,6 @@
  *   - Single Source of Truth: Updates GalaxyData properties only
  */
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-
 #include "constants.h"
 #include "error.h"
 #include "../shared/metallicity.h"  // Shared utility for metallicity calculations
