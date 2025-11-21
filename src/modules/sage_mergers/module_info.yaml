@@ -51,13 +51,14 @@ module:
     # Properties provided by this module
     provides:
       - BulgeMass
-      - MetalsStellarMass
       - MetalsBulgeMass
       - QuasarModeBHaccretionMass
       - TimeOfLastMajorMerger
       - TimeOfLastMinorMerger
-      - OutflowRate
-      - DiskScaleRadius
+      # Note: This module also MODIFIES (but does not provide):
+      #   - MetalsStellarMass (provided by sage_starformation_feedback)
+      #   - OutflowRate (provided by sage_starformation_feedback)
+      #   - DiskScaleRadius (provided by sage_starformation_feedback)
 
   # ===========================================================================
   # Parameters
