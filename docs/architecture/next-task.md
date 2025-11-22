@@ -1,277 +1,378 @@
-# Phase 4.3 Next Tasks: Module Integration & Validation
+# Next Tasks: Phase 4.3 Module Integration
 
 **Current Phase**: Phase 4.3 - Module Integration & Validation
-**Status**: All 6 SAGE modules merged to main (November 18, 2025)
-**Goal**: Systematically integrate and validate merged modules into a working pipeline
+**Status**: All 6 SAGE modules merged and compiled. Ready for systematic integration.
+**Last Updated**: 2025-11-22
 
 ---
 
 ## Current State
 
-### ✅ Completed (Phase 4.2)
-- All 6 SAGE module branches merged to main
-- All modules compile successfully (with 3 expected warnings in sage_mergers)
-- Module registration system working (8 modules total)
-- Property conflicts resolved during merge
-- **Code quality improvements** (November 18, 2025):
-  - safe_div() utility integration across all 4 new modules (18 divisions updated)
-  - Compiler warnings resolved (unused parameters fixed, expected warnings documented)
-  - All unit tests updated to current framework API (14/14 passing)
+### ✅ Completed
+- All 6 SAGE physics modules implemented and merged to main
+- All module code compiles successfully
+- Unit tests passing (14/14)
+- Code quality improvements complete (safe_div integration, warnings resolved)
+- Module metadata system working (8 modules registered)
 
-### ⏸️ In Progress (Phase 4.3)
-- Module integration and validation
-- Core infrastructure decisions
-- Pipeline testing strategy
+### ⏸️ Current Blockers
+- **Merger Triggering**: Core doesn't detect when satellites should merge (blocks sage_mergers testing)
+- **Integration Strategy**: Need systematic approach to enable modules incrementally
+- **Property Verification**: Module metadata needs audit (provides vs requires)
+- **Shared Functions**: Architecture for functions used by multiple modules
 
 ---
 
-## Critical Decisions Needed
+## Immediate Next Steps
 
-Before proceeding with systematic integration, several architectural and implementation decisions must be made:
+### Step 1: Minimal Pipeline Validation (This Week)
 
-### Decision 1: Module Enabling Strategy
+**Goal**: Verify that the two production-ready modules work together.
 
-**Question**: How should we systematically enable and validate modules?
+**Tasks**:
+1. Edit `input/millennium.yaml`:
+   - Set `EnabledModules: [sage_infall, sage_cooling]`
+   - Remove all other modules
+2. Run full pipeline: `./mimic input/millennium.yaml`
+3. Verify execution completes successfully
+4. Check property flow (HotGas → ColdGas)
+5. Validate no memory leaks
+6. Document baseline behavior
 
-**Options Under Consideration**:
-1. Start minimal (infall + cooling only), add one module at a time
-2. Enable all at once, debug issues as they arise
-3. Enable by priority groups (foundation → core → advanced)
+**Success Criteria**:
+- Pipeline completes without errors
+- Both modules execute in correct order
+- Properties appear in output
+- Memory management clean
+- Performance acceptable
 
-**Factors**:
-- Need to validate each module's integration independently
-- Want to catch property flow issues early
-- Performance testing requires full pipeline
-- SAGE comparison requires all modules
-
-**To Decide**: Preferred approach and validation criteria for each step
+**Timeline**: 1 day
 
 ---
 
-### Decision 2: Merger Triggering Architecture
+### Step 2: Architectural Decisions (This Week)
 
-**Question**: Where and how should merger detection/triggering be implemented?
+Need to resolve critical architectural questions before proceeding:
+
+#### Decision A: Merger Triggering Architecture
+
+**Question**: Where and how should merger detection be implemented?
 
 **Context**:
-- sage_mergers module is complete but untestable
-- Core doesn't detect when satellites should merge with centrals
-- SAGE uses dynamical friction timescale to trigger mergers
+- SAGE uses dynamical friction timescale to determine when satellite merges
+- Currently: Core calls modules but doesn't mark satellites for merger
+- sage_mergers module is complete but can't be tested without triggering
 
-**Options Under Consideration**:
-1. New core module (`src/core/merger_detection.c`)
-2. Integrated into tree processing (`src/core/build_model.c`)
-3. Part of halo processing pipeline
-4. Module-driven (merger module signals when to trigger)
+**Options to Evaluate**:
+1. **New core module** (`src/core/merger_detection.c`)
+   - Pro: Clean separation, physics-agnostic core maintained
+   - Con: Adds new core component
 
-**Key Questions**:
-- Who owns merger detection logic?
-- How are mergers marked/queued?
-- When in processing cycle do mergers execute?
-- How to handle multiple mergers in one timestep?
+2. **Integrated into build_model.c**
+   - Pro: Natural fit in halo processing
+   - Con: Adds physics knowledge to core
 
-**To Decide**: Architecture, implementation location, API design
+3. **Two-pass module approach**
+   - First pass: sage_mergers marks satellites for merger
+   - Second pass: sage_mergers executes mergers on marked halos
+   - Pro: Keeps physics in modules
+   - Con: More complex module execution model
+
+**To Decide**:
+- Which approach best maintains physics-agnostic core?
+- What data structures needed (merger queue, flags)?
+- When in timestep do mergers execute?
+- How to handle multiple mergers per timestep?
+
+**Timeline**: 2-3 days discussion + design document
 
 ---
 
-### Decision 3: Shared Function Architecture
+#### Decision B: Shared Function Architecture
 
-**Question**: How to handle functions needed by multiple modules?
+**Question**: How should functions used by multiple modules be shared?
 
 **Context**:
 - sage_disk_instability needs functions from sage_mergers:
   - `collisional_starburst_recipe()`
   - `grow_black_hole()`
-- Want to avoid code duplication
-- Need to maintain module isolation
+- Current pattern: `src/modules/shared/` for header-only utilities
+- Need to decide if this extends to more complex physics
 
-**Options Under Consideration**:
-1. Extract to `src/modules/shared/` as utilities
-2. Keep in owning module, expose via function pointers
-3. Keep in owning module, call via module-to-module API
-4. Duplicate code in each module (simple but not DRY)
+**Options**:
+1. **Extract to shared utilities** (current approach)
+   - Move functions to `src/modules/shared/starburst.h`
+   - Both modules include shared header
+   - Pro: Maintains single source of truth
+   - Con: Utility becomes more complex
 
-**Factors**:
-- Physics-agnostic core principle
-- Module independence
-- Code maintainability
-- Testing complexity
+2. **Keep in owning module**
+   - sage_mergers exports functions via header
+   - sage_disk_instability includes sage_mergers header
+   - Pro: Clear ownership
+   - Con: Creates module dependency
 
-**To Decide**: Architecture pattern for shared physics functions
+3. **Accept duplication**
+   - Copy functions to both modules
+   - Pro: Complete module independence
+   - Con: Violates DRY principle
 
----
+**Recommendation**: Extract to shared utilities (maintains architecture)
 
-### Decision 4: Module Pipeline Enhancement
-
-**Question**: How to enhance module calling pipeline for better diagnostics and control?
-
-**Context**:
-- User wants to enhance pipeline execution in core
-- Need better visibility into module execution
-- Want validation hooks between modules
-- Performance profiling needed
-
-**Potential Enhancements**:
-- Pre/post execution hooks
-- Property validation between modules
-- Execution timing/profiling
-- Conditional module execution
-- Module dependency verification
-
-**To Decide**: Which enhancements to implement, priority order
+**Timeline**: 1 day
 
 ---
 
-### Decision 5: Property Organization & Verification
+#### Decision C: Module Integration Strategy
 
-**Question**: How to organize and verify galaxy property definitions?
+**Question**: How to systematically enable and validate modules?
 
-**Context**:
-- 23 galaxy properties defined
-- Some properties created by one module, modified by others
-- Need clear ownership semantics
-- Want to verify no duplicates/conflicts
+**Options**:
+1. **Incremental (Recommended)**
+   - Start: infall + cooling (validated above)
+   - Add: sage_starformation_feedback
+   - Add: sage_reincorporation
+   - Add: sage_disk_instability (requires shared functions)
+   - Add: sage_mergers (requires merger triggering)
+   - Validate after each addition
 
-**Tasks Needed**:
-- Review property ownership (provides fields in module metadata)
-- Verify module `provides` vs `requires` in metadata
-- Check for missing properties
-- Organize properties logically in YAML
-- Document property lifecycle
+2. **Groups**
+   - Foundation: infall + cooling
+   - Core: + starformation_feedback + reincorporation
+   - Advanced: + disk_instability + mergers
 
-**To Decide**: Organization scheme, verification process
+3. **All at once**
+   - Enable all modules simultaneously
+   - Debug issues as they arise
 
----
+**Recommendation**: Incremental (option 1) - catches integration issues early
 
-## Immediate Next Steps (This Week)
-
-### Step 1: Parameter File Cleanup
-- Remove all modules from `input/millennium.yaml` except sage_infall + sage_cooling
-- Verify minimal pipeline runs successfully
-- Document baseline behavior
-
-### Step 2: Architecture Discussions
-- Resolve Decision 1 (module enabling strategy)
-- Resolve Decision 2 (merger triggering architecture)
-- Resolve Decision 3 (shared function architecture)
-- Document decisions in roadmap
-
-### Step 3: Create Integration Task List
-- Based on decided strategy, create detailed task breakdown
-- Identify validation tests needed for each integration step
-- Estimate timeline
-- Update this document with concrete tasks
+**Timeline**: Planning 1 day, execution 1-2 weeks
 
 ---
 
-## Open Questions (For Discussion)
+### Step 3: Property Metadata Audit (Next Week)
 
-### Module Integration
-1. What validation tests are needed when adding each module?
-2. How to test module ordering dependencies?
-3. What constitutes "passing" for each integration step?
-4. How to handle modules that can't be fully tested yet (mergers)?
+**Goal**: Verify all module metadata is correct.
 
-### Core Infrastructure
-5. Where should merger detection logic live?
-6. What data structures are needed for merger queue/marking?
-7. How to call merger module when satellite is flagged for merger?
-8. Should merger triggering be in its own module or core infrastructure?
+**Tasks**:
+1. Review `galaxy_properties.yaml`:
+   - Check all 23 properties have clear descriptions
+   - Verify units are correct
+   - Consider logical grouping (gas, stars, metals, etc.)
 
-### Shared Functions
-9. Is code duplication acceptable for 1-2 shared functions?
-10. If extracting to shared utilities, what's the API?
-11. How do modules discover/call shared functions?
-12. What's the testing strategy for shared utilities?
+2. Audit each module's `module_info.yaml`:
+   - Verify `provides` lists all properties module populates
+   - Verify `requires` lists all properties module reads
+   - Check for missing dependencies
+   - Validate execution order implications
 
-### Property System
-13. Are all `provides` values correct in module metadata?
-14. Which modules provide vs modify each property?
-15. Missing any properties for full SAGE physics?
-16. How to document property lifecycle clearly?
+3. Create property flow diagram:
+   - Document which modules provide each property
+   - Document which modules require each property
+   - Identify any circular dependencies
+   - Validate execution order makes sense
 
-### Testing Strategy
-17. What cross-module validation tests are needed?
-18. How to test mass/metal/energy conservation across modules?
-19. When to compare against SAGE reference?
-20. What statistical tests for SAGE comparison?
+4. Check for issues:
+   - Properties provided by multiple modules (conflicts?)
+   - Properties required but never provided (missing?)
+   - Properties provided but never required (unused?)
+
+**Success Criteria**:
+- All module metadata accurate
+- Property flow documented
+- No missing/conflicting dependencies
+- Execution order validated
+
+**Timeline**: 2-3 days
 
 ---
 
-## Timeline (To Be Determined)
+## Medium-Term Tasks (Next Month)
 
-**Depends on**:
-- Architectural decision complexity
-- Merger triggering implementation time
-- Number of integration issues discovered
-- Validation test requirements
+### Task 4: Implement Merger Triggering
 
-**Rough Estimates** (subject to change):
-- Architecture decisions: 1 week
-- Merger triggering implementation: 2-4 weeks (if complex)
-- Module-by-module integration: 1-2 weeks
-- Full pipeline validation: 1-2 weeks
-- SAGE comparison: 2-3 weeks
+**Based on**: Architectural decision from Step 2
 
-**Total**: 7-12 weeks (highly uncertain)
+**Estimated Tasks**:
+1. Design data structures (merger queue, satellite flags)
+2. Implement merger detection logic (dynamical friction)
+3. Add merger triggering to core execution flow
+4. Update sage_mergers to use triggering system
+5. Write tests (unit + integration)
+6. Document architecture
+
+**Timeline**: 2-4 weeks (depending on complexity of chosen approach)
+
+**Success Criteria**:
+- Satellites marked for merger based on physics
+- sage_mergers executes on marked satellites
+- Tests validate merger physics
+- Documentation complete
+
+---
+
+### Task 5: Systematic Module Integration
+
+**Incremental Integration Steps**:
+
+**Step 5.1: Add sage_starformation_feedback**
+- Update parameter file
+- Run pipeline
+- Verify property flow: ColdGas → StellarMass
+- Check mass conservation (gas → stars)
+- Validate metal enrichment
+- Performance check
+
+**Step 5.2: Add sage_reincorporation**
+- Update parameter file
+- Run pipeline
+- Verify gas return: EjectedMass → HotGas
+- Check mass/metal conservation
+- Validate timestep integration
+- Performance check
+
+**Step 5.3: Add sage_disk_instability**
+- Resolve shared function architecture first
+- Move starburst/BH functions to shared/
+- Update both modules
+- Run pipeline
+- Verify disk instability physics
+- Check bulge formation
+- Performance check
+
+**Step 5.4: Add sage_mergers**
+- Requires merger triggering complete
+- Update parameter file
+- Run full pipeline (all 6 modules)
+- Verify merger physics
+- Check BH growth, starbursts
+- Validate morphology changes
+- Full mass/metal conservation check
+- Performance profiling
+
+**Timeline**: 1-2 weeks (depends on architectural decisions and merger triggering)
+
+**Success Criteria Each Step**:
+- Module executes without errors
+- Properties appear in output with valid ranges
+- Mass/metal conservation maintained
+- No memory leaks
+- Performance acceptable
+- Integration tests pass
+
+---
+
+### Task 6: Cross-Module Validation Tests
+
+**Goal**: Verify modules work correctly together.
+
+**Test Types**:
+
+1. **Property Flow Tests**
+   - Verify data flows correctly between modules
+   - Example: `test_integration_infall_cooling_pipeline.py`
+   - Check each module gets expected input from previous
+
+2. **Conservation Tests**
+   - Mass conservation across all modules
+   - Metal conservation across all modules
+   - Energy budget (if applicable)
+
+3. **Full Pipeline Tests**
+   - All 6 modules enabled
+   - Verify execution order
+   - Check for anomalies in output
+   - Performance benchmarking
+
+**Timeline**: 1 week
+
+---
+
+## Long-Term Tasks (2-3 Months)
+
+### Task 7: SAGE Scientific Validation (Phase 4.4)
+
+**Goal**: Verify physics accuracy against published SAGE results.
+
+**Per-Module Validation**:
+1. sage_infall: Gas accretion rates, reionization suppression
+2. sage_cooling: Cooling rates, AGN heating, BH growth
+3. sage_starformation_feedback: SFR, feedback efficiency, metal enrichment
+4. sage_reincorporation: Gas return timescales
+5. sage_mergers: Merger rates, starbursts, BH growth
+6. sage_disk_instability: Disk instability frequency, bulge formation
+
+**Validation Methods**:
+- Compare to SAGE reference outputs (statistical distributions)
+- Reproduce published results (e.g., Croton+2006 mass functions)
+- Mass/metal budgets match SAGE
+- Parameter sensitivity tests
+
+**Important Notes**:
+- All physics code complete, but scientific accuracy unverified
+- May reveal parameter tuning needs or physics bugs
+- User will validate each module individually
+- May identify need to split modules (SF+feedback, cooling+AGN)
+
+**Timeline**: 2-3 weeks per module (can parallelize some validation tasks)
+
+---
+
+### Task 8: Module Reorganization (If Needed)
+
+**Context**: During scientific validation, may discover modules should be split.
+
+**Potential Splits**:
+1. **sage_starformation_feedback** → `sage_starformation` + `sage_feedback`
+   - Rationale: Separate star formation physics from feedback physics
+   - Benefit: Easier to configure/validate independently
+
+2. **sage_cooling** → `sage_cooling` + `sage_agn`
+   - Rationale: Separate gas cooling from AGN heating
+   - Benefit: Can disable AGN while keeping cooling
+
+**Decision Point**: After initial scientific validation reveals actual needs
+
+**Timeline**: 1-2 weeks per split (if needed)
 
 ---
 
 ## Success Criteria (Phase 4.3 Complete)
 
-Phase 4.3 is complete when:
+Phase 4.3 complete when:
 
 - [ ] All architectural decisions documented
 - [ ] Merger triggering implemented and tested
-- [ ] All 6 SAGE modules integrated into pipeline
+- [ ] All 6 SAGE modules integrated into working pipeline
 - [ ] Module execution order validated
-- [ ] Property flow verified across all modules
-- [ ] Mass/metal conservation verified
+- [ ] Property flow verified across modules
+- [ ] Mass/metal conservation verified across pipeline
 - [ ] Performance acceptable on Millennium data
-- [ ] Full pipeline tests passing
-- [ ] Ready for SAGE scientific comparison (Phase 4.4)
+- [ ] Cross-module integration tests passing
+- [ ] Ready to begin SAGE scientific validation (Phase 4.4)
+
+**Then**: Move to Phase 4.4 (scientific validation) and Phase 5 (build-time optimization)
+
+---
+
+## How to Use This Document
+
+1. **Start at Step 1**: Minimal pipeline validation
+2. **Make Decisions**: Resolve architectural questions in Step 2
+3. **Execute Plan**: Follow Steps 3-6 sequentially
+4. **Update as You Go**: Mark tasks complete, add new tasks as discovered
+5. **Reference Roadmap**: See roadmap_v5.md for big picture
+
+**This is a living document** - update as decisions are made and work progresses.
 
 ---
 
 ## Notes
 
-- This document is forward-looking and should be updated as decisions are made
-- Completed work moves to roadmap_v4.md
-- Open questions should be resolved through discussion
-- Task list will become more concrete once strategy is decided
+- **Don't rush**: Good architectural decisions prevent rework
+- **Test incrementally**: Catch issues early by adding one module at a time
+- **Document decisions**: Future developers need to understand choices
+- **Validate thoroughly**: Scientific accuracy is paramount
 
-**Philosophy**: Take time to make good architectural decisions. Rushing into integration without resolving these questions will lead to rework.
-
----
-
----
-
-## Recent Progress (November 18, 2025)
-
-### Code Quality & Testing Improvements
-
-**safe_div() utility integration**:
-- Merged remote main branch bringing safe_div() utility function
-- Applied safe_div() to all 4 new modules:
-  - sage_starformation_feedback: 4 divisions updated
-  - sage_reincorporation: 2 divisions updated
-  - sage_mergers: 7 divisions updated, removed duplicate safe_div()
-  - sage_disk_instability: 5 divisions updated
-- Total: 18 division operations now use centralized safe division
-
-**Compiler warnings addressed**:
-- Fixed 2 unused parameter warnings (ctx) with proper (void)ctx; idiom
-- Documented 3 expected warnings in sage_mergers (functions blocked by Phase 4.3)
-- Build now clean except for documented expected warnings
-
-**Unit test framework updates**:
-- Rewrote test_unit_sage_disk_instability.c to match current API
-- Fixed 20 compilation errors from outdated testing patterns
-- All 14 unit tests now passing (all 8 modules)
-- Test coverage: 6 infrastructure + 8 module tests = 14 total
-
-**Impact**: All merged modules now meet professional code quality standards. Ready for integration testing phase.
-
----
-
-**Last Updated**: 2025-11-18 (after code quality improvements)
-**Next Review**: After architectural decisions are made
+**Philosophy**: Professional software development takes time. Do it right the first time.
