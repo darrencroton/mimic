@@ -171,7 +171,7 @@ static void update_from_feedback(struct GalaxyData *gal, struct GalaxyData *cent
 //
 //       These functions will be activated when the core identifies satellites
 //       that have merged with their host halos. Compiler warnings about
-//       unused functions are expected and documented in roadmap_v4.md.
+//       unused functions are expected and documented in roadmap.md.
 //
 //       Status: Per roadmap - "sage_mergers requires core merger triggering"
 //       Functions blocked: estimate_merging_time(), deal_with_galaxy_merger(),

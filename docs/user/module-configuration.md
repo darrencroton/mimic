@@ -295,6 +295,6 @@ ERROR: SimpleCooling_BaryonFraction = 2.0 is outside valid range [0.0, 1.0]
 
 ## See Also
 
-- `docs/architecture/roadmap_v4.md` - Module system implementation roadmap
+- `docs/architecture/roadmap.md` - Module system implementation roadmap
 - `docs/architecture/vision.md` - Architectural principles
 - Module developer guide (planned for Phase 4) - Writing new modules

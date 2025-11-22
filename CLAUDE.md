@@ -208,7 +208,7 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 
 See also:
 - **docs/architecture/vision.md**: Architectural principles and future vision
-- **docs/architecture/roadmap_v4.md**: Development roadmap (Phases 1-3 complete)
+- **docs/architecture/roadmap.md**: Development roadmap (Phases 1-3 complete)
 - **docs/developer/getting-started.md**: Developer setup and workflow
 - **docs/developer/testing.md**: Comprehensive testing guide and standards
 - **docs/user/module-configuration.md**: Guide to configuring physics modules

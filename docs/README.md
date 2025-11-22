@@ -227,7 +227,7 @@ mimic/
 
 **Architecture & Design:**
 - `docs/architecture/vision.md` - 8 core principles
-- `docs/architecture/roadmap_v4.md` - Implementation status and roadmap
+- `docs/architecture/roadmap.md` - Implementation status and roadmap
 
 **Development:**
 - `docs/developer/module-developer-guide.md` - Creating physics modules
@@ -283,7 +283,7 @@ make tidy   # Remove object files, keep executable
 
 ### Architecture & Design
 - **[Vision](architecture/vision.md)** - 8 core architectural principles
-- **[Roadmap v4](architecture/roadmap_v4.md)** - Implementation status (Phases 1-3 complete)
+- **[Roadmap v4](architecture/roadmap.md)** - Implementation status (Phases 1-3 complete)
 - **[Property Metadata Schema](architecture/property-metadata-schema.md)** - Property system specification
 
 ### Development Guides
@@ -306,7 +306,7 @@ docs/
 ├── README.md (this file)        ⭐ START HERE - Entry point for all users
 ├── architecture/
 │   ├── vision.md                - 8 core architectural principles
-│   ├── roadmap_v4.md            - Implementation roadmap
+│   ├── roadmap.md            - Implementation roadmap
 │   ├── property-metadata-schema.md - Property system specification
 │   └── next-task.md             - Current development tasks
 ├── developer/
@@ -343,7 +343,7 @@ docs/
 → See [Architecture Vision](architecture/vision.md) - 8 core principles
 
 **Q: What's the current implementation status?**
-→ See [Roadmap](architecture/roadmap_v4.md) - Phases 1-3 complete, Phase 4 in progress
+→ See [Roadmap](architecture/roadmap.md) - Phases 1-3 complete, Phase 4 in progress
 
 **Q: How do I run tests?**
 → See [Testing Guide](developer/testing.md) quick reference or run `make tests`
