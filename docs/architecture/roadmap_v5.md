@@ -18,11 +18,14 @@
 - ⏸️ **Integration In Progress**: Modules merged, unit tests passing (14/14), but full pipeline integration and scientific validation pending
 
 **Path Forward**:
-1. **Phase 4.3** (Current): Module integration, architectural decisions, full pipeline validation
-2. **Phase 4.4**: SAGE scientific validation (physics accuracy verification)
-3. **Phase 5**: Build-time module selection (deployment optimization)
+1. **Phase 4.4** (Current - Priority Reordered): SAGE scientific validation (physics accuracy verification)
+   - Validate 4 working modules FIRST (infall, cooling, SF+feedback, reincorporation)
+   - Then fix blocked modules (merger triggering, shared functions)
+   - Then validate remaining 2 modules (mergers, disk instability)
+   - Finally evaluate module reorganization
+2. **Phase 5**: Build-time module selection (deployment optimization)
 
-**Timeline**: 2-4 months for Phases 4.3-4.4, then production-ready for scientific use.
+**Timeline**: 8-10 weeks for Phase 4.4, then production-ready for scientific use.
 
 ---
 
@@ -148,75 +151,142 @@ All 6 SAGE physics modules implemented and merged (November 2025):
 - Build system manages full SAGE physics + system modules
 - Module isolation maintained (physics-agnostic core)
 
-### Phase 4.3: Module Integration & Validation ⏸️ IN PROGRESS
-
-**Goal**: Integrate merged modules into validated full pipeline.
-
-**Current Blockers & Decisions Needed**:
-
-1. **Merger Triggering**: Core doesn't detect when satellites should merge
-   - SAGE uses dynamical friction timescale
-   - Need to implement in core or as special module
-   - Blocks full testing of sage_mergers module
-
-2. **Module Enabling Strategy**: How to systematically validate integration?
-   - Start minimal (infall + cooling), add incrementally?
-   - Enable groups (foundation → core → advanced)?
-   - Full pipeline at once?
-
-3. **Shared Function Architecture**: sage_disk_instability needs sage_mergers functions
-   - Extract to `shared/` utilities?
-   - Keep in module, expose via API?
-   - Current approach: moving to shared utilities
-
-4. **Property Verification**: Need to verify module metadata
-   - Check all `provides` vs `requires` declarations
-   - Ensure no missing/duplicate properties
-   - Validate execution order requirements
-
-**Near-Term Tasks**:
-- Minimal pipeline test (infall + cooling only)
-- Architectural decision documentation
-- Merger triggering design and implementation
-- Systematic module-by-module integration plan
-- Cross-module validation tests
-
-**Success Criteria**:
-- All architectural decisions documented
-- Merger triggering implemented
-- All 6 modules integrated into working pipeline
-- Property flow validated across modules
-- Mass/metal conservation verified
-- Performance acceptable on Millennium data
-- Ready for scientific validation
-
-### Phase 4.4: SAGE Scientific Validation 📋 Planned
+### Phase 4.4: SAGE Scientific Validation 🔄 IN PROGRESS (Priority Reordered)
 
 **Goal**: Verify physics accuracy against published SAGE results.
 
-**Status**: **NOT STARTED** - All physics implemented but science validation pending.
+**Status**: **Active** - Validating working modules FIRST, then fixing/validating blocked modules.
 
-**Important Notes**:
-- All module code is complete and tests pass
-- Scientific accuracy verification is separate phase
-- May reveal need to adjust parameters or fix physics bugs
-- User will validate each module individually
+**Priority Order** (Changed Nov 22, 2025):
+1. **Validate 4 working modules** (Weeks 1-4)
+2. **Fix blocked modules** (Weeks 5-6)
+3. **Validate remaining 2 modules** (Weeks 7-8)
+4. **Evaluate module reorganization** (Weeks 9-10)
 
-**Potential Module Reorganization**:
-During scientific validation, may consider breaking modules into smaller units:
-- **Star Formation + Feedback** → Separate SF and feedback modules?
-- **Cooling + AGN** → Separate cooling physics from AGN feedback?
-- Rationale: Smaller, focused modules easier to validate and configure
-- Decision deferred until validation reveals actual needs
+---
 
-**Validation Tasks** (per module):
-1. Compare outputs to SAGE reference results
-2. Verify mass conservation (baryons, metals, stars)
-3. Check statistical distributions (mass functions, metallicities)
-4. Reproduce published results (e.g., Croton+2006)
-5. Performance profiling on full Millennium simulation
+#### Priority 1: Validate Working Modules (Weeks 1-4)
 
-**Timeline**: 2-3 weeks per module (12-18 weeks total), but may be faster if systematic
+**Modules Ready for Validation**:
+- ✅ **sage_infall**: Gas accretion, satellite stripping, metallicity
+- ✅ **sage_cooling**: Cooling tables, AGN heating, BH growth
+- ✅ **sage_starformation_feedback**: Kennicutt-Schmidt SF, SN feedback, metal enrichment
+- ✅ **sage_reincorporation**: Gas return from ejected reservoir
+
+**Validation Approach**:
+1. **Week 1**: Validate sage_infall + sage_cooling individually
+   - Gas accretion rates, reionization suppression, satellite stripping
+   - Cooling rates, AGN modes, BH growth, mass/metal conservation
+2. **Week 2-3**: Validate sage_starformation_feedback
+   - Star formation law, supernova feedback, metal enrichment, recycling
+   - Disk scale radius, mass conservation
+3. **Week 3**: Validate sage_reincorporation
+   - Reincorporation timescales, gas return, mass/metal conservation
+4. **Week 4**: Integrated 4-module pipeline validation
+   - Property flow across modules
+   - Complete mass/metal budgets
+   - Statistical comparison vs SAGE (4-module outputs)
+   - Performance profiling
+
+**Deliverables**: Scientific test files for each module, validation report
+
+---
+
+#### Priority 2: Fix Blocked Modules (Weeks 5-6)
+
+**Blockers to Resolve**:
+
+1. **Merger Triggering** (1-2 weeks)
+   - Implement dynamical friction timescale in core
+   - Mark satellites for merger when t_merge < t_current
+   - Expose merger status to sage_mergers module
+   - Unit tests for merger detection logic
+
+2. **Shared Function Architecture** (1-2 days)
+   - Extract starburst functions to `src/modules/shared/starburst.h`
+   - Move `collisional_starburst_recipe()` and `grow_black_hole()` from sage_mergers
+   - Update sage_disk_instability to use shared functions
+   - Unit tests for shared starburst utilities
+
+**Deliverables**: Working merger triggering, shared starburst utilities
+
+---
+
+#### Priority 3: Validate Blocked Modules (Weeks 7-8)
+
+**Modules to Validate** (after fixes complete):
+- **sage_mergers**: Dynamical friction, starbursts, BH growth, quasar feedback, morphology
+- **sage_disk_instability**: Disk stability criterion, bulge formation, gas processing
+
+**Validation Tasks**:
+1. **Week 7**: Validate sage_mergers
+   - Merger detection rates, merger physics, starbursts, BH growth
+   - Quasar feedback, morphological transformations, mass conservation
+2. **Week 7-8**: Validate sage_disk_instability
+   - Stability criterion, disk→bulge transfer, gas processing, frequency
+3. **Week 8**: Full 6-module pipeline validation
+   - Complete mass/metal budgets (all components)
+   - SAGE comparison (stellar mass function, gas distributions, metallicities)
+   - Performance on full Millennium data
+
+**Deliverables**: Scientific test files for sage_mergers + sage_disk_instability, comprehensive SAGE comparison report
+
+---
+
+#### Priority 4: Module Reorganization (Weeks 9-10)
+
+**Goal**: Based on validation experience, decide if modules should be split for better configurability.
+
+**Potential Splits to Evaluate**:
+
+1. **sage_infall** → `sage_infall` + `sage_reionization`
+   - Rationale: Reionization is separate process, can disable independently
+   - Benefit: Easier testing, clearer physics separation
+   - Effort: 2-3 days
+
+2. **sage_starformation_feedback** → `sage_starformation` + `sage_feedback`
+   - Rationale: SF and feedback are distinct processes
+   - Benefit: Can disable feedback for testing, easier validation
+   - Effort: 3-4 days
+
+3. **sage_cooling** → `sage_cooling` + `sage_agn`
+   - Rationale: Gas cooling vs AGN feedback are separate
+   - Benefit: Can disable AGN independently, easier testing
+   - Effort: 3-4 days
+
+4. **sage_mergers** → `sage_mergers` + `sage_starbursts`
+   - Rationale: Starbursts occur outside mergers (disk instability)
+   - Benefit: Shared physics between modules, better reusability
+   - Effort: 2-3 days (already in shared/, formalize as module)
+
+5. **sage_disk_instability** → Keep as-is (focused module)
+   - Evaluation: Probably doesn't need splitting
+
+6. **sage_reincorporation** → Keep as-is (already minimal)
+   - Evaluation: Simple module, splitting would over-engineer
+
+**Decision Process**:
+- Review validation experience (what was hard to test/debug?)
+- Consider user configurability needs (what should be toggleable?)
+- Evaluate maintenance burden (is splitting worth complexity?)
+- Only split if clear benefits demonstrated
+
+**Timeline**: 1 day evaluation + 2-4 days per split
+
+---
+
+**Phase 4.4 Success Criteria**:
+- All 6 modules validated against SAGE reference
+- Physics accuracy verified (statistical tests pass)
+- Merger triggering implemented and tested
+- Shared function architecture resolved
+- Complete mass/metal conservation across full pipeline
+- SAGE comparison complete with quantified differences
+- Module reorganization decisions documented
+- Any needed splits implemented and re-validated
+- Performance acceptable on Millennium data
+
+**Timeline**: 8-10 weeks total
 
 ---
 
@@ -240,22 +310,28 @@ During scientific validation, may consider breaking modules into smaller units:
 
 ---
 
-## Current Priorities (November 2025)
+## Current Priorities (November 2025 - Reordered)
 
-### Immediate (This Week)
-1. **Architecture Decisions**: Resolve merger triggering, integration strategy, shared functions
-2. **Minimal Pipeline Test**: Verify infall + cooling work together
-3. **Document Decisions**: Update roadmap with architectural choices
+### Immediate: Scientific Validation First (Weeks 1-4)
+1. **Validate sage_infall**: Gas accretion, reionization, satellite stripping vs SAGE
+2. **Validate sage_cooling**: Cooling rates, AGN modes, BH growth vs SAGE
+3. **Validate sage_starformation_feedback**: SF law, SN feedback, metal enrichment vs SAGE
+4. **Validate sage_reincorporation**: Gas return timescales vs SAGE
+5. **4-Module Pipeline**: Integrated validation, mass/metal budgets, SAGE comparison
 
-### Short-Term (Next Month)
-4. **Merger Triggering**: Design and implement core merger detection
-5. **Systematic Integration**: Add modules one-by-one with validation
-6. **Property Verification**: Audit all module metadata for correctness
+### Short-Term: Fix Blocked Modules (Weeks 5-6)
+6. **Merger Triggering**: Implement dynamical friction timescale in core
+7. **Shared Functions**: Extract starburst utilities to `src/modules/shared/`
 
-### Medium-Term (2-3 Months)
-7. **Full Pipeline Validation**: All modules integrated and tested
-8. **Performance Testing**: Profile on full Millennium data
-9. **SAGE Scientific Validation**: Begin physics accuracy verification
+### Medium-Term: Complete Validation (Weeks 7-8)
+8. **Validate sage_mergers**: Mergers, starbursts, BH growth, quasar feedback vs SAGE
+9. **Validate sage_disk_instability**: Stability criterion, bulge formation vs SAGE
+10. **6-Module Pipeline**: Full SAGE comparison, performance profiling
+
+### Long-Term: Optimize Structure (Weeks 9-10)
+11. **Evaluate Module Splits**: Infall+reionization, SF+feedback, cooling+AGN, mergers+starbursts
+12. **Implement Splits**: Only if validation reveals clear benefits
+13. **Re-validate**: Ensure splits don't break physics
 
 ---
 
