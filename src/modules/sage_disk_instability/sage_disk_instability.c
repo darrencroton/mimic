@@ -269,14 +269,19 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
       galaxy->BulgeMass += unstable_stars;
       galaxy->MetalsBulgeMass += metallicity * unstable_stars;
 
-      /* Sanity check: bulge mass should not exceed total stellar mass */
-      if (galaxy->BulgeMass > galaxy->StellarMass * 1.0001 ||
-          galaxy->MetalsBulgeMass > galaxy->MetalsStellarMass * 1.0001) {
+      /* Sanity check: bulge mass should not exceed total stellar mass
+       * Correct if needed to maintain physical constraint */
+      if (galaxy->BulgeMass > galaxy->StellarMass * 1.0001) {
         WARNING_LOG("Disk instability: bulge mass exceeds total stellar mass in halo %d. "
-                   "Bulge/Total = %.4f (stars) or %.4f (metals)",
-                   halo->HaloNr,
-                   safe_div(galaxy->BulgeMass, galaxy->StellarMass, 0.0),
-                   safe_div(galaxy->MetalsBulgeMass, galaxy->MetalsStellarMass, 0.0));
+                   "Correcting BulgeMass from %.4e to %.4e",
+                   halo->HaloNr, galaxy->BulgeMass, galaxy->StellarMass);
+        galaxy->BulgeMass = galaxy->StellarMass;
+      }
+      if (galaxy->MetalsBulgeMass > galaxy->MetalsStellarMass * 1.0001) {
+        WARNING_LOG("Disk instability: bulge metals exceed total stellar metals in halo %d. "
+                   "Correcting MetalsBulgeMass from %.4e to %.4e",
+                   halo->HaloNr, galaxy->MetalsBulgeMass, galaxy->MetalsStellarMass);
+        galaxy->MetalsBulgeMass = galaxy->MetalsStellarMass;
       }
     }
 

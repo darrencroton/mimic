@@ -236,11 +236,19 @@ void write_hdf5_galsnap_data(int n, int filenr) {
   herr_t status;
   hid_t file_id, group_id;
   char target_group[100];
-  char fname[1000];
+  char fname[2 * MAX_STRING_LEN + 50];  // Sufficient for dir + "/" + basename + "_NNN.hdf5"
 
   // Generate the filename to be opened.
-  sprintf(fname, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
-          MimicConfig.OutputFileBaseName, filenr);
+  int ret = snprintf(fname, sizeof(fname), "%s/%s_%03d.hdf5",
+                     MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+  if (ret < 0) {
+    FATAL_ERROR("Path formatting error for: %s/%s_%03d.hdf5",
+                MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+  }
+  if (ret >= (int)sizeof(fname)) {
+    FATAL_ERROR("Output path too long: %s/%s_%03d.hdf5",
+                MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+  }
 
   // Open the file.
   file_id = H5Fopen(fname, H5F_ACC_RDWR, H5P_DEFAULT);
@@ -496,17 +504,26 @@ void write_master_file(void) {
    */
 
   int filenr, n, ngal_in_file, ngal_in_core;
-  char master_file[1000], target_file[1000];
+  char master_file[2 * MAX_STRING_LEN + 50], target_file[2 * MAX_STRING_LEN + 50];
   char target_group[100], source_ds[100];
   hid_t master_file_id, dataset_id, attribute_id, dataspace_id, group_id,
       target_file_id;
   herr_t status;
   hsize_t dims;
   float redshift;
+  int ret;
 
   // Open the master file.
-  sprintf(master_file, "%s/%s.hdf5", MimicConfig.OutputDir,
-          MimicConfig.OutputFileBaseName);
+  ret = snprintf(master_file, sizeof(master_file), "%s/%s.hdf5",
+                 MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
+  if (ret < 0) {
+    FATAL_ERROR("Path formatting error for: %s/%s.hdf5",
+                MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
+  }
+  if (ret >= (int)sizeof(master_file)) {
+    FATAL_ERROR("Master file path too long: %s/%s.hdf5",
+                MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
+  }
   DEBUG_LOG("Creating master HDF5 file '%s'", master_file);
   master_file_id =
       H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
@@ -569,8 +586,16 @@ void write_master_file(void) {
       }
 
       // Increment the total number of objects for this file.
-      sprintf(target_file, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
-              MimicConfig.OutputFileBaseName, filenr);
+      ret = snprintf(target_file, sizeof(target_file), "%s/%s_%03d.hdf5",
+                     MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+      if (ret < 0) {
+        FATAL_ERROR("Path formatting error for: %s/%s_%03d.hdf5",
+                    MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+      }
+      if (ret >= (int)sizeof(target_file)) {
+        FATAL_ERROR("Target file path too long: %s/%s_%03d.hdf5",
+                    MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+      }
       target_file_id = H5Fopen(target_file, H5F_ACC_RDONLY, H5P_DEFAULT);
       sprintf(source_ds, "Snap%03d/Galaxies", MimicConfig.ListOutputSnaps[n]);
       dataset_id = H5Dopen(target_file_id, source_ds, H5P_DEFAULT);

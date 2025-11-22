@@ -37,10 +37,10 @@ static const char *CategoryNames[] = {"Unknown", "Galaxies", "Halos",
 
 /* Memory tracking variables */
 static unsigned long MaxBlocks = DEFAULT_MAX_MEMORY_BLOCKS;
-static unsigned long Nblocks = 0;             /* Number of allocated blocks */
-static void *(*Table) = NULL;                 /* Pointers to allocated blocks */
-static size_t(*SizeTable) = NULL;             /* Sizes of allocated blocks */
-static MemoryCategory(*CategoryTable) = NULL; /* Category of each block */
+static unsigned long Nblocks = 0;          /* Number of allocated blocks */
+static void **Table = NULL;                /* Pointers to allocated blocks */
+static size_t *SizeTable = NULL;           /* Sizes of allocated blocks */
+static MemoryCategory *CategoryTable = NULL; /* Category of each block */
 static size_t TotMem = 0;                     /* Total allocated memory */
 static size_t HighMarkMem = 0;          /* High watermark of memory usage */
 static size_t OldPrintedHighMark = 0;   /* Last reported high watermark */

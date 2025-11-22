@@ -411,15 +411,27 @@ int32_t read_dataset(hid_t my_hdf5_file, char *dataset_name, int32_t datatype,
     return dataset_id;
   }
 
-  if (datatype == 0)
-    H5Dread(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
-  else if (datatype == 1)
-    H5Dread(dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-            buffer);
+  /* Read the dataset with error checking */
+  herr_t status;
+  if (datatype == 0) {
+    status = H5Dread(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+  } else if (datatype == 1) {
+    status = H5Dread(dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+  } else if (datatype == 2) {
+    status = H5Dread(dataset_id, H5T_NATIVE_LLONG, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+  } else {
+    ERROR_LOG("Invalid datatype %d for dataset %s", datatype, dataset_name);
+    H5Dclose(dataset_id);
+    return -1;
+  }
 
-  else if (datatype == 2)
-    H5Dread(dataset_id, H5T_NATIVE_LLONG, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-            buffer);
+  if (status < 0) {
+    ERROR_LOG("Failed to read dataset %s (error %d)", dataset_name, status);
+    H5Dclose(dataset_id);
+    return status;
+  }
 
+  /* Close the dataset to prevent resource leak */
+  H5Dclose(dataset_id);
   return EXIT_SUCCESS;
 }

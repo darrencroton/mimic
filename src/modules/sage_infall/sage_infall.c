@@ -400,7 +400,7 @@ static void strip_from_satellite(struct Halo *halos, int central_idx,
 
     /* Add stripped gas and metals to central galaxy */
     halos[central_idx].galaxy->HotGas += (float)strippedGas;
-    halos[central_idx].galaxy->MetalsHotGas += (float)(strippedGas * metallicity);
+    halos[central_idx].galaxy->MetalsHotGas += (float)strippedGasMetals;
   }
 }
 

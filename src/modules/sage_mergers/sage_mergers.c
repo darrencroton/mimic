@@ -534,10 +534,13 @@ static void deal_with_galaxy_merger(struct Halo *satellite, struct Halo *central
 
   /* Grow black hole through merger-driven accretion */
   if (AGN_RECIPE_ON == 1) {
+    /* Track BH mass before growth to calculate accretion */
+    float BH_before = central->galaxy->BlackHoleMass;
+
     grow_black_hole(central->galaxy, mass_ratio, central->Vvir);
 
-    /* Get BH accretion that just occurred for quasar feedback */
-    float BHaccrete_recent = 0.0;  // Would need to track delta
+    /* Calculate actual BH accretion that just occurred for quasar feedback */
+    float BHaccrete_recent = central->galaxy->BlackHoleMass - BH_before;
     quasar_mode_wind(central->galaxy, BHaccrete_recent, central->Vvir);
   }
 

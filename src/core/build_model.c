@@ -238,6 +238,11 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
         // this halo shouldn't hold an object that has already merged; remove it
         // from future processing
         if (FoFWorkspace[ngal].MergeStatus != 0) {
+          // Free galaxy data to prevent memory leak (allocated above but not needed)
+          if (FoFWorkspace[ngal].galaxy != NULL) {
+            myfree(FoFWorkspace[ngal].galaxy);
+            FoFWorkspace[ngal].galaxy = NULL;
+          }
           FoFWorkspace[ngal].Type = 3;
           continue;
         }

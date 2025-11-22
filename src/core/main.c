@@ -229,6 +229,10 @@ int main(int argc, char **argv) {
     }
   }
 
+  /* Initialize error handling system with the log level determined from command
+   * line (must be done before any FATAL_ERROR calls) */
+  initialize_error_handling(log_level, NULL);
+
   /* Ensure we have exactly one parameter file specified */
   if (argc != 2) {
     FATAL_ERROR("Incorrect usage! Please use: mimic [options] <parameterfile>\n"
@@ -243,10 +247,6 @@ int main(int argc, char **argv) {
   current_XCPU = saveaction_XCPU;
   current_XCPU.sa_handler = termination_handler;
   sigaction(SIGXCPU, &current_XCPU, NULL);
-
-  /* Initialize error handling system with the log level determined from command
-   * line */
-  initialize_error_handling(log_level, NULL);
 
   /* Initialize memory management system */
   init_memory_system(0); /* Use default block limit */

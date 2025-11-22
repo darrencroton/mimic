@@ -282,12 +282,20 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
     assert(coolingGas >= 0.0);
 
     /* Calculate the new heating rate from black hole accretion
-     * Three different accretion modes available (set by AGNrecipeOn parameter):
+     * Four different accretion modes available (set by AGNrecipeOn parameter):
+     *   Mode 0: AGN heating disabled
      *   Mode 1: Empirical scaling (default)
      *   Mode 2: Bondi-Hoyle accretion
      *   Mode 3: Cold cloud accretion */
     if (hot_gas > EPSILON_SMALL) {
-        if (AGN_RECIPE_ON == 2) {
+        if (AGN_RECIPE_ON == 0) {
+            /* ============================================================
+             * AGN ACCRETION MODE 0: Disabled
+             * ============================================================
+             * No AGN heating - for testing or alternative physics models */
+            AGNrate = 0.0;
+
+        } else if (AGN_RECIPE_ON == 2) {
             /* ============================================================
              * AGN ACCRETION MODE 2: Bondi-Hoyle
              * ============================================================
@@ -310,7 +318,7 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
             else
                 AGNrate = 0.0;
 
-        } else {
+        } else if (AGN_RECIPE_ON == 1) {
             /* ============================================================
              * AGN ACCRETION MODE 1: Empirical (Default)
              * ============================================================
@@ -329,6 +337,11 @@ static double do_AGN_heating(struct Halo *halo, double coolingGas,
                 AGNrate = RADIO_MODE_EFFICIENCY / unit_conv *
                          (black_hole_mass / 0.01) *
                          pow(vvir / 200.0, 3.0);
+
+        } else {
+            /* Invalid AGN mode */
+            ERROR_LOG("Invalid AGN_RECIPE_ON value: %d (valid: 0-3)", AGN_RECIPE_ON);
+            return -1;
         }
 
         /* Calculate Eddington accretion rate limit

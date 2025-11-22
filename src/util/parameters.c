@@ -24,6 +24,7 @@
 #include "constants.h"
 #include "globals.h"
 #include "types.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -31,32 +32,32 @@ static ParameterDefinition ParameterTable[] = {
     // Format: {name, description, type, address, required, min_value,
     // max_value}
 
-    // File information parameters
+    // File information parameters (strings - bounds not used)
     {"OutputFileBaseName", "Base name of output files", STRING,
-     &MimicConfig.OutputFileBaseName, 1, 0.0, 0.0},
+     &MimicConfig.OutputFileBaseName, 1, -INFINITY, INFINITY},
     {"OutputDir", "Directory for output files", STRING, &MimicConfig.OutputDir,
-     1, 0.0, 0.0},
+     1, -INFINITY, INFINITY},
     {"TreeName", "Base name of merger tree files", STRING, &MimicConfig.TreeName,
-     1, 0.0, 0.0},
+     1, -INFINITY, INFINITY},
     {"TreeType",
      "Type of merger tree files (lhalo_binary or genesis_lhalo_hdf5)", STRING,
-     NULL, 1, 0.0, 0.0}, // Special handling needed
+     NULL, 1, -INFINITY, INFINITY}, // Special handling needed
     {"OutputFormat", "Output file format (binary or hdf5)", STRING, NULL, 1,
-     0.0, 0.0}, // Special handling needed
+     -INFINITY, INFINITY}, // Special handling needed
     {"SimulationDir", "Directory containing simulation data", STRING,
-     &MimicConfig.SimulationDir, 1, 0.0, 0.0},
+     &MimicConfig.SimulationDir, 1, -INFINITY, INFINITY},
     {"FileWithSnapList", "File containing snapshot list", STRING,
-     &MimicConfig.FileWithSnapList, 1, 0.0, 0.0},
+     &MimicConfig.FileWithSnapList, 1, -INFINITY, INFINITY},
 
     // Simulation parameters
     {"LastSnapshotNr", "Last snapshot number", INT, &MimicConfig.LastSnapshotNr,
      1, 0.0, ABSOLUTEMAXSNAPS - 1},
     {"FirstFile", "First file to process", INT, &MimicConfig.FirstFile, 1, 0.0,
-     0.0},
+     INFINITY},
     {"LastFile", "Last file to process", INT, &MimicConfig.LastFile, 1, 0.0,
-     0.0},
+     INFINITY},
     {"BoxSize", "Simulation box size (Mpc/h)", DOUBLE, &MimicConfig.BoxSize, 1,
-     0.0, 0.0},
+     0.0, INFINITY},
 
     // Output parameters
     {"NumOutputs", "Number of outputs (-1 for all snapshots)", INT,
@@ -68,17 +69,17 @@ static ParameterDefinition ParameterTable[] = {
     {"OmegaLambda", "Dark energy density parameter", DOUBLE,
      &MimicConfig.OmegaLambda, 1, 0.0, 1.0},
     {"Hubble_h", "Hubble parameter (H0/100)", DOUBLE, &MimicConfig.Hubble_h, 1,
-     0.0, 0.0},
+     0.0, INFINITY},
     {"PartMass", "Particle mass in simulation", DOUBLE, &MimicConfig.PartMass, 1,
-     0.0, 0.0},
+     0.0, INFINITY},
 
     // Unit parameters
     {"UnitVelocity_in_cm_per_s", "Velocity unit in cm/s", DOUBLE,
-     &MimicConfig.UnitVelocity_in_cm_per_s, 1, 0.0, 0.0},
+     &MimicConfig.UnitVelocity_in_cm_per_s, 1, 0.0, INFINITY},
     {"UnitLength_in_cm", "Length unit in cm", DOUBLE,
-     &MimicConfig.UnitLength_in_cm, 1, 0.0, 0.0},
+     &MimicConfig.UnitLength_in_cm, 1, 0.0, INFINITY},
     {"UnitMass_in_g", "Mass unit in g", DOUBLE, &MimicConfig.UnitMass_in_g, 1,
-     0.0, 0.0},
+     0.0, INFINITY},
 
 };
 
@@ -125,9 +126,9 @@ int get_parameter_table_size(void) { return NParameters; }
  * The function is used during parameter reading to ensure that parameter
  * values are within acceptable ranges.
  *
- * @note min_value or max_value of 0.0 means "unbounded". This works correctly
- *       for all current parameters which are positive, but would not work for
- *       parameters that can be negative.
+ * @note min_value or max_value of INFINITY/-INFINITY means "unbounded". This
+ *       correctly handles all parameter types including those with min=0.0 or
+ *       negative valid ranges.
  */
 int is_parameter_valid(const ParameterDefinition *param, const void *value) {
   // Strings are always valid (for now)
@@ -138,10 +139,10 @@ int is_parameter_valid(const ParameterDefinition *param, const void *value) {
   double val = (param->type == INT) ? (double)(*((const int *)value))
                                     : *((const double *)value);
 
-  // Validate against bounds (0.0 means "no bound set")
-  if (param->min_value > 0.0 && val < param->min_value)
+  // Validate against bounds (INFINITY/-INFINITY means "no bound set")
+  if (!isinf(param->min_value) && val < param->min_value)
     return 0;
-  if (param->max_value > 0.0 && val > param->max_value)
+  if (!isinf(param->max_value) && val > param->max_value)
     return 0;
 
   return 1; // Valid
