@@ -17,6 +17,8 @@
  * at runtime without recompilation.
  */
 
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -271,12 +273,13 @@ int module_get_parameter(const char *module_name, const char *param_name,
  * @brief   Read a module parameter as double
  *
  * Searches for parameter and converts to double. Returns default if not found.
+ * Uses strtod with proper error checking to detect invalid values (fix for issue 1.2.3).
  *
  * @param   module_name     Module name
  * @param   param_name      Parameter name
  * @param   out_value       Output pointer for double value
  * @param   default_value   Default value if parameter not found
- * @return  0 on success
+ * @return  0 on success, -1 on conversion error
  */
 int module_get_double(const char *module_name, const char *param_name,
                       double *out_value, double default_value) {
@@ -288,8 +291,28 @@ int module_get_double(const char *module_name, const char *param_name,
   module_get_parameter(module_name, param_name, value_str,
                        sizeof(value_str), default_str);
 
-  // Convert to double
-  *out_value = atof(value_str);
+  // Convert to double with robust error checking
+  char *endptr;
+  errno = 0;
+  *out_value = strtod(value_str, &endptr);
+
+  // Check for conversion errors
+  if (errno != 0) {
+    ERROR_LOG("Module %s parameter %s: conversion error for value '%s' (%s)",
+             module_name, param_name, value_str, strerror(errno));
+    return -1;
+  }
+  if (endptr == value_str) {
+    ERROR_LOG("Module %s parameter %s: no digits found in value '%s'",
+             module_name, param_name, value_str);
+    return -1;
+  }
+  if (*endptr != '\0') {
+    ERROR_LOG("Module %s parameter %s: invalid characters after number in '%s'",
+             module_name, param_name, value_str);
+    return -1;
+  }
+
   return 0;
 }
 
@@ -297,12 +320,13 @@ int module_get_double(const char *module_name, const char *param_name,
  * @brief   Read a module parameter as integer
  *
  * Searches for parameter and converts to int. Returns default if not found.
+ * Uses strtol with proper error checking to detect invalid values (fix for issue 1.2.3).
  *
  * @param   module_name     Module name
  * @param   param_name      Parameter name
  * @param   out_value       Output pointer for integer value
  * @param   default_value   Default value if parameter not found
- * @return  0 on success
+ * @return  0 on success, -1 on conversion error
  */
 int module_get_int(const char *module_name, const char *param_name,
                    int *out_value, int default_value) {
@@ -314,7 +338,35 @@ int module_get_int(const char *module_name, const char *param_name,
   module_get_parameter(module_name, param_name, value_str,
                        sizeof(value_str), default_str);
 
-  // Convert to int
-  *out_value = atoi(value_str);
+  // Convert to int with robust error checking
+  char *endptr;
+  errno = 0;
+  long val = strtol(value_str, &endptr, 10);
+
+  // Check for conversion errors
+  if (errno != 0) {
+    ERROR_LOG("Module %s parameter %s: conversion error for value '%s' (%s)",
+             module_name, param_name, value_str, strerror(errno));
+    return -1;
+  }
+  if (endptr == value_str) {
+    ERROR_LOG("Module %s parameter %s: no digits found in value '%s'",
+             module_name, param_name, value_str);
+    return -1;
+  }
+  if (*endptr != '\0') {
+    ERROR_LOG("Module %s parameter %s: invalid characters after number in '%s'",
+             module_name, param_name, value_str);
+    return -1;
+  }
+
+  // Check for int overflow
+  if (val < INT_MIN || val > INT_MAX) {
+    ERROR_LOG("Module %s parameter %s: value %ld out of int range",
+             module_name, param_name, val);
+    return -1;
+  }
+
+  *out_value = (int)val;
   return 0;
 }
