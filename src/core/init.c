@@ -51,7 +51,9 @@
 void init(void) {
   int i;
 
-  Age = mymalloc_cat(ABSOLUTEMAXSNAPS * sizeof(*Age), MEM_UTILITY);
+  /* Allocate Age array and store base pointer (fix for issue 1.2.1) */
+  Age_base = mymalloc_cat(ABSOLUTEMAXSNAPS * sizeof(*Age_base), MEM_UTILITY);
+  Age = Age_base;
 
   // No need for random number generator as it's not actually used in the code
 
@@ -60,8 +62,10 @@ void init(void) {
 
   read_snap_list();
 
-  Age[0] = time_to_present(INITIAL_REDSHIFT); // lookback time from z=1000 (recombination era)
-  Age++;
+  /* Store initial redshift lookback time at index 0, then offset Age pointer
+   * by 1 to allow 1-based indexing (Age[-1] accesses original Age[0]) */
+  Age_base[0] = time_to_present(INITIAL_REDSHIFT); // lookback time from z=1000 (recombination era)
+  Age = Age_base + 1;
 
   for (i = 0; i < MimicConfig.Snaplistlen; i++) {
     MimicConfig.ZZ[i] = safe_div(1.0, MimicConfig.AA[i], 0.0) - 1;

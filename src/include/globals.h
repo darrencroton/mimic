@@ -114,6 +114,7 @@ extern int ListOutputSnaps[ABSOLUTEMAXSNAPS];
 extern double ZZ[ABSOLUTEMAXSNAPS];
 extern double AA[ABSOLUTEMAXSNAPS];
 extern double *Age;
+extern double *Age_base; /* Original allocation pointer for Age (fix for issue 1.2.1) */
 extern int MAXSNAPS;
 extern int NOUT;
 extern int Snaplistlen;
