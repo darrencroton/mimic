@@ -37,6 +37,9 @@
 #define TRUE 1
 #define FALSE 0
 
+/* File-level HDF5 property list for optimized dataset transfers */
+static hid_t HDF5_dataset_xfer_plist = H5P_DEFAULT;
+
 /**
  * @brief   Defines the HDF5 table structure for halo properties
  *
@@ -124,13 +127,32 @@ void prep_hdf5_file(char *fname) {
    */
   hsize_t chunk_size = 1000;
   int *fill_data = NULL;
-  hid_t file_id, snap_group_id;
+  hid_t file_id, snap_group_id, fapl;
   char target_group[100];
   hid_t status;
   int i_snap;
 
-  DEBUG_LOG("Creating new HDF5 file '%s'", fname);
-  file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  // Create file access property list with optimized settings for better performance
+  fapl = H5Pcreate(H5P_FILE_ACCESS);
+
+  // Set 4KB alignment for data to match typical filesystem block sizes
+  // This reduces fragmentation and improves I/O efficiency
+  H5Pset_alignment(fapl, 4096, 4096);
+
+  // Increase metadata cache size from default (~2MB) to 8MB
+  // Parameters: mdc_nelmts (unused), rdcc_nslots (521 is prime),
+  //             rdcc_nbytes (8MB cache), rdcc_w0 (preemption policy 0.75)
+  H5Pset_cache(fapl, 0, 521, 8 * 1024 * 1024, 0.75);
+
+  // Use latest HDF5 library format for better performance
+  // Files require HDF5 1.10+ but gain optimization improvements
+  H5Pset_libver_bounds(fapl, H5F_LIBVER_LATEST, H5F_LIBVER_LATEST);
+
+  DEBUG_LOG("Creating new HDF5 file '%s' with optimized access properties", fname);
+  file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, fapl);
+
+  // Clean up property list
+  H5Pclose(fapl);
 
   // Create a group for each output snapshot
   for (i_snap = 0; i_snap < MimicConfig.NOUT; i_snap++) {
@@ -304,6 +326,18 @@ void write_hdf5_attrs(int n, int filenr) {
   hsize_t dims;
   char target_group[100];
 
+  // Initialize dataset transfer properties on first call
+  if (HDF5_dataset_xfer_plist == H5P_DEFAULT) {
+    HDF5_dataset_xfer_plist = H5Pcreate(H5P_DATASET_XFER);
+
+    // Set buffer size to 1MB for type conversion and background buffers
+    // This reduces overhead for dataset write operations
+    size_t buf_size = 1024 * 1024;
+    H5Pset_buffer(HDF5_dataset_xfer_plist, buf_size, NULL, NULL);
+
+    INFO_LOG("Initialized HDF5 dataset transfer properties (1MB buffer)");
+  }
+
   // Verify file is open
   if (HDF5_current_file_id < 0) {
     FATAL_ERROR("HDF5 file not open for writing attributes (file_id = %lld)",
@@ -357,9 +391,9 @@ void write_hdf5_attrs(int n, int filenr) {
   dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT,
                          dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 
-  // Write the halos per tree data
-  status = H5Dwrite(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                    InputHalosPerSnap[n]);
+  // Write the halos per tree data with optimized transfer properties
+  status = H5Dwrite(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL,
+                    HDF5_dataset_xfer_plist, InputHalosPerSnap[n]);
   if (status < 0) {
     FATAL_ERROR("Failed to write TreeHalosPerSnap dataset for snapshot %d "
                 "(filenr %d, status=%d)",
@@ -739,6 +773,13 @@ void free_hdf5_ids(void) {
   /*
    * Free any HDF5 objects which are still floating about at the end of the run.
    */
+
+  // Close HDF5 dataset transfer property list if it was created
+  if (HDF5_dataset_xfer_plist != H5P_DEFAULT) {
+    H5Pclose(HDF5_dataset_xfer_plist);
+    HDF5_dataset_xfer_plist = H5P_DEFAULT;
+  }
+
   myfree(HDF5_field_types);
   myfree(HDF5_field_names);
   myfree(HDF5_dst_sizes);
