@@ -46,6 +46,7 @@
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_infall.h"
+#include "sage_infall_constants.h"  // Physics constants for this module
 #include "types.h"
 
 // ============================================================================
@@ -172,23 +173,23 @@ static double do_reionization(float mvir, double redshift, double omega,
   /* Calculate filtering mass (in units of 1e10 Msun/h) */
   /* Jeans mass calculation: Mjeans = 25 * Omega^-0.5 * mu^-1.5
    * For fully ionized gas: mu=0.59, so mu^-1.5 = 0.59^-1.5 ≈ 2.21 */
-  double Mjeans = 25.0 * pow(omega, -0.5) * 2.21;
-  double Mfiltering = Mjeans * pow(f_of_a, 1.5);
+  double Mjeans = MJEANS_BASE_COEFF * pow(omega, -0.5) * IONIZED_GAS_MU_FACTOR;
+  double Mfiltering = Mjeans * pow(f_of_a, FILTERING_MASS_EXPONENT);
 
   /* Calculate characteristic mass from virial temperature */
   /* Characteristic velocity: Vchar = sqrt(Tvir / (mu * m_p / k_B))
    * For Tvir=10^4 K and mean molecular weight, coefficient ≈ 36.0 km/s */
-  double Vchar = sqrt(REIONIZATION_TVIR / 36.0);
+  double Vchar = sqrt(REIONIZATION_TVIR / TEMP_TO_VEL_COEFF);
 
   /* Cosmological parameters at current redshift */
   double omegaZ = omega * pow(1.0 + redshift, 3.0) /
                   (omega * pow(1.0 + redshift, 3.0) + omega_lambda + EPSILON_SMALL);
   double xZ = omegaZ - 1.0;
   double deltacritZ =
-      18.0 * M_PI * M_PI + 82.0 * xZ - 39.0 * xZ * xZ; /* Critical overdensity */
+      DELTACRIT_COEFF_0 * M_PI * M_PI + DELTACRIT_COEFF_1 * xZ - DELTACRIT_COEFF_2 * xZ * xZ; /* Critical overdensity */
 
   /* Hubble parameter at z (in units of 100 km/s/Mpc) */
-  double H0 = 100.0 * hubble_h; /* km/s/Mpc */
+  double H0 = HUBBLE_CONVERSION * hubble_h; /* km/s/Mpc */
   double HubbleZ = H0 * sqrt(omega * pow(1.0 + redshift, 3.0) + omega_lambda);
 
   /* Convert to code units: G in (Mpc/h) (km/s)^2 / (1e10 Msun/h) */
@@ -199,7 +200,7 @@ static double do_reionization(float mvir, double redshift, double omega,
 
   /* Calculate characteristic mass */
   double Mchar = Vchar * Vchar * Vchar /
-                 (G_code * HubbleZ * sqrt(0.5 * deltacritZ) + EPSILON_SMALL);
+                 (G_code * HubbleZ * sqrt(DELTACRIT_FACTOR * deltacritZ) + EPSILON_SMALL);
 
   /* Use maximum of filtering mass and characteristic mass */
   double mass_to_use = fmax(Mfiltering, Mchar);
@@ -207,7 +208,7 @@ static double do_reionization(float mvir, double redshift, double omega,
   /* Calculate suppression modifier using Gnedin (2000) fitting formula
    * Coefficient 0.26 from Kravtsov et al. (2004) Appendix B */
   double modifier =
-      1.0 / pow(1.0 + 0.26 * mass_to_use / (mvir + EPSILON_SMALL), 3.0);
+      1.0 / pow(1.0 + GNEDIN_SUPPRESSION_COEFF * mass_to_use / (mvir + EPSILON_SMALL), GNEDIN_SUPPRESSION_POWER);
 
   return modifier;
 }
