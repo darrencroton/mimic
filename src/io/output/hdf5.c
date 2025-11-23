@@ -356,6 +356,17 @@ void write_hdf5_attrs(int n, int filenr) {
   dataspace_id = H5Screate_simple(1, &dims, NULL);
   dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT,
                          dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+
+  // Write the halos per tree data
+  status = H5Dwrite(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                    InputHalosPerSnap[n]);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write TreeHalosPerSnap dataset for snapshot %d "
+                "(filenr %d, status=%d)",
+                MimicConfig.ListOutputSnaps[n], filenr, (int)status);
+  }
+
+  H5Sclose(dataspace_id);
   H5Dclose(dataset_id);
 
   // Close only the group (file stays open, closed in main.c)
