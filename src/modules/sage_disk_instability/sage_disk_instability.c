@@ -48,6 +48,7 @@
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_disk_instability.h"
+#include "sage_disk_instability_constants.h"
 #include "types.h"
 
 // ============================================================================
@@ -105,7 +106,6 @@ static double calculate_disk_scale_radius(float rvir) {
    *
    * This will be implemented when spin is available from halo properties.
    */
-  const double DISK_FRACTION = 0.03; /* Empirical calibration */
   return DISK_FRACTION * rvir;
 }
 
@@ -271,13 +271,13 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
 
       /* Sanity check: bulge mass should not exceed total stellar mass
        * Correct if needed to maintain physical constraint */
-      if (galaxy->BulgeMass > galaxy->StellarMass * 1.0001) {
+      if (galaxy->BulgeMass > galaxy->StellarMass * MASS_TOLERANCE_FACTOR) {
         WARNING_LOG("Disk instability: bulge mass exceeds total stellar mass in halo %d. "
                    "Correcting BulgeMass from %.4e to %.4e",
                    halo->HaloNr, galaxy->BulgeMass, galaxy->StellarMass);
         galaxy->BulgeMass = galaxy->StellarMass;
       }
-      if (galaxy->MetalsBulgeMass > galaxy->MetalsStellarMass * 1.0001) {
+      if (galaxy->MetalsBulgeMass > galaxy->MetalsStellarMass * MASS_TOLERANCE_FACTOR) {
         WARNING_LOG("Disk instability: bulge metals exceed total stellar metals in halo %d. "
                    "Correcting MetalsBulgeMass from %.4e to %.4e",
                    halo->HaloNr, galaxy->MetalsBulgeMass, galaxy->MetalsStellarMass);

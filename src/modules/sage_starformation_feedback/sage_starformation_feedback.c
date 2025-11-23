@@ -56,6 +56,7 @@
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_starformation_feedback.h"
+#include "sage_starformation_feedback_constants.h"
 #include "types.h"
 #include "globals.h"  // For access to InputTreeHalos
 
@@ -502,13 +503,13 @@ static int sage_starformation_feedback_process(struct ModuleContext *ctx,
             /* Kennicutt-Schmidt law with critical threshold */
 
             /* Calculate effective star-forming radius (3 scale lengths) */
-            float reff = 3.0f * gal->DiskScaleRadius;
+            float reff = (float)EFFECTIVE_RADIUS_FACTOR * gal->DiskScaleRadius;
 
             /* Calculate dynamical time of the disk */
             float tdyn = safe_div(reff, halos[i].Vvir, 0.0f);
 
             /* Calculate critical cold gas mass (Kauffmann 1996 eq7 × πR²) */
-            float cold_crit = 0.19f * halos[i].Vvir * reff;
+            float cold_crit = (float)CRITICAL_GAS_COEFF * halos[i].Vvir * reff;
 
             /* Star formation occurs only if gas mass exceeds critical threshold */
             if (gal->ColdGas > cold_crit) {
@@ -573,12 +574,12 @@ static int sage_starformation_feedback_process(struct ModuleContext *ctx,
                            metallicity);
 
         /* Metal production from newly formed stars (instantaneous recycling) */
-        if (gal->ColdGas > 1.0e-8f) {
+        if (gal->ColdGas > (float)GAS_MASS_THRESHOLD) {
             /* Calculate mass-dependent fraction of metals leaving disk */
             /* Following Krumholz & Dekel 2011 Eq. 22 */
             float frac_z_leave_disk_val =
                 (float)FRAC_Z_LEAVE_DISK *
-                expf(-1.0f * halos[central_idx].Mvir / 30.0f);
+                expf(-1.0f * halos[central_idx].Mvir / (float)METAL_MASS_SCALE);
 
             /* Distribute newly produced metals */
             gal->MetalsColdGas +=
