@@ -30,8 +30,26 @@
 #include <string.h>
 #include <time.h>
 
-#include "proto.h"
 #include "error.h"
+#include "proto.h"
+
+/* ============================================================================
+ * Logging System Global State
+ * ============================================================================
+ *
+ * THREAD SAFETY: These global variables are NOT thread-safe.
+ *
+ * The current Mimic architecture uses MPI process-based parallelism where each
+ * MPI process has its own separate memory space. Global variables are safe in
+ * this model because there is no shared memory between processes.
+ *
+ * IMPORTANT: If migrating to shared-memory threading (OpenMP, pthreads, etc.),
+ * these variables MUST be protected with mutexes to prevent race conditions
+ * during concurrent logging operations.
+ *
+ * Affected functions: set_log_level(), set_log_output(), log_message()
+ * ============================================================================
+ */
 
 // Default log level: show everything except debug messages
 static LogLevel current_log_level = LOG_LEVEL_INFO;
