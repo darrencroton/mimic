@@ -31,6 +31,7 @@ module:
   tests:
     unit:
       - test_unit_disk_radius.c
+      - test_unit_metallicity.c
 
     integration: []
     scientific: []
