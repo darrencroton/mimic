@@ -90,12 +90,10 @@ void save_halos(int filenr, int tree) {
                     buf, MimicConfig.ListOutputSnaps[n], filenr);
       }
 
-      /* Disable stdio buffering to maximize reliability */
-      setvbuf(save_fd[n], NULL, _IONBF, 0);
+      /* Enable full buffering for better write performance (64KB buffer) */
+      setvbuf(save_fd[n], NULL, _IOFBF, 65536);
 
-      /* We use direct I/O for writing, so no buffer is needed */
-
-      /* Write out placeholders for the header data using direct I/O */
+      /* Write out placeholders for the header data */
       size_t size =
           (Ntrees + 2) *
           sizeof(int); /* Extra two integers are for saving the total number of
@@ -109,7 +107,7 @@ void save_halos(int filenr, int tree) {
 
       memset(tmp_buf, 0, size);
 
-      /* Use direct I/O for the header to avoid buffer confusion */
+      /* Write header data (will be flushed on close) */
       nwritten = fwrite(tmp_buf, sizeof(int), Ntrees + 2, save_fd[n]);
       if (nwritten != Ntrees + 2) {
         ERROR_LOG(
