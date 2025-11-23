@@ -100,12 +100,7 @@ void save_halos(int filenr, int tree) {
           (Ntrees + 2) *
           sizeof(int); /* Extra two integers are for saving the total number of
                           trees and total number of objects in this file */
-      int *tmp_buf = (int *)malloc(size);
-      if (tmp_buf == NULL) {
-        FATAL_ERROR("Memory allocation failed for header buffer (%zu bytes) "
-                    "for snapshot %d (filenr %d)",
-                    size, MimicConfig.ListOutputSnaps[n], filenr);
-      }
+      int *tmp_buf = (int *)mymalloc_cat(size, MEM_IO);
 
       memset(tmp_buf, 0, size);
 
@@ -121,7 +116,7 @@ void save_halos(int filenr, int tree) {
       /* Make sure data is actually written to disk */
       fflush(save_fd[n]);
 
-      free(tmp_buf);
+      myfree(tmp_buf);
     }
 
     for (i = 0; i < NumProcessedHalos; i++) {

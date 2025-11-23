@@ -435,11 +435,7 @@ size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream) {
   }
 
   /* Create a clean copy of the data for writing */
-  tmp_buffer = malloc(size * nmemb);
-  if (tmp_buffer == NULL) {
-    WARNING_LOG("Failed to allocate temporary buffer for write operation");
-    return 0;
-  }
+  tmp_buffer = mymalloc_cat(size * nmemb, MEM_IO);
 
   /* First zero the buffer to avoid any garbage data */
   memset(tmp_buffer, 0, size * nmemb);
@@ -458,7 +454,7 @@ size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream) {
   items_written = fwrite(tmp_buffer, size, nmemb, stream);
 
   /* Free temporary buffer */
-  free(tmp_buffer);
+  myfree(tmp_buffer);
 
   return items_written;
 }
