@@ -143,7 +143,7 @@ OUTPUT:
 
   JSON structure includes:
   - timestamp: ISO 8601 timestamp
-  - version: Git commit hash/tag
+  - git: Git repository information (commit, branch, dirty status)
   - system: System information
   - test_case: Test configuration used
   - overall_performance: Runtime and memory metrics
@@ -458,7 +458,19 @@ fi
 rm -f "${RUN_OUTPUT}" "${TIME_OUTPUT}"
 
 # Get system and build information
-GIT_VERSION=$(git describe --always --dirty 2>/dev/null || echo 'unknown')
+if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')
+    GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')
+    if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+        GIT_DIRTY=true
+    else
+        GIT_DIRTY=false
+    fi
+else
+    GIT_COMMIT='unknown'
+    GIT_BRANCH='unknown'
+    GIT_DIRTY=false
+fi
 BUILD_FLAGS="${MAKE_FLAGS:-none}"
 
 # Verify output was created - find any output file
@@ -487,7 +499,11 @@ echo "Generating benchmark results..."
 cat > "${ROOT_DIR}/benchmarks/baseline_${TIMESTAMP}.json" << EOF
 {
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "version": "${GIT_VERSION}",
+  "git": {
+    "commit": "${GIT_COMMIT}",
+    "branch": "${GIT_BRANCH}",
+    "dirty": ${GIT_DIRTY}
+  },
   "system": {
     "hostname": "$(hostname -s 2>/dev/null || hostname)",
     "hw_model": "$(sysctl -n hw.model 2>/dev/null || echo 'unknown')",
@@ -530,7 +546,9 @@ echo "Maximum Memory Usage: ${MAX_MEMORY} MB"
 echo "Output Format: $OUTPUT_FORMAT"
 echo "MPI Processes: $NUM_MIMIC_PROCS"
 echo "Build Flags: $BUILD_FLAGS"
-echo "Git Version: $GIT_VERSION"
+echo "Git Commit: $GIT_COMMIT"
+echo "Git Branch: $GIT_BRANCH"
+echo "Git Dirty: $GIT_DIRTY"
 echo
 echo "Full results saved to: ${ROOT_DIR}/benchmarks/baseline_${TIMESTAMP}.json"
 echo
