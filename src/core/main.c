@@ -66,9 +66,11 @@ static volatile sig_atomic_t gotXCPU =
 
 void termination_handler(int signum) {
   gotXCPU = 1;
-  sigaction(SIGXCPU, &saveaction_XCPU, NULL);
+  /* Call the previous handler first while our handler is still active */
   if (saveaction_XCPU.sa_handler != NULL)
     (*saveaction_XCPU.sa_handler)(signum);
+  /* Then restore the previous handler */
+  sigaction(SIGXCPU, &saveaction_XCPU, NULL);
 }
 
 /**
