@@ -17,8 +17,7 @@
  * Implementation Notes (v1.0.0):
  * - This is a PARTIAL IMPLEMENTATION providing core stability physics
  * - Stellar mass transfer to bulge is fully implemented
- * - Starburst triggering deferred (needs collisional_starburst_recipe from
- * sage_mergers)
+ * - Starburst triggering deferred (needs collisional_starburst_recipe from sage_mergers)
  * - Black hole growth deferred (needs grow_black_hole from sage_mergers)
  * - Unstable gas is tracked but not yet processed into stars
  *
@@ -42,13 +41,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "../shared/metallicity.h" // Shared utility for metallicity calculations
 #include "constants.h"
 #include "error.h"
+#include "../shared/metallicity.h"  // Shared utility for metallicity calculations
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_disk_instability.h"
+#include "sage_disk_instability_constants.h"
 #include "types.h"
 
 // ============================================================================
@@ -106,7 +106,6 @@ static double calculate_disk_scale_radius(float rvir) {
    *
    * This will be implemented when spin is available from halo properties.
    */
-  const double DISK_FRACTION = 0.03; /* Empirical calibration */
   return DISK_FRACTION * rvir;
 }
 
@@ -152,28 +151,22 @@ static double calculate_critical_disk_mass(float vmax, float disk_scale_radius,
  */
 static int sage_disk_instability_init(void) {
   /* Read module parameters from configuration */
-  module_get_int("SageDiskInstability", "DiskInstabilityOn",
-                 &DISK_INSTABILITY_ON, 1);
-  module_get_double("SageDiskInstability", "DiskRadiusFactor",
-                    &DISK_RADIUS_FACTOR, 3.0);
+  module_get_int("SageDiskInstability", "DiskInstabilityOn", &DISK_INSTABILITY_ON, 1);
+  module_get_double("SageDiskInstability", "DiskRadiusFactor", &DISK_RADIUS_FACTOR, 3.0);
 
   /* Validate parameters */
   if (DISK_RADIUS_FACTOR < 1.0 || DISK_RADIUS_FACTOR > 10.0) {
-    ERROR_LOG("SageDiskInstability_DiskRadiusFactor = %.2f is outside valid "
-              "range [1.0, 10.0]",
+    ERROR_LOG("SageDiskInstability_DiskRadiusFactor = %.2f is outside valid range [1.0, 10.0]",
               DISK_RADIUS_FACTOR);
     return -1;
   }
 
   /* Log initialization */
   if (DISK_INSTABILITY_ON) {
-    INFO_LOG("SAGE Disk Instability module initialized (v1.0.0 - PARTIAL "
-             "IMPLEMENTATION)");
-    INFO_LOG(
-        "  Physics: Mcrit = Vmax^2 * (3 * Rd) / G, transfer excess to bulge");
+    INFO_LOG("SAGE Disk Instability module initialized (v1.0.0 - PARTIAL IMPLEMENTATION)");
+    INFO_LOG("  Physics: Mcrit = Vmax^2 * (3 * Rd) / G, transfer excess to bulge");
     INFO_LOG("  DiskRadiusFactor = %.2f (from config)", DISK_RADIUS_FACTOR);
-    INFO_LOG("  Note: Starburst and AGN components deferred pending "
-             "sage_mergers module");
+    INFO_LOG("  Note: Starburst and AGN components deferred pending sage_mergers module");
   } else {
     INFO_LOG("SAGE Disk Instability module initialized but DISABLED");
   }
@@ -215,7 +208,8 @@ static int sage_disk_instability_cleanup(void) {
  * @return  0 on success, non-zero on error
  */
 static int sage_disk_instability_process(struct ModuleContext *ctx,
-                                         struct Halo *halos, int ngal) {
+                                         struct Halo *halos,
+                                         int ngal) {
   /* Skip if module is disabled */
   if (!DISK_INSTABILITY_ON) {
     return 0;
@@ -246,11 +240,10 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
     double disk_mass = galaxy->ColdGas + disk_stellar_mass;
 
     /* Calculate critical disk mass for stability */
-    double mcrit = calculate_critical_disk_mass(
-        halo->Vmax, galaxy->DiskScaleRadius, G_code);
+    double mcrit = calculate_critical_disk_mass(halo->Vmax, galaxy->DiskScaleRadius,
+                                                G_code);
 
-    /* Limit critical mass to actual disk mass (can't have negative unstable
-     * mass) */
+    /* Limit critical mass to actual disk mass (can't have negative unstable mass) */
     if (mcrit > disk_mass) {
       mcrit = disk_mass;
     }
@@ -266,14 +259,11 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
     /* ========================================================================
      * HANDLE UNSTABLE STARS - FULLY IMPLEMENTED
      * Transfer stellar mass directly to bulge with metallicity preservation
-     * ========================================================================
-     */
+     * ======================================================================== */
     if (unstable_stars > 0.0) {
       /* Calculate disk stellar metallicity (excluding existing bulge) */
-      double disk_metal_mass =
-          galaxy->MetalsStellarMass - galaxy->MetalsBulgeMass;
-      double metallicity =
-          mimic_get_metallicity(disk_stellar_mass, disk_metal_mass);
+      double disk_metal_mass = galaxy->MetalsStellarMass - galaxy->MetalsBulgeMass;
+      double metallicity = mimic_get_metallicity(disk_stellar_mass, disk_metal_mass);
 
       /* Transfer unstable stars to bulge */
       galaxy->BulgeMass += unstable_stars;
@@ -281,19 +271,16 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
 
       /* Sanity check: bulge mass should not exceed total stellar mass
        * Correct if needed to maintain physical constraint */
-      if (galaxy->BulgeMass > galaxy->StellarMass * 1.0001) {
-        WARNING_LOG("Disk instability: bulge mass exceeds total stellar mass "
-                    "in halo %d. "
-                    "Correcting BulgeMass from %.4e to %.4e",
-                    halo->HaloNr, galaxy->BulgeMass, galaxy->StellarMass);
+      if (galaxy->BulgeMass > galaxy->StellarMass * MASS_TOLERANCE_FACTOR) {
+        WARNING_LOG("Disk instability: bulge mass exceeds total stellar mass in halo %d. "
+                   "Correcting BulgeMass from %.4e to %.4e",
+                   halo->HaloNr, galaxy->BulgeMass, galaxy->StellarMass);
         galaxy->BulgeMass = galaxy->StellarMass;
       }
-      if (galaxy->MetalsBulgeMass > galaxy->MetalsStellarMass * 1.0001) {
-        WARNING_LOG("Disk instability: bulge metals exceed total stellar "
-                    "metals in halo %d. "
-                    "Correcting MetalsBulgeMass from %.4e to %.4e",
-                    halo->HaloNr, galaxy->MetalsBulgeMass,
-                    galaxy->MetalsStellarMass);
+      if (galaxy->MetalsBulgeMass > galaxy->MetalsStellarMass * MASS_TOLERANCE_FACTOR) {
+        WARNING_LOG("Disk instability: bulge metals exceed total stellar metals in halo %d. "
+                   "Correcting MetalsBulgeMass from %.4e to %.4e",
+                   halo->HaloNr, galaxy->MetalsBulgeMass, galaxy->MetalsStellarMass);
         galaxy->MetalsBulgeMass = galaxy->MetalsStellarMass;
       }
     }
@@ -316,12 +303,11 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
      *
      * For now, unstable gas remains in cold gas reservoir until sage_mergers
      * module provides the necessary starburst infrastructure.
-     * ========================================================================
-     */
+     * ======================================================================== */
     if (unstable_gas > 0.0) {
       /* Gas instability detected but processing deferred
        *
-       * TODO: Integrate with sage_mergers module functions:
+       * TODO (when sage_mergers is implemented):
        * 1. Calculate unstable_gas_fraction = unstable_gas / ColdGas
        * 2. If AGN enabled: call grow_black_hole(p, unstable_gas_fraction)
        * 3. Call collisional_starburst_recipe(..., mode=1, ...)

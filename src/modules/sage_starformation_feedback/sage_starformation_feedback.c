@@ -49,8 +49,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "../shared/disk_radius.h" // Shared utility for disk radius calculations
-#include "../shared/metallicity.h" // Shared utility for metallicity calculations
 #include "constants.h"
 #include "error.h"
 #include "globals.h" // For access to InputTreeHalos
@@ -58,7 +56,10 @@
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_starformation_feedback.h"
+#include "sage_starformation_feedback_constants.h"
 #include "types.h"
+#include "../shared/disk_radius.h" // Shared utility for disk radius calculations
+#include "../shared/metallicity.h" // Shared utility for metallicity calculations
 
 // ============================================================================
 // MODULE PARAMETERS

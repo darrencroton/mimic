@@ -46,6 +46,7 @@
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_mergers.h"
+#include "sage_mergers_constants.h"  // Physics constants for this module
 #include "../shared/metallicity.h"  // Shared utility for metallicity calculations
 #include "types.h"
 
@@ -220,9 +221,9 @@ static double estimate_merging_time(int sat_halo, int mother_halo, struct Halo *
    * Unit conversion yields: G_code = 43.0071
    * Result units: [Time] = Gyr (consistent with merger timescale output)
    */
-  double G = 43.0071;
+  double G = G_CODE_UNITS;
 
-  double mergtime = safe_div(2.0 * 1.17 * sat_radius * sat_radius * vvir,
+  double mergtime = safe_div(CHANDRASEKHAR_COEFF * COULOMB_LOG_APPROX * sat_radius * sat_radius * vvir,
                              coulomb * G * sat_mass, -1.0);
 
   return mergtime;
@@ -303,7 +304,7 @@ static void grow_black_hole(struct GalaxyData *central_gal, double mass_ratio, f
   /* Calculate BH accretion rate (Kauffmann & Haehnelt 2000)
    * Higher for: (1) more equal-mass mergers, (2) higher Vvir, (3) more cold gas */
   double BHaccrete = BLACK_HOLE_GROWTH_RATE * mass_ratio /
-                     (1.0 + pow(safe_div(280.0, vvir, 1.0e10), 2.0)) *
+                     (1.0 + pow(safe_div(BH_GROWTH_VEL_THRESHOLD, vvir, 1.0e10), 2.0)) *
                      central_gal->ColdGas;
 
   /* Limit accretion to available cold gas */
@@ -344,13 +345,13 @@ static void quasar_mode_wind(struct GalaxyData *gal, float BHaccrete, float vvir
    * In code units: c_code = c / (100 km/s) = 2997.92458
    * Energy units: (km/s)² * 1e10 Msun/h (matches binding energy calculation)
    */
-  double C_over_UnitVel = 2.99792458e5 / 100.0;
-  float quasar_energy = QUASAR_MODE_EFFICIENCY * 0.1 * BHaccrete *
+  double C_over_UnitVel = SPEED_OF_LIGHT_KM_S / CODE_VEL_UNIT;
+  float quasar_energy = QUASAR_MODE_EFFICIENCY * RADIATIVE_EFFICIENCY_STANDARD * BHaccrete *
                         pow(C_over_UnitVel, 2.0);
 
   /* Calculate binding energies: E_bind = 0.5 * M * V_vir² */
-  float cold_gas_energy = 0.5 * gal->ColdGas * vvir * vvir;
-  float hot_gas_energy = 0.5 * gal->HotGas * vvir * vvir;
+  float cold_gas_energy = BINDING_ENERGY_FACTOR * gal->ColdGas * vvir * vvir;
+  float hot_gas_energy = BINDING_ENERGY_FACTOR * gal->HotGas * vvir * vvir;
 
   /* If quasar energy exceeds cold gas binding energy, eject all cold gas */
   if (quasar_energy > cold_gas_energy) {
@@ -412,7 +413,7 @@ static void collisional_starburst_recipe(double mass_ratio, struct GalaxyData *m
    * Physical interpretation: More equal-mass mergers trigger stronger
    * starbursts due to more violent interactions and gas compression.
    */
-  double eburst = 0.56 * pow(mass_ratio, 0.7);
+  double eburst = STARBURST_EFFICIENCY_NORM * pow(mass_ratio, STARBURST_MASS_RATIO_POWER);
 
   /* Calculate stars formed during burst */
   double stars = eburst * merger_gal->ColdGas;
@@ -480,7 +481,7 @@ static void collisional_starburst_recipe(double mass_ratio, struct GalaxyData *m
      * allowing more metals to escape to hot phase. High-mass halos retain
      * metals in cold disk more effectively (exponential suppression).
      */
-    double FracZleaveDiskVal = FRAC_Z_LEAVE_DISK * exp(-1.0 * mvir / 30.0);
+    double FracZleaveDiskVal = FRAC_Z_LEAVE_DISK * exp(-1.0 * mvir / METAL_EJECTION_MASS_SCALE);
 
     /* Distribute metals between cold and hot phases */
     merger_gal->MetalsColdGas += YIELD * (1.0 - FracZleaveDiskVal) * stars;
