@@ -502,12 +502,21 @@ Defines how property is copied from `struct Halo` to `struct HaloOutput` in `pre
 
 ### Validation Manifest Generation
 
-When you run `make generate`, the validation fields are extracted into `tests/generated/property_ranges.json`:
+When you run `make generate`, the validation fields are extracted into `tests/generated/property_ranges.json`. The manifest starts with a `_metadata` block that mirrors the auto-generated headers used elsewhere in Mimic, followed by the schema payload:
 
 ```json
 {
+  "_metadata": {
+    "auto_generated": true,
+    "generated_by": "scripts/generate_properties.py",
+    "source_files": [
+      "src/core/halo_properties.yaml",
+      "src/modules/galaxy_properties.yaml"
+    ],
+    "source_md5": "c3a35676282c5fd9d1c2e52716d3a80c",
+    "regenerate": "make generate"
+  },
   "schema_version": 1,
-  "generated_at": "2025-11-11T17:28:27",
   "properties": {
     "Mvir": {
       "name": "Mvir",
@@ -524,7 +533,8 @@ When you run `make generate`, the validation fields are extracted into `tests/ge
       "range": [1.0e-5, 10000.0],
       "sentinels": [0.0, -1.0]
     }
-  }
+  },
+  "notes": "Auto-generated from src/core/halo_properties.yaml and src/modules/galaxy_properties.yaml. Range is inclusive; sentinels are exempt."
 }
 ```
 
