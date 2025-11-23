@@ -268,6 +268,17 @@ if [[ "$OUTPUT_FORMAT" == "hdf5" ]] || [[ "$TREE_TYPE" == *"hdf5"* ]]; then
     fi
 fi
 
+# Set file search pattern based on output format
+if [[ "$OUTPUT_FORMAT" == "hdf5" ]]; then
+    # HDF5 format uses: model_000.hdf5, model_001.hdf5, model.hdf5
+    FILE_PATTERN="${OUTPUT_BASENAME}_*.hdf5"
+else
+    # Binary format uses: model_z2.070_0, model_z2.070_1, etc.
+    FILE_PATTERN="${OUTPUT_BASENAME}_z*"
+fi
+
+verbose_log "Using file pattern: ${FILE_PATTERN}"
+
 echo "=== Mimic Performance Benchmark ==="
 echo "Timestamp: $(date)"
 echo "Parameter file: ${PARAM_FILE}"
@@ -452,7 +463,7 @@ BUILD_FLAGS="${MAKE_FLAGS:-none}"
 
 # Verify output was created - find any output file
 if [[ -d "${OUTPUT_DIR}" ]]; then
-    OUTPUT_FILE=$(find "${OUTPUT_DIR}" -name "${OUTPUT_BASENAME}_z*" -type f 2>/dev/null | head -1)
+    OUTPUT_FILE=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -type f 2>/dev/null | head -1)
     if [[ -z "$OUTPUT_FILE" ]]; then
         error_exit "Mimic did not produce any output files in: ${OUTPUT_DIR}"
     fi
@@ -464,9 +475,9 @@ verbose_log "Benchmark run completed successfully"
 verbose_log "Output file created: $OUTPUT_FILE"
 
 # Get total size of all output files
-TOTAL_OUTPUT_SIZE=$(find "${OUTPUT_DIR}" -name "${OUTPUT_BASENAME}_z*" -type f -exec stat -f%z {} + 2>/dev/null | awk '{s+=$1} END {print s}')
+TOTAL_OUTPUT_SIZE=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -type f -exec stat -f%z {} + 2>/dev/null | awk '{s+=$1} END {print s}')
 if [[ -z "$TOTAL_OUTPUT_SIZE" ]]; then
-    TOTAL_OUTPUT_SIZE=$(find "${OUTPUT_DIR}" -name "${OUTPUT_BASENAME}_z*" -type f -exec stat -c%s {} + 2>/dev/null | awk '{s+=$1} END {print s}')
+    TOTAL_OUTPUT_SIZE=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -type f -exec stat -c%s {} + 2>/dev/null | awk '{s+=$1} END {print s}')
 fi
 TOTAL_OUTPUT_SIZE=${TOTAL_OUTPUT_SIZE:-0}
 
