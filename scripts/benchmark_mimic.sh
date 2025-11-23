@@ -489,6 +489,8 @@ cat > "${ROOT_DIR}/benchmarks/baseline_${TIMESTAMP}.json" << EOF
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "version": "${GIT_VERSION}",
   "system": {
+    "hostname": "$(hostname -s 2>/dev/null || hostname)",
+    "hw_model": "$(sysctl -n hw.model 2>/dev/null || echo 'unknown')",
     "uname": "$(uname -a)",
     "platform": "$(uname -s)",
     "architecture": "$(uname -m)",
