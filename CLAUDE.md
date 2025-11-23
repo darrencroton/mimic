@@ -23,6 +23,9 @@ make
 
 # Note: Property code auto-regenerates during `make` when YAML changes
 
+# Show build configuration (library detection, compiler, enabled features)
+make info
+
 # Regenerate all code from metadata (smart - only regenerates what changed)
 # Run after editing property YAML files or module metadata
 make generate
@@ -38,6 +41,9 @@ make USE-HDF5=yes
 
 # With MPI support for parallel processing
 make USE-MPI=yes
+
+# Parallel build (faster compilation - use all cores)
+make -j$(nproc)
 
 # Clean build artifacts
 make clean

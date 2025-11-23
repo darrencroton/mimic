@@ -1,48 +1,141 @@
-# Mimic Makefile
+# =============================================================================
+# Mimic Makefile - Semi-Analytic Galaxy Formation Code
+# =============================================================================
+
 EXEC = mimic
 
-# Directories
+# -----------------------------------------------------------------------------
+# Directory Configuration
+# -----------------------------------------------------------------------------
 SRC_DIR = src
 BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
 DEP_DIR = $(BUILD_DIR)/deps
 
-# Source files (recursive find, excluding system template, archive, and test files)
-# Note: Includes _system/generated/ and _system/test_fixture/ but excludes _system/template/
+# -----------------------------------------------------------------------------
+# Source Files Discovery
+# -----------------------------------------------------------------------------
+# Recursive find excluding templates, archives, and test files
+# Note: Includes _system/generated/ and _system/test_fixture/
 SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_system/template/*' ! -path '*/modules/_archive/*' ! -name 'test_*.c')
 OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES))
 DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
 
-# Compiler
+# -----------------------------------------------------------------------------
+# Compiler Configuration
+# -----------------------------------------------------------------------------
 CC ?= cc
-CFLAGS = -g -O2 -Wall -Wextra
-CFLAGS += -I$(SRC_DIR)/include
-CFLAGS += -I$(SRC_DIR)/core
-CFLAGS += -I$(SRC_DIR)/io
-CFLAGS += -I$(SRC_DIR)/util
-CFLAGS += -I$(SRC_DIR)/modules
-CFLAGS += -I$(BUILD_DIR)/generated
 
-# Dependency generation
+# Include directories
+INCLUDE_DIRS := \
+    $(SRC_DIR)/include \
+    $(SRC_DIR)/core \
+    $(SRC_DIR)/io \
+    $(SRC_DIR)/util \
+    $(SRC_DIR)/modules \
+    $(BUILD_DIR)/generated
+
+# Compiler flags
+CFLAGS = -g -O2 -Wall -Wextra
+CFLAGS += $(addprefix -I,$(INCLUDE_DIRS))
 CFLAGS += -MMD -MP
 
-# Libraries
+# Linker configuration
 LDFLAGS =
 LIBS = -lm
 
-# YAML library (required for parameter file parsing)
-YAML_PREFIX ?= /opt/homebrew/Cellar/libyaml/0.2.5
-CFLAGS += -I$(YAML_PREFIX)/include
-LDFLAGS += -L$(YAML_PREFIX)/lib
-LIBS += -lyaml
+# -----------------------------------------------------------------------------
+# Required Library Detection - YAML
+# -----------------------------------------------------------------------------
+# YAML library is required for parameter file parsing
+# Detection order: 1) pkg-config, 2) homebrew, 3) common paths, 4) error
+YAML_FOUND := no
 
-# Optional: HDF5 support
+# Try pkg-config first (works on most Linux and properly configured macOS)
+ifeq ($(shell pkg-config --exists yaml-0.1 2>/dev/null && echo yes),yes)
+    CFLAGS += $(shell pkg-config --cflags yaml-0.1)
+    LDFLAGS += $(shell pkg-config --libs-only-L yaml-0.1)
+    LIBS += $(shell pkg-config --libs-only-l yaml-0.1)
+    YAML_FOUND := yes
+else
+    # Try Homebrew (macOS) - use brew --prefix to get version-independent path
+    BREW_YAML := $(shell command -v brew >/dev/null 2>&1 && brew --prefix libyaml 2>/dev/null)
+    ifneq ($(BREW_YAML),)
+        CFLAGS += -I$(BREW_YAML)/include
+        LDFLAGS += -L$(BREW_YAML)/lib
+        LIBS += -lyaml
+        YAML_FOUND := yes
+    else
+        # Try common system paths (Linux distributions)
+        ifneq ($(wildcard /usr/include/yaml.h),)
+            LIBS += -lyaml
+            YAML_FOUND := yes
+        else ifneq ($(wildcard /usr/local/include/yaml.h),)
+            CFLAGS += -I/usr/local/include
+            LDFLAGS += -L/usr/local/lib
+            LIBS += -lyaml
+            YAML_FOUND := yes
+        endif
+    endif
+endif
+
+# Validate YAML library was found
+ifneq ($(YAML_FOUND),yes)
+    $(error libyaml not found! Install with: \
+        Ubuntu/Debian: sudo apt-get install libyaml-dev | \
+        macOS: brew install libyaml | \
+        Fedora/RHEL: sudo dnf install libyaml-devel)
+endif
+
+# -----------------------------------------------------------------------------
+# Optional Library Detection - HDF5
+# -----------------------------------------------------------------------------
 ifdef USE-HDF5
     CFLAGS += -DHDF5
-    HDF5_PREFIX ?= /opt/homebrew
-    CFLAGS += -I$(HDF5_PREFIX)/include
-    LDFLAGS += -L$(HDF5_PREFIX)/lib
-    LIBS += -lhdf5_hl -lhdf5
+    HDF5_FOUND := no
+
+    # Try pkg-config first (works on most Linux and properly configured macOS)
+    ifeq ($(shell pkg-config --exists hdf5 2>/dev/null && echo yes),yes)
+        CFLAGS += $(shell pkg-config --cflags hdf5)
+        LDFLAGS += $(shell pkg-config --libs-only-L hdf5)
+        LIBS += -lhdf5_hl $(shell pkg-config --libs-only-l hdf5)
+        HDF5_FOUND := yes
+    else
+        # Try Homebrew (macOS) - use brew --prefix to get version-independent path
+        BREW_HDF5 := $(shell command -v brew >/dev/null 2>&1 && brew --prefix hdf5 2>/dev/null)
+        ifneq ($(BREW_HDF5),)
+            CFLAGS += -I$(BREW_HDF5)/include
+            LDFLAGS += -L$(BREW_HDF5)/lib
+            LIBS += -lhdf5_hl -lhdf5
+            HDF5_FOUND := yes
+        else
+            # Try common system paths (Linux distributions)
+            ifneq ($(wildcard /usr/include/hdf5.h),)
+                LIBS += -lhdf5_hl -lhdf5
+                HDF5_FOUND := yes
+            else ifneq ($(wildcard /usr/include/hdf5/serial/hdf5.h),)
+                # Ubuntu/Debian specific path
+                CFLAGS += -I/usr/include/hdf5/serial
+                LDFLAGS += -L/usr/lib/x86_64-linux-gnu/hdf5/serial
+                LIBS += -lhdf5_hl -lhdf5
+                HDF5_FOUND := yes
+            else ifneq ($(wildcard /usr/local/include/hdf5.h),)
+                CFLAGS += -I/usr/local/include
+                LDFLAGS += -L/usr/local/lib
+                LIBS += -lhdf5_hl -lhdf5
+                HDF5_FOUND := yes
+            endif
+        endif
+    endif
+
+    # Validate HDF5 library was found
+    ifneq ($(HDF5_FOUND),yes)
+        $(error HDF5 not found! Install with: \
+            Ubuntu/Debian: sudo apt-get install libhdf5-dev | \
+            macOS: brew install hdf5 | \
+            Fedora/RHEL: sudo dnf install hdf5-devel | \
+            Or build without HDF5: make (without USE-HDF5=yes))
+    endif
 else
     # If HDF5 is not enabled, exclude HDF5-specific source files
     SOURCES := $(filter-out %hdf5.c,$(SOURCES))
@@ -50,20 +143,37 @@ else
     DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
 endif
 
-# Optional: MPI support
+# -----------------------------------------------------------------------------
+# Optional Feature - MPI Support
+# -----------------------------------------------------------------------------
 ifdef USE-MPI
-    CC = mpicc
-    CFLAGS += -DMPI
+    # Check that mpicc is available
+    ifeq ($(shell command -v mpicc >/dev/null 2>&1 && echo yes),yes)
+        CC = mpicc
+        CFLAGS += -DMPI
+    else
+        $(error MPI requested but mpicc not found! Install with: \
+            Ubuntu/Debian: sudo apt-get install libopenmpi-dev | \
+            macOS: brew install open-mpi | \
+            Fedora/RHEL: sudo dnf install openmpi-devel | \
+            Or specify compiler: make USE-MPI=yes CC=your-mpi-wrapper)
+    endif
 endif
 
-# Python for tests (use virtual environment if available)
+# -----------------------------------------------------------------------------
+# Python Configuration (for tests and code generation)
+# -----------------------------------------------------------------------------
 PYTHON := $(shell if [ -f mimic_venv/bin/python3 ]; then echo mimic_venv/bin/python3; else echo python3; fi)
 
-# Git version tracking
+# -----------------------------------------------------------------------------
+# Git Version Tracking
+# -----------------------------------------------------------------------------
 GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 
-# Build targets
-.PHONY: all clean tidy help generate check-generated tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules
+# -----------------------------------------------------------------------------
+# Build Targets
+# -----------------------------------------------------------------------------
+.PHONY: all clean tidy help info generate check-generated tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules
 
 all: $(EXEC)
 
@@ -156,6 +266,10 @@ $(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py
 	@python3 scripts/generate_module_registry.py
 	@echo "Done. Generated files for $(words $(MODULE_YAML)) module(s)"
 
+# -----------------------------------------------------------------------------
+# Housekeeping Targets
+# -----------------------------------------------------------------------------
+
 clean: test-clean
 	@echo "Cleaning..."
 	rm -rf $(BUILD_DIR) $(EXEC)
@@ -170,6 +284,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  make              - Build executable"
+	@echo "  make info         - Show build configuration and library detection"
 	@echo "  make clean        - Remove all build artifacts"
 	@echo "  make tidy         - Remove build directory only"
 	@echo "  make generate     - Generate all code from metadata (properties + modules)"
@@ -191,6 +306,11 @@ help:
 	@echo "Options:"
 	@echo "  make USE-HDF5=yes - Enable HDF5 support"
 	@echo "  make USE-MPI=yes  - Enable MPI support"
+	@echo "  make -j4          - Parallel build (4 jobs, adjust as needed)"
+	@echo ""
+	@echo "Tips:"
+	@echo "  - Use 'make info' to see detected libraries and configuration"
+	@echo "  - Parallel builds significantly speed up compilation: make -j$$(nproc)"
 	@echo ""
 	@echo "Notes:"
 	@echo "  Code is auto-regenerated when YAML metadata changes:"
@@ -206,6 +326,59 @@ help:
 	@echo "    - src/modules/_system/generated/module_init.c"
 	@echo "    - tests/generated/module_sources.mk"
 	@echo "    - docs/generated/module-reference.md"
+
+# Show build configuration and detected libraries
+info:
+	@echo "Mimic Build Configuration"
+	@echo "========================="
+	@echo ""
+	@echo "Compiler: $(CC)"
+	@echo "Build flags: $(CFLAGS)"
+	@echo ""
+	@echo "Library Detection:"
+	@echo "------------------"
+	@echo "YAML library: $(if $(filter yes,$(YAML_FOUND)),✓ Found,✗ Not found)"
+ifdef USE-HDF5
+	@echo "HDF5 support: $(if $(filter yes,$(HDF5_FOUND)),✓ Enabled and found,✗ Enabled but not found)"
+else
+	@echo "HDF5 support: ✗ Disabled (use USE-HDF5=yes to enable)"
+endif
+ifdef USE-MPI
+	@echo "MPI support: ✓ Enabled (using $(CC))"
+else
+	@if command -v mpicc >/dev/null 2>&1; then \
+		echo "MPI support: ✗ Disabled (mpicc available, use USE-MPI=yes to enable)"; \
+	else \
+		echo "MPI support: ✗ Disabled (mpicc not installed)"; \
+	fi
+endif
+	@echo ""
+	@echo "Detection methods used:"
+	@if pkg-config --exists yaml-0.1 2>/dev/null; then \
+		echo "  YAML: pkg-config ($(shell pkg-config --modversion yaml-0.1 2>/dev/null))"; \
+	elif command -v brew >/dev/null 2>&1 && brew --prefix libyaml >/dev/null 2>&1; then \
+		echo "  YAML: Homebrew at $(shell brew --prefix libyaml)"; \
+	else \
+		echo "  YAML: System paths"; \
+	fi
+ifdef USE-HDF5
+	@if pkg-config --exists hdf5 2>/dev/null; then \
+		echo "  HDF5: pkg-config ($(shell pkg-config --modversion hdf5 2>/dev/null))"; \
+	elif command -v brew >/dev/null 2>&1 && brew --prefix hdf5 >/dev/null 2>&1; then \
+		echo "  HDF5: Homebrew at $(shell brew --prefix hdf5)"; \
+	else \
+		echo "  HDF5: System paths"; \
+	fi
+endif
+	@echo ""
+	@echo "Module count: $(words $(MODULE_YAML))"
+	@echo "Source files: $(words $(SOURCES))"
+	@echo "Object files: $(words $(OBJECTS))"
+	@echo ""
+
+# -----------------------------------------------------------------------------
+# Code Generation & Validation Targets
+# -----------------------------------------------------------------------------
 
 # Code generation from metadata (smart - only regenerates what changed)
 generate:
@@ -226,7 +399,10 @@ generate-test-registry:
 validate-test-registry:
 	@python3 scripts/validate_module_tests.py
 
-# Test targets
+# -----------------------------------------------------------------------------
+# Test Targets
+# -----------------------------------------------------------------------------
+
 tests: validate-modules test-unit test-integration test-scientific
 	@echo ""
 	@echo ""
