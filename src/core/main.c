@@ -413,10 +413,8 @@ int main(int argc, char **argv) {
 
   /* Clean up allocated memory */
 
-  /* Special handling for Age array - needs to be reset to original allocation
-   * point */
-  Age--;
-  myfree(Age);
+  /* Free Age array using original allocation pointer (fix for issue 1.2.1) */
+  myfree(Age_base);
 
   /* Random generator freeing removed - not actually used in computation */
 

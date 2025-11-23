@@ -85,6 +85,7 @@ int ListOutputSnaps[ABSOLUTEMAXSNAPS];
 double ZZ[ABSOLUTEMAXSNAPS];
 double AA[ABSOLUTEMAXSNAPS];
 double *Age;
+double *Age_base; /* Original allocation pointer for Age (fix for issue 1.2.1) */
 
 int MAXSNAPS;
 int NOUT;
