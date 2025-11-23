@@ -144,7 +144,7 @@ OUTPUT:
   JSON structure includes:
   - timestamp: ISO 8601 timestamp
   - git: Git repository information (commit, branch, dirty status)
-  - system: System information
+  - system: Host hardware and OS details
   - test_case: Test configuration used
   - overall_performance: Runtime and memory metrics
   - configuration: Build and runtime configuration
@@ -471,6 +471,19 @@ else
     GIT_BRANCH='unknown'
     GIT_DIRTY=false
 fi
+KERNEL_RELEASE=$(uname -r 2>/dev/null || echo 'unknown')
+KERNEL_VERSION=$(uname -v 2>/dev/null || echo 'unknown')
+SYSTEM_PLATFORM=$(uname -s 2>/dev/null || echo 'unknown')
+SYSTEM_ARCH=$(uname -m 2>/dev/null || echo 'unknown')
+OS_VERSION='unknown'
+if [[ "$SYSTEM_PLATFORM" == "Darwin" ]]; then
+    OS_VERSION=$(sw_vers -productVersion 2>/dev/null || echo '')
+elif command -v lsb_release > /dev/null 2>&1; then
+    OS_VERSION=$(lsb_release -ds 2>/dev/null | tr -d '"')
+elif [[ -f /etc/os-release ]]; then
+    OS_VERSION=$(grep '^PRETTY_NAME=' /etc/os-release | head -1 | cut -d= -f2- | tr -d '"')
+fi
+OS_VERSION=${OS_VERSION:-unknown}
 BUILD_FLAGS="${MAKE_FLAGS:-none}"
 
 # Verify output was created - find any output file
@@ -507,9 +520,10 @@ cat > "${ROOT_DIR}/benchmarks/baseline_${TIMESTAMP}.json" << EOF
   "system": {
     "hostname": "$(hostname -s 2>/dev/null || hostname)",
     "hw_model": "$(sysctl -n hw.model 2>/dev/null || echo 'unknown')",
-    "uname": "$(uname -a)",
-    "platform": "$(uname -s)",
-    "architecture": "$(uname -m)",
+    "platform": "${SYSTEM_PLATFORM}",
+    "architecture": "${SYSTEM_ARCH}",
+    "kernel_version": "${KERNEL_VERSION}",
+    "os_version": "${OS_VERSION}",
     "cpu_count": "$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 'unknown')"
   },
   "test_case": {
