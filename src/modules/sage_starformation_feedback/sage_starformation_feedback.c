@@ -470,6 +470,13 @@ static int sage_starformation_feedback_process(struct ModuleContext *ctx,
         struct GalaxyData *gal = halos[i].galaxy;
         struct GalaxyData *central_gal = halos[central_idx].galaxy;
 
+        /* Validate HaloNr is within bounds before accessing InputTreeHalos (fix for issue 1.2.2) */
+        if (halos[i].HaloNr < 0 || halos[i].HaloNr >= InputTreeNHalos[TreeID]) {
+            ERROR_LOG("Halo %d has invalid HaloNr=%d (valid range: 0-%d)",
+                     i, halos[i].HaloNr, InputTreeNHalos[TreeID] - 1);
+            return -1;
+        }
+
         /* Update disk scale radius (needed for star formation calculation) */
         gal->DiskScaleRadius = mimic_get_disk_radius(
             InputTreeHalos[halos[i].HaloNr].Spin[0],
