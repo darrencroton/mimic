@@ -283,6 +283,12 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
     MimicConfig.LastSnapshotNr = get_int_value(node);
     DEBUG_LOG("LastSnapshotNr = %d", MimicConfig.LastSnapshotNr);
   }
+
+  node = get_mapping_value(doc, section, "max_tree_depth");
+  if (node) {
+    MimicConfig.MaxTreeDepth = get_int_value(node);
+    DEBUG_LOG("MaxTreeDepth = %d", MimicConfig.MaxTreeDepth);
+  }
 }
 
 /**

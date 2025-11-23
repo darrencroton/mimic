@@ -72,6 +72,9 @@ struct MimicConfig {
   int OverwriteOutputFiles; // Flag: 1=overwrite (default), 0=skip existing
                             // files
 
+  /* tree traversal */
+  int MaxTreeDepth; // Maximum recursion depth (default: 500)
+
   /* output parameters */
   int NOUT;
   int ListOutputSnaps[ABSOLUTEMAXSNAPS];

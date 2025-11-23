@@ -10,7 +10,7 @@ size_t myfread(void *ptr, size_t size, size_t nmemb, FILE *stream);
 size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream);
 int myfseek(FILE *stream, long offset, int whence);
 
-void build_halo_tree(int halonr, int tree);
+void build_halo_tree(int halonr, int tree, int depth);
 void process_halo_evolution(int halonr, int ngal);
 void update_halo_properties(int ngal);
 int join_progenitor_halos(int halonr, int nstart);

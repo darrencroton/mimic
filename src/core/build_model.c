@@ -38,6 +38,7 @@
  *
  * @param   halonr    Index of the current halo in the Halo array
  * @param   tree      Index of the current merger tree
+ * @param   depth     Current recursion depth (starts at 0)
  *
  * This function traverses the merger tree in a depth-first manner to ensure
  * that halos are constructed from their progenitors before being evolved.
@@ -51,15 +52,22 @@
  * chronological order, preserving the flow of mass and properties from
  * high redshift to low redshift.
  */
-void build_halo_tree(int halonr, int tree) {
+void build_halo_tree(int halonr, int tree, int depth) {
   int prog, fofhalo, ngal;
+
+  /* Check recursion depth */
+  if (depth > MimicConfig.MaxTreeDepth) {
+    FATAL_ERROR("Tree recursion depth (%d) exceeds MaxTreeDepth (%d) for halo "
+                "%d in tree %d",
+                depth, MimicConfig.MaxTreeDepth, halonr, tree);
+  }
 
   HaloAux[halonr].DoneFlag = 1;
 
   prog = InputTreeHalos[halonr].FirstProgenitor;
   while (prog >= 0) {
     if (HaloAux[prog].DoneFlag == 0)
-      build_halo_tree(prog, tree);
+      build_halo_tree(prog, tree, depth + 1);
     prog = InputTreeHalos[prog].NextProgenitor;
   }
 
@@ -70,7 +78,7 @@ void build_halo_tree(int halonr, int tree) {
       prog = InputTreeHalos[fofhalo].FirstProgenitor;
       while (prog >= 0) {
         if (HaloAux[prog].DoneFlag == 0)
-          build_halo_tree(prog, tree);
+          build_halo_tree(prog, tree, depth + 1);
         prog = InputTreeHalos[prog].NextProgenitor;
       }
 

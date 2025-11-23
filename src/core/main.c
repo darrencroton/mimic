@@ -194,8 +194,9 @@ int main(int argc, char **argv) {
   /* Set default logging level */
   LogLevel log_level = LOG_LEVEL_INFO;
 
-  /* Set default value for overwrite flag */
+  /* Set default values */
   MimicConfig.OverwriteOutputFiles = 1;
+  MimicConfig.MaxTreeDepth = 500; // Typical trees: 50-100 levels
 
   /* Parse command-line arguments for special flags like help, verbosity */
   int i;
@@ -360,7 +361,7 @@ int main(int argc, char **argv) {
       /* Construct objects for each unprocessed halo in the tree */
       for (halonr = 0; halonr < InputTreeNHalos[treenr]; halonr++)
         if (HaloAux[halonr].DoneFlag == 0)
-          build_halo_tree(halonr, treenr);
+          build_halo_tree(halonr, treenr, 0);
 
       /* Save the processed halos (format depends on OutputFormat parameter) */
 #ifdef HDF5
