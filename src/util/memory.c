@@ -28,20 +28,40 @@
 #include <string.h>
 
 #include "config.h"
-#include "proto.h"
 #include "memory.h"
+#include "proto.h"
 
 /* Memory category names for reporting */
 static const char *CategoryNames[] = {"Unknown", "Galaxies", "Halos",
                                       "Trees",   "I/O",      "Utility"};
 
+/* ============================================================================
+ * Memory Tracking Global State
+ * ============================================================================
+ *
+ * THREAD SAFETY: These global variables are NOT thread-safe.
+ *
+ * The current Mimic architecture uses MPI process-based parallelism where each
+ * MPI process has its own separate memory space. Global variables are safe in
+ * this model because there is no shared memory between processes.
+ *
+ * IMPORTANT: If migrating to shared-memory threading (OpenMP, pthreads, etc.),
+ * these variables MUST be protected with mutexes or converted to thread-local
+ * storage (TLS) to prevent race conditions. All functions that modify these
+ * variables would require synchronization.
+ *
+ * Affected functions: mymalloc_cat(), myrealloc_cat(), myfree(), and all
+ * memory tracking/reporting functions.
+ * ============================================================================
+ */
+
 /* Memory tracking variables */
 static unsigned long MaxBlocks = DEFAULT_MAX_MEMORY_BLOCKS;
-static unsigned long Nblocks = 0;          /* Number of allocated blocks */
-static void **Table = NULL;                /* Pointers to allocated blocks */
-static size_t *SizeTable = NULL;           /* Sizes of allocated blocks */
+static unsigned long Nblocks = 0;            /* Number of allocated blocks */
+static void **Table = NULL;                  /* Pointers to allocated blocks */
+static size_t *SizeTable = NULL;             /* Sizes of allocated blocks */
 static MemoryCategory *CategoryTable = NULL; /* Category of each block */
-static size_t TotMem = 0;                     /* Total allocated memory */
+static size_t TotMem = 0;                    /* Total allocated memory */
 static size_t HighMarkMem = 0;          /* High watermark of memory usage */
 static size_t OldPrintedHighMark = 0;   /* Last reported high watermark */
 static int MemorySystemInitialized = 0; /* Flag to track initialization state */
