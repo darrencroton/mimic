@@ -32,8 +32,8 @@
 #include <unistd.h>
 
 #include "config.h"
-#include "proto.h"
 #include "globals.h"
+#include "proto.h"
 #include "tree/hdf5.h"
 #include "types.h"
 
@@ -54,8 +54,7 @@ int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
                             enum Valid_TreeTypes my_TreeType);
 int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
                            int *attribute);
-int32_t read_dataset(hid_t my_hdf5_file, char *dataset_name, int32_t datatype,
-                     void *buffer);
+int32_t read_dataset(char *dataset_name, int32_t datatype, void *buffer);
 
 // External Functions //
 
@@ -137,34 +136,33 @@ void load_tree_table_hdf5(int filenr) {
     InputTreeFirstHalo[i] = InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
 }
 
-#define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)          \
+#define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)         \
   {                                                                            \
     snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr,             \
              #hdf5_name);                                                      \
-    status = read_dataset(hdf5_file, dataset_name, type_int, buffer);          \
+    status = read_dataset(dataset_name, type_int, buffer);                     \
     if (status != EXIT_SUCCESS) {                                              \
       IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,              \
                      "Failed to read property for tree %d", treenr);           \
     }                                                                          \
     for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {               \
-      InputTreeHalos[halo_idx].field_name = ((data_type *)buffer)[halo_idx];    \
+      InputTreeHalos[halo_idx].field_name = ((data_type *)buffer)[halo_idx];   \
     }                                                                          \
   }
 
-#define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int,         \
+#define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int,        \
                                        data_type)                              \
   {                                                                            \
     snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr,             \
              #hdf5_name);                                                      \
-    status =                                                                   \
-        read_dataset(hdf5_file, dataset_name, type_int, buffer_multipledim);   \
+    status = read_dataset(dataset_name, type_int, buffer_multipledim);         \
     if (status != EXIT_SUCCESS) {                                              \
       IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,              \
                      "Failed to read property for tree %d", treenr);           \
     }                                                                          \
     for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {               \
       for (dim = 0; dim < NDIM; ++dim) {                                       \
-        InputTreeHalos[halo_idx].field_name[dim] =                              \
+        InputTreeHalos[halo_idx].field_name[dim] =                             \
             ((data_type *)buffer_multipledim)[halo_idx * NDIM + dim];          \
       }                                                                        \
     }                                                                          \
@@ -207,7 +205,8 @@ void load_tree_hdf5(int32_t treenr) {
 
   NHalos_ThisTree = InputTreeNHalos[treenr];
 
-  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * NHalos_ThisTree, MEM_TREES);
+  InputTreeHalos =
+      mymalloc_cat(sizeof(struct RawHalo) * NHalos_ThisTree, MEM_TREES);
 
   buffer = calloc(NHalos_ThisTree, sizeof(*(buffer)));
   if (buffer == NULL) {
@@ -382,14 +381,14 @@ int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
 /**
  * @brief   Reads a dataset from an HDF5 file
  *
- * @param   my_hdf5_file    HDF5 file handle
  * @param   dataset_name    Path and name of the dataset to read
  * @param   datatype        Type of data (0=int, 1=float, 2=long long)
  * @param   buffer          Buffer to store the read data
  * @return  EXIT_SUCCESS on success, error code on failure
  *
- * This function reads a dataset from an HDF5 file into the provided buffer.
- * It handles different data types specified by the datatype parameter:
+ * This function reads a dataset from the currently open HDF5 file (global
+ * hdf5_file) into the provided buffer. It handles different data types
+ * specified by the datatype parameter:
  * - 0: Integer data
  * - 1: Float data
  * - 2: Long long (64-bit integer) data
@@ -397,12 +396,8 @@ int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
  * The function provides error checking and appropriate error messages for
  * debugging purposes.
  */
-int32_t read_dataset(hid_t my_hdf5_file, char *dataset_name, int32_t datatype,
-                     void *buffer) {
+int32_t read_dataset(char *dataset_name, int32_t datatype, void *buffer) {
   hid_t dataset_id;
-
-  /* Parameter unused - function uses global hdf5_file instead */
-  (void)my_hdf5_file;
 
   dataset_id = H5Dopen2(hdf5_file, dataset_name, H5P_DEFAULT);
   if (dataset_id < 0) {
@@ -414,11 +409,14 @@ int32_t read_dataset(hid_t my_hdf5_file, char *dataset_name, int32_t datatype,
   /* Read the dataset with error checking */
   herr_t status;
   if (datatype == 0) {
-    status = H5Dread(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+    status = H5Dread(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                     buffer);
   } else if (datatype == 1) {
-    status = H5Dread(dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+    status = H5Dread(dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL,
+                     H5P_DEFAULT, buffer);
   } else if (datatype == 2) {
-    status = H5Dread(dataset_id, H5T_NATIVE_LLONG, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
+    status = H5Dread(dataset_id, H5T_NATIVE_LLONG, H5S_ALL, H5S_ALL,
+                     H5P_DEFAULT, buffer);
   } else {
     ERROR_LOG("Invalid datatype %d for dataset %s", datatype, dataset_name);
     H5Dclose(dataset_id);

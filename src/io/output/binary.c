@@ -27,11 +27,11 @@
 #include <time.h>
 
 #include "allvars.h"
-#include "proto.h"
+#include "error.h"
 #include "output/binary.h"
 #include "output/util.h"
+#include "proto.h"
 #include "util.h"
-#include "error.h"
 
 #define TREE_MUL_FAC (1000000000LL)
 #define FILENR_MUL_FAC (1000000000000000LL)
@@ -80,7 +80,8 @@ void save_halos(int filenr, int tree) {
     // only open the file if it is not already open.
     if (!save_fd[n]) {
       snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]], filenr);
+               MimicConfig.OutputFileBaseName,
+               MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]], filenr);
 
       /* Open in binary mode with update permissions */
       save_fd[n] = fopen(buf, "wb+");
@@ -125,7 +126,7 @@ void save_halos(int filenr, int tree) {
         /* Convert internal halo to output format */
         prepare_halo_for_output(filenr, tree, &ProcessedHalos[i], &halo_output);
 
-        /* Write using direct file I/O */
+        /* Write halo data to output file */
         size_t halo_size = sizeof(struct HaloOutput);
         nwritten = fwrite(&halo_output, halo_size, 1, save_fd[n]);
 
@@ -166,7 +167,8 @@ void save_halos(int filenr, int tree) {
 void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
                              struct HaloOutput *o) {
   /* CUSTOM: Calculate unique halo index encoding file, tree, and halo number.
-   * For large file counts (>=10000), use smaller file multiplier to fit in long long. */
+   * For large file counts (>=10000), use smaller file multiplier to fit in long
+   * long. */
   long long file_mul_fac =
       (MimicConfig.LastFile >= 10000) ? (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
   long long tree_mul = TREE_MUL_FAC * tree;
@@ -194,8 +196,8 @@ void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
   o->MimicTreeIndex = tree;
   o->SimulationHaloIndex = InputTreeHalos[g->HaloNr].MostBoundID;
 
-  /* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */
-  #include "../../include/generated/copy_to_output.inc"
+/* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */
+#include "../../include/generated/copy_to_output.inc"
 
   /* CUSTOM: dT unit conversion (internal uses seconds, output uses Myr) */
   /* Don't convert sentinel value (-1.0 indicates no progenitor/invalid) */
