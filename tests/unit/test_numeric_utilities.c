@@ -207,16 +207,26 @@ int test_edge_cases(void) {
 
     /* ===== EXECUTE & VALIDATE ===== */
 
-    /* Test with infinity */
+    /* Test with infinity (infinity DOES equal itself per IEEE 754) */
     double inf = INFINITY;
     TEST_ASSERT(is_zero(inf) == false, "Infinity is not zero");
-    TEST_ASSERT(is_equal(inf, inf) == false, "Infinity should not equal infinity (NaN propagation)");
+    TEST_ASSERT(is_equal(inf, inf) == true, "Infinity equals itself (IEEE 754)");
+    TEST_ASSERT(is_equal(inf, -INFINITY) == false, "+Inf does not equal -Inf");
 
-    /* Test with NaN */
+    /* Test with NaN (NaN does NOT equal anything, including itself) */
     double nan_val = NAN;
     TEST_ASSERT(is_zero(nan_val) == false, "NaN is not zero");
-    TEST_ASSERT(is_equal(nan_val, nan_val) == false, "NaN should not equal NaN");
-    TEST_ASSERT(is_equal(nan_val, 1.0) == false, "NaN should not equal 1.0");
+    TEST_ASSERT(is_equal(nan_val, nan_val) == false, "NaN does not equal NaN (IEEE 754)");
+    TEST_ASSERT(is_equal(nan_val, 1.0) == false, "NaN does not equal 1.0");
+    TEST_ASSERT(is_greater(nan_val, 1.0) == false, "NaN is not greater than 1.0");
+    TEST_ASSERT(is_less(nan_val, 1.0) == false, "NaN is not less than 1.0");
+    TEST_ASSERT(is_within(nan_val, 0.0, 10.0) == false, "NaN is not within any range");
+
+    /* Test safe_div with NaN */
+    double result_nan = safe_div(NAN, 2.0, 99.0);
+    TEST_ASSERT(is_equal(result_nan, 99.0) == true, "safe_div returns default for NaN numerator");
+    result_nan = safe_div(10.0, NAN, 99.0);
+    TEST_ASSERT(is_equal(result_nan, 99.0) == true, "safe_div returns default for NaN denominator");
 
     /* Test with very large values */
     double large = 1.0e100;
