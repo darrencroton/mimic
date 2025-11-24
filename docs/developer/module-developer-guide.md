@@ -274,12 +274,12 @@ Run:
 **Example**:
 
 ```c
-static double MY_EFFICIENCY = 0.02;  // Default
+static double MY_EFFICIENCY;
 static double *cooling_table = NULL;
 
 static int my_module_init(void) {
-    // Read parameters
-    module_get_double("MyModule", "Efficiency", &MY_EFFICIENCY, 0.02);
+    // Read parameters (defaults come from module_info.yaml)
+    module_get_double("MyModule", "Efficiency", &MY_EFFICIENCY);
 
     // Allocate persistent memory
     cooling_table = malloc_tracked(1000 * sizeof(double), MEM_UTILITY);
@@ -535,45 +535,58 @@ Examples:
 
 ### Reading Parameters
 
-Use the parameter API in `module_registry.h`:
+Use the parameter API in `module_registry.h`. Define parameters and their defaults in `module_info.yaml`:
 
 ```c
-// Double parameter
+// Double parameter (default comes from module_info.yaml)
 double efficiency;
-module_get_double("MyModule", "Efficiency", &efficiency, 0.02);  // default=0.02
+module_get_double("MyModule", "Efficiency", &efficiency);
 
-// Integer parameter
+// Integer parameter (default comes from module_info.yaml)
 int min_mass;
-module_get_int("MyModule", "MinHaloMass", &min_mass, 100);  // default=100
+module_get_int("MyModule", "MinHaloMass", &min_mass);
 
-// String parameter
+// String parameter (default comes from module_info.yaml)
 char model[256];
 module_get_parameter("MyModule", "Model", model, sizeof(model), "default");
 ```
 
+**Single Source of Truth**: Parameter defaults are defined in `module_info.yaml` and automatically used by the parameter API. Never hardcode defaults in multiple places.
+
 ### Parameter Validation
 
-Always validate parameter values:
+**Automatic validation**: When you define parameter ranges in `module_info.yaml`, validation happens automatically:
+
+```yaml
+# In module_info.yaml
+parameters:
+  - name: Efficiency
+    type: double
+    default: 0.02
+    range: [0.0, 1.0]  # Automatic validation!
+    description: "Star formation efficiency"
+```
 
 ```c
 static int my_module_init(void) {
     double efficiency;
-    module_get_double("MyModule", "Efficiency", &efficiency, 0.02);
 
-    // Validate range
-    if (efficiency < 0.0 || efficiency > 1.0) {
-        ERROR_LOG("MyModule_Efficiency = %.3f is outside valid range [0.0, 1.0]",
-                  efficiency);
+    // Validation happens automatically based on module_info.yaml range
+    int result = module_get_double("MyModule", "Efficiency", &efficiency);
+    if (result != 0) {
+        ERROR_LOG("Failed to read Efficiency parameter");
         return -1;
     }
 
-    // Store validated value
+    // Store value (already validated)
     MY_EFFICIENCY = efficiency;
 
-    INFO_LOG("  Efficiency = %.3f (validated)", MY_EFFICIENCY);
+    INFO_LOG("  Efficiency = %.3f", MY_EFFICIENCY);
     return 0;
 }
 ```
+
+**Single Source of Truth**: Define validation ranges in `module_info.yaml` once. The parameter system automatically validates all values against these ranges.
 
 ### Parameter Documentation
 
@@ -1179,11 +1192,12 @@ halos[i].galaxy->ColdGas = new_value;  // ✅
 // WRONG: Hardcoded value
 static double EFFICIENCY = 0.02;  // ❌ Can't be changed by users
 
-// CORRECT: Read from configuration
-static double EFFICIENCY = 0.02;  // Default
+// CORRECT: Read from configuration (default from module_info.yaml)
+static double EFFICIENCY;  // No hardcoded default
 
 static int my_module_init(void) {
-    module_get_double("MyModule", "Efficiency", &EFFICIENCY, 0.02);  // ✅
+    module_get_double("MyModule", "Efficiency", &EFFICIENCY);  // ✅
+    // Default comes from module_info.yaml (single source of truth)
     return 0;
 }
 ```
@@ -1413,9 +1427,9 @@ for (int i = 0; i < ngal; i++) {
 ### Key Functions
 
 ```c
-// Parameter reading
-module_get_double(module_name, param_name, &out_value, default);
-module_get_int(module_name, param_name, &out_value, default);
+// Parameter reading (defaults come from module_info.yaml)
+module_get_double(module_name, param_name, &out_value);
+module_get_int(module_name, param_name, &out_value);
 module_get_parameter(module_name, param_name, out_str, max_len, default);
 
 // Memory management

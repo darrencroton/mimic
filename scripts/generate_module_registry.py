@@ -53,6 +53,9 @@ MODULES_DIR = REPO_ROOT / "src" / "modules"
 MODULE_INIT_C = (
     REPO_ROOT / "src" / "modules" / "_system" / "generated" / "module_init.c"
 )
+MODULE_PARAMS_H = (
+    REPO_ROOT / "src" / "modules" / "_system" / "generated" / "module_parameters.h"
+)
 MODULE_SOURCES_MK = REPO_ROOT / "tests" / "generated" / "module_sources.mk"
 MODULE_HASH_FILE = REPO_ROOT / "build" / "module_registry_hash.txt"
 
@@ -355,6 +358,167 @@ def generate_module_init_c(
 
 
 # ==============================================================================
+# CODE GENERATION - module_parameters.h
+# ==============================================================================
+
+
+def generate_parameter_metadata_h(
+    modules: List[Dict[str, Any]],
+    metadata_hash: str,
+    output_path: Path,
+    dry_run: bool = False,
+) -> bool:
+    """Generate parameter metadata header from module_info.yaml.
+
+    This creates a compile-time lookup table of parameter metadata (ranges, types)
+    that enables automatic parameter validation without hardcoding ranges in C code.
+
+    Vision Principles:
+    - Principle 3 (Metadata-Driven): Parameters defined once in YAML
+    - Principle 4 (Single Source of Truth): No range duplication in C code
+    """
+
+    # Filter runtime modules (utilities excluded)
+    runtime_modules = [m for m in modules if not m.get("is_utility", False)]
+
+    # Collect all parameters with metadata
+    param_entries = []
+    for module in runtime_modules:
+        module_name = module["name"]
+        parameters = module.get("parameters", [])
+
+        for param in parameters:
+            param_name = param["name"]
+            param_type = param.get("type", "double")
+            param_default = param.get("default", 0)
+            param_range = param.get("range", [])
+
+            # Determine range bounds
+            has_min = 1 if len(param_range) >= 1 else 0
+            has_max = 1 if len(param_range) >= 2 else 0
+            range_min = float(param_range[0]) if has_min else 0.0
+            range_max = float(param_range[1]) if has_max else 0.0
+
+            # Convert default to float for storage (0.0 for string types)
+            if param_type == "string":
+                default_float = 0.0  # String defaults not stored in metadata
+            else:
+                default_float = float(param_default)
+
+            param_entries.append(
+                {
+                    "module": module_name,
+                    "name": param_name,
+                    "type": param_type,
+                    "default": default_float,
+                    "range_min": range_min,
+                    "range_max": range_max,
+                    "has_min": has_min,
+                    "has_max": has_max,
+                }
+            )
+
+    lines = []
+
+    # Header
+    lines.append("/* AUTO-GENERATED FILE - DO NOT EDIT MANUALLY */")
+    lines.append(
+        "/* Generated from module metadata by scripts/generate_module_registry.py */"
+    )
+    lines.append("/* Source: src/modules/[MODULE]/module_info.yaml */")
+    lines.append("/*")
+    lines.append(" * This file provides compile-time parameter metadata for automatic")
+    lines.append(" * validation. Ranges are defined once in module_info.yaml (single")
+    lines.append(" * source of truth) and generated into this lookup table.")
+    lines.append(" *")
+    lines.append(" * To regenerate:")
+    lines.append(" *   make generate")
+    lines.append(" *")
+    lines.append(f" * Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f" * Source MD5: {metadata_hash}")
+    lines.append(" */")
+    lines.append("")
+    lines.append("#ifndef MODULE_PARAMETERS_H")
+    lines.append("#define MODULE_PARAMETERS_H")
+    lines.append("")
+
+    # Struct definition
+    lines.append("/**")
+    lines.append(" * @brief Parameter metadata for automatic validation and defaults")
+    lines.append(" *")
+    lines.append(" * Each entry represents a parameter from module_info.yaml with its")
+    lines.append(" * default value and validation range. Used by module_get_double/int to")
+    lines.append(" * automatically provide defaults and validate parameter values.")
+    lines.append(" *")
+    lines.append(" * Vision Principle 4 (Single Source of Truth): Defaults and ranges")
+    lines.append(" * defined once in module_info.yaml, not hardcoded in C.")
+    lines.append(" */")
+    lines.append("struct ModuleParameterMetadata {")
+    lines.append("    const char *module_name;  /* Module name (e.g., 'sage_infall') */")
+    lines.append("    const char *param_name;   /* Parameter name (e.g., 'BaryonFrac') */")
+    lines.append("    const char *type;         /* Type: 'double', 'int', 'string' */")
+    lines.append("    double default_value;     /* Default value from metadata */")
+    lines.append("    double range_min;         /* Minimum valid value */")
+    lines.append("    double range_max;         /* Maximum valid value */")
+    lines.append("    int has_min;              /* 1 if min constraint exists, 0 otherwise */")
+    lines.append("    int has_max;              /* 1 if max constraint exists, 0 otherwise */")
+    lines.append("};")
+    lines.append("")
+
+    # Array declaration
+    if param_entries:
+        lines.append("/* Parameter metadata lookup table */")
+        lines.append(
+            "static const struct ModuleParameterMetadata MODULE_PARAMETER_METADATA[] = {"
+        )
+
+        # Generate entries sorted by module, then parameter name
+        sorted_entries = sorted(param_entries, key=lambda x: (x["module"], x["name"]))
+        for entry in sorted_entries:
+            # Format with proper alignment for readability
+            lines.append(
+                f'    {{"{entry["module"]}", "{entry["name"]}", "{entry["type"]}", '
+                f'{entry["default"]}, {entry["range_min"]}, {entry["range_max"]}, '
+                f'{entry["has_min"]}, {entry["has_max"]}}},  '
+                f'/* {entry["module"]}_{entry["name"]} = {entry["default"]} */'
+            )
+
+        lines.append("};")
+        lines.append("")
+        lines.append(
+            f"#define NUM_MODULE_PARAMETERS {len(param_entries)}  /* Total parameters with metadata */"
+        )
+    else:
+        lines.append("/* No parameters with metadata found */")
+        lines.append(
+            "static const struct ModuleParameterMetadata MODULE_PARAMETER_METADATA[] = {};"
+        )
+        lines.append("#define NUM_MODULE_PARAMETERS 0")
+
+    lines.append("")
+    lines.append("#endif /* MODULE_PARAMETERS_H */")
+    lines.append("")
+
+    # Write file
+    content = "\n".join(lines)
+
+    if dry_run:
+        print("\n=== module_parameters.h (DRY RUN) ===")
+        print(content)
+        return True
+
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"✓ Generated: {output_path.relative_to(REPO_ROOT)}")
+        return True
+    except Exception as e:
+        print(f"ERROR: Failed to write {output_path}: {e}", file=sys.stderr)
+        return False
+
+
+# ==============================================================================
 # CODE GENERATION - module_sources.mk
 # ==============================================================================
 
@@ -536,6 +700,9 @@ def main():
     success = True
     success &= generate_module_init_c(
         sorted_modules, metadata_hash, MODULE_INIT_C, args.dry_run
+    )
+    success &= generate_parameter_metadata_h(
+        sorted_modules, metadata_hash, MODULE_PARAMS_H, args.dry_run
     )
     success &= generate_module_sources_mk(
         sorted_modules, MODULE_SOURCES_MK, args.dry_run

@@ -315,27 +315,17 @@ static void update_from_feedback(struct GalaxyData *gal,
  */
 static int sage_starformation_feedback_init(void) {
   /* Read module parameters from configuration */
-  module_get_int("SageStarformationFeedback", "SFprescription",
-                 &SF_PRESCRIPTION, 0);
-  module_get_double("SageStarformationFeedback", "SfrEfficiency",
-                    &SFR_EFFICIENCY, 0.02);
-  module_get_int("SageStarformationFeedback", "SupernovaRecipeOn",
-                 &SUPERNOVA_RECIPE_ON, 1);
-  module_get_double("SageStarformationFeedback", "FeedbackReheatingEpsilon",
-                    &FEEDBACK_REHEATING_EPSILON, 3.0);
-  module_get_double("SageStarformationFeedback", "FeedbackEjectionEfficiency",
-                    &FEEDBACK_EJECTION_EFFICIENCY, 0.3);
-  module_get_double("SageStarformationFeedback", "EnergySNcode",
-                    &ENERGY_SN_CODE, 1.0);
-  module_get_double("SageStarformationFeedback", "EtaSNcode", &ETA_SN_CODE,
-                    0.5);
-  module_get_double("SageStarformationFeedback", "RecycleFraction",
-                    &RECYCLE_FRACTION, 0.43);
-  module_get_double("SageStarformationFeedback", "Yield", &YIELD, 0.03);
-  module_get_double("SageStarformationFeedback", "FracZleaveDisk",
-                    &FRAC_Z_LEAVE_DISK, 0.3);
-  module_get_int("SageStarformationFeedback", "DiskInstabilityOn",
-                 &DISK_INSTABILITY_ON, 0);
+  module_get_int("SageStarformationFeedback", "SFprescription", &SF_PRESCRIPTION);
+  module_get_double("SageStarformationFeedback", "SfrEfficiency", &SFR_EFFICIENCY);
+  module_get_int("SageStarformationFeedback", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON);
+  module_get_double("SageStarformationFeedback", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON);
+  module_get_double("SageStarformationFeedback", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY);
+  module_get_double("SageStarformationFeedback", "EnergySNcode", &ENERGY_SN_CODE);
+  module_get_double("SageStarformationFeedback", "EtaSNcode", &ETA_SN_CODE);
+  module_get_double("SageStarformationFeedback", "RecycleFraction", &RECYCLE_FRACTION);
+  module_get_double("SageStarformationFeedback", "Yield", &YIELD);
+  module_get_double("SageStarformationFeedback", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK);
+  module_get_int("SageStarformationFeedback", "DiskInstabilityOn", &DISK_INSTABILITY_ON);
 
   /* Validate parameters */
   if (SF_PRESCRIPTION != 0) {

@@ -110,28 +110,28 @@ int module_get_parameter(const char *module_name, const char *param_name,
  * @brief   Read a module parameter as double
  *
  * Reads a numeric parameter value for the specified module.
+ * Default value and validation range come from module_info.yaml.
  *
- * @param   module_name     Module name (e.g., "SimpleCooling")
- * @param   param_name      Parameter name (e.g., "BaryonFraction")
+ * @param   module_name     Module name (e.g., "sage_infall")
+ * @param   param_name      Parameter name (e.g., "BaryonFrac")
  * @param   out_value       Output pointer for double value
- * @param   default_value   Default value if parameter not found
- * @return  0 on success
+ * @return  0 on success, -1 on validation error
  */
 int module_get_double(const char *module_name, const char *param_name,
-                      double *out_value, double default_value);
+                      double *out_value);
 
 /**
  * @brief   Read a module parameter as integer
  *
  * Reads an integer parameter value for the specified module.
+ * Default value and validation range come from module_info.yaml.
  *
- * @param   module_name     Module name (e.g., "SimpleCooling")
- * @param   param_name      Parameter name (e.g., "MinHaloMass")
+ * @param   module_name     Module name (e.g., "sage_infall")
+ * @param   param_name      Parameter name (e.g., "ReionizationOn")
  * @param   out_value       Output pointer for integer value
- * @param   default_value   Default value if parameter not found
- * @return  0 on success
+ * @return  0 on success, -1 on validation error
  */
 int module_get_int(const char *module_name, const char *param_name,
-                   int *out_value, int default_value);
+                   int *out_value);
 
 #endif // MODULE_REGISTRY_H

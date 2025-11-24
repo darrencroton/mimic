@@ -166,7 +166,7 @@ int test_module_parameter_api(void) {
     /* ===== EXECUTE ===== */
     double dummy_param = 0.0;
     int result =
-        module_get_double("TestFixture", "DummyParameter", &dummy_param, 1.0);
+        module_get_double("TestFixture", "DummyParameter", &dummy_param);
 
     /* ===== VERIFY ===== */
     TEST_ASSERT_EQUAL(result, 0, "module_get_double should succeed");
@@ -180,25 +180,26 @@ int test_module_parameter_api(void) {
  * @test    test_module_parameter_api_default
  * @brief   Test module parameter API with missing parameter
  *
- * Expected: module_get_double() returns default when parameter not found
- * Validates: Default value mechanism works correctly
+ * Expected: module_get_double() returns default from metadata when parameter not in config
+ * Validates: Default value mechanism works correctly (reads from module_info.yaml)
  */
 int test_module_parameter_api_default(void) {
     /* ===== SETUP ===== */
     reset_config();
+    ensure_modules_registered();
 
     /* No parameters configured */
     MimicConfig.NumModuleParams = 0;
 
     /* ===== EXECUTE ===== */
-    double efficiency = 0.0;
+    double baryon_frac = 0.0;
     int result =
-        module_get_double("StellarMass", "Efficiency", &efficiency, 0.025);
+        module_get_double("sage_infall", "BaryonFrac", &baryon_frac);
 
     /* ===== VERIFY ===== */
     TEST_ASSERT_EQUAL(result, 0, "module_get_double should succeed with default");
-    TEST_ASSERT_DOUBLE_EQUAL(efficiency, 0.025, 1e-6,
-                             "Should return default value");
+    TEST_ASSERT_DOUBLE_EQUAL(baryon_frac, 0.17, 1e-6,
+                             "Should return default value from metadata (module_info.yaml)");
 
     return TEST_PASS;
 }
@@ -223,7 +224,7 @@ int test_module_parameter_api_integer(void) {
     /* ===== EXECUTE ===== */
     int max_iterations = 0;
     int result =
-        module_get_int("TestModule", "MaxIterations", &max_iterations, 50);
+        module_get_int("TestModule", "MaxIterations", &max_iterations);
 
     /* ===== VERIFY ===== */
     TEST_ASSERT_EQUAL(result, 0, "module_get_int should succeed");

@@ -27,6 +27,7 @@
 #include "globals.h"
 #include "module_interface.h"
 #include "module_registry.h"
+#include "../modules/_system/generated/module_parameters.h"
 
 /** Maximum number of modules that can be registered */
 #define MAX_MODULES 32
@@ -56,6 +57,129 @@ static struct Module *find_module_by_name(const char *name) {
     }
   }
   return NULL;
+}
+
+/**
+ * @brief   Get default value for a parameter from metadata
+ *
+ * Looks up the default value defined in module_info.yaml.
+ * Returns 0.0 if parameter not found (should not happen in practice).
+ *
+ * Vision Principle 4 (Single Source of Truth): Default values defined
+ * once in module_info.yaml, not hardcoded in C.
+ *
+ * @param   module_name  Module name (e.g., "sage_infall")
+ * @param   param_name   Parameter name (e.g., "BaryonFrac")
+ * @return  Default value from metadata, or 0.0 if not found
+ */
+static double get_default_from_metadata(const char *module_name,
+                                         const char *param_name) {
+  /* Search generated metadata for parameter default */
+  for (int i = 0; i < NUM_MODULE_PARAMETERS; i++) {
+    if (strcmp(MODULE_PARAMETER_METADATA[i].module_name, module_name) == 0 &&
+        strcmp(MODULE_PARAMETER_METADATA[i].param_name, param_name) == 0) {
+      return MODULE_PARAMETER_METADATA[i].default_value;
+    }
+  }
+
+  /* Parameter not in metadata - return 0.0 (fallback) */
+  return 0.0;
+}
+
+/**
+ * @brief   Validate a double parameter against metadata-defined range
+ *
+ * Validates that a parameter value is within its metadata-defined range.
+ * Uses module_info.yaml as single source of truth for validation rules.
+ *
+ * Vision Principle 3 (Metadata-Driven Architecture): Parameters are defined
+ * in metadata with automatic validation generation.
+ *
+ * Vision Principle 4 (Single Source of Truth): No dual property systems or
+ * synchronization code - ranges defined once in module_info.yaml.
+ *
+ * @param   module_name  Module name (e.g., "sage_infall")
+ * @param   param_name   Parameter name (e.g., "BaryonFrac")
+ * @param   value        Parameter value to validate
+ * @return  0 on success, -1 if out of range
+ */
+static int validate_double_from_metadata(const char *module_name,
+                                          const char *param_name, double value) {
+  /* Search generated metadata for parameter range */
+  for (int i = 0; i < NUM_MODULE_PARAMETERS; i++) {
+    if (strcmp(MODULE_PARAMETER_METADATA[i].module_name, module_name) == 0 &&
+        strcmp(MODULE_PARAMETER_METADATA[i].param_name, param_name) == 0) {
+
+      /* Check minimum range if defined */
+      if (MODULE_PARAMETER_METADATA[i].has_min &&
+          value < MODULE_PARAMETER_METADATA[i].range_min) {
+        ERROR_LOG("%s_%s = %.6g is below minimum %.6g (from module_info.yaml)",
+                  module_name, param_name, value,
+                  MODULE_PARAMETER_METADATA[i].range_min);
+        return -1;
+      }
+
+      /* Check maximum range if defined */
+      if (MODULE_PARAMETER_METADATA[i].has_max &&
+          value > MODULE_PARAMETER_METADATA[i].range_max) {
+        ERROR_LOG("%s_%s = %.6g exceeds maximum %.6g (from module_info.yaml)",
+                  module_name, param_name, value,
+                  MODULE_PARAMETER_METADATA[i].range_max);
+        return -1;
+      }
+
+      /* Validation passed */
+      return 0;
+    }
+  }
+
+  /* Parameter not in metadata - no validation needed (backward compatibility) */
+  return 0;
+}
+
+/**
+ * @brief   Validate an integer parameter against metadata-defined range
+ *
+ * Validates that a parameter value is within its metadata-defined range.
+ * Uses module_info.yaml as single source of truth for validation rules.
+ *
+ * @param   module_name  Module name (e.g., "SageInfall")
+ * @param   param_name   Parameter name (e.g., "ReionizationOn")
+ * @param   value        Parameter value to validate
+ * @return  0 on success, -1 if out of range
+ */
+static int validate_int_from_metadata(const char *module_name,
+                                       const char *param_name, int value) {
+  /* Search generated metadata for parameter range */
+  for (int i = 0; i < NUM_MODULE_PARAMETERS; i++) {
+    if (strcmp(MODULE_PARAMETER_METADATA[i].module_name, module_name) == 0 &&
+        strcmp(MODULE_PARAMETER_METADATA[i].param_name, param_name) == 0) {
+
+      /* Check minimum range if defined */
+      if (MODULE_PARAMETER_METADATA[i].has_min &&
+          (double)value < MODULE_PARAMETER_METADATA[i].range_min) {
+        ERROR_LOG("%s_%s = %d is below minimum %d (from module_info.yaml)",
+                  module_name, param_name, value,
+                  (int)MODULE_PARAMETER_METADATA[i].range_min);
+        return -1;
+      }
+
+      /* Check maximum range if defined */
+      if (MODULE_PARAMETER_METADATA[i].has_max &&
+          (double)value > MODULE_PARAMETER_METADATA[i].range_max) {
+        ERROR_LOG("%s_%s = %d exceeds maximum %d (from module_info.yaml)",
+                  module_name, param_name, value,
+                  (int)MODULE_PARAMETER_METADATA[i].range_max);
+        return -1;
+      }
+
+      /* Validation passed */
+      return 0;
+    }
+  }
+
+  /* Parameter not in metadata - no validation needed (backward compatibility) */
+  return 0;
 }
 
 /**
@@ -272,22 +396,30 @@ int module_get_parameter(const char *module_name, const char *param_name,
 /**
  * @brief   Read a module parameter as double
  *
- * Searches for parameter and converts to double. Returns default if not found.
- * Uses strtod with proper error checking to detect invalid values (fix for issue 1.2.3).
+ * Searches for parameter and converts to double. If not found in configuration,
+ * uses default value from module_info.yaml (single source of truth).
+ *
+ * Automatically validates against ranges defined in module_info.yaml.
+ * Uses strtod with proper error checking to detect invalid values.
+ *
+ * Vision Principle 3 (Metadata-Driven): Parameters and defaults from metadata.
+ * Vision Principle 4 (Single Source of Truth): No hardcoded defaults in C code.
  *
  * @param   module_name     Module name
  * @param   param_name      Parameter name
  * @param   out_value       Output pointer for double value
- * @param   default_value   Default value if parameter not found
- * @return  0 on success, -1 on conversion error
+ * @return  0 on success, -1 on conversion or validation error
  */
 int module_get_double(const char *module_name, const char *param_name,
-                      double *out_value, double default_value) {
+                      double *out_value) {
   char value_str[MAX_STRING_LEN];
 
-  // Get parameter as string
+  // Look up default from metadata (single source of truth)
+  double metadata_default = get_default_from_metadata(module_name, param_name);
+
+  // Get parameter as string using metadata default
   char default_str[MAX_STRING_LEN];
-  snprintf(default_str, sizeof(default_str), "%g", default_value);
+  snprintf(default_str, sizeof(default_str), "%g", metadata_default);
   module_get_parameter(module_name, param_name, value_str,
                        sizeof(value_str), default_str);
 
@@ -313,28 +445,42 @@ int module_get_double(const char *module_name, const char *param_name,
     return -1;
   }
 
+  // Automatically validate against metadata-defined range (if it exists)
+  if (validate_double_from_metadata(module_name, param_name, *out_value) != 0) {
+    return -1;  // Validation failed, error already logged
+  }
+
   return 0;
 }
 
 /**
  * @brief   Read a module parameter as integer
  *
- * Searches for parameter and converts to int. Returns default if not found.
- * Uses strtol with proper error checking to detect invalid values (fix for issue 1.2.3).
+ * Searches for parameter and converts to int. If not found in configuration,
+ * uses default value from module_info.yaml (single source of truth).
+ *
+ * Automatically validates against ranges defined in module_info.yaml.
+ * Uses strtol with proper error checking to detect invalid values.
+ *
+ * Vision Principle 3 (Metadata-Driven): Parameters and defaults from metadata.
+ * Vision Principle 4 (Single Source of Truth): No hardcoded defaults in C code.
  *
  * @param   module_name     Module name
  * @param   param_name      Parameter name
  * @param   out_value       Output pointer for integer value
- * @param   default_value   Default value if parameter not found
- * @return  0 on success, -1 on conversion error
+ * @return  0 on success, -1 on conversion or validation error
  */
 int module_get_int(const char *module_name, const char *param_name,
-                   int *out_value, int default_value) {
+                   int *out_value) {
   char value_str[MAX_STRING_LEN];
 
-  // Get parameter as string
+  // Look up default from metadata (single source of truth)
+  double metadata_default = get_default_from_metadata(module_name, param_name);
+  int metadata_default_int = (int)metadata_default;
+
+  // Get parameter as string using metadata default
   char default_str[MAX_STRING_LEN];
-  snprintf(default_str, sizeof(default_str), "%d", default_value);
+  snprintf(default_str, sizeof(default_str), "%d", metadata_default_int);
   module_get_parameter(module_name, param_name, value_str,
                        sizeof(value_str), default_str);
 
@@ -368,5 +514,11 @@ int module_get_int(const char *module_name, const char *param_name,
   }
 
   *out_value = (int)val;
+
+  // Automatically validate against metadata-defined range (if it exists)
+  if (validate_int_from_metadata(module_name, param_name, *out_value) != 0) {
+    return -1;  // Validation failed, error already logged
+  }
+
   return 0;
 }

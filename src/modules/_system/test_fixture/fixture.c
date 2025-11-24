@@ -54,8 +54,8 @@ static int ENABLE_LOGGING = 0; /* Default: off */
  */
 static int test_fixture_init(void) {
   // Read module parameters from configuration
-  module_get_double("TestFixture", "DummyParameter", &DUMMY_PARAMETER, 1.0);
-  module_get_int("TestFixture", "EnableLogging", &ENABLE_LOGGING, 0);
+  module_get_double("TestFixture", "DummyParameter", &DUMMY_PARAMETER);
+  module_get_int("TestFixture", "EnableLogging", &ENABLE_LOGGING);
 
   INFO_LOG("Test fixture module initialized");
   INFO_LOG("  ⚠️  WARNING: Testing infrastructure only - NOT FOR PRODUCTION");

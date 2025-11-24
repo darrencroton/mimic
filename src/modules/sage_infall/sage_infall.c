@@ -52,57 +52,20 @@
 // ============================================================================
 // MODULE PARAMETERS
 // ============================================================================
+// Parameters defined in module_info.yaml (single source of truth).
+// Loaded at runtime via module_get_double() and module_get_int().
+// Defaults and validation ranges come from metadata - no hardcoding.
 
-/**
- * @brief   Cosmic baryon fraction
- *
- * The universal mass fraction in baryons (Omega_b / Omega_m).
- * Typical value from Planck: 0.17
- *
- * Configuration: SageInfall_BaryonFrac
- */
-static double BARYON_FRAC = 0.17;
-
-/**
- * @brief   Enable reionization suppression
- *
- * If enabled (1), gas accretion onto low-mass halos is suppressed after
- * cosmic reionization using the Gnedin (2000) model.
- *
- * Configuration: SageInfall_ReionizationOn
- */
-static int REIONIZATION_ON = 1;
-
-/**
- * @brief   Reionization parameter: redshift when UV background turns on
- *
- * Epoch when the UV background from first stars begins to heat the IGM.
- * Typical value: z0 = 8.0
- *
- * Configuration: SageInfall_Reionization_z0
- */
-static double REIONIZATION_Z0 = 8.0;
-
-/**
- * @brief   Reionization parameter: redshift of full reionization
- *
- * Epoch when the universe becomes fully reionized.
- * Typical value: zr = 7.0
- *
- * Configuration: SageInfall_Reionization_zr
- */
-static double REIONIZATION_ZR = 7.0;
+static double BARYON_FRAC;
+static int REIONIZATION_ON;
+static double REIONIZATION_Z0;
+static double REIONIZATION_ZR;
 
 // Derived reionization parameters (calculated in init)
 static double a0 = 0.0; /* Scale factor when UV background turns on */
 static double ar = 0.0; /* Scale factor at full reionization */
 
-/**
- * @brief   Reionization model constants (Gnedin 2000)
- *
- * These constants define the reionization suppression model parameters.
- * They are used in the do_reionization() function.
- */
+// Reionization model constants (Gnedin 2000)
 static const double REIONIZATION_ALPHA = 6.0;  /* Best fit to Gnedin data */
 static const double REIONIZATION_TVIR = 1e4;   /* Virial temperature threshold (K) */
 
@@ -459,25 +422,26 @@ static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
  * @brief   Initialize sage_infall module
  *
  * Reads configuration parameters and calculates derived quantities.
+ * Parameters are automatically validated against ranges defined in module_info.yaml.
+ *
+ * Vision Principle 3 (Metadata-Driven): Parameters loaded and validated from metadata.
+ * Vision Principle 4 (Single Source of Truth): No hardcoded ranges in C code.
  *
  * @return  0 on success, non-zero on failure
  */
 static int sage_infall_init(void) {
-  /* Read module parameters from configuration */
-  module_get_double("SageInfall", "BaryonFrac", &BARYON_FRAC, 0.17);
-  module_get_int("SageInfall", "ReionizationOn", &REIONIZATION_ON, 1);
-  module_get_double("SageInfall", "Reionization_z0", &REIONIZATION_Z0, 8.0);
-  module_get_double("SageInfall", "Reionization_zr", &REIONIZATION_ZR, 7.0);
-
-  /* Validate parameters */
-  if (BARYON_FRAC < 0.0 || BARYON_FRAC > 1.0) {
-    ERROR_LOG("SageInfall_BaryonFrac = %.3f is outside valid range [0.0, 1.0]",
-              BARYON_FRAC);
+  /* Read and validate parameters from configuration.
+   * Defaults and validation ranges come from module_info.yaml. */
+  if (module_get_double("sage_infall", "BaryonFrac", &BARYON_FRAC) != 0) {
     return -1;
   }
-
-  if (REIONIZATION_Z0 < 0.0 || REIONIZATION_ZR < 0.0) {
-    ERROR_LOG("Reionization redshifts must be positive");
+  if (module_get_int("sage_infall", "ReionizationOn", &REIONIZATION_ON) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_infall", "Reionization_z0", &REIONIZATION_Z0) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_infall", "Reionization_zr", &REIONIZATION_ZR) != 0) {
     return -1;
   }
 
@@ -488,8 +452,8 @@ static int sage_infall_init(void) {
   /* Log module configuration */
   INFO_LOG("SAGE infall module initialized");
   INFO_LOG("  Physics: infallingMass = f_reion * BaryonFrac * Mvir - baryons");
-  INFO_LOG("  BaryonFrac = %.4f (from config)", BARYON_FRAC);
-  INFO_LOG("  ReionizationOn = %d (from config)", REIONIZATION_ON);
+  INFO_LOG("  BaryonFrac = %.4f", BARYON_FRAC);
+  INFO_LOG("  ReionizationOn = %d", REIONIZATION_ON);
   if (REIONIZATION_ON) {
     INFO_LOG("  Reionization_z0 = %.2f (a0 = %.4f)", REIONIZATION_Z0, a0);
     INFO_LOG("  Reionization_zr = %.2f (ar = %.4f)", REIONIZATION_ZR, ar);

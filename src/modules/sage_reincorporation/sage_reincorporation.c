@@ -88,8 +88,7 @@ static int sage_reincorporation_init(void)
     INFO_LOG("Initializing SAGE reincorporation module...");
 
     // Read parameters from configuration
-    module_get_double("SageReincorporation", "ReIncorporationFactor",
-                     &REINCORPORATION_FACTOR, 1.0);
+    module_get_double("SageReincorporation", "ReIncorporationFactor", &REINCORPORATION_FACTOR);
 
     // Validate parameters
     if (REINCORPORATION_FACTOR < 0.0 || REINCORPORATION_FACTOR > 10.0) {

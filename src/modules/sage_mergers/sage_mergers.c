@@ -614,17 +614,17 @@ static int sage_mergers_init(void) {
   INFO_LOG("Initializing SAGE mergers module");
 
   /* Read module parameters */
-  module_get_double("SageMergers", "BlackHoleGrowthRate", &BLACK_HOLE_GROWTH_RATE, 0.01);
-  module_get_double("SageMergers", "QuasarModeEfficiency", &QUASAR_MODE_EFFICIENCY, 0.001);
-  module_get_double("SageMergers", "ThreshMajorMerger", &THRESH_MAJOR_MERGER, 0.3);
-  module_get_double("SageMergers", "RecycleFraction", &RECYCLE_FRACTION, 0.43);
-  module_get_double("SageMergers", "Yield", &YIELD, 0.03);
-  module_get_double("SageMergers", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK, 0.3);
-  module_get_double("SageMergers", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON, 3.0);
-  module_get_double("SageMergers", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY, 0.3);
-  module_get_int("SageMergers", "AGNrecipeOn", &AGN_RECIPE_ON, 1);
-  module_get_int("SageMergers", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON, 1);
-  module_get_int("SageMergers", "DiskInstabilityOn", &DISK_INSTABILITY_ON, 0);
+  module_get_double("SageMergers", "BlackHoleGrowthRate", &BLACK_HOLE_GROWTH_RATE);
+  module_get_double("SageMergers", "QuasarModeEfficiency", &QUASAR_MODE_EFFICIENCY);
+  module_get_double("SageMergers", "ThreshMajorMerger", &THRESH_MAJOR_MERGER);
+  module_get_double("SageMergers", "RecycleFraction", &RECYCLE_FRACTION);
+  module_get_double("SageMergers", "Yield", &YIELD);
+  module_get_double("SageMergers", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK);
+  module_get_double("SageMergers", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON);
+  module_get_double("SageMergers", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY);
+  module_get_int("SageMergers", "AGNrecipeOn", &AGN_RECIPE_ON);
+  module_get_int("SageMergers", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON);
+  module_get_int("SageMergers", "DiskInstabilityOn", &DISK_INSTABILITY_ON);
 
   /* Supernova energetics in code units (simplified for v1.0)
    *

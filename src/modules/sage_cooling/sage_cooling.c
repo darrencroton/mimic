@@ -459,8 +459,8 @@ static void cool_gas_onto_galaxy(struct Halo *halo, double coolingGas, float vvi
 static int sage_cooling_init(void)
 {
     /* Read module parameters from parameter file */
-    module_get_double("SageCooling", "RadioModeEfficiency", &RADIO_MODE_EFFICIENCY, 0.01);
-    module_get_int("SageCooling", "AGNrecipeOn", &AGN_RECIPE_ON, 1);
+    module_get_double("SageCooling", "RadioModeEfficiency", &RADIO_MODE_EFFICIENCY);
+    module_get_int("SageCooling", "AGNrecipeOn", &AGN_RECIPE_ON);
     module_get_parameter("SageCooling", "CoolFunctionsDir", COOL_FUNCTIONS_DIR,
                         sizeof(COOL_FUNCTIONS_DIR),
                         "src/modules/sage_cooling/CoolFunctions");
