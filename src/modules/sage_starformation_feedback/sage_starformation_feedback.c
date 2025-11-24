@@ -315,17 +315,17 @@ static void update_from_feedback(struct GalaxyData *gal,
  */
 static int sage_starformation_feedback_init(void) {
   /* Read module parameters from configuration */
-  module_get_int("SageStarformationFeedback", "SFprescription", &SF_PRESCRIPTION);
-  module_get_double("SageStarformationFeedback", "SfrEfficiency", &SFR_EFFICIENCY);
-  module_get_int("SageStarformationFeedback", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON);
-  module_get_double("SageStarformationFeedback", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON);
-  module_get_double("SageStarformationFeedback", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY);
-  module_get_double("SageStarformationFeedback", "EnergySNcode", &ENERGY_SN_CODE);
-  module_get_double("SageStarformationFeedback", "EtaSNcode", &ETA_SN_CODE);
-  module_get_double("SageStarformationFeedback", "RecycleFraction", &RECYCLE_FRACTION);
-  module_get_double("SageStarformationFeedback", "Yield", &YIELD);
-  module_get_double("SageStarformationFeedback", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK);
-  module_get_int("SageStarformationFeedback", "DiskInstabilityOn", &DISK_INSTABILITY_ON);
+  module_get_int("sage_starformation_feedback", "SFprescription", &SF_PRESCRIPTION);
+  module_get_double("sage_starformation_feedback", "SfrEfficiency", &SFR_EFFICIENCY);
+  module_get_int("sage_starformation_feedback", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON);
+  module_get_double("sage_starformation_feedback", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON);
+  module_get_double("sage_starformation_feedback", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY);
+  module_get_double("sage_starformation_feedback", "EnergySNcode", &ENERGY_SN_CODE);
+  module_get_double("sage_starformation_feedback", "EtaSNcode", &ETA_SN_CODE);
+  module_get_double("sage_starformation_feedback", "RecycleFraction", &RECYCLE_FRACTION);
+  module_get_double("sage_starformation_feedback", "Yield", &YIELD);
+  module_get_double("sage_starformation_feedback", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK);
+  module_get_int("sage_starformation_feedback", "DiskInstabilityOn", &DISK_INSTABILITY_ON);
 
   /* Validate parameters */
   if (SF_PRESCRIPTION != 0) {

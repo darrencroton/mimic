@@ -151,8 +151,8 @@ static double calculate_critical_disk_mass(float vmax, float disk_scale_radius,
  */
 static int sage_disk_instability_init(void) {
   /* Read module parameters from configuration */
-  module_get_int("SageDiskInstability", "DiskInstabilityOn", &DISK_INSTABILITY_ON);
-  module_get_double("SageDiskInstability", "DiskRadiusFactor", &DISK_RADIUS_FACTOR);
+  module_get_int("sage_disk_instability", "DiskInstabilityOn", &DISK_INSTABILITY_ON);
+  module_get_double("sage_disk_instability", "DiskRadiusFactor", &DISK_RADIUS_FACTOR);
 
   /* Validate parameters */
   if (DISK_RADIUS_FACTOR < 1.0 || DISK_RADIUS_FACTOR > 10.0) {
