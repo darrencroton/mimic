@@ -155,11 +155,6 @@ StarformationModel_Efficiency  0.02
   - Valid range: 0.0 - 20.0
   - Typical value: 7.0
 
-- `SageInfall_StrippingSteps` (optional, default=10)
-  - Number of substeps for gradual satellite stripping
-  - Valid range: 1 - 100
-  - Higher = smoother stripping, slightly more computational cost
-
 **Dependencies**: None (provides initial hot gas reservoir)
 
 **Provides**: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons
@@ -177,7 +172,6 @@ SageInfall_BaryonFrac            0.17
 SageInfall_ReionizationOn        1
 SageInfall_Reionization_z0       8.0
 SageInfall_Reionization_zr       7.0
-SageInfall_StrippingSteps        10
 
 # Disable reionization (for testing)
 EnabledModules  sage_infall

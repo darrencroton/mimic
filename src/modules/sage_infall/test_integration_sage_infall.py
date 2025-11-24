@@ -324,8 +324,7 @@ def test_parameters_configurable():
             "SageInfall_BaryonFrac": "0.20",
             "SageInfall_ReionizationOn": "0",
             "SageInfall_Reionization_z0": "9.0",
-            "SageInfall_Reionization_zr": "6.0",
-            "SageInfall_StrippingSteps": "5"
+            "SageInfall_Reionization_zr": "6.0"
         }
     )
 

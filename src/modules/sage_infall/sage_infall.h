@@ -22,7 +22,7 @@
  *   - Provides: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS
  *
  * Parameters:
- *   See module_info.yaml for complete parameter list (5 parameters)
+ *   See module_info.yaml for complete parameter list (4 parameters)
  */
 
 #ifndef SAGE_INFALL_H

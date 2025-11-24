@@ -82,11 +82,7 @@ static void set_default_sage_infall_params(void)
     strcpy(MimicConfig.ModuleParams[3].param_name, "Reionization_zr");
     strcpy(MimicConfig.ModuleParams[3].value, "7.0");
 
-    strcpy(MimicConfig.ModuleParams[4].module_name, "SageInfall");
-    strcpy(MimicConfig.ModuleParams[4].param_name, "StrippingSteps");
-    strcpy(MimicConfig.ModuleParams[4].value, "10");
-
-    MimicConfig.NumModuleParams = 5;
+    MimicConfig.NumModuleParams = 4;
 }
 
 /**

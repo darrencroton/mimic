@@ -98,16 +98,6 @@ static double a0 = 0.0; /* Scale factor when UV background turns on */
 static double ar = 0.0; /* Scale factor at full reionization */
 
 /**
- * @brief   Number of substeps for satellite stripping
- *
- * Satellite gas stripping is applied gradually over STEPS timesteps
- * to approximate continuous environmental effects.
- *
- * Configuration: SageInfall_StrippingSteps
- */
-static int STRIPPING_STEPS = 10;
-
-/**
  * @brief   Reionization model constants (Gnedin 2000)
  *
  * These constants define the reionization suppression model parameters.
@@ -344,8 +334,7 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx,
  * @brief   Strip hot gas from satellite galaxies
  *
  * Implements environmental stripping of hot gas from satellite galaxies
- * as they move through the hot halo of the central galaxy. The stripping
- * occurs gradually over STRIPPING_STEPS timesteps.
+ * as they move through the hot halo of the central galaxy.
  *
  * @param   halos      Array of halos in FOF group
  * @param   central_idx Index of central galaxy
@@ -370,15 +359,14 @@ static void strip_from_satellite(struct Halo *halos, int central_idx,
     reionization_modifier = 1.0;
   }
 
-  /* Calculate amount of gas to strip (gradual over STRIPPING_STEPS) */
+  /* Calculate amount of gas to strip */
   strippedGas = -1.0 *
                 (reionization_modifier * BARYON_FRAC * halos[sat_idx].Mvir -
                  (halos[sat_idx].galaxy->StellarMass +
                   halos[sat_idx].galaxy->ColdGas +
                   halos[sat_idx].galaxy->HotGas +
                   halos[sat_idx].galaxy->EjectedMass +
-                  halos[sat_idx].galaxy->ICS)) /
-                STRIPPING_STEPS;
+                  halos[sat_idx].galaxy->ICS));
 
   /* Only proceed if there is positive stripping */
   if (strippedGas > 0.0) {
@@ -480,7 +468,6 @@ static int sage_infall_init(void) {
   module_get_int("SageInfall", "ReionizationOn", &REIONIZATION_ON, 1);
   module_get_double("SageInfall", "Reionization_z0", &REIONIZATION_Z0, 8.0);
   module_get_double("SageInfall", "Reionization_zr", &REIONIZATION_ZR, 7.0);
-  module_get_int("SageInfall", "StrippingSteps", &STRIPPING_STEPS, 10);
 
   /* Validate parameters */
   if (BARYON_FRAC < 0.0 || BARYON_FRAC > 1.0) {
@@ -491,11 +478,6 @@ static int sage_infall_init(void) {
 
   if (REIONIZATION_Z0 < 0.0 || REIONIZATION_ZR < 0.0) {
     ERROR_LOG("Reionization redshifts must be positive");
-    return -1;
-  }
-
-  if (STRIPPING_STEPS < 1) {
-    ERROR_LOG("SageInfall_StrippingSteps must be >= 1");
     return -1;
   }
 
@@ -512,7 +494,6 @@ static int sage_infall_init(void) {
     INFO_LOG("  Reionization_z0 = %.2f (a0 = %.4f)", REIONIZATION_Z0, a0);
     INFO_LOG("  Reionization_zr = %.2f (ar = %.4f)", REIONIZATION_ZR, ar);
   }
-  INFO_LOG("  StrippingSteps = %d (from config)", STRIPPING_STEPS);
 
   return 0;
 }

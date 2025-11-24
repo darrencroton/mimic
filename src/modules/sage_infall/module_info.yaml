@@ -83,13 +83,6 @@ module:
       description: "Redshift of full reionization"
       units: "dimensionless"
 
-    - name: StrippingSteps
-      type: int
-      default: 10
-      range: [1, 100]
-      description: "Number of substeps for satellite stripping"
-      units: "dimensionless"
-
   # ===========================================================================
   # Testing
   # ===========================================================================

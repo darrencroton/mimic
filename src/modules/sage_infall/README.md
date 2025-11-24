@@ -75,15 +75,14 @@ The filtering mass concept represents the mass scale below which baryons are pre
 
 ### Satellite Stripping
 
-Satellite galaxies orbiting within larger halos experience environmental effects that gradually strip their hot gas reservoirs:
+Satellite galaxies orbiting within larger halos experience environmental effects that strip their hot gas reservoirs:
 
 ```
-stripped_amount = excess_hot_gas / STRIPPING_STEPS
+stripped_amount = excess_hot_gas
 excess_hot_gas = HotGas - (BaryonFrac * Mvir - other_baryons)
 ```
 
 The stripping is:
-- **Gradual**: Occurs over `STRIPPING_STEPS` timesteps (default: 10)
 - **Metal-preserving**: Metallicity of stripped gas is maintained
 - **Conservative**: Only removes "excess" hot gas above the equilibrium amount
 - **Transferred**: Stripped gas is added to the central galaxy's hot gas reservoir
@@ -107,12 +106,10 @@ All parameters are configured in the YAML file under `modules.parameters.SageInf
 | `SageInfall_ReionizationOn` | int | 1 | [0, 1] | Enable (1) or disable (0) reionization suppression |
 | `SageInfall_Reionization_z0` | double | 8.0 | [0.0, 20.0] | Redshift when UV background turns on |
 | `SageInfall_Reionization_zr` | double | 7.0 | [0.0, 20.0] | Redshift of full reionization |
-| `SageInfall_StrippingSteps` | int | 10 | [1, 100] | Number of substeps for gradual satellite stripping |
 
 **Typical Values**:
 - Baryon fraction from Planck cosmology: 0.17
 - Reionization redshifts from observations: z₀ ≈ 8.0, zr ≈ 7.0
-- Stripping steps: 10 provides smooth stripping without excessive computation
 
 ---
 
@@ -129,7 +126,6 @@ SageInfall_BaryonFrac            0.17
 SageInfall_ReionizationOn        1
 SageInfall_Reionization_z0       8.0
 SageInfall_Reionization_zr       7.0
-SageInfall_StrippingSteps        10
 ```
 
 ### Disable Reionization
@@ -196,9 +192,7 @@ EnabledModules  sage_infall,sage_cooling,sage_starformation_feedback,...
 
 ### Numerical Approximations
 
-1. **Gradual Stripping**: The `STRIPPING_STEPS` parameter controls the smoothness of satellite stripping. Lower values (e.g., 1) give instantaneous stripping; higher values (e.g., 10) give smoother evolution at slightly higher computational cost.
-
-2. **Timestep Dependence**: Infall amounts depend on the timestep (ΔMvir). Results are consistent as long as timesteps are reasonable (Δz ~ 0.1 typical).
+1. **Timestep Dependence**: Infall amounts depend on the timestep (ΔMvir). Results are consistent as long as timesteps are reasonable (Δz ~ 0.1 typical).
 
 ---
 
