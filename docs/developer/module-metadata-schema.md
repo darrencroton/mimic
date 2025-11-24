@@ -485,7 +485,7 @@ parameters:
 ```yaml
 modules:
   parameters:
-    SageInfall:
+    sage_infall:
       BaryonFrac: 0.17
       ReionizationOn: 1
       Reionization_z0: 8.0
@@ -751,10 +751,10 @@ Cosmological gas infall and satellite stripping from SAGE model.
 - Provides: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons
 
 **Parameters**:
-- `SageInfall_BaryonFrac` (double, default: 0.17, range: [0.0, 1.0])
+- `sage_infall_BaryonFrac` (double, default: 0.17, range: [0.0, 1.0])
   Cosmic baryon fraction (Omega_b / Omega_m)
 
-- `SageInfall_ReionizationOn` (int, default: 1, range: [0, 1])
+- `sage_infall_ReionizationOn` (int, default: 1, range: [0, 1])
   Enable reionization suppression (0=off, 1=on)
 
 [... more parameters ...]

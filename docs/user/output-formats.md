@@ -150,8 +150,8 @@ Properties are provided by modules. To get specific properties:
 ```
 EnabledModules  cooling_model,starformation_model
 
-CoolingModel_BaryonFraction      0.15
-StarformationModel_Efficiency    0.02
+cooling_model_BaryonFraction      0.15
+starformation_model_Efficiency    0.02
 ```
 
 ## Reading Output Files

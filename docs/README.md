@@ -73,10 +73,10 @@ modules:
   - infall_model
   - cooling_model
   parameters:
-    InflallModel:
+    infall_model:
       BaryonFrac: 0.17
       ReionizationOn: 1
-    CoolingModel:
+    cooling_model:
       CoolFunctionsDir: input/CoolFunctions
 ```
 

@@ -526,12 +526,19 @@ Halo Freed:
 
 ### Parameter Naming Convention
 
-Format: `ModuleName_ParameterName`
+Format: `module_name_ParameterName` (snake_case module, PascalCase parameter)
 
-Examples:
-- `SimpleCooling_BaryonFraction`
-- `Cooling_MinTemperature`
-- `StarFormation_Efficiency`
+Examples (from actual modules):
+- `sage_infall_BaryonFrac`
+- `sage_cooling_RadioModeEfficiency`
+- `sage_starformation_feedback_SfrEfficiency`
+
+**Important**: Module names must match the `name` field in `module_info.yaml` (snake_case).
+
+**Rationale for Mixed Case**: This convention provides visual clarity in configuration files:
+- `snake_case` for module names (standard Python/Unix convention)
+- `PascalCase` for parameter names (clear separation from module name)
+- The underscore separator makes it easy to parse: everything before the last underscore followed by uppercase is the module name
 
 ### Reading Parameters
 
@@ -1098,7 +1105,7 @@ static char COOL_FUNCTIONS_DIR[512] = "src/modules/cooling_model/CoolFunctions";
 
 static int my_module_init(void) {
     // Read parameter (allows override if needed)
-    module_get_parameter("CoolingModel", "CoolFunctionsDir",
+    module_get_parameter("cooling_model", "CoolFunctionsDir",
                         COOL_FUNCTIONS_DIR, sizeof(COOL_FUNCTIONS_DIR),
                         "src/modules/cooling_model/CoolFunctions");
 

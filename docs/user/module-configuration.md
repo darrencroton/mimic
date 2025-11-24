@@ -52,15 +52,22 @@ EnabledModules
 Each module can have configurable parameters using the format:
 
 ```
-ModuleName_ParameterName  value
+module_name_ParameterName  value
 ```
 
 ### Parameter Format
 
-- **Naming**: `ModuleName_ParameterName` (underscore separator)
-- **Module name**: Must match exactly (case-sensitive)
-- **Parameter name**: Defined by each module
+- **Naming**: `module_name_ParameterName` (underscore separator)
+- **Module name**: Must match exactly (case-sensitive, snake_case)
+- **Parameter name**: Defined by each module (PascalCase for visual distinction)
 - **Value**: String (modules parse to appropriate type)
+
+**Naming Convention Note**: The mixed case format provides visual clarity:
+- Module names use `snake_case` (e.g., `sage_infall`, `simple_cooling`)
+- Parameter names use `PascalCase` (e.g., `BaryonFrac`, `Efficiency`)
+- Combined format: `sage_infall_BaryonFrac`, `simple_cooling_BaryonFraction`
+
+This convention makes it easy to visually distinguish the module name from the parameter name in configuration files.
 
 ### Example: Single Module
 
@@ -94,7 +101,7 @@ StarformationModel_Efficiency  0.02
 **Physics**: ΔColdGas = f_baryon * ΔMvir
 
 **Parameters**:
-- `SimpleCooling_BaryonFraction` (optional, default=0.15)
+- `simple_cooling_BaryonFraction` (optional, default=0.15)
   - Fraction of accreted mass that cools
   - Valid range: 0.0 - 1.0
   - Cosmic value: ~0.15 (Ω_b/Ω_m)
@@ -112,7 +119,7 @@ StarformationModel_Efficiency  0.02
 **Physics**: ΔStellarMass = ε * ColdGas * (Vvir/Rvir) * Δt
 
 **Parameters**:
-- `SimpleSFR_Efficiency` (optional, default=0.02)
+- `simple_sfr_Efficiency` (optional, default=0.02)
   - Star formation efficiency
   - Valid range: 0.0 - 1.0
   - Typical values: 0.01 - 0.05
@@ -135,22 +142,22 @@ StarformationModel_Efficiency  0.02
 - Environmental stripping of satellite hot gas
 
 **Parameters**:
-- `SageInfall_BaryonFrac` (optional, default=0.17)
+- `sage_infall_BaryonFrac` (optional, default=0.17)
   - Cosmic baryon fraction (Ωb/Ωm)
   - Valid range: 0.0 - 1.0
   - Planck value: ~0.17
 
-- `SageInfall_ReionizationOn` (optional, default=1)
+- `sage_infall_ReionizationOn` (optional, default=1)
   - Enable (1) or disable (0) reionization suppression
   - Valid values: 0 or 1
   - Disable for testing or pre-reionization runs
 
-- `SageInfall_Reionization_z0` (optional, default=8.0)
+- `sage_infall_Reionization_z0` (optional, default=8.0)
   - Redshift when UV background turns on
   - Valid range: 0.0 - 20.0
   - Typical value: 8.0
 
-- `SageInfall_Reionization_zr` (optional, default=7.0)
+- `sage_infall_Reionization_zr` (optional, default=7.0)
   - Redshift of full reionization
   - Valid range: 0.0 - 20.0
   - Typical value: 7.0
@@ -168,14 +175,14 @@ EnabledModules  sage_infall
 
 # Custom reionization parameters
 EnabledModules  sage_infall
-SageInfall_BaryonFrac            0.17
-SageInfall_ReionizationOn        1
-SageInfall_Reionization_z0       8.0
-SageInfall_Reionization_zr       7.0
+sage_infall_BaryonFrac            0.17
+sage_infall_ReionizationOn        1
+sage_infall_Reionization_z0       8.0
+sage_infall_Reionization_zr       7.0
 
 # Disable reionization (for testing)
 EnabledModules  sage_infall
-SageInfall_ReionizationOn        0
+sage_infall_ReionizationOn        0
 ```
 
 **Note**: Physics validation deferred to Phase 4.3+ when downstream modules are implemented. See `src/modules/sage_infall/README.md` for complete documentation.
@@ -262,7 +269,7 @@ If a module requires a parameter and it's missing, the module will use its defau
 Modules validate their parameter values during initialization. Invalid values will produce clear error messages:
 
 ```
-ERROR: SimpleCooling_BaryonFraction = 2.0 is outside valid range [0.0, 1.0]
+ERROR: simple_cooling_BaryonFraction = 2.0 is outside valid range [0.0, 1.0]
 ```
 
 ## Tips
