@@ -5,13 +5,14 @@
  * USAGE: This is a template for creating new Mimic physics modules.
  *
  * TO CREATE A NEW MODULE:
- * 1. Copy this directory: cp -r src/modules/_template src/modules/YOUR_MODULE_NAME
+ * 1. Copy this directory: cp -r src/modules/_system/template src/modules/YOUR_MODULE_NAME
  * 2. Rename files: template_module.h → your_module.h, template_module.c → your_module.c
- * 3. Replace all "template_module" with "your_module" (find and replace)
- * 4. Replace all "TEMPLATE_MODULE" with "YOUR_MODULE"
- * 5. Update file documentation below
- * 6. Implement physics in the .c file
- * 7. Add to src/modules/module_init.c for registration
+ * 3. Create module_info.yaml with metadata (see module_info.yaml.template)
+ * 4. Replace all "template_module" with "your_module" (find and replace)
+ * 5. Replace all "TEMPLATE_MODULE" with "YOUR_MODULE"
+ * 6. Update file documentation below
+ * 7. Implement physics in the .c file
+ * 8. Run 'make generate' to auto-generate registration code
  *
  * DELETE THIS SECTION after customizing.
  *
@@ -42,10 +43,10 @@
 /**
  * @brief   Register the template module
  *
- * Registers this module with the module registry. This function should be
- * called once during program initialization before module_system_init().
+ * Registers this module with the module registry. Called automatically
+ * from generated code during program initialization.
  *
- * Called from: src/modules/module_init.c :: register_all_modules()
+ * Generated: src/modules/_system/generated/module_init.c
  */
 void template_module_register(void);
 

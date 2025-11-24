@@ -54,26 +54,12 @@
 // ============================================================================
 // MODULE PARAMETERS
 // ============================================================================
+// Parameters defined in module_info.yaml (single source of truth).
+// Loaded at runtime via module_get_double() and module_get_int().
+// Defaults and validation ranges come from metadata - no hardcoding.
 
-/**
- * @brief   Enable disk instability physics
- *
- * If enabled (1), disk stability is checked and unstable mass is transferred
- * to the bulge. If disabled (0), module does nothing.
- *
- * Configuration: SageDiskInstability_DiskInstabilityOn
- */
-static int DISK_INSTABILITY_ON = 1;
-
-/**
- * @brief   Disk effective radius factor
- *
- * Factor multiplied by DiskScaleRadius to get effective disk radius.
- * Typically 3.0 (approximately 3 scale lengths encloses most disk mass).
- *
- * Configuration: SageDiskInstability_DiskRadiusFactor
- */
-static double DISK_RADIUS_FACTOR = 3.0;
+static int DISK_INSTABILITY_ON;
+static double DISK_RADIUS_FACTOR;
 
 // ============================================================================
 // HELPER FUNCTIONS (Physics Calculations)
@@ -151,13 +137,11 @@ static double calculate_critical_disk_mass(float vmax, float disk_scale_radius,
  */
 static int sage_disk_instability_init(void) {
   /* Read module parameters from configuration */
-  module_get_int("sage_disk_instability", "DiskInstabilityOn", &DISK_INSTABILITY_ON);
-  module_get_double("sage_disk_instability", "DiskRadiusFactor", &DISK_RADIUS_FACTOR);
-
-  /* Validate parameters */
-  if (DISK_RADIUS_FACTOR < 1.0 || DISK_RADIUS_FACTOR > 10.0) {
-    ERROR_LOG("SageDiskInstability_DiskRadiusFactor = %.2f is outside valid range [1.0, 10.0]",
-              DISK_RADIUS_FACTOR);
+  /* Defaults and validation ranges come from module_info.yaml */
+  if (module_get_int("sage_disk_instability", "DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_disk_instability", "DiskRadiusFactor", &DISK_RADIUS_FACTOR) != 0) {
     return -1;
   }
 

@@ -43,26 +43,15 @@
 // ============================================================================
 // MODULE PARAMETERS
 // ============================================================================
+// Parameters defined in module_info.yaml (single source of truth).
+// Loaded at runtime via module_get_double() and module_get_int().
+// Defaults and validation ranges come from metadata - no hardcoding.
 
-/**
- * @brief   Tunable parameter for critical velocity threshold
- *
- * Multiplies the critical virial velocity (445.48 km/s) for reincorporation.
- * Lower values allow reincorporation in lower-mass halos.
- *
- * Physics:
- *   Vcrit = 445.48 km/s * ReIncorporationFactor
- *
- * The critical velocity is derived from:
- *   - Supernova wind velocity: V_SN ≈ 630 km/s
- *   - Escape velocity: V_esc = sqrt(2) * V_vir
- *   - Critical V_vir = V_SN / sqrt(2) ≈ 445.48 km/s
- *
- * Configuration: SageReincorporation_ReIncorporationFactor
- * Default: 1.0
- * Range: [0.0, 10.0]
- */
-static double REINCORPORATION_FACTOR = 1.0;
+static double REINCORPORATION_FACTOR;
+
+// ============================================================================
+// PHYSICS CONSTANTS
+// ============================================================================
 
 /**
  * @brief   Base critical virial velocity for reincorporation (km/s)
@@ -88,13 +77,8 @@ static int sage_reincorporation_init(void)
     INFO_LOG("Initializing SAGE reincorporation module...");
 
     // Read parameters from configuration
-    module_get_double("sage_reincorporation", "ReIncorporationFactor", &REINCORPORATION_FACTOR);
-
-    // Validate parameters
-    if (REINCORPORATION_FACTOR < 0.0 || REINCORPORATION_FACTOR > 10.0) {
-        ERROR_LOG("SageReincorporation_ReIncorporationFactor = %.3f is outside "
-                 "valid range [0.0, 10.0]",
-                 REINCORPORATION_FACTOR);
+    // Defaults and validation ranges come from module_info.yaml
+    if (module_get_double("sage_reincorporation", "ReIncorporationFactor", &REINCORPORATION_FACTOR) != 0) {
         return -1;
     }
 

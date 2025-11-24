@@ -45,24 +45,13 @@
 // ============================================================================
 
 /**
- * @brief   [PARAMETER 1 DESCRIPTION]
+ * Module parameters (defaults and validation from module_info.yaml)
  *
- * [EXPLAIN PHYSICS MEANING]
- * Typical values: [RANGE]
- *
- * Configuration: TemplateModule_Parameter1
+ * Configuration: template_module_ParameterName
+ * Defaults: See module_info.yaml parameters section
  */
-static double PARAM1 = 1.0; /* Default value */
-
-/**
- * @brief   [PARAMETER 2 DESCRIPTION]
- *
- * [EXPLAIN PHYSICS MEANING]
- * Typical values: [RANGE]
- *
- * Configuration: TemplateModule_Parameter2
- */
-static double PARAM2 = 0.5; /* Default value */
+static double PARAM1;
+static double PARAM2;
 
 // ============================================================================
 // MODULE STATE (if needed)
@@ -124,7 +113,7 @@ static float another_helper(float x) {
  * @brief   Initialize template module
  *
  * Called once during program startup. Responsibilities:
- * - Read module parameters from configuration
+ * - Read module parameters (validation automatic from module_info.yaml)
  * - Allocate persistent memory structures
  * - Load external data files (if needed)
  * - Initialize lookup tables (if needed)
@@ -134,35 +123,27 @@ static float another_helper(float x) {
  */
 static int template_module_init(void) {
   // -------------------------------------------------------------------------
-  // 1. Read module parameters from configuration
+  // 1. Read module parameters (validation automatic from module_info.yaml)
   // -------------------------------------------------------------------------
 
-  module_get_double("TemplateModule", "Parameter1", &PARAM1);
-  module_get_double("TemplateModule", "Parameter2", &PARAM2);
+  if (module_get_double("TemplateModule", "Parameter1", &PARAM1) != 0) {
+    ERROR_LOG("Failed to read Parameter1");
+    return -1;
+  }
+
+  if (module_get_double("TemplateModule", "Parameter2", &PARAM2) != 0) {
+    ERROR_LOG("Failed to read Parameter2");
+    return -1;
+  }
 
   // TODO: Add more parameter reads as needed
-  // module_get_int("TemplateModule", "SomeInt", &some_int);
+  // if (module_get_int("TemplateModule", "SomeInt", &some_int) != 0) {
+  //     ERROR_LOG("Failed to read SomeInt");
+  //     return -1;
+  // }
 
   // -------------------------------------------------------------------------
-  // 2. Validate parameters
-  // -------------------------------------------------------------------------
-
-  if (PARAM1 < 0.0 || PARAM1 > 10.0) {
-    ERROR_LOG("TemplateModule_Parameter1 = %.3f is outside valid range "
-              "[0.0, 10.0]",
-              PARAM1);
-    return -1;
-  }
-
-  if (PARAM2 < 0.0 || PARAM2 > 1.0) {
-    ERROR_LOG("TemplateModule_Parameter2 = %.3f is outside valid range "
-              "[0.0, 1.0]",
-              PARAM2);
-    return -1;
-  }
-
-  // -------------------------------------------------------------------------
-  // 3. Allocate persistent memory (if needed)
+  // 2. Allocate persistent memory (if needed)
   // -------------------------------------------------------------------------
 
   // Example: Allocate lookup table
@@ -180,7 +161,7 @@ static int template_module_init(void) {
   }
 
   // -------------------------------------------------------------------------
-  // 4. Load external data (if needed)
+  // 3. Load external data (if needed)
   // -------------------------------------------------------------------------
 
   // TODO: Load data files (cooling tables, yields, etc.)
@@ -190,7 +171,7 @@ static int template_module_init(void) {
   // }
 
   // -------------------------------------------------------------------------
-  // 5. Log module configuration
+  // 4. Log module configuration
   // -------------------------------------------------------------------------
 
   INFO_LOG("Template module initialized");

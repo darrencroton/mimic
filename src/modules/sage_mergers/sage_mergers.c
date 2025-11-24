@@ -53,39 +53,21 @@
 // ============================================================================
 // MODULE PARAMETERS
 // ============================================================================
+// Parameters defined in module_info.yaml (single source of truth).
+// Loaded at runtime via module_get_double() and module_get_int().
+// Defaults and validation ranges come from metadata - no hardcoding.
 
-/** Black hole growth efficiency during mergers (Kauffmann & Haehnelt 2000) */
-static double BLACK_HOLE_GROWTH_RATE = 0.01;
-
-/** Quasar-mode AGN feedback efficiency */
-static double QUASAR_MODE_EFFICIENCY = 0.001;
-
-/** Mass ratio threshold for major mergers (disk destruction) */
-static double THRESH_MAJOR_MERGER = 0.3;
-
-/** Stellar recycling fraction (instantaneous recycling approximation) */
-static double RECYCLE_FRACTION = 0.43;
-
-/** Metal yield per unit stellar mass formed */
-static double YIELD = 0.03;
-
-/** Fraction of newly produced metals that leave the disk */
-static double FRAC_Z_LEAVE_DISK = 0.3;
-
-/** Supernova feedback reheating epsilon */
-static double FEEDBACK_REHEATING_EPSILON = 3.0;
-
-/** Supernova feedback ejection efficiency */
-static double FEEDBACK_EJECTION_EFFICIENCY = 0.3;
-
-/** AGN recipe enabled flag */
-static int AGN_RECIPE_ON = 1;
-
-/** Supernova recipe enabled flag */
-static int SUPERNOVA_RECIPE_ON = 1;
-
-/** Disk instability enabled flag */
-static int DISK_INSTABILITY_ON = 0;  // Deferred - requires separate module
+static double BLACK_HOLE_GROWTH_RATE;
+static double QUASAR_MODE_EFFICIENCY;
+static double THRESH_MAJOR_MERGER;
+static double RECYCLE_FRACTION;
+static double YIELD;
+static double FRAC_Z_LEAVE_DISK;
+static double FEEDBACK_REHEATING_EPSILON;
+static double FEEDBACK_EJECTION_EFFICIENCY;
+static int AGN_RECIPE_ON;
+static int SUPERNOVA_RECIPE_ON;
+static int DISK_INSTABILITY_ON;
 
 // ============================================================================
 // DERIVED CONSTANTS
@@ -614,17 +596,40 @@ static int sage_mergers_init(void) {
   INFO_LOG("Initializing SAGE mergers module");
 
   /* Read module parameters */
-  module_get_double("sage_mergers", "BlackHoleGrowthRate", &BLACK_HOLE_GROWTH_RATE);
-  module_get_double("sage_mergers", "QuasarModeEfficiency", &QUASAR_MODE_EFFICIENCY);
-  module_get_double("sage_mergers", "ThreshMajorMerger", &THRESH_MAJOR_MERGER);
-  module_get_double("sage_mergers", "RecycleFraction", &RECYCLE_FRACTION);
-  module_get_double("sage_mergers", "Yield", &YIELD);
-  module_get_double("sage_mergers", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK);
-  module_get_double("sage_mergers", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON);
-  module_get_double("sage_mergers", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY);
-  module_get_int("sage_mergers", "AGNrecipeOn", &AGN_RECIPE_ON);
-  module_get_int("sage_mergers", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON);
-  module_get_int("sage_mergers", "DiskInstabilityOn", &DISK_INSTABILITY_ON);
+  /* Defaults and validation ranges come from module_info.yaml */
+  if (module_get_double("sage_mergers", "BlackHoleGrowthRate", &BLACK_HOLE_GROWTH_RATE) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_mergers", "QuasarModeEfficiency", &QUASAR_MODE_EFFICIENCY) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_mergers", "ThreshMajorMerger", &THRESH_MAJOR_MERGER) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_mergers", "RecycleFraction", &RECYCLE_FRACTION) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_mergers", "Yield", &YIELD) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_mergers", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_mergers", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_mergers", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY) != 0) {
+    return -1;
+  }
+  if (module_get_int("sage_mergers", "AGNrecipeOn", &AGN_RECIPE_ON) != 0) {
+    return -1;
+  }
+  if (module_get_int("sage_mergers", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON) != 0) {
+    return -1;
+  }
+  if (module_get_int("sage_mergers", "DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
+    return -1;
+  }
 
   /* Supernova energetics in code units (simplified for v1.0)
    *
@@ -647,12 +652,6 @@ static int sage_mergers_init(void) {
    */
   ETA_SN_CODE = 8.0e-3;
   ENERGY_SN_CODE = 1.0;
-
-  /* Validate parameters */
-  if (THRESH_MAJOR_MERGER < 0.0 || THRESH_MAJOR_MERGER > 1.0) {
-    ERROR_LOG("ThreshMajorMerger must be in range [0,1], got %.3f", THRESH_MAJOR_MERGER);
-    return -1;
-  }
 
   /* Log configuration */
   INFO_LOG("  Black hole growth rate: %.3f", BLACK_HOLE_GROWTH_RATE);

@@ -54,41 +54,13 @@
 // ============================================================================
 // MODULE PARAMETERS
 // ============================================================================
+// Parameters defined in module_info.yaml (single source of truth).
+// Loaded at runtime via module_get_double() and module_get_int().
+// Defaults and validation ranges come from metadata - no hardcoding.
 
-/**
- * @brief   Radio-mode AGN feedback efficiency
- *
- * Controls the strength of AGN heating that suppresses gas cooling.
- * Higher values = stronger feedback = more cooling suppression.
- * Typical value: 0.01 (1% of accreted rest mass energy goes into heating)
- *
- * Configuration: SageCooling_RadioModeEfficiency
- */
-static double RADIO_MODE_EFFICIENCY = 0.01;
-
-/**
- * @brief   AGN accretion recipe selector
- *
- * Selects which black hole accretion model to use:
- *   0 = No AGN (cooling only, no feedback)
- *   1 = Empirical scaling (default) - scales with BH mass, Vvir, gas fraction
- *   2 = Bondi-Hoyle accretion - based on gas density and BH mass
- *   3 = Cold cloud accretion - triggered when BH mass exceeds threshold
- *
- * Configuration: SageCooling_AGNrecipeOn
- */
-static int AGN_RECIPE_ON = 1;
-
-/**
- * @brief   Path to cooling function tables directory
- *
- * Directory containing the Sutherland & Dopita (1993) cooling tables.
- * Expected files: stripped_mzero.cie, stripped_m-30.cie, ..., stripped_m+05.cie
- * Tables are stored with the module as they are model-specific.
- *
- * Configuration: SageCooling_CoolFunctionsDir
- */
-static char COOL_FUNCTIONS_DIR[512] = "src/modules/sage_cooling/CoolFunctions";
+static double RADIO_MODE_EFFICIENCY;
+static int AGN_RECIPE_ON;
+static char COOL_FUNCTIONS_DIR[512];
 
 // ============================================================================
 // PHYSICS CONSTANTS
@@ -459,23 +431,16 @@ static void cool_gas_onto_galaxy(struct Halo *halo, double coolingGas, float vvi
 static int sage_cooling_init(void)
 {
     /* Read module parameters from parameter file */
-    module_get_double("sage_cooling", "RadioModeEfficiency", &RADIO_MODE_EFFICIENCY);
-    module_get_int("sage_cooling", "AGNrecipeOn", &AGN_RECIPE_ON);
+    /* Defaults and validation ranges come from module_info.yaml */
+    if (module_get_double("sage_cooling", "RadioModeEfficiency", &RADIO_MODE_EFFICIENCY) != 0) {
+        return -1;
+    }
+    if (module_get_int("sage_cooling", "AGNrecipeOn", &AGN_RECIPE_ON) != 0) {
+        return -1;
+    }
     module_get_parameter("sage_cooling", "CoolFunctionsDir", COOL_FUNCTIONS_DIR,
                         sizeof(COOL_FUNCTIONS_DIR),
                         "src/modules/sage_cooling/CoolFunctions");
-
-    /* Validate parameters */
-    if (RADIO_MODE_EFFICIENCY < 0.0) {
-        ERROR_LOG("SageCooling_RadioModeEfficiency must be non-negative (got %.4f)",
-                 RADIO_MODE_EFFICIENCY);
-        return -1;
-    }
-
-    if (AGN_RECIPE_ON < 0 || AGN_RECIPE_ON > 3) {
-        ERROR_LOG("SageCooling_AGNrecipeOn must be 0, 1, 2, or 3 (got %d)", AGN_RECIPE_ON);
-        return -1;
-    }
 
     /* Initialize cooling function tables */
     if (cooling_tables_init(COOL_FUNCTIONS_DIR) != 0) {

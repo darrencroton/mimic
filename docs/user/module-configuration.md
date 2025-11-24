@@ -260,13 +260,13 @@ Available modules:
 
 **Solution**: Check module name spelling or verify module is compiled
 
-### Missing Required Parameter
+### Missing Parameter
 
-If a module requires a parameter and it's missing, the module will use its default value and log a warning or error depending on the module's design.
+If a parameter is not specified in the configuration file, the module uses the default value from `module_info.yaml`.
 
 ### Invalid Parameter Value
 
-Modules validate their parameter values during initialization. Invalid values will produce clear error messages:
+Parameter values are validated against ranges defined in `module_info.yaml`. Invalid values produce error messages:
 
 ```
 ERROR: simple_cooling_BaryonFraction = 2.0 is outside valid range [0.0, 1.0]

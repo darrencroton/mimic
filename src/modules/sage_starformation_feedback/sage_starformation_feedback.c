@@ -64,141 +64,21 @@
 // ============================================================================
 // MODULE PARAMETERS
 // ============================================================================
+// Parameters defined in module_info.yaml (single source of truth).
+// Loaded at runtime via module_get_double() and module_get_int().
+// Defaults and validation ranges come from metadata - no hardcoding.
 
-/**
- * @brief   Star formation prescription selector
- *
- * Selects which star formation recipe to use:
- *   0 = Kennicutt-Schmidt law with critical threshold (only option currently)
- *
- * Configuration: SageStarformationFeedback_SFprescription
- */
-static int SF_PRESCRIPTION = 0;
-
-/**
- * @brief   Star formation efficiency
- *
- * Efficiency parameter ε_SF in the star formation rate formula:
- *   SFR = ε_SF * (M_cold - M_crit) / τ_dyn
- *
- * Typical value: 0.01 - 0.05
- *
- * Configuration: SageStarformationFeedback_SfrEfficiency
- */
-static double SFR_EFFICIENCY = 0.02;
-
-/**
- * @brief   Enable supernova feedback
- *
- * If enabled (1), implements supernova-driven reheating and ejection.
- * If disabled (0), no feedback occurs (pure star formation).
- *
- * Configuration: SageStarformationFeedback_SupernovaRecipeOn
- */
-static int SUPERNOVA_RECIPE_ON = 1;
-
-/**
- * @brief   Feedback reheating efficiency
- *
- * Efficiency parameter ε_reheat for cold gas reheating:
- *   m_reheat = ε_reheat * Δm_*
- *
- * Typical value: 2.0 - 5.0
- *
- * Configuration: SageStarformationFeedback_FeedbackReheatingEpsilon
- */
-static double FEEDBACK_REHEATING_EPSILON = 3.0;
-
-/**
- * @brief   Feedback ejection efficiency
- *
- * Efficiency parameter ε_eject for gas ejection from halo:
- *   m_eject = (η * ε_eject * E_SN / V_vir² - ε_reheat) * Δm_*
- *
- * Typical value: 0.1 - 0.5
- *
- * Configuration: SageStarformationFeedback_FeedbackEjectionEfficiency
- */
-static double FEEDBACK_EJECTION_EFFICIENCY = 0.3;
-
-/**
- * @brief   Energy per supernova in code units
- *
- * Supernova energy E_SN in simulation code units.
- * Typical value: ~1e51 erg converted to code units
- *
- * In SAGE, this is derived from EnergySN parameter with unit conversions.
- * For Mimic, we use the code-unit value directly.
- *
- * Typical code-unit value: ~1.0 (depends on unit system)
- *
- * Configuration: SageStarformationFeedback_EnergySNcode
- */
-static double ENERGY_SN_CODE = 1.0;
-
-/**
- * @brief   Supernova efficiency in code units
- *
- * Number of supernovae per unit stellar mass formed (η) in code units.
- * Typical value: ~0.001-0.01 SNe per solar mass
- *
- * In SAGE, this is derived from EtaSN parameter with unit conversions.
- * For Mimic, we use the code-unit value directly.
- *
- * Typical code-unit value: ~0.5 (depends on unit system)
- *
- * Configuration: SageStarformationFeedback_EtaSNcode
- */
-static double ETA_SN_CODE = 0.5;
-
-/**
- * @brief   Stellar recycling fraction
- *
- * Fraction of stellar mass immediately returned to ISM through stellar winds
- * and supernovae (instantaneous recycling approximation).
- *
- * Typical value: 0.43 (Chabrier IMF)
- *
- * Configuration: SageStarformationFeedback_RecycleFraction
- */
-static double RECYCLE_FRACTION = 0.43;
-
-/**
- * @brief   Metal yield from star formation
- *
- * Yield of new metals produced per unit stellar mass formed.
- * Represents metal production from Type II supernovae.
- *
- * Typical value: 0.02 - 0.04
- *
- * Configuration: SageStarformationFeedback_Yield
- */
-static double YIELD = 0.03;
-
-/**
- * @brief   Normalization for metals leaving disk
- *
- * Normalization factor for the mass-dependent fraction of newly produced
- * metals that bypass the disk and go directly to the hot halo gas.
- * Follows Krumholz & Dekel (2011) Eq. 22.
- *
- * Actual fraction: FracZleaveDisk * exp(-Mvir / 30)
- *
- * Typical value: 0.2 - 0.5
- *
- * Configuration: SageStarformationFeedback_FracZleaveDisk
- */
-static double FRAC_Z_LEAVE_DISK = 0.3;
-
-/**
- * @brief   Enable disk instability checks
- *
- * If enabled (1), calls disk instability module after feedback.
- * If disabled (0), skips disk instability (deferred to future module).
- *
- * Configuration: SageStarformationFeedback_DiskInstabilityOn
- */
-static int DISK_INSTABILITY_ON = 0;
+static int SF_PRESCRIPTION;
+static double SFR_EFFICIENCY;
+static int SUPERNOVA_RECIPE_ON;
+static double FEEDBACK_REHEATING_EPSILON;
+static double FEEDBACK_EJECTION_EFFICIENCY;
+static double ENERGY_SN_CODE;
+static double ETA_SN_CODE;
+static double RECYCLE_FRACTION;
+static double YIELD;
+static double FRAC_Z_LEAVE_DISK;
+static int DISK_INSTABILITY_ON;
 
 // ============================================================================
 // HELPER FUNCTIONS (Physics Calculations)
@@ -315,79 +195,38 @@ static void update_from_feedback(struct GalaxyData *gal,
  */
 static int sage_starformation_feedback_init(void) {
   /* Read module parameters from configuration */
-  module_get_int("sage_starformation_feedback", "SFprescription", &SF_PRESCRIPTION);
-  module_get_double("sage_starformation_feedback", "SfrEfficiency", &SFR_EFFICIENCY);
-  module_get_int("sage_starformation_feedback", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON);
-  module_get_double("sage_starformation_feedback", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON);
-  module_get_double("sage_starformation_feedback", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY);
-  module_get_double("sage_starformation_feedback", "EnergySNcode", &ENERGY_SN_CODE);
-  module_get_double("sage_starformation_feedback", "EtaSNcode", &ETA_SN_CODE);
-  module_get_double("sage_starformation_feedback", "RecycleFraction", &RECYCLE_FRACTION);
-  module_get_double("sage_starformation_feedback", "Yield", &YIELD);
-  module_get_double("sage_starformation_feedback", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK);
-  module_get_int("sage_starformation_feedback", "DiskInstabilityOn", &DISK_INSTABILITY_ON);
-
-  /* Validate parameters */
-  if (SF_PRESCRIPTION != 0) {
-    ERROR_LOG("SageStarformationFeedback_SFprescription = %d is invalid. "
-              "Only prescription 0 (Kennicutt-Schmidt with threshold) is "
-              "currently implemented.",
-              SF_PRESCRIPTION);
+  /* Defaults and validation ranges come from module_info.yaml */
+  if (module_get_int("sage_starformation_feedback", "SFprescription", &SF_PRESCRIPTION) != 0) {
     return -1;
   }
-
-  if (SFR_EFFICIENCY < 0.0 || SFR_EFFICIENCY > 1.0) {
-    ERROR_LOG("SageStarformationFeedback_SfrEfficiency = %.3f is outside "
-              "valid range [0.0, 1.0]",
-              SFR_EFFICIENCY);
+  if (module_get_double("sage_starformation_feedback", "SfrEfficiency", &SFR_EFFICIENCY) != 0) {
     return -1;
   }
-
-  if (FEEDBACK_REHEATING_EPSILON < 0.0) {
-    ERROR_LOG("SageStarformationFeedback_FeedbackReheatingEpsilon = %.3f "
-              "must be non-negative",
-              FEEDBACK_REHEATING_EPSILON);
+  if (module_get_int("sage_starformation_feedback", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON) != 0) {
     return -1;
   }
-
-  if (FEEDBACK_EJECTION_EFFICIENCY < 0.0) {
-    ERROR_LOG("SageStarformationFeedback_FeedbackEjectionEfficiency = %.3f "
-              "must be non-negative",
-              FEEDBACK_EJECTION_EFFICIENCY);
+  if (module_get_double("sage_starformation_feedback", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON) != 0) {
     return -1;
   }
-
-  if (RECYCLE_FRACTION < 0.0 || RECYCLE_FRACTION > 1.0) {
-    ERROR_LOG("SageStarformationFeedback_RecycleFraction = %.3f is outside "
-              "valid range [0.0, 1.0]",
-              RECYCLE_FRACTION);
+  if (module_get_double("sage_starformation_feedback", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY) != 0) {
     return -1;
   }
-
-  if (YIELD < 0.0 || YIELD > 1.0) {
-    ERROR_LOG("SageStarformationFeedback_Yield = %.3f is outside "
-              "valid range [0.0, 1.0]",
-              YIELD);
+  if (module_get_double("sage_starformation_feedback", "EnergySNcode", &ENERGY_SN_CODE) != 0) {
     return -1;
   }
-
-  if (ENERGY_SN_CODE < 0.0) {
-    ERROR_LOG(
-        "SageStarformationFeedback_EnergySNcode = %.3e must be non-negative",
-        ENERGY_SN_CODE);
+  if (module_get_double("sage_starformation_feedback", "EtaSNcode", &ETA_SN_CODE) != 0) {
     return -1;
   }
-
-  if (ETA_SN_CODE < 0.0) {
-    ERROR_LOG("SageStarformationFeedback_EtaSNcode = %.3f must be non-negative",
-              ETA_SN_CODE);
+  if (module_get_double("sage_starformation_feedback", "RecycleFraction", &RECYCLE_FRACTION) != 0) {
     return -1;
   }
-
-  if (FRAC_Z_LEAVE_DISK < 0.0 || FRAC_Z_LEAVE_DISK > 1.0) {
-    ERROR_LOG("SageStarformationFeedback_FracZleaveDisk = %.3f is outside "
-              "valid range [0.0, 1.0]",
-              FRAC_Z_LEAVE_DISK);
+  if (module_get_double("sage_starformation_feedback", "Yield", &YIELD) != 0) {
+    return -1;
+  }
+  if (module_get_double("sage_starformation_feedback", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK) != 0) {
+    return -1;
+  }
+  if (module_get_int("sage_starformation_feedback", "DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
     return -1;
   }
 

@@ -278,8 +278,11 @@ static double MY_EFFICIENCY;
 static double *cooling_table = NULL;
 
 static int my_module_init(void) {
-    // Read parameters (defaults come from module_info.yaml)
-    module_get_double("MyModule", "Efficiency", &MY_EFFICIENCY);
+    // Read parameters (validation automatic from module_info.yaml)
+    if (module_get_double("MyModule", "Efficiency", &MY_EFFICIENCY) != 0) {
+        ERROR_LOG("Failed to read Efficiency parameter");
+        return -1;
+    }
 
     // Allocate persistent memory
     cooling_table = malloc_tracked(1000 * sizeof(double), MEM_UTILITY);
@@ -305,15 +308,17 @@ static int my_module_init(void) {
 
 **Common Patterns**:
 - ✅ Use `module_get_double()`, `module_get_int()` for parameters
+- ✅ Check return values from parameter functions (return -1 if failed)
 - ✅ Use `malloc_tracked()` for memory allocation (enables leak detection)
-- ✅ Validate all inputs and external data
+- ✅ Validate external data files (parameter validation is automatic)
 - ✅ Log configuration details for debugging
 - ✅ Return -1 on error, 0 on success
 
 **Anti-Patterns**:
 - ❌ Don't modify simulation parameters (`ctx->params` is read-only)
 - ❌ Don't allocate per-halo memory here (do it in `process_halos`)
-- ❌ Don't hardcode parameter values (read from configuration)
+- ❌ Don't hardcode parameter values or defaults (defined in module_info.yaml)
+- ❌ Don't manually validate parameter ranges (automatic from module_info.yaml)
 
 ### 2. Process Phase (`process_halos` function)
 
@@ -545,20 +550,26 @@ Examples (from actual modules):
 Use the parameter API in `module_registry.h`. Define parameters and their defaults in `module_info.yaml`:
 
 ```c
-// Double parameter (default comes from module_info.yaml)
+// Double parameter (validation automatic from module_info.yaml)
 double efficiency;
-module_get_double("MyModule", "Efficiency", &efficiency);
+if (module_get_double("MyModule", "Efficiency", &efficiency) != 0) {
+    ERROR_LOG("Failed to read Efficiency parameter");
+    return -1;
+}
 
-// Integer parameter (default comes from module_info.yaml)
+// Integer parameter (validation automatic from module_info.yaml)
 int min_mass;
-module_get_int("MyModule", "MinHaloMass", &min_mass);
+if (module_get_int("MyModule", "MinHaloMass", &min_mass) != 0) {
+    ERROR_LOG("Failed to read MinHaloMass parameter");
+    return -1;
+}
 
-// String parameter (default comes from module_info.yaml)
+// String parameter
 char model[256];
 module_get_parameter("MyModule", "Model", model, sizeof(model), "default");
 ```
 
-**Single Source of Truth**: Parameter defaults are defined in `module_info.yaml` and automatically used by the parameter API. Never hardcode defaults in multiple places.
+**Single Source of Truth**: Parameter defaults and validation ranges are defined in `module_info.yaml`. The parameter API automatically provides defaults and validates ranges. Never hardcode defaults or validation logic in C code.
 
 ### Parameter Validation
 

@@ -54,9 +54,9 @@ make generate
 ### 5. Implement Physics
 
 Edit `your_module.c`:
-- Update `MODULE PARAMETERS` section with your parameters
+- Update `MODULE PARAMETERS` section (declare without defaults)
 - Implement helper functions for physics calculations
-- Update `your_module_init()` to read and validate parameters
+- Update `your_module_init()` to read parameters (validation automatic)
 - Update `your_module_process()` with your physics logic
 - Update `your_module_cleanup()` to free any resources
 
@@ -186,7 +186,7 @@ From template to a simple "gas cooling" module:
 
 ### Before (Template)
 ```c
-static double PARAM1 = 1.0;
+static double PARAM1;
 static float compute_physics(float input1, double input2) {
     float result = PARAM1 * input1 * input2;
     return result;
@@ -195,12 +195,14 @@ static float compute_physics(float input1, double input2) {
 
 ### After (Custom)
 ```c
-static double COOLING_EFFICIENCY = 0.15;
+static double COOLING_EFFICIENCY;
 static float compute_cooling_rate(float mvir, double redshift) {
     float cooling_rate = COOLING_EFFICIENCY * mvir / (1.0 + redshift);
     return cooling_rate;
 }
 ```
+
+The default value and validation range are defined in `module_info.yaml`.
 
 ---
 
