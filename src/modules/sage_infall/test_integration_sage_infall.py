@@ -209,11 +209,23 @@ def create_test_param_file(output_name, enabled_modules=None,
             config['modules']['parameters'] = {}
 
         for param_name, value in module_params.items():
-            # Parse ModuleName_ParameterName format
-            if '_' in param_name:
-                module_name, param_key = param_name.split('_', 1)
+            # Parse snake_case_module_name_PascalCaseParam format
+            # Find the split point: last underscore before an uppercase letter
+            # Example: "sage_infall_BaryonFrac" → module="sage_infall", param="BaryonFrac"
+            split_idx = -1
+            for i in range(len(param_name) - 1):
+                if param_name[i] == '_' and param_name[i + 1].isupper():
+                    split_idx = i
+                    break
+
+            if split_idx > 0:
+                module_name = param_name[:split_idx]
+                param_key = param_name[split_idx + 1:]
+
+                # Ensure module section exists
                 if module_name not in config['modules']['parameters']:
                     config['modules']['parameters'][module_name] = {}
+
                 # Try to convert to appropriate type
                 try:
                     value = float(value)
@@ -248,8 +260,8 @@ def test_module_loads():
         output_name="sage_infall_load",
         enabled_modules=["sage_infall"],
         module_params={
-            "SageInfall_BaryonFrac": "0.17",
-            "SageInfall_ReionizationOn": "1"
+            "sage_infall_BaryonFrac": "0.17",
+            "sage_infall_ReionizationOn": "1"
         }
     )
 
@@ -321,10 +333,10 @@ def test_parameters_configurable():
         output_name="sage_infall_params",
         enabled_modules=["sage_infall"],
         module_params={
-            "SageInfall_BaryonFrac": "0.20",
-            "SageInfall_ReionizationOn": "0",
-            "SageInfall_Reionization_z0": "9.0",
-            "SageInfall_Reionization_zr": "6.0"
+            "sage_infall_BaryonFrac": "0.20",
+            "sage_infall_ReionizationOn": "0",
+            "sage_infall_Reionization_z0": "9.0",
+            "sage_infall_Reionization_zr": "6.0"
         }
     )
 
@@ -357,7 +369,7 @@ def test_reionization_toggle():
     param_file_on = create_test_param_file(
         output_name="sage_infall_reion_on",
         enabled_modules=["sage_infall"],
-        module_params={"SageInfall_ReionizationOn": "1"}
+        module_params={"sage_infall_ReionizationOn": "1"}
     )
     returncode_on, stdout_on, stderr_on = run_mimic(param_file_on)
 
@@ -365,7 +377,7 @@ def test_reionization_toggle():
     param_file_off = create_test_param_file(
         output_name="sage_infall_reion_off",
         enabled_modules=["sage_infall"],
-        module_params={"SageInfall_ReionizationOn": "0"}
+        module_params={"sage_infall_ReionizationOn": "0"}
     )
     returncode_off, stdout_off, stderr_off = run_mimic(param_file_off)
 
@@ -460,7 +472,7 @@ def test_multiple_module_pipeline():
     if "sage_cooling" in available_modules:
         companion_module = "sage_cooling"
         companion_params = {
-            "SageCooling_CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+            "sage_cooling_CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
         }
         companion_init_msg = "SAGE cooling & AGN heating module initialized"
 
@@ -477,7 +489,7 @@ def test_multiple_module_pipeline():
         output_name="sage_infall_multi",
         enabled_modules=["sage_infall", companion_module],
         module_params={
-            "SageInfall_BaryonFrac": "0.17",
+            "sage_infall_BaryonFrac": "0.17",
             **companion_params
         }
     )

@@ -66,7 +66,8 @@ modules:
   - sage_infall
   - sage_cooling
   parameters:
-    SimpleCooling:
-      BaryonFraction: 0.15
-    SimpleSFR:
-      Efficiency: 0.02
+    sage_infall:
+      BaryonFrac: 0.17
+    sage_cooling:
+      RadioModeEfficiency: 0.01
+      AGNrecipeOn: 1
