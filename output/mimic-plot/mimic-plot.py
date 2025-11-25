@@ -1136,7 +1136,7 @@ def main():
             print(f"  (Enable physics modules to generate these plots)\n")
 
         # Generate each plot
-        generated_plots = []
+        snapshot_generated_plots = []
         for plot_name, plot_func in available_plots.items():
             try:
                 if args.verbose:
@@ -1150,13 +1150,13 @@ def main():
                     output_format=args.format,
                     verbose=args.verbose,
                 )
-                generated_plots.append(plot_path)
+                snapshot_generated_plots.append(plot_path)
                 print(f"Generated: {plot_path}")
             except Exception as e:
                 print(f"Error generating {plot_name}: {e}")
 
         if args.verbose:
-            print(f"Generated {len(generated_plots)} snapshot plots.")
+            print(f"Generated {len(snapshot_generated_plots)} snapshot plots.")
 
     # Generate evolution plots
     if args.evolution_plots:
@@ -1346,7 +1346,7 @@ def main():
             print(f"  (Enable physics modules to generate these plots)\n")
 
         # Generate each evolution plot
-        generated_plots = []
+        evolution_generated_plots = []
         for plot_name, plot_func in available_plots.items():
             try:
                 if args.verbose:
@@ -1358,13 +1358,30 @@ def main():
                     output_format=args.format,
                     verbose=args.verbose,
                 )
-                generated_plots.append(plot_path)
+                evolution_generated_plots.append(plot_path)
                 print(f"Generated: {plot_path}")
             except Exception as e:
                 print(f"Error generating {plot_name}: {e}")
 
         if args.verbose:
-            print(f"Generated {len(generated_plots)} evolution plots.")
+            print(f"Generated {len(evolution_generated_plots)} evolution plots.")
+
+    # Final completion summary
+    print_phase("COMPLETE")
+
+    total_plots = 0
+    if args.snapshot_plots and 'snapshot_generated_plots' in locals():
+        snapshot_count = len(snapshot_generated_plots)
+        total_plots += snapshot_count
+        print(f"Snapshot plots  : {snapshot_count}")
+
+    if args.evolution_plots and 'evolution_generated_plots' in locals():
+        evolution_count = len(evolution_generated_plots)
+        total_plots += evolution_count
+        print(f"Evolution plots : {evolution_count}")
+
+    print(f"Total plots     : {total_plots}")
+    print(f"Output location : {output_dir}")
 
 
 if __name__ == "__main__":
