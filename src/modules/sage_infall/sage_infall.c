@@ -46,7 +46,6 @@
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_infall.h"
-#include "sage_infall_constants.h"  // Physics constants for this module
 #include "types.h"
 
 // ============================================================================
@@ -68,6 +67,26 @@ static double ar = 0.0; /* Scale factor at full reionization */
 // Reionization model constants (Gnedin 2000)
 static const double REIONIZATION_ALPHA = 6.0;  /* Best fit to Gnedin data */
 static const double REIONIZATION_TVIR = 1e4;   /* Virial temperature threshold (K) */
+
+// Physics constants (Gnedin 2000, Bryan & Norman 1998, Kravtsov 2004)
+// Jeans mass: M_J = 25.0 * Omega^-0.5 * mu^-1.5, where mu^-1.5 = 2.21 for ionized gas (mu=0.59)
+static const double MJEANS_BASE_COEFF = 25.0;        /* Jeans mass coefficient (1e10 Msun/h) */
+static const double IONIZED_GAS_MU_FACTOR = 2.21;    /* mu^-1.5 for fully ionized primordial gas */
+static const double FILTERING_MASS_EXPONENT = 1.5;   /* M_filter exponent from Gnedin (2000) */
+
+// Characteristic mass and velocity
+static const double TEMP_TO_VEL_COEFF = 36.0;        /* V_char from T_vir: V^2 = T/36 (km/s, K) */
+static const double HUBBLE_CONVERSION = 100.0;       /* H_0 = 100h km/s/Mpc */
+
+// Critical overdensity (Bryan & Norman 1998): δ_c = 18π² + 82x - 39x², where x = Ω(z) - 1
+static const double DELTACRIT_COEFF_0 = 18.0;
+static const double DELTACRIT_COEFF_1 = 82.0;
+static const double DELTACRIT_COEFF_2 = 39.0;
+static const double DELTACRIT_FACTOR = 0.5;          /* Factor in M_char calculation */
+
+// Reionization suppression (Kravtsov 2004 Appendix B)
+static const double GNEDIN_SUPPRESSION_COEFF = 0.26; /* Suppression strength */
+static const double GNEDIN_SUPPRESSION_POWER = 3.0;  /* Power-law exponent */
 
 // ============================================================================
 // HELPER FUNCTIONS (Physics Calculations)

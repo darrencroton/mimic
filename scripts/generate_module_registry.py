@@ -547,7 +547,10 @@ source of truth) and generated into this lookup table."""
 
 
 def generate_module_sources_mk(
-    modules: List[Dict[str, Any]], metadata_hash: str, output_path: Path, dry_run: bool = False
+    modules: List[Dict[str, Any]],
+    metadata_hash: str,
+    output_path: Path,
+    dry_run: bool = False,
 ) -> bool:
     """Generate makefile fragment for test system."""
 
