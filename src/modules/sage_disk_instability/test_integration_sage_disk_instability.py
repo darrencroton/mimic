@@ -591,8 +591,8 @@ def main():
     print(f"\n{BLUE}{'='*70}{NC}")
     print(f"{BLUE}Test Summary{NC}")
     print(f"{BLUE}{'='*70}{NC}")
-    print(f"{GREEN}Passed:{NC} {passed}")
-    print(f"{RED}Failed:{NC} {failed}")
+    print(f"Passed: {passed}")
+    print(f"Failed: {failed}")
 
     if failed == 0:
         print(f"\n{GREEN}✓ All integration tests passed!{NC}\n")
