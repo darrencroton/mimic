@@ -5,8 +5,7 @@
  * @brief Simple phase identifiers for grouping runtime output
  */
 typedef enum {
-  PHASE_STARTUP = 0,
-  PHASE_CONFIG,
+  PHASE_CONFIG = 0,
   PHASE_MODULE_PIPELINE,
   PHASE_TREE_PROCESSING,
   PHASE_OUTPUT,

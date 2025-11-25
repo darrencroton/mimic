@@ -278,11 +278,17 @@ int main(int argc, char **argv) {
   /* Read parameter file and initialize simulation */
   read_parameter_file(argv[1]);
   init();
-
   INFO_LOG("Simulation directory : %s", MimicConfig.SimulationDir);
   INFO_LOG("Output directory     : %s", MimicConfig.OutputDir);
-  INFO_LOG("Files to process     : %d .. %d", MimicConfig.FirstFile,
+  INFO_LOG("Tree file range      : %d .. %d", MimicConfig.FirstFile,
            MimicConfig.LastFile);
+#ifdef HDF5
+  INFO_LOG("Output format        : %s",
+           MimicConfig.OutputFormat == output_hdf5 ? "HDF5" : "Binary");
+#else
+  INFO_LOG("Output format        : Binary");
+#endif
+  INFO_LOG("Snapshots requested  : %d", MimicConfig.NOUT);
 
   /* Register and initialize galaxy physics modules */
   log_phase_banner(PHASE_MODULE_PIPELINE);

@@ -22,12 +22,11 @@ void log_run_header(const char *param_file) {
   char time_str[32];
   strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", localtime(&now));
 
-    fprintf(stdout, "%s%s    __  ___   ____  __  ___   ____   ______%s\n", bold, c1,
-      reset);
-    fprintf(stdout, "%s   /  |/  /  /  _/ /  |/  /  /  _/  / ____/%s\n", c2, reset);
-    fprintf(stdout, "%s  / /|_/ /   / /  / /|_/ /   / /   / /     %s\n", c3, reset);
-    fprintf(stdout, "%s / /  / /  _/ /  / /  / /  _/ /   / /___   %s\n", c4, reset);
-    fprintf(stdout, "%s/_/  /_/  /___/ /_/  /_/  /___/   \\____/   %s%s\n\n", c5,
+    fprintf(stdout, "%s%s    __  ___  ____  __  ___  ____  ______%s\n", bold, c1, reset);
+    fprintf(stdout, "%s   /  |/  / /  _/ /  |/  / /  _/ / ____/%s\n", c2, reset);
+    fprintf(stdout, "%s  / /|_/ /  / /  / /|_/ /  / /  / /     %s\n", c3, reset);
+    fprintf(stdout, "%s / /  / / _/ /  / /  / / _/ /  / /___   %s\n", c4, reset);
+    fprintf(stdout, "%s/_/  /_/ /___/ /_/  /_/ /___/  \\____/   %s%s\n\n", c5,
       bold, reset);
 
   fprintf(stdout, "%sMIMIC Galaxy Evolution Framework%s\n", bold, reset);
@@ -43,41 +42,32 @@ void log_phase_banner(MimicPhase phase) {
   const char *bold_cyan = MimicLogUseColor ? "\x1b[1;36m" : "";
   const char *reset = MimicLogUseColor ? "\x1b[0m" : "";
 
-  const char *name = "UNKNOWN";
   const char *label = "";
   switch (phase) {
-  case PHASE_STARTUP:
-    name = "PHASE 0";
-    label = "STARTUP";
-    break;
   case PHASE_CONFIG:
-    name = "PHASE 1";
-    label = "CONFIGURATION & ENVIRONMENT";
+    label = "CONFIGURATION";
     break;
   case PHASE_MODULE_PIPELINE:
-    name = "PHASE 2";
-    label = "MODULE PIPELINE";
+    label = "MODULE INITIALIZATION";
     break;
   case PHASE_TREE_PROCESSING:
-    name = "PHASE 3";
     label = "TREE PROCESSING";
     break;
   case PHASE_OUTPUT:
-    name = "PHASE 4";
-    label = "OUTPUT & METADATA";
+    label = "OUTPUT";
     break;
   case PHASE_SHUTDOWN:
-    name = "PHASE 5";
     label = "SHUTDOWN";
     break;
   default:
+    label = "UNKNOWN";
     break;
   }
 
   fprintf(stdout, "\n");
   fprintf(stdout,
           "===============================================================\n");
-  fprintf(stdout, "%s[%s] %s%s\n", bold_cyan, name, label, reset);
+  fprintf(stdout, "%s%s%s\n", bold_cyan, label, reset);
   fprintf(stdout,
           "===============================================================\n");
 }
