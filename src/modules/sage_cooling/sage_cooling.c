@@ -42,75 +42,67 @@
 
 #include "constants.h"
 #include "error.h"
-#include "../shared/metallicity.h"  // Shared utility for metallicity calculations
+#include "../shared/metallicity.h"  /* Shared utility for metallicity calculations */
+#include "../shared/physics_constants.h"  /* Shared physics constants */
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_cooling.h"
-#include "sage_cooling_constants.h"  // Physics constants for this module
 #include "types.h"
 #include "cooling_tables.h"
 
-// ============================================================================
-// MODULE PARAMETERS
-// ============================================================================
-// Parameters defined in module_info.yaml (single source of truth).
-// Loaded at runtime via module_get_double() and module_get_int().
-// Defaults and validation ranges come from metadata - no hardcoding.
+/* ============================================================================
+ * MODULE PARAMETERS
+ * ============================================================================
+ * Parameters defined in module_info.yaml (single source of truth).
+ * Loaded at runtime via module_get_double() and module_get_int().
+ * Defaults and validation ranges come from metadata - no hardcoding. */
 
 static double RADIO_MODE_EFFICIENCY;
 static int AGN_RECIPE_ON;
 static char COOL_FUNCTIONS_DIR[512];
 
-// ============================================================================
-// PHYSICS CONSTANTS
-// ============================================================================
+/* ============================================================================
+ * PHYSICS CONSTANTS
+ * ============================================================================ */
 
-/**
- * @brief   Virial temperature coefficient
- *
- * Coefficient relating virial velocity to virial temperature:
- * T_vir = VIRIAL_TEMP_COEFF * V_vir^2
- * where V_vir is in km/s and T_vir is in Kelvin
- *
- * Derived from: T = (μ * m_p * V^2) / (2 * k_B)
- * with μ = 0.59 for fully ionized gas
- * Result: (0.59 * m_p) / (2 * k_B) ≈ 35.9 K / (km/s)^2
- */
+/* Virial temperature (35.9 K/(km/s)^2 for ionized gas) */
 static const double VIRIAL_TEMP_COEFF = 35.9;
 
-/**
- * @brief   Eddington luminosity coefficient
- *
- * L_Edd = EDDINGTON_LUM_COEFF * M_BH
- * where M_BH is in solar masses and L_Edd is in erg/s
- *
- * Standard value: 1.3×10^38 erg/s per solar mass
- */
+/* Eddington luminosity (1.3×10^38 erg/s per solar mass) */
 static const double EDDINGTON_LUM_COEFF = 1.3e38;
 
-/**
- * @brief   Radiative efficiency for thin accretion disk
- *
- * Fraction of rest mass energy converted to radiation: η = 0.1
- * Used in Eddington rate calculation: L = η * dM/dt * c^2
- */
-static const double RADIATIVE_EFFICIENCY = 0.1;
-
-/**
- * @brief   Speed of light squared in CGS units
- *
- * c^2 = 9×10^20 cm^2/s^2
- * Used for converting mass accretion rate to energy
- */
+/* Speed of light squared in CGS (9×10^20 cm^2/s^2) */
 static const double C_SQUARED_CGS = 9.0e20;
 
-// ============================================================================
-// HELPER FUNCTIONS (Physics Calculations)
-// ============================================================================
+/* Cooling radius and rate (Croton et al. 2006) */
+static const double COOLING_MU_FACTOR = 0.885;        /* 3/2 × μ, μ=0.59 for ionized gas */
+static const double SPHERE_VOLUME_COEFF = 4.0;        /* 4π approximation (exact: 4.189) */
+static const double COOLING_TIME_DIVISOR = 2.0;       /* Dynamical time relation */
 
-// Metallicity calculation now provided by shared utility: mimic_get_metallicity()
-// See: src/modules/shared/metallicity.h
+/* AGN Mode 2: Bondi-Hoyle accretion (Bondi 1952) */
+static const double BONDI_HOYLE_COEFF = 2.5;          /* Spherical accretion coefficient */
+static const double BONDI_DENSITY_FACTOR = 0.375;     /* Density profile factor */
+static const double BONDI_SOUND_SPEED_FACTOR = 0.6;   /* Sound speed calibration */
+
+/* AGN Mode 3: Cold cloud accretion */
+static const double BH_MASS_THRESHOLD_FRAC = 0.0001;  /* 0.01% of M_vir */
+static const double COLD_CLOUD_ACCRETION_FRAC = 0.0001;
+
+/* AGN Mode 1: Empirical accretion (Croton et al. 2006) */
+static const double BH_MASS_NORM = 0.01;              /* 10^8 Msun/h normalization */
+static const double VVIR_AGN_NORM = 200.0;            /* 200 km/s normalization */
+static const double HOT_GAS_FRAC_NORM = 0.1;          /* 10% hot gas fraction */
+static const double EDDINGTON_VELOCITY_SCALE = 1.34e5; /* sqrt(2 × η × c^2) */
+
+/* Note: RADIATIVE_EFFICIENCY and KINETIC_ENERGY_FACTOR come from shared/physics_constants.h */
+
+/* ============================================================================
+ * HELPER FUNCTIONS (Physics Calculations)
+ * ============================================================================ */
+
+/* Metallicity calculation provided by shared utility: mimic_get_metallicity()
+ * See: src/modules/shared/metallicity.h */
 
 /**
  * @brief   Calculates gas cooling based on halo properties and cooling functions

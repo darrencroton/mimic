@@ -43,30 +43,39 @@
 
 #include "constants.h"
 #include "error.h"
-#include "../shared/metallicity.h"  // Shared utility for metallicity calculations
+#include "../shared/metallicity.h"  /* Shared utility for metallicity calculations */
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_disk_instability.h"
-#include "sage_disk_instability_constants.h"
 #include "types.h"
 
-// ============================================================================
-// MODULE PARAMETERS
-// ============================================================================
-// Parameters defined in module_info.yaml (single source of truth).
-// Loaded at runtime via module_get_double() and module_get_int().
-// Defaults and validation ranges come from metadata - no hardcoding.
+/* ============================================================================
+ * MODULE PARAMETERS
+ * ============================================================================
+ * Parameters defined in module_info.yaml (single source of truth).
+ * Loaded at runtime via module_get_double() and module_get_int().
+ * Defaults and validation ranges come from metadata - no hardcoding. */
 
 static int DISK_INSTABILITY_ON;
 static double DISK_RADIUS_FACTOR;
 
-// ============================================================================
-// HELPER FUNCTIONS (Physics Calculations)
-// ============================================================================
+/* ============================================================================
+ * PHYSICS CONSTANTS
+ * ============================================================================ */
 
-// Metallicity calculation provided by shared utility: mimic_get_metallicity()
-// See: src/modules/shared/metallicity.h
+/* Disk structure (Mo, Mao & White 1998 empirical scaling) */
+static const double DISK_FRACTION = 0.03;  /* R_disk ~ 3% of R_vir (typical 3-30 kpc/h) */
+
+/* Numerical tolerance for mass conservation checks */
+static const double MASS_TOLERANCE_FACTOR = 1.0001;  /* 0.01% rounding allowance */
+
+/* ============================================================================
+ * HELPER FUNCTIONS (Physics Calculations)
+ * ============================================================================ */
+
+/* Metallicity calculation provided by shared utility: mimic_get_metallicity()
+ * See: src/modules/shared/metallicity.h */
 
 /**
  * @brief   Calculate disk scale radius using Mo, Mao & White (1998) formula

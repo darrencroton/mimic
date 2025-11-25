@@ -51,22 +51,22 @@
 
 #include "constants.h"
 #include "error.h"
-#include "globals.h" // For access to InputTreeHalos
+#include "globals.h" /* For access to InputTreeHalos */
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_starformation_feedback.h"
-#include "sage_starformation_feedback_constants.h"
 #include "types.h"
-#include "../shared/disk_radius.h" // Shared utility for disk radius calculations
-#include "../shared/metallicity.h" // Shared utility for metallicity calculations
+#include "../shared/disk_radius.h" /* Shared utility for disk radius calculations */
+#include "../shared/metallicity.h" /* Shared utility for metallicity calculations */
+#include "../shared/physics_constants.h" /* Shared physics constants (METAL_MASS_SCALE) */
 
-// ============================================================================
-// MODULE PARAMETERS
-// ============================================================================
-// Parameters defined in module_info.yaml (single source of truth).
-// Loaded at runtime via module_get_double() and module_get_int().
-// Defaults and validation ranges come from metadata - no hardcoding.
+/* ============================================================================
+ * MODULE PARAMETERS
+ * ============================================================================
+ * Parameters defined in module_info.yaml (single source of truth).
+ * Loaded at runtime via module_get_double() and module_get_int().
+ * Defaults and validation ranges come from metadata - no hardcoding. */
 
 static int SF_PRESCRIPTION;
 static double SFR_EFFICIENCY;
@@ -80,15 +80,29 @@ static double YIELD;
 static double FRAC_Z_LEAVE_DISK;
 static int DISK_INSTABILITY_ON;
 
-// ============================================================================
-// HELPER FUNCTIONS (Physics Calculations)
-// ============================================================================
+/* ============================================================================
+ * PHYSICS CONSTANTS
+ * ============================================================================ */
 
-// Metallicity calculation provided by shared utility: mimic_get_metallicity()
-// See: src/modules/shared/metallicity.h
+/* Star formation (Kennicutt-Schmidt with Kauffmann 1996 threshold)
+ * Note: These constants are reserved for future full SAGE SF implementation */
+static const double EFFECTIVE_RADIUS_FACTOR __attribute__((unused)) = 3.0;   /* R_eff = 3 scale lengths (~95% disk mass) */
+static const double CRITICAL_GAS_COEFF __attribute__((unused)) = 0.19;       /* Kauffmann 1996 eq. 7 */
 
-// Disk radius calculation provided by shared utility: mimic_get_disk_radius()
-// See: src/modules/shared/disk_radius.h
+/* Numerical threshold */
+static const double GAS_MASS_THRESHOLD __attribute__((unused)) = 1.0e-8;     /* Min gas for metallicity calc (100 Msun/h) */
+
+/* Note: METAL_MASS_SCALE comes from shared/physics_constants.h (3e11 Msun/h scale) */
+
+/* ============================================================================
+ * HELPER FUNCTIONS (Physics Calculations)
+ * ============================================================================ */
+
+/* Metallicity calculation provided by shared utility: mimic_get_metallicity()
+ * See: src/modules/shared/metallicity.h */
+
+/* Disk radius calculation provided by shared utility: mimic_get_disk_radius()
+ * See: src/modules/shared/disk_radius.h */
 
 /**
  * @brief   Updates galaxy properties due to star formation

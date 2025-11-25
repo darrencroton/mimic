@@ -53,9 +53,21 @@
 static double PARAM1;
 static double PARAM2;
 
-// ============================================================================
-// MODULE STATE (if needed)
-// ============================================================================
+/* ============================================================================
+ * PHYSICS CONSTANTS (if needed)
+ * ============================================================================
+ * Module-specific physics constants should be inlined here with compact
+ * documentation. Use shared/physics_constants.h for constants used by
+ * multiple modules (e.g., RADIATIVE_EFFICIENCY, KINETIC_ENERGY_FACTOR).
+ *
+ * Example:
+ *   static const double SOME_COEFF = 2.5;  / * Brief explanation * /
+ *   static const double THRESHOLD_VALUE = 1.0e-3;  / * Units and reference * /
+ */
+
+/* ============================================================================
+ * MODULE STATE (if needed)
+ * ============================================================================ */
 
 /**
  * @brief   [DESCRIBE ANY PERSISTENT MODULE DATA]

@@ -46,16 +46,16 @@
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_mergers.h"
-#include "sage_mergers_constants.h"  // Physics constants for this module
-#include "../shared/metallicity.h"  // Shared utility for metallicity calculations
+#include "../shared/metallicity.h"     /* Shared utility for metallicity calculations */
+#include "../shared/physics_constants.h" /* Shared physics constants */
 #include "types.h"
 
-// ============================================================================
-// MODULE PARAMETERS
-// ============================================================================
-// Parameters defined in module_info.yaml (single source of truth).
-// Loaded at runtime via module_get_double() and module_get_int().
-// Defaults and validation ranges come from metadata - no hardcoding.
+/* ============================================================================
+ * MODULE PARAMETERS
+ * ============================================================================
+ * Parameters defined in module_info.yaml (single source of truth).
+ * Loaded at runtime via module_get_double() and module_get_int().
+ * Defaults and validation ranges come from metadata - no hardcoding. */
 
 static double BLACK_HOLE_GROWTH_RATE;
 static double QUASAR_MODE_EFFICIENCY;
@@ -69,19 +69,44 @@ static int AGN_RECIPE_ON;
 static int SUPERNOVA_RECIPE_ON;
 static int DISK_INSTABILITY_ON;
 
-// ============================================================================
-// DERIVED CONSTANTS
-// ============================================================================
+/* ============================================================================
+ * DERIVED CONSTANTS
+ * ============================================================================ */
 
-/** Energy per solar mass from Type II supernovae (in code units) */
-static double ETA_SN_CODE = 0.0;  // Calculated in init
+/* Energy per solar mass from Type II supernovae (in code units, calculated in init) */
+static double ETA_SN_CODE = 0.0;
 
-/** Supernova energy in code units */
-static double ENERGY_SN_CODE = 0.0;  // Calculated in init
+/* Supernova energy in code units (calculated in init) */
+static double ENERGY_SN_CODE = 0.0;
 
-// ============================================================================
-// STAR FORMATION AND FEEDBACK HELPER FUNCTIONS
-// ============================================================================
+/* ============================================================================
+ * PHYSICS CONSTANTS
+ * ============================================================================ */
+
+/* Gravitational constant in code units (Mpc/h)(km/s)²/(10¹⁰Msun/h) */
+static const double G_CODE_UNITS = 43.0071;
+
+/* Dynamical friction (Chandrasekhar 1943, Binney & Tremaine 2008) */
+static const double CHANDRASEKHAR_COEFF = 2.0;   /* Orbital averaging factor */
+static const double COULOMB_LOG_APPROX = 1.17;   /* ln(M_host/M_sat) ≈ 1.17 for mass ratio ~3:1 */
+
+/* Black hole growth (Kauffmann & Haehnelt 2000) */
+static const double BH_GROWTH_VEL_THRESHOLD = 280.0; /* km/s - velocity scale for BH growth efficiency */
+
+/* Quasar-mode feedback */
+static const double SPEED_OF_LIGHT_KM_S = 2.99792458e5; /* km/s */
+static const double CODE_VEL_UNIT = 100.0;              /* km/s - internal velocity unit */
+
+/* Merger-induced starbursts (Cox et al. 2006, Somerville et al. 2001) */
+static const double STARBURST_EFFICIENCY_NORM = 0.56;     /* Efficiency for equal-mass merger */
+static const double STARBURST_MASS_RATIO_POWER = 0.7;     /* Power-law index */
+
+/* Note: RADIATIVE_EFFICIENCY, KINETIC_ENERGY_FACTOR, and METAL_MASS_SCALE
+ *       come from shared/physics_constants.h */
+
+/* ============================================================================
+ * STAR FORMATION AND FEEDBACK HELPER FUNCTIONS
+ * ============================================================================ */
 
 /**
  * @brief   Updates galaxy properties due to star formation
@@ -144,22 +169,22 @@ static void update_from_feedback(struct GalaxyData *gal, struct GalaxyData *cent
   gal->OutflowRate += reheated_mass;
 }
 
-// ============================================================================
-// MERGER PHYSICS FUNCTIONS
-// ============================================================================
-//
-// NOTE: The following functions are complete implementations but currently
-//       UNUSED because they require core merger triggering infrastructure
-//       that has not yet been implemented (Phase 4.3).
-//
-//       These functions will be activated when the core identifies satellites
-//       that have merged with their host halos. Compiler warnings about
-//       unused functions are expected and documented in roadmap.md.
-//
-//       Status: Per roadmap - "sage_mergers requires core merger triggering"
-//       Functions blocked: estimate_merging_time(), deal_with_galaxy_merger(),
-//                         disrupt_satellite_to_ICS()
-// ============================================================================
+/* ============================================================================
+ * MERGER PHYSICS FUNCTIONS
+ * ============================================================================
+ *
+ * NOTE: The following functions are complete implementations but currently
+ *       UNUSED because they require core merger triggering infrastructure
+ *       that has not yet been implemented (Phase 4.3).
+ *
+ *       These functions will be activated when the core identifies satellites
+ *       that have merged with their host halos. Compiler warnings about
+ *       unused functions are expected and documented in roadmap.md.
+ *
+ *       Status: Per roadmap - "sage_mergers requires core merger triggering"
+ *       Functions blocked: estimate_merging_time(), deal_with_galaxy_merger(),
+ *                         disrupt_satellite_to_ICS()
+ * ============================================================================ */
 
 /**
  * @brief   Estimates dynamical friction timescale for satellite galaxies
@@ -328,12 +353,12 @@ static void quasar_mode_wind(struct GalaxyData *gal, float BHaccrete, float vvir
    * Energy units: (km/s)² * 1e10 Msun/h (matches binding energy calculation)
    */
   double C_over_UnitVel = SPEED_OF_LIGHT_KM_S / CODE_VEL_UNIT;
-  float quasar_energy = QUASAR_MODE_EFFICIENCY * RADIATIVE_EFFICIENCY_STANDARD * BHaccrete *
+  float quasar_energy = QUASAR_MODE_EFFICIENCY * RADIATIVE_EFFICIENCY * BHaccrete *
                         pow(C_over_UnitVel, 2.0);
 
   /* Calculate binding energies: E_bind = 0.5 * M * V_vir² */
-  float cold_gas_energy = BINDING_ENERGY_FACTOR * gal->ColdGas * vvir * vvir;
-  float hot_gas_energy = BINDING_ENERGY_FACTOR * gal->HotGas * vvir * vvir;
+  float cold_gas_energy = KINETIC_ENERGY_FACTOR * gal->ColdGas * vvir * vvir;
+  float hot_gas_energy = KINETIC_ENERGY_FACTOR * gal->HotGas * vvir * vvir;
 
   /* If quasar energy exceeds cold gas binding energy, eject all cold gas */
   if (quasar_energy > cold_gas_energy) {
@@ -463,7 +488,7 @@ static void collisional_starburst_recipe(double mass_ratio, struct GalaxyData *m
      * allowing more metals to escape to hot phase. High-mass halos retain
      * metals in cold disk more effectively (exponential suppression).
      */
-    double FracZleaveDiskVal = FRAC_Z_LEAVE_DISK * exp(-1.0 * mvir / METAL_EJECTION_MASS_SCALE);
+    double FracZleaveDiskVal = FRAC_Z_LEAVE_DISK * exp(-1.0 * mvir / METAL_MASS_SCALE);
 
     /* Distribute metals between cold and hot phases */
     merger_gal->MetalsColdGas += YIELD * (1.0 - FracZleaveDiskVal) * stars;
@@ -585,9 +610,9 @@ static void disrupt_satellite_to_ICS(struct Halo *central, struct Halo *satellit
   satellite->mergeType = 4;  /* Disruption to ICS */
 }
 
-// ============================================================================
-// MODULE INTERFACE IMPLEMENTATION
-// ============================================================================
+/* ============================================================================
+ * MODULE INTERFACE IMPLEMENTATION
+ * ============================================================================ */
 
 /**
  * @brief   Initialize the sage_mergers module
@@ -702,9 +727,9 @@ static int sage_mergers_cleanup(void) {
   return 0;
 }
 
-// ============================================================================
-// MODULE REGISTRATION
-// ============================================================================
+/* ============================================================================
+ * MODULE REGISTRATION
+ * ============================================================================ */
 
 /**
  * @brief   Module interface definition
