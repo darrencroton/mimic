@@ -21,6 +21,7 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
+from output_utils import warn
 
 
 def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=False):
@@ -80,16 +81,16 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             if abs(closest[3]["redshift"] - target_z) <= tolerance:
                 target_snapshots.append(closest)
                 if verbose:
-                    print(f"Target z={target_z:.1f}: Using snapshot with z={closest[3]['redshift']:.3f}")
+                    warn(f"Target z={target_z:.1f}: Using snapshot with z={closest[3]['redshift']:.3f}")
         elif verbose:
-            print(f"Target z={target_z:.1f}: No suitable snapshot found")
+            warn(f"Target z={target_z:.1f}: No suitable snapshot found")
 
     # Colors for different redshifts
     colors = ["k", "b", "g", "r", "m", "y", "c", "orange"]
 
     # Check if we have any snapshots to plot
     if len(target_snapshots) == 0:
-        print("No snapshot data available for SMF evolution plot")
+        warn("No snapshot data available for SMF evolution plot")
         # Create an empty plot with a message
         ax.text(
             0.5,
@@ -189,7 +190,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        print(f"Warning: Could not create output directory {output_dir}: {e}")
+        warn(f"Could not create output directory {output_dir}: {e}")
         # Try to use a subdirectory of the current directory as fallback
         output_dir = "./plots"
         os.makedirs(output_dir, exist_ok=True)

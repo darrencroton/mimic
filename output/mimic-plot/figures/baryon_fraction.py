@@ -22,6 +22,7 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator, MaxNLocator
+from output_utils import warn
 
 
 def plot(
@@ -82,7 +83,7 @@ def plot(
     if not has_any_baryons:
         # No baryonic properties available - create plot with message
         if verbose:
-            print("No baryonic properties found in galaxy data")
+            warn("No baryonic properties found in galaxy data")
 
         ax.text(
             0.5,
@@ -118,7 +119,7 @@ def plot(
     # Check if we have any central galaxies to plot
     if not np.any(central_mask):
         if verbose:
-            print("No central galaxies found with Mvir > 0")
+            warn("No central galaxies found with Mvir > 0")
 
         ax.text(
             0.5,
@@ -158,7 +159,7 @@ def plot(
     valid_mvir = (galaxies.Mvir > 0) & central_mask
     if not np.any(valid_mvir):
         if verbose:
-            print("No central galaxies found with Mvir > 0")
+            warn("No central galaxies found with Mvir > 0")
         # Already handled above, but being defensive
 
     # Compute log halo masses for all valid centrals
@@ -296,7 +297,7 @@ def plot(
     # Check if we have any data to plot
     if len(central_halo_mass) == 0:
         if verbose:
-            print("No data in mass bins (all bins had < 3 centrals)")
+            warn("No data in mass bins (all bins had < 3 centrals)")
 
         ax.text(
             0.5,
@@ -394,8 +395,7 @@ def plot(
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        if verbose:
-            print(f"Warning: Could not create output directory {output_dir}: {e}")
+        warn(f"Could not create output directory {output_dir}: {e}")
         # Try to use a subdirectory of the current directory as fallback
         output_dir = "./plots"
         os.makedirs(output_dir, exist_ok=True)

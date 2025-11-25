@@ -20,6 +20,7 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
+from output_utils import warn
 
 
 def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=False):
@@ -103,7 +104,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Check if we have any snapshots
     if len(snapshots) == 0:
-        print("No snapshot data available for SFR density evolution plot")
+        warn("No snapshot data available for SFR density evolution plot")
         # Create an empty plot with a message
         ax.text(
             0.5,
@@ -174,7 +175,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         )
     else:
         # Always show warnings even without verbose
-        print("  WARNING: No nonzero SFR density points to plot!")
+        warn("No nonzero SFR density points to plot!")
 
     # Customize the plot
     ax.set_ylabel(get_sfr_density_label(), fontsize=AXIS_LABEL_SIZE)
@@ -193,7 +194,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        print(f"Warning: Could not create output directory {output_dir}: {e}")
+        warn(f"Could not create output directory {output_dir}: {e}")
         # Try to use a subdirectory of the current directory as fallback
         output_dir = "./plots"
         os.makedirs(output_dir, exist_ok=True)

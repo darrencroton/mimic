@@ -19,6 +19,7 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
+from output_utils import warn
 
 
 def plot(
@@ -66,7 +67,7 @@ def plot(
 
     # Check if we have any galaxies to plot
     if len(w) == 0:
-        print("No central galaxies found with Mvir > 1.0 and StellarMass > 0.0")
+        warn("No central galaxies found with Mvir > 1.0 and StellarMass > 0.0")
         # Create an empty plot with a message
         ax.text(
             0.5,
@@ -148,7 +149,7 @@ def plot(
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        print(f"Warning: Could not create output directory {output_dir}: {e}")
+        warn(f"Could not create output directory {output_dir}: {e}")
         # Try to use a subdirectory of the current directory as fallback
         output_dir = "./plots"
         os.makedirs(output_dir, exist_ok=True)
