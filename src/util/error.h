@@ -47,6 +47,9 @@ void set_log_level(LogLevel min_level);
 LogLevel get_log_level(void);
 void set_verbose_format(int enable);
 int get_verbose_format(void);
+void enable_debug_log_rate_limiting(void);
+void disable_debug_log_rate_limiting(void);
+int is_debug_log_rate_limiting_enabled(void);
 FILE *set_log_output(FILE *output_file);
 
 // I/O-specific error handling function prototypes
@@ -57,7 +60,24 @@ void log_io_error(LogLevel level, IOErrorCode code, const char *file,
 
 // General logging convenience macros
 #define DEBUG_LOG(...)                                                         \
-  log_message(LOG_LEVEL_DEBUG, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
+  do {                                                                         \
+    if (!is_debug_log_rate_limiting_enabled()) {                               \
+      log_message(LOG_LEVEL_DEBUG, __FILE__, __FUNCTION__, __LINE__,           \
+                  __VA_ARGS__);                                                \
+    } else {                                                                   \
+      static int _debug_call_count = 0;                                        \
+      static int _debug_suppressed = 0;                                        \
+      if (_debug_call_count < DEBUG_LOG_MAX_CALLS) {                           \
+        log_message(LOG_LEVEL_DEBUG, __FILE__, __FUNCTION__, __LINE__,         \
+                    __VA_ARGS__);                                              \
+        _debug_call_count++;                                                   \
+      } else if (!_debug_suppressed) {                                         \
+        log_message(LOG_LEVEL_DEBUG, __FILE__, __FUNCTION__, __LINE__,         \
+                    "(further debug output from this location suppressed)");   \
+        _debug_suppressed = 1;                                                 \
+      }                                                                        \
+    }                                                                          \
+  } while (0)
 #define INFO_LOG(...)                                                          \
   log_message(LOG_LEVEL_INFO, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
 #define WARNING_LOG(...)                                                       \
@@ -93,5 +113,8 @@ void log_io_error(LogLevel level, IOErrorCode code, const char *file,
 
 // String representation functions
 const char *get_log_level_name(LogLevel level);
+
+// Maximum number of debug log messages per call site before suppression
+#define DEBUG_LOG_MAX_CALLS 5
 
 #endif /* ERROR_HANDLING_H */

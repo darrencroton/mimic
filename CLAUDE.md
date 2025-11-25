@@ -72,8 +72,9 @@ make tidy
 ./mimic input/millennium.yaml
 
 # With command-line options
+./mimic --debug input/millennium.yaml    # Enable debug output with context (most verbose)
 ./mimic --verbose input/millennium.yaml  # Add context (timestamp, file:line)
-./mimic --quiet input/millennium.yaml    # Only warnings/errors
+./mimic --quiet input/millennium.yaml    # Only warnings/errors (least verbose)
 ./mimic --skip input/millennium.yaml     # Skip existing output files
 ```
 

@@ -215,6 +215,7 @@ int main(int argc, char **argv) {
       printf("Options:\n");
       printf("  -h, --help       Display this help message and exit\n");
       printf("  -v, --verbose    Add context (timestamp, file:line) to messages\n");
+      printf("  -d, --debug      Enable debug output with context (most verbose)\n");
       printf(
           "  -q, --quiet      Show only warnings and errors (least verbose)\n");
       printf("  --skip           Skip existing output files instead of "
@@ -223,6 +224,12 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--verbose") == 0) {
       // Enable verbose formatting (adds timestamp, file:line context)
+      set_verbose_format(1);
+      i = remove_arg(argv, &argc, i);
+    } else if (strcmp(argv[i], "-d") == 0 ||
+               strcmp(argv[i], "--debug") == 0) {
+      // Enable debug level logging with verbose formatting
+      log_level = LOG_LEVEL_DEBUG;
       set_verbose_format(1);
       i = remove_arg(argv, &argc, i);
     } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
@@ -313,6 +320,9 @@ int main(int argc, char **argv) {
 
   /* Main loop to process merger tree files */
   log_phase_banner(PHASE_TREE_PROCESSING);
+  /* Enable rate limiting for DEBUG_LOG during tree processing to prevent
+   * runaway output from loops over thousands of trees/halos */
+  enable_debug_log_rate_limiting();
 #ifdef MPI
   /* In MPI mode, distribute files across processors using stride of NTask */
   for (filenr = MimicConfig.FirstFile + ThisTask; filenr <= MimicConfig.LastFile;
@@ -429,6 +439,9 @@ int main(int argc, char **argv) {
 
     INFO_LOG("Completed processing file %d", filenr);
   }
+
+  /* Disable rate limiting for DEBUG_LOG after tree processing completes */
+  disable_debug_log_rate_limiting();
 
   /* Create master HDF5 file and free HDF5 resources if using HDF5 output */
 #ifdef HDF5

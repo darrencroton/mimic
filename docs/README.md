@@ -57,9 +57,10 @@ echo $?
 
 **Command-line options:**
 ```bash
-./mimic --verbose input/millennium.yaml  # Detailed output
-./mimic --quiet input/millennium.yaml    # Minimal output
-./mimic --skip input/millennium.yaml     # Skip certain operations
+./mimic --debug input/millennium.yaml    # Enable debug output with context (most verbose)
+./mimic --verbose input/millennium.yaml  # Add context (timestamp, file:line) to messages
+./mimic --quiet input/millennium.yaml    # Only warnings and errors (least verbose)
+./mimic --skip input/millennium.yaml     # Skip existing output files
 ```
 
 ### Configuring Physics Modules

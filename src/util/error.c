@@ -62,6 +62,9 @@ static FILE *log_output = NULL;
 // Verbose format flag: adds context (timestamp, file, line) to messages
 static int verbose_format = 0;
 
+// Debug log rate limiting flag: only enabled during intensive processing phases
+static int debug_log_rate_limiting_enabled = 0;
+
 // Level names for printing
 static const char *level_names[] = {"DEBUG", "INFO", "WARNING", "ERROR",
                                     "FATAL"};
@@ -191,6 +194,39 @@ void set_verbose_format(int enable) { verbose_format = enable; }
  * allowing other parts of the system to adjust their output accordingly.
  */
 int get_verbose_format(void) { return verbose_format; }
+
+/**
+ * @brief   Enables rate limiting for DEBUG_LOG output
+ *
+ * When enabled, each DEBUG_LOG location will output at most DEBUG_LOG_MAX_CALLS
+ * messages before suppressing further output. This prevents runaway logging
+ * during intensive processing phases (e.g., tree processing loops).
+ *
+ * Typically enabled during TREE_PROCESSING phase and disabled for other phases.
+ */
+void enable_debug_log_rate_limiting(void) {
+  debug_log_rate_limiting_enabled = 1;
+}
+
+/**
+ * @brief   Disables rate limiting for DEBUG_LOG output
+ *
+ * When disabled, DEBUG_LOG messages are not rate-limited and will output
+ * every time they are called. This is appropriate for configuration, module
+ * initialization, and other non-loop contexts.
+ */
+void disable_debug_log_rate_limiting(void) {
+  debug_log_rate_limiting_enabled = 0;
+}
+
+/**
+ * @brief   Checks if DEBUG_LOG rate limiting is currently enabled
+ *
+ * @return  1 if rate limiting is enabled, 0 otherwise
+ */
+int is_debug_log_rate_limiting_enabled(void) {
+  return debug_log_rate_limiting_enabled;
+}
 
 /**
  * @brief   Sets the output file for logging
