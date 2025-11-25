@@ -403,13 +403,28 @@ validate-test-registry:
 # Test Targets
 # -----------------------------------------------------------------------------
 
-tests: validate-modules test-unit test-integration test-scientific
+tests:
+	@rm -f build/.test_failures
+	@$(MAKE) validate-modules || echo "validate-modules" >> build/.test_failures || true
+	@$(MAKE) test-unit || echo "unit" >> build/.test_failures || true
+	@$(MAKE) test-integration
+	@$(MAKE) test-scientific
 	@echo ""
 	@echo ""
-	@echo "============================================================"
-	@echo "ALL TESTS COMPLETED"
-	@echo "============================================================"
+	@if [ -f build/.test_failures ]; then \
+		echo "\033[0;31m############################################################\033[0m"; \
+		echo "\033[0;31mFAILED TEST SUITES: $$(cat build/.test_failures | tr '\n' ' ')\033[0m"; \
+		echo "\033[0;31m############################################################\033[0m"; \
+	else \
+		echo "\033[0;32m############################################################\033[0m"; \
+		echo "\033[0;32mALL UNIT, INTEGRATION, SCIENTIFIC TESTS PASSED ✓\033[0m"; \
+		echo "\033[0;32m############################################################\033[0m"; \
+	fi
 	@echo ""
+	@if [ -f build/.test_failures ]; then \
+		rm -f build/.test_failures; \
+		exit 1; \
+	fi
 
 test-unit:
 	@echo ""
@@ -430,19 +445,23 @@ test-integration:
 	@$(MAKE) generate-test-registry > /dev/null 2>&1
 	@$(MAKE) USE-HDF5=yes
 	@echo ""
-	@echo "Running core integration tests..."
-	-@$(PYTHON) tests/integration/test_full_pipeline.py
-	@echo ""
-	-@$(PYTHON) tests/integration/test_output_formats.py
-	@echo ""
-	-@$(PYTHON) tests/integration/test_module_pipeline.py
-	@echo ""
-	@echo "Running module integration tests from registry..."
-	@for test in $$(grep -v '^#' build/generated/integration_tests.txt | grep -v '^$$'); do \
+	@FAILED=0; \
+	echo "Running core integration tests..."; \
+	$(PYTHON) tests/integration/test_full_pipeline.py || FAILED=1; \
+	echo ""; \
+	$(PYTHON) tests/integration/test_output_formats.py || FAILED=1; \
+	echo ""; \
+	$(PYTHON) tests/integration/test_module_pipeline.py || FAILED=1; \
+	echo ""; \
+	echo "Running module integration tests from registry..."; \
+	for test in $$(grep -v '^#' build/generated/integration_tests.txt | grep -v '^$$'); do \
 		echo ""; \
 		echo "\033[0;34mRunning: $$test\033[0m"; \
-		$(PYTHON) $$test || exit 1; \
-	done
+		$(PYTHON) $$test || FAILED=1; \
+	done; \
+	if [ $$FAILED -eq 1 ]; then \
+		echo "integration" >> build/.test_failures; \
+	fi
 
 test-scientific:
 	@echo ""
@@ -455,15 +474,19 @@ test-scientific:
 	@$(MAKE) generate-test-registry > /dev/null 2>&1
 	@$(MAKE) USE-HDF5=yes
 	@echo ""
-	@echo "Running core scientific tests..."
-	-@$(PYTHON) tests/scientific/test_scientific.py
-	@echo ""
-	@echo "Running module scientific tests from registry..."
-	@for test in $$(grep -v '^#' build/generated/scientific_tests.txt | grep -v '^$$'); do \
+	@FAILED=0; \
+	echo "Running core scientific tests..."; \
+	$(PYTHON) tests/scientific/test_scientific.py || FAILED=1; \
+	echo ""; \
+	echo "Running module scientific tests from registry..."; \
+	for test in $$(grep -v '^#' build/generated/scientific_tests.txt | grep -v '^$$'); do \
 		echo ""; \
 		echo "\033[0;34mRunning: $$test\033[0m"; \
-		$(PYTHON) $$test || exit 1; \
-	done
+		$(PYTHON) $$test || FAILED=1; \
+	done; \
+	if [ $$FAILED -eq 1 ]; then \
+		echo "scientific" >> build/.test_failures; \
+	fi
 
 test-clean:
 	@echo "Cleaning test artifacts..."
