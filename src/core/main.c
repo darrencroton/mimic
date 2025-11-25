@@ -35,6 +35,7 @@
 #include "proto.h"
 #include "globals.h"
 #include "tree/interface.h"
+#include "run_log.h"
 
 #include "output/hdf5.h"
 #include "version.h"
@@ -232,10 +233,6 @@ int main(int argc, char **argv) {
     }
   }
 
-  /* Initialize error handling system with the log level determined from command
-   * line (must be done before any FATAL_ERROR calls) */
-  initialize_error_handling(log_level, NULL);
-
   /* Ensure we have exactly one parameter file specified */
   if (argc != 2) {
     FATAL_ERROR("Incorrect usage! Please use: mimic [options] <parameterfile>\n"
@@ -251,8 +248,20 @@ int main(int argc, char **argv) {
   current_XCPU.sa_handler = termination_handler;
   sigaction(SIGXCPU, &current_XCPU, NULL);
 
+  /* Configure color usage for run banners before any logging */
+  extern int MimicLogUseColor;
+  MimicLogUseColor = isatty(STDOUT_FILENO) ? 1 : 0;
+
+  /* Print run header and first phase banner (no INFO logs yet) */
+  log_run_header(argv[1]);
+  log_phase_banner(PHASE_CONFIG);
+
   /* Initialize memory management system */
   init_memory_system(0); /* Use default block limit */
+
+  /* Initialize error handling system with the log level determined from command
+   * line (must be done before any FATAL_ERROR calls beyond this point) */
+  initialize_error_handling(log_level, NULL);
 
   /* Log startup information */
   DEBUG_LOG("Starting Mimic with verbosity level: %s",
@@ -270,7 +279,13 @@ int main(int argc, char **argv) {
   read_parameter_file(argv[1]);
   init();
 
+  INFO_LOG("Simulation directory : %s", MimicConfig.SimulationDir);
+  INFO_LOG("Output directory     : %s", MimicConfig.OutputDir);
+  INFO_LOG("Files to process     : %d .. %d", MimicConfig.FirstFile,
+           MimicConfig.LastFile);
+
   /* Register and initialize galaxy physics modules */
+  log_phase_banner(PHASE_MODULE_PIPELINE);
   INFO_LOG("Initializing galaxy physics module system");
   register_all_modules(); /* Physics-agnostic: core doesn't know which modules
                              exist */
@@ -288,6 +303,7 @@ int main(int argc, char **argv) {
 #endif
 
   /* Main loop to process merger tree files */
+  log_phase_banner(PHASE_TREE_PROCESSING);
 #ifdef MPI
   /* In MPI mode, distribute files across processors using stride of NTask */
   for (filenr = MimicConfig.FirstFile + ThisTask; filenr <= MimicConfig.LastFile;
@@ -408,6 +424,7 @@ int main(int argc, char **argv) {
   /* Create master HDF5 file and free HDF5 resources if using HDF5 output */
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
+    log_phase_banner(PHASE_OUTPUT);
     INFO_LOG("Creating master HDF5 file");
     write_master_file();
     free_hdf5_ids();
@@ -461,6 +478,8 @@ int main(int argc, char **argv) {
   }
 
   /* Set exit status to success */
+  log_phase_banner(PHASE_SHUTDOWN);
+  INFO_LOG("Simulation completed successfully");
   exitfail = 0;
   return 0;
 }

@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h> // for isatty()
 
 #include "error.h"
 #include "proto.h"
@@ -219,15 +220,39 @@ void log_message(LogLevel level, const char *file, const char *func, int line,
     output = (level >= LOG_LEVEL_WARNING) ? stderr : stdout;
   }
 
+  // Optional colour codes for terminal output
+  const char *colour_start = "";
+  const char *colour_end = "";
+
+  // Apply colours only for warnings and above when running in a TTY
+  // WARNING  -> yellow, ERROR -> red, FATAL -> bold red
+  if (isatty(fileno(output))) {
+    if (level == LOG_LEVEL_WARNING) {
+      colour_start = "\x1b[33m";      // yellow
+      colour_end = "\x1b[0m";
+    } else if (level == LOG_LEVEL_ERROR) {
+      colour_start = "\x1b[31m";      // red
+      colour_end = "\x1b[0m";
+    } else if (level == LOG_LEVEL_FATAL) {
+      colour_start = "\x1b[1;31m";    // bold red
+      colour_end = "\x1b[0m";
+    }
+  }
+
   // Print header with time, level, file, function, and line
-  fprintf(output, "[%s] %s - %s:%s:%d - ", time_str, level_names[level], file,
-          func, line);
+  fprintf(output, "%s[%s] %s - %s:%s:%d - ", colour_start, time_str,
+          level_names[level], file, func, line);
 
   // Print the actual message with variable arguments
   va_list args;
   va_start(args, format);
   vfprintf(output, format, args);
   va_end(args);
+
+  // Reset colour if it was enabled
+  if (colour_end[0] != '\0') {
+    fprintf(output, "%s", colour_end);
+  }
 
   // Add newline if not already present
   if (format[strlen(format) - 1] != '\n') {
@@ -285,9 +310,26 @@ void log_io_error(LogLevel level, IOErrorCode code, const char *file,
     output = (level >= LOG_LEVEL_WARNING) ? stderr : stdout;
   }
 
+  // Optional colour codes for terminal output
+  const char *colour_start = "";
+  const char *colour_end = "";
+
+  if (isatty(fileno(output))) {
+    if (level == LOG_LEVEL_WARNING) {
+      colour_start = "\x1b[33m";      // yellow
+      colour_end = "\x1b[0m";
+    } else if (level == LOG_LEVEL_ERROR) {
+      colour_start = "\x1b[31m";      // red
+      colour_end = "\x1b[0m";
+    } else if (level == LOG_LEVEL_FATAL) {
+      colour_start = "\x1b[1;31m";    // bold red
+      colour_end = "\x1b[0m";
+    }
+  }
+
   // Print header with time, level, file, function, and line
-  fprintf(output, "[%s] %s - %s:%s:%d - ", time_str, level_names[level], file,
-          func, line);
+  fprintf(output, "%s[%s] %s - %s:%s:%d - ", colour_start, time_str,
+          level_names[level], file, func, line);
 
   // Print I/O-specific information: operation, filename, and error code
   fprintf(output, "[I/O %s, file: '%s', error: %s] ", operation,
@@ -298,6 +340,11 @@ void log_io_error(LogLevel level, IOErrorCode code, const char *file,
   va_start(args, format);
   vfprintf(output, format, args);
   va_end(args);
+
+  // Reset colour if it was enabled
+  if (colour_end[0] != '\0') {
+    fprintf(output, "%s", colour_end);
+  }
 
   // Add newline if not already present
   if (format[strlen(format) - 1] != '\n') {
