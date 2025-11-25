@@ -508,7 +508,7 @@ static int sage_cooling_process(struct ModuleContext *ctx, struct Halo *halos, i
 static int sage_cooling_cleanup(void)
 {
     cooling_tables_cleanup();
-    DEBUG_LOG("SAGE cooling module cleaned up");
+    INFO_LOG("SAGE cooling module cleaned up");
     return 0;
 }
 

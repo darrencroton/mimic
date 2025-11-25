@@ -679,8 +679,11 @@ int validate_all_memory(void) {
  */
 void cleanup_memory_system(void) {
   if (MemorySystemInitialized) {
-    if (MemoryReportLevel >= MEMORY_REPORT_MINIMAL) {
-      print_memory_brief();
+    /* Only report post-cleanup stats at detailed level (debugging) */
+    if (MemoryReportLevel >= MEMORY_REPORT_DETAILED) {
+      INFO_LOG("Memory usage after cleanup: %.2f MB used, %.2f MB peak, %lu blocks",
+               TotMem / (1024.0 * 1024.0), HighMarkMem / (1024.0 * 1024.0),
+               Nblocks);
     }
 
     free(Table);

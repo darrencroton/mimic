@@ -437,6 +437,10 @@ int main(int argc, char **argv) {
   }
 #endif
 
+  /* Report memory usage before cleanup */
+  INFO_LOG("Memory usage at completion:");
+  print_memory_brief();
+
   /* Clean up allocated memory */
 
   /* Free Age array using original allocation pointer (fix for issue 1.2.1) */
