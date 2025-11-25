@@ -11,11 +11,11 @@ void log_run_header(const char *param_file) {
   const char *reset = MimicLogUseColor ? "\x1b[0m" : "";
 
   /* Optional per-line colours for the ASCII MIMIC banner */
-  const char *c1 = MimicLogUseColor ? "\x1b[31m" : "";   // red
-  const char *c2 = MimicLogUseColor ? "\x1b[33m" : "";   // yellow
-  const char *c3 = MimicLogUseColor ? "\x1b[32m" : "";   // green
-  const char *c4 = MimicLogUseColor ? "\x1b[36m" : "";   // cyan
-  const char *c5 = MimicLogUseColor ? "\x1b[35m" : "";   // magenta
+  const char *c1 = MimicLogUseColor ? "\x1b[95m" : "";   // bright magenta
+  const char *c2 = MimicLogUseColor ? "\x1b[94m" : "";   // bright blue
+  const char *c3 = MimicLogUseColor ? "\x1b[96m" : "";   // bright cyan
+  const char *c4 = MimicLogUseColor ? "\x1b[92m" : "";   // bright green
+  const char *c5 = MimicLogUseColor ? "\x1b[93m" : "";   // bright yellow
 
   time_t now;
   time(&now);
