@@ -59,6 +59,9 @@ static LogLevel current_log_level = LOG_LEVEL_INFO;
 // and debug
 static FILE *log_output = NULL;
 
+// Verbose format flag: adds context (timestamp, file, line) to messages
+static int verbose_format = 0;
+
 // Level names for printing
 static const char *level_names[] = {"DEBUG", "INFO", "WARNING", "ERROR",
                                     "FATAL"};
@@ -159,6 +162,37 @@ const char *get_io_error_name(IOErrorCode code) {
 void set_log_level(LogLevel min_level) { current_log_level = min_level; }
 
 /**
+ * @brief   Gets the current log level
+ *
+ * @return  Current minimum log level
+ *
+ * This function returns the current log level setting, allowing
+ * other parts of the system to adjust their output accordingly.
+ */
+LogLevel get_log_level(void) { return current_log_level; }
+
+/**
+ * @brief   Enables or disables verbose formatting
+ *
+ * @param   enable    1 to enable verbose format, 0 to disable
+ *
+ * When enabled, log messages include contextual information
+ * (timestamp, level, file, line) for troubleshooting. When disabled,
+ * only the message content is displayed for cleaner output.
+ */
+void set_verbose_format(int enable) { verbose_format = enable; }
+
+/**
+ * @brief   Gets the current verbose format setting
+ *
+ * @return  1 if verbose format is enabled, 0 otherwise
+ *
+ * This function returns whether verbose formatting is currently enabled,
+ * allowing other parts of the system to adjust their output accordingly.
+ */
+int get_verbose_format(void) { return verbose_format; }
+
+/**
  * @brief   Sets the output file for logging
  *
  * @param   output_file    New file handle for log output
@@ -203,6 +237,9 @@ FILE *set_log_output(FILE *output_file) {
  */
 void log_message(LogLevel level, const char *file, const char *func, int line,
                  const char *format, ...) {
+  // Suppress unused parameter warning (func not used in simplified format)
+  (void)func;
+
   // Skip if below current log level
   if (level < current_log_level) {
     return;
@@ -211,8 +248,6 @@ void log_message(LogLevel level, const char *file, const char *func, int line,
   // Get current time
   time_t now;
   time(&now);
-  char time_str[20];
-  strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", localtime(&now));
 
   // Choose output stream based on message level
   FILE *output = log_output;
@@ -239,9 +274,25 @@ void log_message(LogLevel level, const char *file, const char *func, int line,
     }
   }
 
-  // Print header with time, level, file, function, and line
-  fprintf(output, "%s[%s] %s - %s:%s:%d - ", colour_start, time_str,
-          level_names[level], file, func, line);
+  // Print header - format depends on verbosity setting
+  // Verbose format: Add context (timestamp, level, file:line)
+  if (verbose_format) {
+    char time_str[9];
+    strftime(time_str, sizeof(time_str), "%H:%M:%S", localtime(&now));
+    // Extract just filename from full path
+    const char *filename = strrchr(file, '/');
+    filename = filename ? filename + 1 : file;
+    fprintf(output, "%s[%s] %s - %s:%d - ", colour_start, time_str,
+            level_names[level], filename, line);
+  }
+  // Quiet mode or warnings/errors: Show level prefix
+  else if (current_log_level >= LOG_LEVEL_WARNING || level >= LOG_LEVEL_WARNING) {
+    fprintf(output, "%s%s: ", colour_start, level_names[level]);
+  }
+  // Normal mode (default): Clean output, just the message
+  else {
+    fprintf(output, "%s", colour_start);
+  }
 
   // Print the actual message with variable arguments
   va_list args;

@@ -214,7 +214,7 @@ int main(int argc, char **argv) {
       printf("Usage: mimic [options] <parameterfile>\n\n");
       printf("Options:\n");
       printf("  -h, --help       Display this help message and exit\n");
-      printf("  -v, --verbose    Show debug messages (most verbose)\n");
+      printf("  -v, --verbose    Add context (timestamp, file:line) to messages\n");
       printf(
           "  -q, --quiet      Show only warnings and errors (least verbose)\n");
       printf("  --skip           Skip existing output files instead of "
@@ -222,7 +222,8 @@ int main(int argc, char **argv) {
       exit(0);
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--verbose") == 0) {
-      log_level = LOG_LEVEL_DEBUG;
+      // Enable verbose formatting (adds timestamp, file:line context)
+      set_verbose_format(1);
       i = remove_arg(argv, &argc, i);
     } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
       log_level = LOG_LEVEL_WARNING;
@@ -252,16 +253,18 @@ int main(int argc, char **argv) {
   extern int MimicLogUseColor;
   MimicLogUseColor = isatty(STDOUT_FILENO) ? 1 : 0;
 
-  /* Print run header and first phase banner (no INFO logs yet) */
+  /* Print run header */
   log_run_header(argv[1]);
+
+  /* Initialize error handling system first to set log level */
+  /* (must be done before any INFO_LOG/FATAL_ERROR calls) */
+  initialize_error_handling(log_level, NULL);
+
+  /* Now log the configuration phase banner */
   log_phase_banner(PHASE_CONFIG);
 
-  /* Initialize memory management system */
+  /* Initialize memory management system (will log at correct level) */
   init_memory_system(0); /* Use default block limit */
-
-  /* Initialize error handling system with the log level determined from command
-   * line (must be done before any FATAL_ERROR calls beyond this point) */
-  initialize_error_handling(log_level, NULL);
 
   /* Log startup information */
   DEBUG_LOG("Starting Mimic with verbosity level: %s",

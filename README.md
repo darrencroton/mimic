@@ -80,7 +80,7 @@ make clean               # Remove all build artifacts
 
 ```bash
 ./mimic <parameter_file>           # Basic execution
-./mimic --verbose <parameter_file> # Debug messages
+./mimic --verbose <parameter_file> # Add context (timestamp, file:line) to messages
 ./mimic --quiet <parameter_file>   # Warnings/errors only
 ./mimic --skip <parameter_file>    # Skip existing output
 ```

@@ -44,6 +44,9 @@ void initialize_error_handling(LogLevel min_level, FILE *output_file);
 void log_message(LogLevel level, const char *file, const char *func, int line,
                  const char *format, ...);
 void set_log_level(LogLevel min_level);
+LogLevel get_log_level(void);
+void set_verbose_format(int enable);
+int get_verbose_format(void);
 FILE *set_log_output(FILE *output_file);
 
 // I/O-specific error handling function prototypes

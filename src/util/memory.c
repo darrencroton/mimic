@@ -230,8 +230,8 @@ void *mymalloc_cat(size_t size, MemoryCategory category) {
   /* Update and potentially report high watermark */
   if (TotMem > HighMarkMem) {
     HighMarkMem = TotMem;
-    /* Only report when appropriate based on level */
-    if (MemoryReportLevel >= MEMORY_REPORT_MINIMAL &&
+    /* Only report when verbose format is enabled (--verbose) */
+    if (get_verbose_format() &&
         HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
       INFO_LOG("New memory usage high mark: %.2f MB",
                HighMarkMem / (1024.0 * 1024.0));
@@ -351,7 +351,8 @@ void *myrealloc_cat(void *p, size_t size, MemoryCategory category) {
   /* Update high watermark if needed */
   if (TotMem > HighMarkMem) {
     HighMarkMem = TotMem;
-    if (MemoryReportLevel >= MEMORY_REPORT_MINIMAL &&
+    /* Only report when verbose format is enabled (--verbose) */
+    if (get_verbose_format() &&
         HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
       INFO_LOG("New memory usage high mark: %.2f MB",
                HighMarkMem / (1024.0 * 1024.0));

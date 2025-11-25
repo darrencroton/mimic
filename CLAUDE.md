@@ -72,9 +72,9 @@ make tidy
 ./mimic input/millennium.yaml
 
 # With command-line options
-./mimic --verbose input/millennium.yaml
-./mimic --quiet input/millennium.yaml
-./mimic --skip input/millennium.yaml
+./mimic --verbose input/millennium.yaml  # Add context (timestamp, file:line)
+./mimic --quiet input/millennium.yaml    # Only warnings/errors
+./mimic --skip input/millennium.yaml     # Skip existing output files
 ```
 
 ## Testing

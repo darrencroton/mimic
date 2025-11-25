@@ -393,7 +393,7 @@ static int my_module_process(struct ModuleContext *ctx,
 - ✅ Check `halos[i].galaxy != NULL` before access
 - ✅ Filter by halo type if your physics is type-specific
 - ✅ Use context for redshift/time-dependent calculations
-- ✅ Use `DEBUG_LOG` for per-halo details (can be disabled at runtime)
+- ✅ Use `DEBUG_LOG` for per-halo details during development (not shown in production)
 - ✅ Return -1 on errors, 0 on success
 
 **Anti-Patterns**:
@@ -1284,10 +1284,15 @@ static int my_module_process(...) {
 Use appropriate logging levels:
 
 ```c
-INFO_LOG("Module initialized");              // Always shown
-DEBUG_LOG("Halo %d: value=%.3e", i, val);   // Only with --verbose
+INFO_LOG("Module initialized");              // Production: shown
+DEBUG_LOG("Halo %d: value=%.3e", i, val);   // Development only (not shown in production)
 ERROR_LOG("Critical error occurred");        // Always shown, to stderr
 ```
+
+**Log Levels:**
+- `INFO_LOG`: Production messages (what's happening)
+- `DEBUG_LOG`: Development only (detailed per-halo diagnostics)
+- `WARNING_LOG`, `ERROR_LOG`: Issues and failures
 
 ### Memory Leak Detection
 
@@ -1296,9 +1301,9 @@ Check for memory leaks after running:
 ```bash
 ./mimic input/test.yaml
 # At end of output, check for:
-# "Total allocated: 0 bytes" (no leaks)
+# "No memory leaks detected"
 # or
-# "WARNING: Memory leak detected: X bytes"
+# "WARNING: Memory leak detected: X blocks (Y MB) still allocated"
 ```
 
 In code, use:
@@ -1308,12 +1313,13 @@ In code, use:
 print_allocated_by_category();
 ```
 
-### Debug Output
+### Verbose Output
 
-Enable debug logging:
+Add context (timestamp, file:line) to messages for troubleshooting:
 
 ```bash
 ./mimic --verbose input/test.yaml
+# Output: [19:42:15] INFO - module.c:123 - Module initialized
 ```
 
 ### Validation Checks

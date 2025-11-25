@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <time.h>
 
+#include "error.h"
 #include "git_version.h"
 #include "run_log.h"
 
@@ -39,9 +40,25 @@ void log_run_header(const char *param_file) {
 }
 
 void log_phase_banner(MimicPhase phase) {
+  /* Check if we're in quiet mode */
+  LogLevel current_level = get_log_level();
+  int is_quiet = (current_level >= LOG_LEVEL_WARNING);
+
   const char *bold_cyan = MimicLogUseColor ? "\x1b[1;36m" : "";
   const char *reset = MimicLogUseColor ? "\x1b[0m" : "";
 
+  /* In quiet mode, show simple "Running..." / "Completed" messages */
+  if (is_quiet) {
+    if (phase == PHASE_TREE_PROCESSING) {
+      fprintf(stdout, "\nRunning...\n");
+    } else if (phase == PHASE_SHUTDOWN) {
+      fprintf(stdout, "  ...completed\n");
+    }
+    /* Skip other phase banners in quiet mode */
+    return;
+  }
+
+  /* Normal mode: show full banners */
   const char *label = "";
   switch (phase) {
   case PHASE_CONFIG:
