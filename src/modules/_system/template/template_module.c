@@ -138,18 +138,18 @@ static int template_module_init(void) {
   // 1. Read module parameters (validation automatic from module_info.yaml)
   // -------------------------------------------------------------------------
 
-  if (module_get_double("TemplateModule", "Parameter1", &PARAM1) != 0) {
+  if (module_get_double("template_module", "Parameter1", &PARAM1) != 0) {
     ERROR_LOG("Failed to read Parameter1");
     return -1;
   }
 
-  if (module_get_double("TemplateModule", "Parameter2", &PARAM2) != 0) {
+  if (module_get_double("template_module", "Parameter2", &PARAM2) != 0) {
     ERROR_LOG("Failed to read Parameter2");
     return -1;
   }
 
   // TODO: Add more parameter reads as needed
-  // if (module_get_int("TemplateModule", "SomeInt", &some_int) != 0) {
+  // if (module_get_int("template_module", "SomeInt", &some_int) != 0) {
   //     ERROR_LOG("Failed to read SomeInt");
   //     return -1;
   // }

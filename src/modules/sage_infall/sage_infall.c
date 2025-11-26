@@ -213,12 +213,13 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx,
   double tot_stellarMass, tot_coldMass, tot_hotMass, tot_ejected;
   double tot_hotMetals, tot_ejectedMetals;
   double tot_ICS, tot_ICSMetals;
+  double tot_BHMass;
   double tot_satBaryons;
   double infallingMass, reionization_modifier;
 
   /* Initialize counters for all baryonic components */
   tot_stellarMass = tot_coldMass = tot_hotMass = tot_hotMetals = tot_ejected =
-      tot_ejectedMetals = tot_ICS = tot_ICSMetals = tot_satBaryons = 0.0;
+      tot_ejectedMetals = tot_ICS = tot_ICSMetals = tot_BHMass = tot_satBaryons = 0.0;
 
   /* Loop over all galaxies in FOF group to sum baryonic components */
   for (int i = 0; i < ngal; i++) {
@@ -234,12 +235,13 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx,
     tot_ejectedMetals += halos[i].galaxy->MetalsEjectedMass;
     tot_ICS += halos[i].galaxy->ICS;
     tot_ICSMetals += halos[i].galaxy->MetalsICS;
+    tot_BHMass += halos[i].galaxy->BlackHoleMass;
 
     /* Track baryons in satellite galaxies separately */
     if (i != central_idx) {
       tot_satBaryons +=
           halos[i].galaxy->StellarMass + halos[i].galaxy->ColdGas +
-          halos[i].galaxy->HotGas;
+          halos[i].galaxy->HotGas + halos[i].galaxy->BlackHoleMass;
     }
 
     /* Move satellite ejected gas to central galaxy's ejected reservoir */
@@ -269,7 +271,7 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx,
   /* Calculate infalling gas mass */
   infallingMass =
       reionization_modifier * BARYON_FRAC * halos[central_idx].Mvir -
-      (tot_stellarMass + tot_coldMass + tot_hotMass + tot_ejected + tot_ICS);
+      (tot_stellarMass + tot_coldMass + tot_hotMass + tot_ejected + tot_BHMass + tot_ICS);
 
   /* Assign all ejected mass to the central galaxy */
   halos[central_idx].galaxy->EjectedMass = (float)tot_ejected;
@@ -329,6 +331,7 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx,
 static void strip_from_satellite(struct Halo *halos, int central_idx,
                                   int sat_idx, double redshift, double omega,
                                   double omega_lambda, double hubble_h) {
+#define STEPS 1  /* TODO: Will be replaced by global STEPS when multi-step integration loop implemented in core */
   double reionization_modifier;
   double strippedGas, strippedGasMetals;
   float metallicity;
@@ -348,7 +351,9 @@ static void strip_from_satellite(struct Halo *halos, int central_idx,
                   halos[sat_idx].galaxy->ColdGas +
                   halos[sat_idx].galaxy->HotGas +
                   halos[sat_idx].galaxy->EjectedMass +
-                  halos[sat_idx].galaxy->ICS));
+                  halos[sat_idx].galaxy->BlackHoleMass +
+                  halos[sat_idx].galaxy->ICS)) /
+                STEPS;
 
   /* Only proceed if there is positive stripping */
   if (strippedGas > 0.0) {
@@ -556,6 +561,7 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
 
   return 0;
 }
+#undef STEPS
 
 /**
  * @brief   Cleanup sage_infall module

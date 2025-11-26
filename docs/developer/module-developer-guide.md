@@ -540,10 +540,11 @@ Examples (from actual modules):
 
 **Important**: Module names must match the `name` field in `module_info.yaml` (snake_case).
 
-**Rationale for Mixed Case**: This convention provides visual clarity in configuration files:
-- `snake_case` for module names (standard Python/Unix convention)
-- `PascalCase` for parameter names (clear separation from module name)
-- The underscore separator makes it easy to parse: everything before the last underscore followed by uppercase is the module name
+**Deliberate Design Choice**: This convention uses mixed case intentionally:
+- `snake_case` for module names (matches `module_info.yaml` name field)
+- `PascalCase` for parameter names (provides visual distinction when combined)
+- The underscore separator makes parameters easily parseable and visually distinct
+- This trades conventional consistency for improved user clarity in configuration files
 
 ### Reading Parameters
 
@@ -551,22 +552,23 @@ Use the parameter API in `module_registry.h`. Define parameters and their defaul
 
 ```c
 // Double parameter (validation automatic from module_info.yaml)
+// Note: Use snake_case module name, PascalCase parameter name
 double efficiency;
-if (module_get_double("MyModule", "Efficiency", &efficiency) != 0) {
+if (module_get_double("my_module", "Efficiency", &efficiency) != 0) {
     ERROR_LOG("Failed to read Efficiency parameter");
     return -1;
 }
 
 // Integer parameter (validation automatic from module_info.yaml)
 int min_mass;
-if (module_get_int("MyModule", "MinHaloMass", &min_mass) != 0) {
+if (module_get_int("my_module", "MinHaloMass", &min_mass) != 0) {
     ERROR_LOG("Failed to read MinHaloMass parameter");
     return -1;
 }
 
 // String parameter
 char model[256];
-module_get_parameter("MyModule", "Model", model, sizeof(model), "default");
+module_get_parameter("my_module", "Model", model, sizeof(model), "default");
 ```
 
 **Single Source of Truth**: Parameter defaults and validation ranges are defined in `module_info.yaml`. The parameter API automatically provides defaults and validates ranges. Never hardcode defaults or validation logic in C code.
@@ -590,7 +592,8 @@ static int my_module_init(void) {
     double efficiency;
 
     // Validation happens automatically based on module_info.yaml range
-    int result = module_get_double("MyModule", "Efficiency", &efficiency);
+    // Note: First arg is snake_case module name matching module_info.yaml
+    int result = module_get_double("my_module", "Efficiency", &efficiency);
     if (result != 0) {
         ERROR_LOG("Failed to read Efficiency parameter");
         return -1;

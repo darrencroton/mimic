@@ -11,24 +11,17 @@
 output:
   file_base_name: model
   directory: ./output/results/millennium/
-  snapshot_count: 8
+  snapshot_count: 1
   format: hdf5
   snapshot_list:
   - 63
-  - 37
-  - 32
-  - 27
-  - 23
-  - 20
-  - 18
-  - 16
 
 #-----------------------------------------------------------------------------
 # Input Files
 #-----------------------------------------------------------------------------
 input:
   first_file: 0
-  last_file: 7
+  last_file: 0
   tree_name: trees_063
   tree_type: lhalo_binary
   simulation_dir: ./input/data/millennium/
@@ -64,10 +57,6 @@ units:
 modules:
   enabled:
   - sage_infall
-  - sage_cooling
   parameters:
     sage_infall:
       BaryonFrac: 0.17
-    sage_cooling:
-      RadioModeEfficiency: 0.01
-      AGNrecipeOn: 1

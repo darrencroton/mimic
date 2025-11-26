@@ -8,7 +8,7 @@
  * validation. Ranges are defined once in module_info.yaml (single
  * source of truth) and generated into this lookup table.
  *
- * Source MD5: 321af7d0aca96d6a05f4f33f000bb739
+ * Source MD5: 218d5e410cf5a777d352afdee6056c70
  * To regenerate: make generate
  */
 
