@@ -219,12 +219,16 @@ if [ $COMPILE_ERRORS -gt 0 ]; then
     echo -e "Compile errors: ${YELLOW}$COMPILE_ERRORS${NC}"
 fi
 echo "============================================================"
+echo ""
 
 # Final result
+echo "============================================================"
 if [ $FAILED_TESTS -eq 0 ] && [ $COMPILE_ERRORS -eq 0 ]; then
     echo -e "${GREEN}✓ All unit tests passed!${NC}"
+    echo "============================================================"
     exit 0
 else
-    echo -e "${RED}✗ Some tests failed${NC}"
+    echo -e "${RED}✗ Unit tests FAILED${NC}"
+    echo "============================================================"
     exit 1
 fi

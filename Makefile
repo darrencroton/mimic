@@ -404,11 +404,16 @@ validate-test-registry:
 # -----------------------------------------------------------------------------
 
 tests:
+	@echo "Cleaning and building once for all tests..."
+	@$(MAKE) clean > /dev/null 2>&1
+	@$(MAKE) generate-test-registry > /dev/null 2>&1
+	@$(MAKE) USE-HDF5=yes
+	@mkdir -p build
 	@rm -f build/.test_failures
 	@$(MAKE) validate-modules || echo "validate-modules" >> build/.test_failures || true
 	@$(MAKE) test-unit || echo "unit" >> build/.test_failures || true
-	@$(MAKE) test-integration
-	@$(MAKE) test-scientific
+	@$(MAKE) test-integration || true
+	@$(MAKE) test-scientific || true
 	@echo ""
 	@echo ""
 	@if [ -f build/.test_failures ]; then \
@@ -440,10 +445,12 @@ test-integration:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING INTEGRATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
-	@echo "Building mimic with HDF5 support for integration tests..."
-	@$(MAKE) clean > /dev/null 2>&1
-	@$(MAKE) generate-test-registry > /dev/null 2>&1
-	@$(MAKE) USE-HDF5=yes
+	@if [ ! -f "$(EXEC)" ]; then \
+		echo "Building mimic with HDF5 support for tests..."; \
+		$(MAKE) clean > /dev/null 2>&1; \
+		$(MAKE) generate-test-registry > /dev/null 2>&1; \
+		$(MAKE) USE-HDF5=yes; \
+	fi
 	@echo ""
 	@FAILED=0; \
 	echo "Running core integration tests..."; \
@@ -459,8 +466,17 @@ test-integration:
 		echo "\033[0;34mRunning: $$test\033[0m"; \
 		$(PYTHON) $$test || FAILED=1; \
 	done; \
+	echo ""; \
+	echo "============================================================"; \
 	if [ $$FAILED -eq 1 ]; then \
+		mkdir -p build; \
 		echo "integration" >> build/.test_failures; \
+		echo "\033[0;31m✗ Integration tests FAILED\033[0m"; \
+		echo "============================================================"; \
+		exit 1; \
+	else \
+		echo "\033[0;32m✓ All integration tests passed!\033[0m"; \
+		echo "============================================================"; \
 	fi
 
 test-scientific:
@@ -469,10 +485,12 @@ test-scientific:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING SCIENTIFIC VALIDATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
-	@echo "Building mimic with HDF5 support for scientific tests..."
-	@$(MAKE) clean > /dev/null 2>&1
-	@$(MAKE) generate-test-registry > /dev/null 2>&1
-	@$(MAKE) USE-HDF5=yes
+	@if [ ! -f "$(EXEC)" ]; then \
+		echo "Building mimic with HDF5 support for tests..."; \
+		$(MAKE) clean > /dev/null 2>&1; \
+		$(MAKE) generate-test-registry > /dev/null 2>&1; \
+		$(MAKE) USE-HDF5=yes; \
+	fi
 	@echo ""
 	@FAILED=0; \
 	echo "Running core scientific tests..."; \
@@ -484,8 +502,17 @@ test-scientific:
 		echo "\033[0;34mRunning: $$test\033[0m"; \
 		$(PYTHON) $$test || FAILED=1; \
 	done; \
+	echo ""; \
+	echo "============================================================"; \
 	if [ $$FAILED -eq 1 ]; then \
+		mkdir -p build; \
 		echo "scientific" >> build/.test_failures; \
+		echo "\033[0;31m✗ Scientific tests FAILED\033[0m"; \
+		echo "============================================================"; \
+		exit 1; \
+	else \
+		echo "\033[0;32m✓ All scientific tests passed!\033[0m"; \
+		echo "============================================================"; \
 	fi
 
 test-clean:
