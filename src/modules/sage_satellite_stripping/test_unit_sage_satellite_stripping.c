@@ -1,11 +1,11 @@
 /**
- * @file    test_sage_infall.c
- * @brief   Software quality unit tests for sage_infall module
+ * @file    test_sage_satellite_stripping.c
+ * @brief   Software quality unit tests for sage_satellite_stripping module
  *
  * Validates: Module lifecycle, memory safety, parameter handling, error handling
- * Phase: Phase 4.2 (SAGE Physics Module Implementation)
+ * Phase: Phase 4.2 (SAGE Modular Refactoring)
  *
- * This test validates software engineering aspects of the sage_infall module:
+ * This test validates software engineering aspects of the sage_satellite_stripping module:
  * - Module registration and initialization
  * - Parameter reading and validation
  * - Memory allocation and cleanup (no leaks)
@@ -19,17 +19,17 @@
  *   - test_memory_safety: No memory leaks during operation
  *   - test_property_access: Galaxy property access works correctly
  *
- * NOTE: Physics validation (reionization, infall calculations) deferred to Phase 4.3+
- *       when downstream modules (cooling, star formation) are implemented.
+ * NOTE: Physics validation (satellite stripping correctness) deferred to Phase 4.3+
+ *       when downstream modules are implemented for end-to-end testing.
  *
  * @author  Mimic Development Team
- * @date    2025-11-12
+ * @date    2025-11-26
  */
 
 #include "framework/test_framework.h"
 #include "../../core/module_registry.h"
 #include "../../core/module_interface.h"
-#include "sage_infall.h"
+#include "sage_satellite_stripping.h"
 #include "../../include/types.h"
 #include "../../include/proto.h"
 #include "../../include/globals.h"
@@ -63,10 +63,10 @@ static void ensure_modules_registered(void)
     }
 }
 
-/* Test fixture: Set sage_infall parameters to defaults */
-static void set_default_sage_infall_params(void)
+/* Test fixture: Set sage_satellite_stripping parameters to defaults */
+static void set_default_params(void)
 {
-    strcpy(MimicConfig.ModuleParams[0].module_name, "SageInfall");
+    strcpy(MimicConfig.ModuleParams[0].module_name, "SageSatelliteStripping");
     strcpy(MimicConfig.ModuleParams[0].param_name, "BaryonFrac");
     strcpy(MimicConfig.ModuleParams[0].value, "0.17");
 
@@ -75,10 +75,10 @@ static void set_default_sage_infall_params(void)
 
 /**
  * @test    test_module_registration
- * @brief   Test that sage_infall module registers correctly
+ * @brief   Test that sage_satellite_stripping module registers correctly
  *
  * Expected: Module registration succeeds without errors
- * Validates: sage_infall_register() works, module appears in registry
+ * Validates: sage_satellite_stripping_register() works, module appears in registry
  */
 int test_module_registration(void)
 {
@@ -114,10 +114,10 @@ int test_module_initialization(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_infall module */
-    strcpy(MimicConfig.EnabledModules[0], "sage_infall");
+    /* Configure sage_satellite_stripping module */
+    strcpy(MimicConfig.EnabledModules[0], "sage_satellite_stripping");
     MimicConfig.NumEnabledModules = 1;
-    set_default_sage_infall_params();
+    set_default_params();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -138,7 +138,7 @@ int test_module_initialization(void)
  *
  * Expected: Module reads BaryonFrac parameter successfully
  * Validates: Parameter reading infrastructure works
- * Note: Reionization parameters now hardcoded in shared/reionization.h
+ * Note: Reionization parameters hardcoded in shared/reionization.h
  */
 int test_parameter_reading(void)
 {
@@ -153,10 +153,10 @@ int test_parameter_reading(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* Configure with non-default values */
-    strcpy(MimicConfig.EnabledModules[0], "sage_infall");
+    strcpy(MimicConfig.EnabledModules[0], "sage_satellite_stripping");
     MimicConfig.NumEnabledModules = 1;
 
-    strcpy(MimicConfig.ModuleParams[0].module_name, "SageInfall");
+    strcpy(MimicConfig.ModuleParams[0].module_name, "SageSatelliteStripping");
     strcpy(MimicConfig.ModuleParams[0].param_name, "BaryonFrac");
     strcpy(MimicConfig.ModuleParams[0].value, "0.20");
 
@@ -194,9 +194,9 @@ int test_memory_safety(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    strcpy(MimicConfig.EnabledModules[0], "sage_infall");
+    strcpy(MimicConfig.EnabledModules[0], "sage_satellite_stripping");
     MimicConfig.NumEnabledModules = 1;
-    set_default_sage_infall_params();
+    set_default_params();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -218,7 +218,7 @@ int test_memory_safety(void)
  * @brief   Test that module can safely access galaxy properties
  *
  * Expected: Property access doesn't crash, handles zero/null gracefully
- * Validates: Property access patterns in module
+ * Validates: Property access patterns in module (HotGas, MetalsHotGas)
  */
 int test_property_access(void)
 {
@@ -232,41 +232,39 @@ int test_property_access(void)
     struct GalaxyData test_galaxy;
     memset(&test_galaxy, 0, sizeof(test_galaxy));
 
-    /* Set some realistic values */
+    /* Set up central halo */
     test_halo.Mvir = 100.0;  /* 10^12 Msun/h */
     test_halo.Type = 0;  /* Central */
     test_halo.SnapNum = 63;
     test_halo.galaxy = &test_galaxy;
 
-    test_galaxy.StellarMass = 10.0;
-    test_galaxy.ColdGas = 5.0;
-    test_galaxy.HotGas = 15.0;
-    test_galaxy.EjectedMass = 2.0;
-    test_galaxy.ICS = 0.5;
-    test_galaxy.MetalsHotGas = 0.3;
-    test_galaxy.MetalsEjectedMass = 0.04;
-    test_galaxy.MetalsICS = 0.01;
+    /* Set up satellite with hot gas */
+    struct Halo sat_halo;
+    memset(&sat_halo, 0, sizeof(sat_halo));
+    struct GalaxyData sat_galaxy;
+    memset(&sat_galaxy, 0, sizeof(sat_galaxy));
+
+    sat_halo.Mvir = 10.0;  /* 10^11 Msun/h */
+    sat_halo.Type = 1;  /* Type 1 satellite */
+    sat_halo.galaxy = &sat_galaxy;
+    sat_galaxy.HotGas = 5.0;
+    sat_galaxy.MetalsHotGas = 0.1;
 
     /* ===== VALIDATE ===== */
     /* Test that halo properties can be accessed without crashing */
     TEST_ASSERT(test_halo.Mvir > 0.0, "Mvir should be accessible");
     TEST_ASSERT(test_halo.Type == 0, "Type should be accessible");
-    TEST_ASSERT(test_halo.galaxy != NULL, "Galaxy pointer should be accessible");
+    TEST_ASSERT(sat_halo.Type == 1, "Satellite Type should be accessible");
 
     /* Test that galaxy properties can be accessed */
-    TEST_ASSERT(test_galaxy.StellarMass >= 0.0, "StellarMass should be non-negative");
-    TEST_ASSERT(test_galaxy.HotGas >= 0.0, "HotGas should be non-negative");
+    TEST_ASSERT(sat_galaxy.HotGas >= 0.0, "HotGas should be non-negative");
+    TEST_ASSERT(sat_galaxy.MetalsHotGas >= 0.0, "MetalsHotGas should be non-negative");
 
     /* Test with zero values (edge case) */
     struct GalaxyData zero_galaxy;
     memset(&zero_galaxy, 0, sizeof(zero_galaxy));
     TEST_ASSERT(zero_galaxy.HotGas == 0.0, "Zero-initialized galaxy should have HotGas=0");
-    TEST_ASSERT(zero_galaxy.ColdGas == 0.0, "Zero-initialized galaxy should have ColdGas=0");
-
-    /* Test InfallingGas property (added in refactoring for STEPS integration) */
-    TEST_ASSERT(zero_galaxy.InfallingGas == 0.0, "Zero-initialized galaxy should have InfallingGas=0");
-    test_galaxy.InfallingGas = 5.5;
-    TEST_ASSERT(test_galaxy.InfallingGas == 5.5, "InfallingGas should be readable/writable");
+    TEST_ASSERT(zero_galaxy.MetalsHotGas == 0.0, "Zero-initialized galaxy should have MetalsHotGas=0");
 
     /* ===== CLEANUP ===== */
     check_memory_leaks();
@@ -277,12 +275,12 @@ int test_property_access(void)
 /**
  * @brief   Main test runner
  *
- * Executes all sage_infall software quality tests and reports results.
+ * Executes all sage_satellite_stripping software quality tests and reports results.
  */
 int main(void)
 {
     printf("========================================\n");
-    printf("Test Suite: sage_infall\n");
+    printf("Test Suite: sage_satellite_stripping\n");
     printf("========================================\n");
 
     /* Initialize error handling for tests */

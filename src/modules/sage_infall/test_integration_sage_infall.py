@@ -11,6 +11,7 @@ This test validates software quality aspects of the sage_infall module:
 - Module executes without errors or memory leaks
 - Output properties appear in output files
 - Module works in multi-module pipelines
+- Integration with sage_satellite_stripping (shared reionization utility)
 
 NOTE: Physics validation (reionization correctness, infall amounts) deferred
       to Phase 4.3+ when downstream modules (cooling, star formation) are implemented.
@@ -18,8 +19,8 @@ NOTE: Physics validation (reionization correctness, infall amounts) deferred
 Test cases:
   - test_module_loads: Module registration and initialization
   - test_output_properties_exist: HotGas properties in output
-  - test_parameters_configurable: Parameter reading and validation
-  - test_reionization_toggle: ReionizationOn parameter works
+  - test_parameters_configurable: BaryonFrac parameter configuration
+  - test_with_satellite_stripping: Integration with sage_satellite_stripping
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
   - test_multiple_module_pipeline: Multi-module integration
@@ -252,6 +253,7 @@ def test_module_loads():
 
     Expected: Module initialization succeeds without errors
     Validates: Module registration, initialization, and cleanup lifecycle
+    Note: Reionization parameters now hardcoded in shared/reionization.h
     """
     print("Testing module load and initialization...")
 
@@ -260,8 +262,7 @@ def test_module_loads():
         output_name="sage_infall_load",
         enabled_modules=["sage_infall"],
         module_params={
-            "sage_infall_BaryonFrac": "0.17",
-            "sage_infall_ReionizationOn": "1"
+            "sage_infall_BaryonFrac": "0.17"
         }
     )
 
@@ -276,6 +277,10 @@ def test_module_loads():
     assert "SAGE infall module initialized" in stdout, \
         "sage_infall should log initialization message"
 
+    # Check that reionization model is logged (hardcoded in header)
+    assert "Gnedin (2000)" in stdout, \
+        "Should log reionization model from shared header"
+
     print("  ✓ Module loads and initializes successfully")
 
 
@@ -283,8 +288,9 @@ def test_output_properties_exist():
     """
     Test that HotGas and related properties appear in output
 
-    Expected: HotGas, MetalsHotGas, and related properties in output file
+    Expected: HotGas, MetalsHotGas, EjectedMass, ICS, and InfallingGas in output file
     Validates: Module creates expected output properties
+    Note: InfallingGas is internal (output: false) so won't be in output file
     """
     print("Testing output properties...")
 
@@ -308,11 +314,18 @@ def test_output_properties_exist():
     halos, metadata = load_binary_halos(output_file)
     assert len(halos) > 0, "Should have halos in output"
 
-    # Check HotGas property exists
+    # Check output properties exist
     assert 'HotGas' in halos.dtype.names, \
         "HotGas property should exist in output"
     assert 'MetalsHotGas' in halos.dtype.names, \
         "MetalsHotGas property should exist in output"
+    assert 'EjectedMass' in halos.dtype.names, \
+        "EjectedMass property should exist in output"
+    assert 'ICS' in halos.dtype.names, \
+        "ICS property should exist in output"
+
+    # InfallingGas is internal (output: false), so it won't be in output file
+    # This is correct - it's only used during STEPS integration
 
     print("  ✓ Output properties exist")
     print(f"  Found {len(halos)} halos")
@@ -320,23 +333,21 @@ def test_output_properties_exist():
 
 def test_parameters_configurable():
     """
-    Test that all sage_infall parameters can be configured
+    Test that sage_infall BaryonFrac parameter can be configured
 
-    Expected: Custom parameter values are read and logged
+    Expected: Custom parameter value is read and logged
     Validates: Parameter reading and validation system
+    Note: Reionization parameters now hardcoded in shared/reionization.h
     """
     print("Testing parameter configuration...")
 
     # ===== SETUP =====
-    # Test with non-default parameter values
+    # Test with non-default parameter value
     param_file = create_test_param_file(
         output_name="sage_infall_params",
         enabled_modules=["sage_infall"],
         module_params={
-            "sage_infall_BaryonFrac": "0.20",
-            "sage_infall_ReionizationOn": "0",
-            "sage_infall_Reionization_z0": "9.0",
-            "sage_infall_Reionization_zr": "6.0"
+            "sage_infall_BaryonFrac": "0.20"
         }
     )
 
@@ -346,48 +357,60 @@ def test_parameters_configurable():
     # ===== VALIDATE =====
     assert returncode == 0, "Execution with custom parameters should succeed"
 
-    # Verify parameters were read
+    # Verify parameter was read
     assert "BaryonFrac = 0.2000" in stdout, \
         "Custom BaryonFrac should be logged"
-    assert "ReionizationOn = 0" in stdout, \
-        "Custom ReionizationOn should be logged"
 
     print("  ✓ Parameters are configurable")
 
 
-def test_reionization_toggle():
+def test_with_satellite_stripping():
     """
-    Test that ReionizationOn parameter affects execution
+    Test that sage_infall works with sage_satellite_stripping module
 
-    Expected: Both ON and OFF modes execute without errors
-    Validates: Parameter toggle doesn't cause crashes
+    Expected: Both modules execute successfully together
+    Validates: Modules work together sharing reionization utility
+    Note: If sage_satellite_stripping not available, test skips gracefully
     """
-    print("Testing reionization toggle...")
+    print("Testing with sage_satellite_stripping...")
 
-    # ===== SETUP & EXECUTE =====
-    # Test with reionization ON
-    param_file_on = create_test_param_file(
-        output_name="sage_infall_reion_on",
-        enabled_modules=["sage_infall"],
-        module_params={"sage_infall_ReionizationOn": "1"}
-    )
-    returncode_on, stdout_on, stderr_on = run_mimic(param_file_on)
+    # ===== CHECK MODULE AVAILABILITY =====
+    available_modules = get_available_modules()
 
-    # Test with reionization OFF
-    param_file_off = create_test_param_file(
-        output_name="sage_infall_reion_off",
-        enabled_modules=["sage_infall"],
-        module_params={"sage_infall_ReionizationOn": "0"}
+    if "sage_satellite_stripping" not in available_modules:
+        print(f"{YELLOW}⚠ SKIP: sage_satellite_stripping not available{NC}")
+        print(f"  Available modules: {', '.join(sorted(available_modules))}")
+        print(f"  This is expected if module is not yet registered")
+        return
+
+    # ===== SETUP =====
+    param_file = create_test_param_file(
+        output_name="sage_infall_stripping",
+        enabled_modules=["sage_infall", "sage_satellite_stripping"],
+        module_params={
+            "sage_infall_BaryonFrac": "0.17",
+            "sage_satellite_stripping_BaryonFrac": "0.17"
+        }
     )
-    returncode_off, stdout_off, stderr_off = run_mimic(param_file_off)
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode_on == 0, "Should run with reionization ON"
-    assert returncode_off == 0, "Should run with reionization OFF"
-    assert "ReionizationOn = 1" in stdout_on, "ON mode logged"
-    assert "ReionizationOn = 0" in stdout_off, "OFF mode logged"
+    assert returncode == 0, \
+        f"Should run with both modules\nStderr: {stderr}"
 
-    print("  ✓ Reionization toggle works")
+    # Verify both modules initialized
+    assert "SAGE infall module initialized" in stdout, \
+        "sage_infall should initialize"
+    assert "SAGE satellite stripping module initialized" in stdout, \
+        "sage_satellite_stripping should initialize"
+
+    # Both modules use shared reionization.h
+    assert stdout.count("Gnedin (2000)") >= 2, \
+        "Both modules should log reionization model from shared header"
+
+    print("  ✓ Works with sage_satellite_stripping")
 
 
 def test_memory_safety():
@@ -543,7 +566,7 @@ def main():
             test_module_loads,
             test_output_properties_exist,
             test_parameters_configurable,
-            test_reionization_toggle,
+            test_with_satellite_stripping,
             test_memory_safety,
             test_execution_completes,
             test_multiple_module_pipeline,
