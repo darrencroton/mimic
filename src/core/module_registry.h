@@ -134,4 +134,42 @@ int module_get_double(const char *module_name, const char *param_name,
 int module_get_int(const char *module_name, const char *param_name,
                    int *out_value);
 
+/* ==============================================================================
+ * MODEL PARAMETER ACCESS (Phase 4.4)
+ * ==============================================================================
+ *
+ * Model parameters are defined in model_parameters.yaml and MUST be explicitly
+ * specified in the input YAML file. NO defaults are used.
+ *
+ * This enforces reproducible science: input file is complete model specification.
+ */
+
+/**
+ * @brief   Get required model parameter as double
+ *
+ * @param   param_name      Parameter name (e.g., "BaryonFrac")
+ * @param   out_value       Output pointer for double value
+ * @return  0 on success, -1 if parameter missing or validation fails
+ */
+int model_get_double(const char *param_name, double *out_value);
+
+/**
+ * @brief   Get required model parameter as integer
+ *
+ * @param   param_name      Parameter name (e.g., "AGNrecipeOn")
+ * @param   out_value       Output pointer for integer value
+ * @return  0 on success, -1 if parameter missing or validation fails
+ */
+int model_get_int(const char *param_name, int *out_value);
+
+/**
+ * @brief   Get required model parameter as string
+ *
+ * @param   param_name      Parameter name (e.g., "CoolFunctionsDir")
+ * @param   out_value       Output buffer for string value
+ * @param   max_len         Maximum length of output buffer
+ * @return  0 on success, -1 if parameter missing
+ */
+int model_get_string(const char *param_name, char *out_value, size_t max_len);
+
 #endif // MODULE_REGISTRY_H

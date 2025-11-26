@@ -28,6 +28,7 @@
 #include "module_interface.h"
 #include "module_registry.h"
 #include "../modules/_system/generated/module_parameters.h"
+#include "generated/model_parameters.h"
 
 /** Maximum number of modules that can be registered */
 #define MAX_MODULES 32
@@ -521,4 +522,156 @@ int module_get_int(const char *module_name, const char *param_name,
   }
 
   return 0;
+}
+
+/* ==============================================================================
+ * MODEL PARAMETER ACCESS (Phase 4.4)
+ * ============================================================================== */
+
+/**
+ * @brief   Get required model parameter as double
+ *
+ * Model parameters are defined in model_parameters.yaml and MUST be specified
+ * in the input YAML file. NO defaults are used - parameters are REQUIRED.
+ *
+ * This enforces explicit model specification for reproducible science.
+ *
+ * Vision Principle 4 (Single Source of Truth): Input file is the truth for values.
+ *
+ * @param   param_name   Parameter name (e.g., "BaryonFrac")
+ * @param   out_value    Output pointer for double value
+ * @return  0 on success, -1 if parameter missing or invalid
+ */
+int model_get_double(const char *param_name, double *out_value) {
+  // Search for parameter in MimicConfig.ModelParams[]
+  // Note: MimicConfig.ModelParams[] stores all model_parameters from input file
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, param_name) == 0) {
+      // Found - parse to double with error checking
+      char *endptr;
+      errno = 0;
+      *out_value = strtod(MimicConfig.ModelParams[i].value, &endptr);
+
+      // Check for conversion errors
+      if (errno != 0) {
+        ERROR_LOG("Model parameter '%s': conversion error for value '%s' (%s)",
+                 param_name, MimicConfig.ModelParams[i].value, strerror(errno));
+        return -1;
+      }
+      if (endptr == MimicConfig.ModelParams[i].value) {
+        ERROR_LOG("Model parameter '%s': no digits found in value '%s'",
+                 param_name, MimicConfig.ModelParams[i].value);
+        return -1;
+      }
+      if (*endptr != '\0') {
+        ERROR_LOG("Model parameter '%s': invalid characters after number in '%s'",
+                 param_name, MimicConfig.ModelParams[i].value);
+        return -1;
+      }
+
+      // Validate against metadata-defined range
+      if (validate_model_param_double(param_name, *out_value) != 0) {
+        return -1;  // Error already logged by validation function
+      }
+
+      return 0;  // Success
+    }
+  }
+
+  // NOT FOUND - this is a fatal error (all model parameters are required)
+  ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
+  ERROR_LOG("All model parameters must be specified in the 'model_parameters:' section");
+  return -1;
+}
+
+/**
+ * @brief   Get required model parameter as integer
+ *
+ * Model parameters are defined in model_parameters.yaml and MUST be specified
+ * in the input YAML file. NO defaults are used - parameters are REQUIRED.
+ *
+ * Vision Principle 4 (Single Source of Truth): Input file is the truth for values.
+ *
+ * @param   param_name   Parameter name (e.g., "AGNrecipeOn")
+ * @param   out_value    Output pointer for integer value
+ * @return  0 on success, -1 if parameter missing or invalid
+ */
+int model_get_int(const char *param_name, int *out_value) {
+  // Search for parameter in MimicConfig.ModelParams[]
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, param_name) == 0) {
+      // Found - parse to int with error checking
+      char *endptr;
+      errno = 0;
+      long val = strtol(MimicConfig.ModelParams[i].value, &endptr, 10);
+
+      // Check for conversion errors
+      if (errno != 0) {
+        ERROR_LOG("Model parameter '%s': conversion error for value '%s' (%s)",
+                 param_name, MimicConfig.ModelParams[i].value, strerror(errno));
+        return -1;
+      }
+      if (endptr == MimicConfig.ModelParams[i].value) {
+        ERROR_LOG("Model parameter '%s': no digits found in value '%s'",
+                 param_name, MimicConfig.ModelParams[i].value);
+        return -1;
+      }
+      if (*endptr != '\0') {
+        ERROR_LOG("Model parameter '%s': invalid characters after number in '%s'",
+                 param_name, MimicConfig.ModelParams[i].value);
+        return -1;
+      }
+
+      // Check for int overflow
+      if (val < INT_MIN || val > INT_MAX) {
+        ERROR_LOG("Model parameter '%s': value %ld out of int range",
+                 param_name, val);
+        return -1;
+      }
+
+      *out_value = (int)val;
+
+      // Validate against metadata-defined range
+      if (validate_model_param_int(param_name, *out_value) != 0) {
+        return -1;  // Error already logged by validation function
+      }
+
+      return 0;  // Success
+    }
+  }
+
+  // NOT FOUND - this is a fatal error (all model parameters are required)
+  ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
+  ERROR_LOG("All model parameters must be specified in the 'model_parameters:' section");
+  return -1;
+}
+
+/**
+ * @brief   Get required model parameter as string
+ *
+ * Model parameters are defined in model_parameters.yaml and MUST be specified
+ * in the input YAML file. NO defaults are used - parameters are REQUIRED.
+ *
+ * Vision Principle 4 (Single Source of Truth): Input file is the truth for values.
+ *
+ * @param   param_name   Parameter name (e.g., "CoolFunctionsDir")
+ * @param   out_value    Output buffer for string value
+ * @param   max_len      Maximum length of output buffer
+ * @return  0 on success, -1 if parameter missing
+ */
+int model_get_string(const char *param_name, char *out_value, size_t max_len) {
+  // Search for parameter in MimicConfig.ModelParams[]
+  for (int i = 0; i < MimicConfig.NumModelParams; i++) {
+    if (strcmp(MimicConfig.ModelParams[i].param_name, param_name) == 0) {
+      // Found - copy string value
+      strncpy(out_value, MimicConfig.ModelParams[i].value, max_len - 1);
+      out_value[max_len - 1] = '\0';
+      return 0;  // Success
+    }
+  }
+
+  // NOT FOUND - this is a fatal error (all model parameters are required)
+  ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
+  ERROR_LOG("All model parameters must be specified in the 'model_parameters:' section");
+  return -1;
 }

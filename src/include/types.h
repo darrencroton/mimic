@@ -109,7 +109,14 @@ struct MimicConfig {
   int NumEnabledModules;                  /* Number of enabled modules */
   char EnabledModules[32][MAX_STRING_LEN]; /* Module names in execution order */
 
-  /* Module-specific parameters (Phase 3) */
+  /* Model parameters (Phase 4.4) - ALL physics parameters */
+  int NumModelParams; /* Number of model parameters */
+  struct {
+    char param_name[MAX_STRING_LEN];  /* Parameter name (e.g., "BaryonFrac") */
+    char value[MAX_STRING_LEN];       /* String value (parsed to type by model_get_*) */
+  } ModelParams[256]; /* Up to 256 model parameters */
+
+  /* Module-specific parameters (Phase 3) - DEPRECATED, being replaced by ModelParams */
   int NumModuleParams; /* Number of module-specific parameters */
   struct {
     char module_name[MAX_STRING_LEN]; /* Module name (e.g., "SimpleCooling") */

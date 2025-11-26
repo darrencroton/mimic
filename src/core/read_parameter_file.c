@@ -19,6 +19,7 @@
 #include "globals.h"
 #include "types.h"
 #include "error.h"
+#include "generated/model_parameters.h"
 
 /* Helper functions for DOM navigation */
 static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key);
@@ -29,6 +30,7 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_input_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_units_section(yaml_document_t *doc, yaml_node_t *section);
+static void parse_model_parameters_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section);
 static void validate_and_postprocess(void);
 
@@ -95,6 +97,9 @@ void read_parameter_file(const char *fname) {
 
   section = get_mapping_value(&document, root, "units");
   if (section) parse_units_section(&document, section);
+
+  section = get_mapping_value(&document, root, "model_parameters");
+  if (section) parse_model_parameters_section(&document, section);
 
   section = get_mapping_value(&document, root, "modules");
   if (section) parse_modules_section(&document, section);
@@ -362,6 +367,49 @@ static void parse_units_section(yaml_document_t *doc, yaml_node_t *section) {
 }
 
 /**
+ * @brief   Parse model_parameters section (Phase 4.4)
+ *
+ * Model parameters are ALL physics parameters required by the model.
+ * They must be explicitly specified - NO defaults are used.
+ *
+ * Vision Principle 4 (Single Source of Truth): Input file defines complete model.
+ */
+static void parse_model_parameters_section(yaml_document_t *doc, yaml_node_t *section) {
+  DEBUG_LOG("Parsing model_parameters section");
+
+  /* Model parameters are a simple mapping: param_name -> value */
+  if (section->type != YAML_MAPPING_NODE) {
+    ERROR_LOG("model_parameters section must be a mapping");
+    return;
+  }
+
+  yaml_node_pair_t *pair;
+  int idx = 0;
+
+  /* Iterate over each parameter in the mapping */
+  for (pair = section->data.mapping.pairs.start;
+       pair < section->data.mapping.pairs.top && idx < 256; pair++) {
+
+    yaml_node_t *key_node = yaml_document_get_node(doc, pair->key);
+    yaml_node_t *value_node = yaml_document_get_node(doc, pair->value);
+
+    const char *param_name = get_scalar_value(key_node);
+    const char *param_value = get_scalar_value(value_node);
+
+    if (param_name && param_value) {
+      /* Store in ModelParams array */
+      strncpy(MimicConfig.ModelParams[idx].param_name, param_name, MAX_STRING_LEN - 1);
+      strncpy(MimicConfig.ModelParams[idx].value, param_value, MAX_STRING_LEN - 1);
+      DEBUG_LOG("Model parameter: %s = %s", param_name, param_value);
+      idx++;
+    }
+  }
+
+  MimicConfig.NumModelParams = idx;
+  INFO_LOG("Loaded %d model parameters", idx);
+}
+
+/**
  * @brief   Parse modules section
  */
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
@@ -466,6 +514,36 @@ static void validate_and_postprocess(void) {
   if (MimicConfig.Hubble_h == 0.0) {
     ERROR_LOG("Required parameter 'simulation.cosmology.hubble_h' missing or zero");
     errors++;
+  }
+
+  /* Validate required model parameters (Phase 4.4) */
+  INFO_LOG("Validating required model parameters...");
+  int missing_params = 0;
+  for (int i = 0; i < NUM_REQUIRED_MODEL_PARAMETERS; i++) {
+    const char *param_name = REQUIRED_MODEL_PARAMETERS[i];
+    int found = 0;
+
+    /* Check if parameter is in ModelParams array */
+    for (int j = 0; j < MimicConfig.NumModelParams; j++) {
+      if (strcmp(MimicConfig.ModelParams[j].param_name, param_name) == 0) {
+        found = 1;
+        break;
+      }
+    }
+
+    if (!found) {
+      ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
+      missing_params++;
+      errors++;
+    }
+  }
+
+  if (missing_params > 0) {
+    ERROR_LOG("Missing %d required model parameters from 'model_parameters' section", missing_params);
+    ERROR_LOG("All model parameters must be explicitly specified - no defaults are used");
+    ERROR_LOG("See src/modules/model_parameters.yaml for parameter definitions");
+  } else {
+    INFO_LOG("All %d required model parameters found", NUM_REQUIRED_MODEL_PARAMETERS);
   }
 
   /* Validate ranges */

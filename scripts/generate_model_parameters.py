@@ -1,0 +1,405 @@
+#!/usr/bin/env python3
+"""
+Model Parameter Code Generator for Mimic
+
+Generates C code for model parameter validation and access from YAML metadata.
+NO default values - all parameters must be explicitly specified in input file.
+
+Usage:
+    python3 scripts/generate_model_parameters.py
+
+Reads:
+    src/modules/model_parameters.yaml
+
+Generates:
+    src/include/generated/model_parameters.h  (parameter list, types, ranges)
+    src/include/generated/model_parameters.c  (validation functions)
+
+Author: Model Parameter System (Phase 4.4)
+Date: 2025-11-27
+"""
+
+import hashlib
+import sys
+from pathlib import Path
+from typing import Any, Dict, List
+
+try:
+    import yaml
+except ImportError:
+    print("ERROR: PyYAML not installed. Run: pip install PyYAML", file=sys.stderr)
+    sys.exit(1)
+
+# ==============================================================================
+# PATHS
+# ==============================================================================
+
+# Repository root (parent of scripts/)
+REPO_ROOT = Path(__file__).parent.parent
+
+# Input YAML file
+MODEL_PARAMS_YAML = REPO_ROOT / "src" / "modules" / "model_parameters.yaml"
+
+# Output directory
+GENERATED_DIR = REPO_ROOT / "src" / "include" / "generated"
+BUILD_DIR = REPO_ROOT / "build"
+
+# Hash tracking file
+PARAM_HASH_FILE = BUILD_DIR / "model_param_hash.txt"
+
+# ==============================================================================
+# TYPE MAPPINGS
+# ==============================================================================
+
+TYPE_MAP = {
+    "int": {"c_type": "int", "format": "%d"},
+    "double": {"c_type": "double", "format": "%g"},
+    "float": {"c_type": "float", "format": "%g"},
+    "string": {"c_type": "char*", "format": "%s"},
+}
+
+# ==============================================================================
+# VALIDATION
+# ==============================================================================
+
+
+def validate_parameter(param: Dict[str, Any]) -> None:
+    """Validate a parameter definition according to schema."""
+
+    # Required fields
+    required = ["name", "type", "category", "description", "used_by"]
+    for field in required:
+        if field not in param:
+            raise ValueError(
+                f"Model parameter missing required field '{field}': {param.get('name', 'unknown')}"
+            )
+
+    # Type validation
+    if param["type"] not in TYPE_MAP:
+        raise ValueError(
+            f"Invalid type '{param['type']}' for parameter '{param['name']}'. "
+            f"Must be one of: {list(TYPE_MAP.keys())}"
+        )
+
+    # Name validation (C identifier)
+    name = param["name"]
+    if not name.replace("_", "").isalnum():
+        raise ValueError(
+            f"Invalid parameter name '{name}': must be a valid C identifier"
+        )
+
+    # Range validation (required for numeric types)
+    if param["type"] in ["int", "double", "float"]:
+        if "range" not in param:
+            raise ValueError(
+                f"Numeric parameter '{name}' must have 'range' field"
+            )
+        if param["range"] is not None and len(param["range"]) != 2:
+            raise ValueError(
+                f"Parameter '{name}' range must be [min, max] or null"
+            )
+
+    # used_by must be a list
+    if not isinstance(param["used_by"], list):
+        raise ValueError(
+            f"Parameter '{name}': 'used_by' must be a list of module names"
+        )
+
+
+def validate_parameters(params: List[Dict]) -> None:
+    """Validate all parameters and check for duplicates."""
+
+    for param in params:
+        validate_parameter(param)
+
+    # Check for duplicate names
+    names = [p["name"] for p in params]
+    duplicates = [name for name in set(names) if names.count(name) > 1]
+    if duplicates:
+        raise ValueError(f"Duplicate parameter names found: {duplicates}")
+
+    print(f"✓ Validated {len(params)} model parameters")
+
+
+# ==============================================================================
+# HASH CHECKING
+# ==============================================================================
+
+
+def compute_yaml_hash() -> str:
+    """Compute MD5 hash of YAML input file."""
+    md5 = hashlib.md5()
+    with open(MODEL_PARAMS_YAML, "rb") as f:
+        md5.update(f.read())
+    return md5.hexdigest()
+
+
+def load_saved_hash() -> str:
+    """Load previously saved hash."""
+    if PARAM_HASH_FILE.exists():
+        return PARAM_HASH_FILE.read_text().strip()
+    return ""
+
+
+def save_hash(yaml_hash: str) -> None:
+    """Save hash to disk."""
+    ensure_dir(BUILD_DIR)
+    PARAM_HASH_FILE.write_text(yaml_hash + "\n")
+
+
+# ==============================================================================
+# CODE GENERATION
+# ==============================================================================
+
+
+def generate_header(yaml_hash: str) -> str:
+    """Generate common header for generated files."""
+    return f"""/* AUTO-GENERATED CODE - DO NOT EDIT
+ *
+ * Generated by: scripts/generate_model_parameters.py
+ * Source: src/modules/model_parameters.yaml
+ * Source MD5: {yaml_hash}
+ *
+ * To regenerate: make generate
+ *
+ * Vision Principle #4: Single Source of Truth
+ *   - model_parameters.yaml defines parameter structure
+ *   - Input YAML file provides parameter values (NO defaults)
+ *   - All parameters are REQUIRED in input file
+ */
+
+"""
+
+
+def generate_model_parameters_h(params: List[Dict], yaml_hash: str) -> str:
+    """Generate model_parameters.h header file."""
+
+    code = generate_header(yaml_hash)
+    code += "#ifndef GENERATED_MODEL_PARAMETERS_H\n"
+    code += "#define GENERATED_MODEL_PARAMETERS_H\n\n"
+    code += "#include <stddef.h>\n\n"
+
+    # Parameter metadata structure
+    code += "/**\n"
+    code += " * @brief Model parameter metadata\n"
+    code += " *\n"
+    code += " * Defines structure, type, and validation rules for model parameters.\n"
+    code += " * NO default values - all must be specified in input file.\n"
+    code += " */\n"
+    code += "struct ModelParameterMetadata {\n"
+    code += "    const char *name;          /* Parameter name */\n"
+    code += "    const char *type;          /* Type: int, double, string */\n"
+    code += "    const char *category;      /* Category: cosmology, star_formation, etc. */\n"
+    code += "    const char *description;   /* Human-readable description */\n"
+    code += "    double range_min;          /* Minimum valid value (for numeric types) */\n"
+    code += "    double range_max;          /* Maximum valid value (for numeric types) */\n"
+    code += "    int has_range;             /* 1 if range applies, 0 otherwise */\n"
+    code += "};\n\n"
+
+    # Constants
+    code += f"/* Number of required model parameters */\n"
+    code += f"#define NUM_REQUIRED_MODEL_PARAMETERS {len(params)}\n\n"
+
+    # Parameter names array (for validation)
+    code += "/* Required parameter names (for validation) */\n"
+    code += "extern const char *REQUIRED_MODEL_PARAMETERS[NUM_REQUIRED_MODEL_PARAMETERS];\n\n"
+
+    # Metadata array
+    code += "/* Parameter metadata (for validation and documentation) */\n"
+    code += "extern const struct ModelParameterMetadata MODEL_PARAMETER_METADATA[NUM_REQUIRED_MODEL_PARAMETERS];\n\n"
+
+    # Function declarations
+    code += "/**\n"
+    code += " * @brief Validate parameter value against metadata range\n"
+    code += " *\n"
+    code += " * @param param_name  Parameter name\n"
+    code += " * @param value       Value to validate\n"
+    code += " * @return 0 on success, -1 if out of range or parameter not found\n"
+    code += " */\n"
+    code += "int validate_model_param_double(const char *param_name, double value);\n\n"
+    code += "int validate_model_param_int(const char *param_name, int value);\n\n"
+
+    code += "/**\n"
+    code += " * @brief Get parameter metadata by name\n"
+    code += " *\n"
+    code += " * @param param_name  Parameter name\n"
+    code += " * @return Pointer to metadata, or NULL if not found\n"
+    code += " */\n"
+    code += "const struct ModelParameterMetadata *get_model_param_metadata(const char *param_name);\n\n"
+
+    code += "#endif /* GENERATED_MODEL_PARAMETERS_H */\n"
+
+    return code
+
+
+def generate_model_parameters_c(params: List[Dict], yaml_hash: str) -> str:
+    """Generate model_parameters.c implementation file."""
+
+    code = generate_header(yaml_hash)
+    code += '#include "generated/model_parameters.h"\n'
+    code += '#include "error.h"\n'
+    code += '#include <string.h>\n'
+    code += '#include <math.h>\n\n'
+
+    # Required parameter names array
+    code += "/* Required parameter names (for startup validation) */\n"
+    code += "const char *REQUIRED_MODEL_PARAMETERS[NUM_REQUIRED_MODEL_PARAMETERS] = {\n"
+    for param in params:
+        code += f'    "{param["name"]}",\n'
+    code += "};\n\n"
+
+    # Parameter metadata array
+    code += "/* Parameter metadata (for validation) */\n"
+    code += "const struct ModelParameterMetadata MODEL_PARAMETER_METADATA[NUM_REQUIRED_MODEL_PARAMETERS] = {\n"
+
+    for param in params:
+        name = param["name"]
+        ptype = param["type"]
+        category = param["category"]
+        description = param["description"].replace('"', '\\"').replace('\n', ' ')
+
+        # Range handling
+        if param["type"] in ["int", "double", "float"] and param.get("range") is not None:
+            range_min = param["range"][0]
+            range_max = param["range"][1]
+            has_range = 1
+        else:
+            range_min = 0.0
+            range_max = 0.0
+            has_range = 0
+
+        code += f'    {{ "{name}", "{ptype}", "{category}", "{description}", '
+        code += f'{range_min}, {range_max}, {has_range} }},\n'
+
+    code += "};\n\n"
+
+    # Validation function for double
+    code += "int validate_model_param_double(const char *param_name, double value) {\n"
+    code += "    const struct ModelParameterMetadata *meta = get_model_param_metadata(param_name);\n"
+    code += "    if (meta == NULL) {\n"
+    code += '        ERROR_LOG("Model parameter \'%s\' not found in metadata", param_name);\n'
+    code += "        return -1;\n"
+    code += "    }\n\n"
+    code += "    /* Skip validation if no range defined */\n"
+    code += "    if (!meta->has_range) {\n"
+    code += "        return 0;\n"
+    code += "    }\n\n"
+    code += "    /* Check range */\n"
+    code += "    if (value < meta->range_min || value > meta->range_max) {\n"
+    code += '        ERROR_LOG("Parameter %s = %g out of valid range [%g, %g]",\n'
+    code += "                  param_name, value, meta->range_min, meta->range_max);\n"
+    code += "        return -1;\n"
+    code += "    }\n\n"
+    code += "    return 0;\n"
+    code += "}\n\n"
+
+    # Validation function for int
+    code += "int validate_model_param_int(const char *param_name, int value) {\n"
+    code += "    return validate_model_param_double(param_name, (double)value);\n"
+    code += "}\n\n"
+
+    # Metadata lookup function
+    code += "const struct ModelParameterMetadata *get_model_param_metadata(const char *param_name) {\n"
+    code += "    for (int i = 0; i < NUM_REQUIRED_MODEL_PARAMETERS; i++) {\n"
+    code += "        if (strcmp(MODEL_PARAMETER_METADATA[i].name, param_name) == 0) {\n"
+    code += "            return &MODEL_PARAMETER_METADATA[i];\n"
+    code += "        }\n"
+    code += "    }\n"
+    code += "    return NULL;\n"
+    code += "}\n"
+
+    return code
+
+
+# ==============================================================================
+# FILE WRITING
+# ==============================================================================
+
+
+def ensure_dir(path: Path) -> None:
+    """Ensure directory exists."""
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def write_file_if_changed(path: Path, content: str) -> bool:
+    """Write file only if content changed. Returns True if written."""
+    if path.exists() and path.read_text() == content:
+        return False
+
+    ensure_dir(path.parent)
+    path.write_text(content)
+    return True
+
+
+# ==============================================================================
+# MAIN
+# ==============================================================================
+
+
+def main():
+    """Main code generation function."""
+
+    print("=" * 70)
+    print("Model Parameter Code Generator")
+    print("=" * 70)
+
+    # Check if input file exists
+    if not MODEL_PARAMS_YAML.exists():
+        print(f"ERROR: Input file not found: {MODEL_PARAMS_YAML}")
+        sys.exit(1)
+
+    # Load and validate YAML
+    print(f"Reading: {MODEL_PARAMS_YAML}")
+    with open(MODEL_PARAMS_YAML) as f:
+        data = yaml.safe_load(f)
+
+    if "model_parameters" not in data:
+        print("ERROR: YAML file must have 'model_parameters' key")
+        sys.exit(1)
+
+    params = data["model_parameters"]
+    print(f"Found {len(params)} model parameters")
+
+    # Validate
+    validate_parameters(params)
+
+    # Compute hash
+    yaml_hash = compute_yaml_hash()
+    saved_hash = load_saved_hash()
+
+    if yaml_hash == saved_hash:
+        print(f"✓ YAML unchanged (MD5: {yaml_hash[:8]}...), skipping generation")
+        sys.exit(0)
+
+    print(f"YAML changed, generating code (MD5: {yaml_hash[:8]}...)")
+
+    # Generate files
+    files_written = []
+
+    # Generate model_parameters.h
+    h_file = GENERATED_DIR / "model_parameters.h"
+    h_content = generate_model_parameters_h(params, yaml_hash)
+    if write_file_if_changed(h_file, h_content):
+        files_written.append(str(h_file.relative_to(REPO_ROOT)))
+
+    # Generate model_parameters.c
+    c_file = GENERATED_DIR / "model_parameters.c"
+    c_content = generate_model_parameters_c(params, yaml_hash)
+    if write_file_if_changed(c_file, c_content):
+        files_written.append(str(c_file.relative_to(REPO_ROOT)))
+
+    # Save hash
+    save_hash(yaml_hash)
+
+    # Summary
+    print(f"\n✓ Generated {len(files_written)} files:")
+    for f in files_written:
+        print(f"  - {f}")
+
+    print(f"\n✓ Model parameter code generation complete")
+    print(f"  Total parameters: {len(params)}")
+    print(f"  All parameters REQUIRED in input file (no defaults)")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,346 @@
+# Mimic Model Parameters Metadata
+#
+# This file defines ALL physics model parameters used in Mimic.
+# These parameters must be explicitly specified in the input YAML file.
+# NO defaults are used - the input file defines the complete model.
+#
+# Current parameters: 21 (all SAGE physics parameters)
+#
+# For schema documentation, see:
+#   docs/architecture/model-parameters-schema.md
+#
+# Vision Principle #4: Single Source of Truth
+#   - This file defines parameter STRUCTURE (name, type, range, description)
+#   - Input file (e.g., millennium.yaml) defines parameter VALUES
+#   - No hardcoded defaults in source code
+
+model_parameters:
+  # ===========================================================================
+  # COSMOLOGICAL PARAMETERS
+  # ===========================================================================
+  # Fundamental cosmological constants that define the universe
+
+  - name: BaryonFrac
+    type: double
+    range: [0.0, 1.0]
+    category: cosmology
+    units: "dimensionless"
+    description: "Cosmic baryon fraction (Omega_b / Omega_m)"
+    recommended: 0.17
+    used_by: [sage_infall, sage_satellite_stripping]
+    references: "Planck Collaboration 2018 (Planck 2018 results. VI. Cosmological parameters)"
+    scientific_notes: |
+      The ratio of baryonic matter density to total matter density.
+      Planck 2018: Omega_b = 0.0486, Omega_m = 0.315, ratio ~0.154-0.17
+
+  # ===========================================================================
+  # COOLING & AGN FEEDBACK
+  # ===========================================================================
+  # Gas cooling physics and AGN heating/feedback
+
+  - name: RadioModeEfficiency
+    type: double
+    range: [0.0, 1.0]
+    category: cooling_agn
+    units: "dimensionless"
+    description: "Efficiency of radio-mode AGN feedback (fraction of accretion energy coupled to gas heating)"
+    recommended: 0.01
+    used_by: [sage_cooling]
+    references: "Croton et al. 2006 (MNRAS, 365, 11)"
+    scientific_notes: |
+      Controls strength of AGN heating in massive halos.
+      Critical for regulating cooling in groups and clusters.
+      Typical values: 0.001 - 0.1
+
+  - name: AGNrecipeOn
+    type: int
+    range: [0, 3]
+    category: cooling_agn
+    units: "dimensionless"
+    description: "AGN feedback mode (0=off, 1=empirical, 2=Bondi-Hoyle, 3=cold cloud accretion)"
+    recommended: 1
+    used_by: [sage_cooling, sage_mergers]
+    references: "Croton et al. 2006; Bower et al. 2006"
+    scientific_notes: |
+      Controls black hole accretion and feedback prescription.
+      Mode 1 (empirical): Simple empirical relation, computationally efficient.
+      Mode 2 (Bondi-Hoyle): Physical accretion from hot halo gas.
+      Mode 3 (cold cloud): Accretion from cold gas clouds.
+
+  - name: CoolFunctionsDir
+    type: string
+    range: null
+    category: cooling_agn
+    units: "path"
+    description: "Directory containing cooling function tables (metal-dependent cooling rates)"
+    recommended: "input/CoolFunctions"
+    used_by: [sage_cooling]
+    references: "Sutherland & Dopita 1993 (ApJS, 88, 253)"
+    scientific_notes: |
+      Cooling tables provide temperature and metallicity-dependent cooling rates.
+      Default tables from Sutherland & Dopita 1993.
+      Required for accurate cooling physics at all metallicities.
+
+  # ===========================================================================
+  # STAR FORMATION
+  # ===========================================================================
+  # Star formation physics and regulation
+
+  - name: SFprescription
+    type: int
+    range: [0, 0]
+    category: star_formation
+    units: "dimensionless"
+    description: "Star formation law (0=Kennicutt-Schmidt with density threshold, currently only option)"
+    recommended: 0
+    used_by: [sage_starformation_feedback]
+    references: "Kennicutt 1998 (ApJ, 498, 541)"
+    scientific_notes: |
+      Currently only Kennicutt-Schmidt law implemented.
+      Future: May add alternative SF laws (constant efficiency, etc.)
+
+  - name: SfrEfficiency
+    type: double
+    range: [0.0, 1.0]
+    category: star_formation
+    units: "dimensionless"
+    description: "Star formation efficiency (epsilon_SF in SFR = epsilon_SF * M_cold / t_dyn)"
+    recommended: 0.02
+    used_by: [sage_starformation_feedback]
+    references: "Kennicutt 1998; Springel & Hernquist 2003"
+    scientific_notes: |
+      Controls how efficiently cold gas forms stars.
+      Typical values: 0.01 - 0.05
+      Calibrated to match observed Kennicutt-Schmidt relation.
+
+  - name: EnergySNcode
+    type: double
+    range: [0.0, 100.0]
+    category: star_formation
+    units: "code_units"
+    description: "Supernova energy per event in code units (E_SN)"
+    recommended: 1.0
+    used_by: [sage_starformation_feedback]
+    references: "10^51 erg per supernova (standard canonical value)"
+    scientific_notes: |
+      Energy released per core-collapse supernova.
+      Value in code units depends on unit system.
+      Physical value: ~10^51 erg
+
+  - name: EtaSNcode
+    type: double
+    range: [0.0, 10.0]
+    category: star_formation
+    units: "code_units"
+    description: "Supernova rate per unit stellar mass formed (eta = SNe / M_stars)"
+    recommended: 0.5
+    used_by: [sage_starformation_feedback]
+    references: "Standard IMF-averaged supernova rate"
+    scientific_notes: |
+      Number of supernovae per unit stellar mass formed.
+      Depends on IMF (Initial Mass Function) assumptions.
+      Typical: ~1 SN per 100 solar masses formed
+
+  # ===========================================================================
+  # STELLAR FEEDBACK
+  # ===========================================================================
+  # Supernova-driven winds and gas ejection
+
+  - name: SupernovaRecipeOn
+    type: int
+    range: [0, 1]
+    category: stellar_feedback
+    units: "dimensionless"
+    description: "Enable supernova feedback (0=off, 1=on)"
+    recommended: 1
+    used_by: [sage_starformation_feedback, sage_mergers]
+    references: "Croton et al. 2006; Springel & Hernquist 2003"
+    scientific_notes: |
+      Master switch for supernova feedback physics.
+      Includes reheating (cold -> hot) and ejection (hot -> ejected reservoir).
+      Essential for regulating star formation in low-mass galaxies.
+
+  - name: FeedbackReheatingEpsilon
+    type: double
+    range: [0.0, 100.0]
+    category: stellar_feedback
+    units: "dimensionless"
+    description: "Reheating efficiency (epsilon_reheat): M_reheat = epsilon_reheat * M_stars"
+    recommended: 3.0
+    used_by: [sage_starformation_feedback, sage_mergers]
+    references: "Croton et al. 2006; Springel & Hernquist 2003"
+    scientific_notes: |
+      Mass of cold gas reheated per unit stellar mass formed.
+      Values > 1 indicate supernovae reheat more gas than forms stars.
+      Critical for regulating star formation and maintaining cold gas reservoirs.
+      Typical range: 1.0 - 5.0
+
+  - name: FeedbackEjectionEfficiency
+    type: double
+    range: [0.0, 100.0]
+    category: stellar_feedback
+    units: "dimensionless"
+    description: "Ejection efficiency (epsilon_eject) in energy-driven wind formula"
+    recommended: 0.3
+    used_by: [sage_starformation_feedback, sage_mergers]
+    references: "Croton et al. 2006; Springel & Hernquist 2003"
+    scientific_notes: |
+      Controls mass ejection rate in energy-driven outflow model.
+      Lower values = less ejection, more gas retained in halo.
+      Calibrated to match observed mass-metallicity relation.
+      Typical range: 0.1 - 1.0
+
+  # ===========================================================================
+  # STELLAR EVOLUTION
+  # ===========================================================================
+  # Stellar mass recycling and metal enrichment
+
+  - name: RecycleFraction
+    type: double
+    range: [0.0, 1.0]
+    category: stellar_evolution
+    units: "dimensionless"
+    description: "Fraction of stellar mass immediately recycled to ISM (instantaneous recycling approximation)"
+    recommended: 0.43
+    used_by: [sage_starformation_feedback, sage_mergers]
+    references: "Instantaneous recycling approximation (Tinsley 1980)"
+    scientific_notes: |
+      Fraction of stellar mass returned to ISM via stellar winds and supernovae.
+      Instantaneous recycling approximation: all recycling occurs immediately.
+      Value depends on IMF. For Salpeter/Chabrier IMF: ~0.4-0.5
+      Includes mass loss from all stellar evolution phases.
+
+  - name: Yield
+    type: double
+    range: [0.0, 1.0]
+    category: stellar_evolution
+    units: "dimensionless"
+    description: "Metal yield per unit stellar mass formed (new metals / M_stars)"
+    recommended: 0.03
+    used_by: [sage_starformation_feedback, sage_mergers]
+    references: "Chemical evolution models (Pagel 2009)"
+    scientific_notes: |
+      Mass of newly synthesized metals per unit stellar mass formed.
+      Includes nucleosynthesis from core-collapse SNe and AGB stars.
+      Solar metallicity Z_sun ~ 0.02, yield typically 1-2x solar.
+      Critical for matching observed mass-metallicity relations.
+
+  - name: FracZleaveDisk
+    type: double
+    range: [0.0, 1.0]
+    category: stellar_evolution
+    units: "dimensionless"
+    description: "Fraction of newly produced metals that leave the disk in winds (Krumholz & Dekel 2011)"
+    recommended: 0.3
+    used_by: [sage_starformation_feedback, sage_mergers]
+    references: "Krumholz & Dekel 2011 (ApJ, 729, 36)"
+    scientific_notes: |
+      Controls metal loading of outflows.
+      Higher values = more metal-enriched winds, lower disk metallicity.
+      Important for matching observed wind metallicities and mass-metallicity relation.
+      Typical range: 0.2 - 0.5
+
+  # ===========================================================================
+  # GAS REINCORPORATION
+  # ===========================================================================
+  # Return of ejected gas to hot halo
+
+  - name: ReIncorporationFactor
+    type: double
+    range: [0.0, 10.0]
+    category: reincorporation
+    units: "dimensionless"
+    description: "Multiplicative factor for reincorporation timescale (tau_reinc = factor * tau_dyn)"
+    recommended: 1.0
+    used_by: [sage_reincorporation]
+    references: "Henriques et al. 2015 (MNRAS, 451, 2663)"
+    scientific_notes: |
+      Controls how quickly ejected gas returns to the hot halo.
+      Reincorporation timescale: tau = factor * (V_vir / 220 km/s)^-alpha * t_dyn
+      Lower values = faster return, higher star formation at late times.
+      Calibrated to match observed star formation histories.
+
+  # ===========================================================================
+  # GALAXY MERGERS
+  # ===========================================================================
+  # Merger-driven processes (starbursts, BH growth, morphology)
+
+  - name: BlackHoleGrowthRate
+    type: double
+    range: [0.0, 1.0]
+    category: mergers
+    units: "dimensionless"
+    description: "Black hole growth efficiency during mergers (f_BH: Delta M_BH = f_BH * M_cold)"
+    recommended: 0.01
+    used_by: [sage_mergers]
+    references: "Kauffmann & Haehnelt 2000 (MNRAS, 311, 576)"
+    scientific_notes: |
+      Fraction of cold gas accreted onto central black hole during merger.
+      Controls BH mass growth and M_BH - M_bulge relation.
+      Typical values: 0.001 - 0.1
+      Lower values = less BH growth, weaker AGN feedback.
+
+  - name: QuasarModeEfficiency
+    type: double
+    range: [0.0, 1.0]
+    category: mergers
+    units: "dimensionless"
+    description: "Quasar-mode AGN feedback efficiency (energy coupling to gas during merger)"
+    recommended: 0.001
+    used_by: [sage_mergers]
+    references: "Di Matteo et al. 2005 (Nature, 433, 604)"
+    scientific_notes: |
+      Efficiency of quasar-mode feedback during gas-rich mergers.
+      Controls gas ejection and star formation quenching in mergers.
+      Much lower than radio-mode efficiency (quasar mode less efficient).
+      Typical range: 0.0001 - 0.01
+
+  - name: ThreshMajorMerger
+    type: double
+    range: [0.0, 1.0]
+    category: mergers
+    units: "dimensionless"
+    description: "Mass ratio threshold for major mergers (M_sat / M_central > threshold triggers disk destruction)"
+    recommended: 0.3
+    used_by: [sage_mergers]
+    references: "Hopkins et al. 2010 (ApJ, 715, 202)"
+    scientific_notes: |
+      Mass ratio separating major mergers (spheroid formation) from minor mergers.
+      Major mergers: destroy disk, form spheroid, trigger starburst.
+      Minor mergers: grow disk/bulge without destruction.
+      Standard threshold: 0.25 - 0.3 (1:4 to 1:3 mass ratio)
+
+  # ===========================================================================
+  # DISK INSTABILITY
+  # ===========================================================================
+  # Disk stability and bulge formation
+
+  - name: DiskInstabilityOn
+    type: int
+    range: [0, 1]
+    category: disk_instability
+    units: "dimensionless"
+    description: "Enable disk instability physics (0=off, 1=on)"
+    recommended: 1
+    used_by: [sage_starformation_feedback, sage_mergers, sage_disk_instability]
+    references: "Mo, Mao & White 1998 (MNRAS, 295, 319)"
+    scientific_notes: |
+      Master switch for disk stability checks and bulge formation.
+      When enabled, unstable disks transfer mass to bulge component.
+      Critical for realistic disk/bulge mass ratios and morphologies.
+      Instability criterion: V_max / (G*M_disk/R_disk)^0.5 < threshold
+
+  - name: DiskRadiusFactor
+    type: double
+    range: [1.0, 10.0]
+    category: disk_instability
+    units: "dimensionless"
+    description: "Factor relating disk effective radius to scale radius (R_eff = factor * R_scale)"
+    recommended: 3.0
+    used_by: [sage_disk_instability]
+    references: "Exponential disk profile (Freeman 1970)"
+    scientific_notes: |
+      Defines relationship between disk scale length and effective radius.
+      For exponential disk: R_eff ~ 1.68 * R_scale (half-light radius)
+      For stability: use factor ~ 3 (90% of mass within R_eff)
+      Affects disk stability criterion and bulge formation rate.

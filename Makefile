@@ -208,6 +208,9 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(GIT_VERSION_H)
 PROP_YAML := src/core/halo_properties.yaml \
              src/modules/galaxy_properties.yaml
 
+# YAML metadata for model parameters (Phase 4.4)
+MODEL_PARAM_YAML := src/modules/model_parameters.yaml
+
 # Generated headers and include fragments required by the C build
 GEN_DIR := $(SRC_DIR)/include/generated
 GENERATED_HEADERS := \
@@ -216,18 +219,21 @@ GENERATED_HEADERS := \
     $(GEN_DIR)/init_galaxy_properties.inc \
     $(GEN_DIR)/copy_to_output.inc \
     $(GEN_DIR)/hdf5_field_count.inc \
-    $(GEN_DIR)/hdf5_field_definitions.inc
+    $(GEN_DIR)/hdf5_field_definitions.inc \
+    $(GEN_DIR)/model_parameters.h \
+    $(GEN_DIR)/model_parameters.c
 
 # Sentinel file to track that generated code has been verified
 GEN_VERIFIED := $(BUILD_DIR)/.generated_verified
 
 # Verify generated code is up-to-date before building
 # This catches cases where git pull changes files but timestamps don't reflect dependencies
-$(GEN_VERIFIED): $(PROP_YAML) $(MODULE_YAML) scripts/generate_properties.py scripts/generate_module_registry.py scripts/check_generated.py
+$(GEN_VERIFIED): $(PROP_YAML) $(MODEL_PARAM_YAML) $(MODULE_YAML) scripts/generate_properties.py scripts/generate_model_parameters.py scripts/generate_module_registry.py scripts/check_generated.py
 	@echo "Verifying generated code is up-to-date..."
 	@if ! python3 scripts/check_generated.py > /dev/null 2>&1; then \
 		echo "Generated code out of date - auto-regenerating..."; \
 		python3 scripts/generate_properties.py; \
+		python3 scripts/generate_model_parameters.py; \
 		python3 scripts/generate_module_registry.py; \
 	fi
 	@mkdir -p $(BUILD_DIR)
@@ -383,6 +389,7 @@ endif
 # Code generation from metadata (smart - only regenerates what changed)
 generate:
 	@python3 scripts/generate_properties.py
+	@python3 scripts/generate_model_parameters.py
 	@python3 scripts/generate_module_registry.py
 
 validate-modules:
