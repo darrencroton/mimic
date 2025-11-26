@@ -2,26 +2,32 @@
  * @file    sage_infall.c
  * @brief   SAGE infall module implementation
  *
- * This module implements gas infall and stripping processes from the SAGE model.
+ * This module implements cosmological gas infall from the SAGE model.
  * It handles:
- * - Cosmological gas infall onto halos
+ * - Cosmological gas infall onto central galaxies
  * - Reionization suppression of gas accretion onto low-mass halos
- * - Stripping of hot gas from satellite galaxies
- * - Redistribution of baryons between galaxies
+ * - Redistribution of ejected gas and ICS from satellites to central
  *
  * Physics:
  *   infallingMass = f_reion * BaryonFrac * Mvir - (total baryon content)
- *   HotGas += infallingMass
+ *   InfallingGas = infallingMass  (stored in property)
+ *   HotGas += InfallingGas / STEPS
  *
  * The reionization suppression follows Gnedin (2000) with fitting formulas
- * from Kravtsov et al. (2004). After the universe is reionized, low-mass halos
- * have their gas accretion suppressed due to the increased Jeans mass.
+ * from Kravtsov et al. (2004). Implemented in shared/reionization.h utility.
  *
  * Implementation Notes:
  * - Central galaxies accrete gas from the cosmic web
- * - Satellites can only lose gas through stripping
  * - All baryonic components are tracked for mass conservation
  * - Metal content is preserved during gas transfers
+ * - InfallingGas property calculated once, applied over STEPS (currently STEPS=1)
+ *
+ * MODULAR DESIGN
+ * ==============
+ * This module has been refactored to focus solely on cosmological infall.
+ * Related processes now in separate modules:
+ * - sage_satellite_stripping: Environmental gas stripping from satellites
+ * - shared/reionization.h: Reionization suppression calculations
  *
  * Reference:
  *   - Croton et al. (2016) - SAGE model description
@@ -32,7 +38,7 @@
  * Vision Principles:
  *   - Physics-Agnostic Core: Interacts only through module interface
  *   - Runtime Modularity: Configurable via parameter file
- *   - Single Source of Truth: Updates GalaxyData properties only
+ *   - Single Source of Truth: Reionization in shared header, InfallingGas property
  */
 
 #include <math.h>
@@ -42,6 +48,7 @@
 #include "constants.h"
 #include "error.h"
 #include "../shared/metallicity.h"  // Shared utility for metallicity calculations
+#include "../shared/reionization.h" // Shared utility for reionization suppression
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -52,138 +59,17 @@
 // MODULE PARAMETERS
 // ============================================================================
 // Parameters defined in module_info.yaml (single source of truth).
-// Loaded at runtime via module_get_double() and module_get_int().
+// Loaded at runtime via module_get_double().
 // Defaults and validation ranges come from metadata - no hardcoding.
 
 static double BARYON_FRAC;
-static int REIONIZATION_ON;
-static double REIONIZATION_Z0;
-static double REIONIZATION_ZR;
-
-// Derived reionization parameters (calculated in init)
-static double a0 = 0.0; /* Scale factor when UV background turns on */
-static double ar = 0.0; /* Scale factor at full reionization */
-
-// Reionization model constants (Gnedin 2000)
-static const double REIONIZATION_ALPHA = 6.0;  /* Best fit to Gnedin data */
-static const double REIONIZATION_TVIR = 1e4;   /* Virial temperature threshold (K) */
-
-// Physics constants (Gnedin 2000, Bryan & Norman 1998, Kravtsov 2004)
-// Jeans mass: M_J = 25.0 * Omega^-0.5 * mu^-1.5, where mu^-1.5 = 2.21 for ionized gas (mu=0.59)
-static const double MJEANS_BASE_COEFF = 25.0;        /* Jeans mass coefficient (1e10 Msun/h) */
-static const double IONIZED_GAS_MU_FACTOR = 2.21;    /* mu^-1.5 for fully ionized primordial gas */
-static const double FILTERING_MASS_EXPONENT = 1.5;   /* M_filter exponent from Gnedin (2000) */
-
-// Characteristic mass and velocity
-static const double TEMP_TO_VEL_COEFF = 36.0;        /* V_char from T_vir: V^2 = T/36 (km/s, K) */
-static const double HUBBLE_CONVERSION = 100.0;       /* H_0 = 100h km/s/Mpc */
-
-// Critical overdensity (Bryan & Norman 1998): δ_c = 18π² + 82x - 39x², where x = Ω(z) - 1
-static const double DELTACRIT_COEFF_0 = 18.0;
-static const double DELTACRIT_COEFF_1 = 82.0;
-static const double DELTACRIT_COEFF_2 = 39.0;
-static const double DELTACRIT_FACTOR = 0.5;          /* Factor in M_char calculation */
-
-// Reionization suppression (Kravtsov 2004 Appendix B)
-static const double GNEDIN_SUPPRESSION_COEFF = 0.26; /* Suppression strength */
-static const double GNEDIN_SUPPRESSION_POWER = 3.0;  /* Power-law exponent */
 
 // ============================================================================
 // HELPER FUNCTIONS (Physics Calculations)
 // ============================================================================
 
-// Metallicity calculation now provided by shared utility: mimic_get_metallicity()
-// See: src/modules/shared/metallicity.h
-
-/**
- * @brief   Calculates the reionization suppression factor for gas accretion
- *
- * Implements the Gnedin (2000) reionization model with fitting formulas
- * from Kravtsov et al. (2004) Appendix B.
- *
- * The suppression depends on the ratio between the halo mass and a
- * characteristic mass (the maximum of the filtering mass and the mass
- * corresponding to a virial temperature of 10^4 K).
- *
- * @param   mvir       Virial mass of halo (1e10 Msun/h)
- * @param   redshift   Current redshift
- * @param   omega      Matter density parameter
- * @param   omega_lambda Dark energy density parameter
- * @param   hubble_h   Hubble parameter (H0 / 100 km/s/Mpc)
- * @return  Modifier factor (between 0 and 1) for gas accretion
- */
-static double do_reionization(float mvir, double redshift, double omega,
-                              double omega_lambda, double hubble_h) {
-  /* Calculate scale factor and ratios */
-  double a = safe_div(1.0, 1.0 + redshift, 0.0);
-  double a_on_a0 = safe_div(a, a0, 0.0);
-  double a_on_ar = safe_div(a, ar, 0.0);
-
-  /* Calculate f_of_a from Kravtsov et al. (2004) fitting formula */
-  double f_of_a;
-  if (a <= a0) {
-    /* Before UV background turns on */
-    f_of_a = 3.0 * a / ((2.0 + REIONIZATION_ALPHA) * (5.0 + 2.0 * REIONIZATION_ALPHA)) *
-             pow(a_on_a0, REIONIZATION_ALPHA);
-  } else if (a < ar) {
-    /* During partial reionization */
-    f_of_a = safe_div(3.0, a, 0.0) * a0 * a0 *
-                 (1.0 / (2.0 + REIONIZATION_ALPHA) -
-                  2.0 * pow(a_on_a0, -0.5) / (5.0 + 2.0 * REIONIZATION_ALPHA)) +
-             a * a / 10.0 - (a0 * a0 / 10.0) * (5.0 - 4.0 * pow(a_on_a0, -0.5));
-  } else {
-    /* After full reionization */
-    f_of_a = safe_div(3.0, a, 0.0) *
-                 (a0 * a0 *
-                      (1.0 / (2.0 + REIONIZATION_ALPHA) -
-                       2.0 * pow(a_on_a0, -0.5) / (5.0 + 2.0 * REIONIZATION_ALPHA)) +
-                  (ar * ar / 10.0) * (5.0 - 4.0 * pow(a_on_ar, -0.5)) -
-                  (a0 * a0 / 10.0) * (5.0 - 4.0 * pow(a_on_a0, -0.5)) +
-                  a * ar / 3.0 - (ar * ar / 3.0) * (3.0 - 2.0 * pow(a_on_ar, -0.5)));
-  }
-
-  /* Calculate filtering mass (in units of 1e10 Msun/h) */
-  /* Jeans mass calculation: Mjeans = 25 * Omega^-0.5 * mu^-1.5
-   * For fully ionized gas: mu=0.59, so mu^-1.5 = 0.59^-1.5 ≈ 2.21 */
-  double Mjeans = MJEANS_BASE_COEFF * pow(omega, -0.5) * IONIZED_GAS_MU_FACTOR;
-  double Mfiltering = Mjeans * pow(f_of_a, FILTERING_MASS_EXPONENT);
-
-  /* Calculate characteristic mass from virial temperature */
-  /* Characteristic velocity: Vchar = sqrt(Tvir / (mu * m_p / k_B))
-   * For Tvir=10^4 K and mean molecular weight, coefficient ≈ 36.0 km/s */
-  double Vchar = sqrt(REIONIZATION_TVIR / TEMP_TO_VEL_COEFF);
-
-  /* Cosmological parameters at current redshift */
-  double omegaZ = omega * pow(1.0 + redshift, 3.0) /
-                  (omega * pow(1.0 + redshift, 3.0) + omega_lambda + EPSILON_SMALL);
-  double xZ = omegaZ - 1.0;
-  double deltacritZ =
-      DELTACRIT_COEFF_0 * M_PI * M_PI + DELTACRIT_COEFF_1 * xZ - DELTACRIT_COEFF_2 * xZ * xZ; /* Critical overdensity */
-
-  /* Hubble parameter at z (in units of 100 km/s/Mpc) */
-  double H0 = HUBBLE_CONVERSION * hubble_h; /* km/s/Mpc */
-  double HubbleZ = H0 * sqrt(omega * pow(1.0 + redshift, 3.0) + omega_lambda);
-
-  /* Convert to code units: G in (Mpc/h) (km/s)^2 / (1e10 Msun/h) */
-  double G_code = GRAVITY * (1.0 / 1000.0) * (1.0 / 1000.0) * /* km^2/s^2 */
-                  CM_PER_MPC * hubble_h *                      /* Mpc/h */
-                  (1.0 / SOLAR_MASS) * (1.0 / 1e10) *          /* 1/(1e10 Msun) */
-                  (1.0 / hubble_h);                            /* /h */
-
-  /* Calculate characteristic mass */
-  double Mchar = Vchar * Vchar * Vchar /
-                 (G_code * HubbleZ * sqrt(DELTACRIT_FACTOR * deltacritZ) + EPSILON_SMALL);
-
-  /* Use maximum of filtering mass and characteristic mass */
-  double mass_to_use = fmax(Mfiltering, Mchar);
-
-  /* Calculate suppression modifier using Gnedin (2000) fitting formula
-   * Coefficient 0.26 from Kravtsov et al. (2004) Appendix B */
-  double modifier =
-      1.0 / pow(1.0 + GNEDIN_SUPPRESSION_COEFF * mass_to_use / (mvir + EPSILON_SMALL), GNEDIN_SUPPRESSION_POWER);
-
-  return modifier;
-}
+// Metallicity calculation: mimic_get_metallicity() from shared/metallicity.h
+// Reionization suppression: calculate_reionization_modifier() from shared/reionization.h
 
 /**
  * @brief   Calculate the amount of gas infalling onto a central galaxy
@@ -191,7 +77,7 @@ static double do_reionization(float mvir, double redshift, double omega,
  * Calculates the amount of gas that should be accreted onto a halo based on:
  * 1. Cosmic baryon fraction × halo mass
  * 2. Current baryon content (all components)
- * 3. Reionization suppression (if enabled)
+ * 3. Reionization suppression (using shared reionization.h utility)
  *
  * Also handles:
  * - Consolidation of ejected gas from satellites to central
@@ -259,14 +145,9 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx,
     }
   }
 
-  /* Calculate reionization suppression factor if enabled */
-  if (REIONIZATION_ON) {
-    reionization_modifier =
-        do_reionization(halos[central_idx].Mvir, redshift, omega, omega_lambda,
-                        hubble_h);
-  } else {
-    reionization_modifier = 1.0;
-  }
+  /* Calculate reionization suppression factor using shared utility */
+  reionization_modifier = calculate_reionization_modifier(
+      halos[central_idx].Mvir, redshift, omega, omega_lambda, hubble_h);
 
   /* Calculate infalling gas mass */
   infallingMass =
@@ -312,72 +193,6 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx,
   halos[central_idx].galaxy->TotalSatelliteBaryons = (float)tot_satBaryons;
 
   return infallingMass;
-}
-
-/**
- * @brief   Strip hot gas from satellite galaxies
- *
- * Implements environmental stripping of hot gas from satellite galaxies
- * as they move through the hot halo of the central galaxy.
- *
- * @param   halos      Array of halos in FOF group
- * @param   central_idx Index of central galaxy
- * @param   sat_idx    Index of satellite galaxy being stripped
- * @param   redshift   Current redshift
- * @param   omega      Matter density parameter
- * @param   omega_lambda Dark energy density parameter
- * @param   hubble_h   Hubble parameter
- */
-static void strip_from_satellite(struct Halo *halos, int central_idx,
-                                  int sat_idx, double redshift, double omega,
-                                  double omega_lambda, double hubble_h) {
-#define STEPS 1  /* TODO: Will be replaced by global STEPS when multi-step integration loop implemented in core */
-  double reionization_modifier;
-  double strippedGas, strippedGasMetals;
-  float metallicity;
-
-  /* Apply reionization modifier if enabled */
-  if (REIONIZATION_ON) {
-    reionization_modifier = do_reionization(
-        halos[sat_idx].Mvir, redshift, omega, omega_lambda, hubble_h);
-  } else {
-    reionization_modifier = 1.0;
-  }
-
-  /* Calculate amount of gas to strip */
-  strippedGas = -1.0 *
-                (reionization_modifier * BARYON_FRAC * halos[sat_idx].Mvir -
-                 (halos[sat_idx].galaxy->StellarMass +
-                  halos[sat_idx].galaxy->ColdGas +
-                  halos[sat_idx].galaxy->HotGas +
-                  halos[sat_idx].galaxy->EjectedMass +
-                  halos[sat_idx].galaxy->BlackHoleMass +
-                  halos[sat_idx].galaxy->ICS)) /
-                STEPS;
-
-  /* Only proceed if there is positive stripping */
-  if (strippedGas > 0.0) {
-    /* Calculate metals in stripped gas */
-    metallicity = mimic_get_metallicity(halos[sat_idx].galaxy->HotGas,
-                                   halos[sat_idx].galaxy->MetalsHotGas);
-    strippedGasMetals = strippedGas * metallicity;
-
-    /* Limit stripping to available hot gas and metals */
-    if (strippedGas > halos[sat_idx].galaxy->HotGas) {
-      strippedGas = halos[sat_idx].galaxy->HotGas;
-    }
-    if (strippedGasMetals > halos[sat_idx].galaxy->MetalsHotGas) {
-      strippedGasMetals = halos[sat_idx].galaxy->MetalsHotGas;
-    }
-
-    /* Remove gas and metals from satellite */
-    halos[sat_idx].galaxy->HotGas -= (float)strippedGas;
-    halos[sat_idx].galaxy->MetalsHotGas -= (float)strippedGasMetals;
-
-    /* Add stripped gas and metals to central galaxy */
-    halos[central_idx].galaxy->HotGas += (float)strippedGas;
-    halos[central_idx].galaxy->MetalsHotGas += (float)strippedGasMetals;
-  }
 }
 
 /**
@@ -445,7 +260,7 @@ static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
 /**
  * @brief   Initialize sage_infall module
  *
- * Reads configuration parameters and calculates derived quantities.
+ * Reads configuration parameters.
  * Parameters are automatically validated against ranges defined in module_info.yaml.
  *
  * Vision Principle 3 (Metadata-Driven): Parameters loaded and validated from metadata.
@@ -459,29 +274,12 @@ static int sage_infall_init(void) {
   if (module_get_double("sage_infall", "BaryonFrac", &BARYON_FRAC) != 0) {
     return -1;
   }
-  if (module_get_int("sage_infall", "ReionizationOn", &REIONIZATION_ON) != 0) {
-    return -1;
-  }
-  if (module_get_double("sage_infall", "Reionization_z0", &REIONIZATION_Z0) != 0) {
-    return -1;
-  }
-  if (module_get_double("sage_infall", "Reionization_zr", &REIONIZATION_ZR) != 0) {
-    return -1;
-  }
-
-  /* Calculate derived reionization parameters */
-  a0 = 1.0 / (1.0 + REIONIZATION_Z0);
-  ar = 1.0 / (1.0 + REIONIZATION_ZR);
 
   /* Log module configuration */
   INFO_LOG("SAGE infall module initialized");
-  INFO_LOG("  Physics: infallingMass = f_reion * BaryonFrac * Mvir - baryons");
+  INFO_LOG("  Physics: InfallingGas = f_reion * BaryonFrac * Mvir - baryons");
   INFO_LOG("  BaryonFrac = %.4f", BARYON_FRAC);
-  INFO_LOG("  ReionizationOn = %d", REIONIZATION_ON);
-  if (REIONIZATION_ON) {
-    INFO_LOG("  Reionization_z0 = %.2f (a0 = %.4f)", REIONIZATION_Z0, a0);
-    INFO_LOG("  Reionization_zr = %.2f (ar = %.4f)", REIONIZATION_ZR, ar);
-  }
+  INFO_LOG("  Reionization model: Gnedin (2000) - hardcoded in shared/reionization.h");
 
   return 0;
 }
@@ -489,12 +287,13 @@ static int sage_infall_init(void) {
 /**
  * @brief   Process halos in a FOF group
  *
- * Implements infall and stripping for all halos in the FOF group.
+ * Implements infall for central galaxy.
  * Process order:
  * 1. Find central galaxy (Type == 0)
- * 2. Calculate infall for central
- * 3. Add infalling gas to central's hot reservoir
- * 4. Strip gas from all satellites
+ * 2. Calculate InfallingGas for central (stored in property)
+ * 3. Add InfallingGas/STEPS to central's hot reservoir
+ *
+ * Note: Satellite stripping now handled by sage_satellite_stripping module.
  *
  * @param   ctx     Module execution context
  * @param   halos   Array of halos in FOF group
@@ -503,6 +302,8 @@ static int sage_infall_init(void) {
  */
 static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
                                 int ngal) {
+#define STEPS 1  /* TODO: Will be replaced by global STEPS when multi-step integration loop implemented in core */
+
   /* Validate inputs */
   if (halos == NULL || ngal <= 0) {
     return 0; /* Nothing to process */
@@ -538,21 +339,11 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
   double infallingMass =
       infall_recipe(halos, ngal, central_idx, z, omega, omega_lambda, hubble_h);
 
-  /* Add infalling gas to central's hot reservoir */
-  add_infall_to_hot(halos[central_idx].galaxy, infallingMass);
+  /* Store in InfallingGas property (for future STEPS integration) */
+  halos[central_idx].galaxy->InfallingGas = (float)infallingMass;
 
-  /* Strip gas from satellites */
-  for (int i = 0; i < ngal; i++) {
-    if (i == central_idx)
-      continue; /* Skip central */
-    if (halos[i].Type != 1)
-      continue; /* Only process satellites (Type 1) */
-    if (halos[i].galaxy == NULL)
-      continue; /* Skip if no galaxy data */
-
-    strip_from_satellite(halos, central_idx, i, z, omega, omega_lambda,
-                         hubble_h);
-  }
+  /* Add infalling gas to central's hot reservoir (divided by STEPS) */
+  add_infall_to_hot(halos[central_idx].galaxy, infallingMass / STEPS);
 
   /* Debug logging */
   DEBUG_LOG("Infall: central Mvir=%.3e, infall=%.3e, HotGas=%.3e, z=%.3f",
@@ -560,8 +351,8 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
             halos[central_idx].galaxy->HotGas, z);
 
   return 0;
-}
 #undef STEPS
+}
 
 /**
  * @brief   Cleanup sage_infall module

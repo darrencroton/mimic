@@ -8,7 +8,7 @@
  * validation. Ranges are defined once in module_info.yaml (single
  * source of truth) and generated into this lookup table.
  *
- * Source MD5: 218d5e410cf5a777d352afdee6056c70
+ * Source MD5: 344e6f006e3a23390bf263e7e8173fc3
  * To regenerate: make generate
  */
 
@@ -44,9 +44,6 @@ static const struct ModuleParameterMetadata MODULE_PARAMETER_METADATA[] = {
     {"sage_disk_instability", "DiskInstabilityOn", "int", 1.0, 0.0, 1.0, 1, 1},  /* sage_disk_instability_DiskInstabilityOn = 1.0 */
     {"sage_disk_instability", "DiskRadiusFactor", "double", 3.0, 1.0, 10.0, 1, 1},  /* sage_disk_instability_DiskRadiusFactor = 3.0 */
     {"sage_infall", "BaryonFrac", "double", 0.17, 0.0, 1.0, 1, 1},  /* sage_infall_BaryonFrac = 0.17 */
-    {"sage_infall", "ReionizationOn", "int", 1.0, 0.0, 1.0, 1, 1},  /* sage_infall_ReionizationOn = 1.0 */
-    {"sage_infall", "Reionization_z0", "double", 8.0, 0.0, 20.0, 1, 1},  /* sage_infall_Reionization_z0 = 8.0 */
-    {"sage_infall", "Reionization_zr", "double", 7.0, 0.0, 20.0, 1, 1},  /* sage_infall_Reionization_zr = 7.0 */
     {"sage_mergers", "AGNrecipeOn", "int", 1.0, 0.0, 1.0, 1, 1},  /* sage_mergers_AGNrecipeOn = 1.0 */
     {"sage_mergers", "BlackHoleGrowthRate", "double", 0.01, 0.0, 1.0, 1, 1},  /* sage_mergers_BlackHoleGrowthRate = 0.01 */
     {"sage_mergers", "DiskInstabilityOn", "int", 0.0, 0.0, 1.0, 1, 1},  /* sage_mergers_DiskInstabilityOn = 0.0 */
@@ -59,6 +56,7 @@ static const struct ModuleParameterMetadata MODULE_PARAMETER_METADATA[] = {
     {"sage_mergers", "ThreshMajorMerger", "double", 0.3, 0.0, 1.0, 1, 1},  /* sage_mergers_ThreshMajorMerger = 0.3 */
     {"sage_mergers", "Yield", "double", 0.03, 0.0, 0.1, 1, 1},  /* sage_mergers_Yield = 0.03 */
     {"sage_reincorporation", "ReIncorporationFactor", "double", 1.0, 0.0, 10.0, 1, 1},  /* sage_reincorporation_ReIncorporationFactor = 1.0 */
+    {"sage_satellite_stripping", "BaryonFrac", "double", 0.17, 0.0, 1.0, 1, 1},  /* sage_satellite_stripping_BaryonFrac = 0.17 */
     {"sage_starformation_feedback", "DiskInstabilityOn", "int", 0.0, 0.0, 1.0, 1, 1},  /* sage_starformation_feedback_DiskInstabilityOn = 0.0 */
     {"sage_starformation_feedback", "EnergySNcode", "double", 1.0, 0.0, 100.0, 1, 1},  /* sage_starformation_feedback_EnergySNcode = 1.0 */
     {"sage_starformation_feedback", "EtaSNcode", "double", 0.5, 0.0, 10.0, 1, 1},  /* sage_starformation_feedback_EtaSNcode = 0.5 */
@@ -74,6 +72,6 @@ static const struct ModuleParameterMetadata MODULE_PARAMETER_METADATA[] = {
     {"test_fixture", "EnableLogging", "int", 0.0, 0.0, 1.0, 1, 1},  /* test_fixture_EnableLogging = 0.0 */
 };
 
-#define NUM_MODULE_PARAMETERS 34  /* Total parameters with metadata */
+#define NUM_MODULE_PARAMETERS 32  /* Total parameters with metadata */
 
 #endif /* MODULE_PARAMETERS_H */
