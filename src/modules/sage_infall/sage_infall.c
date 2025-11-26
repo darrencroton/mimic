@@ -269,9 +269,9 @@ static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
  * @return  0 on success, non-zero on failure
  */
 static int sage_infall_init(void) {
-  /* Read and validate parameters from configuration.
-   * Defaults and validation ranges come from module_info.yaml. */
-  if (module_get_double("sage_infall", "BaryonFrac", &BARYON_FRAC) != 0) {
+  /* Read and validate parameters from model configuration.
+   * All parameters are REQUIRED in input file (no defaults). */
+  if (model_get_double("BaryonFrac", &BARYON_FRAC) != 0) {
     return -1;
   }
 

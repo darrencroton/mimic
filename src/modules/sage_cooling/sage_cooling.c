@@ -422,17 +422,17 @@ static void cool_gas_onto_galaxy(struct Halo *halo, double coolingGas, float vvi
  */
 static int sage_cooling_init(void)
 {
-    /* Read module parameters from parameter file */
-    /* Defaults and validation ranges come from module_info.yaml */
-    if (module_get_double("sage_cooling", "RadioModeEfficiency", &RADIO_MODE_EFFICIENCY) != 0) {
+    /* Read module parameters from model configuration */
+    /* All parameters are REQUIRED in input file (no defaults) */
+    if (model_get_double("RadioModeEfficiency", &RADIO_MODE_EFFICIENCY) != 0) {
         return -1;
     }
-    if (module_get_int("sage_cooling", "AGNrecipeOn", &AGN_RECIPE_ON) != 0) {
+    if (model_get_int("AGNrecipeOn", &AGN_RECIPE_ON) != 0) {
         return -1;
     }
-    module_get_parameter("sage_cooling", "CoolFunctionsDir", COOL_FUNCTIONS_DIR,
-                        sizeof(COOL_FUNCTIONS_DIR),
-                        "src/modules/sage_cooling/CoolFunctions");
+    if (model_get_string("CoolFunctionsDir", COOL_FUNCTIONS_DIR, sizeof(COOL_FUNCTIONS_DIR)) != 0) {
+        return -1;
+    }
 
     /* Initialize cooling function tables */
     if (cooling_tables_init(COOL_FUNCTIONS_DIR) != 0) {

@@ -53,9 +53,9 @@
 /* ============================================================================
  * MODULE PARAMETERS
  * ============================================================================
- * Parameters defined in module_info.yaml (single source of truth).
- * Loaded at runtime via module_get_double() and module_get_int().
- * Defaults and validation ranges come from metadata - no hardcoding. */
+ * Parameters defined in model_parameters.yaml (single source of truth).
+ * Loaded at runtime via model_get_double() and model_get_int().
+ * All parameters are REQUIRED in input file (no defaults). */
 
 static double BLACK_HOLE_GROWTH_RATE;
 static double QUASAR_MODE_EFFICIENCY;
@@ -621,38 +621,38 @@ static int sage_mergers_init(void) {
   INFO_LOG("Initializing SAGE mergers module");
 
   /* Read module parameters */
-  /* Defaults and validation ranges come from module_info.yaml */
-  if (module_get_double("sage_mergers", "BlackHoleGrowthRate", &BLACK_HOLE_GROWTH_RATE) != 0) {
+  /* All parameters are REQUIRED in input file (no defaults) */
+  if (model_get_double("BlackHoleGrowthRate", &BLACK_HOLE_GROWTH_RATE) != 0) {
     return -1;
   }
-  if (module_get_double("sage_mergers", "QuasarModeEfficiency", &QUASAR_MODE_EFFICIENCY) != 0) {
+  if (model_get_double("QuasarModeEfficiency", &QUASAR_MODE_EFFICIENCY) != 0) {
     return -1;
   }
-  if (module_get_double("sage_mergers", "ThreshMajorMerger", &THRESH_MAJOR_MERGER) != 0) {
+  if (model_get_double("ThreshMajorMerger", &THRESH_MAJOR_MERGER) != 0) {
     return -1;
   }
-  if (module_get_double("sage_mergers", "RecycleFraction", &RECYCLE_FRACTION) != 0) {
+  if (model_get_double("RecycleFraction", &RECYCLE_FRACTION) != 0) {
     return -1;
   }
-  if (module_get_double("sage_mergers", "Yield", &YIELD) != 0) {
+  if (model_get_double("Yield", &YIELD) != 0) {
     return -1;
   }
-  if (module_get_double("sage_mergers", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK) != 0) {
+  if (model_get_double("FracZleaveDisk", &FRAC_Z_LEAVE_DISK) != 0) {
     return -1;
   }
-  if (module_get_double("sage_mergers", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON) != 0) {
+  if (model_get_double("FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON) != 0) {
     return -1;
   }
-  if (module_get_double("sage_mergers", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY) != 0) {
+  if (model_get_double("FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY) != 0) {
     return -1;
   }
-  if (module_get_int("sage_mergers", "AGNrecipeOn", &AGN_RECIPE_ON) != 0) {
+  if (model_get_int("AGNrecipeOn", &AGN_RECIPE_ON) != 0) {
     return -1;
   }
-  if (module_get_int("sage_mergers", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON) != 0) {
+  if (model_get_int("SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON) != 0) {
     return -1;
   }
-  if (module_get_int("sage_mergers", "DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
+  if (model_get_int("DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
     return -1;
   }
 

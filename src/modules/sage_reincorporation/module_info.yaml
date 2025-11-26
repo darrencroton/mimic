@@ -46,18 +46,6 @@ module:
     provides: []
 
   # ===========================================================================
-  # Parameters
-  # ===========================================================================
-
-  parameters:
-    - name: ReIncorporationFactor
-      type: double
-      default: 1.0
-      range: [0.0, 10.0]
-      description: "Tunable parameter multiplying critical virial velocity for reincorporation"
-      units: "dimensionless"
-
-  # ===========================================================================
   # Testing
   # ===========================================================================
 

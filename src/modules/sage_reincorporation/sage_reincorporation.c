@@ -76,9 +76,9 @@ static int sage_reincorporation_init(void)
 {
     INFO_LOG("Initializing SAGE reincorporation module...");
 
-    // Read parameters from configuration
-    // Defaults and validation ranges come from module_info.yaml
-    if (module_get_double("sage_reincorporation", "ReIncorporationFactor", &REINCORPORATION_FACTOR) != 0) {
+    // Read parameters from model configuration
+    // All parameters are REQUIRED in input file (no defaults)
+    if (model_get_double("ReIncorporationFactor", &REINCORPORATION_FACTOR) != 0) {
         return -1;
     }
 

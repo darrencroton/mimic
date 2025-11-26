@@ -517,33 +517,38 @@ static void validate_and_postprocess(void) {
   }
 
   /* Validate required model parameters (Phase 4.4) */
-  INFO_LOG("Validating required model parameters...");
-  int missing_params = 0;
-  for (int i = 0; i < NUM_REQUIRED_MODEL_PARAMETERS; i++) {
-    const char *param_name = REQUIRED_MODEL_PARAMETERS[i];
-    int found = 0;
+  /* Only validate if modules are enabled - otherwise parameters aren't needed */
+  if (MimicConfig.NumEnabledModules > 0) {
+    INFO_LOG("Validating required model parameters...");
+    int missing_params = 0;
+    for (int i = 0; i < NUM_REQUIRED_MODEL_PARAMETERS; i++) {
+      const char *param_name = REQUIRED_MODEL_PARAMETERS[i];
+      int found = 0;
 
-    /* Check if parameter is in ModelParams array */
-    for (int j = 0; j < MimicConfig.NumModelParams; j++) {
-      if (strcmp(MimicConfig.ModelParams[j].param_name, param_name) == 0) {
-        found = 1;
-        break;
+      /* Check if parameter is in ModelParams array */
+      for (int j = 0; j < MimicConfig.NumModelParams; j++) {
+        if (strcmp(MimicConfig.ModelParams[j].param_name, param_name) == 0) {
+          found = 1;
+          break;
+        }
+      }
+
+      if (!found) {
+        ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
+        missing_params++;
+        errors++;
       }
     }
 
-    if (!found) {
-      ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
-      missing_params++;
-      errors++;
+    if (missing_params > 0) {
+      ERROR_LOG("Missing %d required model parameters from 'model_parameters' section", missing_params);
+      ERROR_LOG("All model parameters must be explicitly specified - no defaults are used");
+      ERROR_LOG("See src/modules/model_parameters.yaml for parameter definitions");
+    } else {
+      INFO_LOG("All %d required model parameters found", NUM_REQUIRED_MODEL_PARAMETERS);
     }
-  }
-
-  if (missing_params > 0) {
-    ERROR_LOG("Missing %d required model parameters from 'model_parameters' section", missing_params);
-    ERROR_LOG("All model parameters must be explicitly specified - no defaults are used");
-    ERROR_LOG("See src/modules/model_parameters.yaml for parameter definitions");
   } else {
-    INFO_LOG("All %d required model parameters found", NUM_REQUIRED_MODEL_PARAMETERS);
+    INFO_LOG("No modules enabled - skipping model parameter validation");
   }
 
   /* Validate ranges */

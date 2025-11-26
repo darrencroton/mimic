@@ -64,9 +64,9 @@
 /* ============================================================================
  * MODULE PARAMETERS
  * ============================================================================
- * Parameters defined in module_info.yaml (single source of truth).
- * Loaded at runtime via module_get_double() and module_get_int().
- * Defaults and validation ranges come from metadata - no hardcoding. */
+ * Parameters defined in model_parameters.yaml (single source of truth).
+ * Loaded at runtime via model_get_double() and model_get_int().
+ * All parameters are REQUIRED in input file (no defaults). */
 
 static int SF_PRESCRIPTION;
 static double SFR_EFFICIENCY;
@@ -209,38 +209,38 @@ static void update_from_feedback(struct GalaxyData *gal,
  */
 static int sage_starformation_feedback_init(void) {
   /* Read module parameters from configuration */
-  /* Defaults and validation ranges come from module_info.yaml */
-  if (module_get_int("sage_starformation_feedback", "SFprescription", &SF_PRESCRIPTION) != 0) {
+  /* All parameters are REQUIRED in input file (no defaults) */
+  if (model_get_int("SFprescription", &SF_PRESCRIPTION) != 0) {
     return -1;
   }
-  if (module_get_double("sage_starformation_feedback", "SfrEfficiency", &SFR_EFFICIENCY) != 0) {
+  if (model_get_double("SfrEfficiency", &SFR_EFFICIENCY) != 0) {
     return -1;
   }
-  if (module_get_int("sage_starformation_feedback", "SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON) != 0) {
+  if (model_get_int("SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON) != 0) {
     return -1;
   }
-  if (module_get_double("sage_starformation_feedback", "FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON) != 0) {
+  if (model_get_double("FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON) != 0) {
     return -1;
   }
-  if (module_get_double("sage_starformation_feedback", "FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY) != 0) {
+  if (model_get_double("FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY) != 0) {
     return -1;
   }
-  if (module_get_double("sage_starformation_feedback", "EnergySNcode", &ENERGY_SN_CODE) != 0) {
+  if (model_get_double("EnergySNcode", &ENERGY_SN_CODE) != 0) {
     return -1;
   }
-  if (module_get_double("sage_starformation_feedback", "EtaSNcode", &ETA_SN_CODE) != 0) {
+  if (model_get_double("EtaSNcode", &ETA_SN_CODE) != 0) {
     return -1;
   }
-  if (module_get_double("sage_starformation_feedback", "RecycleFraction", &RECYCLE_FRACTION) != 0) {
+  if (model_get_double("RecycleFraction", &RECYCLE_FRACTION) != 0) {
     return -1;
   }
-  if (module_get_double("sage_starformation_feedback", "Yield", &YIELD) != 0) {
+  if (model_get_double("Yield", &YIELD) != 0) {
     return -1;
   }
-  if (module_get_double("sage_starformation_feedback", "FracZleaveDisk", &FRAC_Z_LEAVE_DISK) != 0) {
+  if (model_get_double("FracZleaveDisk", &FRAC_Z_LEAVE_DISK) != 0) {
     return -1;
   }
-  if (module_get_int("sage_starformation_feedback", "DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
+  if (model_get_int("DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
     return -1;
   }
 

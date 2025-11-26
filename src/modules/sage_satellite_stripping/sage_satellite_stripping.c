@@ -110,9 +110,9 @@ static void strip_from_satellite(struct Halo *halos, int central_idx,
  * @return  0 on success, non-zero on error
  */
 static int sage_satellite_stripping_init(void) {
-  /* Read and validate parameters from configuration */
-  if (module_get_double("sage_satellite_stripping", "BaryonFrac",
-                         &BARYON_FRAC) != 0) {
+  /* Read and validate parameters from model configuration.
+   * All parameters are REQUIRED in input file (no defaults). */
+  if (model_get_double("BaryonFrac", &BARYON_FRAC) != 0) {
     return -1;
   }
 

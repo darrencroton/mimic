@@ -145,12 +145,12 @@ static double calculate_critical_disk_mass(float vmax, float disk_scale_radius,
  * @return  0 on success, non-zero on error
  */
 static int sage_disk_instability_init(void) {
-  /* Read module parameters from configuration */
-  /* Defaults and validation ranges come from module_info.yaml */
-  if (module_get_int("sage_disk_instability", "DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
+  /* Read module parameters from model configuration */
+  /* All parameters are REQUIRED in input file (no defaults) */
+  if (model_get_int("DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
     return -1;
   }
-  if (module_get_double("sage_disk_instability", "DiskRadiusFactor", &DISK_RADIUS_FACTOR) != 0) {
+  if (model_get_double("DiskRadiusFactor", &DISK_RADIUS_FACTOR) != 0) {
     return -1;
   }
 

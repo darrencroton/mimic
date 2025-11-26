@@ -50,25 +50,6 @@ module:
       - DiskScaleRadius   # Disk scale radius
 
   # ===========================================================================
-  # Parameters
-  # ===========================================================================
-
-  parameters:
-    - name: DiskInstabilityOn
-      type: int
-      default: 1
-      range: [0, 1]
-      description: "Enable disk instability physics (0=off, 1=on)"
-      units: "dimensionless"
-
-    - name: DiskRadiusFactor
-      type: double
-      default: 3.0
-      range: [1.0, 10.0]
-      description: "Factor for disk effective radius (N × scale radius)"
-      units: "dimensionless"
-
-  # ===========================================================================
   # Testing
   # ===========================================================================
 
