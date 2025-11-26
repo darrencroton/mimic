@@ -203,8 +203,25 @@ def create_test_param_file(output_name, enabled_modules=None,
 
             for param_name, value in module_params.items():
                 # Parse ModuleName_ParameterName format
-                if '_' in param_name:
-                    module_name, param_key = param_name.split('_', 1)
+                # For modules with underscores (e.g., sage_satellite_stripping),
+                # match against enabled_modules to find the correct split point
+                module_name = None
+                param_key = None
+
+                # Try to match longest enabled module name first
+                for mod in enabled_modules:
+                    if param_name.startswith(mod + '_'):
+                        module_name = mod
+                        param_key = param_name[len(mod) + 1:]
+                        break
+
+                # Fallback: if no match, split on last underscore
+                if module_name is None and '_' in param_name:
+                    parts = param_name.rsplit('_', 1)
+                    if len(parts) == 2:
+                        module_name, param_key = parts
+
+                if module_name and param_key:
                     if module_name not in config['modules']['parameters']:
                         config['modules']['parameters'][module_name] = {}
                     # Try to convert to appropriate type

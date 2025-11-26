@@ -32,6 +32,7 @@ module:
     unit:
       - test_unit_disk_radius.c
       - test_unit_metallicity.c
+      - test_unit_reionization.c
 
     integration: []
     scientific: []
