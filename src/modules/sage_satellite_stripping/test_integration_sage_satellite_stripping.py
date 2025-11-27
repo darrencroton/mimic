@@ -76,16 +76,14 @@ def test_module_loads():
     Expected: Module initialization succeeds without errors
     Validates: Module registration, initialization, and cleanup lifecycle
     Note: Reionization parameters hardcoded in shared/reionization.h
+    Note: Phase 4.4 - BaryonFrac from model_parameters (centralized)
     """
     print("Testing module load and initialization...")
 
     # ===== SETUP =====
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_load",
-        enabled_modules=["sage_satellite_stripping"],
-        module_params={
-            "sage_satellite_stripping_BaryonFrac": "0.17"
-        }
+        enabled_modules=["sage_satellite_stripping"]
     )
 
     # ===== EXECUTE =====
@@ -111,21 +109,31 @@ def test_module_loads():
 
 def test_parameter_configuration():
     """
-    Test that sage_satellite_stripping BaryonFrac parameter can be configured
+    Test that sage_satellite_stripping uses BaryonFrac model parameter
 
-    Expected: Custom parameter value is read and logged
-    Validates: Parameter reading and validation system
+    Expected: Custom BaryonFrac value is read from model_parameters and logged
+    Validates: Model parameter reading and usage
+    Note: Phase 4.4 - BaryonFrac is now a global model parameter, not module-specific
     """
     print("Testing parameter configuration...")
 
     # ===== SETUP =====
+    import yaml
+
+    # Create parameter file with custom BaryonFrac
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_params",
-        enabled_modules=["sage_satellite_stripping"],
-        module_params={
-            "sage_satellite_stripping_BaryonFrac": "0.20"
-        }
+        enabled_modules=["sage_satellite_stripping"]
     )
+
+    # Update model_parameters.BaryonFrac to custom value
+    with open(param_file, 'r') as f:
+        config = yaml.safe_load(f)
+
+    config['model_parameters']['BaryonFrac'] = 0.20
+
+    with open(param_file, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
@@ -133,9 +141,10 @@ def test_parameter_configuration():
     # ===== VALIDATE =====
     assert returncode == 0, "Execution with custom parameters should succeed"
 
-    # Verify parameter was read
-    assert "BaryonFrac = 0.2000" in stdout, \
-        "Custom BaryonFrac should be logged"
+    # Verify parameter was read (from model_parameters, not module-specific)
+    # Note: BaryonFrac is logged during infall/stripping module initialization
+    assert "BaryonFrac = 0.2000" in stdout or "BaryonFrac: 0.2" in stdout, \
+        f"Custom BaryonFrac should be logged\nStdout:\n{stdout}"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)

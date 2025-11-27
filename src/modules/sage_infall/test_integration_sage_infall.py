@@ -333,23 +333,32 @@ def test_output_properties_exist():
 
 def test_parameters_configurable():
     """
-    Test that sage_infall BaryonFrac parameter can be configured
+    Test that sage_infall uses BaryonFrac model parameter
 
-    Expected: Custom parameter value is read and logged
-    Validates: Parameter reading and validation system
+    Expected: Custom BaryonFrac value is read from model_parameters and logged
+    Validates: Model parameter reading and usage
+    Note: Phase 4.4 - BaryonFrac is now a global model parameter, not module-specific
     Note: Reionization parameters now hardcoded in shared/reionization.h
     """
     print("Testing parameter configuration...")
 
     # ===== SETUP =====
-    # Test with non-default parameter value
+    import yaml
+
+    # Create parameter file with custom BaryonFrac
     param_file = create_test_param_file(
         output_name="sage_infall_params",
-        enabled_modules=["sage_infall"],
-        module_params={
-            "sage_infall_BaryonFrac": "0.20"
-        }
+        enabled_modules=["sage_infall"]
     )
+
+    # Update model_parameters.BaryonFrac to custom value
+    with open(param_file, 'r') as f:
+        config = yaml.safe_load(f)
+
+    config['model_parameters']['BaryonFrac'] = 0.20
+
+    with open(param_file, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
@@ -357,9 +366,9 @@ def test_parameters_configurable():
     # ===== VALIDATE =====
     assert returncode == 0, "Execution with custom parameters should succeed"
 
-    # Verify parameter was read
-    assert "BaryonFrac = 0.2000" in stdout, \
-        "Custom BaryonFrac should be logged"
+    # Verify parameter was read (from model_parameters, not module-specific)
+    assert "BaryonFrac = 0.2000" in stdout or "BaryonFrac: 0.2" in stdout, \
+        f"Custom BaryonFrac should be logged\nStdout:\n{stdout}"
 
     print("  ✓ Parameters are configurable")
 

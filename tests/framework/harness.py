@@ -127,7 +127,7 @@ def read_param_file(param_file):
 
 def create_test_param_file(output_name, enabled_modules=None,
                             module_params=None, first_file=0, last_file=0,
-                            ref_param_file=None, temp_dir=None):
+                            ref_param_file=None, temp_dir=None, output_format=None):
     """
     Create a test YAML parameter file with specified module configuration
 
@@ -139,9 +139,10 @@ def create_test_param_file(output_name, enabled_modules=None,
         enabled_modules (list): List of module names to enable (None = physics-free)
         module_params (dict): Dict of {ModuleName_ParameterName: value}
         first_file (int): First file to process (default: 0)
-        last_file (int): Last file to process (default: 0)
-        ref_param_file (str or Path): Reference YAML parameter file (default: millennium.yaml)
+        last_file (int): Last_file (int): Last file to process (default: 0)
+        ref_param_file (str or Path): Reference YAML parameter file (default: test_binary.yaml)
         temp_dir (str or Path): Temporary directory for outputs (default: create new)
+        output_format (str): Output format override ('binary' or 'hdf5', default: from ref file)
 
     Returns:
         tuple: (param_file_path, output_dir_path, temp_dir_path)
@@ -173,7 +174,7 @@ def create_test_param_file(output_name, enabled_modules=None,
 
     # Set defaults
     if ref_param_file is None:
-        ref_param_file = REPO_ROOT / "input" / "millennium.yaml"
+        ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
     if temp_dir is None:
         temp_dir = tempfile.mkdtemp(prefix="mimic_test_")
     else:
@@ -189,6 +190,8 @@ def create_test_param_file(output_name, enabled_modules=None,
 
     # Update configuration
     config['output']['directory'] = str(output_dir)
+    if output_format is not None:
+        config['output']['format'] = output_format  # Override format if specified
     config['input']['first_file'] = first_file
     config['input']['last_file'] = last_file
 
