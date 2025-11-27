@@ -67,15 +67,9 @@ static void ensure_modules_registered(void)
     }
 }
 
-/* Test fixture: Set sage_reincorporation parameters to defaults */
-static void set_default_sage_reincorporation_params(void)
-{
-    strcpy(MimicConfig.ModuleParams[0].module_name, "sage_reincorporation");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "ReIncorporationFactor");
-    strcpy(MimicConfig.ModuleParams[0].value, "1.0");
-
-    MimicConfig.NumModuleParams = 1;
-}
+/* Test fixture: Set all required model parameters (Phase 4.4+)
+ * Defined in tests/unit/test_stubs.c - provides all 20 required parameters */
+extern void set_test_model_parameters(void);
 
 /**
  * @test    test_module_registration
@@ -121,7 +115,7 @@ int test_module_initialization(void)
     /* Configure sage_reincorporation module */
     strcpy(MimicConfig.EnabledModules[0], "sage_reincorporation");
     MimicConfig.NumEnabledModules = 1;
-    set_default_sage_reincorporation_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -159,10 +153,9 @@ int test_parameter_reading(void)
     strcpy(MimicConfig.EnabledModules[0], "sage_reincorporation");
     MimicConfig.NumEnabledModules = 1;
 
-    strcpy(MimicConfig.ModuleParams[0].module_name, "sage_reincorporation");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "ReIncorporationFactor");
-    strcpy(MimicConfig.ModuleParams[0].value, "0.5");  // Custom value
-    MimicConfig.NumModuleParams = 1;
+    /* Set all required parameters, then override specific ones for testing */
+    set_test_model_parameters();
+    strcpy(MimicConfig.ModelParams[14].value, "0.5");  /* ReIncorporationFactor custom value */
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -200,10 +193,9 @@ int test_invalid_parameter(void)
     strcpy(MimicConfig.EnabledModules[0], "sage_reincorporation");
     MimicConfig.NumEnabledModules = 1;
 
-    strcpy(MimicConfig.ModuleParams[0].module_name, "sage_reincorporation");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "ReIncorporationFactor");
-    strcpy(MimicConfig.ModuleParams[0].value, "20.0");  // Out of range [0.0, 10.0]
-    MimicConfig.NumModuleParams = 1;
+    /* Set all required parameters, then override with invalid value */
+    set_test_model_parameters();
+    strcpy(MimicConfig.ModelParams[14].value, "20.0");  /* ReIncorporationFactor invalid - out of range */
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -240,7 +232,7 @@ int test_memory_safety(void)
     /* Configure sage_reincorporation */
     strcpy(MimicConfig.EnabledModules[0], "sage_reincorporation");
     MimicConfig.NumEnabledModules = 1;
-    set_default_sage_reincorporation_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();

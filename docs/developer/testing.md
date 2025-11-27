@@ -1148,6 +1148,58 @@ That section covers:
 - Test templates and examples
 - Common pitfalls and troubleshooting
 
+### Model Parameters Requirement (Phase 4.4+)
+
+**IMPORTANT**: All module unit tests must provide ALL 20 required model parameters.
+
+Since Phase 4.4, all SAGE physics parameters are centralized in `model_parameters.yaml` with NO defaults. Module tests must provide all parameters via a shared test helper:
+
+**Correct pattern for module unit tests:**
+```c
+/* At top of test file - declare helper */
+extern void set_test_model_parameters(void);
+
+/* In test function setup */
+reset_config();
+init_memory_system(0);
+ensure_modules_registered();
+
+/* Set cosmology */
+MimicConfig.Omega = 0.25;
+MimicConfig.OmegaLambda = 0.75;
+MimicConfig.Hubble_h = 0.73;
+
+/* Configure module and provide ALL model parameters */
+strcpy(MimicConfig.EnabledModules[0], "your_module");
+MimicConfig.NumEnabledModules = 1;
+set_test_model_parameters();  /* Provides all 20 required parameters */
+
+/* Optionally override specific parameters for testing */
+strcpy(MimicConfig.ModelParams[0].value, "0.20");  /* Override BaryonFrac */
+
+/* Initialize and test */
+int result = module_system_init();
+```
+
+**What NOT to do (obsolete pattern):**
+```c
+/* ❌ WRONG - ModuleParams no longer used */
+strcpy(MimicConfig.ModuleParams[0].module_name, "YourModule");
+strcpy(MimicConfig.ModuleParams[0].param_name, "SomeParam");
+strcpy(MimicConfig.ModuleParams[0].value, "0.5");
+```
+
+**Why all 20 parameters are required:**
+- Enforces reproducible science: input file = complete model
+- No hidden defaults - all assumptions explicit
+- Single source of truth in `model_parameters.yaml`
+- See `src/modules/model_parameters.yaml` for parameter definitions
+
+**Helper function location:**
+- Defined in: `tests/unit/test_stubs.c`
+- Function: `set_test_model_parameters()`
+- Provides: All 20 required model parameters with standard test values
+
 ### Test Organization
 
 Module tests live with module code:

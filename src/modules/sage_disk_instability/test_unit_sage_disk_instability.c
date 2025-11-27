@@ -77,19 +77,9 @@ static void ensure_modules_registered(void)
     }
 }
 
-/* Test fixture: Set sage_disk_instability parameters to defaults */
-static void set_default_params(void)
-{
-    strcpy(MimicConfig.ModuleParams[0].module_name, "sage_disk_instability");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "DiskInstabilityOn");
-    strcpy(MimicConfig.ModuleParams[0].value, "1");
-
-    strcpy(MimicConfig.ModuleParams[1].module_name, "sage_disk_instability");
-    strcpy(MimicConfig.ModuleParams[1].param_name, "DiskRadiusFactor");
-    strcpy(MimicConfig.ModuleParams[1].value, "3.0");
-
-    MimicConfig.NumModuleParams = 2;
-}
+/* Test fixture: Set all required model parameters (Phase 4.4+)
+ * Defined in tests/unit/test_stubs.c - provides all 20 required parameters */
+extern void set_test_model_parameters(void);
 
 /**
  * @test    test_module_registration
@@ -108,7 +98,7 @@ int test_module_registration(void)
     /* Check module is registered by trying to enable it */
     strcpy(MimicConfig.EnabledModules[0], "sage_disk_instability");
     MimicConfig.NumEnabledModules = 1;
-    set_default_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -141,7 +131,7 @@ int test_module_initialization(void)
 
     strcpy(MimicConfig.EnabledModules[0], "sage_disk_instability");
     MimicConfig.NumEnabledModules = 1;
-    set_default_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -173,16 +163,10 @@ int test_parameter_reading(void)
     strcpy(MimicConfig.EnabledModules[0], "sage_disk_instability");
     MimicConfig.NumEnabledModules = 1;
 
-    /* Configure with non-default values */
-    strcpy(MimicConfig.ModuleParams[0].module_name, "sage_disk_instability");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "DiskInstabilityOn");
-    strcpy(MimicConfig.ModuleParams[0].value, "0");
-
-    strcpy(MimicConfig.ModuleParams[1].module_name, "sage_disk_instability");
-    strcpy(MimicConfig.ModuleParams[1].param_name, "DiskRadiusFactor");
-    strcpy(MimicConfig.ModuleParams[1].value, "5.0");
-
-    MimicConfig.NumModuleParams = 2;
+    /* Set all required parameters, then override specific ones for testing */
+    set_test_model_parameters();
+    strcpy(MimicConfig.ModelParams[18].value, "0");    /* DiskInstabilityOn = off */
+    strcpy(MimicConfig.ModelParams[19].value, "5.0");  /* DiskRadiusFactor custom value */
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -215,12 +199,9 @@ int test_parameter_validation(void)
     strcpy(MimicConfig.EnabledModules[0], "sage_disk_instability");
     MimicConfig.NumEnabledModules = 1;
 
-    /* Set invalid parameter (DiskRadiusFactor outside [1.0, 10.0]) */
-    strcpy(MimicConfig.ModuleParams[0].module_name, "sage_disk_instability");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "DiskRadiusFactor");
-    strcpy(MimicConfig.ModuleParams[0].value, "15.0"); /* Invalid - too large */
-
-    MimicConfig.NumModuleParams = 1;
+    /* Set all required parameters, then override with invalid value */
+    set_test_model_parameters();
+    strcpy(MimicConfig.ModelParams[19].value, "15.0");  /* DiskRadiusFactor invalid - too large */
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -251,7 +232,7 @@ int test_memory_safety(void)
 
     strcpy(MimicConfig.EnabledModules[0], "sage_disk_instability");
     MimicConfig.NumEnabledModules = 1;
-    set_default_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();

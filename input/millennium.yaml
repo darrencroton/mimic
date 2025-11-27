@@ -113,6 +113,3 @@ modules:
   enabled:
   - sage_infall
   - sage_satellite_stripping
-  parameters:
-    sage_infall:
-      BaryonFrac: 0.17

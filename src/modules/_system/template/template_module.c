@@ -41,17 +41,21 @@
 #include "types.h"
 
 // ============================================================================
-// MODULE PARAMETERS
+// MODEL PARAMETERS (Phase 4.4)
 // ============================================================================
 
 /**
- * Module parameters (defaults and validation from module_info.yaml)
+ * Model parameters read from centralized model_parameters.yaml
  *
- * Configuration: template_module_ParameterName
- * Defaults: See module_info.yaml parameters section
+ * Example: If your module uses BaryonFrac and SfrEfficiency:
+ *   static double baryon_frac;     // Read from model_parameters.BaryonFrac
+ *   static double sfr_efficiency;  // Read from model_parameters.SfrEfficiency
+ *
+ * All parameters defined in src/modules/model_parameters.yaml
+ * No defaults - all REQUIRED in input file
  */
-static double PARAM1;
-static double PARAM2;
+static double example_param1;
+static double example_param2;
 
 /* ============================================================================
  * PHYSICS CONSTANTS (if needed)
@@ -101,7 +105,7 @@ static float compute_physics(float input1, double input2) {
   // This is a placeholder - replace with actual physics
 
   // Example: Simple linear relationship
-  float result = PARAM1 * input1 * input2;
+  float result = example_param1 * input1 * input2;
 
   return result;
 }
@@ -114,7 +118,7 @@ static float compute_physics(float input1, double input2) {
  */
 static float another_helper(float x) {
   // TODO: Implement
-  return x * PARAM2;
+  return x * example_param2;
 }
 
 // ============================================================================
@@ -125,7 +129,7 @@ static float another_helper(float x) {
  * @brief   Initialize template module
  *
  * Called once during program startup. Responsibilities:
- * - Read module parameters (validation automatic from module_info.yaml)
+ * - Read model parameters (validation automatic from model_parameters.yaml)
  * - Allocate persistent memory structures
  * - Load external data files (if needed)
  * - Initialize lookup tables (if needed)
@@ -135,24 +139,33 @@ static float another_helper(float x) {
  */
 static int template_module_init(void) {
   // -------------------------------------------------------------------------
-  // 1. Read module parameters (validation automatic from module_info.yaml)
+  // 1. Read model parameters (Phase 4.4: centralized in model_parameters.yaml)
   // -------------------------------------------------------------------------
-
-  if (module_get_double("template_module", "Parameter1", &PARAM1) != 0) {
-    ERROR_LOG("Failed to read Parameter1");
-    return -1;
-  }
-
-  if (module_get_double("template_module", "Parameter2", &PARAM2) != 0) {
-    ERROR_LOG("Failed to read Parameter2");
-    return -1;
-  }
-
-  // TODO: Add more parameter reads as needed
-  // if (module_get_int("template_module", "SomeInt", &some_int) != 0) {
-  //     ERROR_LOG("Failed to read SomeInt");
+  // Example: If your module uses BaryonFrac and SfrEfficiency:
+  //
+  // if (model_get_double("BaryonFrac", &baryon_frac) != 0) {
+  //     ERROR_LOG("Failed to read BaryonFrac");
   //     return -1;
   // }
+  //
+  // if (model_get_double("SfrEfficiency", &sfr_efficiency) != 0) {
+  //     ERROR_LOG("Failed to read SfrEfficiency");
+  //     return -1;
+  // }
+  //
+  // All 20 model parameters are REQUIRED in input file (no defaults).
+  // See src/modules/model_parameters.yaml for complete list.
+
+  // TODO: Replace with actual parameter reads for your module
+  if (model_get_double("ExampleParam1", &example_param1) != 0) {
+    ERROR_LOG("Failed to read ExampleParam1");
+    return -1;
+  }
+
+  if (model_get_double("ExampleParam2", &example_param2) != 0) {
+    ERROR_LOG("Failed to read ExampleParam2");
+    return -1;
+  }
 
   // -------------------------------------------------------------------------
   // 2. Allocate persistent memory (if needed)

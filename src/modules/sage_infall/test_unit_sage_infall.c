@@ -63,15 +63,9 @@ static void ensure_modules_registered(void)
     }
 }
 
-/* Test fixture: Set sage_infall parameters to defaults */
-static void set_default_sage_infall_params(void)
-{
-    strcpy(MimicConfig.ModuleParams[0].module_name, "SageInfall");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "BaryonFrac");
-    strcpy(MimicConfig.ModuleParams[0].value, "0.17");
-
-    MimicConfig.NumModuleParams = 1;
-}
+/* Test fixture: Set all required model parameters (Phase 4.4+)
+ * Defined in tests/unit/test_stubs.c - provides all 20 required parameters */
+extern void set_test_model_parameters(void);
 
 /**
  * @test    test_module_registration
@@ -117,7 +111,7 @@ int test_module_initialization(void)
     /* Configure sage_infall module */
     strcpy(MimicConfig.EnabledModules[0], "sage_infall");
     MimicConfig.NumEnabledModules = 1;
-    set_default_sage_infall_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -152,15 +146,13 @@ int test_parameter_reading(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure with non-default values */
+    /* Configure with custom test values */
     strcpy(MimicConfig.EnabledModules[0], "sage_infall");
     MimicConfig.NumEnabledModules = 1;
+    set_test_model_parameters();
 
-    strcpy(MimicConfig.ModuleParams[0].module_name, "SageInfall");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "BaryonFrac");
-    strcpy(MimicConfig.ModuleParams[0].value, "0.20");
-
-    MimicConfig.NumModuleParams = 1;
+    /* Override one parameter to test custom value reading */
+    strcpy(MimicConfig.ModelParams[0].value, "0.20");  /* BaryonFrac custom value */
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -196,7 +188,7 @@ int test_memory_safety(void)
 
     strcpy(MimicConfig.EnabledModules[0], "sage_infall");
     MimicConfig.NumEnabledModules = 1;
-    set_default_sage_infall_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();

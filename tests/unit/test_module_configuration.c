@@ -5,22 +5,15 @@
  * Validates: Module registration, parameter parsing, pipeline execution
  * Phase: Phase 3 (Runtime Module Configuration)
  *
- * This test validates that Mimic's module configuration system correctly:
- * - Parses EnabledModules parameter from config files
- * - Parses module-specific parameters (ModuleName_ParameterName format)
- * - Builds execution pipeline from configuration
- * - Provides parameter access API to modules
- * - Handles physics-free mode (no modules enabled)
- * - Validates module names and reports errors
+ * Validates module registration and execution pipeline configuration.
  *
  * Test cases:
  *   - test_module_registry_init: Registry initialization
- *   - test_module_parameter_parsing: Parse module parameters from config
  *   - test_enabled_modules_parsing: Parse EnabledModules list
- *   - test_module_parameter_api: Module parameter access functions
  *   - test_physics_free_mode: No modules enabled
+ *   - test_valid_module_initialization: Initialize valid modules
  *   - test_unknown_module_error: Invalid module name handling
- *   - test_module_execution_order: Modules execute in config order
+ *   - test_single_module_initialization: Single module configuration
  *
  * @author  Mimic Development Team
  * @date    2025-11-09
@@ -83,42 +76,6 @@ int test_module_registry_init(void) {
 }
 
 /**
- * @test    test_module_parameter_parsing
- * @brief   Test parsing of module-specific parameters
- *
- * Expected: ModuleName_ParameterName format parsed correctly
- * Validates: Parameter parser stores module parameters
- */
-int test_module_parameter_parsing(void) {
-    /* ===== SETUP ===== */
-    reset_config();
-
-    /* Simulate parameter file entries */
-    const char *module_name = "TestModule";
-    const char *param_name = "TestParameter";
-    const char *param_value = "42.5";
-
-    /* ===== EXECUTE ===== */
-    /* Manually populate module parameters (simulating parser behavior) */
-    strcpy(MimicConfig.ModuleParams[0].module_name, module_name);
-    strcpy(MimicConfig.ModuleParams[0].param_name, param_name);
-    strcpy(MimicConfig.ModuleParams[0].value, param_value);
-    MimicConfig.NumModuleParams = 1;
-
-    /* ===== VERIFY ===== */
-    TEST_ASSERT_EQUAL(MimicConfig.NumModuleParams, 1,
-                      "Should have 1 module parameter");
-    TEST_ASSERT_STRING_EQUAL(MimicConfig.ModuleParams[0].module_name,
-                             module_name, "Module name should match");
-    TEST_ASSERT_STRING_EQUAL(MimicConfig.ModuleParams[0].param_name,
-                             param_name, "Parameter name should match");
-    TEST_ASSERT_STRING_EQUAL(MimicConfig.ModuleParams[0].value, param_value,
-                             "Parameter value should match");
-
-    return TEST_PASS;
-}
-
-/**
  * @test    test_enabled_modules_parsing
  * @brief   Test parsing of EnabledModules parameter
  *
@@ -142,93 +99,6 @@ int test_enabled_modules_parsing(void) {
                              "First module should be test_fixture");
     TEST_ASSERT_STRING_EQUAL(MimicConfig.EnabledModules[1], "test_fixture",
                              "Second module should be test_fixture");
-
-    return TEST_PASS;
-}
-
-/**
- * @test    test_module_parameter_api
- * @brief   Test module parameter access API
- *
- * Expected: module_get_double() retrieves parameters correctly
- * Validates: Modules can read their configuration parameters
- */
-int test_module_parameter_api(void) {
-    /* ===== SETUP ===== */
-    reset_config();
-
-    /* Configure a test parameter */
-    strcpy(MimicConfig.ModuleParams[0].module_name, "TestFixture");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "DummyParameter");
-    strcpy(MimicConfig.ModuleParams[0].value, "2.5");
-    MimicConfig.NumModuleParams = 1;
-
-    /* ===== EXECUTE ===== */
-    double dummy_param = 0.0;
-    int result =
-        module_get_double("TestFixture", "DummyParameter", &dummy_param);
-
-    /* ===== VERIFY ===== */
-    TEST_ASSERT_EQUAL(result, 0, "module_get_double should succeed");
-    TEST_ASSERT_DOUBLE_EQUAL(dummy_param, 2.5, 1e-6,
-                             "Should retrieve configured value");
-
-    return TEST_PASS;
-}
-
-/**
- * @test    test_module_parameter_api_default
- * @brief   Test module parameter API with missing parameter
- *
- * Expected: module_get_double() returns default from metadata when parameter not in config
- * Validates: Default value mechanism works correctly (reads from module_info.yaml)
- */
-int test_module_parameter_api_default(void) {
-    /* ===== SETUP ===== */
-    reset_config();
-    ensure_modules_registered();
-
-    /* No parameters configured */
-    MimicConfig.NumModuleParams = 0;
-
-    /* ===== EXECUTE ===== */
-    double baryon_frac = 0.0;
-    int result =
-        module_get_double("sage_infall", "BaryonFrac", &baryon_frac);
-
-    /* ===== VERIFY ===== */
-    TEST_ASSERT_EQUAL(result, 0, "module_get_double should succeed with default");
-    TEST_ASSERT_DOUBLE_EQUAL(baryon_frac, 0.17, 1e-6,
-                             "Should return default value from metadata (module_info.yaml)");
-
-    return TEST_PASS;
-}
-
-/**
- * @test    test_module_parameter_api_integer
- * @brief   Test integer parameter access
- *
- * Expected: module_get_int() retrieves integer parameters correctly
- * Validates: Integer parameter parsing works
- */
-int test_module_parameter_api_integer(void) {
-    /* ===== SETUP ===== */
-    reset_config();
-
-    /* Configure an integer parameter */
-    strcpy(MimicConfig.ModuleParams[0].module_name, "TestModule");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "MaxIterations");
-    strcpy(MimicConfig.ModuleParams[0].value, "100");
-    MimicConfig.NumModuleParams = 1;
-
-    /* ===== EXECUTE ===== */
-    int max_iterations = 0;
-    int result =
-        module_get_int("TestModule", "MaxIterations", &max_iterations);
-
-    /* ===== VERIFY ===== */
-    TEST_ASSERT_EQUAL(result, 0, "module_get_int should succeed");
-    TEST_ASSERT_EQUAL(max_iterations, 100, "Should retrieve configured value");
 
     return TEST_PASS;
 }
@@ -363,11 +233,7 @@ int main(void) {
 
     /* Run tests */
     TEST_RUN(test_module_registry_init);
-    TEST_RUN(test_module_parameter_parsing);
     TEST_RUN(test_enabled_modules_parsing);
-    TEST_RUN(test_module_parameter_api);
-    TEST_RUN(test_module_parameter_api_default);
-    TEST_RUN(test_module_parameter_api_integer);
     TEST_RUN(test_physics_free_mode);
     TEST_RUN(test_valid_module_initialization);
     TEST_RUN(test_unknown_module_error);

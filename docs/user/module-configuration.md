@@ -1,12 +1,18 @@
 # Module Configuration Guide
 
-**Phase**: 3 (Runtime Module Configuration)
+**Phase**: 4.4 (Centralized Model Parameters)
 **Audience**: Users configuring Mimic for scientific runs
-**Prerequisites**: Basic understanding of parameter files
+**Prerequisites**: Basic understanding of YAML parameter files
 
 ## Overview
 
-Mimic's modular architecture allows you to enable/disable galaxy physics modules and configure their parameters at runtime without recompilation. This guide explains how to configure modules via the parameter file.
+Mimic's modular architecture allows you to enable/disable galaxy physics modules and configure model parameters at runtime without recompilation. This guide explains how to configure modules and physics parameters via the YAML parameter file.
+
+**Key Concepts:**
+- **Modules**: Physics components (e.g., sage_cooling, sage_starformation_feedback)
+- **Model Parameters**: Physics parameters shared across modules (e.g., BaryonFrac, SfrEfficiency)
+- **Single Source of Truth**: All parameters defined in `model_parameters.yaml`, configured in input file
+- **No Defaults**: All parameters MUST be specified - ensures reproducible science
 
 ## Enabling Modules
 
@@ -47,197 +53,259 @@ EnabledModules
 # Option 2: Omit the parameter entirely (not recommended for clarity)
 ```
 
-## Module-Specific Parameters
+## Model Parameters (Phase 4.4)
 
-Each module can have configurable parameters using the format:
+**IMPORTANT**: All physics parameters are centralized in the `model_parameters:` section of your YAML configuration file. ALL 20 parameters are REQUIRED - no defaults are used.
 
+### Why All Parameters Are Required
+
+Mimic enforces **explicit model specification** for reproducible science:
+- Your input file defines the complete physics model
+- No hidden defaults - all assumptions are explicit
+- Different runs can be compared by comparing parameter files
+- Parameter definitions are in `src/modules/model_parameters.yaml`
+
+### Parameter Categories
+
+The 20 model parameters are organized into scientific categories:
+
+1. **Cosmological Parameters** (1): BaryonFrac
+2. **Cooling & AGN Feedback** (3): RadioModeEfficiency, AGNrecipeOn, CoolFunctionsDir
+3. **Star Formation** (4): SFprescription, SfrEfficiency, EnergySNcode, EtaSNcode
+4. **Stellar Feedback** (3): SupernovaRecipeOn, FeedbackReheatingEpsilon, FeedbackEjectionEfficiency
+5. **Stellar Evolution** (3): RecycleFraction, Yield, FracZleaveDisk
+6. **Gas Reincorporation** (1): ReIncorporationFactor
+7. **Galaxy Mergers** (3): BlackHoleGrowthRate, QuasarModeEfficiency, ThreshMajorMerger
+8. **Disk Instability** (2): DiskInstabilityOn, DiskRadiusFactor
+
+### YAML Configuration Format
+
+```yaml
+# All 20 parameters REQUIRED (values shown are SAGE defaults)
+model_parameters:
+  # Cosmological Parameters
+  BaryonFrac: 0.17
+
+  # Cooling & AGN Feedback
+  RadioModeEfficiency: 0.01
+  AGNrecipeOn: 1
+  CoolFunctionsDir: "input/CoolFunctions"
+
+  # Star Formation
+  SFprescription: 0
+  SfrEfficiency: 0.02
+  EnergySNcode: 1.0
+  EtaSNcode: 0.5
+
+  # Stellar Feedback
+  SupernovaRecipeOn: 1
+  FeedbackReheatingEpsilon: 3.0
+  FeedbackEjectionEfficiency: 0.3
+
+  # Stellar Evolution
+  RecycleFraction: 0.43
+  Yield: 0.03
+  FracZleaveDisk: 0.3
+
+  # Gas Reincorporation
+  ReIncorporationFactor: 1.0
+
+  # Galaxy Mergers
+  BlackHoleGrowthRate: 0.01
+  QuasarModeEfficiency: 0.001
+  ThreshMajorMerger: 0.3
+
+  # Disk Instability
+  DiskInstabilityOn: 1
+  DiskRadiusFactor: 3.0
 ```
-module_name_ParameterName  value
-```
 
-### Parameter Format
+**Complete Example**: See `input/millennium.yaml` for a working configuration file.
 
-- **Naming**: `module_name_ParameterName` (underscore separator)
-- **Module name**: Must match exactly (case-sensitive, snake_case)
-- **Parameter name**: Defined by each module (PascalCase for visual distinction)
-- **Value**: String (modules parse to appropriate type)
+**Parameter Descriptions**: See `src/modules/model_parameters.yaml` for detailed documentation of each parameter (units, valid ranges, scientific meaning).
 
-**Naming Convention Note**: The mixed case format provides visual clarity:
-- Module names use `snake_case` (e.g., `sage_infall`, `simple_cooling`)
-- Parameter names use `PascalCase` (e.g., `BaryonFrac`, `Efficiency`)
-- Combined format: `sage_infall_BaryonFrac`, `simple_cooling_BaryonFraction`
+## Available Modules (Phase 4.4)
 
-This convention makes it easy to visually distinguish the module name from the parameter name in configuration files.
+**Note**: Module-specific parameters have been removed in Phase 4.4. All physics parameters are now centralized in the `model_parameters:` section (see above). Modules are enabled via `modules.enabled:` list.
 
-### Example: Single Module
+### SAGE Physics Modules
 
-```
-# Enable a cooling module
-EnabledModules  cooling_model
+The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
-# Configure cooling parameters
-CoolingModel_BaryonFraction  0.15
-```
+#### sage_infall
 
-### Example: Multiple Modules
-
-```
-# Enable multiple modules
-EnabledModules  cooling_model,starformation_model
-
-# Cooling module parameters
-CoolingModel_BaryonFraction  0.15
-
-# Star formation parameters
-StarformationModel_Efficiency  0.02
-```
-
-## Available Modules (Phase 3)
-
-### simple_cooling
-
-**Purpose**: Placeholder cooling module for infrastructure testing.
-
-**Physics**: ΔColdGas = f_baryon * ΔMvir
-
-**Parameters**:
-- `simple_cooling_BaryonFraction` (optional, default=0.15)
-  - Fraction of accreted mass that cools
-  - Valid range: 0.0 - 1.0
-  - Cosmic value: ~0.15 (Ω_b/Ω_m)
-
-**Dependencies**: None
-
-**Provides**: ColdGas property
-
----
-
-### simple_sfr
-
-**Purpose**: Placeholder star formation module for infrastructure testing.
-
-**Physics**: ΔStellarMass = ε * ColdGas * (Vvir/Rvir) * Δt
-
-**Parameters**:
-- `simple_sfr_Efficiency` (optional, default=0.02)
-  - Star formation efficiency
-  - Valid range: 0.0 - 1.0
-  - Typical values: 0.01 - 0.05
-
-**Dependencies**:
-- Requires ColdGas (from simple_cooling or similar)
-- Must run after cooling module
-
-**Provides**: StellarMass property
-
----
-
-### sage_infall
-
-**Purpose**: SAGE model implementation of cosmological gas infall and satellite stripping.
+**Purpose**: Cosmological gas infall and satellite stripping
 
 **Physics**:
 - Gas infall: infallingMass = f_reion * BaryonFrac * Mvir - (total baryons)
 - Reionization suppression following Gnedin (2000)
 - Environmental stripping of satellite hot gas
 
-**Parameters**:
-- `sage_infall_BaryonFrac` (optional, default=0.17)
-  - Cosmic baryon fraction (Ωb/Ωm)
-  - Valid range: 0.0 - 1.0
-  - Planck value: ~0.17
-
-- `sage_infall_ReionizationOn` (optional, default=1)
-  - Enable (1) or disable (0) reionization suppression
-  - Valid values: 0 or 1
-  - Disable for testing or pre-reionization runs
-
-- `sage_infall_Reionization_z0` (optional, default=8.0)
-  - Redshift when UV background turns on
-  - Valid range: 0.0 - 20.0
-  - Typical value: 8.0
-
-- `sage_infall_Reionization_zr` (optional, default=7.0)
-  - Redshift of full reionization
-  - Valid range: 0.0 - 20.0
-  - Typical value: 7.0
-
 **Dependencies**: None (provides initial hot gas reservoir)
 
-**Provides**: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons
+**Provides**: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons, InfallingGas
 
 **Execution Order**: Should run **early** in pipeline (before cooling, star formation)
 
-**Example Configuration**:
-```
-# Basic usage with defaults
-EnabledModules  sage_infall
-
-# Custom reionization parameters
-EnabledModules  sage_infall
-sage_infall_BaryonFrac            0.17
-sage_infall_ReionizationOn        1
-sage_infall_Reionization_z0       8.0
-sage_infall_Reionization_zr       7.0
-
-# Disable reionization (for testing)
-EnabledModules  sage_infall
-sage_infall_ReionizationOn        0
-```
-
-**Note**: Physics validation deferred to Phase 4.3+ when downstream modules are implemented. See `src/modules/sage_infall/README.md` for complete documentation.
+**Model Parameters Used**: BaryonFrac
 
 ---
 
-## Complete Example Parameter File
+#### sage_satellite_stripping
 
+**Purpose**: Environmental gas stripping for satellite galaxies
+
+**Physics**: Removes hot gas from satellites in massive halos
+
+**Dependencies**: Requires sage_infall (provides hot gas reservoir)
+
+**Provides**: Updates HotGas, MetalsHotGas for satellites
+
+**Execution Order**: After sage_infall, before cooling
+
+**Model Parameters Used**: BaryonFrac
+
+---
+
+#### sage_cooling
+
+**Purpose**: Gas cooling from hot halo to cold disk
+
+**Physics**: Radiative cooling with AGN feedback suppression
+
+**Dependencies**: Requires hot gas (from sage_infall)
+
+**Provides**: ColdGas, MetalsColdGas
+
+**Execution Order**: After infall/stripping, before star formation
+
+**Model Parameters Used**: RadioModeEfficiency, AGNrecipeOn, CoolFunctionsDir
+
+---
+
+#### sage_starformation_feedback
+
+**Purpose**: Star formation and supernova feedback
+
+**Physics**: Converts cold gas to stars, reheats/ejects gas via supernovae
+
+**Dependencies**: Requires ColdGas (from sage_cooling)
+
+**Provides**: StellarMass, MetalsStellarMass (updates HotGas, EjectedMass)
+
+**Execution Order**: After cooling
+
+**Model Parameters Used**: SFprescription, SfrEfficiency, EnergySNcode, EtaSNcode, SupernovaRecipeOn, FeedbackReheatingEpsilon, FeedbackEjectionEfficiency, RecycleFraction, Yield, FracZleaveDisk
+
+---
+
+#### sage_reincorporation
+
+**Purpose**: Reincorporation of ejected gas back to hot halo
+
+**Physics**: Time-dependent return of ejected baryons
+
+**Dependencies**: Requires EjectedMass (from sage_starformation_feedback)
+
+**Provides**: Updates HotGas, EjectedMass
+
+**Execution Order**: After star formation
+
+**Model Parameters Used**: ReIncorporationFactor
+
+---
+
+#### sage_mergers
+
+**Purpose**: Galaxy mergers and black hole growth
+
+**Physics**: Handles major/minor mergers, BH accretion, quasar feedback
+
+**Dependencies**: Tree structure (galaxy hierarchies)
+
+**Provides**: BlackHoleMass (triggers bulge formation, quasar feedback)
+
+**Execution Order**: After star formation
+
+**Model Parameters Used**: BlackHoleGrowthRate, QuasarModeEfficiency, ThreshMajorMerger
+
+---
+
+#### sage_disk_instability
+
+**Purpose**: Disk instability and bulge formation
+
+**Physics**: Converts unstable disk stars to bulge
+
+**Dependencies**: Requires StellarMass
+
+**Provides**: BulgeMass, DiskMass
+
+**Execution Order**: After star formation
+
+**Model Parameters Used**: DiskInstabilityOn, DiskRadiusFactor
+
+---
+
+### Legacy Test Modules (Archived)
+
+The following modules were used for infrastructure testing in Phase 3 and are now archived:
+
+- **simple_cooling**: Placeholder cooling (archived to `src/modules/_archive/`)
+- **simple_sfr**: Placeholder star formation (archived to `src/modules/_archive/`)
+
+**Note**: For production runs, use the SAGE modules above.
+
+---
+
+## Complete Example Configuration
+
+See `input/millennium.yaml` for a complete working configuration file. Key sections:
+
+```yaml
+# Model Parameters - ALL 20 REQUIRED
+model_parameters:
+  BaryonFrac: 0.17
+  RadioModeEfficiency: 0.01
+  # ... (all 20 parameters, see file for complete list)
+
+# Output Configuration
+output:
+  file_base_name: model
+  directory: ./output/results/millennium/
+  format: hdf5
+  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
+
+# Input Files
+input:
+  first_file: 0
+  last_file: 7
+  tree_name: trees_063
+  tree_type: lhalo_binary
+  simulation_dir: ./input/data/millennium/
+
+# Simulation Properties
+simulation:
+  cosmology:
+    omega_matter: 0.25
+    omega_lambda: 0.75
+    hubble_h: 0.73
+  box_size: 62.5
+  particle_mass: 0.0860657
+
+# Physics Modules
+modules:
+  enabled:
+  - sage_infall
+  - sage_satellite_stripping
+  - sage_cooling
+  - sage_starformation_feedback
+  - sage_reincorporation
+  - sage_mergers
+  - sage_disk_instability
 ```
-%------------------------------------------
-%----- Simulation Information ------------
-%------------------------------------------
-FirstFile               0
-LastFile                7
-OutputDir               ./output/results/millennium/
-TreeName                trees_063
-SimulationDir           ./input/trees/millennium/
-FileWithSnapList        ./input/a_list.txt
 
-%------------------------------------------
-%----- Cosmological Parameters ------------
-%------------------------------------------
-Omega                   0.25
-OmegaLambda             0.75
-PartMass                0.0860657
-Hubble_h                0.73
-BoxSize                 500.0
-
-%------------------------------------------
-%----- Output Control ---------------------
-%------------------------------------------
-LastSnapshotNr          63
-NumOutputs              -1
-TreeType                lhalo_binary
-OutputFormat            binary
-OutputFileBaseName      millennium
-
-%------------------------------------------
-%----- Units (auto-calculated) -----------
-%------------------------------------------
-UnitLength_in_cm               3.08568e+24
-UnitVelocity_in_cm_per_s       100000
-UnitMass_in_g                  1.989e+43
-
-%------------------------------------------
-%----- Galaxy Physics Modules -------------
-%------------------------------------------
-EnabledModules          cooling_model,starformation_model
-
-# Cooling module parameters
-CoolingModel_BaryonFraction    0.15
-
-# Star formation module parameters
-StarformationModel_Efficiency  0.02
-```
+**Note**: The YAML format replaced the old text-based format in Phase 4.4. YAML provides better structure, validation, and is industry-standard.
 
 ## Error Handling
 
@@ -245,51 +313,68 @@ StarformationModel_Efficiency  0.02
 
 If you list a module that isn't registered:
 
-```
-EnabledModules  fake_module
+```yaml
+modules:
+  enabled:
+  - fake_module
 ```
 
 **Error**:
 ```
-ERROR: Module 'fake_module' listed in EnabledModules but not registered
+ERROR: Module 'fake_module' listed in modules.enabled but not registered
 Available modules:
-  - module_a
-  - module_b
-  - module_c
+  - sage_infall
+  - sage_cooling
+  - sage_starformation_feedback
+  - ...
 ```
 
 **Solution**: Check module name spelling or verify module is compiled
 
-### Missing Parameter
+### Missing Model Parameter
 
-If a parameter is not specified in the configuration file, the module uses the default value from `module_info.yaml`.
+**All 20 model parameters are REQUIRED.** If any parameter is missing:
+
+**Error**:
+```
+ERROR: Required model parameter 'BaryonFrac' not found in configuration
+```
+
+**Solution**: Add the missing parameter to the `model_parameters:` section. See `src/modules/model_parameters.yaml` for the complete list of required parameters.
 
 ### Invalid Parameter Value
 
-Parameter values are validated against ranges defined in `module_info.yaml`. Invalid values produce error messages:
+Parameter values are validated against ranges defined in `model_parameters.yaml`:
 
+**Error**:
 ```
-ERROR: simple_cooling_BaryonFraction = 2.0 is outside valid range [0.0, 1.0]
+ERROR: BaryonFrac = 2.0 is outside valid range [0.0, 1.0]
 ```
+
+**Solution**: Correct the parameter value to be within the valid range.
 
 ## Tips
 
-1. **Start with defaults**: Omit optional parameters to use defaults, add configuration as needed
-2. **One module at a time**: When testing, enable modules one at a time to isolate issues
-3. **Check logs**: Module initialization logs show which parameters were loaded
-4. **Physics order**: Always list modules in dependency order (cooling before star formation)
-5. **Comment your config**: Use `#` or `%` to document why you chose specific values
+1. **Copy from example**: Start with `input/millennium.yaml` and modify as needed
+2. **All parameters required**: You must specify all 20 model parameters explicitly
+3. **One module at a time**: When testing, enable modules one at a time to isolate issues
+4. **Check logs**: Module initialization logs show which parameters were loaded
+5. **Physics order**: Always list modules in dependency order (see module descriptions above)
+6. **Comment your config**: Use `#` in YAML to document why you chose specific values
 
 ## Troubleshooting
 
 **Problem**: Modules not executing
-**Check**: `EnabledModules` parameter present and module names spelled correctly
+**Check**: `modules.enabled:` list present and module names spelled correctly
+
+**Problem**: Missing parameter errors
+**Check**: All 20 model parameters specified in `model_parameters:` section
 
 **Problem**: Wrong physics results
-**Check**: Module execution order - dependencies must run first
+**Check**: Module execution order - dependencies must run first (see module descriptions above)
 
-**Problem**: Parameter not taking effect
-**Check**: Parameter name matches exactly (ModuleName_ParameterName format)
+**Problem**: Parameter value errors
+**Check**: Parameter values within valid ranges (see `src/modules/model_parameters.yaml`)
 
 **Problem**: Module errors at initialization
 **Check**: Module logs during initialization for parameter validation errors

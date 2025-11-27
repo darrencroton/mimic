@@ -196,11 +196,12 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 - Includes: struct Halo, struct GalaxyData, struct HaloOutput
 - Python dtypes auto-generated for reading output
 
-**Module System (Phase 3 complete):**
-- Runtime-configurable via `EnabledModules` parameter
+**Module System (Phase 4.4 complete):**
+- Runtime-configurable via `modules.enabled` YAML list
 - Physics-agnostic core (zero knowledge of specific modules)
 - Module lifecycle: init → process → cleanup
-- Module parameters: `ModuleName_ParameterName` format
+- Centralized model parameters: all 20 physics parameters in `model_parameters.yaml`
+- No defaults: all parameters REQUIRED in input file for reproducible science
 
 **Memory Management:**
 - Custom allocator with leak detection

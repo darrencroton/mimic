@@ -67,19 +67,9 @@ static void ensure_modules_registered(void)
     }
 }
 
-/* Test fixture: Set sage_cooling parameters to defaults */
-static void set_default_sage_cooling_params(void)
-{
-    strcpy(MimicConfig.ModuleParams[0].module_name, "SageCooling");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "RadioModeEfficiency");
-    strcpy(MimicConfig.ModuleParams[0].value, "0.01");
-
-    strcpy(MimicConfig.ModuleParams[1].module_name, "SageCooling");
-    strcpy(MimicConfig.ModuleParams[1].param_name, "AGNrecipeOn");
-    strcpy(MimicConfig.ModuleParams[1].value, "1");
-
-    MimicConfig.NumModuleParams = 2;
-}
+/* Test fixture: Set all required model parameters (Phase 4.4+)
+ * Defined in tests/unit/test_stubs.c - provides all 20 required parameters */
+extern void set_test_model_parameters(void);
 
 /**
  * @test    test_module_registration
@@ -96,7 +86,7 @@ int test_module_registration(void)
     reset_config();
     strcpy(MimicConfig.EnabledModules[0], "sage_cooling");
     MimicConfig.NumEnabledModules = 1;
-    MimicConfig.NumModuleParams = 0;
+    set_test_model_parameters();
 
     /* Should fail if module not registered */
     int result = module_system_init();
@@ -311,7 +301,7 @@ int test_memory_safety(void)
     reset_config();
     strcpy(MimicConfig.EnabledModules[0], "sage_cooling");
     MimicConfig.NumEnabledModules = 1;
-    set_default_sage_cooling_params();
+    set_test_model_parameters();
 
     int result = module_system_init();
     TEST_ASSERT(result == 0, "Module init must succeed for memory test");
@@ -340,16 +330,10 @@ int test_parameter_reading(void)
     strcpy(MimicConfig.EnabledModules[0], "sage_cooling");
     MimicConfig.NumEnabledModules = 1;
 
-    /* Set custom parameters */
-    strcpy(MimicConfig.ModuleParams[0].module_name, "SageCooling");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "RadioModeEfficiency");
-    strcpy(MimicConfig.ModuleParams[0].value, "0.02");  /* Non-default */
-
-    strcpy(MimicConfig.ModuleParams[1].module_name, "SageCooling");
-    strcpy(MimicConfig.ModuleParams[1].param_name, "AGNrecipeOn");
-    strcpy(MimicConfig.ModuleParams[1].value, "2");  /* Bondi-Hoyle mode */
-
-    MimicConfig.NumModuleParams = 2;
+    /* Set all required parameters, then override specific ones for testing */
+    set_test_model_parameters();
+    strcpy(MimicConfig.ModelParams[1].value, "0.02");  /* RadioModeEfficiency custom value */
+    strcpy(MimicConfig.ModelParams[2].value, "2");     /* AGNrecipeOn = Bondi-Hoyle mode */
 
     int result = module_system_init();
     TEST_ASSERT(result == 0, "Module should initialize with custom parameters");

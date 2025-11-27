@@ -1,6 +1,6 @@
 # Module Developer Guide
 
-**Version**: 1.0 (Phase 4.1)
+**Version**: 1.1 (Phase 4.4)
 **Audience**: Developers implementing galaxy physics modules
 **Prerequisites**: Familiarity with C programming, understanding of Mimic architecture (`docs/architecture/vision.md`)
 
@@ -23,7 +23,7 @@
 
 **Key patterns:**
 - Access galaxy data via property accessors: `get_ColdGas(gal)`, `set_StellarMass(gal, value)`
-- Read parameters from `MimicConfig`: Named as `ModuleName_ParameterName`
+- Read parameters using `model_get_*()` API from centralized `model_parameters.yaml`
 - Add properties in `src/modules/galaxy_properties.yaml`, run `make generate`
 - Co-locate tests with module code (auto-discovered)
 
@@ -162,8 +162,8 @@ module:
     requires: []  # Properties your module needs
     provides: []  # Properties your module creates
 
-  # Parameters
-  parameters: []  # Add your parameters here
+  # Model parameters used by this module
+  model_parameters_used: []  # List parameter names from model_parameters.yaml
 
   # Build configuration
   compilation_requires: []
@@ -245,9 +245,12 @@ modules:
   - existing_module_a
   - existing_module_b
   - my_module
-  parameters:
-    MyModule:
-      SomeParameter: 1.5
+
+# Model parameters (centralized in model_parameters.yaml)
+model_parameters:
+  BaryonFrac: 0.17
+  SfrEfficiency: 0.02
+  # ... other parameters from model_parameters.yaml
 ```
 
 Run:
@@ -265,7 +268,7 @@ Run:
 **Purpose**: One-time initialization during program startup
 
 **Responsibilities**:
-- Read module parameters from configuration
+- Read model parameters from centralized configuration
 - Allocate persistent memory structures
 - Load external data files (cooling tables, yields, etc.)
 - Initialize lookup tables or caches
@@ -278,9 +281,9 @@ static double MY_EFFICIENCY;
 static double *cooling_table = NULL;
 
 static int my_module_init(void) {
-    // Read parameters (validation automatic from module_info.yaml)
-    if (module_get_double("MyModule", "Efficiency", &MY_EFFICIENCY) != 0) {
-        ERROR_LOG("Failed to read Efficiency parameter");
+    // Read parameters from centralized model_parameters.yaml
+    if (model_get_double("SfrEfficiency", &MY_EFFICIENCY) != 0) {
+        ERROR_LOG("Failed to read SfrEfficiency parameter");
         return -1;
     }
 
@@ -299,7 +302,7 @@ static int my_module_init(void) {
 
     // Log configuration
     INFO_LOG("My module initialized");
-    INFO_LOG("  Efficiency = %.3f", MY_EFFICIENCY);
+    INFO_LOG("  SfrEfficiency = %.3f", MY_EFFICIENCY);
     INFO_LOG("  Cooling table: 1000 entries loaded");
 
     return 0;
@@ -307,18 +310,18 @@ static int my_module_init(void) {
 ```
 
 **Common Patterns**:
-- ✅ Use `module_get_double()`, `module_get_int()` for parameters
+- ✅ Use `model_get_double()`, `model_get_int()` for parameters
 - ✅ Check return values from parameter functions (return -1 if failed)
 - ✅ Use `malloc_tracked()` for memory allocation (enables leak detection)
-- ✅ Validate external data files (parameter validation is automatic)
+- ✅ Validate external data files
 - ✅ Log configuration details for debugging
 - ✅ Return -1 on error, 0 on success
 
 **Anti-Patterns**:
 - ❌ Don't modify simulation parameters (`ctx->params` is read-only)
 - ❌ Don't allocate per-halo memory here (do it in `process_halos`)
-- ❌ Don't hardcode parameter values or defaults (defined in module_info.yaml)
-- ❌ Don't manually validate parameter ranges (automatic from module_info.yaml)
+- ❌ Don't hardcode parameter values (use model_parameters.yaml)
+- ❌ Don't create module-specific parameters (use centralized model_parameters.yaml)
 
 ### 2. Process Phase (`process_halos` function)
 
@@ -529,92 +532,99 @@ Halo Freed:
 
 ## Parameter Handling
 
-### Parameter Naming Convention
+### Centralized Model Parameters (Phase 4.4)
 
-Format: `module_name_ParameterName` (snake_case module, PascalCase parameter)
+**All model parameters are centralized** in `src/modules/model_parameters.yaml`. There are no module-specific parameters. Modules read from the centralized parameter set using the `model_get_*()` API.
 
-Examples (from actual modules):
-- `sage_infall_BaryonFrac`
-- `sage_cooling_RadioModeEfficiency`
-- `sage_starformation_feedback_SfrEfficiency`
+**Key Concepts:**
+- **20 model parameters total** - All defined in `model_parameters.yaml`
+- **All parameters are REQUIRED** - No defaults, users must specify all values
+- **Shared across modules** - Multiple modules can use the same parameters
+- **Single source of truth** - All scientific parameters in one place
 
-**Important**: Module names must match the `name` field in `module_info.yaml` (snake_case).
+### Available Model Parameters
 
-**Deliberate Design Choice**: This convention uses mixed case intentionally:
-- `snake_case` for module names (matches `module_info.yaml` name field)
-- `PascalCase` for parameter names (provides visual distinction when combined)
-- The underscore separator makes parameters easily parseable and visually distinct
-- This trades conventional consistency for improved user clarity in configuration files
+See `src/modules/model_parameters.yaml` for the complete list of 20 parameters including:
+- `BaryonFrac` - Baryon fraction (used by infall, cooling, etc.)
+- `SfrEfficiency` - Star formation efficiency
+- `RadioModeEfficiency` - Radio mode AGN feedback efficiency
+- `QuasarModeEfficiency` - Quasar mode AGN feedback efficiency
+- `ReIncorporationFactor` - Gas reincorporation timescale factor
+- And 15 more...
 
 ### Reading Parameters
 
-Use the parameter API in `module_registry.h`. Define parameters and their defaults in `module_info.yaml`:
+Use the centralized parameter API in `src/core/model_parameters.h`:
 
 ```c
-// Double parameter (validation automatic from module_info.yaml)
-// Note: Use snake_case module name, PascalCase parameter name
-double efficiency;
-if (module_get_double("my_module", "Efficiency", &efficiency) != 0) {
-    ERROR_LOG("Failed to read Efficiency parameter");
+// Double parameter
+double baryon_frac;
+if (model_get_double("BaryonFrac", &baryon_frac) != 0) {
+    ERROR_LOG("Failed to read BaryonFrac parameter");
     return -1;
 }
 
-// Integer parameter (validation automatic from module_info.yaml)
-int min_mass;
-if (module_get_int("my_module", "MinHaloMass", &min_mass) != 0) {
-    ERROR_LOG("Failed to read MinHaloMass parameter");
+// Integer parameter
+int example_int;
+if (model_get_int("ExampleIntParameter", &example_int) != 0) {
+    ERROR_LOG("Failed to read ExampleIntParameter parameter");
     return -1;
 }
-
-// String parameter
-char model[256];
-module_get_parameter("my_module", "Model", model, sizeof(model), "default");
 ```
 
-**Single Source of Truth**: Parameter defaults and validation ranges are defined in `module_info.yaml`. The parameter API automatically provides defaults and validates ranges. Never hardcode defaults or validation logic in C code.
+**Important**: Parameters are REQUIRED. If a parameter is missing from the user's configuration, `model_get_*()` will return an error and the module initialization will fail.
+
+### Declaring Parameter Usage
+
+In your `module_info.yaml`, declare which model parameters your module uses:
+
+```yaml
+module:
+  name: my_module
+  # ...
+
+  # Declare which model parameters this module uses
+  model_parameters_used:
+    - BaryonFrac
+    - SfrEfficiency
+    - ReIncorporationFactor
+```
+
+This documentation helps users understand which parameters affect your module, but does **not** create module-specific parameters. All parameters come from the centralized `model_parameters.yaml`.
 
 ### Parameter Validation
 
-**Automatic validation**: When you define parameter ranges in `module_info.yaml`, validation happens automatically:
-
-```yaml
-# In module_info.yaml
-parameters:
-  - name: Efficiency
-    type: double
-    default: 0.02
-    range: [0.0, 1.0]  # Automatic validation!
-    description: "Star formation efficiency"
-```
+**No validation needed in module code**. All parameters are validated when loaded from the user's configuration file against the definitions in `model_parameters.yaml`.
 
 ```c
 static int my_module_init(void) {
-    double efficiency;
+    double sfr_efficiency;
 
-    // Validation happens automatically based on module_info.yaml range
-    // Note: First arg is snake_case module name matching module_info.yaml
-    int result = module_get_double("my_module", "Efficiency", &efficiency);
-    if (result != 0) {
-        ERROR_LOG("Failed to read Efficiency parameter");
+    // Just read and check for errors - validation already done
+    if (model_get_double("SfrEfficiency", &sfr_efficiency) != 0) {
+        ERROR_LOG("Failed to read SfrEfficiency parameter");
         return -1;
     }
 
     // Store value (already validated)
-    MY_EFFICIENCY = efficiency;
+    MY_SFR_EFFICIENCY = sfr_efficiency;
 
-    INFO_LOG("  Efficiency = %.3f", MY_EFFICIENCY);
+    INFO_LOG("  SfrEfficiency = %.3f", MY_SFR_EFFICIENCY);
     return 0;
 }
 ```
 
-**Single Source of Truth**: Define validation ranges in `module_info.yaml` once. The parameter system automatically validates all values against these ranges.
+**Single Source of Truth**: All 20 model parameters are defined in `src/modules/model_parameters.yaml`. Modules simply read from this centralized configuration.
 
 ### Parameter Documentation
 
-Document parameters in:
-1. **Module code comments**: Explain physics meaning
-2. **User documentation**: `docs/user/module-configuration.md`
-3. **Physics documentation**: Module's `README.md` in the module directory
+Document parameter usage in:
+1. **Module code comments**: Explain how your module uses each parameter
+2. **module_info.yaml**: List parameters in `model_parameters_used`
+3. **Module README**: Explain which parameters affect your physics and how
+4. **User documentation**: Reference `docs/user/module-configuration.md` for parameter descriptions
+
+**Note**: Parameter definitions (names, types, ranges, descriptions) are centralized in `src/modules/model_parameters.yaml`. Don't duplicate these in module documentation.
 
 ---
 
@@ -1107,23 +1117,11 @@ src/modules/cooling_model/
 **Loading Data from Module Directory:**
 
 ```c
-// In module_info.yaml, define parameter with default to module directory
-parameters:
-  - name: CoolFunctionsDir
-    type: string
-    default: "src/modules/cooling_model/CoolFunctions"
-    description: "Directory containing cooling function tables"
-
-// In init(): Load from configurable path (with sensible default)
-static char COOL_FUNCTIONS_DIR[512] = "src/modules/cooling_model/CoolFunctions";
+// In init(): Use hardcoded path to module directory
+static const char *COOL_FUNCTIONS_DIR = "src/modules/cooling_model/CoolFunctions";
 
 static int my_module_init(void) {
-    // Read parameter (allows override if needed)
-    module_get_parameter("cooling_model", "CoolFunctionsDir",
-                        COOL_FUNCTIONS_DIR, sizeof(COOL_FUNCTIONS_DIR),
-                        "src/modules/cooling_model/CoolFunctions");
-
-    // Load tables from module directory
+    // Load tables from module directory (hardcoded path is fine for module data)
     if (load_cooling_tables(COOL_FUNCTIONS_DIR) != 0) {
         ERROR_LOG("Failed to load cooling tables from %s", COOL_FUNCTIONS_DIR);
         return -1;
@@ -1213,12 +1211,15 @@ halos[i].galaxy->ColdGas = new_value;  // ✅
 // WRONG: Hardcoded value
 static double EFFICIENCY = 0.02;  // ❌ Can't be changed by users
 
-// CORRECT: Read from configuration (default from module_info.yaml)
+// CORRECT: Read from centralized model_parameters.yaml
 static double EFFICIENCY;  // No hardcoded default
 
 static int my_module_init(void) {
-    module_get_double("MyModule", "Efficiency", &EFFICIENCY);  // ✅
-    // Default comes from module_info.yaml (single source of truth)
+    // Read from centralized parameters
+    if (model_get_double("SfrEfficiency", &EFFICIENCY) != 0) {  // ✅
+        ERROR_LOG("Failed to read SfrEfficiency parameter");
+        return -1;
+    }
     return 0;
 }
 ```
@@ -1454,10 +1455,9 @@ for (int i = 0; i < ngal; i++) {
 ### Key Functions
 
 ```c
-// Parameter reading (defaults come from module_info.yaml)
-module_get_double(module_name, param_name, &out_value);
-module_get_int(module_name, param_name, &out_value);
-module_get_parameter(module_name, param_name, out_str, max_len, default);
+// Parameter reading (from centralized model_parameters.yaml)
+model_get_double(param_name, &out_value);
+model_get_int(param_name, &out_value);
 
 // Memory management
 malloc_tracked(size, category);
@@ -1493,11 +1493,12 @@ When implementing a module, ensure:
 - [ ] Module follows naming conventions (`lowercase_with_underscores`)
 - [ ] All three lifecycle functions implemented (`init`, `process_halos`, `cleanup`)
 - [ ] Properties defined in YAML metadata, not hardcoded
-- [ ] Parameters read from configuration, not hardcoded
+- [ ] Parameters read using `model_get_*()` API from centralized `model_parameters.yaml`
+- [ ] `model_parameters_used` declared in `module_info.yaml`
 - [ ] Memory allocations use `malloc_tracked()` / `free_tracked()`
 - [ ] Error handling returns -1 on failure, 0 on success
 - [ ] Logging uses appropriate levels (INFO/DEBUG/ERROR)
-- [ ] Module registered in `src/modules/module_init.c`
+- [ ] Module auto-registered via `module_info.yaml` metadata
 - [ ] Unit tests written for pure physics
 - [ ] Integration tests verify full pipeline
 - [ ] Scientific tests validate physics correctness

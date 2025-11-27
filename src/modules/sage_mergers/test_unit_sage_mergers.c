@@ -61,27 +61,9 @@ static void ensure_modules_registered(void)
     }
 }
 
-/* Test fixture: Set sage_mergers parameters to defaults */
-static void set_default_sage_mergers_params(void)
-{
-    strcpy(MimicConfig.ModuleParams[0].module_name, "SageMergers");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "BlackHoleGrowthRate");
-    strcpy(MimicConfig.ModuleParams[0].value, "0.01");
-
-    strcpy(MimicConfig.ModuleParams[1].module_name, "SageMergers");
-    strcpy(MimicConfig.ModuleParams[1].param_name, "ThreshMajorMerger");
-    strcpy(MimicConfig.ModuleParams[1].value, "0.3");
-
-    strcpy(MimicConfig.ModuleParams[2].module_name, "SageMergers");
-    strcpy(MimicConfig.ModuleParams[2].param_name, "QuasarModeEfficiency");
-    strcpy(MimicConfig.ModuleParams[2].value, "0.001");
-
-    strcpy(MimicConfig.ModuleParams[3].module_name, "SageMergers");
-    strcpy(MimicConfig.ModuleParams[3].param_name, "AGNrecipeOn");
-    strcpy(MimicConfig.ModuleParams[3].value, "1");
-
-    MimicConfig.NumModuleParams = 4;
-}
+/* Test fixture: Set all required model parameters (Phase 4.4+)
+ * Defined in tests/unit/test_stubs.c - provides all 20 required parameters */
+extern void set_test_model_parameters(void);
 
 /**
  * @test    test_module_registration
@@ -131,7 +113,7 @@ int test_module_initialization(void)
     strcpy(MimicConfig.EnabledModules[0], "sage_mergers");
     MimicConfig.NumEnabledModules = 1;
 
-    set_default_sage_mergers_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -167,16 +149,10 @@ int test_parameter_reading(void)
     strcpy(MimicConfig.EnabledModules[0], "sage_mergers");
     MimicConfig.NumEnabledModules = 1;
 
-    /* Set custom parameters */
-    strcpy(MimicConfig.ModuleParams[0].module_name, "SageMergers");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "BlackHoleGrowthRate");
-    strcpy(MimicConfig.ModuleParams[0].value, "0.015");
-
-    strcpy(MimicConfig.ModuleParams[1].module_name, "SageMergers");
-    strcpy(MimicConfig.ModuleParams[1].param_name, "ThreshMajorMerger");
-    strcpy(MimicConfig.ModuleParams[1].value, "0.25");
-
-    MimicConfig.NumModuleParams = 2;
+    /* Set all required parameters, then override specific ones for testing */
+    set_test_model_parameters();
+    strcpy(MimicConfig.ModelParams[15].value, "0.015");  /* BlackHoleGrowthRate custom value */
+    strcpy(MimicConfig.ModelParams[17].value, "0.25");   /* ThreshMajorMerger custom value */
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -212,7 +188,7 @@ int test_memory_safety(void)
     strcpy(MimicConfig.EnabledModules[0], "sage_mergers");
     MimicConfig.NumEnabledModules = 1;
 
-    set_default_sage_mergers_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     /* Run multiple init/cleanup cycles */

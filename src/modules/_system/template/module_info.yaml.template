@@ -44,17 +44,16 @@ module:
     #   - MetalsMass
 
   # ===========================================================================
-  # Parameters (REQUIRED, can be empty list)
+  # Model Parameters Used (OPTIONAL - for documentation)
   # ===========================================================================
 
-  parameters: []
-  # Example parameter:
-  #   - name: Efficiency  # Becomes ModuleName_Efficiency in parameter .yaml file
-  #     type: double      # double, int, or string
-  #     default: 0.5
-  #     range: [0.0, 1.0]  # Optional: for numeric types
-  #     description: "Star formation efficiency"
-  #     units: "dimensionless"
+  # List which model_parameters your module uses (informational only)
+  # Actual parameters are defined in src/modules/model_parameters.yaml
+  model_parameters_used: []
+  # Example:
+  #   - BaryonFrac         # Cosmic baryon fraction
+  #   - SfrEfficiency      # Star formation efficiency
+  #   - RecycleFraction    # Stellar recycling
 
   # ===========================================================================
   # Testing (OPTIONAL but recommended)

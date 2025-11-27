@@ -64,69 +64,9 @@ static void ensure_modules_registered(void)
     }
 }
 
-/* Test fixture: Set sage_starformation_feedback parameters to defaults */
-static void set_default_sf_feedback_params(void)
-{
-    int idx = 0;
-
-    /* All 11 parameters with correct module name and parameter names */
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "SFprescription");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "SfrEfficiency");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.02");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "SupernovaRecipeOn");
-    strcpy(MimicConfig.ModuleParams[idx].value, "1");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "FeedbackReheatingEpsilon");
-    strcpy(MimicConfig.ModuleParams[idx].value, "3.0");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "FeedbackEjectionEfficiency");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.3");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "EnergySNcode");
-    strcpy(MimicConfig.ModuleParams[idx].value, "1.0");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "EtaSNcode");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.5");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "RecycleFraction");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.43");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "Yield");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.03");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "FracZleaveDisk");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.3");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarformationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "DiskInstabilityOn");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0");
-    idx++;
-
-    MimicConfig.NumModuleParams = idx;
-}
+/* Test fixture: Set all required model parameters (Phase 4.4+)
+ * Defined in tests/unit/test_stubs.c - provides all 20 required parameters */
+extern void set_test_model_parameters(void);
 
 /**
  * @test    test_module_registration
@@ -173,7 +113,7 @@ int test_module_initialization(void)
     /* Configure sage_starformation_feedback module */
     strcpy(MimicConfig.EnabledModules[0], "sage_starformation_feedback");
     MimicConfig.NumEnabledModules = 1;
-    set_default_sf_feedback_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -212,18 +152,10 @@ int test_parameter_reading(void)
     strcpy(MimicConfig.EnabledModules[0], "sage_starformation_feedback");
     MimicConfig.NumEnabledModules = 1;
 
-    int idx = 0;
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "SfrEfficiency");
-    strcpy(MimicConfig.ModuleParams[idx].value, "0.02");
-    idx++;
-
-    strcpy(MimicConfig.ModuleParams[idx].module_name, "SageStarFormationFeedback");
-    strcpy(MimicConfig.ModuleParams[idx].param_name, "FeedbackReheatingEpsilon");
-    strcpy(MimicConfig.ModuleParams[idx].value, "4.0");
-    idx++;
-
-    MimicConfig.NumModuleParams = idx;
+    /* Set all required parameters, then override specific ones for testing */
+    set_test_model_parameters();
+    strcpy(MimicConfig.ModelParams[5].value, "0.02");  /* SfrEfficiency (already default) */
+    strcpy(MimicConfig.ModelParams[7].value, "4.0");   /* FeedbackReheatingEpsilon custom value */
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -260,7 +192,7 @@ int test_memory_safety(void)
 
     strcpy(MimicConfig.EnabledModules[0], "sage_starformation_feedback");
     MimicConfig.NumEnabledModules = 1;
-    set_default_sf_feedback_params();
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
