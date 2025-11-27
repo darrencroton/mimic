@@ -29,7 +29,7 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
 static int sage_satellite_stripping_cleanup(void);
 
 /* Module-level parameters */
-static double BARYON_FRAC = 0.17; /* Cosmic baryon fraction (Omega_b / Omega_m) */
+static double BARYON_FRAC;
 
 /* ============================================================================
  * HELPER FUNCTIONS
