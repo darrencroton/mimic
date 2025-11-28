@@ -1,6 +1,5 @@
 # Module Configuration Guide
 
-**Phase**: 4.4 (Centralized Model Parameters)
 **Audience**: Users configuring Mimic for scientific runs
 **Prerequisites**: Basic understanding of YAML parameter files
 
@@ -53,7 +52,7 @@ EnabledModules
 # Option 2: Omit the parameter entirely (not recommended for clarity)
 ```
 
-## Model Parameters (Phase 4.4+)
+## Model Parameters
 
 **IMPORTANT**: All physics parameters are centralized in the `model_parameters:` section of your YAML configuration file. Parameters are REQUIRED based on which modules you enable - no defaults are used.
 
@@ -126,9 +125,9 @@ model_parameters:
 
 **Parameter Descriptions**: See `src/modules/model_parameters.yaml` for detailed documentation of each parameter (units, valid ranges, scientific meaning).
 
-## Available Modules (Phase 4.4)
+## Available Modules
 
-**Note**: Module-specific parameters have been removed in Phase 4.4. All physics parameters are now centralized in the `model_parameters:` section (see above). Modules are enabled via `modules.enabled:` list.
+**Note**: All physics parameters are centralized in the `model_parameters:` section (see above). Modules are enabled via `modules.enabled:` list.
 
 ### SAGE Physics Modules
 
@@ -251,7 +250,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 ### Legacy Test Modules (Archived)
 
-The following modules were used for infrastructure testing in Phase 3 and are now archived:
+The following modules were used for infrastructure testing and are now archived:
 
 - **simple_cooling**: Placeholder cooling (archived to `src/modules/_archive/`)
 - **simple_sfr**: Placeholder star formation (archived to `src/modules/_archive/`)
@@ -307,7 +306,7 @@ modules:
   - sage_disk_instability
 ```
 
-**Note**: The YAML format replaced the old text-based format in Phase 4.4. YAML provides better structure, validation, and is industry-standard.
+**Note**: Mimic uses YAML format for configuration. YAML provides better structure, validation, and is industry-standard.
 
 ## Error Handling
 
@@ -386,4 +385,4 @@ ERROR: BaryonFrac = 2.0 is outside valid range [0.0, 1.0]
 
 - `docs/architecture/roadmap.md` - Module system implementation roadmap
 - `docs/architecture/vision.md` - Architectural principles
-- Module developer guide (planned for Phase 4) - Writing new modules
+- Module developer guide - Writing new modules (see `docs/developer/module-developer-guide.md`)

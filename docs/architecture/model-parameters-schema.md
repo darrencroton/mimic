@@ -2,7 +2,7 @@
 
 **Version**: 1.0
 **Created**: 2025-11-28
-**Status**: Implementation Specification (Phase 4.4)
+**Status**: Implementation Specification
 **Purpose**: Define the authoritative schema for model parameter metadata in Mimic
 
 ---
@@ -659,7 +659,7 @@ const char *get_model_param_string(const char *param_name);
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0 | 2025-11-28 | Initial specification (Phase 4.4 completion) |
+| 1.0 | 2025-11-28 | Initial specification |
 
 ---
 

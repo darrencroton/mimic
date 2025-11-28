@@ -1,6 +1,6 @@
 # Module Developer Guide
 
-**Version**: 1.1 (Phase 4.4)
+**Version**: 1.1
 **Audience**: Developers implementing galaxy physics modules
 **Prerequisites**: Familiarity with C programming, understanding of Mimic architecture (`docs/architecture/vision.md`)
 
@@ -121,7 +121,7 @@ struct ModuleContext {
 
 ## Quick Start: Creating Your First Module
 
-**NEW (Phase 4.2.5)**: Module registration is now **automatic** via metadata. No manual code editing required!
+Module registration is **automatic** via metadata. No manual code editing required!
 
 ### Step 1: Copy the Template
 
@@ -532,7 +532,7 @@ Halo Freed:
 
 ## Parameter Handling
 
-### Centralized Model Parameters (Phase 4.4)
+### Centralized Model Parameters
 
 **All model parameters are centralized** in `src/modules/model_parameters.yaml`. There are no module-specific parameters. Modules read from the centralized parameter set using the `model_get_*()` API.
 

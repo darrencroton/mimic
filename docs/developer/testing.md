@@ -778,7 +778,7 @@ Running: test_basic_allocation                              ✗ FAIL
     * @brief   Test description
     *
     * Validates: What this test validates
-    * Phase: Phase 2 (or later phase if adding for new feature)
+    * Context: When this test was added (e.g., added for new feature X)
     */
    ```
 
@@ -947,7 +947,7 @@ def test_new_format():
 
 ## Writing Scientific Tests (Python)
 
-**NEW in Phase 3**: Scientific tests are now **fully metadata-driven**. Validation rules come from YAML property definitions, not hardcoded test logic.
+Scientific tests are **fully metadata-driven**. Validation rules come from YAML property definitions, not hardcoded test logic.
 
 The scientific test validates physical correctness through three levels:
 
@@ -1148,11 +1148,11 @@ That section covers:
 - Test templates and examples
 - Common pitfalls and troubleshooting
 
-### Model Parameters Requirement (Phase 4.4+)
+### Model Parameters Requirement
 
-**IMPORTANT**: All module unit tests must provide ALL 20 required model parameters.
+**IMPORTANT**: All module unit tests must provide ALL required model parameters for the modules being tested.
 
-Since Phase 4.4, all SAGE physics parameters are centralized in `model_parameters.yaml` with NO defaults. Module tests must provide all parameters via a shared test helper:
+All SAGE physics parameters are centralized in `model_parameters.yaml` with NO defaults. Module tests must provide all parameters via a shared test helper:
 
 **Correct pattern for module unit tests:**
 ```c
@@ -1615,7 +1615,7 @@ Mimic's testing framework provides:
 - **CI integration**: Automated testing on every commit
 - **Developer-friendly**: Templates and clear documentation
 
-**Current test coverage** (Phase 3):
+**Current test coverage**:
 - 6 unit tests (memory, properties, parameters, trees, numerics, modules)
 - 3 integration tests (pipeline, output formats with baseline comparison, module workflows)
 - 1 scientific test (comprehensive validation: numerical validity, zero warnings, physical ranges)
@@ -1635,4 +1635,4 @@ Mimic's testing framework provides:
 - Architecture docs: `docs/architecture/`
 - CI logs: GitHub Actions tab
 
-**Last Updated**: 2025-11-10 (Phase 3 Complete - Scientific tests consolidated)
+**Last Updated**: 2025-11-28

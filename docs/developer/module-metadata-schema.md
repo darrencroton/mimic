@@ -56,7 +56,7 @@ This document defines the YAML schema for physics module metadata in Mimic. Modu
 - Module registration code generation (`src/modules/module_init.c`)
 - Test system integration (`tests/unit/module_sources.mk`)
 - Module documentation (`docs/user/module-reference.md`)
-- Build-time module selection (Phase 5)
+- Build-time module selection (future work)
 - Dependency resolution and validation
 
 By defining modules once in metadata, we eliminate manual synchronization across 4+ files and reduce error opportunities by 75% when adding new modules.
@@ -574,7 +574,7 @@ docs:
 **Rules**:
 - List of feature flags: `HDF5`, `MPI`, `GSL`, etc.
 - Empty list or omitted if no special dependencies
-- Used for conditional compilation (Phase 5)
+- Used for conditional compilation (future work)
 
 **Example**:
 ```yaml
@@ -820,7 +820,7 @@ The validation script (`scripts/validate_modules.py`) performs comprehensive che
 - Register function has correct signature
 - Module struct properly defined
 
-### 5. Dependency Validation (Enhanced - Phase 4.2.10)
+### 5. Dependency Validation
 
 **Property Existence (ERROR - Blocking)**:
 - All properties in `requires` must exist in `galaxy_properties.yaml` OR `halo_properties.yaml`
@@ -1110,7 +1110,7 @@ parameters:
 
 ## Version History
 
-- **v1.0** (2025-11-12): Initial specification for Phase 4.2.5 infrastructure implementation
+- **v1.0** (2025-11-12): Initial specification for automatic module discovery infrastructure
 
 ---
 

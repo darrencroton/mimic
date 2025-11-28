@@ -134,7 +134,7 @@ read_parameter_file(paramfilename)
 ├─ parse_units_section()            // Parse units: section
 │  └─ [Stores: UnitLength_in_cm, UnitMass_in_g, UnitVelocity_in_cm_per_s]
 │
-├─ parse_model_parameters_section() // Parse model_parameters: section (Phase 4.4)
+├─ parse_model_parameters_section() // Parse model_parameters: section
 │  └─ [Stores: ModelParams[] name-value pairs]
 │
 ├─ parse_modules_section()          // Parse modules: section
@@ -681,7 +681,7 @@ prepare_output_for_tree()
    │     │
    │     └─ H5Gclose()
    │
-   ├─ store_run_properties()           // Write simulation config (Phase 4.4: direct access)
+   ├─ store_run_properties()           // Write simulation config (direct property access)
    │  ├─ H5Gcreate()                   // Create RunProperties group
    │  ├─ H5Screate_simple()
    │  ├─ H5Tcopy() / H5Tset_size()     // Setup string type
@@ -1074,6 +1074,6 @@ main()
 - Profile memory usage at high watermark points
 
 **For extending:**
-- Add new physics modules in Phase 4 (Halo Processing)
-- Add new output formats by branching in Phase 5
-- Add new tree formats by branching in Phase 3
+- Add new physics modules in Halo Processing step
+- Add new output formats by branching in Output Writing step
+- Add new tree formats by branching in Tree Reading step

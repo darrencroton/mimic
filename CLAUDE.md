@@ -162,6 +162,7 @@ src/
 ├── util/          Utilities (memory, error, numeric, version, I/O)
 ├── modules/       Physics modules
 │   ├── galaxy_properties.yaml  Galaxy property metadata (auto-generates C code)
+│   ├── model_parameters.yaml   Model parameter metadata (auto-generates validation code)
 │   ├── _archive/               Archived modules (historical reference)
 │   ├── _system/                System infrastructure (don't touch)
 │   │   ├── generated/          Auto-generated module registration
@@ -172,7 +173,7 @@ src/
 │   ├── module_b/               Example physics module
 │   └── module_c/               Example physics module
 └── include/       Headers (types, globals, constants)
-    └── generated/ Auto-generated property code
+    └── generated/ Auto-generated property code and model parameter validation
 
 build/generated/     Build-time generated files (git_version.h, test lists)
 tests/               Unit, integration, and scientific tests
@@ -196,12 +197,17 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 - Includes: struct Halo, struct GalaxyData, struct HaloOutput
 - Python dtypes auto-generated for reading output
 
-**Module System (Phase 4.4 complete):**
+**Centralized Model Parameter System:**
+- All physics parameters defined in `src/modules/model_parameters.yaml`
+- Auto-generates validation code and type-safe accessors via `make generate`
+- No defaults: all parameters REQUIRED in input file for reproducible science
+- Smart validation: only parameters needed by enabled modules are required
+- Modules declare parameter dependencies in their `module_info.yaml`
+
+**Module System:**
 - Runtime-configurable via `modules.enabled` YAML list
 - Physics-agnostic core (zero knowledge of specific modules)
 - Module lifecycle: init → process → cleanup
-- Centralized model parameters: all 20 physics parameters in `model_parameters.yaml`
-- No defaults: all parameters REQUIRED in input file for reproducible science
 
 **Memory Management:**
 - Custom allocator with leak detection

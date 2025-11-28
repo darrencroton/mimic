@@ -112,7 +112,8 @@ Mimic uses a **metadata-driven architecture** where properties and modules are d
    - Halo properties: `src/core/halo_properties.yaml`
    - Galaxy properties: `src/modules/galaxy_properties.yaml`
 2. **Module Metadata** (`src/modules/*/module_info.yaml`) - Defines physics modules
-3. **Auto-Generation** - Code generated from metadata via `make generate`
+3. **Model Parameter Metadata** (`src/modules/model_parameters.yaml`) - Defines physics model parameters (no defaults, all required in input file)
+4. **Auto-Generation** - Code generated from metadata via `make generate`
 
 ### Development Workflow
 
@@ -284,8 +285,9 @@ make tidy   # Remove object files, keep executable
 
 ### Architecture & Design
 - **[Vision](architecture/vision.md)** - 8 core architectural principles
-- **[Roadmap v4](architecture/roadmap.md)** - Implementation status (Phases 1-3 complete)
+- **[Roadmap](architecture/roadmap.md)** - Current status and development priorities
 - **[Property Metadata Schema](architecture/property-metadata-schema.md)** - Property system specification
+- **[Model Parameters Schema](architecture/model-parameters-schema.md)** - Model parameter system specification
 
 ### Development Guides
 - **[Module Developer Guide](developer/module-developer-guide.md)** - Creating physics modules (1122 lines)
@@ -344,7 +346,7 @@ docs/
 → See [Architecture Vision](architecture/vision.md) - 8 core principles
 
 **Q: What's the current implementation status?**
-→ See [Roadmap](architecture/roadmap.md) - Phases 1-3 complete, Phase 4 in progress
+→ See [Roadmap](architecture/roadmap.md) - Core infrastructure complete, SAGE physics implemented, scientific validation in progress
 
 **Q: How do I run tests?**
 → See [Testing Guide](developer/testing.md) quick reference or run `make tests`
