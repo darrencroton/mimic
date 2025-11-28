@@ -32,7 +32,6 @@
 #include "output/hdf5.h"
 #include "output/util.h"
 #include "error.h"
-#include "parameters.h"
 
 #define TRUE 1
 #define FALSE 0
@@ -374,21 +373,33 @@ void write_hdf5_attrs(int n, int filenr) {
 }
 
 /**
- * @brief   Stores the simulation parameters as attributes in an HDF5 file
+ * @brief   Configuration parameter descriptor for HDF5 output
+ *
+ * Local structure to define which MimicConfig fields to write to HDF5.
+ * This provides a generic, table-driven approach that maintains
+ * core-physics separation (Vision Principle #1).
+ */
+typedef struct {
+  const char *name;     /* HDF5 attribute name */
+  int type;             /* Parameter type (INT, DOUBLE, STRING) */
+  void *address;        /* Pointer to MimicConfig field */
+} ConfigParamDescriptor;
+
+/**
+ * @brief   Stores simulation configuration to HDF5 file as attributes
  *
  * @param   master_file_id   HDF5 file ID to write parameters to
  *
- * This function creates a group in the HDF5 file to store all model parameters
- * as attributes. It uses the parameter table to iterate through all parameters
- * and writes their values to the file with appropriate HDF5 data types.
+ * This function creates a group in the HDF5 file to store simulation
+ * configuration as attributes. Uses a local parameter table for generic,
+ * physics-agnostic iteration over MimicConfig fields (Vision Principle #1).
  *
- * The function also adds extra properties such as:
- * - NCores: Number of cores used for the simulation
- * - RunEndTime: Timestamp when the simulation completed
- * - InputSimulation: Name of the input simulation
+ * The table-driven approach ensures:
+ * - Core code doesn't hardcode specific parameter names
+ * - Adding/removing config fields only requires updating the local table
+ * - Maintains separation between core infrastructure and configuration
  *
- * Parameters are retrieved from the MimicConfig structure through the parameter
- * table, ensuring that the most current values are stored.
+ * Note: OutputDir is intentionally excluded (may contain sensitive paths)
  */
 static void store_run_properties(hid_t master_file_id) {
   hid_t props_group_id, dataspace_id, attribute_id, str_type;
@@ -397,12 +408,35 @@ static void store_run_properties(hid_t master_file_id) {
   time_t t;
   struct tm *local;
   int i;
-  ParameterDefinition *param_table;
-  int num_params;
 
-  /* Get the parameter table and its size */
-  param_table = get_parameter_table();
-  num_params = get_parameter_table_size();
+  /* Configuration parameter table - defines what to write to HDF5
+   * This table approach keeps the code generic and agnostic to specific parameters */
+  ConfigParamDescriptor config_params[] = {
+    /* File information */
+    {"OutputFileBaseName", STRING, &MimicConfig.OutputFileBaseName},
+    {"TreeName", STRING, &MimicConfig.TreeName},
+    {"SimulationDir", STRING, &MimicConfig.SimulationDir},
+    {"FileWithSnapList", STRING, &MimicConfig.FileWithSnapList},
+
+    /* Simulation parameters */
+    {"LastSnapshotNr", INT, &MimicConfig.LastSnapshotNr},
+    {"FirstFile", INT, &MimicConfig.FirstFile},
+    {"LastFile", INT, &MimicConfig.LastFile},
+    {"NumOutputs", INT, &MimicConfig.NOUT},
+    {"BoxSize", DOUBLE, &MimicConfig.BoxSize},
+
+    /* Cosmology */
+    {"Omega", DOUBLE, &MimicConfig.Omega},
+    {"OmegaLambda", DOUBLE, &MimicConfig.OmegaLambda},
+    {"Hubble_h", DOUBLE, &MimicConfig.Hubble_h},
+    {"PartMass", DOUBLE, &MimicConfig.PartMass},
+
+    /* Units */
+    {"UnitVelocity_in_cm_per_s", DOUBLE, &MimicConfig.UnitVelocity_in_cm_per_s},
+    {"UnitLength_in_cm", DOUBLE, &MimicConfig.UnitLength_in_cm},
+    {"UnitMass_in_g", DOUBLE, &MimicConfig.UnitMass_in_g},
+  };
+  int num_config_params = sizeof(config_params) / sizeof(ConfigParamDescriptor);
 
   /* Create the group to hold the run properties */
   props_group_id = H5Gcreate(master_file_id, "RunProperties", H5P_DEFAULT,
@@ -417,59 +451,53 @@ static void store_run_properties(hid_t master_file_id) {
     FATAL_ERROR("Failed to set HDF5 string type size for run properties");
   }
 
-  /* Store all parameters from the parameter table */
-  for (i = 0; i < num_params; i++) {
-    /* Skip OutputDir as it might contain sensitive path information */
-    if (strcmp(param_table[i].name, "OutputDir") != 0) {
-      switch (param_table[i].type) {
-      case INT:
-        attribute_id =
-            H5Acreate(props_group_id, param_table[i].name, H5T_NATIVE_INT,
-                      dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-        H5Awrite(attribute_id, H5T_NATIVE_INT, param_table[i].address);
-        H5Aclose(attribute_id);
-        break;
+  /* Write all config parameters from table (generic iteration) */
+  for (i = 0; i < num_config_params; i++) {
+    switch (config_params[i].type) {
+    case INT:
+      attribute_id = H5Acreate(props_group_id, config_params[i].name,
+                              H5T_NATIVE_INT, dataspace_id,
+                              H5P_DEFAULT, H5P_DEFAULT);
+      H5Awrite(attribute_id, H5T_NATIVE_INT, config_params[i].address);
+      H5Aclose(attribute_id);
+      break;
 
-      case DOUBLE:
-        attribute_id =
-            H5Acreate(props_group_id, param_table[i].name, H5T_NATIVE_DOUBLE,
-                      dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-        H5Awrite(attribute_id, H5T_NATIVE_DOUBLE, param_table[i].address);
-        H5Aclose(attribute_id);
-        break;
+    case DOUBLE:
+      attribute_id = H5Acreate(props_group_id, config_params[i].name,
+                              H5T_NATIVE_DOUBLE, dataspace_id,
+                              H5P_DEFAULT, H5P_DEFAULT);
+      H5Awrite(attribute_id, H5T_NATIVE_DOUBLE, config_params[i].address);
+      H5Aclose(attribute_id);
+      break;
 
-      case STRING:
-        /* Special handling for TreeType which doesn't have a direct address */
-        if (strcmp(param_table[i].name, "TreeType") == 0) {
-          const char *tree_type_str;
-          switch (MimicConfig.TreeType) {
-          case lhalo_binary:
-            tree_type_str = "lhalo_binary";
-            break;
-          case genesis_lhalo_hdf5:
-            tree_type_str = "genesis_lhalo_hdf5";
-            break;
-          default:
-            tree_type_str = "unknown";
-          }
-          attribute_id =
-              H5Acreate(props_group_id, param_table[i].name, str_type,
-                        dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-          H5Awrite(attribute_id, str_type, tree_type_str);
-          H5Aclose(attribute_id);
-        } else if (param_table[i].address != NULL) {
-          attribute_id =
-              H5Acreate(props_group_id, param_table[i].name, str_type,
-                        dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
-          H5Awrite(attribute_id, str_type, param_table[i].address);
-          H5Aclose(attribute_id);
-        }
-        break;
-      }
+    case STRING:
+      attribute_id = H5Acreate(props_group_id, config_params[i].name,
+                              str_type, dataspace_id,
+                              H5P_DEFAULT, H5P_DEFAULT);
+      H5Awrite(attribute_id, str_type, config_params[i].address);
+      H5Aclose(attribute_id);
+      break;
     }
   }
 
-  /* Add extra properties */
+  /* TreeType enum requires special handling (enum -> string conversion) */
+  const char *tree_type_str;
+  switch (MimicConfig.TreeType) {
+  case lhalo_binary:
+    tree_type_str = "lhalo_binary";
+    break;
+  case genesis_lhalo_hdf5:
+    tree_type_str = "genesis_lhalo_hdf5";
+    break;
+  default:
+    tree_type_str = "unknown";
+  }
+  attribute_id = H5Acreate(props_group_id, "TreeType", str_type,
+                          dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  H5Awrite(attribute_id, str_type, tree_type_str);
+  H5Aclose(attribute_id);
+
+  /* Runtime metadata */
   attribute_id = H5Acreate(props_group_id, "NCores", H5T_NATIVE_INT,
                            dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
 #ifdef MPI
@@ -497,6 +525,7 @@ static void store_run_properties(hid_t master_file_id) {
 
   /* Clean up */
   H5Sclose(dataspace_id);
+  H5Tclose(str_type);
   H5Gclose(props_group_id);
 }
 

@@ -110,29 +110,43 @@ main()
 ---
 
 ### 1.2 Parameter File Reading: `read_parameter_file()`
-**Location:** `src/core/read_parameter_file.c:64`
-**Purpose:** Parse and validate parameter file
+**Location:** `src/core/read_parameter_file.c:45`
+**Purpose:** Parse YAML configuration and load parameters
 **Condition:** Always called during initialization
 
 ```
 read_parameter_file(paramfilename)
-├─ get_parameter_table()            // Get parameter definitions
-├─ get_parameter_table_size()       // Get parameter count
-├─ mymalloc()                       // Allocate param_read tracking
-├─ INFO_LOG()
+├─ INFO_LOG()                       // Log parameter file name
+├─ fopen()                          // Open YAML file
+├─ yaml_parser_initialize()         // Initialize libyaml parser
+├─ yaml_parser_load()               // Load YAML document (DOM tree)
+├─ yaml_document_get_root_node()    // Get root mapping node
 │
-├─ [First Pass: Read Parameters]
-│  ├─ fopen()                       // Open parameter file
-│  ├─ [LOOP: Each line]
-│  │  ├─ fgets()
-│  │  ├─ sscanf()
-│  │  ├─ is_parameter_valid()
-│  │  └─ atof() / atoi() / strcpy()
-│  └─ fclose()
+├─ parse_output_section()           // Parse output: section
+│  └─ [Stores: OutputFileBaseName, OutputDir, NumOutputs, OutputFormat, SnapshotList]
 │
-├─ [Validation]
-│  ├─ ERROR_LOG()                   // Report missing required params
-│  ├─ strcat()                      // Add trailing slash to OutputDir
+├─ parse_input_section()            // Parse input: section
+│  └─ [Stores: FirstFile, LastFile, TreeName, TreeType, SimulationDir, etc.]
+│
+├─ parse_simulation_section()       // Parse simulation: section
+│  └─ [Stores: Omega, OmegaLambda, Hubble_h, BoxSize, PartMass]
+│
+├─ parse_units_section()            // Parse units: section
+│  └─ [Stores: UnitLength_in_cm, UnitMass_in_g, UnitVelocity_in_cm_per_s]
+│
+├─ parse_model_parameters_section() // Parse model_parameters: section (Phase 4.4)
+│  └─ [Stores: ModelParams[] name-value pairs]
+│
+├─ parse_modules_section()          // Parse modules: section
+│  └─ [Stores: EnabledModules[] array]
+│
+├─ yaml_document_delete()           // Cleanup YAML document
+├─ yaml_parser_delete()
+├─ fclose()
+│
+├─ validate_and_postprocess()       // Validate required parameters
+│  ├─ [Check required fields present]
+│  ├─ [Add trailing slash to OutputDir]
 │  └─ [IF errors]: FATAL_ERROR()
 │
 ├─ [BRANCH: Snapshot List Reading]
@@ -667,23 +681,16 @@ prepare_output_for_tree()
    │     │
    │     └─ H5Gclose()
    │
-   ├─ store_run_properties()           // Write simulation parameters
-   │  ├─ get_parameter_table()
+   ├─ store_run_properties()           // Write simulation config (Phase 4.4: direct access)
    │  ├─ H5Gcreate()                   // Create RunProperties group
    │  ├─ H5Screate_simple()
-   │  ├─ H5Tcopy() / H5Tset_size()
+   │  ├─ H5Tcopy() / H5Tset_size()     // Setup string type
+   │  ├─ [Write MimicConfig fields directly as HDF5 attributes]
+   │  │  ├─ H5Acreate() / H5Awrite() / H5Aclose()  // OutputFileBaseName, TreeName, etc.
+   │  │  ├─ H5Acreate() / H5Awrite() / H5Aclose()  // BoxSize, Omega, Hubble_h, etc.
+   │  │  └─ H5Acreate() / H5Awrite() / H5Aclose()  // Units, NCores, RunEndTime
    │  │
-   │  ├─ [LOOP: Each parameter]
-   │  │  ├─ H5Acreate()
-   │  │  ├─ H5Awrite()
-   │  │  └─ H5Aclose()
-   │  │
-   │  ├─ [Write Extra Properties]
-   │  │  ├─ NCores
-   │  │  ├─ RunEndTime
-   │  │  └─ InputSimulation
-   │  │
-   │  └─ H5Sclose() / H5Gclose()
+   │  └─ H5Sclose() / H5Tclose() / H5Gclose()
    │
    └─ H5Fclose()
 ```

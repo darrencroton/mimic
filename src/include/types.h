@@ -110,11 +110,11 @@ struct MimicConfig {
   char EnabledModules[32][MAX_STRING_LEN]; /* Module names in execution order */
 
   /* Model parameters (Phase 4.4) - ALL physics parameters */
-  int NumModelParams; /* Number of model parameters */
+  int NumModelParams; /* Number of model parameters loaded from input file */
   struct {
     char param_name[MAX_STRING_LEN];  /* Parameter name (e.g., "BaryonFrac") */
-    char value[MAX_STRING_LEN];       /* String value (parsed to type by model_get_*) */
-  } ModelParams[256]; /* Up to 256 model parameters */
+    char value[MAX_STRING_LEN];       /* String value (parsed to type by modules) */
+  } ModelParams[256]; /* Maximum parameters in input file */
 };
 
 /* Halo tracking structures defined in generated/property_defs.h:
