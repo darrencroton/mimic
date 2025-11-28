@@ -159,11 +159,8 @@ module:
 
   # Dependencies
   dependencies:
-    requires: []  # Properties your module needs
-    provides: []  # Properties your module creates
-
-  # Model parameters used by this module
-  model_parameters_used: []  # List parameter names from model_parameters.yaml
+    properties: []  # All properties your module uses (reads or writes)
+    parameters: []  # All parameters your module needs (from model_parameters.yaml)
 
   # Build configuration
   compilation_requires: []
@@ -198,8 +195,8 @@ vim src/modules/model_properties.yaml
 #   init_value: 0.0
 #   output_source: galaxy_property
 
-# Add to module_info.yaml dependencies.provides:
-# provides:
+# Add to module_info.yaml dependencies.properties:
+# properties:
 #   - MyProperty
 
 # Generate code
@@ -584,13 +581,13 @@ module:
   # ...
 
 dependencies:
-  requires:
-    properties: []
-    # Declare which model parameters this module uses
-    parameters:
-      - BaryonFrac
-      - SfrEfficiency
-      - ReIncorporationFactor
+  # Declare which properties this module uses
+  properties: []
+  # Declare which model parameters this module uses
+  parameters:
+    - BaryonFrac
+    - SfrEfficiency
+    - ReIncorporationFactor
 ```
 
 This enables smart validation: only parameters needed by enabled modules are required in the input file. All parameters come from the centralized `model_parameters.yaml`.
@@ -1372,7 +1369,7 @@ FIX: Add property to model_properties.yaml first
   1. Edit src/modules/model_properties.yaml
   2. Add property definition
   3. Run: make generate
-  4. Update module_info.yaml dependencies.provides
+  4. Update module_info.yaml dependencies.properties
   5. Run: make validate-modules
 ```
 
@@ -1497,7 +1494,7 @@ When implementing a module, ensure:
 - [ ] All three lifecycle functions implemented (`init`, `process_halos`, `cleanup`)
 - [ ] Properties defined in YAML metadata, not hardcoded
 - [ ] Parameters read using `model_get_*()` API from centralized `model_parameters.yaml`
-- [ ] Parameter dependencies declared in `module_info.yaml` (`dependencies.requires.parameters`)
+- [ ] Parameter dependencies declared in `module_info.yaml` (`dependencies.parameters`)
 - [ ] Memory allocations use `malloc_tracked()` / `free_tracked()`
 - [ ] Error handling returns -1 on failure, 0 on success
 - [ ] Logging uses appropriate levels (INFO/DEBUG/ERROR)

@@ -29,10 +29,10 @@ headers: [my_module.h]
 register_function: my_module_register
 
 dependencies:
-  requires: []  # List modules this depends on
-  provides: []  # List properties this module creates
+  properties: []  # List all properties this module uses (reads or writes)
+  parameters: []  # List all parameters this module needs
 
-parameters: []  # Add your module's parameters here
+parameters: []  # Add your module-specific parameters here (optional)
 tests:
   unit: test_unit_my_module.c
   integration: test_integration_my_module.py
@@ -42,9 +42,9 @@ tests:
 - `name` - Internal identifier (matches directory name)
 - `sources` / `headers` - Your C files
 - `register_function` - Name of your `*_register()` function
-- `dependencies.requires` - Modules you need data from
-- `dependencies.provides` - Properties you create
-- `parameters` - Runtime configuration options
+- `dependencies.properties` - All properties your module uses (reads or writes)
+- `dependencies.parameters` - All parameters your module needs
+- `parameters` - Module-specific runtime configuration options (optional)
 
 **Full schema details below.** This is a 1200+ line reference - use Ctrl+F to find what you need.
 
@@ -163,10 +163,10 @@ module:
 
   # Dependencies (required)
   dependencies:
-    requires: [string, ...]
-    provides: [string, ...]
+    properties: [string, ...]  # All properties used by this module
+    parameters: [string, ...]  # All parameters needed by this module
 
-  # Parameters (required, can be empty)
+  # Parameters (optional, module-specific parameters)
   parameters: [param_def, ...]
 
   # Testing (optional, but recommended)
@@ -628,8 +628,8 @@ module:
 
   # Dependencies
   dependencies:
-    requires: []  # Creates initial gas
-    provides: [HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS]
+    properties: [HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS]
+    parameters: [BaryonFrac]
 
   # Parameters
   parameters:
@@ -845,21 +845,21 @@ The validation script (`scripts/validate_modules.py`) performs comprehensive che
 **Common Validation Errors and Fixes**:
 
 ```yaml
-# ERROR: Required property doesn't exist
+# ERROR: Property doesn't exist
 dependencies:
-  requires:
+  properties:
     - HotGasss  # Typo! Should be HotGas
 
 # FIX: Check property spelling against property files
 dependencies:
-  requires:
+  properties:
     - HotGas  # Correct - exists in model_properties.yaml
 ```
 
 ```yaml
-# ERROR: Provided property doesn't exist
+# ERROR: Property doesn't exist
 dependencies:
-  provides:
+  properties:
     - NewPropertyName  # Not defined in property metadata
 
 # FIX: Add property to model_properties.yaml first
@@ -867,12 +867,11 @@ dependencies:
 ```
 
 ```yaml
-# SUCCESS: Using halo properties
+# SUCCESS: Using both halo and galaxy properties
 dependencies:
-  requires:
-    - Mvir   # Halo property - validated against halo_properties.yaml
-    - Vmax   # Halo property - validated against halo_properties.yaml
-  provides:
+  properties:
+    - Mvir     # Halo property - validated against halo_properties.yaml
+    - Vmax     # Halo property - validated against halo_properties.yaml
     - ColdGas  # Galaxy property - validated against model_properties.yaml
 ```
 
@@ -1083,19 +1082,19 @@ module:
 ### ❌ Wrong: Missing dependencies
 ```yaml
 dependencies:
-  requires: []  # But module actually uses HotGas!
-  provides:
-    - ColdGas
+  properties:
+    - ColdGas  # But module actually uses HotGas too!
+  parameters: []
 ```
 
 ### ✅ Right: Complete dependencies
 ```yaml
 dependencies:
-  requires:
-    - HotGas      # Explicitly list all requirements
+  properties:
+    - HotGas        # Explicitly list all properties used
     - MetalsHotGas
-  provides:
     - ColdGas
+  parameters: []
 ```
 
 ### ❌ Wrong: Parameter naming
