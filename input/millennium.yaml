@@ -1,11 +1,11 @@
-﻿# Mimic Model Configuration
+# Mimic Model Configuration
 # Format: YAML (industry standard)
 # For documentation see: docs/user/module-configuration.md
 
 output:
   output_filename: model
   output_directory: ./output/results/millennium/
-  output_format: hdf5               # Select binary or hdf5
+  output_format: hdf5                 # Select binary or hdf5
   snapshot_count: 8                   # Use -1 to override snapshot_list and write all snapshots
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
 

@@ -443,15 +443,21 @@ int main(int argc, char **argv) {
   /* Disable rate limiting for DEBUG_LOG after tree processing completes */
   disable_debug_log_rate_limiting();
 
-  /* Create master HDF5 file and free HDF5 resources if using HDF5 output */
+  /* Final output phase banner and any format-specific aggregation */
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
+    /* HDF5: create master file aggregating per-file outputs */
     log_phase_banner(PHASE_OUTPUT);
     INFO_LOG("Creating master HDF5 file");
     write_master_file();
     free_hdf5_ids();
-  }
+  } else
 #endif
+  {
+    /* Binary: all files already written; just mark output phase */
+    log_phase_banner(PHASE_OUTPUT);
+    INFO_LOG("Finalizing binary output files");
+  }
 
   /* Report memory usage before cleanup */
   INFO_LOG("Memory usage at completion:");
