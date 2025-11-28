@@ -23,10 +23,10 @@
 # Output Configuration
 #-----------------------------------------------------------------------------
 output:
-  file_base_name: model
-  directory: ./tests/data/output/binary/
+  output_filename: model
+  output_directory: ./tests/data/output/binary/
   snapshot_count: 1  # Single snapshot for fast testing
-  format: binary
+  output_format: binary
   snapshot_list:
   - 63
 

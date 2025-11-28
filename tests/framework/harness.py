@@ -99,9 +99,9 @@ def read_param_file(param_file):
     # Flatten hierarchical structure
     params = {}
     if 'output' in config:
-        params['OutputDir'] = config['output'].get('directory', './')
-        params['OutputFileBaseName'] = config['output'].get('file_base_name', 'model')
-        params['OutputFormat'] = config['output'].get('format', 'binary')
+        params['OutputDir'] = config['output'].get('output_directory', './')
+        params['OutputFileBaseName'] = config['output'].get('output_filename', 'model')
+        params['OutputFormat'] = config['output'].get('output_format', 'binary')
     if 'input' in config:
         params['FirstFile'] = str(config['input'].get('first_file', 0))
         params['LastFile'] = str(config['input'].get('last_file', 0))
@@ -189,9 +189,9 @@ def create_test_param_file(output_name, enabled_modules=None,
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Update configuration
-    config['output']['directory'] = str(output_dir)
+    config['output']['output_directory'] = str(output_dir)
     if output_format is not None:
-        config['output']['format'] = output_format  # Override format if specified
+        config['output']['output_format'] = output_format  # Override format if specified
     config['input']['first_file'] = first_file
     config['input']['last_file'] = last_file
 

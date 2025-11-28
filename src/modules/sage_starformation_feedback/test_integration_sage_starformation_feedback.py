@@ -71,7 +71,7 @@ def get_available_modules():
             config = yaml.safe_load(f)
 
         config['modules']['enabled'] = ['__nonexistent_module__']
-        config['output']['format'] = 'binary'
+        config['output']['output_format'] = 'binary'
 
         with open(test_param, 'w') as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -149,8 +149,8 @@ def create_test_param_file(output_dir, modules, module_params=None):
         config = yaml.safe_load(f)
 
     # Update configuration
-    config['output']['directory'] = str(output_dir)
-    config['output']['format'] = 'binary'
+    config['output']['output_directory'] = str(output_dir)
+    config['output']['output_format'] = 'binary'
     config['modules']['enabled'] = modules
 
     # Add model_parameters based on which modules are enabled

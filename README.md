@@ -92,8 +92,9 @@ Configuration uses YAML format with four main sections:
 
 ```yaml
 output:
-  directory: /path/to/output/
-  format: binary              # or 'hdf5'
+  output_filename: model
+  output_directory: /path/to/output/
+  output_format: binary              # or 'hdf5'
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
 
 input:

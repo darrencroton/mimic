@@ -73,7 +73,7 @@ def get_available_modules():
             config = yaml.safe_load(f)
 
         config['modules']['enabled'] = ['__nonexistent_module__']
-        config['output']['format'] = 'binary'
+        config['output']['output_format'] = 'binary'
 
         with open(test_param, 'w') as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -172,8 +172,8 @@ def test_output_properties_exist():
         config = yaml.safe_load(f)
 
     config['modules']['enabled'] = ['sage_disk_instability']
-    config['output']['directory'] = str(temp_dir)
-    config['output']['format'] = 'binary'
+    config['output']['output_directory'] = str(temp_dir)
+    config['output']['output_format'] = 'binary'
 
     # Add model_parameters (sage_disk_instability needs 2 parameters)
     config['model_parameters'] = {
@@ -247,8 +247,8 @@ def test_parameters_configurable():
         config = yaml.safe_load(f)
 
     config['modules']['enabled'] = ['sage_disk_instability']
-    config['output']['directory'] = str(temp_dir)
-    config['output']['format'] = 'binary'
+    config['output']['output_directory'] = str(temp_dir)
+    config['output']['output_format'] = 'binary'
 
     # Add model_parameters with custom DiskRadiusFactor to test configurability
     config['model_parameters'] = {
@@ -293,8 +293,8 @@ def test_stability_physics():
         config = yaml.safe_load(f)
 
     config['modules']['enabled'] = ['sage_disk_instability']
-    config['output']['directory'] = str(temp_dir)
-    config['output']['format'] = 'binary'
+    config['output']['output_directory'] = str(temp_dir)
+    config['output']['output_format'] = 'binary'
 
     # Add model_parameters (sage_disk_instability needs 2 parameters)
     config['model_parameters'] = {
@@ -368,8 +368,8 @@ def test_stellar_conservation():
         config = yaml.safe_load(f)
 
     config['modules']['enabled'] = ['sage_disk_instability']
-    config['output']['directory'] = str(temp_dir)
-    config['output']['format'] = 'binary'
+    config['output']['output_directory'] = str(temp_dir)
+    config['output']['output_format'] = 'binary'
 
     # Add model_parameters (sage_disk_instability needs 2 parameters)
     config['model_parameters'] = {
@@ -440,8 +440,8 @@ def test_memory_safety():
         config = yaml.safe_load(f)
 
     config['modules']['enabled'] = ['sage_disk_instability']
-    config['output']['directory'] = str(temp_dir)
-    config['output']['format'] = 'binary'
+    config['output']['output_directory'] = str(temp_dir)
+    config['output']['output_format'] = 'binary'
 
     # Add model_parameters (sage_disk_instability needs 2 parameters)
     config['model_parameters'] = {
@@ -499,8 +499,8 @@ def test_execution_completes():
         config = yaml.safe_load(f)
 
     config['modules']['enabled'] = ['sage_disk_instability']
-    config['output']['directory'] = str(temp_dir)
-    config['output']['format'] = 'binary'
+    config['output']['output_directory'] = str(temp_dir)
+    config['output']['output_format'] = 'binary'
 
     # Add model_parameters (sage_disk_instability needs 2 parameters)
     config['model_parameters'] = {
@@ -557,8 +557,8 @@ def test_multiple_module_pipeline():
         config = yaml.safe_load(f)
 
     config['modules']['enabled'] = modules_to_test
-    config['output']['directory'] = str(temp_dir)
-    config['output']['format'] = 'binary'
+    config['output']['output_directory'] = str(temp_dir)
+    config['output']['output_format'] = 'binary'
 
     # Add model_parameters for all enabled modules
     config['model_parameters'] = {

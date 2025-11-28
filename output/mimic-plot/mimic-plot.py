@@ -269,9 +269,9 @@ class MimicParameters:
         # Flatten hierarchical YAML structure for compatibility
         # Output section
         if 'output' in config:
-            self.params['OutputFileBaseName'] = config['output'].get('file_base_name', 'model')
-            self.params['OutputDir'] = config['output'].get('directory', './')
-            self.params['OutputFormat'] = config['output'].get('format', 'binary')
+            self.params['OutputFileBaseName'] = config['output'].get('output_filename', 'model')
+            self.params['OutputDir'] = config['output'].get('output_directory', './')
+            self.params['OutputFormat'] = config['output'].get('output_format', 'binary')
             self.params['NumOutputs'] = config['output'].get('snapshot_count', -1)
             self.params['OutputSnapshots'] = config['output'].get('snapshot_list', [])
 

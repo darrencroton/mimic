@@ -176,13 +176,13 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
 
   DEBUG_LOG("Parsing output section");
 
-  node = get_mapping_value(doc, section, "file_base_name");
+  node = get_mapping_value(doc, section, "output_filename");
   if (node && (str = get_scalar_value(node))) {
     strncpy(MimicConfig.OutputFileBaseName, str, MAX_STRING_LEN - 1);
     DEBUG_LOG("OutputFileBaseName = %s", str);
   }
 
-  node = get_mapping_value(doc, section, "directory");
+  node = get_mapping_value(doc, section, "output_directory");
   if (node && (str = get_scalar_value(node))) {
     strncpy(MimicConfig.OutputDir, str, MAX_STRING_LEN - 1);
     DEBUG_LOG("OutputDir = %s", str);
@@ -194,7 +194,7 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
     DEBUG_LOG("NumOutputs = %d", MimicConfig.NOUT);
   }
 
-  node = get_mapping_value(doc, section, "format");
+  node = get_mapping_value(doc, section, "output_format");
   if (node && (str = get_scalar_value(node))) {
     if (strcasecmp(str, "binary") == 0) {
       MimicConfig.OutputFormat = output_binary;
@@ -448,7 +448,7 @@ static void validate_and_postprocess(void) {
     errors++;
   }
   if (strlen(MimicConfig.OutputFileBaseName) == 0) {
-    ERROR_LOG("Required parameter 'output.file_base_name' missing");
+    ERROR_LOG("Required parameter 'output.output_filename' missing");
     errors++;
   }
   if (strlen(MimicConfig.SimulationDir) == 0) {

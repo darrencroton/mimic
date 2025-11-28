@@ -273,9 +273,9 @@ model_parameters:
 
 # Output Configuration
 output:
-  file_base_name: model
-  directory: ./output/results/millennium/
-  format: hdf5
+  output_filename: model
+  output_directory: ./output/results/millennium/
+  output_format: hdf5
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
 
 # Input Files

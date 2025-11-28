@@ -72,7 +72,7 @@ def get_available_modules():
             config = yaml.safe_load(f)
 
         config['modules']['enabled'] = ['__nonexistent_module__']
-        config['output']['format'] = 'binary'
+        config['output']['output_format'] = 'binary'
 
         with open(test_param, 'w') as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -135,9 +135,9 @@ def read_param_file(param_file):
     # Flatten hierarchical structure
     params = {}
     if 'output' in config:
-        params['OutputFileBaseName'] = config['output'].get('file_base_name', 'model')
-        params['OutputDir'] = config['output'].get('directory', './')
-        params['OutputFormat'] = config['output'].get('format', 'binary')
+        params['OutputFileBaseName'] = config['output'].get('output_filename', 'model')
+        params['OutputDir'] = config['output'].get('output_directory', './')
+        params['OutputFormat'] = config['output'].get('output_format', 'binary')
     if 'input' in config:
         params['FirstFile'] = str(config['input'].get('first_file', 0))
         params['LastFile'] = str(config['input'].get('last_file', 0))
@@ -176,8 +176,8 @@ def create_test_param_file(output_file, **overrides):
         config = yaml.safe_load(f)
 
     # Ensure binary output format and output directory points to temp dir
-    config['output']['format'] = 'binary'
-    config['output']['directory'] = str(temp_dir / "output")
+    config['output']['output_format'] = 'binary'
+    config['output']['output_directory'] = str(temp_dir / "output")
 
     # Apply overrides to determine which modules are enabled
     enabled_modules = []

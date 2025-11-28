@@ -225,9 +225,9 @@ try:
     with open(param_file, 'r') as f:
         config = yaml.safe_load(f)
 
-    output_dir = config.get('output', {}).get('directory', './output/')
-    output_format = config.get('output', {}).get('format', 'binary')
-    output_basename = config.get('output', {}).get('file_base_name', 'model')
+    output_dir = config.get('output', {}).get('output_directory', './output/')
+    output_format = config.get('output', {}).get('output_format', 'binary')
+    output_basename = config.get('output', {}).get('output_filename', 'model')
     tree_type = config.get('input', {}).get('tree_type', 'lhalo_binary')
 
     # Remove trailing slash from output_dir
