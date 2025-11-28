@@ -55,7 +55,7 @@
  * MODULE PARAMETERS
  * ============================================================================
  * Parameters defined in module_info.yaml (single source of truth).
- * Loaded at runtime via module_get_double() and module_get_int().
+ * Loaded at runtime via model_get_double() and model_get_int().
  * Defaults and validation ranges come from metadata - no hardcoding. */
 
 static double RADIO_MODE_EFFICIENCY;

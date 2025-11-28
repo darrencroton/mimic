@@ -95,8 +95,9 @@ The foundational work is done. Key capabilities now available:
 
 ### Runtime Module Configuration
 - `EnabledModules` parameter controls execution pipeline
-- Module-specific parameters: `ModuleName_ParameterName` format
-- Physics-free mode supported (pure halo tracking)
+- Centralized model parameters: `model_parameters.yaml` defines all 20 physics parameters
+- Smart validation: only parameters needed by enabled modules are required
+- Physics-free mode supported (pure halo tracking, no parameters needed)
 - YAML parameter files (industry-standard libyaml DOM parser)
 - **Impact**: Researchers configure physics without recompilation
 

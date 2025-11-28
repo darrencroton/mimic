@@ -413,7 +413,7 @@ static void parse_model_parameters_section(yaml_document_t *doc, yaml_node_t *se
  * @brief   Parse modules section
  */
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
-  yaml_node_t *node, *params_node;
+  yaml_node_t *node;
 
   DEBUG_LOG("Parsing modules section");
 
@@ -433,46 +433,6 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
       }
     }
     MimicConfig.NumEnabledModules = idx;
-  }
-
-  /* Parse module parameters */
-  params_node = get_mapping_value(doc, section, "parameters");
-  if (params_node && params_node->type == YAML_MAPPING_NODE) {
-    yaml_node_pair_t *module_pair;
-
-    /* Iterate over each module in parameters */
-    for (module_pair = params_node->data.mapping.pairs.start;
-         module_pair < params_node->data.mapping.pairs.top; module_pair++) {
-
-      yaml_node_t *module_key = yaml_document_get_node(doc, module_pair->key);
-      yaml_node_t *module_params = yaml_document_get_node(doc, module_pair->value);
-
-      const char *module_name = get_scalar_value(module_key);
-      if (!module_name || !module_params || module_params->type != YAML_MAPPING_NODE) {
-        continue;
-      }
-
-      /* Iterate over parameters for this module */
-      yaml_node_pair_t *param_pair;
-      for (param_pair = module_params->data.mapping.pairs.start;
-           param_pair < module_params->data.mapping.pairs.top; param_pair++) {
-
-        yaml_node_t *param_key = yaml_document_get_node(doc, param_pair->key);
-        yaml_node_t *param_value = yaml_document_get_node(doc, param_pair->value);
-
-        const char *param_name = get_scalar_value(param_key);
-        const char *param_val = get_scalar_value(param_value);
-
-        if (param_name && param_val && MimicConfig.NumModuleParams < 256) {
-          int idx = MimicConfig.NumModuleParams;
-          strncpy(MimicConfig.ModuleParams[idx].module_name, module_name, MAX_STRING_LEN - 1);
-          strncpy(MimicConfig.ModuleParams[idx].param_name, param_name, MAX_STRING_LEN - 1);
-          strncpy(MimicConfig.ModuleParams[idx].value, param_val, MAX_STRING_LEN - 1);
-          DEBUG_LOG("%s_%s = %s (module parameter)", module_name, param_name, param_val);
-          MimicConfig.NumModuleParams++;
-        }
-      }
-    }
   }
 }
 
@@ -516,36 +476,54 @@ static void validate_and_postprocess(void) {
     errors++;
   }
 
-  /* Validate required model parameters (Phase 4.4) */
-  /* Only validate if modules are enabled - otherwise parameters aren't needed */
+  /* Smart validation: Only validate parameters needed by enabled modules (Phase 4.4+) */
   if (MimicConfig.NumEnabledModules > 0) {
-    INFO_LOG("Validating required model parameters...");
-    int missing_params = 0;
-    for (int i = 0; i < NUM_REQUIRED_MODEL_PARAMETERS; i++) {
-      const char *param_name = REQUIRED_MODEL_PARAMETERS[i];
-      int found = 0;
+    /* Build array of enabled module names for lookup */
+    const char *enabled_modules[32];
+    for (int i = 0; i < MimicConfig.NumEnabledModules; i++) {
+      enabled_modules[i] = MimicConfig.EnabledModules[i];
+    }
 
-      /* Check if parameter is in ModelParams array */
-      for (int j = 0; j < MimicConfig.NumModelParams; j++) {
-        if (strcmp(MimicConfig.ModelParams[j].param_name, param_name) == 0) {
-          found = 1;
-          break;
+    /* Get required parameters for these specific modules */
+    const char *required_params[NUM_REQUIRED_MODEL_PARAMETERS];
+    int num_required = 0;
+    if (get_required_params_for_modules(enabled_modules, MimicConfig.NumEnabledModules,
+                                        required_params, &num_required) != 0) {
+      ERROR_LOG("Failed to determine required parameters for enabled modules");
+      errors++;
+    } else {
+      INFO_LOG("Validating %d required model parameters for %d enabled modules...",
+               num_required, MimicConfig.NumEnabledModules);
+      int missing_params = 0;
+
+      /* Validate only the parameters needed by enabled modules */
+      for (int i = 0; i < num_required; i++) {
+        const char *param_name = required_params[i];
+        int found = 0;
+
+        /* Check if parameter is in ModelParams array */
+        for (int j = 0; j < MimicConfig.NumModelParams; j++) {
+          if (strcmp(MimicConfig.ModelParams[j].param_name, param_name) == 0) {
+            found = 1;
+            break;
+          }
+        }
+
+        if (!found) {
+          ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
+          ERROR_LOG("  (needed by enabled modules)");
+          missing_params++;
+          errors++;
         }
       }
 
-      if (!found) {
-        ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
-        missing_params++;
-        errors++;
+      if (missing_params > 0) {
+        ERROR_LOG("Missing %d required model parameters from 'model_parameters' section", missing_params);
+        ERROR_LOG("All model parameters must be explicitly specified - no defaults are used");
+        ERROR_LOG("See src/modules/model_parameters.yaml for parameter definitions");
+      } else {
+        INFO_LOG("All %d required model parameters found", num_required);
       }
-    }
-
-    if (missing_params > 0) {
-      ERROR_LOG("Missing %d required model parameters from 'model_parameters' section", missing_params);
-      ERROR_LOG("All model parameters must be explicitly specified - no defaults are used");
-      ERROR_LOG("See src/modules/model_parameters.yaml for parameter definitions");
-    } else {
-      INFO_LOG("All %d required model parameters found", NUM_REQUIRED_MODEL_PARAMETERS);
     }
   } else {
     INFO_LOG("No modules enabled - skipping model parameter validation");

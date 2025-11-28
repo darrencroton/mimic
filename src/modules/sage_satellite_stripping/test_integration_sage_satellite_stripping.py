@@ -83,7 +83,8 @@ def test_module_loads():
     # ===== SETUP =====
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_load",
-        enabled_modules=["sage_satellite_stripping"]
+        enabled_modules=["sage_satellite_stripping"],
+        model_params={"BaryonFrac": 0.17}
     )
 
     # ===== EXECUTE =====
@@ -123,17 +124,9 @@ def test_parameter_configuration():
     # Create parameter file with custom BaryonFrac
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_params",
-        enabled_modules=["sage_satellite_stripping"]
+        enabled_modules=["sage_satellite_stripping"],
+        model_params={"BaryonFrac": 0.20}
     )
-
-    # Update model_parameters.BaryonFrac to custom value
-    with open(param_file, 'r') as f:
-        config = yaml.safe_load(f)
-
-    config['model_parameters']['BaryonFrac'] = 0.20
-
-    with open(param_file, 'w') as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
@@ -165,9 +158,8 @@ def test_with_sage_infall():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_infall",
         enabled_modules=["sage_infall", "sage_satellite_stripping"],
-        module_params={
-            "sage_infall_BaryonFrac": "0.17",
-            "sage_satellite_stripping_BaryonFrac": "0.17"
+        model_params={
+            "BaryonFrac": 0.17
         }
     )
 
@@ -206,7 +198,8 @@ def test_memory_safety():
     # ===== SETUP =====
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_memory",
-        enabled_modules=["sage_satellite_stripping"]
+        enabled_modules=["sage_satellite_stripping"],
+        model_params={"BaryonFrac": 0.17}
     )
 
     # ===== EXECUTE =====
@@ -238,6 +231,7 @@ def test_execution_completes():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_complete",
         enabled_modules=["sage_satellite_stripping"],
+        model_params={"BaryonFrac": 0.17},
         first_file=0,
         last_file=0  # Process single file
     )

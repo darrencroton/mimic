@@ -145,25 +145,26 @@ def create_test_param_file(output_name, enabled_modules=None,
     # Update module configuration
     config['modules']['enabled'] = enabled_modules
 
-    # Parse and add module parameters
-    if module_params:
-        if 'parameters' not in config['modules']:
-            config['modules']['parameters'] = {}
+    # Add model_parameters (test_fixture needs TestFixtureDummyParameter and TestFixtureEnableLogging)
+    config['model_parameters'] = {
+        'TestFixtureDummyParameter': 1.0,
+        'TestFixtureEnableLogging': 0
+    }
 
+    # Override model parameters if provided
+    if module_params:
         for param_name, value in module_params.items():
-            # Parse ModuleName_ParameterName format
-            if '_' in param_name:
-                module_name, param_key = param_name.split('_', 1)
-                if module_name not in config['modules']['parameters']:
-                    config['modules']['parameters'][module_name] = {}
-                # Try to convert to appropriate type
+            # Support both TestFixture_DummyParameter (old format) and TestFixtureDummyParameter (new format)
+            if param_name == 'TestFixture_DummyParameter' or param_name == 'TestFixtureDummyParameter':
                 try:
                     value = float(value)
                     if value.is_integer():
                         value = int(value)
                 except (ValueError, AttributeError):
-                    pass  # Keep as string
-                config['modules']['parameters'][module_name][param_key] = value
+                    pass
+                config['model_parameters']['TestFixtureDummyParameter'] = value
+            elif param_name == 'TestFixture_EnableLogging' or param_name == 'TestFixtureEnableLogging':
+                config['model_parameters']['TestFixtureEnableLogging'] = int(value)
 
     # Write test parameter file as YAML
     param_path = Path(temp_dir) / f"{output_name}.yaml"

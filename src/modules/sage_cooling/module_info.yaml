@@ -39,8 +39,13 @@ module:
   dependencies:
     # Requires hot gas from sage_infall module
     requires:
-      - HotGas
-      - MetalsHotGas
+      properties:
+        - HotGas
+        - MetalsHotGas
+      parameters:
+        - RadioModeEfficiency
+        - AGNrecipeOn
+        - CoolFunctionsDir
 
     # Properties provided by this module
     provides:

@@ -41,31 +41,15 @@ module:
   # ===========================================================================
 
   dependencies:
-    # No dependencies - minimal standalone module for testing
-    requires: []
+    requires:
+      properties: []
+      parameters:
+        - TestFixtureDummyParameter
+        - TestFixtureEnableLogging
 
     # Provides a dummy property for testing property system
     provides:
       - TestDummyProperty
-
-  # ===========================================================================
-  # Parameters
-  # ===========================================================================
-
-  parameters:
-    - name: DummyParameter
-      type: double
-      default: 1.0
-      range: [0.0, 10.0]
-      description: "Dummy parameter for testing parameter API (no physical meaning)"
-      units: "dimensionless"
-
-    - name: EnableLogging
-      type: int
-      default: 0
-      range: [0, 1]
-      description: "Enable verbose logging for test validation (0=off, 1=on)"
-      units: "dimensionless"
 
   # ===========================================================================
   # Testing

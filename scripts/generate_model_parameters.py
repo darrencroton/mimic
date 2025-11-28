@@ -10,10 +10,11 @@ Usage:
 
 Reads:
     src/modules/model_parameters.yaml
+    src/modules/*/module_info.yaml  (for parameter dependencies)
 
 Generates:
     src/include/generated/model_parameters.h  (parameter list, types, ranges)
-    src/include/generated/model_parameters.c  (validation functions)
+    src/include/generated/model_parameters.c  (validation functions + smart lookup)
 
 Author: Model Parameter System (Phase 4.4)
 Date: 2025-11-27
@@ -37,8 +38,9 @@ except ImportError:
 # Repository root (parent of scripts/)
 REPO_ROOT = Path(__file__).parent.parent
 
-# Input YAML file
+# Input YAML files
 MODEL_PARAMS_YAML = REPO_ROOT / "src" / "modules" / "model_parameters.yaml"
+MODULES_DIR = REPO_ROOT / "src" / "modules"
 
 # Output directory
 GENERATED_DIR = REPO_ROOT / "src" / "include" / "generated"
@@ -59,6 +61,56 @@ TYPE_MAP = {
 }
 
 # ==============================================================================
+# MODULE DEPENDENCY EXTRACTION
+# ==============================================================================
+
+
+def extract_module_dependencies() -> Dict[str, List[str]]:
+    """
+    Extract parameter dependencies from all module_info.yaml files.
+
+    Returns dict: module_name -> list of required parameter names
+    """
+    dependencies = {}
+
+    # Find all module_info.yaml files
+    module_info_files = list(MODULES_DIR.glob("*/module_info.yaml"))
+
+    for info_file in module_info_files:
+        try:
+            with open(info_file) as f:
+                data = yaml.safe_load(f)
+
+            if not data or "module" not in data:
+                continue
+
+            module_data = data["module"]
+            module_name = module_data.get("name")
+
+            if not module_name:
+                continue
+
+            # Extract parameter dependencies
+            deps = module_data.get("dependencies", {})
+            requires = deps.get("requires", {})
+
+            # Handle both old format (list) and new format (dict with properties/parameters)
+            if isinstance(requires, dict):
+                params = requires.get("parameters", [])
+            else:
+                params = []
+
+            if params:
+                dependencies[module_name] = params
+
+        except Exception as e:
+            print(f"Warning: Failed to read {info_file}: {e}", file=sys.stderr)
+            continue
+
+    return dependencies
+
+
+# ==============================================================================
 # VALIDATION
 # ==============================================================================
 
@@ -66,8 +118,8 @@ TYPE_MAP = {
 def validate_parameter(param: Dict[str, Any]) -> None:
     """Validate a parameter definition according to schema."""
 
-    # Required fields
-    required = ["name", "type", "category", "description", "used_by"]
+    # Required fields (REMOVED: category, used_by)
+    required = ["name", "type", "description"]
     for field in required:
         if field not in param:
             raise ValueError(
@@ -98,12 +150,6 @@ def validate_parameter(param: Dict[str, Any]) -> None:
             raise ValueError(
                 f"Parameter '{name}' range must be [min, max] or null"
             )
-
-    # used_by must be a list
-    if not isinstance(param["used_by"], list):
-        raise ValueError(
-            f"Parameter '{name}': 'used_by' must be a list of module names"
-        )
 
 
 def validate_parameters(params: List[Dict]) -> None:
@@ -164,6 +210,7 @@ def generate_header(yaml_hash: str) -> str:
  *
  * Vision Principle #4: Single Source of Truth
  *   - model_parameters.yaml defines parameter structure
+ *   - module_info.yaml files define parameter dependencies
  *   - Input YAML file provides parameter values (NO defaults)
  *   - All parameters are REQUIRED in input file
  */
@@ -179,7 +226,7 @@ def generate_model_parameters_h(params: List[Dict], yaml_hash: str) -> str:
     code += "#define GENERATED_MODEL_PARAMETERS_H\n\n"
     code += "#include <stddef.h>\n\n"
 
-    # Parameter metadata structure
+    # Parameter metadata structure (SIMPLIFIED: removed category)
     code += "/**\n"
     code += " * @brief Model parameter metadata\n"
     code += " *\n"
@@ -189,7 +236,6 @@ def generate_model_parameters_h(params: List[Dict], yaml_hash: str) -> str:
     code += "struct ModelParameterMetadata {\n"
     code += "    const char *name;          /* Parameter name */\n"
     code += "    const char *type;          /* Type: int, double, string */\n"
-    code += "    const char *category;      /* Category: cosmology, star_formation, etc. */\n"
     code += "    const char *description;   /* Human-readable description */\n"
     code += "    double range_min;          /* Minimum valid value (for numeric types) */\n"
     code += "    double range_max;          /* Maximum valid value (for numeric types) */\n"
@@ -227,12 +273,32 @@ def generate_model_parameters_h(params: List[Dict], yaml_hash: str) -> str:
     code += " */\n"
     code += "const struct ModelParameterMetadata *get_model_param_metadata(const char *param_name);\n\n"
 
+    # NEW FUNCTION: Smart parameter lookup
+    code += "/**\n"
+    code += " * @brief Get required parameters for a set of enabled modules\n"
+    code += " *\n"
+    code += " * Determines which model parameters are needed by the specified\n"
+    code += " * enabled modules by consulting module dependency metadata.\n"
+    code += " *\n"
+    code += " * @param enabled_modules Array of enabled module names\n"
+    code += " * @param num_enabled Number of enabled modules\n"
+    code += " * @param required_params_out Output array for required parameter names (must have space for NUM_REQUIRED_MODEL_PARAMETERS)\n"
+    code += " * @param num_required_out Output count of required parameters\n"
+    code += " * @return 0 on success, -1 on error\n"
+    code += " */\n"
+    code += "int get_required_params_for_modules(\n"
+    code += "    const char **enabled_modules,\n"
+    code += "    int num_enabled,\n"
+    code += "    const char **required_params_out,\n"
+    code += "    int *num_required_out\n"
+    code += ");\n\n"
+
     code += "#endif /* GENERATED_MODEL_PARAMETERS_H */\n"
 
     return code
 
 
-def generate_model_parameters_c(params: List[Dict], yaml_hash: str) -> str:
+def generate_model_parameters_c(params: List[Dict], module_deps: Dict[str, List[str]], yaml_hash: str) -> str:
     """Generate model_parameters.c implementation file."""
 
     code = generate_header(yaml_hash)
@@ -248,14 +314,13 @@ def generate_model_parameters_c(params: List[Dict], yaml_hash: str) -> str:
         code += f'    "{param["name"]}",\n'
     code += "};\n\n"
 
-    # Parameter metadata array
+    # Parameter metadata array (SIMPLIFIED: removed category)
     code += "/* Parameter metadata (for validation) */\n"
     code += "const struct ModelParameterMetadata MODEL_PARAMETER_METADATA[NUM_REQUIRED_MODEL_PARAMETERS] = {\n"
 
     for param in params:
         name = param["name"]
         ptype = param["type"]
-        category = param["category"]
         description = param["description"].replace('"', '\\"').replace('\n', ' ')
 
         # Range handling
@@ -268,7 +333,8 @@ def generate_model_parameters_c(params: List[Dict], yaml_hash: str) -> str:
             range_max = 0.0
             has_range = 0
 
-        code += f'    {{ "{name}", "{ptype}", "{category}", "{description}", '
+        # CHANGED: Removed category from struct initialization
+        code += f'    {{ "{name}", "{ptype}", "{description}", '
         code += f'{range_min}, {range_max}, {has_range} }},\n'
 
     code += "};\n\n"
@@ -306,6 +372,69 @@ def generate_model_parameters_c(params: List[Dict], yaml_hash: str) -> str:
     code += "        }\n"
     code += "    }\n"
     code += "    return NULL;\n"
+    code += "}\n\n"
+
+    # NEW FUNCTION: Smart parameter lookup based on module dependencies
+    code += generate_smart_lookup_function(module_deps)
+
+    return code
+
+
+def generate_smart_lookup_function(module_deps: Dict[str, List[str]]) -> str:
+    """Generate the smart parameter lookup function."""
+
+    code = "/* Smart parameter lookup based on module dependencies */\n"
+    code += "int get_required_params_for_modules(\n"
+    code += "    const char **enabled_modules,\n"
+    code += "    int num_enabled,\n"
+    code += "    const char **required_params_out,\n"
+    code += "    int *num_required_out\n"
+    code += ") {\n"
+    code += "    if (num_enabled == 0) {\n"
+    code += "        *num_required_out = 0;\n"
+    code += "        return 0;\n"
+    code += "    }\n\n"
+
+    code += "    /* Build union of all required parameters */\n"
+    code += "    int num_required = 0;\n\n"
+
+    code += "    for (int i = 0; i < num_enabled; i++) {\n"
+    code += "        const char *module_name = enabled_modules[i];\n\n"
+
+    # Generate if-else chain for each module
+    first = True
+    for module_name, param_list in sorted(module_deps.items()):
+        if not param_list:
+            continue
+
+        if_keyword = "if" if first else "} else if"
+        first = False
+
+        code += f'        {if_keyword} (strcmp(module_name, "{module_name}") == 0) {{\n'
+        code += f"            /* {module_name} requires {len(param_list)} parameters */\n"
+
+        for param_name in param_list:
+            code += "            {\n"  # Scope block for each parameter
+            code += f'                const char *param = "{param_name}";\n'
+            code += "                /* Check if already in list (deduplicate) */\n"
+            code += "                int found = 0;\n"
+            code += "                for (int j = 0; j < num_required; j++) {\n"
+            code += "                    if (strcmp(required_params_out[j], param) == 0) {\n"
+            code += "                        found = 1;\n"
+            code += "                        break;\n"
+            code += "                    }\n"
+            code += "                }\n"
+            code += "                if (!found) {\n"
+            code += "                    required_params_out[num_required++] = param;\n"
+            code += "                }\n"
+            code += "            }\n"  # End scope block
+
+    if not first:  # If we had any modules
+        code += "        }\n"
+
+    code += "    }\n\n"
+    code += "    *num_required_out = num_required;\n"
+    code += "    return 0;\n"
     code += "}\n"
 
     return code
@@ -363,6 +492,13 @@ def main():
     # Validate
     validate_parameters(params)
 
+    # Extract module dependencies
+    print("Reading module dependencies...")
+    module_deps = extract_module_dependencies()
+    print(f"✓ Found {len(module_deps)} modules with parameter dependencies")
+    for module, deps in sorted(module_deps.items()):
+        print(f"  - {module}: {len(deps)} parameters")
+
     # Compute hash
     yaml_hash = compute_yaml_hash()
     saved_hash = load_saved_hash()
@@ -384,7 +520,7 @@ def main():
 
     # Generate model_parameters.c
     c_file = GENERATED_DIR / "model_parameters.c"
-    c_content = generate_model_parameters_c(params, yaml_hash)
+    c_content = generate_model_parameters_c(params, module_deps, yaml_hash)
     if write_file_if_changed(c_file, c_content):
         files_written.append(str(c_file.relative_to(REPO_ROOT)))
 
@@ -398,6 +534,7 @@ def main():
 
     print(f"\n✓ Model parameter code generation complete")
     print(f"  Total parameters: {len(params)}")
+    print(f"  Modules with dependencies: {len(module_deps)}")
     print(f"  All parameters REQUIRED in input file (no defaults)")
 
 

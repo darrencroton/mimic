@@ -126,7 +126,7 @@ def read_param_file(param_file):
 
 
 def create_test_param_file(output_name, enabled_modules=None,
-                            module_params=None, first_file=0, last_file=0,
+                            module_params=None, model_params=None, first_file=0, last_file=0,
                             ref_param_file=None, temp_dir=None, output_format=None):
     """
     Create a test YAML parameter file with specified module configuration
@@ -137,7 +137,8 @@ def create_test_param_file(output_name, enabled_modules=None,
     Args:
         output_name (str): Name for output directory (created in temp_dir)
         enabled_modules (list): List of module names to enable (None = physics-free)
-        module_params (dict): Dict of {ModuleName_ParameterName: value}
+        module_params (dict): DEPRECATED - use model_params instead
+        model_params (dict): Dict of {parameter_name: value} for model_parameters section
         first_file (int): First file to process (default: 0)
         last_file (int): Last_file (int): Last file to process (default: 0)
         ref_param_file (str or Path): Reference YAML parameter file (default: test_binary.yaml)
@@ -154,13 +155,12 @@ def create_test_param_file(output_name, enabled_modules=None,
         # Physics-free mode
         param_file, output_dir, temp_dir = create_test_param_file("test_run")
 
-        # With modules
+        # With modules and model parameters
         param_file, output_dir, temp_dir = create_test_param_file(
-            output_name="cooling_test",
-            enabled_modules=["sage_infall", "sage_cooling"],
-            module_params={
-                "SageInfall_BaryonFrac": "0.17",
-                "SageCooling_CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+            output_name="infall_test",
+            enabled_modules=["sage_infall"],
+            model_params={
+                "BaryonFrac": 0.17
             },
             first_file=0,
             last_file=0
@@ -198,46 +198,33 @@ def create_test_param_file(output_name, enabled_modules=None,
     # Update module configuration
     if enabled_modules:
         config['modules']['enabled'] = enabled_modules
-
-        # Parse and add module parameters
-        if module_params:
-            if 'parameters' not in config['modules']:
-                config['modules']['parameters'] = {}
-
-            for param_name, value in module_params.items():
-                # Parse ModuleName_ParameterName format
-                # For modules with underscores (e.g., sage_satellite_stripping),
-                # match against enabled_modules to find the correct split point
-                module_name = None
-                param_key = None
-
-                # Try to match longest enabled module name first
-                for mod in enabled_modules:
-                    if param_name.startswith(mod + '_'):
-                        module_name = mod
-                        param_key = param_name[len(mod) + 1:]
-                        break
-
-                # Fallback: if no match, split on last underscore
-                if module_name is None and '_' in param_name:
-                    parts = param_name.rsplit('_', 1)
-                    if len(parts) == 2:
-                        module_name, param_key = parts
-
-                if module_name and param_key:
-                    if module_name not in config['modules']['parameters']:
-                        config['modules']['parameters'][module_name] = {}
-                    # Try to convert to appropriate type
-                    try:
-                        value = float(value)
-                        if value.is_integer():
-                            value = int(value)
-                    except (ValueError, AttributeError):
-                        pass  # Keep as string
-                    config['modules']['parameters'][module_name][param_key] = value
     else:
         config['modules']['enabled'] = []
-        config['modules']['parameters'] = {}
+
+    # Initialize model_parameters section if model_params provided
+    if model_params:
+        if 'model_parameters' not in config:
+            config['model_parameters'] = {}
+        for param_name, value in model_params.items():
+            # Try to convert to appropriate type
+            try:
+                value_float = float(value)
+                if value_float.is_integer():
+                    value = int(value_float)
+                else:
+                    value = value_float
+            except (ValueError, TypeError):
+                pass  # Keep as string
+            config['model_parameters'][param_name] = value
+
+    # Handle deprecated module_params (for backward compatibility during transition)
+    if module_params:
+        import warnings
+        warnings.warn(
+            "module_params is deprecated. test_fixture no longer reads from config. "
+            "For production modules, use model_params instead.",
+            DeprecationWarning
+        )
 
     # Write test parameter file as YAML
     param_path = Path(temp_dir) / f"{output_name}.yaml"

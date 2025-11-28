@@ -320,7 +320,7 @@ int test_memory_safety(void)
  * @brief   Test module parameter reading and validation
  *
  * Expected: Parameters read correctly from configuration
- * Validates: module_get_double(), module_get_int() for sage_cooling
+ * Validates: model_get_double(), model_get_int() for sage_cooling
  */
 int test_parameter_reading(void)
 {

@@ -55,18 +55,22 @@ static void ensure_modules_registered(void)
     }
 }
 
-/* Test fixture: Set test_fixture parameters */
-static void set_test_fixture_params(void)
+/* Test fixture: Set test_fixture parameters via centralized system */
+static void set_test_fixture_params(double dummy_val, int logging_val)
 {
-    strcpy(MimicConfig.ModuleParams[0].module_name, "TestFixture");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "DummyParameter");
-    strcpy(MimicConfig.ModuleParams[0].value, "2.5");
+    // Set parameters in centralized model_parameters system
+    // ModelParams is an array of {param_name, value} pairs
+    int idx = 0;
 
-    strcpy(MimicConfig.ModuleParams[1].module_name, "TestFixture");
-    strcpy(MimicConfig.ModuleParams[1].param_name, "EnableLogging");
-    strcpy(MimicConfig.ModuleParams[1].value, "0");
+    strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureDummyParameter");
+    snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%.10g", dummy_val);
+    idx++;
 
-    MimicConfig.NumModuleParams = 2;
+    strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureEnableLogging");
+    snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%d", logging_val);
+    idx++;
+
+    MimicConfig.NumModelParams = idx;
 }
 
 /**
@@ -101,7 +105,7 @@ int test_module_initialization(void)
     reset_config();
     init_memory_system(0);
     ensure_modules_registered();
-    set_test_fixture_params();
+    set_test_fixture_params(2.5, 0);
 
     strcpy(MimicConfig.EnabledModules[0], "test_fixture");
     MimicConfig.NumEnabledModules = 1;
@@ -132,11 +136,8 @@ int test_parameter_reading(void)
     init_memory_system(0);
     ensure_modules_registered();
 
-    /* Set custom parameter value */
-    strcpy(MimicConfig.ModuleParams[0].module_name, "TestFixture");
-    strcpy(MimicConfig.ModuleParams[0].param_name, "DummyParameter");
-    strcpy(MimicConfig.ModuleParams[0].value, "3.14");
-    MimicConfig.NumModuleParams = 1;
+    /* Set custom parameter value via centralized system */
+    set_test_fixture_params(3.14, 0);
 
     strcpy(MimicConfig.EnabledModules[0], "test_fixture");
     MimicConfig.NumEnabledModules = 1;
@@ -202,7 +203,7 @@ int test_memory_safety(void)
     reset_config();
     init_memory_system(0);
     ensure_modules_registered();
-    set_test_fixture_params();
+    set_test_fixture_params(2.5, 0);
 
     strcpy(MimicConfig.EnabledModules[0], "test_fixture");
     MimicConfig.NumEnabledModules = 1;

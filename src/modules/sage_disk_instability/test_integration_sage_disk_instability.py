@@ -175,6 +175,12 @@ def test_output_properties_exist():
     config['output']['directory'] = str(temp_dir)
     config['output']['format'] = 'binary'
 
+    # Add model_parameters (sage_disk_instability needs 2 parameters)
+    config['model_parameters'] = {
+        'DiskInstabilityOn': 1,
+        'DiskRadiusFactor': 3.0
+    }
+
     with open(test_param, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
@@ -244,13 +250,11 @@ def test_parameters_configurable():
     config['output']['directory'] = str(temp_dir)
     config['output']['format'] = 'binary'
 
-    if 'parameters' not in config['modules']:
-        config['modules']['parameters'] = {}
-    if 'SageDiskInstability' not in config['modules']['parameters']:
-        config['modules']['parameters']['SageDiskInstability'] = {}
-
-    config['modules']['parameters']['SageDiskInstability']['DiskInstabilityOn'] = 1
-    config['modules']['parameters']['SageDiskInstability']['DiskRadiusFactor'] = 5.0
+    # Add model_parameters with custom DiskRadiusFactor to test configurability
+    config['model_parameters'] = {
+        'DiskInstabilityOn': 1,
+        'DiskRadiusFactor': 5.0  # Custom value (default is 3.0)
+    }
 
     with open(test_param, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -291,6 +295,12 @@ def test_stability_physics():
     config['modules']['enabled'] = ['sage_disk_instability']
     config['output']['directory'] = str(temp_dir)
     config['output']['format'] = 'binary'
+
+    # Add model_parameters (sage_disk_instability needs 2 parameters)
+    config['model_parameters'] = {
+        'DiskInstabilityOn': 1,
+        'DiskRadiusFactor': 3.0
+    }
 
     with open(test_param, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -361,6 +371,12 @@ def test_stellar_conservation():
     config['output']['directory'] = str(temp_dir)
     config['output']['format'] = 'binary'
 
+    # Add model_parameters (sage_disk_instability needs 2 parameters)
+    config['model_parameters'] = {
+        'DiskInstabilityOn': 1,
+        'DiskRadiusFactor': 3.0
+    }
+
     with open(test_param, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
@@ -427,6 +443,12 @@ def test_memory_safety():
     config['output']['directory'] = str(temp_dir)
     config['output']['format'] = 'binary'
 
+    # Add model_parameters (sage_disk_instability needs 2 parameters)
+    config['model_parameters'] = {
+        'DiskInstabilityOn': 1,
+        'DiskRadiusFactor': 3.0
+    }
+
     with open(test_param, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
@@ -480,6 +502,12 @@ def test_execution_completes():
     config['output']['directory'] = str(temp_dir)
     config['output']['format'] = 'binary'
 
+    # Add model_parameters (sage_disk_instability needs 2 parameters)
+    config['model_parameters'] = {
+        'DiskInstabilityOn': 1,
+        'DiskRadiusFactor': 3.0
+    }
+
     with open(test_param, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
@@ -531,6 +559,20 @@ def test_multiple_module_pipeline():
     config['modules']['enabled'] = modules_to_test
     config['output']['directory'] = str(temp_dir)
     config['output']['format'] = 'binary'
+
+    # Add model_parameters for all enabled modules
+    config['model_parameters'] = {
+        'DiskInstabilityOn': 1,
+        'DiskRadiusFactor': 3.0
+    }
+    if 'sage_infall' in modules_to_test:
+        config['model_parameters']['BaryonFrac'] = 0.17
+    if 'sage_cooling' in modules_to_test:
+        config['model_parameters'].update({
+            'RadioModeEfficiency': 0.01,
+            'AGNrecipeOn': 1,
+            'CoolFunctionsDir': 'src/modules/sage_cooling/CoolFunctions'
+        })
 
     with open(test_param, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)

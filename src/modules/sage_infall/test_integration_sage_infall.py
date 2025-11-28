@@ -204,37 +204,23 @@ def create_test_param_file(output_name, enabled_modules=None,
     # Update module configuration
     config['modules']['enabled'] = enabled_modules
 
-    # Parse and add module parameters
+    # Add model_parameters (sage_infall only needs BaryonFrac)
+    config['model_parameters'] = {
+        'BaryonFrac': 0.17,
+    }
+
+    # Override model parameters if provided
     if module_params:
-        if 'parameters' not in config['modules']:
-            config['modules']['parameters'] = {}
-
         for param_name, value in module_params.items():
-            # Parse snake_case_module_name_PascalCaseParam format
-            # Find the split point: last underscore before an uppercase letter
-            # Example: "sage_infall_BaryonFrac" → module="sage_infall", param="BaryonFrac"
-            split_idx = -1
-            for i in range(len(param_name) - 1):
-                if param_name[i] == '_' and param_name[i + 1].isupper():
-                    split_idx = i
-                    break
-
-            if split_idx > 0:
-                module_name = param_name[:split_idx]
-                param_key = param_name[split_idx + 1:]
-
-                # Ensure module section exists
-                if module_name not in config['modules']['parameters']:
-                    config['modules']['parameters'][module_name] = {}
-
-                # Try to convert to appropriate type
+            if param_name in config['model_parameters']:
+                # Override model parameter value
                 try:
                     value = float(value)
                     if value.is_integer():
                         value = int(value)
                 except (ValueError, AttributeError):
-                    pass  # Keep as string
-                config['modules']['parameters'][module_name][param_key] = value
+                    pass
+                config['model_parameters'][param_name] = value
 
     # Write test parameter file as YAML
     param_path = Path(temp_dir) / f"{output_name}.yaml"
@@ -260,10 +246,8 @@ def test_module_loads():
     # ===== SETUP =====
     param_file = create_test_param_file(
         output_name="sage_infall_load",
-        enabled_modules=["sage_infall"],
-        module_params={
-            "sage_infall_BaryonFrac": "0.17"
-        }
+        enabled_modules=["sage_infall"]
+        # BaryonFrac already set by create_test_param_file
     )
 
     # ===== EXECUTE =====
@@ -395,11 +379,8 @@ def test_with_satellite_stripping():
     # ===== SETUP =====
     param_file = create_test_param_file(
         output_name="sage_infall_stripping",
-        enabled_modules=["sage_infall", "sage_satellite_stripping"],
-        module_params={
-            "sage_infall_BaryonFrac": "0.17",
-            "sage_satellite_stripping_BaryonFrac": "0.17"
-        }
+        enabled_modules=["sage_infall", "sage_satellite_stripping"]
+        # BaryonFrac already set by create_test_param_file (shared by both modules)
     )
 
     # ===== EXECUTE =====
@@ -498,15 +479,18 @@ def test_multiple_module_pipeline():
 
     # Prefer sage_cooling as companion module (both are SAGE physics)
     companion_module = None
-    companion_params = {}
     companion_init_msg = None
+    additional_params = {}
 
     if "sage_cooling" in available_modules:
         companion_module = "sage_cooling"
-        companion_params = {
-            "sage_cooling_CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
-        }
         companion_init_msg = "SAGE cooling & AGN heating module initialized"
+        # sage_cooling needs these additional parameters
+        additional_params = {
+            "RadioModeEfficiency": 0.01,
+            "AGNrecipeOn": 1,
+            "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+        }
 
     # If no companion module available, skip test with warning
     if not companion_module:
@@ -517,14 +501,23 @@ def test_multiple_module_pipeline():
         return
 
     # ===== SETUP =====
+    import yaml
+
     param_file = create_test_param_file(
         output_name="sage_infall_multi",
-        enabled_modules=["sage_infall", companion_module],
-        module_params={
-            "sage_infall_BaryonFrac": "0.17",
-            **companion_params
-        }
+        enabled_modules=["sage_infall", companion_module]
+        # BaryonFrac already set by create_test_param_file
     )
+
+    # Add companion module parameters if needed
+    if additional_params:
+        with open(param_file, 'r') as f:
+            config = yaml.safe_load(f)
+
+        config['model_parameters'].update(additional_params)
+
+        with open(param_file, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)

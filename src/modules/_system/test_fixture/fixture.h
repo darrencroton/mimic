@@ -31,6 +31,10 @@
  * during program initialization before module_system_init().
  *
  * WARNING: This module is for testing infrastructure only.
+ *
+ * IMPORTANT: test_fixture reads parameters from the centralized model_parameters
+ * system (TestFixtureDummyParameter, TestFixtureEnableLogging). This allows
+ * infrastructure tests to validate that the centralized parameter system works.
  */
 void test_fixture_register(void);
 

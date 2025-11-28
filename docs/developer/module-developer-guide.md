@@ -583,14 +583,17 @@ module:
   name: my_module
   # ...
 
-  # Declare which model parameters this module uses
-  model_parameters_used:
-    - BaryonFrac
-    - SfrEfficiency
-    - ReIncorporationFactor
+dependencies:
+  requires:
+    properties: []
+    # Declare which model parameters this module uses
+    parameters:
+      - BaryonFrac
+      - SfrEfficiency
+      - ReIncorporationFactor
 ```
 
-This documentation helps users understand which parameters affect your module, but does **not** create module-specific parameters. All parameters come from the centralized `model_parameters.yaml`.
+This enables smart validation: only parameters needed by enabled modules are required in the input file. All parameters come from the centralized `model_parameters.yaml`.
 
 ### Parameter Validation
 
@@ -1494,7 +1497,7 @@ When implementing a module, ensure:
 - [ ] All three lifecycle functions implemented (`init`, `process_halos`, `cleanup`)
 - [ ] Properties defined in YAML metadata, not hardcoded
 - [ ] Parameters read using `model_get_*()` API from centralized `model_parameters.yaml`
-- [ ] `model_parameters_used` declared in `module_info.yaml`
+- [ ] Parameter dependencies declared in `module_info.yaml` (`dependencies.requires.parameters`)
 - [ ] Memory allocations use `malloc_tracked()` / `free_tracked()`
 - [ ] Error handling returns -1 on failure, 0 on success
 - [ ] Logging uses appropriate levels (INFO/DEBUG/ERROR)

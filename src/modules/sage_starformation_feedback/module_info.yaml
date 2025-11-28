@@ -37,19 +37,32 @@ module:
   dependencies:
     # Properties required from upstream modules
     requires:
-      - HotGas               # From sage_infall
-      - MetalsHotGas         # From sage_infall
-      - EjectedMass          # From sage_infall
-      - MetalsEjectedMass    # From sage_infall
-      - ColdGas              # From sage_cooling
-      - MetalsColdGas        # From sage_cooling
+      properties:
+        - HotGas
+        - MetalsHotGas
+        - EjectedMass
+        - MetalsEjectedMass
+        - ColdGas
+        - MetalsColdGas
+      parameters:
+        - SFprescription
+        - SfrEfficiency
+        - EnergySNcode
+        - EtaSNcode
+        - SupernovaRecipeOn
+        - FeedbackReheatingEpsilon
+        - FeedbackEjectionEfficiency
+        - RecycleFraction
+        - Yield
+        - FracZleaveDisk
+        - DiskInstabilityOn
 
     # Properties provided by this module
     provides:
-      - StellarMass          # Modified (incremented)
-      - MetalsStellarMass    # Computed
-      - DiskScaleRadius      # Computed
-      - OutflowRate          # Computed
+      - StellarMass
+      - MetalsStellarMass
+      - DiskScaleRadius
+      - OutflowRate
 
   # ===========================================================================
   # Testing

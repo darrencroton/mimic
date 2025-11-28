@@ -42,9 +42,10 @@ class TestSageCoolingIntegration:
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="sage_cooling_load",
             enabled_modules=["sage_cooling"],
-            module_params={
-                "SageCooling_RadioModeEfficiency": "0.01",
-                "SageCooling_AGNrecipeOn": "1"
+            model_params={
+                "RadioModeEfficiency": 0.01,
+                "AGNrecipeOn": 1,
+                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
             }
         )
 
@@ -57,11 +58,11 @@ class TestSageCoolingIntegration:
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="infall_cooling_pipeline",
             enabled_modules=["sage_infall", "sage_cooling"],
-            module_params={
-                "SageInfall_BaryonFrac": "0.17",
-                "SageInfall_ReionizationOn": "1",
-                "SageCooling_RadioModeEfficiency": "0.01",
-                "SageCooling_AGNrecipeOn": "1"
+            model_params={
+                "BaryonFrac": 0.17,
+                "RadioModeEfficiency": 0.01,
+                "AGNrecipeOn": 1,
+                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
             }
         )
 
@@ -79,10 +80,11 @@ class TestSageCoolingIntegration:
             param_file, output_dir, temp_dir = harness.create_test_param_file(
                 output_name=f"agn_mode_{agn_mode}",
                 enabled_modules=["sage_infall", "sage_cooling"],
-                module_params={
-                    "SageInfall_BaryonFrac": "0.17",
-                    "SageCooling_RadioModeEfficiency": "0.01",
-                    "SageCooling_AGNrecipeOn": str(agn_mode)
+                model_params={
+                    "BaryonFrac": 0.17,
+                    "RadioModeEfficiency": 0.01,
+                    "AGNrecipeOn": agn_mode,
+                    "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
                 }
             )
 
@@ -95,10 +97,11 @@ class TestSageCoolingIntegration:
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_params",
             enabled_modules=["sage_infall", "sage_cooling"],
-            module_params={
-                "SageInfall_BaryonFrac": "0.17",
-                "SageCooling_RadioModeEfficiency": "0.02",  # Non-default
-                "SageCooling_AGNrecipeOn": "2"  # Bondi-Hoyle mode
+            model_params={
+                "BaryonFrac": 0.17,
+                "RadioModeEfficiency": 0.02,  # Non-default
+                "AGNrecipeOn": 2,  # Bondi-Hoyle mode
+                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
             }
         )
 
@@ -110,10 +113,11 @@ class TestSageCoolingIntegration:
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_memory",
             enabled_modules=["sage_infall", "sage_cooling"],
-            module_params={
-                "SageInfall_BaryonFrac": "0.17",
-                "SageCooling_RadioModeEfficiency": "0.01",
-                "SageCooling_AGNrecipeOn": "1"
+            model_params={
+                "BaryonFrac": 0.17,
+                "RadioModeEfficiency": 0.01,
+                "AGNrecipeOn": 1,
+                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
             }
         )
 
@@ -126,6 +130,12 @@ class TestSageCoolingIntegration:
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_complete",
             enabled_modules=["sage_infall", "sage_cooling"],
+            model_params={
+                "BaryonFrac": 0.17,
+                "RadioModeEfficiency": 0.01,
+                "AGNrecipeOn": 1,
+                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+            },
             first_file=0,
             last_file=0
         )
@@ -139,9 +149,11 @@ class TestSageCoolingIntegration:
         param_file_correct, output_dir1, temp_dir1 = harness.create_test_param_file(
             output_name="cooling_order_correct",
             enabled_modules=["sage_infall", "sage_cooling"],
-            module_params={
-                "SageInfall_BaryonFrac": "0.17",
-                "SageCooling_RadioModeEfficiency": "0.01"
+            model_params={
+                "BaryonFrac": 0.17,
+                "RadioModeEfficiency": 0.01,
+                "AGNrecipeOn": 1,
+                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
             }
         )
 
@@ -152,9 +164,11 @@ class TestSageCoolingIntegration:
         param_file_wrong, output_dir2, temp_dir2 = harness.create_test_param_file(
             output_name="cooling_order_wrong",
             enabled_modules=["sage_cooling", "sage_infall"],  # Wrong order
-            module_params={
-                "SageInfall_BaryonFrac": "0.17",
-                "SageCooling_RadioModeEfficiency": "0.01"
+            model_params={
+                "BaryonFrac": 0.17,
+                "RadioModeEfficiency": 0.01,
+                "AGNrecipeOn": 1,
+                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
             }
         )
 

@@ -320,20 +320,58 @@ def validate_field_types(
             results.add_error(module_name, 1, "Field 'dependencies' must be a dict")
             valid = False
         else:
-            for field in ["requires", "provides"]:
-                if field in deps:
-                    if not isinstance(deps[field], list):
+            # Validate 'requires' (can be list or dict with properties/parameters)
+            if "requires" in deps:
+                requires = deps["requires"]
+                if isinstance(requires, dict):
+                    # New format: dict with properties and parameters
+                    if "properties" in requires:
+                        if not isinstance(requires["properties"], list):
+                            results.add_error(
+                                module_name, 1, "dependencies.requires.properties must be a list"
+                            )
+                            valid = False
+                        elif not all(isinstance(item, str) for item in requires["properties"]):
+                            results.add_error(
+                                module_name, 1, "All items in dependencies.requires.properties must be strings"
+                            )
+                            valid = False
+                    if "parameters" in requires:
+                        if not isinstance(requires["parameters"], list):
+                            results.add_error(
+                                module_name, 1, "dependencies.requires.parameters must be a list"
+                            )
+                            valid = False
+                        elif not all(isinstance(item, str) for item in requires["parameters"]):
+                            results.add_error(
+                                module_name, 1, "All items in dependencies.requires.parameters must be strings"
+                            )
+                            valid = False
+                elif isinstance(requires, list):
+                    # Old format: list of property names (backward compatibility)
+                    if not all(isinstance(item, str) for item in requires):
                         results.add_error(
-                            module_name, 1, f"dependencies.{field} must be a list"
+                            module_name, 1, "All items in dependencies.requires must be strings"
                         )
                         valid = False
-                    elif not all(isinstance(item, str) for item in deps[field]):
-                        results.add_error(
-                            module_name,
-                            1,
-                            f"All items in dependencies.{field} must be strings",
-                        )
-                        valid = False
+                else:
+                    results.add_error(
+                        module_name, 1, "dependencies.requires must be a dict or list"
+                    )
+                    valid = False
+
+            # Validate 'provides' (always a list)
+            if "provides" in deps:
+                if not isinstance(deps["provides"], list):
+                    results.add_error(
+                        module_name, 1, "dependencies.provides must be a list"
+                    )
+                    valid = False
+                elif not all(isinstance(item, str) for item in deps["provides"]):
+                    results.add_error(
+                        module_name, 1, "All items in dependencies.provides must be strings"
+                    )
+                    valid = False
 
     # Parameters
     if "parameters" in module:
@@ -755,7 +793,14 @@ def build_dependency_graph(
 
     # Build dependency edges
     for name, module in modules:
-        requires = module.get("dependencies", {}).get("requires", [])
+        requires_raw = module.get("dependencies", {}).get("requires", {})
+
+        # Handle new dict format: requires.properties
+        if isinstance(requires_raw, dict):
+            requires = requires_raw.get("properties", [])
+        else:
+            requires = requires_raw
+
         dependencies = []
 
         for req_prop in requires:
@@ -778,7 +823,16 @@ def validate_module_dependencies(
     """Validate module dependencies against property metadata."""
 
     deps = module.get("dependencies", {})
-    requires = deps.get("requires", [])
+    requires_raw = deps.get("requires", {})
+
+    # Handle new dict format: requires.properties and requires.parameters
+    if isinstance(requires_raw, dict):
+        requires = requires_raw.get("properties", [])
+        # parameters are validated elsewhere (model_parameters system)
+    else:
+        # Fallback for old list format (backward compatibility during transition)
+        requires = requires_raw
+
     provides = deps.get("provides", [])
 
     valid = True

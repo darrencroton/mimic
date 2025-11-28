@@ -53,14 +53,16 @@ EnabledModules
 # Option 2: Omit the parameter entirely (not recommended for clarity)
 ```
 
-## Model Parameters (Phase 4.4)
+## Model Parameters (Phase 4.4+)
 
-**IMPORTANT**: All physics parameters are centralized in the `model_parameters:` section of your YAML configuration file. ALL 20 parameters are REQUIRED - no defaults are used.
+**IMPORTANT**: All physics parameters are centralized in the `model_parameters:` section of your YAML configuration file. Parameters are REQUIRED based on which modules you enable - no defaults are used.
 
-### Why All Parameters Are Required
+### Smart Parameter Validation
 
-Mimic enforces **explicit model specification** for reproducible science:
-- Your input file defines the complete physics model
+Mimic uses **smart validation** for reproducible science:
+- Only parameters needed by your enabled modules are required
+- Physics-free mode (no modules) requires NO parameters
+- Your input file defines the complete physics model for your configuration
 - No hidden defaults - all assumptions are explicit
 - Different runs can be compared by comparing parameter files
 - Parameter definitions are in `src/modules/model_parameters.yaml`
@@ -81,7 +83,7 @@ The 20 model parameters are organized into scientific categories:
 ### YAML Configuration Format
 
 ```yaml
-# All 20 parameters REQUIRED (values shown are SAGE defaults)
+# Parameters needed by enabled modules (values shown are SAGE defaults)
 model_parameters:
   # Cosmological Parameters
   BaryonFrac: 0.17
@@ -263,11 +265,11 @@ The following modules were used for infrastructure testing in Phase 3 and are no
 See `input/millennium.yaml` for a complete working configuration file. Key sections:
 
 ```yaml
-# Model Parameters - ALL 20 REQUIRED
+# Model Parameters - Only those needed by enabled modules required
 model_parameters:
   BaryonFrac: 0.17
   RadioModeEfficiency: 0.01
-  # ... (all 20 parameters, see file for complete list)
+  # ... (see input/millennium.yaml for complete list)
 
 # Output Configuration
 output:
@@ -333,14 +335,15 @@ Available modules:
 
 ### Missing Model Parameter
 
-**All 20 model parameters are REQUIRED.** If any parameter is missing:
+**Parameters needed by your enabled modules are REQUIRED.** If any required parameter is missing:
 
 **Error**:
 ```
-ERROR: Required model parameter 'BaryonFrac' not found in configuration
+ERROR: Required model parameter 'BaryonFrac' not found in input file
+ERROR:   (needed by enabled modules)
 ```
 
-**Solution**: Add the missing parameter to the `model_parameters:` section. See `src/modules/model_parameters.yaml` for the complete list of required parameters.
+**Solution**: Add the missing parameter to the `model_parameters:` section. The error message indicates which modules need it. See `src/modules/model_parameters.yaml` for parameter definitions.
 
 ### Invalid Parameter Value
 
@@ -356,7 +359,7 @@ ERROR: BaryonFrac = 2.0 is outside valid range [0.0, 1.0]
 ## Tips
 
 1. **Copy from example**: Start with `input/millennium.yaml` and modify as needed
-2. **All parameters required**: You must specify all 20 model parameters explicitly
+2. **Smart validation**: Only parameters needed by your enabled modules are required
 3. **One module at a time**: When testing, enable modules one at a time to isolate issues
 4. **Check logs**: Module initialization logs show which parameters were loaded
 5. **Physics order**: Always list modules in dependency order (see module descriptions above)
@@ -368,7 +371,7 @@ ERROR: BaryonFrac = 2.0 is outside valid range [0.0, 1.0]
 **Check**: `modules.enabled:` list present and module names spelled correctly
 
 **Problem**: Missing parameter errors
-**Check**: All 20 model parameters specified in `model_parameters:` section
+**Check**: Parameters needed by enabled modules specified in `model_parameters:` section (check error message for which modules need the parameter)
 
 **Problem**: Wrong physics results
 **Check**: Module execution order - dependencies must run first (see module descriptions above)

@@ -37,16 +37,29 @@ module:
   dependencies:
     # Properties required from other modules
     requires:
-      - ColdGas
-      - StellarMass
-      - HotGas
-      - MetalsHotGas
-      - MetalsColdGas
-      - EjectedMass
-      - MetalsEjectedMass
-      - ICS
-      - MetalsICS
-      - BlackHoleMass
+      properties:
+        - ColdGas
+        - StellarMass
+        - HotGas
+        - MetalsHotGas
+        - MetalsColdGas
+        - EjectedMass
+        - MetalsEjectedMass
+        - ICS
+        - MetalsICS
+        - BlackHoleMass
+      parameters:
+        - AGNrecipeOn
+        - SupernovaRecipeOn
+        - FeedbackReheatingEpsilon
+        - FeedbackEjectionEfficiency
+        - RecycleFraction
+        - Yield
+        - FracZleaveDisk
+        - BlackHoleGrowthRate
+        - QuasarModeEfficiency
+        - ThreshMajorMerger
+        - DiskInstabilityOn
 
     # Properties provided by this module
     provides:

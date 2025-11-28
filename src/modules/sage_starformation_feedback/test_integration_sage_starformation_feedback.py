@@ -153,24 +153,52 @@ def create_test_param_file(output_dir, modules, module_params=None):
     config['output']['format'] = 'binary'
     config['modules']['enabled'] = modules
 
-    # Add module-specific parameters if provided
-    if module_params:
-        if 'parameters' not in config['modules']:
-            config['modules']['parameters'] = {}
+    # Add model_parameters based on which modules are enabled
+    # Module dependencies (from module_info.yaml files):
+    #   sage_starformation_feedback: 11 parameters
+    #   sage_cooling: RadioModeEfficiency, AGNrecipeOn, CoolFunctionsDir
+    #   sage_infall: BaryonFrac
+    params_needed = {}
+    for module in modules:
+        if module == 'sage_starformation_feedback':
+            params_needed.update({
+                'SFprescription': 0,
+                'SfrEfficiency': 0.02,
+                'EnergySNcode': 1.0,
+                'EtaSNcode': 0.5,
+                'SupernovaRecipeOn': 1,
+                'FeedbackReheatingEpsilon': 3.0,
+                'FeedbackEjectionEfficiency': 0.3,
+                'RecycleFraction': 0.43,
+                'Yield': 0.03,
+                'FracZleaveDisk': 0.3,
+                'DiskInstabilityOn': 1,
+            })
+        elif module == 'sage_cooling':
+            params_needed.update({
+                'RadioModeEfficiency': 0.01,
+                'AGNrecipeOn': 1,
+                'CoolFunctionsDir': 'src/modules/sage_cooling/CoolFunctions',
+            })
+        elif module == 'sage_infall':
+            params_needed.update({
+                'BaryonFrac': 0.17,
+            })
 
+    config['model_parameters'] = params_needed
+
+    # Override model parameters if provided
+    if module_params:
         for param_name, value in module_params.items():
-            # Parse ModuleName_ParameterName format
-            if '_' in param_name:
-                module_name, param_key = param_name.split('_', 1)
-                if module_name not in config['modules']['parameters']:
-                    config['modules']['parameters'][module_name] = {}
+            if param_name in config['model_parameters']:
+                # Override model parameter value
                 try:
                     value = float(value)
                     if value.is_integer():
                         value = int(value)
                 except (ValueError, AttributeError):
                     pass
-                config['modules']['parameters'][module_name][param_key] = value
+                config['model_parameters'][param_name] = value
 
     with open(param_file, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)

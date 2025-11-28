@@ -59,7 +59,7 @@
 // MODULE PARAMETERS
 // ============================================================================
 // Parameters defined in module_info.yaml (single source of truth).
-// Loaded at runtime via module_get_double().
+// Loaded at runtime via model_get_double().
 // Defaults and validation ranges come from metadata - no hardcoding.
 
 static double BARYON_FRAC;

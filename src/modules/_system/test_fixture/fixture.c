@@ -31,36 +31,43 @@
 /**
  * @brief   Dummy parameter for testing parameter API
  *
- * Read from configuration file via TestFixture_DummyParameter parameter.
+ * Read from centralized model_parameters via TestFixtureDummyParameter.
  * Has no physical meaning - exists only to test parameter system.
  */
-static double DUMMY_PARAMETER = 1.0; /* Default value */
+static double DUMMY_PARAMETER;
 
 /**
  * @brief   Enable verbose logging for test validation
  *
- * Read from configuration file via TestFixture_EnableLogging parameter.
- * 0 = minimal logging (default), 1 = verbose logging for test validation
+ * Read from centralized model_parameters via TestFixtureEnableLogging.
+ * 0 = minimal logging, 1 = verbose logging for test validation
  */
-static int ENABLE_LOGGING = 0; /* Default: off */
+static int ENABLE_LOGGING;
 
 /**
  * @brief   Initialize test fixture module
  *
  * Called once during program startup. Reads module parameters from
- * configuration and logs module configuration.
+ * centralized model_parameters system and logs module configuration.
  *
- * @return  0 on success
+ * @return  0 on success, -1 on error
  */
 static int test_fixture_init(void) {
-  // Read module parameters from configuration
-  module_get_double("TestFixture", "DummyParameter", &DUMMY_PARAMETER);
-  module_get_int("TestFixture", "EnableLogging", &ENABLE_LOGGING);
+  // Read parameters from centralized model_parameters system
+  if (model_get_double("TestFixtureDummyParameter", &DUMMY_PARAMETER) != 0) {
+    ERROR_LOG("Failed to read TestFixtureDummyParameter from model_parameters");
+    return -1;
+  }
+
+  if (model_get_int("TestFixtureEnableLogging", &ENABLE_LOGGING) != 0) {
+    ERROR_LOG("Failed to read TestFixtureEnableLogging from model_parameters");
+    return -1;
+  }
 
   INFO_LOG("Test fixture module initialized");
   INFO_LOG("  ⚠️  WARNING: Testing infrastructure only - NOT FOR PRODUCTION");
-  INFO_LOG("  DummyParameter = %.3f (from config)", DUMMY_PARAMETER);
-  INFO_LOG("  EnableLogging = %d (from config)", ENABLE_LOGGING);
+  INFO_LOG("  DummyParameter = %.3f", DUMMY_PARAMETER);
+  INFO_LOG("  EnableLogging = %d", ENABLE_LOGGING);
 
   return 0;
 }

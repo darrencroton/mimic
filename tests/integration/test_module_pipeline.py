@@ -100,8 +100,9 @@ class TestModulePipeline(unittest.TestCase):
         param_file, output_dir, _ = create_test_param_file(
             output_name="single_module",
             enabled_modules=["test_fixture"],
-            module_params={
-                "TestFixture_DummyParameter": "2.5"
+            model_params={
+                "TestFixtureDummyParameter": 2.5,
+                "TestFixtureEnableLogging": 0
             },
             first_file=0,
             last_file=0,
@@ -129,9 +130,9 @@ class TestModulePipeline(unittest.TestCase):
         param_file, output_dir, _ = create_test_param_file(
             output_name="multiple_modules",
             enabled_modules=["test_fixture", "test_fixture"],
-            module_params={
-                "TestFixture_DummyParameter": "1.5",
-                "TestFixture_EnableLogging": "0"
+            model_params={
+                "TestFixtureDummyParameter": 1.5,
+                "TestFixtureEnableLogging": 0
             },
             first_file=0,
             last_file=0,
@@ -160,8 +161,9 @@ class TestModulePipeline(unittest.TestCase):
         param_file, output_dir, _ = create_test_param_file(
             output_name="custom_params",
             enabled_modules=["test_fixture"],
-            module_params={
-                "TestFixture_DummyParameter": "3.14"  # Non-default
+            model_params={
+                "TestFixtureDummyParameter": 3.14,  # Non-default
+                "TestFixtureEnableLogging": 0
             },
             first_file=0,
             last_file=0,
@@ -217,8 +219,9 @@ class TestModulePipeline(unittest.TestCase):
         param_file, output_dir, _ = create_test_param_file(
             output_name="execution_order",
             enabled_modules=["test_fixture"],
-            module_params={
-                "TestFixture_DummyParameter": "1.0"
+            model_params={
+                "TestFixtureDummyParameter": 1.0,
+                "TestFixtureEnableLogging": 0
             },
             first_file=0,
             last_file=0,

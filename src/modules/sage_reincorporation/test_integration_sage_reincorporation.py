@@ -179,21 +179,38 @@ def create_test_param_file(output_file, **overrides):
     config['output']['format'] = 'binary'
     config['output']['directory'] = str(temp_dir / "output")
 
-    # Apply overrides
+    # Apply overrides to determine which modules are enabled
+    enabled_modules = []
     for key, value in overrides.items():
         if key == 'EnabledModules':
             # Split comma-separated list and update modules.enabled
-            modules = [m.strip() for m in value.split(',')]
-            config['modules']['enabled'] = modules
-        elif key.startswith('Sage') and '_' in key:
-            # Module parameter: SageModuleName_ParameterName
-            module_name, param_key = key.split('_', 1)
-            if 'parameters' not in config['modules']:
-                config['modules']['parameters'] = {}
-            if module_name not in config['modules']['parameters']:
-                config['modules']['parameters'][module_name] = {}
-            config['modules']['parameters'][module_name][param_key] = value
-        # Add more override handling as needed
+            enabled_modules = [m.strip() for m in value.split(',')]
+            config['modules']['enabled'] = enabled_modules
+
+    # Add model_parameters based on which modules are enabled
+    # Module dependencies (from module_info.yaml files):
+    #   sage_reincorporation: ReIncorporationFactor
+    #   sage_infall: BaryonFrac
+    params_needed = set()
+    for module in enabled_modules:
+        if module == 'sage_reincorporation':
+            params_needed.add('ReIncorporationFactor')
+        elif module == 'sage_infall':
+            params_needed.add('BaryonFrac')
+
+    # Set default values for needed parameters
+    config['model_parameters'] = {}
+    for param in params_needed:
+        if param == 'ReIncorporationFactor':
+            config['model_parameters'][param] = 1.0
+        elif param == 'BaryonFrac':
+            config['model_parameters'][param] = 0.17
+
+    # Apply parameter overrides
+    for key, value in overrides.items():
+        if key != 'EnabledModules' and key in config.get('model_parameters', {}):
+            # Override model parameter value
+            config['model_parameters'][key] = value
 
     # Write parameter file as YAML
     with open(output_file, 'w') as f:

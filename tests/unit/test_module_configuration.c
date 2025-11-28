@@ -52,6 +52,21 @@ static void ensure_modules_registered(void) {
     }
 }
 
+/* Test fixture: Set test_fixture parameters in centralized model_parameters */
+static void set_test_fixture_params(double dummy_val, int logging_val) {
+    int idx = 0;
+
+    strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureDummyParameter");
+    snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%.10g", dummy_val);
+    idx++;
+
+    strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureEnableLogging");
+    snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%d", logging_val);
+    idx++;
+
+    MimicConfig.NumModelParams = idx;
+}
+
 /**
  * @test    test_module_registry_init
  * @brief   Test module registry initialization
@@ -143,6 +158,9 @@ int test_valid_module_initialization(void) {
     reset_config();
     ensure_modules_registered();
 
+    /* Set test_fixture parameters */
+    set_test_fixture_params(1.0, 0);
+
     /* Enable valid modules */
     strcpy(MimicConfig.EnabledModules[0], "test_fixture");
     strcpy(MimicConfig.EnabledModules[1], "test_fixture");
@@ -200,6 +218,9 @@ int test_single_module_initialization(void) {
     /* ===== SETUP ===== */
     reset_config();
     ensure_modules_registered();
+
+    /* Set test_fixture parameters */
+    set_test_fixture_params(1.0, 0);
 
     /* Enable only test_fixture */
     strcpy(MimicConfig.EnabledModules[0], "test_fixture");

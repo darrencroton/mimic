@@ -89,51 +89,6 @@ int module_system_cleanup(void);
  */
 void register_all_modules(void);
 
-/**
- * @brief   Read a module parameter as string (optional with default)
- *
- * Reads a parameter value for the specified module. If the parameter is not
- * found, uses the provided default value. Always succeeds.
- *
- * @param   module_name     Module name (e.g., "SimpleCooling")
- * @param   param_name      Parameter name (e.g., "BaryonFraction")
- * @param   out_value       Output buffer for value string
- * @param   max_len         Maximum length of output buffer
- * @param   default_value   Default value if parameter not found
- * @return  0 on success (always succeeds)
- */
-int module_get_parameter(const char *module_name, const char *param_name,
-                         char *out_value, size_t max_len,
-                         const char *default_value);
-
-/**
- * @brief   Read a module parameter as double
- *
- * Reads a numeric parameter value for the specified module.
- * Default value and validation range come from module_info.yaml.
- *
- * @param   module_name     Module name (e.g., "sage_infall")
- * @param   param_name      Parameter name (e.g., "BaryonFrac")
- * @param   out_value       Output pointer for double value
- * @return  0 on success, -1 on validation error
- */
-int module_get_double(const char *module_name, const char *param_name,
-                      double *out_value);
-
-/**
- * @brief   Read a module parameter as integer
- *
- * Reads an integer parameter value for the specified module.
- * Default value and validation range come from module_info.yaml.
- *
- * @param   module_name     Module name (e.g., "sage_infall")
- * @param   param_name      Parameter name (e.g., "ReionizationOn")
- * @param   out_value       Output pointer for integer value
- * @return  0 on success, -1 on validation error
- */
-int module_get_int(const char *module_name, const char *param_name,
-                   int *out_value);
-
 /* ==============================================================================
  * MODEL PARAMETER ACCESS (Phase 4.4)
  * ==============================================================================

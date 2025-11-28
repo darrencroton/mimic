@@ -40,8 +40,11 @@ module:
     # don't need to run first (e.g., sage_infall). If properties don't exist,
     # stripping simply won't occur.
     requires:
-      - HotGas
-      - MetalsHotGas
+      properties:
+        - HotGas
+        - MetalsHotGas
+      parameters:
+        - BaryonFrac
 
     # This module modifies existing properties, doesn't create new ones
     provides: []
