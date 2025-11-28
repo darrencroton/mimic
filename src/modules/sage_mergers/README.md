@@ -92,7 +92,7 @@ This module implements galaxy merger physics from the SAGE (Semi-Analytic Galaxy
 
 **Future Work:**
 1. Design SFH array system (see `docs/architecture/next-task.md`)
-2. Add SFH properties to `galaxy_properties.yaml` (array type support needed)
+2. Add SFH properties to `model_properties.yaml` (array type support needed)
 3. Implement SFH tracking in `add_galaxies_together()` and `make_bulge_from_burst()`
 4. Update transfer logic in merger functions
 

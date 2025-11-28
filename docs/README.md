@@ -110,7 +110,7 @@ Mimic uses a **metadata-driven architecture** where properties and modules are d
 **Key Systems:**
 1. **Property Metadata** - Defines galaxy/halo properties
    - Halo properties: `src/core/halo_properties.yaml`
-   - Galaxy properties: `src/modules/galaxy_properties.yaml`
+   - Galaxy properties: `src/modules/model_properties.yaml`
 2. **Module Metadata** (`src/modules/*/module_info.yaml`) - Defines physics modules
 3. **Model Parameter Metadata** (`src/modules/model_parameters.yaml`) - Defines physics model parameters (no defaults, all required in input file)
 4. **Auto-Generation** - Code generated from metadata via `make generate`
@@ -133,7 +133,7 @@ make clean && make
 **2. Adding a New Property:**
 ```bash
 # Edit metadata
-vim src/modules/galaxy_properties.yaml
+vim src/modules/model_properties.yaml
 
 # Add your property definition (see property-metadata-schema.md)
 # Regenerate code
@@ -217,7 +217,7 @@ mimic/
 │   ├── io/            # Input/output (tree readers, writers)
 │   ├── util/          # Utilities (memory, error, numeric)
 │   ├── modules/       # Physics modules (modular, hot-swappable)
-│   │   └── galaxy_properties.yaml  # Galaxy property metadata
+│   │   └── model_properties.yaml  # Galaxy property metadata
 │   └── include/       # Headers + auto-generated code
 ├── tests/             # Three-tier testing (unit/integration/scientific)
 ├── docs/              # Documentation (architecture/developer/user)
@@ -382,7 +382,7 @@ mimic/
 │   │   ├── test_fixture/  # Testing infrastructure module
 │   │   └── generated/     # Auto-generated module registration
 │   ├── modules/           # Physics modules
-│   │   └── galaxy_properties.yaml  # Galaxy property metadata
+│   │   └── model_properties.yaml  # Galaxy property metadata
 │   ├── core/              # Core execution
 │   │   └── halo_properties.yaml    # Halo property metadata
 │   └── include/           # Headers

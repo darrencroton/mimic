@@ -35,23 +35,21 @@ module:
   # ===========================================================================
 
   dependencies:
-    # This module requires mass components and halo properties
-    requires:
-      properties:
-        - ColdGas           # Cold gas mass (from sage_cooling)
-        - MetalsColdGas     # Metal mass in cold gas (from sage_cooling)
-        - StellarMass       # Total stellar mass (from star formation)
-        - MetalsStellarMass # Total metal mass in stars (from sage_starformation_feedback)
-        - Vmax              # Maximum circular velocity (from halo)
-      parameters:
-        - DiskInstabilityOn
-        - DiskRadiusFactor
-
-    # Properties provided by this module
-    provides:
+    # All properties used by this module
+    properties:
+      - ColdGas           # Cold gas mass
+      - MetalsColdGas     # Metal mass in cold gas
+      - StellarMass       # Total stellar mass
+      - MetalsStellarMass # Total metal mass in stars
+      - Vmax              # Maximum circular velocity (from halo)
       - BulgeMass         # Stellar mass in bulge
       - MetalsBulgeMass   # Metal mass in bulge
       - DiskScaleRadius   # Disk scale radius
+
+    # Parameters needed by this module
+    parameters:
+      - DiskInstabilityOn
+      - DiskRadiusFactor
 
   # ===========================================================================
   # Testing

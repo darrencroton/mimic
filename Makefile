@@ -206,7 +206,7 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(GIT_VERSION_H)
 
 # YAML metadata inputs for property generation
 PROP_YAML := src/core/halo_properties.yaml \
-             src/modules/galaxy_properties.yaml
+             src/modules/model_properties.yaml
 
 # YAML metadata for model parameters (Phase 4.4)
 MODEL_PARAM_YAML := src/modules/model_parameters.yaml

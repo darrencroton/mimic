@@ -28,7 +28,6 @@ Date: 2025-11-12
 import argparse
 import hashlib
 import sys
-from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -156,72 +155,15 @@ def discover_modules() -> List[Dict[str, Any]]:
 # ==============================================================================
 
 
-def build_dependency_graph(modules: List[Dict[str, Any]]) -> Dict[str, List[str]]:
-    """Build module dependency graph for topological sort."""
-
-    graph = {}
-    module_names = [m["name"] for m in modules]
-
-    # Build module name -> provides mapping
-    provides_map = {}
-    for module in modules:
-        name = module["name"]
-        provides = module.get("dependencies", {}).get("provides", [])
-        for prop in provides:
-            if prop not in provides_map:
-                provides_map[prop] = []
-            provides_map[prop].append(name)
-
-    # Build dependency edges
-    for module in modules:
-        name = module["name"]
-        requires = module.get("dependencies", {}).get("requires", [])
-        dependencies = []
-
-        for req_prop in requires:
-            if req_prop in provides_map:
-                # This module depends on modules that provide req_prop
-                for provider in provides_map[req_prop]:
-                    if provider != name:  # Don't depend on self
-                        dependencies.append(provider)
-
-        graph[name] = list(set(dependencies))  # Remove duplicates
-
-    return graph
-
-
 def resolve_dependencies(
     modules: List[Dict[str, Any]],
 ) -> Optional[List[Dict[str, Any]]]:
-    """Topologically sort modules by dependencies."""
+    """Return modules in order (no automatic dependency resolution).
 
-    if not modules:
-        return []
-
-    try:
-        graph = build_dependency_graph(modules)
-    except Exception as e:
-        print(f"ERROR: Failed to build dependency graph: {e}", file=sys.stderr)
-        return None
-
-    # Topological sort
-    try:
-        ts = TopologicalSorter(graph)
-        sorted_names = list(ts.static_order())
-    except CycleError as e:
-        print(f"ERROR: Circular dependency detected: {e}", file=sys.stderr)
-        return None
-
-    # Create name -> module mapping
-    module_map = {m["name"]: m for m in modules}
-
-    # Return modules in dependency order
-    sorted_modules = []
-    for name in sorted_names:
-        if name in module_map:
-            sorted_modules.append(module_map[name])
-
-    return sorted_modules
+    Note: Modules must be listed in correct execution order in the
+    input YAML configuration file. No topological sorting is performed.
+    """
+    return modules if modules else []
 
 
 # ==============================================================================
@@ -311,46 +253,31 @@ def generate_module_init_c(
     lines.append(f" * Modules registered: {len(runtime_modules)}")
     lines.append(" *")
     if runtime_modules:
-        lines.append(" * Dependency order:")
+        lines.append(" * Execution order (from config):")
         for i, module in enumerate(runtime_modules, 1):
             name = module["name"]
-            provides = module.get("dependencies", {}).get("provides", [])
-            requires = module.get("dependencies", {}).get("requires", [])
+            properties = module.get("dependencies", {}).get("properties", [])
 
-            if provides:
-                provides_str = ", ".join(provides)
+            if properties:
+                props_str = ", ".join(properties)
+                lines.append(f" * {i}. {name}: uses [{props_str}]")
             else:
-                provides_str = "(none)"
-
-            if requires:
-                requires_str = ", ".join(requires)
-                lines.append(
-                    f" * {i}. {name}: requires [{requires_str}] → provides [{provides_str}]"
-                )
-            else:
-                lines.append(f" * {i}. {name}: provides [{provides_str}]")
+                lines.append(f" * {i}. {name}: (no properties)")
     lines.append(" */")
     lines.append("void register_all_modules(void) {")
 
     if runtime_modules:
-        lines.append("    /* Register in dependency-resolved order */")
+        lines.append("    /* Register in execution order from config */")
         for module in runtime_modules:
             name = module["name"]
             register_func = module.get("register_function", f"{name}_register")
-            provides = module.get("dependencies", {}).get("provides", [])
-            requires = module.get("dependencies", {}).get("requires", [])
+            properties = module.get("dependencies", {}).get("properties", [])
 
             # Add inline comment
-            if provides and requires:
-                comment = (
-                    f"Requires: {', '.join(requires)} → Provides: {', '.join(provides)}"
-                )
-            elif provides:
-                comment = f"Provides: {', '.join(provides)}"
-            elif requires:
-                comment = f"Requires: {', '.join(requires)}"
+            if properties:
+                comment = f"Uses: {', '.join(properties)}"
             else:
-                comment = "No dependencies"
+                comment = "No properties"
 
             lines.append(f"    {register_func}();  /* {comment} */")
     else:

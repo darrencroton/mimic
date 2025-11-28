@@ -161,7 +161,7 @@ src/
 │   └── output/    Output writers (binary, HDF5)
 ├── util/          Utilities (memory, error, numeric, version, I/O)
 ├── modules/       Physics modules
-│   ├── galaxy_properties.yaml  Galaxy property metadata (auto-generates C code)
+│   ├── model_properties.yaml   Model property metadata (auto-generates C code)
 │   ├── model_parameters.yaml   Model parameter metadata (auto-generates validation code)
 │   ├── _archive/               Archived modules (historical reference)
 │   ├── _system/                System infrastructure (don't touch)
@@ -192,7 +192,7 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 
 **Metadata-Driven Property System:**
 - Halo properties: `src/core/halo_properties.yaml`
-- Galaxy properties: `src/modules/galaxy_properties.yaml`
+- Model properties: `src/modules/model_properties.yaml`
 - Auto-generated into C structs via `make generate`
 - Includes: struct Halo, struct GalaxyData, struct HaloOutput
 - Python dtypes auto-generated for reading output

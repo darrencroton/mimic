@@ -261,7 +261,7 @@ Use this for each module implementation:
 - [ ] Check dependencies on other modules
 
 **Implementation Phase**:
-- [ ] Define properties in galaxy_properties.yaml
+- [ ] Define properties in model_properties.yaml
 - [ ] Run `make generate`
 - [ ] Copy module template
 - [ ] Implement init/process/cleanup

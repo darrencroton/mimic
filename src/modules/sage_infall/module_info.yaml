@@ -35,16 +35,10 @@ module:
   # ===========================================================================
 
   dependencies:
-    # This module provides initial baryonic components from scratch
+    # All properties used by this module
     # Note: Reads StellarMass, ColdGas, BlackHoleMass for baryon accounting,
     # but these are not strict requirements (will be 0 if not set by previous modules)
-    requires:
-      properties: []
-      parameters:
-        - BaryonFrac
-
-    # Properties provided by this module
-    provides:
+    properties:
       - HotGas
       - MetalsHotGas
       - EjectedMass
@@ -53,6 +47,10 @@ module:
       - MetalsICS
       - TotalSatelliteBaryons
       - InfallingGas
+
+    # Parameters needed by this module
+    parameters:
+      - BaryonFrac
 
   # ===========================================================================
   # Testing

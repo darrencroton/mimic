@@ -24,7 +24,7 @@
 **Key patterns:**
 - Access galaxy data via property accessors: `get_ColdGas(gal)`, `set_StellarMass(gal, value)`
 - Read parameters using `model_get_*()` API from centralized `model_parameters.yaml`
-- Add properties in `src/modules/galaxy_properties.yaml`, run `make generate`
+- Add properties in `src/modules/model_properties.yaml`, run `make generate`
 - Co-locate tests with module code (auto-discovered)
 
 **Most important sections:**
@@ -186,7 +186,7 @@ If your module needs new galaxy properties:
 
 ```bash
 # Edit property metadata
-vim src/modules/galaxy_properties.yaml
+vim src/modules/model_properties.yaml
 
 # Add your property:
 # - name: MyProperty
@@ -451,7 +451,7 @@ static int my_module_cleanup(void) {
 
 ### Understanding the Property System
 
-Galaxy properties are defined in `src/modules/galaxy_properties.yaml` and auto-generated into:
+Galaxy properties are defined in `src/modules/model_properties.yaml` and auto-generated into:
 - C struct `GalaxyData` (in `src/include/generated/property_defs.h`)
 - Type-safe accessors
 - Output formatting code
@@ -461,7 +461,7 @@ Galaxy properties are defined in `src/modules/galaxy_properties.yaml` and auto-g
 
 **Step 1: Define in YAML**
 
-Edit `src/modules/galaxy_properties.yaml`:
+Edit `src/modules/model_properties.yaml`:
 
 ```yaml
 galaxy_properties:
@@ -1357,19 +1357,19 @@ python3 scripts/validate_modules.py src/modules/my_module --verbose
 
 ```
 ERROR: Required property 'HotGasss' not found in property metadata.
-Check galaxy_properties.yaml and halo_properties.yaml.
+Check model_properties.yaml and halo_properties.yaml.
 
 FIX: Check property spelling
   - HotGasss → HotGas (typo)
-  - Verify property exists in galaxy_properties.yaml OR halo_properties.yaml
+  - Verify property exists in model_properties.yaml OR halo_properties.yaml
 ```
 
 ```
 ERROR: Provided property 'NewProperty' not found in property metadata.
-Add to galaxy_properties.yaml or check spelling.
+Add to model_properties.yaml or check spelling.
 
-FIX: Add property to galaxy_properties.yaml first
-  1. Edit src/modules/galaxy_properties.yaml
+FIX: Add property to model_properties.yaml first
+  1. Edit src/modules/model_properties.yaml
   2. Add property definition
   3. Run: make generate
   4. Update module_info.yaml dependencies.provides
@@ -1381,13 +1381,13 @@ FIX: Add property to galaxy_properties.yaml first
 ```bash
 $ python3 scripts/validate_modules.py --verbose
 
-my_module requires HotGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml
+my_module requires HotGas: type=float, units=1e10 Msun/h, source=model_properties.yaml
 my_module requires Mvir: type=float, units=1e10 Msun/h, source=halo_properties.yaml
-my_module provides ColdGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml
+my_module provides ColdGas: type=float, units=1e10 Msun/h, source=model_properties.yaml
 ```
 
 **Property sources**:
-- `galaxy_properties.yaml` - Baryonic physics properties (created by modules)
+- `model_properties.yaml` - Baryonic physics properties (created by modules)
 - `halo_properties.yaml` - Dark matter halo properties (from simulation/core)
 
 ---
@@ -1452,7 +1452,7 @@ for (int i = 0; i < ngal; i++) {
 - **Module Interface**: `src/core/module_interface.h`
 - **Module Registry**: `src/core/module_registry.h`
 - **Example Modules**: See existing module implementations in `src/modules/`
-- **Property Metadata**: `src/modules/galaxy_properties.yaml`
+- **Property Metadata**: `src/modules/model_properties.yaml`
 - **Module Template**: `src/modules/_system/template/`
 
 ### Key Functions

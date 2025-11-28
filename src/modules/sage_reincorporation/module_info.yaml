@@ -35,18 +35,16 @@ module:
   # ===========================================================================
 
   dependencies:
-    # Requires ejected gas from sage_infall module
-    requires:
-      properties:
-        - EjectedMass
-        - MetalsEjectedMass
-        - HotGas
-        - MetalsHotGas
-      parameters:
-        - ReIncorporationFactor
+    # All properties used by this module
+    properties:
+      - EjectedMass
+      - MetalsEjectedMass
+      - HotGas
+      - MetalsHotGas
 
-    # Properties modified by this module (does not provide new properties)
-    provides: []
+    # Parameters needed by this module
+    parameters:
+      - ReIncorporationFactor
 
   # ===========================================================================
   # Testing

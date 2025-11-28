@@ -349,69 +349,73 @@ register_function: cooling_model_register
 
 ### Dependencies
 
-#### dependencies.requires (list of strings, required, can be empty)
+#### dependencies.properties (list of strings, required)
 
-**Purpose**: Galaxy properties that this module reads/requires
+**Purpose**: All galaxy properties that this module uses (reads or writes)
 
 **Rules**:
-- List of property names (must match `galaxy_properties.yaml`)
-- Empty list `[]` if module doesn't require properties
-- Used for dependency resolution and documentation
-- Modules are ordered so dependencies are satisfied
+- List of property names (must match `model_properties.yaml` or `halo_properties.yaml`)
+- Can be empty list `[]` if module doesn't use any properties
+- All properties the module accesses must be declared here
+- Used for validation and documentation
 
 **Examples**:
 ```yaml
 dependencies:
-  requires: []  # No dependencies (e.g., infall_model)
-
-dependencies:
-  requires:
-    - HotGas       # cooling_model needs HotGas
-    - MetalsHotGas
-
-dependencies:
-  requires:
-    - ColdGas      # starformation_model needs ColdGas
-```
-
-**Validation**:
-- All required properties must be provided by some other module OR created by this module
-- Circular dependencies are detected and reported
-
-#### dependencies.provides (list of strings, required, can be empty)
-
-**Purpose**: Galaxy properties that this module creates/modifies
-
-**Rules**:
-- List of property names (must match `galaxy_properties.yaml`)
-- Empty list `[]` if module doesn't create properties
-- Used for dependency resolution and documentation
-- Properties should match those defined in galaxy_properties.yaml
-
-**Examples**:
-```yaml
-dependencies:
-  provides:
+  properties:
     - HotGas
     - MetalsHotGas
-    - EjectedMass
-    - MetalsEjectedMass
-    - ICS
-    - MetalsICS
+    - ColdGas
+    - MetalsColdGas
+    - BlackHoleMass
+    - Cooling
+    - Heating
 
 dependencies:
-  provides:
-    - ColdGas      # cooling_model creates ColdGas
+  properties:
+    - StellarMass
+    - MetalsStellarMass
+    - DiskScaleRadius
+    - OutflowRate
 
 dependencies:
-  provides:
-    - StellarMass  # starformation_model creates StellarMass
+  properties: []  # Module doesn't use galaxy properties
 ```
 
 **Validation**:
-- All provided properties should exist in `galaxy_properties.yaml`
-- Warning if property listed but not in property metadata
-- Used to construct dependency graph
+- All properties must exist in `model_properties.yaml` or `halo_properties.yaml`
+- Error if property not found in metadata
+
+#### dependencies.parameters (list of strings, required)
+
+**Purpose**: Model parameters that this module needs
+
+**Rules**:
+- List of parameter names (must match `model_parameters.yaml`)
+- Can be empty list `[]` if module doesn't use parameters
+- All parameters must be defined in the input YAML configuration
+
+**Examples**:
+```yaml
+dependencies:
+  parameters:
+    - RadioModeEfficiency
+    - AGNrecipeOn
+    - CoolFunctionsDir
+
+dependencies:
+  parameters:
+    - SFprescription
+    - SfrEfficiency
+    - SupernovaRecipeOn
+
+dependencies:
+  parameters: []  # Module doesn't use parameters
+```
+
+**Validation**:
+- All parameters must exist in `model_parameters.yaml`
+- Smart validation: only validates parameters for enabled modules
 
 ---
 
@@ -698,16 +702,16 @@ module:
  *
  * Modules registered: 3
  *
- * Dependency order:
- * 1. infall_model: provides HotGas, MetalsHotGas, ...
- * 2. cooling_model: requires [] → provides ColdGas
- * 3. starformation_model: requires ColdGas → provides StellarMass
+ * Execution order (from config):
+ * 1. infall_model: uses [HotGas, MetalsHotGas, ...]
+ * 2. cooling_model: uses [HotGas, MetalsHotGas, ColdGas, ...]
+ * 3. starformation_model: uses [ColdGas, StellarMass, ...]
  */
 void register_all_modules(void) {
-    /* Register in dependency-resolved order */
-    infall_model_register();         /* Provides: HotGas, MetalsHotGas, EjectedMass, ... */
-    cooling_model_register();        /* Requires: [] → Provides: ColdGas */
-    starformation_model_register();  /* Requires: ColdGas → Provides: StellarMass */
+    /* Register in execution order from config */
+    infall_model_register();         /* Uses: HotGas, MetalsHotGas, EjectedMass, ... */
+    cooling_model_register();        /* Uses: HotGas, MetalsHotGas, ColdGas, ... */
+    starformation_model_register();  /* Uses: ColdGas, StellarMass, ... */
 }
 ```
 
@@ -823,8 +827,8 @@ The validation script (`scripts/validate_modules.py`) performs comprehensive che
 ### 5. Dependency Validation
 
 **Property Existence (ERROR - Blocking)**:
-- All properties in `requires` must exist in `galaxy_properties.yaml` OR `halo_properties.yaml`
-- All properties in `provides` must exist in `galaxy_properties.yaml` OR `halo_properties.yaml`
+- All properties in `requires` must exist in `model_properties.yaml` OR `halo_properties.yaml`
+- All properties in `provides` must exist in `model_properties.yaml` OR `halo_properties.yaml`
 - Missing properties will cause validation to FAIL
 - Error message specifies which property files to check
 
@@ -849,7 +853,7 @@ dependencies:
 # FIX: Check property spelling against property files
 dependencies:
   requires:
-    - HotGas  # Correct - exists in galaxy_properties.yaml
+    - HotGas  # Correct - exists in model_properties.yaml
 ```
 
 ```yaml
@@ -858,7 +862,7 @@ dependencies:
   provides:
     - NewPropertyName  # Not defined in property metadata
 
-# FIX: Add property to galaxy_properties.yaml first
+# FIX: Add property to model_properties.yaml first
 # Then update module metadata
 ```
 
@@ -869,7 +873,7 @@ dependencies:
     - Mvir   # Halo property - validated against halo_properties.yaml
     - Vmax   # Halo property - validated against halo_properties.yaml
   provides:
-    - ColdGas  # Galaxy property - validated against galaxy_properties.yaml
+    - ColdGas  # Galaxy property - validated against model_properties.yaml
 ```
 
 **Verbose Mode Output Example**:
@@ -878,9 +882,9 @@ $ python3 scripts/validate_modules.py --verbose
 
 Loaded 54 properties (23 galaxy, 31 halo)
 
-sage_cooling requires HotGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml
-sage_cooling requires MetalsHotGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml
-sage_cooling provides ColdGas: type=float, units=1e10 Msun/h, source=galaxy_properties.yaml
+sage_cooling requires HotGas: type=float, units=1e10 Msun/h, source=model_properties.yaml
+sage_cooling requires MetalsHotGas: type=float, units=1e10 Msun/h, source=model_properties.yaml
+sage_cooling provides ColdGas: type=float, units=1e10 Msun/h, source=model_properties.yaml
 ...
 ```
 

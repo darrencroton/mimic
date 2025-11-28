@@ -26,7 +26,6 @@ Date: 2025-11-12
 import argparse
 import re
 import sys
-from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -47,7 +46,7 @@ REPO_ROOT = Path(__file__).parent.parent
 MODULES_DIR = REPO_ROOT / "src" / "modules"
 
 # Property metadata files (for dependency validation)
-GALAXY_PROPERTIES_YAML = REPO_ROOT / "src" / "modules" / "galaxy_properties.yaml"
+MODEL_PROPERTIES_YAML = REPO_ROOT / "src" / "modules" / "model_properties.yaml"
 HALO_PROPERTIES_YAML = REPO_ROOT / "src" / "core" / "halo_properties.yaml"
 
 # ==============================================================================
@@ -188,7 +187,7 @@ def load_property_metadata() -> Dict[str, Dict[str, Any]]:
                 "type": "float",
                 "units": "1e10 Msun/h",
                 "description": "...",
-                "source": "galaxy_properties.yaml"
+                "source": "model_properties.yaml"
             },
             "Mvir": {
                 "name": "Mvir",
@@ -203,16 +202,16 @@ def load_property_metadata() -> Dict[str, Dict[str, Any]]:
     properties = {}
 
     # Load galaxy properties
-    if GALAXY_PROPERTIES_YAML.exists():
+    if MODEL_PROPERTIES_YAML.exists():
         try:
-            with open(GALAXY_PROPERTIES_YAML, "r", encoding="utf-8") as f:
+            with open(MODEL_PROPERTIES_YAML, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 if data and "galaxy_properties" in data:
                     for prop in data["galaxy_properties"]:
                         if "name" in prop:
                             properties[prop["name"]] = {
                                 **prop,
-                                "source": "galaxy_properties.yaml",
+                                "source": "model_properties.yaml",
                             }
         except Exception as e:
             print(f"WARNING: Failed to load galaxy properties: {e}", file=sys.stderr)
@@ -270,11 +269,11 @@ def validate_required_fields(
 
     # Check dependencies subfields
     deps = module.get("dependencies", {})
-    if "requires" not in deps or "provides" not in deps:
+    if "properties" not in deps or "parameters" not in deps:
         results.add_error(
             module_name,
             1,
-            "dependencies must have both 'requires' and 'provides' fields",
+            "dependencies must have both 'properties' and 'parameters' fields",
         )
         return False
 
@@ -320,56 +319,29 @@ def validate_field_types(
             results.add_error(module_name, 1, "Field 'dependencies' must be a dict")
             valid = False
         else:
-            # Validate 'requires' (can be list or dict with properties/parameters)
-            if "requires" in deps:
-                requires = deps["requires"]
-                if isinstance(requires, dict):
-                    # New format: dict with properties and parameters
-                    if "properties" in requires:
-                        if not isinstance(requires["properties"], list):
-                            results.add_error(
-                                module_name, 1, "dependencies.requires.properties must be a list"
-                            )
-                            valid = False
-                        elif not all(isinstance(item, str) for item in requires["properties"]):
-                            results.add_error(
-                                module_name, 1, "All items in dependencies.requires.properties must be strings"
-                            )
-                            valid = False
-                    if "parameters" in requires:
-                        if not isinstance(requires["parameters"], list):
-                            results.add_error(
-                                module_name, 1, "dependencies.requires.parameters must be a list"
-                            )
-                            valid = False
-                        elif not all(isinstance(item, str) for item in requires["parameters"]):
-                            results.add_error(
-                                module_name, 1, "All items in dependencies.requires.parameters must be strings"
-                            )
-                            valid = False
-                elif isinstance(requires, list):
-                    # Old format: list of property names (backward compatibility)
-                    if not all(isinstance(item, str) for item in requires):
-                        results.add_error(
-                            module_name, 1, "All items in dependencies.requires must be strings"
-                        )
-                        valid = False
-                else:
+            # Validate 'properties' (list of all properties used by module)
+            if "properties" in deps:
+                if not isinstance(deps["properties"], list):
                     results.add_error(
-                        module_name, 1, "dependencies.requires must be a dict or list"
+                        module_name, 1, "dependencies.properties must be a list"
+                    )
+                    valid = False
+                elif not all(isinstance(item, str) for item in deps["properties"]):
+                    results.add_error(
+                        module_name, 1, "All items in dependencies.properties must be strings"
                     )
                     valid = False
 
-            # Validate 'provides' (always a list)
-            if "provides" in deps:
-                if not isinstance(deps["provides"], list):
+            # Validate 'parameters' (list of all parameters needed by module)
+            if "parameters" in deps:
+                if not isinstance(deps["parameters"], list):
                     results.add_error(
-                        module_name, 1, "dependencies.provides must be a list"
+                        module_name, 1, "dependencies.parameters must be a list"
                     )
                     valid = False
-                elif not all(isinstance(item, str) for item in deps["provides"]):
+                elif not all(isinstance(item, str) for item in deps["parameters"]):
                     results.add_error(
-                        module_name, 1, "All items in dependencies.provides must be strings"
+                        module_name, 1, "All items in dependencies.parameters must be strings"
                     )
                     valid = False
 
@@ -775,44 +747,6 @@ def validate_register_function_exists(
 # ==============================================================================
 
 
-def build_dependency_graph(
-    modules: List[Tuple[str, Dict[str, Any]]],
-) -> Dict[str, List[str]]:
-    """Build module dependency graph for topological sort."""
-
-    graph = {}
-
-    # Build module name -> provides mapping
-    provides_map = {}
-    for name, module in modules:
-        provides = module.get("dependencies", {}).get("provides", [])
-        for prop in provides:
-            if prop not in provides_map:
-                provides_map[prop] = []
-            provides_map[prop].append(name)
-
-    # Build dependency edges
-    for name, module in modules:
-        requires_raw = module.get("dependencies", {}).get("requires", {})
-
-        # Handle new dict format: requires.properties
-        if isinstance(requires_raw, dict):
-            requires = requires_raw.get("properties", [])
-        else:
-            requires = requires_raw
-
-        dependencies = []
-
-        for req_prop in requires:
-            if req_prop in provides_map:
-                # This module depends on modules that provide req_prop
-                dependencies.extend(provides_map[req_prop])
-
-        graph[name] = dependencies
-
-    return graph
-
-
 def validate_module_dependencies(
     module: Dict[str, Any],
     module_name: str,
@@ -823,70 +757,29 @@ def validate_module_dependencies(
     """Validate module dependencies against property metadata."""
 
     deps = module.get("dependencies", {})
-    requires_raw = deps.get("requires", {})
-
-    # Handle new dict format: requires.properties and requires.parameters
-    if isinstance(requires_raw, dict):
-        requires = requires_raw.get("properties", [])
-        # parameters are validated elsewhere (model_parameters system)
-    else:
-        # Fallback for old list format (backward compatibility during transition)
-        requires = requires_raw
-
-    provides = deps.get("provides", [])
+    properties = deps.get("properties", [])
+    # parameters are validated elsewhere (model_parameters system)
 
     valid = True
 
-    # Validate required properties
-    for req in requires:
-        if req not in property_metadata:
+    # Validate all properties exist in metadata
+    for prop in properties:
+        if prop not in property_metadata:
             results.add_error(
                 module_name,
                 3,
-                f"Required property '{req}' not found in property metadata. "
-                f"Check galaxy_properties.yaml and halo_properties.yaml.",
+                f"Property '{prop}' not found in property metadata. "
+                f"Check model_properties.yaml and halo_properties.yaml.",
             )
             valid = False
         elif verbose:
-            prop_meta = property_metadata[req]
+            prop_meta = property_metadata[prop]
             print(
-                f"  {module_name} requires {req}: "
+                f"  {module_name} uses {prop}: "
                 f"type={prop_meta.get('type', 'unknown')}, "
                 f"units={prop_meta.get('units', 'unknown')}, "
                 f"source={prop_meta.get('source', 'unknown')}"
             )
-
-    # Validate provided properties
-    for prov in provides:
-        if prov not in property_metadata:
-            results.add_error(
-                module_name,
-                3,
-                f"Provided property '{prov}' not found in property metadata. "
-                f"Add to galaxy_properties.yaml or check spelling.",
-            )
-            valid = False
-        elif verbose:
-            prop_meta = property_metadata[prov]
-            print(
-                f"  {module_name} provides {prov}: "
-                f"type={prop_meta.get('type', 'unknown')}, "
-                f"units={prop_meta.get('units', 'unknown')}, "
-                f"source={prop_meta.get('source', 'unknown')}"
-            )
-
-    # Check for property modification pattern (requires AND provides same property)
-    modifies = set(requires) & set(provides)
-    for prop_name in modifies:
-        if prop_name in property_metadata:
-            prop_meta = property_metadata[prop_name]
-            if verbose:
-                results.add_warning(
-                    module_name,
-                    f"Module both requires and provides '{prop_name}' "
-                    f"(modification pattern). Type: {prop_meta.get('type', 'unknown')}, "
-                    f"Units: {prop_meta.get('units', 'unknown')}",
-                )
 
     return valid
 
@@ -915,20 +808,8 @@ def validate_dependencies(
         ):
             valid = False
 
-    # Build dependency graph
-    try:
-        graph = build_dependency_graph(module_list)
-    except Exception as e:
-        results.add_error("GLOBAL", 3, f"Failed to build dependency graph: {e}")
-        return False
-
-    # Check for circular dependencies using topological sort
-    try:
-        ts = TopologicalSorter(graph)
-        _ = list(ts.static_order())  # This will raise CycleError if circular
-    except CycleError as e:
-        results.add_error("GLOBAL", 3, f"Circular dependency detected: {e}")
-        return False
+    # Note: Module execution order is now manual (specified in config YAML)
+    # No automatic dependency resolution or circular dependency checking
 
     return valid
 
@@ -1043,7 +924,7 @@ def main():
         galaxy_count = sum(
             1
             for p in property_metadata.values()
-            if p.get("source") == "galaxy_properties.yaml"
+            if p.get("source") == "model_properties.yaml"
         )
         halo_count = sum(
             1

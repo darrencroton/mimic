@@ -960,7 +960,7 @@ The scientific test validates physical correctness through three levels:
 **Key Principle**: The test automatically validates ALL output properties by reading validation rules from `tests/generated/property_ranges.json`, which is auto-generated from property YAML files.
 
 **To add validation for a property**:
-1. Edit `src/core/halo_properties.yaml` or `src/modules/galaxy_properties.yaml`
+1. Edit `src/core/halo_properties.yaml` or `src/modules/model_properties.yaml`
 2. Add `range: [min, max]` for the property
 3. Optionally add `sentinels: [...]` for special values to exclude
 4. Run `make generate` to regenerate the validation manifest
@@ -1020,7 +1020,7 @@ def test_physical_ranges():
 
 ### Adding Validation for New Properties
 
-**Scenario**: You add a new property `HotGas` to `galaxy_properties.yaml`
+**Scenario**: You add a new property `HotGas` to `model_properties.yaml`
 
 **Step 1**: Define the property with validation fields
 ```yaml

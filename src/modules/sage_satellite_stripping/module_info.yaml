@@ -35,19 +35,15 @@ module:
   # ===========================================================================
 
   dependencies:
-    # This module reads hot gas from satellites and modifies central galaxy
-    # Note: Requires these properties to exist, but modules that create them
-    # don't need to run first (e.g., sage_infall). If properties don't exist,
-    # stripping simply won't occur.
-    requires:
-      properties:
-        - HotGas
-        - MetalsHotGas
-      parameters:
-        - BaryonFrac
+    # All properties used by this module
+    # Note: If properties don't exist, stripping simply won't occur.
+    properties:
+      - HotGas
+      - MetalsHotGas
 
-    # This module modifies existing properties, doesn't create new ones
-    provides: []
+    # Parameters needed by this module
+    parameters:
+      - BaryonFrac
 
   # ===========================================================================
   # Testing

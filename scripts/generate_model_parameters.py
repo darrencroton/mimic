@@ -90,15 +90,9 @@ def extract_module_dependencies() -> Dict[str, List[str]]:
             if not module_name:
                 continue
 
-            # Extract parameter dependencies
+            # Extract parameter dependencies (simplified structure)
             deps = module_data.get("dependencies", {})
-            requires = deps.get("requires", {})
-
-            # Handle both old format (list) and new format (dict with properties/parameters)
-            if isinstance(requires, dict):
-                params = requires.get("parameters", [])
-            else:
-                params = []
+            params = deps.get("parameters", [])
 
             if params:
                 dependencies[module_name] = params

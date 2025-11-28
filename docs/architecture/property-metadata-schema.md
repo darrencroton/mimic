@@ -13,7 +13,7 @@
 
 1. **Edit the right file:**
    - Halo properties (core): `src/core/halo_properties.yaml`
-   - Galaxy properties (physics): `src/modules/galaxy_properties.yaml`
+   - Galaxy properties (physics): `src/modules/model_properties.yaml`
 
 2. **Minimal property definition:**
 ```yaml
@@ -87,15 +87,15 @@ src/
 ├── core/
 │   └── halo_properties.yaml      # Core halo tracking properties (31 properties)
 └── modules/
-    └── galaxy_properties.yaml    # Baryonic physics properties (24 properties)
+    └── model_properties.yaml    # Baryonic physics properties (24 properties)
 ```
 
 ### Rationale for Separation
 
 - **halo_properties.yaml**: Core infrastructure, rarely changes, 31 properties
-- **galaxy_properties.yaml**: Physics modules, frequently extended, 24 properties (expandable)
+- **model_properties.yaml**: Physics modules, frequently extended, 24 properties (expandable)
 
-This separation allows physics developers to work in `galaxy_properties.yaml` without touching core infrastructure definitions.
+This separation allows physics developers to work in `model_properties.yaml` without touching core infrastructure definitions.
 
 ---
 
@@ -515,7 +515,7 @@ When you run `make generate`, the validation fields are extracted into `tests/ge
     "generated_by": "scripts/generate_properties.py",
     "source_files": [
       "src/core/halo_properties.yaml",
-      "src/modules/galaxy_properties.yaml"
+      "src/modules/model_properties.yaml"
     ],
     "source_md5": "c3a35676282c5fd9d1c2e52716d3a80c",
     "regenerate": "make generate"
@@ -538,7 +538,7 @@ When you run `make generate`, the validation fields are extracted into `tests/ge
       "sentinels": [0.0, -1.0]
     }
   },
-  "notes": "Auto-generated from src/core/halo_properties.yaml and src/modules/galaxy_properties.yaml. Range is inclusive; sentinels are exempt."
+  "notes": "Auto-generated from src/core/halo_properties.yaml and src/modules/model_properties.yaml. Range is inclusive; sentinels are exempt."
 }
 ```
 
@@ -660,7 +660,7 @@ o->ColdGas = g->galaxy->ColdGas;
 
 **Additional examples** (arrays, conditionals, recalculation, custom logic) are available in:
 - `src/core/halo_properties.yaml` - Core halo properties
-- `src/modules/galaxy_properties.yaml` - Baryonic physics properties
+- `src/modules/model_properties.yaml` - Baryonic physics properties
 
 ## Property Categories
 
@@ -691,7 +691,7 @@ Organized by component:
 - Internal tracking (TotalSatelliteBaryons)
 - Testing (TestDummyProperty)
 
-See `src/modules/galaxy_properties.yaml` for complete definitions.
+See `src/modules/model_properties.yaml` for complete definitions.
 
 ---
 

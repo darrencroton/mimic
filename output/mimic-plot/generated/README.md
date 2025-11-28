@@ -23,7 +23,7 @@ NumPy dtype definitions for reading Mimic binary output files. Auto-generated fr
 
 **Source metadata:**
 - `metadata/halo_properties.yaml`
-- `metadata/galaxy_properties.yaml`
+- `metadata/model_properties.yaml`
 
 **Used by:**
 - `mimic-plot.py` - Main plotting script

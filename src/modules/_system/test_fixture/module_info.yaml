@@ -41,15 +41,14 @@ module:
   # ===========================================================================
 
   dependencies:
-    requires:
-      properties: []
-      parameters:
-        - TestFixtureDummyParameter
-        - TestFixtureEnableLogging
-
-    # Provides a dummy property for testing property system
-    provides:
+    # All properties used by this module
+    properties:
       - TestDummyProperty
+
+    # Parameters needed by this module
+    parameters:
+      - TestFixtureDummyParameter
+      - TestFixtureEnableLogging
 
   # ===========================================================================
   # Testing

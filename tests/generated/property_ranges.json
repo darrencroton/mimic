@@ -4,7 +4,7 @@
     "generated_by": "scripts/generate_properties.py",
     "source_files": [
       "src/core/halo_properties.yaml",
-      "src/modules/galaxy_properties.yaml"
+      "src/modules/model_properties.yaml"
     ],
     "source_md5": "30974676ded2dc01776a6df44e211518",
     "regenerate": "make generate"
@@ -536,5 +536,5 @@
       ]
     }
   },
-  "notes": "Auto-generated from src/core/halo_properties.yaml and src/modules/galaxy_properties.yaml. Range is inclusive; sentinels are exempt."
+  "notes": "Auto-generated from src/core/halo_properties.yaml and src/modules/model_properties.yaml. Range is inclusive; sentinels are exempt."
 }

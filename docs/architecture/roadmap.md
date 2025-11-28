@@ -75,7 +75,7 @@ sage_starformation_feedback → requires: ColdGas, MetalsColdGas
 The foundational work is complete. Key capabilities now available:
 
 ### Metadata-Driven Property System
-- Define properties once in YAML (`galaxy_properties.yaml`, `halo_properties.yaml`)
+- Define properties once in YAML (`model_properties.yaml`, `halo_properties.yaml`)
 - Auto-generate C structs, accessors, output code, Python dtypes
 - 54 properties (23 galaxy, 31 halo) managed via single source of truth
 - **Impact**: Adding properties reduced from 30 min/8 files to 2 min/1 file

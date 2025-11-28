@@ -35,43 +35,40 @@ module:
   # ===========================================================================
 
   dependencies:
-    # Properties required from other modules
-    requires:
-      properties:
-        - ColdGas
-        - StellarMass
-        - HotGas
-        - MetalsHotGas
-        - MetalsColdGas
-        - EjectedMass
-        - MetalsEjectedMass
-        - ICS
-        - MetalsICS
-        - BlackHoleMass
-      parameters:
-        - AGNrecipeOn
-        - SupernovaRecipeOn
-        - FeedbackReheatingEpsilon
-        - FeedbackEjectionEfficiency
-        - RecycleFraction
-        - Yield
-        - FracZleaveDisk
-        - BlackHoleGrowthRate
-        - QuasarModeEfficiency
-        - ThreshMajorMerger
-        - DiskInstabilityOn
-
-    # Properties provided by this module
-    provides:
+    # All properties used by this module
+    properties:
+      - ColdGas
+      - StellarMass
+      - HotGas
+      - MetalsHotGas
+      - MetalsColdGas
+      - EjectedMass
+      - MetalsEjectedMass
+      - ICS
+      - MetalsICS
+      - BlackHoleMass
       - BulgeMass
       - MetalsBulgeMass
       - QuasarModeBHaccretionMass
       - TimeOfLastMajorMerger
       - TimeOfLastMinorMerger
-      # Note: This module also MODIFIES (but does not provide):
-      #   - MetalsStellarMass (provided by sage_starformation_feedback)
-      #   - OutflowRate (provided by sage_starformation_feedback)
-      #   - DiskScaleRadius (provided by sage_starformation_feedback)
+      - MetalsStellarMass  # Modified by this module
+      - OutflowRate  # Modified by this module
+      - DiskScaleRadius  # Modified by this module
+
+    # Parameters needed by this module
+    parameters:
+      - AGNrecipeOn
+      - SupernovaRecipeOn
+      - FeedbackReheatingEpsilon
+      - FeedbackEjectionEfficiency
+      - RecycleFraction
+      - Yield
+      - FracZleaveDisk
+      - BlackHoleGrowthRate
+      - QuasarModeEfficiency
+      - ThreshMajorMerger
+      - DiskInstabilityOn
 
   # ===========================================================================
   # Testing

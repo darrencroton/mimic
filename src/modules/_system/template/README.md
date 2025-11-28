@@ -36,7 +36,7 @@ If your module creates new galaxy properties:
 
 ```bash
 # Edit metadata
-vim src/modules/galaxy_properties.yaml
+vim src/modules/model_properties.yaml
 
 # Add your properties:
 #   - name: YourProperty

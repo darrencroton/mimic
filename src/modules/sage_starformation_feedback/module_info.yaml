@@ -35,34 +35,32 @@ module:
   # ===========================================================================
 
   dependencies:
-    # Properties required from upstream modules
-    requires:
-      properties:
-        - HotGas
-        - MetalsHotGas
-        - EjectedMass
-        - MetalsEjectedMass
-        - ColdGas
-        - MetalsColdGas
-      parameters:
-        - SFprescription
-        - SfrEfficiency
-        - EnergySNcode
-        - EtaSNcode
-        - SupernovaRecipeOn
-        - FeedbackReheatingEpsilon
-        - FeedbackEjectionEfficiency
-        - RecycleFraction
-        - Yield
-        - FracZleaveDisk
-        - DiskInstabilityOn
-
-    # Properties provided by this module
-    provides:
+    # All properties used by this module
+    properties:
+      - HotGas
+      - MetalsHotGas
+      - EjectedMass
+      - MetalsEjectedMass
+      - ColdGas
+      - MetalsColdGas
       - StellarMass
       - MetalsStellarMass
       - DiskScaleRadius
       - OutflowRate
+
+    # Parameters needed by this module
+    parameters:
+      - SFprescription
+      - SfrEfficiency
+      - EnergySNcode
+      - EtaSNcode
+      - SupernovaRecipeOn
+      - FeedbackReheatingEpsilon
+      - FeedbackEjectionEfficiency
+      - RecycleFraction
+      - Yield
+      - FracZleaveDisk
+      - DiskInstabilityOn
 
   # ===========================================================================
   # Testing
