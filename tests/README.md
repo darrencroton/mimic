@@ -45,8 +45,8 @@ Tests for **physics-agnostic infrastructure** (memory, I/O, tree processing, mod
 - **Purpose**: Test individual infrastructure components in isolation
 - **Language**: C
 - **Runtime**: <10 seconds total
-- **Count**: 6 core tests
-- **Examples**: `test_memory_system.c`, `test_parameter_parsing.c`, `test_tree_loading.c`
+- **Count**: 8 core tests
+- **Examples**: `test_memory_system.c`, `test_property_metadata.c`, `test_model_parameter_metadata.c`, `test_parameter_parsing.c`
 
 **Integration Tests** (`integration/`)
 - **Purpose**: Test complete core workflows end-to-end
@@ -97,11 +97,13 @@ This ensures core infrastructure tests remain physics-agnostic (Vision Principle
 tests/
 ├── unit/                      # C unit tests for core infrastructure
 │   ├── test_memory_system.c
+│   ├── test_property_metadata.c
+│   ├── test_model_parameter_metadata.c
 │   ├── test_parameter_parsing.c
 │   ├── test_tree_loading.c
-│   ├── test_property_metadata.c
 │   ├── test_numeric_utilities.c
 │   ├── test_module_configuration.c
+│   ├── test_virial_properties.c
 │   ├── run_tests.sh           # Test runner (auto-discovers module tests too)
 │   └── build/                 # Compiled tests
 ├── integration/               # Python integration tests for core
@@ -253,4 +255,4 @@ All tests run automatically on every commit via GitHub Actions.
 
 ---
 
-**Last Updated**: 2025-11-10 (Phase 3 Complete - Scientific tests consolidated)
+**Last Updated**: 2025-11-28 (Phase 4.4 - Added model parameter metadata test)
