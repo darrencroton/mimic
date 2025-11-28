@@ -12,15 +12,15 @@
 **Adding a new property? Here's what you need:**
 
 1. **Edit the right file:**
-   - Halo properties (core): `metadata/halo_properties.yaml`
-   - Galaxy properties (physics): `metadata/galaxy_properties.yaml`
+   - Halo properties (core): `src/core/halo_properties.yaml`
+   - Galaxy properties (physics): `src/modules/galaxy_properties.yaml`
 
 2. **Minimal property definition:**
 ```yaml
 - name: MyNewProperty
   type: float
-  units: "Msun"
-  description: "My new galaxy property"
+  units: Msun
+  description: My new galaxy property
   output: true
   init_source: default
   init_value: 0.0f
@@ -83,15 +83,17 @@ By defining properties once in metadata, we eliminate manual synchronization acr
 ### Location
 
 ```
-metadata/
-├── halo_properties.yaml      # Core halo tracking properties (24 fields)
-└── galaxy_properties.yaml    # Baryonic physics properties (expandable)
+src/
+├── core/
+│   └── halo_properties.yaml      # Core halo tracking properties (31 properties)
+└── modules/
+    └── galaxy_properties.yaml    # Baryonic physics properties (24 properties)
 ```
 
 ### Rationale for Separation
 
-- **halo_properties.yaml**: Core infrastructure, rarely changes, ~24 properties
-- **galaxy_properties.yaml**: Physics modules, frequently extended, N properties
+- **halo_properties.yaml**: Core infrastructure, rarely changes, 31 properties
+- **galaxy_properties.yaml**: Physics modules, frequently extended, 24 properties (expandable)
 
 This separation allows physics developers to work in `galaxy_properties.yaml` without touching core infrastructure definitions.
 
@@ -153,14 +155,16 @@ property_name:
 **units** (string)
 - Physical units as string
 - Used for documentation and output file metadata
-- Examples: `"1e10 Msun/h"`, `"Mpc/h"`, `"km/s"`, `"dimensionless"`
+- Examples: `1e10 Msun/h`, `Mpc/h`, `km/s`, `dimensionless`
 - Should match conventions used in parameter files
+- Note: Quotes optional in YAML unless string contains special characters
 
 **description** (string)
 - Human-readable description
 - Used in documentation generation
 - Should explain physical meaning and calculation method
-- Examples: `"Virial mass (M200c)"`, `"Cold gas mass available for star formation"`
+- Examples: `Virial mass (M200c)`, `Cold gas mass available for star formation`
+- Note: Quotes optional in YAML unless string contains special characters
 
 **output** (boolean)
 - `true`: Include in struct HaloOutput (written to files)
@@ -427,30 +431,30 @@ Defines how property is copied from `struct Halo` to `struct HaloOutput` in `pre
 # Mass property (internal units: 10^10 Msun/h)
 - name: Mvir
   type: float
-  units: "1e10 Msun/h"
+  units: 1e10 Msun/h
   range: [1.0e-5, 1.0e4]  # 10^5 Msun/h to 10^14 Msun/h
-  description: "Virial mass"
+  description: Virial mass
 
 # Velocity property
 - name: Vvir
   type: float
-  units: "km/s"
+  units: km/s
   range: [10.0, 5000.0]  # Physical halo velocities
-  description: "Virial velocity"
+  description: Virial velocity
 
 # Position in simulation box
 - name: Pos
   type: vec3_float
-  units: "Mpc/h"
+  units: Mpc/h
   range: [0.0, 62.5]  # BoxSize for test data
-  description: "3D position (comoving)"
+  description: 3D position (comoving)
 
 # Particle count
 - name: Len
   type: int
-  units: "particles"
+  units: particles
   range: [20, 1.0e9]  # Resolution limit to max particles
-  description: "Number of particles in halo"
+  description: Number of particles in halo
 ```
 
 **Vector properties**: Each component is checked against the same range independently.
@@ -476,26 +480,26 @@ Defines how property is copied from `struct Halo` to `struct HaloOutput` in `pre
 # Infall property (only valid for satellites)
 - name: infallMvir
   type: float
-  units: "1e10 Msun/h"
+  units: 1e10 Msun/h
   range: [1.0e-5, 1.0e4]
   sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
-  description: "Virial mass at infall time (satellites only)"
+  description: Virial mass at infall time (satellites only)
 
 # Time between snapshots (can be -1 for orphans)
 - name: dT
   type: float
-  units: "Myr"
+  units: Myr
   range: [0.0, 2000.0]
   sentinels: [-1.0]  # Orphan halos have dT = -1
-  description: "Time since last snapshot"
+  description: Time since last snapshot
 
 # Galaxy property (can legitimately be zero)
 - name: StellarMass
   type: float
-  units: "1e10 Msun/h"
+  units: 1e10 Msun/h
   range: [0.0, 1.0e5]
   sentinels: [0.0]  # Halos with no stars yet
-  description: "Total stellar mass"
+  description: Total stellar mass
 ```
 
 **Vector properties**: Sentinel checking applies component-wise (each component can independently match a sentinel value).
@@ -592,8 +596,8 @@ For ALL properties with `output: true`, the scientific test automatically perfor
 ```yaml
 - name: SnapNum
   type: int
-  units: "dimensionless"
-  description: "Snapshot number"
+  units: dimensionless
+  description: Snapshot number
   output: true
   init_source: copy_from_tree
   output_source: copy_direct
@@ -613,8 +617,8 @@ o->SnapNum = g->SnapNum;
 ```yaml
 - name: Mvir
   type: float
-  units: "1e10 Msun/h"
-  description: "Virial mass (M200c)"
+  units: 1e10 Msun/h
+  description: Virial mass (M200c)
   output: true
   init_source: calculate
   init_function: get_virial_mass
@@ -635,12 +639,14 @@ o->Mvir = g->Mvir;
 ```yaml
 - name: ColdGas
   type: float
-  units: "1e10 Msun/h"
-  description: "Cold gas mass available for star formation"
+  units: 1e10 Msun/h
+  description: Cold gas mass available for star formation
   output: true
   init_source: default
   init_value: 0.0
   output_source: galaxy_property
+  range: [0.0, 100000.0]
+  sentinels: [0.0]
 ```
 
 Generates:
@@ -653,34 +659,39 @@ o->ColdGas = g->galaxy->ColdGas;
 ```
 
 **Additional examples** (arrays, conditionals, recalculation, custom logic) are available in:
-- `metadata/halo_properties.yaml` - Core halo properties
-- `metadata/galaxy_properties.yaml` - Baryonic physics properties
+- `src/core/halo_properties.yaml` - Core halo properties
+- `src/modules/galaxy_properties.yaml` - Baryonic physics properties
 
 ## Property Categories
 
 ### Halo Properties (Core Infrastructure)
 
-**Metadata** (7):
-- SnapNum, Type, HaloNr, UniqueHaloID, CentralHalo, MostBoundID, HaloIndex
+**Total**: 31 properties
 
-**Merge Tracking** (4):
-- MergeStatus, mergeIntoID, mergeIntoSnapNum, dT
+Organized by category:
+- Metadata (SnapNum, Type, HaloNr, UniqueHaloID, etc.)
+- Merge tracking (MergeStatus, mergeIntoID, etc.)
+- Physical properties (Pos, Vel, Spin, Mvir, Rvir, Vvir, etc.)
+- Infall properties (infallMvir, infallVvir, infallVmax)
 
-**Physical Properties** (10):
-- Pos[3], Vel[3], Spin[3], Len, Mvir, CentralMvir, Rvir, Vvir, Vmax, VelDisp
-
-**Infall Properties** (3):
-- infallMvir, infallVvir, infallVmax
-
-**Total**: 24 properties (21 in struct Halo, 24 in struct HaloOutput)
+See `src/core/halo_properties.yaml` for complete definitions.
 
 ### Galaxy Properties (Baryonic Physics)
 
-**Current** (2):
-- ColdGas, StellarMass
+**Total**: 24 properties (expandable)
 
-**Planned** (expandable):
-- HotGas, StellarMassFromMergers, MetalsCold, MetalsHot, BlackHoleMass, etc.
+Organized by component:
+- Gas components (ColdGas, HotGas, EjectedMass, InfallingGas)
+- Stellar components (StellarMass, BulgeMass, ICS)
+- Chemical composition (MetalsColdGas, MetalsHotGas, MetalsStellarMass, etc.)
+- Black holes (BlackHoleMass, QuasarModeBHaccretionMass)
+- Energy & feedback (Cooling, Heating, r_heat, OutflowRate)
+- Structure (DiskScaleRadius)
+- Merger history (TimeOfLastMajorMerger, TimeOfLastMinorMerger)
+- Internal tracking (TotalSatelliteBaryons)
+- Testing (TestDummyProperty)
+
+See `src/modules/galaxy_properties.yaml` for complete definitions.
 
 ---
 
@@ -769,7 +780,7 @@ o->StellarMass = g->galaxy->StellarMass;
 hdf5_field_count.inc:
 ```c
 /* AUTO-GENERATED - DO NOT EDIT */
-HDF5_n_props = 26;  /* 24 halo + 2 galaxy */
+HDF5_n_props = 55;  /* 31 halo + 24 galaxy */
 int i = 0;
 ```
 
@@ -852,24 +863,6 @@ The code generator (`generate_properties.py`) must validate:
 - Array types (vec3_float, vec3_int) must use array init/output sources
 - Scalar types cannot use array sources
 - If output=false, output_source can be omitted
-
----
-
-## Migration Strategy
-
-### Phase 1: Halo Properties (Week 2)
-1. Write all 24 halo properties to halo_properties.yaml
-2. Generate code and verify bit-identical struct layout
-3. Validate Millennium output matches baseline exactly
-
-### Phase 2: Galaxy Properties (Week 3)
-1. Write StellarMass and ColdGas to galaxy_properties.yaml
-2. Update PoC modules to use generated properties
-3. Validate PoC output matches baseline
-
-### Phase 3: Expansion (Ongoing)
-1. Add new galaxy properties as modules are developed
-2. Each property: edit YAML, run `make generate`, done in <2 minutes
 
 ---
 

@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/galaxy_properties.yaml
  *
- * Source MD5: 1bed4b600e39369ede3abfda4c4323f0
+ * Source MD5: 30974676ded2dc01776a6df44e211518
  * To regenerate: make generate
  */
 
@@ -50,28 +50,28 @@ struct Halo {
 /* Galaxy properties (baryonic physics) */
 struct GalaxyData {
   float ColdGas;
-  float StellarMass;
   float HotGas;
-  float MetalsHotGas;
-  float MetalsColdGas;
-  float InfallingGas;
   float EjectedMass;
-  float MetalsEjectedMass;
+  float InfallingGas;
+  float StellarMass;
+  float BulgeMass;
   float ICS;
+  float MetalsColdGas;
+  float MetalsHotGas;
+  float MetalsEjectedMass;
+  float MetalsStellarMass;
+  float MetalsBulgeMass;
   float MetalsICS;
-  float TotalSatelliteBaryons;
   float BlackHoleMass;
+  float QuasarModeBHaccretionMass;
   double Cooling;
   double Heating;
   float r_heat;
-  float MetalsStellarMass;
-  float BulgeMass;
-  float MetalsBulgeMass;
-  float QuasarModeBHaccretionMass;
+  float OutflowRate;
+  float DiskScaleRadius;
   float TimeOfLastMajorMerger;
   float TimeOfLastMinorMerger;
-  float DiskScaleRadius;
-  float OutflowRate;
+  float TotalSatelliteBaryons;
   float TestDummyProperty;
 };
 
@@ -106,26 +106,26 @@ struct HaloOutput {
 
   /* Galaxy properties */
   float ColdGas;
-  float StellarMass;
   float HotGas;
-  float MetalsHotGas;
-  float MetalsColdGas;
   float EjectedMass;
-  float MetalsEjectedMass;
+  float StellarMass;
+  float BulgeMass;
   float ICS;
+  float MetalsColdGas;
+  float MetalsHotGas;
+  float MetalsEjectedMass;
+  float MetalsStellarMass;
+  float MetalsBulgeMass;
   float MetalsICS;
   float BlackHoleMass;
+  float QuasarModeBHaccretionMass;
   double Cooling;
   double Heating;
   float r_heat;
-  float MetalsStellarMass;
-  float BulgeMass;
-  float MetalsBulgeMass;
-  float QuasarModeBHaccretionMass;
+  float OutflowRate;
+  float DiskScaleRadius;
   float TimeOfLastMajorMerger;
   float TimeOfLastMinorMerger;
-  float DiskScaleRadius;
-  float OutflowRate;
 };
 
 #endif /* GENERATED_PROPERTY_DEFS_H */

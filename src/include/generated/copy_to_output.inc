@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/galaxy_properties.yaml
  *
- * Source MD5: 1bed4b600e39369ede3abfda4c4323f0
+ * Source MD5: 30974676ded2dc01776a6df44e211518
  * To regenerate: make generate
  */
 
@@ -61,23 +61,23 @@ if (g->Type != 0) {
 
 /* Galaxy properties */
 o->ColdGas = g->galaxy->ColdGas;
-o->StellarMass = g->galaxy->StellarMass;
 o->HotGas = g->galaxy->HotGas;
-o->MetalsHotGas = g->galaxy->MetalsHotGas;
-o->MetalsColdGas = g->galaxy->MetalsColdGas;
 o->EjectedMass = g->galaxy->EjectedMass;
-o->MetalsEjectedMass = g->galaxy->MetalsEjectedMass;
+o->StellarMass = g->galaxy->StellarMass;
+o->BulgeMass = g->galaxy->BulgeMass;
 o->ICS = g->galaxy->ICS;
+o->MetalsColdGas = g->galaxy->MetalsColdGas;
+o->MetalsHotGas = g->galaxy->MetalsHotGas;
+o->MetalsEjectedMass = g->galaxy->MetalsEjectedMass;
+o->MetalsStellarMass = g->galaxy->MetalsStellarMass;
+o->MetalsBulgeMass = g->galaxy->MetalsBulgeMass;
 o->MetalsICS = g->galaxy->MetalsICS;
 o->BlackHoleMass = g->galaxy->BlackHoleMass;
+o->QuasarModeBHaccretionMass = g->galaxy->QuasarModeBHaccretionMass;
 o->Cooling = g->galaxy->Cooling;
 o->Heating = g->galaxy->Heating;
 o->r_heat = g->galaxy->r_heat;
-o->MetalsStellarMass = g->galaxy->MetalsStellarMass;
-o->BulgeMass = g->galaxy->BulgeMass;
-o->MetalsBulgeMass = g->galaxy->MetalsBulgeMass;
-o->QuasarModeBHaccretionMass = g->galaxy->QuasarModeBHaccretionMass;
+o->OutflowRate = g->galaxy->OutflowRate;
+o->DiskScaleRadius = g->galaxy->DiskScaleRadius;
 o->TimeOfLastMajorMerger = g->galaxy->TimeOfLastMajorMerger;
 o->TimeOfLastMinorMerger = g->galaxy->TimeOfLastMinorMerger;
-o->DiskScaleRadius = g->galaxy->DiskScaleRadius;
-o->OutflowRate = g->galaxy->OutflowRate;

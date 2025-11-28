@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/galaxy_properties.yaml"
     ],
-    "source_md5": "1bed4b600e39369ede3abfda4c4323f0",
+    "source_md5": "30974676ded2dc01776a6df44e211518",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -275,47 +275,8 @@
         0.0
       ]
     },
-    "StellarMass": {
-      "name": "StellarMass",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
     "HotGas": {
       "name": "HotGas",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "MetalsHotGas": {
-      "name": "MetalsHotGas",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "MetalsColdGas": {
-      "name": "MetalsColdGas",
       "type": "float",
       "units": "1e10 Msun/h",
       "is_vector": false,
@@ -340,8 +301,21 @@
         0.0
       ]
     },
-    "MetalsEjectedMass": {
-      "name": "MetalsEjectedMass",
+    "StellarMass": {
+      "name": "StellarMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "BulgeMass": {
+      "name": "BulgeMass",
       "type": "float",
       "units": "1e10 Msun/h",
       "is_vector": false,
@@ -355,6 +329,71 @@
     },
     "ICS": {
       "name": "ICS",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsColdGas": {
+      "name": "MetalsColdGas",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsHotGas": {
+      "name": "MetalsHotGas",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsEjectedMass": {
+      "name": "MetalsEjectedMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsStellarMass": {
+      "name": "MetalsStellarMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsBulgeMass": {
+      "name": "MetalsBulgeMass",
       "type": "float",
       "units": "1e10 Msun/h",
       "is_vector": false,
@@ -381,6 +420,19 @@
     },
     "BlackHoleMass": {
       "name": "BlackHoleMass",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        1.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "QuasarModeBHaccretionMass": {
+      "name": "QuasarModeBHaccretionMass",
       "type": "float",
       "units": "1e10 Msun/h",
       "is_vector": false,
@@ -431,10 +483,10 @@
         0.0
       ]
     },
-    "MetalsStellarMass": {
-      "name": "MetalsStellarMass",
+    "OutflowRate": {
+      "name": "OutflowRate",
       "type": "float",
-      "units": "1e10 Msun/h",
+      "units": "1e10 Msun/h / time_unit",
       "is_vector": false,
       "range": [
         0.0,
@@ -444,40 +496,14 @@
         0.0
       ]
     },
-    "BulgeMass": {
-      "name": "BulgeMass",
+    "DiskScaleRadius": {
+      "name": "DiskScaleRadius",
       "type": "float",
-      "units": "1e10 Msun/h",
+      "units": "Mpc/h",
       "is_vector": false,
       "range": [
         0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "MetalsBulgeMass": {
-      "name": "MetalsBulgeMass",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "QuasarModeBHaccretionMass": {
-      "name": "QuasarModeBHaccretionMass",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        1.0
+        10.0
       ],
       "sentinels": [
         0.0
@@ -504,32 +530,6 @@
       "range": [
         0.0,
         14.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "DiskScaleRadius": {
-      "name": "DiskScaleRadius",
-      "type": "float",
-      "units": "Mpc/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        10.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "OutflowRate": {
-      "name": "OutflowRate",
-      "type": "float",
-      "units": "1e10 Msun/h / time_unit",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
       ],
       "sentinels": [
         0.0

@@ -3,195 +3,208 @@
 # This file defines galaxy baryonic physics properties used in Mimic.
 # These properties are created and modified by physics modules.
 #
-# Current properties: 2 (validated in feature/minimal-module-poc)
-#   - ColdGas (simple_cooling module)
-#   - StellarMass (stellar_mass module)
-#
-# Planned expansion: ~50 properties for full SAM
-#   - HotGas, MetalsCold, MetalsHot, BlackHoleMass, DiskMass, BulgeMass, etc.
+# Current properties: 24 (baryonic components + tracking variables)
 #
 # For schema documentation, see:
 #   docs/architecture/property-metadata-schema.md
 
 galaxy_properties:
-  # ===========================================================================
-  # BARYONIC MASS COMPONENTS
-  # ===========================================================================
+
+  # =============================================================================
+  # GAS COMPONENTS
+  # =============================================================================
+  # Baryonic gas in various reservoirs
 
   - name: ColdGas
     type: float
-    units: "1e10 Msun/h"
-    description: "Cold gas mass available for star formation"
-    output: true  # Enabled for Phase 3 validation
-
+    units: 1e10 Msun/h
+    description: Cold gas mass available for star formation
+    output: true
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (generous upper bound)
     sentinels: [0.0]  # Legitimate to have no cold gas
 
-  - name: StellarMass
-    type: float
-    units: "1e10 Msun/h"
-    description: "Total stellar mass"
-    output: true  # Enabled for Phase 3 validation
-
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (generous upper bound)
-    sentinels: [0.0]  # Legitimate to have no stars yet
-
-  # ===========================================================================
-  # HOT GAS RESERVOIR (Phase 4.2: sage_infall module)
-  # ===========================================================================
-
   - name: HotGas
     type: float
-    units: "1e10 Msun/h"
-    description: "Hot gas mass in halo atmosphere"
+    units: 1e10 Msun/h
+    description: Hot gas mass in halo atmosphere
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
     sentinels: [0.0]  # Can legitimately be zero (all gas cooled or ejected)
 
-  - name: MetalsHotGas
-    type: float
-    units: "1e10 Msun/h"
-    description: "Metal mass in hot gas reservoir"
-    output: true
-
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= HotGas
-    sentinels: [0.0]  # Primordial gas has zero metals
-
-  - name: MetalsColdGas
-    type: float
-    units: "1e10 Msun/h"
-    description: "Metal mass in cold gas reservoir"
-    output: true
-
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= ColdGas
-    sentinels: [0.0]  # Primordial gas has zero metals
-
-  - name: InfallingGas
-    type: float
-    units: "1e10 Msun/h"
-    description: "Cosmological gas infalling onto galaxy this snapshot"
-    output: false  # Internal property for STEPS integration
-
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
-    sentinels: [0.0]  # Can be zero if no infall (e.g., satellites)
-
-  # ===========================================================================
-  # EJECTED GAS RESERVOIR (Phase 4.2: sage_infall module)
-  # ===========================================================================
-
   - name: EjectedMass
     type: float
-    units: "1e10 Msun/h"
-    description: "Mass of gas ejected from galaxy by feedback"
+    units: 1e10 Msun/h
+    description: Mass of gas ejected from galaxy by feedback
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
     sentinels: [0.0]  # Can be zero if no feedback has occurred
 
-  - name: MetalsEjectedMass
+  - name: InfallingGas
     type: float
-    units: "1e10 Msun/h"
-    description: "Metal mass in ejected gas reservoir"
-    output: true
-
+    units: 1e10 Msun/h
+    description: Cosmological gas infalling onto galaxy this snapshot
+    output: false  # Internal property for STEPS integration
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= EjectedMass
-    sentinels: [0.0]  # Can be zero
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Can be zero if no infall (e.g., satellites)
 
-  # ===========================================================================
-  # INTRACLUSTER STARS (Phase 4.2: sage_infall module)
-  # ===========================================================================
+  # =============================================================================
+  # STELLAR COMPONENTS
+  # =============================================================================
+  # Stellar mass in various morphological components
+
+  - name: StellarMass
+    type: float
+    units: 1e10 Msun/h
+    description: Total stellar mass
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (generous upper bound)
+    sentinels: [0.0]  # Legitimate to have no stars yet
+
+  - name: BulgeMass
+    type: float
+    units: 1e10 Msun/h
+    description: Stellar mass in bulge component
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= StellarMass
+    sentinels: [0.0]  # Can be zero for pure disk galaxies
 
   - name: ICS
     type: float
-    units: "1e10 Msun/h"
-    description: "Intracluster stellar mass (from disrupted satellites)"
+    units: 1e10 Msun/h
+    description: Intracluster stellar mass (from disrupted satellites)
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
     sentinels: [0.0]  # Zero if no satellites have been disrupted
 
+  # =============================================================================
+  # CHEMICAL COMPOSITION
+  # =============================================================================
+  # Metal mass in each baryonic component
+
+  - name: MetalsColdGas
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in cold gas reservoir
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= ColdGas
+    sentinels: [0.0]  # Primordial gas has zero metals
+
+  - name: MetalsHotGas
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in hot gas reservoir
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= HotGas
+    sentinels: [0.0]  # Primordial gas has zero metals
+
+  - name: MetalsEjectedMass
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in ejected gas reservoir
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= EjectedMass
+    sentinels: [0.0]  # Can be zero
+
+  - name: MetalsStellarMass
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in stellar component
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= StellarMass
+    sentinels: [0.0]  # Primordial stars (Pop III) would have zero metals
+
+  - name: MetalsBulgeMass
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in bulge component
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= BulgeMass
+    sentinels: [0.0]  # Can be zero
+
   - name: MetalsICS
     type: float
-    units: "1e10 Msun/h"
-    description: "Metal mass in intracluster stars"
+    units: 1e10 Msun/h
+    description: Metal mass in intracluster stars
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
     range: [0.0, 100000.0]  # Must be <= ICS
     sentinels: [0.0]  # Can be zero
 
-  # ===========================================================================
-  # SATELLITE TRACKING (Phase 4.2: sage_infall module)
-  # ===========================================================================
-
-  - name: TotalSatelliteBaryons
-    type: float
-    units: "1e10 Msun/h"
-    description: "Total baryonic mass in satellite galaxies (tracking variable)"
-    output: false  # Internal tracking variable, not needed in output
-
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]
-    sentinels: [0.0]
-
-  # ===========================================================================
-  # BLACK HOLE PROPERTIES (Phase 4.2: sage_cooling module)
-  # ===========================================================================
+  # =============================================================================
+  # BLACK HOLES
+  # =============================================================================
+  # Supermassive black hole properties
 
   - name: BlackHoleMass
     type: float
-    units: "1e10 Msun/h"
-    description: "Central supermassive black hole mass"
+    units: 1e10 Msun/h
+    description: Central supermassive black hole mass
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
     range: [0.0, 1.0]  # 0 to 10^10 Msun/h (BH masses are typically much smaller than galaxy masses)
     sentinels: [0.0]  # Can legitimately be zero (no BH seeding yet)
 
-  # ===========================================================================
-  # ENERGY TRACKING (Phase 4.2: sage_cooling module)
-  # ===========================================================================
+  - name: QuasarModeBHaccretionMass
+    type: float
+    units: 1e10 Msun/h
+    description: Cumulative black hole accretion mass in quasar mode
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 1.0]  # Typically << galaxy mass
+    sentinels: [0.0]  # Zero if no quasar-mode accretion
+
+  # =============================================================================
+  # ENERGY & FEEDBACK
+  # =============================================================================
+  # Energy tracking and feedback processes
 
   - name: Cooling
     type: double  # Note: double precision for energy accumulation over time
-    units: "(km/s)^2 * 1e10 Msun/h"
-    description: "Cumulative cooling energy (0.5 * m * V_vir^2)"
+    units: (km/s)^2 * 1e10 Msun/h
+    description: Cumulative cooling energy (0.5 * m * V_vir^2)
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -200,10 +213,9 @@ galaxy_properties:
 
   - name: Heating
     type: double  # Note: double precision for energy accumulation over time
-    units: "(km/s)^2 * 1e10 Msun/h"
-    description: "Cumulative AGN heating energy (0.5 * m * V_vir^2)"
+    units: (km/s)^2 * 1e10 Msun/h
+    description: Cumulative AGN heating energy (0.5 * m * V_vir^2)
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -212,82 +224,52 @@ galaxy_properties:
 
   - name: r_heat
     type: float
-    units: "Mpc/h"
-    description: "Heating radius from past AGN feedback events"
+    units: Mpc/h
+    description: Heating radius from past AGN feedback events
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
     range: [0.0, 10.0]  # Comparable to virial radius
     sentinels: [0.0]  # Can be zero if no AGN heating has occurred
 
-  # ===========================================================================
-  # STELLAR PROPERTIES (Phase 4.2: sage_starformation_feedback module)
-  # ===========================================================================
-
-  - name: MetalsStellarMass
+  - name: OutflowRate
     type: float
-    units: "1e10 Msun/h"
-    description: "Metal mass in stellar component"
+    units: 1e10 Msun/h / time_unit
+    description: Current gas outflow rate from supernova feedback
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= StellarMass
-    sentinels: [0.0]  # Primordial stars (Pop III) would have zero metals
+    range: [0.0, 100000.0]  # Generous upper bound for outflow rates
+    sentinels: [0.0]  # Zero when no star formation/feedback occurring
 
-  # ===========================================================================
-  # BULGE PROPERTIES (Phase 4.2: sage_mergers module)
-  # ===========================================================================
+  # =============================================================================
+  # STRUCTURE
+  # =============================================================================
+  # Structural and morphological properties
 
-  - name: BulgeMass
+  - name: DiskScaleRadius
     type: float
-    units: "1e10 Msun/h"
-    description: "Stellar mass in bulge component"
+    units: Mpc/h
+    description: Disk scale radius (exponential disk scale length)
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= StellarMass
-    sentinels: [0.0]  # Can be zero for pure disk galaxies
+    range: [0.0, 10.0]  # Comparable to virial radius
+    sentinels: [0.0]  # Can be zero for galaxies without formed disks
 
-  - name: MetalsBulgeMass
-    type: float
-    units: "1e10 Msun/h"
-    description: "Metal mass in bulge component"
-    output: true
-
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= BulgeMass
-    sentinels: [0.0]  # Can be zero
-
-  # ===========================================================================
-  # MERGER TRACKING (Phase 4.2: sage_mergers module)
-  # ===========================================================================
-
-  - name: QuasarModeBHaccretionMass
-    type: float
-    units: "1e10 Msun/h"
-    description: "Cumulative black hole accretion mass in quasar mode"
-    output: true
-
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 1.0]  # Typically << galaxy mass
-    sentinels: [0.0]  # Zero if no quasar-mode accretion
+  # =============================================================================
+  # MERGER HISTORY
+  # =============================================================================
+  # Tracking of past merger events
 
   - name: TimeOfLastMajorMerger
     type: float
-    units: "Gyr"
-    description: "Cosmic time of last major merger (mass ratio > threshold)"
+    units: Gyr
+    description: Cosmic time of last major merger (mass ratio > threshold)
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
@@ -296,77 +278,43 @@ galaxy_properties:
 
   - name: TimeOfLastMinorMerger
     type: float
-    units: "Gyr"
-    description: "Cosmic time of last minor merger (mass ratio > 0.1)"
+    units: Gyr
+    description: Cosmic time of last minor merger (mass ratio > 0.1)
     output: true
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
     range: [0.0, 14.0]  # Age of universe
     sentinels: [0.0]  # Zero if no minor merger occurred
 
-  # ===========================================================================
-  # DISK STRUCTURE (Phase 4.2: sage_starformation_feedback module)
-  # ===========================================================================
+  # =============================================================================
+  # INTERNAL TRACKING
+  # =============================================================================
+  # Internal variables for bookkeeping (not written to output)
 
-  - name: DiskScaleRadius
+  - name: TotalSatelliteBaryons
     type: float
-    units: "Mpc/h"
-    description: "Disk scale radius (exponential disk scale length)"
-    output: true
-
+    units: 1e10 Msun/h
+    description: Total baryonic mass in satellite galaxies (tracking variable)
+    output: false  # Internal tracking variable, not needed in output
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
-    range: [0.0, 10.0]  # Comparable to virial radius
-    sentinels: [0.0]  # Can be zero for galaxies without formed disks
+    range: [0.0, 100000.0]
+    sentinels: [0.0]
 
-  # ===========================================================================
-  # FEEDBACK TRACKING (Phase 4.2: sage_starformation_feedback module)
-  # ===========================================================================
-
-  - name: OutflowRate
-    type: float
-    units: "1e10 Msun/h / time_unit"
-    description: "Current gas outflow rate from supernova feedback"
-    output: true
-
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # Generous upper bound for outflow rates
-    sentinels: [0.0]  # Zero when no star formation/feedback occurring
-
-  # ===========================================================================
-  # TESTING INFRASTRUCTURE (DO NOT USE IN PRODUCTION)
-  # ===========================================================================
+  # =============================================================================
+  # TESTING INFRASTRUCTURE
+  # =============================================================================
+  # Test-only properties (DO NOT USE IN PRODUCTION)
 
   - name: TestDummyProperty
     type: float
-    units: "dimensionless"
-    description: "Test property for infrastructure testing only (NOT FOR PRODUCTION)"
+    units: dimensionless
+    description: Test property for infrastructure testing only (NOT FOR PRODUCTION)
     output: false  # Don't clutter production output
-
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
     range: [0.0, 1.0]  # Simple range for testing
     sentinels: []  # No special sentinels
-
-  # ===========================================================================
-  # FUTURE PROPERTIES (Examples for expansion)
-  # ===========================================================================
-  #
-  # Planned properties for full SAM implementation:
-  #
-  # - name: BlackHoleMass
-  #   type: float
-  #   units: "1e10 Msun/h"
-  #   description: "Central supermassive black hole mass"
-  #
-  # Adding properties is simple:
-  #   1. Uncomment or add property definition above
-  #   2. Run: make generate
-  #   3. Property immediately available in modules
-  #   4. Total time: <2 minutes
