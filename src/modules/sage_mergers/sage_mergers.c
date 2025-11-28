@@ -618,7 +618,9 @@ static void disrupt_satellite_to_ICS(struct Halo *central, struct Halo *satellit
  * @brief   Initialize the sage_mergers module
  */
 static int sage_mergers_init(void) {
-  INFO_LOG("Initializing SAGE mergers module");
+  if (get_verbose_format()) {
+    INFO_LOG("Initializing SAGE mergers module");
+  }
 
   /* Read module parameters */
   /* All parameters are REQUIRED in input file (no defaults) */
@@ -678,17 +680,19 @@ static int sage_mergers_init(void) {
   ETA_SN_CODE = 8.0e-3;
   ENERGY_SN_CODE = 1.0;
 
-  /* Log configuration */
-  INFO_LOG("  Black hole growth rate: %.3f", BLACK_HOLE_GROWTH_RATE);
-  INFO_LOG("  Quasar mode efficiency: %.3f", QUASAR_MODE_EFFICIENCY);
-  INFO_LOG("  Major merger threshold: %.3f", THRESH_MAJOR_MERGER);
-  INFO_LOG("  Recycle fraction: %.3f", RECYCLE_FRACTION);
-  INFO_LOG("  Metal yield: %.3f", YIELD);
-  INFO_LOG("  AGN recipe: %s", AGN_RECIPE_ON ? "ON" : "OFF");
-  INFO_LOG("  Supernova recipe: %s", SUPERNOVA_RECIPE_ON ? "ON" : "OFF");
-  INFO_LOG("  Disk instability: %s (deferred)", DISK_INSTABILITY_ON ? "ON" : "OFF");
+  /* Log configuration only when verbose logging is enabled */
+  if (get_verbose_format()) {
+    INFO_LOG("  Black hole growth rate: %.3f", BLACK_HOLE_GROWTH_RATE);
+    INFO_LOG("  Quasar mode efficiency: %.3f", QUASAR_MODE_EFFICIENCY);
+    INFO_LOG("  Major merger threshold: %.3f", THRESH_MAJOR_MERGER);
+    INFO_LOG("  Recycle fraction: %.3f", RECYCLE_FRACTION);
+    INFO_LOG("  Metal yield: %.3f", YIELD);
+    INFO_LOG("  AGN recipe: %s", AGN_RECIPE_ON ? "ON" : "OFF");
+    INFO_LOG("  Supernova recipe: %s", SUPERNOVA_RECIPE_ON ? "ON" : "OFF");
+    INFO_LOG("  Disk instability: %s (deferred)", DISK_INSTABILITY_ON ? "ON" : "OFF");
 
-  INFO_LOG("SAGE mergers module initialized successfully");
+    INFO_LOG("SAGE mergers module initialized successfully");
+  }
   return 0;
 }
 

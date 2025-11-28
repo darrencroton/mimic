@@ -275,11 +275,13 @@ static int sage_infall_init(void) {
     return -1;
   }
 
-  /* Log module configuration */
-  INFO_LOG("SAGE infall module initialized");
-  INFO_LOG("  Physics: InfallingGas = f_reion * BaryonFrac * Mvir - baryons");
-  INFO_LOG("  BaryonFrac = %.4f", BARYON_FRAC);
-  INFO_LOG("  Reionization model: Gnedin (2000) - hardcoded in shared/reionization.h");
+  /* Log module configuration only when verbose logging is enabled */
+  if (get_verbose_format()) {
+    INFO_LOG("SAGE infall module initialized");
+    INFO_LOG("  Physics: InfallingGas = f_reion * BaryonFrac * Mvir - baryons");
+    INFO_LOG("  BaryonFrac = %.4f", BARYON_FRAC);
+    INFO_LOG("  Reionization model: Gnedin (2000) - hardcoded in shared/reionization.h");
+  }
 
   return 0;
 }

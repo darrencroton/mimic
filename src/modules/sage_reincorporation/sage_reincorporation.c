@@ -74,10 +74,11 @@ static const double VCRIT_BASE = 445.48;
  */
 static int sage_reincorporation_init(void)
 {
-    INFO_LOG("Initializing SAGE reincorporation module...");
+    if (get_verbose_format()) {
+        INFO_LOG("Initializing SAGE reincorporation module...");
+    }
 
     // Read parameters from model configuration
-    // All parameters are REQUIRED in input file (no defaults)
     if (model_get_double("ReIncorporationFactor", &REINCORPORATION_FACTOR) != 0) {
         return -1;
     }
@@ -86,9 +87,11 @@ static int sage_reincorporation_init(void)
     double Vcrit = VCRIT_BASE * REINCORPORATION_FACTOR;
 
     // Log configuration
-    INFO_LOG("  ReIncorporationFactor = %.3f", REINCORPORATION_FACTOR);
-    INFO_LOG("  Critical velocity (Vcrit) = %.2f km/s", Vcrit);
-    INFO_LOG("SAGE reincorporation module initialized successfully");
+    if (get_verbose_format()) {
+        INFO_LOG("  ReIncorporationFactor = %.3f", REINCORPORATION_FACTOR);
+        INFO_LOG("  Critical velocity (Vcrit) = %.2f km/s", Vcrit);
+        INFO_LOG("SAGE reincorporation module initialized successfully");
+    }
 
     return 0;
 }

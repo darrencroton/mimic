@@ -116,10 +116,12 @@ static int sage_satellite_stripping_init(void) {
     return -1;
   }
 
-  INFO_LOG("SAGE satellite stripping module initialized");
-  INFO_LOG("  BaryonFrac = %.4f", BARYON_FRAC);
-  INFO_LOG("  Reionization model: Gnedin (2000) - hardcoded in "
-           "shared/reionization.h");
+  if (get_verbose_format()) {
+    INFO_LOG("SAGE satellite stripping module initialized");
+    INFO_LOG("  BaryonFrac = %.4f", BARYON_FRAC);
+    INFO_LOG("  Reionization model: Gnedin (2000) - hardcoded in "
+             "shared/reionization.h");
+  }
 
   return 0;
 }

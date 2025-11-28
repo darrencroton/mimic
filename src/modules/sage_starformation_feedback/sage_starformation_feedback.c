@@ -244,25 +244,27 @@ static int sage_starformation_feedback_init(void) {
     return -1;
   }
 
-  /* Log module configuration */
-  INFO_LOG("SAGE Star Formation and Feedback module initialized");
-  INFO_LOG("  SF prescription: %d (Kennicutt-Schmidt with threshold)",
-           SF_PRESCRIPTION);
-  INFO_LOG("  SFR efficiency: %.4f", SFR_EFFICIENCY);
-  INFO_LOG("  Supernova feedback: %s",
-           SUPERNOVA_RECIPE_ON ? "enabled" : "disabled");
-  if (SUPERNOVA_RECIPE_ON) {
-    INFO_LOG("    Reheating epsilon: %.3f", FEEDBACK_REHEATING_EPSILON);
-    INFO_LOG("    Ejection efficiency: %.3f", FEEDBACK_EJECTION_EFFICIENCY);
-    INFO_LOG("    EnergySNcode: %.3f", ENERGY_SN_CODE);
-    INFO_LOG("    EtaSNcode: %.3f", ETA_SN_CODE);
+  /* Log module configuration only when verbose logging is enabled */
+  if (get_verbose_format()) {
+    INFO_LOG("SAGE Star Formation and Feedback module initialized");
+    INFO_LOG("  SF prescription: %d (Kennicutt-Schmidt with threshold)",
+             SF_PRESCRIPTION);
+    INFO_LOG("  SFR efficiency: %.4f", SFR_EFFICIENCY);
+    INFO_LOG("  Supernova feedback: %s",
+             SUPERNOVA_RECIPE_ON ? "enabled" : "disabled");
+    if (SUPERNOVA_RECIPE_ON) {
+      INFO_LOG("    Reheating epsilon: %.3f", FEEDBACK_REHEATING_EPSILON);
+      INFO_LOG("    Ejection efficiency: %.3f", FEEDBACK_EJECTION_EFFICIENCY);
+      INFO_LOG("    EnergySNcode: %.3f", ENERGY_SN_CODE);
+      INFO_LOG("    EtaSNcode: %.3f", ETA_SN_CODE);
+    }
+    INFO_LOG("  Recycle fraction: %.3f", RECYCLE_FRACTION);
+    INFO_LOG("  Metal yield: %.4f", YIELD);
+    INFO_LOG("  FracZleaveDisk: %.3f", FRAC_Z_LEAVE_DISK);
+    INFO_LOG("  Disk instability: %s",
+             DISK_INSTABILITY_ON ? "enabled"
+                                 : "disabled (deferred to future module)");
   }
-  INFO_LOG("  Recycle fraction: %.3f", RECYCLE_FRACTION);
-  INFO_LOG("  Metal yield: %.4f", YIELD);
-  INFO_LOG("  FracZleaveDisk: %.3f", FRAC_Z_LEAVE_DISK);
-  INFO_LOG("  Disk instability: %s",
-           DISK_INSTABILITY_ON ? "enabled"
-                               : "disabled (deferred to future module)");
 
   return 0;
 }

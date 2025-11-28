@@ -55,13 +55,14 @@ def run_mimic(param_file):
     Execute Mimic with specified parameter file
 
     Args:
+        --verbose (required to capture stdout validation)
         param_file (Path): Path to parameter file
 
     Returns:
         tuple: (returncode, stdout, stderr)
     """
     result = subprocess.run(
-        [str(MIMIC_EXE), str(param_file)],
+        [str(MIMIC_EXE), "--verbose", str(param_file)],
         capture_output=True,
         text=True,
         timeout=60  # 60 second timeout for integration tests
