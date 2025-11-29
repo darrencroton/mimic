@@ -12,6 +12,12 @@ from .data_loader import (
     validate_range,
 )
 
+from .tree_loader import (
+    load_binary_tree,
+    get_tree_dtype,
+    get_halos_by_snapshot,
+)
+
 from .harness import (
     REPO_ROOT,
     TEST_DATA_DIR,
@@ -30,6 +36,10 @@ __all__ = [
     'validate_no_nans',
     'validate_no_infs',
     'validate_range',
+    # Tree loading
+    'load_binary_tree',
+    'get_tree_dtype',
+    'get_halos_by_snapshot',
     # Test harness utilities
     'REPO_ROOT',
     'TEST_DATA_DIR',
