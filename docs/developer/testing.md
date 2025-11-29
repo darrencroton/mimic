@@ -330,6 +330,7 @@ tests/
 ├── integration/               # Python integration tests for core infrastructure
 │   ├── test_full_pipeline.py
 │   ├── test_output_formats.py
+│   ├── test_tree_preservation.py
 │   └── test_module_pipeline.py
 ├── scientific/                # Python scientific tests for core infrastructure
 │   └── test_scientific.py
@@ -652,6 +653,45 @@ The baseline comparison test (`test_hdf5_baseline_comparison` in `test_output_fo
 - Physical: Pos, Vel, Spin, Len
 - Virial: Mvir, CentralMvir, Rvir, Vvir, Vmax, VelDisp
 - Infall: infallMvir, infallVvir, infallVmax
+
+#### Tree Preservation Test
+
+The tree preservation test (`test_tree_preservation.py`) validates that simulation core properties are correctly preserved from input merger tree files to Mimic output files, ensuring the physics-agnostic data pipeline maintains exact fidelity.
+
+**What it tests**:
+- Matches snapshot 63 input halos to Type 0+1 output halos (skips orphans)
+- Validates all directly-copied properties within 1e-6 tolerance
+- Detects incorrectly lost or added halos
+- Generates detailed markdown report for debugging
+
+**Properties validated**:
+- **Vectors**: Pos[3], Vel[3], Spin[3] (component-wise)
+- **Integers**: Len, SnapNum (exact match)
+- **Floats**: Vmax, VelDisp (rtol=1e-6)
+- **ID mapping**: MostBoundID → SimulationHaloIndex
+- **Mvir**: Conditional for Type=0 centrals (when input Mvir >= 0.0)
+
+**Typical results**:
+- Match rate: ~99% (4,196/4,241 halos at snapshot 63)
+- Perfect matches: 100% of matched halos
+- Report: `tests/data/output/tree_preservation_report.md`
+
+**Report includes**:
+- Summary statistics and halo type breakdown
+- Detailed property comparison tables for imperfect matches (truncated at 100)
+- Unmatched input halos with diagnostics
+- Unmatched output halos (should be 0 if correct)
+
+**Run the test**:
+```bash
+cd tests/integration
+python test_tree_preservation.py
+
+# View detailed report
+cat ../data/output/tree_preservation_report.md
+```
+
+**When to use**: Run after changes to tree loading, halo initialization, or output writing to ensure input data fidelity is maintained.
 
 ---
 

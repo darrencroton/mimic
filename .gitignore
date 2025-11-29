@@ -27,7 +27,7 @@ build/module_registry_hash.txt
 tests/unit/build/
 tests/data/output/binary/
 tests/data/output/hdf5/
-
+tests/data/output/tree_preservation_report.md
 
 # Editor artifacts
 *.*~
