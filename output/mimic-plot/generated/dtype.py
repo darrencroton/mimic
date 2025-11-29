@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: d8c5b9ffa42d22b566d54a79e06abfc8
+Source MD5: 9661846c23c044f11a3851e8a70b3036
 To regenerate: make generate
 """
 
@@ -113,3 +113,64 @@ def get_hdf5_dtype():
         ("TimeOfLastMajorMerger", np.float32),
         ("TimeOfLastMinorMerger", np.float32),
     ])
+
+def get_units():
+    """Return dictionary mapping property names to unit strings.
+    
+    Returns:
+        dict: Dictionary with property names as keys and unit strings as values.
+              Empty string indicates dimensionless quantities.
+    
+    Example:
+        >>> units = get_units()
+        >>> print(f"Mvir units: {units['Mvir']}")
+        Mvir units: 1e10 Msun/h
+    """
+    return {
+        'SnapNum': 'dimensionless',
+        'Type': 'dimensionless',
+        'HaloIndex': 'dimensionless',
+        'CentralHaloIndex': 'dimensionless',
+        'MimicHaloIndex': 'dimensionless',
+        'MimicTreeIndex': 'dimensionless',
+        'SimulationHaloIndex': 'dimensionless',
+        'MergeStatus': 'dimensionless',
+        'mergeType': 'dimensionless',
+        'mergeIntoID': 'dimensionless',
+        'mergeIntoSnapNum': 'dimensionless',
+        'dT': 'Myr',
+        'Pos': 'Mpc/h',
+        'Vel': 'km/s',
+        'Spin': 'dimensionless',
+        'Len': 'particles',
+        'Mvir': '1e10 Msun/h',
+        'CentralMvir': '1e10 Msun/h',
+        'Rvir': 'Mpc/h',
+        'Vvir': 'km/s',
+        'Vmax': 'km/s',
+        'VelDisp': 'km/s',
+        'infallMvir': '1e10 Msun/h',
+        'infallVvir': 'km/s',
+        'infallVmax': 'km/s',
+        'ColdGas': '1e10 Msun/h',
+        'HotGas': '1e10 Msun/h',
+        'EjectedMass': '1e10 Msun/h',
+        'StellarMass': '1e10 Msun/h',
+        'BulgeMass': '1e10 Msun/h',
+        'ICS': '1e10 Msun/h',
+        'MetalsColdGas': '1e10 Msun/h',
+        'MetalsHotGas': '1e10 Msun/h',
+        'MetalsEjectedMass': '1e10 Msun/h',
+        'MetalsStellarMass': '1e10 Msun/h',
+        'MetalsBulgeMass': '1e10 Msun/h',
+        'MetalsICS': '1e10 Msun/h',
+        'BlackHoleMass': '1e10 Msun/h',
+        'QuasarModeBHaccretionMass': '1e10 Msun/h',
+        'Cooling': '(km/s)^2 * 1e10 Msun/h',
+        'Heating': '(km/s)^2 * 1e10 Msun/h',
+        'r_heat': 'Mpc/h',
+        'OutflowRate': '1e10 Msun/h / time_unit',
+        'DiskScaleRadius': 'Mpc/h',
+        'TimeOfLastMajorMerger': 'Gyr',
+        'TimeOfLastMinorMerger': 'Gyr',
+    }

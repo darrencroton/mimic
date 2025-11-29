@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: d8c5b9ffa42d22b566d54a79e06abfc8
+ * Source MD5: 9661846c23c044f11a3851e8a70b3036
  * To regenerate: make generate
  */
 
@@ -46,21 +46,9 @@ o->Rvir = get_virial_radius(g->HaloNr);
 o->Vvir = get_virial_velocity(g->HaloNr);
 o->Vmax = g->Vmax;
 o->VelDisp = InputTreeHalos[g->HaloNr].VelDisp;
-if (g->Type != 0) {
-  o->infallMvir = g->infallMvir;
-} else {
-  o->infallMvir = 0.0;
-}
-if (g->Type != 0) {
-  o->infallVvir = g->infallVvir;
-} else {
-  o->infallVvir = 0.0;
-}
-if (g->Type != 0) {
-  o->infallVmax = g->infallVmax;
-} else {
-  o->infallVmax = 0.0;
-}
+o->infallMvir = output_infall_property_or_zero(g, g->infallMvir);
+o->infallVvir = output_infall_property_or_zero(g, g->infallVvir);
+o->infallVmax = output_infall_property_or_zero(g, g->infallVmax);
 
 /* Galaxy properties */
 o->ColdGas = g->galaxy->ColdGas;

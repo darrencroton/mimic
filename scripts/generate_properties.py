@@ -598,6 +598,95 @@ def generate_hdf5_field_definitions(
     return code
 
 
+def generate_hdf5_field_metadata(
+    halo_props: List[Dict], galaxy_props: List[Dict], yaml_hash: str
+) -> str:
+    """Generate hdf5_field_metadata.inc for writing FieldMetadata dataset.
+
+    This generates C code that creates a separate HDF5 dataset containing
+    field names, units, and descriptions as a structured table. This makes
+    property metadata discoverable and easily queryable.
+    """
+
+    code = generate_header(yaml_hash)
+    code += "/* HDF5 FieldMetadata dataset - structured table of field names, units, and descriptions */\n"
+    code += "/* Provides discoverable, queryable metadata for all output fields */\n\n"
+
+    # Collect all output properties
+    all_props = []
+    for prop in halo_props:
+        if prop["output"]:
+            all_props.append((prop["name"], prop.get("units", ""), prop.get("description", "")))
+    for prop in galaxy_props:
+        if prop["output"]:
+            all_props.append((prop["name"], prop.get("units", ""), prop.get("description", "")))
+
+    num_fields = len(all_props)
+
+    code += f"/* Total number of output fields */\n"
+    code += f"#define NUM_FIELDS {num_fields}\n\n"
+
+    # Define the metadata structure
+    code += "/* Define metadata structure */\n"
+    code += "struct FieldMetadata {\n"
+    code += "  char field_name[64];\n"
+    code += "  char units[128];\n"
+    code += "  char description[256];\n"
+    code += "};\n\n"
+
+    # Create and populate the metadata array
+    code += "/* Create metadata array */\n"
+    code += "struct FieldMetadata field_metadata[NUM_FIELDS] = {\n"
+    for name, units, description in all_props:
+        # Escape quotes in strings
+        units_escaped = units.replace('"', '\\"')
+        desc_escaped = description.replace('"', '\\"')
+        code += f'  {{"{name}", "{units_escaped}", "{desc_escaped}"}},\n'
+    code += "};\n\n"
+
+    # Create HDF5 compound datatype
+    code += "/* Create HDF5 compound datatype for metadata */\n"
+    code += "hid_t string_type_field = H5Tcopy(H5T_C_S1);\n"
+    code += "H5Tset_size(string_type_field, 64);\n"
+    code += "hid_t string_type_units = H5Tcopy(H5T_C_S1);\n"
+    code += "H5Tset_size(string_type_units, 128);\n"
+    code += "hid_t string_type_desc = H5Tcopy(H5T_C_S1);\n"
+    code += "H5Tset_size(string_type_desc, 256);\n\n"
+    code += "hid_t metadata_tid = H5Tcreate(H5T_COMPOUND, sizeof(struct FieldMetadata));\n"
+    code += "H5Tinsert(metadata_tid, \"field_name\", HOFFSET(struct FieldMetadata, field_name), string_type_field);\n"
+    code += "H5Tinsert(metadata_tid, \"units\", HOFFSET(struct FieldMetadata, units), string_type_units);\n"
+    code += "H5Tinsert(metadata_tid, \"description\", HOFFSET(struct FieldMetadata, description), string_type_desc);\n\n"
+
+    # Create dataspace
+    code += "/* Create dataspace for metadata table */\n"
+    code += "hsize_t metadata_dims[1] = {NUM_FIELDS};\n"
+    code += "hid_t metadata_space = H5Screate_simple(1, metadata_dims, NULL);\n\n"
+
+    # Create and write dataset
+    code += "/* Create and write FieldMetadata dataset */\n"
+    code += "hid_t metadata_dataset = H5Dcreate(group_id, \"FieldMetadata\", metadata_tid,\n"
+    code += "                                     metadata_space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);\n"
+    code += "if (metadata_dataset < 0) {\n"
+    code += "  FATAL_ERROR(\"Failed to create FieldMetadata dataset for HDF5 output\");\n"
+    code += "}\n\n"
+    code += "herr_t metadata_status = H5Dwrite(metadata_dataset, metadata_tid, H5S_ALL,\n"
+    code += "                                   H5S_ALL, H5P_DEFAULT, field_metadata);\n"
+    code += "if (metadata_status < 0) {\n"
+    code += "  FATAL_ERROR(\"Failed to write FieldMetadata dataset for HDF5 output\");\n"
+    code += "}\n\n"
+
+    # Cleanup
+    code += "/* Cleanup metadata resources */\n"
+    code += "H5Dclose(metadata_dataset);\n"
+    code += "H5Sclose(metadata_space);\n"
+    code += "H5Tclose(metadata_tid);\n"
+    code += "H5Tclose(string_type_field);\n"
+    code += "H5Tclose(string_type_units);\n"
+    code += "H5Tclose(string_type_desc);\n"
+
+    return code
+
+
 # ==============================================================================
 # PYTHON CODE GENERATION
 # ==============================================================================
@@ -658,7 +747,37 @@ def get_hdf5_dtype():
     # Add dtype fields using helper (same fields as binary)
     code += _generate_dtype_fields(halo_props, galaxy_props)
 
-    code += "    ])\n"
+    code += "    ])\n\n"
+
+    # Add get_units() function for self-documenting output
+    code += "def get_units():\n"
+    code += "    \"\"\"Return dictionary mapping property names to unit strings.\n"
+    code += "    \n"
+    code += "    Returns:\n"
+    code += "        dict: Dictionary with property names as keys and unit strings as values.\n"
+    code += "              Empty string indicates dimensionless quantities.\n"
+    code += "    \n"
+    code += "    Example:\n"
+    code += "        >>> units = get_units()\n"
+    code += "        >>> print(f\"Mvir units: {units['Mvir']}\")\n"
+    code += "        Mvir units: 1e10 Msun/h\n"
+    code += "    \"\"\"\n"
+    code += "    return {\n"
+
+    # Add all output properties with their units
+    for prop in halo_props:
+        if prop["output"]:
+            name = prop["name"]
+            units = prop.get("units", "")
+            code += f"        '{name}': '{units}',\n"
+
+    for prop in galaxy_props:
+        if prop["output"]:
+            name = prop["name"]
+            units = prop.get("units", "")
+            code += f"        '{name}': '{units}',\n"
+
+    code += "    }\n"
 
     return code
 
@@ -901,6 +1020,10 @@ def main():
     write_file(
         GENERATED_DIR / "hdf5_field_definitions.inc",
         generate_hdf5_field_definitions(halo_props, galaxy_props, yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "hdf5_field_metadata.inc",
+        generate_hdf5_field_metadata(halo_props, galaxy_props, yaml_hash),
     )
 
     # Python dtype

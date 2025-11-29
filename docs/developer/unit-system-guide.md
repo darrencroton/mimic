@@ -504,6 +504,91 @@ double rho_code = rho_cgs / ctx->params->UnitDensity_in_cgs;
 
 ---
 
+## Output Unit Metadata
+
+Mimic automatically includes unit metadata in all output files for reproducible science. This section explains how unit information is stored and accessed.
+
+### HDF5 Output: FieldMetadata Dataset
+
+HDF5 files include a `FieldMetadata` dataset in each snapshot group that provides discoverable unit information:
+
+**Structure**:
+```
+/Snap063/
+  ├── Galaxies (data)
+  ├── FieldMetadata (metadata table)
+  └── TreeHalosPerSnap (auxiliary data)
+```
+
+**Content**: The FieldMetadata dataset is a structured table with:
+- `field_name`: Property name (e.g., "Mvir", "StellarMass")
+- `units`: Unit string (e.g., "1e10 Msun/h", "Mpc/h")
+- `description`: Human-readable property description
+
+**Generation**: Auto-generated from property metadata (`src/core/halo_properties.yaml`, `src/modules/model_properties.yaml`)
+
+**Access example** (Python):
+```python
+import h5py
+
+with h5py.File('model_000.hdf5', 'r') as f:
+    metadata = f['Snap063/FieldMetadata'][:]
+    units_dict = {row['field_name'].decode(): row['units'].decode()
+                  for row in metadata}
+    print(f"Mvir units: {units_dict['Mvir']}")  # "1e10 Msun/h"
+```
+
+### Binary Output: Python Unit Dictionary
+
+Binary output files use the auto-generated Python `get_units()` function:
+
+**Location**: `output/mimic-plot/generated/dtype.py`
+
+**Generation**: Auto-generated from same property metadata as HDF5
+
+**Access example** (Python):
+```python
+from generated.dtype import get_units
+
+units = get_units()
+print(f"Mvir units: {units['Mvir']}")  # "1e10 Msun/h"
+print(f"dT units: {units['dT']}")      # "Myr"
+```
+
+### Adding Units to New Properties
+
+When adding a new property in YAML metadata, always specify the `units` field:
+
+```yaml
+- name: MyNewProperty
+  type: float
+  units: 1e10 Msun/h        # REQUIRED for unit metadata
+  description: My new physics property
+  output: true
+  # ... other fields
+```
+
+The generator will automatically:
+1. Include the unit in the FieldMetadata dataset (HDF5)
+2. Include the unit in `get_units()` dictionary (Python)
+3. Add the unit to test validation metadata
+
+### Unit Metadata Philosophy
+
+**Single Source of Truth**: Units declared once in YAML metadata, propagated everywhere
+
+**Automation**: No manual unit documentation needed in output code
+
+**Validation**: Scientific tests check units match expected values
+
+**User-Facing**: Unit metadata available at runtime in output files, not just in source code
+
+For user-facing documentation on accessing units, see:
+- `docs/user/output-formats.md` - Working with unit metadata section
+- `output/mimic-plot/README.md` - Python examples for working with units
+
+---
+
 ## Testing Your Module
 
 ### Unit Validation Tests

@@ -32,6 +32,7 @@
 #include "output/util.h"
 #include "proto.h"
 #include "util.h"
+#include "shared/output_helpers.h"  /* -Isrc/modules makes this work */
 
 #define TREE_MUL_FAC (1000000000LL)
 #define FILENR_MUL_FAC (1000000000000000LL)

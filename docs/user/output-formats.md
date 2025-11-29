@@ -52,7 +52,7 @@ OutputFormat  hdf5
 - **Performance**: Slower than binary (factor of ~3.5x)
 - **Size**: Larger than binary (depends on compression settings)
 - **Compatibility**: Standard format readable by many tools
-- **Self-describing**: Yes (includes metadata, units, descriptions)
+- **Self-describing**: Yes (includes FieldMetadata dataset with units for all properties)
 - **Random access**: Excellent (can read specific snapshots/properties efficiently)
 
 **Compilation requirement**: Build with `make USE-HDF5=yes`
@@ -129,10 +129,14 @@ with h5py.File('model_000.hdf5', 'r') as f:
     # Check available properties
     print("Available properties:", galaxies.dtype.names)
 
-    # Properties are self-documented
-    for prop in galaxies.dtype.names:
-        if prop in snap.attrs:
-            print(f"  {prop}: {snap.attrs[prop]}")
+    # Read unit metadata from FieldMetadata dataset
+    metadata = snap['FieldMetadata'][:]
+    units_dict = {row['field_name'].decode(): row['units'].decode()
+                  for row in metadata}
+
+    # Show properties with units
+    for prop in galaxies.dtype.names[:5]:  # First 5 properties
+        print(f"  {prop}: {units_dict.get(prop, 'unknown')}")
 ```
 
 ### Module Dependencies
@@ -153,6 +157,97 @@ EnabledModules  cooling_model,starformation_model
 cooling_model_BaryonFraction      0.15
 starformation_model_Efficiency    0.02
 ```
+
+## Working with Unit Metadata
+
+All Mimic output properties include unit metadata for reproducible science. Units are provided differently for binary and HDF5 formats.
+
+### Python Unit Dictionary (Binary and HDF5)
+
+Both output formats can use the auto-generated Python unit dictionary:
+
+```python
+from generated.dtype import get_units
+
+# Get units for all properties
+units = get_units()
+print(f"Mvir: {units['Mvir']}")        # "1e10 Msun/h"
+print(f"Rvir: {units['Rvir']}")        # "Mpc/h"
+print(f"dT: {units['dT']}")            # "Myr"
+
+# Use with binary data
+import numpy as np
+halos = np.fromfile('model_z0.000_0', dtype=get_binary_dtype())
+print(f"Mvir range: {halos['Mvir'].min():.2e} to {halos['Mvir'].max():.2e} {units['Mvir']}")
+
+# Use with HDF5 data
+import h5py
+with h5py.File('model_000.hdf5', 'r') as f:
+    halos = f['Snap063/Galaxies'][:]
+    print(f"Rvir range: {halos['Rvir'].min():.3f} to {halos['Rvir'].max():.3f} {units['Rvir']}")
+```
+
+### HDF5 FieldMetadata Dataset
+
+HDF5 files include a self-contained `FieldMetadata` dataset in each snapshot group:
+
+```python
+import h5py
+
+with h5py.File('model_000.hdf5', 'r') as f:
+    # Explore file structure
+    print(f"Snapshot groups: {list(f.keys())}")
+    print(f"Snap063 datasets: {list(f['Snap063'].keys())}")
+    # Shows: ['Galaxies', 'FieldMetadata', 'TreeHalosPerSnap']
+
+    # Read FieldMetadata dataset
+    metadata = f['Snap063/FieldMetadata'][:]
+
+    # Convert to dictionary
+    units_dict = {row['field_name'].decode(): row['units'].decode()
+                  for row in metadata}
+
+    # Access units for specific fields
+    print(f"Mvir units: {units_dict['Mvir']}")
+    print(f"StellarMass units: {units_dict['StellarMass']}")
+
+    # List all fields with units and descriptions
+    for row in metadata[:10]:  # First 10 fields
+        field = row['field_name'].decode()
+        units = row['units'].decode()
+        desc = row['description'].decode()
+        print(f"{field:20s} {units:20s} {desc}")
+```
+
+**Structure**: The FieldMetadata dataset is a structured table with columns:
+- `field_name` (string, 64 chars): Property name
+- `units` (string, 128 chars): Unit string
+- `description` (string, 256 chars): Human-readable property description
+
+**Location**: Present in every snapshot group (e.g., `Snap000/FieldMetadata`, `Snap063/FieldMetadata`)
+
+### Unit Conventions
+
+Mimic uses a consistent internal code unit system:
+
+| Quantity | Code Units | Example Property |
+|----------|-----------|------------------|
+| Mass | `1e10 Msun/h` | Mvir, StellarMass, ColdGas |
+| Length | `Mpc/h` | Rvir, Pos, DiskScaleRadius |
+| Velocity | `km/s` | Vvir, Vmax, Vel |
+| Time | `Myr` (output), `sec` (internal) | dT, TimeOfLastMajorMerger |
+
+**The `/h` notation**: Values include the Hubble parameter `h = H0 / (100 km/s/Mpc)`. To convert to physical units, divide by h:
+
+```python
+h = 0.73  # From parameter file Hubble_h
+mass_physical_msun = halos['Mvir'] * 1e10 / h  # Solar masses (no h)
+length_physical_mpc = halos['Rvir'] / h         # Mpc (no h)
+```
+
+For detailed information on the unit system and conversions, see:
+- `docs/developer/unit-system-guide.md` - Complete unit system documentation
+- `output/mimic-plot/README.md` - Python examples for working with units
 
 ## Reading Output Files
 
@@ -291,11 +386,22 @@ OutputDir/
 Each HDF5 file contains:
 ```
 model_000.hdf5
-├── /Snap063/           # z=0 snapshot
-│   ├── Galaxies        # Halo/galaxy data (structured array)
-│   ├── TreeHalosPerSnap  # Halos per tree
-│   └── Attributes      # Metadata (redshift, hubble_h, etc.)
-├── /Snap062/           # z=0.27 snapshot
+├── /Snap063/            # z=0 snapshot
+│   ├── Galaxies         # Halo/galaxy data (structured array with HDF5 attributes)
+│   ├── FieldMetadata    # Field names and units (structured table)
+│   └── TreeHalosPerSnap # Halos per tree
+├── /Snap062/            # z=0.27 snapshot
+│   └── ...
+...
+```
+
+The master file (`model.hdf5`) contains:
+```
+model.hdf5
+├── /RunProperties/      # Run configuration (GROUP with attributes: Hubble_h, BoxSize, etc.)
+├── /Snap063/            # Snapshot groups with external links to data files
+│   ├── File000/         # Links to model_000.hdf5
+│   ├── File001/         # Links to model_001.hdf5
 │   └── ...
 ...
 ```

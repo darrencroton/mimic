@@ -25,7 +25,8 @@
 #ifndef OUTPUT_HELPERS_H
 #define OUTPUT_HELPERS_H
 
-#include "mimic.h"
+/* Forward declaration - avoid circular includes */
+struct Halo;
 
 /*
  * Infall Property Helpers

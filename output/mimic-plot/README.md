@@ -77,6 +77,72 @@ deactivate
 
 - `hmf_evolution`: Evolution of the halo mass function across cosmic time
 
+## Working with Units
+
+All Mimic output properties include unit metadata for reproducible science. Units are stored in code units internally (see `docs/developer/unit-system-guide.md`), with metadata available for proper interpretation.
+
+### Accessing Unit Information
+
+**From Python** (works with both binary and HDF5 outputs):
+```python
+from generated.dtype import get_units
+
+# Get units dictionary
+units = get_units()
+print(f"Mvir is in: {units['Mvir']}")  # "1e10 Msun/h"
+print(f"dT is in: {units['dT']}")      # "Myr"
+print(f"Rvir is in: {units['Rvir']}")  # "Mpc/h"
+
+# Use in your analysis
+import numpy as np
+halos = np.fromfile('model_z0.000_0', dtype=get_binary_dtype())
+masses_code_units = halos['Mvir']  # In 10^10 Msun/h
+print(f"Mvir range: {masses_code_units.min():.2e} to {masses_code_units.max():.2e} {units['Mvir']}")
+```
+
+**From HDF5 files directly** (self-documenting output):
+```python
+import h5py
+
+with h5py.File('model_000.hdf5', 'r') as f:
+    # Read FieldMetadata dataset (recommended)
+    metadata = f['Snap016/FieldMetadata'][:]
+
+    # Convert to dictionary for easy lookup
+    units_dict = {row['field_name'].decode(): row['units'].decode()
+                  for row in metadata}
+
+    print(f"Mvir units: {units_dict['Mvir']}")
+
+    # FieldMetadata also includes descriptions for each property
+    for row in metadata[:5]:  # First 5 properties
+        field = row['field_name'].decode()
+        units = row['units'].decode()
+        desc = row['description'].decode()
+        print(f"{field}: {units} - {desc}")
+
+    # Load data with unit awareness
+    halos = f['Snap016/Galaxies'][:]
+    print(f"Loaded {len(halos)} halos")
+    print(f"Mvir is in {units_dict['Mvir']}")
+```
+
+### Unit Conventions
+
+Mimic uses a consistent code unit system:
+- **Mass**: `1e10 Msun/h` (10^10 solar masses with Hubble parameter)
+- **Length**: `Mpc/h` (megaparsecs comoving with Hubble parameter)
+- **Velocity**: `km/s` (kilometers per second)
+- **Time**: `Myr` or `Gyr` (megayears or gigayears for output)
+
+The `/h` notation means the value includes the Hubble parameter (h = H0 / 100 km/s/Mpc). To convert to physical units, divide by `h`. For example:
+```python
+h = 0.73  # From parameter file
+mass_physical_msun = halos['Mvir'] * 1e10 / h  # Convert to physical solar masses
+```
+
+For detailed information on unit conversions and the internal unit system, see `docs/developer/unit-system-guide.md`.
+
 ## Adding New Plot Types
 
 To add a new plot type, follow these steps:

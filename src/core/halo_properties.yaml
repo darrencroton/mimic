@@ -307,10 +307,9 @@ halo_properties:
     output: true
     init_source: default
     init_value: -1.0
-    output_source: conditional
-    output_condition: "g->Type != 0"
-    output_true_value: "g->infallMvir"
-    output_false_value: "0.0"
+    output_source: recalculate
+    output_function: output_infall_property_or_zero
+    output_function_arg: "g, g->infallMvir"
     range: [0.00001, 10000.0]  # Same as Mvir
     sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
 
@@ -321,10 +320,9 @@ halo_properties:
     output: true
     init_source: default
     init_value: -1.0
-    output_source: conditional
-    output_condition: "g->Type != 0"
-    output_true_value: "g->infallVvir"
-    output_false_value: "0.0"
+    output_source: recalculate
+    output_function: output_infall_property_or_zero
+    output_function_arg: "g, g->infallVvir"
     range: [10.0, 5000.0]  # Same as Vvir
     sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
 
@@ -335,9 +333,8 @@ halo_properties:
     output: true
     init_source: default
     init_value: -1.0
-    output_source: conditional
-    output_condition: "g->Type != 0"
-    output_true_value: "g->infallVmax"
-    output_false_value: "0.0"
+    output_source: recalculate
+    output_function: output_infall_property_or_zero
+    output_function_arg: "g, g->infallVmax"
     range: [10.0, 5000.0]  # Same as Vmax
     sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset

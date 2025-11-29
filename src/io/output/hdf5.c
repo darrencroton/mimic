@@ -32,6 +32,7 @@
 #include "output/hdf5.h"
 #include "output/util.h"
 #include "error.h"
+#include "shared/output_helpers.h"  /* -Isrc/modules makes this work */
 
 #define TRUE 1
 #define FALSE 0
@@ -340,9 +341,15 @@ void write_hdf5_attrs(int n, int filenr) {
   }
   H5Aclose(attribute_id);
 
-  // Close the dataspace and dataset.
+  // Close the scalar dataspace (reused below)
   H5Sclose(dataspace_id);
+
+  // Close the dataset
   H5Dclose(dataset_id);
+
+  // Write field metadata table (auto-generated from property metadata)
+  // Creates FieldMetadata dataset with field names and units for discoverability
+  #include "../../include/generated/hdf5_field_metadata.inc"
 
   // Create an array dataset to hold the number of objects per tree and write
   // it.
