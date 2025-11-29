@@ -86,26 +86,37 @@ H5Tinsert(metadata_tid, "field_name", HOFFSET(struct FieldMetadata, field_name),
 H5Tinsert(metadata_tid, "units", HOFFSET(struct FieldMetadata, units), string_type_units);
 H5Tinsert(metadata_tid, "description", HOFFSET(struct FieldMetadata, description), string_type_desc);
 
-/* Create dataspace for metadata table */
-hsize_t metadata_dims[1] = {NUM_FIELDS};
-hid_t metadata_space = H5Screate_simple(1, metadata_dims, NULL);
+/* Create field name and offset arrays for Table API */
+const char *metadata_field_names[3] = {"field_name", "units", "description"};
+size_t metadata_field_offsets[3] = {
+  HOFFSET(struct FieldMetadata, field_name),
+  HOFFSET(struct FieldMetadata, units),
+  HOFFSET(struct FieldMetadata, description)
+};
+hid_t metadata_field_types[3] = {string_type_field, string_type_units, string_type_desc};
 
-/* Create and write FieldMetadata dataset */
-hid_t metadata_dataset = H5Dcreate(group_id, "FieldMetadata", metadata_tid,
-                                     metadata_space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-if (metadata_dataset < 0) {
-  FATAL_ERROR("Failed to create FieldMetadata dataset for HDF5 output");
-}
-
-herr_t metadata_status = H5Dwrite(metadata_dataset, metadata_tid, H5S_ALL,
-                                   H5S_ALL, H5P_DEFAULT, field_metadata);
+/* Create and write FieldMetadata as HDF5 Table for discoverability */
+/* This adds CLASS="TABLE" and FIELD_N_NAME attributes for better tool support */
+herr_t metadata_status = H5TBmake_table(
+    "Field Metadata",           /* Table title */
+    group_id,                    /* Parent group */
+    "FieldMetadata",             /* Dataset name */
+    3,                           /* Number of fields */
+    NUM_FIELDS,                  /* Number of records */
+    sizeof(struct FieldMetadata), /* Record size */
+    metadata_field_names,        /* Field names */
+    metadata_field_offsets,      /* Field offsets */
+    metadata_field_types,        /* Field types */
+    1000,                        /* Chunk size */
+    NULL,                        /* Fill data */
+    0,                           /* Compress */
+    field_metadata               /* Data */
+);
 if (metadata_status < 0) {
-  FATAL_ERROR("Failed to write FieldMetadata dataset for HDF5 output");
+  FATAL_ERROR("Failed to create FieldMetadata table for HDF5 output");
 }
 
 /* Cleanup metadata resources */
-H5Dclose(metadata_dataset);
-H5Sclose(metadata_space);
 H5Tclose(metadata_tid);
 H5Tclose(string_type_field);
 H5Tclose(string_type_units);

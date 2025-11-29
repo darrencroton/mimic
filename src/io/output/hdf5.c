@@ -363,6 +363,23 @@ void write_hdf5_attrs(int n, int filenr) {
   dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT,
                          dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 
+  // Add description attribute for self-documentation
+  hid_t attr_space_desc = H5Screate(H5S_SCALAR);
+  hid_t str_type_desc = H5Tcopy(H5T_C_S1);
+  H5Tset_size(str_type_desc, 64);
+  hid_t attr_desc = H5Acreate(dataset_id, "description", str_type_desc,
+                              attr_space_desc, H5P_DEFAULT, H5P_DEFAULT);
+  const char *desc_text = "Number of halos per merger tree at this snapshot";
+  herr_t attr_status = H5Awrite(attr_desc, str_type_desc, desc_text);
+  if (attr_status < 0) {
+    FATAL_ERROR("Failed to write description attribute for TreeHalosPerSnap "
+                "(snapshot %d, filenr %d)",
+                MimicConfig.ListOutputSnaps[n], filenr);
+  }
+  H5Aclose(attr_desc);
+  H5Tclose(str_type_desc);
+  H5Sclose(attr_space_desc);
+
   // Write the halos per tree data
   status = H5Dwrite(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
                     InputHalosPerSnap[n]);
