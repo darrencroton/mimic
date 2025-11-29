@@ -107,7 +107,7 @@ void myexit(int signum) {
 #ifdef MPI
   printf("Task: %d\tnode: %s\tis exiting\n\n\n", ThisTask, ThisNode);
 #else
-  printf("We're exiting\n\n\n");
+  printf("We're exiting\n");
 #endif
   exit(signum);
 }
