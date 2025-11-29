@@ -536,8 +536,9 @@ static void validate_and_postprocess(void) {
     errors++;
   }
 
-  if (MimicConfig.NOUT <= 0 || MimicConfig.NOUT > ABSOLUTEMAXSNAPS) {
-    ERROR_LOG("NumOutputs = %d outside valid range (1, %d]",
+  if (MimicConfig.NOUT != -1 &&
+      (MimicConfig.NOUT <= 0 || MimicConfig.NOUT > ABSOLUTEMAXSNAPS)) {
+    ERROR_LOG("NumOutputs = %d outside valid range (1, %d] or sentinel -1",
               MimicConfig.NOUT, ABSOLUTEMAXSNAPS);
     errors++;
   }
@@ -557,6 +558,16 @@ static void validate_and_postprocess(void) {
   /* Set MAXSNAPS */
   MimicConfig.MAXSNAPS = MimicConfig.LastSnapshotNr + 1;
   SYNC_CONFIG_INT(MAXSNAPS);
+
+  /* When NOUT == -1, select all snapshots and ignore provided list */
+  if (MimicConfig.NOUT == -1) {
+    MimicConfig.NOUT = MimicConfig.MAXSNAPS;
+    for (int i = 0; i < MimicConfig.NOUT && i < ABSOLUTEMAXSNAPS; i++) {
+      MimicConfig.ListOutputSnaps[i] = i;
+      ListOutputSnaps[i] = i;
+    }
+    INFO_LOG("All %d snapshots selected for output (NOUT=-1)", MimicConfig.NOUT);
+  }
 
   /* Synchronize NOUT */
   SYNC_CONFIG_INT(NOUT);
