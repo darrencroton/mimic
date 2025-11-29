@@ -478,6 +478,31 @@ def generate_copy_to_output(
             code += f"  o->{name} = {false_val};\n"
             code += "}\n"
 
+        # Apply unit conversion if output_convert is specified
+        # Skip if output_source is custom (custom code handles its own conversions)
+        if output_source != "custom" and "output_convert" in prop:
+            conversion_expr = prop["output_convert"]
+            sentinels = prop.get("sentinels", [])
+            c_type = type_info["c_type"]
+
+            # Determine type suffix for sentinel comparisons (f for float, nothing for double/int)
+            if prop["type"] == "float":
+                type_suffix = "f"
+            else:
+                type_suffix = ""
+
+            if sentinels:
+                # Generate conditional conversion (skip sentinels)
+                # Build condition: value != sentinel1 && value != sentinel2 && ...
+                conditions = [f"o->{name} != {s}{type_suffix}" for s in sentinels]
+                condition_str = " && ".join(conditions)
+                code += f"if ({condition_str}) {{\n"
+                code += f"  o->{name} *= {conversion_expr};\n"
+                code += "}\n"
+            else:
+                # Unconditional conversion
+                code += f"o->{name} *= {conversion_expr};\n"
+
     code += "\n/* Galaxy properties */\n"
     for prop in galaxy_props:
         if not prop["output"]:
@@ -485,9 +510,33 @@ def generate_copy_to_output(
 
         output_source = prop.get("output_source", "galaxy_property")
         name = prop["name"]
+        type_info = TYPE_MAP[prop["type"]]
 
         if output_source == "galaxy_property":
             code += f"o->{name} = g->galaxy->{name};\n"
+
+            # Apply unit conversion if output_convert is specified
+            if "output_convert" in prop:
+                conversion_expr = prop["output_convert"]
+                sentinels = prop.get("sentinels", [])
+                c_type = type_info["c_type"]
+
+                # Determine type suffix for sentinel comparisons
+                if prop["type"] == "float":
+                    type_suffix = "f"
+                else:
+                    type_suffix = ""
+
+                if sentinels:
+                    # Generate conditional conversion (skip sentinels)
+                    conditions = [f"o->{name} != {s}{type_suffix}" for s in sentinels]
+                    condition_str = " && ".join(conditions)
+                    code += f"if ({condition_str}) {{\n"
+                    code += f"  o->{name} *= {conversion_expr};\n"
+                    code += "}\n"
+                else:
+                    # Unconditional conversion
+                    code += f"o->{name} *= {conversion_expr};\n"
 
     return code
 

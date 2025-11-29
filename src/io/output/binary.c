@@ -197,15 +197,8 @@ void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
   o->SimulationHaloIndex = InputTreeHalos[g->HaloNr].MostBoundID;
 
 /* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */
+/* Includes automatic unit conversion for dT (seconds → Myr) with sentinel preservation */
 #include "../../include/generated/copy_to_output.inc"
-
-  /* CUSTOM: dT unit conversion (internal uses seconds, output uses Myr) */
-  /* Don't convert sentinel value (-1.0 indicates no progenitor/invalid) */
-  if (g->dT == -1.0) {
-    o->dT = -1.0;
-  } else {
-    o->dT = g->dT * UnitTime_in_s / SEC_PER_MEGAYEAR;
-  }
 }
 
 /**

@@ -511,7 +511,7 @@ int main(int argc, char **argv) {
 
   /* Set exit status to success */
   log_phase_banner(PHASE_SHUTDOWN);
-  INFO_LOG("Simulation completed successfully");
+  INFO_LOG("MIMIC completed successfully");
   exitfail = 0;
   return 0;
 }

@@ -83,9 +83,6 @@ static double ENERGY_SN_CODE = 0.0;
  * PHYSICS CONSTANTS
  * ============================================================================ */
 
-/* Gravitational constant in code units (Mpc/h)(km/s)²/(10¹⁰Msun/h) */
-static const double G_CODE_UNITS = 43.0071;
-
 /* Dynamical friction (Chandrasekhar 1943, Binney & Tremaine 2008) */
 static const double CHANDRASEKHAR_COEFF = 2.0;   /* Orbital averaging factor */
 static const double COULOMB_LOG_APPROX = 1.17;   /* ln(M_host/M_sat) ≈ 1.17 for mass ratio ~3:1 */
@@ -191,6 +188,7 @@ static void update_from_feedback(struct GalaxyData *gal, struct GalaxyData *cent
  *
  * Implements the Binney & Tremaine (1987) formulation for orbital decay.
  *
+ * @param   ctx          Module context (for accessing params->G)
  * @param   sat_halo     Satellite halo array index
  * @param   mother_halo  Host halo array index
  * @param   halos        Halo array
@@ -199,7 +197,8 @@ static void update_from_feedback(struct GalaxyData *gal, struct GalaxyData *cent
  * @note    CURRENTLY UNUSED - Awaiting core merger triggering (Phase 4.3)
  */
 __attribute__((unused))
-static double estimate_merging_time(int sat_halo, int mother_halo, struct Halo *halos) {
+static double estimate_merging_time(const struct ModuleContext *ctx,
+                                     int sat_halo, int mother_halo, struct Halo *halos) {
   /* Sanity check: satellite and host must be different */
   if (sat_halo == mother_halo) {
     return -1.0;
@@ -222,13 +221,11 @@ static double estimate_merging_time(int sat_halo, int mother_halo, struct Halo *
   /* Calculate merger timescale (Binney & Tremaine 1987)
    * T_merge = 2.0 * 1.17 * R² * V / (ln(M_host/M_sat) * G * M_sat)
    *
-   * Gravitational constant G in Mimic code units:
-   * Physical value: G = 6.672e-8 cm³ g⁻¹ s⁻²
-   * Mimic units: [Mass] = 1e10 Msun/h, [Length] = Mpc/h, [Velocity] = km/s
-   * Unit conversion yields: G_code = 43.0071
+   * Use pre-computed G in code units from params (Mpc/h)(km/s)²/(1e10 Msun/h)
+   * Value is ~43.0071 - see docs/developer/unit-system-guide.md
    * Result units: [Time] = Gyr (consistent with merger timescale output)
    */
-  double G = G_CODE_UNITS;
+  double G = ctx->params->G;
 
   double mergtime = safe_div(CHANDRASEKHAR_COEFF * COULOMB_LOG_APPROX * sat_radius * sat_radius * vvir,
                              coulomb * G * sat_mass, -1.0);

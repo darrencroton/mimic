@@ -24,6 +24,8 @@
  */
 
 #include "../../../tests/framework/test_framework.h"
+#include "module_interface.h"  /* For ModuleContext */
+#include "types.h"             /* For MimicConfig */
 #include "reionization.h"
 #include <math.h>
 #include <stdio.h>
@@ -37,6 +39,21 @@ static int failed = 0;
 #define OMEGA_LAMBDA 0.75
 #define HUBBLE_H 0.73
 
+/* Test helper: Create minimal ModuleContext for testing */
+static struct ModuleContext create_test_context(void) {
+    struct ModuleContext ctx;
+    static struct MimicConfig test_params;  /* Static to persist after function returns */
+
+    /* Initialize minimal params - only G is needed for reionization */
+    test_params.G = 43.00710968931344;  /* Pre-computed code units value */
+
+    ctx.params = &test_params;
+    ctx.redshift = 0.0;  /* Will be set by each test */
+    ctx.time = 0.0;      /* Not needed for reionization tests */
+
+    return ctx;
+}
+
 /**
  * @test test_reionization_regimes
  * @brief Test suppression across three redshift regimes
@@ -49,25 +66,26 @@ static int failed = 0;
  * Note: Physics validation deferred to scientific tests
  */
 int test_reionization_regimes(void) {
+    struct ModuleContext ctx = create_test_context();
     float mvir = 1.0;  /* 1e10 Msun/h - intermediate mass */
     double modifier;
 
     /* ===== REGIME 1: Before UV background (z=10 > z0=8) ===== */
-    modifier = calculate_reionization_modifier(mvir, 10.0, OMEGA_MATTER,
+    modifier = calculate_reionization_modifier(&ctx, mvir, 10.0, OMEGA_MATTER,
                                                  OMEGA_LAMBDA, HUBBLE_H);
     TEST_ASSERT(modifier >= 0.0 && modifier <= 1.0 && !isnan(modifier) && !isinf(modifier),
                 "Before UV background (z=10), should return valid modifier");
     printf("  Regime 1 (z=10): modifier=%.6f\n", modifier);
 
     /* ===== REGIME 2: Partial reionization (z0=8 > z=7.5 > zr=7) ===== */
-    modifier = calculate_reionization_modifier(mvir, 7.5, OMEGA_MATTER,
+    modifier = calculate_reionization_modifier(&ctx, mvir, 7.5, OMEGA_MATTER,
                                                  OMEGA_LAMBDA, HUBBLE_H);
     TEST_ASSERT(modifier >= 0.0 && modifier <= 1.0 && !isnan(modifier) && !isinf(modifier),
                 "During partial reionization (z=7.5), should return valid modifier");
     printf("  Regime 2 (z=7.5): modifier=%.6f\n", modifier);
 
     /* ===== REGIME 3: After full reionization (z=6 < zr=7) ===== */
-    modifier = calculate_reionization_modifier(mvir, 6.0, OMEGA_MATTER,
+    modifier = calculate_reionization_modifier(&ctx, mvir, 6.0, OMEGA_MATTER,
                                                  OMEGA_LAMBDA, HUBBLE_H);
     TEST_ASSERT(modifier >= 0.0 && modifier <= 1.0 && !isnan(modifier) && !isinf(modifier),
                 "After full reionization (z=6), should return valid modifier");
@@ -88,11 +106,12 @@ int test_reionization_regimes(void) {
  * Note: Physics accuracy (mass dependence) deferred to scientific tests
  */
 int test_reionization_mass_dependence(void) {
+    struct ModuleContext ctx = create_test_context();
     double z = 6.0;  /* After full reionization */
     double low_mass_modifier, mid_mass_modifier, high_mass_modifier;
 
     /* ===== LOW MASS: 0.01 (1e8 Msun/h) ===== */
-    low_mass_modifier = calculate_reionization_modifier(0.01, z, OMEGA_MATTER,
+    low_mass_modifier = calculate_reionization_modifier(&ctx, 0.01, z, OMEGA_MATTER,
                                                           OMEGA_LAMBDA, HUBBLE_H);
     TEST_ASSERT(low_mass_modifier >= 0.0 && low_mass_modifier <= 1.0 &&
                 !isnan(low_mass_modifier) && !isinf(low_mass_modifier),
@@ -100,7 +119,7 @@ int test_reionization_mass_dependence(void) {
     printf("  Low mass (1e8 Msun/h): modifier=%.6f\n", low_mass_modifier);
 
     /* ===== INTERMEDIATE MASS: 1.0 (1e10 Msun/h) ===== */
-    mid_mass_modifier = calculate_reionization_modifier(1.0, z, OMEGA_MATTER,
+    mid_mass_modifier = calculate_reionization_modifier(&ctx, 1.0, z, OMEGA_MATTER,
                                                           OMEGA_LAMBDA, HUBBLE_H);
     TEST_ASSERT(mid_mass_modifier >= 0.0 && mid_mass_modifier <= 1.0 &&
                 !isnan(mid_mass_modifier) && !isinf(mid_mass_modifier),
@@ -108,7 +127,7 @@ int test_reionization_mass_dependence(void) {
     printf("  Mid mass (1e10 Msun/h): modifier=%.6f\n", mid_mass_modifier);
 
     /* ===== HIGH MASS: 100.0 (1e12 Msun/h) ===== */
-    high_mass_modifier = calculate_reionization_modifier(100.0, z, OMEGA_MATTER,
+    high_mass_modifier = calculate_reionization_modifier(&ctx, 100.0, z, OMEGA_MATTER,
                                                            OMEGA_LAMBDA, HUBBLE_H);
     TEST_ASSERT(high_mass_modifier >= 0.0 && high_mass_modifier <= 1.0 &&
                 !isnan(high_mass_modifier) && !isinf(high_mass_modifier),
@@ -131,16 +150,17 @@ int test_reionization_mass_dependence(void) {
  * Validates: Numerical stability and boundary handling
  */
 int test_reionization_edge_cases(void) {
+    struct ModuleContext ctx = create_test_context();
     double modifier;
     float mvir = 1.0;
 
     /* ===== TRANSITION AT z0 ===== */
     /* Test just before and after z0=8.0 */
-    double mod_before_z0 = calculate_reionization_modifier(mvir, 8.01,
+    double mod_before_z0 = calculate_reionization_modifier(&ctx, mvir, 8.01,
                                                              OMEGA_MATTER,
                                                              OMEGA_LAMBDA,
                                                              HUBBLE_H);
-    double mod_after_z0 = calculate_reionization_modifier(mvir, 7.99,
+    double mod_after_z0 = calculate_reionization_modifier(&ctx, mvir, 7.99,
                                                             OMEGA_MATTER,
                                                             OMEGA_LAMBDA,
                                                             HUBBLE_H);
@@ -151,11 +171,11 @@ int test_reionization_edge_cases(void) {
 
     /* ===== TRANSITION AT zr ===== */
     /* Test just before and after zr=7.0 */
-    double mod_before_zr = calculate_reionization_modifier(mvir, 7.01,
+    double mod_before_zr = calculate_reionization_modifier(&ctx, mvir, 7.01,
                                                              OMEGA_MATTER,
                                                              OMEGA_LAMBDA,
                                                              HUBBLE_H);
-    double mod_after_zr = calculate_reionization_modifier(mvir, 6.99,
+    double mod_after_zr = calculate_reionization_modifier(&ctx, mvir, 6.99,
                                                             OMEGA_MATTER,
                                                             OMEGA_LAMBDA,
                                                             HUBBLE_H);
@@ -165,28 +185,28 @@ int test_reionization_edge_cases(void) {
            fabs(mod_before_zr - mod_after_zr));
 
     /* ===== VERY HIGH REDSHIFT (z=100) ===== */
-    modifier = calculate_reionization_modifier(mvir, 100.0, OMEGA_MATTER,
+    modifier = calculate_reionization_modifier(&ctx, mvir, 100.0, OMEGA_MATTER,
                                                  OMEGA_LAMBDA, HUBBLE_H);
     TEST_ASSERT(modifier > 0.0 && modifier <= 1.0,
                 "Very high redshift should return valid modifier");
     printf("  Very high z (z=100): modifier=%.6f\n", modifier);
 
     /* ===== VERY LOW REDSHIFT (z=0.1) ===== */
-    modifier = calculate_reionization_modifier(mvir, 0.1, OMEGA_MATTER,
+    modifier = calculate_reionization_modifier(&ctx, mvir, 0.1, OMEGA_MATTER,
                                                  OMEGA_LAMBDA, HUBBLE_H);
     TEST_ASSERT(modifier > 0.0 && modifier <= 1.0,
                 "Very low redshift should return valid modifier");
     printf("  Very low z (z=0.1): modifier=%.6f\n", modifier);
 
     /* ===== ZERO MASS (edge case) ===== */
-    modifier = calculate_reionization_modifier(0.0, 6.0, OMEGA_MATTER,
+    modifier = calculate_reionization_modifier(&ctx, 0.0, 6.0, OMEGA_MATTER,
                                                  OMEGA_LAMBDA, HUBBLE_H);
     TEST_ASSERT(modifier >= 0.0 && modifier <= 1.0,
                 "Zero mass should be handled safely (EPSILON_SMALL protection)");
     printf("  Zero mass: modifier=%.6f (protected by EPSILON_SMALL)\n", modifier);
 
     /* ===== VERY LARGE MASS (edge case) ===== */
-    modifier = calculate_reionization_modifier(10000.0, 6.0, OMEGA_MATTER,
+    modifier = calculate_reionization_modifier(&ctx, 10000.0, 6.0, OMEGA_MATTER,
                                                  OMEGA_LAMBDA, HUBBLE_H);
     TEST_ASSERT(modifier >= 0.0 && modifier <= 1.0 &&
                 !isnan(modifier) && !isinf(modifier),
@@ -209,6 +229,7 @@ int test_reionization_edge_cases(void) {
  * Validates: Overall physics correctness
  */
 int test_reionization_physics_sanity(void) {
+    struct ModuleContext ctx = create_test_context();
     double modifier;
     int test_count = 0;
 
@@ -218,7 +239,7 @@ int test_reionization_physics_sanity(void) {
 
     for (int i = 0; i < 5; i++) {
         for (int j = 0; j < 6; j++) {
-            modifier = calculate_reionization_modifier(masses[i], redshifts[j],
+            modifier = calculate_reionization_modifier(&ctx, masses[i], redshifts[j],
                                                          OMEGA_MATTER, OMEGA_LAMBDA,
                                                          HUBBLE_H);
 
@@ -229,7 +250,7 @@ int test_reionization_physics_sanity(void) {
             /* ===== PHYSICAL CONSISTENCY ===== */
             /* At z<7 (after reionization), larger masses should have larger modifiers */
             if (redshifts[j] < 7.0 && i > 0) {
-                double prev_modifier = calculate_reionization_modifier(
+                double prev_modifier = calculate_reionization_modifier(&ctx, 
                     masses[i-1], redshifts[j], OMEGA_MATTER, OMEGA_LAMBDA, HUBBLE_H);
                 TEST_ASSERT(modifier >= prev_modifier,
                             "After reionization, modifier should increase with mass");
@@ -257,26 +278,27 @@ int test_reionization_physics_sanity(void) {
  * Note: Physics accuracy deferred to scientific tests
  */
 int test_reionization_cosmology_dependence(void) {
+    struct ModuleContext ctx = create_test_context();
     float mvir = 1.0;
     double z = 6.0;
     double mod_fiducial, mod_high_omega, mod_low_h;
 
     /* ===== FIDUCIAL COSMOLOGY (Millennium) ===== */
-    mod_fiducial = calculate_reionization_modifier(mvir, z, 0.25, 0.75, 0.73);
+    mod_fiducial = calculate_reionization_modifier(&ctx, mvir, z, 0.25, 0.75, 0.73);
     TEST_ASSERT(mod_fiducial >= 0.0 && mod_fiducial <= 1.0 &&
                 !isnan(mod_fiducial) && !isinf(mod_fiducial),
                 "Fiducial cosmology should return valid modifier");
     printf("  Fiducial (Ωm=0.25, h=0.73): modifier=%.6f\n", mod_fiducial);
 
     /* ===== HIGH OMEGA_M ===== */
-    mod_high_omega = calculate_reionization_modifier(mvir, z, 0.35, 0.65, 0.73);
+    mod_high_omega = calculate_reionization_modifier(&ctx, mvir, z, 0.35, 0.65, 0.73);
     TEST_ASSERT(mod_high_omega >= 0.0 && mod_high_omega <= 1.0 &&
                 !isnan(mod_high_omega) && !isinf(mod_high_omega),
                 "High Omega_m should return valid modifier");
     printf("  High Omega_m (Ωm=0.35): modifier=%.6f\n", mod_high_omega);
 
     /* ===== LOW HUBBLE_H ===== */
-    mod_low_h = calculate_reionization_modifier(mvir, z, 0.25, 0.75, 0.65);
+    mod_low_h = calculate_reionization_modifier(&ctx, mvir, z, 0.25, 0.75, 0.65);
     TEST_ASSERT(mod_low_h >= 0.0 && mod_low_h <= 1.0 &&
                 !isnan(mod_low_h) && !isinf(mod_low_h),
                 "Low h should return valid modifier");

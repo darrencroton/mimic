@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 30974676ded2dc01776a6df44e211518
+ * Source MD5: d8c5b9ffa42d22b566d54a79e06abfc8
  * To regenerate: make generate
  */
 
@@ -26,7 +26,10 @@ o->MergeStatus = g->MergeStatus;
 o->mergeType = g->mergeType;
 o->mergeIntoID = g->mergeIntoID;
 o->mergeIntoSnapNum = g->mergeIntoSnapNum;
-/* CUSTOM: dT - see prepare_halo_for_output() for hand-written code */
+o->dT = g->dT;
+if (o->dT != -1.0f) {
+  o->dT *= UnitTime_in_s / SEC_PER_MEGAYEAR;
+}
 for (int j = 0; j < 3; j++) {
   o->Pos[j] = g->Pos[j];
 }

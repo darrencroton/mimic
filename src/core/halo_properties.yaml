@@ -157,14 +157,15 @@ halo_properties:
 
   - name: dT
     type: float
-    units: "Myr"
+    units: "Myr"  # Output units (stored internally as seconds in code units)
     description: "Time elapsed since progenitor snapshot (lookback time difference)"
     output: true
     init_source: default
     init_value: -1.0
-    output_source: custom  # Copy with unit conversion to Myr
-    range: [0.0, 2000.0]  # Reasonable time between snapshots
-    sentinels: [-1.0]  # -1 for unset/invalid
+    output_source: copy_direct
+    output_convert: "UnitTime_in_s / SEC_PER_MEGAYEAR"  # Convert seconds → Myr
+    range: [0.0, 2000.0]  # Reasonable time between snapshots (in Myr)
+    sentinels: [-1.0]  # -1 for unset/invalid (preserved, not converted)
 
   # ===========================================================================
   # PHYSICAL PROPERTIES (Position and Velocity)

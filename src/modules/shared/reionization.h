@@ -51,6 +51,7 @@
 
 #include <math.h>
 
+#include "module_interface.h"  /* For ModuleContext and Params */
 #include "constants.h"
 #include "numeric.h"
 
@@ -115,6 +116,7 @@
  * characteristic mass (the maximum of the filtering mass and the mass
  * corresponding to a virial temperature of 10^4 K).
  *
+ * @param   ctx          Module context (for accessing params->G)
  * @param   mvir         Virial mass of halo (1e10 Msun/h)
  * @param   redshift     Current redshift
  * @param   omega        Matter density parameter (Omega_m)
@@ -126,7 +128,8 @@
  * @note This function uses hardcoded reionization parameters defined at top
  *       of this header. To change reionization model, swap entire header file.
  */
-static inline double calculate_reionization_modifier(float mvir,
+static inline double calculate_reionization_modifier(const struct ModuleContext *ctx,
+                                                       float mvir,
                                                        double redshift,
                                                        double omega,
                                                        double omega_lambda,
@@ -197,11 +200,9 @@ static inline double calculate_reionization_modifier(float mvir,
   HubbleZ = HUBBLE_CONVERSION * hubble_h *
             sqrt(omega * pow(1.0 + redshift, 3.0) + omega_lambda);
 
-  /* Convert G to code units: (Mpc/h) (km/s)^2 / (1e10 Msun/h) */
-  G_code = GRAVITY * (1.0 / 1000.0) * (1.0 / 1000.0) * /* km^2/s^2 */
-           CM_PER_MPC * hubble_h *                      /* Mpc/h */
-           (1.0 / SOLAR_MASS) * (1.0 / 1e10) *          /* 1/(1e10 Msun) */
-           (1.0 / hubble_h);                            /* /h */
+  /* Use pre-computed G in code units from params (Mpc/h)(km/s)^2/(1e10 Msun/h) */
+  /* Value is ~43.0071 - see docs/developer/unit-system-guide.md */
+  G_code = ctx->params->G;
 
   /* Calculate characteristic mass */
   Mchar = Vchar * Vchar * Vchar /

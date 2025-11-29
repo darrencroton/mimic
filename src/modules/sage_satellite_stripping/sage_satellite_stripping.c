@@ -41,6 +41,7 @@ static double BARYON_FRAC;
  * Implements environmental stripping of hot gas from satellite galaxies
  * as they move through the hot halo of the central galaxy.
  *
+ * @param   ctx        Module context (for accessing params->G via reionization)
  * @param   halos      Array of halos in FOF group
  * @param   central_idx Index of central galaxy
  * @param   sat_idx    Index of satellite galaxy being stripped
@@ -49,7 +50,8 @@ static double BARYON_FRAC;
  * @param   omega_lambda Dark energy density parameter
  * @param   hubble_h   Hubble parameter
  */
-static void strip_from_satellite(struct Halo *halos, int central_idx,
+static void strip_from_satellite(const struct ModuleContext *ctx,
+                                  struct Halo *halos, int central_idx,
                                   int sat_idx, double redshift, double omega,
                                   double omega_lambda, double hubble_h) {
 #define STEPS 1  /* TODO: Will be replaced by global STEPS when multi-step integration loop implemented in core */
@@ -59,7 +61,7 @@ static void strip_from_satellite(struct Halo *halos, int central_idx,
 
   /* Apply reionization modifier using shared utility */
   reionization_modifier = calculate_reionization_modifier(
-      halos[sat_idx].Mvir, redshift, omega, omega_lambda, hubble_h);
+      ctx, halos[sat_idx].Mvir, redshift, omega, omega_lambda, hubble_h);
 
   /* Calculate amount of gas to strip */
   strippedGas = -1.0 *
@@ -184,7 +186,7 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
       continue; /* Skip if no hot gas */
 
     /* Strip hot gas from this satellite */
-    strip_from_satellite(halos, central_idx, i, z, omega, omega_lambda,
+    strip_from_satellite(ctx, halos, central_idx, i, z, omega, omega_lambda,
                          hubble_h);
   }
 

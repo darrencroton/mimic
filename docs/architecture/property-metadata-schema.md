@@ -49,7 +49,8 @@ set_MyNewProperty(galaxy, 1.5);
 - Simple property: `init_source: default`, provide `init_value`
 - From merger tree: `init_source: copy_from_tree`, provide tree field name
 - Calculated: `init_source: calculate`, provide function name
-- Output copy: Most properties use `output_source: copy_from_processing`
+- Output copy: Most properties use `output_source: copy_direct` or `galaxy_property`
+- Unit conversion: Add `output_convert` for systematic unit conversion at I/O boundary
 
 **Generated outputs:**
 - `src/include/generated/property_defs.h` - Struct definitions (Halo, GalaxyData, HaloOutput)
@@ -127,6 +128,7 @@ property_name:
   output_condition: string  # C expression (if output_source: conditional)
   output_true_value: string # Expression if condition true
   output_false_value: string # Expression if condition false
+  output_convert: string    # Optional unit conversion expression (see Unit Conversion)
 
   # VALIDATION CONTROL (controls test generation)
   range: [min, max]         # Physical bounds for validation (inclusive)
@@ -361,7 +363,11 @@ Defines how property is copied from `struct Halo` to `struct HaloOutput` in `pre
     output_function_arg: "g->HaloNr"
   ```
 
-**conditional**
+**conditional** (DEPRECATED - use `recalculate` instead)
+- **Status**: Deprecated as of 2025-11-29
+- **Replacement**: Use `recalculate` with helper functions from `src/modules/shared/output_helpers.h`
+- **Migration**: See migration guide below
+
 - Use condition to choose value
 - Generated code:
   ```c
@@ -373,7 +379,12 @@ Defines how property is copied from `struct Halo` to `struct HaloOutput` in `pre
   ```
 - Use for: Type-dependent properties (infall properties for satellites only)
 - Requires `output_condition`, `output_true_value`, `output_false_value` fields
-- Example:
+- **Why deprecated**:
+  - Requires 3 fields instead of 2 (`recalculate` pattern)
+  - Logic not testable (embedded in metadata)
+  - Not reusable across properties
+  - Helper functions more transparent and maintainable
+- Example (old pattern - DO NOT USE):
   ```yaml
   - name: infallMvir
     type: float
@@ -381,6 +392,14 @@ Defines how property is copied from `struct Halo` to `struct HaloOutput` in `pre
     output_condition: "g->Type != 0"
     output_true_value: "g->infallMvir"
     output_false_value: "0.0"
+  ```
+- **Preferred alternative** (use `recalculate`):
+  ```yaml
+  - name: infallMvir
+    type: float
+    output_source: recalculate
+    output_function: output_infall_property_or_zero
+    output_function_arg: "g, g->infallMvir"
   ```
 
 **custom**
@@ -404,6 +423,304 @@ Defines how property is copied from `struct Halo` to `struct HaloOutput` in `pre
     type: float
     output_source: galaxy_property
   ```
+
+---
+
+## Unit Conversion (output_convert)
+
+### Overview
+
+The `output_convert` field enables **systematic unit conversion at the I/O boundary** while maintaining Mimic's "code units everywhere" philosophy internally.
+
+**Purpose**: Convert properties from internal code units to human-readable output units when writing files.
+
+**Key Principle**: All physics calculations use consistent code units internally. Unit conversions happen ONLY at I/O boundaries (reading input, writing output).
+
+### When to Use
+
+**Common use cases**:
+- Time conversions: seconds (code) → Myr (output)
+- Energy conversions: code units → physical units
+- Any property where output units differ from internal units
+
+**When NOT to use**:
+- Properties already in desired output units (most properties)
+- Internal-only properties (output: false)
+- Properties requiring complex logic (use `output_source: recalculate` instead)
+
+### Field Specification
+
+**Type**: String (C expression)
+
+**Optional**: Yes (omit if no conversion needed)
+
+**Requirements**:
+- Must be valid C expression
+- Can reference `ctx->params->Unit*_in_cgs` (UnitTime_in_s, UnitMass_in_g, etc.)
+- Can reference constants from `constants.h` (SEC_PER_MEGAYEAR, etc.)
+- Applied as multiplication: `value *= expression`
+
+### Automatic Sentinel Handling
+
+**Critical feature**: Sentinel values are automatically preserved unchanged.
+
+If property has `sentinels` field:
+- Generator creates conditional conversion code
+- Each sentinel value excluded from conversion
+- Ensures special values (like -1.0 for "not set") remain intact
+
+### Examples
+
+**Example 1: Time Conversion (seconds → Myr)**
+
+```yaml
+- name: dT
+  type: float
+  units: Myr
+  description: Time since last snapshot
+  output: true
+  init_source: calculate
+  init_function: get_time_difference
+  output_source: copy_direct
+  output_convert: "UnitTime_in_s / SEC_PER_MEGAYEAR"
+  sentinels: [-1.0]  # Orphan halos have dT = -1
+```
+
+Generated code:
+```c
+// Copy value
+o->dT = g->dT;
+
+// Apply conversion (skip sentinels)
+if (o->dT != -1.0f) {
+    o->dT *= UnitTime_in_s / SEC_PER_MEGAYEAR;
+}
+```
+
+**Example 2: Multiple Sentinels**
+
+```yaml
+- name: SomeProperty
+  type: float
+  units: physical_units
+  output: true
+  output_source: copy_direct
+  output_convert: "UnitMass_in_g / SOLAR_MASS"
+  sentinels: [0.0, -1.0, -999.0]
+```
+
+Generated code:
+```c
+o->SomeProperty = g->SomeProperty;
+if (o->SomeProperty != 0.0f && o->SomeProperty != -1.0f && o->SomeProperty != -999.0f) {
+    o->SomeProperty *= UnitMass_in_g / SOLAR_MASS;
+}
+```
+
+**Example 3: No Sentinels**
+
+```yaml
+- name: ConvertedValue
+  type: float
+  units: converted_units
+  output: true
+  output_source: copy_direct
+  output_convert: "some_conversion_factor"
+```
+
+Generated code:
+```c
+o->ConvertedValue = g->ConvertedValue;
+o->ConvertedValue *= some_conversion_factor;
+```
+
+### Unit Conversion Best Practices
+
+**1. Code Units Everywhere**
+- All internal calculations use consistent code units
+- Mass: 10^10 Msun/h
+- Length: Mpc/h
+- Velocity: km/s
+- Time: derived from length/velocity
+
+**2. Convert Only at Boundaries**
+- Input: Convert from file units → code units (in tree readers)
+- Processing: Use code units exclusively
+- Output: Convert from code units → output units (via `output_convert`)
+
+**3. Document Both Units**
+- `units` field should reflect OUTPUT units (what users see in files)
+- Code comments should note internal code units if different
+- Example: `units: Myr  # Output; stored internally as seconds in code units`
+
+**4. Use Named Constants**
+- Prefer `SEC_PER_MEGAYEAR` over `3.15576e13`
+- Prefer `UnitTime_in_s` over hardcoded values
+- Makes conversions self-documenting and maintainable
+
+**5. Validate Conversions**
+- Check converted values in scientific tests
+- Verify ranges match expected output units
+- Test sentinel preservation
+
+### Combining with Other Features
+
+**With recalculate**:
+```yaml
+- name: ComputedProperty
+  type: float
+  units: output_units
+  output_source: recalculate
+  output_function: compute_property
+  output_function_arg: "g"
+  output_convert: "conversion_factor"
+  sentinels: [-1.0]
+```
+
+Order of operations:
+1. Call `compute_property(g)` → get value
+2. Assign to `o->ComputedProperty`
+3. If not sentinel, apply conversion
+
+**With conditional**:
+```yaml
+- name: ConditionalProperty
+  type: float
+  units: output_units
+  output_source: conditional
+  output_condition: "g->Type != 0"
+  output_true_value: "g->SomeValue"
+  output_false_value: "0.0"
+  output_convert: "conversion_factor"
+  sentinels: [0.0]
+```
+
+Order of operations:
+1. Evaluate condition → choose value
+2. Assign to `o->ConditionalProperty`
+3. If not sentinel (0.0), apply conversion
+
+**Not compatible with**:
+- `output_source: custom` - custom code handles its own conversions
+- `output_source: galaxy_property` - galaxy properties already in code units
+
+### Migrating from Conditional to Recalculate
+
+**Background**: The `conditional` output source is deprecated in favor of `recalculate` with helper functions.
+
+**Why migrate**:
+- Reduces metadata fields (3 → 2)
+- Makes logic testable (helper functions can have unit tests)
+- Enables reuse across multiple properties
+- More transparent and maintainable
+
+**Migration steps**:
+
+1. **Identify the pattern** in your conditional:
+   ```yaml
+   # Old pattern
+   output_source: conditional
+   output_condition: "g->Type != 0"
+   output_true_value: "g->infallMvir"
+   output_false_value: "0.0"
+   ```
+
+2. **Check for existing helper** in `src/modules/shared/output_helpers.h`:
+   - Infall properties: Use `output_infall_property_or_zero`
+   - Other patterns: Check if helper exists
+
+3. **If helper exists**, update metadata:
+   ```yaml
+   # New pattern
+   output_source: recalculate
+   output_function: output_infall_property_or_zero
+   output_function_arg: "g, g->infallMvir"
+   ```
+
+4. **If helper doesn't exist**, create one:
+   ```c
+   // In src/modules/shared/output_helpers.h
+   static inline float output_your_pattern(const struct Halo *g, ...) {
+       // Your conditional logic here
+       return (condition) ? true_value : false_value;
+   }
+   ```
+
+5. **Update property metadata** to use new helper
+
+6. **Test** with `make generate && make clean && make tests`
+
+**Complete example - Infall properties**:
+
+Before (3 properties × 3 fields each = 9 fields):
+```yaml
+- name: infallMvir
+  output_source: conditional
+  output_condition: "g->Type != 0"
+  output_true_value: "g->infallMvir"
+  output_false_value: "0.0"
+
+- name: infallVvir
+  output_source: conditional
+  output_condition: "g->Type != 0"
+  output_true_value: "g->infallVvir"
+  output_false_value: "0.0"
+
+- name: infallVmax
+  output_source: conditional
+  output_condition: "g->Type != 0"
+  output_true_value: "g->infallVmax"
+  output_false_value: "0.0"
+```
+
+After (3 properties × 2 fields each = 6 fields + 1 reusable helper):
+```yaml
+- name: infallMvir
+  output_source: recalculate
+  output_function: output_infall_property_or_zero
+  output_function_arg: "g, g->infallMvir"
+
+- name: infallVvir
+  output_source: recalculate
+  output_function: output_infall_property_or_zero
+  output_function_arg: "g, g->infallVvir"
+
+- name: infallVmax
+  output_source: recalculate
+  output_function: output_infall_property_or_zero
+  output_function_arg: "g, g->infallVmax"
+```
+
+Helper function (reusable, testable):
+```c
+// src/modules/shared/output_helpers.h
+static inline float output_infall_property_or_zero(const struct Halo *g, float value) {
+    return (g->Type != 0) ? value : 0.0f;
+}
+```
+
+**Benefits**:
+- 33% reduction in metadata fields (9 → 6)
+- Single testable function instead of 3 embedded conditionals
+- Clear intent: "infall property or zero" vs conditional logic
+- Easy to add new infall properties (just reference same helper)
+
+### Architecture Notes
+
+**Maintains Core-Physics Separation**:
+- Conversion expressions defined in metadata (YAML)
+- Code auto-generated by `scripts/generate_properties.py`
+- Core has no hardcoded unit conversions (stays physics-agnostic)
+
+**HDF5 Integration**:
+- Per-field unit attributes written to HDF5 (from `units` field)
+- Users can verify output units programmatically
+- Python tools receive unit metadata automatically
+
+**Binary Format**:
+- Unit header written to binary files (global unit system)
+- Individual conversions applied per-property
+- Maintains backward compatibility
 
 ---
 
@@ -853,6 +1170,7 @@ The code generator (`generate_properties.py`) must validate:
 - If `output_source: copy_from_tree`, require `output_tree_field`
 - If `output_source: recalculate`, require `output_function` and `output_function_arg`
 - If `output_source: conditional`, require `output_condition`, `output_true_value`, `output_false_value`
+- `output_convert` is optional and can be used with any `output_source` (except `custom`)
 
 ### Name Validation
 - Property names must be valid C identifiers

@@ -164,6 +164,8 @@ make clean && make
 |----------|---------|-------|
 | **[Architecture Vision](architecture/vision.md)** | 8 core architectural principles | 227 |
 | **[Module Developer Guide](developer/module-developer-guide.md)** | Creating physics modules | 1122 |
+| **[Unit System Guide](developer/unit-system-guide.md)** | Code units, conversions, and best practices | ~800 |
+| **[Unit System Audit Checklist](developer/unit-system-audit-checklist.md)** | Systematic module unit audit | ~400 |
 | **[Testing Guide](developer/testing.md)** | Three-tier testing framework | 2127 |
 | **[Module Metadata Schema](developer/module-metadata-schema.md)** | Module YAML specification | 1237 |
 | **[Property Metadata Schema](architecture/property-metadata-schema.md)** | Property YAML specification | 990 |
@@ -233,6 +235,8 @@ mimic/
 
 **Development:**
 - `docs/developer/module-developer-guide.md` - Creating physics modules
+- `docs/developer/unit-system-guide.md` - Code units and best practices
+- `docs/developer/unit-system-audit-checklist.md` - Module unit audit
 - `docs/developer/testing.md` - Testing framework and standards
 - `docs/developer/coding-standards.md` - Code style requirements
 
@@ -291,6 +295,8 @@ make tidy   # Remove object files, keep executable
 
 ### Development Guides
 - **[Module Developer Guide](developer/module-developer-guide.md)** - Creating physics modules (1122 lines)
+- **[Unit System Guide](developer/unit-system-guide.md)** - Code units, conversions, and best practices (~800 lines)
+- **[Unit System Audit Checklist](developer/unit-system-audit-checklist.md)** - Systematic module unit audit (~400 lines)
 - **[Module Metadata Schema](developer/module-metadata-schema.md)** - Module YAML specification (1237 lines)
 - **[Testing Guide](developer/testing.md)** - Comprehensive testing framework (2127 lines)
 - **[Execution Flow Reference](developer/execution-flow-reference.md)** - Function call trace (1028 lines)
@@ -314,6 +320,8 @@ docs/
 │   └── next-task.md             - Current development tasks
 ├── developer/
 │   ├── module-developer-guide.md   - Creating physics modules
+│   ├── unit-system-guide.md        - Code units and best practices
+│   ├── unit-system-audit-checklist.md - Module unit audit
 │   ├── module-metadata-schema.md   - Module YAML specification
 │   ├── testing.md                  - Comprehensive testing guide
 │   ├── execution-flow-reference.md - Function call trace reference
@@ -350,6 +358,9 @@ docs/
 
 **Q: How do I run tests?**
 → See [Testing Guide](developer/testing.md) quick reference or run `make tests`
+
+**Q: What units does Mimic use internally?**
+→ See [Unit System Guide](developer/unit-system-guide.md) - Code units (10^10 Msun/h, Mpc/h, km/s), conversions, and best practices
 
 ---
 

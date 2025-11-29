@@ -84,6 +84,7 @@ static double BARYON_FRAC;
  * - Consolidation of ICS (intracluster stars) to central
  * - Mass conservation accounting
  *
+ * @param   ctx      Module context (for accessing params->G via reionization)
  * @param   halos    Array of halos in FOF group
  * @param   ngal     Number of halos
  * @param   central_idx Index of central galaxy
@@ -93,9 +94,9 @@ static double BARYON_FRAC;
  * @param   hubble_h Hubble parameter
  * @return  Mass of infalling gas (can be negative for mass loss)
  */
-static double infall_recipe(struct Halo *halos, int ngal, int central_idx,
-                             double redshift, double omega, double omega_lambda,
-                             double hubble_h) {
+static double infall_recipe(const struct ModuleContext *ctx, struct Halo *halos,
+                             int ngal, int central_idx, double redshift,
+                             double omega, double omega_lambda, double hubble_h) {
   double tot_stellarMass, tot_coldMass, tot_hotMass, tot_ejected;
   double tot_hotMetals, tot_ejectedMetals;
   double tot_ICS, tot_ICSMetals;
@@ -147,7 +148,7 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx,
 
   /* Calculate reionization suppression factor using shared utility */
   reionization_modifier = calculate_reionization_modifier(
-      halos[central_idx].Mvir, redshift, omega, omega_lambda, hubble_h);
+      ctx, halos[central_idx].Mvir, redshift, omega, omega_lambda, hubble_h);
 
   /* Calculate infalling gas mass */
   infallingMass =
@@ -339,7 +340,7 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
 
   /* Calculate infall for central galaxy */
   double infallingMass =
-      infall_recipe(halos, ngal, central_idx, z, omega, omega_lambda, hubble_h);
+      infall_recipe(ctx, halos, ngal, central_idx, z, omega, omega_lambda, hubble_h);
 
   /* Store in InfallingGas property (for future STEPS integration) */
   halos[central_idx].galaxy->InfallingGas = (float)infallingMass;
