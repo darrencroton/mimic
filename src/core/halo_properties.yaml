@@ -178,7 +178,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    range: [0.0, 100.0]  # Conservative range for typical simulation boxes
+    range: [0.0, 10000.0]  # Conservative range for typical simulation boxes
 
   - name: Vel
     type: vec3_float
@@ -220,7 +220,7 @@ halo_properties:
     init_source: calculate
     init_function: get_virial_mass
     output_source: copy_direct
-    range: [0.00001, 10000.0]  # 10^5 Msun/h to 10^14 Msun/h
+    range: [0.000001, 1000000.0]  # 10^4 Msun/h to 10^16 Msun/h
 
   - name: deltaMvir
     type: float
@@ -239,7 +239,7 @@ halo_properties:
     output_source: recalculate
     output_function: get_virial_mass
     output_function_arg: "InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup"
-    range: [0.00001, 10000.0]  # Same as Mvir
+    range: [0.000001, 1000000.0]  # Same as Mvir
 
   - name: Rvir
     type: float
@@ -310,7 +310,7 @@ halo_properties:
     output_source: recalculate
     output_function: output_infall_property_or_zero
     output_function_arg: "g, g->infallMvir"
-    range: [0.00001, 10000.0]  # Same as Mvir
+    range: [0.000001, 1000000.0]  # Same as Mvir
     sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
 
   - name: infallVvir
