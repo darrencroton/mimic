@@ -449,6 +449,128 @@ def test_physical_ranges():
     return failures == 0, failures
 
 
+def test_unit_consistency():
+    """
+    Test unit consistency and physical relationships
+
+    Validates that related physical quantities have correct relationships,
+    which catches unit conversion bugs (like incorrect G values).
+    """
+    print()
+    print("="*60)
+    print("UNIT CONSISTENCY CHECKS")
+    print("="*60)
+
+    if not MIMIC_EXE.exists():
+        print(f"  Skipping (Mimic not built)")
+        return True, 0
+
+    output_file = run_mimic_if_needed()
+    halos, metadata = load_binary_halos(output_file)
+
+    failures = 0
+
+    # Gravitational constant in code units (Mpc/h)(km/s)^2/(1e10 Msun/h)
+    G_CODE = 43.00710968931344
+
+    # Speed of light (km/s) - velocities must be << c
+    C_LIGHT = 299792.458
+
+    print("\n1. Virial relation consistency: Vvir^2 ≈ G*Mvir/Rvir")
+
+    # Only check halos with valid virial properties
+    valid_mask = (halos.Mvir > 0) & (halos.Rvir > 0) & (halos.Vvir > 0)
+    valid_halos = np.sum(valid_mask)
+
+    if valid_halos == 0:
+        print(f"{YELLOW}⚠ WARNING: No halos with valid virial properties{NC}")
+    else:
+        # Calculate expected Vvir from Mvir and Rvir
+        expected_vvir_sq = G_CODE * halos.Mvir[valid_mask] / halos.Rvir[valid_mask]
+        actual_vvir_sq = halos.Vvir[valid_mask] ** 2
+
+        # Allow 1% relative error (accounts for numerical precision)
+        rel_error = np.abs((actual_vvir_sq - expected_vvir_sq) / expected_vvir_sq)
+        bad_mask = rel_error > 0.01
+
+        n_bad = np.sum(bad_mask)
+        if n_bad > 0:
+            failures += 1
+            max_error = np.max(rel_error[bad_mask]) * 100
+            print(f"{RED}✗ FAIL: {n_bad}/{valid_halos} halos violate virial relation{NC}")
+            print(f"  Max relative error: {max_error:.2f}%")
+            print(f"  Expected: Vvir^2 = G*Mvir/Rvir where G ≈ {G_CODE:.2f}")
+
+            # Show examples
+            bad_indices = np.where(valid_mask)[0][bad_mask][:3]
+            for idx in bad_indices:
+                expected = np.sqrt(G_CODE * halos.Mvir[idx] / halos.Rvir[idx])
+                actual = halos.Vvir[idx]
+                error = 100 * abs(actual - expected) / expected
+                print(f"  Halo {idx}: Vvir={actual:.2f} km/s, expected={expected:.2f} km/s (error: {error:.1f}%)")
+        else:
+            max_error = np.max(rel_error) * 100 if len(rel_error) > 0 else 0
+            print(f"{GREEN}✓ PASS: All {valid_halos} halos satisfy virial relation (max error: {max_error:.3f}%){NC}")
+
+    print("\n2. Velocity sanity: Vvir << speed of light")
+
+    max_vvir = np.max(halos.Vvir)
+    vvir_fraction = max_vvir / C_LIGHT
+
+    if max_vvir > 0.01 * C_LIGHT:  # > 1% of c is suspicious
+        failures += 1
+        print(f"{RED}✗ FAIL: Velocities suspiciously large{NC}")
+        print(f"  Max Vvir: {max_vvir:.1f} km/s ({vvir_fraction*100:.2f}% of c)")
+        print(f"  This suggests unit conversion error")
+    else:
+        print(f"{GREEN}✓ PASS: Max Vvir = {max_vvir:.1f} km/s ({vvir_fraction*100:.4f}% of c){NC}")
+
+    print("\n3. Mass positivity: All masses >= 0")
+
+    mass_fields = ['Mvir', 'ColdGas', 'StellarMass', 'HotGas', 'EjectedMass',
+                   'BlackHoleMass', 'ICS']
+    mass_failures = 0
+
+    for field in mass_fields:
+        if hasattr(halos, field):
+            data = getattr(halos, field)
+            negative = np.sum(data < 0)
+            if negative > 0:
+                mass_failures += 1
+                print(f"{RED}✗ FAIL: {field} has {negative} negative values{NC}")
+                neg_indices = np.where(data < 0)[0][:3]
+                for idx in neg_indices:
+                    print(f"  Halo {idx}: {field} = {data[idx]:.6e}")
+
+    if mass_failures > 0:
+        failures += 1
+    else:
+        print(f"{GREEN}✓ PASS: All mass fields are non-negative{NC}")
+
+    print("\n4. Time step sanity: dT reasonable")
+
+    if hasattr(halos, 'dT'):
+        # dT is in Myr (output units after conversion)
+        # Valid range: 0 to ~1000 Myr (1 Gyr) for typical timesteps
+        # -1.0 is sentinel for "not set"
+        valid_dt = halos.dT[(halos.dT >= 0) & (halos.dT != -1.0)]
+
+        if len(valid_dt) > 0:
+            max_dt = np.max(valid_dt)
+            if max_dt > 2000:  # > 2 Gyr is suspicious
+                failures += 1
+                print(f"{RED}✗ FAIL: dT values suspiciously large{NC}")
+                print(f"  Max dT: {max_dt:.1f} Myr")
+                print(f"  Expected: < 1000 Myr for typical timesteps")
+            else:
+                print(f"{GREEN}✓ PASS: dT values reasonable (max: {max_dt:.1f} Myr){NC}")
+        else:
+            print(f"{YELLOW}⚠ No valid dT values to check{NC}")
+
+    print()
+    return failures == 0, failures
+
+
 def main():
     """
     Main test runner
@@ -483,6 +605,13 @@ def main():
 
     # 3. Physical ranges
     passed, failures = test_physical_ranges()
+    if passed:
+        passed_sections += 1
+    else:
+        failed_sections += failures
+
+    # 4. Unit consistency (NEW - catches unit bugs like incorrect G)
+    passed, failures = test_unit_consistency()
     if passed:
         passed_sections += 1
     else:
