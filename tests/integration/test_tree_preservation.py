@@ -62,6 +62,13 @@ from framework.tree_loader import load_binary_tree, get_halos_by_snapshot
 # Ensure output directories exist
 ensure_output_dirs()
 
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
+GREEN = '\033[0;32m'
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
+
 
 def match_halos_snapshot63(input_halos, output_halos, snapshot=63):
     """
@@ -712,15 +719,13 @@ def test_tree_preservation_properties():
 
 def main():
     """Main test runner."""
-    print("Integration Test: Tree Preservation (Input → Output)")
+    # Print test suite header
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: Tree Preservation{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
-
-    # ANSI color codes
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[0;33m'
-    NC = '\033[0m'  # No Color
 
     if not MIMIC_EXE.exists():
         print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
@@ -751,15 +756,16 @@ def main():
             print(f"  {e}")
             failed += 1
 
+    # Print summary
     print()
-    print("=" * 60)
-    print("Test Summary: Tree Preservation")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed:  {passed}")
     print(f"Failed:  {failed}")
     print(f"Skipped: {skipped}")
     print(f"Total:   {passed + failed + skipped}")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
 
     if failed == 0:
         print(f"{GREEN}✓ All tests passed!{NC}")

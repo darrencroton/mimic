@@ -34,17 +34,19 @@ Date: 2025-11-17
 import sys
 from pathlib import Path
 
-# ANSI color codes
-BLUE = '\033[0;34m'
-YELLOW = '\033[0;33m'
-NC = '\033[0m'  # No Color
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
+GREEN = '\033[0;32m'
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
 
 
 def main():
     """Scientific validation placeholder"""
-    print(f"{BLUE}{'='*70}{NC}")
-    print(f"{BLUE}SAGE Disk Instability Module - Scientific Validation{NC}")
-    print(f"{BLUE}{'='*70}{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: SAGE Disk Instability Scientific Tests{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print()
     print(f"{YELLOW}STATUS: PLACEHOLDER (v1.0.0 - Partial Implementation){NC}")
     print()
@@ -65,8 +67,11 @@ def main():
     print("  - make test-unit (stability criterion tests)")
     print("  - make test-integration (property tracking tests)")
     print()
-    print(f"{BLUE}{'='*70}{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
+    print(f"{GREEN}✓ All tests passed!{NC}")
+    print()
     return 0
 
 

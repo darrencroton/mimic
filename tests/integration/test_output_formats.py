@@ -55,6 +55,13 @@ CORE_HALO_PROPERTIES = {
 # Ensure output directories exist before any tests run
 ensure_output_dirs()
 
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
+GREEN = '\033[0;32m'
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
+
 
 def check_hdf5_support():
     """
@@ -780,13 +787,13 @@ def main():
 
     Executes all test cases and reports results.
     """
-    print("Integration Test: Output Formats")
+    # Print test suite header
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: Output Formats (test_output_formats.py){NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
-
-    # ANSI color codes
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
 
     # Check prerequisites
     if not MIMIC_EXE.exists():
@@ -813,12 +820,6 @@ def main():
     passed = 0
     failed = 0
     skipped = 0
-
-    # ANSI color codes
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[0;33m'
-    NC = '\033[0m'  # No Color
 
     for test in tests:
         print()
@@ -856,15 +857,17 @@ def main():
             print(f"  {e}")
             failed += 1
 
+    # Print summary
     print()
-    print("=" * 60)
-    print("Test Summary: Output Formats")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed:  {passed}")
     print(f"Failed:  {failed}")
     print(f"Skipped: {skipped}")
     print(f"Total:   {passed + failed + skipped}")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
     if failed == 0:
         print(f"{GREEN}✓ All executed tests passed!{NC}")

@@ -349,10 +349,11 @@ int test_parameter_reading(void)
 /* Main test runner */
 int main(void)
 {
-    printf("\n");
+    printf("%s", BLUE);
     printf("============================================================\n");
-    printf("sage_cooling Module Unit Tests\n");
-    printf("============================================================\n\n");
+    printf("Test Suite: sage_cooling Module\n");
+    printf("============================================================\n");
+    printf("%s", NC);
 
     TEST_RUN(test_module_registration);
     TEST_RUN(test_cooling_tables_loading);
@@ -364,20 +365,7 @@ int main(void)
     TEST_RUN(test_memory_safety);
     TEST_RUN(test_parameter_reading);
 
-    printf("\n");
-    printf("============================================================\n");
-    printf("Test Summary\n");
-    printf("============================================================\n");
-    printf("Passed: %d\n", passed);
-    printf("Failed: %d\n", failed);
-    printf("Total:  %d\n", passed + failed);
-    printf("============================================================\n");
-
-    if (failed == 0) {
-        printf("✓ All tests passed!\n");
-        return 0;
-    } else {
-        printf("✗ Some tests failed\n");
-        return 1;
-    }
+    /* Print summary and return result */
+    TEST_SUMMARY();
+    return TEST_RESULT();
 }

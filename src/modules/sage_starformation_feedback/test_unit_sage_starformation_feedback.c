@@ -317,9 +317,11 @@ int test_disk_radius_calculation(void)
  */
 int main(void)
 {
-    printf("========================================\n");
-    printf("Test Suite: sage_starformation_feedback\n");
-    printf("========================================\n");
+    printf("%s", BLUE);
+    printf("============================================================\n");
+    printf("Test Suite: sage_starformation_feedback Module\n");
+    printf("============================================================\n");
+    printf("%s\n", NC);
 
     /* Initialize error handling for tests */
     initialize_error_handling(LOG_LEVEL_DEBUG, NULL);

@@ -318,7 +318,6 @@ int main(void) {
     printf("Model: Gnedin (2000) with Kravtsov et al. (2004) formulas\n");
     printf("Hardcoded parameters: z0=%.1f, zr=%.1f, alpha=%.1f\n",
            REIONIZATION_Z0, REIONIZATION_ZR, REIONIZATION_ALPHA);
-    printf("\n");
 
     /* Run all tests */
     TEST_RUN(test_reionization_regimes);

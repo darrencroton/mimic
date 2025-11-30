@@ -208,22 +208,18 @@ int test_memory_safety(void)
 
 int main(void)
 {
+    printf("%s", BLUE);
     printf("============================================================\n");
-    printf("RUNNING SAGE_MERGERS UNIT TESTS\n");
-    printf("============================================================\n");
-
-    printf("\n========================================\n");
     printf("Test Suite: sage_mergers Module\n");
-    printf("========================================\n");
+    printf("============================================================\n");
+    printf("%s", NC);
 
     TEST_RUN(test_module_registration);
     TEST_RUN(test_module_initialization);
     TEST_RUN(test_parameter_reading);
     TEST_RUN(test_memory_safety);
 
-    printf("============================================================\n");
+    /* Print summary and return result */
     TEST_SUMMARY();
-    printf("============================================================\n");
-
     return TEST_RESULT();
 }

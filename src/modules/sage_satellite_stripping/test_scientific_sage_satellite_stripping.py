@@ -34,9 +34,12 @@ Date: 2025-11-26
 
 import sys
 
-# ANSI color codes
-YELLOW = '\033[0;33m'
-NC = '\033[0m'  # No Color
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
+GREEN = '\033[0;32m'
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
 
 
 def test_deferred_placeholder():
@@ -60,9 +63,9 @@ def main():
     This test suite is deferred to Phase 4.3+ when downstream physics
     modules are implemented.
     """
-    print("=" * 60)
-    print("Scientific Validation Suite: sage_satellite_stripping")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: SAGE Satellite Stripping Scientific Tests{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print()
     print(f"{YELLOW}STATUS: DEFERRED TO PHASE 4.3+{NC}")
     print()
@@ -75,7 +78,6 @@ def main():
     print("  - Metallicity preservation")
     print("  - Reionization suppression in stripping")
     print("  - Type 1 vs Type 2 satellite handling")
-    print()
 
     tests = [
         test_deferred_placeholder,
@@ -99,19 +101,22 @@ def main():
             failed += 1
 
     print()
-    print("=" * 60)
-    print("Test Summary")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed: {passed}")
     print(f"Failed: {failed}")
     print(f"Total:  {passed + failed}")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
     if failed == 0:
-        print("✓ All tests passed (deferred placeholder)")
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        print()
         return 0
     else:
-        print(f"✗ {failed} test(s) failed")
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
+        print()
         return 1
 
 

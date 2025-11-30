@@ -43,11 +43,12 @@ from framework import load_binary_halos, create_test_param_file
 # Test state
 temp_dir = None
 
-# ANSI color codes
-RED = '\033[0;31m'
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
 GREEN = '\033[0;32m'
-YELLOW = '\033[0;33m'
-NC = '\033[0m'  # No Color
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
 
 
 def run_mimic(param_file):
@@ -260,10 +261,9 @@ def main():
     Executes all test cases and reports results.
     Can be run directly or via pytest.
     """
-    print("=" * 60)
-    print("Integration Test Suite: sage_satellite_stripping")
-    print("=" * 60)
-    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: SAGE Satellite Stripping Integration Tests{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
 
     # Check prerequisites
     if not MIMIC_EXE.exists():
@@ -298,19 +298,22 @@ def main():
                 failed += 1
 
         print()
-        print("=" * 60)
-        print("Test Summary")
-        print("=" * 60)
+        print(f"{BLUE}{'=' * 60}{NC}")
+        print(f"{BLUE}Test Summary{NC}")
+        print(f"{BLUE}{'=' * 60}{NC}")
         print(f"Passed: {passed}")
         print(f"Failed: {failed}")
         print(f"Total:  {passed + failed}")
-        print("=" * 60)
+        print(f"{BLUE}{'=' * 60}{NC}")
+        print()
 
         if failed == 0:
             print(f"{GREEN}✓ All tests passed!{NC}")
+            print()
             return 0
         else:
             print(f"{RED}✗ {failed} test(s) failed{NC}")
+            print()
             return 1
 
     except Exception as e:

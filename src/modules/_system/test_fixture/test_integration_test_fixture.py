@@ -43,11 +43,12 @@ from framework import load_binary_halos
 temp_dir = None
 ref_param_file = None
 
-# ANSI color codes
-RED = '\033[0;31m'
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
 GREEN = '\033[0;32m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'  # No Color
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
 
 
 def run_mimic(param_file):
@@ -185,10 +186,6 @@ def setup_module():
     # Use test data parameter file which has correct test paths
     ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
 
-    print("\n" + "=" * 71)
-    print("TEST FIXTURE MODULE - INTEGRATION TESTS")
-    print("=" * 71)
-    print()
     print("⚠️  These tests validate the test_fixture module itself")
     print("    The test_fixture exists for testing infrastructure only")
     print()
@@ -335,35 +332,68 @@ def test_memory_safety():
     print(f"  {GREEN}✓{NC} No memory leaks detected")
 
 
-if __name__ == "__main__":
-    # Run tests
+def main():
+    """
+    Main test runner
+    """
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: Test Fixture Integration Tests{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
+    tests = [
+        ("test_module_loads", test_module_loads),
+        ("test_parameter_configuration", test_parameter_configuration),
+        ("test_execution_completes", test_execution_completes),
+        ("test_memory_safety", test_memory_safety),
+    ]
+
+    passed = 0
+    failed = 0
+
     try:
         setup_module()
 
-        test_module_loads()
-        test_parameter_configuration()
-        test_execution_completes()
-        test_memory_safety()
-
-        print()
-        print("=" * 71)
-        print(f"{GREEN}All tests passed!{NC}")
-        print("=" * 71)
-        print()
+        for test_name, test_func in tests:
+            try:
+                test_func()
+                passed += 1
+            except AssertionError as e:
+                print(f"{RED}✗ FAIL: {test_name}{NC}")
+                print(f"  {e}")
+                failed += 1
+            except Exception as e:
+                print(f"{RED}✗ ERROR: {test_name}{NC}")
+                print(f"  {e}")
+                failed += 1
 
         teardown_module()
-        sys.exit(0)
-
-    except AssertionError as e:
-        print()
-        print(f"{RED}Test failed: {e}{NC}")
-        print()
-        teardown_module()
-        sys.exit(1)
 
     except Exception as e:
-        print()
-        print(f"{RED}Error: {e}{NC}")
-        print()
+        print(f"{RED}Setup/teardown error: {e}{NC}")
         teardown_module()
-        sys.exit(1)
+        return 1
+
+    # Print summary
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"Passed: {passed}")
+    print(f"Failed: {failed}")
+    print(f"Total:  {passed + failed}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
+    if failed == 0:
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        print()
+        return 0
+    else:
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
+        print()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

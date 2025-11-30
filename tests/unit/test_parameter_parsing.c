@@ -241,9 +241,11 @@ int test_snapshot_list(void) {
  * Executes all test cases and reports results.
  */
 int main(void) {
-    printf("========================================\n");
+    printf("%s", BLUE);
+    printf("============================================================\n");
     printf("Test Suite: Parameter Parsing\n");
-    printf("========================================\n");
+    printf("============================================================\n");
+    printf("%s", NC);
 
     /* Initialize error handling for tests */
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);

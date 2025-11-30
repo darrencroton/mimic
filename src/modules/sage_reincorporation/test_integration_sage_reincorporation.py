@@ -48,12 +48,12 @@ from framework import load_binary_halos
 temp_dir = None
 ref_param_file = None
 
-# ANSI color codes
-RED = '\033[0;31m'
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
 GREEN = '\033[0;32m'
-YELLOW = '\033[0;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'  # No Color
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
 
 
 def get_available_modules():
@@ -451,6 +451,7 @@ def test_critical_velocity_threshold():
 # ===== TEST RUNNER =====
 
 def setup():
+    print()
     """Set up test environment"""
     global temp_dir, ref_param_file
 
@@ -486,9 +487,9 @@ def teardown():
 
 def main():
     """Run all integration tests"""
-    print(f"\n{'='*70}")
-    print(f"{BLUE}SAGE Reincorporation Module - Integration Tests{NC}")
-    print(f"{'='*70}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: SAGE Reincorporation Integration Tests{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
 
     # Setup
     try:
@@ -522,11 +523,25 @@ def main():
     # Summary
     passed = sum(results)
     total = len(results)
-    print(f"\n{'='*70}")
-    print(f"{BLUE}Summary:{NC} {passed}/{total} tests passed")
-    print(f"{'='*70}\n")
+    failed = total - passed
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"Passed: {passed}")
+    print(f"Failed: {failed}")
+    print(f"Total:  {total}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
-    return 0 if passed == total else 1
+    if failed == 0:
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        print()
+        return 0
+    else:
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
+        print()
+        return 1
 
 
 if __name__ == "__main__":

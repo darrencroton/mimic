@@ -34,6 +34,14 @@ from framework import (
     run_mimic,
 )
 
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
+GREEN = '\033[0;32m'
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
+
+
 class TestModulePipeline(unittest.TestCase):
     """Integration tests for module configuration and execution."""
 
@@ -242,6 +250,12 @@ class TestModulePipeline(unittest.TestCase):
 
 def main():
     """Main test runner."""
+    # Print test suite header
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: Module Pipeline (test_module_pipeline.py){NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
     # Set up test suite
     suite = unittest.TestLoader().loadTestsFromTestCase(TestModulePipeline)
 
@@ -249,8 +263,23 @@ def main():
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
 
-    # Return exit code based on results
-    return 0 if result.wasSuccessful() else 1
+    # Print summary
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"Passed: {result.testsRun - len(result.failures) - len(result.errors)}")
+    print(f"Failed: {len(result.failures) + len(result.errors)}")
+    print(f"Total:  {result.testsRun}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
+    if result.wasSuccessful():
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        return 0
+    else:
+        print(f"{RED}✗ {len(result.failures) + len(result.errors)} test(s) failed{NC}")
+        return 1
 
 
 if __name__ == "__main__":

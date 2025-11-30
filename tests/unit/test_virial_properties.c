@@ -349,13 +349,11 @@ int test_virial_edge_cases(void) {
 }
 
 int main(void) {
+    printf("%s", BLUE);
     printf("============================================================\n");
-    printf("RUNNING VIRIAL PROPERTIES UNIT TESTS\n");
-    printf("============================================================\n");
-
-    printf("\n========================================\n");
     printf("Test Suite: Virial Property Calculations\n");
-    printf("========================================\n");
+    printf("============================================================\n");
+    printf("%s", NC);
 
     TEST_RUN(test_virial_mass_from_mvir);
     TEST_RUN(test_virial_mass_from_particles);
@@ -364,9 +362,6 @@ int main(void) {
     TEST_RUN(test_virial_consistency_relations);
     TEST_RUN(test_virial_edge_cases);
 
-    printf("============================================================\n");
     TEST_SUMMARY();
-    printf("============================================================\n");
-
     return TEST_RESULT();
 }

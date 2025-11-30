@@ -61,10 +61,11 @@ ensure_output_dirs()
 VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.json"
 
 # ANSI color codes
-RED = '\033[0;31m'
+BLUE = '\033[1;34m'
 GREEN = '\033[0;32m'
+RED = '\033[0;31m'
 YELLOW = '\033[1;33m'
-NC = '\033[0m'  # No Color
+NC = '\033[0m'
 
 
 def run_mimic_if_needed():
@@ -445,7 +446,6 @@ def test_physical_ranges():
             else:
                 print(f"{GREEN}✓ PASS: {field} components within [{rmin}, {rmax}] (inclusive){NC}")
 
-    print()
     return failures == 0, failures
 
 
@@ -567,7 +567,6 @@ def test_unit_consistency():
         else:
             print(f"{YELLOW}⚠ No valid dT values to check{NC}")
 
-    print()
     return failures == 0, failures
 
 
@@ -575,7 +574,11 @@ def main():
     """
     Main test runner
     """
-    print("Scientific Validation Test")
+    # Print test suite header
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: Scientific Validation{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
 
@@ -617,15 +620,17 @@ def main():
     else:
         failed_sections += failures
 
-    # Summary
-    print("=" * 60)
-    print("Test Summary: Scientific Validation")
-    print("=" * 60)
+    # Print summary
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Sections passed: {passed_sections}")
     print(f"Sections failed: {failed_sections}")
     if warning_count > 0:
         print(f"{YELLOW}Warnings: {warning_count} field(s) with zero values{NC}")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
     if failed_sections == 0:
         if warning_count > 0:

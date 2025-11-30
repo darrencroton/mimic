@@ -41,6 +41,13 @@ from framework import (
 # Ensure output directories exist before any tests run
 ensure_output_dirs()
 
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
+GREEN = '\033[0;32m'
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
+
 
 def test_basic_execution():
     """
@@ -49,10 +56,6 @@ def test_basic_execution():
     Expected: Exit code 0, no crashes
     Validates: Basic pipeline execution
     """
-    # ANSI color codes
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
-
     print("Testing basic Mimic execution...")
 
     # Run Mimic on test parameter file
@@ -85,10 +88,6 @@ def test_output_files_created():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
-    # ANSI color codes
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
-
     # Run Mimic if output doesn't exist
     if not output_file.exists():
         print("  Running Mimic to generate output...")
@@ -113,10 +112,6 @@ def test_no_memory_leaks():
     Expected: Zero memory leaks reported in logs
     Validates: Memory management correctness
     """
-    # ANSI color codes
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
-
     print("Testing for memory leaks...")
 
     # Run Mimic
@@ -147,10 +142,6 @@ def test_output_loadable():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
-    # ANSI color codes
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
-
     # Ensure output exists
     if not output_file.exists():
         param_file = TEST_DATA_DIR / "test_binary.yaml"
@@ -175,10 +166,6 @@ def test_stdout_content():
     Expected: Key progress messages in stdout
     Validates: Execution flow and logging
     """
-    # ANSI color codes
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
-
     print("Testing stdout content...")
 
     param_file = TEST_DATA_DIR / "test_binary.yaml"
@@ -204,11 +191,11 @@ def main():
     Executes all test cases and reports results.
     Can be run directly or via pytest.
     """
-    # ANSI color codes
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
-
-    print("Integration Test: Full Pipeline")
+    # Print test suite header
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: Full Pipeline (test_full_pipeline.py){NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
 
@@ -229,11 +216,6 @@ def main():
     passed = 0
     failed = 0
 
-    # ANSI color codes
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    NC = '\033[0m'  # No Color
-
     for test in tests:
         print()
         try:
@@ -248,14 +230,16 @@ def main():
             print(f"  {e}")
             failed += 1
 
+    # Print summary
     print()
-    print("=" * 60)
-    print("Test Summary: Full Pipeline")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed: {passed}")
     print(f"Failed: {failed}")
     print(f"Total:  {passed + failed}")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
     if failed == 0:
         print(f"{GREEN}✓ All tests passed!{NC}")

@@ -228,10 +228,11 @@ int test_memory_safety(void)
  */
 int main(void)
 {
-    printf("\n");
-    printf("========================================\n");
+    printf("%s", BLUE);
+    printf("============================================================\n");
     printf("Test Suite: test_fixture\n");
-    printf("========================================\n");
+    printf("============================================================\n");
+    printf("%s", NC);
 
     /* Run tests */
     TEST_RUN(test_module_registration);

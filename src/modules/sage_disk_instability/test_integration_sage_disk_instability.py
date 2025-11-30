@@ -114,7 +114,7 @@ def setup():
     """Set up test environment and temp directory"""
     global temp_dir, ref_param_file
 
-    print(f"{BLUE}Setting up test environment...{NC}")
+    print(f"\n{BLUE}Setting up test environment...{NC}")
 
     # Create temp directory
     temp_dir = Path(tempfile.mkdtemp(prefix="test_sage_disk_instability_"))
@@ -597,9 +597,9 @@ def test_multiple_module_pipeline():
 
 def main():
     """Run all integration tests"""
-    print(f"{BLUE}{'='*70}{NC}")
-    print(f"{BLUE}SAGE Disk Instability Module - Integration Tests{NC}")
-    print(f"{BLUE}{'='*70}{NC}")
+    print(f"{BLUE}{'='*60}{NC}")
+    print(f"{BLUE}SAGE Disk Instability Integration Tests{NC}")
+    print(f"{BLUE}{'='*60}{NC}")
 
     setup()
 
@@ -630,17 +630,19 @@ def main():
     teardown()
 
     # Print summary
-    print(f"\n{BLUE}{'='*70}{NC}")
+    print(f"\n{BLUE}{'='*60}{NC}")
     print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'='*70}{NC}")
+    print(f"{BLUE}{'='*60}{NC}")
     print(f"Passed: {passed}")
     print(f"Failed: {failed}")
+    print(f"Total:  {passed + failed}")
+    print(f"{BLUE}{'='*60}{NC}")
 
     if failed == 0:
-        print(f"\n{GREEN}✓ All integration tests passed!{NC}\n")
+        print(f"\n{GREEN}✓ All tests passed!{NC}\n")
         return 0
     else:
-        print(f"\n{RED}✗ Some integration tests failed{NC}\n")
+        print(f"\n{RED}✗ Some tests failed{NC}\n")
         return 1
 
 

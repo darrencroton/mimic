@@ -243,11 +243,11 @@ int test_single_module_initialization(void) {
  * Main test runner
  */
 int main(void) {
-    printf("\n");
-    printf("=========================================\n");
-    printf("Module Configuration System Tests\n");
-    printf("=========================================\n");
-    printf("\n");
+    printf("%s", BLUE);
+    printf("============================================================\n");
+    printf("Test Suite: Module Configuration System\n");
+    printf("============================================================\n");
+    printf("%s\n", NC);
 
     /* Initialize memory system for tests */
     init_memory_system(0);

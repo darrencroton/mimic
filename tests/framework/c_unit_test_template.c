@@ -120,9 +120,11 @@ int test_error_handling(void) {
  * Executes all test cases and reports results.
  */
 int main(void) {
-    printf("========================================\n");
+    printf("%s", BLUE);
+    printf("============================================================\n");
     printf("Test Suite: [TEST SUITE NAME]\n");
-    printf("========================================\n\n");
+    printf("============================================================\n");
+    printf("%s\n", NC);
 
     /* Run all test cases */
     TEST_RUN(test_basic_functionality);

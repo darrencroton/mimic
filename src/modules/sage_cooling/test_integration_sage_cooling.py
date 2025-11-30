@@ -27,6 +27,13 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../tests'))
 from framework import harness
 
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
+GREEN = '\033[0;32m'
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
+
 class TestSageCoolingIntegration:
     """Integration tests for sage_cooling module
 
@@ -186,9 +193,10 @@ def main():
     failed = 0
     errors = []
 
-    print("\n" + "=" * 60)
-    print("sage_cooling Integration Tests")
-    print("=" * 60 + "\n")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: sage_cooling Integration Tests{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
     for test_name in test_methods:
         try:
@@ -210,22 +218,26 @@ def main():
             errors.append((test_name, str(e)))
 
     # Summary
-    print("\n" + "=" * 60)
-    print("Test Summary")
-    print("=" * 60)
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed:  {passed}")
     print(f"Failed:  {failed}")
     print(f"Total:   {passed + failed}")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
     if failed == 0:
-        print("✓ All tests passed!\n")
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        print()
         return 0
     else:
-        print("✗ Some tests failed\n")
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
         for test_name, error in errors:
             print(f"\nFailed: {test_name}")
             print(f"  {error}")
+        print()
         return 1
 
 if __name__ == "__main__":

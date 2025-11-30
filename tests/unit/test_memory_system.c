@@ -253,9 +253,11 @@ int test_multiple_alloc_free_cycles(void) {
  * Executes all test cases and reports results.
  */
 int main(void) {
-    printf("========================================\n");
+    printf("%s", BLUE);
+    printf("============================================================\n");
     printf("Test Suite: Memory System\n");
-    printf("========================================\n");
+    printf("============================================================\n");
+    printf("%s\n", NC);
 
     /* Initialize error handling for tests */
     initialize_error_handling(LOG_LEVEL_DEBUG, NULL);

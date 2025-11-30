@@ -35,6 +35,13 @@ except ImportError:
     print("ERROR: PyYAML not installed. Run: pip install PyYAML", file=sys.stderr)
     sys.exit(1)
 
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
+GREEN = '\033[0;32m'
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
+
 # ==============================================================================
 # PATHS
 # ==============================================================================
@@ -109,25 +116,20 @@ class ValidationResults:
     def print_summary(self):
         """Print validation summary."""
         if self.warnings:
-            print("\n" + "=" * 70)
-            print(f"WARNINGS ({len(self.warnings)})")
-            print("=" * 70)
+            print()
             for warning in self.warnings:
-                print(f"  {warning}")
+                print(f"{YELLOW}{warning}{NC}")
 
         if self.errors:
-            print("\n" + "=" * 70)
-            print(f"ERRORS ({len(self.errors)})")
-            print("=" * 70)
+            print()
+            print(f"{RED}ERRORS ({len(self.errors)}){NC}")
             for error in self.errors:
-                print(f"  {error}")
-            print("\n" + "=" * 70)
-            print(f"✗ VALIDATION FAILED - {len(self.errors)} error(s) found")
-            print("=" * 70)
+                print(f"{RED}  {error}{NC}")
+            print()
+            print(f"{RED}✗ Validation failed - {len(self.errors)} error(s) found{NC}")
         else:
-            print("\n" + "=" * 70)
-            print("✓ VALIDATION PASSED")
-            print("=" * 70)
+            print()
+            print(f"{GREEN}✓ Validation passed{NC}")
 
 
 # ==============================================================================
@@ -911,9 +913,9 @@ def main():
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     args = parser.parse_args()
 
-    print("=" * 70)
-    print("Module Metadata Validation")
-    print("=" * 70)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Module Metadata Validation{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
     results = ValidationResults()
@@ -977,7 +979,7 @@ def main():
 
     # Global dependency validation (only if we have valid modules)
     if valid_modules:
-        print("\nValidating cross-module dependencies...")
+        print("Validating cross-module dependencies...")
         validate_dependencies(valid_modules, property_metadata, results, args.verbose)
 
     # Print summary

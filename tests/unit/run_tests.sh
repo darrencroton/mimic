@@ -179,15 +179,12 @@ compile_and_run_test() {
 
     # Run test
     echo -e "${BLUE}Running test: ${test_name}${NC}"
-    echo "------------------------------------------------------------"
 
     if $test_exe; then
-        echo "------------------------------------------------------------"
         echo -e "${GREEN}✓ ${test_name} PASSED${NC}"
         PASSED_TESTS=$((PASSED_TESTS + 1))
         return 0
     else
-        echo "------------------------------------------------------------"
         echo -e "${RED}✗ ${test_name} FAILED${NC}"
         FAILED_TESTS=$((FAILED_TESTS + 1))
         return 1
@@ -206,9 +203,9 @@ done
 
 # Print summary
 echo ""
-echo "============================================================"
-echo "Unit Test Summary"
-echo "============================================================"
+echo -e "${BLUE}============================================================${NC}"
+echo -e "${BLUE}Unit Test Summary${NC}"
+echo -e "${BLUE}============================================================${NC}"
 echo "Total tests:    $TOTAL_TESTS"
 echo -e "Passed:         ${GREEN}$PASSED_TESTS${NC}"
 if [ $FAILED_TESTS -gt 0 ]; then
@@ -219,17 +216,16 @@ fi
 if [ $COMPILE_ERRORS -gt 0 ]; then
     echo -e "Compile errors: ${YELLOW}$COMPILE_ERRORS${NC}"
 fi
-echo "============================================================"
+echo -e "${BLUE}============================================================${NC}"
 echo ""
 
 # Final result
-echo "============================================================"
 if [ $FAILED_TESTS -eq 0 ] && [ $COMPILE_ERRORS -eq 0 ]; then
-    echo -e "${GREEN}✓ All unit tests passed!${NC}"
-    echo "============================================================"
+    echo -e "${GREEN}=== ALL UNIT TESTS PASSED ===${NC}"
+    echo ""
     exit 0
 else
-    echo -e "${RED}✗ Unit tests FAILED${NC}"
-    echo "============================================================"
+    echo -e "${RED}=== UNIT TESTS FAILED ===${NC}"
+    echo ""
     exit 1
 fi

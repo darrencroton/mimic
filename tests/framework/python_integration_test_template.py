@@ -28,6 +28,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "output" / "mimic-p
 # You may need to import plotting utilities for data loading
 # from mimic_plot import load_binary_data, load_hdf5_data
 
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
+GREEN = '\033[0;32m'
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
+
 
 def run_mimic(param_file, cwd=None):
     """
@@ -220,9 +227,10 @@ def main():
     Executes all test cases and reports results.
     Can be run directly or via pytest.
     """
-    print("=" * 60)
-    print("Integration Test Suite: [TEST SUITE NAME]")
-    print("=" * 60)
+    # Print test suite header
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: [TEST SUITE NAME]{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
     tests = [
@@ -247,20 +255,21 @@ def main():
             print(f"  {e}")
             failed += 1
 
+    # Print summary
     print()
-    print("=" * 60)
-    print("Test Summary")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed: {passed}")
     print(f"Failed: {failed}")
     print(f"Total:  {passed + failed}")
-    print("=" * 60)
+    print(f"{BLUE}{'=' * 60}{NC}")
 
     if failed == 0:
-        print("✓ All tests passed!")
+        print(f"{GREEN}✓ All tests passed!{NC}")
         return 0
     else:
-        print(f"✗ {failed} test(s) failed")
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
         return 1
 
 

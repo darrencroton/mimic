@@ -48,12 +48,12 @@ from framework import load_binary_halos
 temp_dir = None
 ref_param_file = None
 
-# ANSI color codes
-RED = '\033[0;31m'
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
 GREEN = '\033[0;32m'
-YELLOW = '\033[0;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'  # No Color
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
 
 
 def get_available_modules():
@@ -545,10 +545,9 @@ def main():
     """
     global temp_dir, ref_param_file
 
-    print("=" * 60)
-    print("Integration Test Suite: sage_infall")
-    print("=" * 60)
-    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: SAGE Infall Integration Tests{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
 
     # Check prerequisites
     if not MIMIC_EXE.exists():
@@ -593,19 +592,22 @@ def main():
                 failed += 1
 
         print()
-        print("=" * 60)
-        print("Test Summary")
-        print("=" * 60)
+        print(f"{BLUE}{'=' * 60}{NC}")
+        print(f"{BLUE}Test Summary{NC}")
+        print(f"{BLUE}{'=' * 60}{NC}")
         print(f"Passed: {passed}")
         print(f"Failed: {failed}")
         print(f"Total:  {passed + failed}")
-        print("=" * 60)
+        print(f"{BLUE}{'=' * 60}{NC}")
+        print()
 
         if failed == 0:
             print(f"{GREEN}✓ All tests passed!{NC}")
+            print()
             return 0
         else:
             print(f"{RED}✗ {failed} test(s) failed{NC}")
+            print()
             return 1
 
     finally:

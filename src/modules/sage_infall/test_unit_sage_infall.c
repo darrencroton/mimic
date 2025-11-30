@@ -273,9 +273,11 @@ int test_property_access(void)
  */
 int main(void)
 {
-    printf("========================================\n");
-    printf("Test Suite: sage_infall\n");
-    printf("========================================\n");
+    printf("%s", BLUE);
+    printf("============================================================\n");
+    printf("Test Suite: sage_infall Module\n");
+    printf("============================================================\n");
+    printf("%s\n", NC);
 
     /* Initialize error handling for tests */
     initialize_error_handling(LOG_LEVEL_DEBUG, NULL);

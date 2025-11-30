@@ -417,7 +417,9 @@ tests:
 	@$(MAKE) USE-HDF5=yes
 	@mkdir -p build
 	@rm -f build/.test_failures
+	@echo ""
 	@$(MAKE) validate-modules || echo "validate-modules" >> build/.test_failures || true
+	@echo ""
 	@$(MAKE) test-unit || echo "unit" >> build/.test_failures || true
 	@$(MAKE) test-integration || true
 	@$(MAKE) test-scientific || true
@@ -448,7 +450,6 @@ test-unit:
 
 test-integration:
 	@echo ""
-	@echo ""
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING INTEGRATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
@@ -469,25 +470,21 @@ test-integration:
 	echo ""; \
 	echo "Running module integration tests from registry..."; \
 	for test in $$(grep -v '^#' build/generated/integration_tests.txt | grep -v '^$$'); do \
-		echo ""; \
 		echo "\033[0;34mRunning: $$test\033[0m"; \
 		$(PYTHON) $$test || FAILED=1; \
 	done; \
-	echo ""; \
-	echo "============================================================"; \
 	if [ $$FAILED -eq 1 ]; then \
 		mkdir -p build; \
 		echo "integration" >> build/.test_failures; \
-		echo "\033[0;31m✗ Integration tests FAILED\033[0m"; \
-		echo "============================================================"; \
+		echo "\033[0;31m=== INTEGRATION TESTS FAILED ===\033[0m"; \
+		echo ""; \
 		exit 1; \
 	else \
-		echo "\033[0;32m✓ All integration tests passed!\033[0m"; \
-		echo "============================================================"; \
+		echo "\033[0;32m=== ALL INTEGRATION TESTS PASSED ===\033[0m"; \
+		echo ""; \
 	fi
 
 test-scientific:
-	@echo ""
 	@echo ""
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING SCIENTIFIC VALIDATION TESTS\033[0m"
@@ -505,21 +502,19 @@ test-scientific:
 	echo ""; \
 	echo "Running module scientific tests from registry..."; \
 	for test in $$(grep -v '^#' build/generated/scientific_tests.txt | grep -v '^$$'); do \
-		echo ""; \
 		echo "\033[0;34mRunning: $$test\033[0m"; \
 		$(PYTHON) $$test || FAILED=1; \
 	done; \
 	echo ""; \
-	echo "============================================================"; \
 	if [ $$FAILED -eq 1 ]; then \
 		mkdir -p build; \
 		echo "scientific" >> build/.test_failures; \
-		echo "\033[0;31m✗ Scientific tests FAILED\033[0m"; \
-		echo "============================================================"; \
+		echo "\033[0;31m=== SCIENTIFIC TESTS FAILED ===\033[0m"; \
+		echo ""; \
 		exit 1; \
 	else \
-		echo "\033[0;32m✓ All scientific tests passed!\033[0m"; \
-		echo "============================================================"; \
+		echo "\033[0;32m=== ALL SCIENTIFIC TESTS PASSED ===\033[0m"; \
+		echo ""; \
 	fi
 
 test-clean:

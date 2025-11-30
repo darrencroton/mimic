@@ -198,12 +198,8 @@ int test_metallicity_numerical_stability(void) {
 
 int main(void) {
     printf("============================================================\n");
-    printf("RUNNING METALLICITY UTILITY UNIT TESTS\n");
+    printf("UNIT TEST: Metallicity Calculations\n");
     printf("============================================================\n");
-
-    printf("\n========================================\n");
-    printf("Test Suite: Metallicity Calculations\n");
-    printf("========================================\n");
 
     TEST_RUN(test_metallicity_normal);
     TEST_RUN(test_metallicity_zero_gas);
@@ -211,9 +207,7 @@ int main(void) {
     TEST_RUN(test_metallicity_solar_reference);
     TEST_RUN(test_metallicity_numerical_stability);
 
-    printf("============================================================\n");
     TEST_SUMMARY();
-    printf("============================================================\n");
 
     return TEST_RESULT();
 }

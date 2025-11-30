@@ -42,6 +42,13 @@
 #include <string.h>
 #include <math.h>
 
+/* ANSI color codes for test output */
+#define BLUE    "\033[1;34m"
+#define GREEN   "\033[0;32m"
+#define RED     "\033[0;31m"
+#define YELLOW  "\033[1;33m"
+#define NC      "\033[0m"
+
 /**
  * @def     TEST_ASSERT
  * @brief   Assert that a condition is true, fail test if false
@@ -148,17 +155,21 @@
  */
 #define TEST_SUMMARY()                                                        \
     do {                                                                      \
-        printf("\n============================================================\n"); \
+        printf("\n%s", BLUE);                                                 \
+        printf("============================================================\n"); \
         printf("Test Summary\n");                                             \
         printf("============================================================\n"); \
+        printf("%s", NC);                                                     \
         printf("Passed: %d\n", passed);                                       \
         printf("Failed: %d\n", failed);                                       \
         printf("Total:  %d\n", passed + failed);                              \
+        printf("%s", BLUE);                                                   \
         printf("============================================================\n"); \
+        printf("%s\n", NC);                                                     \
         if (failed == 0) {                                                    \
-            printf("✓ All tests passed!\n");                                  \
+            printf("%s✓ All tests passed!%s\n", GREEN, NC);                   \
         } else {                                                              \
-            printf("✗ %d test(s) failed\n", failed);                          \
+            printf("%s✗ %d test(s) failed%s\n", RED, failed, NC);             \
         }                                                                     \
     } while (0)
 

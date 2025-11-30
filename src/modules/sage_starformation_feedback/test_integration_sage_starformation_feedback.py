@@ -47,12 +47,12 @@ from framework import load_binary_halos
 temp_dir = None
 ref_param_file = None
 
-# ANSI color codes
-RED = '\033[0;31m'
+# ANSI color codes (module-level constants)
+BLUE = '\033[1;34m'
 GREEN = '\033[0;32m'
-YELLOW = '\033[0;33m'
-BLUE = '\033[0;34m'
-NC = '\033[0m'  # No Color
+RED = '\033[0;31m'
+YELLOW = '\033[1;33m'
+NC = '\033[0m'
 
 
 def get_available_modules():
@@ -552,24 +552,70 @@ def test_three_module_pipeline():
     print(f"  Properties from sage_starformation_feedback: StellarMass, MetalsStellarMass, DiskScaleRadius, OutflowRate")
 
 
-if __name__ == '__main__':
+def main():
+    """
+    Main test runner
+
+    Executes all test cases and reports results.
+    Can be run directly or via pytest.
+    """
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: SAGE Star Formation Feedback Integration Tests{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+
     # Setup
     setup_module()
 
     try:
-        # Run tests
-        test_module_loads()
-        test_output_properties_exist()
-        test_parameters_configurable()
-        test_feedback_toggle()
-        test_memory_safety()
-        test_execution_completes()
-        test_three_module_pipeline()
+        tests = [
+            test_module_loads,
+            test_output_properties_exist,
+            test_parameters_configurable,
+            test_feedback_toggle,
+            test_memory_safety,
+            test_execution_completes,
+            test_three_module_pipeline,
+        ]
 
-        print(f"\n{GREEN}═══════════════════════════════════════════{NC}")
-        print(f"{GREEN}All integration tests passed!{NC}")
-        print(f"{GREEN}═══════════════════════════════════════════{NC}\n")
+        passed = 0
+        failed = 0
+
+        for test in tests:
+            try:
+                test()
+                passed += 1
+            except AssertionError as e:
+                print(f"{RED}✗ FAIL: {test.__name__}{NC}")
+                print(f"  {e}")
+                failed += 1
+            except Exception as e:
+                print(f"{RED}✗ ERROR: {test.__name__}{NC}")
+                print(f"  {e}")
+                failed += 1
+
+        print()
+        print(f"{BLUE}{'=' * 60}{NC}")
+        print(f"{BLUE}Test Summary{NC}")
+        print(f"{BLUE}{'=' * 60}{NC}")
+        print(f"Passed: {passed}")
+        print(f"Failed: {failed}")
+        print(f"Total:  {passed + failed}")
+        print(f"{BLUE}{'=' * 60}{NC}")
+        print()
+
+        if failed == 0:
+            print(f"{GREEN}✓ All tests passed!{NC}")
+            print()
+            return 0
+        else:
+            print(f"{RED}✗ {failed} test(s) failed{NC}")
+            print()
+            return 1
 
     finally:
         # Cleanup
         teardown_module()
+
+
+if __name__ == '__main__':
+    sys.exit(main())
