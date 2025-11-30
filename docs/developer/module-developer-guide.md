@@ -164,7 +164,6 @@ module:
 
   # Build configuration
   compilation_requires: []
-  default_enabled: true
 ```
 
 See `docs/developer/module-metadata-schema.md` for complete schema documentation.

@@ -69,4 +69,3 @@ module:
   # ===========================================================================
 
   compilation_requires: []  # External dependencies: HDF5, MPI, GSL, etc.
-  default_enabled: true     # Include in default EnabledModules list?

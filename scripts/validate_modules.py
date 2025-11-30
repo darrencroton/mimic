@@ -370,11 +370,6 @@ def validate_field_types(
                         )
                         valid = False
 
-    # Optional boolean fields
-    if "default_enabled" in module and not isinstance(module["default_enabled"], bool):
-        results.add_error(module_name, 1, "Field 'default_enabled' must be a boolean")
-        valid = False
-
     return valid
 
 

@@ -91,4 +91,3 @@ module:
   # ===========================================================================
 
   compilation_requires: []
-  default_enabled: true

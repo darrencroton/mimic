@@ -183,7 +183,6 @@ module:
 
   # Build Configuration (optional)
   compilation_requires: [string, ...]
-  default_enabled: boolean
 ```
 
 ---
@@ -589,21 +588,6 @@ compilation_requires: []  # No special requirements
 ```
 
 **Future Use**: Build system can exclude modules if dependencies unavailable
-
-#### default_enabled (boolean, optional, default: false)
-
-**Purpose**: Whether module should be in default `EnabledModules` list
-
-**Rules**:
-- `true` - Include in default configuration
-- `false` - User must explicitly enable
-- Optional modules should be false
-
-**Example**:
-```yaml
-default_enabled: true   # Core production module
-default_enabled: false  # Optional experimental module
-```
 
 ---
 

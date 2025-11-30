@@ -71,4 +71,3 @@ module:
   # ===========================================================================
 
   compilation_requires: []
-  default_enabled: false  # Never enable by default (testing only)

@@ -76,4 +76,3 @@ module:
   # ===========================================================================
 
   compilation_requires: []
-  default_enabled: false  # PoC module, not for production
