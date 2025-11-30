@@ -357,11 +357,21 @@ tests/
 **Module Tests** (co-located with physics modules):
 ```
 src/modules/
-├── _template/                 # Module template (includes test examples)
-│   ├── template_module.c
-│   ├── template_module.h
-│   ├── module_info.yaml.template
-│   └── README.md              # Module creation guide
+├── model_properties.yaml      # Model property metadata (auto-generates C code)
+├── model_parameters.yaml      # Model parameter metadata (auto-generates validation code)
+├── _archive/                  # Archived modules (historical reference)
+├── _system/                   # Framework infrastructure (don't modify)
+│   ├── physical_constants.h  # Universal physical constants
+│   ├── output_helpers.h       # Output formatting utilities
+│   ├── generated/             # Auto-generated module registration
+│   ├── template/              # Template for creating new modules
+│   │   ├── template_module.c
+│   │   ├── template_module.h
+│   │   ├── template_module_info.yaml
+│   │   └── README.md
+│   └── test_fixture/          # Infrastructure testing module
+├── _shared/                   # User physics utilities (can modify/add)
+│   └── *.h                    # Reusable physics calculations and swappable models
 ├── module_a/
 │   ├── tests/                 # Module tests subdirectory
 │   │   ├── test_unit_module_a.c              # Unit tests (software quality)

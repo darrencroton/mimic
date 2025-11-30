@@ -1,6 +1,6 @@
 # Module Metadata Template
 #
-# Copy this file to module_info.yaml and customize for your module.
+# Copy this file to your module directory as module_info.yaml and customize.
 # See docs/developer/module-metadata-schema.md for complete documentation.
 
 module:
@@ -31,49 +31,42 @@ module:
   # ===========================================================================
 
   dependencies:
-    # Properties your module READS (must be provided by other modules or themselves)
-    requires: []
+    # All properties this module reads or writes
+    # List every property your module touches (reads, writes, or modifies)
+    properties: []
     # Example:
-    #   - HotGas
-    #   - ColdGas
+    #   - HotGas           # Reads/writes hot gas mass
+    #   - MetalsHotGas     # Reads/writes hot gas metals
+    #   - ColdGas          # Writes cold gas mass
+    #   - StellarMass      # Reads stellar mass
 
-    # Properties your module CREATES or MODIFIES
-    provides: []
+    # Parameters required by this module
+    # Must be defined in src/modules/model_parameters.yaml
+    parameters: []
     # Example:
-    #   - StellarMass
-    #   - MetalsMass
-
-  # ===========================================================================
-  # Model Parameters Used (OPTIONAL - for documentation)
-  # ===========================================================================
-
-  # List which model_parameters your module uses (informational only)
-  # Actual parameters are defined in src/modules/model_parameters.yaml
-  model_parameters_used: []
-  # Example:
-  #   - BaryonFrac         # Cosmic baryon fraction
-  #   - SfrEfficiency      # Star formation efficiency
-  #   - RecycleFraction    # Stellar recycling
+    #   - BaryonFrac         # Cosmic baryon fraction
+    #   - SfrEfficiency      # Star formation efficiency
+    #   - RecycleFraction    # Stellar recycling
 
   # ===========================================================================
   # Testing (OPTIONAL but recommended)
   # ===========================================================================
 
   tests:
-    unit: test_template_module.c            # tests/unit/
-    integration: test_template_module.py    # tests/integration/
-    scientific: test_template_validation.py  # tests/scientific/
+    unit: tests/test_unit_template_module.c            # C unit tests
+    integration: tests/test_integration_template_module.py    # Python integration tests
+    scientific: tests/test_scientific_template_module_validation.py  # Python scientific tests
 
   # ===========================================================================
   # Documentation (OPTIONAL but recommended)
   # ===========================================================================
 
   docs:
-    physics: src/modules/YOUR_MODULE_NAME/README.md  # Physics equations and references in module directory
+    physics: src/modules/template_module/README.md  # CHANGE: Physics overview in module directory
 
   # ===========================================================================
   # Build Configuration (OPTIONAL)
   # ===========================================================================
 
-  compilation_requires: []  # External dependencies: HDF5, MPI, GSL
+  compilation_requires: []  # External dependencies: HDF5, MPI, GSL, etc.
   default_enabled: true     # Include in default EnabledModules list?

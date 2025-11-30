@@ -7,7 +7,7 @@
  * TO CREATE A NEW MODULE:
  * 1. Copy this directory: cp -r src/modules/_system/template src/modules/YOUR_MODULE_NAME
  * 2. Rename files: template_module.h → your_module.h, template_module.c → your_module.c
- * 3. Create module_info.yaml with metadata (see module_info.yaml.template)
+ * 3. Create module_info.yaml with metadata (see template_module_info.yaml)
  * 4. Replace all "template_module" with "your_module" (find and replace)
  * 5. Replace all "TEMPLATE_MODULE" with "YOUR_MODULE"
  * 6. Update file documentation below

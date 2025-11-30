@@ -628,6 +628,31 @@ Document parameter usage in:
 
 ---
 
+## Creating Module README
+
+Each module should have a concise `README.md` file (~100-150 words) that provides a high-level overview for users.
+
+### README Template Structure
+
+```markdown
+# Module Name
+
+[One paragraph describing what the module does and key physics. Reference main models/papers. Keep concise - details are in code comments and module_info.yaml.]
+
+**Configuration Example**:
+```
+EnabledModules  upstream_module,your_module
+YourModule_Parameter1  value1
+YourModule_Parameter2  value2
+```
+
+**Additional Comments**: [Optional: deferred work, limitations, notes]
+
+**References**: [Key papers]
+```
+
+---
+
 ## Testing Your Module
 
 ### Test Tiers

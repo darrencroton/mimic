@@ -130,7 +130,7 @@ src/modules/
 └── _template/
     ├── template_module.c
     ├── template_module.h
-    └── module_info.yaml.template  ← Template for new modules
+    └── template_module_info.yaml  ← Template for new modules
 ```
 
 ### Rationale
@@ -670,7 +670,7 @@ module:
 **Additional examples** available in existing modules:
 - Existing module implementations in `src/modules/` - Physics modules with various configurations
 - `src/modules/_system/test_fixture/module_info.yaml` - Minimal testing module
-- `src/modules/_system/template/module_info.yaml.template` - Template for new modules
+- `src/modules/_system/template/template_module_info.yaml` - Template for new modules
 
 **For field-by-field reference**, see [Schema Definition](#schema-definition) section above.
 
@@ -925,7 +925,7 @@ cp -r src/modules/_system/template src/modules/my_new_module
 **Step 2**: Create `module_info.yaml`
 ```bash
 cd src/modules/my_new_module
-cp module_info.yaml.template module_info.yaml
+cp ../_system/template/template_module_info.yaml module_info.yaml
 # Edit module_info.yaml with your module details
 ```
 
