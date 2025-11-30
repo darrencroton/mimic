@@ -75,9 +75,9 @@ module:
   # ===========================================================================
 
   tests:
-    unit: test_unit_sage_mergers.c
-    integration: test_integration_sage_mergers.py
-    scientific: test_scientific_sage_mergers_validation.py
+    unit: tests/test_unit_sage_mergers.c
+    integration: tests/test_integration_sage_mergers.py
+    scientific: tests/test_scientific_sage_mergers_validation.py
 
   # ===========================================================================
   # Documentation

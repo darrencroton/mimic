@@ -64,13 +64,13 @@ Tests for **physics-agnostic infrastructure** (memory, I/O, tree processing, mod
 
 ### 2. Module Tests (Co-Located with Modules)
 
-Tests for **physics modules** in `src/modules/*/test_*.{c,py}`:
+Tests for **physics modules** in `src/modules/*/tests/test_*.{c,py}`:
 
 - **Auto-discovered** from `module_info.yaml` declarations
-- **Co-located** with module source code
+- **Co-located** with module source code in `tests/` subdirectories
 - **Three tiers** per module: unit (C), integration (Python), scientific (Python)
-- **Count**: Currently 4 modules × 3 test tiers = 12 module tests
-- **Examples**: See test files co-located with modules in `src/modules/*/test_*`
+- **Count**: Currently 9 modules × up to 3 test tiers = 25 module tests
+- **Examples**: See test files in `src/modules/*/tests/test_*`
 
 **See [docs/developer/testing.md](../docs/developer/testing.md) for complete module testing guide.**
 
@@ -127,27 +127,30 @@ tests/
     └── python_scientific_test_template.py  # Template for core scientific tests
 ```
 
-**Module Tests** (co-located with modules):
+**Module Tests** (co-located with modules in tests/ subdirectories):
 ```
 src/modules/
 ├── module_a/
+│   ├── tests/                               # Module tests subdirectory
+│   │   ├── test_unit_module_a.c             # Module unit test
+│   │   ├── test_integration_module_a.py     # Module integration test
+│   │   └── test_scientific_module_a_validation.py  # Module scientific test
 │   ├── module_a.c
 │   ├── module_a.h
-│   ├── module_info.yaml                    # Declares test files
-│   ├── test_unit_module_a.c                # Module unit test
-│   ├── test_integration_module_a.py        # Module integration test
-│   └── test_scientific_module_a_validation.py  # Module scientific test
+│   └── module_info.yaml                     # Declares test files
 ├── module_b/
+│   ├── tests/                               # Module tests subdirectory
+│   │   ├── test_unit_module_b.c
+│   │   ├── test_integration_module_b.py
+│   │   └── test_scientific_module_b.py
 │   ├── module_b.c
-│   ├── module_info.yaml
-│   ├── test_unit_module_b.c
-│   ├── test_integration_module_b.py
-│   └── test_scientific_module_b.py
-├── test_fixture/                            # Infrastructure testing only
+│   └── module_info.yaml
+├── _system/test_fixture/                    # Infrastructure testing only
+│   ├── tests/                               # Test fixture tests
+│   │   ├── test_unit_test_fixture.c
+│   │   └── test_integration_test_fixture.py
 │   ├── fixture.c
 │   ├── module_info.yaml
-│   ├── test_unit_test_fixture.c
-│   ├── test_integration_test_fixture.py
 │   └── README.md                            # Explains special purpose
 └── [other modules...]
 ```
@@ -194,22 +197,23 @@ build/generated_test_lists/
 
 ### For Module Tests
 
-1. **Copy existing module test as example** (from `src/modules/*/test_*`)
+1. **Copy existing module test as example** (from `src/modules/*/tests/test_*`)
 2. **Adapt for your module's functionality**
-3. **Place in module directory**: `src/modules/YOUR_MODULE/test_*.{c,py}`
+3. **Place in module tests directory**: `src/modules/YOUR_MODULE/tests/test_*.{c,py}`
 4. **Declare in `module_info.yaml`**:
    ```yaml
    tests:
-     unit: test_unit_YOUR_MODULE.c
-     integration: test_integration_YOUR_MODULE.py
-     scientific: test_scientific_YOUR_MODULE_validation.py
+     unit: tests/test_unit_YOUR_MODULE.c
+     integration: tests/test_integration_YOUR_MODULE.py
+     scientific: tests/test_scientific_YOUR_MODULE_validation.py
    ```
 5. **Run `make generate-test-registry`** to register tests
 6. **Verify**: `make tests` (tests are auto-discovered and run)
 
 **Important**:
 - **Core test templates** (in `framework/`) are for core infrastructure only
-- **Module tests** should use existing module tests as examples (in `src/modules/*/`)
+- **Module tests** should use existing module tests as examples (in `src/modules/*/tests/`)
+- Module tests must be in `tests/` subdirectory within each module
 - Module tests must follow naming convention: `test_unit_*.c`, `test_integration_*.py`, `test_scientific_*_validation.py`
 
 See **[`docs/developer/testing.md`](../docs/developer/testing.md)** for comprehensive module testing guide with complete examples.

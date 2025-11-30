@@ -37,7 +37,7 @@ import tempfile
 from pathlib import Path
 
 # Repository root and paths
-REPO_ROOT = Path(__file__).parent.parent.parent.parent
+REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 MIMIC_EXE = REPO_ROOT / "mimic"
 
 # Add tests directory to path to import framework

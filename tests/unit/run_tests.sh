@@ -167,9 +167,17 @@ compile_and_run_test() {
         return 1
     fi
 
+    # Add module directory to include path if this is a module test
+    local module_include=""
+    if [[ "$test_file" == *"/modules/"*"/tests/"* ]]; then
+        # Extract module directory (parent of tests/)
+        module_dir=$(dirname "$(dirname "$test_file")")
+        module_include="-I${module_dir}"
+    fi
+
     # Compile test
     echo -e "${BLUE}Compiling ${test_name}...${NC}"
-    if ! $CC $CFLAGS $test_file $ALL_SRCS -o $test_exe $LDFLAGS 2>&1 | tee "${BUILD_DIR}/${test_name}.compile.log"; then
+    if ! $CC $CFLAGS $module_include $test_file $ALL_SRCS -o $test_exe $LDFLAGS 2>&1 | tee "${BUILD_DIR}/${test_name}.compile.log"; then
         echo -e "${RED}✗ Compilation failed for ${test_name}${NC}"
         echo "  See ${BUILD_DIR}/${test_name}.compile.log for details"
         COMPILE_ERRORS=$((COMPILE_ERRORS + 1))

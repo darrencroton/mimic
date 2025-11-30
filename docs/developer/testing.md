@@ -363,24 +363,27 @@ src/modules/
 │   ├── module_info.yaml.template
 │   └── README.md              # Module creation guide
 ├── module_a/
+│   ├── tests/                 # Module tests subdirectory
+│   │   ├── test_unit_module_a.c              # Unit tests (software quality)
+│   │   ├── test_integration_module_a.py      # Integration tests (pipeline integration)
+│   │   └── test_scientific_module_a_validation.py  # Scientific tests (physics validation)
 │   ├── module_a.c
 │   ├── module_a.h
-│   ├── module_info.yaml       # Declares test files
-│   ├── test_unit_module_a.c              # Unit tests (software quality)
-│   ├── test_integration_module_a.py      # Integration tests (pipeline integration)
-│   └── test_scientific_module_a_validation.py  # Scientific tests (physics validation)
+│   └── module_info.yaml       # Declares test files
 ├── module_b/
+│   ├── tests/                 # Module tests subdirectory
+│   │   ├── test_unit_module_b.c
+│   │   ├── test_integration_module_b.py
+│   │   └── test_scientific_module_b.py
 │   ├── module_b.c
-│   ├── module_info.yaml       # Declares test files
-│   ├── test_unit_module_b.c
-│   ├── test_integration_module_b.py
-│   └── test_scientific_module_b.py
+│   └── module_info.yaml       # Declares test files
 └── module_c/
+    ├── tests/                 # Module tests subdirectory
+    │   ├── test_unit_module_c.c
+    │   ├── test_integration_module_c.py
+    │   └── test_scientific_module_c.py
     ├── module_c.c
-    ├── module_info.yaml       # Declares test files
-    ├── test_unit_module_c.c
-    ├── test_integration_module_c.py
-    └── test_scientific_module_c.py
+    └── module_info.yaml       # Declares test files
 ```
 
 **Test Registry** (auto-generated):
@@ -407,9 +410,9 @@ Mimic uses a **metadata-driven test discovery system** to maintain the physics-a
 1. **Module Metadata**: Each module's `module_info.yaml` declares its test files:
    ```yaml
    tests:
-     unit: test_unit_module_a.c
-     integration: test_integration_module_a.py
-     scientific: test_scientific_module_a_validation.py
+     unit: tests/test_unit_module_a.c
+     integration: tests/test_integration_module_a.py
+     scientific: tests/test_scientific_module_a_validation.py
    ```
 
 2. **Registry Generation**: `make generate-test-registry` scans all modules and generates test lists:

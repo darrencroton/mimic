@@ -59,9 +59,9 @@ module:
   # ===========================================================================
 
   tests:
-    unit: test_unit_sage_cooling.c
-    integration: test_integration_sage_cooling.py
-    scientific: test_scientific_sage_cooling_validation.py
+    unit: tests/test_unit_sage_cooling.c
+    integration: tests/test_integration_sage_cooling.py
+    scientific: tests/test_scientific_sage_cooling_validation.py
 
   # ===========================================================================
   # Documentation

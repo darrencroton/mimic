@@ -57,9 +57,9 @@ module:
   # ===========================================================================
 
   tests:
-    unit: test_unit_sage_infall.c
-    integration: test_integration_sage_infall.py
-    scientific: test_scientific_sage_infall.py
+    unit: tests/test_unit_sage_infall.c
+    integration: tests/test_integration_sage_infall.py
+    scientific: tests/test_scientific_sage_infall.py
 
   # ===========================================================================
   # Documentation

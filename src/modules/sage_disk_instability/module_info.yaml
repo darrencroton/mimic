@@ -56,9 +56,9 @@ module:
   # ===========================================================================
 
   tests:
-    unit: test_unit_sage_disk_instability.c
-    integration: test_integration_sage_disk_instability.py
-    scientific: test_scientific_sage_disk_instability.py
+    unit: tests/test_unit_sage_disk_instability.c
+    integration: tests/test_integration_sage_disk_instability.py
+    scientific: tests/test_scientific_sage_disk_instability.py
 
   # ===========================================================================
   # Documentation

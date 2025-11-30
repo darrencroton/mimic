@@ -24,7 +24,7 @@ import struct
 import numpy as np
 
 # Add test framework to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../tests'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../../tests'))
 from framework import harness
 
 # ANSI color codes (module-level constants)

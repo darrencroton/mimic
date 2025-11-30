@@ -50,9 +50,9 @@ module:
   # ===========================================================================
 
   tests:
-    unit: test_unit_sage_satellite_stripping.c
-    integration: test_integration_sage_satellite_stripping.py
-    scientific: test_scientific_sage_satellite_stripping.py
+    unit: tests/test_unit_sage_satellite_stripping.c
+    integration: tests/test_integration_sage_satellite_stripping.py
+    scientific: tests/test_scientific_sage_satellite_stripping.py
 
   # ===========================================================================
   # Documentation

@@ -32,7 +32,7 @@ from pathlib import Path
 
 # Repository root and paths
 # Note: test_fixture is in src/modules/_system/test_fixture/ (4 levels deep)
-REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
+REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 MIMIC_EXE = REPO_ROOT / "mimic"
 
 # Add tests directory to path to import framework

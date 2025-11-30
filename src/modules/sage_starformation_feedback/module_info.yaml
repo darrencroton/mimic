@@ -67,9 +67,9 @@ module:
   # ===========================================================================
 
   tests:
-    unit: test_unit_sage_starformation_feedback.c
-    integration: test_integration_sage_starformation_feedback.py
-    scientific: test_scientific_sage_starformation_feedback_validation.py
+    unit: tests/test_unit_sage_starformation_feedback.c
+    integration: tests/test_integration_sage_starformation_feedback.py
+    scientific: tests/test_scientific_sage_starformation_feedback_validation.py
 
   # ===========================================================================
   # Documentation
