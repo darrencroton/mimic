@@ -870,7 +870,7 @@ def main():
     print()
 
     if failed == 0:
-        print(f"{GREEN}✓ All executed tests passed!{NC}")
+        print(f"{GREEN}✓ All tests passed!{NC}")
         if skipped > 0:
             print(f"{YELLOW}⊘ {skipped} test(s) skipped (HDF5 support not available){NC}")
         return 0

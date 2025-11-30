@@ -1,7 +1,7 @@
 # Mimic Testing Infrastructure
 
 **Status**: Phase 4 Complete (Module Testing with Auto-Discovery)
-**Last Updated**: 2025-11-13
+**Last Updated**: 2025-11-30
 
 This directory contains Mimic's automated testing infrastructure for **core infrastructure only**. Module tests are co-located with module code in `src/modules/*/test_*.{c,py}` and auto-discovered via metadata.
 
@@ -52,8 +52,8 @@ Tests for **physics-agnostic infrastructure** (memory, I/O, tree processing, mod
 - **Purpose**: Test complete core workflows end-to-end
 - **Language**: Python
 - **Runtime**: <1 minute total
-- **Count**: 3 core tests
-- **Examples**: `test_full_pipeline.py`, `test_output_formats.py`, `test_module_pipeline.py`
+- **Count**: 4 core tests
+- **Examples**: `test_full_pipeline.py`, `test_output_formats.py`, `test_module_pipeline.py`, `test_tree_preservation.py`
 
 **Scientific Tests** (`scientific/`)
 - **Purpose**: Validate core property correctness (NaN/Inf, ranges)
@@ -109,7 +109,8 @@ tests/
 ├── integration/               # Python integration tests for core
 │   ├── test_full_pipeline.py
 │   ├── test_output_formats.py
-│   └── test_module_pipeline.py
+│   ├── test_module_pipeline.py
+│   └── test_tree_preservation.py
 ├── scientific/                # Python scientific tests for core
 │   └── test_scientific.py     # Validates all output properties
 ├── data/                      # Test data and outputs

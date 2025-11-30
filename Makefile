@@ -462,9 +462,11 @@ test-integration:
 	@echo ""
 	@FAILED=0; \
 	echo "Running core integration tests..."; \
-	$(PYTHON) tests/integration/test_full_pipeline.py || FAILED=1; \
-	echo ""; \
 	$(PYTHON) tests/integration/test_output_formats.py || FAILED=1; \
+	echo ""; \
+	$(PYTHON) tests/integration/test_tree_preservation.py || FAILED=1; \
+	echo ""; \
+	$(PYTHON) tests/integration/test_full_pipeline.py || FAILED=1; \
 	echo ""; \
 	$(PYTHON) tests/integration/test_module_pipeline.py || FAILED=1; \
 	echo ""; \

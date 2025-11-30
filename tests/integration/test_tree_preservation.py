@@ -721,7 +721,7 @@ def main():
     """Main test runner."""
     # Print test suite header
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: Tree Preservation{NC}")
+    print(f"{BLUE}Test Suite: Tree Preservation (test_tree_preservation.py) {NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
     print(f"Repository root: {REPO_ROOT}")
@@ -766,6 +766,7 @@ def main():
     print(f"Skipped: {skipped}")
     print(f"Total:   {passed + failed + skipped}")
     print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
     if failed == 0:
         print(f"{GREEN}✓ All tests passed!{NC}")
