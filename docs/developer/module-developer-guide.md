@@ -1150,22 +1150,22 @@ static int my_module_init(void) {
 
 **Principle:** When multiple modules need identical physics functions (e.g., metallicity calculations), use shared utilities to avoid code duplication while maintaining a single source of truth.
 
-**Location:** `src/modules/shared/` (flat directory structure)
+**Location:** `src/modules/_shared/` (flat directory structure)
 
 **Using a shared utility:**
 
 ```c
 // In your module .c file, include with relative path
-#include "../shared/metallicity.h"
+#include "../_shared/my_utility.h"
 
 static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
     for (int i = 0; i < ngal; i++) {
         // Use shared utility function
-        float Z = mimic_get_metallicity(halos[i].galaxy->HotGas,
-                                       halos[i].galaxy->MetalsHotGas);
+        double result = mimic_my_calculation(halos[i].galaxy->SomeProperty,
+                                             ctx->params->SomeParameter);
 
         // Use in your physics
-        float cooling_rate = compute_cooling(temperature, Z);
+        float some_rate = compute_something(result);
         // ...
     }
     return 0;
@@ -1188,7 +1188,7 @@ static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int 
 - Complex state management (consider module-level implementation)
 - Only one module uses it (premature abstraction)
 
-**Reference:** See `src/modules/shared/README.md` for creating new shared utilities.
+**Reference:** See `src/modules/_shared/README.md` for creating new shared utilities.
 
 ---
 

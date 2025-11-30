@@ -208,7 +208,7 @@ Use this checklist when developing or reviewing physics modules:
 - [ ] References to papers include unit conventions used
 
 ### 7. Shared Utilities
-- [ ] Check `src/modules/shared/` for existing utilities before implementing
+- [ ] Check `src/modules/_shared/` for existing utilities before implementing
 - [ ] Add reusable calculations to `shared/` (metallicity, disk radius, etc.)
 - [ ] Use header-only design for inline performance
 
@@ -316,20 +316,18 @@ double some_calc = Omega * something;
 **✅ GOOD** - Use shared utilities:
 ```c
 /* In your module */
-#include "../shared/metallicity.h"
-#include "../shared/disk_radius.h"
+#include "../_shared/my_utility.h"
 
 /* Use shared calculation */
-double Z_cold = calculate_metallicity(MetalsColdGas, ColdGas);
-double R_disk = calculate_disk_radius(lambda_spin, Vvir, Rvir);
+double result = mimic_my_calculation(some_property, some_parameter);
 ```
 
 **❌ BAD** - Duplicate physics calculations:
 ```c
-/* DO NOT DO THIS - Check shared/ first! */
-/* Reimplementing metallicity calculation that already exists */
-double Z_cold = (ColdGas > 0) ? MetalsColdGas / ColdGas : 0.0;
-/* Same calculation exists in shared/metallicity.h */
+/* DO NOT DO THIS - Check _shared/ first! */
+/* Reimplementing calculation that might already exist */
+double result = (property > 0) ? other_property / property : 0.0;
+/* Check if this calculation exists in _shared/ before duplicating */
 ```
 
 ---
@@ -702,7 +700,7 @@ def test_compare_to_sage():
 If you're stuck on unit issues:
 1. Check this guide for similar patterns
 2. Look at existing modules (sage_cooling is well-documented)
-3. Check `src/modules/shared/` for utilities
+3. Check `src/modules/_shared/` for utilities
 4. Ask in developer channels with:
    - What calculation you're doing
    - What units you expect

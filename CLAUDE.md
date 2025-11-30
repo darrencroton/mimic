@@ -164,11 +164,14 @@ src/
 │   ├── model_properties.yaml   Model property metadata (auto-generates C code)
 │   ├── model_parameters.yaml   Model parameter metadata (auto-generates validation code)
 │   ├── _archive/               Archived modules (historical reference)
-│   ├── _system/                System infrastructure (don't touch)
-│   │   ├── generated/          Auto-generated module registration
-│   │   ├── template/           Template for creating new modules
-│   │   └── test_fixture/       Infrastructure testing module
-│   ├── shared/                 Shared physics utilities
+│   ├── _system/                Framework infrastructure (don't modify)
+│   │   ├── physical_constants.h  Universal physical constants (G, c, Z_sun, etc.)
+│   │   ├── output_helpers.h      Output formatting utilities
+│   │   ├── generated/            Auto-generated module registration
+│   │   ├── template/             Template for creating new modules
+│   │   └── test_fixture/         Infrastructure testing module
+│   ├── _shared/                User physics utilities (can modify/add)
+│   │   └── *.h                   Reusable physics calculations and swappable models
 │   ├── module_a/               Example physics module
 │   ├── module_b/               Example physics module
 │   └── module_c/               Example physics module

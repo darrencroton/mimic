@@ -47,8 +47,8 @@
 
 #include "constants.h"
 #include "error.h"
-#include "../shared/metallicity.h"  // Shared utility for metallicity calculations
-#include "../shared/reionization.h" // Shared utility for reionization suppression
+#include "../_shared/metallicity.h"  // Shared utility for metallicity calculations
+#include "../_shared/reionization.h" // Shared utility for reionization suppression
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"

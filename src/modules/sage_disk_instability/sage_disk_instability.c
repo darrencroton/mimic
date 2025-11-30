@@ -43,7 +43,7 @@
 
 #include "constants.h"
 #include "error.h"
-#include "../shared/metallicity.h"  /* Shared utility for metallicity calculations */
+#include "../_shared/metallicity.h"  /* Shared utility for metallicity calculations */
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -75,7 +75,7 @@ static const double MASS_TOLERANCE_FACTOR = 1.0001;  /* 0.01% rounding allowance
  * ============================================================================ */
 
 /* Metallicity calculation provided by shared utility: mimic_get_metallicity()
- * See: src/modules/shared/metallicity.h */
+ * See: src/modul../_shared/metallicity.h */
 
 /**
  * @brief   Calculate disk scale radius using Mo, Mao & White (1998) formula

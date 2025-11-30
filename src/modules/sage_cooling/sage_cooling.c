@@ -42,8 +42,8 @@
 
 #include "constants.h"
 #include "error.h"
-#include "../shared/metallicity.h"  /* Shared utility for metallicity calculations */
-#include "../shared/physics_constants.h"  /* Shared physics constants */
+#include "../_shared/metallicity.h"  /* Shared utility for metallicity calculations */
+#include "../_system/physical_constants.h"  /* Shared physics constants */
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -72,8 +72,7 @@ static const double VIRIAL_TEMP_COEFF = 35.9;
 /* Eddington luminosity (1.3×10^38 erg/s per solar mass) */
 static const double EDDINGTON_LUM_COEFF = 1.3e38;
 
-/* Speed of light squared in CGS (9×10^20 cm^2/s^2) */
-static const double C_SQUARED_CGS = 9.0e20;
+/* C_SQUARED_CGS now defined in physical_constants.h */
 
 /* Cooling radius and rate (Croton et al. 2006) */
 static const double COOLING_MU_FACTOR = 0.885;        /* 3/2 × μ, μ=0.59 for ionized gas */
@@ -102,7 +101,7 @@ static const double EDDINGTON_VELOCITY_SCALE = 1.34e5; /* sqrt(2 × η × c^2) *
  * ============================================================================ */
 
 /* Metallicity calculation provided by shared utility: mimic_get_metallicity()
- * See: src/modules/shared/metallicity.h */
+ * See: src/modul../_shared/metallicity.h */
 
 /**
  * @brief   Calculates gas cooling based on halo properties and cooling functions

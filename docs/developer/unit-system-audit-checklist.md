@@ -177,7 +177,7 @@ Example: BOLTZMANN | constants.h | 1.3806e-16 | erg/K
 
 ### 6. Shared Utilities
 
-- [ ] Checked `src/modules/shared/` for existing utilities
+- [ ] Checked `src/modules/_shared/` for existing utilities
 - [ ] Uses shared calculations where available
 - [ ] No duplication of physics calculations
 - [ ] New utilities added to `shared/` if reusable
@@ -203,7 +203,7 @@ Example: BOLTZMANN | constants.h | 1.3806e-16 | erg/K
 ### 7. Code Organization
 
 - [ ] Module in `src/modules/` directory (not core)
-- [ ] Helper functions in `src/modules/shared/` if used by multiple modules
+- [ ] Helper functions in `src/modules/_shared/` if used by multiple modules
 - [ ] No physics logic in core directories
 - [ ] Metadata in `module_info.yaml` complete
 

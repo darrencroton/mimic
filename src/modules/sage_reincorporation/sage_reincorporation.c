@@ -33,7 +33,7 @@
 
 #include "constants.h"
 #include "error.h"
-#include "../shared/metallicity.h"  // Shared utility for metallicity calculations
+#include "../_shared/metallicity.h"  // Shared utility for metallicity calculations
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"

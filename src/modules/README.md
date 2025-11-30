@@ -8,11 +8,14 @@
 ```
 src/modules/
 ├── _archive/          # Archived modules (historical reference)
-├── _system/           # System infrastructure (don't touch)
-│   ├── generated/     # Auto-generated module registration
-│   ├── template/      # Template for creating new modules
-│   └── test_fixture/  # Infrastructure testing module
-├── shared/            # Shared physics utilities (header-only, no subdirs)
+├── _system/           # Framework infrastructure (don't modify)
+│   ├── physical_constants.h  # Universal physical constants
+│   ├── output_helpers.h      # Output formatting utilities
+│   ├── generated/            # Auto-generated module registration
+│   ├── template/             # Template for creating new modules
+│   └── test_fixture/         # Infrastructure testing module
+├── _shared/           # User physics utilities (can modify/add)
+│   └── *.h                   # Reusable calculations and swappable models
 ├── module_a/          # Example: Physics module
 ├── module_b/          # Example: Physics module
 └── module_c/          # Example: Physics module
@@ -20,15 +23,19 @@ src/modules/
 
 **User-Facing Content:**
 - **Physics Modules**: Individual module directories - each contains code, tests, and metadata
-- **Shared Utilities**: `shared/` - Reusable physics utilities (e.g., `metallicity.h`, `disk_radius.h`)
-  - Header-only utilities placed directly in `shared/` (no subdirectories)
-  - See `shared/README.md` for creating new shared utilities
+- **User Utilities** (`_shared/`): Reusable physics utilities you can modify/add
+  - Header-only utilities for shared calculations
+  - Swappable physics models
+  - See `_shared/README.md` for creating and using shared utilities
 
-**System Infrastructure** (underscore prefix = don't touch):
-- `_system/template/` - Template for creating new modules
-- `_system/generated/` - Auto-generated module registration code
-- `_system/test_fixture/` - Infrastructure testing module (not for production use)
-- `_archive/` - Archived modules for historical reference
+**Framework Infrastructure** (underscore prefix = don't modify):
+- **`_system/`**: Framework constants and infrastructure
+  - `physical_constants.h` - Universal physical constants (G, c, Z_sun, etc.)
+  - `output_helpers.h` - Output formatting utilities
+  - `generated/` - Auto-generated module registration code
+  - `template/` - Template for creating new modules
+  - `test_fixture/` - Infrastructure testing module
+- **`_archive/`**: Archived modules for historical reference
 
 **Note:** Core halo physics (virial calculations, tracking) are in `src/core/halo_properties/` as they are core infrastructure, not modular galaxy physics.
 
@@ -97,9 +104,7 @@ module:
 
 ### Creating Module Tests
 
-**Do NOT use templates from `tests/framework/`** - those are for core infrastructure tests only.
-
-**Instead, copy existing module tests as examples**:
+**Copy existing module tests as examples** (don't use core test templates from `tests/framework/`):
 
 ```bash
 # Copy from an existing module with similar physics
@@ -163,9 +168,10 @@ See **[docs/developer/testing.md](../../docs/developer/testing.md)** for:
 
 ## Module Development Resources
 
-- **Template**: `src/modules/_system/template/` - Boilerplate for new modules
-- **Examples**: Existing module implementations in `src/modules/` - Working examples to study
-- **Shared Utilities**: `shared/` - Reusable physics utilities (see `shared/README.md`)
+- **Template**: `_system/template/` - Boilerplate for new modules
+- **Examples**: Existing module implementations - Working examples to study
+- **Constants**: `_system/physical_constants.h` - Universal physical constants
+- **Utilities**: `_shared/` - Reusable physics utilities (see `_shared/README.md`)
 - **Developer Guide**: [docs/developer/module-developer-guide.md](../../docs/developer/module-developer-guide.md)
 - **Testing Guide**: [docs/developer/testing.md](../../docs/developer/testing.md)
 - **Architecture**: [docs/architecture/vision.md](../../docs/architecture/vision.md)

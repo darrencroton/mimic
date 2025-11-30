@@ -61,10 +61,10 @@ sage_starformation_feedback → requires: ColdGas, MetalsColdGas
 ```
 
 **Shared Physics Utilities**:
-- `src/modules/shared/` contains header-only utilities (e.g., `metallicity.h`, `disk_radius.h`)
-- These are **NOT** module-to-module communication - they're reusable physics calculations
-- Modules include them via relative paths: `#include "../shared/metallicity.h"`
-- See [src/modules/shared/README.md](../../src/modules/shared/README.md)
+- `src/modules/_shared/` contains header-only utilities for reusable physics calculations
+- These are **NOT** module-to-module communication - they're shared computational tools
+- Modules include them via relative paths: `#include "../_shared/my_utility.h"`
+- See [src/modules/_shared/README.md](../../src/modules/_shared/README.md)
 
 **Key Insight**: This architecture maintains module independence while enabling complex physics pipelines through well-defined data contracts (property metadata).
 
@@ -165,7 +165,7 @@ All 6 SAGE physics modules implemented and merged (November 2025):
 
 **Outstanding Blockers**:
 1. **Merger Triggering**: Implement dynamical friction timescale in core
-2. **Shared Function Architecture**: Extract starburst functions to `src/modules/shared/starburst.h`
+2. **Shared Function Architecture**: Extract starburst functions to `src/modules/_shared/starburst.h`
 
 **Success Criteria**:
 - All 6 modules validated against SAGE reference

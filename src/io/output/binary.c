@@ -32,7 +32,8 @@
 #include "output/util.h"
 #include "proto.h"
 #include "util.h"
-#include "shared/output_helpers.h"  /* -Isrc/modules makes this work */
+#include "_system/output_helpers.h"  /* -Isrc/modules makes this work */
+#include "../modules/_system/physical_constants.h"  /* For SEC_PER_MEGAYEAR */
 
 #define TREE_MUL_FAC (1000000000LL)
 #define FILENR_MUL_FAC (1000000000000000LL)

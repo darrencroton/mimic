@@ -23,13 +23,14 @@
 #include "error.h"
 #include "cooling_tables.h"
 #include "numeric.h"
+#include "../_system/physical_constants.h"
 
 #define TABSIZE 91              /* Number of temperature points in each cooling table */
 #define LOG_TEMP_MIN 4.0        /* log10(T_min) = 10^4 K */
 #define LOG_TEMP_MAX 8.5        /* log10(T_max) = 10^8.5 K */
 #define LOG_TEMP_STEP 0.05      /* Temperature bin spacing (dex) */
 #define TEMP_INDEX_MAX (TABSIZE - 1)  /* Maximum valid temperature index */
-#define SOLAR_METALLICITY 0.02  /* Z_sun by mass (Asplund et al. 2009) */
+/* SOLAR_METALLICITY now defined in physical_constants.h */
 
 /* Names of the cooling function data files */
 static const char *cooling_file_names[] = {

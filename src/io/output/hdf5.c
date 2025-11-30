@@ -32,7 +32,7 @@
 #include "output/hdf5.h"
 #include "output/util.h"
 #include "error.h"
-#include "shared/output_helpers.h"  /* -Isrc/modules makes this work */
+#include "_system/output_helpers.h"  /* -Isrc/modules makes this work */
 
 #define TRUE 1
 #define FALSE 0

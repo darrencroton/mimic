@@ -57,9 +57,9 @@
 #include "numeric.h"
 #include "sage_starformation_feedback.h"
 #include "types.h"
-#include "../shared/disk_radius.h" /* Shared utility for disk radius calculations */
-#include "../shared/metallicity.h" /* Shared utility for metallicity calculations */
-#include "../shared/physics_constants.h" /* Shared physics constants (METAL_MASS_SCALE) */
+#include "../_shared/disk_radius.h" /* Shared utility for disk radius calculations */
+#include "../_shared/metallicity.h" /* Shared utility for metallicity calculations */
+#include "../_system/physical_constants.h" /* Shared physics constants (METAL_MASS_SCALE) */
 
 /* ============================================================================
  * MODULE PARAMETERS
@@ -99,10 +99,10 @@ static const double GAS_MASS_THRESHOLD __attribute__((unused)) = 1.0e-8;     /* 
  * ============================================================================ */
 
 /* Metallicity calculation provided by shared utility: mimic_get_metallicity()
- * See: src/modules/shared/metallicity.h */
+ * See: src/modul../_shared/metallicity.h */
 
 /* Disk radius calculation provided by shared utility: mimic_get_disk_radius()
- * See: src/modules/shared/disk_radius.h */
+ * See: src/modul../_shared/disk_radius.h */
 
 /**
  * @brief   Updates galaxy properties due to star formation

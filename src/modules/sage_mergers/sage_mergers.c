@@ -46,8 +46,8 @@
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_mergers.h"
-#include "../shared/metallicity.h"     /* Shared utility for metallicity calculations */
-#include "../shared/physics_constants.h" /* Shared physics constants */
+#include "../_shared/metallicity.h"     /* Shared utility for metallicity calculations */
+#include "../_system/physical_constants.h" /* Shared physics constants */
 #include "types.h"
 
 /* ============================================================================
