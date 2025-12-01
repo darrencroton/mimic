@@ -2,6 +2,12 @@
 
 The `sage_satellite_stripping` module implements environmental gas removal from satellites via ram pressure and tidal stripping. Satellites lose hot gas when their baryon content exceeds cosmological expectations (adjusted for reionization suppression using Gnedin 2000 model). Stripped gas transfers to the central galaxy's hot reservoir with metallicity preserved. Uses shared `reionization.h` utility for suppression factors, enabling easy model swapping. Only processes Type 1 satellites; Type 2 satellites and centrals unaffected.
 
+## Parameters
+
+This module requires the following parameters in the input YAML file:
+
+- **BaryonFrac** (double): Cosmic baryon fraction (Omega_b / Omega_m)
+
 **Configuration Example**:
 ```
 EnabledModules  sage_infall,sage_satellite_stripping

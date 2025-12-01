@@ -12,7 +12,7 @@
 **Creating a new module?** Here's the minimum you need to know:
 
 1. **Copy the template**: `cp -r src/modules/_system/template src/modules/your_module`
-2. **Edit `module_info.yaml`** with your module's details (name, parameters, dependencies)
+2. **Edit `module_info.yaml`** with your module's details (name, dependencies)
 3. **Required fields**: `name`, `display_name`, `description`, `sources`, `register_function`
 4. **Run**: `make generate` (auto-generates registration code)
 5. **Build**: `make clean && make`
@@ -30,9 +30,7 @@ register_function: my_module_register
 
 dependencies:
   properties: []  # List all properties this module uses (reads or writes)
-  parameters: []  # List all parameters this module needs
-
-parameter_definitions: []  # Define module-specific parameters here (optional)
+  parameters: []  # List all parameters this module needs (from input YAML file)
 
 tests:
   unit: test_unit_my_module.c
@@ -44,8 +42,7 @@ tests:
 - `sources` / `headers` - Your C files
 - `register_function` - Name of your `*_register()` function
 - `dependencies.properties` - All properties your module uses (reads or writes)
-- `dependencies.parameters` - All parameters your module needs
-- `parameter_definitions` - Defines module-specific parameters (type, description, units)
+- `dependencies.parameters` - All parameters your module needs (loaded from input file)
 
 **Full schema details below.** This is a 1200+ line reference - use Ctrl+F to find what you need.
 
@@ -166,9 +163,6 @@ module:
   dependencies:
     properties: [string, ...]  # All properties used by this module
     parameters: [string, ...]  # All parameters needed by this module
-
-  # Parameter Definitions (optional, defines module-specific parameters)
-  parameter_definitions: [param_def, ...]
 
   # Testing (optional, but recommended)
   tests:
@@ -391,10 +385,10 @@ dependencies:
 **Purpose**: Model parameters that this module needs
 
 **Rules**:
-- List of parameter names (must be defined by this module or another module)
+- List of parameter names that module will read from input YAML file
 - Can be empty list `[]` if module doesn't use parameters
 - All parameters must be defined in the input YAML configuration
-- Parameters are defined in `parameter_definitions` section (see below)
+- Modules read parameters via `model_get_double()`, `model_get_int()`, `model_get_string()`
 
 **Examples**:
 ```yaml
@@ -414,101 +408,40 @@ dependencies:
   parameters: []  # Module doesn't use parameters
 ```
 
-**Validation**:
-- All parameters must be defined by some module's `parameter_definitions` section
-- Smart validation: only validates parameters for enabled modules
+**Parameter Access in Code**:
 
----
+Modules read parameters from the input YAML file using type-safe accessors:
 
-### Parameter Definitions
+```c
+#include "module_registry.h"
 
-#### parameter_definitions (list of parameter definitions, optional)
+static int my_module_init(void) {
+  double baryon_frac;
+  int agn_recipe;
+  char cool_dir[512];
 
-**Purpose**: Define model parameters that this module provides to the system
+  // Read parameters from input file
+  if (model_get_double("BaryonFrac", &baryon_frac) != 0) {
+    return -1;
+  }
+  if (model_get_int("AGNrecipeOn", &agn_recipe) != 0) {
+    return -1;
+  }
+  if (model_get_string("CoolFunctionsDir", cool_dir, sizeof(cool_dir)) != 0) {
+    return -1;
+  }
 
-**Architecture**:
-- Parameters are **decentralized** - each module defines its own parameters
-- Multiple modules can define the same parameter (first wins, types must match)
-- Parameters are stored in runtime parameter registry
-- Accessed via `params_get_*()` functions (e.g., `params_get_double()`, `params_get_int()`)
+  // Validate with physics constraints
+  if (baryon_frac <= 0.0 || baryon_frac > 1.0) {
+    ERROR_LOG("BaryonFrac = %.4f out of valid range (0.0, 1.0]", baryon_frac);
+    return -1;
+  }
 
-**Rules**:
-- Can be empty or omitted if module defines no new parameters
-- Each parameter has: `name` (required), `type` (required), `description` (required), `units` (optional)
-- Parameter names should be clear and descriptive (e.g., `BaryonFrac`, `RadioModeEfficiency`)
-- If multiple modules define the same parameter, types must match exactly
-
-**Parameter Structure**:
-
-```yaml
-parameter_definitions:
-  - name: string              # Parameter name (used in code and YAML)
-    type: string              # Data type: double, int, string
-    description: string       # Human-readable description (required)
-    units: string             # Optional: physical units or 'dimensionless'
+  return 0;
+}
 ```
 
-**Example** (module defining parameters):
-
-```yaml
-parameter_definitions:
-  - name: BaryonFrac
-    type: double
-    description: "Cosmic baryon fraction (Omega_b / Omega_m)"
-    units: dimensionless
-
-  - name: AGNrecipeOn
-    type: int
-    description: "AGN feedback mode (0=off, 1=empirical, 2=Bondi-Hoyle, 3=cold cloud accretion)"
-    units: dimensionless
-
-  - name: CoolFunctionsDir
-    type: string
-    description: "Directory containing cooling function tables (metal-dependent cooling rates)"
-    units: path
-
-  - name: RadioModeEfficiency
-    type: double
-    description: "Efficiency of radio-mode AGN feedback (fraction of accretion energy coupled to gas heating)"
-    units: dimensionless
-```
-
-**Parameter Types**:
-- `double` - Floating-point number (accessed via `params_get_double()`)
-- `int` - Integer (accessed via `params_get_int()`)
-- `string` - Text (accessed via `params_get_string()`)
-
-**Multiple Modules Sharing Parameters**:
-
-Multiple modules can depend on and define the same parameter. The first module (in YAML `modules.enabled` order) that defines a parameter wins. Types must match across all definitions.
-
-```yaml
-# Module A defines BaryonFrac
-parameter_definitions:
-  - name: BaryonFrac
-    type: double
-    description: "Cosmic baryon fraction"
-    units: dimensionless
-
-# Module B also uses BaryonFrac - can optionally redefine
-# (definition will be ignored if Module A loads first)
-parameter_definitions:
-  - name: BaryonFrac
-    type: double  # Type must match Module A's definition
-    description: "Cosmic baryon fraction"
-    units: dimensionless
-```
-
-**Validation**:
-- Parameter names must be valid identifiers
-- Types must be one of: `double`, `int`, `string`
-- If same parameter defined by multiple modules, types must match
-- All parameters in `dependencies.parameters` must be defined by some enabled module
-- Generated validation code checks parameter presence in YAML configuration
-
-**Usage in YAML configuration**:
-
-Parameters are specified in the input YAML file under `model_parameters`:
+**Usage in input YAML file**:
 
 ```yaml
 model_parameters:
@@ -517,16 +450,6 @@ model_parameters:
   RadioModeEfficiency: 0.08
   CoolFunctionsDir: "input/CoolFunctions"
 ```
-
-**Architecture Benefits**:
-- Parameters are co-located with the modules that use them
-- No global coordination required
-- Clear visibility into each module's parameter requirements
-- Modules are self-contained and portable
-
-**See Also**:
-- Module examples: `src/modules/sage_*/module_info.yaml`
-- Parameter validation: `scripts/validate_modules.py`
 
 ---
 
@@ -682,8 +605,6 @@ module:
   # Parameter Definitions
   # ===========================================================================
 
-  parameter_definitions:
-    - name: AGNrecipeOn
       type: int
       description: "AGN feedback mode (0=off, 1=empirical, 2=Bondi-Hoyle, 3=cold cloud accretion)"
       units: dimensionless
@@ -748,12 +669,6 @@ module:
       - InfallingGas
     parameters:
       - BaryonFrac
-
-  parameter_definitions:
-    - name: BaryonFrac
-      type: double
-      description: "Cosmic baryon fraction (Omega_b / Omega_m)"
-      units: dimensionless
 
   tests:
     unit: tests/test_unit_sage_infall.c
@@ -985,7 +900,6 @@ sage_cooling provides ColdGas: type=float, units=1e10 Msun/h, source=model_prope
 - Parameter types must be one of: `double`, `int`, `string`
 - If multiple modules define the same parameter, types must match exactly
 - All parameters in `dependencies.parameters` must be defined by some enabled module
-- No duplicate parameter names within a single module's `parameter_definitions`
 - Parameter names should be clear and descriptive (e.g., `BaryonFrac`, not `bf`)
 
 ### 7. Consistency Checks

@@ -58,9 +58,8 @@
 // ============================================================================
 // MODULE PARAMETERS
 // ============================================================================
-// Parameters defined in module_info.yaml (single source of truth).
-// Loaded at runtime via model_get_double().
-// Defaults and validation ranges come from metadata - no hardcoding.
+// Parameters loaded from input YAML file (required, no defaults).
+// Validated in module init function.
 
 static double BARYON_FRAC;
 
@@ -261,18 +260,20 @@ static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
 /**
  * @brief   Initialize sage_infall module
  *
- * Reads configuration parameters.
- * Parameters are automatically validated against ranges defined in module_info.yaml.
- *
- * Vision Principle 3 (Metadata-Driven): Parameters loaded and validated from metadata.
- * Vision Principle 4 (Single Source of Truth): No hardcoded ranges in C code.
+ * Loads configuration parameters from input YAML file and validates them.
+ * All parameters are REQUIRED in the input file (no defaults).
  *
  * @return  0 on success, non-zero on failure
  */
 static int sage_infall_init(void) {
-  /* Read and validate parameters from model configuration.
-   * All parameters are REQUIRED in input file (no defaults). */
+  /* Read parameters from input YAML file */
   if (model_get_double("BaryonFrac", &BARYON_FRAC) != 0) {
+    return -1;
+  }
+
+  /* Validate parameter values with physics constraints */
+  if (BARYON_FRAC <= 0.0 || BARYON_FRAC > 1.0) {
+    ERROR_LOG("BaryonFrac = %.4f out of valid range (0.0, 1.0]", BARYON_FRAC);
     return -1;
   }
 

@@ -112,9 +112,14 @@ static void strip_from_satellite(const struct ModuleContext *ctx,
  * @return  0 on success, non-zero on error
  */
 static int sage_satellite_stripping_init(void) {
-  /* Read and validate parameters from model configuration.
-   * All parameters are REQUIRED in input file (no defaults). */
+  /* Read parameters from input YAML file */
   if (model_get_double("BaryonFrac", &BARYON_FRAC) != 0) {
+    return -1;
+  }
+
+  /* Validate parameter values with physics constraints */
+  if (BARYON_FRAC <= 0.0 || BARYON_FRAC > 1.0) {
+    ERROR_LOG("BaryonFrac = %.4f out of valid range (0.0, 1.0]", BARYON_FRAC);
     return -1;
   }
 

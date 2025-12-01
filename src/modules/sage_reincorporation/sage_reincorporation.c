@@ -43,9 +43,8 @@
 // ============================================================================
 // MODULE PARAMETERS
 // ============================================================================
-// Parameters defined in module_info.yaml (single source of truth).
-// Loaded at runtime via model_get_double() and model_get_int().
-// Defaults and validation ranges come from metadata - no hardcoding.
+// Parameters loaded from input YAML file (required, no defaults).
+// Validated in module init function.
 
 static double REINCORPORATION_FACTOR;
 
@@ -78,8 +77,14 @@ static int sage_reincorporation_init(void)
         INFO_LOG("Initializing SAGE reincorporation module...");
     }
 
-    // Read parameters from model configuration
+    // Read parameters from input YAML file
     if (model_get_double("ReIncorporationFactor", &REINCORPORATION_FACTOR) != 0) {
+        return -1;
+    }
+
+    // Validate parameter values with physics constraints
+    if (REINCORPORATION_FACTOR < 0.0 || REINCORPORATION_FACTOR > 10.0) {
+        ERROR_LOG("ReIncorporationFactor = %.4f out of valid range [0.0, 10.0]", REINCORPORATION_FACTOR);
         return -1;
     }
 

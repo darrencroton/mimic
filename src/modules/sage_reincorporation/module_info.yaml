@@ -42,22 +42,12 @@ module:
       - HotGas
       - MetalsHotGas
 
+
     # Parameters needed by this module
     parameters:
       - ReIncorporationFactor
-
   # ===========================================================================
-  # Parameter Definitions
-  # ===========================================================================
-
-  parameter_definitions:
-    - name: ReIncorporationFactor
-      type: double
-      description: "Multiplicative factor for reincorporation timescale"
-      units: dimensionless
-
-  # ===========================================================================
-  # Testing
+  # Tests
   # ===========================================================================
 
   tests:

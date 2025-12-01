@@ -199,12 +199,11 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 - Includes: struct Halo, struct GalaxyData, struct HaloOutput
 - Python dtypes auto-generated for reading output
 
-**Decentralized Parameter System (v2.0):**
-- Parameters defined in each module's `module_info.yaml` (`parameter_definitions` section)
-- Auto-generates validation code and type-safe accessors via `make generate`
-- No defaults: all parameters REQUIRED in input file for reproducible science
-- Smart validation: only parameters needed by enabled modules are required
-- Complete module independence: each module owns and defines its parameters
+**Model Parameter System:**
+- Parameters loaded from input YAML file (required, no defaults)
+- Type-safe access via `model_get_double()`, `model_get_int()`, `model_get_string()`
+- Physics-based validation in each module's init function
+- Complete module independence: modules read and validate their own parameters
 
 **Module System:**
 - Runtime-configurable via `modules.enabled` YAML list

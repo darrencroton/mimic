@@ -46,27 +46,13 @@ module:
       - MetalsBulgeMass   # Metal mass in bulge
       - DiskScaleRadius   # Disk scale radius
 
+
     # Parameters needed by this module
     parameters:
       - DiskInstabilityOn
       - DiskRadiusFactor
-
   # ===========================================================================
-  # Parameter Definitions
-  # ===========================================================================
-
-  parameter_definitions:
-    - name: DiskRadiusFactor
-      type: double
-      description: "Factor relating disk effective radius to scale radius"
-      units: dimensionless
-    - name: DiskInstabilityOn
-      type: int
-      description: "Enable disk instability physics (0=off, 1=on)"
-      units: dimensionless
-
-  # ===========================================================================
-  # Testing
+  # Tests
   # ===========================================================================
 
   tests:

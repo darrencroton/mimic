@@ -27,7 +27,6 @@
 #include "globals.h"
 #include "module_interface.h"
 #include "module_registry.h"
-#include "generated/model_parameters.h"
 
 /** Maximum number of modules that can be registered */
 #define MAX_MODULES 32
@@ -282,11 +281,6 @@ int model_get_double(const char *param_name, double *out_value) {
         return -1;
       }
 
-      // Validate against metadata-defined range
-      if (validate_model_param_double(param_name, *out_value) != 0) {
-        return -1;  // Error already logged by validation function
-      }
-
       return 0;  // Success
     }
   }
@@ -343,11 +337,6 @@ int model_get_int(const char *param_name, int *out_value) {
       }
 
       *out_value = (int)val;
-
-      // Validate against metadata-defined range
-      if (validate_model_param_int(param_name, *out_value) != 0) {
-        return -1;  // Error already logged by validation function
-      }
 
       return 0;  // Success
     }

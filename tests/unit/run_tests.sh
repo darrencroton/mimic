@@ -86,7 +86,7 @@ LDFLAGS="-lm ${YAML_LDFLAGS}"
 UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c"
 CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/halo_properties/virial.c"
 IO_SRCS="${SRC_DIR}/io/tree/interface.c ${SRC_DIR}/io/tree/binary.c ${SRC_DIR}/io/output/util.c ${SRC_DIR}/io/util.c"
-GENERATED_SRCS="${SRC_DIR}/include/generated/model_parameters.c"
+GENERATED_SRCS=""
 TEST_STUBS="${TEST_DIR}/test_stubs.c"
 
 # Module system sources - Auto-generated from module metadata
@@ -113,7 +113,7 @@ if [ $# -gt 0 ]; then
     TESTS="$@"
 else
     # Core infrastructure tests (not module-specific)
-    CORE_TESTS="test_memory_system test_property_metadata test_model_parameter_metadata test_parameter_parsing test_tree_loading test_numeric_utilities test_module_configuration test_virial_properties"
+    CORE_TESTS="test_memory_system test_property_metadata test_parameter_parsing test_tree_loading test_numeric_utilities test_module_configuration test_virial_properties"
 
     # Auto-discover module tests from registry
     MODULE_TESTS=""

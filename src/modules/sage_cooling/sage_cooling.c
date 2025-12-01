@@ -54,9 +54,8 @@
 /* ============================================================================
  * MODULE PARAMETERS
  * ============================================================================
- * Parameters defined in module_info.yaml (single source of truth).
- * Loaded at runtime via model_get_double() and model_get_int().
- * Defaults and validation ranges come from metadata - no hardcoding. */
+ * Parameters loaded from input YAML file (required, no defaults).
+ * Validated in module init function. */
 
 static double RADIO_MODE_EFFICIENCY;
 static int AGN_RECIPE_ON;
@@ -421,8 +420,7 @@ static void cool_gas_onto_galaxy(struct Halo *halo, double coolingGas, float vvi
  */
 static int sage_cooling_init(void)
 {
-    /* Read module parameters from model configuration */
-    /* All parameters are REQUIRED in input file (no defaults) */
+    /* Read module parameters from input YAML file */
     if (model_get_double("RadioModeEfficiency", &RADIO_MODE_EFFICIENCY) != 0) {
         return -1;
     }
@@ -430,6 +428,16 @@ static int sage_cooling_init(void)
         return -1;
     }
     if (model_get_string("CoolFunctionsDir", COOL_FUNCTIONS_DIR, sizeof(COOL_FUNCTIONS_DIR)) != 0) {
+        return -1;
+    }
+
+    /* Validate parameter values with physics constraints */
+    if (RADIO_MODE_EFFICIENCY < 0.0 || RADIO_MODE_EFFICIENCY > 1.0) {
+        ERROR_LOG("RadioModeEfficiency = %.4f out of valid range [0.0, 1.0]", RADIO_MODE_EFFICIENCY);
+        return -1;
+    }
+    if (AGN_RECIPE_ON < 0 || AGN_RECIPE_ON > 3) {
+        ERROR_LOG("AGNrecipeOn = %d out of valid range [0, 3]", AGN_RECIPE_ON);
         return -1;
     }
 

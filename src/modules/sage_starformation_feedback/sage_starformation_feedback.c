@@ -64,9 +64,8 @@
 /* ============================================================================
  * MODULE PARAMETERS
  * ============================================================================
- * Parameters defined in model_parameters.yaml (single source of truth).
- * Loaded at runtime via model_get_double() and model_get_int().
- * All parameters are REQUIRED in input file (no defaults). */
+ * Parameters loaded from input YAML file (required, no defaults).
+ * Validated in module init function. */
 
 static int SF_PRESCRIPTION;
 static double SFR_EFFICIENCY;
@@ -208,8 +207,7 @@ static void update_from_feedback(struct GalaxyData *gal,
  * @return  0 on success, -1 on failure
  */
 static int sage_starformation_feedback_init(void) {
-  /* Read module parameters from configuration */
-  /* All parameters are REQUIRED in input file (no defaults) */
+  /* Read module parameters from input YAML file */
   if (model_get_int("SFprescription", &SF_PRESCRIPTION) != 0) {
     return -1;
   }
@@ -241,6 +239,52 @@ static int sage_starformation_feedback_init(void) {
     return -1;
   }
   if (model_get_int("DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
+    return -1;
+  }
+
+  /* Validate parameter values with physics constraints */
+  if (SF_PRESCRIPTION != 0) {
+    ERROR_LOG("SFprescription = %d out of valid range [0, 0]", SF_PRESCRIPTION);
+    return -1;
+  }
+  if (SFR_EFFICIENCY < 0.0 || SFR_EFFICIENCY > 1.0) {
+    ERROR_LOG("SfrEfficiency = %.4f out of valid range [0.0, 1.0]", SFR_EFFICIENCY);
+    return -1;
+  }
+  if (SUPERNOVA_RECIPE_ON < 0 || SUPERNOVA_RECIPE_ON > 1) {
+    ERROR_LOG("SupernovaRecipeOn = %d out of valid range [0, 1]", SUPERNOVA_RECIPE_ON);
+    return -1;
+  }
+  if (FEEDBACK_REHEATING_EPSILON < 0.0 || FEEDBACK_REHEATING_EPSILON > 100.0) {
+    ERROR_LOG("FeedbackReheatingEpsilon = %.4f out of valid range [0.0, 100.0]", FEEDBACK_REHEATING_EPSILON);
+    return -1;
+  }
+  if (FEEDBACK_EJECTION_EFFICIENCY < 0.0 || FEEDBACK_EJECTION_EFFICIENCY > 100.0) {
+    ERROR_LOG("FeedbackEjectionEfficiency = %.4f out of valid range [0.0, 100.0]", FEEDBACK_EJECTION_EFFICIENCY);
+    return -1;
+  }
+  if (ENERGY_SN_CODE < 0.0 || ENERGY_SN_CODE > 100.0) {
+    ERROR_LOG("EnergySNcode = %.4f out of valid range [0.0, 100.0]", ENERGY_SN_CODE);
+    return -1;
+  }
+  if (ETA_SN_CODE < 0.0 || ETA_SN_CODE > 10.0) {
+    ERROR_LOG("EtaSNcode = %.4f out of valid range [0.0, 10.0]", ETA_SN_CODE);
+    return -1;
+  }
+  if (RECYCLE_FRACTION < 0.0 || RECYCLE_FRACTION > 1.0) {
+    ERROR_LOG("RecycleFraction = %.4f out of valid range [0.0, 1.0]", RECYCLE_FRACTION);
+    return -1;
+  }
+  if (YIELD < 0.0 || YIELD > 1.0) {
+    ERROR_LOG("Yield = %.4f out of valid range [0.0, 1.0]", YIELD);
+    return -1;
+  }
+  if (FRAC_Z_LEAVE_DISK < 0.0 || FRAC_Z_LEAVE_DISK > 1.0) {
+    ERROR_LOG("FracZleaveDisk = %.4f out of valid range [0.0, 1.0]", FRAC_Z_LEAVE_DISK);
+    return -1;
+  }
+  if (DISK_INSTABILITY_ON < 0 || DISK_INSTABILITY_ON > 1) {
+    ERROR_LOG("DiskInstabilityOn = %d out of valid range [0, 1]", DISK_INSTABILITY_ON);
     return -1;
   }
 

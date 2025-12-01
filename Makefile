@@ -225,13 +225,11 @@ GEN_VERIFIED := $(BUILD_DIR)/.generated_verified
 
 # Verify generated code is up-to-date before building
 # This catches cases where git pull changes files but timestamps don't reflect dependencies
-# Note: Model parameters now in MODULE_YAML (module_info.yaml files)
-$(GEN_VERIFIED): $(PROP_YAML) $(MODULE_YAML) scripts/generate_properties.py scripts/generate_model_parameters.py scripts/generate_module_registry.py scripts/check_generated.py
+$(GEN_VERIFIED): $(PROP_YAML) $(MODULE_YAML) scripts/generate_properties.py scripts/generate_module_registry.py scripts/check_generated.py
 	@echo "Verifying generated code is up-to-date..."
 	@if ! python3 scripts/check_generated.py > /dev/null 2>&1; then \
 		echo "Generated code out of date - auto-regenerating..."; \
 		python3 scripts/generate_properties.py; \
-		python3 scripts/generate_model_parameters.py; \
 		python3 scripts/generate_module_registry.py; \
 	fi
 	@mkdir -p $(BUILD_DIR)
@@ -387,7 +385,6 @@ endif
 # Code generation from metadata (smart - only regenerates what changed)
 generate:
 	@python3 scripts/generate_properties.py
-	@python3 scripts/generate_model_parameters.py
 	@python3 scripts/generate_module_registry.py
 
 validate-modules:

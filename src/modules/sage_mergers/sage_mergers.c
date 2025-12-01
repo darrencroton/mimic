@@ -53,9 +53,8 @@
 /* ============================================================================
  * MODULE PARAMETERS
  * ============================================================================
- * Parameters defined in model_parameters.yaml (single source of truth).
- * Loaded at runtime via model_get_double() and model_get_int().
- * All parameters are REQUIRED in input file (no defaults). */
+ * Parameters loaded from input YAML file (required, no defaults).
+ * Validated in module init function. */
 
 static double BLACK_HOLE_GROWTH_RATE;
 static double QUASAR_MODE_EFFICIENCY;
@@ -619,8 +618,7 @@ static int sage_mergers_init(void) {
     INFO_LOG("Initializing SAGE mergers module");
   }
 
-  /* Read module parameters */
-  /* All parameters are REQUIRED in input file (no defaults) */
+  /* Read module parameters from input YAML file */
   if (model_get_double("BlackHoleGrowthRate", &BLACK_HOLE_GROWTH_RATE) != 0) {
     return -1;
   }
@@ -652,6 +650,52 @@ static int sage_mergers_init(void) {
     return -1;
   }
   if (model_get_int("DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
+    return -1;
+  }
+
+  /* Validate parameter values with physics constraints */
+  if (BLACK_HOLE_GROWTH_RATE < 0.0 || BLACK_HOLE_GROWTH_RATE > 1.0) {
+    ERROR_LOG("BlackHoleGrowthRate = %.4f out of valid range [0.0, 1.0]", BLACK_HOLE_GROWTH_RATE);
+    return -1;
+  }
+  if (QUASAR_MODE_EFFICIENCY < 0.0 || QUASAR_MODE_EFFICIENCY > 1.0) {
+    ERROR_LOG("QuasarModeEfficiency = %.4f out of valid range [0.0, 1.0]", QUASAR_MODE_EFFICIENCY);
+    return -1;
+  }
+  if (THRESH_MAJOR_MERGER < 0.0 || THRESH_MAJOR_MERGER > 1.0) {
+    ERROR_LOG("ThreshMajorMerger = %.4f out of valid range [0.0, 1.0]", THRESH_MAJOR_MERGER);
+    return -1;
+  }
+  if (RECYCLE_FRACTION < 0.0 || RECYCLE_FRACTION > 1.0) {
+    ERROR_LOG("RecycleFraction = %.4f out of valid range [0.0, 1.0]", RECYCLE_FRACTION);
+    return -1;
+  }
+  if (YIELD < 0.0 || YIELD > 1.0) {
+    ERROR_LOG("Yield = %.4f out of valid range [0.0, 1.0]", YIELD);
+    return -1;
+  }
+  if (FRAC_Z_LEAVE_DISK < 0.0 || FRAC_Z_LEAVE_DISK > 1.0) {
+    ERROR_LOG("FracZleaveDisk = %.4f out of valid range [0.0, 1.0]", FRAC_Z_LEAVE_DISK);
+    return -1;
+  }
+  if (FEEDBACK_REHEATING_EPSILON < 0.0 || FEEDBACK_REHEATING_EPSILON > 100.0) {
+    ERROR_LOG("FeedbackReheatingEpsilon = %.4f out of valid range [0.0, 100.0]", FEEDBACK_REHEATING_EPSILON);
+    return -1;
+  }
+  if (FEEDBACK_EJECTION_EFFICIENCY < 0.0 || FEEDBACK_EJECTION_EFFICIENCY > 100.0) {
+    ERROR_LOG("FeedbackEjectionEfficiency = %.4f out of valid range [0.0, 100.0]", FEEDBACK_EJECTION_EFFICIENCY);
+    return -1;
+  }
+  if (AGN_RECIPE_ON < 0 || AGN_RECIPE_ON > 3) {
+    ERROR_LOG("AGNrecipeOn = %d out of valid range [0, 3]", AGN_RECIPE_ON);
+    return -1;
+  }
+  if (SUPERNOVA_RECIPE_ON < 0 || SUPERNOVA_RECIPE_ON > 1) {
+    ERROR_LOG("SupernovaRecipeOn = %d out of valid range [0, 1]", SUPERNOVA_RECIPE_ON);
+    return -1;
+  }
+  if (DISK_INSTABILITY_ON < 0 || DISK_INSTABILITY_ON > 1) {
+    ERROR_LOG("DiskInstabilityOn = %d out of valid range [0, 1]", DISK_INSTABILITY_ON);
     return -1;
   }
 

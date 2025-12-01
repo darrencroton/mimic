@@ -48,72 +48,22 @@ module:
       - DiskScaleRadius
       - OutflowRate
 
+
     # Parameters needed by this module
     parameters:
       - SFprescription
       - SfrEfficiency
-      - EnergySNcode
-      - EtaSNcode
       - SupernovaRecipeOn
       - FeedbackReheatingEpsilon
       - FeedbackEjectionEfficiency
+      - EnergySNcode
+      - EtaSNcode
       - RecycleFraction
       - Yield
       - FracZleaveDisk
       - DiskInstabilityOn
-
   # ===========================================================================
-  # Parameter Definitions
-  # ===========================================================================
-
-  parameter_definitions:
-    - name: SFprescription
-      type: int
-      description: "Star formation law (0=Kennicutt-Schmidt with density threshold)"
-      units: dimensionless
-    - name: SfrEfficiency
-      type: double
-      description: "Star formation efficiency (epsilon_SF in SFR = epsilon_SF * M_cold / t_dyn)"
-      units: dimensionless
-    - name: EnergySNcode
-      type: double
-      description: "Supernova energy per event in code units"
-      units: code_units
-    - name: EtaSNcode
-      type: double
-      description: "Supernova rate per unit stellar mass formed"
-      units: code_units
-    - name: SupernovaRecipeOn
-      type: int
-      description: "Enable supernova feedback (0=off, 1=on)"
-      units: dimensionless
-    - name: FeedbackReheatingEpsilon
-      type: double
-      description: "Reheating efficiency - M_reheat = epsilon * M_stars"
-      units: dimensionless
-    - name: FeedbackEjectionEfficiency
-      type: double
-      description: "Ejection efficiency in energy-driven wind formula"
-      units: dimensionless
-    - name: RecycleFraction
-      type: double
-      description: "Fraction of stellar mass immediately recycled to ISM"
-      units: dimensionless
-    - name: Yield
-      type: double
-      description: "Metal yield per unit stellar mass formed"
-      units: dimensionless
-    - name: FracZleaveDisk
-      type: double
-      description: "Fraction of newly produced metals that leave the disk in winds"
-      units: dimensionless
-    - name: DiskInstabilityOn
-      type: int
-      description: "Enable disk instability physics (0=off, 1=on)"
-      units: dimensionless
-
-  # ===========================================================================
-  # Testing
+  # Tests
   # ===========================================================================
 
   tests:

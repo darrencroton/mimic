@@ -48,30 +48,12 @@ module:
       - Heating
       - r_heat
 
+
     # Parameters needed by this module
     parameters:
       - RadioModeEfficiency
       - AGNrecipeOn
       - CoolFunctionsDir
-
-  # ===========================================================================
-  # Parameter Definitions
-  # ===========================================================================
-
-  parameter_definitions:
-    - name: AGNrecipeOn
-      type: int
-      description: "AGN feedback mode (0=off, 1=empirical, 2=Bondi-Hoyle, 3=cold cloud accretion)"
-      units: dimensionless
-    - name: CoolFunctionsDir
-      type: string
-      description: "Directory containing cooling function tables (metal-dependent cooling rates)"
-      units: path
-    - name: RadioModeEfficiency
-      type: double
-      description: "Efficiency of radio-mode AGN feedback (fraction of accretion energy coupled to gas heating)"
-      units: dimensionless
-
   # ===========================================================================
   # Testing
   # ===========================================================================

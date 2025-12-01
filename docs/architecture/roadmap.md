@@ -80,14 +80,13 @@ The foundational work is complete. Key capabilities now available:
 - 54 properties (23 galaxy, 31 halo) managed via single source of truth
 - **Impact**: Adding properties reduced from 30 min/8 files to 2 min/1 file
 
-### Decentralized Parameter System (v2.0 - Completed 2025-12-01)
-- Parameters defined in each module's `module_info.yaml` (`parameter_definitions` section)
-- Auto-generate validation code, type-safe accessors, smart module-based requirement checking
-- 22 physics parameters (20 SAGE physics + 2 test infrastructure) across 7 modules
+### Module-Owned Parameter System
+- Modules read parameters directly from input YAML file via type-safe accessors
+- Physics-based validation in each module's init function
+- 20+ physics parameters across 7 modules
 - **No defaults**: All parameters MUST be explicitly specified in input file for reproducible science
-- **Smart validation**: Only parameters needed by enabled modules are required
-- **Complete decentralization**: Each module owns and defines its parameters
-- **Impact**: True module independence - parameters live with their modules, no central registry needed
+- **Module responsibility**: Each module reads and validates its own parameters
+- **Impact**: Simple, direct parameter access with physics context for validation
 
 ### Comprehensive Testing Framework
 - Three test tiers: unit (C), integration (Python), scientific (Python)

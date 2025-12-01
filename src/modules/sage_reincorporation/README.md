@@ -2,6 +2,12 @@
 
 The `sage_reincorporation` module returns ejected gas to the hot halo reservoir. Halos with virial velocities exceeding V_crit ≈ 445 km/s (tunable via `ReIncorporationFactor`) can gravitationally recapture supernova-ejected gas. The reincorporation rate is proportional to (V_vir/V_crit - 1) × M_ejected × V_vir/R_vir, meaning more massive halos reincorporate faster. This completes the gas cycling: hot → cold → stars → ejected → hot. Metallicity is preserved during transfer. Only central galaxies reincorporate; satellites cannot access the halo-scale ejected reservoir.
 
+## Parameters
+
+This module requires the following parameters in the input YAML file:
+
+- **ReIncorporationFactor** (double): Multiplicative factor for reincorporation timescale
+
 **Configuration Example**:
 ```
 EnabledModules  sage_infall,sage_cooling,sage_starformation_feedback,sage_reincorporation

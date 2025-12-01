@@ -60,7 +60,6 @@ HALO_PROPERTIES_YAML = REPO_ROOT / "src" / "core" / "halo_properties.yaml"
 # SCHEMA DEFINITIONS
 # ==============================================================================
 
-VALID_PARAMETER_TYPES = ["double", "int", "string"]
 
 VALID_COMPILATION_FEATURES = ["HDF5", "MPI", "GSL"]
 
@@ -445,168 +444,6 @@ def validate_register_function(
     return True
 
 
-def validate_parameters(
-    module: Dict[str, Any], module_name: str, results: ValidationResults
-) -> bool:
-    """Validate parameter definitions."""
-
-    params = module.get("parameters", [])
-    if not params:
-        return True  # Empty list is valid
-
-    valid = True
-    param_names = []
-
-    for i, param in enumerate(params):
-        param_name = param.get("name", f"<parameter {i}>")
-
-        # Check type
-        param_type = param.get("type", "")
-        if param_type not in VALID_PARAMETER_TYPES:
-            results.add_error(
-                module_name,
-                5,
-                f"Parameter '{param_name}' has invalid type '{param_type}'. "
-                f"Must be one of: {', '.join(VALID_PARAMETER_TYPES)}",
-            )
-            valid = False
-
-        # Check default value type matches
-        default = param.get("default")
-        if default is not None:
-            if param_type == "int" and not isinstance(default, int):
-                results.add_error(
-                    module_name,
-                    5,
-                    f"Parameter '{param_name}' type is int but default is {type(default).__name__}",
-                )
-                valid = False
-            elif param_type == "double" and not isinstance(default, (int, float)):
-                results.add_error(
-                    module_name,
-                    5,
-                    f"Parameter '{param_name}' type is double but default is {type(default).__name__}",
-                )
-                valid = False
-            elif param_type == "string" and not isinstance(default, str):
-                results.add_error(
-                    module_name,
-                    5,
-                    f"Parameter '{param_name}' type is string but default is {type(default).__name__}",
-                )
-                valid = False
-
-        # Check range for numeric types
-        if "range" in param:
-            if param_type not in ["int", "double"]:
-                results.add_warning(
-                    module_name,
-                    f"Parameter '{param_name}' has range but type is '{param_type}'",
-                )
-            else:
-                range_val = param["range"]
-                if not isinstance(range_val, list) or len(range_val) != 2:
-                    results.add_error(
-                        module_name,
-                        5,
-                        f"Parameter '{param_name}' range must be [min, max]",
-                    )
-                    valid = False
-                elif range_val[0] > range_val[1]:
-                    results.add_error(
-                        module_name, 5, f"Parameter '{param_name}' range min > max"
-                    )
-                    valid = False
-
-        # Check for duplicates
-        if param_name in param_names:
-            results.add_error(
-                module_name, 5, f"Duplicate parameter name '{param_name}'"
-            )
-            valid = False
-        param_names.append(param_name)
-
-        # Validate naming convention (PascalCase recommended)
-        if not C_IDENTIFIER_PATTERN.match(param_name):
-            results.add_error(
-                module_name,
-                4,
-                f"Parameter name '{param_name}' is not a valid C identifier",
-            )
-            valid = False
-
-    return valid
-
-
-def validate_parameter_definitions(
-    module: Dict[str, Any], module_name: str, results: ValidationResults
-) -> bool:
-    """Validate parameter_definitions section (decentralized architecture)."""
-
-    param_defs = module.get("parameter_definitions", [])
-    if not param_defs:
-        return True  # Optional section
-
-    valid = True
-    param_names = []
-
-    for i, param in enumerate(param_defs):
-        # Required fields
-        param_name = param.get("name")
-        if not param_name:
-            results.add_error(
-                module_name, 5, f"Parameter definition {i} missing 'name' field"
-            )
-            valid = False
-            continue
-
-        param_type = param.get("type")
-        if not param_type:
-            results.add_error(
-                module_name, 5, f"Parameter '{param_name}' missing 'type' field"
-            )
-            valid = False
-
-        description = param.get("description")
-        if not description:
-            results.add_error(
-                module_name, 5, f"Parameter '{param_name}' missing 'description' field"
-            )
-            valid = False
-
-        # Type validation
-        if param_type and param_type not in VALID_PARAMETER_TYPES:
-            results.add_error(
-                module_name,
-                5,
-                f"Parameter '{param_name}' has invalid type '{param_type}'. "
-                f"Must be one of: {', '.join(VALID_PARAMETER_TYPES)}",
-            )
-            valid = False
-
-        # C identifier validation
-        if param_name and not C_IDENTIFIER_PATTERN.match(param_name):
-            results.add_error(
-                module_name,
-                4,
-                f"Parameter name '{param_name}' is not a valid C identifier",
-            )
-            valid = False
-
-        # Check for duplicates within module
-        if param_name in param_names:
-            results.add_error(
-                module_name, 5, f"Duplicate parameter definition '{param_name}'"
-            )
-            valid = False
-        param_names.append(param_name)
-
-        # Units field is optional (defaults to dimensionless)
-        # No range validation in decentralized architecture
-
-    return valid
-
-
 def validate_compilation_requires(
     module: Dict[str, Any], module_name: str, results: ValidationResults
 ) -> bool:
@@ -938,12 +775,6 @@ def validate_module(
         return False
 
     if not validate_register_function(module, module_name, results):
-        return False
-
-    if not validate_parameters(module, module_name, results):
-        return False
-
-    if not validate_parameter_definitions(module, module_name, results):
         return False
 
     if not validate_compilation_requires(module, module_name, results):

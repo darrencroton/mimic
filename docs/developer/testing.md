@@ -358,7 +358,7 @@ tests/
 ```
 src/modules/
 ├── model_properties.yaml      # Model property metadata (auto-generates C code)
-├── model_parameters.yaml      # Model parameter metadata (auto-generates validation code)
+├── model_properties.yaml       # Model property definitions (auto-generates property code)
 ├── _archive/                  # Archived modules (historical reference)
 ├── _system/                   # Framework infrastructure (don't modify)
 │   ├── physical_constants.h  # Universal physical constants
@@ -1205,7 +1205,7 @@ That section covers:
 
 **IMPORTANT**: All module unit tests must provide ALL required model parameters for the modules being tested.
 
-All SAGE physics parameters are centralized in `model_parameters.yaml` with NO defaults. Module tests must provide all parameters via a shared test helper:
+All SAGE physics parameters are loaded from the input YAML file with NO defaults. Module tests must provide all parameters via a shared test helper:
 
 **Correct pattern for module unit tests:**
 ```c
@@ -1245,8 +1245,8 @@ strcpy(MimicConfig.ModuleParams[0].value, "0.5");
 **Why all 20 parameters are required:**
 - Enforces reproducible science: input file = complete model
 - No hidden defaults - all assumptions explicit
-- Single source of truth in `model_parameters.yaml`
-- See `src/modules/model_parameters.yaml` for parameter definitions
+- Parameters loaded from input YAML file
+- See module README files for parameter documentation
 
 **Helper function location:**
 - Defined in: `tests/unit/test_stubs.c`

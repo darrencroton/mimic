@@ -53,9 +53,8 @@
 /* ============================================================================
  * MODULE PARAMETERS
  * ============================================================================
- * Parameters defined in module_info.yaml (single source of truth).
- * Loaded at runtime via model_get_double() and model_get_int().
- * Defaults and validation ranges come from metadata - no hardcoding. */
+ * Parameters loaded from input YAML file (required, no defaults).
+ * Validated in module init function. */
 
 static int DISK_INSTABILITY_ON;
 static double DISK_RADIUS_FACTOR;
@@ -145,12 +144,21 @@ static double calculate_critical_disk_mass(float vmax, float disk_scale_radius,
  * @return  0 on success, non-zero on error
  */
 static int sage_disk_instability_init(void) {
-  /* Read module parameters from model configuration */
-  /* All parameters are REQUIRED in input file (no defaults) */
+  /* Read module parameters from input YAML file */
   if (model_get_int("DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
     return -1;
   }
   if (model_get_double("DiskRadiusFactor", &DISK_RADIUS_FACTOR) != 0) {
+    return -1;
+  }
+
+  /* Validate parameter values with physics constraints */
+  if (DISK_INSTABILITY_ON < 0 || DISK_INSTABILITY_ON > 1) {
+    ERROR_LOG("DiskInstabilityOn = %d out of valid range [0, 1]", DISK_INSTABILITY_ON);
+    return -1;
+  }
+  if (DISK_RADIUS_FACTOR < 1.0 || DISK_RADIUS_FACTOR > 10.0) {
+    ERROR_LOG("DiskRadiusFactor = %.4f out of valid range [1.0, 10.0]", DISK_RADIUS_FACTOR);
     return -1;
   }
 

@@ -19,7 +19,6 @@
 #include "globals.h"
 #include "types.h"
 #include "error.h"
-#include "generated/model_parameters.h"
 
 /* Helper functions for DOM navigation */
 static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key);
@@ -476,58 +475,9 @@ static void validate_and_postprocess(void) {
     errors++;
   }
 
-  /* Smart validation: Only validate parameters needed by enabled modules (Phase 4.4+) */
-  if (MimicConfig.NumEnabledModules > 0) {
-    /* Build array of enabled module names for lookup */
-    const char *enabled_modules[32];
-    for (int i = 0; i < MimicConfig.NumEnabledModules; i++) {
-      enabled_modules[i] = MimicConfig.EnabledModules[i];
-    }
-
-    /* Get required parameters for these specific modules */
-    const char *required_params[NUM_REQUIRED_MODEL_PARAMETERS];
-    int num_required = 0;
-    if (get_required_params_for_modules(enabled_modules, MimicConfig.NumEnabledModules,
-                                        required_params, &num_required) != 0) {
-      ERROR_LOG("Failed to determine required parameters for enabled modules");
-      errors++;
-    } else {
-      INFO_LOG("Validating %d required model parameters for %d enabled modules...",
-               num_required, MimicConfig.NumEnabledModules);
-      int missing_params = 0;
-
-      /* Validate only the parameters needed by enabled modules */
-      for (int i = 0; i < num_required; i++) {
-        const char *param_name = required_params[i];
-        int found = 0;
-
-        /* Check if parameter is in ModelParams array */
-        for (int j = 0; j < MimicConfig.NumModelParams; j++) {
-          if (strcmp(MimicConfig.ModelParams[j].param_name, param_name) == 0) {
-            found = 1;
-            break;
-          }
-        }
-
-        if (!found) {
-          ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
-          ERROR_LOG("  (needed by enabled modules)");
-          missing_params++;
-          errors++;
-        }
-      }
-
-      if (missing_params > 0) {
-        ERROR_LOG("Missing %d required model parameter%s from 'model_parameters' section",
-                  missing_params, missing_params == 1 ? "" : "s");
-        ERROR_LOG("All model parameters must be explicitly specified - no defaults are used");
-        ERROR_LOG("See src/modules/*/module_info.yaml (parameter_definitions) for parameter definitions");
-      } else {
-        INFO_LOG("All %d required model parameters found", num_required);
-      }
-    }
-  } else {
-    INFO_LOG("No modules enabled - skipping model parameter validation");
+  /* Model parameter validation now happens in module init functions */
+  if (MimicConfig.NumModelParams > 0) {
+    INFO_LOG("Loaded %d model parameters", MimicConfig.NumModelParams);
   }
 
   /* Validate ranges */
