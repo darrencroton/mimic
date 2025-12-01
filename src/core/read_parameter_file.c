@@ -518,9 +518,10 @@ static void validate_and_postprocess(void) {
       }
 
       if (missing_params > 0) {
-        ERROR_LOG("Missing %d required model parameters from 'model_parameters' section", missing_params);
+        ERROR_LOG("Missing %d required model parameter%s from 'model_parameters' section",
+                  missing_params, missing_params == 1 ? "" : "s");
         ERROR_LOG("All model parameters must be explicitly specified - no defaults are used");
-        ERROR_LOG("See src/modules/model_parameters.yaml for parameter definitions");
+        ERROR_LOG("See src/modules/*/module_info.yaml (parameter_definitions) for parameter definitions");
       } else {
         INFO_LOG("All %d required model parameters found", num_required);
       }

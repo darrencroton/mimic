@@ -51,6 +51,20 @@ module:
       - TestFixtureEnableLogging
 
   # ===========================================================================
+  # Parameter Definitions
+  # ===========================================================================
+
+  parameter_definitions:
+    - name: TestFixtureDummyParameter
+      type: double
+      description: "Test parameter for infrastructure testing only"
+      units: dimensionless
+    - name: TestFixtureEnableLogging
+      type: int
+      description: "Enable verbose logging in test_fixture module"
+      units: dimensionless
+
+  # ===========================================================================
   # Testing
   # ===========================================================================
 

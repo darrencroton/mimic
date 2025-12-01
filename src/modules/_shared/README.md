@@ -50,7 +50,7 @@ Changes to shared utilities automatically propagate to all modules that use them
 **Don't create a shared utility when**:
 - ❌ Only one module uses it (keep it in the module)
 - ❌ It's a universal constant (use `_system/physical_constants.h`)
-- ❌ It's a model parameter (use `model_parameters.yaml`)
+- ❌ It's a model parameter (define in module's `module_info.yaml` under `parameter_definitions:`)
 
 ### Steps
 

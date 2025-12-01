@@ -23,7 +23,8 @@
 
 **Key patterns:**
 - Access galaxy data via property accessors: `get_ColdGas(gal)`, `set_StellarMass(gal, value)`
-- Read parameters using `model_get_*()` API from centralized `model_parameters.yaml`
+- Define parameters in your module's `parameter_definitions:` section in `module_info.yaml`
+- Read parameters using `model_get_*()` API
 - Add properties in `src/modules/model_properties.yaml`, run `make generate`
 - Co-locate tests with module code (auto-discovered)
 
@@ -160,7 +161,7 @@ module:
   # Dependencies
   dependencies:
     properties: []  # All properties your module uses (reads or writes)
-    parameters: []  # All parameters your module needs (from model_parameters.yaml)
+    parameters: []  # All parameters your module needs (can be defined by any module)
 
   # Build configuration
   compilation_requires: []
@@ -242,11 +243,11 @@ modules:
   - existing_module_b
   - my_module
 
-# Model parameters (centralized in model_parameters.yaml)
+# Model parameters (defined in each module's module_info.yaml)
 model_parameters:
   BaryonFrac: 0.17
   SfrEfficiency: 0.02
-  # ... other parameters from model_parameters.yaml
+  # ... other parameters defined by enabled modules
 ```
 
 Run:
@@ -264,7 +265,7 @@ Run:
 **Purpose**: One-time initialization during program startup
 
 **Responsibilities**:
-- Read model parameters from centralized configuration
+- Read model parameters from configuration
 - Allocate persistent memory structures
 - Load external data files (cooling tables, yields, etc.)
 - Initialize lookup tables or caches
@@ -277,7 +278,7 @@ static double MY_EFFICIENCY;
 static double *cooling_table = NULL;
 
 static int my_module_init(void) {
-    // Read parameters from centralized model_parameters.yaml
+    // Read parameters from configuration
     if (model_get_double("SfrEfficiency", &MY_EFFICIENCY) != 0) {
         ERROR_LOG("Failed to read SfrEfficiency parameter");
         return -1;
@@ -316,8 +317,8 @@ static int my_module_init(void) {
 **Anti-Patterns**:
 - ❌ Don't modify simulation parameters (`ctx->params` is read-only)
 - ❌ Don't allocate per-halo memory here (do it in `process_halos`)
-- ❌ Don't hardcode parameter values (use model_parameters.yaml)
-- ❌ Don't create module-specific parameters (use centralized model_parameters.yaml)
+- ❌ Don't hardcode parameter values (define in module_info.yaml)
+- ❌ Don't skip parameter definition (add to parameter_definitions in module_info.yaml)
 
 ### 2. Process Phase (`process_halos` function)
 
@@ -528,102 +529,205 @@ Halo Freed:
 
 ## Parameter Handling
 
-### Centralized Model Parameters
+### Decentralized Model Parameters
 
-**All model parameters are centralized** in `src/modules/model_parameters.yaml`. There are no module-specific parameters. Modules read from the centralized parameter set using the `model_get_*()` API.
+**Each module defines its own parameters** in its `module_info.yaml` file using the `parameter_definitions:` section. Parameters can be shared across modules - when multiple modules define the same parameter, the first module wins and types must match.
 
 **Key Concepts:**
-- **20 model parameters total** - All defined in `model_parameters.yaml`
-- **All parameters are REQUIRED** - No defaults, users must specify all values
-- **Shared across modules** - Multiple modules can use the same parameters
-- **Single source of truth** - All scientific parameters in one place
+- **Decentralized definitions** - Each module defines parameters it needs
+- **Shared parameters** - Multiple modules can define the same parameter (e.g., BaryonFrac)
+- **First wins** - When multiple modules define same parameter, first module's definition is used (alphabetical by module directory)
+- **Type matching** - Shared parameters must have matching types across modules
+- **All parameters REQUIRED** - No defaults, users must specify all values
+- **Smart validation** - Only parameters needed by enabled modules are required
 
-### Available Model Parameters
+### Defining Parameters for Your Module
 
-See `src/modules/model_parameters.yaml` for the complete list of 20 parameters including:
-- `BaryonFrac` - Baryon fraction (used by infall, cooling, etc.)
-- `SfrEfficiency` - Star formation efficiency
-- `RadioModeEfficiency` - Radio mode AGN feedback efficiency
-- `QuasarModeEfficiency` - Quasar mode AGN feedback efficiency
-- `ReIncorporationFactor` - Gas reincorporation timescale factor
-- And 15 more...
+Add parameters to your module's `module_info.yaml`:
+
+```yaml
+# In src/modules/my_module/module_info.yaml
+parameter_definitions:
+  - name: MyModuleEfficiency
+    type: double
+    description: "Efficiency parameter for my physics process"
+    units: dimensionless
+
+  - name: MyModuleOption
+    type: int
+    description: "Enable/disable feature (0=off, 1=on)"
+    units: dimensionless
+
+  - name: MyModuleDataPath
+    type: string
+    description: "Path to module data files"
+    units: dimensionless
+```
+
+**Required fields:**
+- `name` - Parameter name (C identifier, e.g., SfrEfficiency)
+- `type` - Data type: `double`, `int`, or `string`
+- `description` - Brief description of what this parameter controls
+- `units` - Physical units (use "dimensionless" if not applicable)
+
+**Note:** Parameters defined in `parameter_definitions:` are automatically added to `dependencies.parameters` - no need to list them twice
+
+### Sharing Parameters Across Modules
+
+When multiple modules need the same parameter (e.g., `BaryonFrac` used by infall, cooling, and starformation):
+
+**All modules can define it:**
+```yaml
+# In src/modules/sage_infall/module_info.yaml
+parameter_definitions:
+  - name: BaryonFrac
+    type: double
+    description: "Cosmic baryon fraction"
+    units: dimensionless
+
+# In src/modules/sage_cooling/module_info.yaml
+parameter_definitions:
+  - name: BaryonFrac
+    type: double
+    description: "Cosmic baryon fraction"
+    units: dimensionless
+```
+
+**Resolution rules:**
+- **First wins**: Alphabetically first module directory provides the definition
+- **Type must match**: All definitions of same parameter must have identical type
+- **Description can vary**: Different modules can describe usage differently
+- **User specifies once**: User provides single value in input file
+
+**Example**: If `sage_cooling` and `sage_infall` both define `BaryonFrac`, the system uses `sage_cooling`'s definition (alphabetically first). Both modules read the same value from user's input file.
 
 ### Reading Parameters
 
-Use the centralized parameter API in `src/core/model_parameters.h`:
+Use the parameter API in `src/core/model_parameters.h`:
 
 ```c
-// Double parameter
-double baryon_frac;
-if (model_get_double("BaryonFrac", &baryon_frac) != 0) {
-    ERROR_LOG("Failed to read BaryonFrac parameter");
-    return -1;
-}
+static int my_module_init(void) {
+    // Double parameter
+    double efficiency;
+    if (model_get_double("MyModuleEfficiency", &efficiency) != 0) {
+        ERROR_LOG("Failed to read MyModuleEfficiency parameter");
+        return -1;
+    }
 
-// Integer parameter
-int example_int;
-if (model_get_int("ExampleIntParameter", &example_int) != 0) {
-    ERROR_LOG("Failed to read ExampleIntParameter parameter");
-    return -1;
+    // Integer parameter
+    int option;
+    if (model_get_int("MyModuleOption", &option) != 0) {
+        ERROR_LOG("Failed to read MyModuleOption parameter");
+        return -1;
+    }
+
+    // String parameter
+    const char *data_path;
+    if (model_get_string("MyModuleDataPath", &data_path) != 0) {
+        ERROR_LOG("Failed to read MyModuleDataPath parameter");
+        return -1;
+    }
+
+    // Store in module-level variables
+    MY_EFFICIENCY = efficiency;
+    MY_OPTION = option;
+    MY_DATA_PATH = data_path;
+
+    INFO_LOG("  MyModuleEfficiency = %.3f", MY_EFFICIENCY);
+    INFO_LOG("  MyModuleOption = %d", MY_OPTION);
+    INFO_LOG("  MyModuleDataPath = %s", MY_DATA_PATH);
+
+    return 0;
 }
 ```
 
 **Important**: Parameters are REQUIRED. If a parameter is missing from the user's configuration, `model_get_*()` will return an error and the module initialization will fail.
 
-### Declaring Parameter Usage
+### Declaring Parameter Dependencies
 
-In your `module_info.yaml`, declare which model parameters your module uses:
+In your `module_info.yaml`, declare which parameters your module needs:
 
 ```yaml
-module:
-  name: my_module
-  # ...
-
 dependencies:
   # Declare which properties this module uses
-  properties: []
-  # Declare which model parameters this module uses
+  properties:
+    - ColdGas
+    - StellarMass
+
+  # Declare which parameters this module uses
+  # (Can include parameters defined by other modules)
   parameters:
-    - BaryonFrac
-    - SfrEfficiency
-    - ReIncorporationFactor
+    - BaryonFrac           # Defined by another module
+    - MyModuleEfficiency   # Defined by this module
+    - SfrEfficiency        # Defined by another module
 ```
 
-This enables smart validation: only parameters needed by enabled modules are required in the input file. All parameters come from the centralized `model_parameters.yaml`.
+**Note:** Parameters you define in `parameter_definitions:` are automatically added to `dependencies.parameters` - but you can also explicitly list parameters defined by other modules that you use.
 
-### Parameter Validation
+This enables smart validation: only parameters needed by enabled modules are required in the input file.
 
-**No validation needed in module code**. All parameters are validated when loaded from the user's configuration file against the definitions in `model_parameters.yaml`.
+### Parameter Validation Philosophy
 
+**No range checking in metadata** - Mimic trusts the user to provide sensible values.
+
+**Why no range validation?**
+- **Trust the User**: Researchers know their physics better than arbitrary metadata limits
+- **In-Code Validation**: Do validation where it matters - in your physics code with context
+- **Exploration Freedom**: Users can explore unusual parameter values without fighting the system
+- **Simplified Metadata**: Less metadata to maintain, clearer definitions
+
+**Validation approach:**
 ```c
 static int my_module_init(void) {
-    double sfr_efficiency;
+    double efficiency;
 
-    // Just read and check for errors - validation already done
-    if (model_get_double("SfrEfficiency", &sfr_efficiency) != 0) {
-        ERROR_LOG("Failed to read SfrEfficiency parameter");
+    // Read parameter (existence validated automatically)
+    if (model_get_double("MyModuleEfficiency", &efficiency) != 0) {
+        ERROR_LOG("Failed to read MyModuleEfficiency parameter");
         return -1;
     }
 
-    // Store value (already validated)
-    MY_SFR_EFFICIENCY = sfr_efficiency;
+    // Optional: Validate value with physics context
+    if (efficiency < 0.0 || efficiency > 1.0) {
+        WARNING_LOG("MyModuleEfficiency = %.3f is outside typical range [0, 1]",
+                    efficiency);
+        WARNING_LOG("  Proceeding anyway - user knows best!");
+    }
 
-    INFO_LOG("  SfrEfficiency = %.3f", MY_SFR_EFFICIENCY);
+    // Or enforce hard limits if physics truly requires it
+    if (efficiency < 0.0) {
+        ERROR_LOG("MyModuleEfficiency = %.3f cannot be negative", efficiency);
+        return -1;
+    }
+
+    MY_EFFICIENCY = efficiency;
     return 0;
 }
 ```
 
-**Single Source of Truth**: All 20 model parameters are defined in `src/modules/model_parameters.yaml`. Modules simply read from this centralized configuration.
+**Best practice**: Warn for unusual values, error only for physically impossible values.
 
 ### Parameter Documentation
 
-Document parameter usage in:
-1. **Module code comments**: Explain how your module uses each parameter
-2. **module_info.yaml**: List parameters in `model_parameters_used`
-3. **Module README**: Explain which parameters affect your physics and how
-4. **User documentation**: Reference `docs/user/module-configuration.md` for parameter descriptions
+Document your parameters in your module:
 
-**Note**: Parameter definitions (names, types, ranges, descriptions) are centralized in `src/modules/model_parameters.yaml`. Don't duplicate these in module documentation.
+1. **parameter_definitions in module_info.yaml**: Define name, type, description, units
+2. **Module README**: Explain what each parameter controls and typical values
+3. **Module code comments**: Document how parameters are used in physics
+4. **User documentation**: Users will see all parameter definitions merged from all modules
+
+**Example README section:**
+```markdown
+## Parameters
+
+This module defines the following parameters:
+
+- **MyModuleEfficiency** (double, dimensionless): Controls the efficiency of the
+  physics process. Typical values: 0.01-0.1. Higher values increase the effect.
+
+- **MyModuleOption** (int, dimensionless): Enable/disable feature (0=off, 1=on).
+  Set to 1 to enable advanced physics mode.
+```
 
 ---
 

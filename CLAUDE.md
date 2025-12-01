@@ -162,7 +162,6 @@ src/
 ├── util/          Utilities (memory, error, numeric, version, I/O)
 ├── modules/       Physics modules
 │   ├── model_properties.yaml   Model property metadata (auto-generates C code)
-│   ├── model_parameters.yaml   Model parameter metadata (auto-generates validation code)
 │   ├── _archive/               Archived modules (historical reference)
 │   ├── _system/                Framework infrastructure (don't modify)
 │   │   ├── physical_constants.h  Universal physical constants (G, c, Z_sun, etc.)
@@ -200,12 +199,12 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 - Includes: struct Halo, struct GalaxyData, struct HaloOutput
 - Python dtypes auto-generated for reading output
 
-**Centralized Model Parameter System:**
-- All physics parameters defined in `src/modules/model_parameters.yaml`
+**Decentralized Parameter System (v2.0):**
+- Parameters defined in each module's `module_info.yaml` (`parameter_definitions` section)
 - Auto-generates validation code and type-safe accessors via `make generate`
 - No defaults: all parameters REQUIRED in input file for reproducible science
 - Smart validation: only parameters needed by enabled modules are required
-- Modules declare parameter dependencies in their `module_info.yaml`
+- Complete module independence: each module owns and defines its parameters
 
 **Module System:**
 - Runtime-configurable via `modules.enabled` YAML list

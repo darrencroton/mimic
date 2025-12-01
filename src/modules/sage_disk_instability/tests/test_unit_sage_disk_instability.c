@@ -15,7 +15,6 @@
  *   - test_module_registration: Module registers correctly
  *   - test_module_initialization: Module init/cleanup lifecycle
  *   - test_parameter_reading: Module parameters read from config
- *   - test_parameter_validation: Invalid parameters rejected
  *   - test_memory_safety: No memory leaks during operation
  *   - test_property_access: Property access doesn't crash
  *
@@ -184,40 +183,6 @@ int test_parameter_reading(void)
 }
 
 /**
- * @test    test_parameter_validation
- * @brief   Test that invalid parameters are rejected
- *
- * Expected: Module initialization fails with out-of-range DiskRadiusFactor
- * Validates: Parameter validation logic
- */
-int test_parameter_validation(void)
-{
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
-
-    strcpy(MimicConfig.EnabledModules[0], "sage_disk_instability");
-    MimicConfig.NumEnabledModules = 1;
-
-    /* Set all required parameters, then override with invalid value */
-    set_test_model_parameters();
-    strcpy(MimicConfig.ModelParams[19].value, "15.0");  /* DiskRadiusFactor invalid - too large */
-
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
-
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(result != 0, "Module should reject invalid DiskRadiusFactor");
-
-    /* ===== CLEANUP ===== */
-    /* Don't call cleanup if init failed */
-    check_memory_leaks();
-
-    return TEST_PASS;
-}
-
-/**
  * @test    test_memory_safety
  * @brief   Test that module doesn't leak memory during normal operation
  *
@@ -333,7 +298,6 @@ int main(void)
     TEST_RUN(test_module_registration);
     TEST_RUN(test_module_initialization);
     TEST_RUN(test_parameter_reading);
-    TEST_RUN(test_parameter_validation);
     TEST_RUN(test_memory_safety);
     TEST_RUN(test_property_access);
 

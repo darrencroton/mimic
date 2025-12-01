@@ -53,13 +53,17 @@ src/modules/
 
 2. **Create module code** (see `_system/template/README.md` for detailed instructions)
 
-3. **Create module metadata** (`module_info.yaml`) declaring tests
+3. **Create module metadata** (`module_info.yaml`) declaring:
+   - Module dependencies
+   - Parameter definitions (in `parameter_definitions:` section)
+   - Test files
+   - Model properties used
 
 4. **Create tests** (see Testing section below)
 
 5. **Generate and build**:
    ```bash
-   make generate  # Auto-generates registration code
+   make generate  # Auto-generates registration and parameter validation code
    make           # Build
    ```
 
@@ -163,6 +167,27 @@ See **[docs/developer/testing.md](../../docs/developer/testing.md)** for:
 - Best practices and common patterns
 - Debugging guide for test failures
 - Distinction between core tests and module tests
+
+---
+
+## Module Parameters
+
+**Decentralized Parameter System**: Each module defines its own parameters in the `parameter_definitions:` section of its `module_info.yaml`. Parameters are:
+- Defined locally in the module that uses them
+- Auto-generated into type-safe accessors during `make generate`
+- Only validated if the module is enabled
+- Required in input YAML (no defaults for reproducibility)
+
+**Example** (in `module_info.yaml`):
+```yaml
+parameter_definitions:
+  - name: my_efficiency
+    type: double
+    constraints: {min: 0.0, max: 1.0}
+    description: "Efficiency factor for my module"
+```
+
+Modules access parameters via auto-generated accessors: `GET_PARAM_my_efficiency(params)`
 
 ---
 

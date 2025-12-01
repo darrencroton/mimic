@@ -1,9 +1,9 @@
 # Model Parameters Metadata Schema Specification
 
-**Version**: 1.0
-**Created**: 2025-11-28
+**Version**: 2.0
+**Updated**: 2025-12-01
 **Status**: Implementation Specification
-**Purpose**: Define the authoritative schema for model parameter metadata in Mimic
+**Purpose**: Define the authoritative schema for decentralized model parameter metadata in Mimic
 
 ---
 
@@ -11,21 +11,16 @@
 
 **Adding a new model parameter? Here's what you need:**
 
-1. **Edit the metadata file:**
-   - `src/modules/model_parameters.yaml`
+1. **Edit your module's metadata file:**
+   - `src/modules/your_module/module_info.yaml`
 
 2. **Minimal parameter definition:**
 ```yaml
-- name: MyNewParameter
-  type: double
-  range: [0.0, 1.0]
-  units: dimensionless
-  description: My new physics parameter
-  recommended: 0.5
-  references: Smith et al. 2020
-  scientific_notes: |
-    Brief scientific background on this parameter.
-    What physics does it control?
+parameter_definitions:
+  - name: MyNewParameter
+    type: double
+    description: My new physics parameter
+    units: dimensionless
 ```
 
 3. **Regenerate code:**
@@ -35,10 +30,8 @@ make generate
 
 4. **Use in your module:**
 ```c
-// In module_info.yaml, declare dependency:
-dependencies:
-  requires:
-    parameters: [MyNewParameter]
+// Parameter already declared in dependencies.parameters
+// (automatically added from parameter_definitions)
 
 // In your module code:
 double value = get_model_param_double("MyNewParameter");
@@ -53,17 +46,13 @@ model_parameters:
 
 **Required fields:**
 - `name` - C identifier (e.g., BaryonFrac, SfrEfficiency)
-- `type` - Data type (`int`, `double`, `float`, `string`)
-- `range` - Valid range `[min, max]` for numeric types, `null` for strings
-- `units` - Physical units (for documentation and validation)
+- `type` - Data type (`int`, `double`, `string`)
 - `description` - Brief description of parameter
-- `recommended` - Recommended/default value (documentation only - NOT used as default!)
-- `references` - Scientific papers or models
-- `scientific_notes` - Scientific background (multi-line YAML string)
+- `units` - Physical units (optional, defaults to "dimensionless")
 
 **Generated outputs:**
 - `src/include/generated/model_parameters.h` - Parameter metadata struct, validation functions
-- `src/include/generated/model_parameters.c` - Validation implementation, smart lookup
+- `src/include/generated/model_parameters.c` - Validation implementation (existence checking only)
 
 **Important:** All parameters are **REQUIRED** in input files - no defaults are used. This ensures reproducible science.
 
@@ -74,13 +63,13 @@ model_parameters:
 ## Overview
 
 This document defines the YAML schema for model parameter metadata in Mimic. Model parameter metadata is the **single source of truth** for:
-- Parameter structure (name, type, valid range, units)
-- Validation rules (range checking, type checking)
+- Parameter structure (name, type, units)
+- Validation rules (existence checking - NO range validation)
 - Module dependencies (which parameters each module requires)
 - Smart parameter validation (only require parameters for enabled modules)
-- Scientific documentation (references, recommended values, background)
+- Scientific documentation (descriptions, units, source module)
 
-By defining parameters once in metadata, we eliminate manual synchronization and enable type-safe, validated parameter access.
+**Decentralized Architecture**: Each module defines its own parameters in its `module_info.yaml` file. Multiple modules can define the same parameter (for shared parameters like BaryonFrac) - first module wins, types must match.
 
 ---
 
@@ -91,31 +80,37 @@ The model parameter system implements **Vision Principles #3, #4, and #8**:
 ### Principle #3: Metadata-Driven Architecture
 - YAML defines parameter structure
 - Code generation creates type-safe validation
-- Single source of truth for all parameter information
+- Single source of truth co-located with modules
 
-### Principle #4: Single Source of Truth
-- `model_parameters.yaml` defines parameter STRUCTURE (name, type, range)
-- `module_info.yaml` files declare parameter DEPENDENCIES (which modules need which parameters)
+### Principle #4: Single Source of Truth (Decentralized)
+- Each `module_info.yaml` defines parameters in `parameter_definitions:` section
+- Shared parameters can be defined by multiple modules (type must match)
+- First module to initialize wins (alphabetical order by module directory)
 - Input YAML file provides parameter VALUES (user configuration)
-- NO hardcoded defaults in source code
+- NO defaults, NO range checking - trust the user
 
 ### Principle #8: Type Safety and Validation
 - Auto-generated validation functions: `validate_model_param_double()`, `validate_model_param_int()`
-- Range checking from metadata
-- Clear error messages with parameter name and valid range
-- Compile-time type safety through generated accessors
+- Existence checking only (parameter must be defined)
+- Type safety through generated accessors
+- Clear error messages with parameter name
 
 ---
 
-## No Defaults Philosophy
+## No Defaults, No Range Checking Philosophy
 
-**IMPORTANT**: Mimic does NOT use default parameter values. All parameters must be explicitly specified in the input YAML file.
+**IMPORTANT**: Mimic does NOT use default parameter values or range validation.
 
-**Why?**
+**Why no defaults?**
 - **Reproducible Science**: Parameter files fully specify the model - no hidden assumptions
 - **Explicit Models**: Researchers know exactly what physics is configured
 - **Comparable Runs**: Different runs can be compared by comparing parameter files
-- **No Surprises**: No "magic" defaults that change between versions
+
+**Why no range checking?**
+- **Trust the User**: Researchers know their parameter values
+- **In-Code Validation**: Physics code validates values where it matters (with context)
+- **Simplified Metadata**: Less metadata to maintain, clearer single-source-of-truth
+- **Flexibility**: Exploration beyond "typical" ranges encouraged
 
 **Smart Validation**: Only parameters needed by enabled modules are required. If you disable a module, you don't need to specify its parameters.
 
@@ -125,21 +120,19 @@ The model parameter system implements **Vision Principles #3, #4, and #8**:
 
 ### Location
 ```
-src/modules/model_parameters.yaml
+src/modules/your_module/module_info.yaml
 ```
+
+Each module defines its own parameters. Shared parameters (like BaryonFrac) can be defined by multiple modules.
 
 ### Format
 ```yaml
-model_parameters:
+# In module_info.yaml
+parameter_definitions:
   - name: ParameterName
-    type: double|int|float|string
-    range: [min, max] | null
-    units: dimensionless|Msun|Mpc|etc
+    type: double|int|string
     description: Brief description
-    recommended: value
-    references: Citation
-    scientific_notes: |
-      Multi-line scientific background
+    units: dimensionless|Msun|Mpc|etc  # Optional, defaults to "dimensionless"
 ```
 
 ### Generated Files
@@ -147,7 +140,7 @@ model_parameters:
 | File | Purpose | Content |
 |------|---------|---------|
 | `src/include/generated/model_parameters.h` | Header | Metadata struct, validation function declarations, constants |
-| `src/include/generated/model_parameters.c` | Implementation | Validation functions, metadata arrays, smart module lookup |
+| `src/include/generated/model_parameters.c` | Implementation | Validation functions (existence check only), metadata arrays |
 
 ---
 
@@ -162,7 +155,7 @@ model_parameters:
 - Must be valid C identifier (alphanumeric + underscore)
 - No spaces, special characters
 - Case-sensitive
-- Must be unique across all parameters
+- Must be unique across all parameters (if multiple modules define same parameter, type must match)
 
 **Convention**:
 - PascalCase for multi-word names: `BaryonFrac`, `SfrEfficiency`, `ThreshMajorMerger`
@@ -185,14 +178,12 @@ name: SF_EFF               # ⚠ Discouraged (unclear abbreviation)
 **Valid values**:
 - `int` - Integer values
 - `double` - Double-precision floating point
-- `float` - Single-precision floating point
 - `string` - String values (file paths, names)
 
 **Mapping to C types**:
 ```yaml
 type: int     →  int
 type: double  →  double
-type: float   →  float
 type: string  →  char*
 ```
 
@@ -205,33 +196,30 @@ type: string     # For paths, file names
 
 ---
 
-#### `range` (array or null, required for numeric types)
-**Purpose**: Define valid value range for validation.
+#### `description` (string, required)
+**Purpose**: Brief, user-facing description of the parameter.
 
-**Format**:
-- Numeric types: `[min_value, max_value]`
-- String types: `null` (no range validation)
-
-**Validation**:
-- Values outside range trigger ERROR-level validation failure
-- Both min and max are **inclusive**
-- Special cases:
-  - Use `[0, 0]` for "only zero allowed" (e.g., placeholder parameters)
-  - Use `[0.0, 1.0]` for fractions/efficiencies
-  - Use `[0.0, INFINITY]` conceptually (though YAML doesn't support infinity literals)
+**Requirements**:
+- Single line (no newlines)
+- Concise (< 100 characters ideal)
+- Self-contained (readable without references)
+- Explains what parameter controls
 
 **Examples**:
 ```yaml
-range: [0.0, 1.0]          # Fraction (0-100%)
-range: [0, 3]              # Mode selector (4 options: 0,1,2,3)
-range: [0.0, 100.0]        # Large physical range
-range: null                # String parameter (no numeric range)
+description: "Cosmic baryon fraction (Omega_b / Omega_m)"
+description: "Star formation efficiency (epsilon_SF in SFR equation)"
+description: "Mass ratio threshold for major mergers"
 ```
 
 ---
 
-#### `units` (string, required)
-**Purpose**: Document physical units for scientific clarity and validation.
+### Optional Fields
+
+#### `units` (string, optional)
+**Purpose**: Document physical units for scientific clarity.
+
+**Default**: `"dimensionless"` if not specified
 
 **Common values**:
 - `dimensionless` - Ratios, fractions, pure numbers
@@ -243,11 +231,6 @@ range: null                # String parameter (no numeric range)
 - `code_units` - Internal simulation units
 - `path` - File system path
 
-**Purpose**:
-- Documentation for users
-- Validates dimensional consistency
-- Helps catch configuration errors
-
 **Examples**:
 ```yaml
 units: dimensionless       # BaryonFrac (Omega_b / Omega_m)
@@ -257,160 +240,71 @@ units: path                # CoolFunctionsDir (directory path)
 
 ---
 
-#### `description` (string, required)
-**Purpose**: Brief, user-facing description of the parameter.
-
-**Requirements**:
-- Single line (no newlines)
-- Concise (< 100 characters ideal)
-- Self-contained (readable without references)
-- Explains what parameter controls, not why or how
-
-**Examples**:
-```yaml
-description: Cosmic baryon fraction (Omega_b / Omega_m)
-description: Star formation efficiency (epsilon_SF in SFR equation)
-description: Mass ratio threshold for major mergers
-```
-
----
-
-#### `recommended` (value, required)
-**Purpose**: Recommended value from published models (SAGE defaults, literature values).
-
-**Important**: This is **documentation only** - NOT used as a default! All parameters must be specified in input file.
-
-**Format**:
-- Type must match parameter `type`
-- `int`: integer value
-- `double`/`float`: numeric value
-- `string`: quoted string
-
-**Examples**:
-```yaml
-recommended: 0.17          # double
-recommended: 1             # int
-recommended: "input/CoolFunctions"  # string
-```
-
----
-
-#### `references` (string, required)
-**Purpose**: Scientific citation for recommended value or physics prescription.
-
-**Format**:
-- Author et al. YEAR for papers
-- Model name for established models
-- Method name for standard techniques
-
-**Examples**:
-```yaml
-references: Planck Collaboration 2018 (Planck 2018 results. VI.)
-references: Croton et al. 2006 (MNRAS, 365, 11)
-references: Kennicutt 1998 (ApJ, 498, 541)
-references: Standard IMF-averaged supernova rate
-```
-
----
-
-#### `scientific_notes` (string, required)
-**Purpose**: Multi-line scientific background, context, and usage guidance.
-
-**Format**: YAML multi-line string (pipe `|` or `>`)
-
-**Content should include**:
-- Physical meaning and context
-- Typical value ranges from literature
-- How it affects galaxy formation physics
-- Calibration information
-- Interactions with other parameters
-- Warnings or caveats
-
-**Example**:
-```yaml
-scientific_notes: |
-  The ratio of baryonic matter density to total matter density.
-  Planck 2018: Omega_b = 0.0486, Omega_m = 0.315, ratio ~0.154-0.17
-
-  This parameter affects:
-  - Total gas available for galaxy formation
-  - Normalization of cooling and star formation
-
-  Typical range: 0.15 - 0.18 (consistent with CMB observations)
-```
-
----
-
 ## Complete Example
 
 ```yaml
-model_parameters:
-  # =============================================================================
-  # COSMOLOGY
-  # =============================================================================
+# src/modules/sage_starformation_feedback/module_info.yaml
+name: sage_starformation_feedback
+version: "1.0"
+description: SAGE star formation and feedback physics
 
-  - name: BaryonFrac
-    type: double
-    range: [0.0, 1.0]
-    units: dimensionless
-    description: Cosmic baryon fraction (Omega_b / Omega_m)
-    recommended: 0.17
-    references: Planck Collaboration 2018 (Planck 2018 results. VI. Cosmological parameters)
-    scientific_notes: |
-      The ratio of baryonic matter density to total matter density.
-      Planck 2018: Omega_b = 0.0486, Omega_m = 0.315, ratio ~0.154-0.17
-
-      Critical parameter affecting:
-      - Total gas budget for galaxy formation
-      - Normalization of all baryonic processes
-      - Cosmic baryon conversion efficiency
-
-      Observational constraints: 0.15 - 0.18 (CMB + BBN)
-
-  # =============================================================================
-  # STAR FORMATION
-  # =============================================================================
-
+parameter_definitions:
   - name: SfrEfficiency
     type: double
-    range: [0.0, 1.0]
+    description: "Star formation efficiency (epsilon_SF in SFR = epsilon_SF * M_cold / t_dyn)"
     units: dimensionless
-    description: Star formation efficiency (epsilon_SF in SFR = epsilon_SF * M_cold / t_dyn)
-    recommended: 0.02
-    references: Kennicutt 1998; Springel & Hernquist 2003
-    scientific_notes: |
-      Controls how efficiently cold gas forms stars per dynamical time.
 
-      Star formation rate: SFR = epsilon_SF * M_cold / t_dyn
-      where t_dyn is the disk dynamical time.
+  - name: FeedbackReheatingEpsilon
+    type: double
+    description: "Mass loading factor for SN feedback reheating"
+    units: dimensionless
 
-      Typical values: 0.01 - 0.05
-      - Lower values: slower SF, more gas-rich galaxies
-      - Higher values: faster SF, more stars, less gas
+  - name: FeedbackEjectionEfficiency
+    type: double
+    description: "Fraction of reheated gas ejected to IGM"
+    units: dimensionless
 
-      Calibrated to match:
-      - Kennicutt-Schmidt relation slope and normalization
-      - Observed stellar mass functions at z=0
-      - Gas depletion timescales in local galaxies
+  - name: RecycleFraction
+    type: double
+    description: "Fraction of stellar mass returned to ISM (IMF-averaged)"
+    units: dimensionless
+
+# ... rest of module_info.yaml
 ```
+
+### Shared Parameter Example
+
+Multiple modules can define the same parameter:
+
+```yaml
+# src/modules/sage_infall/module_info.yaml
+parameter_definitions:
+  - name: BaryonFrac
+    type: double
+    description: "Cosmic baryon fraction (Omega_b / Omega_m)"
+    units: dimensionless
+```
+
+```yaml
+# src/modules/sage_satellite_stripping/module_info.yaml
+parameter_definitions:
+  - name: BaryonFrac
+    type: double
+    description: "Cosmic baryon fraction (Omega_b / Omega_m)"
+    units: dimensionless
+```
+
+Both modules use BaryonFrac. The first module alphabetically wins (sage_infall), but both definitions must have matching types or code generation fails.
 
 ---
 
 ## Module Dependencies
 
-Modules declare parameter dependencies in their `module_info.yaml`:
-
-```yaml
-module:
-  name: sage_cooling
-  dependencies:
-    requires:
-      parameters:
-        - BaryonFrac
-        - RadioModeEfficiency
-        - AGNrecipeOn
-        - CoolFunctionsDir
-```
+Modules automatically declare parameter dependencies when they define parameters in `parameter_definitions:`. The system:
+- Scans all `module_info.yaml` files for `parameter_definitions:`
+- Collects unique parameters (first-wins, type-must-match)
+- Tracks source_module for each parameter
+- Uses `dependencies.parameters` for smart validation
 
 The system uses these declarations for **smart validation**:
 - Only parameters needed by enabled modules are required
@@ -425,14 +319,13 @@ The system uses these declarations for **smart validation**:
 
 **`src/include/generated/model_parameters.h`:**
 ```c
-/* Parameter metadata structure */
+/* Parameter metadata structure (simplified) */
 struct ModelParameterMetadata {
     const char *name;          /* Parameter name */
     const char *type;          /* Type: int, double, string */
     const char *description;   /* Human-readable description */
-    double range_min;          /* Minimum valid value */
-    double range_max;          /* Maximum valid value */
-    int has_range;             /* 1 if range applies, 0 otherwise */
+    const char *units;         /* Physical units */
+    const char *source_module; /* Module that defined this parameter */
 };
 
 #define NUM_REQUIRED_MODEL_PARAMETERS 22
@@ -445,23 +338,17 @@ extern const struct ModelParameterMetadata MODEL_PARAMETER_METADATA[NUM_REQUIRED
 
 **`src/include/generated/model_parameters.c`:**
 ```c
-/* Validate parameter value against metadata range */
+/* Validate parameter exists (NO range checking) */
 int validate_model_param_double(const char *param_name, double value) {
+    (void)value;  /* Unused - no range validation */
+
     const struct ModelParameterMetadata *meta = get_model_param_metadata(param_name);
     if (meta == NULL) {
         ERROR_LOG("Model parameter '%s' not found in metadata", param_name);
         return -1;
     }
 
-    if (!meta->has_range) return 0;
-
-    if (value < meta->range_min || value > meta->range_max) {
-        ERROR_LOG("Parameter %s = %g out of valid range [%g, %g]",
-                  param_name, value, meta->range_min, meta->range_max);
-        return -1;
-    }
-
-    return 0;
+    return 0;  /* No range validation - trust the user */
 }
 
 /* Smart module-based parameter lookup */
@@ -477,16 +364,20 @@ int get_required_params_for_modules(
 
 ## Usage in Modules
 
-### Declaring Dependencies
+### Defining Parameters
 
-In `module_info.yaml`:
+In `src/modules/your_module/module_info.yaml`:
 ```yaml
-dependencies:
-  requires:
-    parameters:
-      - BaryonFrac
-      - SfrEfficiency
-      - RecycleFraction
+parameter_definitions:
+  - name: BaryonFrac
+    type: double
+    description: "Cosmic baryon fraction (Omega_b / Omega_m)"
+    units: dimensionless
+
+  - name: SfrEfficiency
+    type: double
+    description: "Star formation efficiency"
+    units: dimensionless
 ```
 
 ### Accessing Parameters
@@ -496,16 +387,23 @@ In module code:
 #include "generated/model_parameters.h"
 #include "core/module_registry.h"
 
-void sage_starformation_init(void) {
-    /* Get parameters (validated by core before module init) */
+void your_module_init(void) {
+    /* Get parameters (existence-checked by core before module init) */
+    double baryon_frac = get_model_param_double("BaryonFrac");
     double sfr_eff = get_model_param_double("SfrEfficiency");
-    double recycle = get_model_param_double("RecycleFraction");
     int sf_mode = get_model_param_int("SFprescription");
+
+    /* Validate values in context (in-code validation) */
+    if (baryon_frac <= 0.0 || baryon_frac > 1.0) {
+        ERROR_LOG("BaryonFrac = %g is physically unrealistic "
+                  "(expected 0.15-0.18 from CMB)", baryon_frac);
+        return;
+    }
 
     /* Parameters guaranteed to be:
      * 1. Present (required by this module)
-     * 2. Valid (range-checked during parameter loading)
-     * 3. Correct type (enforced by accessor functions)
+     * 2. Correct type (enforced by accessor functions)
+     * 3. Physically reasonable (validated by module code where needed)
      */
 }
 ```
@@ -531,12 +429,14 @@ const char *get_model_param_string(const char *param_name);
 
 3. **Parameter Validation** (before module initialization)
    - Checks all required parameters are present
-   - Validates values against metadata ranges using `validate_model_param_*()`
+   - Validates parameters EXIST using `validate_model_param_*()`
+   - NO range checking - trust the user
    - ERROR-level failures halt execution with clear messages
 
 4. **Module Access** (during module execution)
    - Modules call `get_model_param_*()` to retrieve validated values
-   - Values guaranteed valid by this point
+   - Modules perform in-code validation where physics context matters
+   - Example: Check BaryonFrac is positive, SfrEfficiency is reasonable, etc.
 
 ---
 
@@ -554,30 +454,37 @@ const char *get_model_param_string(const char *param_name);
 - Use underscores unnecessarily: `baryon_frac` (use PascalCase)
 - Use generic names: `Parameter1`, `Value`
 
-### Range Definition
+### Parameter Definition
 ✓ **DO**:
-- Use physical constraints: `[0.0, 1.0]` for fractions
-- Document why range is chosen in `scientific_notes`
-- Use inclusive ranges (both min and max are valid)
+- Define parameters in the module that primarily uses them
+- Share common parameters (BaryonFrac, etc.) across modules
+- Keep descriptions concise and informative
+- Specify units when relevant
 
 ✗ **DON'T**:
-- Use arbitrarily large ranges: `[0.0, 1e100]` (be specific)
-- Leave numeric types without ranges (required!)
-- Use ranges that exclude physically valid values
+- Duplicate parameter definitions with different types (will fail validation)
+- Define parameters in modules that don't use them
+- Omit descriptions or use vague language
 
-### Documentation
+### In-Code Validation
 ✓ **DO**:
-- Provide complete `scientific_notes` with context
-- Cite specific papers with journal and year
-- Explain parameter's role in physics
-- Note interactions with other parameters
-- Document typical value ranges from literature
+- Validate parameter values in physics context
+- Provide helpful error messages with expected ranges
+- Document why certain values are problematic
+- Use soft warnings for unusual (but valid) values
+
+**Example**:
+```c
+if (sfr_eff < 0.001 || sfr_eff > 0.5) {
+    WARN_LOG("SfrEfficiency = %g is outside typical range [0.01, 0.05]. "
+             "Proceeding anyway, but results may be unphysical.", sfr_eff);
+}
+```
 
 ✗ **DON'T**:
-- Copy-paste generic descriptions
-- Omit scientific context
-- Use vague references: "standard model"
-- Forget to explain physical meaning
+- Silently clamp values (user won't know)
+- Use arbitrary hard limits without explanation
+- Fail on unusual but potentially valid values
 
 ---
 
@@ -587,70 +494,111 @@ const char *get_model_param_string(const char *param_name);
 ```yaml
 - name: SomeEfficiency
   type: double
-  range: [0.0, 1.0]        # Efficiency bounded 0-100%
+  description: "Controls efficiency of [physical process]"
   units: dimensionless
-  recommended: 0.1         # Typical ~10%
-  scientific_notes: |
-    Controls efficiency of [physical process].
-    Higher values = more efficient [outcome].
-    Typical range: 0.05 - 0.2
+```
+
+In-code validation:
+```c
+if (efficiency < 0.0 || efficiency > 1.0) {
+    ERROR_LOG("Efficiency must be between 0 and 1 (got %g)", efficiency);
+    return -1;
+}
 ```
 
 ### Mode Selectors
 ```yaml
 - name: SomeRecipeOn
   type: int
-  range: [0, 3]           # 4 modes: 0,1,2,3
+  description: "Mode selector (0=off, 1=mode1, 2=mode2, 3=mode3)"
   units: dimensionless
-  description: Mode selector (0=off, 1=mode1, 2=mode2, 3=mode3)
-  recommended: 1
-  scientific_notes: |
-    Mode 0: Disabled
-    Mode 1: [prescription 1]
-    Mode 2: [prescription 2]
-    Mode 3: [prescription 3]
+```
+
+In-code validation:
+```c
+if (recipe_mode < 0 || recipe_mode > 3) {
+    ERROR_LOG("Recipe mode %d invalid (valid: 0-3)", recipe_mode);
+    return -1;
+}
 ```
 
 ### File Paths
 ```yaml
 - name: SomeDirectory
   type: string
-  range: null             # No numeric range for strings
+  description: "Directory containing [data files]"
   units: path
-  description: Directory containing [data files]
-  recommended: "input/DataDir"
-  scientific_notes: |
-    Path to directory with required data files.
-    Must contain: [list of required files].
 ```
+
+In-code validation:
+```c
+if (!directory_exists(dir_path)) {
+    ERROR_LOG("Directory '%s' not found", dir_path);
+    return -1;
+}
+```
+
+---
+
+## Shared Parameters
+
+These parameters are commonly defined by multiple modules:
+
+| Parameter | Type | Used By | Description |
+|-----------|------|---------|-------------|
+| `BaryonFrac` | double | infall, satellite_stripping | Cosmic baryon fraction |
+| `RecycleFraction` | double | starformation_feedback, mergers | IMF-averaged recycled fraction |
+| `Yield` | double | starformation_feedback, mergers | Metal yield per stellar mass |
+| `AGNrecipeOn` | int | cooling, mergers | AGN feedback mode |
 
 ---
 
 ## Troubleshooting
 
 ### "Parameter X not found in metadata"
-**Cause**: Typo in parameter name, or parameter not defined in `model_parameters.yaml`
+**Cause**: Typo in parameter name, or parameter not defined in any `module_info.yaml`
 **Fix**: Check spelling, ensure parameter is defined, run `make generate`
 
-### "Parameter X out of valid range"
-**Cause**: Value in input file exceeds range specified in metadata
-**Fix**: Check `range:` in `model_parameters.yaml`, adjust input value or range
+### "Type mismatch for parameter X"
+**Cause**: Multiple modules define same parameter with different types
+**Fix**: Ensure all modules define parameter with identical type
 
 ### "Required parameter X missing"
 **Cause**: Parameter needed by enabled module not specified in input file
 **Fix**: Add parameter to `model_parameters:` section of input YAML
 
-### "Too many model parameters"
-**Cause**: More than 64 parameters specified (array size limit)
-**Fix**: Increase array size in `src/include/types.h` (currently 64, supports up to 64 parameters)
+### Build errors after adding parameters
+**Cause**: Forgot to regenerate code
+**Fix**: Run `make generate` after editing module_info.yaml
+
+---
+
+## Migration from Centralized Model
+
+**Old architecture** (pre-v2.0):
+- Single `src/modules/model_parameters.yaml` file
+- Range validation in metadata
+- Recommended values, scientific notes, references fields
+
+**New architecture** (v2.0+):
+- Decentralized: each module's `module_info.yaml` has `parameter_definitions:`
+- NO range validation (trust the user)
+- Simplified metadata: name, type, description, units only
+- In-code validation where physics context matters
+
+**Migration steps** (for reference):
+1. Move parameter definitions from centralized file to respective module_info.yaml files
+2. Remove range, recommended, references, scientific_notes fields
+3. Add in-code validation for physically meaningful ranges
+4. Run `make generate` to regenerate code
 
 ---
 
 ## See Also
 
-- **[Property Metadata Schema](property-metadata-schema.md)** - Schema for galaxy/halo properties
-- **[Module Metadata Schema](../developer/module-metadata-schema.md)** - Schema for physics modules
+- **[Module Metadata Schema](../developer/module-metadata-schema.md)** - Schema for physics modules (includes parameter_definitions)
 - **[Module Configuration Guide](../user/module-configuration.md)** - User guide for configuring parameters
+- **[Module Developer Guide](../developer/module-developer-guide.md)** - Guide to creating new modules
 - **[Vision Document](vision.md)** - Architectural principles (especially #3, #4, #8)
 
 ---
@@ -659,7 +607,8 @@ const char *get_model_param_string(const char *param_name);
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0 | 2025-11-28 | Initial specification |
+| 1.0 | 2025-11-28 | Initial specification (centralized architecture) |
+| 2.0 | 2025-12-01 | Decentralized architecture, removed range validation, simplified metadata |
 
 ---
 

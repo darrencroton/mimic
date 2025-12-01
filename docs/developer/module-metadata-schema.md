@@ -32,7 +32,8 @@ dependencies:
   properties: []  # List all properties this module uses (reads or writes)
   parameters: []  # List all parameters this module needs
 
-parameters: []  # Add your module-specific parameters here (optional)
+parameter_definitions: []  # Define module-specific parameters here (optional)
+
 tests:
   unit: test_unit_my_module.c
   integration: test_integration_my_module.py
@@ -44,7 +45,7 @@ tests:
 - `register_function` - Name of your `*_register()` function
 - `dependencies.properties` - All properties your module uses (reads or writes)
 - `dependencies.parameters` - All parameters your module needs
-- `parameters` - Module-specific runtime configuration options (optional)
+- `parameter_definitions` - Defines module-specific parameters (type, description, units)
 
 **Full schema details below.** This is a 1200+ line reference - use Ctrl+F to find what you need.
 
@@ -166,8 +167,8 @@ module:
     properties: [string, ...]  # All properties used by this module
     parameters: [string, ...]  # All parameters needed by this module
 
-  # Parameters (optional, module-specific parameters)
-  parameters: [param_def, ...]
+  # Parameter Definitions (optional, defines module-specific parameters)
+  parameter_definitions: [param_def, ...]
 
   # Testing (optional, but recommended)
   tests:
@@ -390,9 +391,10 @@ dependencies:
 **Purpose**: Model parameters that this module needs
 
 **Rules**:
-- List of parameter names (must match `model_parameters.yaml`)
+- List of parameter names (must be defined by this module or another module)
 - Can be empty list `[]` if module doesn't use parameters
 - All parameters must be defined in the input YAML configuration
+- Parameters are defined in `parameter_definitions` section (see below)
 
 **Examples**:
 ```yaml
@@ -413,86 +415,118 @@ dependencies:
 ```
 
 **Validation**:
-- All parameters must exist in `model_parameters.yaml`
+- All parameters must be defined by some module's `parameter_definitions` section
 - Smart validation: only validates parameters for enabled modules
 
 ---
 
-### Parameters
+### Parameter Definitions
 
-#### parameters (list of parameter definitions, required, can be empty)
+#### parameter_definitions (list of parameter definitions, optional)
 
-**Purpose**: Define module parameters with defaults and validation
+**Purpose**: Define model parameters that this module provides to the system
+
+**Architecture**:
+- Parameters are **decentralized** - each module defines its own parameters
+- Multiple modules can define the same parameter (first wins, types must match)
+- Parameters are stored in runtime parameter registry
+- Accessed via `params_get_*()` functions (e.g., `params_get_double()`, `params_get_int()`)
 
 **Rules**:
-- List of parameter definitions (see Parameter Structure below)
-- Empty list `[]` if module has no parameters
-- Parameters are read via `module_get_*()` functions
-- Stored in YAML configuration under `modules.parameters.{ModuleName}.{ParameterName}`
+- Can be empty or omitted if module defines no new parameters
+- Each parameter has: `name` (required), `type` (required), `description` (required), `units` (optional)
+- Parameter names should be clear and descriptive (e.g., `BaryonFrac`, `RadioModeEfficiency`)
+- If multiple modules define the same parameter, types must match exactly
 
 **Parameter Structure**:
 
 ```yaml
-parameters:
-  - name: string              # Parameter name (in code)
+parameter_definitions:
+  - name: string              # Parameter name (used in code and YAML)
     type: string              # Data type: double, int, string
-    default: value            # Default value (type-appropriate)
-    range: [min, max]         # Optional: valid range for numeric types
-    description: string       # Human-readable description
-    units: string             # Optional: physical units
+    description: string       # Human-readable description (required)
+    units: string             # Optional: physical units or 'dimensionless'
 ```
 
-**Example** (full module with parameters):
+**Example** (module defining parameters):
 
 ```yaml
-parameters:
+parameter_definitions:
   - name: BaryonFrac
     type: double
-    default: 0.17
-    range: [0.0, 1.0]
     description: "Cosmic baryon fraction (Omega_b / Omega_m)"
-    units: "dimensionless"
+    units: dimensionless
 
-  - name: ReionizationOn
+  - name: AGNrecipeOn
     type: int
-    default: 1
-    range: [0, 1]
-    description: "Enable reionization suppression (0=off, 1=on)"
-    units: "dimensionless"
-
-  - name: Reionization_z0
-    type: double
-    default: 8.0
-    range: [0.0, 20.0]
-    description: "Redshift when UV background turns on"
-    units: "dimensionless"
+    description: "AGN feedback mode (0=off, 1=empirical, 2=Bondi-Hoyle, 3=cold cloud accretion)"
+    units: dimensionless
 
   - name: CoolFunctionsDir
     type: string
-    default: "input/CoolFunctions"
-    description: "Directory containing cooling function tables"
+    description: "Directory containing cooling function tables (metal-dependent cooling rates)"
+    units: path
+
+  - name: RadioModeEfficiency
+    type: double
+    description: "Efficiency of radio-mode AGN feedback (fraction of accretion energy coupled to gas heating)"
+    units: dimensionless
 ```
 
 **Parameter Types**:
-- `double` - Floating-point (use `module_get_double()`)
-- `int` - Integer (use `module_get_int()`)
-- `string` - Text (use `module_get_parameter()`)
+- `double` - Floating-point number (accessed via `params_get_double()`)
+- `int` - Integer (accessed via `params_get_int()`)
+- `string` - Text (accessed via `params_get_string()`)
+
+**Multiple Modules Sharing Parameters**:
+
+Multiple modules can depend on and define the same parameter. The first module (in YAML `modules.enabled` order) that defines a parameter wins. Types must match across all definitions.
+
+```yaml
+# Module A defines BaryonFrac
+parameter_definitions:
+  - name: BaryonFrac
+    type: double
+    description: "Cosmic baryon fraction"
+    units: dimensionless
+
+# Module B also uses BaryonFrac - can optionally redefine
+# (definition will be ignored if Module A loads first)
+parameter_definitions:
+  - name: BaryonFrac
+    type: double  # Type must match Module A's definition
+    description: "Cosmic baryon fraction"
+    units: dimensionless
+```
 
 **Validation**:
-- Parameter names must follow convention
-- Default values must match type
-- Range must be valid for numeric types (min ≤ max)
-- Generated documentation includes all parameters
+- Parameter names must be valid identifiers
+- Types must be one of: `double`, `int`, `string`
+- If same parameter defined by multiple modules, types must match
+- All parameters in `dependencies.parameters` must be defined by some enabled module
+- Generated validation code checks parameter presence in YAML configuration
 
 **Usage in YAML configuration**:
+
+Parameters are specified in the input YAML file under `model_parameters`:
+
 ```yaml
-modules:
-  parameters:
-    sage_infall:
-      BaryonFrac: 0.17
-      ReionizationOn: 1
-      Reionization_z0: 8.0
+model_parameters:
+  BaryonFrac: 0.17
+  AGNrecipeOn: 2
+  RadioModeEfficiency: 0.08
+  CoolFunctionsDir: "input/CoolFunctions"
 ```
+
+**Architecture Benefits**:
+- Parameters are co-located with the modules that use them
+- No global coordination required
+- Clear visibility into each module's parameter requirements
+- Modules are self-contained and portable
+
+**See Also**:
+- Module examples: `src/modules/sage_*/module_info.yaml`
+- Parameter validation: `scripts/validate_modules.py`
 
 ---
 
@@ -593,62 +627,143 @@ compilation_requires: []  # No special requirements
 
 ## Complete Examples
 
-### Example: Infall Module (Complete)
+### Example: Complete Module with Parameter Definitions
 
 ```yaml
-# src/modules/infall_model/module_info.yaml
+# src/modules/sage_cooling/module_info.yaml
 module:
+  # ===========================================================================
   # Core Metadata
-  name: infall_model
-  display_name: "Gas Infall Model"
-  description: "Cosmological gas infall and satellite stripping module."
+  # ===========================================================================
+
+  name: sage_cooling
+  display_name: "SAGE Cooling & AGN Heating"
+  description: "Gas cooling from hot halo to cold disk with AGN feedback from SAGE model."
   version: "1.0.0"
-  author: "Your Team"
+  author: "Mimic Team (ported from SAGE)"
 
+  # ===========================================================================
   # Source Files
-  sources: [infall_model.c]
-  headers: [infall_model.h]
-  register_function: infall_model_register
+  # ===========================================================================
 
+  sources:
+    - sage_cooling.c
+    - cooling_tables.c
+
+  headers:
+    - sage_cooling.h
+    - cooling_tables.h
+
+  register_function: sage_cooling_register
+
+  # ===========================================================================
   # Dependencies
-  dependencies:
-    properties: [HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS]
-    parameters: [BaryonFrac]
+  # ===========================================================================
 
-  # Parameters
-  parameters:
+  dependencies:
+    # All properties used by this module
+    properties:
+      - HotGas
+      - MetalsHotGas
+      - ColdGas
+      - MetalsColdGas
+      - BlackHoleMass
+      - Cooling
+      - Heating
+      - r_heat
+
+    # Parameters needed by this module
+    parameters:
+      - RadioModeEfficiency
+      - AGNrecipeOn
+      - CoolFunctionsDir
+
+  # ===========================================================================
+  # Parameter Definitions
+  # ===========================================================================
+
+  parameter_definitions:
+    - name: AGNrecipeOn
+      type: int
+      description: "AGN feedback mode (0=off, 1=empirical, 2=Bondi-Hoyle, 3=cold cloud accretion)"
+      units: dimensionless
+
+    - name: CoolFunctionsDir
+      type: string
+      description: "Directory containing cooling function tables (metal-dependent cooling rates)"
+      units: path
+
+    - name: RadioModeEfficiency
+      type: double
+      description: "Efficiency of radio-mode AGN feedback (fraction of accretion energy coupled to gas heating)"
+      units: dimensionless
+
+  # ===========================================================================
+  # Testing
+  # ===========================================================================
+
+  tests:
+    unit: tests/test_unit_sage_cooling.c
+    integration: tests/test_integration_sage_cooling.py
+    scientific: tests/test_scientific_sage_cooling_validation.py
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:
+    physics: src/modules/sage_cooling/README.md
+
+  # ===========================================================================
+  # Build Configuration
+  # ===========================================================================
+
+  compilation_requires: []
+```
+
+### Example: Simple Module (No Parameters)
+
+```yaml
+# src/modules/sage_infall/module_info.yaml
+module:
+  name: sage_infall
+  display_name: "SAGE Infall"
+  description: "Cosmological gas infall onto central galaxies from SAGE model."
+  version: "1.0.0"
+  author: "Mimic Team (ported from SAGE)"
+
+  sources: [sage_infall.c]
+  headers: [sage_infall.h]
+  register_function: sage_infall_register
+
+  dependencies:
+    properties:
+      - HotGas
+      - MetalsHotGas
+      - EjectedMass
+      - MetalsEjectedMass
+      - ICS
+      - MetalsICS
+      - TotalSatelliteBaryons
+      - InfallingGas
+    parameters:
+      - BaryonFrac
+
+  parameter_definitions:
     - name: BaryonFrac
       type: double
-      default: 0.17
-      range: [0.0, 1.0]
       description: "Cosmic baryon fraction (Omega_b / Omega_m)"
-      units: "dimensionless"
+      units: dimensionless
 
-    - name: ReionizationOn
-      type: int
-      default: 1
-      range: [0, 1]
-      description: "Enable reionization suppression of infall (0=off, 1=on)"
-      units: "dimensionless"
-
-    - name: ReionizationModifier
-      type: double
-      default: 1.0
-      range: [0.0, 10.0]
-      description: "Reionization suppression strength multiplier"
-      units: "dimensionless"
-
-  # Testing
   tests:
-    unit: test_unit_infall_model.c
-    integration: test_integration_infall_model.py
-    scientific: test_scientific_infall_model_validation.py
+    unit: tests/test_unit_sage_infall.c
+    integration: tests/test_integration_sage_infall.py
+    scientific: tests/test_scientific_sage_infall.py
 
-  # Documentation
-  documentation:
-    reference_papers:
-      - "Author et al. 2020, Journal, Volume, Page"
-    file: src/modules/infall_model/README.md
+  docs:
+    physics: src/modules/sage_infall/README.md
+
+  compilation_requires: []
 ```
 
 **Additional examples** available in existing modules:
@@ -735,17 +850,12 @@ Cosmological gas infall and satellite stripping from SAGE model.
 **Author**: Mimic Team (ported from SAGE)
 
 **Dependencies**:
-- Requires: (none)
-- Provides: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons
+- Properties: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons
+- Parameters: BaryonFrac
 
-**Parameters**:
-- `sage_infall_BaryonFrac` (double, default: 0.17, range: [0.0, 1.0])
-  Cosmic baryon fraction (Omega_b / Omega_m)
-
-- `sage_infall_ReionizationOn` (int, default: 1, range: [0, 1])
-  Enable reionization suppression (0=off, 1=on)
-
-[... more parameters ...]
+**Parameter Definitions**:
+This module defines the following parameters:
+- `BaryonFrac` (double) - Cosmic baryon fraction (Omega_b / Omega_m) [dimensionless]
 
 **References**:
 - Gnedin (2000) - Reionization model
@@ -872,10 +982,11 @@ sage_cooling provides ColdGas: type=float, units=1e10 Msun/h, source=model_prope
 ```
 
 ### 6. Parameter Validation
-- Default values match declared types
-- Ranges valid for numeric types (min ≤ max)
-- Parameter naming follows `ModuleName_ParameterName` format
-- No duplicate parameter names within module
+- Parameter types must be one of: `double`, `int`, `string`
+- If multiple modules define the same parameter, types must match exactly
+- All parameters in `dependencies.parameters` must be defined by some enabled module
+- No duplicate parameter names within a single module's `parameter_definitions`
+- Parameter names should be clear and descriptive (e.g., `BaryonFrac`, not `bf`)
 
 ### 7. Consistency Checks
 - Version format valid
@@ -1081,16 +1192,52 @@ dependencies:
   parameters: []
 ```
 
-### ❌ Wrong: Parameter naming
+### ❌ Wrong: Missing parameter definition
 ```yaml
-parameters:
-  - name: baryon_frac  # Wrong case!
+dependencies:
+  parameters:
+    - BaryonFrac  # But parameter is not defined anywhere!
+
+parameter_definitions: []  # Empty - parameter not defined
 ```
 
-### ✅ Right: Follow convention
+### ✅ Right: Define parameters you use
 ```yaml
-parameters:
-  - name: BaryonFrac   # Correct: PascalCase for readability
+dependencies:
+  parameters:
+    - BaryonFrac  # Declare dependency
+
+parameter_definitions:
+  - name: BaryonFrac  # Define the parameter
+    type: double
+    description: "Cosmic baryon fraction (Omega_b / Omega_m)"
+    units: dimensionless
+```
+
+### ❌ Wrong: Type mismatch between modules
+```yaml
+# Module A
+parameter_definitions:
+  - name: BaryonFrac
+    type: double  # Defined as double
+
+# Module B
+parameter_definitions:
+  - name: BaryonFrac
+    type: int  # ERROR: Type mismatch!
+```
+
+### ✅ Right: Consistent types
+```yaml
+# Module A
+parameter_definitions:
+  - name: BaryonFrac
+    type: double
+
+# Module B
+parameter_definitions:
+  - name: BaryonFrac
+    type: double  # Correct: Types match
 ```
 
 ---

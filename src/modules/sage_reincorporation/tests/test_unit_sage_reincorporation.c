@@ -171,46 +171,6 @@ int test_parameter_reading(void)
 }
 
 /**
- * @test    test_invalid_parameter
- * @brief   Test that module rejects invalid parameter values
- *
- * Expected: Module initialization fails with out-of-range parameter
- * Validates: Parameter validation logic
- */
-int test_invalid_parameter(void)
-{
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
-
-    /* Set up cosmology */
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
-
-    /* Configure sage_reincorporation with INVALID parameter */
-    strcpy(MimicConfig.EnabledModules[0], "sage_reincorporation");
-    MimicConfig.NumEnabledModules = 1;
-
-    /* Set all required parameters, then override with invalid value */
-    set_test_model_parameters();
-    strcpy(MimicConfig.ModelParams[14].value, "20.0");  /* ReIncorporationFactor invalid - out of range */
-
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
-
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == -1, "Module initialization should fail with invalid parameter");
-
-    /* ===== CLEANUP ===== */
-    /* Don't call module_system_cleanup() since init failed */
-    check_memory_leaks();
-
-    return TEST_PASS;
-}
-
-/**
  * @test    test_memory_safety
  * @brief   Test that module has no memory leaks during operation
  *
@@ -328,7 +288,6 @@ int main(void)
     TEST_RUN(test_module_registration);
     TEST_RUN(test_module_initialization);
     TEST_RUN(test_parameter_reading);
-    TEST_RUN(test_invalid_parameter);
     TEST_RUN(test_memory_safety);
     TEST_RUN(test_property_access);
 

@@ -2,9 +2,9 @@
 
 **Purpose**: Clear, actionable roadmap for Mimic development priorities
 
-**Status**: Core infrastructure complete. SAGE physics modules implemented. Scientific validation in progress.
+**Status**: Core infrastructure complete (v2.0 parameter decentralization). SAGE physics modules implemented. Scientific validation in progress.
 
-**Last Updated**: 2025-11-28
+**Last Updated**: 2025-12-01
 
 ---
 
@@ -13,7 +13,7 @@
 **Mission**: Mimic is a physics-agnostic galaxy evolution framework with runtime-configurable physics modules.
 
 **Current State**:
-- ✅ **Core Infrastructure Complete**: Metadata-driven property system, comprehensive testing framework, runtime module configuration, automatic module discovery, centralized model parameter system
+- ✅ **Core Infrastructure Complete (v2.0)**: Metadata-driven property system, comprehensive testing framework, runtime module configuration, automatic module discovery, decentralized parameter system
 - ✅ **All SAGE Physics Implemented**: 6 production modules ported from SAGE (infall, cooling, star formation & feedback, reincorporation, mergers, disk instability)
 - 🔄 **Integration & Validation In Progress**: Modules merged, unit tests passing, full pipeline integration and scientific validation ongoing
 
@@ -80,13 +80,14 @@ The foundational work is complete. Key capabilities now available:
 - 54 properties (23 galaxy, 31 halo) managed via single source of truth
 - **Impact**: Adding properties reduced from 30 min/8 files to 2 min/1 file
 
-### Centralized Model Parameter System
-- Define parameters once in YAML (`model_parameters.yaml`)
+### Decentralized Parameter System (v2.0 - Completed 2025-12-01)
+- Parameters defined in each module's `module_info.yaml` (`parameter_definitions` section)
 - Auto-generate validation code, type-safe accessors, smart module-based requirement checking
-- 22 physics parameters (20 SAGE physics + 2 test infrastructure)
+- 22 physics parameters (20 SAGE physics + 2 test infrastructure) across 7 modules
 - **No defaults**: All parameters MUST be explicitly specified in input file for reproducible science
 - **Smart validation**: Only parameters needed by enabled modules are required
-- **Impact**: Eliminates parameter duplication across modules, enforces explicit model specification
+- **Complete decentralization**: Each module owns and defines its parameters
+- **Impact**: True module independence - parameters live with their modules, no central registry needed
 
 ### Comprehensive Testing Framework
 - Three test tiers: unit (C), integration (Python), scientific (Python)
@@ -233,7 +234,7 @@ All 6 SAGE physics modules implemented and merged (November 2025):
 
 **What's Done**:
 - All foundational infrastructure
-- Centralized model parameter system (22 parameters, no defaults, smart validation)
+- Decentralized parameter system v2.0 (22 parameters, no defaults, smart validation, complete module independence)
 - All SAGE physics modules implemented
 - Developer tooling and documentation complete
 
@@ -249,8 +250,8 @@ All 6 SAGE physics modules implemented and merged (November 2025):
 ## Resources
 
 - **Vision & Principles**: [docs/architecture/vision.md](vision.md)
-- **Model Parameters**: [docs/architecture/model-parameters-schema.md](model-parameters-schema.md)
 - **Module Development**: [docs/developer/module-developer-guide.md](../developer/module-developer-guide.md)
+- **Module Metadata Schema**: [docs/developer/module-metadata-schema.md](../developer/module-metadata-schema.md) (includes parameter definitions)
 - **Testing Guide**: [docs/developer/testing.md](../developer/testing.md)
 - **Module Configuration**: [docs/user/module-configuration.md](../user/module-configuration.md)
 - **Next Tasks**: [docs/architecture/next-task.md](next-task.md)

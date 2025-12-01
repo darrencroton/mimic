@@ -9,7 +9,9 @@
 ## Directory Contents
 
 ### Generated Code
-- `generated/` - Auto-generated module registration code (created by build system)
+- `generated/` - Auto-generated module registration and parameter validation code (created by build system)
+  - Module registration: Connects modules to runtime system
+  - Parameter code generation: Type-safe accessors from decentralized `parameter_definitions:` in each module's `module_info.yaml`
 
 ### Module Templates & Testing
 - `template/` - Template for creating new physics modules
@@ -68,7 +70,7 @@
 - ✅ Universal empirical constants (η, recycling fraction)
 
 **Examples of what does NOT belong here**:
-- ❌ Model parameters (efficiency factors, thresholds) → use `model_parameters.yaml`
+- ❌ Model parameters (efficiency factors, thresholds) → define in module's `module_info.yaml` under `parameter_definitions:`
 - ❌ Module-specific calibrations → keep in module file
 - ❌ User-swappable models → use `_shared/` directory
 
@@ -78,13 +80,13 @@
 
 This directory contains the **permanent framework infrastructure** that modules depend on:
 
-- **Generated code**: Auto-generated, never hand-edited
+- **Generated code**: Auto-generated from module metadata (registration, parameter validation), never hand-edited
 - **Templates**: For creating new modules
 - **Test infrastructure**: For validating framework
 - **Physical constants**: Universal, immutable
 - **Output helpers**: Standard formatting
 
-If you're developing a **physics module**, you probably want `_shared/` instead (for reusable utilities) or your own module directory (for module-specific code).
+If you're developing a **physics module**, you probably want `_shared/` instead (for reusable utilities) or your own module directory (for module-specific code and parameter definitions).
 
 ---
 

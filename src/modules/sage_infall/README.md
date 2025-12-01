@@ -6,11 +6,8 @@ The `sage_infall` module implements cosmological gas infall and satellite stripp
 ```
 EnabledModules  sage_infall
 SageInfall_BaryonFrac  0.17
-SageInfall_ReionizationOn  1
-SageInfall_Reionization_z0  8.0
-SageInfall_Reionization_zr  7.0
 ```
 
 **Additional Comments**:
 
-**References**: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2006, 2016)
+**References**: Croton et al. (2006, 2016)

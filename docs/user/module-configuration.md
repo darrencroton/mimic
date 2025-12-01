@@ -9,8 +9,8 @@ Mimic's modular architecture allows you to enable/disable galaxy physics modules
 
 **Key Concepts:**
 - **Modules**: Physics components (e.g., sage_cooling, sage_starformation_feedback)
-- **Model Parameters**: Physics parameters shared across modules (e.g., BaryonFrac, SfrEfficiency)
-- **Single Source of Truth**: All parameters defined in `model_parameters.yaml`, configured in input file
+- **Model Parameters**: Physics parameters used by modules (e.g., BaryonFrac, SfrEfficiency)
+- **Decentralized Definitions**: Each module defines its needed parameters in its own `module_info.yaml`
 - **No Defaults**: All parameters MUST be specified - ensures reproducible science
 
 ## Enabling Modules
@@ -64,7 +64,7 @@ Mimic uses **smart validation** for reproducible science:
 - Your input file defines the complete physics model for your configuration
 - No hidden defaults - all assumptions are explicit
 - Different runs can be compared by comparing parameter files
-- Parameter definitions are in `src/modules/model_parameters.yaml`
+- Parameter definitions are in each module's `module_info.yaml` file
 
 ### Parameter Categories
 
@@ -123,7 +123,7 @@ model_parameters:
 
 **Complete Example**: See `input/millennium.yaml` for a working configuration file.
 
-**Parameter Descriptions**: See `src/modules/model_parameters.yaml` for detailed documentation of each parameter (units, valid ranges, scientific meaning).
+**Parameter Descriptions**: Each module documents its required parameters in its `module_info.yaml` file (located in `src/modules/<module_name>/`). These files specify parameter types, units, valid ranges, and scientific meaning.
 
 ## Available Modules
 
@@ -339,21 +339,22 @@ Available modules:
 **Error**:
 ```
 ERROR: Required model parameter 'BaryonFrac' not found in input file
-ERROR:   (needed by enabled modules)
+ERROR:   (needed by modules: sage_infall, sage_satellite_stripping)
 ```
 
-**Solution**: Add the missing parameter to the `model_parameters:` section. The error message indicates which modules need it. See `src/modules/model_parameters.yaml` for parameter definitions.
+**Solution**: Add the missing parameter to the `model_parameters:` section. The error message lists which modules need it. To see parameter details (type, units, valid range), check the module's `module_info.yaml` file in `src/modules/<module_name>/`.
 
 ### Invalid Parameter Value
 
-Parameter values are validated against ranges defined in `model_parameters.yaml`:
+Parameter values are validated against ranges defined in each module's `module_info.yaml`:
 
 **Error**:
 ```
 ERROR: BaryonFrac = 2.0 is outside valid range [0.0, 1.0]
+ERROR:   (defined by module: sage_infall)
 ```
 
-**Solution**: Correct the parameter value to be within the valid range.
+**Solution**: Correct the parameter value to be within the valid range. Check the module's `module_info.yaml` for parameter specifications.
 
 ## Tips
 
@@ -376,7 +377,7 @@ ERROR: BaryonFrac = 2.0 is outside valid range [0.0, 1.0]
 **Check**: Module execution order - dependencies must run first (see module descriptions above)
 
 **Problem**: Parameter value errors
-**Check**: Parameter values within valid ranges (see `src/modules/model_parameters.yaml`)
+**Check**: Parameter values within valid ranges (see module's `module_info.yaml` for specifications)
 
 **Problem**: Module errors at initialization
 **Check**: Module logs during initialization for parameter validation errors

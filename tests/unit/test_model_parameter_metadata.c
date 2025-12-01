@@ -3,22 +3,21 @@
  * @brief   Unit tests for model parameter metadata system
  *
  * Validates: Generated parameter metadata and validation correctness
- * Phase: Phase 4.4 (Centralized Model Parameters)
+ * Phase: Phase 4.4+ (Decentralized Model Parameters)
  *
  * This test validates that the model parameter metadata system correctly:
  * - Defines all required parameters (NUM_REQUIRED_MODEL_PARAMETERS)
  * - Provides metadata lookup for all parameters
- * - Validates parameter values against ranges (doubles and ints)
- * - Rejects out-of-range values with clear errors
+ * - Validates parameter existence (no range checking - trust the user)
+ * - Tracks source module for each parameter
  * - Detects unknown/nonexistent parameters
  * - Maintains type safety and validation correctness
  *
  * Test cases:
  *   - test_parameter_count: Verify 22 parameters defined
  *   - test_metadata_lookup: get_model_param_metadata() finds all params
- *   - test_double_validation: Valid doubles pass range checking
- *   - test_int_validation: Valid ints pass range checking
- *   - test_out_of_range_rejection: Out-of-range values rejected
+ *   - test_double_validation: Known doubles pass existence checking
+ *   - test_int_validation: Known ints pass existence checking
  *   - test_unknown_parameter: Unknown params return NULL/error
  *
  * @author  Mimic Testing Team
@@ -123,15 +122,13 @@ int test_metadata_lookup(void) {
     const struct ModelParameterMetadata *baryon_meta = get_model_param_metadata("BaryonFrac");
     TEST_ASSERT(baryon_meta != NULL, "BaryonFrac metadata should exist");
     TEST_ASSERT_STRING_EQUAL(baryon_meta->type, "double", "BaryonFrac should be double");
-    TEST_ASSERT(baryon_meta->has_range == 1, "BaryonFrac should have range");
-    TEST_ASSERT_DOUBLE_EQUAL(baryon_meta->range_min, 0.0, 0.001,
-                            "BaryonFrac min should be 0.0");
-    TEST_ASSERT_DOUBLE_EQUAL(baryon_meta->range_max, 1.0, 0.001,
-                            "BaryonFrac max should be 1.0");
+    TEST_ASSERT(baryon_meta->source_module != NULL, "BaryonFrac should have source module");
+    TEST_ASSERT(baryon_meta->units != NULL, "BaryonFrac should have units");
 
     const struct ModelParameterMetadata *agn_meta = get_model_param_metadata("AGNrecipeOn");
     TEST_ASSERT(agn_meta != NULL, "AGNrecipeOn metadata should exist");
     TEST_ASSERT_STRING_EQUAL(agn_meta->type, "int", "AGNrecipeOn should be int");
+    TEST_ASSERT(agn_meta->source_module != NULL, "AGNrecipeOn should have source module");
 
     printf("  ✓ Specific parameter metadata verified (BaryonFrac, AGNrecipeOn)\n");
 
@@ -145,8 +142,9 @@ int test_metadata_lookup(void) {
  * @test    test_double_validation
  * @brief   Test validation of double parameters
  *
- * Expected: Valid doubles within range pass validation
- * Validates: validate_model_param_double() accepts valid values
+ * Expected: Known double parameters pass existence validation
+ * Validates: validate_model_param_double() accepts any value for known params
+ * Note: No range checking - trust the user (in-code validation catches issues)
  */
 int test_double_validation(void) {
     /* ===== SETUP ===== */
@@ -155,36 +153,33 @@ int test_double_validation(void) {
 
     /* ===== EXECUTE & VALIDATE ===== */
 
-    /* Test BaryonFrac (range: [0.0, 1.0]) */
+    /* Test BaryonFrac (no range checking) */
     int result = validate_model_param_double("BaryonFrac", 0.17);
-    TEST_ASSERT_EQUAL(result, 0, "Valid BaryonFrac (0.17) should pass");
+    TEST_ASSERT_EQUAL(result, 0, "Known parameter BaryonFrac should pass");
 
     result = validate_model_param_double("BaryonFrac", 0.0);
-    TEST_ASSERT_EQUAL(result, 0, "BaryonFrac at min (0.0) should pass");
+    TEST_ASSERT_EQUAL(result, 0, "BaryonFrac with any value should pass");
 
     result = validate_model_param_double("BaryonFrac", 1.0);
-    TEST_ASSERT_EQUAL(result, 0, "BaryonFrac at max (1.0) should pass");
+    TEST_ASSERT_EQUAL(result, 0, "BaryonFrac with any value should pass");
 
-    result = validate_model_param_double("BaryonFrac", 0.5);
-    TEST_ASSERT_EQUAL(result, 0, "BaryonFrac mid-range (0.5) should pass");
+    result = validate_model_param_double("BaryonFrac", 999.0);
+    TEST_ASSERT_EQUAL(result, 0, "BaryonFrac even with extreme value should pass (no range check)");
 
-    printf("  ✓ BaryonFrac validation: min/mid/max values pass\n");
+    printf("  ✓ BaryonFrac validation: existence check only (no range validation)\n");
 
-    /* Test SfrEfficiency (range: [0.0, 1.0]) */
+    /* Test SfrEfficiency */
     result = validate_model_param_double("SfrEfficiency", 0.02);
-    TEST_ASSERT_EQUAL(result, 0, "Valid SfrEfficiency (0.02) should pass");
+    TEST_ASSERT_EQUAL(result, 0, "Known parameter SfrEfficiency should pass");
 
-    /* Test FeedbackReheatingEpsilon (range: [0.0, 100.0]) */
+    /* Test FeedbackReheatingEpsilon */
     result = validate_model_param_double("FeedbackReheatingEpsilon", 3.0);
-    TEST_ASSERT_EQUAL(result, 0, "Valid FeedbackReheatingEpsilon (3.0) should pass");
+    TEST_ASSERT_EQUAL(result, 0, "Known parameter FeedbackReheatingEpsilon should pass");
 
-    result = validate_model_param_double("FeedbackReheatingEpsilon", 0.0);
-    TEST_ASSERT_EQUAL(result, 0, "FeedbackReheatingEpsilon at min (0.0) should pass");
+    result = validate_model_param_double("FeedbackReheatingEpsilon", -999.0);
+    TEST_ASSERT_EQUAL(result, 0, "FeedbackReheatingEpsilon with any value should pass");
 
-    result = validate_model_param_double("FeedbackReheatingEpsilon", 100.0);
-    TEST_ASSERT_EQUAL(result, 0, "FeedbackReheatingEpsilon at max (100.0) should pass");
-
-    printf("  ✓ Multiple double parameter validations successful\n");
+    printf("  ✓ Multiple double parameter existence validations successful\n");
 
     /* ===== CLEANUP ===== */
     check_memory_leaks();
@@ -196,8 +191,9 @@ int test_double_validation(void) {
  * @test    test_int_validation
  * @brief   Test validation of integer parameters
  *
- * Expected: Valid ints within range pass validation
- * Validates: validate_model_param_int() accepts valid values
+ * Expected: Known int parameters pass existence validation
+ * Validates: validate_model_param_int() accepts any value for known params
+ * Note: No range checking - trust the user (in-code validation catches issues)
  */
 int test_int_validation(void) {
     /* ===== SETUP ===== */
@@ -206,89 +202,33 @@ int test_int_validation(void) {
 
     /* ===== EXECUTE & VALIDATE ===== */
 
-    /* Test AGNrecipeOn (range: [0, 3]) */
+    /* Test AGNrecipeOn (no range checking) */
     int result = validate_model_param_int("AGNrecipeOn", 0);
-    TEST_ASSERT_EQUAL(result, 0, "AGNrecipeOn = 0 (off) should pass");
+    TEST_ASSERT_EQUAL(result, 0, "Known parameter AGNrecipeOn should pass");
 
     result = validate_model_param_int("AGNrecipeOn", 1);
-    TEST_ASSERT_EQUAL(result, 0, "AGNrecipeOn = 1 (empirical) should pass");
+    TEST_ASSERT_EQUAL(result, 0, "AGNrecipeOn with any value should pass");
 
-    result = validate_model_param_int("AGNrecipeOn", 2);
-    TEST_ASSERT_EQUAL(result, 0, "AGNrecipeOn = 2 (Bondi-Hoyle) should pass");
+    result = validate_model_param_int("AGNrecipeOn", 999);
+    TEST_ASSERT_EQUAL(result, 0, "AGNrecipeOn even with extreme value should pass (no range check)");
 
-    result = validate_model_param_int("AGNrecipeOn", 3);
-    TEST_ASSERT_EQUAL(result, 0, "AGNrecipeOn = 3 (cold cloud) should pass");
+    printf("  ✓ AGNrecipeOn validation: existence check only (no range validation)\n");
 
-    printf("  ✓ AGNrecipeOn validation: all valid modes (0-3) pass\n");
-
-    /* Test SupernovaRecipeOn (range: [0, 1]) */
+    /* Test SupernovaRecipeOn */
     result = validate_model_param_int("SupernovaRecipeOn", 0);
-    TEST_ASSERT_EQUAL(result, 0, "SupernovaRecipeOn = 0 (off) should pass");
+    TEST_ASSERT_EQUAL(result, 0, "Known parameter SupernovaRecipeOn should pass");
 
     result = validate_model_param_int("SupernovaRecipeOn", 1);
-    TEST_ASSERT_EQUAL(result, 0, "SupernovaRecipeOn = 1 (on) should pass");
+    TEST_ASSERT_EQUAL(result, 0, "SupernovaRecipeOn with any value should pass");
 
-    /* Test DiskInstabilityOn (range: [0, 1]) */
+    /* Test DiskInstabilityOn */
     result = validate_model_param_int("DiskInstabilityOn", 0);
-    TEST_ASSERT_EQUAL(result, 0, "DiskInstabilityOn = 0 should pass");
+    TEST_ASSERT_EQUAL(result, 0, "Known parameter DiskInstabilityOn should pass");
 
     result = validate_model_param_int("DiskInstabilityOn", 1);
-    TEST_ASSERT_EQUAL(result, 0, "DiskInstabilityOn = 1 should pass");
+    TEST_ASSERT_EQUAL(result, 0, "DiskInstabilityOn with any value should pass");
 
-    printf("  ✓ Multiple int parameter validations successful\n");
-
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
-
-    return TEST_PASS;
-}
-
-/**
- * @test    test_out_of_range_rejection
- * @brief   Test that out-of-range values are rejected
- *
- * Expected: Values outside defined ranges fail validation
- * Validates: Range checking works correctly
- */
-int test_out_of_range_rejection(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
-    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
-
-    /* ===== EXECUTE & VALIDATE ===== */
-
-    /* Test BaryonFrac out-of-range (valid: [0.0, 1.0]) */
-    int result = validate_model_param_double("BaryonFrac", -0.1);
-    TEST_ASSERT(result != 0, "BaryonFrac = -0.1 (below min) should fail");
-
-    result = validate_model_param_double("BaryonFrac", 1.5);
-    TEST_ASSERT(result != 0, "BaryonFrac = 1.5 (above max) should fail");
-
-    result = validate_model_param_double("BaryonFrac", 999.0);
-    TEST_ASSERT(result != 0, "BaryonFrac = 999.0 (far above max) should fail");
-
-    printf("  ✓ BaryonFrac out-of-range values correctly rejected\n");
-
-    /* Test AGNrecipeOn out-of-range (valid: [0, 3]) */
-    result = validate_model_param_int("AGNrecipeOn", -1);
-    TEST_ASSERT(result != 0, "AGNrecipeOn = -1 (below min) should fail");
-
-    result = validate_model_param_int("AGNrecipeOn", 4);
-    TEST_ASSERT(result != 0, "AGNrecipeOn = 4 (above max) should fail");
-
-    result = validate_model_param_int("AGNrecipeOn", 100);
-    TEST_ASSERT(result != 0, "AGNrecipeOn = 100 (far above max) should fail");
-
-    printf("  ✓ AGNrecipeOn out-of-range values correctly rejected\n");
-
-    /* Test FeedbackReheatingEpsilon out-of-range (valid: [0.0, 100.0]) */
-    result = validate_model_param_double("FeedbackReheatingEpsilon", -1.0);
-    TEST_ASSERT(result != 0, "FeedbackReheatingEpsilon = -1.0 should fail");
-
-    result = validate_model_param_double("FeedbackReheatingEpsilon", 101.0);
-    TEST_ASSERT(result != 0, "FeedbackReheatingEpsilon = 101.0 should fail");
-
-    printf("  ✓ Range validation working for multiple parameter types\n");
+    printf("  ✓ Multiple int parameter existence validations successful\n");
 
     /* ===== CLEANUP ===== */
     check_memory_leaks();
@@ -365,7 +305,6 @@ int main(void) {
     TEST_RUN(test_metadata_lookup);
     TEST_RUN(test_double_validation);
     TEST_RUN(test_int_validation);
-    TEST_RUN(test_out_of_range_rejection);
     TEST_RUN(test_unknown_parameter);
 
     /* Print summary and return result */
