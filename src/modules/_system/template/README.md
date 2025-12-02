@@ -56,11 +56,11 @@ make generate
 Edit `your_module.c`:
 - Update `MODEL PARAMETERS` section - declare variables for the model parameters your module uses
 - Implement helper functions for physics calculations
-- Update `your_module_init()` to read model parameters using `model_get_*()`
+- Update `your_module_init()` to read and validate model parameters (use parameter_helpers.h macros)
 - Update `your_module_process()` with your physics logic
 - Update `your_module_cleanup()` to free any resources
 
-**Note (Phase 4.4)**: All physics parameters are centralized in `src/modules/model_parameters.yaml`. Modules read parameters using `model_get_double()`, `model_get_int()`, etc. No module-specific parameters.
+**Parameter Loading**: Modules read parameters from the input YAML file using `model_get_*()` functions or the convenient helper macros from `parameter_helpers.h`. All parameters must be declared in your `module_info.yaml` under `dependencies.parameters`.
 
 ### 6. Create Module Metadata
 
@@ -82,11 +82,15 @@ module:
   register_function: your_module_register
 
   dependencies:
-    requires: []  # Properties this module needs
-    provides: []  # Properties this module creates
+    # All halo and galaxy properties read or written by this module
+    properties:
+      - HotGas
+      - ColdGas
 
-  model_parameters_used: []  # Which model parameters this module reads (documentation only)
-  # Example: [BaryonFrac, SfrEfficiency]
+    # All model parameters accessed via model_get_*() functions
+    parameters:
+      - BaryonFrac
+      - SfrEfficiency
 
   tests:
     unit: test_unit_your_module.c
@@ -96,7 +100,7 @@ module:
 
 Module registration is **auto-generated** from this metadata - no manual code needed!
 
-**Note (Phase 4.4)**: The `model_parameters_used` field is for documentation only. Actual parameter definitions are in `src/modules/model_parameters.yaml` (all 20 parameters shared across modules).
+**Important**: The `dependencies.parameters` list declares which parameters your module uses. All parameters must be specified in the input YAML file. The parameter linter (`make lint-parameters`) verifies this list matches actual usage.
 
 ### 7. Build and Test
 
@@ -111,11 +115,11 @@ make test-integration # Run integration tests
 Add your module to the enabled modules list in your YAML configuration:
 
 ```yaml
-# Model parameters (all 20 REQUIRED - shown partially here)
+# Model parameters (all REQUIRED - shown partially here)
 model_parameters:
   BaryonFrac: 0.17
   SfrEfficiency: 0.02
-  # ... (all other parameters)
+  # ... (add all parameters used by enabled modules)
 
 # Enable your module
 modules:
@@ -125,7 +129,7 @@ modules:
   - your_module  # Add your module here
 ```
 
-**Note (Phase 4.4)**: Modules no longer have individual parameter sections. All physics parameters are in the centralized `model_parameters:` section. See `input/millennium.yaml` for a complete example.
+**Important**: All parameters used by your module must be specified in the `model_parameters:` section. No defaults are provided. See `input/millennium.yaml` for a complete example.
 
 Run:
 
@@ -216,8 +220,10 @@ static int template_module_init(void) {
 
 ### After (Custom Cooling Module)
 ```c
-// MODEL PARAMETERS (Phase 4.4: read from centralized model_parameters.yaml)
-static double baryon_frac;  // Uses BaryonFrac from model_parameters
+#include "../_system/parameter_helpers.h"
+
+// MODEL PARAMETERS
+static double baryon_frac;  // Read from input YAML via model_get_double()
 
 static float compute_cooling_rate(float mvir, double redshift) {
     // Physics: accreted baryons cool from hot halo
@@ -226,17 +232,16 @@ static float compute_cooling_rate(float mvir, double redshift) {
 }
 
 static int your_module_init(void) {
-    // Read centralized model parameter
-    if (model_get_double("BaryonFrac", &baryon_frac) != 0) {
-        ERROR_LOG("Failed to read BaryonFrac");
-        return -1;
-    }
+    // Load and validate parameter in one call
+    LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", baryon_frac, 0.0, 1.0,
+                                      "cosmic baryon fraction must be physical");
+
     INFO_LOG("Cooling module initialized with BaryonFrac = %f", baryon_frac);
     // ...
 }
 ```
 
-**Note**: All 20 model parameters are defined in `src/modules/model_parameters.yaml` and REQUIRED in the input file. Your module reads only the parameters it needs.
+**Note**: All parameters used by your module must be specified in the input YAML file (no defaults). Declare them in your `module_info.yaml` under `dependencies.parameters`.
 
 ---
 

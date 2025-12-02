@@ -1279,15 +1279,22 @@ halos[i].galaxy->ColdGas = new_value;  // ✅
 // WRONG: Hardcoded value
 static double EFFICIENCY = 0.02;  // ❌ Can't be changed by users
 
-// CORRECT: Read from centralized model_parameters.yaml
+// CORRECT: Read from input YAML file
 static double EFFICIENCY;  // No hardcoded default
 
+#include "../_system/parameter_helpers.h"
+
 static int my_module_init(void) {
-    // Read from centralized parameters
+    // Option 1: Manual read with validation
     if (model_get_double("SfrEfficiency", &EFFICIENCY) != 0) {  // ✅
         ERROR_LOG("Failed to read SfrEfficiency parameter");
         return -1;
     }
+
+    // Option 2: Using helper macro (recommended)
+    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("SfrEfficiency", EFFICIENCY, 0.0, 1.0,
+                                      "star formation efficiency");  // ✅
+
     return 0;
 }
 ```
@@ -1523,9 +1530,12 @@ for (int i = 0; i < ngal; i++) {
 ### Key Functions
 
 ```c
-// Parameter reading (from centralized model_parameters.yaml)
+// Parameter reading (from input YAML file)
 model_get_double(param_name, &out_value);
 model_get_int(param_name, &out_value);
+// Or use helper macros from _system/parameter_helpers.h:
+LOAD_PARAM_DOUBLE(param_name, out_value);
+LOAD_AND_VALIDATE_RANGE_INCLUSIVE(param_name, out_value, min, max, context);
 
 // Memory management
 malloc_tracked(size, category);
@@ -1561,8 +1571,8 @@ When implementing a module, ensure:
 - [ ] Module follows naming conventions (`lowercase_with_underscores`)
 - [ ] All three lifecycle functions implemented (`init`, `process_halos`, `cleanup`)
 - [ ] Properties defined in YAML metadata, not hardcoded
-- [ ] Parameters read using `model_get_*()` API from centralized `model_parameters.yaml`
-- [ ] Parameter dependencies declared in `module_info.yaml` (`dependencies.parameters`)
+- [ ] Parameters read using `model_get_*()` API (or `parameter_helpers.h` macros)
+- [ ] Parameters declared in `module_info.yaml` under `dependencies.parameters`
 - [ ] Memory allocations use `malloc_tracked()` / `free_tracked()`
 - [ ] Error handling returns -1 on failure, 0 on success
 - [ ] Logging uses appropriate levels (INFO/DEBUG/ERROR)

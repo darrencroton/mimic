@@ -35,7 +35,7 @@ module:
   # ===========================================================================
 
   dependencies:
-    # All properties used by this module
+    # All halo and galaxy properties read or written by this module
     properties:
       - HotGas
       - MetalsHotGas
@@ -48,8 +48,7 @@ module:
       - DiskScaleRadius
       - OutflowRate
 
-
-    # Parameters needed by this module
+    # All model parameters accessed via model_get_*() functions
     parameters:
       - SFprescription
       - SfrEfficiency
@@ -62,8 +61,9 @@ module:
       - Yield
       - FracZleaveDisk
       - DiskInstabilityOn
+
   # ===========================================================================
-  # Tests
+  # Testing
   # ===========================================================================
 
   tests:

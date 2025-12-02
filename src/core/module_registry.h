@@ -84,17 +84,16 @@ int module_system_cleanup(void);
  *
  * Must be called before module_system_init().
  *
- * Implementation: src/modules/module_init.c
- * Phase 5: Will be auto-generated from module metadata
+ * Implementation: Auto-generated from module metadata in module_info.yaml files
  */
 void register_all_modules(void);
 
 /* ==============================================================================
- * MODEL PARAMETER ACCESS (Phase 4.4)
+ * MODEL PARAMETER ACCESS
  * ==============================================================================
  *
- * Model parameters are defined in model_parameters.yaml and MUST be explicitly
- * specified in the input YAML file. NO defaults are used.
+ * Model parameters MUST be explicitly specified in the input YAML file.
+ * NO defaults are used.
  *
  * This enforces reproducible science: input file is complete model specification.
  */

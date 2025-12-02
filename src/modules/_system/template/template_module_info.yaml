@@ -31,22 +31,20 @@ module:
   # ===========================================================================
 
   dependencies:
-    # All properties this module reads or writes
-    # List every property your module touches (reads, writes, or modifies)
+    # All halo and galaxy properties read or written by this module
     properties: []
     # Example:
-    #   - HotGas           # Reads/writes hot gas mass
-    #   - MetalsHotGas     # Reads/writes hot gas metals
-    #   - ColdGas          # Writes cold gas mass
-    #   - StellarMass      # Reads stellar mass
+    #   - HotGas
+    #   - MetalsHotGas
+    #   - ColdGas
+    #   - StellarMass
 
-    # Parameters required by this module
-    # Must be defined in src/modules/model_parameters.yaml
+    # All model parameters accessed via model_get_*() functions
     parameters: []
     # Example:
-    #   - BaryonFrac         # Cosmic baryon fraction
-    #   - SfrEfficiency      # Star formation efficiency
-    #   - RecycleFraction    # Stellar recycling
+    #   - BaryonFrac
+    #   - SfrEfficiency
+    #   - RecycleFraction
 
   # ===========================================================================
   # Testing (OPTIONAL but recommended)

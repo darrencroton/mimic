@@ -35,24 +35,24 @@ module:
   # ===========================================================================
 
   dependencies:
-    # All properties used by this module
+    # All halo and galaxy properties read or written by this module
     properties:
-      - ColdGas           # Cold gas mass
-      - MetalsColdGas     # Metal mass in cold gas
-      - StellarMass       # Total stellar mass
-      - MetalsStellarMass # Total metal mass in stars
-      - Vmax              # Maximum circular velocity (from halo)
-      - BulgeMass         # Stellar mass in bulge
-      - MetalsBulgeMass   # Metal mass in bulge
-      - DiskScaleRadius   # Disk scale radius
+      - ColdGas
+      - MetalsColdGas
+      - StellarMass
+      - MetalsStellarMass
+      - Vmax
+      - BulgeMass
+      - MetalsBulgeMass
+      - DiskScaleRadius
 
-
-    # Parameters needed by this module
+    # All model parameters accessed via model_get_*() functions
     parameters:
       - DiskInstabilityOn
       - DiskRadiusFactor
+
   # ===========================================================================
-  # Tests
+  # Testing
   # ===========================================================================
 
   tests:

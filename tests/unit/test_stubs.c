@@ -30,8 +30,8 @@ void myexit(int signum) {
  * @brief   Set up all required model parameters with test values
  *
  * Since all model parameters are REQUIRED (no defaults), unit tests must
- * provide all 20 parameters. This helper sets them all to standard test
- * values based on SAGE defaults from model_parameters.yaml.
+ * provide all parameters. This helper sets them all to standard test
+ * values based on SAGE defaults.
  *
  * Usage in tests:
  *   reset_config();
@@ -40,7 +40,6 @@ void myexit(int signum) {
  *   module_system_init();
  *
  * @note    Called after reset_config() to populate MimicConfig.ModelParams[]
- * @note    All parameters required as of Phase 4.4 (centralized model_parameters)
  */
 void set_test_model_parameters(void) {
     int idx = 0;

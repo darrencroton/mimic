@@ -173,7 +173,7 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate check-generated tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules
+.PHONY: all clean tidy help info generate check-generated tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules lint-parameters
 
 all: $(EXEC)
 
@@ -216,9 +216,7 @@ GENERATED_HEADERS := \
     $(GEN_DIR)/init_galaxy_properties.inc \
     $(GEN_DIR)/copy_to_output.inc \
     $(GEN_DIR)/hdf5_field_count.inc \
-    $(GEN_DIR)/hdf5_field_definitions.inc \
-    $(GEN_DIR)/model_parameters.h \
-    $(GEN_DIR)/model_parameters.c
+    $(GEN_DIR)/hdf5_field_definitions.inc
 
 # Sentinel file to track that generated code has been verified
 GEN_VERIFIED := $(BUILD_DIR)/.generated_verified
@@ -264,9 +262,13 @@ $(OBJ_DIR)/modules/_system/generated/module_init.o: $(MODULE_INIT_C)
 
 # Rule to (re)generate module registration code whenever YAML or generator changes
 $(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py
+	@echo ""
 	@echo "Generating module registration code from metadata (auto)..."
 	@python3 scripts/generate_module_registry.py
-	@echo "Done. Generated files for $(words $(MODULE_YAML)) module(s)"
+	@echo "Generated files for $(words $(MODULE_YAML)) module(s)"
+	@echo ""
+	@echo "Validating parameter usage..."
+	@python3 scripts/lint_parameter_usage.py
 
 # -----------------------------------------------------------------------------
 # Housekeeping Targets
@@ -295,6 +297,7 @@ help:
 	@echo "Module targets:"
 	@echo "  make generate-modules  - Generate module registration code"
 	@echo "  make validate-modules  - Validate module metadata"
+	@echo "  make lint-parameters   - Verify parameter usage matches declarations"
 	@echo ""
 	@echo "Test targets:"
 	@echo "  make tests        - Run all tests (unit + integration + scientific)"
@@ -391,6 +394,10 @@ validate-modules:
 	@echo "Validating module metadata..."
 	@python3 scripts/validate_modules.py
 
+lint-parameters:
+	@echo "Linting parameter usage..."
+	@python3 scripts/lint_parameter_usage.py
+
 check-generated:
 	@python3 scripts/check_generated.py
 
@@ -414,6 +421,8 @@ tests:
 	@rm -f build/.test_failures
 	@echo ""
 	@$(MAKE) validate-modules || echo "validate-modules" >> build/.test_failures || true
+	@echo ""
+	@$(MAKE) lint-parameters || echo "lint-parameters" >> build/.test_failures || true
 	@echo ""
 	@$(MAKE) test-unit || echo "unit" >> build/.test_failures || true
 	@$(MAKE) test-integration || true

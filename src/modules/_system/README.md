@@ -9,9 +9,8 @@
 ## Directory Contents
 
 ### Generated Code
-- `generated/` - Auto-generated module registration and parameter validation code (created by build system)
-  - Module registration: Connects modules to runtime system
-  - Parameter code generation: Type-safe accessors from decentralized `parameter_definitions:` in each module's `module_info.yaml`
+- `generated/` - Auto-generated module registration code (created by build system)
+  - Module registration: Connects modules to runtime system based on `module_info.yaml` files
 
 ### Module Templates & Testing
 - `template/` - Template for creating new physics modules
@@ -22,6 +21,14 @@
   - Single source of truth for physical constants
   - Used by all modules for physics calculations
   - Terse format (one constant per line)
+
+### Parameter Loading Helpers
+- **`parameter_helpers.h`** - Helper macros for module parameter loading and validation
+  - `LOAD_PARAM_DOUBLE/INT/STRING` - Simple parameter loading with error handling
+  - `VALIDATE_RANGE_EXCLUSIVE/INCLUSIVE` - Range validation with optional context
+  - `LOAD_AND_VALIDATE_RANGE_*` - Combined load and validate in one call
+  - `VALIDATE_OPTION` - Mode/option validation
+  - See header file for complete API
 
 ### Output Infrastructure
 - **`output_helpers.h`** - Output formatting macros for HDF5 and binary writers
@@ -41,6 +48,18 @@
 // - SN_ENERGY_ERG (supernova energy)
 // - RADIATIVE_EFFICIENCY (η for black holes)
 // - etc.
+```
+
+### Include Parameter Helpers
+```c
+#include "../_system/parameter_helpers.h"
+
+// Load and validate parameters in module init:
+LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", baryon_frac, 0.0, 1.0,
+                                  "cosmic baryon fraction must be physical");
+
+LOAD_AND_VALIDATE_OPTION("AGNrecipeOn", agn_recipe, 3,
+                         "0=off, 1=radio, 2=quasar, 3=both");
 ```
 
 ### Include Output Helpers
@@ -70,7 +89,7 @@
 - ✅ Universal empirical constants (η, recycling fraction)
 
 **Examples of what does NOT belong here**:
-- ❌ Model parameters (efficiency factors, thresholds) → define in module's `module_info.yaml` under `parameter_definitions:`
+- ❌ Model parameters (efficiency factors, thresholds) → read from input YAML via `model_get_*()`
 - ❌ Module-specific calibrations → keep in module file
 - ❌ User-swappable models → use `_shared/` directory
 
@@ -80,13 +99,14 @@
 
 This directory contains the **permanent framework infrastructure** that modules depend on:
 
-- **Generated code**: Auto-generated from module metadata (registration, parameter validation), never hand-edited
+- **Generated code**: Auto-generated from module metadata (registration), never hand-edited
 - **Templates**: For creating new modules
 - **Test infrastructure**: For validating framework
 - **Physical constants**: Universal, immutable
+- **Parameter helpers**: Convenient loading and validation macros
 - **Output helpers**: Standard formatting
 
-If you're developing a **physics module**, you probably want `_shared/` instead (for reusable utilities) or your own module directory (for module-specific code and parameter definitions).
+If you're developing a **physics module**, you probably want `_shared/` instead (for reusable utilities) or your own module directory (for module-specific code).
 
 ---
 

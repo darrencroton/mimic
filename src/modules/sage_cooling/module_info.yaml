@@ -37,7 +37,7 @@ module:
   # ===========================================================================
 
   dependencies:
-    # All properties used by this module
+    # All halo and galaxy properties read or written by this module
     properties:
       - HotGas
       - MetalsHotGas
@@ -48,12 +48,12 @@ module:
       - Heating
       - r_heat
 
-
-    # Parameters needed by this module
+    # All model parameters accessed via model_get_*() functions
     parameters:
       - RadioModeEfficiency
       - AGNrecipeOn
       - CoolFunctionsDir
+
   # ===========================================================================
   # Testing
   # ===========================================================================

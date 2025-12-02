@@ -40,19 +40,21 @@
 #include "template_module.h"
 #include "types.h"
 
+#include "../_system/parameter_helpers.h" // For LOAD_PARAM_*, VALIDATE_RANGE_*, etc.
+
 // ============================================================================
-// MODEL PARAMETERS (Phase 4.4)
+// MODEL PARAMETERS
 // ============================================================================
 
 /**
- * Model parameters read from centralized model_parameters.yaml
+ * Model parameters read from input YAML file via model_get_*() functions
  *
  * Example: If your module uses BaryonFrac and SfrEfficiency:
- *   static double baryon_frac;     // Read from model_parameters.BaryonFrac
- *   static double sfr_efficiency;  // Read from model_parameters.SfrEfficiency
+ *   static double baryon_frac;     // Read via model_get_double("BaryonFrac", ...)
+ *   static double sfr_efficiency;  // Read via model_get_double("SfrEfficiency", ...)
  *
- * All parameters defined in src/modules/model_parameters.yaml
- * No defaults - all REQUIRED in input file
+ * All parameters must be explicitly specified in the input YAML file (no defaults).
+ * Declare parameters used by your module in module_info.yaml under dependencies.parameters
  */
 static double example_param1;
 static double example_param2;
@@ -139,33 +141,34 @@ static float another_helper(float x) {
  */
 static int template_module_init(void) {
   // -------------------------------------------------------------------------
-  // 1. Read model parameters (Phase 4.4: centralized in model_parameters.yaml)
+  // 1. Read and validate model parameters
   // -------------------------------------------------------------------------
-  // Example: If your module uses BaryonFrac and SfrEfficiency:
+  // All parameters are REQUIRED in the input YAML file (no defaults).
+  // Declare parameters in module_info.yaml under dependencies.parameters
   //
-  // if (model_get_double("BaryonFrac", &baryon_frac) != 0) {
-  //     ERROR_LOG("Failed to read BaryonFrac");
+  // Option A: Simple parameter loading (manual validation)
+  //   LOAD_PARAM_DOUBLE("BaryonFrac", baryon_frac);
+  //   if (baryon_frac <= 0.0 || baryon_frac > 1.0) {
+  //     ERROR_LOG("BaryonFrac must be in (0, 1]");
   //     return -1;
-  // }
+  //   }
   //
-  // if (model_get_double("SfrEfficiency", &sfr_efficiency) != 0) {
-  //     ERROR_LOG("Failed to read SfrEfficiency");
-  //     return -1;
-  // }
+  // Option B: Load and validate in one call (recommended for simple ranges)
+  //   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", baryon_frac, 0.0, 1.0,
+  //                                     "cosmic baryon fraction must be physical");
   //
-  // All 20 model parameters are REQUIRED in input file (no defaults).
-  // See src/modules/model_parameters.yaml for complete list.
+  // Option C: Mode/option validation
+  //   LOAD_AND_VALIDATE_OPTION("AGNrecipeOn", agn_recipe, 3,
+  //                            "0=off, 1=radio, 2=quasar, 3=both");
+  //
+  // See src/modules/_system/parameter_helpers.h for all available macros.
 
   // TODO: Replace with actual parameter reads for your module
-  if (model_get_double("ExampleParam1", &example_param1) != 0) {
-    ERROR_LOG("Failed to read ExampleParam1");
-    return -1;
-  }
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ExampleParam1", example_param1, 0.0, 10.0,
+                                    "example physics parameter");
 
-  if (model_get_double("ExampleParam2", &example_param2) != 0) {
-    ERROR_LOG("Failed to read ExampleParam2");
-    return -1;
-  }
+  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ExampleParam2", example_param2, 0.0, 1.0,
+                                    "example efficiency factor");
 
   // -------------------------------------------------------------------------
   // 2. Allocate persistent memory (if needed)

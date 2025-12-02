@@ -58,7 +58,7 @@ static void ensure_modules_registered(void)
 /* Test fixture: Set test_fixture parameters via centralized system */
 static void set_test_fixture_params(double dummy_val, int logging_val)
 {
-    // Set parameters in centralized model_parameters system
+    // Set parameters in parameter system
     // ModelParams is an array of {param_name, value} pairs
     int idx = 0;
 

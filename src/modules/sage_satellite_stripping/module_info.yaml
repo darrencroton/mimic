@@ -35,18 +35,17 @@ module:
   # ===========================================================================
 
   dependencies:
-    # All properties used by this module
-    # Note: If properties don't exist, stripping simply won't occur.
+    # All halo and galaxy properties read or written by this module
     properties:
       - HotGas
       - MetalsHotGas
 
-
-    # Parameters needed by this module
+    # All model parameters accessed via model_get_*() functions
     parameters:
       - BaryonFrac
+
   # ===========================================================================
-  # Tests
+  # Testing
   # ===========================================================================
 
   tests:

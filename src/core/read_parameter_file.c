@@ -366,7 +366,7 @@ static void parse_units_section(yaml_document_t *doc, yaml_node_t *section) {
 }
 
 /**
- * @brief   Parse model_parameters section (Phase 4.4)
+ * @brief   Parse model_parameters section
  *
  * Model parameters are ALL physics parameters required by the model.
  * They must be explicitly specified - NO defaults are used.

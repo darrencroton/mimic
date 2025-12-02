@@ -31,7 +31,7 @@
 /**
  * @brief   Dummy parameter for testing parameter API
  *
- * Read from centralized model_parameters via TestFixtureDummyParameter.
+ * Read from model_get_*() API via TestFixtureDummyParameter.
  * Has no physical meaning - exists only to test parameter system.
  */
 static double DUMMY_PARAMETER;
@@ -39,7 +39,7 @@ static double DUMMY_PARAMETER;
 /**
  * @brief   Enable verbose logging for test validation
  *
- * Read from centralized model_parameters via TestFixtureEnableLogging.
+ * Read from model_get_*() API via TestFixtureEnableLogging.
  * 0 = minimal logging, 1 = verbose logging for test validation
  */
 static int ENABLE_LOGGING;
@@ -48,12 +48,12 @@ static int ENABLE_LOGGING;
  * @brief   Initialize test fixture module
  *
  * Called once during program startup. Reads module parameters from
- * centralized model_parameters system and logs module configuration.
+ * model_get_*() API system and logs module configuration.
  *
  * @return  0 on success, -1 on error
  */
 static int test_fixture_init(void) {
-  // Read parameters from centralized model_parameters system
+  // Read parameters from model_get_*() API system
   if (model_get_double("TestFixtureDummyParameter", &DUMMY_PARAMETER) != 0) {
     ERROR_LOG("Failed to read TestFixtureDummyParameter from model_parameters");
     return -1;

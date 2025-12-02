@@ -32,7 +32,7 @@
  *
  * WARNING: This module is for testing infrastructure only.
  *
- * IMPORTANT: test_fixture reads parameters from the centralized model_parameters
+ * IMPORTANT: test_fixture reads parameters from the parameter
  * system (TestFixtureDummyParameter, TestFixtureEnableLogging). This allows
  * infrastructure tests to validate that the centralized parameter system works.
  */

@@ -1106,53 +1106,41 @@ dependencies:
   parameters: []
 ```
 
-### ❌ Wrong: Missing parameter definition
+### ❌ Wrong: Use parameter without declaring it
 ```yaml
 dependencies:
-  parameters:
-    - BaryonFrac  # But parameter is not defined anywhere!
-
-parameter_definitions: []  # Empty - parameter not defined
+  parameters: []  # Empty - but code uses BaryonFrac!
 ```
 
-### ✅ Right: Define parameters you use
+```c
+// In module code
+static int init(void) {
+    double baryon_frac;
+    model_get_double("BaryonFrac", &baryon_frac);  // ❌ Not declared!
+}
+```
+
+### ✅ Right: Declare all parameters you use
 ```yaml
 dependencies:
+  # All model parameters accessed via model_get_*() functions
   parameters:
-    - BaryonFrac  # Declare dependency
-
-parameter_definitions:
-  - name: BaryonFrac  # Define the parameter
-    type: double
-    description: "Cosmic baryon fraction (Omega_b / Omega_m)"
-    units: dimensionless
+    - BaryonFrac
+    - SfrEfficiency
 ```
 
-### ❌ Wrong: Type mismatch between modules
-```yaml
-# Module A
-parameter_definitions:
-  - name: BaryonFrac
-    type: double  # Defined as double
+```c
+// In module code
+#include "../_system/parameter_helpers.h"
 
-# Module B
-parameter_definitions:
-  - name: BaryonFrac
-    type: int  # ERROR: Type mismatch!
+static int init(void) {
+    double baryon_frac, sfr_eff;
+    LOAD_PARAM_DOUBLE("BaryonFrac", baryon_frac);      // ✅ Declared
+    LOAD_PARAM_DOUBLE("SfrEfficiency", sfr_eff);       // ✅ Declared
+}
 ```
 
-### ✅ Right: Consistent types
-```yaml
-# Module A
-parameter_definitions:
-  - name: BaryonFrac
-    type: double
-
-# Module B
-parameter_definitions:
-  - name: BaryonFrac
-    type: double  # Correct: Types match
-```
+**Note**: The parameter linter (`make lint-parameters`) automatically verifies that declared parameters match actual usage.
 
 ---
 

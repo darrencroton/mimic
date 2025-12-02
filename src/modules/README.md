@@ -54,10 +54,9 @@ src/modules/
 2. **Create module code** (see `_system/template/README.md` for detailed instructions)
 
 3. **Create module metadata** (`module_info.yaml`) declaring:
-   - Module dependencies
-   - Parameter definitions (in `parameter_definitions:` section)
+   - Module dependencies (properties and parameters)
    - Test files
-   - Model properties used
+   - Module metadata (name, version, etc.)
 
 4. **Create tests** (see Testing section below)
 
@@ -172,22 +171,39 @@ See **[docs/developer/testing.md](../../docs/developer/testing.md)** for:
 
 ## Module Parameters
 
-**Decentralized Parameter System**: Each module defines its own parameters in the `parameter_definitions:` section of its `module_info.yaml`. Parameters are:
-- Defined locally in the module that uses them
-- Auto-generated into type-safe accessors during `make generate`
-- Only validated if the module is enabled
-- Required in input YAML (no defaults for reproducibility)
+**Simple Parameter System**: Modules read parameters directly from the input YAML file using type-safe accessor functions:
+- `model_get_double(name, &var)` - Read double parameter
+- `model_get_int(name, &var)` - Read integer parameter
+- `model_get_string(name, buf, len)` - Read string parameter
 
-**Example** (in `module_info.yaml`):
+**Parameter Declaration**: Each module declares which parameters it uses in the `dependencies.parameters` section of its `module_info.yaml`:
+
 ```yaml
-parameter_definitions:
-  - name: my_efficiency
-    type: double
-    constraints: {min: 0.0, max: 1.0}
-    description: "Efficiency factor for my module"
+dependencies:
+  # All model parameters accessed via model_get_*() functions
+  parameters:
+    - BaryonFrac
+    - SfrEfficiency
 ```
 
-Modules access parameters via auto-generated accessors: `GET_PARAM_my_efficiency(params)`
+**Helper Macros**: For convenient parameter loading and validation, use macros from `_system/parameter_helpers.h`:
+
+```c
+#include "../_system/parameter_helpers.h"
+
+// Load and validate in one call
+LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", baryon_frac, 0.0, 1.0,
+                                  "cosmic baryon fraction must be physical");
+
+// Or load first, validate later for complex validation
+LOAD_PARAM_DOUBLE("SfrEfficiency", sfr_efficiency);
+if (sfr_efficiency < 0.001) {
+    WARN_LOG("SfrEfficiency unusually low: %.4f", sfr_efficiency);
+}
+VALIDATE_RANGE_INCLUSIVE("SfrEfficiency", sfr_efficiency, 0.0, 1.0, NULL);
+```
+
+**Validation**: The parameter linter (`make lint-parameters`) automatically verifies that declared parameters match actual usage.
 
 ---
 

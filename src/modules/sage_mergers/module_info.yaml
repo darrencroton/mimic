@@ -35,7 +35,7 @@ module:
   # ===========================================================================
 
   dependencies:
-    # All properties used by this module
+    # All halo and galaxy properties read or written by this module
     properties:
       - ColdGas
       - StellarMass
@@ -52,12 +52,11 @@ module:
       - QuasarModeBHaccretionMass
       - TimeOfLastMajorMerger
       - TimeOfLastMinorMerger
-      - MetalsStellarMass  # Modified by this module
-      - OutflowRate  # Modified by this module
-      - DiskScaleRadius  # Modified by this module
+      - MetalsStellarMass
+      - OutflowRate
+      - DiskScaleRadius
 
-
-    # Parameters needed by this module
+    # All model parameters accessed via model_get_*() functions
     parameters:
       - BlackHoleGrowthRate
       - QuasarModeEfficiency
@@ -70,8 +69,9 @@ module:
       - AGNrecipeOn
       - SupernovaRecipeOn
       - DiskInstabilityOn
+
   # ===========================================================================
-  # Tests
+  # Testing
   # ===========================================================================
 
   tests:

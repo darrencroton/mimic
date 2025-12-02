@@ -35,9 +35,7 @@ module:
   # ===========================================================================
 
   dependencies:
-    # All properties used by this module
-    # Note: Reads StellarMass, ColdGas, BlackHoleMass for baryon accounting,
-    # but these are not strict requirements (will be 0 if not set by previous modules)
+    # All halo and galaxy properties read or written by this module
     properties:
       - HotGas
       - MetalsHotGas
@@ -48,12 +46,12 @@ module:
       - TotalSatelliteBaryons
       - InfallingGas
 
-    # Parameters needed by this module
+    # All model parameters accessed via model_get_*() functions
     parameters:
       - BaryonFrac
 
   # ===========================================================================
-  # Tests
+  # Testing
   # ===========================================================================
 
   tests:

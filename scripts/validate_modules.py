@@ -128,7 +128,7 @@ class ValidationResults:
             print(f"{RED}✗ Validation failed - {len(self.errors)} error(s) found{NC}")
         else:
             print()
-            print(f"{GREEN}✓ Validation passed{NC}")
+            print(f"{GREEN}✓ Validation PASSED{NC}")
 
 
 # ==============================================================================
