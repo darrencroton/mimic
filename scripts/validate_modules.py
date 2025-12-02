@@ -254,8 +254,8 @@ def validate_required_fields(
     ]
     required_sources = ["sources", "headers", "register_function"]
     required_deps = ["dependencies"]
-    # Phase 4.4: parameters is now optional (centralized model_parameters system)
-    # Modules may have module-specific parameters OR use only global model_parameters
+    # Phase 4.4: parameters is now optional (centralized modules.parameters system)
+    # Modules may have module-specific parameters OR use only global modules.parameters
     required_params = []  # parameters field is now optional
 
     all_required = required_core + required_sources + required_deps + required_params
@@ -661,7 +661,7 @@ def validate_module_dependencies(
 
     deps = module.get("dependencies", {})
     properties = deps.get("properties", [])
-    # parameters are validated elsewhere (model_parameters system)
+    # parameters are validated elsewhere (modules.parameters system)
 
     valid = True
 

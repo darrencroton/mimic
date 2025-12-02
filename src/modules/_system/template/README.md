@@ -115,21 +115,20 @@ make test-integration # Run integration tests
 Add your module to the enabled modules list in your YAML configuration:
 
 ```yaml
-# Model parameters (all REQUIRED - shown partially here)
-model_parameters:
-  BaryonFrac: 0.17
-  SfrEfficiency: 0.02
-  # ... (add all parameters used by enabled modules)
-
-# Enable your module
+# Enable your module and configure parameters
 modules:
   enabled:
   - sage_infall
   - sage_cooling
   - your_module  # Add your module here
+  parameters:
+    # All parameters REQUIRED - shown partially here
+    BaryonFrac: 0.17
+    SfrEfficiency: 0.02
+    # ... (add all parameters used by enabled modules)
 ```
 
-**Important**: All parameters used by your module must be specified in the `model_parameters:` section. No defaults are provided. See `input/millennium.yaml` for a complete example.
+**Important**: All parameters used by your module must be specified in the `modules.parameters:` section. No defaults are provided. See `input/millennium.yaml` for a complete example.
 
 Run:
 

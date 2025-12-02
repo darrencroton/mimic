@@ -110,10 +110,10 @@ simulation:
     hubble_h: 0.73
   box_size: 62.5              # Mpc/h
   particle_mass: 0.0860657    # 10^10 Msun/h
-
-units:
-  length_in_cm: 3.08568e+24   # Mpc/h
-  mass_in_g: 1.989e+43        # 10^10 Msun
+  units:
+    length_in_cm: 3.08568e+24   # Mpc/h
+    mass_in_g: 1.989e+43        # 10^10 Msun
+    velocity_in_cm_per_s: 100000.0  # km/s
 ```
 
 See `input/millennium.yaml` for complete parameter documentation.

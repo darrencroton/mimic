@@ -147,7 +147,7 @@ def create_test_param_file(output_name, enabled_modules=None,
     config['modules']['enabled'] = enabled_modules
 
     # Add model_parameters (test_fixture needs TestFixtureDummyParameter and TestFixtureEnableLogging)
-    config['model_parameters'] = {
+    config['modules']['parameters'] = {
         'TestFixtureDummyParameter': 1.0,
         'TestFixtureEnableLogging': 0
     }
@@ -163,9 +163,9 @@ def create_test_param_file(output_name, enabled_modules=None,
                         value = int(value)
                 except (ValueError, AttributeError):
                     pass
-                config['model_parameters']['TestFixtureDummyParameter'] = value
+                config['modules']['parameters']['TestFixtureDummyParameter'] = value
             elif param_name == 'TestFixture_EnableLogging' or param_name == 'TestFixtureEnableLogging':
-                config['model_parameters']['TestFixtureEnableLogging'] = int(value)
+                config['modules']['parameters']['TestFixtureEnableLogging'] = int(value)
 
     # Write test parameter file as YAML
     param_path = Path(temp_dir) / f"{output_name}.yaml"

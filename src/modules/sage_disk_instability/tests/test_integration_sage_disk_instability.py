@@ -176,7 +176,7 @@ def test_output_properties_exist():
     config['output']['output_format'] = 'binary'
 
     # Add model_parameters (sage_disk_instability needs 2 parameters)
-    config['model_parameters'] = {
+    config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
         'DiskRadiusFactor': 3.0
     }
@@ -251,7 +251,7 @@ def test_parameters_configurable():
     config['output']['output_format'] = 'binary'
 
     # Add model_parameters with custom DiskRadiusFactor to test configurability
-    config['model_parameters'] = {
+    config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
         'DiskRadiusFactor': 5.0  # Custom value (default is 3.0)
     }
@@ -297,7 +297,7 @@ def test_stability_physics():
     config['output']['output_format'] = 'binary'
 
     # Add model_parameters (sage_disk_instability needs 2 parameters)
-    config['model_parameters'] = {
+    config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
         'DiskRadiusFactor': 3.0
     }
@@ -372,7 +372,7 @@ def test_stellar_conservation():
     config['output']['output_format'] = 'binary'
 
     # Add model_parameters (sage_disk_instability needs 2 parameters)
-    config['model_parameters'] = {
+    config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
         'DiskRadiusFactor': 3.0
     }
@@ -444,7 +444,7 @@ def test_memory_safety():
     config['output']['output_format'] = 'binary'
 
     # Add model_parameters (sage_disk_instability needs 2 parameters)
-    config['model_parameters'] = {
+    config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
         'DiskRadiusFactor': 3.0
     }
@@ -503,7 +503,7 @@ def test_execution_completes():
     config['output']['output_format'] = 'binary'
 
     # Add model_parameters (sage_disk_instability needs 2 parameters)
-    config['model_parameters'] = {
+    config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
         'DiskRadiusFactor': 3.0
     }
@@ -561,14 +561,14 @@ def test_multiple_module_pipeline():
     config['output']['output_format'] = 'binary'
 
     # Add model_parameters for all enabled modules
-    config['model_parameters'] = {
+    config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
         'DiskRadiusFactor': 3.0
     }
     if 'sage_infall' in modules_to_test:
-        config['model_parameters']['BaryonFrac'] = 0.17
+        config['modules']['parameters']['BaryonFrac'] = 0.17
     if 'sage_cooling' in modules_to_test:
-        config['model_parameters'].update({
+        config['modules']['parameters'].update({
             'RadioModeEfficiency': 0.01,
             'AGNrecipeOn': 1,
             'CoolFunctionsDir': 'src/modules/sage_cooling/CoolFunctions'

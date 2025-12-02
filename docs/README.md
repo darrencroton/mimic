@@ -71,14 +71,12 @@ Mimic's physics is configured at runtime via YAML files. **No recompilation need
 ```yaml
 modules:
   enabled:
-  - infall_model
-  - cooling_model
+  - sage_infall
+  - sage_cooling
   parameters:
-    infall_model:
-      BaryonFrac: 0.17
-      ReionizationOn: 1
-    cooling_model:
-      CoolFunctionsDir: input/CoolFunctions
+    BaryonFrac: 0.17
+    RadioModeEfficiency: 0.01
+    CoolFunctionsDir: input/CoolFunctions
 ```
 
 **Documentation:**

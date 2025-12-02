@@ -153,10 +153,10 @@ def read_param_file(param_file):
             params['Omega'] = str(config['simulation']['cosmology'].get('omega_matter', 0.0))
             params['OmegaLambda'] = str(config['simulation']['cosmology'].get('omega_lambda', 0.0))
             params['Hubble_h'] = str(config['simulation']['cosmology'].get('hubble_h', 0.0))
-    if 'units' in config:
-        params['UnitLength_in_cm'] = str(config['units'].get('length_in_cm', 0.0))
-        params['UnitMass_in_g'] = str(config['units'].get('mass_in_g', 0.0))
-        params['UnitVelocity_in_cm_per_s'] = str(config['units'].get('velocity_in_cm_per_s', 0.0))
+    if 'units' in config['simulation']:
+        params['UnitLength_in_cm'] = str(config['simulation']['units'].get('length_in_cm', 0.0))
+        params['UnitMass_in_g'] = str(config['simulation']['units'].get('mass_in_g', 0.0))
+        params['UnitVelocity_in_cm_per_s'] = str(config['simulation']['units'].get('velocity_in_cm_per_s', 0.0))
     return params
 
 
@@ -199,18 +199,18 @@ def create_test_param_file(output_file, **overrides):
             params_needed.add('BaryonFrac')
 
     # Set default values for needed parameters
-    config['model_parameters'] = {}
+    config['modules']['parameters'] = {}
     for param in params_needed:
         if param == 'ReIncorporationFactor':
-            config['model_parameters'][param] = 1.0
+            config['modules']['parameters'][param] = 1.0
         elif param == 'BaryonFrac':
-            config['model_parameters'][param] = 0.17
+            config['modules']['parameters'][param] = 0.17
 
     # Apply parameter overrides
     for key, value in overrides.items():
         if key != 'EnabledModules' and key in config.get('model_parameters', {}):
             # Override model parameter value
-            config['model_parameters'][key] = value
+            config['modules']['parameters'][key] = value
 
     # Write parameter file as YAML
     with open(output_file, 'w') as f:

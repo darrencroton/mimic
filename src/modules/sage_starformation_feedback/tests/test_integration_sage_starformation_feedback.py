@@ -185,12 +185,12 @@ def create_test_param_file(output_dir, modules, module_params=None):
                 'BaryonFrac': 0.17,
             })
 
-    config['model_parameters'] = params_needed
+    config['modules']['parameters'] = params_needed
 
     # Override model parameters if provided
     if module_params:
         for param_name, value in module_params.items():
-            if param_name in config['model_parameters']:
+            if param_name in config['modules']['parameters']:
                 # Override model parameter value
                 try:
                     value = float(value)
@@ -198,7 +198,7 @@ def create_test_param_file(output_dir, modules, module_params=None):
                         value = int(value)
                 except (ValueError, AttributeError):
                     pass
-                config['model_parameters'][param_name] = value
+                config['modules']['parameters'][param_name] = value
 
     with open(param_file, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)

@@ -117,10 +117,10 @@ def read_param_file(param_file):
             params['Omega'] = str(config['simulation']['cosmology'].get('omega_matter', 0.0))
             params['OmegaLambda'] = str(config['simulation']['cosmology'].get('omega_lambda', 0.0))
             params['Hubble_h'] = str(config['simulation']['cosmology'].get('hubble_h', 0.0))
-    if 'units' in config:
-        params['UnitLength_in_cm'] = str(config['units'].get('length_in_cm', 0.0))
-        params['UnitMass_in_g'] = str(config['units'].get('mass_in_g', 0.0))
-        params['UnitVelocity_in_cm_per_s'] = str(config['units'].get('velocity_in_cm_per_s', 0.0))
+        if 'units' in config['simulation']:
+            params['UnitLength_in_cm'] = str(config['simulation']['units'].get('length_in_cm', 0.0))
+            params['UnitMass_in_g'] = str(config['simulation']['units'].get('mass_in_g', 0.0))
+            params['UnitVelocity_in_cm_per_s'] = str(config['simulation']['units'].get('velocity_in_cm_per_s', 0.0))
 
     return params
 
@@ -138,7 +138,7 @@ def create_test_param_file(output_name, enabled_modules=None,
         output_name (str): Name for output directory (created in temp_dir)
         enabled_modules (list): List of module names to enable (None = physics-free)
         module_params (dict): DEPRECATED - use model_params instead
-        model_params (dict): Dict of {parameter_name: value} for model_parameters section
+        model_params (dict): Dict of {parameter_name: value} for modules.parameters section
         first_file (int): First file to process (default: 0)
         last_file (int): Last_file (int): Last file to process (default: 0)
         ref_param_file (str or Path): Reference YAML parameter file (default: test_binary.yaml)
@@ -201,10 +201,10 @@ def create_test_param_file(output_name, enabled_modules=None,
     else:
         config['modules']['enabled'] = []
 
-    # Initialize model_parameters section if model_params provided
+    # Initialize modules.parameters section if model_params provided
     if model_params:
-        if 'model_parameters' not in config:
-            config['model_parameters'] = {}
+        if 'parameters' not in config['modules']:
+            config['modules']['parameters'] = {}
         for param_name, value in model_params.items():
             # Try to convert to appropriate type
             try:
@@ -215,7 +215,7 @@ def create_test_param_file(output_name, enabled_modules=None,
                     value = value_float
             except (ValueError, TypeError):
                 pass  # Keep as string
-            config['model_parameters'][param_name] = value
+            config['modules']['parameters'][param_name] = value
 
     # Handle deprecated module_params (for backward compatibility during transition)
     if module_params:

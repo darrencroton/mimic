@@ -28,8 +28,6 @@ static double get_double_value(yaml_node_t *node);
 static void parse_output_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_input_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section);
-static void parse_units_section(yaml_document_t *doc, yaml_node_t *section);
-static void parse_model_parameters_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section);
 static void validate_and_postprocess(void);
 
@@ -93,12 +91,6 @@ void read_parameter_file(const char *fname) {
 
   section = get_mapping_value(&document, root, "simulation");
   if (section) parse_simulation_section(&document, section);
-
-  section = get_mapping_value(&document, root, "units");
-  if (section) parse_units_section(&document, section);
-
-  section = get_mapping_value(&document, root, "model_parameters");
-  if (section) parse_model_parameters_section(&document, section);
 
   section = get_mapping_value(&document, root, "modules");
   if (section) parse_modules_section(&document, section);
@@ -297,9 +289,11 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
 
 /**
  * @brief   Parse simulation section
+ *
+ * Parses simulation properties including cosmology and units subsections.
  */
 static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section) {
-  yaml_node_t *node, *cosmology;
+  yaml_node_t *node, *cosmology, *units;
 
   DEBUG_LOG("Parsing simulation section");
 
@@ -336,83 +330,43 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
     MimicConfig.PartMass = get_double_value(node);
     DEBUG_LOG("PartMass = %g", MimicConfig.PartMass);
   }
-}
 
-/**
- * @brief   Parse units section
- */
-static void parse_units_section(yaml_document_t *doc, yaml_node_t *section) {
-  yaml_node_t *node;
+  /* Parse units subsection */
+  units = get_mapping_value(doc, section, "units");
+  if (units) {
+    DEBUG_LOG("Parsing simulation.units subsection");
 
-  DEBUG_LOG("Parsing units section");
+    node = get_mapping_value(doc, units, "length_in_cm");
+    if (node) {
+      MimicConfig.UnitLength_in_cm = get_double_value(node);
+      DEBUG_LOG("UnitLength_in_cm = %g", MimicConfig.UnitLength_in_cm);
+    }
 
-  node = get_mapping_value(doc, section, "length_in_cm");
-  if (node) {
-    MimicConfig.UnitLength_in_cm = get_double_value(node);
-    DEBUG_LOG("UnitLength_in_cm = %g", MimicConfig.UnitLength_in_cm);
-  }
+    node = get_mapping_value(doc, units, "mass_in_g");
+    if (node) {
+      MimicConfig.UnitMass_in_g = get_double_value(node);
+      DEBUG_LOG("UnitMass_in_g = %g", MimicConfig.UnitMass_in_g);
+    }
 
-  node = get_mapping_value(doc, section, "mass_in_g");
-  if (node) {
-    MimicConfig.UnitMass_in_g = get_double_value(node);
-    DEBUG_LOG("UnitMass_in_g = %g", MimicConfig.UnitMass_in_g);
-  }
-
-  node = get_mapping_value(doc, section, "velocity_in_cm_per_s");
-  if (node) {
-    MimicConfig.UnitVelocity_in_cm_per_s = get_double_value(node);
-    DEBUG_LOG("UnitVelocity_in_cm_per_s = %g", MimicConfig.UnitVelocity_in_cm_per_s);
-  }
-}
-
-/**
- * @brief   Parse model_parameters section
- *
- * Model parameters are ALL physics parameters required by the model.
- * They must be explicitly specified - NO defaults are used.
- *
- * Vision Principle 4 (Single Source of Truth): Input file defines complete model.
- */
-static void parse_model_parameters_section(yaml_document_t *doc, yaml_node_t *section) {
-  DEBUG_LOG("Parsing model_parameters section");
-
-  /* Model parameters are a simple mapping: param_name -> value */
-  if (section->type != YAML_MAPPING_NODE) {
-    ERROR_LOG("model_parameters section must be a mapping");
-    return;
-  }
-
-  yaml_node_pair_t *pair;
-  int idx = 0;
-
-  /* Iterate over each parameter in the mapping */
-  for (pair = section->data.mapping.pairs.start;
-       pair < section->data.mapping.pairs.top && idx < 256; pair++) {
-
-    yaml_node_t *key_node = yaml_document_get_node(doc, pair->key);
-    yaml_node_t *value_node = yaml_document_get_node(doc, pair->value);
-
-    const char *param_name = get_scalar_value(key_node);
-    const char *param_value = get_scalar_value(value_node);
-
-    if (param_name && param_value) {
-      /* Store in ModelParams array */
-      strncpy(MimicConfig.ModelParams[idx].param_name, param_name, MAX_STRING_LEN - 1);
-      strncpy(MimicConfig.ModelParams[idx].value, param_value, MAX_STRING_LEN - 1);
-      DEBUG_LOG("Model parameter: %s = %s", param_name, param_value);
-      idx++;
+    node = get_mapping_value(doc, units, "velocity_in_cm_per_s");
+    if (node) {
+      MimicConfig.UnitVelocity_in_cm_per_s = get_double_value(node);
+      DEBUG_LOG("UnitVelocity_in_cm_per_s = %g", MimicConfig.UnitVelocity_in_cm_per_s);
     }
   }
-
-  MimicConfig.NumModelParams = idx;
-  INFO_LOG("Loaded %d model parameters", idx);
 }
 
 /**
  * @brief   Parse modules section
+ *
+ * Parses module configuration including enabled modules and parameters subsections.
+ * Model parameters are ALL physics parameters required by enabled modules.
+ * They must be explicitly specified - NO defaults are used.
+ *
+ * Vision Principle 4 (Single Source of Truth): Input file defines complete model.
  */
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
-  yaml_node_t *node;
+  yaml_node_t *node, *parameters;
 
   DEBUG_LOG("Parsing modules section");
 
@@ -432,6 +386,43 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
       }
     }
     MimicConfig.NumEnabledModules = idx;
+  }
+
+  /* Parse parameters subsection */
+  parameters = get_mapping_value(doc, section, "parameters");
+  if (parameters) {
+    DEBUG_LOG("Parsing modules.parameters subsection");
+
+    /* Parameters are a simple mapping: param_name -> value */
+    if (parameters->type != YAML_MAPPING_NODE) {
+      ERROR_LOG("modules.parameters section must be a mapping");
+      return;
+    }
+
+    yaml_node_pair_t *pair;
+    int idx = 0;
+
+    /* Iterate over each parameter in the mapping */
+    for (pair = parameters->data.mapping.pairs.start;
+         pair < parameters->data.mapping.pairs.top && idx < 256; pair++) {
+
+      yaml_node_t *key_node = yaml_document_get_node(doc, pair->key);
+      yaml_node_t *value_node = yaml_document_get_node(doc, pair->value);
+
+      const char *param_name = get_scalar_value(key_node);
+      const char *param_value = get_scalar_value(value_node);
+
+      if (param_name && param_value) {
+        /* Store in ModelParams array */
+        strncpy(MimicConfig.ModelParams[idx].param_name, param_name, MAX_STRING_LEN - 1);
+        strncpy(MimicConfig.ModelParams[idx].value, param_value, MAX_STRING_LEN - 1);
+        DEBUG_LOG("Module parameter: %s = %s", param_name, param_value);
+        idx++;
+      }
+    }
+
+    MimicConfig.NumModelParams = idx;
+    INFO_LOG("Loaded %d module parameters", idx);
   }
 }
 
@@ -475,9 +466,9 @@ static void validate_and_postprocess(void) {
     errors++;
   }
 
-  /* Model parameter validation now happens in module init functions */
+  /* Module parameter validation happens in module init functions */
   if (MimicConfig.NumModelParams > 0) {
-    INFO_LOG("Loaded %d model parameters", MimicConfig.NumModelParams);
+    INFO_LOG("Loaded %d module parameters", MimicConfig.NumModelParams);
   }
 
   /* Validate ranges */

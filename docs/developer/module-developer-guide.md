@@ -243,7 +243,7 @@ modules:
   - my_module
 
 # Model parameters (defined in each module's module_info.yaml)
-model_parameters:
+modules.parameters:
   BaryonFrac: 0.17
   SfrEfficiency: 0.02
   # ... other parameters defined by enabled modules

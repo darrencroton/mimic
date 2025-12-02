@@ -26,50 +26,48 @@ simulation:
     hubble_h: 0.73
   box_size: 62.5
   particle_mass: 0.0860657
-
-units:
-  length_in_cm: 3.08568e+24
-  mass_in_g: 1.989e+43
-  velocity_in_cm_per_s: 100000.0
+  units:
+    length_in_cm: 3.08568e+24
+    mass_in_g: 1.989e+43
+    velocity_in_cm_per_s: 100000.0
 
 modules:
   enabled:
-  - sage_infall
-  - sage_satellite_stripping
+    - sage_infall
+    - sage_satellite_stripping
+  parameters:
+    # Reionisation
+    BaryonFrac: 0.17                    # Cosmic baryon fraction (Planck 2018)
 
-model_parameters:
-  # Cosmological Parameters
-  BaryonFrac: 0.17                    # Cosmic baryon fraction (Planck 2018)
+    # Cooling & AGN Feedback
+    CoolFunctionsDir: "src/modules/sage_cooling/CoolFunctions"  # Cooling function tables directory
+    AGNrecipeOn: 1                      # AGN feedback mode (0=off, 1=empirical, 2=Bondi, 3=cold cloud)
+    RadioModeEfficiency: 0.01           # Radio-mode AGN feedback efficiency
 
-  # Cooling & AGN Feedback
-  RadioModeEfficiency: 0.01           # Radio-mode AGN feedback efficiency
-  AGNrecipeOn: 1                      # AGN feedback mode (0=off, 1=empirical, 2=Bondi, 3=cold cloud)
-  CoolFunctionsDir: "src/modules/sage_cooling/CoolFunctions"  # Cooling function tables directory
+    # Star Formation
+    SFprescription: 0                   # SF law (0=Kennicutt-Schmidt, only option)
+    SfrEfficiency: 0.02                 # Star formation efficiency
 
-  # Star Formation
-  SFprescription: 0                   # SF law (0=Kennicutt-Schmidt, only option)
-  SfrEfficiency: 0.02                 # Star formation efficiency
-  EnergySNcode: 1.0                   # Supernova energy (code units)
-  EtaSNcode: 0.5                      # Supernova rate per unit stellar mass
+    # Supernova Feedback
+    SupernovaRecipeOn: 1                # Enable supernova feedback (0=off, 1=on)
+    FeedbackReheatingEpsilon: 3.0       # Reheating efficiency
+    FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
+    EnergySNcode: 1.0                   # Supernova energy (code units)
+    EtaSNcode: 0.5                      # Supernova rate per unit stellar mass
 
-  # Stellar Feedback
-  SupernovaRecipeOn: 1                # Enable supernova feedback (0=off, 1=on)
-  FeedbackReheatingEpsilon: 3.0       # Reheating efficiency
-  FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
+    # Metals
+    RecycleFraction: 0.43               # Instantaneous recycling fraction
+    Yield: 0.03                         # Metal yield per unit stellar mass
+    FracZleaveDisk: 0.3                 # Fraction of metals leaving disk
 
-  # Stellar Evolution
-  RecycleFraction: 0.43               # Instantaneous recycling fraction
-  Yield: 0.03                         # Metal yield per unit stellar mass
-  FracZleaveDisk: 0.3                 # Fraction of metals leaving disk
+    # Gas Reincorporation
+    ReIncorporationFactor: 1.0          # Reincorporation timescale factor
 
-  # Gas Reincorporation
-  ReIncorporationFactor: 1.0          # Reincorporation timescale factor
+    # Mergers & BH Growth
+    ThreshMajorMerger: 0.3              # Mass ratio threshold for major mergers
+    BlackHoleGrowthRate: 0.01           # BH growth efficiency during mergers
+    QuasarModeEfficiency: 0.001         # Quasar-mode AGN feedback efficiency
 
-  # Galaxy Mergers
-  BlackHoleGrowthRate: 0.01           # BH growth efficiency during mergers
-  QuasarModeEfficiency: 0.001         # Quasar-mode AGN feedback efficiency
-  ThreshMajorMerger: 0.3              # Mass ratio threshold for major mergers
-
-  # Disk Instability
-  DiskInstabilityOn: 1                # Enable disk instability (0=off, 1=on)
-  DiskRadiusFactor: 3.0               # Disk effective radius factor
+    # Disk Instability
+    DiskInstabilityOn: 1                # Enable disk instability (0=off, 1=on)
+    DiskRadiusFactor: 3.0               # Disk effective radius factor

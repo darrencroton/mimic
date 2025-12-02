@@ -444,7 +444,7 @@ static int my_module_init(void) {
 **Usage in input YAML file**:
 
 ```yaml
-model_parameters:
+modules.parameters:
   BaryonFrac: 0.17
   AGNrecipeOn: 2
   RadioModeEfficiency: 0.08

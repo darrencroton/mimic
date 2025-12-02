@@ -157,10 +157,10 @@ def read_param_file(param_file):
             params['Omega'] = str(config['simulation']['cosmology'].get('omega_matter', 0.0))
             params['OmegaLambda'] = str(config['simulation']['cosmology'].get('omega_lambda', 0.0))
             params['Hubble_h'] = str(config['simulation']['cosmology'].get('hubble_h', 0.0))
-    if 'units' in config:
-        params['UnitLength_in_cm'] = str(config['units'].get('length_in_cm', 0.0))
-        params['UnitMass_in_g'] = str(config['units'].get('mass_in_g', 0.0))
-        params['UnitVelocity_in_cm_per_s'] = str(config['units'].get('velocity_in_cm_per_s', 0.0))
+    if 'units' in config['simulation']:
+        params['UnitLength_in_cm'] = str(config['simulation']['units'].get('length_in_cm', 0.0))
+        params['UnitMass_in_g'] = str(config['simulation']['units'].get('mass_in_g', 0.0))
+        params['UnitVelocity_in_cm_per_s'] = str(config['simulation']['units'].get('velocity_in_cm_per_s', 0.0))
 
     return params
 
@@ -206,14 +206,14 @@ def create_test_param_file(output_name, enabled_modules=None,
     config['modules']['enabled'] = enabled_modules
 
     # Add model_parameters (sage_infall only needs BaryonFrac)
-    config['model_parameters'] = {
+    config['modules']['parameters'] = {
         'BaryonFrac': 0.17,
     }
 
     # Override model parameters if provided
     if module_params:
         for param_name, value in module_params.items():
-            if param_name in config['model_parameters']:
+            if param_name in config['modules']['parameters']:
                 # Override model parameter value
                 try:
                     value = float(value)
@@ -221,7 +221,7 @@ def create_test_param_file(output_name, enabled_modules=None,
                         value = int(value)
                 except (ValueError, AttributeError):
                     pass
-                config['model_parameters'][param_name] = value
+                config['modules']['parameters'][param_name] = value
 
     # Write test parameter file as YAML
     param_path = Path(temp_dir) / f"{output_name}.yaml"
@@ -340,7 +340,7 @@ def test_parameters_configurable():
     with open(param_file, 'r') as f:
         config = yaml.safe_load(f)
 
-    config['model_parameters']['BaryonFrac'] = 0.20
+    config['modules']['parameters']['BaryonFrac'] = 0.20
 
     with open(param_file, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -515,7 +515,7 @@ def test_multiple_module_pipeline():
         with open(param_file, 'r') as f:
             config = yaml.safe_load(f)
 
-        config['model_parameters'].update(additional_params)
+        config['modules']['parameters'].update(additional_params)
 
         with open(param_file, 'w') as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)

@@ -129,16 +129,17 @@ read_parameter_file(paramfilename)
 │  └─ [Stores: FirstFile, LastFile, TreeName, TreeType, SimulationDir, etc.]
 │
 ├─ parse_simulation_section()       // Parse simulation: section
-│  └─ [Stores: Omega, OmegaLambda, Hubble_h, BoxSize, PartMass]
-│
-├─ parse_units_section()            // Parse units: section
-│  └─ [Stores: UnitLength_in_cm, UnitMass_in_g, UnitVelocity_in_cm_per_s]
-│
-├─ parse_model_parameters_section() // Parse model_parameters: section
-│  └─ [Stores: ModelParams[] name-value pairs]
+│  ├─ [Parse cosmology: subsection]
+│  │  └─ [Stores: Omega, OmegaLambda, Hubble_h]
+│  ├─ [Stores: BoxSize, PartMass]
+│  └─ [Parse units: subsection]
+│     └─ [Stores: UnitLength_in_cm, UnitMass_in_g, UnitVelocity_in_cm_per_s]
 │
 ├─ parse_modules_section()          // Parse modules: section
-│  └─ [Stores: EnabledModules[] array]
+│  ├─ [Parse enabled: array]
+│  │  └─ [Stores: EnabledModules[] array]
+│  └─ [Parse parameters: subsection]
+│     └─ [Stores: ModelParams[] name-value pairs]
 │
 ├─ yaml_document_delete()           // Cleanup YAML document
 ├─ yaml_parser_delete()

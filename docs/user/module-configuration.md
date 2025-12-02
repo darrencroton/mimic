@@ -54,7 +54,7 @@ EnabledModules
 
 ## Model Parameters
 
-**IMPORTANT**: All physics parameters are centralized in the `model_parameters:` section of your YAML configuration file. Parameters are REQUIRED based on which modules you enable - no defaults are used.
+**IMPORTANT**: All physics parameters are centralized in the `modules.parameters:` section of your YAML configuration file. Parameters are REQUIRED based on which modules you enable - no defaults are used.
 
 ### Smart Parameter Validation
 
@@ -83,7 +83,7 @@ The 20 model parameters are organized into scientific categories:
 
 ```yaml
 # Parameters needed by enabled modules (values shown are SAGE defaults)
-model_parameters:
+modules.parameters:
   # Cosmological Parameters
   BaryonFrac: 0.17
 
@@ -127,7 +127,7 @@ model_parameters:
 
 ## Available Modules
 
-**Note**: All physics parameters are centralized in the `model_parameters:` section (see above). Modules are enabled via `modules.enabled:` list.
+**Note**: All physics parameters are centralized in the `modules.parameters:` section (see above). Modules are enabled via `modules.enabled:` list.
 
 ### SAGE Physics Modules
 
@@ -265,7 +265,7 @@ See `input/millennium.yaml` for a complete working configuration file. Key secti
 
 ```yaml
 # Model Parameters - Only those needed by enabled modules required
-model_parameters:
+modules.parameters:
   BaryonFrac: 0.17
   RadioModeEfficiency: 0.01
   # ... (see input/millennium.yaml for complete list)
@@ -342,7 +342,7 @@ ERROR: Required model parameter 'BaryonFrac' not found in input file
 ERROR:   (needed by modules: sage_infall, sage_satellite_stripping)
 ```
 
-**Solution**: Add the missing parameter to the `model_parameters:` section. The error message lists which modules need it. To see parameter details (type, units, valid range), check the module's `module_info.yaml` file in `src/modules/<module_name>/`.
+**Solution**: Add the missing parameter to the `modules.parameters:` section. The error message lists which modules need it. To see parameter details (type, units, valid range), check the module's `module_info.yaml` file in `src/modules/<module_name>/`.
 
 ### Invalid Parameter Value
 
@@ -371,7 +371,7 @@ ERROR:   (defined by module: sage_infall)
 **Check**: `modules.enabled:` list present and module names spelled correctly
 
 **Problem**: Missing parameter errors
-**Check**: Parameters needed by enabled modules specified in `model_parameters:` section (check error message for which modules need the parameter)
+**Check**: Parameters needed by enabled modules specified in `modules.parameters:` section (check error message for which modules need the parameter)
 
 **Problem**: Wrong physics results
 **Check**: Module execution order - dependencies must run first (see module descriptions above)
