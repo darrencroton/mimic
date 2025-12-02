@@ -1557,10 +1557,9 @@ ERROR_LOG(format, ...);
 
 ### Getting Help
 
-1. Review example modules: `src/modules/simple_*/`
-2. Check implementation log: `docs/architecture/module-implementation-log.md` (lessons from other modules)
-3. Read interface documentation: `src/core/module_interface.h`
-4. Review SAGE source for physics reference: `sage-code/`
+1. Review any current modules: `src/modules/*/`
+2. Read interface documentation: `src/core/module_interface.h`
+3. Ask!
 
 ---
 
