@@ -19,7 +19,7 @@ NOTE: Physics validation (reionization correctness, infall amounts) deferred
 Test cases:
   - test_module_loads: Module registration and initialization
   - test_output_properties_exist: HotGas properties in output
-  - test_parameters_configurable: BaryonFrac parameter configuration
+  - test_parameters_configurable: GlobalBaryonFraction parameter configuration
   - test_with_satellite_stripping: Integration with sage_satellite_stripping
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
@@ -205,9 +205,9 @@ def create_test_param_file(output_name, enabled_modules=None,
     # Update module configuration
     config['modules']['enabled'] = enabled_modules
 
-    # Add model_parameters (sage_infall only needs BaryonFrac)
+    # Add model_parameters
     config['modules']['parameters'] = {
-        'BaryonFrac': 0.17,
+        'GlobalBaryonFraction': 0.17,
     }
 
     # Override model parameters if provided
@@ -240,15 +240,15 @@ def test_module_loads():
 
     Expected: Module initialization succeeds without errors
     Validates: Module registration, initialization, and cleanup lifecycle
-    Note: Reionization parameters now hardcoded in shared/reionization.h
+    Note: Requires sage_reionization module to set HaloBaryonFraction property
     """
     print("Testing module load and initialization...")
 
     # ===== SETUP =====
     param_file = create_test_param_file(
         output_name="sage_infall_load",
-        enabled_modules=["sage_infall"]
-        # BaryonFrac already set by create_test_param_file
+        enabled_modules=["sage_reionization", "sage_infall"]
+        # GlobalBaryonFraction already set by create_test_param_file
     )
 
     # ===== EXECUTE =====
@@ -262,9 +262,9 @@ def test_module_loads():
     assert "SAGE infall module initialized" in stdout, \
         "sage_infall should log initialization message"
 
-    # Check that reionization model is logged (hardcoded in header)
-    assert "Gnedin (2000)" in stdout, \
-        "Should log reionization model from shared header"
+    # Check that reionization module ran first
+    assert "SAGE reionization module initialized" in stdout, \
+        "sage_reionization should run before sage_infall"
 
     print("  ✓ Module loads and initializes successfully")
 
@@ -282,7 +282,7 @@ def test_output_properties_exist():
     # ===== SETUP =====
     param_file = create_test_param_file(
         output_name="sage_infall_output",
-        enabled_modules=["sage_infall"]
+        enabled_modules=["sage_reionization", "sage_infall"]
     )
 
     # ===== EXECUTE =====
@@ -318,29 +318,28 @@ def test_output_properties_exist():
 
 def test_parameters_configurable():
     """
-    Test that sage_infall uses BaryonFrac model parameter
+    Test that sage_reionization uses GlobalBaryonFraction model parameter
 
-    Expected: Custom BaryonFrac value is read from model_parameters and logged
+    Expected: Custom GlobalBaryonFraction value is read from model_parameters and logged
     Validates: Model parameter reading and usage
-    Note: Phase 4.4 - BaryonFrac is now a global model parameter, not module-specific
-    Note: Reionization parameters now hardcoded in shared/reionization.h
+    Note: GlobalBaryonFraction is used by sage_reionization to set HaloBaryonFraction property
     """
     print("Testing parameter configuration...")
 
     # ===== SETUP =====
     import yaml
 
-    # Create parameter file with custom BaryonFrac
+    # Create parameter file with custom GlobalBaryonFraction
     param_file = create_test_param_file(
         output_name="sage_infall_params",
-        enabled_modules=["sage_infall"]
+        enabled_modules=["sage_reionization", "sage_infall"]
     )
 
-    # Update model_parameters.BaryonFrac to custom value
+    # Update model_parameters.GlobalBaryonFraction to custom value
     with open(param_file, 'r') as f:
         config = yaml.safe_load(f)
 
-    config['modules']['parameters']['BaryonFrac'] = 0.20
+    config['modules']['parameters']['GlobalBaryonFraction'] = 0.20
 
     with open(param_file, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -351,9 +350,9 @@ def test_parameters_configurable():
     # ===== VALIDATE =====
     assert returncode == 0, "Execution with custom parameters should succeed"
 
-    # Verify parameter was read (from model_parameters, not module-specific)
-    assert "BaryonFrac = 0.2000" in stdout or "BaryonFrac: 0.2" in stdout, \
-        f"Custom BaryonFrac should be logged\nStdout:\n{stdout}"
+    # Verify parameter was read by sage_reionization
+    assert "GlobalBaryonFraction = 0.2000" in stdout or "GlobalBaryonFraction: 0.2" in stdout, \
+        f"Custom GlobalBaryonFraction should be logged\nStdout:\n{stdout}"
 
     print("  ✓ Parameters are configurable")
 
@@ -363,7 +362,7 @@ def test_with_satellite_stripping():
     Test that sage_infall works with sage_satellite_stripping module
 
     Expected: Both modules execute successfully together
-    Validates: Modules work together sharing reionization utility
+    Validates: Modules work together using HaloBaryonFraction property from sage_reionization
     Note: If sage_satellite_stripping not available, test skips gracefully
     """
     print("Testing with sage_satellite_stripping...")
@@ -380,8 +379,8 @@ def test_with_satellite_stripping():
     # ===== SETUP =====
     param_file = create_test_param_file(
         output_name="sage_infall_stripping",
-        enabled_modules=["sage_infall", "sage_satellite_stripping"]
-        # BaryonFrac already set by create_test_param_file (shared by both modules)
+        enabled_modules=["sage_reionization", "sage_infall", "sage_satellite_stripping"]
+        # GlobalBaryonFraction already set by create_test_param_file
     )
 
     # ===== EXECUTE =====
@@ -391,15 +390,13 @@ def test_with_satellite_stripping():
     assert returncode == 0, \
         f"Should run with both modules\nStderr: {stderr}"
 
-    # Verify both modules initialized
+    # Verify all modules initialized
+    assert "SAGE reionization module initialized" in stdout, \
+        "sage_reionization should initialize first"
     assert "SAGE infall module initialized" in stdout, \
         "sage_infall should initialize"
     assert "SAGE satellite stripping module initialized" in stdout, \
         "sage_satellite_stripping should initialize"
-
-    # Both modules use shared reionization.h
-    assert stdout.count("Gnedin (2000)") >= 2, \
-        "Both modules should log reionization model from shared header"
 
     print("  ✓ Works with sage_satellite_stripping")
 
@@ -416,7 +413,7 @@ def test_memory_safety():
     # ===== SETUP =====
     param_file = create_test_param_file(
         output_name="sage_infall_memory",
-        enabled_modules=["sage_infall"]
+        enabled_modules=["sage_reionization", "sage_infall"]
     )
 
     # ===== EXECUTE =====
@@ -444,7 +441,7 @@ def test_execution_completes():
     # ===== SETUP =====
     param_file = create_test_param_file(
         output_name="sage_infall_complete",
-        enabled_modules=["sage_infall"],
+        enabled_modules=["sage_reionization", "sage_infall"],
         first_file=0,
         last_file=0  # Process single file
     )
@@ -506,8 +503,8 @@ def test_multiple_module_pipeline():
 
     param_file = create_test_param_file(
         output_name="sage_infall_multi",
-        enabled_modules=["sage_infall", companion_module]
-        # BaryonFrac already set by create_test_param_file
+        enabled_modules=["sage_reionization", "sage_infall", companion_module]
+        # GlobalBaryonFraction already set by create_test_param_file
     )
 
     # Add companion module parameters if needed

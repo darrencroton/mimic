@@ -33,11 +33,12 @@ simulation:
 
 modules:
   enabled:
+    - sage_reionization
     - sage_infall
     - sage_satellite_stripping
   parameters:
     # Reionisation
-    BaryonFrac: 0.17                    # Cosmic baryon fraction (Planck 2018)
+    GlobalBaryonFraction: 0.17          # Cosmic baryon fraction (Planck 2018)
 
     # Cooling & AGN Feedback
     CoolFunctionsDir: "src/modules/sage_cooling/CoolFunctions"  # Cooling function tables directory

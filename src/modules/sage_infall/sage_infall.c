@@ -9,12 +9,12 @@
  * - Redistribution of ejected gas and ICS from satellites to central
  *
  * Physics:
- *   infallingMass = f_reion * BaryonFrac * Mvir - (total baryon content)
+ *   infallingMass = HaloBaryonFraction * Mvir - (total baryon content)
  *   InfallingGas = infallingMass  (stored in property)
  *   HotGas += InfallingGas / STEPS
  *
- * The reionization suppression follows Gnedin (2000) with fitting formulas
- * from Kravtsov et al. (2004). Implemented in shared/reionization.h utility.
+ * HaloBaryonFraction is set by sage_reionization module (must run first).
+ * Reionization suppression modifies local baryon fraction per halo.
  *
  * Implementation Notes:
  * - Central galaxies accrete gas from the cosmic web
@@ -26,8 +26,8 @@
  * ==============
  * This module has been refactored to focus solely on cosmological infall.
  * Related processes now in separate modules:
+ * - sage_reionization: Sets HaloBaryonFraction with reionization suppression
  * - sage_satellite_stripping: Environmental gas stripping from satellites
- * - shared/reionization.h: Reionization suppression calculations
  *
  * Reference:
  *   - Croton et al. (2016) - SAGE model description
@@ -38,7 +38,7 @@
  * Vision Principles:
  *   - Physics-Agnostic Core: Interacts only through module interface
  *   - Runtime Modularity: Configurable via parameter file
- *   - Single Source of Truth: Reionization in shared header, InfallingGas property
+ *   - Single Source of Truth: HaloBaryonFraction property, InfallingGas property
  */
 
 #include <math.h>
@@ -48,8 +48,6 @@
 #include "constants.h"
 #include "error.h"
 #include "../_shared/metallicity.h"  // Shared utility for metallicity calculations
-#include "../_shared/reionization.h" // Shared utility for reionization suppression
-#include "../_system/parameter_helpers.h"  // Parameter loading and validation macros
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -59,50 +57,38 @@
 // ============================================================================
 // MODULE PARAMETERS
 // ============================================================================
-// Parameters loaded from input YAML file (required, no defaults).
-// Validated in module init function.
-
-static double BARYON_FRAC;
+// No module parameters - uses HaloBaryonFraction property set by sage_reionization
 
 // ============================================================================
 // HELPER FUNCTIONS (Physics Calculations)
 // ============================================================================
 
 // Metallicity calculation: mimic_get_metallicity() from shared/metallicity.h
-// Reionization suppression: calculate_reionization_modifier() from shared/reionization.h
 
 /**
  * @brief   Calculate the amount of gas infalling onto a central galaxy
  *
  * Calculates the amount of gas that should be accreted onto a halo based on:
- * 1. Cosmic baryon fraction × halo mass
+ * 1. HaloBaryonFraction (set by sage_reionization) × halo mass
  * 2. Current baryon content (all components)
- * 3. Reionization suppression (using shared reionization.h utility)
  *
  * Also handles:
  * - Consolidation of ejected gas from satellites to central
  * - Consolidation of ICS (intracluster stars) to central
  * - Mass conservation accounting
  *
- * @param   ctx      Module context (for accessing params->G via reionization)
  * @param   halos    Array of halos in FOF group
  * @param   ngal     Number of halos
  * @param   central_idx Index of central galaxy
- * @param   redshift Current redshift
- * @param   omega    Matter density parameter
- * @param   omega_lambda Dark energy density parameter
- * @param   hubble_h Hubble parameter
  * @return  Mass of infalling gas (can be negative for mass loss)
  */
-static double infall_recipe(const struct ModuleContext *ctx, struct Halo *halos,
-                             int ngal, int central_idx, double redshift,
-                             double omega, double omega_lambda, double hubble_h) {
+static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
   double tot_stellarMass, tot_coldMass, tot_hotMass, tot_ejected;
   double tot_hotMetals, tot_ejectedMetals;
   double tot_ICS, tot_ICSMetals;
   double tot_BHMass;
   double tot_satBaryons;
-  double infallingMass, reionization_modifier;
+  double infallingMass;
 
   /* Initialize counters for all baryonic components */
   tot_stellarMass = tot_coldMass = tot_hotMass = tot_hotMetals = tot_ejected =
@@ -146,13 +132,10 @@ static double infall_recipe(const struct ModuleContext *ctx, struct Halo *halos,
     }
   }
 
-  /* Calculate reionization suppression factor using shared utility */
-  reionization_modifier = calculate_reionization_modifier(
-      ctx, halos[central_idx].Mvir, redshift, omega, omega_lambda, hubble_h);
-
-  /* Calculate infalling gas mass */
+  /* Calculate infalling gas mass using halo-specific baryon fraction
+   * (set by sage_reionization module with reionization suppression) */
   infallingMass =
-      reionization_modifier * BARYON_FRAC * halos[central_idx].Mvir -
+      halos[central_idx].galaxy->HaloBaryonFraction * halos[central_idx].Mvir -
       (tot_stellarMass + tot_coldMass + tot_hotMass + tot_ejected + tot_BHMass + tot_ICS);
 
   /* Assign all ejected mass to the central galaxy */
@@ -261,23 +244,15 @@ static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
 /**
  * @brief   Initialize sage_infall module
  *
- * Loads configuration parameters from input YAML file and validates them.
- * All parameters are REQUIRED in the input file (no defaults).
+ * No parameters to load - uses HaloBaryonFraction property set by sage_reionization.
  *
  * @return  0 on success, non-zero on failure
  */
 static int sage_infall_init(void) {
-  /* Load and validate parameters from input YAML file */
-  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", BARYON_FRAC, 0.0, 1.0,
-                                    "cosmic baryon fraction must be physical");
-
-  /* Log module configuration only when verbose logging is enabled */
-  if (get_verbose_format()) {
-    INFO_LOG("SAGE infall module initialized");
-    INFO_LOG("  Physics: InfallingGas = f_reion * BaryonFrac * Mvir - baryons");
-    INFO_LOG("  BaryonFrac = %.4f", BARYON_FRAC);
-    INFO_LOG("  Reionization model: Gnedin (2000) - hardcoded in shared/reionization.h");
-  }
+  /* Log module configuration */
+  INFO_LOG("SAGE infall module initialized");
+  INFO_LOG("  Physics: InfallingGas = HaloBaryonFraction * Mvir - baryons");
+  INFO_LOG("  Requires: sage_reionization module to set HaloBaryonFraction");
 
   return 0;
 }
@@ -307,11 +282,8 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
     return 0; /* Nothing to process */
   }
 
-  /* Extract cosmological parameters from context */
+  /* Extract redshift for debug logging */
   double z = ctx->redshift;
-  double omega = ctx->params->Omega;
-  double omega_lambda = ctx->params->OmegaLambda;
-  double hubble_h = ctx->params->Hubble_h;
 
   /* Find central galaxy (Type == 0) */
   int central_idx = -1;
@@ -334,8 +306,7 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
   }
 
   /* Calculate infall for central galaxy */
-  double infallingMass =
-      infall_recipe(ctx, halos, ngal, central_idx, z, omega, omega_lambda, hubble_h);
+  double infallingMass = infall_recipe(halos, ngal, central_idx);
 
   /* Store in InfallingGas property (for future STEPS integration) */
   halos[central_idx].galaxy->InfallingGas = (float)infallingMass;
@@ -344,8 +315,10 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
   add_infall_to_hot(halos[central_idx].galaxy, infallingMass / STEPS);
 
   /* Debug logging */
-  DEBUG_LOG("Infall: central Mvir=%.3e, infall=%.3e, HotGas=%.3e, z=%.3f",
-            halos[central_idx].Mvir, infallingMass,
+  DEBUG_LOG("Infall: central Mvir=%.3e, HaloBaryonFrac=%.4f, infall=%.3e, HotGas=%.3e, z=%.3f",
+            halos[central_idx].Mvir,
+            halos[central_idx].galaxy->HaloBaryonFraction,
+            infallingMass,
             halos[central_idx].galaxy->HotGas, z);
 
   return 0;

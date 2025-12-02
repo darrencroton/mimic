@@ -45,7 +45,7 @@ void set_test_model_parameters(void) {
     int idx = 0;
 
     /* Cosmological Parameters */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "BaryonFrac");
+    strcpy(MimicConfig.ModelParams[idx].param_name, "GlobalBaryonFraction");
     strcpy(MimicConfig.ModelParams[idx++].value, "0.17");
 
     /* Cooling & AGN Feedback */

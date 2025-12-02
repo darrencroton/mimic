@@ -128,11 +128,11 @@ int test_module_initialization(void)
 
 /**
  * @test    test_parameter_reading
- * @brief   Test that module parameters are read correctly from configuration
+ * @brief   Test that module initializes correctly (no parameters needed)
  *
- * Expected: Module reads BaryonFrac parameter successfully
- * Validates: Parameter reading infrastructure works
- * Note: Reionization parameters hardcoded in shared/reionization.h
+ * Expected: Module initializes successfully without parameters
+ * Validates: sage_satellite_stripping no longer requires parameters (uses HaloBaryonFraction property)
+ * Note: HaloBaryonFraction is set by sage_reionization module
  */
 int test_parameter_reading(void)
 {
@@ -146,20 +146,16 @@ int test_parameter_reading(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure with non-default values */
+    /* Configure sage_satellite_stripping (no parameters needed) */
     strcpy(MimicConfig.EnabledModules[0], "sage_satellite_stripping");
     MimicConfig.NumEnabledModules = 1;
-
-    /* Set all required parameters, then override specific ones for testing */
     set_test_model_parameters();
-    strcpy(MimicConfig.ModelParams[0].value, "0.20");  /* BaryonFrac custom value */
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == 0, "Module should initialize with custom parameters");
-    /* If init succeeded, parameters were read and validated */
+    TEST_ASSERT(result == 0, "Module should initialize without parameters");
 
     /* ===== CLEANUP ===== */
     module_system_cleanup();

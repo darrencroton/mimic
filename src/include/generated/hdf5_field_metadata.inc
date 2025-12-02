@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 3e37b643a888919649e94261f395a7c9
+ * Source MD5: 03d0b0b3f30eb6575787ce9bfe15b720
  * To regenerate: make generate
  */
 
@@ -14,7 +14,7 @@
 /* Provides discoverable, queryable metadata for all output fields */
 
 /* Total number of output fields */
-#define NUM_FIELDS 46
+#define NUM_FIELDS 47
 
 /* Define metadata structure */
 struct FieldMetadata {
@@ -50,6 +50,7 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"infallMvir", "1e10 Msun/h", "Virial mass at infall (satellites only, 0 for centrals)"},
   {"infallVvir", "km/s", "Virial velocity at infall (satellites only, 0 for centrals)"},
   {"infallVmax", "km/s", "Maximum circular velocity at infall (satellites only, 0 for centrals)"},
+  {"HaloBaryonFraction", "dimensionless", "Local baryon fraction for this halo (cosmic value modified by reionization suppression)"},
   {"ColdGas", "1e10 Msun/h", "Cold gas mass available for star formation"},
   {"HotGas", "1e10 Msun/h", "Hot gas mass in halo atmosphere"},
   {"EjectedMass", "1e10 Msun/h", "Mass of gas ejected from galaxy by feedback"},

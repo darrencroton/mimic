@@ -9,7 +9,7 @@ Mimic's modular architecture allows you to enable/disable galaxy physics modules
 
 **Key Concepts:**
 - **Modules**: Physics components (e.g., sage_cooling, sage_starformation_feedback)
-- **Model Parameters**: Physics parameters used by modules (e.g., BaryonFrac, SfrEfficiency)
+- **Model Parameters**: Physics parameters used by modules (e.g., GlobalBaryonFraction, SfrEfficiency)
 - **Decentralized Definitions**: Each module defines its needed parameters in its own `module_info.yaml`
 - **No Defaults**: All parameters MUST be specified - ensures reproducible science
 
@@ -70,7 +70,7 @@ Mimic uses **smart validation** for reproducible science:
 
 The 20 model parameters are organized into scientific categories:
 
-1. **Cosmological Parameters** (1): BaryonFrac
+1. **Cosmological Parameters** (1): GlobalBaryonFraction
 2. **Cooling & AGN Feedback** (3): RadioModeEfficiency, AGNrecipeOn, CoolFunctionsDir
 3. **Star Formation** (4): SFprescription, SfrEfficiency, EnergySNcode, EtaSNcode
 4. **Stellar Feedback** (3): SupernovaRecipeOn, FeedbackReheatingEpsilon, FeedbackEjectionEfficiency
@@ -85,7 +85,7 @@ The 20 model parameters are organized into scientific categories:
 # Parameters needed by enabled modules (values shown are SAGE defaults)
 modules.parameters:
   # Cosmological Parameters
-  BaryonFrac: 0.17
+  GlobalBaryonFraction: 0.17
 
   # Cooling & AGN Feedback
   RadioModeEfficiency: 0.01
@@ -133,22 +133,44 @@ modules.parameters:
 
 The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
-#### sage_infall
+#### sage_reionization
 
-**Purpose**: Cosmological gas infall and satellite stripping
+**Purpose**: Calculate local baryon fraction with reionization suppression
 
 **Physics**:
-- Gas infall: infallingMass = f_reion * BaryonFrac * Mvir - (total baryons)
-- Reionization suppression following Gnedin (2000)
-- Environmental stripping of satellite hot gas
+- Sets HaloBaryonFraction = GlobalBaryonFraction × f_reion(Mvir, z)
+- Reionization suppression following Gnedin (2000) with Kravtsov et al. (2004) fitting formulas
+- Suppresses gas accretion onto low-mass halos after cosmic reionization
 
-**Dependencies**: None (provides initial hot gas reservoir)
+**Dependencies**: None
+
+**Provides**: HaloBaryonFraction (local baryon fraction for each halo)
+
+**Execution Order**: Must run **FIRST** in pipeline (before sage_infall and sage_satellite_stripping)
+
+**Model Parameters Used**: GlobalBaryonFraction
+
+**Implementation Notes**:
+- Reionization parameters (z0=8.0, zr=7.0, alpha=6.0) are currently hardcoded
+- These match SAGE default values for Millennium simulation
+
+---
+
+#### sage_infall
+
+**Purpose**: Cosmological gas infall onto central galaxies
+
+**Physics**:
+- Gas infall: infallingMass = HaloBaryonFraction × Mvir - (total baryons)
+- Uses HaloBaryonFraction property (set by sage_reionization module)
+
+**Dependencies**: Requires sage_reionization (provides HaloBaryonFraction)
 
 **Provides**: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons, InfallingGas
 
-**Execution Order**: Should run **early** in pipeline (before cooling, star formation)
+**Execution Order**: Should run **early** in pipeline (after sage_reionization, before cooling, star formation)
 
-**Model Parameters Used**: BaryonFrac
+**Model Parameters Used**: None (uses HaloBaryonFraction property)
 
 ---
 
@@ -156,15 +178,15 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Purpose**: Environmental gas stripping for satellite galaxies
 
-**Physics**: Removes hot gas from satellites in massive halos
+**Physics**: Removes hot gas from satellites in massive halos using local baryon fraction
 
-**Dependencies**: Requires sage_infall (provides hot gas reservoir)
+**Dependencies**: Requires sage_reionization (provides HaloBaryonFraction) and sage_infall (provides hot gas reservoir)
 
 **Provides**: Updates HotGas, MetalsHotGas for satellites
 
-**Execution Order**: After sage_infall, before cooling
+**Execution Order**: After sage_reionization and sage_infall, before cooling
 
-**Model Parameters Used**: BaryonFrac
+**Model Parameters Used**: None (uses HaloBaryonFraction property)
 
 ---
 
@@ -266,7 +288,7 @@ See `input/millennium.yaml` for a complete working configuration file. Key secti
 ```yaml
 # Model Parameters - Only those needed by enabled modules required
 modules.parameters:
-  BaryonFrac: 0.17
+  GlobalBaryonFraction: 0.17
   RadioModeEfficiency: 0.01
   # ... (see input/millennium.yaml for complete list)
 
@@ -297,6 +319,7 @@ simulation:
 # Physics Modules
 modules:
   enabled:
+  - sage_reionization
   - sage_infall
   - sage_satellite_stripping
   - sage_cooling
@@ -338,8 +361,8 @@ Available modules:
 
 **Error**:
 ```
-ERROR: Required model parameter 'BaryonFrac' not found in input file
-ERROR:   (needed by modules: sage_infall, sage_satellite_stripping)
+ERROR: Required model parameter 'GlobalBaryonFraction' not found in input file
+ERROR:   (needed by modules: sage_reionization)
 ```
 
 **Solution**: Add the missing parameter to the `modules.parameters:` section. The error message lists which modules need it. To see parameter details (type, units, valid range), check the module's `module_info.yaml` file in `src/modules/<module_name>/`.
@@ -350,8 +373,8 @@ Parameter values are validated against ranges defined in each module's `module_i
 
 **Error**:
 ```
-ERROR: BaryonFrac = 2.0 is outside valid range [0.0, 1.0]
-ERROR:   (defined by module: sage_infall)
+ERROR: GlobalBaryonFraction = 2.0 is outside valid range [0.0, 1.0]
+ERROR:   (defined by module: sage_reionization)
 ```
 
 **Solution**: Correct the parameter value to be within the valid range. Check the module's `module_info.yaml` for parameter specifications.

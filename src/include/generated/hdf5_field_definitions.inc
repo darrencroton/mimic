@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 3e37b643a888919649e94261f395a7c9
+ * Source MD5: 03d0b0b3f30eb6575787ce9bfe15b720
  * To regenerate: make generate
  */
 
@@ -161,6 +161,12 @@ HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, infallVmax);
 HDF5_dst_sizes[i] = sizeof(galout.infallVmax);
 HDF5_field_names[i] = "infallVmax";
+HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
+
+/* HaloBaryonFraction */
+HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, HaloBaryonFraction);
+HDF5_dst_sizes[i] = sizeof(galout.HaloBaryonFraction);
+HDF5_field_names[i] = "HaloBaryonFraction";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
 /* ColdGas */

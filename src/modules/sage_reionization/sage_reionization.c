@@ -1,63 +1,66 @@
 /**
- * @file    reionization.h
- * @brief   Shared reionization suppression calculation (Gnedin 2000)
+ * @file    sage_reionization.c
+ * @brief   SAGE reionization suppression module implementation
  *
- * SWAPPABLE REIONIZATION MODEL
- * ============================
- * This header contains a complete reionization model implementation that can
- * be swapped out entirely for different reionization prescriptions.
+ * This module calculates halo-specific baryon fractions modified by
+ * reionization suppression. It implements the Gnedin (2000) reionization
+ * model with fitting formulas from Kravtsov et al. (2004).
  *
- * To use a different reionization model:
- * 1. Create alternative header (e.g., reionization_okamoto2008.h)
- * 2. Archive this file: mv reionization.h _archive/shared/reionization_gnedin2000.h
- * 3. Install new model: cp new_model.h reionization.h
- * 4. Rebuild: make clean && make
+ * Physics:
+ *   HaloBaryonFraction = GlobalBaryonFraction * f_reion(Mvir, z)
  *
- * No changes to module code required - all modules include this shared header.
- *
- * HARDCODED PARAMETERS
- * ====================
- * Reionization parameters are hardcoded in this header, not passed as module
- * parameters. This design choice enables easy model swapping since different
- * reionization models have different parameter sets.
- *
- * Current Model: Gnedin (2000) with Kravtsov et al. (2004) fitting formulas
- *
- * PHYSICS
- * =======
- * Calculates suppression factor for gas accretion onto low-mass halos after
- * cosmic reionization. The suppression depends on the ratio between halo mass
- * and a characteristic mass (maximum of filtering mass and mass corresponding
- * to virial temperature of 10^4 K).
+ * After cosmic reionization, gas accretion onto low-mass halos is suppressed
+ * due to increased gas temperature and Jeans mass. The suppression depends on
+ * the ratio between halo mass and a characteristic mass.
  *
  * Three regimes based on scale factor:
- * 1. Before UV background turns on (a ≤ a0)
- * 2. During partial reionization (a0 < a < ar)
- * 3. After full reionization (a ≥ ar)
+ * 1. Before UV background turns on (a ≤ a0): Partial suppression
+ * 2. During partial reionization (a0 < a < ar): Increasing suppression
+ * 3. After full reionization (a ≥ ar): Full suppression effect
  *
- * References:
+ * Implementation Notes:
+ * - This module MUST run before sage_infall and sage_satellite_stripping
+ * - Sets HaloBaryonFraction property for each halo
+ * - Reionization parameters are hardcoded (model-specific)
+ * - To use different reionization model, create new module
+ *
+ * Reference:
  *   - Gnedin (2000) - Reionization model
- *   - Kravtsov et al. (2004) - Fitting formulas (Appendix B)
+ *   - Kravtsov et al. (2004) - Filtering mass formulas (Appendix B)
  *   - Bryan & Norman (1998) - Critical overdensity
+ *   - Croton et al. (2016) - SAGE model description
  *
  * Vision Principles:
- *   - Single Source of Truth: Reionization physics in ONE place
- *   - Runtime Modularity: Swap models without recompilation
- *   - Type Safety: Static inline for compile-time optimization
+ *   - Single Source of Truth: HaloBaryonFraction property
+ *   - Runtime Modularity: Configurable via parameter file
+ *   - Physics-Agnostic Core: Interacts only through module interface
  */
 
-#ifndef SHARED_REIONIZATION_H
-#define SHARED_REIONIZATION_H
-
 #include <math.h>
+#include <stdio.h>   /* Required for error.h logging macros */
+#include <stdlib.h>  /* Required for error.h logging macros */
 
-#include "module_interface.h"  /* For ModuleContext and Params */
 #include "constants.h"
+#include "error.h"
+#include "../_system/parameter_helpers.h"  // Parameter loading and validation macros
+#include "module_interface.h"
+#include "module_registry.h"
 #include "numeric.h"
+#include "sage_reionization.h"
+#include "types.h"
+
+// ============================================================================
+// MODULE PARAMETERS
+// ============================================================================
+// Parameters loaded from input YAML file (required, no defaults).
+
+static double GLOBAL_BARYON_FRAC;
 
 // ============================================================================
 // REIONIZATION MODEL PARAMETERS (Gnedin 2000)
 // ============================================================================
+// Hardcoded parameters specific to Gnedin (2000) model.
+// To use different reionization model, create new module with different parameters.
 
 /* Enable/disable reionization suppression */
 #define REIONIZATION_ON 1
@@ -71,10 +74,6 @@
 /* Derived scale factors (calculated at compile time) */
 #define REIONIZATION_A0 (1.0 / (1.0 + REIONIZATION_Z0))
 #define REIONIZATION_AR (1.0 / (1.0 + REIONIZATION_ZR))
-
-// ============================================================================
-// PHYSICS CONSTANTS
-// ============================================================================
 
 /* Gnedin (2000) model parameters */
 #define REIONIZATION_ALPHA 6.0     /* Best fit to Gnedin data */
@@ -101,7 +100,7 @@
 #define GNEDIN_SUPPRESSION_POWER 3.0  /* Power-law exponent */
 
 // ============================================================================
-// REIONIZATION SUPPRESSION CALCULATION
+// HELPER FUNCTIONS (Physics Calculations)
 // ============================================================================
 
 /**
@@ -124,16 +123,13 @@
  * @param   hubble_h     Hubble parameter (H_0 / 100 km/s/Mpc)
  * @return  Suppression modifier factor (0 to 1)
  *          0 = complete suppression, 1 = no suppression
- *
- * @note This function uses hardcoded reionization parameters defined at top
- *       of this header. To change reionization model, swap entire header file.
  */
-static inline double calculate_reionization_modifier(const struct ModuleContext *ctx,
-                                                       float mvir,
-                                                       double redshift,
-                                                       double omega,
-                                                       double omega_lambda,
-                                                       double hubble_h) {
+static double calculate_reionization_modifier(const struct ModuleContext *ctx,
+                                                float mvir,
+                                                double redshift,
+                                                double omega,
+                                                double omega_lambda,
+                                                double hubble_h) {
   double a, a_on_a0, a_on_ar, f_of_a;
   double Mjeans, Mfiltering, Vchar, omegaZ, xZ, deltacritZ, HubbleZ;
   double G_code, Mchar, mass_to_use, modifier;
@@ -221,4 +217,119 @@ static inline double calculate_reionization_modifier(const struct ModuleContext 
   return modifier;
 }
 
-#endif /* SHARED_REIONIZATION_H */
+// ============================================================================
+// MODULE LIFECYCLE FUNCTIONS
+// ============================================================================
+
+/**
+ * @brief   Initialize sage_reionization module
+ *
+ * Loads configuration parameters from input YAML file and validates them.
+ * All parameters are REQUIRED in the input file (no defaults).
+ *
+ * @return  0 on success, non-zero on failure
+ */
+static int sage_reionization_init(void) {
+  /* Load and validate parameters from input YAML file */
+  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
+                                    "cosmic baryon fraction must be physical");
+
+  /* Log module configuration */
+  INFO_LOG("SAGE reionization module initialized");
+  INFO_LOG("  Physics: HaloBaryonFraction = GlobalBaryonFraction * f_reion(Mvir, z)");
+  INFO_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
+  INFO_LOG("  Reionization model: Gnedin (2000)");
+  INFO_LOG("    z0 = %.1f (UV background turns on)", REIONIZATION_Z0);
+  INFO_LOG("    zr = %.1f (full reionization)", REIONIZATION_ZR);
+  INFO_LOG("    alpha = %.1f (suppression strength)", REIONIZATION_ALPHA);
+
+  return 0;
+}
+
+/**
+ * @brief   Process halos in a FOF group
+ *
+ * Calculates HaloBaryonFraction for each halo based on global baryon fraction
+ * and reionization suppression.
+ *
+ * Process:
+ * 1. For each halo, calculate reionization modifier f_reion(Mvir, z)
+ * 2. Set HaloBaryonFraction = GlobalBaryonFraction * f_reion
+ *
+ * @param   ctx     Module execution context
+ * @param   halos   Array of halos in FOF group
+ * @param   ngal    Number of halos
+ * @return  0 on success, non-zero on failure
+ */
+static int sage_reionization_process(struct ModuleContext *ctx,
+                                       struct Halo *halos,
+                                       int ngal) {
+  /* Validate inputs */
+  if (halos == NULL || ngal <= 0) {
+    return 0; /* Nothing to process */
+  }
+
+  /* Extract cosmological parameters from context */
+  double z = ctx->redshift;
+  double omega = ctx->params->Omega;
+  double omega_lambda = ctx->params->OmegaLambda;
+  double hubble_h = ctx->params->Hubble_h;
+
+  /* Process each halo */
+  for (int i = 0; i < ngal; i++) {
+    /* Validate halo has galaxy data */
+    if (halos[i].galaxy == NULL) {
+      ERROR_LOG("Halo %d has NULL galaxy data", i);
+      return -1;
+    }
+
+    /* Calculate reionization modifier for this halo */
+    double reionization_modifier = calculate_reionization_modifier(
+        ctx, halos[i].Mvir, z, omega, omega_lambda, hubble_h);
+
+    /* Set halo-specific baryon fraction */
+    halos[i].galaxy->HaloBaryonFraction =
+        (float)(GLOBAL_BARYON_FRAC * reionization_modifier);
+
+    /* Debug logging for central galaxies only */
+    if (halos[i].Type == 0) {
+      DEBUG_LOG("Halo %d (Type=0): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f",
+                i, halos[i].Mvir, reionization_modifier,
+                halos[i].galaxy->HaloBaryonFraction, z);
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * @brief   Cleanup sage_reionization module
+ *
+ * No allocated resources to free for this module.
+ *
+ * @return  0 on success
+ */
+static int sage_reionization_cleanup(void) {
+  INFO_LOG("SAGE reionization module cleaned up");
+  return 0;
+}
+
+// ============================================================================
+// MODULE REGISTRATION
+// ============================================================================
+
+/**
+ * @brief   Module structure for sage_reionization module
+ */
+static struct Module sage_reionization_module = {
+    .name = "sage_reionization",
+    .init = sage_reionization_init,
+    .process_halos = sage_reionization_process,
+    .cleanup = sage_reionization_cleanup};
+
+/**
+ * @brief   Register the sage_reionization module
+ */
+void sage_reionization_register(void) {
+  module_registry_add(&sage_reionization_module);
+}

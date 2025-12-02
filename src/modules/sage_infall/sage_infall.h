@@ -2,27 +2,24 @@
  * @file    sage_infall.h
  * @brief   SAGE infall module interface
  *
- * This module implements gas infall and stripping processes from the SAGE model.
+ * This module implements cosmological gas infall from the SAGE model.
  * It handles:
- * - Cosmological gas infall onto halos
- * - Reionization suppression of gas accretion onto low-mass halos
- * - Stripping of hot gas from satellite galaxies
- * - Redistribution of baryons between galaxies
+ * - Cosmological gas infall onto central galaxies
+ * - Redistribution of ejected gas and ICS from satellites to central
  *
  * Physics:
- *   infallingMass = f_reion * BaryonFrac * Mvir - (total baryon content)
+ *   infallingMass = HaloBaryonFraction * Mvir - (total baryon content)
  *   HotGas += infallingMass
  *
  * Reference:
  *   Based on SAGE model_infall.c (Croton et al. 2016)
- *   Reionization model: Gnedin (2000), Kravtsov et al. (2004)
  *
  * Dependencies:
- *   - Requires: Mvir, deltaMvir (from halo tracking)
- *   - Provides: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS
+ *   - Requires: HaloBaryonFraction (from sage_reionization), Mvir (from halo tracking)
+ *   - Provides: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, InfallingGas
  *
  * Parameters:
- *   See module_info.yaml for complete parameter list (4 parameters)
+ *   No module parameters (uses HaloBaryonFraction property)
  */
 
 #ifndef SAGE_INFALL_H

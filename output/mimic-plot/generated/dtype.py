@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: 3e37b643a888919649e94261f395a7c9
+Source MD5: 03d0b0b3f30eb6575787ce9bfe15b720
 To regenerate: make generate
 """
 
@@ -40,6 +40,7 @@ def get_binary_dtype():
         ("infallMvir", np.float32),
         ("infallVvir", np.float32),
         ("infallVmax", np.float32),
+        ("HaloBaryonFraction", np.float32),
         ("ColdGas", np.float32),
         ("HotGas", np.float32),
         ("EjectedMass", np.float32),
@@ -91,6 +92,7 @@ def get_hdf5_dtype():
         ("infallMvir", np.float32),
         ("infallVvir", np.float32),
         ("infallVmax", np.float32),
+        ("HaloBaryonFraction", np.float32),
         ("ColdGas", np.float32),
         ("HotGas", np.float32),
         ("EjectedMass", np.float32),
@@ -152,6 +154,7 @@ def get_units():
         'infallMvir': '1e10 Msun/h',
         'infallVvir': 'km/s',
         'infallVmax': 'km/s',
+        'HaloBaryonFraction': 'dimensionless',
         'ColdGas': '1e10 Msun/h',
         'HotGas': '1e10 Msun/h',
         'EjectedMass': '1e10 Msun/h',

@@ -37,12 +37,12 @@ module:
   dependencies:
     # All halo and galaxy properties read or written by this module
     properties:
+      - HaloBaryonFraction  # Requires: Local baryon fraction (set by sage_reionization)
       - HotGas
       - MetalsHotGas
 
     # All model parameters accessed via model_get_*() functions
-    parameters:
-      - BaryonFrac
+    parameters: []
 
   # ===========================================================================
   # Testing

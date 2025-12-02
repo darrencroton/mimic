@@ -1,35 +1,30 @@
 /**
- * @file    test_sage_infall.c
- * @brief   Software quality unit tests for sage_infall module
+ * @file    test_unit_sage_reionization.c
+ * @brief   Software quality unit tests for sage_reionization module
  *
  * Validates: Module lifecycle, memory safety, parameter handling, error handling
- * Phase: Phase 4.2 (SAGE Physics Module Implementation)
  *
- * This test validates software engineering aspects of the sage_infall module:
+ * This test validates software engineering aspects of the sage_reionization module:
  * - Module registration and initialization
  * - Parameter reading and validation
  * - Memory allocation and cleanup (no leaks)
- * - Null pointer safety
- * - Property access patterns
+ * - Property setting patterns
  *
  * Test cases:
  *   - test_module_registration: Module registers correctly
  *   - test_module_initialization: Module init/cleanup lifecycle
  *   - test_parameter_reading: Module parameters read from config
  *   - test_memory_safety: No memory leaks during operation
- *   - test_property_access: Galaxy property access works correctly
- *
- * NOTE: Physics validation (reionization, infall calculations) deferred to Phase 4.3+
- *       when downstream modules (cooling, star formation) are implemented.
+ *   - test_property_access: HaloBaryonFraction property access
  *
  * @author  Mimic Development Team
- * @date    2025-11-12
+ * @date    2025-12-02
  */
 
 #include "framework/test_framework.h"
 #include "../../core/module_registry.h"
 #include "../../core/module_interface.h"
-#include "sage_infall.h"
+#include "sage_reionization.h"
 #include "../../include/types.h"
 #include "../../include/proto.h"
 #include "../../include/globals.h"
@@ -69,10 +64,10 @@ extern void set_test_model_parameters(void);
 
 /**
  * @test    test_module_registration
- * @brief   Test that sage_infall module registers correctly
+ * @brief   Test that sage_reionization module registers correctly
  *
  * Expected: Module registration succeeds without errors
- * Validates: sage_infall_register() works, module appears in registry
+ * Validates: sage_reionization_register() works, module appears in registry
  */
 int test_module_registration(void)
 {
@@ -108,8 +103,8 @@ int test_module_initialization(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_infall module */
-    strcpy(MimicConfig.EnabledModules[0], "sage_infall");
+    /* Configure sage_reionization module */
+    strcpy(MimicConfig.EnabledModules[0], "sage_reionization");
     MimicConfig.NumEnabledModules = 1;
     set_test_model_parameters();
 
@@ -128,11 +123,10 @@ int test_module_initialization(void)
 
 /**
  * @test    test_parameter_reading
- * @brief   Test that module initializes correctly (no parameters needed)
+ * @brief   Test that module reads GlobalBaryonFraction parameter
  *
- * Expected: Module initializes successfully without parameters
- * Validates: sage_infall no longer requires parameters (uses HaloBaryonFraction property)
- * Note: HaloBaryonFraction is set by sage_reionization module
+ * Expected: Module reads GlobalBaryonFraction parameter successfully
+ * Validates: Parameter reading and validation
  */
 int test_parameter_reading(void)
 {
@@ -146,16 +140,20 @@ int test_parameter_reading(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_infall (no parameters needed) */
-    strcpy(MimicConfig.EnabledModules[0], "sage_infall");
+    /* Configure sage_reionization with custom GlobalBaryonFraction */
+    strcpy(MimicConfig.EnabledModules[0], "sage_reionization");
     MimicConfig.NumEnabledModules = 1;
+
+    /* Set all required parameters, then override specific one for testing */
     set_test_model_parameters();
+    strcpy(MimicConfig.ModelParams[0].value, "0.20");  /* GlobalBaryonFraction custom value */
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == 0, "Module should initialize without parameters");
+    TEST_ASSERT(result == 0, "Module should initialize with custom parameter");
+    /* If init succeeded, parameter was read and validated */
 
     /* ===== CLEANUP ===== */
     module_system_cleanup();
@@ -182,7 +180,7 @@ int test_memory_safety(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    strcpy(MimicConfig.EnabledModules[0], "sage_infall");
+    strcpy(MimicConfig.EnabledModules[0], "sage_reionization");
     MimicConfig.NumEnabledModules = 1;
     set_test_model_parameters();
 
@@ -203,9 +201,9 @@ int test_memory_safety(void)
 
 /**
  * @test    test_property_access
- * @brief   Test that module can safely access galaxy properties
+ * @brief   Test that module can safely access HaloBaryonFraction property
  *
- * Expected: Property access doesn't crash, handles zero/null gracefully
+ * Expected: Property access doesn't crash, handles values correctly
  * Validates: Property access patterns in module
  */
 int test_property_access(void)
@@ -213,48 +211,25 @@ int test_property_access(void)
     /* ===== SETUP ===== */
     init_memory_system(0);
 
-    /* Create test halo and galaxy with various property states */
-    struct Halo test_halo;
-    memset(&test_halo, 0, sizeof(test_halo));
-
+    /* Create test galaxy */
     struct GalaxyData test_galaxy;
     memset(&test_galaxy, 0, sizeof(test_galaxy));
 
-    /* Set some realistic values */
-    test_halo.Mvir = 100.0;  /* 10^12 Msun/h */
-    test_halo.Type = 0;  /* Central */
-    test_halo.SnapNum = 63;
-    test_halo.galaxy = &test_galaxy;
-
-    test_galaxy.StellarMass = 10.0;
-    test_galaxy.ColdGas = 5.0;
-    test_galaxy.HotGas = 15.0;
-    test_galaxy.EjectedMass = 2.0;
-    test_galaxy.ICS = 0.5;
-    test_galaxy.MetalsHotGas = 0.3;
-    test_galaxy.MetalsEjectedMass = 0.04;
-    test_galaxy.MetalsICS = 0.01;
-
     /* ===== VALIDATE ===== */
-    /* Test that halo properties can be accessed without crashing */
-    TEST_ASSERT(test_halo.Mvir > 0.0, "Mvir should be accessible");
-    TEST_ASSERT(test_halo.Type == 0, "Type should be accessible");
-    TEST_ASSERT(test_halo.galaxy != NULL, "Galaxy pointer should be accessible");
+    /* Test that HaloBaryonFraction property can be accessed */
+    TEST_ASSERT(test_galaxy.HaloBaryonFraction == 0.0f,
+                "Zero-initialized galaxy should have HaloBaryonFraction=0");
 
-    /* Test that galaxy properties can be accessed */
-    TEST_ASSERT(test_galaxy.StellarMass >= 0.0, "StellarMass should be non-negative");
-    TEST_ASSERT(test_galaxy.HotGas >= 0.0, "HotGas should be non-negative");
+    /* Test property can be set */
+    test_galaxy.HaloBaryonFraction = 0.17f;
+    TEST_ASSERT(test_galaxy.HaloBaryonFraction == 0.17f,
+                "HaloBaryonFraction should be readable/writable");
 
-    /* Test with zero values (edge case) */
-    struct GalaxyData zero_galaxy;
-    memset(&zero_galaxy, 0, sizeof(zero_galaxy));
-    TEST_ASSERT(zero_galaxy.HotGas == 0.0, "Zero-initialized galaxy should have HotGas=0");
-    TEST_ASSERT(zero_galaxy.ColdGas == 0.0, "Zero-initialized galaxy should have ColdGas=0");
-
-    /* Test InfallingGas property (added in refactoring for STEPS integration) */
-    TEST_ASSERT(zero_galaxy.InfallingGas == 0.0, "Zero-initialized galaxy should have InfallingGas=0");
-    test_galaxy.InfallingGas = 5.5;
-    TEST_ASSERT(test_galaxy.InfallingGas == 5.5, "InfallingGas should be readable/writable");
+    /* Test with reionization-suppressed value */
+    test_galaxy.HaloBaryonFraction = 0.085f;  /* 50% suppression */
+    TEST_ASSERT(test_galaxy.HaloBaryonFraction > 0.0f &&
+                test_galaxy.HaloBaryonFraction <= 0.17f,
+                "HaloBaryonFraction should be in physical range");
 
     /* ===== CLEANUP ===== */
     check_memory_leaks();
@@ -265,13 +240,13 @@ int test_property_access(void)
 /**
  * @brief   Main test runner
  *
- * Executes all sage_infall software quality tests and reports results.
+ * Executes all sage_reionization software quality tests and reports results.
  */
 int main(void)
 {
     printf("%s", BLUE);
     printf("============================================================\n");
-    printf("Test Suite: sage_infall Module\n");
+    printf("Test Suite: sage_reionization Module\n");
     printf("============================================================\n");
     printf("%s\n", NC);
 

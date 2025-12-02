@@ -5,6 +5,11 @@
  * Implements environmental stripping of hot gas from satellite galaxies as
  * they orbit within their host halo. Stripped gas is transferred to the
  * central galaxy's hot gas reservoir.
+ *
+ * Physics:
+ *   strippedGas = -(HaloBaryonFraction * Mvir - total_baryons) / STEPS
+ *
+ * HaloBaryonFraction is set by sage_reionization module (must run first).
  */
 
 #include "sage_satellite_stripping.h"
@@ -16,8 +21,6 @@
 #include "constants.h"
 #include "error.h"
 #include "../_shared/metallicity.h"
-#include "../_shared/reionization.h"
-#include "../_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -30,7 +33,7 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
 static int sage_satellite_stripping_cleanup(void);
 
 /* Module-level parameters */
-static double BARYON_FRAC;
+/* No parameters - uses HaloBaryonFraction property set by sage_reionization */
 
 /* ============================================================================
  * HELPER FUNCTIONS
@@ -42,31 +45,19 @@ static double BARYON_FRAC;
  * Implements environmental stripping of hot gas from satellite galaxies
  * as they move through the hot halo of the central galaxy.
  *
- * @param   ctx        Module context (for accessing params->G via reionization)
  * @param   halos      Array of halos in FOF group
  * @param   central_idx Index of central galaxy
  * @param   sat_idx    Index of satellite galaxy being stripped
- * @param   redshift   Current redshift
- * @param   omega      Matter density parameter
- * @param   omega_lambda Dark energy density parameter
- * @param   hubble_h   Hubble parameter
  */
-static void strip_from_satellite(const struct ModuleContext *ctx,
-                                  struct Halo *halos, int central_idx,
-                                  int sat_idx, double redshift, double omega,
-                                  double omega_lambda, double hubble_h) {
+static void strip_from_satellite(struct Halo *halos, int central_idx, int sat_idx) {
 #define STEPS 1  /* TODO: Will be replaced by global STEPS when multi-step integration loop implemented in core */
-  double reionization_modifier;
   double strippedGas, strippedGasMetals;
   float metallicity;
 
-  /* Apply reionization modifier using shared utility */
-  reionization_modifier = calculate_reionization_modifier(
-      ctx, halos[sat_idx].Mvir, redshift, omega, omega_lambda, hubble_h);
-
-  /* Calculate amount of gas to strip */
+  /* Calculate amount of gas to strip using halo-specific baryon fraction
+   * (set by sage_reionization module with reionization suppression) */
   strippedGas = -1.0 *
-                (reionization_modifier * BARYON_FRAC * halos[sat_idx].Mvir -
+                (halos[sat_idx].galaxy->HaloBaryonFraction * halos[sat_idx].Mvir -
                  (halos[sat_idx].galaxy->StellarMass +
                   halos[sat_idx].galaxy->ColdGas +
                   halos[sat_idx].galaxy->HotGas +
@@ -108,21 +99,15 @@ static void strip_from_satellite(const struct ModuleContext *ctx,
 /**
  * @brief   Initialize sage_satellite_stripping module
  *
- * Reads module parameters from configuration file.
+ * No parameters to load - uses HaloBaryonFraction property set by sage_reionization.
  *
  * @return  0 on success, non-zero on error
  */
 static int sage_satellite_stripping_init(void) {
-  /* Load and validate parameters from input YAML file */
-  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", BARYON_FRAC, 0.0, 1.0,
-                                    "cosmic baryon fraction must be physical");
-
-  if (get_verbose_format()) {
-    INFO_LOG("SAGE satellite stripping module initialized");
-    INFO_LOG("  BaryonFrac = %.4f", BARYON_FRAC);
-    INFO_LOG("  Reionization model: Gnedin (2000) - hardcoded in "
-             "shared/reionization.h");
-  }
+  /* Log module configuration */
+  INFO_LOG("SAGE satellite stripping module initialized");
+  INFO_LOG("  Physics: strippedGas = -(HaloBaryonFraction * Mvir - baryons) / STEPS");
+  INFO_LOG("  Requires: sage_reionization module to set HaloBaryonFraction");
 
   return 0;
 }
@@ -142,16 +127,13 @@ static int sage_satellite_stripping_init(void) {
  */
 static int sage_satellite_stripping_process(struct ModuleContext *ctx,
                                              struct Halo *halos, int ngal) {
+  /* Suppress unused parameter warning */
+  (void)ctx;
+
   /* Validate inputs */
   if (halos == NULL || ngal <= 0) {
     return 0; /* Nothing to process */
   }
-
-  /* Extract cosmological parameters from context */
-  double z = ctx->redshift;
-  double omega = ctx->params->Omega;
-  double omega_lambda = ctx->params->OmegaLambda;
-  double hubble_h = ctx->params->Hubble_h;
 
   /* Find central galaxy (Type == 0) */
   int central_idx = -1;
@@ -185,8 +167,7 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
       continue; /* Skip if no hot gas */
 
     /* Strip hot gas from this satellite */
-    strip_from_satellite(ctx, halos, central_idx, i, z, omega, omega_lambda,
-                         hubble_h);
+    strip_from_satellite(halos, central_idx, i);
   }
 
   return 0;

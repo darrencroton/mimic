@@ -158,9 +158,9 @@ def create_test_param_file(output_name, enabled_modules=None,
         # With modules and model parameters
         param_file, output_dir, temp_dir = create_test_param_file(
             output_name="infall_test",
-            enabled_modules=["sage_infall"],
+            enabled_modules=["sage_reionization", "sage_infall"],
             model_params={
-                "BaryonFrac": 0.17
+                "GlobalBaryonFraction": 0.17
             },
             first_file=0,
             last_file=0
