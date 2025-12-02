@@ -17,6 +17,7 @@
 #include "error.h"
 #include "../_shared/metallicity.h"
 #include "../_shared/reionization.h"
+#include "../_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -112,16 +113,9 @@ static void strip_from_satellite(const struct ModuleContext *ctx,
  * @return  0 on success, non-zero on error
  */
 static int sage_satellite_stripping_init(void) {
-  /* Read parameters from input YAML file */
-  if (model_get_double("BaryonFrac", &BARYON_FRAC) != 0) {
-    return -1;
-  }
-
-  /* Validate parameter values with physics constraints */
-  if (BARYON_FRAC <= 0.0 || BARYON_FRAC > 1.0) {
-    ERROR_LOG("BaryonFrac = %.4f out of valid range (0.0, 1.0]", BARYON_FRAC);
-    return -1;
-  }
+  /* Load and validate parameters from input YAML file */
+  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", BARYON_FRAC, 0.0, 1.0,
+                                    "cosmic baryon fraction must be physical");
 
   if (get_verbose_format()) {
     INFO_LOG("SAGE satellite stripping module initialized");

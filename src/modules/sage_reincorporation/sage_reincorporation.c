@@ -34,6 +34,7 @@
 #include "constants.h"
 #include "error.h"
 #include "../_shared/metallicity.h"  // Shared utility for metallicity calculations
+#include "../_system/parameter_helpers.h"  // Parameter loading and validation macros
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -77,16 +78,9 @@ static int sage_reincorporation_init(void)
         INFO_LOG("Initializing SAGE reincorporation module...");
     }
 
-    // Read parameters from input YAML file
-    if (model_get_double("ReIncorporationFactor", &REINCORPORATION_FACTOR) != 0) {
-        return -1;
-    }
-
-    // Validate parameter values with physics constraints
-    if (REINCORPORATION_FACTOR < 0.0 || REINCORPORATION_FACTOR > 10.0) {
-        ERROR_LOG("ReIncorporationFactor = %.4f out of valid range [0.0, 10.0]", REINCORPORATION_FACTOR);
-        return -1;
-    }
+    /* Load and validate parameters from input YAML file */
+    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ReIncorporationFactor", REINCORPORATION_FACTOR, 0.0, 10.0,
+                                      "reincorporation efficiency factor");
 
     // Calculate effective critical velocity
     double Vcrit = VCRIT_BASE * REINCORPORATION_FACTOR;

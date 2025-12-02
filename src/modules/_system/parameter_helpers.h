@@ -15,7 +15,7 @@
  * - Type Safety: Compile-time type checking via function calls
  *
  * Usage:
- *   #include "../_shared/parameter_helpers.h"
+ *   #include "../_system/parameter_helpers.h"
  *
  * Author: Mimic Development Team
  * Date: 2025-12-02
@@ -24,7 +24,7 @@
 #ifndef PARAMETER_HELPERS_H
 #define PARAMETER_HELPERS_H
 
-#include "core/module_registry.h"
+#include "module_registry.h"
 #include "error.h"
 
 /* ==============================================================================

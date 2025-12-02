@@ -131,7 +131,7 @@ static float another_helper(float x) {
  * @brief   Initialize template module
  *
  * Called once during program startup. Responsibilities:
- * - Read model parameters (validation automatic from model_parameters.yaml)
+ * - Load and validate model parameters from input YAML file
  * - Allocate persistent memory structures
  * - Load external data files (if needed)
  * - Initialize lookup tables (if needed)

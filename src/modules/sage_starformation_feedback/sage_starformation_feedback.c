@@ -59,6 +59,7 @@
 #include "types.h"
 #include "../_shared/disk_radius.h" /* Shared utility for disk radius calculations */
 #include "../_shared/metallicity.h" /* Shared utility for metallicity calculations */
+#include "../_system/parameter_helpers.h" /* Parameter loading and validation macros */
 #include "../_system/physical_constants.h" /* Shared physics constants (METAL_MASS_SCALE) */
 
 /* ============================================================================
@@ -207,86 +208,29 @@ static void update_from_feedback(struct GalaxyData *gal,
  * @return  0 on success, -1 on failure
  */
 static int sage_starformation_feedback_init(void) {
-  /* Read module parameters from input YAML file */
-  if (model_get_int("SFprescription", &SF_PRESCRIPTION) != 0) {
-    return -1;
-  }
-  if (model_get_double("SfrEfficiency", &SFR_EFFICIENCY) != 0) {
-    return -1;
-  }
-  if (model_get_int("SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON) != 0) {
-    return -1;
-  }
-  if (model_get_double("FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON) != 0) {
-    return -1;
-  }
-  if (model_get_double("FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY) != 0) {
-    return -1;
-  }
-  if (model_get_double("EnergySNcode", &ENERGY_SN_CODE) != 0) {
-    return -1;
-  }
-  if (model_get_double("EtaSNcode", &ETA_SN_CODE) != 0) {
-    return -1;
-  }
-  if (model_get_double("RecycleFraction", &RECYCLE_FRACTION) != 0) {
-    return -1;
-  }
-  if (model_get_double("Yield", &YIELD) != 0) {
-    return -1;
-  }
-  if (model_get_double("FracZleaveDisk", &FRAC_Z_LEAVE_DISK) != 0) {
-    return -1;
-  }
-  if (model_get_int("DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
-    return -1;
-  }
-
-  /* Validate parameter values with physics constraints */
-  if (SF_PRESCRIPTION != 0) {
-    ERROR_LOG("SFprescription = %d out of valid range [0, 0]", SF_PRESCRIPTION);
-    return -1;
-  }
-  if (SFR_EFFICIENCY < 0.0 || SFR_EFFICIENCY > 1.0) {
-    ERROR_LOG("SfrEfficiency = %.4f out of valid range [0.0, 1.0]", SFR_EFFICIENCY);
-    return -1;
-  }
-  if (SUPERNOVA_RECIPE_ON < 0 || SUPERNOVA_RECIPE_ON > 1) {
-    ERROR_LOG("SupernovaRecipeOn = %d out of valid range [0, 1]", SUPERNOVA_RECIPE_ON);
-    return -1;
-  }
-  if (FEEDBACK_REHEATING_EPSILON < 0.0 || FEEDBACK_REHEATING_EPSILON > 100.0) {
-    ERROR_LOG("FeedbackReheatingEpsilon = %.4f out of valid range [0.0, 100.0]", FEEDBACK_REHEATING_EPSILON);
-    return -1;
-  }
-  if (FEEDBACK_EJECTION_EFFICIENCY < 0.0 || FEEDBACK_EJECTION_EFFICIENCY > 100.0) {
-    ERROR_LOG("FeedbackEjectionEfficiency = %.4f out of valid range [0.0, 100.0]", FEEDBACK_EJECTION_EFFICIENCY);
-    return -1;
-  }
-  if (ENERGY_SN_CODE < 0.0 || ENERGY_SN_CODE > 100.0) {
-    ERROR_LOG("EnergySNcode = %.4f out of valid range [0.0, 100.0]", ENERGY_SN_CODE);
-    return -1;
-  }
-  if (ETA_SN_CODE < 0.0 || ETA_SN_CODE > 10.0) {
-    ERROR_LOG("EtaSNcode = %.4f out of valid range [0.0, 10.0]", ETA_SN_CODE);
-    return -1;
-  }
-  if (RECYCLE_FRACTION < 0.0 || RECYCLE_FRACTION > 1.0) {
-    ERROR_LOG("RecycleFraction = %.4f out of valid range [0.0, 1.0]", RECYCLE_FRACTION);
-    return -1;
-  }
-  if (YIELD < 0.0 || YIELD > 1.0) {
-    ERROR_LOG("Yield = %.4f out of valid range [0.0, 1.0]", YIELD);
-    return -1;
-  }
-  if (FRAC_Z_LEAVE_DISK < 0.0 || FRAC_Z_LEAVE_DISK > 1.0) {
-    ERROR_LOG("FracZleaveDisk = %.4f out of valid range [0.0, 1.0]", FRAC_Z_LEAVE_DISK);
-    return -1;
-  }
-  if (DISK_INSTABILITY_ON < 0 || DISK_INSTABILITY_ON > 1) {
-    ERROR_LOG("DiskInstabilityOn = %d out of valid range [0, 1]", DISK_INSTABILITY_ON);
-    return -1;
-  }
+  /* Load and validate parameters from input YAML file */
+  LOAD_AND_VALIDATE_OPTION("SFprescription", SF_PRESCRIPTION, 0,
+                           "0=Kennicutt-Schmidt with threshold");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("SfrEfficiency", SFR_EFFICIENCY, 0.0, 1.0,
+                                    "star formation efficiency");
+  LOAD_AND_VALIDATE_OPTION("SupernovaRecipeOn", SUPERNOVA_RECIPE_ON, 1,
+                           "0=disabled, 1=enabled");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackReheatingEpsilon", FEEDBACK_REHEATING_EPSILON, 0.0, 100.0,
+                                    "reheating efficiency factor");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackEjectionEfficiency", FEEDBACK_EJECTION_EFFICIENCY, 0.0, 100.0,
+                                    "ejection efficiency factor");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("EnergySNcode", ENERGY_SN_CODE, 0.0, 100.0,
+                                    "supernova energy in code units");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("EtaSNcode", ETA_SN_CODE, 0.0, 10.0,
+                                    "mass loading factor");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RecycleFraction", RECYCLE_FRACTION, 0.0, 1.0,
+                                    "fraction of stellar mass returned");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("Yield", YIELD, 0.0, 1.0,
+                                    "metal yield fraction");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FracZleaveDisk", FRAC_Z_LEAVE_DISK, 0.0, 1.0,
+                                    "fraction of metals leaving disk");
+  LOAD_AND_VALIDATE_OPTION("DiskInstabilityOn", DISK_INSTABILITY_ON, 1,
+                           "0=disabled, 1=enabled");
 
   /* Log module configuration only when verbose logging is enabled */
   if (get_verbose_format()) {

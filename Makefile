@@ -173,9 +173,15 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate check-generated tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules lint-parameters
+.PHONY: all clean tidy help info generate check-generated tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules lint-parameters validate-build
 
-all: $(EXEC)
+all: validate-build $(EXEC)
+
+# Pre-build validation - runs on every make
+validate-build:
+	@echo "Running pre-build validation..."
+	@$(MAKE) --no-print-directory lint-parameters
+	@echo "Pre-build validation passed"
 
 $(GIT_VERSION_H): .git/HEAD .git/index
 	@echo "Generating git version..."
@@ -396,6 +402,7 @@ validate-modules:
 
 lint-parameters:
 	@echo "Linting parameter usage..."
+	@echo ""
 	@python3 scripts/lint_parameter_usage.py
 
 check-generated:
@@ -421,8 +428,6 @@ tests:
 	@rm -f build/.test_failures
 	@echo ""
 	@$(MAKE) validate-modules || echo "validate-modules" >> build/.test_failures || true
-	@echo ""
-	@$(MAKE) lint-parameters || echo "lint-parameters" >> build/.test_failures || true
 	@echo ""
 	@$(MAKE) test-unit || echo "unit" >> build/.test_failures || true
 	@$(MAKE) test-integration || true

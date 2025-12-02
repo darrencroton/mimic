@@ -47,6 +47,7 @@
 #include "numeric.h"
 #include "sage_mergers.h"
 #include "../_shared/metallicity.h"     /* Shared utility for metallicity calculations */
+#include "../_system/parameter_helpers.h" /* Parameter loading and validation macros */
 #include "../_system/physical_constants.h" /* Shared physics constants */
 #include "types.h"
 
@@ -618,86 +619,29 @@ static int sage_mergers_init(void) {
     INFO_LOG("Initializing SAGE mergers module");
   }
 
-  /* Read module parameters from input YAML file */
-  if (model_get_double("BlackHoleGrowthRate", &BLACK_HOLE_GROWTH_RATE) != 0) {
-    return -1;
-  }
-  if (model_get_double("QuasarModeEfficiency", &QUASAR_MODE_EFFICIENCY) != 0) {
-    return -1;
-  }
-  if (model_get_double("ThreshMajorMerger", &THRESH_MAJOR_MERGER) != 0) {
-    return -1;
-  }
-  if (model_get_double("RecycleFraction", &RECYCLE_FRACTION) != 0) {
-    return -1;
-  }
-  if (model_get_double("Yield", &YIELD) != 0) {
-    return -1;
-  }
-  if (model_get_double("FracZleaveDisk", &FRAC_Z_LEAVE_DISK) != 0) {
-    return -1;
-  }
-  if (model_get_double("FeedbackReheatingEpsilon", &FEEDBACK_REHEATING_EPSILON) != 0) {
-    return -1;
-  }
-  if (model_get_double("FeedbackEjectionEfficiency", &FEEDBACK_EJECTION_EFFICIENCY) != 0) {
-    return -1;
-  }
-  if (model_get_int("AGNrecipeOn", &AGN_RECIPE_ON) != 0) {
-    return -1;
-  }
-  if (model_get_int("SupernovaRecipeOn", &SUPERNOVA_RECIPE_ON) != 0) {
-    return -1;
-  }
-  if (model_get_int("DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
-    return -1;
-  }
-
-  /* Validate parameter values with physics constraints */
-  if (BLACK_HOLE_GROWTH_RATE < 0.0 || BLACK_HOLE_GROWTH_RATE > 1.0) {
-    ERROR_LOG("BlackHoleGrowthRate = %.4f out of valid range [0.0, 1.0]", BLACK_HOLE_GROWTH_RATE);
-    return -1;
-  }
-  if (QUASAR_MODE_EFFICIENCY < 0.0 || QUASAR_MODE_EFFICIENCY > 1.0) {
-    ERROR_LOG("QuasarModeEfficiency = %.4f out of valid range [0.0, 1.0]", QUASAR_MODE_EFFICIENCY);
-    return -1;
-  }
-  if (THRESH_MAJOR_MERGER < 0.0 || THRESH_MAJOR_MERGER > 1.0) {
-    ERROR_LOG("ThreshMajorMerger = %.4f out of valid range [0.0, 1.0]", THRESH_MAJOR_MERGER);
-    return -1;
-  }
-  if (RECYCLE_FRACTION < 0.0 || RECYCLE_FRACTION > 1.0) {
-    ERROR_LOG("RecycleFraction = %.4f out of valid range [0.0, 1.0]", RECYCLE_FRACTION);
-    return -1;
-  }
-  if (YIELD < 0.0 || YIELD > 1.0) {
-    ERROR_LOG("Yield = %.4f out of valid range [0.0, 1.0]", YIELD);
-    return -1;
-  }
-  if (FRAC_Z_LEAVE_DISK < 0.0 || FRAC_Z_LEAVE_DISK > 1.0) {
-    ERROR_LOG("FracZleaveDisk = %.4f out of valid range [0.0, 1.0]", FRAC_Z_LEAVE_DISK);
-    return -1;
-  }
-  if (FEEDBACK_REHEATING_EPSILON < 0.0 || FEEDBACK_REHEATING_EPSILON > 100.0) {
-    ERROR_LOG("FeedbackReheatingEpsilon = %.4f out of valid range [0.0, 100.0]", FEEDBACK_REHEATING_EPSILON);
-    return -1;
-  }
-  if (FEEDBACK_EJECTION_EFFICIENCY < 0.0 || FEEDBACK_EJECTION_EFFICIENCY > 100.0) {
-    ERROR_LOG("FeedbackEjectionEfficiency = %.4f out of valid range [0.0, 100.0]", FEEDBACK_EJECTION_EFFICIENCY);
-    return -1;
-  }
-  if (AGN_RECIPE_ON < 0 || AGN_RECIPE_ON > 3) {
-    ERROR_LOG("AGNrecipeOn = %d out of valid range [0, 3]", AGN_RECIPE_ON);
-    return -1;
-  }
-  if (SUPERNOVA_RECIPE_ON < 0 || SUPERNOVA_RECIPE_ON > 1) {
-    ERROR_LOG("SupernovaRecipeOn = %d out of valid range [0, 1]", SUPERNOVA_RECIPE_ON);
-    return -1;
-  }
-  if (DISK_INSTABILITY_ON < 0 || DISK_INSTABILITY_ON > 1) {
-    ERROR_LOG("DiskInstabilityOn = %d out of valid range [0, 1]", DISK_INSTABILITY_ON);
-    return -1;
-  }
+  /* Load and validate parameters from input YAML file */
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("BlackHoleGrowthRate", BLACK_HOLE_GROWTH_RATE, 0.0, 1.0,
+                                    "BH growth rate during mergers");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("QuasarModeEfficiency", QUASAR_MODE_EFFICIENCY, 0.0, 1.0,
+                                    "quasar-mode AGN feedback efficiency");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThreshMajorMerger", THRESH_MAJOR_MERGER, 0.0, 1.0,
+                                    "mass ratio threshold for major mergers");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RecycleFraction", RECYCLE_FRACTION, 0.0, 1.0,
+                                    "fraction of stellar mass returned");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("Yield", YIELD, 0.0, 1.0,
+                                    "metal yield fraction");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FracZleaveDisk", FRAC_Z_LEAVE_DISK, 0.0, 1.0,
+                                    "fraction of metals leaving disk");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackReheatingEpsilon", FEEDBACK_REHEATING_EPSILON, 0.0, 100.0,
+                                    "reheating efficiency factor");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackEjectionEfficiency", FEEDBACK_EJECTION_EFFICIENCY, 0.0, 100.0,
+                                    "ejection efficiency factor");
+  LOAD_AND_VALIDATE_OPTION("AGNrecipeOn", AGN_RECIPE_ON, 3,
+                           "0=off, 1=empirical, 2=Bondi, 3=cold cloud");
+  LOAD_AND_VALIDATE_OPTION("SupernovaRecipeOn", SUPERNOVA_RECIPE_ON, 1,
+                           "0=disabled, 1=enabled");
+  LOAD_AND_VALIDATE_OPTION("DiskInstabilityOn", DISK_INSTABILITY_ON, 1,
+                           "0=disabled, 1=enabled");
 
   /* Supernova energetics in code units (simplified for v1.0)
    *

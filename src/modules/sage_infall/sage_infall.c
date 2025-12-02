@@ -49,6 +49,7 @@
 #include "error.h"
 #include "../_shared/metallicity.h"  // Shared utility for metallicity calculations
 #include "../_shared/reionization.h" // Shared utility for reionization suppression
+#include "../_system/parameter_helpers.h"  // Parameter loading and validation macros
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -266,16 +267,9 @@ static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
  * @return  0 on success, non-zero on failure
  */
 static int sage_infall_init(void) {
-  /* Read parameters from input YAML file */
-  if (model_get_double("BaryonFrac", &BARYON_FRAC) != 0) {
-    return -1;
-  }
-
-  /* Validate parameter values with physics constraints */
-  if (BARYON_FRAC <= 0.0 || BARYON_FRAC > 1.0) {
-    ERROR_LOG("BaryonFrac = %.4f out of valid range (0.0, 1.0]", BARYON_FRAC);
-    return -1;
-  }
+  /* Load and validate parameters from input YAML file */
+  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", BARYON_FRAC, 0.0, 1.0,
+                                    "cosmic baryon fraction must be physical");
 
   /* Log module configuration only when verbose logging is enabled */
   if (get_verbose_format()) {

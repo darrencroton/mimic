@@ -49,9 +49,15 @@ MODULES_DIR = REPO_ROOT / "src" / "modules"
 
 def find_parameter_calls(c_file: Path) -> Dict[str, str]:
     """
-    Find all model_get_* calls in a C file.
+    Find all parameter usage in a C file.
 
-    Returns dict mapping parameter name to type (double, int, string).
+    Detects both old-style model_get_* calls and new helper macros:
+    - model_get_double/int/string("ParamName", ...)
+    - LOAD_PARAM_DOUBLE/INT/STRING("ParamName", ...)
+    - LOAD_AND_VALIDATE_*("ParamName", ...)
+    - VALIDATE_*("ParamName", ...)
+
+    Returns dict mapping parameter name to type (double, int, string, or "unknown").
     """
     if not c_file.exists():
         return {}
@@ -59,14 +65,45 @@ def find_parameter_calls(c_file: Path) -> Dict[str, str]:
     with open(c_file) as f:
         content = f.read()
 
-    # Pattern: model_get_TYPE("PARAM_NAME"
-    pattern = r'model_get_(double|int|string)\s*\(\s*"(\w+)"'
-
     params = {}
-    for match in re.finditer(pattern, content):
+
+    # Pattern 1: model_get_TYPE("PARAM_NAME", ...)
+    pattern1 = r'model_get_(double|int|string)\s*\(\s*"(\w+)"'
+    for match in re.finditer(pattern1, content):
         param_type = match.group(1)
         param_name = match.group(2)
         params[param_name] = param_type
+
+    # Pattern 2: LOAD_PARAM_TYPE("PARAM_NAME", ...)
+    pattern2 = r'LOAD_PARAM_(DOUBLE|INT|STRING)\s*\(\s*"(\w+)"'
+    for match in re.finditer(pattern2, content):
+        param_type = match.group(1).lower()
+        param_name = match.group(2)
+        params[param_name] = param_type
+
+    # Pattern 3: LOAD_AND_VALIDATE_RANGE_*("PARAM_NAME", ...)
+    pattern3 = r'LOAD_AND_VALIDATE_RANGE_(?:EXCLUSIVE|INCLUSIVE)\s*\(\s*"(\w+)"'
+    for match in re.finditer(pattern3, content):
+        param_name = match.group(1)
+        params[param_name] = "double"  # Range validation is for doubles
+
+    # Pattern 4: LOAD_AND_VALIDATE_OPTION("PARAM_NAME", ...)
+    pattern4 = r'LOAD_AND_VALIDATE_OPTION\s*\(\s*"(\w+)"'
+    for match in re.finditer(pattern4, content):
+        param_name = match.group(1)
+        params[param_name] = "int"  # Options are integers
+
+    # Pattern 5: VALIDATE_RANGE_*("PARAM_NAME", ...) - standalone validation
+    pattern5 = r'VALIDATE_RANGE_(?:EXCLUSIVE|INCLUSIVE)\s*\(\s*"(\w+)"'
+    for match in re.finditer(pattern5, content):
+        param_name = match.group(1)
+        params[param_name] = "double"
+
+    # Pattern 6: VALIDATE_OPTION("PARAM_NAME", ...) - standalone validation
+    pattern6 = r'VALIDATE_OPTION\s*\(\s*"(\w+)"'
+    for match in re.finditer(pattern6, content):
+        param_name = match.group(1)
+        params[param_name] = "int"
 
     return params
 

@@ -105,11 +105,11 @@ struct MimicConfig {
   /* Output format */
   enum Valid_OutputFormats OutputFormat;
 
-  /* Module system configuration (Phase 3) */
+  /* Module system configuration */
   int NumEnabledModules;                  /* Number of enabled modules */
   char EnabledModules[32][MAX_STRING_LEN]; /* Module names in execution order */
 
-  /* Model parameters (Phase 4.4) - ALL physics parameters */
+  /* Model parameters - ALL physics parameters */
   int NumModelParams; /* Number of model parameters loaded from input file */
   struct {
     char param_name[MAX_STRING_LEN];  /* Parameter name (e.g., "BaryonFrac") */

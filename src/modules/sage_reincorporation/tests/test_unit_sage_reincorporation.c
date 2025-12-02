@@ -67,7 +67,7 @@ static void ensure_modules_registered(void)
     }
 }
 
-/* Test fixture: Set all required model parameters (Phase 4.4+)
+/* Test fixture: Set all required model parameters (Parameter system)
  * Defined in tests/unit/test_stubs.c - provides all 20 required parameters */
 extern void set_test_model_parameters(void);
 

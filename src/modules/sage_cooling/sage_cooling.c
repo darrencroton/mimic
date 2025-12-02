@@ -43,6 +43,7 @@
 #include "constants.h"
 #include "error.h"
 #include "../_shared/metallicity.h"  /* Shared utility for metallicity calculations */
+#include "../_system/parameter_helpers.h"  /* Parameter loading and validation macros */
 #include "../_system/physical_constants.h"  /* Shared physics constants */
 #include "module_interface.h"
 #include "module_registry.h"
@@ -420,26 +421,12 @@ static void cool_gas_onto_galaxy(struct Halo *halo, double coolingGas, float vvi
  */
 static int sage_cooling_init(void)
 {
-    /* Read module parameters from input YAML file */
-    if (model_get_double("RadioModeEfficiency", &RADIO_MODE_EFFICIENCY) != 0) {
-        return -1;
-    }
-    if (model_get_int("AGNrecipeOn", &AGN_RECIPE_ON) != 0) {
-        return -1;
-    }
-    if (model_get_string("CoolFunctionsDir", COOL_FUNCTIONS_DIR, sizeof(COOL_FUNCTIONS_DIR)) != 0) {
-        return -1;
-    }
-
-    /* Validate parameter values with physics constraints */
-    if (RADIO_MODE_EFFICIENCY < 0.0 || RADIO_MODE_EFFICIENCY > 1.0) {
-        ERROR_LOG("RadioModeEfficiency = %.4f out of valid range [0.0, 1.0]", RADIO_MODE_EFFICIENCY);
-        return -1;
-    }
-    if (AGN_RECIPE_ON < 0 || AGN_RECIPE_ON > 3) {
-        ERROR_LOG("AGNrecipeOn = %d out of valid range [0, 3]", AGN_RECIPE_ON);
-        return -1;
-    }
+    /* Load and validate parameters from input YAML file */
+    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RadioModeEfficiency", RADIO_MODE_EFFICIENCY, 0.0, 1.0,
+                                      "AGN radio mode heating efficiency");
+    LOAD_AND_VALIDATE_OPTION("AGNrecipeOn", AGN_RECIPE_ON, 3,
+                             "0=off, 1=empirical, 2=Bondi, 3=cold cloud");
+    LOAD_PARAM_STRING("CoolFunctionsDir", COOL_FUNCTIONS_DIR, sizeof(COOL_FUNCTIONS_DIR));
 
     /* Initialize cooling function tables */
     if (cooling_tables_init(COOL_FUNCTIONS_DIR) != 0) {

@@ -44,6 +44,7 @@
 #include "constants.h"
 #include "error.h"
 #include "../_shared/metallicity.h"  /* Shared utility for metallicity calculations */
+#include "../_system/parameter_helpers.h"  /* Parameter loading and validation macros */
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -144,23 +145,11 @@ static double calculate_critical_disk_mass(float vmax, float disk_scale_radius,
  * @return  0 on success, non-zero on error
  */
 static int sage_disk_instability_init(void) {
-  /* Read module parameters from input YAML file */
-  if (model_get_int("DiskInstabilityOn", &DISK_INSTABILITY_ON) != 0) {
-    return -1;
-  }
-  if (model_get_double("DiskRadiusFactor", &DISK_RADIUS_FACTOR) != 0) {
-    return -1;
-  }
-
-  /* Validate parameter values with physics constraints */
-  if (DISK_INSTABILITY_ON < 0 || DISK_INSTABILITY_ON > 1) {
-    ERROR_LOG("DiskInstabilityOn = %d out of valid range [0, 1]", DISK_INSTABILITY_ON);
-    return -1;
-  }
-  if (DISK_RADIUS_FACTOR < 1.0 || DISK_RADIUS_FACTOR > 10.0) {
-    ERROR_LOG("DiskRadiusFactor = %.4f out of valid range [1.0, 10.0]", DISK_RADIUS_FACTOR);
-    return -1;
-  }
+  /* Load and validate parameters from input YAML file */
+  LOAD_AND_VALIDATE_OPTION("DiskInstabilityOn", DISK_INSTABILITY_ON, 1,
+                           "0=disabled, 1=enabled");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("DiskRadiusFactor", DISK_RADIUS_FACTOR, 1.0, 10.0,
+                                    "disk radius scaling factor");
 
   /* Log initialization */
   if (get_verbose_format()) {
