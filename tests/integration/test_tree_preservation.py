@@ -568,9 +568,9 @@ def test_tree_preservation_coverage():
     else:
         diff = output_count - input_count
         if diff > 0:
-            print(f"  ⚠ Output has {diff} MORE halos than input (investigate)")
+            print(f"{YELLOW}  ⚠ Output has {diff} MORE halos than input (investigate){NC}")
         else:
-            print(f"  ⚠ Output has {-diff} FEWER halos than input (investigate)")
+            print(f"{YELLOW}  ⚠ Output has {-diff} FEWER halos than input (investigate){NC}")
 
     # Validate matching coverage
     match_rate = matched_count / input_count * 100 if input_count > 0 else 0
@@ -579,21 +579,21 @@ def test_tree_preservation_coverage():
     # Diagnostic information about unmatched input halos
     if unmatched_input_count > 0:
         unmatched_halos = input_halos[match_result['unmatched_input']]
-        print(f"\n  Diagnostic: Unmatched input halos ({unmatched_input_count}):")
-        print(f"    Len range: {np.min(unmatched_halos.Len)} - {np.max(unmatched_halos.Len)}")
-        print(f"    Mvir range: {np.min(unmatched_halos.Mvir):.3f} - {np.max(unmatched_halos.Mvir):.3f} (1e10 Msun/h)")
-        print(f"    Vmax range: {np.min(unmatched_halos.Vmax):.2f} - {np.max(unmatched_halos.Vmax):.2f} (km/s)")
+        print(f"{YELLOW}\n  Diagnostic: Unmatched input halos ({unmatched_input_count}):{NC}")
+        print(f"{YELLOW}    Len range: {np.min(unmatched_halos.Len)} - {np.max(unmatched_halos.Len)}{NC}")
+        print(f"{YELLOW}    Mvir range: {np.min(unmatched_halos.Mvir):.3f} - {np.max(unmatched_halos.Mvir):.3f} (1e10 Msun/h){NC}")
+        print(f"{YELLOW}    Vmax range: {np.min(unmatched_halos.Vmax):.2f} - {np.max(unmatched_halos.Vmax):.2f} (km/s){NC}")
 
         # Check if all have Mvir=0.0
         mvir_zero_count = np.sum(unmatched_halos.Mvir == 0.0)
         if mvir_zero_count == unmatched_input_count:
-            print(f"    Note: All {mvir_zero_count} unmatched halos have Mvir=0.0 (invalid mass)")
+            print(f"{YELLOW}    Note: All {mvir_zero_count} unmatched halos have Mvir=0.0 (invalid mass){NC}")
             # Check if matched halos also have Mvir=0.0
             matched_indices = [idx for idx, _ in match_result['matched_pairs']]
             matched_halos = input_halos[matched_indices]
             matched_mvir_zero = np.sum(matched_halos.Mvir == 0.0)
-            print(f"    Note: {matched_mvir_zero} matched halos also have Mvir=0.0")
-            print(f"    → Mvir=0.0 alone is NOT the filtering criterion")
+            print(f"{YELLOW}    Note: {matched_mvir_zero} matched halos also have Mvir=0.0{NC}")
+            print(f"{YELLOW}    → Mvir=0.0 alone is NOT the filtering criterion{NC}")
 
     # Expect high match rate (>95%)
     assert matched_count > 0, "No matches found! Matching algorithm broken."
@@ -610,7 +610,7 @@ def test_tree_preservation_coverage():
 
     print(f"\n  ✓ Coverage validation passed")
     if unmatched_input_count > 0:
-        print(f"  Note: {unmatched_input_count} input halos not in output (may be filtered by processing)")
+        print(f"{YELLOW}  Note: {unmatched_input_count} input halos not in output (may be filtered by processing){NC}")
 
 
 def test_tree_preservation_properties():
