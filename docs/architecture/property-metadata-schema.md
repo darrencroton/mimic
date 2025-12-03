@@ -56,6 +56,7 @@ set_MyNewProperty(galaxy, 1.5);
 - `src/include/generated/property_defs.h` - Struct definitions (Halo, GalaxyData, HaloOutput)
 - `src/include/generated/init_halo_properties.inc` - Halo initialization code
 - `src/include/generated/init_galaxy_properties.inc` - Galaxy initialization code
+- `src/include/generated/reset_galaxy_properties.inc` - Galaxy property reset code (for init_repeat: true)
 - `src/include/generated/copy_to_output.inc` - Output copy logic
 - `src/include/generated/hdf5_field_count.inc` - HDF5 field count
 - `src/include/generated/hdf5_field_definitions.inc` - HDF5 field definitions
@@ -119,6 +120,7 @@ property_name:
   init_source: string       # How to initialize (see Init Sources)
   init_value: number|string # Default value (if init_source: default)
   init_function: string     # Function name (if init_source: calculate)
+  init_repeat: boolean      # Reset each snapshot? (galaxy properties only, default: false)
 
   # OUTPUT CONTROL (controls prepare_halo_for_output() generation)
   output_source: string     # How to copy to output (see Output Sources)
@@ -293,6 +295,68 @@ Defines how property is initialized in `init_halo(int p, int halonr)`.
     init_source: skip  # Only in HaloOutput, not struct Halo
     output_source: copy_from_tree_array
   ```
+
+### init_repeat (Galaxy Properties Only)
+
+**Purpose**: Controls whether a property should be reset to its `init_value` each snapshot after being copied from progenitors.
+
+**Type**: Boolean (`true` or `false`)
+
+**Default**: `false` (omit field if not needed)
+
+**Only applies to**:
+- Galaxy properties (not halo properties)
+- Properties with `init_source: default`
+
+**Use case**: Snapshot-scoped accumulator properties that track values during a single timestep rather than cumulative values across cosmic time.
+
+**When to use `init_repeat: true`**:
+- Energy accumulators (e.g., Cooling, Heating) - accumulated during snapshot, then normalized by timestep
+- Snapshot trackers (e.g., QuasarModeBHaccretionMass) - tracks activity during current snapshot only
+- Rate properties (e.g., OutflowRate) - recalculated each snapshot
+
+**When NOT to use** (default `false` or omit):
+- Mass components (ColdGas, StellarMass, etc.) - cumulative across all time
+- Historical properties (TimeOfLastMajorMerger, etc.) - preserve from progenitors
+- Structural properties (DiskScaleRadius, etc.) - evolve over time
+
+**Implementation**:
+- During halo copy from progenitors, all galaxy properties are copied via `memcpy()`
+- For central halos only, properties with `init_repeat: true` are then reset to `init_value`
+- Generated code in: `src/include/generated/reset_galaxy_properties.inc`
+- Applied in: `src/core/build_model.c` within `copy_halos_from_progenitors()`
+
+**Example - Snapshot-scoped accumulator**:
+```yaml
+- name: Cooling
+  type: double
+  units: (km/s)^2 * 1e10 Msun/h
+  description: Cumulative cooling energy (0.5 * m * V_vir^2)
+  output: true
+  init_source: default
+  init_value: 0.0
+  init_repeat: true  # Reset each snapshot
+  output_source: galaxy_property
+```
+
+**Example - Cumulative property (no reset)**:
+```yaml
+- name: StellarMass
+  type: float
+  units: 1e10 Msun/h
+  description: Total stellar mass
+  output: true
+  init_source: default
+  init_value: 0.0
+  # init_repeat: false (default - omit field)
+  output_source: galaxy_property
+```
+
+**Current properties using `init_repeat: true`** (as of 2025-12-03):
+1. `Cooling` - Snapshot cooling energy accumulator
+2. `Heating` - Snapshot AGN heating energy accumulator
+3. `QuasarModeBHaccretionMass` - Snapshot BH accretion tracker
+4. `OutflowRate` - Current snapshot outflow rate
 
 ---
 

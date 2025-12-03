@@ -206,6 +206,26 @@ def validate_property(prop: Dict[str, Any], category: str) -> None:
                     f"Property '{name}' with output_source=conditional must have {field}"
                 )
 
+    # Check init_repeat (only for galaxy properties)
+    if "init_repeat" in prop:
+        if category != "galaxy":
+            raise ValueError(
+                f"Property '{name}' has init_repeat but is not a galaxy property. "
+                "init_repeat is only supported for galaxy properties."
+            )
+
+        if not isinstance(prop["init_repeat"], bool):
+            raise ValueError(
+                f"Property '{name}' has invalid init_repeat value '{prop['init_repeat']}'. "
+                "Must be a boolean (true/false)."
+            )
+
+        if prop.get("init_source") != "default":
+            raise ValueError(
+                f"Property '{name}' has init_repeat but init_source is not 'default'. "
+                "init_repeat only applies to properties with init_source: default."
+            )
+
 
 def validate_properties(halo_props: List[Dict], galaxy_props: List[Dict]) -> None:
     """Validate all properties and check for duplicates."""
@@ -411,6 +431,42 @@ def generate_init_galaxy_properties(galaxy_props: List[Dict], yaml_hash: str) ->
         if init_source == "default":
             init_value = prop.get("init_value", "0.0")
             code += f"FoFWorkspace[p].galaxy->{name} = {init_value};\n"
+
+    return code
+
+
+def generate_reset_galaxy_properties(galaxy_props: List[Dict], yaml_hash: str) -> str:
+    """Generate reset_galaxy_properties.inc for properties with init_repeat: true.
+
+    This generates code to reset snapshot-scoped accumulator properties to their
+    init_value after copying from progenitors. Used in copy_halos_from_progenitors()
+    for central halos only.
+    """
+
+    code = generate_header(yaml_hash)
+    code += "/* Reset snapshot-scoped properties (init_repeat: true)\n"
+    code += " *\n"
+    code += " * Used in copy_halos_from_progenitors() after memcpy for central halos.\n"
+    code += " * These properties are accumulators that track values during a single\n"
+    code += " * snapshot and should start fresh each timestep.\n"
+    code += " *\n"
+    code += " * Context: FoFWorkspace[ngal].galaxy pointer must be non-NULL\n"
+    code += " */\n\n"
+
+    # Find properties with init_repeat: true
+    reset_props = [
+        prop for prop in galaxy_props
+        if prop.get("init_repeat", False) is True
+    ]
+
+    if not reset_props:
+        code += "/* No properties require reset (none have init_repeat: true) */\n"
+    else:
+        code += f"/* Resetting {len(reset_props)} snapshot-scoped accumulator properties */\n"
+        for prop in reset_props:
+            name = prop["name"]
+            init_value = prop.get("init_value", "0.0")
+            code += f"FoFWorkspace[ngal].galaxy->{name} = {init_value};\n"
 
     return code
 
@@ -1018,6 +1074,10 @@ def main():
     write_file(
         GENERATED_DIR / "init_galaxy_properties.inc",
         generate_init_galaxy_properties(galaxy_props, yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "reset_galaxy_properties.inc",
+        generate_reset_galaxy_properties(galaxy_props, yaml_hash),
     )
 
     # C output files

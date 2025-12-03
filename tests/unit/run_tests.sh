@@ -113,7 +113,7 @@ if [ $# -gt 0 ]; then
     TESTS="$@"
 else
     # Core infrastructure tests (not module-specific)
-    CORE_TESTS="test_memory_system test_property_metadata test_parameter_parsing test_tree_loading test_numeric_utilities test_module_configuration test_virial_properties"
+    CORE_TESTS="test_memory_system test_property_metadata test_parameter_parsing test_tree_loading test_numeric_utilities test_module_configuration test_virial_properties test_property_reset"
 
     # Auto-discover module tests from registry
     MODULE_TESTS=""

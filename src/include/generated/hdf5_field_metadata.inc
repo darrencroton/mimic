@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 03d0b0b3f30eb6575787ce9bfe15b720
+ * Source MD5: a791d70f8f64b9fe312b9af47549adae
  * To regenerate: make generate
  */
 
@@ -64,7 +64,7 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"MetalsBulgeMass", "1e10 Msun/h", "Metal mass in bulge component"},
   {"MetalsICS", "1e10 Msun/h", "Metal mass in intracluster stars"},
   {"BlackHoleMass", "1e10 Msun/h", "Central supermassive black hole mass"},
-  {"QuasarModeBHaccretionMass", "1e10 Msun/h", "Cumulative black hole accretion mass in quasar mode"},
+  {"QuasarModeBHaccretionMass", "1e10 Msun/h", "Current timestep black hole accretion mass in quasar mode"},
   {"Cooling", "(km/s)^2 * 1e10 Msun/h", "Cumulative cooling energy (0.5 * m * V_vir^2)"},
   {"Heating", "(km/s)^2 * 1e10 Msun/h", "Cumulative AGN heating energy (0.5 * m * V_vir^2)"},
   {"r_heat", "Mpc/h", "Heating radius from past AGN feedback events"},
