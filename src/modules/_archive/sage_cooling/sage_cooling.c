@@ -2,37 +2,21 @@
  * @file    sage_cooling.c
  * @brief   SAGE cooling and AGN heating module implementation
  *
- * This module implements gas cooling from hot halos to cold disks with
- * AGN feedback from the SAGE model. Key processes:
- * - Gas cooling based on cooling radius and metallicity-dependent rates
- * - Two cooling regimes: cold accretion vs hot halo cooling
- * - AGN radio-mode feedback suppression of cooling
- * - Black hole accretion and growth
- * - Tracking of heating radius and energy budgets
+ * Implements gas cooling from hot halos to cold disks with AGN feedback. Two cooling
+ * regimes based on cooling radius: cold accretion (rcool > Rvir) throughout halo, or
+ * hot halo cooling (rcool < Rvir) only within rcool. AGN radio-mode feedback can
+ * suppress cooling. Black hole growth via empirical, Bondi-Hoyle, or cold cloud modes.
  *
- * Physics Summary:
- *   T_vir = 35.9 * Vvir^2 (temperature in K, velocity in km/s)
- *   Lambda(T, Z) = cooling function from Sutherland & Dopita (1993) tables
- *   rcool = cooling radius where tcool = tdyn
- *   Cold accretion (rcool > Rvir): rapid cooling throughout halo
- *   Hot halo (rcool < Rvir): cooling only within rcool
+ * Physics: Lambda(T, Z) from Sutherland & Dopita (1993) cooling tables
+ *          T_vir = 35.9 × Vvir^2 (K, km/s)
  *
- * Implementation Notes:
- * - Only central galaxies cool (satellites have no accretion)
- * - Metal content preserved during gas transfers
- * - AGN feedback can completely suppress cooling
- * - Energy budgets tracked for cooling and heating
+ * Key functions:
+ * - compute_cooling_radius(): Calculate rcool where tcool = tdyn
+ * - compute_cooling(): Apply cooling based on regime
+ * - add_cooling_to_cold(): Transfer gas with metallicity tracking
+ * - compute_black_hole_accretion(): BH growth and AGN feedback
  *
- * References:
- *   - SAGE: sage-code/model_cooling_heating.c, core_cool_func.c
- *   - White & Frenk (1991) - Cooling model framework
- *   - Croton et al. (2006) - AGN feedback implementation
- *   - Sutherland & Dopita (1993) - Cooling function tables
- *
- * Vision Principles:
- *   - Physics-Agnostic Core: Interacts only through module interface
- *   - Runtime Modularity: Configurable via parameter file
- *   - Single Source of Truth: Updates GalaxyData properties only
+ * Reference: White & Frenk (1991), Croton et al. (2006, 2016), based on SAGE model_cooling_heating.c
  */
 
 #include <assert.h>
@@ -52,56 +36,44 @@
 #include "types.h"
 #include "cooling_tables.h"
 
-/* ============================================================================
- * MODULE PARAMETERS
- * ============================================================================
- * Parameters loaded from input YAML file (required, no defaults).
- * Validated in module init function. */
+// ============================================================================
+// MODULE PARAMETERS
+// ============================================================================
 
 static double RADIO_MODE_EFFICIENCY;
 static int AGN_RECIPE_ON;
 static char COOL_FUNCTIONS_DIR[512];
 
-/* ============================================================================
- * PHYSICS CONSTANTS
- * ============================================================================ */
+// ============================================================================
+// PHYSICS CONSTANTS
+// ============================================================================
 
-/* Virial temperature (35.9 K/(km/s)^2 for ionized gas) */
-static const double VIRIAL_TEMP_COEFF = 35.9;
+static const double VIRIAL_TEMP_COEFF = 35.9;  /* T_vir coefficient (K/(km/s)^2) */
 
-/* Eddington luminosity (1.3×10^38 erg/s per solar mass) */
-static const double EDDINGTON_LUM_COEFF = 1.3e38;
+static const double EDDINGTON_LUM_COEFF = 1.3e38;  /* erg/s per Msun */
 
-/* C_SQUARED_CGS now defined in physical_constants.h */
+static const double COOLING_MU_FACTOR = 0.885;      /* 3/2 × μ (μ=0.59) */
+static const double SPHERE_VOLUME_COEFF = 4.0;      /* 4π approximation */
+static const double COOLING_TIME_DIVISOR = 2.0;
 
-/* Cooling radius and rate (Croton et al. 2006) */
-static const double COOLING_MU_FACTOR = 0.885;        /* 3/2 × μ, μ=0.59 for ionized gas */
-static const double SPHERE_VOLUME_COEFF = 4.0;        /* 4π approximation (exact: 4.189) */
-static const double COOLING_TIME_DIVISOR = 2.0;       /* Dynamical time relation */
+/* Bondi-Hoyle accretion (AGN Mode 2) */
+static const double BONDI_HOYLE_COEFF = 2.5;
+static const double BONDI_DENSITY_FACTOR = 0.375;
+static const double BONDI_SOUND_SPEED_FACTOR = 0.6;
 
-/* AGN Mode 2: Bondi-Hoyle accretion (Bondi 1952) */
-static const double BONDI_HOYLE_COEFF = 2.5;          /* Spherical accretion coefficient */
-static const double BONDI_DENSITY_FACTOR = 0.375;     /* Density profile factor */
-static const double BONDI_SOUND_SPEED_FACTOR = 0.6;   /* Sound speed calibration */
-
-/* AGN Mode 3: Cold cloud accretion */
-static const double BH_MASS_THRESHOLD_FRAC = 0.0001;  /* 0.01% of M_vir */
+/* Cold cloud accretion (AGN Mode 3) */
+static const double BH_MASS_THRESHOLD_FRAC = 0.0001;
 static const double COLD_CLOUD_ACCRETION_FRAC = 0.0001;
 
-/* AGN Mode 1: Empirical accretion (Croton et al. 2006) */
-static const double BH_MASS_NORM = 0.01;              /* 10^8 Msun/h normalization */
-static const double VVIR_AGN_NORM = 200.0;            /* 200 km/s normalization */
-static const double HOT_GAS_FRAC_NORM = 0.1;          /* 10% hot gas fraction */
-static const double EDDINGTON_VELOCITY_SCALE = 1.34e5; /* sqrt(2 × η × c^2) */
+/* Empirical accretion (AGN Mode 1) */
+static const double BH_MASS_NORM = 0.01;
+static const double VVIR_AGN_NORM = 200.0;
+static const double HOT_GAS_FRAC_NORM = 0.1;
+static const double EDDINGTON_VELOCITY_SCALE = 1.34e5;
 
-/* Note: RADIATIVE_EFFICIENCY and KINETIC_ENERGY_FACTOR come from shared/physics_constants.h */
-
-/* ============================================================================
- * HELPER FUNCTIONS (Physics Calculations)
- * ============================================================================ */
-
-/* Metallicity calculation provided by shared utility: mimic_get_metallicity()
- * See: src/modul../_shared/metallicity.h */
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
 
 /**
  * @brief   Calculates gas cooling based on halo properties and cooling functions

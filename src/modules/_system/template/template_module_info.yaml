@@ -1,69 +1,29 @@
-# Module Metadata Template
-#
-# Copy this file to your module directory as module_info.yaml and customize.
-# See docs/developer/module-metadata-schema.md for complete documentation.
-
+# Template module metadata - copy to your module directory as module_info.yaml and customize
 module:
-  # ===========================================================================
-  # Core Metadata (REQUIRED)
-  # ===========================================================================
-
-  name: template_module  # CHANGE: lowercase_with_underscores, must match directory name
-  display_name: "Template Module"  # CHANGE: Human-readable name
-  description: "Brief one-sentence description of module physics."  # CHANGE: What does this module do?
-  version: "1.0.0"  # Semantic versioning: MAJOR.MINOR.PATCH
-  author: "Your Name"  # CHANGE: Your name or team
-
-  # ===========================================================================
-  # Source Files (REQUIRED)
-  # ===========================================================================
+  name: template_module
+  display_name: "Template Module"
+  description: "Brief description of module physics"
+  version: "1.0.0"
+  author: "Your Name"
 
   sources:
-    - template_module.c  # CHANGE: Your module's .c files
+    - template_module.c
 
   headers:
-    - template_module.h  # CHANGE: Your module's .h files
+    - template_module.h
 
-  register_function: template_module_register  # CHANGE: Must be {module_name}_register
-
-  # ===========================================================================
-  # Dependencies (REQUIRED)
-  # ===========================================================================
+  register_function: template_module_register
 
   dependencies:
-    # All halo and galaxy properties read or written by this module
     properties: []
-    # Example:
-    #   - HotGas
-    #   - MetalsHotGas
-    #   - ColdGas
-    #   - StellarMass
-
-    # All model parameters accessed via model_get_*() functions
     parameters: []
-    # Example:
-    #   - BaryonFrac
-    #   - SfrEfficiency
-    #   - RecycleFraction
-
-  # ===========================================================================
-  # Testing (OPTIONAL but recommended)
-  # ===========================================================================
 
   tests:
-    unit: tests/test_unit_template_module.c            # C unit tests
-    integration: tests/test_integration_template_module.py    # Python integration tests
-    scientific: tests/test_scientific_template_module_validation.py  # Python scientific tests
-
-  # ===========================================================================
-  # Documentation (OPTIONAL but recommended)
-  # ===========================================================================
+    unit: tests/test_unit_template_module.c
+    integration: tests/test_integration_template_module.py
+    scientific: tests/test_scientific_template_module_validation.py
 
   docs:
-    physics: src/modules/template_module/README.md  # CHANGE: Physics overview in module directory
+    physics: src/modules/template_module/README.md
 
-  # ===========================================================================
-  # Build Configuration (OPTIONAL)
-  # ===========================================================================
-
-  compilation_requires: []  # External dependencies: HDF5, MPI, GSL, etc.
+  compilation_requires: []

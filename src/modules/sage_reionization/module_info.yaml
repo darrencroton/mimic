@@ -1,17 +1,9 @@
 module:
-  # ===========================================================================
-  # Core Metadata
-  # ===========================================================================
-
   name: sage_reionization
   display_name: "SAGE Reionization"
   description: "Reionization suppression of gas accretion (Gnedin 2000 model)."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
-
-  # ===========================================================================
-  # Source Files
-  # ===========================================================================
 
   sources:
     - sage_reionization.c
@@ -21,37 +13,19 @@ module:
 
   register_function: sage_reionization_register
 
-  # ===========================================================================
-  # Dependencies
-  # ===========================================================================
-
   dependencies:
-    # Properties used by this module
     properties:
-      - HaloBaryonFraction  # Provides: Sets local baryon fraction for each halo
+      - HaloBaryonFraction
 
-    # Parameters needed by this module (from input YAML file)
     parameters:
       - GlobalBaryonFraction
-
-  # ===========================================================================
-  # Testing
-  # ===========================================================================
 
   tests:
     unit: tests/test_unit_sage_reionization.c
     integration: tests/test_integration_sage_reionization.py
     scientific: tests/test_scientific_sage_reionization.py
 
-  # ===========================================================================
-  # Documentation
-  # ===========================================================================
-
   docs:
     physics: src/modules/sage_reionization/README.md
-
-  # ===========================================================================
-  # Build Configuration
-  # ===========================================================================
 
   compilation_requires: []

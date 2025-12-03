@@ -1,37 +1,24 @@
 /**
  * @file    sage_reionization.h
- * @brief   SAGE reionization suppression module
+ * @brief   SAGE reionization suppression module interface
  *
- * This module calculates halo-specific baryon fractions modified by
- * reionization suppression following Gnedin (2000).
+ * Calculates halo-specific baryon fractions modified by reionization suppression
+ * following the Gnedin (2000) model. After cosmic reionization, gas accretion onto
+ * low-mass halos is suppressed due to increased gas temperature and Jeans mass.
  *
- * Physics:
- *   HaloBaryonFraction = GlobalBaryonFraction * f_reion(Mvir, z)
+ * Physics: HaloBaryonFraction = GlobalBaryonFraction × f_reion(Mvir, z)
  *
- * The reionization suppression factor f_reion depends on the ratio between
- * halo mass and a characteristic mass (maximum of filtering mass and mass
- * corresponding to virial temperature of 10^4 K).
+ * This module MUST run before modules that use HaloBaryonFraction (sage_infall,
+ * sage_satellite_stripping).
  *
- * This module MUST run before any module that uses HaloBaryonFraction
- * (sage_infall, sage_satellite_stripping).
- *
- * Reference:
- *   - Gnedin (2000) - Reionization model
- *   - Kravtsov et al. (2004) - Filtering mass formulas
- *   - Bryan & Norman (1998) - Critical overdensity
- *   - Croton et al. (2016) - SAGE model description
- *
- * Vision Principles:
- *   - Single Source of Truth: HaloBaryonFraction is the authoritative local baryon fraction
- *   - Runtime Modularity: Can disable reionization by removing this module
- *   - Physics-Agnostic Core: Interacts only through module interface
+ * Reference: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2016)
  */
 
 #ifndef SAGE_REIONIZATION_H
 #define SAGE_REIONIZATION_H
 
 /**
- * @brief Register the sage_reionization module
+ * @brief   Register the sage_reionization module with the module registry
  */
 void sage_reionization_register(void);
 

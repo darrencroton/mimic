@@ -1,26 +1,9 @@
-# Module Metadata: sage_cooling
-#
-# Gas cooling from hot halos to cold disks with AGN feedback from the SAGE model.
-# This module handles cooling physics, black hole accretion, and radio-mode AGN
-# feedback that suppresses cooling in massive halos.
-#
-# For schema documentation, see:
-#   docs/developer/module-metadata-schema.md
-
 module:
-  # ===========================================================================
-  # Core Metadata
-  # ===========================================================================
-
   name: sage_cooling
   display_name: "SAGE Cooling & AGN Heating"
   description: "Gas cooling from hot halo to cold disk with AGN feedback from SAGE model."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
-
-  # ===========================================================================
-  # Source Files
-  # ===========================================================================
 
   sources:
     - sage_cooling.c
@@ -32,12 +15,7 @@ module:
 
   register_function: sage_cooling_register
 
-  # ===========================================================================
-  # Dependencies
-  # ===========================================================================
-
   dependencies:
-    # All halo and galaxy properties read or written by this module
     properties:
       - HotGas
       - MetalsHotGas
@@ -48,30 +26,17 @@ module:
       - Heating
       - r_heat
 
-    # All model parameters accessed via model_get_*() functions
     parameters:
       - RadioModeEfficiency
       - AGNrecipeOn
       - CoolFunctionsDir
-
-  # ===========================================================================
-  # Testing
-  # ===========================================================================
 
   tests:
     unit: tests/test_unit_sage_cooling.c
     integration: tests/test_integration_sage_cooling.py
     scientific: tests/test_scientific_sage_cooling_validation.py
 
-  # ===========================================================================
-  # Documentation
-  # ===========================================================================
-
   docs:
     physics: src/modules/sage_cooling/README.md
-
-  # ===========================================================================
-  # Build Configuration
-  # ===========================================================================
 
   compilation_requires: []

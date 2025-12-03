@@ -1,26 +1,9 @@
-# Module Metadata: sage_starformation_feedback
-#
-# Star formation and supernova feedback from the SAGE galaxy evolution model.
-# This module handles star formation following the Kennicutt-Schmidt law and
-# implements supernova-driven feedback (reheating and ejection).
-#
-# For schema documentation, see:
-#   docs/developer/module-metadata-schema.md
-
 module:
-  # ===========================================================================
-  # Core Metadata
-  # ===========================================================================
-
   name: sage_starformation_feedback
   display_name: "SAGE Star Formation & Feedback"
   description: "Star formation (Kennicutt-Schmidt law) and supernova feedback (reheating & ejection) from SAGE model."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
-
-  # ===========================================================================
-  # Source Files
-  # ===========================================================================
 
   sources:
     - sage_starformation_feedback.c
@@ -30,12 +13,7 @@ module:
 
   register_function: sage_starformation_feedback_register
 
-  # ===========================================================================
-  # Dependencies
-  # ===========================================================================
-
   dependencies:
-    # All halo and galaxy properties read or written by this module
     properties:
       - HotGas
       - MetalsHotGas
@@ -48,7 +26,6 @@ module:
       - DiskScaleRadius
       - OutflowRate
 
-    # All model parameters accessed via model_get_*() functions
     parameters:
       - SFprescription
       - SfrEfficiency
@@ -62,24 +39,12 @@ module:
       - FracZleaveDisk
       - DiskInstabilityOn
 
-  # ===========================================================================
-  # Testing
-  # ===========================================================================
-
   tests:
     unit: tests/test_unit_sage_starformation_feedback.c
     integration: tests/test_integration_sage_starformation_feedback.py
     scientific: tests/test_scientific_sage_starformation_feedback_validation.py
 
-  # ===========================================================================
-  # Documentation
-  # ===========================================================================
-
   docs:
     physics: src/modules/sage_starformation_feedback/README.md
-
-  # ===========================================================================
-  # Build Configuration
-  # ===========================================================================
 
   compilation_requires: []
