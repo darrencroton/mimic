@@ -591,6 +591,16 @@ prepare_output_for_tree()
 ├─ [FORMAT: HDF5]
 │  ├─ [LOOP: Each output snapshot]
 │  │  └─ write_hdf5_attrs()            // src/io/output/hdf5.c:411
+│  │     │
+│  │     ├─ [IF first snapshot (n==0)]:
+│  │     │  └─ write_perfile_metadata()    // Make files self-contained
+│  │     │     ├─ H5Gcreate()              // Create RunProperties/ group
+│  │     │     ├─ write_version_metadata() // Version/ subgroup
+│  │     │     ├─ write_enabled_modules()  // EnabledModules dataset
+│  │     │     ├─ write_parameters_metadata()  // Parameters dataset
+│  │     │     ├─ write_redshifts()        // Redshifts dataset
+│  │     │     └─ H5Gclose()
+│  │     │
 │  │     ├─ H5Gopen()                  // Open snapshot group
 │  │     ├─ H5Dopen()                  // Open Galaxies dataset
 │  │     │
@@ -654,6 +664,9 @@ prepare_output_for_tree()
    │  │  ├─ H5Aclose()
    │  │  └─ H5Sclose()
    │  │
+   │  ├─ [Write FieldMetadata Dataset]
+   │  │  └─ #include hdf5_field_metadata.inc  // Self-documenting master file
+   │  │
    │  ├─ H5Gclose()
    │  │
    │  └─ [LOOP: Each file number]
@@ -682,7 +695,7 @@ prepare_output_for_tree()
    │     │
    │     └─ H5Gclose()
    │
-   ├─ store_run_properties()           // Write simulation config (direct property access)
+   ├─ store_run_properties()           // Write simulation config and metadata
    │  ├─ H5Gcreate()                   // Create RunProperties group
    │  ├─ H5Screate_simple()
    │  ├─ H5Tcopy() / H5Tset_size()     // Setup string type
@@ -690,6 +703,38 @@ prepare_output_for_tree()
    │  │  ├─ H5Acreate() / H5Awrite() / H5Aclose()  // OutputFileBaseName, TreeName, etc.
    │  │  ├─ H5Acreate() / H5Awrite() / H5Aclose()  // BoxSize, Omega, Hubble_h, etc.
    │  │  └─ H5Acreate() / H5Awrite() / H5Aclose()  // Units, NCores, RunEndTime
+   │  │
+   │  ├─ write_version_metadata()      // Write version tracking metadata
+   │  │  ├─ H5Gcreate()                // Create Version/ subgroup
+   │  │  ├─ H5Acreate() / H5Awrite() / H5Aclose()  // git_commit, git_branch, git_date
+   │  │  ├─ H5Acreate() / H5Awrite() / H5Aclose()  // build_date
+   │  │  ├─ H5Acreate() / H5Awrite() / H5Aclose()  // hdf5_format_version
+   │  │  └─ H5Gclose()
+   │  │
+   │  ├─ write_enabled_modules()       // Write active modules list
+   │  │  ├─ H5Screate_simple()
+   │  │  ├─ H5Tcopy() / H5Tset_size()  // String type for module names
+   │  │  ├─ H5Dcreate()                // Create EnabledModules dataset
+   │  │  ├─ H5Dwrite()                 // Write module names array
+   │  │  ├─ H5Acreate() / H5Awrite() / H5Aclose()  // Add description attribute
+   │  │  └─ H5Dclose() / H5Tclose() / H5Sclose()
+   │  │
+   │  ├─ write_parameters_metadata()   // Write runtime parameters
+   │  │  ├─ H5Tcreate()                // Create compound type for (param_name, value) pairs
+   │  │  ├─ H5Tinsert()                // Add param_name field
+   │  │  ├─ H5Tinsert()                // Add value field
+   │  │  ├─ H5Screate_simple()
+   │  │  ├─ H5Dcreate()                // Create Parameters dataset
+   │  │  ├─ H5Dwrite()                 // Write all parameters
+   │  │  ├─ H5Acreate() / H5Awrite() / H5Aclose()  // Add description attribute
+   │  │  └─ H5Dclose() / H5Tclose() / H5Sclose()
+   │  │
+   │  ├─ write_redshifts()             // Write snapshot redshifts array
+   │  │  ├─ H5Screate_simple()
+   │  │  ├─ H5Dcreate()                // Create Redshifts dataset
+   │  │  ├─ H5Dwrite()                 // Write MimicConfig.ZZ[] array
+   │  │  ├─ H5Acreate() / H5Awrite() / H5Aclose()  // Add description attribute
+   │  │  └─ H5Dclose() / H5Sclose()
    │  │
    │  └─ H5Sclose() / H5Tclose() / H5Gclose()
    │

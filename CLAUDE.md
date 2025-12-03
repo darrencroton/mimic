@@ -221,6 +221,51 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 3. `save_halos()` → Write to binary or HDF5 output
 4. `free_halos_and_tree()` → Cleanup memory
 
+**HDF5 Output Structure:**
+Mimic's HDF5 output is self-contained and fully reproducible, containing both data and complete metadata.
+
+Master file (`model.hdf5`):
+```
+RunProperties/
+  ├── @BoxSize, @Hubble_h, @Omega, etc.    (simulation config)
+  ├── Version/                             (identity & provenance)
+  │   ├── @git_commit                      (e.g., e1288e79...)
+  │   ├── @git_branch                      (e.g., main)
+  │   ├── @git_date, @build_date           (build timestamps)
+  │   └── @hdf5_format_version             (schema version: 1.0)
+  ├── EnabledModules [dataset]             (active physics modules list)
+  ├── Parameters [dataset]                 (all runtime parameters)
+  │   └── (param_name, value) pairs        (e.g., AGNrecipeOn: 1)
+  └── Redshifts [dataset]                  (z for each snapshot: 127.0→0.0)
+
+Snap063/
+  ├── FieldMetadata [dataset]              (field names, units, descriptions)
+  └── File000/
+      ├── Galaxies [external link]         (→ model_000.hdf5)
+      └── TreeHalosPerSnap [external link] (→ model_000.hdf5)
+```
+
+Per-file output (`model_000.hdf5`):
+```
+RunProperties/                             (same as master - self-contained)
+  ├── Version/                             (identity & provenance)
+  ├── EnabledModules [dataset]             (configuration)
+  ├── Parameters [dataset]                 (configuration)
+  └── Redshifts [dataset]                  (auxiliary data)
+
+Snap063/
+  ├── FieldMetadata [dataset]              (47 fields with metadata)
+  ├── Galaxies [compound dataset]          (9265 halos, all properties)
+  │   └── @Ntrees, @TotHalosPerSnap
+  └── TreeHalosPerSnap [dataset]           (halos per tree array)
+```
+
+Benefits:
+- **Self-contained**: Each file has complete metadata for standalone analysis
+- **Reproducible**: Version info and all parameters stored for exact reproduction
+- **Self-documenting**: FieldMetadata describes every field (name, units, description)
+- **No external dependencies**: Redshifts included (no need for .a_list file)
+
 See also:
 - **docs/architecture/vision.md**: Architectural principles and future vision
 - **docs/architecture/roadmap.md**: Development roadmap (Phases 1-3 complete)

@@ -37,6 +37,13 @@
 #define TRUE 1
 #define FALSE 0
 
+/* Forward declarations for helper functions */
+static void write_version_metadata(hid_t parent_group_id);
+static void write_enabled_modules(hid_t parent_group_id);
+static void write_parameters_metadata(hid_t parent_group_id);
+static void write_redshifts(hid_t parent_group_id);
+static void write_perfile_metadata(hid_t file_id);
+
 /**
  * @brief   Defines the HDF5 table structure for halo properties
  *
@@ -310,6 +317,12 @@ void write_hdf5_attrs(int n, int filenr) {
                 (long long)HDF5_current_file_id);
   }
 
+  /* Write RunProperties metadata to per-file output for self-containment
+   * (only written once per file, on first snapshot) */
+  if (n == 0) {
+    write_perfile_metadata(HDF5_current_file_id);
+  }
+
   // Open the relevant group
   sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
   group_id = H5Gopen(HDF5_current_file_id, target_group, H5P_DEFAULT);
@@ -408,6 +421,304 @@ typedef struct {
   int type;             /* Parameter type (INT, DOUBLE, STRING) */
   void *address;        /* Pointer to MimicConfig field */
 } ConfigParamDescriptor;
+
+/**
+ * @brief   Writes version information to HDF5 file
+ *
+ * @param   parent_group_id   HDF5 group ID to create Version subgroup in
+ *
+ * Creates a Version subgroup containing git version information and
+ * HDF5 format version for reproducibility tracking.
+ */
+static void write_version_metadata(hid_t parent_group_id) {
+  hid_t version_group_id, attribute_id, dataspace_id, str_type;
+  hsize_t dims = 1;
+  herr_t status;
+
+  /* Include git version info generated at build time */
+  #include "../../build/generated/git_version.h"
+
+  /* Create Version subgroup */
+  version_group_id = H5Gcreate(parent_group_id, "Version", H5P_DEFAULT,
+                               H5P_DEFAULT, H5P_DEFAULT);
+  if (version_group_id < 0) {
+    FATAL_ERROR("Failed to create Version subgroup in HDF5 file");
+  }
+
+  /* Set up string type and dataspace */
+  dataspace_id = H5Screate_simple(1, &dims, NULL);
+  str_type = H5Tcopy(H5T_C_S1);
+  status = H5Tset_size(str_type, 128);
+  if (status < 0) {
+    FATAL_ERROR("Failed to set HDF5 string type size for version metadata");
+  }
+
+  /* Write git commit SHA */
+  attribute_id = H5Acreate(version_group_id, "git_commit", str_type,
+                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  H5Awrite(attribute_id, str_type, GIT_COMMIT);
+  H5Aclose(attribute_id);
+
+  /* Write git branch */
+  attribute_id = H5Acreate(version_group_id, "git_branch", str_type,
+                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  H5Awrite(attribute_id, str_type, GIT_BRANCH);
+  H5Aclose(attribute_id);
+
+  /* Write git date */
+  attribute_id = H5Acreate(version_group_id, "git_date", str_type,
+                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  H5Awrite(attribute_id, str_type, GIT_DATE);
+  H5Aclose(attribute_id);
+
+  /* Write build date */
+  attribute_id = H5Acreate(version_group_id, "build_date", str_type,
+                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  H5Awrite(attribute_id, str_type, BUILD_DATE);
+  H5Aclose(attribute_id);
+
+  /* Write HDF5 format version (increment when output schema changes) */
+  const char *hdf5_format_version = "1.0";
+  attribute_id = H5Acreate(version_group_id, "hdf5_format_version",
+                           str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  H5Awrite(attribute_id, str_type, hdf5_format_version);
+  H5Aclose(attribute_id);
+
+  /* Clean up */
+  H5Sclose(dataspace_id);
+  H5Tclose(str_type);
+  H5Gclose(version_group_id);
+}
+
+/**
+ * @brief   Writes runtime parameters to HDF5 file as compound dataset
+ *
+ * @param   parent_group_id   HDF5 group ID to create Parameters dataset in
+ *
+ * Creates a Parameters dataset containing all model parameters from the
+ * input YAML file. Stores parameters as string key-value pairs, preserving
+ * exact input values for perfect reproducibility.
+ *
+ * Vision Principle 1 (Physics-Agnostic Core): Iterates parameters generically
+ * without knowledge of specific physics meanings.
+ *
+ * Vision Principle 4 (Single Source of Truth): Parameters are already validated
+ * and stored in MimicConfig.ModelParams[] during input parsing.
+ */
+static void write_parameters_metadata(hid_t parent_group_id) {
+  hid_t dataset_id, dataspace_id, memtype, filetype;
+  hsize_t dims;
+  herr_t status;
+
+  /* Check if there are any parameters to write */
+  if (MimicConfig.NumModelParams == 0) {
+    DEBUG_LOG("No model parameters to write to HDF5");
+    return;
+  }
+
+  /* Create compound datatype for parameter table (name, value pairs) */
+  memtype = H5Tcreate(H5T_COMPOUND, sizeof(struct {
+    char param_name[MAX_STRING_LEN];
+    char value[MAX_STRING_LEN];
+  }));
+
+  hid_t str_type = H5Tcopy(H5T_C_S1);
+  H5Tset_size(str_type, MAX_STRING_LEN);
+
+  H5Tinsert(memtype, "param_name", 0, str_type);
+  H5Tinsert(memtype, "value", MAX_STRING_LEN, str_type);
+
+  /* Create matching file type */
+  filetype = H5Tcreate(H5T_COMPOUND, sizeof(struct {
+    char param_name[MAX_STRING_LEN];
+    char value[MAX_STRING_LEN];
+  }));
+  H5Tinsert(filetype, "param_name", 0, str_type);
+  H5Tinsert(filetype, "value", MAX_STRING_LEN, str_type);
+
+  /* Create dataspace */
+  dims = MimicConfig.NumModelParams;
+  dataspace_id = H5Screate_simple(1, &dims, NULL);
+
+  /* Create dataset */
+  dataset_id = H5Dcreate(parent_group_id, "Parameters", filetype,
+                         dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (dataset_id < 0) {
+    FATAL_ERROR("Failed to create Parameters dataset in HDF5 file");
+  }
+
+  /* Write the parameter data directly from MimicConfig.ModelParams */
+  status = H5Dwrite(dataset_id, memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                    MimicConfig.ModelParams);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write Parameters dataset to HDF5 file");
+  }
+
+  /* Add description attribute for self-documentation */
+  hid_t attr_space = H5Screate(H5S_SCALAR);
+  hid_t attr_str_type = H5Tcopy(H5T_C_S1);
+  H5Tset_size(attr_str_type, 256);
+  hid_t attr_id = H5Acreate(dataset_id, "description", attr_str_type,
+                            attr_space, H5P_DEFAULT, H5P_DEFAULT);
+  const char *desc = "Runtime model parameters from input YAML file (modules.parameters section)";
+  H5Awrite(attr_id, attr_str_type, desc);
+  H5Aclose(attr_id);
+  H5Tclose(attr_str_type);
+  H5Sclose(attr_space);
+
+  /* Clean up */
+  H5Dclose(dataset_id);
+  H5Sclose(dataspace_id);
+  H5Tclose(filetype);
+  H5Tclose(memtype);
+  H5Tclose(str_type);
+}
+
+/**
+ * @brief   Writes redshift array to HDF5 file
+ *
+ * @param   parent_group_id   HDF5 group ID to create Redshifts dataset in
+ *
+ * Creates a Redshifts dataset containing the redshift for each snapshot index.
+ * This enables self-contained files that don't require external snapshot list
+ * files for analysis.
+ */
+static void write_redshifts(hid_t parent_group_id) {
+  hid_t dataset_id, dataspace_id, attribute_id, attr_space, str_type;
+  hsize_t dims;
+  herr_t status;
+
+  /* Create dataspace for redshift array */
+  dims = MimicConfig.LastSnapshotNr + 1;  /* E.g., 64 snapshots (0-63) */
+  dataspace_id = H5Screate_simple(1, &dims, NULL);
+
+  /* Create dataset */
+  dataset_id = H5Dcreate(parent_group_id, "Redshifts", H5T_NATIVE_DOUBLE,
+                         dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (dataset_id < 0) {
+    FATAL_ERROR("Failed to create Redshifts dataset in HDF5 file");
+  }
+
+  /* Write the redshift array from MimicConfig.ZZ */
+  status = H5Dwrite(dataset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL,
+                    H5P_DEFAULT, MimicConfig.ZZ);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write Redshifts dataset to HDF5 file");
+  }
+
+  /* Add description attribute */
+  attr_space = H5Screate(H5S_SCALAR);
+  str_type = H5Tcopy(H5T_C_S1);
+  H5Tset_size(str_type, 128);
+  attribute_id = H5Acreate(dataset_id, "description", str_type, attr_space,
+                           H5P_DEFAULT, H5P_DEFAULT);
+  const char *desc = "Redshift for each snapshot index (0 to LastSnapshotNr)";
+  status = H5Awrite(attribute_id, str_type, desc);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write description attribute for Redshifts");
+  }
+  H5Aclose(attribute_id);
+  H5Tclose(str_type);
+  H5Sclose(attr_space);
+
+  /* Clean up */
+  H5Dclose(dataset_id);
+  H5Sclose(dataspace_id);
+}
+
+/**
+ * @brief   Writes enabled modules list to HDF5 file
+ *
+ * @param   parent_group_id   HDF5 group ID to create EnabledModules dataset in
+ *
+ * Creates an EnabledModules dataset containing the list of enabled module
+ * names in execution order. Uses variable-length string dataset for
+ * professional HDF5 storage.
+ */
+static void write_enabled_modules(hid_t parent_group_id) {
+  hid_t dataset_id, dataspace_id, str_type, attribute_id, attr_space, attr_str_type;
+  hsize_t dims;
+  herr_t status;
+
+  /* Check if there are any enabled modules */
+  if (MimicConfig.NumEnabledModules == 0) {
+    DEBUG_LOG("No enabled modules to write to HDF5");
+    return;
+  }
+
+  /* Create variable-length string datatype */
+  str_type = H5Tcopy(H5T_C_S1);
+  status = H5Tset_size(str_type, MAX_STRING_LEN);
+  if (status < 0) {
+    FATAL_ERROR("Failed to set string type size for EnabledModules dataset");
+  }
+
+  /* Create dataspace */
+  dims = MimicConfig.NumEnabledModules;
+  dataspace_id = H5Screate_simple(1, &dims, NULL);
+
+  /* Create dataset */
+  dataset_id = H5Dcreate(parent_group_id, "EnabledModules", str_type,
+                         dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (dataset_id < 0) {
+    FATAL_ERROR("Failed to create EnabledModules dataset in HDF5 file");
+  }
+
+  /* Write the module names array */
+  status = H5Dwrite(dataset_id, str_type, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                    MimicConfig.EnabledModules);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write EnabledModules dataset to HDF5 file");
+  }
+
+  /* Add description attribute */
+  attr_space = H5Screate(H5S_SCALAR);
+  attr_str_type = H5Tcopy(H5T_C_S1);
+  H5Tset_size(attr_str_type, 128);
+  attribute_id = H5Acreate(dataset_id, "description", attr_str_type,
+                           attr_space, H5P_DEFAULT, H5P_DEFAULT);
+  const char *desc = "List of enabled physics modules in execution order";
+  H5Awrite(attribute_id, attr_str_type, desc);
+  H5Aclose(attribute_id);
+  H5Tclose(attr_str_type);
+  H5Sclose(attr_space);
+
+  /* Clean up */
+  H5Dclose(dataset_id);
+  H5Sclose(dataspace_id);
+  H5Tclose(str_type);
+}
+
+/**
+ * @brief   Writes essential metadata to per-file output for self-containment
+ *
+ * @param   file_id   HDF5 file ID for per-file output
+ *
+ * Creates a RunProperties group in per-file outputs containing version
+ * information and runtime parameters. This makes each output file self-
+ * contained and analyzable without the master file.
+ *
+ * Vision Principle 4 (Single Source of Truth): Metadata is written by
+ * calling the same helper functions used for master file, maintaining DRY.
+ */
+static void write_perfile_metadata(hid_t file_id) {
+  hid_t props_group_id;
+
+  /* Create RunProperties group for per-file metadata */
+  props_group_id = H5Gcreate(file_id, "RunProperties", H5P_DEFAULT,
+                             H5P_DEFAULT, H5P_DEFAULT);
+  if (props_group_id < 0) {
+    FATAL_ERROR("Failed to create RunProperties group in per-file HDF5 output");
+  }
+
+  /* Write essential metadata for self-containment (same order as master) */
+  write_version_metadata(props_group_id);     /* Identity */
+  write_enabled_modules(props_group_id);      /* Configuration */
+  write_parameters_metadata(props_group_id);  /* Configuration */
+  write_redshifts(props_group_id);            /* Auxiliary */
+
+  H5Gclose(props_group_id);
+}
 
 /**
  * @brief   Stores simulation configuration to HDF5 file as attributes
@@ -547,9 +858,17 @@ static void store_run_properties(hid_t master_file_id) {
   H5Aclose(attribute_id);
 #endif
 
-  /* Clean up */
+  /* Clean up attribute resources (reused above) */
   H5Sclose(dataspace_id);
   H5Tclose(str_type);
+
+  /* Add extended metadata using helper functions (ordered by importance) */
+  write_version_metadata(props_group_id);     /* Identity: version & provenance */
+  write_enabled_modules(props_group_id);      /* Configuration: which physics */
+  write_parameters_metadata(props_group_id);  /* Configuration: parameter values */
+  write_redshifts(props_group_id);            /* Auxiliary: snapshot mapping */
+
+  /* Close the RunProperties group */
   H5Gclose(props_group_id);
 }
 
@@ -609,6 +928,11 @@ void write_master_file(void) {
     H5Awrite(attribute_id, H5T_NATIVE_FLOAT, &redshift);
     H5Aclose(attribute_id);
     H5Sclose(dataspace_id);
+
+    // Add FieldMetadata table to master file for self-documentation
+    // (auto-generated from property metadata, same as per-file output)
+    #include "../../include/generated/hdf5_field_metadata.inc"
+
     H5Gclose(group_id);
 
     // Loop through each file for this snapshot.

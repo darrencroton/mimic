@@ -395,16 +395,27 @@ model_000.hdf5
 ...
 ```
 
-The master file (`model.hdf5`) contains:
+The master file (`model.hdf5`) contains complete metadata for reproducibility:
 ```
 model.hdf5
-├── /RunProperties/      # Run configuration (GROUP with attributes: Hubble_h, BoxSize, etc.)
+├── /RunProperties/                  # Run configuration and metadata
+│   ├── @BoxSize, @Hubble_h, @Omega  # Simulation parameters (attributes)
+│   ├── /Version/                    # Version information (subgroup)
+│   │   ├── @git_commit              # Code version (SHA)
+│   │   ├── @git_branch, @git_date   # Git metadata
+│   │   └── @hdf5_format_version     # Schema version
+│   ├── EnabledModules               # Active physics modules (dataset)
+│   ├── Parameters                   # Runtime parameters (dataset: param_name, value)
+│   └── Redshifts                    # Snapshot redshifts z[64] (dataset)
 ├── /Snap063/            # Snapshot groups with external links to data files
+│   ├── FieldMetadata    # Field descriptions (for self-documentation)
 │   ├── File000/         # Links to model_000.hdf5
 │   ├── File001/         # Links to model_001.hdf5
 │   └── ...
 ...
 ```
+
+Each per-file output (e.g., `model_000.hdf5`) contains the same `RunProperties` metadata, making files self-contained and analyzable independently.
 
 ## Troubleshooting
 
