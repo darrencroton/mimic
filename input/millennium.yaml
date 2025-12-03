@@ -36,6 +36,7 @@ modules:
     - sage_reionization
     - sage_infall
     - sage_satellite_stripping
+
   parameters:
     # Reionisation
     GlobalBaryonFraction: 0.17          # Cosmic baryon fraction (Planck 2018)
