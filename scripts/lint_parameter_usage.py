@@ -36,11 +36,11 @@ except ImportError:
     sys.exit(1)
 
 # ANSI color codes
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-GREEN = '\033[0;32m'
-BLUE = '\033[1;34m'
-NC = '\033[0m'  # No Color
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+GREEN = "\033[0;32m"
+BLUE = "\033[1;34m"
+NC = "\033[0m"  # No Color
 
 # Repository root
 REPO_ROOT = Path(__file__).parent.parent
@@ -121,9 +121,9 @@ def load_module_info(module_dir: Path) -> Dict:
 def get_declared_parameters(module_info: Dict) -> Set[str]:
     """Get set of parameters declared in dependencies.parameters."""
     # Support both root-level and module.dependencies structure
-    module_dict = module_info.get('module', module_info)
-    deps = module_dict.get('dependencies', {})
-    params = deps.get('parameters', [])
+    module_dict = module_info.get("module", module_info)
+    deps = module_dict.get("dependencies", {})
+    params = deps.get("parameters", [])
 
     # Handle both list format and dict format
     if params and isinstance(params[0], str):
@@ -131,10 +131,12 @@ def get_declared_parameters(module_info: Dict) -> Set[str]:
         return set(params)
     else:
         # Dict format: [{'name': 'ParamName1'}, ...]
-        return {p.get('name', p) if isinstance(p, dict) else p for p in params}
+        return {p.get("name", p) if isinstance(p, dict) else p for p in params}
 
 
-def check_module(module_dir: Path, verbose: bool = False) -> Tuple[List[str], List[str]]:
+def check_module(
+    module_dir: Path, verbose: bool = False
+) -> Tuple[List[str], List[str]]:
     """
     Check parameter usage for one module.
 
@@ -194,15 +196,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Lint parameter usage across Mimic modules"
     )
-    parser.add_argument(
-        '--module',
-        help='Check only this specific module'
-    )
-    parser.add_argument(
-        '--verbose', '-v',
-        action='store_true',
-        help='Verbose output'
-    )
+    parser.add_argument("--module", help="Check only this specific module")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     args = parser.parse_args()
 
     print(f"{BLUE}{'='*60}{NC}")
@@ -221,8 +216,9 @@ def main():
     else:
         # Check all modules except _system and _archive
         module_dirs = [
-            d for d in MODULES_DIR.iterdir()
-            if d.is_dir() and not d.name.startswith('_')
+            d
+            for d in MODULES_DIR.iterdir()
+            if d.is_dir() and not d.name.startswith("_")
         ]
 
     # Check each module
@@ -273,5 +269,5 @@ def main():
         return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

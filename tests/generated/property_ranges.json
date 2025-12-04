@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "a791d70f8f64b9fe312b9af47549adae",
+    "source_md5": "bee6469f13f1424a33e984cd73f389d4",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -271,7 +271,9 @@
         0.0,
         1.0
       ],
-      "sentinels": []
+      "sentinels": [
+        -1.0
+      ]
     },
     "ColdGas": {
       "name": "ColdGas",
@@ -351,45 +353,6 @@
         0.0
       ]
     },
-    "MetalsColdGas": {
-      "name": "MetalsColdGas",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "MetalsHotGas": {
-      "name": "MetalsHotGas",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "MetalsEjectedMass": {
-      "name": "MetalsEjectedMass",
-      "type": "float",
-      "units": "1e10 Msun/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
     "MetalsStellarMass": {
       "name": "MetalsStellarMass",
       "type": "float",
@@ -416,8 +379,47 @@
         0.0
       ]
     },
+    "MetalsColdGas": {
+      "name": "MetalsColdGas",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsHotGas": {
+      "name": "MetalsHotGas",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
     "MetalsICS": {
       "name": "MetalsICS",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "MetalsEjectedMass": {
+      "name": "MetalsEjectedMass",
       "type": "float",
       "units": "1e10 Msun/h",
       "is_vector": false,

@@ -23,12 +23,20 @@
 
 #include "constants.h"
 #include "error.h"
+#include "../_system/parameter_helpers.h"  // Parameter loading and validation macros
 #include "../_shared/metallicity.h"  // Shared utility for metallicity calculations
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
 #include "sage_infall.h"
 #include "types.h"
+
+// ============================================================================
+// MODULE PARAMETERS
+// ============================================================================
+
+static double GLOBAL_BARYON_FRAC;
+
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -47,59 +55,50 @@
  * @return  Mass of infalling gas (can be negative for mass loss)
  */
 static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
-  double tot_stellarMass, tot_coldMass, tot_hotMass, tot_ejected;
-  double tot_hotMetals, tot_ejectedMetals;
-  double tot_ICS, tot_ICSMetals;
-  double tot_BHMass;
-  double tot_satBaryons;
+  double tot_stellarMass, tot_BHMass, tot_coldMass, tot_hotMass, tot_ICS, tot_ejected;
+  double tot_ICSMetals, tot_ejectedMetals;
   double infallingMass;
 
-  tot_stellarMass = tot_coldMass = tot_hotMass = tot_hotMetals = tot_ejected =
-      tot_ejectedMetals = tot_ICS = tot_ICSMetals = tot_BHMass = tot_satBaryons = 0.0;
+  /* Initialize counters for all baryonic components */
+  tot_stellarMass = tot_BHMass = tot_coldMass = tot_hotMass = tot_ICS = tot_ejected =
+      tot_ICSMetals = tot_ejectedMetals = 0.0;
 
-  /* Sum baryonic components across FOF group */
+  /* Loop over all galaxies in the FOF halo to sum baryonic components */
   for (int i = 0; i < ngal; i++) {
     if (halos[i].galaxy == NULL)
       continue;
 
     tot_stellarMass += halos[i].galaxy->StellarMass;
+    tot_BHMass += halos[i].galaxy->BlackHoleMass;
     tot_coldMass += halos[i].galaxy->ColdGas;
     tot_hotMass += halos[i].galaxy->HotGas;
-    tot_hotMetals += halos[i].galaxy->MetalsHotGas;
-    tot_ejected += halos[i].galaxy->EjectedMass;
-    tot_ejectedMetals += halos[i].galaxy->MetalsEjectedMass;
     tot_ICS += halos[i].galaxy->ICS;
+    tot_ejected += halos[i].galaxy->EjectedMass;
     tot_ICSMetals += halos[i].galaxy->MetalsICS;
-    tot_BHMass += halos[i].galaxy->BlackHoleMass;
-
-    if (i != central_idx) {
-      tot_satBaryons +=
-          halos[i].galaxy->StellarMass + halos[i].galaxy->ColdGas +
-          halos[i].galaxy->HotGas + halos[i].galaxy->BlackHoleMass;
-    }
+    tot_ejectedMetals += halos[i].galaxy->MetalsEjectedMass;
 
     /* Transfer satellite ejected gas and ICS to central */
     if (i != central_idx) {
-      halos[i].galaxy->EjectedMass = 0.0f;
-      halos[i].galaxy->MetalsEjectedMass = 0.0f;
       halos[i].galaxy->ICS = 0.0f;
       halos[i].galaxy->MetalsICS = 0.0f;
+      halos[i].galaxy->EjectedMass = 0.0f;
+      halos[i].galaxy->MetalsEjectedMass = 0.0f;
     }
   }
 
-  /* Calculate infalling gas from HaloBaryonFraction (set by sage_reionization) */
+  /* Calculate infalling gas from HaloBaryonFraction */
   infallingMass =
       halos[central_idx].galaxy->HaloBaryonFraction * halos[central_idx].Mvir -
       (tot_stellarMass + tot_coldMass + tot_hotMass + tot_ejected + tot_BHMass + tot_ICS);
 
-  /* Consolidate ejected mass to central */
+  /* Consolidate ejected mass to central galaxy */
   halos[central_idx].galaxy->EjectedMass = (float)tot_ejected;
   halos[central_idx].galaxy->MetalsEjectedMass = (float)tot_ejectedMetals;
-  if (halos[central_idx].galaxy->MetalsEjectedMass >
-      halos[central_idx].galaxy->EjectedMass) {
-    halos[central_idx].galaxy->MetalsEjectedMass =
-        halos[central_idx].galaxy->EjectedMass;
+
+  if (halos[central_idx].galaxy->MetalsEjectedMass > halos[central_idx].galaxy->EjectedMass) {
+    halos[central_idx].galaxy->MetalsEjectedMass = halos[central_idx].galaxy->EjectedMass;
   }
+  
   if (halos[central_idx].galaxy->EjectedMass < 0.0f) {
     halos[central_idx].galaxy->EjectedMass = 0.0f;
     halos[central_idx].galaxy->MetalsEjectedMass = 0.0f;
@@ -108,11 +107,11 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
     halos[central_idx].galaxy->MetalsEjectedMass = 0.0f;
   }
 
-  /* Consolidate ICS to central with physical constraints */
+  /* Consolidate ICS to central galaxy */
   halos[central_idx].galaxy->ICS = (float)tot_ICS;
   halos[central_idx].galaxy->MetalsICS = (float)tot_ICSMetals;
-  if (halos[central_idx].galaxy->MetalsICS >
-      halos[central_idx].galaxy->ICS) {
+
+  if (halos[central_idx].galaxy->MetalsICS > halos[central_idx].galaxy->ICS) {
     halos[central_idx].galaxy->MetalsICS = halos[central_idx].galaxy->ICS;
   }
   if (halos[central_idx].galaxy->ICS < 0.0f) {
@@ -122,8 +121,6 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
   if (halos[central_idx].galaxy->MetalsICS < 0.0f) {
     halos[central_idx].galaxy->MetalsICS = 0.0f;
   }
-
-  halos[central_idx].galaxy->TotalSatelliteBaryons = (float)tot_satBaryons;
 
   return infallingMass;
 }
@@ -139,7 +136,7 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
 static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
   float metallicity;
 
-  /* For mass loss, first remove from ejected reservoir */
+  /* For mass loss (negative infall), first remove from ejected reservoir */
   if (infallingGas < 0.0 && galaxy->EjectedMass > 0.0f) {
     metallicity = mimic_get_metallicity(galaxy->EjectedMass, galaxy->MetalsEjectedMass);
 
@@ -188,9 +185,12 @@ static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
  * @return  0 on success
  */
 static int sage_infall_init(void) {
+  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
+                                    "cosmic baryon fraction must be physical");
+
   INFO_LOG("SAGE infall module initialized");
+  INFO_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
   INFO_LOG("  Physics: InfallingGas = HaloBaryonFraction * Mvir - baryons");
-  INFO_LOG("  Requires: sage_reionization module to set HaloBaryonFraction");
 
   return 0;
 }
@@ -212,9 +212,9 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
   if (halos == NULL || ngal <= 0) {
     return 0;
   }
-
+  
   double z = ctx->redshift;
-
+  
   /* Find central galaxy */
   int central_idx = -1;
   for (int i = 0; i < ngal; i++) {
@@ -223,17 +223,30 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
       break;
     }
   }
-
+  
   if (central_idx == -1) {
-    DEBUG_LOG("No central galaxy found in FOF group (ngal=%d)", ngal);
+    ERROR_LOG("No central galaxy found in FOF group (ngal=%d)", ngal);
     return 0;
   }
-
+  
   if (halos[central_idx].galaxy == NULL) {
     ERROR_LOG("Central galaxy (index %d) has NULL galaxy data", central_idx);
     return -1;
   }
 
+  /* If first time, initialise HaloBaryonFraction to GlobalBaryonFraction */
+  for (int i = 0; i < ngal; i++) {
+    if (halos[i].galaxy == NULL) {
+      ERROR_LOG("Halo %d has NULL galaxy data", i);
+      return -1;
+    }
+
+    if (halos[i].galaxy->HaloBaryonFraction == -1.0) {
+      halos[i].galaxy->HaloBaryonFraction = (float)(GLOBAL_BARYON_FRAC);
+    }
+
+  }
+  
   double infallingMass = infall_recipe(halos, ngal, central_idx);
 
   halos[central_idx].galaxy->InfallingGas = (float)infallingMass;

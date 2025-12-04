@@ -1069,7 +1069,6 @@ Organized by component:
 - Energy & feedback (Cooling, Heating, r_heat, OutflowRate)
 - Structure (DiskScaleRadius)
 - Merger history (TimeOfLastMajorMerger, TimeOfLastMinorMerger)
-- Internal tracking (TotalSatelliteBaryons)
 - Testing (TestDummyProperty)
 
 See `src/modules/model_properties.yaml` for complete definitions.

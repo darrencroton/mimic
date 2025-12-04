@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: a791d70f8f64b9fe312b9af47549adae
+Source MD5: bee6469f13f1424a33e984cd73f389d4
 To regenerate: make generate
 """
 
@@ -47,12 +47,12 @@ def get_binary_dtype():
         ("StellarMass", np.float32),
         ("BulgeMass", np.float32),
         ("ICS", np.float32),
-        ("MetalsColdGas", np.float32),
-        ("MetalsHotGas", np.float32),
-        ("MetalsEjectedMass", np.float32),
         ("MetalsStellarMass", np.float32),
         ("MetalsBulgeMass", np.float32),
+        ("MetalsColdGas", np.float32),
+        ("MetalsHotGas", np.float32),
         ("MetalsICS", np.float32),
+        ("MetalsEjectedMass", np.float32),
         ("BlackHoleMass", np.float32),
         ("QuasarModeBHaccretionMass", np.float32),
         ("Cooling", np.float64),
@@ -99,12 +99,12 @@ def get_hdf5_dtype():
         ("StellarMass", np.float32),
         ("BulgeMass", np.float32),
         ("ICS", np.float32),
-        ("MetalsColdGas", np.float32),
-        ("MetalsHotGas", np.float32),
-        ("MetalsEjectedMass", np.float32),
         ("MetalsStellarMass", np.float32),
         ("MetalsBulgeMass", np.float32),
+        ("MetalsColdGas", np.float32),
+        ("MetalsHotGas", np.float32),
         ("MetalsICS", np.float32),
+        ("MetalsEjectedMass", np.float32),
         ("BlackHoleMass", np.float32),
         ("QuasarModeBHaccretionMass", np.float32),
         ("Cooling", np.float64),
@@ -161,12 +161,12 @@ def get_units():
         'StellarMass': '1e10 Msun/h',
         'BulgeMass': '1e10 Msun/h',
         'ICS': '1e10 Msun/h',
-        'MetalsColdGas': '1e10 Msun/h',
-        'MetalsHotGas': '1e10 Msun/h',
-        'MetalsEjectedMass': '1e10 Msun/h',
         'MetalsStellarMass': '1e10 Msun/h',
         'MetalsBulgeMass': '1e10 Msun/h',
+        'MetalsColdGas': '1e10 Msun/h',
+        'MetalsHotGas': '1e10 Msun/h',
         'MetalsICS': '1e10 Msun/h',
+        'MetalsEjectedMass': '1e10 Msun/h',
         'BlackHoleMass': '1e10 Msun/h',
         'QuasarModeBHaccretionMass': '1e10 Msun/h',
         'Cooling': '(km/s)^2 * 1e10 Msun/h',

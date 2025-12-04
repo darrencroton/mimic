@@ -36,11 +36,11 @@ except ImportError:
     sys.exit(1)
 
 # ANSI color codes (module-level constants)
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 # ==============================================================================
 # PATHS
@@ -329,7 +329,9 @@ def validate_field_types(
                     valid = False
                 elif not all(isinstance(item, str) for item in deps["properties"]):
                     results.add_error(
-                        module_name, 1, "All items in dependencies.properties must be strings"
+                        module_name,
+                        1,
+                        "All items in dependencies.properties must be strings",
                     )
                     valid = False
 
@@ -342,7 +344,9 @@ def validate_field_types(
                     valid = False
                 elif not all(isinstance(item, str) for item in deps["parameters"]):
                     results.add_error(
-                        module_name, 1, "All items in dependencies.parameters must be strings"
+                        module_name,
+                        1,
+                        "All items in dependencies.parameters must be strings",
                     )
                     valid = False
 

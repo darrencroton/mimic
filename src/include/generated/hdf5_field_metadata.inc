@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: a791d70f8f64b9fe312b9af47549adae
+ * Source MD5: bee6469f13f1424a33e984cd73f389d4
  * To regenerate: make generate
  */
 
@@ -57,12 +57,12 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"StellarMass", "1e10 Msun/h", "Total stellar mass"},
   {"BulgeMass", "1e10 Msun/h", "Stellar mass in bulge component"},
   {"ICS", "1e10 Msun/h", "Intracluster stellar mass (from disrupted satellites)"},
-  {"MetalsColdGas", "1e10 Msun/h", "Metal mass in cold gas reservoir"},
-  {"MetalsHotGas", "1e10 Msun/h", "Metal mass in hot gas reservoir"},
-  {"MetalsEjectedMass", "1e10 Msun/h", "Metal mass in ejected gas reservoir"},
   {"MetalsStellarMass", "1e10 Msun/h", "Metal mass in stellar component"},
   {"MetalsBulgeMass", "1e10 Msun/h", "Metal mass in bulge component"},
+  {"MetalsColdGas", "1e10 Msun/h", "Metal mass in cold gas reservoir"},
+  {"MetalsHotGas", "1e10 Msun/h", "Metal mass in hot gas reservoir"},
   {"MetalsICS", "1e10 Msun/h", "Metal mass in intracluster stars"},
+  {"MetalsEjectedMass", "1e10 Msun/h", "Metal mass in ejected gas reservoir"},
   {"BlackHoleMass", "1e10 Msun/h", "Central supermassive black hole mass"},
   {"QuasarModeBHaccretionMass", "1e10 Msun/h", "Current timestep black hole accretion mass in quasar mode"},
   {"Cooling", "(km/s)^2 * 1e10 Msun/h", "Cumulative cooling energy (0.5 * m * V_vir^2)"},

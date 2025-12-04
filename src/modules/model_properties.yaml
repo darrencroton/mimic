@@ -13,7 +13,6 @@ galaxy_properties:
   # =============================================================================
   # FUNDAMENTAL PROPERTIES
   # =============================================================================
-  # Fundamental properties that affect all baryonic processes
 
   - name: HaloBaryonFraction
     type: float
@@ -21,15 +20,14 @@ galaxy_properties:
     description: Local baryon fraction for this halo (cosmic value modified by reionization suppression)
     output: true
     init_source: default
-    init_value: 0.17  # Planck 2018 cosmic baryon fraction (Omega_b/Omega_m), overwritten by sage_reionization module
+    init_value: -1.0  # Initialise with GlobalBaryonFraction when first used
     output_source: galaxy_property
     range: [0.0, 1.0]  # Must be physical fraction
-    sentinels: []  # No special sentinels - should always be set by reionization module
+    sentinels: [-1.0]  # No special sentinels - should always be set by reionization module
 
   # =============================================================================
   # GAS COMPONENTS
   # =============================================================================
-  # Baryonic gas in various reservoirs
 
   - name: ColdGas
     type: float
@@ -78,7 +76,6 @@ galaxy_properties:
   # =============================================================================
   # STELLAR COMPONENTS
   # =============================================================================
-  # Stellar mass in various morphological components
 
   - name: StellarMass
     type: float
@@ -116,40 +113,6 @@ galaxy_properties:
   # =============================================================================
   # CHEMICAL COMPOSITION
   # =============================================================================
-  # Metal mass in each baryonic component
-
-  - name: MetalsColdGas
-    type: float
-    units: 1e10 Msun/h
-    description: Metal mass in cold gas reservoir
-    output: true
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= ColdGas
-    sentinels: [0.0]  # Primordial gas has zero metals
-
-  - name: MetalsHotGas
-    type: float
-    units: 1e10 Msun/h
-    description: Metal mass in hot gas reservoir
-    output: true
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= HotGas
-    sentinels: [0.0]  # Primordial gas has zero metals
-
-  - name: MetalsEjectedMass
-    type: float
-    units: 1e10 Msun/h
-    description: Metal mass in ejected gas reservoir
-    output: true
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # Must be <= EjectedMass
-    sentinels: [0.0]  # Can be zero
 
   - name: MetalsStellarMass
     type: float
@@ -173,6 +136,28 @@ galaxy_properties:
     range: [0.0, 100000.0]  # Must be <= BulgeMass
     sentinels: [0.0]  # Can be zero
 
+  - name: MetalsColdGas
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in cold gas reservoir
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= ColdGas
+    sentinels: [0.0]  # Primordial gas has zero metals
+
+  - name: MetalsHotGas
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in hot gas reservoir
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= HotGas
+    sentinels: [0.0]  # Primordial gas has zero metals
+
   - name: MetalsICS
     type: float
     units: 1e10 Msun/h
@@ -184,10 +169,20 @@ galaxy_properties:
     range: [0.0, 100000.0]  # Must be <= ICS
     sentinels: [0.0]  # Can be zero
 
+  - name: MetalsEjectedMass
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in ejected gas reservoir
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= EjectedMass
+    sentinels: [0.0]  # Can be zero
+
   # =============================================================================
   # BLACK HOLES
   # =============================================================================
-  # Supermassive black hole properties
 
   - name: BlackHoleMass
     type: float
@@ -215,7 +210,6 @@ galaxy_properties:
   # =============================================================================
   # ENERGY & FEEDBACK
   # =============================================================================
-  # Energy tracking and feedback processes
 
   - name: Cooling
     type: double  # Note: double precision for energy accumulation over time
@@ -267,7 +261,6 @@ galaxy_properties:
   # =============================================================================
   # STRUCTURE
   # =============================================================================
-  # Structural and morphological properties
 
   - name: DiskScaleRadius
     type: float
@@ -283,7 +276,6 @@ galaxy_properties:
   # =============================================================================
   # MERGER HISTORY
   # =============================================================================
-  # Tracking of past merger events
 
   - name: TimeOfLastMajorMerger
     type: float
@@ -308,25 +300,8 @@ galaxy_properties:
     sentinels: [0.0]  # Zero if no minor merger occurred
 
   # =============================================================================
-  # INTERNAL TRACKING
+  # TESTING INFRASTRUCTURE (DO NOT USE IN PRODUCTION)
   # =============================================================================
-  # Internal variables for bookkeeping (not written to output)
-
-  - name: TotalSatelliteBaryons
-    type: float
-    units: 1e10 Msun/h
-    description: Total baryonic mass in satellite galaxies (tracking variable)
-    output: false  # Internal tracking variable, not needed in output
-    init_source: default
-    init_value: 0.0
-    output_source: galaxy_property
-    range: [0.0, 100000.0]
-    sentinels: [0.0]
-
-  # =============================================================================
-  # TESTING INFRASTRUCTURE
-  # =============================================================================
-  # Test-only properties (DO NOT USE IN PRODUCTION)
 
   - name: TestDummyProperty
     type: float

@@ -665,7 +665,6 @@ module:
       - MetalsEjectedMass
       - ICS
       - MetalsICS
-      - TotalSatelliteBaryons
       - InfallingGas
     parameters:
       - BaryonFrac
@@ -765,7 +764,7 @@ Cosmological gas infall and satellite stripping from SAGE model.
 **Author**: Mimic Team (ported from SAGE)
 
 **Dependencies**:
-- Properties: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, TotalSatelliteBaryons
+- Properties: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS
 - Parameters: BaryonFrac
 
 **Parameter Definitions**:

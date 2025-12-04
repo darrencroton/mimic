@@ -455,8 +455,7 @@ def generate_reset_galaxy_properties(galaxy_props: List[Dict], yaml_hash: str) -
 
     # Find properties with init_repeat: true
     reset_props = [
-        prop for prop in galaxy_props
-        if prop.get("init_repeat", False) is True
+        prop for prop in galaxy_props if prop.get("init_repeat", False) is True
     ]
 
     if not reset_props:
@@ -672,10 +671,14 @@ def generate_hdf5_field_metadata(
     all_props = []
     for prop in halo_props:
         if prop["output"]:
-            all_props.append((prop["name"], prop.get("units", ""), prop.get("description", "")))
+            all_props.append(
+                (prop["name"], prop.get("units", ""), prop.get("description", ""))
+            )
     for prop in galaxy_props:
         if prop["output"]:
-            all_props.append((prop["name"], prop.get("units", ""), prop.get("description", "")))
+            all_props.append(
+                (prop["name"], prop.get("units", ""), prop.get("description", ""))
+            )
 
     num_fields = len(all_props)
 
@@ -708,14 +711,16 @@ def generate_hdf5_field_metadata(
     code += "H5Tset_size(string_type_units, 128);\n"
     code += "hid_t string_type_desc = H5Tcopy(H5T_C_S1);\n"
     code += "H5Tset_size(string_type_desc, 256);\n\n"
-    code += "hid_t metadata_tid = H5Tcreate(H5T_COMPOUND, sizeof(struct FieldMetadata));\n"
-    code += "H5Tinsert(metadata_tid, \"field_name\", HOFFSET(struct FieldMetadata, field_name), string_type_field);\n"
-    code += "H5Tinsert(metadata_tid, \"units\", HOFFSET(struct FieldMetadata, units), string_type_units);\n"
-    code += "H5Tinsert(metadata_tid, \"description\", HOFFSET(struct FieldMetadata, description), string_type_desc);\n\n"
+    code += (
+        "hid_t metadata_tid = H5Tcreate(H5T_COMPOUND, sizeof(struct FieldMetadata));\n"
+    )
+    code += 'H5Tinsert(metadata_tid, "field_name", HOFFSET(struct FieldMetadata, field_name), string_type_field);\n'
+    code += 'H5Tinsert(metadata_tid, "units", HOFFSET(struct FieldMetadata, units), string_type_units);\n'
+    code += 'H5Tinsert(metadata_tid, "description", HOFFSET(struct FieldMetadata, description), string_type_desc);\n\n'
 
     # Create field name array for Table API
     code += "/* Create field name and offset arrays for Table API */\n"
-    code += "const char *metadata_field_names[3] = {\"field_name\", \"units\", \"description\"};\n"
+    code += 'const char *metadata_field_names[3] = {"field_name", "units", "description"};\n'
     code += "size_t metadata_field_offsets[3] = {\n"
     code += "  HOFFSET(struct FieldMetadata, field_name),\n"
     code += "  HOFFSET(struct FieldMetadata, units),\n"
@@ -725,11 +730,11 @@ def generate_hdf5_field_metadata(
 
     # Create and write dataset using Table API (adds CLASS and FIELD_N_NAME attributes)
     code += "/* Create and write FieldMetadata as HDF5 Table for discoverability */\n"
-    code += "/* This adds CLASS=\"TABLE\" and FIELD_N_NAME attributes for better tool support */\n"
+    code += '/* This adds CLASS="TABLE" and FIELD_N_NAME attributes for better tool support */\n'
     code += "herr_t metadata_status = H5TBmake_table(\n"
-    code += "    \"Field Metadata\",           /* Table title */\n"
+    code += '    "Field Metadata",           /* Table title */\n'
     code += "    group_id,                    /* Parent group */\n"
-    code += "    \"FieldMetadata\",             /* Dataset name */\n"
+    code += '    "FieldMetadata",             /* Dataset name */\n'
     code += "    3,                           /* Number of fields */\n"
     code += "    NUM_FIELDS,                  /* Number of records */\n"
     code += "    sizeof(struct FieldMetadata), /* Record size */\n"
@@ -742,7 +747,7 @@ def generate_hdf5_field_metadata(
     code += "    field_metadata               /* Data */\n"
     code += ");\n"
     code += "if (metadata_status < 0) {\n"
-    code += "  FATAL_ERROR(\"Failed to create FieldMetadata table for HDF5 output\");\n"
+    code += '  FATAL_ERROR("Failed to create FieldMetadata table for HDF5 output");\n'
     code += "}\n\n"
 
     # Cleanup (no need to close dataset - H5TBmake_table handles it)
@@ -819,7 +824,7 @@ def get_hdf5_dtype():
 
     # Add get_units() function for self-documenting output
     code += "def get_units():\n"
-    code += "    \"\"\"Return dictionary mapping property names to unit strings.\n"
+    code += '    """Return dictionary mapping property names to unit strings.\n'
     code += "    \n"
     code += "    Returns:\n"
     code += "        dict: Dictionary with property names as keys and unit strings as values.\n"
@@ -829,7 +834,7 @@ def get_hdf5_dtype():
     code += "        >>> units = get_units()\n"
     code += "        >>> print(f\"Mvir units: {units['Mvir']}\")\n"
     code += "        Mvir units: 1e10 Msun/h\n"
-    code += "    \"\"\"\n"
+    code += '    """\n'
     code += "    return {\n"
 
     # Add all output properties with their units
