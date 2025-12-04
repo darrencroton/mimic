@@ -24,8 +24,3 @@ module:
     unit: tests/test_unit_sage_reionization.c
     integration: tests/test_integration_sage_reionization.py
     scientific: tests/test_scientific_sage_reionization.py
-
-  docs:
-    physics: src/modules/sage_reionization/README.md
-
-  compilation_requires: []

@@ -22,11 +22,19 @@
 
 #include "constants.h"
 #include "error.h"
+#include "../_system/parameter_helpers.h"  // Parameter loading and validation macros
 #include "../_shared/metallicity.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
 #include "types.h"
+
+// ============================================================================
+// MODULE PARAMETERS
+// ============================================================================
+
+static double GLOBAL_BARYON_FRAC;
+
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -87,7 +95,11 @@ static void strip_from_satellite(struct Halo *halos, int central_idx, int sat_id
  * @return  0 on success
  */
 static int sage_satellite_stripping_init(void) {
+  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
+                                    "cosmic baryon fraction must be physical");
+  
   INFO_LOG("SAGE satellite stripping module initialized");
+  INFO_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
   INFO_LOG("  Physics: strippedGas = -(HaloBaryonFraction * Mvir - baryons) / STEPS");
   INFO_LOG("  Requires: sage_reionization module to set HaloBaryonFraction");
 
@@ -141,6 +153,10 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
       continue;
     if (halos[i].galaxy->HotGas <= 0.0f)
       continue;
+
+    if (halos[i].galaxy->HaloBaryonFraction == -1.0) {
+      halos[i].galaxy->HaloBaryonFraction = (float)(GLOBAL_BARYON_FRAC);
+    }
 
     strip_from_satellite(halos, central_idx, i);
   }
