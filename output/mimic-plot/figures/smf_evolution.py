@@ -38,7 +38,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         Path to the saved plot file
     """
     # Define target redshifts and their tolerances
-    target_redshifts = [0.0, 1.0, 2.0, 3.0]
+    target_redshifts = [0.0, 1.3, 2.0, 3.0]
     target_tolerance = [0.2, 0.5, 0.5, 0.5]
 
     # Set up the figure
@@ -47,8 +47,121 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Apply consistent font settings
     setup_plot_fonts(ax)
 
+    # Determine IMF type from params
+    whichimf = 1  # Default to Chabrier
+    if "WhichIMF" in params:
+        whichimf = int(params["WhichIMF"])
+
     # Set up binning
     binwidth = 0.1
+
+    # Add Marchesini et al. 2009 observational data (z=[0.1])
+    M = np.arange(7.0, 11.8, 0.01)
+    Mstar = np.log10(10.0**10.96)
+    alpha = -1.18
+    phistar = 30.87 * 1e-4
+    xval = 10.0 ** (M - Mstar)
+    yval = np.log(10.0) * phistar * xval ** (alpha + 1) * np.exp(-xval)
+
+    if whichimf == 0:
+        ax.plot(
+            np.log10(10.0**M * 1.6),
+            yval,
+            ":",
+            lw=10,
+            alpha=0.5,
+            label="Marchesini et al. 2009 z=[0.1]",
+        )
+    elif whichimf == 1:
+        ax.plot(
+            np.log10(10.0**M * 1.6 / 1.8),
+            yval,
+            ":",
+            lw=10,
+            alpha=0.5,
+            label="Marchesini et al. 2009 z=[0.1]",
+        )
+
+    # Add Marchesini et al. 2009 observational data (z=[1.3,2.0])
+    M = np.arange(9.3, 11.8, 0.01)
+    Mstar = np.log10(10.0**10.91)
+    alpha = -0.99
+    phistar = 10.17 * 1e-4
+    xval = 10.0 ** (M - Mstar)
+    yval = np.log(10.0) * phistar * xval ** (alpha + 1) * np.exp(-xval)
+
+    if whichimf == 0:
+        ax.plot(
+            np.log10(10.0**M * 1.6),
+            yval,
+            "b:",
+            lw=10,
+            alpha=0.5,
+            label="... z=[1.3,2.0]",
+        )
+    elif whichimf == 1:
+        ax.plot(
+            np.log10(10.0**M * 1.6 / 1.8),
+            yval,
+            "b:",
+            lw=10,
+            alpha=0.5,
+            label="... z=[1.3,2.0]",
+        )
+
+    # Add Marchesini et al. 2009 observational data (z=[2.0,3.0])
+    M = np.arange(9.7, 11.8, 0.01)
+    Mstar = np.log10(10.0**10.96)
+    alpha = -1.01
+    phistar = 3.95 * 1e-4
+    xval = 10.0 ** (M - Mstar)
+    yval = np.log(10.0) * phistar * xval ** (alpha + 1) * np.exp(-xval)
+
+    if whichimf == 0:
+        ax.plot(
+            np.log10(10.0**M * 1.6),
+            yval,
+            "g:",
+            lw=10,
+            alpha=0.5,
+            label="... z=[2.0,3.0]",
+        )
+    elif whichimf == 1:
+        ax.plot(
+            np.log10(10.0**M * 1.6 / 1.8),
+            yval,
+            "g:",
+            lw=10,
+            alpha=0.5,
+            label="... z=[2.0,3.0]",
+        )
+
+    # Add Marchesini et al. 2009 observational data (z=[3.0,4.0])
+    M = np.arange(10.0, 11.8, 0.01)
+    Mstar = np.log10(10.0**11.38)
+    alpha = -1.39
+    phistar = 0.53 * 1e-4
+    xval = 10.0 ** (M - Mstar)
+    yval = np.log(10.0) * phistar * xval ** (alpha + 1) * np.exp(-xval)
+
+    if whichimf == 0:
+        ax.plot(
+            np.log10(10.0**M * 1.6),
+            yval,
+            "r:",
+            lw=10,
+            alpha=0.5,
+            label="... z=[3.0,4.0]",
+        )
+    elif whichimf == 1:
+        ax.plot(
+            np.log10(10.0**M * 1.6 / 1.8),
+            yval,
+            "r:",
+            lw=10,
+            alpha=0.5,
+            label="... z=[3.0,4.0]",
+        )
 
     # Debug information
     if verbose:
@@ -121,12 +234,12 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         if verbose:
             print(f"Processing SMF for snapshot {snap}, z={redshift:.1f}")
 
-        # Select central galaxies with valid stellar mass
-        w = np.where((galaxies.Type == 0) & (galaxies.StellarMass > 0.0))[0]
+        # Select all galaxies with valid stellar mass
+        w = np.where(galaxies.StellarMass > 0.0)[0]
 
         # Skip this snapshot if no galaxies found
         if len(w) == 0:
-            print(f"No galaxies found for z={redshift:.1f}")
+            warn(f"No galaxies found for z={redshift:.1f}")
             continue
 
         mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
@@ -185,6 +298,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             )
             # Move down for the next label
             y_pos *= 0.6  # Reduces y-position by 40% each time (works well with log scale)
+
+    # Add consistently styled legend
+    setup_legend(ax, loc="lower left")
 
     # Save the figure, ensuring the output directory exists
     try:

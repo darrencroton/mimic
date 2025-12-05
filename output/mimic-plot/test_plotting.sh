@@ -21,7 +21,7 @@ else
     echo "FirstFile = 0" >> $PARAM_FILE
     echo "NumFiles = 8" >> $PARAM_FILE
     echo "Hubble_h = 0.73" >> $PARAM_FILE
-    echo "IMF_Type = 1" >> $PARAM_FILE
+    echo "WhichIMF = 1" >> $PARAM_FILE
 fi
 
 # Create output directory if it doesn't exist

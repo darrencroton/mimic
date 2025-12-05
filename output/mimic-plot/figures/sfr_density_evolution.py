@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 
 """
-SAGE Star Formation Rate Density Evolution Plot
+Mimic Star Formation Rate Density Evolution Plot
 
-This module generates a plot of the star formation rate density evolution from SAGE galaxy data.
+This module generates a plot of the star formation rate density evolution from Mimic galaxy data.
+Requires: Sfr property (from galaxy physics modules)
 """
 
 import os
@@ -29,7 +30,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     Args:
         snapshots: Dictionary mapping snapshot numbers to tuples of (galaxies, volume, metadata)
-        params: Dictionary with SAGE parameters
+        params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
 
@@ -41,6 +42,54 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Apply consistent font settings
     setup_plot_fonts(ax)
+
+    # Check if we have any snapshots
+    if len(snapshots) == 0:
+        warn("No snapshot data available for SFR density evolution plot")
+        # Create an empty plot with a message
+        ax.text(
+            0.5,
+            0.5,
+            "No snapshot data available for SFR density evolution plot",
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=ax.transAxes,
+            fontsize=IN_FIGURE_TEXT_SIZE,
+        )
+
+        # Save the figure
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"SFR_Density_Evolution{output_format}")
+        plt.savefig(output_path)
+        plt.close()
+        return output_path
+
+    # Check if SFR field is available in the data
+    # Get the first snapshot to check for field availability
+    first_snap = next(iter(snapshots.values()))
+    galaxies_sample = first_snap[0]
+    available_fields = set(galaxies_sample.dtype.names)
+    has_sfr = "Sfr" in available_fields
+
+    if not has_sfr:
+        warn("No Sfr field available for SFR density evolution plot")
+        # Create an empty plot with a message
+        ax.text(
+            0.5,
+            0.5,
+            "No Sfr field available for SFR density evolution plot",
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=ax.transAxes,
+            fontsize=IN_FIGURE_TEXT_SIZE,
+        )
+
+        # Save the figure
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"SFR_Density_Evolution{output_format}")
+        plt.savefig(output_path)
+        plt.close()
+        return output_path
 
     # Add observational data (compilation used in many papers)
     ObsSFRdensity = np.array(
@@ -102,27 +151,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         label="Observations",
     )
 
-    # Check if we have any snapshots
-    if len(snapshots) == 0:
-        warn("No snapshot data available for SFR density evolution plot")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No snapshot data available for SFR density evolution plot",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"SFR_Density_Evolution{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
-
     # Calculate SFR density for each snapshot
     sfr_density = []
     redshifts = []
@@ -141,7 +169,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             continue
 
         # Sum SFR and normalize by volume
-        sfr_sum = np.sum(galaxies.SfrDisk + galaxies.SfrBulge)
+        sfr_sum = np.sum(galaxies.Sfr)
         sfr_density.append(sfr_sum / volume * hubble_h**3)
 
     # Convert to numpy arrays
@@ -153,8 +181,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     redshifts = redshifts[sort_idx]
     sfr_density = sfr_density[sort_idx]
 
-    # Debug information
-    # Print some debug information if verbose mode is enabled
+    # Print debug information if verbose mode is enabled
     if verbose:
         print(f"  Number of snapshots: {len(snapshots)}")
         print(f"  Redshifts available: {redshifts}")

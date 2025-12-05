@@ -59,8 +59,8 @@ def plot(
     # Set up binning
     binwidth = 0.1  # mass function histogram bin width
 
-    # Prepare data - select central galaxies with valid cold gas masses
-    w = np.where((galaxies.Type == 0) & (galaxies.ColdGas > 0.0))[0]
+    # Select all galaxies with valid cold gas mass
+    w = np.where(galaxies.ColdGas > 0.0)[0]
 
     # Check if we have any galaxies to plot
     if len(w) == 0:

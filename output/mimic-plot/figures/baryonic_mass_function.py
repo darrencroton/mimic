@@ -49,12 +49,9 @@ def plot(
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
 
-    # Get WhichIMF from the original allresults.py code or use IMF_Type if available
-    whichimf = 1  # Default to Chabrier (allresults.py default)
+    whichimf = 1  # Default to Chabrier
     if "WhichIMF" in params:
         whichimf = int(params["WhichIMF"])
-    elif "IMF_Type" in params:
-        whichimf = int(params["IMF_Type"])
 
     # Set up the figure
     fig, ax = plt.subplots(figsize=(8, 6))

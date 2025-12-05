@@ -125,7 +125,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
         # Skip this snapshot if no halos found
         if len(w) == 0:
-            print(f"No halos found for z={redshift:.1f}")
+            warn(f"No halos found for z={redshift:.1f}")
             continue
 
         mass = np.log10(galaxies.Mvir[w] * 1.0e10 / hubble_h)

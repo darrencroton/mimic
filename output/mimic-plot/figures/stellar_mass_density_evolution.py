@@ -41,8 +41,33 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Apply consistent font settings
     setup_plot_fonts(ax)
 
+    # Check if we have any snapshots
+    if len(snapshots) == 0:
+        warn("No snapshot data available for stellar mass density evolution plot")
+        # Create an empty plot with a message
+        ax.text(
+            0.5,
+            0.5,
+            "No snapshot data available for stellar mass density evolution plot",
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=ax.transAxes,
+            fontsize=IN_FIGURE_TEXT_SIZE,
+        )
+
+        # Save the figure
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(
+            output_dir, f"Stellar_Mass_Density_Evolution{output_format}"
+        )
+        plt.savefig(output_path)
+        plt.close()
+        return output_path
+
     # Determine IMF type from params
-    whichimf = params.get("IMF_Type", 1)  # Default to Chabrier IMF
+    whichimf = 1  # Default to Chabrier
+    if "WhichIMF" in params:
+        whichimf = int(params["WhichIMF"])
 
     # Observational data from various sources
     # SMD observations from Marchesini+ 2009, h=0.7
@@ -181,29 +206,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.plot(
         [], [], color="k", alpha=0.3, marker="o", ls="none", label="Observational data"
     )
-
-    # Check if we have any snapshots
-    if len(snapshots) == 0:
-        warn("No snapshot data available for stellar mass density evolution plot")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No snapshot data available for stellar mass density evolution plot",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(
-            output_dir, f"Stellar_Mass_Density_Evolution{output_format}"
-        )
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
 
     # Calculate stellar mass density for each snapshot
     smd = []

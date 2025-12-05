@@ -102,7 +102,7 @@ def plot(
     nonzero_mass = stellar_mass_phys > 0
 
     if np.any(nonzero_mass):
-        sfr = galaxies.SfrDisk[w][nonzero_mass] + galaxies.SfrBulge[w][nonzero_mass]
+        sfr = galaxies.Sfr[w][nonzero_mass]
         sSFR[nonzero_mass] = sfr / stellar_mass_phys[nonzero_mass]
 
     # Define mass bins

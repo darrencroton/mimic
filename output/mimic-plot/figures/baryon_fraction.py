@@ -7,7 +7,7 @@ This module generates a plot showing the baryon fraction vs. halo mass.
 Adaptively plots all available baryonic components.
 
 Requires: Mvir, Type
-Optional: StellarMass, ColdGas, HotGas, EjectedMass, ICS, BlackHoleMass, BulgeMass
+Optional: StellarMass, ColdGas, HotGas, EjectedMass, ICS, BlackHoleMass
 """
 
 import os
@@ -73,11 +73,10 @@ def plot(
     has_ejected = "EjectedMass" in available_fields
     has_ics = "ICS" in available_fields
     has_bh = "BlackHoleMass" in available_fields
-    has_bulge = "BulgeMass" in available_fields
 
     # Check if we have any baryonic properties at all
     has_any_baryons = any(
-        [has_stellar, has_cold, has_hot, has_ejected, has_ics, has_bh, has_bulge]
+        [has_stellar, has_cold, has_hot, has_ejected, has_ics, has_bh]
     )
 
     if not has_any_baryons:
@@ -191,8 +190,6 @@ def plot(
         group_data = {}
         if has_stellar:
             group_data["stellar"] = galaxies.StellarMass[central_groups]
-        if has_bulge:
-            group_data["bulge"] = galaxies.BulgeMass[central_groups]
         if has_cold:
             group_data["cold"] = galaxies.ColdGas[central_groups]
         if has_hot:
@@ -223,14 +220,9 @@ def plot(
 
             if np.any(group_mask):
                 # Sum components across all galaxies in the halo (only available ones)
-                stars = 0.0
-                if has_stellar:
-                    stars += np.sum(group_data["stellar"][group_mask])
-                if has_bulge:
-                    stars += np.sum(
-                        group_data["bulge"][group_mask]
-                    )  # Add bulge to stellar
-
+                stars = (
+                    np.sum(group_data["stellar"][group_mask]) if has_stellar else 0.0
+                )
                 cold = np.sum(group_data["cold"][group_mask]) if has_cold else 0.0
                 hot = np.sum(group_data["hot"][group_mask]) if has_hot else 0.0
                 ejected = (
@@ -287,7 +279,7 @@ def plot(
             )
         print(f"  Cosmic baryon fraction (parameter): {baryon_frac:.3f}")
         print(f"  Available components:")
-        print(f"    Stars: {has_stellar or has_bulge}")
+        print(f"    Stars: {has_stellar}")
         print(f"    Cold gas: {has_cold}")
         print(f"    Hot gas: {has_hot}")
         print(f"    Ejected gas: {has_ejected}")
@@ -340,7 +332,7 @@ def plot(
     )
 
     # Individual components (only plot if available and non-zero)
-    if has_stellar or has_bulge:
+    if has_stellar:
         if np.any(mean_stars > 0):
             ax.plot(central_halo_mass, mean_stars, "k--", label="Stars")
 

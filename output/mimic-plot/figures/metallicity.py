@@ -59,12 +59,9 @@ def plot(
     hubble_h = metadata["hubble_h"]
 
     # Get WhichIMF from parameters
-    whichimf = 1  # Default to Chabrier IMF
-    if params:
-        if "WhichIMF" in params:
-            whichimf = int(params["WhichIMF"])
-        elif "IMF_Type" in params:
-            whichimf = int(params["IMF_Type"])
+    whichimf = 1  # Default to Chabrier
+    if "WhichIMF" in params:
+        whichimf = int(params["WhichIMF"])
 
     # Maximum number of points to plot (for better performance and readability)
     dilute = 7500

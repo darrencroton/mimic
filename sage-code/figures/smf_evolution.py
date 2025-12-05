@@ -38,6 +38,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Define target redshifts and their tolerances
     target_redshifts = [0.0, 1.3, 2.0, 3.0]
     target_tolerance = [0.2, 0.5, 0.5, 0.5]
+
     # Set up the figure
     fig, ax = plt.subplots(figsize=(8, 6))
 

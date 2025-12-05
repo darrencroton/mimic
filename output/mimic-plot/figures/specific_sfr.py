@@ -91,7 +91,7 @@ def plot(
 
     # Calculate stellar mass and specific SFR
     mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
-    sfr = galaxies.SfrDisk[w] + galaxies.SfrBulge[w]
+    sfr = galaxies.Sfr[w]
 
     # Avoid log10(0) and division by zero
     valid_sfr = sfr > 0
