@@ -21,7 +21,14 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
-from output_utils import warn
+from output_utils import (
+    warn,
+    check_required_fields,
+    create_empty_plot_with_message,
+    setup_figure,
+    save_and_close_figure,
+    calculate_mass_function,
+)
 
 
 def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=False):
@@ -37,15 +44,34 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     Returns:
         Path to the saved plot file
     """
+    # Check if we have any snapshots
+    if len(snapshots) == 0:
+        fig, ax = setup_figure()
+        warn("No snapshot data available for SMF evolution plot")
+        create_empty_plot_with_message(ax, "No snapshot data available for SMF evolution plot", IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose)
+
+    # Check required fields using first snapshot
+    first_snap = next(iter(snapshots.values()))
+    galaxies_sample = first_snap[0]
+
+    success, optional, msg = check_required_fields(
+        galaxies_sample,
+        required_fields=['StellarMass'],
+        plot_name='Stellar Mass Function Evolution'
+    )
+
+    # Set up the figure
+    fig, ax = setup_figure()
+
+    if not success:
+        warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose)
+
     # Define target redshifts and their tolerances
     target_redshifts = [0.0, 1.3, 2.0, 3.0]
     target_tolerance = [0.2, 0.5, 0.5, 0.5]
-
-    # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
-
-    # Apply consistent font settings
-    setup_plot_fonts(ax)
 
     # Determine IMF type from params
     whichimf = 1  # Default to Chabrier
@@ -204,25 +230,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Check if we have any snapshots to plot
     if len(target_snapshots) == 0:
         warn("No snapshot data available for SMF evolution plot")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No snapshot data available for SMF evolution plot",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(
-            output_dir, f"StellarMassFunction_Evolution{output_format}"
-        )
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+        create_empty_plot_with_message(ax, "No snapshot data available for SMF evolution plot", IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose)
 
     # Plot model SMFs at target redshifts
     for i, (snap, galaxies, volume, metadata) in enumerate(target_snapshots):
@@ -302,21 +311,5 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Add consistently styled legend
     setup_legend(ax, loc="lower left")
 
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(
-        output_dir, f"StellarMassFunction_Evolution{output_format}"
-    )
-    if verbose:
-        print(f"Saving Stellar Mass Function Evolution to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose)

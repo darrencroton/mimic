@@ -18,7 +18,12 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
-from output_utils import warn
+from output_utils import (
+    warn,
+    check_required_fields,
+    create_empty_plot_with_message,
+    save_and_close_figure,
+)
 
 
 def plot(
@@ -44,8 +49,12 @@ def plot(
     Returns:
         Path to the saved plot file
     """
-    # Set random seed for reproducibility when sampling points
-    random.seed(2222)
+    # Check for required fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=['Mvir', 'Pos'],
+        plot_name='Spatial Distribution'
+    )
 
     # Create a figure with 3 subplots (arranged in a 2x2 grid, with one empty)
     fig, axes = plt.subplots(2, 2, figsize=(10, 10))
@@ -58,6 +67,15 @@ def plot(
     for ax in axes[:3]:
         setup_plot_fonts(ax)
 
+    if not success:
+        warn(msg)
+        for ax in axes[:3]:
+            create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "SpatialDistribution", output_format, verbose)
+
+    # Set random seed for reproducibility when sampling points
+    random.seed(2222)
+
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
     box_size = metadata.get("box_size", 62.5)  # Default to Mini-Millennium
@@ -68,19 +86,8 @@ def plot(
     # Check if we have any galaxies to plot
     if len(w) == 0:
         warn("No galaxies found with Mvir > 0")
-        # Create an empty plot with a message
         for ax in axes[:3]:
-            ax.text(
-                0.5,
-                0.5,
-                "No galaxies found with Mvir > 0",
-                horizontalalignment="center",
-                verticalalignment="center",
-                transform=ax.transAxes,
-                fontsize=IN_FIGURE_TEXT_SIZE,
-            )
-
-        # Save the figure
+            create_empty_plot_with_message(ax, "No galaxies found with Mvir > 0", IN_FIGURE_TEXT_SIZE)
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"SpatialDistribution{output_format}")
         plt.savefig(output_path)
@@ -131,19 +138,5 @@ def plot(
     # Adjust layout
     plt.tight_layout()
 
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(output_dir, f"SpatialDistribution{output_format}")
-    if verbose:
-        print(f"Saving Spatial Distribution plot to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "SpatialDistribution", output_format, verbose)

@@ -21,7 +21,14 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
-from output_utils import warn
+from output_utils import (
+    warn,
+    check_required_fields,
+    create_empty_plot_with_message,
+    setup_figure,
+    save_and_close_figure,
+    calculate_mass_function,
+)
 
 
 def plot(
@@ -55,44 +62,37 @@ def plot(
     if params and "WhichIMF" in params:
         whichimf = int(params["WhichIMF"])
 
-    # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
+    # Check for required and optional fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=['StellarMass'],
+        optional_fields=['Sfr'],
+        plot_name='Stellar Mass Function'
+    )
 
-    # Apply consistent font settings
-    setup_plot_fonts(ax)
+    # Set up the figure
+    fig, ax = setup_figure()
+
+    if not success:
+        warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "StellarMassFunction", output_format, verbose)
 
     # Set up binning
-    binwidth = 0.1  # mass function histogram bin width
+    binwidth = 0.1
 
     # Select all galaxies with valid stellar mass
     w = np.where(galaxies.StellarMass > 0.0)[0]
 
-    # Check if we have any galaxies to plot
     if len(w) == 0:
         warn("No galaxies found with stellar mass > 0.0")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No galaxies found with stellar mass > 0.0",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"StellarMassFunction{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+        create_empty_plot_with_message(ax, "No galaxies found with stellar mass > 0.0", IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "StellarMassFunction", output_format, verbose)
 
     mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
 
-    # Check if we have SFR properties for red/blue separation
-    available_fields = set(galaxies.dtype.names)
-    has_sfr = "Sfr" in available_fields
+    # Check if we have SFR for red/blue separation
+    has_sfr = optional.get('Sfr', False)
 
     # Calculate specific SFR for red/blue division (if SFR properties available)
     if has_sfr:
@@ -101,63 +101,39 @@ def plot(
         ssfr = sfr / stellar_mass
         ssfr_cut = -11.0  # log10(sSFR) cut between red and blue galaxies
 
-    # Set up histogram bins
-    mi = np.floor(min(mass)) - 2
-    ma = np.floor(max(mass)) + 2
-
     # Enforce reasonable mass range limits
-    mi = max(mi, 8.0)  # Minimum: 10^8 Msun
-    ma = min(ma, 13.0)  # Maximum: 10^13 Msun
+    mi = 8.0   # Minimum: 10^8 Msun
+    ma = 13.0  # Maximum: 10^13 Msun
 
-    nbins = int((ma - mi) / binwidth)
-
-    # Calculate histogram for all galaxies
-    counts, binedges = np.histogram(mass, range=(mi, ma), bins=nbins)
-    xaxis = binedges[:-1] + 0.5 * binwidth
+    # Calculate mass function
+    xaxis, smf = calculate_mass_function(mass, volume, hubble_h, binwidth, mi, ma)
 
     # Print debugging info
     if verbose:
-        print(f"  mi={mi}, ma={ma}, nbins={nbins}")
+        print(f"  mi={mi}, ma={ma}")
         print(f"  min mass={min(mass)}, max mass={max(mass)}")
         print(f"  volume={volume}, hubble_h={hubble_h}")
         print(f"  whichimf={whichimf}")
         print(f"  has_sfr={has_sfr}")
 
     # Plot stellar mass function
-    ax.plot(
-        xaxis,
-        counts / volume * hubble_h * hubble_h * hubble_h / binwidth,
-        "k-",
-        label="Model - All",
-    )
+    ax.plot(xaxis, smf, "k-", label="Model - All")
 
     # Add red/blue separation if SFR properties are available
     if has_sfr:
         # Red galaxies (passive)
         w_red = np.where(ssfr < 10.0**ssfr_cut)[0]
         mass_red = mass[w_red]
-        counts_red, _ = np.histogram(mass_red, range=(mi, ma), bins=nbins)
+        _, smf_red = calculate_mass_function(mass_red, volume, hubble_h, binwidth, mi, ma)
 
         # Blue galaxies (star-forming)
         w_blue = np.where(ssfr >= 10.0**ssfr_cut)[0]
         mass_blue = mass[w_blue]
-        counts_blue, _ = np.histogram(mass_blue, range=(mi, ma), bins=nbins)
+        _, smf_blue = calculate_mass_function(mass_blue, volume, hubble_h, binwidth, mi, ma)
 
         # Plot red and blue galaxy populations
-        ax.plot(
-            xaxis,
-            counts_red / volume * hubble_h * hubble_h * hubble_h / binwidth,
-            "r:",
-            lw=2,
-            label="Model - Red",
-        )
-        ax.plot(
-            xaxis,
-            counts_blue / volume * hubble_h * hubble_h * hubble_h / binwidth,
-            "b:",
-            lw=2,
-            label="Model - Blue",
-        )
+        ax.plot(xaxis, smf_red, "r:", lw=2, label="Model - Red")
+        ax.plot(xaxis, smf_blue, "b:", lw=2, label="Model - Blue")
 
     # Add Baldry+2008 observational data
     baldry = np.array(
@@ -245,24 +221,5 @@ def plot(
     # Add consistently styled legend
     setup_legend(ax, loc="lower left")
 
-    # Print debugging info for output directory
-    if verbose:
-        print(f"Output directory for SMF plot: {output_dir}")
-        print(f"Output directory exists: {os.path.exists(output_dir)}")
-
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(output_dir, f"StellarMassFunction{output_format}")
-    if verbose:
-        print(f"Saving stellar mass function to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "StellarMassFunction", output_format, verbose)

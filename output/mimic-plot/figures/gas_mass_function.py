@@ -20,7 +20,14 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
-from output_utils import warn
+from output_utils import (
+    warn,
+    check_required_fields,
+    create_empty_plot_with_message,
+    setup_figure,
+    save_and_close_figure,
+    calculate_mass_function,
+)
 
 
 def plot(
@@ -46,14 +53,24 @@ def plot(
     Returns:
         Path to the saved plot file
     """
-    # Extract necessary metadata
-    hubble_h = metadata["hubble_h"]
+    # Check required and optional fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=['ColdGas'],
+        optional_fields=['SfrDisk', 'SfrBulge', 'StellarMass'],
+        plot_name='Gas Mass Function'
+    )
 
     # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = setup_figure()
 
-    # Apply consistent font settings
-    setup_plot_fonts(ax)
+    if not success:
+        warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "GasMassFunction", output_format, verbose)
+
+    # Extract necessary metadata
+    hubble_h = metadata["hubble_h"]
 
     # Set up binning
     binwidth = 0.1  # mass function histogram bin width
@@ -64,29 +81,19 @@ def plot(
     # Check if we have any galaxies to plot
     if len(w) == 0:
         warn("No galaxies found with cold gas > 0.0")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No galaxies found with cold gas > 0.0",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"GasMassFunction{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+        create_empty_plot_with_message(ax, "No galaxies found with cold gas > 0.0", IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "GasMassFunction", output_format, verbose)
 
     mass = np.log10(galaxies.ColdGas[w] * 1.0e10 / hubble_h)
 
-    # Calculate specific SFR for red/blue division
-    sfr = galaxies.SfrDisk[w] + galaxies.SfrBulge[w]
-    stellar_mass = galaxies.StellarMass[w] * 1.0e10 / hubble_h
+    # Calculate specific SFR for red/blue division (if fields available)
+    has_sfr_fields = optional.get('SfrDisk', False) and optional.get('SfrBulge', False) and optional.get('StellarMass', False)
+    if has_sfr_fields:
+        sfr = galaxies.SfrDisk[w] + galaxies.SfrBulge[w]
+        stellar_mass = galaxies.StellarMass[w] * 1.0e10 / hubble_h
+    else:
+        sfr = np.zeros(len(w))
+        stellar_mass = np.ones(len(w))  # Avoid division by zero
 
     # Avoid division by zero
     nonzero_mass = stellar_mass > 0
@@ -96,19 +103,11 @@ def plot(
 
     ssfr_cut = -11.0  # log10(sSFR) cut between red and blue galaxies
 
-    # Set up histogram bins
-    mi = np.floor(min(mass)) - 2
-    ma = np.floor(max(mass)) + 2
-    nbins = int((ma - mi) / binwidth)
-
-    # Calculate histogram for all galaxies
-    counts, binedges = np.histogram(mass, range=(mi, ma), bins=nbins)
-    xaxis = binedges[:-1] + 0.5 * binwidth
+    # Calculate gas mass function
+    xaxis, gmf = calculate_mass_function(mass, volume, hubble_h, binwidth)
 
     # Plot the main histogram
-    ax.plot(
-        xaxis, counts / volume * hubble_h**3 / binwidth, "k-", label="Model - Cold Gas"
-    )
+    ax.plot(xaxis, gmf, "k-", label="Model - Cold Gas")
 
     # Add observational data from Zwaan et al. 2005 (HI)
     Zwaan = np.array(
@@ -225,19 +224,5 @@ def plot(
     # Add consistently styled legend
     setup_legend(ax, loc="lower left")
 
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(output_dir, f"GasMassFunction{output_format}")
-    if verbose:
-        print(f"Saving gas mass function to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "GasMassFunction", output_format, verbose)

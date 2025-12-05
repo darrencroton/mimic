@@ -19,7 +19,13 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
-from output_utils import warn
+from output_utils import (
+    warn,
+    check_required_fields,
+    create_empty_plot_with_message,
+    setup_figure,
+    save_and_close_figure,
+)
 
 
 def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=False):
@@ -35,34 +41,30 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     Returns:
         Path to the saved plot file
     """
-    # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
-
-    # Apply consistent font settings
-    setup_plot_fonts(ax)
-
     # Check if we have any snapshots
     if len(snapshots) == 0:
+        fig, ax = setup_figure()
         warn("No snapshot data available for stellar mass density evolution plot")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No snapshot data available for stellar mass density evolution plot",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
+        create_empty_plot_with_message(ax, "No snapshot data available for stellar mass density evolution plot", IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "Stellar_Mass_Density_Evolution", output_format, verbose)
 
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(
-            output_dir, f"Stellar_Mass_Density_Evolution{output_format}"
-        )
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+    # Check required fields using first snapshot
+    first_snap = next(iter(snapshots.values()))
+    galaxies_sample = first_snap[0]
+
+    success, optional, msg = check_required_fields(
+        galaxies_sample,
+        required_fields=['StellarMass'],
+        plot_name='Stellar Mass Density Evolution'
+    )
+
+    # Set up the figure
+    fig, ax = setup_figure()
+
+    if not success:
+        warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "Stellar_Mass_Density_Evolution", output_format, verbose)
 
     # Determine IMF type from params
     whichimf = 1  # Default to Chabrier
@@ -280,21 +282,5 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Add consistently styled legend
     setup_legend(ax, loc="upper right")
 
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(
-        output_dir, f"Stellar_Mass_Density_Evolution{output_format}"
-    )
-    if verbose:
-        print(f"Saving Stellar Mass Density Evolution to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "Stellar_Mass_Density_Evolution", output_format, verbose)

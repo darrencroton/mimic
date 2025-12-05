@@ -19,7 +19,7 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
-from output_utils import warn
+from output_utils import warn, setup_figure, save_and_close_figure
 
 
 def plot(
@@ -49,10 +49,7 @@ def plot(
     random.seed(2222)
 
     # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
-
-    # Apply consistent font settings
-    setup_plot_fonts(ax)
+    fig, ax = setup_figure()
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
@@ -78,13 +75,7 @@ def plot(
             transform=ax.transAxes,
             fontsize=IN_FIGURE_TEXT_SIZE,
         )
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"MassReservoirScatter{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+        return save_and_close_figure(fig, output_dir, "MassReservoirScatter", output_format, verbose)
 
     # If we have too many galaxies, randomly sample a subset
     if len(w) > dilute:
@@ -98,7 +89,7 @@ def plot(
     cold_gas = np.log10(np.maximum(galaxies.ColdGas[w] * 1.0e10, 1.0))  # Avoid log(0)
     hot_gas = np.log10(np.maximum(galaxies.HotGas[w] * 1.0e10, 1.0))
     ejected_gas = np.log10(np.maximum(galaxies.EjectedMass[w] * 1.0e10, 1.0))
-    ics = np.log10(np.maximum(galaxies.IntraClusterStars[w] * 1.0e10, 1.0))
+    ics = np.log10(np.maximum(galaxies.ICS[w] * 1.0e10, 1.0))
 
     # Print some debug information
     # Print some debug information if verbose mode is enabled
@@ -145,19 +136,5 @@ def plot(
     # Add consistently styled legend
     setup_legend(ax, loc="upper left")
 
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(output_dir, f"MassReservoirScatter{output_format}")
-    if verbose:
-        print(f"Saving Mass Reservoir Scatter plot to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "MassReservoirScatter", output_format, verbose)

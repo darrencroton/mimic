@@ -19,7 +19,13 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
-from output_utils import warn
+from output_utils import (
+    warn,
+    check_required_fields,
+    create_empty_plot_with_message,
+    setup_figure,
+    save_and_close_figure,
+)
 
 
 def plot(
@@ -45,11 +51,21 @@ def plot(
     Returns:
         Path to the saved plot file
     """
-    # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
+    # Check required and optional fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=['StellarMass'],
+        optional_fields=['Sfr', 'CentralMvir'],
+        plot_name='Quiescent Fraction'
+    )
 
-    # Apply consistent font settings
-    setup_plot_fonts(ax)
+    # Set up the figure
+    fig, ax = setup_figure()
+
+    if not success:
+        warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "QuiescentFraction", output_format, verbose)
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
@@ -66,33 +82,21 @@ def plot(
     # Check if we have any galaxies to plot
     if len(w) == 0:
         warn("No galaxies found with stellar mass > 0")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No galaxies found with stellar mass > 0",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"QuiescentFraction{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+        create_empty_plot_with_message(ax, "No galaxies found with stellar mass > 0", IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "QuiescentFraction", output_format, verbose)
 
     # Calculate required quantities for all selected galaxies - safely handle zeros
     StellarMass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
 
     # Safely handle CentralMvir values (avoid log10 of zero/negative)
-    valid_mvir = galaxies.CentralMvir[w] > 0
-    CentralMvir = np.full(len(w), np.nan)  # Initialize with NaN
-    CentralMvir[valid_mvir] = np.log10(
-        galaxies.CentralMvir[w][valid_mvir] * 1.0e10 / hubble_h
-    )
+    if optional.get('CentralMvir', False):
+        valid_mvir = galaxies.CentralMvir[w] > 0
+        CentralMvir = np.full(len(w), np.nan)  # Initialize with NaN
+        CentralMvir[valid_mvir] = np.log10(
+            galaxies.CentralMvir[w][valid_mvir] * 1.0e10 / hubble_h
+        )
+    else:
+        CentralMvir = np.full(len(w), np.nan)
 
     Type = galaxies.Type[w]
 
@@ -101,7 +105,7 @@ def plot(
     stellar_mass_phys = galaxies.StellarMass[w] * 1.0e10 / hubble_h
     nonzero_mass = stellar_mass_phys > 0
 
-    if np.any(nonzero_mass):
+    if np.any(nonzero_mass) and optional.get('Sfr', False):
         sfr = galaxies.Sfr[w][nonzero_mass]
         sSFR[nonzero_mass] = sfr / stellar_mass_phys[nonzero_mass]
 
@@ -245,19 +249,5 @@ def plot(
     # Add consistently styled legend
     setup_legend(ax, loc="lower right")
 
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(output_dir, f"QuiescentFraction{output_format}")
-    if verbose:
-        print(f"Saving Quiescent Fraction plot to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "QuiescentFraction", output_format, verbose)

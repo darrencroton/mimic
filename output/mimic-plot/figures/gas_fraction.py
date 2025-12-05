@@ -20,7 +20,13 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
-from output_utils import warn
+from output_utils import (
+    warn,
+    check_required_fields,
+    create_empty_plot_with_message,
+    setup_figure,
+    save_and_close_figure,
+)
 
 
 def plot(
@@ -46,14 +52,23 @@ def plot(
     Returns:
         Path to the saved plot file
     """
-    # Set random seed for reproducibility when sampling points
-    random.seed(2222)
+    # Check for required fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=['StellarMass', 'ColdGas', 'BulgeMass'],
+        plot_name='Gas Fraction'
+    )
 
     # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = setup_figure()
 
-    # Apply consistent font settings
-    setup_plot_fonts(ax)
+    if not success:
+        warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "GasFraction", output_format, verbose)
+
+    # Set random seed for reproducibility when sampling points
+    random.seed(2222)
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
@@ -80,18 +95,7 @@ def plot(
     # Check if we have any galaxies to plot
     if len(w) == 0:
         warn("No suitable galaxies found for gas fraction plot")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No suitable galaxies found for gas fraction plot",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
+        create_empty_plot_with_message(ax, "No suitable galaxies found for gas fraction plot", IN_FIGURE_TEXT_SIZE)
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"GasFraction{output_format}")
         plt.savefig(output_path)
@@ -143,19 +147,5 @@ def plot(
     # Add consistently styled legend
     setup_legend(ax, loc="upper right")
 
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(output_dir, f"GasFraction{output_format}")
-    if verbose:
-        print(f"Saving Gas Fraction plot to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "GasFraction", output_format, verbose)

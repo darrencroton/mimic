@@ -18,7 +18,13 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator, MaxNLocator
-from output_utils import warn
+from output_utils import (
+    warn,
+    check_required_fields,
+    create_empty_plot_with_message,
+    setup_figure,
+    save_and_close_figure,
+)
 
 
 def plot(
@@ -44,11 +50,20 @@ def plot(
     Returns:
         Path to the saved plot file
     """
-    # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
+    # Check for required fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=['Spin', 'Rvir', 'Vvir'],
+        plot_name='Spin Distribution'
+    )
 
-    # Apply consistent font settings
-    setup_plot_fonts(ax)
+    # Set up the figure
+    fig, ax = setup_figure()
+
+    if not success:
+        warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "SpinDistribution", output_format, verbose)
 
     # Filter for valid galaxies with non-zero Vvir and Rvir
     valid_galaxies = np.where(
@@ -65,18 +80,7 @@ def plot(
     # Check if we have any galaxies to plot
     if len(valid_galaxies) == 0:
         warn("No valid galaxies found for spin distribution plot")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No valid galaxies found for spin distribution plot",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
+        create_empty_plot_with_message(ax, "No valid galaxies found for spin distribution plot", IN_FIGURE_TEXT_SIZE)
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"SpinDistribution{output_format}")
         plt.savefig(output_path)
@@ -103,18 +107,7 @@ def plot(
 
     if len(valid_spins) == 0:
         warn("No valid spin parameter values found")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No valid spin parameter values found",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
+        create_empty_plot_with_message(ax, "No valid spin parameter values found", IN_FIGURE_TEXT_SIZE)
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"SpinDistribution{output_format}")
         plt.savefig(output_path)
@@ -182,19 +175,5 @@ def plot(
     # Add consistently styled legend
     setup_legend(ax, loc="upper right")
 
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(output_dir, f"SpinDistribution{output_format}")
-    if verbose:
-        print(f"Saving Spin Distribution plot to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "SpinDistribution", output_format, verbose)

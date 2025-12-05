@@ -21,7 +21,13 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
-from output_utils import warn
+from output_utils import (
+    warn,
+    check_required_fields,
+    create_empty_plot_with_message,
+    setup_figure,
+    save_and_close_figure,
+)
 
 
 def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=False):
@@ -37,59 +43,31 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     Returns:
         Path to the saved plot file
     """
-    # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
-
-    # Apply consistent font settings
-    setup_plot_fonts(ax)
-
     # Check if we have any snapshots
     if len(snapshots) == 0:
+        fig, ax = setup_figure()
         warn("No snapshot data available for SFR density evolution plot")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No snapshot data available for SFR density evolution plot",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"SFR_Density_Evolution{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+        create_empty_plot_with_message(ax, "No snapshot data available for SFR density evolution plot", IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "SFR_Density_Evolution", output_format, verbose)
 
     # Check if SFR field is available in the data
     # Get the first snapshot to check for field availability
     first_snap = next(iter(snapshots.values()))
     galaxies_sample = first_snap[0]
-    available_fields = set(galaxies_sample.dtype.names)
-    has_sfr = "Sfr" in available_fields
 
-    if not has_sfr:
-        warn("No Sfr field available for SFR density evolution plot")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No Sfr field available for SFR density evolution plot",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
+    success, optional, msg = check_required_fields(
+        galaxies_sample,
+        required_fields=['Sfr'],
+        plot_name='SFR Density Evolution'
+    )
 
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"SFR_Density_Evolution{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+    # Set up the figure
+    fig, ax = setup_figure()
+
+    if not success:
+        warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "SFR_Density_Evolution", output_format, verbose)
 
     # Add observational data (compilation used in many papers)
     ObsSFRdensity = np.array(
@@ -217,19 +195,5 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Add consistently styled legend
     setup_legend(ax, loc="upper right")
 
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(output_dir, f"SFR_Density_Evolution{output_format}")
-    if verbose:
-        print(f"Saving SFR Density Evolution to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "SFR_Density_Evolution", output_format, verbose)

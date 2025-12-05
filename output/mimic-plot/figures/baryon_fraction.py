@@ -22,7 +22,13 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator, MaxNLocator
-from output_utils import warn
+from output_utils import (
+    warn,
+    check_required_fields,
+    create_empty_plot_with_message,
+    setup_figure,
+    save_and_close_figure,
+)
 
 
 def plot(
@@ -53,11 +59,21 @@ def plot(
     Returns:
         Path to the saved plot file
     """
-    # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
+    # Check required and optional fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=['Mvir', 'CentralHaloIndex'],
+        optional_fields=['StellarMass', 'ColdGas', 'HotGas', 'EjectedMass', 'ICS', 'BlackHoleMass'],
+        plot_name='Baryon Fraction'
+    )
 
-    # Apply consistent font settings
-    setup_plot_fonts(ax)
+    # Set up the figure
+    fig, ax = setup_figure()
+
+    if not success:
+        warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
@@ -65,77 +81,35 @@ def plot(
     # Get the baryon fraction parameter (or use default cosmic value if not available)
     baryon_frac = params.get("BaryonFrac", 0.17) if params else 0.17
 
-    # Check which baryonic properties are available
-    available_fields = set(galaxies.dtype.names)
-    has_stellar = "StellarMass" in available_fields
-    has_cold = "ColdGas" in available_fields
-    has_hot = "HotGas" in available_fields
-    has_ejected = "EjectedMass" in available_fields
-    has_ics = "ICS" in available_fields
-    has_bh = "BlackHoleMass" in available_fields
+    # Check which optional baryonic properties are available
+    has_stellar = optional.get('StellarMass', False)
+    has_cold = optional.get('ColdGas', False)
+    has_hot = optional.get('HotGas', False)
+    has_ejected = optional.get('EjectedMass', False)
+    has_ics = optional.get('ICS', False)
+    has_bh = optional.get('BlackHoleMass', False)
 
     # Check if we have any baryonic properties at all
-    has_any_baryons = any(
-        [has_stellar, has_cold, has_hot, has_ejected, has_ics, has_bh]
-    )
+    has_any_baryons = any([has_stellar, has_cold, has_hot, has_ejected, has_ics, has_bh])
 
     if not has_any_baryons:
         # No baryonic properties available - create plot with message
+        msg = "No baryonic properties found\n(Enable physics modules to generate baryon data)"
         if verbose:
-            warn("No baryonic properties found in galaxy data")
-
-        ax.text(
-            0.5,
-            0.5,
-            "No baryonic properties found\n(Enable physics modules to generate baryon data)",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Set up basic axes labels
-        ax.set_xlabel(
-            r"Central log$_{10}$ M$_{\rm vir}$ (M$_{\odot}$)",
-            fontsize=AXIS_LABEL_SIZE,
-        )
-        ax.set_ylabel(r"Baryon Fraction", fontsize=AXIS_LABEL_SIZE)
-        ax.set_xlim(10.8, 15.0)
-        ax.set_ylim(0.0, 0.23)
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"BaryonFraction{output_format}")
-        if verbose:
-            print(f"Saving Baryon Fraction plot (no data) to: {output_path}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+            warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
 
     # Only use central galaxies (Type = 0) with non-zero Mvir
     central_mask = (galaxies.Type == 0) & (galaxies.Mvir > 0.0)
 
     # Check if we have any central galaxies to plot
     if not np.any(central_mask):
+        msg = "No central galaxies found with Mvir > 0"
         if verbose:
-            warn("No central galaxies found with Mvir > 0")
-
-        ax.text(
-            0.5,
-            0.5,
-            "No central galaxies found with Mvir > 0",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"BaryonFraction{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+            warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
 
     # Set up halo mass bins
     min_halo = 11.0
@@ -288,34 +262,11 @@ def plot(
 
     # Check if we have any data to plot
     if len(central_halo_mass) == 0:
+        msg = "Insufficient data for baryon fraction analysis\n(Not enough central galaxies in mass bins)"
         if verbose:
-            warn("No data in mass bins (all bins had < 3 centrals)")
-
-        ax.text(
-            0.5,
-            0.5,
-            "Insufficient data for baryon fraction analysis\n(Not enough central galaxies in mass bins)",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-
-        # Set up basic axes labels
-        ax.set_xlabel(
-            r"Central log$_{10}$ M$_{\rm vir}$ (M$_{\odot}$)",
-            fontsize=AXIS_LABEL_SIZE,
-        )
-        ax.set_ylabel(r"Baryon Fraction", fontsize=AXIS_LABEL_SIZE)
-        ax.set_xlim(10.8, 15.0)
-        ax.set_ylim(0.0, 0.23)
-
-        # Save the figure
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"BaryonFraction{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+            warn(msg)
+        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
+        return save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
 
     # Plot the results
     # Total baryon fraction
@@ -383,19 +334,5 @@ def plot(
     # Add consistently styled legend
     leg = setup_legend(ax, loc="upper right")
 
-    # Save the figure, ensuring the output directory exists
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        warn(f"Could not create output directory {output_dir}: {e}")
-        # Try to use a subdirectory of the current directory as fallback
-        output_dir = "./plots"
-        os.makedirs(output_dir, exist_ok=True)
-
-    output_path = os.path.join(output_dir, f"BaryonFraction{output_format}")
-    if verbose:
-        print(f"Saving Baryon Fraction plot to: {output_path}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and close the figure
+    return save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
