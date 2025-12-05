@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 1f27e60c36cf8b876b5572fd5823bee9
+ * Source MD5: bc8e0838cbaed7ecb3e7d4d94098caf6
  * To regenerate: make generate
  */
 
@@ -21,10 +21,11 @@ struct Halo {
   /* Halo properties */
   int SnapNum;
   int Type;
-  int UniqueHaloID;
   int CentralHalo;
   int HaloNr;
   long long MostBoundID;
+  long long HaloIndex;
+  long long CentralHaloIndex;
   float MergTime;
   int MergeStatus;
   int mergeType;
@@ -82,8 +83,6 @@ struct HaloOutput {
   int Type;
   long long HaloIndex;
   long long CentralHaloIndex;
-  int MimicHaloIndex;
-  int MimicTreeIndex;
   long long SimulationHaloIndex;
   int MergeStatus;
   int mergeType;

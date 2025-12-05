@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "1f27e60c36cf8b876b5572fd5823bee9",
+    "source_md5": "bc8e0838cbaed7ecb3e7d4d94098caf6",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -40,18 +40,6 @@
     "CentralHaloIndex": {
       "name": "CentralHaloIndex",
       "type": "long long",
-      "units": "dimensionless",
-      "is_vector": false
-    },
-    "MimicHaloIndex": {
-      "name": "MimicHaloIndex",
-      "type": "int",
-      "units": "dimensionless",
-      "is_vector": false
-    },
-    "MimicTreeIndex": {
-      "name": "MimicTreeIndex",
-      "type": "int",
       "units": "dimensionless",
       "is_vector": false
     },
