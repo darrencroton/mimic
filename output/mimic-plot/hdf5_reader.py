@@ -61,19 +61,14 @@ def read_hdf5_snapshot(filename, snapshot_num):
                 return np.array(dataset[:])
             else:
                 # Master file format - need to read from all File subgroups
+                # Iterate over actual File subgroups instead of assuming File000, File001, etc.
                 halos_list = []
-                file_idx = 0
-                while True:
-                    file_group_name = f"File{file_idx:03d}"
-                    if file_group_name not in snap_group:
-                        break
-
-                    file_group = snap_group[file_group_name]
-                    if 'Galaxies' in file_group:
-                        dataset = file_group['Galaxies']
-                        halos_list.append(np.array(dataset[:]))
-
-                    file_idx += 1
+                for key in sorted(snap_group.keys()):
+                    if key.startswith('File'):
+                        file_group = snap_group[key]
+                        if 'Galaxies' in file_group:
+                            dataset = file_group['Galaxies']
+                            halos_list.append(np.array(dataset[:]))
 
                 if not halos_list:
                     return None
@@ -111,18 +106,13 @@ def count_halos_in_file(filename, snapshot_num):
                 return snap_group['Galaxies'].shape[0]
             else:
                 # Master file - sum across all File subgroups
+                # Iterate over actual File subgroups instead of assuming File000, File001, etc.
                 total = 0
-                file_idx = 0
-                while True:
-                    file_group_name = f"File{file_idx:03d}"
-                    if file_group_name not in snap_group:
-                        break
-
-                    file_group = snap_group[file_group_name]
-                    if 'Galaxies' in file_group:
-                        total += file_group['Galaxies'].shape[0]
-
-                    file_idx += 1
+                for key in snap_group.keys():
+                    if key.startswith('File'):
+                        file_group = snap_group[key]
+                        if 'Galaxies' in file_group:
+                            total += file_group['Galaxies'].shape[0]
 
                 return total
 
