@@ -9,7 +9,7 @@ Usage:
 Options:
   --param-file=<file>    Mimic parameter file (required)
   --first-file=<num>     First file to read [default: 0]
-  --last-file=<num>      Last file to read [default: use MaxFileNum from param file]
+  --last-file=<num>      Last file to read [default: use LastFile from param file]
   --snapshot=<num>       Process only this snapshot number
   --all-snapshots        Process all available snapshots
   --evolution-plots      Generate evolution plots only
@@ -259,6 +259,15 @@ class MimicParameters:
 
                 self.params[key] = value
 
+        if 'FirstFile' in self.params and 'LastFile' in self.params:
+            self.params['NumSimulationTreeFiles'] = self.params['LastFile'] - self.params['FirstFile'] + 1
+        elif 'NumSimulationTreeFiles' not in self.params:
+            if colour_enabled():
+                print("\x1b[31mERROR: Could not determine NumSimulationTreeFiles, check FirstFile and LastFile\x1b[0m")
+            else:
+                print("ERROR: Could not determine NumSimulationTreeFiles, check FirstFile and LastFile")
+            sys.exit(1)
+
     def parse_yaml_file(self):
         """Parse YAML format parameter file."""
         import yaml
@@ -284,7 +293,9 @@ class MimicParameters:
             self.params['SimulationDir'] = config['input'].get('simulation_dir', './')
             self.params['FileWithSnapList'] = config['input'].get('snapshot_list_file', '')
             self.params['LastSnapshotNr'] = config['input'].get('last_snapshot', 63)
-            self.params['NumSimulationTreeFiles'] = config['input'].get('num_tree_files', 1)
+            
+            # Calculate NumSimulationTreeFiles from FirstFile and LastFile
+            self.params['NumSimulationTreeFiles'] = self.params['LastFile'] - self.params['FirstFile'] + 1
 
         # Simulation section
         if 'simulation' in config:
@@ -863,8 +874,7 @@ def main():
         "LastFile",
         "BoxSize",
         "Hubble_h",
-        "FileWithSnapList",
-        "NumSimulationTreeFiles"
+        "FileWithSnapList"
     ]
 
     if validate_required_params(params.params, required_params):

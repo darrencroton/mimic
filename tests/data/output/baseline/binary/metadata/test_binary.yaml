@@ -41,7 +41,6 @@ input:
   simulation_dir: ./tests/data/input/
   snapshot_list_file: ./tests/data/input/millennium.a_list
   last_snapshot: 63
-  num_tree_files: 1  # Only one file for testing
 
 #-----------------------------------------------------------------------------
 # Simulation Properties

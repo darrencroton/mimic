@@ -17,7 +17,6 @@ input:
   simulation_dir: ./input/data/millennium/
   snapshot_list_file: ./input/data/millennium/millennium.a_list
   last_snapshot: 63
-  num_tree_files: 8
 
 simulation:
   cosmology:

@@ -48,7 +48,7 @@ deactivate
 ```
 --param-file=<file>    Mimic parameter file (required)
 --first-file=<num>     First file to read [default: 0]
---last-file=<num>      Last file to read [default: use MaxFileNum from param file]
+--last-file=<num>      Last file to read [default: use LastFile from param file]
 --snapshot=<num>       Process only this snapshot number
 --all-snapshots        Process all available snapshots
 --evolution-plots      Generate evolution plots only
