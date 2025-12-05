@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: bee6469f13f1424a33e984cd73f389d4
+ * Source MD5: 1f27e60c36cf8b876b5572fd5823bee9
  * To regenerate: make generate
  */
 
@@ -23,6 +23,7 @@ FoFWorkspace[p].MostBoundID = InputTreeHalos[halonr].MostBoundID;
 /* MimicHaloIndex: skip (output-only, not in struct Halo) */
 /* MimicTreeIndex: skip (output-only, not in struct Halo) */
 /* SimulationHaloIndex: skip (output-only, not in struct Halo) */
+FoFWorkspace[p].MergTime = 999.9;
 FoFWorkspace[p].MergeStatus = 0;
 FoFWorkspace[p].mergeType = 0;
 FoFWorkspace[p].mergeIntoID = -1;
@@ -43,7 +44,6 @@ FoFWorkspace[p].Rvir = get_virial_radius(halonr);
 FoFWorkspace[p].Vvir = get_virial_velocity(halonr);
 FoFWorkspace[p].Vmax = InputTreeHalos[halonr].Vmax;
 /* VelDisp: skip (output-only, not in struct Halo) */
-FoFWorkspace[p].MergTime = 999.9;
 FoFWorkspace[p].infallMvir = -1.0;
 FoFWorkspace[p].infallVvir = -1.0;
 FoFWorkspace[p].infallVmax = -1.0;

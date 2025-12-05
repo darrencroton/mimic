@@ -1,14 +1,7 @@
 # Mimic Halo Properties Metadata
 #
-# This file defines ALL 24 core halo tracking properties used in Mimic.
+# This file defines ALL core halo tracking properties used in Mimic.
 # These properties are part of the physics-agnostic infrastructure.
-#
-# Property counts:
-#   - struct Halo: 21 properties (internal processing)
-#   - struct HaloOutput: 24 properties (file output)
-#   - Difference: HaloIndex, CentralHaloIndex, MimicHaloIndex, MimicTreeIndex,
-#                 SimulationHaloIndex, Spin[3], VelDisp (output only)
-#                 HaloNr, MostBoundID, deltaMvir, MergTime (processing only)
 #
 # For schema documentation, see:
 #   docs/architecture/property-metadata-schema.md
@@ -112,6 +105,14 @@ halo_properties:
   # ===========================================================================
   # MERGE TRACKING PROPERTIES
   # ===========================================================================
+
+  - name: MergTime
+    type: float
+    units: "Gyr"
+    description: "Merger timescale (internal, not output)"
+    output: false
+    init_source: default
+    init_value: 999.9
 
   - name: MergeStatus
     type: int
@@ -283,18 +284,6 @@ halo_properties:
     output_source: copy_from_tree
     output_tree_field: VelDisp
     range: [0.0, 5000.0]  # Velocity dispersion is positive
-
-  # ===========================================================================
-  # MISC PROPERTIES
-  # ===========================================================================
-
-  - name: MergTime
-    type: float
-    units: "Gyr"
-    description: "Merger timescale (internal, not output)"
-    output: false
-    init_source: default
-    init_value: 999.9
 
   # ===========================================================================
   # INFALL PROPERTIES (Satellites Only)
