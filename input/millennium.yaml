@@ -32,12 +32,12 @@ simulation:
 
 modules:
   enabled:
-    - sage_reionization
+    # - sage_reionization
     - sage_infall
 
     # - sage_infall
     # - sage_reincorporation
-    - sage_satellite_stripping
+    # - sage_satellite_stripping
     # - sage_cooling
     # - sage_starformation_feedback
     # - sage_disk_instability

@@ -35,9 +35,6 @@
 #include "_system/output_helpers.h"  /* -Isrc/modules makes this work */
 #include "../modules/_system/physical_constants.h"  /* For SEC_PER_MEGAYEAR */
 
-#define TREE_MUL_FAC (1000000000LL)
-#define FILENR_MUL_FAC (1000000000000000LL)
-
 // keep a static file handle to remove the need to do constant seeking.
 FILE *save_fd[ABSOLUTEMAXSNAPS] = {0};
 
@@ -152,50 +149,28 @@ void save_halos(int filenr, int tree) {
 /**
  * @brief   Converts internal halo structure to output format
  *
- * @param   filenr    Current file number being processed
- * @param   tree      Current tree number being processed
+ * @param   filenr    Current file number being processed (unused)
+ * @param   tree      Current tree number being processed (unused)
  * @param   g         Pointer to the internal halo tracking structure
  * @param   o         Pointer to the output halo structure to be filled
  *
- * This function transforms the internal halo representation (halo struct)
- * to the output format (halo_OUTPUT struct). It:
+ * This function transforms the internal halo representation (struct Halo)
+ * to the output format (struct HaloOutput). Most properties are copied
+ * automatically by the generated code. This function only sets properties
+ * that require custom handling:
  *
- * 1. Copies basic halo properties (type, position, velocities, masses)
- * 2. Creates a unique halo index that encodes file, tree, and halo number
- * 3. Converts units from internal simulation units to physical units
+ * - SimulationHaloIndex: Pass-through of the simulation's MostBoundID
  *
- * Note: Only halo properties from merger trees are output (no physics).
+ * All other properties (including HaloIndex and CentralHaloIndex) are
+ * stored in struct Halo and copied automatically.
  */
 void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
                              struct HaloOutput *o) {
-  /* CUSTOM: Calculate unique halo index encoding file, tree, and halo number.
-   * For large file counts (>=10000), use smaller file multiplier to fit in long
-   * long. */
-  long long file_mul_fac =
-      (MimicConfig.LastFile >= 10000) ? (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
-  long long tree_mul = TREE_MUL_FAC * tree;
-  long long file_mul = file_mul_fac * filenr;
-  int central_halo_nr =
-      ProcessedHalos[HaloAux[InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup]
-                         .FirstHalo]
-          .HaloNr;
+  /* Suppress unused parameter warnings (kept for API compatibility) */
+  (void)filenr;
+  (void)tree;
 
-  /* Verify tree size assumptions */
-  assert(g->HaloNr < TREE_MUL_FAC);
-  assert(tree < file_mul_fac / TREE_MUL_FAC);
-
-  /* Compute indices */
-  o->HaloIndex = g->HaloNr + tree_mul + file_mul;
-  o->CentralHaloIndex = central_halo_nr + tree_mul + file_mul;
-
-  /* Verify index encoding/decoding correctness */
-  assert((o->HaloIndex - g->HaloNr - tree_mul) / file_mul_fac == filenr);
-  assert((o->HaloIndex - g->HaloNr - file_mul) / TREE_MUL_FAC == tree);
-  assert(o->HaloIndex - tree_mul - file_mul == g->HaloNr);
-
-  /* CUSTOM: Mimic-specific indices */
-  o->MimicHaloIndex = g->HaloNr;
-  o->MimicTreeIndex = tree;
+  /* CUSTOM: Set simulation pass-through index */
   o->SimulationHaloIndex = InputTreeHalos[g->HaloNr].MostBoundID;
 
 /* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */
@@ -269,6 +244,3 @@ void finalize_halo_file(int filenr) {
     save_fd[n] = NULL;
   }
 }
-
-#undef TREE_MUL_FAC
-#undef FILENR_MUL_FAC

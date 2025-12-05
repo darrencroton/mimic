@@ -10,12 +10,12 @@ size_t myfread(void *ptr, size_t size, size_t nmemb, FILE *stream);
 size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream);
 int myfseek(FILE *stream, long offset, int whence);
 
-void build_halo_tree(int halonr, int tree, int depth);
+void build_halo_tree(int halonr, int tree, int filenr, int depth);
 void process_halo_evolution(int halonr, int ngal);
 void update_halo_properties(int ngal);
-int join_progenitor_halos(int halonr, int nstart);
+int join_progenitor_halos(int halonr, int nstart, int tree, int filenr);
 int find_most_massive_progenitor(int halonr);
-int copy_progenitor_halos(int halonr, int nstart, int first_occupied);
+int copy_progenitor_halos(int halonr, int nstart, int first_occupied, int tree, int filenr);
 void set_halo_centrals(int ngalstart, int ngal);
 void init(void);
 void set_units(void);
@@ -50,7 +50,7 @@ void myexit(int signum);
 
 void finalize_halo_file(int filenr);
 
-void init_halo(int p, int halonr);
+void init_halo(int p, int halonr, int tree, int filenr);
 
 double get_virial_velocity(int halonr);
 double get_virial_radius(int halonr);

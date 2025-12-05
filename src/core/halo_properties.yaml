@@ -56,18 +56,18 @@ halo_properties:
     units: "dimensionless"
     description: "Persistent unique galaxy identifier across all snapshots (file*10^12 + tree*10^6 + creation_halonr)"
     output: true
-    init_source: default  # Will be set explicitly in init_halo()
+    init_source: default  # Initialized to 0, then set in init_halo() after auto-gen code
     init_value: 0
-    output_source: copy_direct  # Simple copy from struct Halo
+    output_source: copy_direct
 
   - name: CentralHaloIndex
     type: long long
     units: "dimensionless"
     description: "Persistent HaloIndex of current central galaxy (equals HaloIndex if Type=0)"
     output: true
-    init_source: default  # Will be set explicitly in update_halo_properties()
+    init_source: default  # Initialized to 0, then set in update_halo_properties()
     init_value: 0
-    output_source: copy_direct  # Simple copy from struct Halo
+    output_source: copy_direct
 
   # ===========================================================================
   # OUTPUT-ONLY INDEX PROPERTIES (not in struct Halo)

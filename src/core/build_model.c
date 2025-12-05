@@ -52,7 +52,7 @@
  * chronological order, preserving the flow of mass and properties from
  * high redshift to low redshift.
  */
-void build_halo_tree(int halonr, int tree, int depth) {
+void build_halo_tree(int halonr, int tree, int filenr, int depth) {
   int prog, fofhalo, ngal;
 
   /* Check recursion depth */
@@ -67,7 +67,7 @@ void build_halo_tree(int halonr, int tree, int depth) {
   prog = InputTreeHalos[halonr].FirstProgenitor;
   while (prog >= 0) {
     if (HaloAux[prog].DoneFlag == 0)
-      build_halo_tree(prog, tree, depth + 1);
+      build_halo_tree(prog, tree, filenr, depth + 1);
     prog = InputTreeHalos[prog].NextProgenitor;
   }
 
@@ -78,7 +78,7 @@ void build_halo_tree(int halonr, int tree, int depth) {
       prog = InputTreeHalos[fofhalo].FirstProgenitor;
       while (prog >= 0) {
         if (HaloAux[prog].DoneFlag == 0)
-          build_halo_tree(prog, tree, depth + 1);
+          build_halo_tree(prog, tree, filenr, depth + 1);
         prog = InputTreeHalos[prog].NextProgenitor;
       }
 
@@ -98,7 +98,7 @@ void build_halo_tree(int halonr, int tree, int depth) {
     HaloAux[fofhalo].HaloFlag = 2;
 
     while (fofhalo >= 0) {
-      ngal = join_progenitor_halos(fofhalo, ngal);
+      ngal = join_progenitor_halos(fofhalo, ngal, tree, filenr);
       fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
     }
 
@@ -162,6 +162,8 @@ int find_most_massive_progenitor(int halonr) {
  * @param   halonr          Index of the current halo in the Halo array
  * @param   ngalstart       Starting index for halos in the Gal array
  * @param   first_occupied  Index of the most massive progenitor with halos
+ * @param   tree            Index of the current merger tree
+ * @param   filenr          File number in multi-file run
  * @return  Updated number of halos after copying
  *
  * This function transfers halos from progenitor halos to the current
@@ -178,7 +180,7 @@ int find_most_massive_progenitor(int halonr) {
  * their properties while updating their status based on the evolving
  * dark matter structures.
  */
-int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
+int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tree, int filenr) {
   int ngal, prog, i, j;
   double previousMvir, previousVvir, previousVmax;
 
@@ -348,7 +350,7 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
     // We have no progenitors with halos. This means we create a new object.
     // init_halo requires halonr to be the main subhalo
     if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
-      init_halo(ngal, halonr);
+      init_halo(ngal, halonr, tree, filenr);
       ngal++;
     }
     // If not the main subhalo, we don't create an object
@@ -390,6 +392,8 @@ void set_halo_centrals(int ngalstart, int ngal) {
  *
  * @param   halonr       Index of the current halo in the Halo array
  * @param   ngalstart    Starting index for halos in the Gal array
+ * @param   tree         Index of the current merger tree
+ * @param   filenr       File number in multi-file run
  * @return  Updated number of halos after joining
  *
  * This function coordinates the process of integrating halos from
@@ -402,14 +406,14 @@ void set_halo_centrals(int ngalstart, int ngal) {
  * The function ensures proper inheritance of object properties while
  * maintaining the hierarchy of central and satellite halos.
  */
-int join_progenitor_halos(int halonr, int ngalstart) {
+int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
   int ngal, first_occupied;
 
   /* Find the most massive progenitor with halos */
   first_occupied = find_most_massive_progenitor(halonr);
 
   /* Copy halos from progenitors to the current snapshot */
-  ngal = copy_progenitor_halos(halonr, ngalstart, first_occupied);
+  ngal = copy_progenitor_halos(halonr, ngalstart, first_occupied, tree, filenr);
 
   /* Set up central object relationships */
   set_halo_centrals(ngalstart, ngal);
@@ -439,6 +443,13 @@ void update_halo_properties(int ngal) {
       HaloAux[currenthalo].NHalos = 0; /* Reset counter */
     }
 
+    /* Set CentralHaloIndex from the central halo's HaloIndex
+     * This must be done for ALL galaxies (not just non-merged) to maintain
+     * consistency. Uses FoFWorkspace relationships (set by set_halo_centrals)
+     * which are always correct, avoiding fragile tree lookups. */
+    int central_idx = FoFWorkspace[p].CentralHalo;
+    FoFWorkspace[p].CentralHaloIndex = FoFWorkspace[central_idx].HaloIndex;
+
     /* Calculate offset for merger target IDs due to halos that won't be
      * output */
     offset = 0;
@@ -457,7 +468,7 @@ void update_halo_properties(int ngal) {
       /* Find this object in the previous snapshot's array */
       i = HaloAux[currenthalo].FirstHalo - 1;
       while (i >= 0) {
-        if (ProcessedHalos[i].UniqueHaloID == FoFWorkspace[p].UniqueHaloID)
+        if (ProcessedHalos[i].HaloIndex == FoFWorkspace[p].HaloIndex)
           break;
         else
           i--;

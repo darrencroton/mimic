@@ -398,7 +398,7 @@ int main(int argc, char **argv) {
       /* Construct objects for each unprocessed halo in the tree */
       for (halonr = 0; halonr < InputTreeNHalos[treenr]; halonr++)
         if (HaloAux[halonr].DoneFlag == 0)
-          build_halo_tree(halonr, treenr, 0);
+          build_halo_tree(halonr, treenr, filenr, 0);
 
       /* Save the processed halos (format depends on OutputFormat parameter) */
 #ifdef HDF5

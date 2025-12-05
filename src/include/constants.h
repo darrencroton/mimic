@@ -34,6 +34,10 @@
 /* Progress reporting */
 #define TREE_PROGRESS_INTERVAL 10000 /* Log progress every N trees */
 
+/* HaloIndex encoding constants */
+#define TREE_MUL_FAC (1000000000LL)      /* Tree multiplier: 10^9 */
+#define FILENR_MUL_FAC (1000000000000000LL) /* File multiplier: 10^15 */
+
 /* Memory allocation parameters */
 #define HALO_ARRAY_GROWTH_FACTOR                                               \
   1.5 /* Factor to grow arrays by (1.5 = 50% growth) */
