@@ -45,7 +45,7 @@ from framework import (
 # These 24 properties are defined in metadata/halo_properties.yaml
 # and should be present in all Mimic output, regardless of enabled physics modules
 CORE_HALO_PROPERTIES = {
-    'SnapNum', 'Type', 'HaloIndex', 'CentralHaloIndex', 'MimicHaloIndex',
+    'SnapNum', 'Type', 'HaloIndex', 'CentralHaloIndex',
     'MimicTreeIndex', 'SimulationHaloIndex', 'MergeStatus', 'mergeIntoID',
     'mergeIntoSnapNum', 'dT', 'Pos', 'Vel', 'Spin', 'Len', 'Mvir',
     'CentralMvir', 'Rvir', 'Vvir', 'Vmax', 'VelDisp', 'infallMvir',

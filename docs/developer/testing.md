@@ -663,7 +663,7 @@ The baseline comparison test (`test_hdf5_baseline_comparison` in `test_output_fo
 - Reports detailed differences if comparison fails
 
 **Core properties validated**:
-- Structural: SnapNum, Type, HaloIndex, CentralHaloIndex, MimicHaloIndex, MimicTreeIndex, SimulationHaloIndex
+- Structural: SnapNum, Type, HaloIndex, CentralHaloIndex, SimulationHaloIndex
 - Tracking: MergeStatus, mergeIntoID, mergeIntoSnapNum, dT
 - Physical: Pos, Vel, Spin, Len
 - Virial: Mvir, CentralMvir, Rvir, Vvir, Vmax, VelDisp
