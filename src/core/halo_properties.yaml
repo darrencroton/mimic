@@ -30,13 +30,6 @@ halo_properties:
     output_source: copy_direct
     range: [0, 2]  # 0=central, 1=satellite, 2=orphan
 
-  - name: UniqueHaloID
-    type: int
-    units: "dimensionless"
-    description: "Internal unique halo identifier (working variable, not output)"
-    output: false
-    init_source: skip  # Set in build_model.c, not in init_halo()
-
   - name: CentralHalo
     type: int
     units: "dimensionless"
@@ -47,7 +40,7 @@ halo_properties:
   - name: HaloNr
     type: int
     units: "dimensionless"
-    description: "Halo number in tree (internal index, output as MimicHaloIndex)"
+    description: "Halo number in tree (internal index, not output)"
     output: false
     init_source: skip  # Custom: set to halonr parameter directly
 
@@ -58,41 +51,27 @@ halo_properties:
     output: false
     init_source: copy_from_tree
 
-  # ===========================================================================
-  # OUTPUT-ONLY INDEX PROPERTIES (not in struct Halo)
-  # ===========================================================================
-
   - name: HaloIndex
     type: long long
     units: "dimensionless"
-    description: "Unique halo index encoding file number, tree number, and halo number"
+    description: "Persistent unique galaxy identifier across all snapshots (file*10^15 + tree*10^9 + creation_halonr)"
     output: true
-    init_source: skip  # Not in struct Halo
-    output_source: custom  # Complex encoding in prepare_halo_for_output()
+    init_source: default  # Initialized to 0, then set in init_halo() after auto-gen code
+    init_value: 0
+    output_source: copy_direct
 
   - name: CentralHaloIndex
     type: long long
     units: "dimensionless"
-    description: "HaloIndex of the central halo in this FoF group"
+    description: "Persistent HaloIndex of current central galaxy (equals HaloIndex if Type=0)"
     output: true
-    init_source: skip  # Not in struct Halo
-    output_source: custom  # Complex calculation in prepare_halo_for_output()
+    init_source: default  # Initialized to 0, then set in update_halo_properties()
+    init_value: 0
+    output_source: copy_direct
 
-  - name: MimicHaloIndex
-    type: int
-    units: "dimensionless"
-    description: "Halo number within merger tree (same as internal HaloNr)"
-    output: true
-    init_source: skip  # Not in struct Halo
-    output_source: custom  # Copy from g->HaloNr in prepare_halo_for_output()
-
-  - name: MimicTreeIndex
-    type: int
-    units: "dimensionless"
-    description: "Merger tree number within file"
-    output: true
-    init_source: skip  # Not in struct Halo
-    output_source: custom  # Pass tree parameter in prepare_halo_for_output()
+  # ===========================================================================
+  # OUTPUT-ONLY INDEX PROPERTIES (not in struct Halo)
+  # ===========================================================================
 
   - name: SimulationHaloIndex
     type: long long

@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 1f27e60c36cf8b876b5572fd5823bee9
+ * Source MD5: b807253c45df59ed7fc90e01f2cf0643
  * To regenerate: make generate
  */
 
@@ -14,14 +14,11 @@
 
 FoFWorkspace[p].SnapNum = InputTreeHalos[halonr].SnapNum;
 FoFWorkspace[p].Type = 0;
-/* UniqueHaloID: skip (custom initialization in init_halo) */
 /* CentralHalo: skip (custom initialization in init_halo) */
 /* HaloNr: skip (custom initialization in init_halo) */
 FoFWorkspace[p].MostBoundID = InputTreeHalos[halonr].MostBoundID;
-/* HaloIndex: skip (output-only, not in struct Halo) */
-/* CentralHaloIndex: skip (output-only, not in struct Halo) */
-/* MimicHaloIndex: skip (output-only, not in struct Halo) */
-/* MimicTreeIndex: skip (output-only, not in struct Halo) */
+FoFWorkspace[p].HaloIndex = 0;
+FoFWorkspace[p].CentralHaloIndex = 0;
 /* SimulationHaloIndex: skip (output-only, not in struct Halo) */
 FoFWorkspace[p].MergTime = 999.9;
 FoFWorkspace[p].MergeStatus = 0;

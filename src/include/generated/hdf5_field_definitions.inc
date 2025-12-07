@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 1f27e60c36cf8b876b5572fd5823bee9
+ * Source MD5: b807253c45df59ed7fc90e01f2cf0643
  * To regenerate: make generate
  */
 
@@ -36,18 +36,6 @@ HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, CentralHaloIndex);
 HDF5_dst_sizes[i] = sizeof(galout.CentralHaloIndex);
 HDF5_field_names[i] = "CentralHaloIndex";
 HDF5_field_types[i++] = H5T_NATIVE_LLONG;
-
-/* MimicHaloIndex */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MimicHaloIndex);
-HDF5_dst_sizes[i] = sizeof(galout.MimicHaloIndex);
-HDF5_field_names[i] = "MimicHaloIndex";
-HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-/* MimicTreeIndex */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MimicTreeIndex);
-HDF5_dst_sizes[i] = sizeof(galout.MimicTreeIndex);
-HDF5_field_names[i] = "MimicTreeIndex";
-HDF5_field_types[i++] = H5T_NATIVE_INT;
 
 /* SimulationHaloIndex */
 HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, SimulationHaloIndex);

@@ -475,6 +475,8 @@ test-integration:
 	echo ""; \
 	$(PYTHON) tests/integration/test_tree_preservation.py || FAILED=1; \
 	echo ""; \
+	$(PYTHON) tests/integration/test_halo_index.py || FAILED=1; \
+	echo ""; \
 	$(PYTHON) tests/integration/test_full_pipeline.py || FAILED=1; \
 	echo ""; \
 	$(PYTHON) tests/integration/test_module_pipeline.py || FAILED=1; \

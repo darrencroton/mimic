@@ -958,7 +958,7 @@ For ALL properties with `output: true`, the scientific test automatically perfor
 - Properties that legitimately can be zero
 
 **Don't add ranges for**:
-- Internal tracking indices (HaloNr, UniqueHaloID)
+- Internal tracking indices (HaloNr)
 - Encoded composite values (HaloIndex)
 - Properties with no clear physical bounds
 
@@ -1050,7 +1050,7 @@ o->ColdGas = g->galaxy->ColdGas;
 **Total**: 31 properties
 
 Organized by category:
-- Metadata (SnapNum, Type, HaloNr, UniqueHaloID, etc.)
+- Metadata (SnapNum, Type, HaloNr, etc.)
 - Merge tracking (MergeStatus, mergeIntoID, etc.)
 - Physical properties (Pos, Vel, Spin, Mvir, Rvir, Vvir, etc.)
 - Infall properties (infallMvir, infallVvir, infallVmax)

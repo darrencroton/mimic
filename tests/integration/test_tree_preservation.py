@@ -373,7 +373,7 @@ def generate_markdown_report(match_result, input_halos, output_halos,
             md.write(f"- Input index: {in_idx}\n")
             md.write(f"- Output index: {out_idx}\n")
             md.write(f"- Type: {out_halo.Type} ({'Central' if out_halo.Type == 0 else 'Satellite'})\n")
-            md.write(f"- MimicHaloIndex: {out_halo.MimicHaloIndex}\n")
+            md.write(f"- HaloIndex: {out_halo.HaloIndex}\n")
             md.write(f"- SimulationHaloIndex: {out_halo.SimulationHaloIndex}\n\n")
 
             md.write("**Property Comparison:**\n\n")
@@ -393,7 +393,8 @@ def generate_markdown_report(match_result, input_halos, output_halos,
             ]
 
             # Check if Mvir should be validated
-            halonr = out_halo.MimicHaloIndex
+            # in_idx IS the halonr (index in InputTreeHalos array)
+            halonr = in_idx
             if out_halo.Type == 0 and halonr < len(input_halos):
                 is_fof_central = (halonr == input_halos[halonr].FirstHaloInFOFgroup)
                 has_valid_mvir = (in_halo['Mvir'] >= 0.0)
@@ -651,11 +652,11 @@ def test_tree_preservation_properties():
     imperfect_matches = []
 
     for in_idx, out_idx in matched_pairs:
-        halonr = output_halos[out_idx].MimicHaloIndex
+        # in_idx IS the halonr (index in InputTreeHalos array)
         result = validate_copied_properties(
             input_halos[in_idx],
             output_halos[out_idx],
-            halonr,
+            in_idx,  # halonr
             input_halos,
             rtol=1e-6
         )

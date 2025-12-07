@@ -52,7 +52,7 @@
  * chronological order, preserving the flow of mass and properties from
  * high redshift to low redshift.
  */
-void build_halo_tree(int halonr, int tree, int depth) {
+void build_halo_tree(int halonr, int tree, int filenr, int depth) {
   int prog, fofhalo, ngal;
 
   /* Check recursion depth */
@@ -67,7 +67,7 @@ void build_halo_tree(int halonr, int tree, int depth) {
   prog = InputTreeHalos[halonr].FirstProgenitor;
   while (prog >= 0) {
     if (HaloAux[prog].DoneFlag == 0)
-      build_halo_tree(prog, tree, depth + 1);
+      build_halo_tree(prog, tree, filenr, depth + 1);
     prog = InputTreeHalos[prog].NextProgenitor;
   }
 
@@ -78,7 +78,7 @@ void build_halo_tree(int halonr, int tree, int depth) {
       prog = InputTreeHalos[fofhalo].FirstProgenitor;
       while (prog >= 0) {
         if (HaloAux[prog].DoneFlag == 0)
-          build_halo_tree(prog, tree, depth + 1);
+          build_halo_tree(prog, tree, filenr, depth + 1);
         prog = InputTreeHalos[prog].NextProgenitor;
       }
 
@@ -98,9 +98,15 @@ void build_halo_tree(int halonr, int tree, int depth) {
     HaloAux[fofhalo].HaloFlag = 2;
 
     while (fofhalo >= 0) {
-      ngal = join_progenitor_halos(fofhalo, ngal);
+      ngal = join_progenitor_halos(fofhalo, ngal, tree, filenr);
       fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
     }
+
+    /* Set central references for entire FOF group
+     * Called here (not per-subhalo) to ensure all galaxies point to the
+     * FOF group's Type 0 central, including satellites and orphans from
+     * satellite subhalos */
+    set_halo_centrals(0, ngal);
 
     process_halo_evolution(InputTreeHalos[halonr].FirstHaloInFOFgroup, ngal);
   }
@@ -162,6 +168,8 @@ int find_most_massive_progenitor(int halonr) {
  * @param   halonr          Index of the current halo in the Halo array
  * @param   ngalstart       Starting index for halos in the Gal array
  * @param   first_occupied  Index of the most massive progenitor with halos
+ * @param   tree            Index of the current merger tree
+ * @param   filenr          File number in multi-file run
  * @return  Updated number of halos after copying
  *
  * This function transfers halos from progenitor halos to the current
@@ -178,7 +186,7 @@ int find_most_massive_progenitor(int halonr) {
  * their properties while updating their status based on the evolving
  * dark matter structures.
  */
-int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
+int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tree, int filenr) {
   int ngal, prog, i, j;
   double previousMvir, previousVvir, previousVmax;
 
@@ -348,7 +356,7 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
     // We have no progenitors with halos. This means we create a new object.
     // init_halo requires halonr to be the main subhalo
     if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
-      init_halo(ngal, halonr);
+      init_halo(ngal, halonr, tree, filenr);
       ngal++;
     }
     // If not the main subhalo, we don't create an object
@@ -358,29 +366,36 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied) {
 }
 
 /**
- * @brief   Sets the central object reference for all halos in a halo
+ * @brief   Sets the central object reference for all galaxies in a FOF group
  *
- * @param   ngalstart    Starting index of halos for this halo
- * @param   ngal         Ending index (exclusive) of halos for this halo
+ * @param   ngalstart    Starting index of galaxies for this FOF group
+ * @param   ngal         Ending index (exclusive) of galaxies for this FOF group
  *
- * This function identifies the central object (Type 0 or 1) for a halo
- * and sets all object in the halo to reference this central object.
- * Each halo can have only one Type 0 or Type 1 object, with all others
- * being Type 2 (orphan) halos.
+ * This function identifies the Type 0 central galaxy for a FOF group
+ * and sets ALL galaxies (including Type 1 satellites and Type 2 orphans) to
+ * reference this central galaxy. This ensures CentralHaloIndex correctly points
+ * to the FOF group's main central, not to individual satellite subhalo centrals.
+ *
+ * Each FOF group has exactly one Type 0 central, possibly multiple Type 1
+ * satellites (satellite subhalo centrals), and any number of Type 2 orphans.
  */
 void set_halo_centrals(int ngalstart, int ngal) {
   int i, centralgal;
 
-  /* Per Halo there can be only one Type 0 or 1 object, all others are Type 2
-   * (orphan) Find the central object for this halo */
+  /* Find the Type 0 central galaxy for this FOF group
+   * Note: FOF groups can have multiple Type 1 satellites, but only one Type 0 */
   for (i = ngalstart, centralgal = -1; i < ngal; i++) {
-    if (FoFWorkspace[i].Type == 0 || FoFWorkspace[i].Type == 1) {
-      assert(centralgal == -1); /* Ensure only one central object per halo */
+    if (FoFWorkspace[i].Type == 0) {
+      if (centralgal != -1) {
+        ERROR_LOG("Multiple Type 0 galaxies in FOF group (range %d-%d)", ngalstart, ngal);
+        assert(centralgal == -1);
+      }
       centralgal = i;
+      break; /* Found it, no need to continue */
     }
   }
 
-  /* Set all halos to point to the central object */
+  /* Set ALL galaxies to point to the FOF group's Type 0 central */
   for (i = ngalstart; i < ngal; i++)
     FoFWorkspace[i].CentralHalo = centralgal;
 }
@@ -390,29 +405,34 @@ void set_halo_centrals(int ngalstart, int ngal) {
  *
  * @param   halonr       Index of the current halo in the Halo array
  * @param   ngalstart    Starting index for halos in the Gal array
+ * @param   tree         Index of the current merger tree
+ * @param   filenr       File number in multi-file run
  * @return  Updated number of halos after joining
  *
  * This function coordinates the process of integrating halos from
- * progenitor halos into the current halo. It performs three main steps:
+ * progenitor halos into the current halo. It performs two main steps:
  *
  * 1. Identifies the most massive progenitor with halos
  * 2. Copies and updates halos from all progenitors
- * 3. Establishes relationships between halos (central/satellite)
+ *
+ * Note: Central-satellite relationships are established in build_halo_tree()
+ * after all subhalos in the FOF group have been processed, ensuring all
+ * galaxies reference the FOF group's Type 0 central.
  *
  * The function ensures proper inheritance of object properties while
  * maintaining the hierarchy of central and satellite halos.
  */
-int join_progenitor_halos(int halonr, int ngalstart) {
+int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
   int ngal, first_occupied;
 
   /* Find the most massive progenitor with halos */
   first_occupied = find_most_massive_progenitor(halonr);
 
   /* Copy halos from progenitors to the current snapshot */
-  ngal = copy_progenitor_halos(halonr, ngalstart, first_occupied);
+  ngal = copy_progenitor_halos(halonr, ngalstart, first_occupied, tree, filenr);
 
-  /* Set up central object relationships */
-  set_halo_centrals(ngalstart, ngal);
+  /* Central assignment deferred to build_halo_tree() which processes entire
+   * FOF group at once (see set_halo_centrals call after subhalo loop) */
 
   return ngal;
 }
@@ -439,6 +459,13 @@ void update_halo_properties(int ngal) {
       HaloAux[currenthalo].NHalos = 0; /* Reset counter */
     }
 
+    /* Set CentralHaloIndex from the central halo's HaloIndex
+     * This must be done for ALL galaxies (not just non-merged) to maintain
+     * consistency. Uses FoFWorkspace relationships (set by set_halo_centrals)
+     * which are always correct, avoiding fragile tree lookups. */
+    int central_idx = FoFWorkspace[p].CentralHalo;
+    FoFWorkspace[p].CentralHaloIndex = FoFWorkspace[central_idx].HaloIndex;
+
     /* Calculate offset for merger target IDs due to halos that won't be
      * output */
     offset = 0;
@@ -457,7 +484,7 @@ void update_halo_properties(int ngal) {
       /* Find this object in the previous snapshot's array */
       i = HaloAux[currenthalo].FirstHalo - 1;
       while (i >= 0) {
-        if (ProcessedHalos[i].UniqueHaloID == FoFWorkspace[p].UniqueHaloID)
+        if (ProcessedHalos[i].HaloIndex == FoFWorkspace[p].HaloIndex)
           break;
         else
           i--;

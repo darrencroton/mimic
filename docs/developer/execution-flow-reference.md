@@ -448,11 +448,10 @@ join_progenitor_halos(halonr, ngal)
 │        ├─ Set initial merger time = 999.9
 │        └─ Increment ngal
 │
-├─ set_halo_centrals()                  // src/core/build_model.c:328
-│  ├─ Find central halo (Type 0 or 1)
-│  └─ Set CentralHalo pointer for all halos
-│
 └─ Return updated ngal
+
+**Note:** Central-satellite relationships are established in build_halo_tree()
+after all subhalos in the FOF group have been processed.
 ```
 
 ---
@@ -1069,12 +1068,16 @@ main()
  │   ├─ Tree Loop [0..Ntrees-1]
  │   │   ├─ load_tree()
  │   │   ├─ build_halo_tree() [recursive, depth-first]
- │   │   │   ├─ join_progenitor_halos()
- │   │   │   │   ├─ find_most_massive_progenitor()
- │   │   │   │   ├─ copy_progenitor_halos()
- │   │   │   │   │   ├─ init_halo() [if new]
- │   │   │   │   │   └─ get_virial_*() [3 functions]
- │   │   │   │   └─ set_halo_centrals()
+ │   │   │   ├─ Subhalo Loop [all subhalos in FOF group]
+ │   │   │   │   └─ join_progenitor_halos()
+ │   │   │   │       ├─ find_most_massive_progenitor()
+ │   │   │   │       ├─ copy_progenitor_halos()
+ │   │   │   │       │   ├─ init_halo() [if new]
+ │   │   │   │       │   └─ get_virial_*() [3 functions]
+ │   │   │   │       └─ Return updated ngal
+ │   │   │   ├─ set_halo_centrals() [entire FOF group]
+ │   │   │   │   ├─ Find Type 0 central
+ │   │   │   │   └─ Set all galaxies to reference Type 0
  │   │   │   └─ process_halo_evolution()
  │   │   │       └─ update_halo_properties()
  │   │   ├─ save_halos() OR save_halos_hdf5()
