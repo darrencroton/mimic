@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: b807253c45df59ed7fc90e01f2cf0643
+ * Source MD5: e1bbd36908609ba4ac769296df3b7cfb
  * To regenerate: make generate
  */
 
@@ -16,7 +16,6 @@ FoFWorkspace[p].galaxy->HaloBaryonFraction = -1.0;
 FoFWorkspace[p].galaxy->ColdGas = 0.0;
 FoFWorkspace[p].galaxy->HotGas = 0.0;
 FoFWorkspace[p].galaxy->EjectedMass = 0.0;
-FoFWorkspace[p].galaxy->InfallingGas = 0.0;
 FoFWorkspace[p].galaxy->StellarMass = 0.0;
 FoFWorkspace[p].galaxy->BulgeMass = 0.0;
 FoFWorkspace[p].galaxy->ICS = 0.0;

@@ -273,9 +273,8 @@ def test_output_properties_exist():
     """
     Test that HotGas and related properties appear in output
 
-    Expected: HotGas, MetalsHotGas, EjectedMass, ICS, and InfallingGas in output file
+    Expected: HotGas, MetalsHotGas, EjectedMass, and ICS in output file
     Validates: Module creates expected output properties
-    Note: InfallingGas is internal (output: false) so won't be in output file
     """
     print("Testing output properties...")
 
@@ -308,9 +307,6 @@ def test_output_properties_exist():
         "EjectedMass property should exist in output"
     assert 'ICS' in halos.dtype.names, \
         "ICS property should exist in output"
-
-    # InfallingGas is internal (output: false), so it won't be in output file
-    # This is correct - it's only used during STEPS integration
 
     print("  ✓ Output properties exist")
     print(f"  Found {len(halos)} halos")

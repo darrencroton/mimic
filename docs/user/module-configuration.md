@@ -166,7 +166,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Dependencies**: Requires sage_reionization (provides HaloBaryonFraction)
 
-**Provides**: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS, InfallingGas
+**Provides**: HotGas, MetalsHotGas, EjectedMass, MetalsEjectedMass, ICS, MetalsICS
 
 **Execution Order**: Should run **early** in pipeline (after sage_reionization, before cooling, star formation)
 

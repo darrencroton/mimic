@@ -665,7 +665,6 @@ module:
       - MetalsEjectedMass
       - ICS
       - MetalsICS
-      - InfallingGas
     parameters:
       - BaryonFrac
 

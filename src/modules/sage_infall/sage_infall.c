@@ -251,8 +251,6 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
   
   double infallingMass = infall_recipe(halos, ngal, central_idx);
 
-  halos[central_idx].galaxy->InfallingGas = (float)infallingMass;
-
   add_infall_to_hot(halos[central_idx].galaxy, infallingMass / STEPS);
 
   DEBUG_LOG("Infall: central Mvir=%.3e, HaloBaryonFrac=%.4f, infall=%.3e, HotGas=%.3e, z=%.3f",

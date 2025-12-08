@@ -1062,7 +1062,7 @@ See `src/core/halo_properties.yaml` for complete definitions.
 **Total**: 24 properties (expandable)
 
 Organized by component:
-- Gas components (ColdGas, HotGas, EjectedMass, InfallingGas)
+- Gas components (ColdGas, HotGas, EjectedMass)
 - Stellar components (StellarMass, BulgeMass, ICS)
 - Chemical composition (MetalsColdGas, MetalsHotGas, MetalsStellarMass, etc.)
 - Black holes (BlackHoleMass, QuasarModeBHaccretionMass)

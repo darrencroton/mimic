@@ -251,11 +251,6 @@ int test_property_access(void)
     TEST_ASSERT(zero_galaxy.HotGas == 0.0, "Zero-initialized galaxy should have HotGas=0");
     TEST_ASSERT(zero_galaxy.ColdGas == 0.0, "Zero-initialized galaxy should have ColdGas=0");
 
-    /* Test InfallingGas property (added in refactoring for STEPS integration) */
-    TEST_ASSERT(zero_galaxy.InfallingGas == 0.0, "Zero-initialized galaxy should have InfallingGas=0");
-    test_galaxy.InfallingGas = 5.5;
-    TEST_ASSERT(test_galaxy.InfallingGas == 5.5, "InfallingGas should be readable/writable");
-
     /* ===== CLEANUP ===== */
     check_memory_leaks();
 
