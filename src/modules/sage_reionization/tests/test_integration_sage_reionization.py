@@ -62,11 +62,15 @@ class TestSageReionization(unittest.TestCase):
             self.assertIn('HaloBaryonFraction', halos.dtype.names,
                          "HaloBaryonFraction should be in output")
 
-            # Check property is set (should be > 0 for all halos)
-            self.assertTrue((halos['HaloBaryonFraction'] > 0).all(),
-                           "HaloBaryonFraction should be set for all halos")
+            # Check property is set for halos with mass (Mvir > 0)
+            # Orphans with Mvir=0 legitimately have HaloBaryonFraction=0
+            halos_with_mass = halos[halos['Mvir'] > 0]
+            self.assertTrue((halos_with_mass['HaloBaryonFraction'] > 0).all(),
+                           "HaloBaryonFraction should be > 0 for halos with mass")
 
-            # Check property is physical (0 < value <= 0.17)
+            # Check property is physical (0 <= value <= 0.17 for all halos)
+            self.assertTrue((halos['HaloBaryonFraction'] >= 0).all(),
+                           "HaloBaryonFraction should be >= 0")
             self.assertTrue((halos['HaloBaryonFraction'] <= 0.17).all(),
                            "HaloBaryonFraction should be <= GlobalBaryonFraction")
 
