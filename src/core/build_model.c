@@ -279,6 +279,7 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
 
           FoFWorkspace[ngal].Len = InputTreeHalos[halonr].Len;
           FoFWorkspace[ngal].Vmax = InputTreeHalos[halonr].Vmax;
+          FoFWorkspace[ngal].VelDisp = InputTreeHalos[halonr].VelDisp;
 
           FoFWorkspace[ngal].deltaMvir =
               get_virial_mass(halonr) - FoFWorkspace[ngal].Mvir;
@@ -328,9 +329,9 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
           }
         } else {
           // an orphan satellite
-          FoFWorkspace[ngal].deltaMvir = 0.0;
-          FoFWorkspace[ngal].Mvir = 0.0;
           FoFWorkspace[ngal].Len = 0;
+          FoFWorkspace[ngal].Mvir = 0.0;
+          FoFWorkspace[ngal].deltaMvir = 0.0;
 
           if (FoFWorkspace[ngal].Type == 0) {
             // here the halo has gone from type 0 to type 2

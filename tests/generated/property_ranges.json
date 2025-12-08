@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "8a57dcb7ba7d2bbbd201c5f32e018f0d",
+    "source_md5": "3fd13ae6f5f1ef16e421fca8faf0f8b8",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -146,6 +146,9 @@
       "range": [
         20,
         1000000000
+      ],
+      "sentinels": [
+        0
       ]
     },
     "Mvir": {
@@ -154,7 +157,7 @@
       "units": "1e10 Msun/h",
       "is_vector": false,
       "range": [
-        1e-06,
+        0.0,
         1000000.0
       ]
     },
@@ -162,7 +165,11 @@
       "name": "deltaMvir",
       "type": "float",
       "units": "1e10 Msun/h",
-      "is_vector": false
+      "is_vector": false,
+      "range": [
+        -1000.0,
+        1000.0
+      ]
     },
     "CentralMvir": {
       "name": "CentralMvir",
@@ -170,8 +177,11 @@
       "units": "1e10 Msun/h",
       "is_vector": false,
       "range": [
-        1e-06,
+        0.0,
         1000000.0
+      ],
+      "sentinels": [
+        0.0
       ]
     },
     "Rvir": {

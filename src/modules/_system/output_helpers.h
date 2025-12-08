@@ -76,4 +76,49 @@ static inline float output_infall_property_or_zero(const struct Halo *g, float v
  * 5. Use const pointers where appropriate
  */
 
+/**
+ * @brief Output Rvir: recalculate current for Type 0/1, preserve for Type 2
+ *
+ * Type 0/1: Output current virial radius (maintains virial relation)
+ * Type 2:   Output preserved virial radius (from when orphan had subhalo)
+ *
+ * Used by: Rvir property
+ */
+static inline float output_rvir_conditional(const struct Halo *g)
+{
+    // Type 2 orphans: return preserved value (no current halo to calculate from)
+    // Type 0/1: recalculate current value (stored value is "maximum ever")
+    return (g->Type == 2) ? g->Rvir : (float)get_virial_radius(g->HaloNr);
+}
+
+/**
+ * @brief Output Vvir: recalculate current for Type 0/1, preserve for Type 2
+ *
+ * Type 0/1: Output current virial velocity (maintains virial relation)
+ * Type 2:   Output preserved virial velocity (from when orphan had subhalo)
+ *
+ * Used by: Vvir property
+ */
+static inline float output_vvir_conditional(const struct Halo *g)
+{
+    // Type 2 orphans: return preserved value (no current halo to calculate from)
+    // Type 0/1: recalculate current value (stored value is "maximum ever")
+    return (g->Type == 2) ? g->Vvir : (float)get_virial_velocity(g->HaloNr);
+}
+
+/**
+ * @brief Output VelDisp: copy from tree for Type 0/1, preserve for Type 2
+ *
+ * Type 0/1: Output current velocity dispersion from tree
+ * Type 2:   Output preserved velocity dispersion (from when orphan had subhalo)
+ *
+ * Used by: VelDisp property
+ */
+static inline float output_veldisp_conditional(const struct Halo *g)
+{
+    // Type 2 orphans: return preserved value (no current halo in tree)
+    // Type 0/1: get current value from InputTreeHalos
+    return (g->Type == 2) ? g->VelDisp : InputTreeHalos[g->HaloNr].VelDisp;
+}
+
 #endif /* OUTPUT_HELPERS_H */

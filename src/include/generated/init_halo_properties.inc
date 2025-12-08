@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 8a57dcb7ba7d2bbbd201c5f32e018f0d
+ * Source MD5: 3fd13ae6f5f1ef16e421fca8faf0f8b8
  * To regenerate: make generate
  */
 
@@ -40,7 +40,7 @@ FoFWorkspace[p].deltaMvir = 0.0;
 FoFWorkspace[p].Rvir = get_virial_radius(halonr);
 FoFWorkspace[p].Vvir = get_virial_velocity(halonr);
 FoFWorkspace[p].Vmax = InputTreeHalos[halonr].Vmax;
-/* VelDisp: skip (output-only, not in struct Halo) */
+FoFWorkspace[p].VelDisp = InputTreeHalos[halonr].VelDisp;
 FoFWorkspace[p].infallMvir = -1.0;
 FoFWorkspace[p].infallVvir = -1.0;
 FoFWorkspace[p].infallVmax = -1.0;

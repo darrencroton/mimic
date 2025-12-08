@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 8a57dcb7ba7d2bbbd201c5f32e018f0d
+ * Source MD5: 3fd13ae6f5f1ef16e421fca8faf0f8b8
  * To regenerate: make generate
  */
 
@@ -41,10 +41,10 @@ o->Len = g->Len;
 o->Mvir = g->Mvir;
 o->deltaMvir = g->deltaMvir;
 o->CentralMvir = get_virial_mass(InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup);
-o->Rvir = get_virial_radius(g->HaloNr);
-o->Vvir = get_virial_velocity(g->HaloNr);
+o->Rvir = output_rvir_conditional(g);
+o->Vvir = output_vvir_conditional(g);
 o->Vmax = g->Vmax;
-o->VelDisp = InputTreeHalos[g->HaloNr].VelDisp;
+o->VelDisp = output_veldisp_conditional(g);
 o->infallMvir = output_infall_property_or_zero(g, g->infallMvir);
 o->infallVvir = output_infall_property_or_zero(g, g->infallVvir);
 o->infallVmax = output_infall_property_or_zero(g, g->infallVmax);

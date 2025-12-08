@@ -19,10 +19,10 @@ Properties validated (directly copied from input):
   - Len, SnapNum: Integer properties
   - Vmax, VelDisp: Float properties
   - MostBoundID → SimulationHaloIndex: ID mapping
-  - Mvir: Conditionally validated for Type=0 centrals (when input Mvir >= 0.0)
+  - Mvir: Conditionally validated for Type=0 centrals (when input Mvir > 0.0)
 
 Properties NOT validated:
-  - Mvir: For satellites (always calculated) and centrals with invalid input Mvir
+  - Mvir: For satellites (always calculated) and centrals with Mvir=0 (calculated from particles)
   - All other properties: Not directly copied from input
 
 Matching strategy:
@@ -162,11 +162,11 @@ def validate_copied_properties(input_halo, output_halo, halonr, input_halos, rto
         - MostBoundID → SimulationHaloIndex: long long (exact)
 
     Conditional validation:
-        - Mvir: For Type=0 centrals where halonr==FirstHaloInFOFgroup AND Mvir>=0.0,
+        - Mvir: For Type=0 centrals where halonr==FirstHaloInFOFgroup AND Mvir>0.0,
                 Mvir is copied from input (see get_virial_mass in virial.c)
 
     Properties NOT validated:
-        - Mvir: For satellites and centrals with invalid input Mvir (calculated value)
+        - Mvir: For satellites and centrals with Mvir=0 (calculated from particles)
         - All other properties: Not directly copied from input
 
     Args:
@@ -217,10 +217,10 @@ def validate_copied_properties(input_halo, output_halo, halonr, input_halos, rto
 
     # Mvir: Conditional validation for Type=0 centrals
     # From get_virial_mass() in src/core/halo_properties/virial.c:
-    # If halonr == FirstHaloInFOFgroup AND Mvir >= 0.0, then Mvir is copied
+    # If halonr == FirstHaloInFOFgroup AND Mvir > 0.0, then Mvir is copied
     if output_halo.Type == 0:  # Central halo
         is_fof_central = (halonr == input_halos[halonr].FirstHaloInFOFgroup)
-        has_valid_mvir = (input_halo['Mvir'] >= 0.0)
+        has_valid_mvir = (input_halo['Mvir'] > 0.0)
 
         if is_fof_central and has_valid_mvir:
             in_val = input_halo['Mvir']
@@ -352,7 +352,7 @@ def generate_markdown_report(match_result, input_halos, output_halos,
     md.write("- **Integers:** Len, SnapNum (exact match)\n")
     md.write("- **Floats:** Vmax, VelDisp (rtol=1e-6)\n")
     md.write("- **ID:** MostBoundID → SimulationHaloIndex (exact match)\n")
-    md.write("- **Mvir:** Conditional for Type=0 centrals (when input Mvir >= 0.0)\n\n")
+    md.write("- **Mvir:** Conditional for Type=0 centrals (when input Mvir > 0.0)\n\n")
     md.write("---\n\n")
 
     # Imperfect matches section
@@ -397,7 +397,7 @@ def generate_markdown_report(match_result, input_halos, output_halos,
             halonr = in_idx
             if out_halo.Type == 0 and halonr < len(input_halos):
                 is_fof_central = (halonr == input_halos[halonr].FirstHaloInFOFgroup)
-                has_valid_mvir = (in_halo['Mvir'] >= 0.0)
+                has_valid_mvir = (in_halo['Mvir'] > 0.0)
                 if is_fof_central and has_valid_mvir:
                     props_to_check.append(('Mvir', False, None))
 
@@ -715,7 +715,7 @@ def test_tree_preservation_properties():
 
     print(f"  ✓ All {perfect_count} halos have perfectly preserved properties")
     print(f"    Properties validated: Pos[3], Vel[3], Spin[3], Len, Vmax, VelDisp, SnapNum, MostBoundID")
-    print(f"    Mvir validated conditionally for Type=0 centrals (when input Mvir >= 0.0)")
+    print(f"    Mvir validated conditionally for Type=0 centrals (when input Mvir > 0.0)")
 
 
 def main():
