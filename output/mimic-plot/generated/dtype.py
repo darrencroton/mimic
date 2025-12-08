@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: db3e2c5aaed8563d4b4f23732de36fc8
+Source MD5: f106d6923ad44965145b4d6077a9d56d
 To regenerate: make generate
 """
 
@@ -18,8 +18,8 @@ def get_binary_dtype():
         ("SnapNum", np.int32),
         ("Type", np.int32),
         ("MostBoundID", np.int64),
-        ("HaloIndex", np.int64),
-        ("CentralHaloIndex", np.int64),
+        ("UniqueGalaxyID", np.int64),
+        ("UniqueCentralGalaxyID", np.int64),
         ("MergeStatus", np.int32),
         ("mergeType", np.int32),
         ("mergeIntoID", np.int32),
@@ -69,8 +69,8 @@ def get_hdf5_dtype():
         ("SnapNum", np.int32),
         ("Type", np.int32),
         ("MostBoundID", np.int64),
-        ("HaloIndex", np.int64),
-        ("CentralHaloIndex", np.int64),
+        ("UniqueGalaxyID", np.int64),
+        ("UniqueCentralGalaxyID", np.int64),
         ("MergeStatus", np.int32),
         ("mergeType", np.int32),
         ("mergeIntoID", np.int32),
@@ -130,8 +130,8 @@ def get_units():
         'SnapNum': 'dimensionless',
         'Type': 'dimensionless',
         'MostBoundID': 'dimensionless',
-        'HaloIndex': 'dimensionless',
-        'CentralHaloIndex': 'dimensionless',
+        'UniqueGalaxyID': 'dimensionless',
+        'UniqueCentralGalaxyID': 'dimensionless',
         'MergeStatus': 'dimensionless',
         'mergeType': 'dimensionless',
         'mergeIntoID': 'dimensionless',

@@ -533,7 +533,7 @@ See `src/modules/_shared/README.md` for shared utility development guide.
 **Parameter Files** (`tests/data/`):
 - `test_binary.yaml` - Binary format test configuration (outputs to `tests/data/output/binary/`)
 - `test_hdf5.yaml` - HDF5 format test configuration (outputs to `tests/data/output/hdf5/`)
-- `test_haloindex.yaml` - HaloIndex validation test configuration (outputs snapshots 62 and 63)
+- `test_uniquegalid.yaml` - UniqueGalaxyID validation test configuration (outputs snapshots 62 and 63)
 
 **Output Data**:
 - `tests/data/output/baseline/hdf5/` - Known-good HDF5 baseline (committed to git, used for core property validation)
@@ -663,7 +663,7 @@ The baseline comparison test (`test_hdf5_baseline_comparison` in `test_output_fo
 - Reports detailed differences if comparison fails
 
 **Core properties validated**:
-- Structural: SnapNum, Type, HaloIndex, CentralHaloIndex, MostBoundID
+- Structural: SnapNum, Type, UniqueGalaxyID, CentralUniqueGalaxyID, MostBoundID
 - Tracking: MergeStatus, mergeIntoID, mergeIntoSnapNum, dT
 - Physical: Pos, Vel, Spin, Len
 - Virial: Mvir, CentralMvir, Rvir, Vvir, Vmax, VelDisp
@@ -1672,7 +1672,7 @@ Mimic's testing framework provides:
 
 **Current test coverage**:
 - 6 unit tests (memory, properties, parameters, trees, numerics, modules)
-- 4 integration tests (pipeline, output formats with baseline comparison, tree preservation, HaloIndex validation)
+- 4 integration tests (pipeline, output formats with baseline comparison, tree preservation, UniqueGalaxyID validation)
 - 1 scientific test (comprehensive validation: numerical validity, zero warnings, physical ranges)
 
 **Testing is not optional**. It catches bugs early, prevents regressions, and ensures scientific accuracy.

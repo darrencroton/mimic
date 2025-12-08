@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: db3e2c5aaed8563d4b4f23732de36fc8
+ * Source MD5: f106d6923ad44965145b4d6077a9d56d
  * To regenerate: make generate
  */
 
@@ -31,16 +31,16 @@ HDF5_dst_sizes[i] = sizeof(galout.MostBoundID);
 HDF5_field_names[i] = "MostBoundID";
 HDF5_field_types[i++] = H5T_NATIVE_LLONG;
 
-/* HaloIndex */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, HaloIndex);
-HDF5_dst_sizes[i] = sizeof(galout.HaloIndex);
-HDF5_field_names[i] = "HaloIndex";
+/* UniqueGalaxyID */
+HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, UniqueGalaxyID);
+HDF5_dst_sizes[i] = sizeof(galout.UniqueGalaxyID);
+HDF5_field_names[i] = "UniqueGalaxyID";
 HDF5_field_types[i++] = H5T_NATIVE_LLONG;
 
-/* CentralHaloIndex */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, CentralHaloIndex);
-HDF5_dst_sizes[i] = sizeof(galout.CentralHaloIndex);
-HDF5_field_names[i] = "CentralHaloIndex";
+/* UniqueCentralGalaxyID */
+HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, UniqueCentralGalaxyID);
+HDF5_dst_sizes[i] = sizeof(galout.UniqueCentralGalaxyID);
+HDF5_field_names[i] = "UniqueCentralGalaxyID";
 HDF5_field_types[i++] = H5T_NATIVE_LLONG;
 
 /* MergeStatus */

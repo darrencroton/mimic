@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: db3e2c5aaed8563d4b4f23732de36fc8
+ * Source MD5: f106d6923ad44965145b4d6077a9d56d
  * To regenerate: make generate
  */
 
@@ -28,8 +28,8 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"SnapNum", "dimensionless", "Snapshot number (index in simulation output)"},
   {"Type", "dimensionless", "Halo type (0=central, 1=satellite, 2=orphan)"},
   {"MostBoundID", "dimensionless", "ID of most bound particle (original simulation halo ID)"},
-  {"HaloIndex", "dimensionless", "Persistent unique galaxy identifier across all snapshots (file*10^15 + tree*10^9 + creation_halonr)"},
-  {"CentralHaloIndex", "dimensionless", "Persistent HaloIndex of current central galaxy (equals HaloIndex if Type=0)"},
+  {"UniqueGalaxyID", "dimensionless", "Persistent unique galaxy identifier across all snapshots (file*10^15 + tree*10^9 + creation_halonr)"},
+  {"UniqueCentralGalaxyID", "dimensionless", "Persistent UniqueGalaxyID of current central galaxy (equals UniqueGalaxyID if Type=0)"},
   {"MergeStatus", "dimensionless", "Merge status (0=active, 1=merged and no longer tracked)"},
   {"mergeType", "dimensionless", "Merger type (0=none, 1=minor, 2=major, 3=disk instability, 4=disruption to ICS)"},
   {"mergeIntoID", "dimensionless", "HaloNr of halo this merged into (-1 if not merged)"},

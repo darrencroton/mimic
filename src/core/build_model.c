@@ -371,7 +371,7 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
  *
  * This function identifies the Type 0 central galaxy for a FOF group
  * and sets ALL galaxies (including Type 1 satellites and Type 2 orphans) to
- * reference this central galaxy. This ensures CentralHaloIndex correctly points
+ * reference this central galaxy. This ensures UniqueCentralGalaxyID correctly points
  * to the FOF group's main central, not to individual satellite subhalo centrals.
  *
  * Each FOF group has exactly one Type 0 central, possibly multiple Type 1
@@ -457,12 +457,12 @@ void update_halo_properties(int ngal) {
       HaloAux[currenthalo].NHalos = 0; /* Reset counter */
     }
 
-    /* Set CentralHaloIndex from the central halo's HaloIndex
+    /* Set UniqueCentralGalaxyID from the central halo's UniqueGalaxyID
      * This must be done for ALL galaxies (not just non-merged) to maintain
      * consistency. Uses FoFWorkspace relationships (set by set_halo_centrals)
      * which are always correct, avoiding fragile tree lookups. */
     int central_idx = FoFWorkspace[p].CentralHalo;
-    FoFWorkspace[p].CentralHaloIndex = FoFWorkspace[central_idx].HaloIndex;
+    FoFWorkspace[p].UniqueCentralGalaxyID = FoFWorkspace[central_idx].UniqueGalaxyID;
 
     /* Calculate offset for merger target IDs due to halos that won't be
      * output */
@@ -482,7 +482,7 @@ void update_halo_properties(int ngal) {
       /* Find this object in the previous snapshot's array */
       i = HaloAux[currenthalo].FirstHalo - 1;
       while (i >= 0) {
-        if (ProcessedHalos[i].HaloIndex == FoFWorkspace[p].HaloIndex)
+        if (ProcessedHalos[i].UniqueGalaxyID == FoFWorkspace[p].UniqueGalaxyID)
           break;
         else
           i--;

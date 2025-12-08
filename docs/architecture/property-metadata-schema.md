@@ -203,7 +203,7 @@ property_name:
 - C type: `long long`
 - NumPy type: `np.int64`
 - HDF5 type: `H5T_NATIVE_LLONG`
-- Use for: Large indices (HaloIndex, particle IDs)
+- Use for: Large indices (UniqueGalaxyID, particle IDs)
 
 ### Array Types
 
@@ -469,10 +469,10 @@ Defines how property is copied from `struct Halo` to `struct HaloOutput` in `pre
 **custom**
 - Hand-written code (emit comment in generated code)
 - Generated code: `/* CUSTOM: PropertyName - see prepare_halo_for_output() */`
-- Use for: Complex logic that doesn't fit patterns (HaloIndex encoding)
+- Use for: Complex logic that doesn't fit patterns (UniqueGalaxyID encoding)
 - Example:
   ```yaml
-  - name: HaloIndex
+  - name: UniqueGalaxyID
     type: long long
     output_source: custom  # Complex encoding logic hand-written
   ```
@@ -959,7 +959,7 @@ For ALL properties with `output: true`, the scientific test automatically perfor
 
 **Don't add ranges for**:
 - Internal tracking indices (HaloNr)
-- Encoded composite values (HaloIndex)
+- Encoded composite values (UniqueGalaxyID)
 - Properties with no clear physical bounds
 
 **Choosing range values**:

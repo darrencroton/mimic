@@ -94,7 +94,7 @@ int *prepare_output_for_tree(int OutputGalCount[MAXSNAPS]) {
  * to the output format (struct HaloOutput). All properties are copied
  * automatically by the generated code.
  *
- * All properties (including HaloIndex, CentralHaloIndex, and MostBoundID) are
+ * All properties (including UniqueGalaxyID, UniqueCentralGalaxyID, and MostBoundID) are
  * stored in struct Halo and copied automatically.
  *
  * This function is format-agnostic and used by both binary and HDF5 output

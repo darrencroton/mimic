@@ -373,7 +373,7 @@ def generate_markdown_report(match_result, input_halos, output_halos,
             md.write(f"- Input index: {in_idx}\n")
             md.write(f"- Output index: {out_idx}\n")
             md.write(f"- Type: {out_halo.Type} ({'Central' if out_halo.Type == 0 else 'Satellite'})\n")
-            md.write(f"- HaloIndex: {out_halo.HaloIndex}\n")
+            md.write(f"- UniqueGalaxyID: {out_halo.UniqueGalaxyID}\n")
             md.write(f"- MostBoundID: {out_halo.MostBoundID}\n\n")
 
             md.write("**Property Comparison:**\n\n")

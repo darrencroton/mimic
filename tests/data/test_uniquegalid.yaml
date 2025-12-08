@@ -1,11 +1,11 @@
 #=============================================================================
-# Mimic Test Parameter File - HaloIndex Validation
+# Mimic Test Parameter File - UniqueGalaxyID Validation
 #=============================================================================
-# This configuration outputs snapshots 62 and 63 for HaloIndex persistence testing.
-# Used specifically by: tests/integration/test_halo_index.py
+# This configuration outputs snapshots 62 and 63 for UniqueGalaxyID persistence testing.
+# Used specifically by: tests/integration/test_unique_galaxy_id.py
 #
 # To run manually:
-#   ./mimic tests/data/test_haloindex.yaml
+#   ./mimic tests/data/test_uniquegalid.yaml
 #
 # Output location:
 #   tests/data/output/binary/
@@ -15,7 +15,7 @@
 # Output Configuration
 #-----------------------------------------------------------------------------
 output:
-  output_filename: model_haloindex
+  output_filename: model_uniquegalid
   output_directory: ./tests/data/output/binary/
   snapshot_count: 2  # Two snapshots for persistence testing
   output_format: binary
@@ -53,7 +53,7 @@ simulation:
 #-----------------------------------------------------------------------------
 # Physics Modules
 #-----------------------------------------------------------------------------
-# Physics modules disabled for HaloIndex validation testing
+# Physics modules disabled for UniqueGalaxyID validation testing
 # Tests operate in physics-free mode to validate core property tracking
 modules:
   enabled: []

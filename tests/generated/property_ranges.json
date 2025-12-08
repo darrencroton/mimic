@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "db3e2c5aaed8563d4b4f23732de36fc8",
+    "source_md5": "f106d6923ad44965145b4d6077a9d56d",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -37,14 +37,14 @@
       "units": "dimensionless",
       "is_vector": false
     },
-    "HaloIndex": {
-      "name": "HaloIndex",
+    "UniqueGalaxyID": {
+      "name": "UniqueGalaxyID",
       "type": "long long",
       "units": "dimensionless",
       "is_vector": false
     },
-    "CentralHaloIndex": {
-      "name": "CentralHaloIndex",
+    "UniqueCentralGalaxyID": {
+      "name": "UniqueCentralGalaxyID",
       "type": "long long",
       "units": "dimensionless",
       "is_vector": false

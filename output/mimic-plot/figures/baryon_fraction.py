@@ -62,7 +62,7 @@ def plot(
     # Check required and optional fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['Mvir', 'CentralHaloIndex'],
+        required_fields=['Mvir', 'UniqueCentralGalaxyID'],
         optional_fields=['StellarMass', 'ColdGas', 'HotGas', 'EjectedMass', 'ICS', 'BlackHoleMass'],
         plot_name='Baryon Fraction'
     )
@@ -152,13 +152,13 @@ def plot(
             continue
 
         # Get central indices for galaxies in this bin
-        central_indices_in_bin = galaxies.CentralHaloIndex[centrals_in_bin]
+        central_indices_in_bin = galaxies.UniqueCentralGalaxyID[centrals_in_bin]
 
         # Create masks for all galaxies belonging to these centrals
-        central_groups = np.isin(galaxies.CentralHaloIndex, central_indices_in_bin)
+        central_groups = np.isin(galaxies.UniqueCentralGalaxyID, central_indices_in_bin)
 
         # Extract baryonic components for all groups at once (only if available)
-        group_central_indices = galaxies.CentralHaloIndex[central_groups]
+        group_central_indices = galaxies.UniqueCentralGalaxyID[central_groups]
 
         # Get available components
         group_data = {}
@@ -187,7 +187,7 @@ def plot(
 
         # Process each central galaxy in the bin
         for j, central_idx in enumerate(centrals_in_bin):
-            central_gal_index = galaxies.CentralHaloIndex[central_idx]
+            central_gal_index = galaxies.UniqueCentralGalaxyID[central_idx]
 
             # Find all galaxies in this halo
             group_mask = group_central_indices == central_gal_index

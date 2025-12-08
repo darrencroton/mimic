@@ -543,7 +543,7 @@ prepare_output_for_tree()
 │        │  ├─ [IF belongs to this snapshot]:
 │        │  │  └─ prepare_halo_for_output()  // src/io/output/binary.c:173
 │        │  │     ├─ Copy properties to HaloOutput
-│        │  │     ├─ Create unique HaloIndex:
+│        │  │     ├─ Create unique UniqueGalaxyID:
 │        │  │     │  └─ (FileNum * 1e12) + (TreeID * 1e6) + halo_nr
 │        │  │     └─ Convert to physical units
 │        │  └─ Increment batch counter

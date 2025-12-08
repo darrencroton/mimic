@@ -34,9 +34,9 @@
  * This function initializes a new halo tracking object with default values.
  * It sets up the object's position, velocity, and halo properties based on
  * the input merger tree halo data. Each object is assigned a persistent
- * unique HaloIndex for identification and tracking through cosmic time.
+ * unique UniqueGalaxyID for identification and tracking through cosmic time.
  *
- * HaloIndex encoding: file*10^15 + tree*10^9 + halonr
+ * UniqueGalaxyID encoding: file*10^15 + tree*10^9 + halonr
  * This value persists for the galaxy's entire lifetime and is inherited
  * by descendants through progenitor relationships.
  */
@@ -53,13 +53,13 @@ void init_halo(int p, int halonr, int tree, int filenr) {
   /* Custom override: SnapNum needs -1 adjustment for internal indexing */
   FoFWorkspace[p].SnapNum = InputTreeHalos[halonr].SnapNum - 1;
 
-  /* Assign persistent HaloIndex at creation (AFTER auto-init to avoid overwrite) */
+  /* Assign persistent UniqueGalaxyID at creation (AFTER auto-init to avoid overwrite) */
   long long file_mul_fac = (MimicConfig.LastFile >= 10000) ?
                             (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
   long long tree_mul = TREE_MUL_FAC * tree;
   long long file_mul = file_mul_fac * filenr;
 
-  FoFWorkspace[p].HaloIndex = (long long)halonr + tree_mul + file_mul;
+  FoFWorkspace[p].UniqueGalaxyID = (long long)halonr + tree_mul + file_mul;
 
   /* Allocate galaxy data (physics-agnostic core always allocates)
    * Modules will populate these properties; if no modules run, values stay at zero */
