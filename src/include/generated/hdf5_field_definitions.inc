@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: e1bbd36908609ba4ac769296df3b7cfb
+ * Source MD5: 8a57dcb7ba7d2bbbd201c5f32e018f0d
  * To regenerate: make generate
  */
 
@@ -101,6 +101,12 @@ HDF5_field_types[i++] = H5T_NATIVE_INT;
 HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Mvir);
 HDF5_dst_sizes[i] = sizeof(galout.Mvir);
 HDF5_field_names[i] = "Mvir";
+HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
+
+/* deltaMvir */
+HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, deltaMvir);
+HDF5_dst_sizes[i] = sizeof(galout.deltaMvir);
+HDF5_field_names[i] = "deltaMvir";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
 /* CentralMvir */

@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: e1bbd36908609ba4ac769296df3b7cfb
+ * Source MD5: 8a57dcb7ba7d2bbbd201c5f32e018f0d
  * To regenerate: make generate
  */
 
@@ -39,6 +39,7 @@ for (int j = 0; j < 3; j++) {
 }
 o->Len = g->Len;
 o->Mvir = g->Mvir;
+o->deltaMvir = g->deltaMvir;
 o->CentralMvir = get_virial_mass(InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup);
 o->Rvir = get_virial_radius(g->HaloNr);
 o->Vvir = get_virial_velocity(g->HaloNr);

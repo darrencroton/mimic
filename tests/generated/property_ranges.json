@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "e1bbd36908609ba4ac769296df3b7cfb",
+    "source_md5": "8a57dcb7ba7d2bbbd201c5f32e018f0d",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -157,6 +157,12 @@
         1e-06,
         1000000.0
       ]
+    },
+    "deltaMvir": {
+      "name": "deltaMvir",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false
     },
     "CentralMvir": {
       "name": "CentralMvir",

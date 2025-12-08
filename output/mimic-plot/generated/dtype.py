@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: e1bbd36908609ba4ac769296df3b7cfb
+Source MD5: 8a57dcb7ba7d2bbbd201c5f32e018f0d
 To regenerate: make generate
 """
 
@@ -30,6 +30,7 @@ def get_binary_dtype():
         ("Spin", (np.float32, 3)),
         ("Len", np.int32),
         ("Mvir", np.float32),
+        ("deltaMvir", np.float32),
         ("CentralMvir", np.float32),
         ("Rvir", np.float32),
         ("Vvir", np.float32),
@@ -80,6 +81,7 @@ def get_hdf5_dtype():
         ("Spin", (np.float32, 3)),
         ("Len", np.int32),
         ("Mvir", np.float32),
+        ("deltaMvir", np.float32),
         ("CentralMvir", np.float32),
         ("Rvir", np.float32),
         ("Vvir", np.float32),
@@ -140,6 +142,7 @@ def get_units():
         'Spin': 'dimensionless',
         'Len': 'particles',
         'Mvir': '1e10 Msun/h',
+        'deltaMvir': '1e10 Msun/h',
         'CentralMvir': '1e10 Msun/h',
         'Rvir': 'Mpc/h',
         'Vvir': 'km/s',

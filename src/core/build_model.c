@@ -327,16 +327,13 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
             FoFWorkspace[ngal].Type = 1;
           }
         } else {
-          // an orphan satellite - these will merge or disrupt within the
-          // current timestep
-          FoFWorkspace[ngal].deltaMvir = -1.0 * FoFWorkspace[ngal].Mvir;
+          // an orphan satellite
+          FoFWorkspace[ngal].deltaMvir = 0.0;
           FoFWorkspace[ngal].Mvir = 0.0;
+          FoFWorkspace[ngal].Len = 0;
 
-          if (is_greater(FoFWorkspace[ngal].MergTime, 999.0) ||
-              FoFWorkspace[ngal].Type == 0) {
-            // here the halo has gone from type 0 to type 2 - merge it!
-            FoFWorkspace[ngal].MergTime = 0.0;
-
+          if (FoFWorkspace[ngal].Type == 0) {
+            // here the halo has gone from type 0 to type 2
             FoFWorkspace[ngal].infallMvir = previousMvir;
             FoFWorkspace[ngal].infallVvir = previousVvir;
             FoFWorkspace[ngal].infallVmax = previousVmax;

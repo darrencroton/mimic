@@ -206,7 +206,7 @@ halo_properties:
     type: float
     units: "1e10 Msun/h"
     description: "Change in virial mass since last snapshot (internal, not output)"
-    output: false
+    output: true
     init_source: default
     init_value: 0.0
 

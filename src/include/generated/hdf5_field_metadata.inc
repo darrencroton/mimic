@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: e1bbd36908609ba4ac769296df3b7cfb
+ * Source MD5: 8a57dcb7ba7d2bbbd201c5f32e018f0d
  * To regenerate: make generate
  */
 
@@ -14,7 +14,7 @@
 /* Provides discoverable, queryable metadata for all output fields */
 
 /* Total number of output fields */
-#define NUM_FIELDS 45
+#define NUM_FIELDS 46
 
 /* Define metadata structure */
 struct FieldMetadata {
@@ -40,6 +40,7 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"Spin", "dimensionless", "Dimensionless spin parameter (Bullock definition)"},
   {"Len", "particles", "Number of particles in halo"},
   {"Mvir", "1e10 Msun/h", "Virial mass (M200c definition)"},
+  {"deltaMvir", "1e10 Msun/h", "Change in virial mass since last snapshot (internal, not output)"},
   {"CentralMvir", "1e10 Msun/h", "Virial mass of the central halo in this FoF group"},
   {"Rvir", "Mpc/h", "Virial radius (radius at which density is 200 * critical density)"},
   {"Vvir", "km/s", "Virial velocity (circular velocity at virial radius)"},
