@@ -282,7 +282,7 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
           FoFWorkspace[ngal].deltaMvir =
               get_virial_mass(halonr) - FoFWorkspace[ngal].Mvir;
 
-          if (is_greater(get_virial_mass(halonr), FoFWorkspace[ngal].Mvir)) {
+          if (get_virial_mass(halonr) > FoFWorkspace[ngal].Mvir) {
             FoFWorkspace[ngal].Rvir =
                 get_virial_radius(halonr); // use the maximum Rvir in model
             FoFWorkspace[ngal].Vvir =
@@ -313,7 +313,7 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
             }
 
             if (FoFWorkspace[ngal].Type == 0 ||
-                is_greater(FoFWorkspace[ngal].MergTime, 999.0))
+                FoFWorkspace[ngal].MergTime > 999.0)
               // here the halo has gone from type 1 to type 2 or otherwise
               // doesn't have a merging time.
               FoFWorkspace[ngal].MergTime =
