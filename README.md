@@ -1,5 +1,13 @@
 # Mimic: Physics-Agnostic Galaxy Evolution Framework
 
+```
+    __  ___  ____  __  ___  ____  ______
+   /  |/  / /  _/ /  |/  / /  _/ / ____/
+  / /|_/ /  / /  / /|_/ /  / /  / /
+ / /  / / _/ /  / /  / / _/ /  / /___
+/_/  /_/ /___/ /_/  /_/ /___/  \____/
+```
+
 **Mimic** is a modular framework for galaxy evolution modeling with runtime-configurable physics modules and clean separation between infrastructure and scientific implementations. Built on a robust halo tracking core, it enables flexible experimentation with different physics combinations without recompilation.
 
 ## Key Features
@@ -123,10 +131,15 @@ See `input/millennium.yaml` for complete parameter documentation.
 Mimic uses a modular structure with metadata-driven code generation:
 
 - **src/core/**: Main execution and halo tracking infrastructure
+  - `halo_properties.yaml`: Halo property metadata (auto-generates C structs)
+- **src/include/**: Headers and auto-generated property code
 - **src/io/**: Multi-format tree readers (binary, HDF5) and output writers
 - **src/modules/**: Runtime-configurable physics modules
+  - `model_properties.yaml`: Model property metadata (auto-generates C structs and Python dtypes)
+  - `_system/`: Framework infrastructure (physical constants, output helpers, module templates)
+  - `_shared/`: Reusable physics utilities and swappable models
+  - `_archive/`: Historical modules for reference
 - **src/util/**: Memory management, error handling, numeric utilities
-- **metadata/**: YAML property definitions (auto-generates C structs and Python dtypes)
 
 Key design patterns: three-tier halo architecture (input → processing → output), category-tracked memory allocation, format-agnostic I/O, and physics-agnostic core with runtime module selection.
 
