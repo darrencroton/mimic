@@ -477,6 +477,8 @@ test-integration:
 	echo ""; \
 	$(PYTHON) tests/integration/test_unique_galaxy_id.py || FAILED=1; \
 	echo ""; \
+	$(PYTHON) tests/integration/test_satellite_spatial_distribution.py || FAILED=1; \
+	echo ""; \
 	$(PYTHON) tests/integration/test_full_pipeline.py || FAILED=1; \
 	echo ""; \
 	$(PYTHON) tests/integration/test_module_pipeline.py || FAILED=1; \
