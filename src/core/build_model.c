@@ -249,20 +249,18 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
       int progenitor_snap = FoFWorkspace[ngal].SnapNum;  // From copied progenitor
       FoFWorkspace[ngal].dT = Age[progenitor_snap] - Age[current_snap];
 
+      // Skip halos that have already merged (marked in previous snapshot)
+      if (FoFWorkspace[ngal].Type == 3) {
+        // Free galaxy data to prevent memory leak (allocated above but not needed)
+        if (FoFWorkspace[ngal].galaxy != NULL) {
+          myfree(FoFWorkspace[ngal].galaxy);
+          FoFWorkspace[ngal].galaxy = NULL;
+        }
+        continue;
+      }
+
       // this deals with the central halos of (sub)halos
       if (FoFWorkspace[ngal].Type == 0 || FoFWorkspace[ngal].Type == 1) {
-        // this halo shouldn't hold an object that has already merged; remove it
-        // from future processing
-        if (FoFWorkspace[ngal].MergeStatus != 0) {
-          // Free galaxy data to prevent memory leak (allocated above but not needed)
-          if (FoFWorkspace[ngal].galaxy != NULL) {
-            myfree(FoFWorkspace[ngal].galaxy);
-            FoFWorkspace[ngal].galaxy = NULL;
-          }
-          FoFWorkspace[ngal].Type = 3;
-          continue;
-        }
-
         // remember properties from the last snapshot
         previousMvir = FoFWorkspace[ngal].Mvir;
         previousVvir = FoFWorkspace[ngal].Vvir;
@@ -300,15 +298,11 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
 
           if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
             // a central
-            FoFWorkspace[ngal].MergeStatus = 0;
-            FoFWorkspace[ngal].mergeIntoID = -1;
             FoFWorkspace[ngal].MergTime = 999.9;
 
             FoFWorkspace[ngal].Type = 0;
           } else {
             // a satellite with subhalo
-            FoFWorkspace[ngal].MergeStatus = 0;
-            FoFWorkspace[ngal].mergeIntoID = -1;
 
             if (FoFWorkspace[ngal].Type ==
                 0) // remember the infall properties before becoming a subhalo
@@ -444,10 +438,9 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
  * Simply copies halo structures to output array (ProcessedHalos).
  */
 void update_halo_properties(int ngal) {
-  int p, i, currenthalo, offset;
+  int p, currenthalo;
 
   /* Attach final list to halos */
-  offset = 0;
   for (p = 0, currenthalo = -1; p < ngal; p++) {
     /* When processing a new halo, update its pointers */
     if (FoFWorkspace[p].HaloNr != currenthalo) {
@@ -464,40 +457,9 @@ void update_halo_properties(int ngal) {
     int central_idx = FoFWorkspace[p].CentralHalo;
     FoFWorkspace[p].UniqueCentralGalaxyID = FoFWorkspace[central_idx].UniqueGalaxyID;
 
-    /* Calculate offset for merger target IDs due to halos that won't be
-     * output */
-    offset = 0;
-    i = p - 1;
-    while (i >= 0) {
-      if (FoFWorkspace[i].MergeStatus > 0)
-        if (FoFWorkspace[p].mergeIntoID > FoFWorkspace[i].mergeIntoID)
-          offset++; /* These halos won't be kept, so offset mergeIntoID */
-      i--;
-    }
-
-    /* Handle merged halos - update their merger info in the previous
-     * snapshot */
-    i = -1;
-    if (FoFWorkspace[p].MergeStatus > 0) {
-      /* Find this object in the previous snapshot's array */
-      i = HaloAux[currenthalo].FirstHalo - 1;
-      while (i >= 0) {
-        if (ProcessedHalos[i].UniqueGalaxyID == FoFWorkspace[p].UniqueGalaxyID)
-          break;
-        else
-          i--;
-      }
-
-      assert(i >= 0); /* Should always be found */
-
-      /* Update merger information in the previous snapshot's entry */
-      ProcessedHalos[i].MergeStatus = FoFWorkspace[p].MergeStatus;
-      ProcessedHalos[i].mergeIntoID = FoFWorkspace[p].mergeIntoID - offset;
-      ProcessedHalos[i].mergeIntoSnapNum = InputTreeHalos[currenthalo].SnapNum;
-    }
-
-    /* Copy non-merged halos to the permanent array */
-    if (FoFWorkspace[p].MergeStatus == 0) {
+    /* Copy non-merged halos to the permanent array
+     * Type=3 halos are skipped (marked by physics modules as merged) */
+    if (FoFWorkspace[p].Type != 3) {
       assert(NumProcessedHalos <
              MaxProcessedHalos); /* Ensure we don't exceed array bounds */
 

@@ -15,22 +15,15 @@
 #include "constants.h"
 
 /**
- * @brief Prepares halo output ordering and updates merger pointers for a tree.
+ * @brief Prepares halo output ordering for a tree.
  *
  * This function calculates the final output order for all processed halos
- * across all output snapshots and updates their mergeIntoID fields accordingly.
- * It is called once per tree before writing to any output format (binary or
- * HDF5).
+ * across all output snapshots. It is called once per tree before writing to
+ * any output format (binary or HDF5).
  *
- * The function performs three key operations:
+ * The function performs two key operations:
  * 1. Allocates and initializes the OutputGalOrder workspace array
  * 2. Determines the output index for each halo in each snapshot
- * 3. Updates mergeIntoID fields to use output indices instead of internal
- * indices
- *
- * This ensures that merger pointers in output files correctly reference the
- * target halo's position in the output file, not its position in the internal
- * ProcessedHalos array.
  *
  * @param[out] OutputGalCount  An array to be filled with the number of halos
  *                             per output snapshot. Must be allocated by caller
@@ -43,7 +36,6 @@
  *
  * @note Uses the global variables: ProcessedHalos, NumProcessedHalos,
  *       ListOutputSnaps, and MimicConfig.NOUT
- * @note Modifies ProcessedHalos[].mergeIntoID fields in-place
  * @note Memory is allocated using mymalloc_cat() with MEM_IO category
  */
 int *prepare_output_for_tree(int OutputGalCount[MAXSNAPS]);

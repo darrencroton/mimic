@@ -562,9 +562,11 @@ static void deal_with_galaxy_merger(struct Halo *satellite, struct Halo *central
   if (mass_ratio > THRESH_MAJOR_MERGER) {
     make_bulge_from_burst(central->galaxy);
     central->galaxy->TimeOfLastMajorMerger = time;
-    satellite->mergeType = 2;  /* Major merger */
+    /* TODO: Merger classification will be module-specific output (future) */
+    /* Previously: satellite->mergeType = 2 (major merger) */
   } else {
-    satellite->mergeType = 1;  /* Minor merger */
+    /* TODO: Merger classification will be module-specific output (future) */
+    /* Previously: satellite->mergeType = 1 (minor merger) */
   }
 }
 
@@ -603,8 +605,8 @@ static void disrupt_satellite_to_ICS(struct Halo *central, struct Halo *satellit
   /* Note: Black hole handling during disruption is unclear in SAGE
    * Currently: black hole mass is lost (not added to central) */
 
-  /* Mark satellite as disrupted */
-  satellite->mergeType = 4;  /* Disruption to ICS */
+  /* TODO: Merger classification will be module-specific output (future) */
+  /* Previously: satellite->mergeType = 4 (disruption to ICS) */
 }
 
 /* ============================================================================

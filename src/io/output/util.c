@@ -68,17 +68,6 @@ int *prepare_output_for_tree(int OutputGalCount[MAXSNAPS]) {
     }
   }
 
-  /*
-   * Update merger pointers to use output indices.
-   * The mergeIntoID field stores the internal index of the halo that this
-   * halo merges into. We need to convert this to the output file index
-   * so that readers can correctly follow merger chains.
-   */
-  for (i = 0; i < NumProcessedHalos; i++)
-    if (ProcessedHalos[i].mergeIntoID > -1)
-      ProcessedHalos[i].mergeIntoID =
-          OutputGalOrder[ProcessedHalos[i].mergeIntoID];
-
   return OutputGalOrder;
 }
 

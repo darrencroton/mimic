@@ -28,7 +28,7 @@ halo_properties:
     init_source: default
     init_value: 0
     output_source: copy_direct
-    range: [0, 2]  # 0=central, 1=satellite, 2=orphan
+    range: [0, 2]  # Output values only (Type=3 used internally but never output)
 
   - name: CentralHalo
     type: int
@@ -81,48 +81,6 @@ halo_properties:
     output: false
     init_source: default
     init_value: 999.9
-
-  - name: MergeStatus
-    type: int
-    units: "dimensionless"
-    description: "Merge status (0=active, 1=merged and no longer tracked)"
-    output: true
-    init_source: default
-    init_value: 0
-    output_source: copy_direct
-    range: [0, 1]  # Binary flag
-
-  - name: mergeType
-    type: int
-    units: "dimensionless"
-    description: "Merger type (0=none, 1=minor, 2=major, 3=disk instability, 4=disruption to ICS)"
-    output: true
-    init_source: default
-    init_value: 0
-    output_source: copy_direct
-    range: [0, 4]  # 5 possible merger types
-
-  - name: mergeIntoID
-    type: int
-    units: "dimensionless"
-    description: "HaloNr of halo this merged into (-1 if not merged)"
-    output: true
-    init_source: default
-    init_value: -1
-    output_source: copy_direct
-    range: [0, 100000]  # Valid halo indices
-    sentinels: [-1]  # -1 means not merged
-
-  - name: mergeIntoSnapNum
-    type: int
-    units: "dimensionless"
-    description: "Snapshot number when merger occurred (-1 if not merged)"
-    output: true
-    init_source: default
-    init_value: -1
-    output_source: copy_direct
-    range: [0, 1000]  # Valid snapshot numbers
-    sentinels: [-1]  # -1 means not merged
 
   - name: dT
     type: float

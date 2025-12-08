@@ -1053,13 +1053,11 @@ void write_master_file(void) {
  * binary output system but uses HDF5 format. For each output snapshot, it:
  *
  * 1. Determines output ordering for halos
- * 2. Updates mergeIntoID cross-references
- * 3. Converts internal halo structures to output format
- * 4. Writes halos to HDF5 files using write_hdf5_halo()
- * 5. Updates halo counts for the file and tree
+ * 2. Converts internal halo structures to output format
+ * 3. Writes halos to HDF5 files using write_hdf5_halo()
+ * 4. Updates halo counts for the file and tree
  *
- * The function handles the indexing system that allows cross-referencing
- * between halos (e.g., for tracking merger destinations) across different
+ * The function handles the indexing system for organizing halos across different
  * trees and files.
  */
 void save_halos_hdf5(int filenr, int tree) {

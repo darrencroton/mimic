@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: f106d6923ad44965145b4d6077a9d56d
+ * Source MD5: d461c894d6dd2bbf96a6845f3b63c0ad
  * To regenerate: make generate
  */
 
@@ -42,30 +42,6 @@ HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, UniqueCentralGalaxyID);
 HDF5_dst_sizes[i] = sizeof(galout.UniqueCentralGalaxyID);
 HDF5_field_names[i] = "UniqueCentralGalaxyID";
 HDF5_field_types[i++] = H5T_NATIVE_LLONG;
-
-/* MergeStatus */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MergeStatus);
-HDF5_dst_sizes[i] = sizeof(galout.MergeStatus);
-HDF5_field_names[i] = "MergeStatus";
-HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-/* mergeType */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, mergeType);
-HDF5_dst_sizes[i] = sizeof(galout.mergeType);
-HDF5_field_names[i] = "mergeType";
-HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-/* mergeIntoID */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, mergeIntoID);
-HDF5_dst_sizes[i] = sizeof(galout.mergeIntoID);
-HDF5_field_names[i] = "mergeIntoID";
-HDF5_field_types[i++] = H5T_NATIVE_INT;
-
-/* mergeIntoSnapNum */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, mergeIntoSnapNum);
-HDF5_dst_sizes[i] = sizeof(galout.mergeIntoSnapNum);
-HDF5_field_names[i] = "mergeIntoSnapNum";
-HDF5_field_types[i++] = H5T_NATIVE_INT;
 
 /* dT */
 HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, dT);

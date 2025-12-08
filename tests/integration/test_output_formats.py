@@ -42,14 +42,12 @@ from framework import (
 )
 
 # Core halo properties (physics-agnostic, always present)
-# These 24 properties are defined in metadata/halo_properties.yaml
+# These 20 properties are defined in src/core/halo_properties.yaml
 # and should be present in all Mimic output, regardless of enabled physics modules
 CORE_HALO_PROPERTIES = {
-    'SnapNum', 'Type', 'UniqueGalaxyID', 'CentralUniqueGalaxyID',
-    'MimicTreeIndex', 'MostBoundID', 'MergeStatus', 'mergeIntoID',
-    'mergeIntoSnapNum', 'dT', 'Pos', 'Vel', 'Spin', 'Len', 'Mvir',
-    'CentralMvir', 'Rvir', 'Vvir', 'Vmax', 'VelDisp', 'infallMvir',
-    'infallVvir', 'infallVmax'
+    'SnapNum', 'Type', 'MostBoundID', 'UniqueGalaxyID', 'UniqueCentralGalaxyID',
+    'dT', 'Pos', 'Vel', 'Spin', 'Len', 'Mvir', 'deltaMvir', 'CentralMvir',
+    'Rvir', 'Vvir', 'Vmax', 'VelDisp', 'infallMvir', 'infallVvir', 'infallVmax'
 }
 
 # Ensure output directories exist before any tests run

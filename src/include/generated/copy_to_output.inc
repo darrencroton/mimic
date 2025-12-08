@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: f106d6923ad44965145b4d6077a9d56d
+ * Source MD5: d461c894d6dd2bbf96a6845f3b63c0ad
  * To regenerate: make generate
  */
 
@@ -20,10 +20,6 @@ o->Type = g->Type;
 o->MostBoundID = g->MostBoundID;
 o->UniqueGalaxyID = g->UniqueGalaxyID;
 o->UniqueCentralGalaxyID = g->UniqueCentralGalaxyID;
-o->MergeStatus = g->MergeStatus;
-o->mergeType = g->mergeType;
-o->mergeIntoID = g->mergeIntoID;
-o->mergeIntoSnapNum = g->mergeIntoSnapNum;
 o->dT = g->dT;
 if (o->dT != -1.0f) {
   o->dT *= UnitTime_in_s / SEC_PER_MEGAYEAR;

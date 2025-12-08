@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "f106d6923ad44965145b4d6077a9d56d",
+    "source_md5": "d461c894d6dd2bbf96a6845f3b63c0ad",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -48,52 +48,6 @@
       "type": "long long",
       "units": "dimensionless",
       "is_vector": false
-    },
-    "MergeStatus": {
-      "name": "MergeStatus",
-      "type": "int",
-      "units": "dimensionless",
-      "is_vector": false,
-      "range": [
-        0,
-        1
-      ]
-    },
-    "mergeType": {
-      "name": "mergeType",
-      "type": "int",
-      "units": "dimensionless",
-      "is_vector": false,
-      "range": [
-        0,
-        4
-      ]
-    },
-    "mergeIntoID": {
-      "name": "mergeIntoID",
-      "type": "int",
-      "units": "dimensionless",
-      "is_vector": false,
-      "range": [
-        0,
-        100000
-      ],
-      "sentinels": [
-        -1
-      ]
-    },
-    "mergeIntoSnapNum": {
-      "name": "mergeIntoSnapNum",
-      "type": "int",
-      "units": "dimensionless",
-      "is_vector": false,
-      "range": [
-        0,
-        1000
-      ],
-      "sentinels": [
-        -1
-      ]
     },
     "dT": {
       "name": "dT",

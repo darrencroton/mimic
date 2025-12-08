@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: f106d6923ad44965145b4d6077a9d56d
+Source MD5: d461c894d6dd2bbf96a6845f3b63c0ad
 To regenerate: make generate
 """
 
@@ -20,10 +20,6 @@ def get_binary_dtype():
         ("MostBoundID", np.int64),
         ("UniqueGalaxyID", np.int64),
         ("UniqueCentralGalaxyID", np.int64),
-        ("MergeStatus", np.int32),
-        ("mergeType", np.int32),
-        ("mergeIntoID", np.int32),
-        ("mergeIntoSnapNum", np.int32),
         ("dT", np.float32),
         ("Pos", (np.float32, 3)),
         ("Vel", (np.float32, 3)),
@@ -71,10 +67,6 @@ def get_hdf5_dtype():
         ("MostBoundID", np.int64),
         ("UniqueGalaxyID", np.int64),
         ("UniqueCentralGalaxyID", np.int64),
-        ("MergeStatus", np.int32),
-        ("mergeType", np.int32),
-        ("mergeIntoID", np.int32),
-        ("mergeIntoSnapNum", np.int32),
         ("dT", np.float32),
         ("Pos", (np.float32, 3)),
         ("Vel", (np.float32, 3)),
@@ -132,10 +124,6 @@ def get_units():
         'MostBoundID': 'dimensionless',
         'UniqueGalaxyID': 'dimensionless',
         'UniqueCentralGalaxyID': 'dimensionless',
-        'MergeStatus': 'dimensionless',
-        'mergeType': 'dimensionless',
-        'mergeIntoID': 'dimensionless',
-        'mergeIntoSnapNum': 'dimensionless',
         'dT': 'Myr',
         'Pos': 'Mpc/h',
         'Vel': 'km/s',

@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: f106d6923ad44965145b4d6077a9d56d
+ * Source MD5: d461c894d6dd2bbf96a6845f3b63c0ad
  * To regenerate: make generate
  */
 
@@ -14,7 +14,7 @@
 /* Provides discoverable, queryable metadata for all output fields */
 
 /* Total number of output fields */
-#define NUM_FIELDS 46
+#define NUM_FIELDS 42
 
 /* Define metadata structure */
 struct FieldMetadata {
@@ -30,10 +30,6 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"MostBoundID", "dimensionless", "ID of most bound particle (original simulation halo ID)"},
   {"UniqueGalaxyID", "dimensionless", "Persistent unique galaxy identifier across all snapshots (file*10^15 + tree*10^9 + creation_halonr)"},
   {"UniqueCentralGalaxyID", "dimensionless", "Persistent UniqueGalaxyID of current central galaxy (equals UniqueGalaxyID if Type=0)"},
-  {"MergeStatus", "dimensionless", "Merge status (0=active, 1=merged and no longer tracked)"},
-  {"mergeType", "dimensionless", "Merger type (0=none, 1=minor, 2=major, 3=disk instability, 4=disruption to ICS)"},
-  {"mergeIntoID", "dimensionless", "HaloNr of halo this merged into (-1 if not merged)"},
-  {"mergeIntoSnapNum", "dimensionless", "Snapshot number when merger occurred (-1 if not merged)"},
   {"dT", "Myr", "Time elapsed since progenitor snapshot (lookback time difference)"},
   {"Pos", "Mpc/h", "3D position vector (comoving coordinates)"},
   {"Vel", "km/s", "3D velocity vector (peculiar velocity)"},
