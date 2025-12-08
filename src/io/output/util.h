@@ -8,7 +8,8 @@
  * This file provides common functions used by both binary and HDF5 output
  * writers to prepare halo data for writing. These utilities handle the
  * mapping between internal halo indices and output file indices, ensuring
- * consistent halo ordering and cross-references across output formats.
+ * consistent halo ordering and cross-references across output formats,
+ * and the conversion from internal halo format to output format.
  */
 
 #include "constants.h"
@@ -46,5 +47,27 @@
  * @note Memory is allocated using mymalloc_cat() with MEM_IO category
  */
 int *prepare_output_for_tree(int OutputGalCount[MAXSNAPS]);
+
+/**
+ * @brief Converts internal halo structure to output format
+ *
+ * This function transforms the internal halo representation (struct Halo)
+ * to the output format (struct HaloOutput). It handles custom field mapping
+ * (like SimulationHaloIndex) and includes auto-generated code to copy all
+ * property values from the internal to output representation.
+ *
+ * This function is format-agnostic and used by both binary and HDF5 output
+ * writers, ensuring consistent halo conversion across all output formats.
+ *
+ * @param   filenr    Current file number being processed (unused, kept for API)
+ * @param   tree      Current tree number being processed (unused, kept for API)
+ * @param   g         Pointer to the internal halo tracking structure (const)
+ * @param   o         Pointer to the output halo structure to be filled
+ *
+ * @note Uses global variable InputTreeHalos to map halo indices
+ * @note Includes auto-generated code from copy_to_output.inc
+ */
+void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
+                             struct HaloOutput *o);
 
 #endif /* #ifndef IO_SAVE_UTIL_H */

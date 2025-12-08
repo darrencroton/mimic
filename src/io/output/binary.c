@@ -1,22 +1,21 @@
 /**
  * @file    io_save_binary.c
- * @brief   Functions for saving halo data to output files
+ * @brief   Functions for saving halo data to binary output files
  *
- * This file contains the functionality for writing tracked halos to output
- * files. It handles the conversion of internal halo tracking structures to the
- * output format, manages file I/O operations, and ensures consistent halo
+ * This file contains the functionality for writing tracked halos to binary
+ * output files. It manages file I/O operations and ensures consistent halo
  * indexing across files. The code supports writing halo data for multiple
  * snapshots and maintains proper cross-references between halos.
  *
  * Key functions:
- * - save_halos(): Writes halos to output files for all requested
+ * - save_halos(): Writes halos to binary output files for all requested
  * snapshots
- * - prepare_halo_for_output(): Converts internal halo format to output
- * format
  * - finalize_halo_file(): Completes file writing by updating headers
  *
  * The output files include headers with tree counts and halo counts per tree,
  * followed by the halo data for the corresponding snapshot.
+ *
+ * Format-agnostic utilities (shared with HDF5) are in io/output/util.c.
  */
 
 #include <assert.h>
@@ -144,38 +143,6 @@ void save_halos(int filenr, int tree) {
 
   /* Free the workspace using tracked memory deallocation */
   myfree(OutputGalOrder);
-}
-
-/**
- * @brief   Converts internal halo structure to output format
- *
- * @param   filenr    Current file number being processed (unused)
- * @param   tree      Current tree number being processed (unused)
- * @param   g         Pointer to the internal halo tracking structure
- * @param   o         Pointer to the output halo structure to be filled
- *
- * This function transforms the internal halo representation (struct Halo)
- * to the output format (struct HaloOutput). Most properties are copied
- * automatically by the generated code. This function only sets properties
- * that require custom handling:
- *
- * - SimulationHaloIndex: Pass-through of the simulation's MostBoundID
- *
- * All other properties (including HaloIndex and CentralHaloIndex) are
- * stored in struct Halo and copied automatically.
- */
-void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
-                             struct HaloOutput *o) {
-  /* Suppress unused parameter warnings (kept for API compatibility) */
-  (void)filenr;
-  (void)tree;
-
-  /* CUSTOM: Set simulation pass-through index */
-  o->SimulationHaloIndex = InputTreeHalos[g->HaloNr].MostBoundID;
-
-/* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */
-/* Includes automatic unit conversion for dT (seconds → Myr) with sentinel preservation */
-#include "../../include/generated/copy_to_output.inc"
 }
 
 /**
