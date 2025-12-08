@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "3fd13ae6f5f1ef16e421fca8faf0f8b8",
+    "source_md5": "db3e2c5aaed8563d4b4f23732de36fc8",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -31,6 +31,12 @@
         2
       ]
     },
+    "MostBoundID": {
+      "name": "MostBoundID",
+      "type": "long long",
+      "units": "dimensionless",
+      "is_vector": false
+    },
     "HaloIndex": {
       "name": "HaloIndex",
       "type": "long long",
@@ -39,12 +45,6 @@
     },
     "CentralHaloIndex": {
       "name": "CentralHaloIndex",
-      "type": "long long",
-      "units": "dimensionless",
-      "is_vector": false
-    },
-    "SimulationHaloIndex": {
-      "name": "SimulationHaloIndex",
       "type": "long long",
       "units": "dimensionless",
       "is_vector": false

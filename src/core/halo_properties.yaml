@@ -47,9 +47,10 @@ halo_properties:
   - name: MostBoundID
     type: long long
     units: "dimensionless"
-    description: "ID of most bound particle (internal, output as SimulationHaloIndex)"
-    output: false
+    description: "ID of most bound particle (original simulation halo ID)"
+    output: true
     init_source: copy_from_tree
+    output_source: copy_direct
 
   - name: HaloIndex
     type: long long
@@ -68,18 +69,6 @@ halo_properties:
     init_source: default  # Initialized to 0, then set in update_halo_properties()
     init_value: 0
     output_source: copy_direct
-
-  # ===========================================================================
-  # OUTPUT-ONLY INDEX PROPERTIES (not in struct Halo)
-  # ===========================================================================
-
-  - name: SimulationHaloIndex
-    type: long long
-    units: "dimensionless"
-    description: "Original simulation halo ID (most bound particle ID)"
-    output: true
-    init_source: skip  # Not in struct Halo
-    output_source: custom  # Copy from InputTreeHalos[g->HaloNr].MostBoundID
 
   # ===========================================================================
   # MERGE TRACKING PROPERTIES

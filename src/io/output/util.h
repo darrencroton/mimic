@@ -53,7 +53,7 @@ int *prepare_output_for_tree(int OutputGalCount[MAXSNAPS]);
  *
  * This function transforms the internal halo representation (struct Halo)
  * to the output format (struct HaloOutput). It handles custom field mapping
- * (like SimulationHaloIndex) and includes auto-generated code to copy all
+ * (like MostBoundID) and includes auto-generated code to copy all
  * property values from the internal to output representation.
  *
  * This function is format-agnostic and used by both binary and HDF5 output

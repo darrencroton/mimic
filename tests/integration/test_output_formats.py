@@ -46,7 +46,7 @@ from framework import (
 # and should be present in all Mimic output, regardless of enabled physics modules
 CORE_HALO_PROPERTIES = {
     'SnapNum', 'Type', 'HaloIndex', 'CentralHaloIndex',
-    'MimicTreeIndex', 'SimulationHaloIndex', 'MergeStatus', 'mergeIntoID',
+    'MimicTreeIndex', 'MostBoundID', 'MergeStatus', 'mergeIntoID',
     'mergeIntoSnapNum', 'dT', 'Pos', 'Vel', 'Spin', 'Len', 'Mvir',
     'CentralMvir', 'Rvir', 'Vvir', 'Vmax', 'VelDisp', 'infallMvir',
     'infallVvir', 'infallVmax'

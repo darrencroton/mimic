@@ -663,7 +663,7 @@ The baseline comparison test (`test_hdf5_baseline_comparison` in `test_output_fo
 - Reports detailed differences if comparison fails
 
 **Core properties validated**:
-- Structural: SnapNum, Type, HaloIndex, CentralHaloIndex, SimulationHaloIndex
+- Structural: SnapNum, Type, HaloIndex, CentralHaloIndex, MostBoundID
 - Tracking: MergeStatus, mergeIntoID, mergeIntoSnapNum, dT
 - Physical: Pos, Vel, Spin, Len
 - Virial: Mvir, CentralMvir, Rvir, Vvir, Vmax, VelDisp
@@ -683,7 +683,7 @@ The tree preservation test (`test_tree_preservation.py`) validates that simulati
 - **Vectors**: Pos[3], Vel[3], Spin[3] (component-wise)
 - **Integers**: Len, SnapNum (exact match)
 - **Floats**: Vmax, VelDisp (rtol=1e-6)
-- **ID mapping**: MostBoundID → SimulationHaloIndex
+- **ID**: MostBoundID (exact match - original simulation halo ID)
 - **Mvir**: Conditional for Type=0 centrals (when input Mvir >= 0.0)
 
 **Typical results**:

@@ -18,7 +18,7 @@ Properties validated (directly copied from input):
   - Pos[3], Vel[3], Spin[3]: Vector properties (component-wise)
   - Len, SnapNum: Integer properties
   - Vmax, VelDisp: Float properties
-  - MostBoundID → SimulationHaloIndex: ID mapping
+  - MostBoundID: Original simulation halo ID (exact match)
   - Mvir: Conditionally validated for Type=0 centrals (when input Mvir > 0.0)
 
 Properties NOT validated:
@@ -28,7 +28,7 @@ Properties NOT validated:
 Matching strategy:
   - Filter input to SnapNum=63 only
   - Filter output to SnapNum=63 AND Type in [0,1] (skip orphans)
-  - Match by SimulationHaloIndex (output) = MostBoundID (input)
+  - Match by MostBoundID (same field in input and output)
   - Categorize: perfect matches, imperfect matches, unmatched input, unmatched output
 
 Tolerance: 1e-6 relative for floats, exact for integers
@@ -77,7 +77,7 @@ def match_halos_snapshot63(input_halos, output_halos, snapshot=63):
     Matching strategy:
     1. Filter input to SnapNum=63 only
     2. Filter output to SnapNum=63 AND Type in [0,1] (skip orphans)
-    3. Match by SimulationHaloIndex (output) = MostBoundID (input)
+    3. Match by MostBoundID (same field in input and output)
     4. Categorize ALL matches (no filtering to 1:1)
 
     Args:
@@ -120,7 +120,7 @@ def match_halos_snapshot63(input_halos, output_halos, snapshot=63):
     matched_output_set = set()
 
     for out_idx in output_type01_indices:
-        sim_halo_idx = output_halos[out_idx].SimulationHaloIndex
+        sim_halo_idx = output_halos[out_idx].MostBoundID
 
         # Find corresponding input halo(s)
         if sim_halo_idx in input_lookup:
@@ -159,7 +159,7 @@ def validate_copied_properties(input_halo, output_halo, halonr, input_halos, rto
         - Len: int (exact)
         - Vmax: float (rtol)
         - VelDisp: float (rtol)
-        - MostBoundID → SimulationHaloIndex: long long (exact)
+        - MostBoundID: long long (exact)
 
     Conditional validation:
         - Mvir: For Type=0 centrals where halonr==FirstHaloInFOFgroup AND Mvir>0.0,
@@ -206,12 +206,12 @@ def validate_copied_properties(input_halo, output_halo, halonr, input_halos, rto
             rel_diff = abs(in_val - out_val) / (abs(in_val) + 1e-30)
             mismatches.append((prop, in_val, out_val, rel_diff))
 
-    # MostBoundID → SimulationHaloIndex
-    if input_halo['MostBoundID'] != output_halo['SimulationHaloIndex']:
+    # MostBoundID
+    if input_halo['MostBoundID'] != output_halo['MostBoundID']:
         mismatches.append((
-            'MostBoundID→SimulationHaloIndex',
+            'MostBoundID',
             input_halo['MostBoundID'],
-            output_halo['SimulationHaloIndex'],
+            output_halo['MostBoundID'],
             None
         ))
 
@@ -351,7 +351,7 @@ def generate_markdown_report(match_result, input_halos, output_halos,
     md.write("- **Vectors:** Pos[3], Vel[3], Spin[3] (component-wise, rtol=1e-6)\n")
     md.write("- **Integers:** Len, SnapNum (exact match)\n")
     md.write("- **Floats:** Vmax, VelDisp (rtol=1e-6)\n")
-    md.write("- **ID:** MostBoundID → SimulationHaloIndex (exact match)\n")
+    md.write("- **ID:** MostBoundID (exact match)\n")
     md.write("- **Mvir:** Conditional for Type=0 centrals (when input Mvir > 0.0)\n\n")
     md.write("---\n\n")
 
@@ -374,7 +374,7 @@ def generate_markdown_report(match_result, input_halos, output_halos,
             md.write(f"- Output index: {out_idx}\n")
             md.write(f"- Type: {out_halo.Type} ({'Central' if out_halo.Type == 0 else 'Satellite'})\n")
             md.write(f"- HaloIndex: {out_halo.HaloIndex}\n")
-            md.write(f"- SimulationHaloIndex: {out_halo.SimulationHaloIndex}\n\n")
+            md.write(f"- MostBoundID: {out_halo.MostBoundID}\n\n")
 
             md.write("**Property Comparison:**\n\n")
             md.write("| Property | Input | Output | Match | Rel. Diff |\n")
@@ -389,7 +389,7 @@ def generate_markdown_report(match_result, input_halos, output_halos,
                 ('Spin[x]', True, 0), ('Spin[y]', True, 1), ('Spin[z]', True, 2),
                 ('Vmax', False, None),
                 ('VelDisp', False, None),
-                ('MostBoundID→SimulationHaloIndex', False, None),
+                ('MostBoundID', False, None),
             ]
 
             # Check if Mvir should be validated
@@ -410,9 +410,9 @@ def generate_markdown_report(match_result, input_halos, output_halos,
                     in_val = in_halo[base_name][comp_idx]
                     out_val = out_halo[base_name][comp_idx]
                 else:
-                    if prop_name == 'MostBoundID→SimulationHaloIndex':
+                    if prop_name == 'MostBoundID':
                         in_val = in_halo['MostBoundID']
-                        out_val = out_halo['SimulationHaloIndex']
+                        out_val = out_halo['MostBoundID']
                     else:
                         in_val = in_halo[prop_name]
                         out_val = out_halo[prop_name]
@@ -484,11 +484,11 @@ def generate_markdown_report(match_result, input_halos, output_halos,
 
         display_count = min(len(match_result['unmatched_output']), 100)
         md.write(f"**Displaying:** First {display_count} of {len(match_result['unmatched_output'])}\n\n")
-        md.write("| Index | Type | SimulationHaloIndex | Len | Mvir | Vmax |\n")
+        md.write("| Index | Type | MostBoundID | Len | Mvir | Vmax |\n")
         md.write("|------:|-----:|--------------------:|----:|-----:|-----:|\n")
         for idx in match_result['unmatched_output'][:100]:
             halo = output_halos[idx]
-            md.write(f"| {idx} | {halo.Type} | {halo.SimulationHaloIndex} | {halo.Len} | {halo.Mvir:.3f} | {halo.Vmax:.2f} |\n")
+            md.write(f"| {idx} | {halo.Type} | {halo.MostBoundID} | {halo.Len} | {halo.Mvir:.3f} | {halo.Vmax:.2f} |\n")
 
         if len(match_result['unmatched_output']) > 100:
             md.write(f"\n*... and {len(match_result['unmatched_output']) - 100} more (truncated)*\n\n")
@@ -501,7 +501,7 @@ def generate_markdown_report(match_result, input_halos, output_halos,
         md.write("- Pos[3], Vel[3], Spin[3] (vectors)\n")
         md.write("- Len, SnapNum (integers)\n")
         md.write("- Vmax, VelDisp (floats)\n")
-        md.write("- MostBoundID → SimulationHaloIndex (ID mapping)\n")
+        md.write("- MostBoundID (original simulation halo ID)\n")
         md.write("- Mvir (conditional for Type=0 centrals)\n\n")
         md.write("**Tolerance:** 1e-6 relative for floats, exact for integers\n\n")
 

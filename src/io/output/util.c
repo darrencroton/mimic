@@ -91,13 +91,10 @@ int *prepare_output_for_tree(int OutputGalCount[MAXSNAPS]) {
  * @param   o         Pointer to the output halo structure to be filled
  *
  * This function transforms the internal halo representation (struct Halo)
- * to the output format (struct HaloOutput). Most properties are copied
- * automatically by the generated code. This function only sets properties
- * that require custom handling:
+ * to the output format (struct HaloOutput). All properties are copied
+ * automatically by the generated code.
  *
- * - SimulationHaloIndex: Pass-through of the simulation's MostBoundID
- *
- * All other properties (including HaloIndex and CentralHaloIndex) are
+ * All properties (including HaloIndex, CentralHaloIndex, and MostBoundID) are
  * stored in struct Halo and copied automatically.
  *
  * This function is format-agnostic and used by both binary and HDF5 output
@@ -108,9 +105,6 @@ void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
   /* Suppress unused parameter warnings (kept for API compatibility) */
   (void)filenr;
   (void)tree;
-
-  /* CUSTOM: Set simulation pass-through index */
-  o->SimulationHaloIndex = InputTreeHalos[g->HaloNr].MostBoundID;
 
 /* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */
 /* Includes automatic unit conversion for dT (seconds → Myr) with sentinel preservation */

@@ -140,7 +140,7 @@ def test_haloindex_uniqueness_snapshot62():
             dup_halos = snap62_halos[dup_mask]
             for j, halo in enumerate(dup_halos[:5]):  # Show first 5
                 print(f"{RED}      Galaxy {j+1}: Type={halo.Type}, Mvir={halo.Mvir:.3f}, "
-                      f"SimulationHaloIndex={halo.SimulationHaloIndex}{NC}")
+                      f"MostBoundID={halo.MostBoundID}{NC}")
 
         if len(duplicated_indices) > 10:
             print(f"{RED}    ... and {len(duplicated_indices) - 10} more duplicated values{NC}")
@@ -283,7 +283,7 @@ def test_haloindex_uniqueness_snapshot63():
             dup_halos = snap63_halos[dup_mask]
             for j, halo in enumerate(dup_halos[:5]):  # Show first 5
                 print(f"{RED}      Galaxy {j+1}: Type={halo.Type}, Mvir={halo.Mvir:.3f}, "
-                      f"SimulationHaloIndex={halo.SimulationHaloIndex}{NC}")
+                      f"MostBoundID={halo.MostBoundID}{NC}")
 
         if len(duplicated_indices) > 10:
             print(f"{RED}    ... and {len(duplicated_indices) - 10} more duplicated values{NC}")
