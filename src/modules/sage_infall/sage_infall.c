@@ -14,6 +14,8 @@
  * - infall_recipe(): Calculate infalling gas mass and consolidate satellite reservoirs
  * - add_infall_to_hot(): Add infalling gas to hot reservoir with metallicity tracking
  *
+ * Note: Will only fully conserve FoF f_bar with stripping and mergers due to type 2s
+ *
  * Reference: Croton et al. (2006, 2016), based on SAGE model_infall.c
  */
 

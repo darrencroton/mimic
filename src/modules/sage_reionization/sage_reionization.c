@@ -228,16 +228,20 @@ static int sage_reionization_process(struct ModuleContext *ctx,
       return -1;
     }
 
-    double reionization_modifier = calculate_reionization_modifier(
-        ctx, halos[i].Mvir, z, omega, omega_lambda, hubble_h);
-
-    halos[i].galaxy->HaloBaryonFraction =
-        (float)(GLOBAL_BARYON_FRAC * reionization_modifier);
-
-    if (halos[i].Type == 0) {
-      DEBUG_LOG("Halo %d (Type=0): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f",
-                i, halos[i].Mvir, reionization_modifier,
-                halos[i].galaxy->HaloBaryonFraction, z);
+    if (halos[i].Mvir > EPSILON_SMALL) {
+      double reionization_modifier = calculate_reionization_modifier(
+          ctx, halos[i].Mvir, z, omega, omega_lambda, hubble_h);
+  
+      halos[i].galaxy->HaloBaryonFraction =
+      (float)(GLOBAL_BARYON_FRAC * reionization_modifier);
+  
+      if (halos[i].Type == 0) {
+        DEBUG_LOG("Halo %d (Type=0): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f",
+                  i, halos[i].Mvir, reionization_modifier,
+                  halos[i].galaxy->HaloBaryonFraction, z);
+                }
+    } else {
+      halos[i].galaxy->HaloBaryonFraction = 0.0;
     }
   }
 

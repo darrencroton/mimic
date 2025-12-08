@@ -147,8 +147,6 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
   for (int i = 0; i < ngal; i++) {
     if (i == central_idx)
       continue;
-    if (halos[i].Type != 1)
-      continue;
     if (halos[i].galaxy == NULL)
       continue;
     if (halos[i].galaxy->HotGas <= 0.0f)
