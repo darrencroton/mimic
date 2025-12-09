@@ -262,11 +262,17 @@ static int sage_reionization_cleanup(void) {
 // MODULE REGISTRATION
 // ============================================================================
 
+/* Extern reference to generated loop mode array */
+extern const enum LoopMode sage_reionization_supported_modes[];
+
 static struct Module sage_reionization_module = {
     .name = "sage_reionization",
     .init = sage_reionization_init,
     .process = sage_reionization_process,
-    .cleanup = sage_reionization_cleanup};
+    .cleanup = sage_reionization_cleanup,
+    .supported_loop_modes = sage_reionization_supported_modes,
+    .num_supported_modes = 2  /* Default: supports both once and all */
+};
 
 void sage_reionization_register(void) {
   module_registry_add(&sage_reionization_module);

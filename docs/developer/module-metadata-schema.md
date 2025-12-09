@@ -178,6 +178,9 @@ module:
 
   # Build Configuration (optional)
   compilation_requires: [string, ...]
+
+  # Loop Mode Constraints (optional)
+  supported_loop_modes: [string, ...]  # Default: ["once", "all"]
 ```
 
 ---
@@ -545,6 +548,68 @@ compilation_requires: []  # No special requirements
 ```
 
 **Future Use**: Build system can exclude modules if dependencies unavailable
+
+---
+
+### Loop Mode Constraints (optional)
+
+#### supported_loop_modes (list of strings, optional)
+
+**Purpose**: Declare which loop modes the module supports for execution
+
+**Rules**:
+- List containing `"once"` and/or `"all"`
+- Default: `["once", "all"]` (supports both modes)
+- Must contain at least one mode
+- No duplicates allowed
+
+**Values**:
+- `"once"`: Module processes full array (halos, ngal) in one call
+  - Use for: Array processing, sorting, neighbor finding, collective operations
+- `"all"`: Module processes single galaxy (halo[g], 1) in galaxy-major loop
+  - Use for: Time integration, per-galaxy physics, local calculations
+
+**Example**:
+```yaml
+# Array processing only (e.g., reionization, neighbor finding)
+supported_loop_modes: [once]
+
+# Per-galaxy processing only (e.g., cooling, star formation)
+supported_loop_modes: [all]
+
+# Supports both modes (e.g., test fixture, flexible modules)
+supported_loop_modes: [once, all]
+```
+
+**Runtime Validation**:
+- Mimic validates input YAML configuration against module constraints
+- Fails with clear error if module configured with unsupported loop mode
+- Example error:
+  ```
+  ERROR: Configuration error in phase 'phase_1':
+    Module 'sage_reionization' does not support loop mode 'all'
+    Supported modes: once
+    Fix: Change loop mode in input YAML to one of the supported modes
+  ```
+
+**Code Generation**:
+- Auto-generates loop mode array in `src/modules/_system/generated/module_init.c`
+- Module references generated array via extern declaration
+- Example generated code:
+  ```c
+  const enum LoopMode sage_cooling_supported_modes[] = {LOOP_MODE_ALL};
+  ```
+
+**When to Specify**:
+- **Required if module only works with one mode**: Array-only or per-galaxy-only
+- **Optional if module supports both**: Default is correct
+- **Omit if flexible**: Module works correctly with either mode
+
+**Design Rationale**:
+- Prevents silent failures from misconfigured modules
+- Catches configuration errors at startup, not during execution
+- Self-documenting: Clearly indicates module's execution requirements
+- Metadata-driven: Generated code eliminates manual synchronization
 
 ---
 

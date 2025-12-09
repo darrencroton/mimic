@@ -19,6 +19,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -145,6 +146,81 @@ static void add_module_to_pipeline(const char *module_name) {
   DEBUG_LOG("Added module to pipeline: %s", module_name);
 }
 
+/**
+ * @brief   Check if module supports the configured loop mode
+ *
+ * @param   mod             Module to check
+ * @param   configured_mode Loop mode from input YAML
+ * @return  true if supported, false otherwise
+ */
+static bool module_supports_loop_mode(const struct Module *mod,
+                                      enum LoopMode configured_mode) {
+  for (int i = 0; i < mod->num_supported_modes; i++) {
+    if (mod->supported_loop_modes[i] == configured_mode) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * @brief   Format supported modes for error messages
+ *
+ * @param   mod  Module whose supported modes to format
+ * @return  Static string with mode names (e.g., "once, all")
+ */
+static const char *format_supported_modes(const struct Module *mod) {
+  static char buffer[64];
+  buffer[0] = '\0';
+
+  for (int i = 0; i < mod->num_supported_modes; i++) {
+    if (i > 0)
+      strcat(buffer, ", ");
+    strcat(buffer,
+           mod->supported_loop_modes[i] == LOOP_MODE_ONCE ? "once" : "all");
+  }
+  return buffer;
+}
+
+/**
+ * @brief   Validate phase configuration against module constraints
+ *
+ * Ensures that each module in the phase is configured with a loop mode it
+ * actually supports. Fails hard with clear error messages if mismatch detected.
+ *
+ * @param   config       Phase module configuration array
+ * @param   num_modules  Number of modules in phase
+ * @param   phase_name   Phase name for error messages
+ * @return  0 on success, -1 on validation failure
+ */
+static int validate_phase_loop_modes(struct PhaseModuleConfig *config,
+                                     int num_modules,
+                                     const char *phase_name) {
+  for (int i = 0; i < num_modules; i++) {
+    /* Find registered module */
+    struct Module *mod = find_module_by_name(config[i].module_name);
+    if (mod == NULL) {
+      /* Module not found - handled elsewhere in add_module_to_pipeline */
+      continue;
+    }
+
+    /* Check if configured mode is supported */
+    if (!module_supports_loop_mode(mod, config[i].loop_mode)) {
+      const char *mode_str =
+          (config[i].loop_mode == LOOP_MODE_ONCE) ? "once" : "all";
+
+      ERROR_LOG("Configuration error in phase '%s':", phase_name);
+      ERROR_LOG("  Module '%s' does not support loop mode '%s'", mod->name,
+                mode_str);
+      ERROR_LOG("  Supported modes: %s", format_supported_modes(mod));
+      ERROR_LOG("  Fix: Change loop mode in input YAML to one of the "
+                "supported modes");
+      return -1;
+    }
+  }
+  return 0;
+}
+
 int module_system_init(void) {
   INFO_LOG("Initializing multi-phase module system");
 
@@ -178,6 +254,33 @@ int module_system_init(void) {
   INFO_LOG("  Phase 2: %d module(s)", MimicConfig.num_phase_2);
   INFO_LOG("  Post-timestep: %d module(s)", MimicConfig.num_post_timestep);
   INFO_LOG("  Total unique modules: %d", num_pipeline_modules);
+
+  /* Validate loop mode configurations */
+  INFO_LOG("Validating module loop mode configurations...");
+
+  if (validate_phase_loop_modes(MimicConfig.pre_timestep,
+                                MimicConfig.num_pre_timestep,
+                                "pre_timestep") != 0) {
+    return -1;
+  }
+
+  if (validate_phase_loop_modes(MimicConfig.phase_1, MimicConfig.num_phase_1,
+                                "phase_1") != 0) {
+    return -1;
+  }
+
+  if (validate_phase_loop_modes(MimicConfig.phase_2, MimicConfig.num_phase_2,
+                                "phase_2") != 0) {
+    return -1;
+  }
+
+  if (validate_phase_loop_modes(MimicConfig.post_timestep,
+                                MimicConfig.num_post_timestep,
+                                "post_timestep") != 0) {
+    return -1;
+  }
+
+  INFO_LOG("Loop mode validation passed");
 
   /* Initialize all modules in pipeline order */
   for (int i = 0; i < num_pipeline_modules; i++) {

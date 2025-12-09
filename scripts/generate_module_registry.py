@@ -233,6 +233,7 @@ def generate_module_init_c(
 
     # Includes
     lines.append('#include "module_registry.h"')
+    lines.append('#include "module_interface.h"')
     lines.append("")
 
     # Auto-generated module includes (sorted alphabetically)
@@ -246,7 +247,47 @@ def generate_module_init_c(
                 lines.append(f'#include "{rel_path}/{header}"')
     lines.append("")
 
+    # Generate loop mode arrays for each module
+    lines.append("/* ========================================================================== */")
+    lines.append("/* SUPPORTED LOOP MODES (Auto-generated from module_info.yaml)               */")
+    lines.append("/* ========================================================================== */")
+    lines.append("")
+    lines.append("/*")
+    lines.append(" * These arrays define which loop modes each module supports:")
+    lines.append(" * - LOOP_MODE_ONCE: Module processes full halo array (ngal > 1)")
+    lines.append(" * - LOOP_MODE_ALL: Module processes one galaxy at a time (ngal = 1)")
+    lines.append(" *")
+    lines.append(" * Generated from 'supported_loop_modes' field in module_info.yaml.")
+    lines.append(" * If omitted, defaults to supporting both modes [once, all].")
+    lines.append(" *")
+    lines.append(" * Modules reference these arrays in their Module struct initialization.")
+    lines.append(" */")
+    lines.append("")
+
+    for module in sorted(runtime_modules, key=lambda m: m["name"]):
+        name = module["name"]
+        # Get supported modes from metadata (default to both if not specified)
+        modes = module.get("supported_loop_modes", ["once", "all"])
+
+        # Convert mode strings to enum values
+        mode_enums = []
+        for mode in modes:
+            if mode == "once":
+                mode_enums.append("LOOP_MODE_ONCE")
+            elif mode == "all":
+                mode_enums.append("LOOP_MODE_ALL")
+
+        # Generate array
+        mode_list = ", ".join(mode_enums)
+        lines.append(f"const enum LoopMode {name}_supported_modes[] = {{{mode_list}}};")
+
+    lines.append("")
+
     # Registration function
+    lines.append("/* ========================================================================== */")
+    lines.append("/* MODULE REGISTRATION                                                        */")
+    lines.append("/* ========================================================================== */")
+    lines.append("")
     lines.append("/**")
     lines.append(" * @brief Register all available physics modules")
     lines.append(" *")

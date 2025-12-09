@@ -176,11 +176,17 @@ static int sage_satellite_stripping_cleanup(void) {
 // MODULE REGISTRATION
 // ============================================================================
 
+/* Extern reference to generated loop mode array */
+extern const enum LoopMode sage_satellite_stripping_supported_modes[];
+
 static struct Module sage_satellite_stripping_module = {
     .name = "sage_satellite_stripping",
     .init = sage_satellite_stripping_init,
     .process = sage_satellite_stripping_process,
-    .cleanup = sage_satellite_stripping_cleanup};
+    .cleanup = sage_satellite_stripping_cleanup,
+    .supported_loop_modes = sage_satellite_stripping_supported_modes,
+    .num_supported_modes = 2  /* Default: supports both once and all */
+};
 
 void sage_satellite_stripping_register(void) {
   module_registry_add(&sage_satellite_stripping_module);

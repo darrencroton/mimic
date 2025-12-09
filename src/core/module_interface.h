@@ -302,6 +302,35 @@ struct Module {
    * @return 0 on success, non-zero on failure
    */
   int (*cleanup)(void);
+
+  /**
+   * @brief Supported loop modes for this module
+   *
+   * Declares which loop modes this module can execute in:
+   * - LOOP_MODE_ONCE: Module processes full halo array (array-based operations)
+   * - LOOP_MODE_ALL: Module processes one galaxy at a time (per-galaxy operations)
+   *
+   * Set via module_info.yaml (supported_loop_modes field). If omitted from
+   * metadata, defaults to supporting both modes.
+   *
+   * Runtime validation ensures modules are only configured with supported modes.
+   *
+   * Example array (generated from metadata):
+   *   static const enum LoopMode my_module_modes[] = {LOOP_MODE_ALL};
+   *
+   * Example usage in Module struct:
+   *   .supported_loop_modes = my_module_modes,
+   *   .num_supported_modes = 1
+   */
+  const enum LoopMode *supported_loop_modes;
+
+  /**
+   * @brief Number of supported loop modes
+   *
+   * Length of the supported_loop_modes array. Must be > 0.
+   * Typically 1 (module only works in one mode) or 2 (module supports both modes).
+   */
+  int num_supported_modes;
 };
 
 #endif // MODULE_INTERFACE_H

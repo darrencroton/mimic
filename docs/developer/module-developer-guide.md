@@ -157,6 +157,11 @@ module:
     - my_module.h
   register_function: my_module_register
 
+  # Loop mode constraints (optional)
+  supported_loop_modes: [once, all]  # Default: supports both modes
+  # Use [once] for array-only processing (e.g., sorting, neighbor finding)
+  # Use [all] for per-galaxy processing (e.g., time integration)
+
   # Dependencies
   dependencies:
     properties: []  # All properties your module uses (reads or writes)
@@ -253,6 +258,78 @@ Run:
 
 ```bash
 ./mimic input/millennium.yaml
+```
+
+---
+
+## Loop Mode Configuration
+
+### Understanding Loop Modes
+
+Modules execute in one of two loop modes:
+- **LOOP_MODE_ONCE**: Module receives full halo array (ngal > 1) for array-based operations
+- **LOOP_MODE_ALL**: Module processes one galaxy at a time (ngal = 1) in galaxy-major loop
+
+### Declaring Supported Modes
+
+Specify which loop modes your module supports in `module_info.yaml`:
+
+```yaml
+supported_loop_modes: [once, all]  # Supports both (default)
+supported_loop_modes: [once]       # Only array processing
+supported_loop_modes: [all]        # Only per-galaxy processing
+```
+
+**When to use LOOP_MODE_ONCE only**:
+- Array sorting or collective operations
+- Neighbor finding or spatial algorithms
+- Operations requiring access to all galaxies simultaneously
+
+**When to use LOOP_MODE_ALL only**:
+- Per-galaxy time integration
+- Local physics calculations
+- Operations on individual galaxies
+
+### Referencing Generated Arrays
+
+The build system generates loop mode arrays in `src/modules/_system/generated/module_init.c`:
+
+```c
+const enum LoopMode my_module_supported_modes[] = {LOOP_MODE_ONCE, LOOP_MODE_ALL};
+```
+
+Reference this array in your module registration:
+
+```c
+// my_module.c
+
+/* Extern reference to generated loop mode array */
+extern const enum LoopMode my_module_supported_modes[];
+
+static struct Module my_module_module = {
+    .name = "my_module",
+    .init = my_module_init,
+    .process = my_module_process,
+    .cleanup = my_module_cleanup,
+    .supported_loop_modes = my_module_supported_modes,
+    .num_supported_modes = 2  /* Number of modes in array */
+};
+
+void my_module_register(void) {
+    module_registry_add(&my_module_module);
+}
+```
+
+### Runtime Validation
+
+The module system validates loop mode configuration during initialization:
+
+```
+INFO: Validating module loop mode configurations...
+ERROR: Configuration error in phase 'phase_1':
+  Module 'my_module' does not support loop mode 'once'
+  Supported modes: all
+  Fix: Change loop mode in input YAML to one of the supported modes
 ```
 
 ---

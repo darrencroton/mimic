@@ -277,10 +277,16 @@ static int sage_infall_cleanup(void) {
 // MODULE REGISTRATION
 // ============================================================================
 
+/* Extern reference to generated loop mode array */
+extern const enum LoopMode sage_infall_supported_modes[];
+
 static struct Module sage_infall_module = {
     .name = "sage_infall",
     .init = sage_infall_init,
     .process = sage_infall_process,
-    .cleanup = sage_infall_cleanup};
+    .cleanup = sage_infall_cleanup,
+    .supported_loop_modes = sage_infall_supported_modes,
+    .num_supported_modes = 2  /* Default: supports both once and all */
+};
 
 void sage_infall_register(void) { module_registry_add(&sage_infall_module); }
