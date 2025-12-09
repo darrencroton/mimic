@@ -56,5 +56,5 @@ This metadata is auto-generated to ensure test infrastructure stays synchronized
 - Eliminates synchronization bugs
 
 See:
-- `docs/architecture/property-metadata-schema.md` for property metadata
+- `docs/developer/property-metadata-schema.md` for property metadata
 - `docs/developer/module-metadata-schema.md` for module metadata

@@ -725,6 +725,6 @@ If you're stuck on unit issues:
 - **KISS**: One unit system, clear rules, minimal conversions
 
 **For more information**:
-- Property metadata: `docs/architecture/property-metadata-schema.md`
+- Property metadata: `docs/developer/property-metadata-schema.md`
 - Module development: `docs/developer/module-developer-guide.md`
 - Testing: `docs/developer/testing.md`

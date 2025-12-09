@@ -6,7 +6,7 @@
 # Current properties: 25 (baryonic components + tracking variables)
 #
 # For schema documentation, see:
-#   docs/architecture/property-metadata-schema.md
+#   docs/developer/property-metadata-schema.md
 
 galaxy_properties:
 

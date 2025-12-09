@@ -464,7 +464,7 @@ make USE-HDF5=yes
 ## See Also
 
 - `docs/user/module-configuration.md` - Configuring physics modules
-- `docs/architecture/property-metadata-schema.md` - Property definition system
+- `docs/developer/property-metadata-schema.md` - Property definition system
 - `docs/developer/testing.md` - Output format testing
 - `output/mimic-plot/` - Plotting tools with auto-detection
 - `tests/integration/test_output_formats.py` - Format equivalence tests

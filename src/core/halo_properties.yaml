@@ -4,7 +4,7 @@
 # These properties are part of the physics-agnostic infrastructure.
 #
 # For schema documentation, see:
-#   docs/architecture/property-metadata-schema.md
+#   docs/developer/property-metadata-schema.md
 
 halo_properties:
   # ===========================================================================

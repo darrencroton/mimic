@@ -55,4 +55,4 @@ This is part of Mimic's metadata-driven architecture (Vision Principle #3 and #7
 - **Auto-Generated**: Python dtypes are derived, not canonical
 - **Type Safety**: Ensures Python reads match C output exactly
 
-See `docs/architecture/property-metadata-schema.md` for full specification.
+See `docs/developer/property-metadata-schema.md` for full specification.

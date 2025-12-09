@@ -165,7 +165,7 @@ make clean && make
 | **[Unit System Audit Checklist](developer/unit-system-audit-checklist.md)** | Systematic module unit audit | ~400 |
 | **[Testing Guide](developer/testing.md)** | Three-tier testing framework | 2127 |
 | **[Module Metadata Schema](developer/module-metadata-schema.md)** | Module YAML specification | 1237 |
-| **[Property Metadata Schema](architecture/property-metadata-schema.md)** | Property YAML specification | 990 |
+| **[Property Metadata Schema](developer/property-metadata-schema.md)** | Property YAML specification | 990 |
 | **[Execution Flow Reference](developer/execution-flow-reference.md)** | Complete function call trace | 1028 |
 | **[Coding Standards](developer/coding-standards.md)** | Code style requirements | 71 |
 
@@ -239,7 +239,7 @@ mimic/
 
 **Reference:**
 - `docs/developer/module-metadata-schema.md` - Module YAML specification
-- `docs/architecture/property-metadata-schema.md` - Property YAML specification
+- `docs/developer/property-metadata-schema.md` - Property YAML specification
 - `docs/developer/execution-flow-reference.md` - Function call trace
 
 **User Guides:**
@@ -251,7 +251,7 @@ mimic/
 | Task | Documentation |
 |------|---------------|
 | Implement a new physics module | [Module Developer Guide](developer/module-developer-guide.md) |
-| Add a new property | [Property Metadata Schema](architecture/property-metadata-schema.md) quick start |
+| Add a new property | [Property Metadata Schema](developer/property-metadata-schema.md) quick start |
 | Understand code flow | [Execution Flow Reference](developer/execution-flow-reference.md) |
 | Add tests | [Testing Guide](developer/testing.md) |
 | Fix a bug | Ensure `make tests` passes |
@@ -287,7 +287,7 @@ make tidy   # Remove object files, keep executable
 ### Architecture & Design
 - **[Vision](architecture/vision.md)** - 8 core architectural principles
 - **[Roadmap](architecture/roadmap.md)** - Current status and development priorities
-- **[Property Metadata Schema](architecture/property-metadata-schema.md)** - Property system specification
+- **[Property Metadata Schema](developer/property-metadata-schema.md)** - Property system specification
 
 ### Development Guides
 - **[Module Developer Guide](developer/module-developer-guide.md)** - Creating physics modules (1122 lines)
@@ -338,7 +338,7 @@ docs/
 → See [Module Developer Guide](developer/module-developer-guide.md) - complete workflow with examples
 
 **Q: How do I add a new property?**
-→ See [Property Metadata Schema](architecture/property-metadata-schema.md) - quick start at top
+→ See [Property Metadata Schema](developer/property-metadata-schema.md) - quick start at top
 
 **Q: How do I configure modules at runtime?**
 → See [Module Configuration](user/module-configuration.md) - all modules and parameters
