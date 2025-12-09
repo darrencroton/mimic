@@ -502,8 +502,10 @@ def validate_supported_loop_modes(
     # Empty list not allowed
     if len(modes) == 0:
         results.add_error(
-            module_name, 1, "supported_loop_modes cannot be empty. "
-            "Specify ['once'], ['all'], or ['once', 'all']"
+            module_name,
+            1,
+            "supported_loop_modes cannot be empty. "
+            "Specify ['once'], ['all'], or ['once', 'all']",
         )
         return False
 

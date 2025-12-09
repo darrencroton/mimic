@@ -248,9 +248,15 @@ def generate_module_init_c(
     lines.append("")
 
     # Generate loop mode arrays for each module
-    lines.append("/* ========================================================================== */")
-    lines.append("/* SUPPORTED LOOP MODES (Auto-generated from module_info.yaml)               */")
-    lines.append("/* ========================================================================== */")
+    lines.append(
+        "/* ========================================================================== */"
+    )
+    lines.append(
+        "/* SUPPORTED LOOP MODES (Auto-generated from module_info.yaml)               */"
+    )
+    lines.append(
+        "/* ========================================================================== */"
+    )
     lines.append("")
     lines.append("/*")
     lines.append(" * These arrays define which loop modes each module supports:")
@@ -260,7 +266,9 @@ def generate_module_init_c(
     lines.append(" * Generated from 'supported_loop_modes' field in module_info.yaml.")
     lines.append(" * If omitted, defaults to supporting both modes [once, all].")
     lines.append(" *")
-    lines.append(" * Modules reference these arrays in their Module struct initialization.")
+    lines.append(
+        " * Modules reference these arrays in their Module struct initialization."
+    )
     lines.append(" */")
     lines.append("")
 
@@ -284,9 +292,15 @@ def generate_module_init_c(
     lines.append("")
 
     # Registration function
-    lines.append("/* ========================================================================== */")
-    lines.append("/* MODULE REGISTRATION                                                        */")
-    lines.append("/* ========================================================================== */")
+    lines.append(
+        "/* ========================================================================== */"
+    )
+    lines.append(
+        "/* MODULE REGISTRATION                                                        */"
+    )
+    lines.append(
+        "/* ========================================================================== */"
+    )
     lines.append("")
     lines.append("/**")
     lines.append(" * @brief Register all available physics modules")
