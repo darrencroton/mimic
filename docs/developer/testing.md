@@ -1,8 +1,8 @@
 # Mimic Testing Guide
 
-**Version**: 1.3 (Automated Test Discovery)
+**Version**: 1.4 (Multi-Phase Pipeline)
 **Status**: Production
-**Last Updated**: 2025-11-12
+**Last Updated**: 2025-12-09
 
 This comprehensive guide explains how to use Mimic's testing infrastructure, write new tests, and debug test failures.
 
@@ -132,16 +132,24 @@ Use the `test_fixture` module for ALL infrastructure testing:
 
 ```c
 // ✅ CORRECT: Use test_fixture in infrastructure tests
-strcpy(MimicConfig.EnabledModules[0], "test_fixture");
-strcpy(MimicConfig.ModuleParams[0].module_name, "TestFixture");
-strcpy(MimicConfig.ModuleParams[0].param_name, "DummyParameter");
+MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+MimicConfig.phase_1[0].module_name = strdup("test_fixture");
+MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+MimicConfig.num_phase_1 = 1;
+MimicConfig.SubSteps = 1;
 ```
 
 ```python
 # ✅ CORRECT: Use test_fixture in infrastructure tests
-param_file = create_test_param_file(
-    enabled_modules=["test_fixture"],
-    module_params={"TestFixture_DummyParameter": "2.5"}
+param_file, output_dir, temp_dir = create_test_param_file(
+    output_name="test",
+    phase_config={
+        'pre_timestep': [],
+        'phase_1': [('test_fixture', 'all')],
+        'phase_2': [],
+        'post_timestep': []
+    },
+    model_params={"TestFixtureDummyParameter": 2.5}
 )
 ```
 
@@ -149,7 +157,7 @@ param_file = create_test_param_file(
 
 ```c
 // ❌ WRONG: Hardcoding production modules violates architecture
-strcpy(MimicConfig.EnabledModules[0], "simple_cooling");  // BAD!
+MimicConfig.phase_1[0].module_name = strdup("simple_cooling");  // BAD!
 ```
 
 ### Module-Specific Tests vs Infrastructure Tests
@@ -176,7 +184,11 @@ See `src/modules/_system/test_fixture/README.md` for full documentation.
 **Testing module configuration system** (infrastructure test):
 ```c
 // Use test_fixture to test that configuration system works
-strcpy(MimicConfig.EnabledModules[0], "test_fixture");
+MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+MimicConfig.phase_1[0].module_name = strdup("test_fixture");
+MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+MimicConfig.num_phase_1 = 1;
+MimicConfig.SubSteps = 1;
 int result = module_system_init();
 TEST_ASSERT_EQUAL(result, 0, "Module system should initialize");
 ```
@@ -184,7 +196,11 @@ TEST_ASSERT_EQUAL(result, 0, "Module system should initialize");
 **Testing module physics** (module-specific test):
 ```c
 // Use specific module to test its physics calculations
-strcpy(MimicConfig.EnabledModules[0], "infall_model");
+MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+MimicConfig.phase_1[0].module_name = strdup("sage_infall");
+MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+MimicConfig.num_phase_1 = 1;
+MimicConfig.SubSteps = 1;
 // ... test infall-specific physics ...
 ```
 
@@ -291,8 +307,13 @@ import shutil
 # Create custom test parameter file
 param_file, output_dir, temp_dir = create_test_param_file(
     output_name="my_test",
-    enabled_modules=["infall_model"],
-    module_params={"InflallModel_BaryonFrac": "0.17"}
+    phase_config={
+        'pre_timestep': [],
+        'phase_1': [('sage_infall', 'all')],
+        'phase_2': [],
+        'post_timestep': []
+    },
+    model_params={"GlobalBaryonFraction": 0.17}
 )
 
 # Run Mimic
@@ -1225,8 +1246,11 @@ MimicConfig.OmegaLambda = 0.75;
 MimicConfig.Hubble_h = 0.73;
 
 /* Configure module and provide ALL model parameters */
-strcpy(MimicConfig.EnabledModules[0], "your_module");
-MimicConfig.NumEnabledModules = 1;
+MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+MimicConfig.phase_1[0].module_name = strdup("your_module");
+MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+MimicConfig.num_phase_1 = 1;
+MimicConfig.SubSteps = 1;
 set_test_model_parameters();  /* Provides all 20 required parameters */
 
 /* Optionally override specific parameters for testing */
@@ -1236,8 +1260,12 @@ strcpy(MimicConfig.ModelParams[0].value, "0.20");  /* Override BaryonFrac */
 int result = module_system_init();
 ```
 
-**What NOT to do (obsolete pattern):**
+**What NOT to do (obsolete patterns):**
 ```c
+/* ❌ WRONG - Old single-phase configuration API removed */
+strcpy(MimicConfig.EnabledModules[0], "your_module");
+MimicConfig.NumEnabledModules = 1;
+
 /* ❌ WRONG - ModuleParams no longer used */
 strcpy(MimicConfig.ModuleParams[0].module_name, "YourModule");
 strcpy(MimicConfig.ModuleParams[0].param_name, "SomeParam");
@@ -1618,7 +1646,7 @@ git commit -m "Update HDF5 regression baseline (reason: describe why baseline ch
 
 **Important Notes**:
 - **Binary format has NO baseline** - binary correctness validated via equivalence with HDF5
-- **Baseline must be physics-free** - test parameter files must have no `EnabledModules` parameter (or empty)
+- **Baseline must be physics-free** - test parameter files must have all phases empty (no modules enabled)
 - **Baselines validate core only** - halo tracking and virial properties without module physics
 - **Schema evolution safe** - HDF5 baseline remains valid even when properties are added to output struct
 - **Document changes** - Baselines should only change when core physics calculations change intentionally
@@ -1690,4 +1718,4 @@ Mimic's testing framework provides:
 - Architecture docs: `docs/architecture/`
 - CI logs: GitHub Actions tab
 
-**Last Updated**: 2025-11-28
+**Last Updated**: 2025-12-09

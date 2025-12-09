@@ -28,7 +28,12 @@ class TestSageReionization(unittest.TestCase):
         """Test sage_reionization module executes without errors"""
         param_file, output_dir, temp_dir = create_test_param_file(
             output_name='test_sage_reionization_loads',
-            enabled_modules=['sage_reionization'],
+            phase_config={
+                'pre_timestep': [('sage_reionization', 'once')],
+                'phase_1': [],
+                'phase_2': [],
+                'post_timestep': []
+            },
             model_params={'GlobalBaryonFraction': 0.17}
         )
 
@@ -46,7 +51,12 @@ class TestSageReionization(unittest.TestCase):
         """Test sage_reionization sets HaloBaryonFraction property"""
         param_file, output_dir, temp_dir = create_test_param_file(
             output_name='test_sage_reionization_property',
-            enabled_modules=['sage_reionization'],
+            phase_config={
+                'pre_timestep': [('sage_reionization', 'once')],
+                'phase_1': [],
+                'phase_2': [],
+                'post_timestep': []
+            },
             model_params={'GlobalBaryonFraction': 0.17}
         )
 
@@ -78,7 +88,12 @@ class TestSageReionization(unittest.TestCase):
         """Test sage_reionization uses GlobalBaryonFraction parameter"""
         param_file, output_dir, temp_dir = create_test_param_file(
             output_name='test_sage_reionization_param',
-            enabled_modules=['sage_reionization'],
+            phase_config={
+                'pre_timestep': [('sage_reionization', 'once')],
+                'phase_1': [],
+                'phase_2': [],
+                'post_timestep': []
+            },
             model_params={'GlobalBaryonFraction': 0.20}
         )
 

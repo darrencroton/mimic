@@ -71,7 +71,7 @@ def get_available_modules():
         with open(ref_param_file, 'r') as f:
             config = yaml.safe_load(f)
 
-        config['modules']['enabled'] = ['__nonexistent_module__']
+        config['modules']['phase_1'] = [{'__nonexistent_module__': 'all'}]
         config['output']['output_format'] = 'binary'
 
         with open(test_param, 'w') as f:
@@ -172,7 +172,7 @@ def create_test_param_file(output_name, enabled_modules=None,
 
     Args:
         output_name: Name for output directory
-        enabled_modules: List of module names to enable
+        enabled_modules: List of module names to enable (puts all in phase_1 with loop_mode=all)
         module_params: Dict of {ModuleName_ParamName: value} for module parameters
         first_file: First file to process (default: 0)
         last_file: Last file to process (default: 0)
@@ -202,8 +202,19 @@ def create_test_param_file(output_name, enabled_modules=None,
     config['input']['first_file'] = first_file
     config['input']['last_file'] = last_file
 
-    # Update module configuration
-    config['modules']['enabled'] = enabled_modules
+    # Update module configuration - multi-phase pipeline format
+    # Put sage_reionization in pre_timestep (setup phase)
+    # Put other modules in phase_1 (main physics)
+    config['modules']['pre_timestep'] = []
+    config['modules']['phase_1'] = []
+    config['modules']['phase_2'] = []
+    config['modules']['post_timestep'] = []
+
+    for module_name in enabled_modules:
+        if module_name == 'sage_reionization':
+            config['modules']['pre_timestep'].append({module_name: 'once'})
+        else:
+            config['modules']['phase_1'].append({module_name: 'all'})
 
     # Add model_parameters
     config['modules']['parameters'] = {

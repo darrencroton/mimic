@@ -146,16 +146,20 @@ Properties are provided by modules. To get specific properties:
 | Property | Required Module | Configuration |
 |----------|----------------|---------------|
 | Mvir, Rvir, Vmax, Spin | Core (always) | No modules needed |
-| ColdGas | Cooling module | `EnabledModules cooling_model` |
-| StellarMass | Star formation + cooling | `EnabledModules cooling_model,starformation_model` |
+| ColdGas | Cooling module | Enable in multi-phase pipeline |
+| StellarMass | Star formation + cooling | Enable both modules in pipeline |
 
 **Example**: To get both ColdGas and StellarMass in output:
 
-```
-EnabledModules  cooling_model,starformation_model
+```yaml
+modules:
+  phase_1:
+    - sage_cooling: all
+    - sage_starformation_feedback: all
 
-cooling_model_BaryonFraction      0.15
-starformation_model_Efficiency    0.02
+  parameters:
+    GlobalBaryonFraction: 0.17
+    StarFormationEfficiency: 0.02
 ```
 
 ## Working with Unit Metadata

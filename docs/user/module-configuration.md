@@ -175,7 +175,25 @@ The multi-phase pipeline is designed to be extensible. While Mimic currently sup
                        &MimicConfig.num_phase_3, "phase_3");
      ```
 
-5. **src/io/output/hdf5.c** (if using HDF5 output)
+5. **src/core/module_registry.c** (**CRITICAL: Memory cleanup**)
+   - Add cleanup in `module_system_cleanup()` BEFORE the final "Module system cleanup complete" message:
+     ```c
+     // Free phase_3 configuration array and module name strings
+     if (MimicConfig.phase_3) {
+       for (int i = 0; i < MimicConfig.num_phase_3; i++) {
+         if (MimicConfig.phase_3[i].module_name) {
+           free((void *)MimicConfig.phase_3[i].module_name);
+         }
+       }
+       myfree(MimicConfig.phase_3);
+       MimicConfig.phase_3 = NULL;
+     }
+     ```
+   - **Important**: Module names are allocated with `strdup()` during parsing, so they must be freed with `free()`, not `myfree()`
+   - **Important**: The phase array itself is allocated with `mymalloc_cat()`, so it must be freed with `myfree()`
+   - **Important**: Forgetting this step causes memory leaks (2 blocks per new phase)
+
+6. **src/io/output/hdf5.c** (if using HDF5 output)
    - Add phase_3 collection in `write_enabled_modules()`:
      ```c
      for (int i = 0; i < MimicConfig.num_phase_3; i++) {
@@ -184,7 +202,7 @@ The multi-phase pipeline is designed to be extensible. While Mimic currently sup
      }
      ```
 
-6. **input/millennium.yaml** (example configuration)
+7. **input/millennium.yaml** (example configuration)
    - Add phase_3 section:
      ```yaml
      modules:

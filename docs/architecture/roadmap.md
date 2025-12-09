@@ -2,9 +2,9 @@
 
 **Purpose**: Clear, actionable roadmap for Mimic development priorities
 
-**Status**: Core infrastructure complete (v2.0 parameter decentralization). SAGE physics modules implemented. Scientific validation in progress.
+**Status**: Core infrastructure complete (v3.0 multi-phase pipeline). SAGE physics modules implemented. Test suite updated for new architecture.
 
-**Last Updated**: 2025-12-01
+**Last Updated**: 2025-12-09
 
 ---
 
@@ -13,12 +13,14 @@
 **Mission**: Mimic is a physics-agnostic galaxy evolution framework with runtime-configurable physics modules.
 
 **Current State**:
-- ✅ **Core Infrastructure Complete (v2.0)**: Metadata-driven property system, comprehensive testing framework, runtime module configuration, automatic module discovery, decentralized parameter system
+- ✅ **Core Infrastructure Complete (v3.0)**: Multi-phase pipeline with time sub-stepping, metadata-driven property system, comprehensive testing framework, runtime module configuration, automatic module discovery, decentralized parameter system
 - ✅ **All SAGE Physics Implemented**: 6 production modules ported from SAGE (infall, cooling, star formation & feedback, reincorporation, mergers, disk instability)
-- 🔄 **Integration & Validation In Progress**: Modules merged, unit tests passing, full pipeline integration and scientific validation ongoing
+- ✅ **Multi-Phase Pipeline Operational**: 4-phase execution (pre_timestep, phase_1, phase_2, post_timestep), galaxy-major loops, time sub-stepping support (commit 58d51e4)
+- ✅ **Core Test Suite Updated**: All 14 unit tests passing, core integration tests passing, test framework supports new configuration
+- 🔄 **Module Integration Tests**: Need update for new multi-phase configuration format
 
 **Path Forward**:
-1. **Current Priority**: SAGE scientific validation (physics accuracy verification)
+1. **Current Priority**: Complete module integration test updates, SAGE scientific validation
 2. **Future Work**: Build-time module selection, alternative physics models, performance optimization
 
 ---
@@ -95,11 +97,15 @@ The foundational work is complete. Key capabilities now available:
 - 14 unit tests, comprehensive integration/scientific suites
 - **Impact**: Catches critical bugs early
 
-### Runtime Module Configuration
-- `EnabledModules` parameter controls execution pipeline
-- Physics-free mode supported (pure halo tracking, no parameters needed)
-- YAML parameter files (industry-standard libyaml DOM parser)
-- **Impact**: Researchers configure physics without recompilation
+### Multi-Phase Pipeline Architecture (v3.0)
+- **4 execution phases**: pre_timestep, phase_1, phase_2, post_timestep
+- **2 loop modes**: LOOP_MODE_ONCE (array processing), LOOP_MODE_ALL (galaxy-major loop)
+- **Time sub-stepping**: SubSteps parameter enables numerical stability
+- **Configuration-driven**: Pipeline structure defined in input YAML
+- **Physics-free mode**: Supported (pure halo tracking, no parameters needed)
+- **YAML configuration**: Industry-standard libyaml DOM parser
+- **Impact**: Researchers configure execution structure and physics without recompilation
+- **Breaking change**: Clean architecture with no backwards compatibility (commit 58d51e4)
 
 ### Automatic Module Discovery
 - Module metadata (`module_info.yaml`) drives code generation

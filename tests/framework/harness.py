@@ -6,7 +6,7 @@ Eliminates code duplication across test files.
 
 Phase: Phase 4.2 (Testing Framework Refinement)
 Author: Mimic Testing Team
-Date: 2025-11-13
+Date: 2025-12-09 (Updated for multi-phase pipeline)
 """
 
 import os
@@ -125,22 +125,31 @@ def read_param_file(param_file):
     return params
 
 
-def create_test_param_file(output_name, enabled_modules=None,
+def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
                             module_params=None, model_params=None, first_file=0, last_file=0,
                             ref_param_file=None, temp_dir=None, output_format=None):
     """
-    Create a test YAML parameter file with specified module configuration
+    Create a test YAML parameter file with multi-phase module configuration
 
     Generates a YAML parameter file for testing, based on a reference parameter file
     with custom module configuration and file range.
 
     Args:
         output_name (str): Name for output directory (created in temp_dir)
-        enabled_modules (list): List of module names to enable (None = physics-free)
+        enabled_modules (list): DEPRECATED - Use phase_config instead.
+                               For backward compatibility, puts all modules in phase_1 with loop_mode=all
+        phase_config (dict): Multi-phase pipeline configuration.
+                            Format: {
+                                'pre_timestep': [('module1', 'once'), ('module2', 'once')],
+                                'phase_1': [('module3', 'all'), ('module4', 'all')],
+                                'phase_2': [('module5', 'all')],
+                                'post_timestep': [('module6', 'once')]
+                            }
+                            Each tuple is (module_name, loop_mode) where loop_mode is 'once' or 'all'
         module_params (dict): DEPRECATED - use model_params instead
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
         first_file (int): First file to process (default: 0)
-        last_file (int): Last_file (int): Last file to process (default: 0)
+        last_file (int): Last file to process (default: 0)
         ref_param_file (str or Path): Reference YAML parameter file (default: test_binary.yaml)
         temp_dir (str or Path): Temporary directory for outputs (default: create new)
         output_format (str): Output format override ('binary' or 'hdf5', default: from ref file)
@@ -155,15 +164,27 @@ def create_test_param_file(output_name, enabled_modules=None,
         # Physics-free mode
         param_file, output_dir, temp_dir = create_test_param_file("test_run")
 
-        # With modules and model parameters
+        # Multi-phase configuration (preferred)
         param_file, output_dir, temp_dir = create_test_param_file(
             output_name="infall_test",
-            enabled_modules=["sage_reionization", "sage_infall"],
+            phase_config={
+                'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+                'phase_1': [('sage_cooling', 'all')],
+                'phase_2': [],
+                'post_timestep': []
+            },
             model_params={
                 "GlobalBaryonFraction": 0.17
             },
             first_file=0,
             last_file=0
+        )
+
+        # Legacy format (backward compatible - puts all in phase_1)
+        param_file, output_dir, temp_dir = create_test_param_file(
+            output_name="legacy_test",
+            enabled_modules=["test_fixture"],
+            model_params={"TestFixtureDummyParameter": 2.5}
         )
 
         # Cleanup when done
@@ -195,11 +216,61 @@ def create_test_param_file(output_name, enabled_modules=None,
     config['input']['first_file'] = first_file
     config['input']['last_file'] = last_file
 
-    # Update module configuration
-    if enabled_modules:
-        config['modules']['enabled'] = enabled_modules
+    # Set SubSteps (default to 1 if not in reference file)
+    if 'SubSteps' not in config:
+        config['SubSteps'] = 1
+
+    # Update module configuration to multi-phase structure
+    if not isinstance(config.get('modules'), dict):
+        config['modules'] = {}
+
+    # Handle multi-phase configuration (preferred)
+    if phase_config is not None:
+        # Clear old format if present
+        if 'enabled' in config['modules']:
+            del config['modules']['enabled']
+
+        # Set each phase
+        for phase_name in ['pre_timestep', 'phase_1', 'phase_2', 'post_timestep']:
+            phase_modules = phase_config.get(phase_name, [])
+            if phase_modules:
+                # Convert list of tuples to YAML dict format
+                config['modules'][phase_name] = [
+                    {module_name: loop_mode} for module_name, loop_mode in phase_modules
+                ]
+            else:
+                config['modules'][phase_name] = []
+
+    # Handle legacy enabled_modules format (backward compatibility)
+    elif enabled_modules is not None:
+        import warnings
+        warnings.warn(
+            "enabled_modules parameter is deprecated. Use phase_config instead for multi-phase pipeline.",
+            DeprecationWarning
+        )
+        # Clear old format if present
+        if 'enabled' in config['modules']:
+            del config['modules']['enabled']
+
+        # Put all modules in phase_1 with loop_mode=all (sensible default)
+        config['modules']['pre_timestep'] = []
+        config['modules']['phase_1'] = [
+            {module_name: 'all'} for module_name in enabled_modules
+        ]
+        config['modules']['phase_2'] = []
+        config['modules']['post_timestep'] = []
+
+    # Physics-free mode (no modules)
     else:
-        config['modules']['enabled'] = []
+        # Clear old format if present
+        if 'enabled' in config['modules']:
+            del config['modules']['enabled']
+
+        # Empty all phases
+        config['modules']['pre_timestep'] = []
+        config['modules']['phase_1'] = []
+        config['modules']['phase_2'] = []
+        config['modules']['post_timestep'] = []
 
     # Initialize modules.parameters section if model_params provided
     if model_params:
@@ -233,6 +304,7 @@ def create_test_param_file(output_name, enabled_modules=None,
         f.write("# Mimic Test Configuration\n")
         f.write("#" + "="*77 + "\n")
         f.write("# Auto-generated test parameter file\n")
+        f.write("# Multi-phase pipeline: pre_timestep, phase_1, phase_2, post_timestep\n")
         f.write("#" + "="*77 + "\n\n")
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 

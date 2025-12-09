@@ -25,6 +25,7 @@
 
 #include "error.h"
 #include "globals.h"
+#include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
 
@@ -311,6 +312,47 @@ int module_system_cleanup(void) {
                 cleanup_result);
       result = cleanup_result; // Continue cleanup but record failure
     }
+  }
+
+  // Free phase configuration arrays and their module name strings
+  if (MimicConfig.pre_timestep) {
+    for (int i = 0; i < MimicConfig.num_pre_timestep; i++) {
+      if (MimicConfig.pre_timestep[i].module_name) {
+        free((void *)MimicConfig.pre_timestep[i].module_name);
+      }
+    }
+    myfree(MimicConfig.pre_timestep);
+    MimicConfig.pre_timestep = NULL;
+  }
+
+  if (MimicConfig.phase_1) {
+    for (int i = 0; i < MimicConfig.num_phase_1; i++) {
+      if (MimicConfig.phase_1[i].module_name) {
+        free((void *)MimicConfig.phase_1[i].module_name);
+      }
+    }
+    myfree(MimicConfig.phase_1);
+    MimicConfig.phase_1 = NULL;
+  }
+
+  if (MimicConfig.phase_2) {
+    for (int i = 0; i < MimicConfig.num_phase_2; i++) {
+      if (MimicConfig.phase_2[i].module_name) {
+        free((void *)MimicConfig.phase_2[i].module_name);
+      }
+    }
+    myfree(MimicConfig.phase_2);
+    MimicConfig.phase_2 = NULL;
+  }
+
+  if (MimicConfig.post_timestep) {
+    for (int i = 0; i < MimicConfig.num_post_timestep; i++) {
+      if (MimicConfig.post_timestep[i].module_name) {
+        free((void *)MimicConfig.post_timestep[i].module_name);
+      }
+    }
+    myfree(MimicConfig.post_timestep);
+    MimicConfig.post_timestep = NULL;
   }
 
   INFO_LOG("Module system cleanup complete");

@@ -95,7 +95,7 @@ class TestModulePipeline(unittest.TestCase):
                         f"Mimic failed in physics-free mode:\n{stderr}")
 
         # Verify log messages
-        self.assertIn("No modules enabled", stdout,
+        self.assertIn("No modules configured (physics-free mode)", stdout,
                      "Should log physics-free mode")
 
         # Verify output directory was created

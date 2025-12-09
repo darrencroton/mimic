@@ -1,6 +1,6 @@
 # Module Developer Guide
 
-**Version**: 1.1
+**Version**: 1.2 (Multi-Phase Pipeline)
 **Audience**: Developers implementing galaxy physics modules
 **Prerequisites**: Familiarity with C programming, understanding of Mimic architecture (`docs/architecture/vision.md`)
 
@@ -683,10 +683,14 @@ Each module should have a concise `README.md` file (~100-150 words) that provide
 [One paragraph describing what the module does and key physics. Reference main models/papers. Keep concise - details are in code comments and module_info.yaml.]
 
 **Configuration Example**:
-```
-EnabledModules  upstream_module,your_module
-YourModule_Parameter1  value1
-YourModule_Parameter2  value2
+```yaml
+modules:
+  phase_1:
+    - upstream_module: all
+    - your_module: all
+  parameters:
+    YourModule_Parameter1: value1
+    YourModule_Parameter2: value2
 ```
 
 **Additional Comments**: [Optional: deferred work, limitations, notes]
@@ -718,9 +722,14 @@ Mimic uses three test levels (see `docs/developer/testing.md` for details). **Te
 int test_module_initialization(void) {
     reset_config();
     init_memory_system(0);
+    ensure_modules_registered();
 
-    strcpy(MimicConfig.EnabledModules[0], "my_module");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure module in phase_1 */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("my_module");
+    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
 
     int result = module_system_init();
     TEST_ASSERT(result == 0, "Module initialization should succeed");

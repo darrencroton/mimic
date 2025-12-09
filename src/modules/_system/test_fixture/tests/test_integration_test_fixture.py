@@ -143,8 +143,15 @@ def create_test_param_file(output_name, enabled_modules=None,
     config['input']['first_file'] = first_file
     config['input']['last_file'] = last_file
 
-    # Update module configuration
-    config['modules']['enabled'] = enabled_modules
+    # Update module configuration - multi-phase pipeline format
+    # Put all modules in phase_1 with loop_mode=all (test_fixture is a simple test module)
+    config['modules']['pre_timestep'] = []
+    config['modules']['phase_1'] = []
+    config['modules']['phase_2'] = []
+    config['modules']['post_timestep'] = []
+
+    for module_name in enabled_modules:
+        config['modules']['phase_1'].append({module_name: 'all'})
 
     # Add model_parameters (test_fixture needs TestFixtureDummyParameter and TestFixtureEnableLogging)
     config['modules']['parameters'] = {

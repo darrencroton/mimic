@@ -194,7 +194,7 @@ module:
 - Valid C identifier (alphanumeric + underscore, no spaces)
 - Must be unique across all modules
 - Convention: lowercase_with_underscores
-- Used in: `EnabledModules` parameter, logging, registration
+- Used in: Multi-phase pipeline configuration, logging, registration
 
 **Examples**:
 ```yaml

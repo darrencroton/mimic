@@ -104,8 +104,12 @@ int test_module_initialization(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* Configure sage_reionization module */
-    strcpy(MimicConfig.EnabledModules[0], "sage_reionization");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure sage_reionization module in pre_timestep phase (for testing) */
+    MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");
+    MimicConfig.pre_timestep[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.num_pre_timestep = 1;
+    MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
@@ -141,8 +145,12 @@ int test_parameter_reading(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* Configure sage_reionization with custom GlobalBaryonFraction */
-    strcpy(MimicConfig.EnabledModules[0], "sage_reionization");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure sage_reionization module in pre_timestep phase (for testing) */
+    MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");
+    MimicConfig.pre_timestep[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.num_pre_timestep = 1;
+    MimicConfig.SubSteps = 1;
 
     /* Set all required parameters, then override specific one for testing */
     set_test_model_parameters();
@@ -180,8 +188,12 @@ int test_memory_safety(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    strcpy(MimicConfig.EnabledModules[0], "sage_reionization");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure sage_reionization module in pre_timestep phase (for testing) */
+    MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");
+    MimicConfig.pre_timestep[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.num_pre_timestep = 1;
+    MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
     /* ===== EXECUTE ===== */

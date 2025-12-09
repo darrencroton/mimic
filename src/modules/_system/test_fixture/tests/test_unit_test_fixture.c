@@ -107,8 +107,12 @@ int test_module_initialization(void)
     ensure_modules_registered();
     set_test_fixture_params(2.5, 0);
 
-    strcpy(MimicConfig.EnabledModules[0], "test_fixture");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure test_fixture module in phase_1 (for testing) */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("test_fixture");
+    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -139,8 +143,12 @@ int test_parameter_reading(void)
     /* Set custom parameter value via centralized system */
     set_test_fixture_params(3.14, 0);
 
-    strcpy(MimicConfig.EnabledModules[0], "test_fixture");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure test_fixture module in phase_1 (for testing) */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("test_fixture");
+    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -205,8 +213,12 @@ int test_memory_safety(void)
     ensure_modules_registered();
     set_test_fixture_params(2.5, 0);
 
-    strcpy(MimicConfig.EnabledModules[0], "test_fixture");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure test_fixture module in phase_1 (for testing) */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("test_fixture");
+    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();

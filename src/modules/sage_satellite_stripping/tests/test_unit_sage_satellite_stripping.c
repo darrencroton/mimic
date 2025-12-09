@@ -109,8 +109,12 @@ int test_module_initialization(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* Configure sage_satellite_stripping module */
-    strcpy(MimicConfig.EnabledModules[0], "sage_satellite_stripping");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure sage_satellite_stripping module in phase_1 (for testing) */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_satellite_stripping");
+    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
@@ -147,8 +151,12 @@ int test_parameter_reading(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* Configure sage_satellite_stripping (no parameters needed) */
-    strcpy(MimicConfig.EnabledModules[0], "sage_satellite_stripping");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure sage_satellite_stripping module in phase_1 (for testing) */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_satellite_stripping");
+    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
@@ -182,8 +190,12 @@ int test_memory_safety(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    strcpy(MimicConfig.EnabledModules[0], "sage_satellite_stripping");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure sage_satellite_stripping module in phase_1 (for testing) */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_satellite_stripping");
+    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
     /* ===== EXECUTE ===== */

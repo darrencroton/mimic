@@ -84,7 +84,12 @@ def test_module_loads():
     # ===== SETUP =====
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_load",
-        enabled_modules=["sage_reionization", "sage_satellite_stripping"],
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once')],
+            'phase_1': [('sage_satellite_stripping', 'all')],
+            'phase_2': [],
+            'post_timestep': []
+        },
         model_params={"GlobalBaryonFraction": 0.17}
     )
 
@@ -125,7 +130,12 @@ def test_parameter_configuration():
     # Create parameter file with custom GlobalBaryonFraction
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_params",
-        enabled_modules=["sage_reionization", "sage_satellite_stripping"],
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once')],
+            'phase_1': [('sage_satellite_stripping', 'all')],
+            'phase_2': [],
+            'post_timestep': []
+        },
         model_params={"GlobalBaryonFraction": 0.20}
     )
 
@@ -157,7 +167,12 @@ def test_with_sage_infall():
     # ===== SETUP =====
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_infall",
-        enabled_modules=["sage_reionization", "sage_infall", "sage_satellite_stripping"],
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once')],
+            'phase_1': [('sage_infall', 'all'), ('sage_satellite_stripping', 'all')],
+            'phase_2': [],
+            'post_timestep': []
+        },
         model_params={
             "GlobalBaryonFraction": 0.17
         }
@@ -196,7 +211,12 @@ def test_memory_safety():
     # ===== SETUP =====
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_memory",
-        enabled_modules=["sage_reionization", "sage_satellite_stripping"],
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once')],
+            'phase_1': [('sage_satellite_stripping', 'all')],
+            'phase_2': [],
+            'post_timestep': []
+        },
         model_params={"GlobalBaryonFraction": 0.17}
     )
 
@@ -228,7 +248,12 @@ def test_execution_completes():
     # ===== SETUP =====
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_complete",
-        enabled_modules=["sage_reionization", "sage_satellite_stripping"],
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once')],
+            'phase_1': [('sage_satellite_stripping', 'all')],
+            'phase_2': [],
+            'post_timestep': []
+        },
         model_params={"GlobalBaryonFraction": 0.17},
         first_file=0,
         last_file=0  # Process single file

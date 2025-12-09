@@ -138,8 +138,11 @@ read_parameter_file(paramfilename)
 │     └─ [Stores: UnitLength_in_cm, UnitMass_in_g, UnitVelocity_in_cm_per_s]
 │
 ├─ parse_modules_section()          // Parse modules: section
-│  ├─ [Parse enabled: array]
-│  │  └─ [Stores: EnabledModules[] array]
+│  ├─ [Parse multi-phase pipeline]
+│  │  ├─ [Parse pre_timestep: array → phase_module_config]
+│  │  ├─ [Parse phase_1: array → phase_module_config]
+│  │  ├─ [Parse phase_2: array → phase_module_config]
+│  │  └─ [Parse post_timestep: array → phase_module_config]
 │  └─ [Parse parameters: subsection]
 │     └─ [Stores: ModelParams[] name-value pairs]
 │
