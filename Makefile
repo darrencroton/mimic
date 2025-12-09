@@ -483,6 +483,14 @@ test-integration:
 	echo ""; \
 	$(PYTHON) tests/integration/test_module_pipeline.py || FAILED=1; \
 	echo ""; \
+	$(PYTHON) tests/integration/test_phase_execution.py || FAILED=1; \
+	echo ""; \
+	$(PYTHON) tests/integration/test_substeps.py || FAILED=1; \
+	echo ""; \
+	$(PYTHON) tests/integration/test_loop_modes.py || FAILED=1; \
+	echo ""; \
+	$(PYTHON) tests/integration/test_galaxy_major_loop.py || FAILED=1; \
+	echo ""; \
 	echo "Running module integration tests from registry..."; \
 	for test in $$(grep -v '^#' build/generated/integration_tests.txt | grep -v '^$$'); do \
 		echo "\033[0;34mRunning: $$test\033[0m"; \

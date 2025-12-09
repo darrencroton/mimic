@@ -194,7 +194,7 @@ def main():
     """
     # Print test suite header
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: [TEST SUITE NAME]{NC}")
+    print(f"{BLUE}Test Suite: [TEST SUITE NAME] (filename.py){NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 

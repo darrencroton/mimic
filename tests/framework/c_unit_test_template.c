@@ -122,7 +122,7 @@ int test_error_handling(void) {
 int main(void) {
     printf("%s", BLUE);
     printf("============================================================\n");
-    printf("Test Suite: [TEST SUITE NAME]\n");
+    printf("Test Suite: [TEST SUITE NAME] (filename.c)\n");
     printf("============================================================\n");
     printf("%s\n", NC);
 

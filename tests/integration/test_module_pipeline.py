@@ -247,6 +247,49 @@ class TestModulePipeline(unittest.TestCase):
         self.assertIn("Test fixture module initialized", stdout,
                      "Module should be initialized in pipeline")
 
+    def test_module_init_failure_handling(self):
+        """Test that module init() failure stops execution gracefully.
+
+        Validates error handling when a module's init() function returns -1.
+        This tests:
+        - Execution stops when init() fails
+        - Error message is reported clearly
+        - System fails gracefully without crashes
+        """
+        # Create parameter file with test_fixture but missing required parameter
+        # This will cause init() to fail when it tries to read TestFixtureDummyParameter
+        param_file, output_dir, _ = create_test_param_file(
+            output_name="init_failure",
+            enabled_modules=["test_fixture"],
+            model_params={
+                # Intentionally omit TestFixtureDummyParameter to trigger init failure
+                "TestFixtureEnableLogging": 0
+            },
+            first_file=0,
+            last_file=0,
+            temp_dir=self.temp_dir
+        )
+
+        # Run mimic
+        returncode, stdout, stderr = run_mimic(param_file)
+
+        # Verify execution failed
+        self.assertNotEqual(returncode, 0,
+                           "Mimic should fail when module init() returns -1")
+
+        # Verify error message is present
+        combined_output = stdout + stderr
+        self.assertIn("Failed to read TestFixtureDummyParameter", combined_output,
+                     "Should report parameter read failure")
+
+        # Verify no output files were created (execution stopped early)
+        # Output directory may exist but should have no data files
+        if output_dir.exists():
+            binary_files = list(output_dir.glob("*.bin"))
+            hdf5_files = list(output_dir.glob("*.hdf5"))
+            self.assertEqual(len(binary_files) + len(hdf5_files), 0,
+                           "No output files should be created on init failure")
+
 
 def main():
     """Main test runner."""

@@ -45,6 +45,14 @@ static double DUMMY_PARAMETER;
 static int ENABLE_LOGGING;
 
 /**
+ * @brief   Execution counter for tracking module calls
+ *
+ * Incremented each time process() is called. Used for test validation
+ * of phase execution frequency.
+ */
+static int execution_count = 0;
+
+/**
  * @brief   Initialize test fixture module
  *
  * Called once during program startup. Reads module parameters from
@@ -81,6 +89,12 @@ static int test_fixture_init(void) {
  *
  * This validates the module system can execute modules and access properties.
  *
+ * When ENABLE_LOGGING=1, logs detailed execution information for test validation:
+ * - Execution count (for frequency verification)
+ * - Substep information (for time-stepping tests)
+ * - ngal parameter (for loop mode tests)
+ * - Galaxy processing (for ordering tests)
+ *
  * @param   ctx     Module execution context (provides redshift, time, params)
  * @param   halos   Array of halos in the FOF group (FoFWorkspace)
  * @param   ngal    Number of halos in the array
@@ -92,8 +106,14 @@ static int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos,
     return 0; // Nothing to process
   }
 
+  // Increment execution counter
+  execution_count++;
+
   if (ENABLE_LOGGING) {
-    DEBUG_LOG("Test fixture processing %d halos at z=%.2f", ngal, ctx->redshift);
+    // Log detailed execution information for test validation
+    INFO_LOG("TEST_FIXTURE_EXEC: count=%d ngal=%d substep=%d/%d substep_dt=%.6e z=%.4f",
+             execution_count, ngal, ctx->substep_number, ctx->num_substeps,
+             ctx->substep_dt, ctx->redshift);
   }
 
   // Process each halo in the FOF group
@@ -130,8 +150,10 @@ static int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos,
  */
 static int test_fixture_cleanup(void) {
   if (ENABLE_LOGGING) {
-    DEBUG_LOG("Test fixture module cleanup");
+    INFO_LOG("TEST_FIXTURE_CLEANUP: total_executions=%d", execution_count);
   }
+  // Reset execution counter for next run
+  execution_count = 0;
   // No resources to free
   return 0;
 }

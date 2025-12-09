@@ -2,7 +2,7 @@
 
 **Version**: 1.4 (Multi-Phase Pipeline)
 **Status**: Production
-**Last Updated**: 2025-12-09
+**Last Updated**: 2025-12-10
 
 This comprehensive guide explains how to use Mimic's testing infrastructure, write new tests, and debug test failures.
 
@@ -351,9 +351,14 @@ tests/
 ├── integration/               # Python integration tests for core infrastructure
 │   ├── test_full_pipeline.py
 │   ├── test_output_formats.py
+│   ├── test_module_pipeline.py
 │   ├── test_tree_preservation.py
-│   ├── test_halo_index.py
-│   └── test_module_pipeline.py
+│   ├── test_unique_galaxy_id.py
+│   ├── test_satellite_spatial_distribution.py
+│   ├── test_phase_execution.py
+│   ├── test_substeps.py
+│   ├── test_loop_modes.py
+│   └── test_galaxy_major_loop.py
 ├── scientific/                # Python scientific tests for core infrastructure
 │   └── test_scientific.py
 ├── data/                      # Test data
@@ -1699,8 +1704,8 @@ Mimic's testing framework provides:
 - **Developer-friendly**: Templates and clear documentation
 
 **Current test coverage**:
-- 6 unit tests (memory, properties, parameters, trees, numerics, modules)
-- 4 integration tests (pipeline, output formats with baseline comparison, tree preservation, UniqueGalaxyID validation)
+- 8 unit tests (memory, properties, parameters, trees, numerics, module system)
+- 10 integration tests (pipeline execution, output formats, tree preservation, multi-phase system, time-stepping, loop modes)
 - 1 scientific test (comprehensive validation: numerical validity, zero warnings, physical ranges)
 
 **Testing is not optional**. It catches bugs early, prevents regressions, and ensures scientific accuracy.
