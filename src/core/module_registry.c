@@ -83,7 +83,7 @@ void module_registry_add(struct Module *module) {
     exit(EXIT_FAILURE);
   }
 
-  if (module->init == NULL || module->process_halos == NULL ||
+  if (module->init == NULL || module->process == NULL ||
       module->cleanup == NULL) {
     ERROR_LOG("Module '%s' has NULL function pointers", module->name);
     exit(EXIT_FAILURE);
@@ -104,45 +104,81 @@ void module_registry_add(struct Module *module) {
 /**
  * @brief   Initialize the module system
  *
- * Builds the execution pipeline based on runtime configuration from
- * MimicConfig.EnabledModules. Then calls init() on all enabled modules in
- * configured order.
+ * Validates multi-phase pipeline configuration and initializes all referenced
+ * modules. Modules are initialized in the order they appear across all phases
+ * (pre_timestep → phase_1 → phase_2 → post_timestep), with duplicates
+ * initialized only once.
  *
  * @return  0 on success, non-zero if initialization fails
  */
-int module_system_init(void) {
-  INFO_LOG("Initializing module system");
+/**
+ * @brief   Helper to add module to execution pipeline if not already present
+ *
+ * @param   module_name  Name of module to add
+ */
+static void add_module_to_pipeline(const char *module_name) {
+  /* Check if already in pipeline */
+  for (int i = 0; i < num_pipeline_modules; i++) {
+    if (strcmp(execution_pipeline[i]->name, module_name) == 0) {
+      return; /* Already added */
+    }
+  }
 
-  // Phase 3.4: Build execution pipeline from MimicConfig.EnabledModules
+  /* Find module in registry */
+  struct Module *mod = find_module_by_name(module_name);
+  if (mod == NULL) {
+    ERROR_LOG("Module '%s' configured but not registered", module_name);
+    ERROR_LOG("Available modules:");
+    for (int j = 0; j < num_registered_modules; j++) {
+      ERROR_LOG("  - %s", registered_modules[j]->name);
+    }
+    exit(EXIT_FAILURE);
+  }
+
+  /* Add to execution pipeline */
+  if (num_pipeline_modules >= MAX_MODULES) {
+    ERROR_LOG("Too many unique modules in pipeline (max %d)", MAX_MODULES);
+    exit(EXIT_FAILURE);
+  }
+  execution_pipeline[num_pipeline_modules++] = mod;
+  DEBUG_LOG("Added module to pipeline: %s", module_name);
+}
+
+int module_system_init(void) {
+  INFO_LOG("Initializing multi-phase module system");
+
+  /* Build execution pipeline by collecting all unique modules across phases */
   num_pipeline_modules = 0;
 
-  if (MimicConfig.NumEnabledModules == 0) {
-    INFO_LOG("No modules enabled (physics-free mode)");
+  /* Collect modules from all phases in execution order */
+  for (int i = 0; i < MimicConfig.num_pre_timestep; i++) {
+    add_module_to_pipeline(MimicConfig.pre_timestep[i].module_name);
+  }
+  for (int i = 0; i < MimicConfig.num_phase_1; i++) {
+    add_module_to_pipeline(MimicConfig.phase_1[i].module_name);
+  }
+  for (int i = 0; i < MimicConfig.num_phase_2; i++) {
+    add_module_to_pipeline(MimicConfig.phase_2[i].module_name);
+  }
+  for (int i = 0; i < MimicConfig.num_post_timestep; i++) {
+    add_module_to_pipeline(MimicConfig.post_timestep[i].module_name);
+  }
+
+  if (num_pipeline_modules == 0) {
+    INFO_LOG("No modules configured (physics-free mode)");
+    INFO_LOG("SubSteps = %d", MimicConfig.SubSteps);
     return 0;
   }
 
-  // Build execution pipeline from configured module list
-  for (int i = 0; i < MimicConfig.NumEnabledModules; i++) {
-    const char *module_name = MimicConfig.EnabledModules[i];
-    struct Module *mod = find_module_by_name(module_name);
+  INFO_LOG("Pipeline configuration:");
+  INFO_LOG("  SubSteps: %d", MimicConfig.SubSteps);
+  INFO_LOG("  Pre-timestep: %d module(s)", MimicConfig.num_pre_timestep);
+  INFO_LOG("  Phase 1: %d module(s)", MimicConfig.num_phase_1);
+  INFO_LOG("  Phase 2: %d module(s)", MimicConfig.num_phase_2);
+  INFO_LOG("  Post-timestep: %d module(s)", MimicConfig.num_post_timestep);
+  INFO_LOG("  Total unique modules: %d", num_pipeline_modules);
 
-    if (mod == NULL) {
-      ERROR_LOG("Module '%s' listed in EnabledModules but not registered",
-                module_name);
-      ERROR_LOG("Available modules:");
-      for (int j = 0; j < num_registered_modules; j++) {
-        ERROR_LOG("  - %s", registered_modules[j]->name);
-      }
-      return -1;
-    }
-
-    execution_pipeline[num_pipeline_modules++] = mod;
-    DEBUG_LOG("Added module to pipeline: %s", module_name);
-  }
-
-  INFO_LOG("Enabling %d module(s)", num_pipeline_modules);
-
-  // Initialize all enabled modules in configured order
+  /* Initialize all modules in pipeline order */
   for (int i = 0; i < num_pipeline_modules; i++) {
     struct Module *mod = execution_pipeline[i];
     DEBUG_LOG("Initializing module: %s", mod->name);
@@ -160,46 +196,91 @@ int module_system_init(void) {
 }
 
 /**
- * @brief   Execute all enabled modules on a FOF group
+ * @brief   Execute modules in a specific phase
  *
- * Calls process_halos() on all enabled modules in configured order.
+ * Core execution engine for multi-phase pipeline. Implements galaxy-major
+ * loop for LOOP_MODE_ALL modules (better cache locality, matches SAGE).
  *
- * @param   halonr  Index of the main halo in InputTreeHalos (for context)
- * @param   halos   Array of halos in the FOF group (FoFWorkspace)
- * @param   ngal    Number of halos in the array
- * @return  0 on success, non-zero if any module processing fails
+ * Execution order within phase:
+ * 1. LOOP_MODE_ALL modules: galaxy-major order
+ *    for each galaxy g:
+ *      module1(galaxy g)
+ *      module2(galaxy g)
+ * 2. LOOP_MODE_ONCE modules: called with full array
+ *
+ * @param   phase_config   Array of module configurations for this phase
+ * @param   num_modules    Number of modules in this phase (0 = skip)
+ * @param   ctx            Module execution context
+ * @param   halos          Array of halos in the FOF group (FoFWorkspace)
+ * @param   ngal           Number of halos in the array
  */
-int module_execute_pipeline(int halonr, struct Halo *halos, int ngal) {
-  if (halos == NULL || ngal <= 0) {
-    return 0; // Nothing to process
+void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
+                   struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  if (num_modules == 0 || halos == NULL || ngal <= 0) {
+    return; // Empty phase or nothing to process
   }
 
-  if (num_pipeline_modules == 0) {
-    return 0; // No modules enabled
-  }
+  /* PASS 1: LOOP_MODE_ALL modules (galaxy-major loop) */
+  for (int g = 0; g < ngal; g++) {
+    /* Skip halos without galaxies or already merged */
+    if (halos[g].galaxy == NULL || halos[g].Type == 3) {
+      continue;
+    }
 
-  // Populate module execution context
-  struct ModuleContext ctx;
-  int snap = InputTreeHalos[halonr].SnapNum;
-  ctx.redshift = ZZ[snap];
-  ctx.time = Age[snap];
-  ctx.params = &MimicConfig;
+    /* Execute all LOOP_MODE_ALL modules for this galaxy */
+    for (int i = 0; i < num_modules; i++) {
+      if (phase_config[i].loop_mode != LOOP_MODE_ALL) {
+        continue; // Skip LOOP_MODE_ONCE modules in this pass
+      }
 
-  // Execute each enabled module in order
-  for (int i = 0; i < num_pipeline_modules; i++) {
-    struct Module *mod = execution_pipeline[i];
-    DEBUG_LOG("Executing module: %s (ngal=%d, z=%.3f)", mod->name, ngal,
-              ctx.redshift);
+      /* Find module by name */
+      struct Module *mod = find_module_by_name(phase_config[i].module_name);
+      if (mod == NULL) {
+        ERROR_LOG("Module '%s' configured but not registered",
+                  phase_config[i].module_name);
+        exit(EXIT_FAILURE);
+      }
 
-    int result = mod->process_halos(&ctx, halos, ngal);
-    if (result != 0) {
-      ERROR_LOG("Module '%s' processing failed with code %d", mod->name,
-                result);
-      return result;
+      /* Call module with single galaxy (ngal=1) */
+      DEBUG_LOG("Executing module: %s (galaxy %d/%d, substep %d/%d, z=%.3f)",
+                mod->name, g, ngal, ctx->substep_number + 1, ctx->num_substeps,
+                ctx->redshift);
+
+      int result = mod->process(ctx, &halos[g], 1);
+      if (result != 0) {
+        ERROR_LOG("Module '%s' failed on galaxy %d (substep %d)", mod->name, g,
+                  ctx->substep_number);
+        exit(EXIT_FAILURE);
+      }
     }
   }
 
-  return 0;
+  /* PASS 2: LOOP_MODE_ONCE modules (full array) */
+  for (int i = 0; i < num_modules; i++) {
+    if (phase_config[i].loop_mode != LOOP_MODE_ONCE) {
+      continue; // Skip LOOP_MODE_ALL modules (already done)
+    }
+
+    /* Find module by name */
+    struct Module *mod = find_module_by_name(phase_config[i].module_name);
+    if (mod == NULL) {
+      ERROR_LOG("Module '%s' configured but not registered",
+                phase_config[i].module_name);
+      exit(EXIT_FAILURE);
+    }
+
+    /* Call module with full array */
+    DEBUG_LOG("Executing module: %s (ngal=%d, substep %d/%d, z=%.3f)",
+              mod->name, ngal, ctx->substep_number + 1, ctx->num_substeps,
+              ctx->redshift);
+
+    int result = mod->process(ctx, halos, ngal);
+    if (result != 0) {
+      ERROR_LOG("Module '%s' failed (substep %d)", mod->name,
+                ctx->substep_number);
+      exit(EXIT_FAILURE);
+    }
+  }
 }
 
 /**

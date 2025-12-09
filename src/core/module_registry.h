@@ -1,17 +1,26 @@
 /**
  * @file    module_registry.h
- * @brief   Module registration and execution pipeline
+ * @brief   Module registration and multi-phase execution pipeline
  *
  * This file provides the interface for registering galaxy physics modules
- * and executing them in a coordinated pipeline.
+ * and executing them in a multi-phase pipeline with optional time sub-stepping.
  *
  * Vision Principle 1 (Physics-Agnostic Core): The registry manages modules
  * without knowing anything about their specific physics implementations.
  *
+ * Vision Principle 2 (Runtime Modularity): Pipeline structure is configured
+ * at runtime via input YAML file, not hardcoded in module metadata.
+ *
+ * Multi-Phase Pipeline:
+ * - Pre-timestep phase (once before substeps)
+ * - Phase 1 (each substep, configurable loop mode)
+ * - Phase 2 (each substep, configurable loop mode)
+ * - Post-timestep phase (once after substeps)
+ *
  * Usage:
  * 1. Modules call module_registry_add() to register themselves (at startup)
  * 2. Main program calls module_system_init() after parameter reading
- * 3. Tree processing calls module_execute_pipeline() for each FOF group
+ * 3. Tree processing calls execute_phase() for each phase
  * 4. Main program calls module_system_cleanup() before exit
  */
 
@@ -21,6 +30,24 @@
 #include <stddef.h> /* for size_t */
 
 #include "module_interface.h"
+
+/**
+ * @brief   Phase module configuration entry
+ *
+ * Specifies one module's role in one phase. The input YAML file contains
+ * lists of these for each phase, defining the complete execution pipeline.
+ *
+ * Example YAML:
+ *   phase_1:
+ *     - sage_cooling: all
+ *     - sage_starformation: all
+ *
+ * This creates two PhaseModuleConfig entries for phase_1.
+ */
+struct PhaseModuleConfig {
+  char *module_name;        /**< Module name (must match registered module) */
+  enum LoopMode loop_mode;  /**< How to call module (once or all) */
+};
 
 /**
  * @brief   Register a galaxy physics module
@@ -36,8 +63,8 @@ void module_registry_add(struct Module *module);
 /**
  * @brief   Initialize the module system
  *
- * Builds the execution pipeline based on runtime configuration and calls
- * init() on all enabled modules in configured order.
+ * Validates pipeline configuration and calls init() on all referenced
+ * modules. Modules are initialized in the order they appear across all phases.
  *
  * Should be called once during program initialization, after parameter
  * reading but before tree processing begins.
@@ -47,21 +74,28 @@ void module_registry_add(struct Module *module);
 int module_system_init(void);
 
 /**
- * @brief   Execute all enabled modules on a FOF group
+ * @brief   Execute modules in a specific phase
  *
- * Calls process_halos() on all enabled modules in configured order.
- * This is where galaxy physics is computed.
+ * Core execution engine for multi-phase pipeline. Implements galaxy-major
+ * loop for LOOP_MODE_ALL modules.
  *
- * Called from the tree processing loop after halo tracking is complete
- * but before halos are moved to output storage.
+ * Execution order within phase:
+ * 1. All LOOP_MODE_ALL modules execute in galaxy-major order:
+ *    for each galaxy g:
+ *      module1(galaxy g)
+ *      module2(galaxy g)
+ * 2. All LOOP_MODE_ONCE modules execute with full array
  *
- * @param   halonr  Index of the main halo in InputTreeHalos (for context
- * information)
- * @param   halos   Array of halos in the FOF group (FoFWorkspace)
- * @param   ngal    Number of halos in the array
- * @return  0 on success, non-zero if any module processing fails
+ * Called from process_halo_evolution() for each phase.
+ *
+ * @param   phase_config   Array of module configurations for this phase
+ * @param   num_modules    Number of modules in this phase (0 = skip phase)
+ * @param   ctx            Module execution context (redshift, time, substep info)
+ * @param   halos          Array of halos in the FOF group (FoFWorkspace)
+ * @param   ngal           Number of halos in the array
  */
-int module_execute_pipeline(int halonr, struct Halo *halos, int ngal);
+void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
+                   struct ModuleContext *ctx, struct Halo *halos, int ngal);
 
 /**
  * @brief   Cleanup the module system

@@ -146,7 +146,7 @@ void test_fixture_register(void) {
   static struct Module test_fixture_module = {
       .name = "test_fixture",
       .init = test_fixture_init,
-      .process_halos = test_fixture_process,
+      .process = test_fixture_process,
       .cleanup = test_fixture_cleanup};
 
   module_registry_add(&test_fixture_module);

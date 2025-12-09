@@ -473,29 +473,108 @@ void update_halo_properties(int ngal) {
 }
 
 /**
- * @brief   Updates halo properties for output
+ * @brief   Setup module context for current snapshot and FOF group
+ *
+ * @param   ctx          Module context to populate
+ * @param   halonr       Index of main halo in InputTreeHalos
+ * @param   centralgal   Index of central galaxy in FoFWorkspace
+ */
+static void setup_module_context(struct ModuleContext *ctx, int halonr,
+                                 int centralgal) {
+  int snap = InputTreeHalos[halonr].SnapNum;
+
+  /* Snapshot information */
+  ctx->redshift = ZZ[snap];
+  ctx->time = Age[snap];
+  ctx->snapshot_number = snap;
+
+  /* Halo information */
+  ctx->central_index = centralgal;
+
+  /* Configuration access */
+  ctx->params = &MimicConfig;
+
+  /* Determine number of substeps (default to 1 if not specified) */
+  ctx->num_substeps = (MimicConfig.SubSteps > 0) ? MimicConfig.SubSteps : 1;
+
+  /* Calculate total time interval for this timestep */
+  if (FoFWorkspace[centralgal].SnapNum >= 0) {
+    int prev_snap = FoFWorkspace[centralgal].SnapNum; /* Previous snapshot */
+    ctx->time_interval = Age[prev_snap] - Age[snap];
+  } else {
+    ctx->time_interval = 0.0; /* First snapshot has no previous */
+  }
+
+  /* Initialize substep information (updated in substep loop) */
+  ctx->substep_number = 0;
+  ctx->substep_time = ctx->time;
+  ctx->substep_dt =
+      (ctx->num_substeps > 0) ? (ctx->time_interval / ctx->num_substeps) : 0.0;
+}
+
+/**
+ * @brief   Update context for specific substep
+ *
+ * @param   ctx     Module context to update
+ * @param   step    Current substep number (0-indexed)
+ */
+static void update_context_for_substep(struct ModuleContext *ctx, int step) {
+  ctx->substep_number = step;
+  /* Substep time is at midpoint of substep interval */
+  ctx->substep_time = ctx->time - (step + 0.5) * ctx->substep_dt;
+}
+
+/**
+ * @brief   Multi-phase halo evolution with time sub-stepping
  *
  * @param   halonr    Index of the FOF-background subhalo (main halo)
  * @param   ngal      Total number of halos to process
  *
- * This function updates halo properties and prepares them for output.
- * All physics integration has been removed. Simply updates halo properties
- * and attaches to output structures.
+ * This function implements the multi-phase pipeline with optional time
+ * sub-stepping:
+ * 1. PRE_TIMESTEP: Setup phase (runs once before substeps)
+ * 2. SUBSTEP LOOP: Iterates over time substeps
+ *    - PHASE_1: First physics phase (each substep)
+ *    - PHASE_2: Second physics phase (each substep)
+ * 3. POST_TIMESTEP: Finalization phase (runs once after substeps)
+ * 4. Update output structures
+ *
+ * Phase assignments and loop modes are configured in input YAML file.
+ * SubSteps parameter controls time sub-stepping (0 or 1 = no substeps).
  */
-void process_halo_evolution(int halonr, int ngal)
-                            /* Note: halonr is here the FOF-background
-                                         subhalo (i.e. main halo) */
-{
+void process_halo_evolution(int halonr, int ngal) {
   int centralgal;
+  struct ModuleContext ctx;
 
-  /* Identify the central object for this halo */
+  /* Identify the central galaxy for this FOF group */
   centralgal = FoFWorkspace[0].CentralHalo;
   assert(FoFWorkspace[centralgal].Type == 0 &&
          FoFWorkspace[centralgal].HaloNr == halonr);
 
-  /* Execute galaxy physics modules (if any registered) */
-  module_execute_pipeline(halonr, FoFWorkspace, ngal);
+  /* Setup module execution context */
+  setup_module_context(&ctx, halonr, centralgal);
 
-  /* Update final object properties and attach them to halos */
+  /* PHASE 1: Pre-timestep (runs once before substeps) */
+  execute_phase(MimicConfig.pre_timestep, MimicConfig.num_pre_timestep, &ctx,
+                FoFWorkspace, ngal);
+
+  /* PHASE 2-3: Substep loop (phase_1 and phase_2 run each substep) */
+  for (int step = 0; step < ctx.num_substeps; step++) {
+    update_context_for_substep(&ctx, step);
+
+    /* PHASE 2A: Phase 1 within substep loop */
+    execute_phase(MimicConfig.phase_1, MimicConfig.num_phase_1, &ctx,
+                  FoFWorkspace, ngal);
+
+    /* PHASE 2B: Phase 2 within substep loop */
+    execute_phase(MimicConfig.phase_2, MimicConfig.num_phase_2, &ctx,
+                  FoFWorkspace, ngal);
+  }
+
+  /* PHASE 4: Post-timestep (runs once after substeps) */
+  execute_phase(MimicConfig.post_timestep, MimicConfig.num_post_timestep, &ctx,
+                FoFWorkspace, ngal);
+
+  /* Update final halo properties and attach them to output structures */
   update_halo_properties(ngal);
 }

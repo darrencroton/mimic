@@ -33,6 +33,7 @@
 #include "output/util.h"
 #include "error.h"
 #include "_system/output_helpers.h"  /* -Isrc/modules makes this work */
+#include "module_registry.h"         /* For PhaseModuleConfig */
 
 #define TRUE 1
 #define FALSE 0
@@ -627,21 +628,65 @@ static void write_redshifts(hid_t parent_group_id) {
 }
 
 /**
+ * @brief   Helper to add a module to the unique module list
+ *
+ * @param   module_list   Array of module name strings
+ * @param   num_modules   Pointer to current count of modules
+ * @param   name          Module name to add
+ *
+ * Adds the module name to the list if it's not already present.
+ * Used to collect unique module names from all pipeline phases.
+ */
+static void add_unique_module(char module_list[][MAX_STRING_LEN], int *num_modules,
+                              const char *name) {
+  for (int i = 0; i < *num_modules; i++) {
+    if (strcmp(module_list[i], name) == 0) {
+      return; /* Already in list */
+    }
+  }
+  if (*num_modules < 256) {
+    strncpy(module_list[*num_modules], name, MAX_STRING_LEN - 1);
+    (*num_modules)++;
+  }
+}
+
+/**
  * @brief   Writes enabled modules list to HDF5 file
  *
  * @param   parent_group_id   HDF5 group ID to create EnabledModules dataset in
  *
  * Creates an EnabledModules dataset containing the list of enabled module
- * names in execution order. Uses variable-length string dataset for
- * professional HDF5 storage.
+ * names from all phases in execution order (pre_timestep → phase_1 → phase_2 → post_timestep).
+ * Uses variable-length string dataset for professional HDF5 storage.
+ *
+ * NOTE: This collects unique module names across all phases. A module appearing
+ * in multiple phases is only listed once.
  */
 static void write_enabled_modules(hid_t parent_group_id) {
   hid_t dataset_id, dataspace_id, str_type, attribute_id, attr_space, attr_str_type;
   hsize_t dims;
   herr_t status;
+  char module_list[256][MAX_STRING_LEN]; /* Max 256 module instances */
+  int num_modules = 0;
+
+  /* Collect unique module names from all phases in execution order */
+  for (int i = 0; i < MimicConfig.num_pre_timestep; i++) {
+    add_unique_module(module_list, &num_modules,
+                      MimicConfig.pre_timestep[i].module_name);
+  }
+  for (int i = 0; i < MimicConfig.num_phase_1; i++) {
+    add_unique_module(module_list, &num_modules, MimicConfig.phase_1[i].module_name);
+  }
+  for (int i = 0; i < MimicConfig.num_phase_2; i++) {
+    add_unique_module(module_list, &num_modules, MimicConfig.phase_2[i].module_name);
+  }
+  for (int i = 0; i < MimicConfig.num_post_timestep; i++) {
+    add_unique_module(module_list, &num_modules,
+                      MimicConfig.post_timestep[i].module_name);
+  }
 
   /* Check if there are any enabled modules */
-  if (MimicConfig.NumEnabledModules == 0) {
+  if (num_modules == 0) {
     DEBUG_LOG("No enabled modules to write to HDF5");
     return;
   }
@@ -654,7 +699,7 @@ static void write_enabled_modules(hid_t parent_group_id) {
   }
 
   /* Create dataspace */
-  dims = MimicConfig.NumEnabledModules;
+  dims = num_modules;
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
   /* Create dataset */
@@ -666,7 +711,7 @@ static void write_enabled_modules(hid_t parent_group_id) {
 
   /* Write the module names array */
   status = H5Dwrite(dataset_id, str_type, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                    MimicConfig.EnabledModules);
+                    module_list);
   if (status < 0) {
     FATAL_ERROR("Failed to write EnabledModules dataset to HDF5 file");
   }
@@ -674,10 +719,10 @@ static void write_enabled_modules(hid_t parent_group_id) {
   /* Add description attribute */
   attr_space = H5Screate(H5S_SCALAR);
   attr_str_type = H5Tcopy(H5T_C_S1);
-  H5Tset_size(attr_str_type, 128);
+  H5Tset_size(attr_str_type, 256);
   attribute_id = H5Acreate(dataset_id, "description", attr_str_type,
                            attr_space, H5P_DEFAULT, H5P_DEFAULT);
-  const char *desc = "List of enabled physics modules in execution order";
+  const char *desc = "List of unique physics modules across all phases (pre_timestep, phase_1, phase_2, post_timestep)";
   H5Awrite(attribute_id, attr_str_type, desc);
   H5Aclose(attribute_id);
   H5Tclose(attr_str_type);

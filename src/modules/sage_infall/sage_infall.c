@@ -280,7 +280,7 @@ static int sage_infall_cleanup(void) {
 static struct Module sage_infall_module = {
     .name = "sage_infall",
     .init = sage_infall_init,
-    .process_halos = sage_infall_process,
+    .process = sage_infall_process,
     .cleanup = sage_infall_cleanup};
 
 void sage_infall_register(void) { module_registry_add(&sage_infall_module); }

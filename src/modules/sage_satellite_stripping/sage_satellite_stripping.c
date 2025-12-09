@@ -179,7 +179,7 @@ static int sage_satellite_stripping_cleanup(void) {
 static struct Module sage_satellite_stripping_module = {
     .name = "sage_satellite_stripping",
     .init = sage_satellite_stripping_init,
-    .process_halos = sage_satellite_stripping_process,
+    .process = sage_satellite_stripping_process,
     .cleanup = sage_satellite_stripping_cleanup};
 
 void sage_satellite_stripping_register(void) {

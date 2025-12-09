@@ -46,6 +46,9 @@ enum Valid_OutputFormats {
   num_output_formats
 };
 
+/* Forward declaration for PhaseModuleConfig (uses enum LoopMode from module_interface.h) */
+struct PhaseModuleConfig;
+
 /* Configuration structure to hold global parameters */
 struct MimicConfig {
   /* file information */
@@ -105,9 +108,29 @@ struct MimicConfig {
   /* Output format */
   enum Valid_OutputFormats OutputFormat;
 
-  /* Module system configuration */
-  int NumEnabledModules;                  /* Number of enabled modules */
-  char EnabledModules[32][MAX_STRING_LEN]; /* Module names in execution order */
+  /* ===== Multi-Phase Pipeline Configuration =====
+   * Pipeline structure defined in input YAML file, not in module metadata.
+   * This provides maximum flexibility - users control execution structure.
+   */
+
+  /* Time sub-stepping */
+  int SubSteps; /* Number of substeps per snapshot interval (0 = no substeps) */
+
+  /* Phase 1: Pre-timestep (runs once before substeps) */
+  struct PhaseModuleConfig *pre_timestep; /* Array of modules for this phase */
+  int num_pre_timestep;                   /* Number of modules in this phase */
+
+  /* Phase 2: Phase 1 within substep loop (runs each substep) */
+  struct PhaseModuleConfig *phase_1;  /* Array of modules for this phase */
+  int num_phase_1;                    /* Number of modules in this phase */
+
+  /* Phase 3: Phase 2 within substep loop (runs each substep) */
+  struct PhaseModuleConfig *phase_2;  /* Array of modules for this phase */
+  int num_phase_2;                    /* Number of modules in this phase */
+
+  /* Phase 4: Post-timestep (runs once after substeps) */
+  struct PhaseModuleConfig *post_timestep; /* Array of modules for this phase */
+  int num_post_timestep;                   /* Number of modules in this phase */
 
   /* Model parameters - ALL physics parameters */
   int NumModelParams; /* Number of model parameters loaded from input file */

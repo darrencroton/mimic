@@ -32,14 +32,16 @@ This document provides a detailed traversal of every function in the Mimic codeb
 **Key entry points:**
 - **Program start**: `main()` in `src/core/main.c`
 - **Tree loading**: `load_tree_table()` in `src/io/tree/load_tree_table.c`
-- **Halo processing**: `build_halo_tree()` in `src/core/model_building.c`
-- **Module execution**: `module_execute_pipeline()` in `src/core/module_registry.c`
+- **Halo processing**: `build_halo_tree()` in `src/core/build_model.c`
+- **Module execution**: `execute_phase()` in `src/core/module_registry.c`
+- **Halo evolution**: `process_halo_evolution()` in `src/core/build_model.c`
 - **Output writing**: `save_halos()` in `src/io/output/save_halos.c`
 
 **Module system hooks:**
 - Modules register via `register_all_modules()` (auto-generated)
-- `module_system_init()` calls each module's `init()`
-- `module_execute_pipeline()` calls each module's `process_halos()` per FOF group
+- `module_system_init()` validates pipeline and calls each module's `init()`
+- `execute_phase()` calls each module's `process()` per configured phase
+- Multi-phase execution: pre_timestep → substeps(phase_1, phase_2) → post_timestep
 - `module_system_cleanup()` calls each module's `cleanup()` in reverse order
 
 **When to use this document:**
@@ -456,17 +458,63 @@ after all subhalos in the FOF group have been processed.
 
 ---
 
-### 4.3 Processing Halo Evolution
-**Location:** `src/core/build_model.c:455`
-**Purpose:** Track halo evolution and mergers
+### 4.3 Processing Halo Evolution (Multi-Phase Pipeline)
+**Location:** `src/core/build_model.c:545`
+**Purpose:** Execute multi-phase physics pipeline with time sub-stepping
 **Condition:** Called after joining progenitors
 
 ```
-process_halo_evolution(ngal)
+process_halo_evolution(halonr, ngal)
 │
 ├─ Identify central halo in FoFWorkspace
 │
-└─ update_halo_properties()             // src/core/build_model.c:385
+├─ setup_module_context()              // src/core/build_model.c:482
+│  ├─ Set snapshot information (redshift, time, snapshot_number)
+│  ├─ Calculate number of substeps (from SubSteps parameter)
+│  ├─ Calculate time_interval = Age[prev] - Age[current]
+│  ├─ Calculate substep_dt = time_interval / num_substeps
+│  └─ Initialize substep_number = 0
+│
+├─ [PHASE 1: Pre-Timestep (once before substeps)]
+│  └─ execute_phase()                  // src/core/module_registry.c:217
+│     ├─ [PASS 1: LOOP_MODE_ALL modules (galaxy-major loop)]
+│     │  └─ for each galaxy g:
+│     │     └─ for each module in phase:
+│     │        └─ module->process(ctx, &halos[g], 1)
+│     │
+│     └─ [PASS 2: LOOP_MODE_ONCE modules (full array)]
+│        └─ for each module in phase:
+│           └─ module->process(ctx, halos, ngal)
+│
+├─ [PHASE 2-3: Substep Loop]
+│  └─ for (step = 0; step < num_substeps; step++):
+│     │
+│     ├─ update_context_for_substep()  // src/core/build_model.c:524
+│     │  ├─ ctx.substep_number = step
+│     │  └─ ctx.substep_time = time - (step + 0.5) * substep_dt
+│     │
+│     ├─ [PHASE 2A: Phase 1 within substep loop]
+│     │  └─ execute_phase()
+│     │     ├─ [PASS 1: Galaxy-major loop for LOOP_MODE_ALL]
+│     │     │  └─ for each galaxy:
+│     │     │     └─ cooling → SF → feedback → ... (all phase_1 modules)
+│     │     │
+│     │     └─ [PASS 2: Full array for LOOP_MODE_ONCE]
+│     │
+│     └─ [PHASE 2B: Phase 2 within substep loop]
+│        └─ execute_phase()
+│           ├─ [PASS 1: Galaxy-major loop for LOOP_MODE_ALL]
+│           │  └─ for each galaxy:
+│           │     └─ mergers → disruption → ... (all phase_2 modules)
+│           │
+│           └─ [PASS 2: Full array for LOOP_MODE_ONCE]
+│
+├─ [PHASE 4: Post-Timestep (once after substeps)]
+│  └─ execute_phase()
+│     ├─ [PASS 1: Galaxy-major loop for LOOP_MODE_ALL]
+│     └─ [PASS 2: Full array for LOOP_MODE_ONCE]
+│
+└─ update_halo_properties()            // src/core/build_model.c:385
    │
    ├─ [LOOP: All halos in FoFWorkspace]
    │  │
@@ -487,6 +535,14 @@ process_halo_evolution(ngal)
    │
    └─ [All halos now in ProcessedHalos array ready for output]
 ```
+
+**Multi-Phase Pipeline Details:**
+- **Configuration-Driven**: Phase assignments specified in input YAML file
+- **Generic Phase Names**: phase_1, phase_2 (not physics/mergers) for flexibility
+- **Galaxy-Major Loop**: For LOOP_MODE_ALL modules, all modules execute for galaxy[i]
+  before moving to galaxy[i+1] (better cache locality, matches SAGE)
+- **Time Sub-Stepping**: SubSteps parameter enables numerical stability for physics integration
+- **Module Context**: Provides modules with snapshot info, substep info, and parameters
 
 ---
 

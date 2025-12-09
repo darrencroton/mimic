@@ -265,7 +265,7 @@ static int sage_reionization_cleanup(void) {
 static struct Module sage_reionization_module = {
     .name = "sage_reionization",
     .init = sage_reionization_init,
-    .process_halos = sage_reionization_process,
+    .process = sage_reionization_process,
     .cleanup = sage_reionization_cleanup};
 
 void sage_reionization_register(void) {

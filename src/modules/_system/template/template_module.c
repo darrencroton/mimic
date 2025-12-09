@@ -215,7 +215,7 @@ static int template_module_cleanup(void) {
 static struct Module template_module = {
     .name = "template_module",
     .init = template_module_init,
-    .process_halos = template_module_process,
+    .process = template_module_process,
     .cleanup = template_module_cleanup
 };
 

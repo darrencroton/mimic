@@ -19,6 +19,8 @@
 #include "globals.h"
 #include "types.h"
 #include "error.h"
+#include "memory.h"             /* For mymalloc_cat, myfree */
+#include "module_registry.h"    /* For PhaseModuleConfig and LoopMode */
 
 /* Helper functions for DOM navigation */
 static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key);
@@ -82,6 +84,7 @@ void read_parameter_file(const char *fname) {
 
   /* Parse each top-level section */
   yaml_node_t *section;
+  yaml_node_t *node;
 
   section = get_mapping_value(&document, root, "output");
   if (section) parse_output_section(&document, section);
@@ -91,6 +94,15 @@ void read_parameter_file(const char *fname) {
 
   section = get_mapping_value(&document, root, "simulation");
   if (section) parse_simulation_section(&document, section);
+
+  /* Parse SubSteps (top-level parameter) */
+  node = get_mapping_value(&document, root, "SubSteps");
+  if (node) {
+    MimicConfig.SubSteps = get_int_value(node);
+    DEBUG_LOG("SubSteps = %d", MimicConfig.SubSteps);
+  } else {
+    MimicConfig.SubSteps = 1; /* Default: no sub-stepping */
+  }
 
   section = get_mapping_value(&document, root, "modules");
   if (section) parse_modules_section(&document, section);
@@ -357,36 +369,170 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
 }
 
 /**
- * @brief   Parse modules section
+ * @brief   Parse a single module phase configuration
  *
- * Parses module configuration including enabled modules and parameters subsections.
- * Model parameters are ALL physics parameters required by enabled modules.
+ * Parses YAML like:
+ *   phase_name:
+ *     - module_a: once
+ *     - module_b: all
+ *
+ * @param   doc         YAML document
+ * @param   phase_node  Node for this phase (sequence of module:loop pairs)
+ * @param   config      Output: array of PhaseModuleConfig
+ * @param   num_modules Output: number of modules in phase
+ * @param   phase_name  Phase name for error messages
+ * @return  0 on success, -1 on error
+ */
+static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
+                              struct PhaseModuleConfig **config,
+                              int *num_modules, const char *phase_name) {
+  if (!phase_node) {
+    *config = NULL;
+    *num_modules = 0;
+    return 0; /* Empty phase is valid */
+  }
+
+  if (phase_node->type != YAML_SEQUENCE_NODE) {
+    ERROR_LOG("Phase '%s' must be a sequence", phase_name);
+    return -1;
+  }
+
+  /* Count modules */
+  *num_modules = 0;
+  for (yaml_node_item_t *item = phase_node->data.sequence.items.start;
+       item < phase_node->data.sequence.items.top; item++) {
+    (*num_modules)++;
+  }
+
+  if (*num_modules == 0) {
+    *config = NULL;
+    return 0; /* Empty phase is valid */
+  }
+
+  /* Allocate config array */
+  *config = mymalloc_cat(*num_modules * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+  if (!*config) {
+    ERROR_LOG("Failed to allocate memory for phase '%s'", phase_name);
+    return -1;
+  }
+
+  /* Parse each module entry */
+  int idx = 0;
+  for (yaml_node_item_t *item = phase_node->data.sequence.items.start;
+       item < phase_node->data.sequence.items.top; item++) {
+    yaml_node_t *module_node = yaml_document_get_node(doc, *item);
+
+    /* Each item should be a mapping with one entry: "module_name: loop_mode" */
+    if (module_node->type != YAML_MAPPING_NODE) {
+      ERROR_LOG("Phase '%s': module entry must be 'name: mode'", phase_name);
+      myfree(*config);
+      *config = NULL;
+      return -1;
+    }
+
+    /* Get the single key-value pair */
+    yaml_node_pair_t *pair = module_node->data.mapping.pairs.start;
+    if (pair >= module_node->data.mapping.pairs.top) {
+      ERROR_LOG("Phase '%s': empty module entry", phase_name);
+      myfree(*config);
+      *config = NULL;
+      return -1;
+    }
+
+    yaml_node_t *key = yaml_document_get_node(doc, pair->key);
+    yaml_node_t *value = yaml_document_get_node(doc, pair->value);
+
+    const char *module_name = get_scalar_value(key);
+    const char *loop_mode_str = get_scalar_value(value);
+
+    if (!module_name || !loop_mode_str) {
+      ERROR_LOG("Phase '%s': invalid module entry format", phase_name);
+      myfree(*config);
+      *config = NULL;
+      return -1;
+    }
+
+    /* Parse loop mode */
+    enum LoopMode loop_mode;
+    if (strcmp(loop_mode_str, "once") == 0) {
+      loop_mode = LOOP_MODE_ONCE;
+    } else if (strcmp(loop_mode_str, "all") == 0) {
+      loop_mode = LOOP_MODE_ALL;
+    } else {
+      ERROR_LOG("Phase '%s': invalid loop mode '%s' (must be 'once' or 'all')",
+                phase_name, loop_mode_str);
+      myfree(*config);
+      *config = NULL;
+      return -1;
+    }
+
+    /* Store in config */
+    (*config)[idx].module_name = strdup(module_name);
+    (*config)[idx].loop_mode = loop_mode;
+
+    DEBUG_LOG("Phase '%s': %s (loop_mode=%s)", phase_name, module_name,
+              loop_mode_str);
+    idx++;
+  }
+
+  return 0;
+}
+
+/**
+ * @brief   Parse multi-phase modules section
+ *
+ * Parses module configuration with multi-phase pipeline structure.
+ * Model parameters are ALL physics parameters required by modules.
  * They must be explicitly specified - NO defaults are used.
  *
+ * Vision Principle 2 (Runtime Modularity): Pipeline structure configured at runtime.
  * Vision Principle 4 (Single Source of Truth): Input file defines complete model.
  */
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node, *parameters;
 
-  DEBUG_LOG("Parsing modules section");
+  DEBUG_LOG("Parsing multi-phase modules section");
 
-  /* Parse enabled modules array */
-  node = get_mapping_value(doc, section, "enabled");
-  if (node && node->type == YAML_SEQUENCE_NODE) {
-    yaml_node_item_t *item;
-    int idx = 0;
-    for (item = node->data.sequence.items.start;
-         item < node->data.sequence.items.top && idx < 32; item++) {
-      yaml_node_t *value_node = yaml_document_get_node(doc, *item);
-      const char *module_name = get_scalar_value(value_node);
-      if (module_name) {
-        strncpy(MimicConfig.EnabledModules[idx], module_name, MAX_STRING_LEN - 1);
-        DEBUG_LOG("EnabledModule[%d] = %s", idx, module_name);
-        idx++;
-      }
-    }
-    MimicConfig.NumEnabledModules = idx;
+  /* Initialize phase configurations to NULL/0 */
+  MimicConfig.pre_timestep = NULL;
+  MimicConfig.num_pre_timestep = 0;
+  MimicConfig.phase_1 = NULL;
+  MimicConfig.num_phase_1 = 0;
+  MimicConfig.phase_2 = NULL;
+  MimicConfig.num_phase_2 = 0;
+  MimicConfig.post_timestep = NULL;
+  MimicConfig.num_post_timestep = 0;
+
+  /* Parse each phase */
+  node = get_mapping_value(doc, section, "pre_timestep");
+  if (parse_phase_config(doc, node, &MimicConfig.pre_timestep,
+                         &MimicConfig.num_pre_timestep, "pre_timestep") != 0) {
+    FATAL_ERROR("Failed to parse pre_timestep phase");
   }
+
+  node = get_mapping_value(doc, section, "phase_1");
+  if (parse_phase_config(doc, node, &MimicConfig.phase_1,
+                         &MimicConfig.num_phase_1, "phase_1") != 0) {
+    FATAL_ERROR("Failed to parse phase_1");
+  }
+
+  node = get_mapping_value(doc, section, "phase_2");
+  if (parse_phase_config(doc, node, &MimicConfig.phase_2,
+                         &MimicConfig.num_phase_2, "phase_2") != 0) {
+    FATAL_ERROR("Failed to parse phase_2");
+  }
+
+  node = get_mapping_value(doc, section, "post_timestep");
+  if (parse_phase_config(doc, node, &MimicConfig.post_timestep,
+                         &MimicConfig.num_post_timestep, "post_timestep") != 0) {
+    FATAL_ERROR("Failed to parse post_timestep phase");
+  }
+
+  INFO_LOG("Multi-phase pipeline configured:");
+  INFO_LOG("  pre_timestep: %d module(s)", MimicConfig.num_pre_timestep);
+  INFO_LOG("  phase_1: %d module(s)", MimicConfig.num_phase_1);
+  INFO_LOG("  phase_2: %d module(s)", MimicConfig.num_phase_2);
+  INFO_LOG("  post_timestep: %d module(s)", MimicConfig.num_post_timestep);
 
   /* Parse parameters subsection */
   parameters = get_mapping_value(doc, section, "parameters");
@@ -414,8 +560,10 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
 
       if (param_name && param_value) {
         /* Store in ModelParams array */
-        strncpy(MimicConfig.ModelParams[idx].param_name, param_name, MAX_STRING_LEN - 1);
-        strncpy(MimicConfig.ModelParams[idx].value, param_value, MAX_STRING_LEN - 1);
+        strncpy(MimicConfig.ModelParams[idx].param_name, param_name,
+                MAX_STRING_LEN - 1);
+        strncpy(MimicConfig.ModelParams[idx].value, param_value,
+                MAX_STRING_LEN - 1);
         DEBUG_LOG("Module parameter: %s = %s", param_name, param_value);
         idx++;
       }
@@ -515,15 +663,9 @@ static void validate_and_postprocess(void) {
   SYNC_CONFIG_INT(NOUT);
 
   /* Log summary */
-  INFO_LOG("Configuration: %d output snapshots, %d enabled modules",
-           MimicConfig.NOUT, MimicConfig.NumEnabledModules);
-
-  if (MimicConfig.NumEnabledModules > 0) {
-    char module_list[MAX_STRING_LEN * 4] = {0};
-    for (int i = 0; i < MimicConfig.NumEnabledModules; i++) {
-      if (i > 0) strcat(module_list, ", ");
-      strcat(module_list, MimicConfig.EnabledModules[i]);
-    }
-    INFO_LOG("Enabled modules: %s", module_list);
-  }
+  int total_modules = MimicConfig.num_pre_timestep + MimicConfig.num_phase_1 +
+                      MimicConfig.num_phase_2 + MimicConfig.num_post_timestep;
+  INFO_LOG("Configuration: %d output snapshots, %d module instances across %d phases",
+           MimicConfig.NOUT, total_modules, 4);
+  INFO_LOG("SubSteps: %d", MimicConfig.SubSteps);
 }

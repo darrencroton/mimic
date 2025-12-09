@@ -206,9 +206,22 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 - Complete module independence: modules read and validate their own parameters
 
 **Module System:**
-- Runtime-configurable via `modules.enabled` YAML list
+- Runtime-configurable via multi-phase pipeline in YAML
+- Four execution phases: pre_timestep, phase_1, phase_2, post_timestep
+- Two loop modes: LOOP_MODE_ONCE (module processes full array), LOOP_MODE_ALL (galaxy-major loop)
 - Physics-agnostic core (zero knowledge of specific modules)
 - Module lifecycle: init → process → cleanup
+
+**Multi-Phase Pipeline:**
+- **pre_timestep**: Setup calculations (runs once before substeps)
+  - Example: reionization, infall budget calculation
+- **phase_1**: Main physics (runs each substep for each galaxy)
+  - Example: cooling, star formation, feedback, stripping
+- **phase_2**: Secondary physics (runs each substep for each galaxy)
+  - Example: mergers, disruption
+- **post_timestep**: Finalization (runs once after all substeps)
+  - Example: converting accumulators to rates
+- **SubSteps**: Time sub-stepping parameter for numerical stability (1 = no substeps)
 
 **Memory Management:**
 - Custom allocator with leak detection
@@ -218,8 +231,14 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 **Core Execution Flow:**
 1. `load_tree_table()` → Load tree metadata
 2. `build_halo_tree()` → Recursively construct halo tracking structures
-3. `save_halos()` → Write to binary or HDF5 output
-4. `free_halos_and_tree()` → Cleanup memory
+3. `process_halo_evolution()` → Execute multi-phase pipeline:
+   - Execute pre_timestep phase (once)
+   - Loop over SubSteps:
+     - Execute phase_1 (galaxy-major or array)
+     - Execute phase_2 (galaxy-major or array)
+   - Execute post_timestep phase (once)
+4. `save_halos()` → Write to binary or HDF5 output
+5. `free_halos_and_tree()` → Cleanup memory
 
 **HDF5 Output Structure:**
 Mimic's HDF5 output is self-contained and fully reproducible, containing both data and complete metadata.
