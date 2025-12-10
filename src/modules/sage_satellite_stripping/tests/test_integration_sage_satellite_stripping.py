@@ -169,7 +169,7 @@ def test_with_sage_infall():
         output_name="sage_satellite_stripping_infall",
         phase_config={
             'pre_timestep': [('sage_reionization', 'once')],
-            'phase_1': [('sage_infall', 'all'), ('sage_satellite_stripping', 'all')],
+            'phase_1': [('sage_infall', 'once'), ('sage_satellite_stripping', 'all')],
             'phase_2': [],
             'post_timestep': []
         },

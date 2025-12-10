@@ -172,7 +172,7 @@ def create_test_param_file(output_name, enabled_modules=None,
 
     Args:
         output_name: Name for output directory
-        enabled_modules: List of module names to enable (puts all in phase_1 with loop_mode=all)
+        enabled_modules: List of module names to enable (sage_infall uses loop_mode=once, others use all)
         module_params: Dict of {ModuleName_ParamName: value} for module parameters
         first_file: First file to process (default: 0)
         last_file: Last file to process (default: 0)
@@ -213,6 +213,9 @@ def create_test_param_file(output_name, enabled_modules=None,
     for module_name in enabled_modules:
         if module_name == 'sage_reionization':
             config['modules']['pre_timestep'].append({module_name: 'once'})
+        elif module_name == 'sage_infall':
+            # sage_infall only supports LOOP_MODE_ONCE (processes entire FOF group)
+            config['modules']['phase_1'].append({module_name: 'once'})
         else:
             config['modules']['phase_1'].append({module_name: 'all'})
 
