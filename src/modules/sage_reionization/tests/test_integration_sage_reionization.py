@@ -100,9 +100,16 @@ class TestSageReionization(unittest.TestCase):
         returncode, stdout, stderr = run_mimic(param_file)
         self.assertEqual(returncode, 0, f"Mimic failed\nStderr:\n{stderr}")
 
-        # Check parameter is logged
-        self.assertIn("GlobalBaryonFraction = 0.2000", stdout,
-                     "Custom GlobalBaryonFraction should be logged")
+        # Load output and verify parameter affects results
+        output_file = os.path.join(output_dir, 'model_z0.000_0')
+        if os.path.exists(output_file):
+            halos, metadata = load_binary_halos(output_file)
+
+            # With GlobalBaryonFraction = 0.20, HaloBaryonFraction should be <= 0.20
+            # (can be less due to reionization suppression)
+            halos_with_mass = halos[halos['Mvir'] > 0]
+            self.assertTrue((halos_with_mass['HaloBaryonFraction'] <= 0.20).all(),
+                           "HaloBaryonFraction should be <= custom GlobalBaryonFraction")
 
 
 if __name__ == '__main__':

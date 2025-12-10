@@ -2,19 +2,15 @@
  * @file    sage_reionization.c
  * @brief   SAGE reionization suppression module implementation
  *
- * Calculates halo-specific baryon fractions modified by reionization suppression
- * following the Gnedin (2000) model. After cosmic reionization, gas accretion onto
- * low-mass halos is suppressed due to increased gas temperature and Jeans mass.
+ * Implements reionization suppression of gas accretion onto low-mass halos. After
+ * reionization, increased gas temperature and Jeans mass suppress accretion onto
+ * halos below characteristic mass.
  *
  * Physics: HaloBaryonFraction = GlobalBaryonFraction × f_reion(Mvir, z)
  *
- * Three regimes based on scale factor:
- * 1. Before UV background turns on (a ≤ a0): Partial suppression
- * 2. During partial reionization (a0 < a < ar): Increasing suppression
- * 3. After full reionization (a ≥ ar): Full suppression effect
- *
  * Key functions:
- * - calculate_reionization_modifier(): Compute f_reion(Mvir, z) using Gnedin (2000) model
+ * - sage_reionization_init(): Initialize module
+ * - sage_reionization_process(): Calculate HaloBaryonFraction for all halos
  *
  * Reference: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2016)
  */
@@ -89,20 +85,16 @@ static double GLOBAL_BARYON_FRAC;
  * Suppression depends on ratio between halo mass and characteristic mass (maximum
  * of filtering mass and mass corresponding to Tvir = 10^4 K).
  *
- * @param   ctx          Module context
- * @param   mvir         Virial mass of halo (1e10 Msun/h)
- * @param   redshift     Current redshift
- * @param   omega        Matter density parameter
- * @param   omega_lambda Dark energy density parameter
- * @param   hubble_h     Hubble parameter (H_0 / 100 km/s/Mpc)
+ * @param   ctx   Module context (provides redshift and cosmology)
+ * @param   mvir  Virial mass of halo (1e10 Msun/h)
  * @return  Suppression factor (0 = complete suppression, 1 = no suppression)
  */
 static double calculate_reionization_modifier(const struct ModuleContext *ctx,
-                                                float mvir,
-                                                double redshift,
-                                                double omega,
-                                                double omega_lambda,
-                                                double hubble_h) {
+                                                float mvir) {
+  double redshift = ctx->redshift;
+  double omega = ctx->params->Omega;
+  double omega_lambda = ctx->params->OmegaLambda;
+  double hubble_h = ctx->params->Hubble_h;
   double a, a_on_a0, a_on_ar, f_of_a;
   double Mjeans, Mfiltering, Vchar, omegaZ, xZ, deltacritZ, HubbleZ;
   double G_code, Mchar, mass_to_use, modifier;
@@ -189,12 +181,12 @@ static int sage_reionization_init(void) {
                                     "cosmic baryon fraction must be physical");
 
   INFO_LOG("SAGE reionization module initialized");
-  INFO_LOG("  Physics: HaloBaryonFraction = GlobalBaryonFraction * f_reion(Mvir, z)");
-  INFO_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
-  INFO_LOG("  Reionization model: Gnedin (2000)");
-  INFO_LOG("    z0 = %.1f (UV background turns on)", REIONIZATION_Z0);
-  INFO_LOG("    zr = %.1f (full reionization)", REIONIZATION_ZR);
-  INFO_LOG("    alpha = %.1f (suppression strength)", REIONIZATION_ALPHA);
+  VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
+  VERBOSE_LOG("  Physics: HaloBaryonFraction = GlobalBaryonFraction * f_reion(Mvir, z)");
+  VERBOSE_LOG("  Reionization model: Gnedin (2000)");
+  VERBOSE_LOG("    z0 = %.1f (UV background turns on)", REIONIZATION_Z0);
+  VERBOSE_LOG("    zr = %.1f (full reionization)", REIONIZATION_ZR);
+  VERBOSE_LOG("    alpha = %.1f (suppression strength)", REIONIZATION_ALPHA);
 
   return 0;
 }
@@ -217,11 +209,6 @@ static int sage_reionization_process(struct ModuleContext *ctx,
     return 0;
   }
 
-  double z = ctx->redshift;
-  double omega = ctx->params->Omega;
-  double omega_lambda = ctx->params->OmegaLambda;
-  double hubble_h = ctx->params->Hubble_h;
-
   for (int i = 0; i < ngal; i++) {
     if (halos[i].galaxy == NULL) {
       ERROR_LOG("Halo %d has NULL galaxy data", i);
@@ -229,17 +216,17 @@ static int sage_reionization_process(struct ModuleContext *ctx,
     }
 
     if (halos[i].Mvir > EPSILON_SMALL) {
-      double reionization_modifier = calculate_reionization_modifier(
-          ctx, halos[i].Mvir, z, omega, omega_lambda, hubble_h);
-  
+      double reionization_modifier = calculate_reionization_modifier(ctx, halos[i].Mvir);
+
       halos[i].galaxy->HaloBaryonFraction =
-      (float)(GLOBAL_BARYON_FRAC * reionization_modifier);
-  
+          (float)(GLOBAL_BARYON_FRAC * reionization_modifier);
+
       if (halos[i].Type == 0) {
-        DEBUG_LOG("Halo %d (Type=0): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f",
-                  i, halos[i].Mvir, reionization_modifier,
-                  halos[i].galaxy->HaloBaryonFraction, z);
-                }
+        DEBUG_LOG(
+            "Halo %d (Type=0): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f",
+            i, halos[i].Mvir, reionization_modifier,
+            halos[i].galaxy->HaloBaryonFraction, ctx->redshift);
+      }
     } else {
       halos[i].galaxy->HaloBaryonFraction = 0.0;
     }
@@ -254,7 +241,7 @@ static int sage_reionization_process(struct ModuleContext *ctx,
  * @return  0 on success
  */
 static int sage_reionization_cleanup(void) {
-  INFO_LOG("SAGE reionization module cleaned up");
+  VERBOSE_LOG("SAGE reionization module cleaned up");
   return 0;
 }
 
@@ -271,7 +258,7 @@ static struct Module sage_reionization_module = {
     .process = sage_reionization_process,
     .cleanup = sage_reionization_cleanup,
     .supported_loop_modes = sage_reionization_supported_modes,
-    .num_supported_modes = 2  /* Default: supports both once and all */
+    .num_supported_modes = 1  /* Only supports LOOP_MODE_ONCE */
 };
 
 void sage_reionization_register(void) {

@@ -13,6 +13,8 @@ module:
 
   register_function: sage_reionization_register
 
+  supported_loop_modes: [once]
+
   dependencies:
     properties:
       - HaloBaryonFraction
