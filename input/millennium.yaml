@@ -38,7 +38,8 @@ modules:
     - sage_infall: once
     - sage_satellite_stripping: once
 
-  phase_1: []                           # Main physics
+  phase_1:                              # Main physics
+    - sage_add_infall: once
     # - sage_reincorporation: all
     # - sage_cooling: all
     # - sage_starformation_feedback: all

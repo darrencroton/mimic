@@ -273,8 +273,6 @@ static int sage_starformation_feedback_init(void) {
  */
 static int sage_starformation_feedback_process(struct ModuleContext *ctx,
                                                struct Halo *halos, int ngal) {
-  (void)ctx; /* Context available for future use (e.g., redshift, time) */
-
   /* Validate inputs */
   if (halos == NULL || ngal <= 0) {
     return 0; /* Nothing to process */
@@ -324,14 +322,8 @@ static int sage_starformation_feedback_process(struct ModuleContext *ctx,
         InputTreeHalos[halos[i].HaloNr].Spin[1],
         InputTreeHalos[halos[i].HaloNr].Spin[2], halos[i].Vvir, halos[i].Rvir);
 
-    /* Get timestep from halo (calculated by core) */
-    float dt = halos[i].dT;
-
-    /* Validate timestep */
-    if (dt <= 0.0f) {
-      DEBUG_LOG("Halo %d: Invalid dT=%.3e, skipping star formation", i, dt);
-      continue;
-    }
+    /* Use substep timestep from context */
+    float dt = ctx->substep_dt;
 
     /* Initialize star formation rate */
     float strdot = 0.0f;
@@ -459,14 +451,20 @@ static int sage_starformation_feedback_cleanup(void) {
 // MODULE REGISTRATION
 // ============================================================================
 
+/* Extern reference to generated loop mode array */
+extern const enum LoopMode sage_starformation_feedback_supported_modes[];
+
 /**
  * @brief   Module interface structure
  */
 static struct Module sage_starformation_feedback_module = {
     .name = "sage_starformation_feedback",
     .init = sage_starformation_feedback_init,
-    .process_halos = sage_starformation_feedback_process,
-    .cleanup = sage_starformation_feedback_cleanup};
+    .process = sage_starformation_feedback_process,
+    .cleanup = sage_starformation_feedback_cleanup,
+    .supported_loop_modes = sage_starformation_feedback_supported_modes,
+    .num_supported_modes = 1  /* Only supports LOOP_MODE_ONCE */
+};
 
 /**
  * @brief   Register the SAGE star formation and feedback module

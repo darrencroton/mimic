@@ -16,8 +16,7 @@ module:
   dependencies:
     properties:
       - HaloBaryonFraction
-      - HotGas
-      - MetalsHotGas
+      - InfallingGas
       - EjectedMass
       - MetalsEjectedMass
       - ICS

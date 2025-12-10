@@ -418,49 +418,45 @@ static int sage_cooling_init(void)
 }
 
 /**
- * @brief   Process halos for cooling and AGN heating
+ * @brief   Process galaxy for cooling and AGN heating
  *
- * Main processing function called once per timestep for each forest.
- * Calculates cooling rates and AGN feedback for all central galaxies.
+ * Calculates cooling rates and AGN feedback for central galaxies only.
+ * Uses ctx->substep_dt for time evolution.
  *
- * @param   ctx    Module context with simulation parameters and timestep info
- * @param   halos  Array of halos to process
- * @param   ngal   Number of halos in the array
+ * @param   ctx    Module context (substep_dt, redshift, etc.)
+ * @param   halos  Array of halos (ngal=1 for LOOP_MODE_ALL)
+ * @param   ngal   Number of halos (always 1)
  * @return  0 on success, -1 on failure
  */
 static int sage_cooling_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
 {
-    double dt, coolingGas, x, rcool;
+    if (halos == NULL || ngal <= 0) {
+        return 0;
+    }
 
-    /* Process each halo */
-    for (int i = 0; i < ngal; i++) {
-        /* Only central galaxies cool (Type == 0)
-         * Satellites don't accrete fresh gas (handled by sage_infall module) */
-        if (halos[i].Type != 0)
-            continue;
+    /* Only central galaxies cool (Type == 0)
+     * Satellites don't accrete fresh gas (handled by sage_infall module) */
+    if (halos[0].Type != 0) {
+        return 0;
+    }
 
-        /* Get time step from halo property dT (time since progenitor in Myr)
-         * Convert from Myr to code units using UnitTime_in_Megayears */
-        if (halos[i].dT > EPSILON_SMALL)
-            dt = halos[i].dT / ctx->params->UnitTime_in_Megayears;
-        else
-            dt = 0.0;  /* No cooling if no time has elapsed */
+    double coolingGas, x, rcool;
 
-        /* Calculate cooling rate */
-        coolingGas = cooling_recipe(&halos[i], ctx, dt, &x, &rcool);
+    /* Calculate cooling rate using substep timestep */
+    coolingGas = cooling_recipe(&halos[0], ctx, ctx->substep_dt, &x, &rcool);
 
-        /* Apply AGN heating if enabled and cooling is occurring */
-        if (AGN_RECIPE_ON > 0 && coolingGas > EPSILON_SMALL) {
-            coolingGas = do_AGN_heating(&halos[i], coolingGas, ctx, dt, x, rcool);
-        }
+    /* Apply AGN heating if enabled and cooling is occurring */
+    if (AGN_RECIPE_ON > 0 && coolingGas > EPSILON_SMALL) {
+        coolingGas = do_AGN_heating(&halos[0], coolingGas, ctx, ctx->substep_dt, x, rcool);
+    }
 
-        /* Transfer cooled gas from hot to cold reservoir */
-        if (coolingGas > EPSILON_SMALL) {
-            cool_gas_onto_galaxy(&halos[i], coolingGas, halos[i].Vvir);
+    /* Transfer cooled gas from hot to cold reservoir */
+    if (coolingGas > EPSILON_SMALL) {
+        cool_gas_onto_galaxy(&halos[0], coolingGas, halos[0].Vvir);
 
-            DEBUG_LOG("Central galaxy cooled: Mvir=%.3e, coolingGas=%.3e, z=%.3f",
-                     halos[i].Mvir, coolingGas, ctx->redshift);
-        }
+        DEBUG_LOG("Cooled %.3e Msun/h (Mvir=%.3e, z=%.3f, substep=%d/%d)",
+                 coolingGas * 1e10, halos[0].Mvir, ctx->redshift,
+                 ctx->substep_number + 1, ctx->num_substeps);
     }
 
     return 0;
@@ -484,6 +480,9 @@ static int sage_cooling_cleanup(void)
 // MODULE REGISTRATION
 // ============================================================================
 
+/* Extern reference to generated loop mode array */
+extern const enum LoopMode sage_cooling_supported_modes[];
+
 /**
  * @brief   Module structure for sage_cooling
  *
@@ -492,8 +491,10 @@ static int sage_cooling_cleanup(void)
 static struct Module sage_cooling_module = {
     .name = "sage_cooling",
     .init = sage_cooling_init,
-    .process_halos = sage_cooling_process,
-    .cleanup = sage_cooling_cleanup
+    .process = sage_cooling_process,
+    .cleanup = sage_cooling_cleanup,
+    .supported_loop_modes = sage_cooling_supported_modes,
+    .num_supported_modes = 1  /* Only supports LOOP_MODE_ALL */
 };
 
 /**

@@ -207,106 +207,107 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
     return 0;
   }
 
+  if (halos == NULL || ngal <= 0) {
+    return 0;
+  }
+
   /* Get gravitational constant in code units from context */
   double G_code = ctx->params->G;
 
-  /* Process each galaxy in FOF group */
-  for (int i = 0; i < ngal; i++) {
-    struct Halo *halo = &halos[i];
-    struct GalaxyData *galaxy = halo->galaxy;
+  struct Halo *halo = &halos[0];
+  struct GalaxyData *galaxy = halo->galaxy;
 
-    /* Skip if galaxy data is NULL */
-    if (galaxy == NULL) {
-      continue;
+  /* Skip if galaxy data is NULL */
+  if (galaxy == NULL) {
+    return 0;
+  }
+
+  /* Calculate disk scale radius if not yet initialized
+   * (only needs to be done once per galaxy) */
+  if (galaxy->DiskScaleRadius <= 0.0) {
+    galaxy->DiskScaleRadius = calculate_disk_scale_radius(halo->Rvir);
+  }
+
+  /* Calculate total disk mass (cold gas + stellar disk)
+   * Stellar disk = StellarMass - BulgeMass */
+  double disk_stellar_mass = galaxy->StellarMass - galaxy->BulgeMass;
+  double disk_mass = galaxy->ColdGas + disk_stellar_mass;
+
+  /* Calculate critical disk mass for stability */
+  double mcrit = calculate_critical_disk_mass(halo->Vmax, galaxy->DiskScaleRadius,
+                                              G_code);
+
+  /* Limit critical mass to actual disk mass (can't have negative unstable mass) */
+  if (mcrit > disk_mass) {
+    mcrit = disk_mass;
+  }
+
+  /* Calculate mass fractions in disk */
+  double gas_fraction = safe_div(galaxy->ColdGas, disk_mass, 0.0);
+  double star_fraction = safe_div(disk_stellar_mass, disk_mass, 0.0);
+
+  /* Calculate unstable masses that exceed stability criterion */
+  double unstable_gas = gas_fraction * (disk_mass - mcrit);
+  double unstable_stars = star_fraction * (disk_mass - mcrit);
+
+  /* ========================================================================
+   * HANDLE UNSTABLE STARS - FULLY IMPLEMENTED
+   * Transfer stellar mass directly to bulge with metallicity preservation
+   * ======================================================================== */
+  if (unstable_stars > 0.0) {
+    /* Calculate disk stellar metallicity (excluding existing bulge) */
+    double disk_metal_mass = galaxy->MetalsStellarMass - galaxy->MetalsBulgeMass;
+    double metallicity = mimic_get_metallicity(disk_stellar_mass, disk_metal_mass);
+
+    /* Transfer unstable stars to bulge */
+    galaxy->BulgeMass += unstable_stars;
+    galaxy->MetalsBulgeMass += metallicity * unstable_stars;
+
+    /* Sanity check: bulge mass should not exceed total stellar mass
+     * Correct if needed to maintain physical constraint */
+    if (galaxy->BulgeMass > galaxy->StellarMass * MASS_TOLERANCE_FACTOR) {
+      WARNING_LOG("Disk instability: bulge mass exceeds total stellar mass in halo %d. "
+                 "Correcting BulgeMass from %.4e to %.4e",
+                 halo->HaloNr, galaxy->BulgeMass, galaxy->StellarMass);
+      galaxy->BulgeMass = galaxy->StellarMass;
     }
-
-    /* Calculate disk scale radius if not yet initialized
-     * (only needs to be done once per galaxy) */
-    if (galaxy->DiskScaleRadius <= 0.0) {
-      galaxy->DiskScaleRadius = calculate_disk_scale_radius(halo->Rvir);
+    if (galaxy->MetalsBulgeMass > galaxy->MetalsStellarMass * MASS_TOLERANCE_FACTOR) {
+      WARNING_LOG("Disk instability: bulge metals exceed total stellar metals in halo %d. "
+                 "Correcting MetalsBulgeMass from %.4e to %.4e",
+                 halo->HaloNr, galaxy->MetalsBulgeMass, galaxy->MetalsStellarMass);
+      galaxy->MetalsBulgeMass = galaxy->MetalsStellarMass;
     }
+  }
 
-    /* Calculate total disk mass (cold gas + stellar disk)
-     * Stellar disk = StellarMass - BulgeMass */
-    double disk_stellar_mass = galaxy->StellarMass - galaxy->BulgeMass;
-    double disk_mass = galaxy->ColdGas + disk_stellar_mass;
-
-    /* Calculate critical disk mass for stability */
-    double mcrit = calculate_critical_disk_mass(halo->Vmax, galaxy->DiskScaleRadius,
-                                                G_code);
-
-    /* Limit critical mass to actual disk mass (can't have negative unstable mass) */
-    if (mcrit > disk_mass) {
-      mcrit = disk_mass;
-    }
-
-    /* Calculate mass fractions in disk */
-    double gas_fraction = safe_div(galaxy->ColdGas, disk_mass, 0.0);
-    double star_fraction = safe_div(disk_stellar_mass, disk_mass, 0.0);
-
-    /* Calculate unstable masses that exceed stability criterion */
-    double unstable_gas = gas_fraction * (disk_mass - mcrit);
-    double unstable_stars = star_fraction * (disk_mass - mcrit);
-
-    /* ========================================================================
-     * HANDLE UNSTABLE STARS - FULLY IMPLEMENTED
-     * Transfer stellar mass directly to bulge with metallicity preservation
-     * ======================================================================== */
-    if (unstable_stars > 0.0) {
-      /* Calculate disk stellar metallicity (excluding existing bulge) */
-      double disk_metal_mass = galaxy->MetalsStellarMass - galaxy->MetalsBulgeMass;
-      double metallicity = mimic_get_metallicity(disk_stellar_mass, disk_metal_mass);
-
-      /* Transfer unstable stars to bulge */
-      galaxy->BulgeMass += unstable_stars;
-      galaxy->MetalsBulgeMass += metallicity * unstable_stars;
-
-      /* Sanity check: bulge mass should not exceed total stellar mass
-       * Correct if needed to maintain physical constraint */
-      if (galaxy->BulgeMass > galaxy->StellarMass * MASS_TOLERANCE_FACTOR) {
-        WARNING_LOG("Disk instability: bulge mass exceeds total stellar mass in halo %d. "
-                   "Correcting BulgeMass from %.4e to %.4e",
-                   halo->HaloNr, galaxy->BulgeMass, galaxy->StellarMass);
-        galaxy->BulgeMass = galaxy->StellarMass;
-      }
-      if (galaxy->MetalsBulgeMass > galaxy->MetalsStellarMass * MASS_TOLERANCE_FACTOR) {
-        WARNING_LOG("Disk instability: bulge metals exceed total stellar metals in halo %d. "
-                   "Correcting MetalsBulgeMass from %.4e to %.4e",
-                   halo->HaloNr, galaxy->MetalsBulgeMass, galaxy->MetalsStellarMass);
-        galaxy->MetalsBulgeMass = galaxy->MetalsStellarMass;
-      }
-    }
-
-    /* ========================================================================
-     * HANDLE UNSTABLE GAS - DEFERRED TO FUTURE IMPLEMENTATION
+  /* ========================================================================
+   * HANDLE UNSTABLE GAS - DEFERRED TO FUTURE IMPLEMENTATION
+   *
+   * SAGE Physics (to be implemented when sage_mergers exists):
+   *
+   * 1. If AGNrecipeOn: grow_black_hole(p, unstable_gas_fraction)
+   *    - Accretes gas onto black hole
+   *    - Triggers quasar-mode feedback
+   *
+   * 2. collisional_starburst_recipe(unstable_gas_fraction, p, centralgal,
+   *                                  time, dt, halonr, mode=1, step)
+   *    - Mode 1 indicates disk instability-induced starburst
+   *    - Converts unstable gas to stars in bulge
+   *    - Triggers supernova feedback
+   *    - Handles metal enrichment
+   *
+   * For now, unstable gas remains in cold gas reservoir until sage_mergers
+   * module provides the necessary starburst infrastructure.
+   * ======================================================================== */
+  if (unstable_gas > 0.0) {
+    /* Gas instability detected but processing deferred
      *
-     * SAGE Physics (to be implemented when sage_mergers exists):
+     * TODO (when sage_mergers is implemented):
+     * 1. Calculate unstable_gas_fraction = unstable_gas / ColdGas
+     * 2. If AGN enabled: call grow_black_hole(p, unstable_gas_fraction)
+     * 3. Call collisional_starburst_recipe(..., mode=1, ...)
      *
-     * 1. If AGNrecipeOn: grow_black_hole(p, unstable_gas_fraction)
-     *    - Accretes gas onto black hole
-     *    - Triggers quasar-mode feedback
-     *
-     * 2. collisional_starburst_recipe(unstable_gas_fraction, p, centralgal,
-     *                                  time, dt, halonr, mode=1, step)
-     *    - Mode 1 indicates disk instability-induced starburst
-     *    - Converts unstable gas to stars in bulge
-     *    - Triggers supernova feedback
-     *    - Handles metal enrichment
-     *
-     * For now, unstable gas remains in cold gas reservoir until sage_mergers
-     * module provides the necessary starburst infrastructure.
-     * ======================================================================== */
-    if (unstable_gas > 0.0) {
-      /* Gas instability detected but processing deferred
-       *
-       * TODO (when sage_mergers is implemented):
-       * 1. Calculate unstable_gas_fraction = unstable_gas / ColdGas
-       * 2. If AGN enabled: call grow_black_hole(p, unstable_gas_fraction)
-       * 3. Call collisional_starburst_recipe(..., mode=1, ...)
-       *
-       * See SAGE sage-code/model_disk_instability.c:120-143 for reference
-       */
-    }
+     * See SAGE sage-code/model_disk_instability.c:120-143 for reference
+     */
   }
 
   return 0;
@@ -316,14 +317,20 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
 // MODULE REGISTRATION
 // ============================================================================
 
+/* Extern reference to generated loop mode array */
+extern const enum LoopMode sage_disk_instability_supported_modes[];
+
 /**
  * @brief   Module structure for sage_disk_instability module
  */
 static struct Module sage_disk_instability_module = {
     .name = "sage_disk_instability",
     .init = sage_disk_instability_init,
-    .process_halos = sage_disk_instability_process,
-    .cleanup = sage_disk_instability_cleanup};
+    .process = sage_disk_instability_process,
+    .cleanup = sage_disk_instability_cleanup,
+    .supported_loop_modes = sage_disk_instability_supported_modes,
+    .num_supported_modes = 1  /* Only supports LOOP_MODE_ALL */
+};
 
 /**
  * @brief   Register the sage_disk_instability module

@@ -1,0 +1,27 @@
+module:
+  name: sage_add_infall
+  display_name: "SAGE Add Infall"
+  description: "Adds infalling gas to hot reservoir with metallicity tracking"
+  version: "1.0.0"
+  author: "Mimic Team (ported from SAGE)"
+
+  sources:
+    - sage_add_infall.c
+
+  headers:
+    - sage_add_infall.h
+
+  register_function: sage_add_infall_register
+
+  supported_loop_modes: [once]
+
+  dependencies:
+    properties:
+      - InfallingGas
+      - HotGas
+      - MetalsHotGas
+      - EjectedMass
+      - MetalsEjectedMass
+    parameters: []
+
+  compilation_requires: []

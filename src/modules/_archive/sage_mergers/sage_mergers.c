@@ -25,7 +25,7 @@
  * ✓ Merger-induced starbursts (PARTIAL - see README.md)
  *
  * Deferred Features (documented in README.md):
- * - Star formation history arrays (requires design for STEPS arrays)
+ * - Star formation history arrays (requires design for substep arrays)
  * - Disk instability checking (requires separate disk_instability module)
  *
  * Reference: SAGE source sage-code/model_mergers.c
@@ -722,14 +722,19 @@ static int sage_mergers_cleanup(void) {
  * MODULE REGISTRATION
  * ============================================================================ */
 
+/* Extern reference to generated loop mode array */
+extern const enum LoopMode sage_mergers_supported_modes[];
+
 /**
  * @brief   Module interface definition
  */
 static struct Module sage_mergers_module = {
     .name = "sage_mergers",
     .init = sage_mergers_init,
-    .process_halos = sage_mergers_process,
-    .cleanup = sage_mergers_cleanup
+    .process = sage_mergers_process,
+    .cleanup = sage_mergers_cleanup,
+    .supported_loop_modes = sage_mergers_supported_modes,
+    .num_supported_modes = 1  /* Only supports LOOP_MODE_ONCE */
 };
 
 /**

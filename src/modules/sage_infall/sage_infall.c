@@ -12,7 +12,6 @@
  *
  * Key functions:
  * - infall_recipe(): Calculate infalling gas mass and consolidate satellite reservoirs
- * - add_infall_to_hot(): Add infalling gas to hot reservoir with metallicity tracking
  *
  * Note: Will only fully conserve FoF f_bar with stripping and mergers due to type 2s
  *
@@ -26,7 +25,6 @@
 #include "constants.h"
 #include "error.h"
 #include "../_system/parameter_helpers.h"  // Parameter loading and validation macros
-#include "../_shared/metallicity.h"  // Shared utility for metallicity calculations
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -127,55 +125,6 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
   return infallingMass;
 }
 
-/**
- * @brief   Add infalling gas to hot gas reservoir with metallicity tracking
- *
- * For negative infall (mass loss), removes from ejected reservoir first, then hot gas.
- *
- * @param   galaxy       Pointer to galaxy data
- * @param   infallingGas Amount of gas to add (can be negative)
- */
-static void add_infall_to_hot(struct GalaxyData *galaxy, double infallingGas) {
-  float metallicity;
-
-  /* For mass loss (negative infall), first remove from ejected reservoir */
-  if (infallingGas < 0.0 && galaxy->EjectedMass > 0.0f) {
-    metallicity = mimic_get_metallicity(galaxy->EjectedMass, galaxy->MetalsEjectedMass);
-
-    galaxy->MetalsEjectedMass += (float)(infallingGas * metallicity);
-    if (galaxy->MetalsEjectedMass < 0.0f) {
-      galaxy->MetalsEjectedMass = 0.0f;
-    }
-
-    galaxy->EjectedMass += (float)infallingGas;
-
-    /* If ejected reservoir depleted, continue removing from hot gas */
-    if (galaxy->EjectedMass < 0.0f) {
-      infallingGas = galaxy->EjectedMass;
-      galaxy->EjectedMass = 0.0f;
-      galaxy->MetalsEjectedMass = 0.0f;
-    } else {
-      infallingGas = 0.0;
-    }
-  }
-
-  /* Continue removing from hot gas if still mass loss */
-  if (infallingGas < 0.0 && galaxy->MetalsHotGas > 0.0f) {
-    metallicity = mimic_get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
-
-    galaxy->MetalsHotGas += (float)(infallingGas * metallicity);
-    if (galaxy->MetalsHotGas < 0.0f) {
-      galaxy->MetalsHotGas = 0.0f;
-    }
-  }
-
-  galaxy->HotGas += (float)infallingGas;
-
-  if (galaxy->HotGas < 0.0f) {
-    galaxy->HotGas = 0.0f;
-    galaxy->MetalsHotGas = 0.0f;
-  }
-}
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -200,7 +149,8 @@ static int sage_infall_init(void) {
 /**
  * @brief   Process halos in a FOF group
  *
- * Calculates and applies cosmological infall for central galaxy.
+ * Calculates cosmological infall for central galaxy and stores in InfallingGas
+ * property for distribution over substeps by sage_add_infall module.
  *
  * @param   ctx     Module execution context
  * @param   halos   Array of halos in FOF group
@@ -209,14 +159,12 @@ static int sage_infall_init(void) {
  */
 static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
                                 int ngal) {
-#define STEPS 1  /* TODO: Will be replaced by global STEPS when multi-step integration loop implemented in core */
-
   if (halos == NULL || ngal <= 0) {
     return 0;
   }
-  
+
   double z = ctx->redshift;
-  
+
   /* Find central galaxy */
   int central_idx = -1;
   for (int i = 0; i < ngal; i++) {
@@ -225,12 +173,12 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
       break;
     }
   }
-  
+
   if (central_idx == -1) {
     ERROR_LOG("No central galaxy found in FOF group (ngal=%d)", ngal);
     return 0;
   }
-  
+
   if (halos[central_idx].galaxy == NULL) {
     ERROR_LOG("Central galaxy (index %d) has NULL galaxy data", central_idx);
     return -1;
@@ -248,19 +196,18 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
     }
 
   }
-  
+
   double infallingMass = infall_recipe(halos, ngal, central_idx);
 
-  add_infall_to_hot(halos[central_idx].galaxy, infallingMass / STEPS);
+  /* Store infalling mass for distribution over substeps by sage_add_infall module */
+  halos[central_idx].galaxy->InfallingGas = (float)infallingMass;
 
-  DEBUG_LOG("Infall: central Mvir=%.3e, HaloBaryonFrac=%.4f, infall=%.3e, HotGas=%.3e, z=%.3f",
+  DEBUG_LOG("Infall: central Mvir=%.3e, HaloBaryonFrac=%.4f, InfallingGas=%.3e, z=%.3f",
             halos[central_idx].Mvir,
             halos[central_idx].galaxy->HaloBaryonFraction,
-            infallingMass,
-            halos[central_idx].galaxy->HotGas, z);
+            infallingMass, z);
 
   return 0;
-#undef STEPS
 }
 
 /**

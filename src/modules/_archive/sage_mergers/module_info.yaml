@@ -13,6 +13,8 @@ module:
 
   register_function: sage_mergers_register
 
+  supported_loop_modes: [once]
+
   dependencies:
     properties:
       - ColdGas

@@ -96,113 +96,96 @@ static int sage_reincorporation_init(void)
 }
 
 /**
- * @brief   Process gas reincorporation for a FOF group
+ * @brief   Process gas reincorporation for a galaxy
  *
- * Processes gas reincorporation from the ejected reservoir back to hot gas
- * for all halos in the group. Only central galaxies (Type == 0) can
- * reincorporate gas.
+ * Processes gas reincorporation from the ejected reservoir back to hot gas.
+ * Only central galaxies (Type == 0) can reincorporate gas.
  *
  * Physics:
  *   - Reincorporation only occurs when Vvir > Vcrit
  *   - Rate = (Vvir/Vcrit - 1) * M_ejected * (Vvir/Rvir) * dt
  *   - Metallicity preserved during transfer
  *
- * @param ctx    Module context (redshift, time, parameters)
- * @param halos  Array of halos in the FOF group
- * @param ngal   Number of halos in the group
+ * @param ctx    Module context (substep_dt, redshift, etc.)
+ * @param halos  Array of halos (ngal=1 for LOOP_MODE_ALL)
+ * @param ngal   Number of halos (always 1)
  *
  * @return       0 on success, -1 on failure
  */
-static int sage_reincorporation_process_halos(struct ModuleContext *ctx,
-                                              struct Halo *halos,
-                                              int ngal)
+static int sage_reincorporation_process(struct ModuleContext *ctx,
+                                        struct Halo *halos,
+                                        int ngal)
 {
-    (void)ctx;  /* Context available for future use (e.g., redshift, time) */
-
-    /* Validate inputs */
     if (halos == NULL || ngal <= 0) {
-        return 0;  /* Nothing to process */
+        return 0;
     }
+
+    /* Only central galaxies can reincorporate gas */
+    if (halos[0].Type != 0) {
+        return 0;  /* Skip satellites and orphans */
+    }
+
+    /* Validate galaxy data exists */
+    if (halos[0].galaxy == NULL) {
+        ERROR_LOG("Central halo has NULL galaxy data");
+        return -1;
+    }
+
+    struct GalaxyData *galaxy = halos[0].galaxy;
+
+    /* Get current gas masses */
+    float ejected_mass = galaxy->EjectedMass;
+    float metals_ejected = galaxy->MetalsEjectedMass;
+
+    /* Skip if no ejected gas to reincorporate */
+    if (ejected_mass <= EPSILON_SMALL) {
+        return 0;
+    }
+
+    /* Get halo properties */
+    float Vvir = halos[0].Vvir;
+    float Rvir = halos[0].Rvir;
 
     /* Calculate effective critical velocity */
     double Vcrit = VCRIT_BASE * REINCORPORATION_FACTOR;
 
-    /* Process each halo */
-    for (int i = 0; i < ngal; i++) {
-        /* Only central galaxies can reincorporate gas */
-        if (halos[i].Type != 0) {
-            continue;  /* Skip satellites and orphans */
-        }
-
-        /* Validate galaxy data exists */
-        if (halos[i].galaxy == NULL) {
-            ERROR_LOG("Central halo %d has NULL galaxy data", i);
-            return -1;
-        }
-
-        /* Get current gas masses */
-        float ejected_mass = halos[i].galaxy->EjectedMass;
-        float metals_ejected = halos[i].galaxy->MetalsEjectedMass;
-
-        /* Skip if no ejected gas to reincorporate */
-        if (ejected_mass <= EPSILON_SMALL) {
-            continue;
-        }
-
-        /* Get halo properties */
-        float Vvir = halos[i].Vvir;
-        float Rvir = halos[i].Rvir;
-        float dt = halos[i].dT;
-
-        /* Validate timestep */
-        if (dt <= 0.0f) {
-            DEBUG_LOG("Halo %d: Invalid timestep dT=%.3e, skipping reincorporation",
-                     i, dt);
-            continue;
-        }
-
-        /* Check if virial velocity exceeds critical velocity */
-        if (Vvir <= Vcrit) {
-            /* Virial velocity too low for reincorporation */
-            continue;
-        }
-
-        /* Calculate reincorporation rate
-         * Rate = (Vvir/Vcrit - 1) * M_ejected * (Vvir/Rvir) * dt */
-        double velocity_factor = safe_div(Vvir, Vcrit, 0.0) - 1.0;
-        double dynamical_rate = safe_div(Vvir, Rvir, 0.0);  /* 1/t_dyn = Vvir/Rvir */
-        float reincorporated = velocity_factor * ejected_mass * dynamical_rate * dt;
-
-        /* Limit to available ejected mass (cannot exceed reservoir) */
-        if (reincorporated > ejected_mass) {
-            reincorporated = ejected_mass;
-        }
-
-        /* Calculate metallicity of ejected gas (preserved during transfer) */
-        float metallicity = mimic_get_metallicity(ejected_mass, metals_ejected);
-
-        /* Calculate metal mass being reincorporated */
-        float reincorporated_metals = metallicity * reincorporated;
-
-        /* Update galaxy properties: remove from ejected reservoir */
-        halos[i].galaxy->EjectedMass -= reincorporated;
-        halos[i].galaxy->MetalsEjectedMass -= reincorporated_metals;
-
-        /* Update galaxy properties: add to hot gas reservoir */
-        halos[i].galaxy->HotGas += reincorporated;
-        halos[i].galaxy->MetalsHotGas += reincorporated_metals;
-
-        /* Debug logging */
-        DEBUG_LOG("Halo %d: Reincorporated %.3e Msun/h (Vvir=%.1f km/s > Vcrit=%.1f km/s)",
-                 i, reincorporated * 1e10, Vvir, Vcrit);
-        DEBUG_LOG("  EjectedMass: %.3e → %.3e Msun/h",
-                 (ejected_mass) * 1e10,
-                 (halos[i].galaxy->EjectedMass) * 1e10);
-        DEBUG_LOG("  HotGas: %.3e → %.3e Msun/h (added %.3e)",
-                 (halos[i].galaxy->HotGas - reincorporated) * 1e10,
-                 (halos[i].galaxy->HotGas) * 1e10,
-                 reincorporated * 1e10);
+    /* Check if virial velocity exceeds critical velocity */
+    if (Vvir <= Vcrit) {
+        return 0;  /* Virial velocity too low for reincorporation */
     }
+
+    /* Calculate reincorporation rate
+     * Rate = (Vvir/Vcrit - 1) * M_ejected * (Vvir/Rvir) * dt */
+    double velocity_factor = safe_div(Vvir, Vcrit, 0.0) - 1.0;
+    double dynamical_rate = safe_div(Vvir, Rvir, 0.0);  /* 1/t_dyn = Vvir/Rvir */
+    float reincorporated = velocity_factor * ejected_mass * dynamical_rate * ctx->substep_dt;
+
+    /* Limit to available ejected mass (cannot exceed reservoir) */
+    if (reincorporated > ejected_mass) {
+        reincorporated = ejected_mass;
+    }
+
+    /* Calculate metallicity of ejected gas (preserved during transfer) */
+    float metallicity = mimic_get_metallicity(ejected_mass, metals_ejected);
+
+    /* Calculate metal mass being reincorporated */
+    float reincorporated_metals = metallicity * reincorporated;
+
+    /* Update galaxy properties: remove from ejected reservoir */
+    galaxy->EjectedMass -= reincorporated;
+    galaxy->MetalsEjectedMass -= reincorporated_metals;
+
+    /* Update galaxy properties: add to hot gas reservoir */
+    galaxy->HotGas += reincorporated;
+    galaxy->MetalsHotGas += reincorporated_metals;
+
+    /* Debug logging */
+    DEBUG_LOG("Reincorporated %.3e Msun/h (Vvir=%.1f km/s > Vcrit=%.1f km/s, substep=%d/%d)",
+             reincorporated * 1e10, Vvir, Vcrit, ctx->substep_number + 1, ctx->num_substeps);
+    DEBUG_LOG("  EjectedMass: %.3e → %.3e Msun/h",
+             ejected_mass * 1e10, galaxy->EjectedMass * 1e10);
+    DEBUG_LOG("  HotGas: %.3e Msun/h (added %.3e)",
+             galaxy->HotGas * 1e10, reincorporated * 1e10);
 
     return 0;
 }
@@ -225,14 +208,20 @@ static int sage_reincorporation_cleanup(void)
 // MODULE REGISTRATION
 // ============================================================================
 
+/* Extern reference to generated loop mode array */
+extern const enum LoopMode sage_reincorporation_supported_modes[];
+
 /**
  * @brief   Module structure for sage_reincorporation module
  */
 static struct Module sage_reincorporation_module = {
     .name = "sage_reincorporation",
     .init = sage_reincorporation_init,
-    .process_halos = sage_reincorporation_process_halos,
-    .cleanup = sage_reincorporation_cleanup};
+    .process = sage_reincorporation_process,
+    .cleanup = sage_reincorporation_cleanup,
+    .supported_loop_modes = sage_reincorporation_supported_modes,
+    .num_supported_modes = 1  /* Only supports LOOP_MODE_ALL */
+};
 
 /**
  * @brief   Register the SAGE reincorporation module

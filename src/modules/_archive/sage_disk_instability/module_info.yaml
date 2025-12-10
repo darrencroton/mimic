@@ -15,6 +15,8 @@ module:
 
   register_function: sage_disk_instability_register
 
+  supported_loop_modes: [all]
+
   dependencies:
     properties:
       - ColdGas

@@ -324,7 +324,35 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
     return; // Empty phase or nothing to process
   }
 
-  /* PASS 1: LOOP_MODE_ALL modules (galaxy-major loop) */
+  /* PASS 1: LOOP_MODE_ONCE modules (full array - executes first) */
+  for (int i = 0; i < num_modules; i++) {
+    if (phase_config[i].loop_mode != LOOP_MODE_ONCE) {
+      continue; // Skip LOOP_MODE_ALL modules in this pass
+    }
+
+    /* Find module by name */
+    struct Module *mod = find_module_by_name(phase_config[i].module_name);
+    if (mod == NULL) {
+      ERROR_LOG("Module '%s' configured but not registered",
+                  phase_config[i].module_name);
+      exit(EXIT_FAILURE);
+    }
+
+    /* Call module with full halo array */
+    DEBUG_LOG("Executing module: %s (full array, ngal=%d, substep %d/%d, "
+              "z=%.3f)",
+              mod->name, ngal, ctx->substep_number + 1, ctx->num_substeps,
+              ctx->redshift);
+
+    int result = mod->process(ctx, halos, ngal);
+    if (result != 0) {
+      ERROR_LOG("Module '%s' failed (substep %d)", mod->name,
+                ctx->substep_number);
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  /* PASS 2: LOOP_MODE_ALL modules (galaxy-major loop - executes after ONCE) */
   for (int g = 0; g < ngal; g++) {
     /* Skip halos without galaxies or already merged */
     if (halos[g].galaxy == NULL || halos[g].Type == 3) {
@@ -334,7 +362,7 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
     /* Execute all LOOP_MODE_ALL modules for this galaxy */
     for (int i = 0; i < num_modules; i++) {
       if (phase_config[i].loop_mode != LOOP_MODE_ALL) {
-        continue; // Skip LOOP_MODE_ONCE modules in this pass
+        continue; // Skip LOOP_MODE_ONCE modules (already done)
       }
 
       /* Find module by name */
@@ -356,33 +384,6 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                   ctx->substep_number);
         exit(EXIT_FAILURE);
       }
-    }
-  }
-
-  /* PASS 2: LOOP_MODE_ONCE modules (full array) */
-  for (int i = 0; i < num_modules; i++) {
-    if (phase_config[i].loop_mode != LOOP_MODE_ONCE) {
-      continue; // Skip LOOP_MODE_ALL modules (already done)
-    }
-
-    /* Find module by name */
-    struct Module *mod = find_module_by_name(phase_config[i].module_name);
-    if (mod == NULL) {
-      ERROR_LOG("Module '%s' configured but not registered",
-                phase_config[i].module_name);
-      exit(EXIT_FAILURE);
-    }
-
-    /* Call module with full array */
-    DEBUG_LOG("Executing module: %s (ngal=%d, substep %d/%d, z=%.3f)",
-              mod->name, ngal, ctx->substep_number + 1, ctx->num_substeps,
-              ctx->redshift);
-
-    int result = mod->process(ctx, halos, ngal);
-    if (result != 0) {
-      ERROR_LOG("Module '%s' failed (substep %d)", mod->name,
-                ctx->substep_number);
-      exit(EXIT_FAILURE);
     }
   }
 }

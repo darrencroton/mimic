@@ -13,6 +13,8 @@ module:
 
   register_function: sage_reincorporation_register
 
+  supported_loop_modes: [all]
+
   dependencies:
     properties:
       - EjectedMass

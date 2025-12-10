@@ -7,7 +7,7 @@
  * based on local baryon fraction (set by sage_reionization). Stripped gas transfers
  * to central galaxy's hot reservoir with metallicity preserved.
  *
- * Physics: strippedGas = -(HaloBaryonFraction × Mvir - total_baryons) / STEPS
+ * Physics: strippedGas = -(HaloBaryonFraction × Mvir - total_baryons) / num_substeps
  *
  * This module requires sage_reionization to run first to set HaloBaryonFraction.
  *

@@ -62,6 +62,18 @@ galaxy_properties:
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
     sentinels: [0.0]  # Can be zero if no feedback has occurred
 
+  - name: InfallingGas
+    type: float
+    units: 1e10 Msun/h
+    description: Cosmological gas infalling onto galaxy this snapshot (distributed over substeps)
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true
+    output_source: galaxy_property
+    range: [-100000.0, 100000.0]  # Can be negative for mass loss
+    sentinels: [0.0]  # Can be zero if no infall (e.g., satellites)
+
   # =============================================================================
   # STELLAR COMPONENTS
   # =============================================================================
