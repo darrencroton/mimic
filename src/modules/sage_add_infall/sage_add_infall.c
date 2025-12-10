@@ -2,22 +2,14 @@
  * @file    sage_add_infall.c
  * @brief   SAGE add infall module implementation
  *
- * Adds infalling gas to hot gas reservoir with metallicity tracking. Reads
- * InfallingGas property set by sage_infall module and distributes it over
- * substeps. For negative infall (mass loss), removes from ejected reservoir
- * first, then hot gas.
+ * Distributes infalling gas (calculated by sage_infall) to hot gas reservoir over
+ * substeps with metallicity tracking. For negative infall (mass loss), removes from
+ * ejected reservoir first, then hot gas.
  *
  * Physics: Transfer InfallingGas / num_substeps → HotGas per substep
  *
- * Key functions:
- * - sage_add_infall_process(): Add infalling gas to hot reservoir with metallicity
- *
- * Reference: Croton et al. (2006, 2016), based on SAGE model_infall.c add_infall_to_hot()
+ * Reference: Croton et al. (2006, 2016), based on SAGE model_infall.c
  */
-
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 #include "constants.h"
 #include "error.h"
@@ -39,8 +31,8 @@
  */
 static int sage_add_infall_init(void) {
   INFO_LOG("SAGE add infall module initialized");
-  INFO_LOG("  Physics: Transfer InfallingGas → HotGas with metallicity");
-  INFO_LOG("  Distributes InfallingGas over substeps");
+  VERBOSE_LOG("  Physics: Transfer InfallingGas → HotGas with metallicity");
+  VERBOSE_LOG("  Distributes InfallingGas over substeps");
 
   return 0;
 }
@@ -137,7 +129,7 @@ static int sage_add_infall_process(struct ModuleContext *ctx, struct Halo *halos
  * @return  0 on success
  */
 static int sage_add_infall_cleanup(void) {
-  INFO_LOG("SAGE add infall module cleaned up");
+  VERBOSE_LOG("SAGE add infall module cleaned up");
   return 0;
 }
 

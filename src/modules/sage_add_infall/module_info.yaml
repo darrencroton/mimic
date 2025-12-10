@@ -1,7 +1,7 @@
 module:
   name: sage_add_infall
   display_name: "SAGE Add Infall"
-  description: "Adds infalling gas to hot reservoir with metallicity tracking"
+  description: "Distributes infalling gas to hot reservoir over substeps with metallicity tracking"
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
 
@@ -24,4 +24,10 @@ module:
       - MetalsEjectedMass
     parameters: []
 
-  compilation_requires: []
+  tests:
+    unit: tests/test_unit_sage_add_infall.c
+    integration: tests/test_integration_sage_add_infall.py
+    scientific: tests/test_scientific_sage_add_infall.py
+
+  docs:
+    physics: README.md
