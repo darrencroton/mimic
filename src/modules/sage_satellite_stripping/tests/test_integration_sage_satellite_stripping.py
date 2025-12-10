@@ -86,7 +86,7 @@ def test_module_loads():
         output_name="sage_satellite_stripping_load",
         phase_config={
             'pre_timestep': [('sage_reionization', 'once')],
-            'phase_1': [('sage_satellite_stripping', 'all')],
+            'phase_1': [('sage_satellite_stripping', 'once')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -132,7 +132,7 @@ def test_parameter_configuration():
         output_name="sage_satellite_stripping_params",
         phase_config={
             'pre_timestep': [('sage_reionization', 'once')],
-            'phase_1': [('sage_satellite_stripping', 'all')],
+            'phase_1': [('sage_satellite_stripping', 'once')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -169,7 +169,7 @@ def test_with_sage_infall():
         output_name="sage_satellite_stripping_infall",
         phase_config={
             'pre_timestep': [('sage_reionization', 'once')],
-            'phase_1': [('sage_infall', 'once'), ('sage_satellite_stripping', 'all')],
+            'phase_1': [('sage_infall', 'once'), ('sage_satellite_stripping', 'once')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -213,7 +213,7 @@ def test_memory_safety():
         output_name="sage_satellite_stripping_memory",
         phase_config={
             'pre_timestep': [('sage_reionization', 'once')],
-            'phase_1': [('sage_satellite_stripping', 'all')],
+            'phase_1': [('sage_satellite_stripping', 'once')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -250,7 +250,7 @@ def test_execution_completes():
         output_name="sage_satellite_stripping_complete",
         phase_config={
             'pre_timestep': [('sage_reionization', 'once')],
-            'phase_1': [('sage_satellite_stripping', 'all')],
+            'phase_1': [('sage_satellite_stripping', 'once')],
             'phase_2': [],
             'post_timestep': []
         },

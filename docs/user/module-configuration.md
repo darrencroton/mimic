@@ -524,7 +524,7 @@ modules:
 
   # Phase 1: Main physics (runs each substep)
   phase_1:
-    - sage_satellite_stripping: all
+    - sage_satellite_stripping: once
     - sage_cooling: all
     - sage_starformation_feedback: all
     - sage_reincorporation: all

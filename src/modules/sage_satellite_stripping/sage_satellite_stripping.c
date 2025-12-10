@@ -2,31 +2,29 @@
  * @file    sage_satellite_stripping.c
  * @brief   SAGE satellite stripping module implementation
  *
- * Implements environmental gas removal from satellites via ram pressure and tidal
- * stripping. Stripped gas transfers to central galaxy's hot reservoir with
- * metallicity preserved. Only processes Type 1 satellites.
+ * Implements environmental gas stripping from satellites via ram pressure and tidal
+ * effects. Stripped gas transfers to central's hot reservoir with metallicity preserved.
  *
- * Physics: strippedGas = -(HaloBaryonFraction × Mvir - total_baryons) / num_substeps
+ * Physics: strippedGas = -(HaloBaryonFraction × Mvir - total_baryons) / SubSteps
  *
  * Key functions:
- * - strip_from_satellite(): Remove hot gas from satellite and transfer to central
+ * - sage_satellite_stripping_process(): Strip gas from satellites, transfer to central
+ *
+ * Mass flow: Satellite HotGas → Central HotGas (with metals)
  *
  * Reference: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2006, 2016)
  */
 
 #include "sage_satellite_stripping.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "constants.h"
 #include "error.h"
-#include "../_system/parameter_helpers.h"  // Parameter loading and validation macros
+#include "../_system/parameter_helpers.h"
 #include "../_shared/metallicity.h"
 #include "module_interface.h"
 #include "module_registry.h"
-#include "numeric.h"
 #include "types.h"
 
 // ============================================================================
@@ -35,56 +33,6 @@
 
 static double GLOBAL_BARYON_FRAC;
 
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-/**
- * @brief   Strip hot gas from satellite and transfer to central
- *
- * @param   halos       Array of halos in FOF group
- * @param   central_idx Index of central galaxy
- * @param   sat_idx     Index of satellite galaxy being stripped
- * @param   num_substeps Number of substeps for distributing stripping
- */
-static void strip_from_satellite(struct Halo *halos, int central_idx, int sat_idx,
-                                  int num_substeps) {
-  double strippedGas, strippedGasMetals;
-  float metallicity;
-
-  /* Calculate amount to strip from HaloBaryonFraction (set by sage_reionization)
-   * Distributed over substeps for numerical stability */
-  strippedGas = -1.0 *
-                (halos[sat_idx].galaxy->HaloBaryonFraction * halos[sat_idx].Mvir -
-                 (halos[sat_idx].galaxy->StellarMass +
-                  halos[sat_idx].galaxy->ColdGas +
-                  halos[sat_idx].galaxy->HotGas +
-                  halos[sat_idx].galaxy->EjectedMass +
-                  halos[sat_idx].galaxy->BlackHoleMass +
-                  halos[sat_idx].galaxy->ICS)) /
-                (double)num_substeps;
-
-  if (strippedGas > 0.0) {
-    metallicity = mimic_get_metallicity(halos[sat_idx].galaxy->HotGas,
-                                   halos[sat_idx].galaxy->MetalsHotGas);
-    strippedGasMetals = strippedGas * metallicity;
-
-    /* Limit to available hot gas and metals */
-    if (strippedGas > halos[sat_idx].galaxy->HotGas) {
-      strippedGas = halos[sat_idx].galaxy->HotGas;
-    }
-    if (strippedGasMetals > halos[sat_idx].galaxy->MetalsHotGas) {
-      strippedGasMetals = halos[sat_idx].galaxy->MetalsHotGas;
-    }
-
-    /* Transfer from satellite to central */
-    halos[sat_idx].galaxy->HotGas -= (float)strippedGas;
-    halos[sat_idx].galaxy->MetalsHotGas -= (float)strippedGasMetals;
-    halos[central_idx].galaxy->HotGas += (float)strippedGas;
-    halos[central_idx].galaxy->MetalsHotGas += (float)strippedGasMetals;
-  }
-}
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -98,11 +46,9 @@ static void strip_from_satellite(struct Halo *halos, int central_idx, int sat_id
 static int sage_satellite_stripping_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                     "cosmic baryon fraction must be physical");
-  
+
   INFO_LOG("SAGE satellite stripping module initialized");
-  INFO_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
-  INFO_LOG("  Physics: strippedGas = -(HaloBaryonFraction * Mvir - baryons) / num_substeps");
-  INFO_LOG("  Requires: sage_reionization module to set HaloBaryonFraction");
+  VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
 
   return 0;
 }
@@ -110,7 +56,9 @@ static int sage_satellite_stripping_init(void) {
 /**
  * @brief   Process halos for satellite stripping
  *
- * Strips hot gas from Type 1 satellites and transfers to central galaxy.
+ * Strips hot gas from satellites when baryon content exceeds HaloBaryonFraction × Mvir.
+ * Transfers stripped gas and metals to central galaxy's hot reservoir. Stripping
+ * distributed over substeps for numerical stability.
  *
  * @param   ctx     Module execution context
  * @param   halos   Array of halos in FOF group
@@ -123,7 +71,7 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
     return 0;
   }
 
-  /* Find central galaxy */
+  /* Find central galaxy (Type 0) */
   int central_idx = -1;
   for (int i = 0; i < ngal; i++) {
     if (halos[i].Type == 0) {
@@ -133,7 +81,7 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
   }
 
   if (central_idx == -1) {
-    DEBUG_LOG("No central galaxy found in FOF group (ngal=%d)", ngal);
+    DEBUG_LOG("No central galaxy in FOF group (ngal=%d)", ngal);
     return 0;
   }
 
@@ -142,7 +90,7 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
     return -1;
   }
 
-  /* Strip gas from Type 1 satellites */
+  /* Strip hot gas from satellites and transfer to central */
   for (int i = 0; i < ngal; i++) {
     if (i == central_idx)
       continue;
@@ -151,11 +99,41 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
     if (halos[i].galaxy->HotGas <= 0.0f)
       continue;
 
-    if (halos[i].galaxy->HaloBaryonFraction == -1.0) {
-      halos[i].galaxy->HaloBaryonFraction = (float)(GLOBAL_BARYON_FRAC);
-    }
+    struct GalaxyData *sat_gal = halos[i].galaxy;
+    struct GalaxyData *cen_gal = halos[central_idx].galaxy;
 
-    strip_from_satellite(halos, central_idx, i, ctx->num_substeps);
+    /* Use HaloBaryonFraction (set by sage_reionization), fallback to global if unset */
+    double halo_baryon_frac = (sat_gal->HaloBaryonFraction > 0.0f)
+                                  ? sat_gal->HaloBaryonFraction
+                                  : GLOBAL_BARYON_FRAC;
+
+    /* Calculate total baryons in satellite */
+    double total_baryons = sat_gal->StellarMass + sat_gal->ColdGas + sat_gal->HotGas +
+                           sat_gal->EjectedMass + sat_gal->BlackHoleMass + sat_gal->ICS;
+
+    /* Calculate amount to strip (distributed over substeps for stability) */
+    double strippedGas = -1.0 * (halo_baryon_frac * halos[i].Mvir - total_baryons) /
+                         (double)ctx->num_substeps;
+
+    if (strippedGas > 0.0) {
+      /* Calculate metallicity for metal transfer */
+      float metallicity = mimic_get_metallicity(sat_gal->HotGas, sat_gal->MetalsHotGas);
+      double strippedMetals = strippedGas * metallicity;
+
+      /* Limit to available hot gas and metals */
+      if (strippedGas > sat_gal->HotGas) {
+        strippedGas = sat_gal->HotGas;
+      }
+      if (strippedMetals > sat_gal->MetalsHotGas) {
+        strippedMetals = sat_gal->MetalsHotGas;
+      }
+
+      /* Transfer gas and metals from satellite to central */
+      sat_gal->HotGas -= (float)strippedGas;
+      sat_gal->MetalsHotGas -= (float)strippedMetals;
+      cen_gal->HotGas += (float)strippedGas;
+      cen_gal->MetalsHotGas += (float)strippedMetals;
+    }
   }
 
   return 0;
@@ -167,7 +145,7 @@ static int sage_satellite_stripping_process(struct ModuleContext *ctx,
  * @return  0 on success
  */
 static int sage_satellite_stripping_cleanup(void) {
-  INFO_LOG("SAGE satellite stripping module cleaned up");
+  VERBOSE_LOG("SAGE satellite stripping module cleaned up");
   return 0;
 }
 
@@ -175,7 +153,6 @@ static int sage_satellite_stripping_cleanup(void) {
 // MODULE REGISTRATION
 // ============================================================================
 
-/* Extern reference to generated loop mode array */
 extern const enum LoopMode sage_satellite_stripping_supported_modes[];
 
 static struct Module sage_satellite_stripping_module = {
@@ -184,7 +161,7 @@ static struct Module sage_satellite_stripping_module = {
     .process = sage_satellite_stripping_process,
     .cleanup = sage_satellite_stripping_cleanup,
     .supported_loop_modes = sage_satellite_stripping_supported_modes,
-    .num_supported_modes = 2  /* Default: supports both once and all */
+    .num_supported_modes = 1
 };
 
 void sage_satellite_stripping_register(void) {

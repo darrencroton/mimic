@@ -13,10 +13,18 @@ module:
 
   register_function: sage_satellite_stripping_register
 
+  supported_loop_modes: [once]
+
   dependencies:
     properties:
       - HaloBaryonFraction
+      - Mvir
+      - StellarMass
+      - ColdGas
       - HotGas
+      - EjectedMass
+      - BlackHoleMass
+      - ICS
       - MetalsHotGas
 
     parameters:

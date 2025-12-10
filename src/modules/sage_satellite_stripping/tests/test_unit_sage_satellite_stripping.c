@@ -109,10 +109,9 @@ int test_module_initialization(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* Configure sage_satellite_stripping module */
-    /* Configure sage_satellite_stripping module in phase_1 (for testing) */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_satellite_stripping");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ONCE;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
@@ -132,11 +131,11 @@ int test_module_initialization(void)
 
 /**
  * @test    test_parameter_reading
- * @brief   Test that module initializes correctly (no parameters needed)
+ * @brief   Test that module reads GlobalBaryonFraction parameter correctly
  *
- * Expected: Module initializes successfully without parameters
- * Validates: sage_satellite_stripping no longer requires parameters (uses HaloBaryonFraction property)
- * Note: HaloBaryonFraction is set by sage_reionization module
+ * Expected: Module initializes successfully and reads GlobalBaryonFraction
+ * Validates: Parameter reading and validation via LOAD_AND_VALIDATE_RANGE_EXCLUSIVE
+ * Note: HaloBaryonFraction property is set by sage_reionization module
  */
 int test_parameter_reading(void)
 {
@@ -150,11 +149,10 @@ int test_parameter_reading(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_satellite_stripping (no parameters needed) */
-    /* Configure sage_satellite_stripping module in phase_1 (for testing) */
+    /* Configure sage_satellite_stripping module */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_satellite_stripping");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ONCE;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
@@ -163,7 +161,7 @@ int test_parameter_reading(void)
     int result = module_system_init();
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == 0, "Module should initialize without parameters");
+    TEST_ASSERT(result == 0, "Module should initialize and read GlobalBaryonFraction");
 
     /* ===== CLEANUP ===== */
     module_system_cleanup();
@@ -190,10 +188,10 @@ int test_memory_safety(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_satellite_stripping module in phase_1 (for testing) */
+    /* Configure sage_satellite_stripping module */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_satellite_stripping");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ONCE;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
