@@ -91,6 +91,17 @@ void log_io_error(LogLevel level, IOErrorCode code, const char *file,
     myexit(1);                                                                 \
   } while (0)
 
+// Verbose logging macro - only logs when --verbose or --debug flag is set
+// Use for configuration details and initialization messages that should only
+// appear in verbose mode. Always logs at INFO level.
+#define VERBOSE_LOG(...)                                                       \
+  do {                                                                         \
+    if (get_verbose_format()) {                                                \
+      log_message(LOG_LEVEL_INFO, __FILE__, __FUNCTION__, __LINE__,            \
+                  __VA_ARGS__);                                                \
+    }                                                                          \
+  } while (0)
+
 // I/O-specific logging macros
 #define IO_DEBUG_LOG(code, op, filename, ...)                                  \
   log_io_error(LOG_LEVEL_DEBUG, code, __FILE__, __FUNCTION__, __LINE__, op,    \

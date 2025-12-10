@@ -617,9 +617,7 @@ static void disrupt_satellite_to_ICS(struct Halo *central, struct Halo *satellit
  * @brief   Initialize the sage_mergers module
  */
 static int sage_mergers_init(void) {
-  if (get_verbose_format()) {
-    INFO_LOG("Initializing SAGE mergers module");
-  }
+  VERBOSE_LOG("Initializing SAGE mergers module");
 
   /* Load and validate parameters from input YAML file */
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("BlackHoleGrowthRate", BLACK_HOLE_GROWTH_RATE, 0.0, 1.0,
@@ -668,18 +666,16 @@ static int sage_mergers_init(void) {
   ENERGY_SN_CODE = 1.0;
 
   /* Log configuration only when verbose logging is enabled */
-  if (get_verbose_format()) {
-    INFO_LOG("  Black hole growth rate: %.3f", BLACK_HOLE_GROWTH_RATE);
-    INFO_LOG("  Quasar mode efficiency: %.3f", QUASAR_MODE_EFFICIENCY);
-    INFO_LOG("  Major merger threshold: %.3f", THRESH_MAJOR_MERGER);
-    INFO_LOG("  Recycle fraction: %.3f", RECYCLE_FRACTION);
-    INFO_LOG("  Metal yield: %.3f", YIELD);
-    INFO_LOG("  AGN recipe: %s", AGN_RECIPE_ON ? "ON" : "OFF");
-    INFO_LOG("  Supernova recipe: %s", SUPERNOVA_RECIPE_ON ? "ON" : "OFF");
-    INFO_LOG("  Disk instability: %s (deferred)", DISK_INSTABILITY_ON ? "ON" : "OFF");
+  VERBOSE_LOG("  Black hole growth rate: %.3f", BLACK_HOLE_GROWTH_RATE);
+  VERBOSE_LOG("  Quasar mode efficiency: %.3f", QUASAR_MODE_EFFICIENCY);
+  VERBOSE_LOG("  Major merger threshold: %.3f", THRESH_MAJOR_MERGER);
+  VERBOSE_LOG("  Recycle fraction: %.3f", RECYCLE_FRACTION);
+  VERBOSE_LOG("  Metal yield: %.3f", YIELD);
+  VERBOSE_LOG("  AGN recipe: %s", AGN_RECIPE_ON ? "ON" : "OFF");
+  VERBOSE_LOG("  Supernova recipe: %s", SUPERNOVA_RECIPE_ON ? "ON" : "OFF");
+  VERBOSE_LOG("  Disk instability: %s (deferred)", DISK_INSTABILITY_ON ? "ON" : "OFF");
 
-    INFO_LOG("SAGE mergers module initialized successfully");
-  }
+  VERBOSE_LOG("SAGE mergers module initialized successfully");
   return 0;
 }
 

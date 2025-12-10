@@ -152,15 +152,13 @@ static int sage_disk_instability_init(void) {
                                     "disk radius scaling factor");
 
   /* Log initialization */
-  if (get_verbose_format()) {
-    if (DISK_INSTABILITY_ON) {
-      INFO_LOG("SAGE Disk Instability module initialized (v1.0.0 - PARTIAL IMPLEMENTATION)");
-      INFO_LOG("  Physics: Mcrit = Vmax^2 * (3 * Rd) / G, transfer excess to bulge");
-      INFO_LOG("  DiskRadiusFactor = %.2f (from config)", DISK_RADIUS_FACTOR);
-      INFO_LOG("  Note: Starburst and AGN components deferred pending sage_mergers module");
-    } else {
-      INFO_LOG("SAGE Disk Instability module initialized but DISABLED");
-    }
+  if (DISK_INSTABILITY_ON) {
+    VERBOSE_LOG("SAGE Disk Instability module initialized (v1.0.0 - PARTIAL IMPLEMENTATION)");
+    VERBOSE_LOG("  Physics: Mcrit = Vmax^2 * (3 * Rd) / G, transfer excess to bulge");
+    VERBOSE_LOG("  DiskRadiusFactor = %.2f (from config)", DISK_RADIUS_FACTOR);
+    VERBOSE_LOG("  Note: Starburst and AGN components deferred pending sage_mergers module");
+  } else {
+    VERBOSE_LOG("SAGE Disk Instability module initialized but DISABLED");
   }
 
   return 0;

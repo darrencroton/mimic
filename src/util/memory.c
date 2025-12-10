@@ -231,10 +231,9 @@ void *mymalloc_cat(size_t size, MemoryCategory category) {
   if (TotMem > HighMarkMem) {
     HighMarkMem = TotMem;
     /* Only report when verbose format is enabled (--verbose) */
-    if (get_verbose_format() &&
-        HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
-      INFO_LOG("New memory usage high mark: %.2f MB",
-               HighMarkMem / (1024.0 * 1024.0));
+    if (HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
+      VERBOSE_LOG("New memory usage high mark: %.2f MB",
+                  HighMarkMem / (1024.0 * 1024.0));
       OldPrintedHighMark = HighMarkMem;
     }
   }
@@ -352,10 +351,9 @@ void *myrealloc_cat(void *p, size_t size, MemoryCategory category) {
   if (TotMem > HighMarkMem) {
     HighMarkMem = TotMem;
     /* Only report when verbose format is enabled (--verbose) */
-    if (get_verbose_format() &&
-        HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
-      INFO_LOG("New memory usage high mark: %.2f MB",
-               HighMarkMem / (1024.0 * 1024.0));
+    if (HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
+      VERBOSE_LOG("New memory usage high mark: %.2f MB",
+                  HighMarkMem / (1024.0 * 1024.0));
       OldPrintedHighMark = HighMarkMem;
     }
   }

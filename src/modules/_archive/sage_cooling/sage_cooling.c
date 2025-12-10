@@ -407,12 +407,10 @@ static int sage_cooling_init(void)
     }
 
     /* Log module configuration only when verbose logging is enabled */
-    if (get_verbose_format()) {
-        INFO_LOG("SAGE cooling & AGN heating module initialized");
-        INFO_LOG("  RadioModeEfficiency = %.4f", RADIO_MODE_EFFICIENCY);
-        INFO_LOG("  AGNrecipeOn = %d (0=off, 1=empirical, 2=Bondi, 3=cold cloud)", AGN_RECIPE_ON);
-        INFO_LOG("  CoolFunctionsDir = %s", COOL_FUNCTIONS_DIR);
-    }
+    VERBOSE_LOG("SAGE cooling & AGN heating module initialized");
+    VERBOSE_LOG("  RadioModeEfficiency = %.4f", RADIO_MODE_EFFICIENCY);
+    VERBOSE_LOG("  AGNrecipeOn = %d (0=off, 1=empirical, 2=Bondi, 3=cold cloud)", AGN_RECIPE_ON);
+    VERBOSE_LOG("  CoolFunctionsDir = %s", COOL_FUNCTIONS_DIR);
 
     return 0;
 }

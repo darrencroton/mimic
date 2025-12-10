@@ -431,6 +431,69 @@ void my_module_register(void) {
 
 ---
 
+## Logging Best Practices
+
+### Use Appropriate Logging Macros
+
+Mimic provides a hierarchy of logging macros for different message types:
+
+- **DEBUG_LOG()**: Detailed debugging information (loop iterations, variable values)
+- **INFO_LOG()**: General informational messages (processing milestones)
+- **VERBOSE_LOG()**: Configuration and initialization details (only shown with --verbose or --debug)
+- **WARNING_LOG()**: Warnings that don't stop execution
+- **ERROR_LOG()**: Recoverable errors
+- **FATAL_ERROR()**: Unrecoverable errors (terminates program)
+
+### When to Use VERBOSE_LOG()
+
+Use `VERBOSE_LOG()` for messages that should only appear in verbose mode:
+- Module initialization configuration parameters
+- Detailed setup information
+- Non-critical status messages that clutter default output
+
+**Example**:
+```c
+static int my_module_init(void) {
+  /* Load parameters */
+  LOAD_PARAM_DOUBLE("MyParam", my_param);
+
+  /* Log configuration only in verbose mode */
+  VERBOSE_LOG("My Module initialized");
+  VERBOSE_LOG("  MyParam = %.3f", my_param);
+  VERBOSE_LOG("  MyOption = %s", my_option ? "enabled" : "disabled");
+
+  return 0;
+}
+```
+
+### Logging Modes
+
+Mimic supports different logging modes via command-line flags:
+- Default: INFO, WARNING, ERROR, FATAL (no DEBUG or VERBOSE)
+- `--verbose` / `-v`: Enables VERBOSE_LOG messages + adds context (timestamp, file:line)
+- `--debug` / `-d`: Enables DEBUG_LOG + VERBOSE_LOG + context (most verbose)
+- `--quiet` / `-q`: Only WARNING, ERROR, FATAL (least verbose)
+
+### Don't Use Conditional Logging
+
+**Bad** (verbose, repetitive):
+```c
+if (get_verbose_format()) {
+  INFO_LOG("Module initialized");
+  INFO_LOG("  Param1 = %.3f", param1);
+}
+```
+
+**Good** (clean, simple):
+```c
+VERBOSE_LOG("Module initialized");
+VERBOSE_LOG("  Param1 = %.3f", param1);
+```
+
+The `VERBOSE_LOG()` macro handles the verbose check internally, following DRY and KISS principles.
+
+---
+
 ## README Files
 
 ### Physics Module READMEs
