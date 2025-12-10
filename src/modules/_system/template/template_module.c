@@ -1,6 +1,6 @@
 /**
  * @file    template_module.c
- * @brief   Template physics module implementation
+ * @brief   Template physics module implementation (v3.0 Multi-Phase Pipeline API)
  *
  * [Brief description of physics process - 1-2 sentences]
  *
@@ -10,6 +10,18 @@
  * - compute_physics(): [Brief description]
  *
  * Reference: [Citation and/or SAGE source]
+ *
+ * ============================================================================
+ * MULTI-PHASE PIPELINE API v3.0 KEY POINTS:
+ * ============================================================================
+ * - Use ctx->substep_dt for time integration (NOT halos[i].dT)
+ * - Access substep info: ctx->substep_number, ctx->num_substeps
+ * - Loop modes (choose based on physics):
+ *   * LOOP_MODE_ONCE: Process full array (ngal > 1) for group-level physics
+ *   * LOOP_MODE_ALL: Process one galaxy (ngal = 1) for per-galaxy physics
+ * - Declare supported modes via module_info.yaml: supported_loop_modes: [once, all]
+ * - Module struct must include .supported_loop_modes and .num_supported_modes
+ * - See examples below in template_module_process() for both loop mode patterns
  */
 
 #include <math.h>
@@ -125,11 +137,26 @@ static int template_module_init(void) {
 /**
  * @brief   Process halos in a FOF group
  *
- * Compute galaxy physics for each halo.
+ * Compute galaxy physics for each halo. This function is called by the
+ * multi-phase pipeline in the configured phase and loop mode.
  *
- * @param   ctx     Module execution context (redshift, time, params)
+ * LOOP MODE USAGE:
+ * - LOOP_MODE_ONCE: Module processes entire halo array (ngal > 1)
+ *   Use when physics requires global information (e.g., summing over all galaxies,
+ *   central-satellite interactions, group-level properties).
+ *   Example: Calculating total infall budget for FOF group
+ *
+ * - LOOP_MODE_ALL: Module processes one galaxy at a time (ngal = 1)
+ *   Use when physics is per-galaxy and independent (e.g., cooling, star formation).
+ *   Provides better cache locality in galaxy-major loop execution.
+ *   Example: Cooling rates that depend only on individual galaxy properties
+ *
+ * Choose loop mode in module_info.yaml based on your physics requirements.
+ * If your module supports both, declare: supported_loop_modes: [once, all]
+ *
+ * @param   ctx     Module execution context (redshift, time, substep info, params)
  * @param   halos   Array of halos in FOF group
- * @param   ngal    Number of halos
+ * @param   ngal    Number of halos (1 if loop_mode=all, >1 if loop_mode=once)
  * @return  0 on success, non-zero on failure
  */
 static int template_module_process(struct ModuleContext *ctx,
@@ -138,18 +165,54 @@ static int template_module_process(struct ModuleContext *ctx,
     return 0;
   }
 
-  // Extract context (if needed)
+  // Extract simulation context (if needed)
   double z = ctx->redshift;
   double time = ctx->time;
   double hubble_h = ctx->params->Hubble_h;
 
+  // Access substep information for time integration
+  // Use ctx->substep_dt instead of halos[i].dT for multi-phase pipeline
+  double dt = ctx->substep_dt;
+  int substep = ctx->substep_number;
+  int num_substeps = ctx->num_substeps;
+
   (void)time;
   (void)hubble_h;
+  (void)substep;
+  (void)num_substeps;
 
-  // Process each halo
+  // ========== EXAMPLE 1: LOOP_MODE_ONCE ==========
+  // Process entire array when global information is needed
+  // Uncomment this block if your module uses LOOP_MODE_ONCE
+  /*
+  // Find central galaxy index
+  int central_idx = ctx->central_index;
+
+  // Compute group-level properties
+  double total_mass = 0.0;
+  for (int i = 0; i < ngal; i++) {
+    if (halos[i].galaxy != NULL) {
+      total_mass += halos[i].Mvir;
+    }
+  }
+
+  // Update central galaxy based on group properties
+  if (halos[central_idx].galaxy != NULL) {
+    float delta = compute_physics(total_mass, z) * dt;
+    halos[central_idx].galaxy->SomeProperty += delta;
+
+    DEBUG_LOG("Central: total_mass=%.3e, delta=%.3e, z=%.3f, substep=%d/%d",
+             total_mass, delta, z, substep + 1, num_substeps);
+  }
+  */
+
+  // ========== EXAMPLE 2: LOOP_MODE_ALL ==========
+  // Process each halo independently (ngal will be 1 in loop_mode=all)
+  // This is the standard pattern for per-galaxy physics
   for (int i = 0; i < ngal; i++) {
 
     // Filter by halo type if needed (Type 0=central, 1=satellite, 2=orphan)
+    // Many modules only operate on central galaxies
     if (halos[i].Type != 0) {
       continue;
     }
@@ -159,29 +222,30 @@ static int template_module_process(struct ModuleContext *ctx,
       return -1;
     }
 
-    // Read properties (halo properties are read-only)
+    // Read halo properties (read-only)
     float mvir = halos[i].Mvir;
     float rvir = halos[i].Rvir;
     float vvir = halos[i].Vvir;
-    float dt = halos[i].dT;
 
-    if (dt <= 0.0f) {
-      DEBUG_LOG("Halo %d: Invalid dT=%.3f, skipping", i, dt);
+    // Validate inputs
+    if (dt <= 0.0) {
+      DEBUG_LOG("Halo %d: Invalid substep_dt=%.3f, skipping", i, dt);
       continue;
     }
 
     // TODO: Compute physics using helper functions
     float result = compute_physics(mvir, z);
-    float delta = result * dt;
+    float delta = result * dt;  // Scale by timestep for integration
 
     (void)rvir;
     (void)vvir;
     (void)delta;
 
-    // TODO: Update galaxy properties (not halo properties)
+    // TODO: Update galaxy properties (galaxy struct is mutable, halo struct is not)
     // halos[i].galaxy->SomeProperty += delta;
 
-    DEBUG_LOG("Halo %d: Mvir=%.3e, result=%.3e, z=%.3f", i, mvir, result, z);
+    DEBUG_LOG("Halo %d: Mvir=%.3e, result=%.3e, delta=%.3e, z=%.3f, substep=%d/%d",
+             i, mvir, result, delta, z, substep + 1, num_substeps);
   }
 
   return 0;
@@ -212,11 +276,29 @@ static int template_module_cleanup(void) {
 // MODULE REGISTRATION
 // ============================================================================
 
+/**
+ * @brief Supported loop modes for this module
+ *
+ * This array is auto-generated by the module system based on the
+ * supported_loop_modes field in module_info.yaml. If not specified,
+ * defaults to supporting both modes: [LOOP_MODE_ONCE, LOOP_MODE_ALL]
+ *
+ * To restrict your module to a specific loop mode, add to module_info.yaml:
+ *   supported_loop_modes: [once]     # Only LOOP_MODE_ONCE
+ *   supported_loop_modes: [all]      # Only LOOP_MODE_ALL
+ *   supported_loop_modes: [once, all] # Both modes (default)
+ *
+ * The core validates at runtime that configured loop modes match supported modes.
+ */
+extern const enum LoopMode template_module_supported_modes[];
+
 static struct Module template_module = {
     .name = "template_module",
     .init = template_module_init,
     .process = template_module_process,
-    .cleanup = template_module_cleanup
+    .cleanup = template_module_cleanup,
+    .supported_loop_modes = template_module_supported_modes,
+    .num_supported_modes = 2  /* Default: supports both once and all */
 };
 
 void template_module_register(void) {

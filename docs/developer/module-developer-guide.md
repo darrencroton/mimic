@@ -11,14 +11,14 @@
 **Creating a module in 5 steps:**
 
 1. **Copy template**: `cp -r src/modules/_system/template src/modules/my_module`
-2. **Implement 3 functions**: `init()`, `process_halos()`, `cleanup()`
+2. **Implement 3 functions**: `init()`, `process()`, `cleanup()`
 3. **Define metadata**: Edit `module_info.yaml` (name, parameters, dependencies)
 4. **Auto-register**: Run `make generate`
 5. **Test**: Unit tests + integration tests + scientific validation
 
 **Module interface (must implement):**
 - `init()` - Initialize module (load data, allocate memory)
-- `process_halos()` - Process each FOF group (main physics)
+- `process()` - Process halos in multi-phase pipeline (main physics)
 - `cleanup()` - Free resources and shut down
 
 **Key patterns:**
@@ -84,10 +84,14 @@ All modules implement the `struct Module` interface defined in `src/core/module_
 
 ```c
 struct Module {
-    const char *name;              // Unique module identifier
-    int (*init)(void);             // Initialize module (called once)
-    int (*process_halos)(...);     // Process FOF group (called per group)
-    int (*cleanup)(void);          // Cleanup module (called once)
+    const char *name;                         // Unique module identifier
+    int (*init)(void);                        // Initialize module (called once)
+    int (*process)(struct ModuleContext *ctx, // Process halos in multi-phase pipeline
+                   struct Halo *halos,
+                   int ngal);
+    int (*cleanup)(void);                     // Cleanup module (called once)
+    const enum LoopMode *supported_loop_modes; // Array of supported loop modes
+    int num_supported_modes;                  // Number of supported modes
 };
 ```
 
@@ -99,7 +103,7 @@ Program Startup:
   2. module_system_init()        → Calls init() on enabled modules
 
 Tree Processing (per FOF group):
-  3. module_execute_pipeline()   → Calls process_halos() on all modules
+  3. module_execute_pipeline()   → Calls process() on all modules in multi-phase pipeline
 
 Program Shutdown:
   4. module_system_cleanup()     → Calls cleanup() in reverse order
@@ -114,6 +118,7 @@ struct ModuleContext {
     double redshift;                    // Current snapshot redshift
     double time;                        // Current cosmic time
     const struct MimicConfig *params;   // Read-only simulation parameters
+    double substep_dt;                  // Current substep timestep (for time integration)
 };
 ```
 
@@ -266,31 +271,131 @@ Run:
 
 ### Understanding Loop Modes
 
-Modules execute in one of two loop modes:
-- **LOOP_MODE_ONCE**: Module receives full halo array (ngal > 1) for array-based operations
-- **LOOP_MODE_ALL**: Module processes one galaxy at a time (ngal = 1) in galaxy-major loop
+The multi-phase pipeline supports two loop modes that control how modules process halos:
+
+- **LOOP_MODE_ONCE**: Module receives the full halo array (ngal > 1) for array-based operations
+  - Core calls `module->process(ctx, halos, ngal)` once with all halos
+  - Module processes entire array at once
+  - Example: `ngal = 100` → module called once with all 100 halos
+
+- **LOOP_MODE_ALL**: Module processes one galaxy at a time (ngal = 1) in a galaxy-major loop
+  - Core calls `module->process(ctx, &halos[i], 1)` for each halo
+  - Module sees one halo per call
+  - Example: `ngal = 100` → module called 100 times, each with 1 halo
+
+### When to Use Each Mode
+
+**Use LOOP_MODE_ONCE for:**
+- Array sorting or collective operations
+- Neighbor finding or spatial algorithms
+- Operations requiring access to all galaxies simultaneously
+- Accumulation patterns (summing over all galaxies)
+- Example modules: sorting by mass, friends-of-friends, statistical analysis
+
+**Use LOOP_MODE_ALL for:**
+- Per-galaxy time integration (using `ctx->substep_dt`)
+- Local physics calculations (cooling, star formation, feedback)
+- Operations on individual galaxies independent of others
+- Example modules: cooling, star formation, AGN feedback
+
+**Support BOTH modes when:**
+- Your module can efficiently handle either access pattern
+- You want maximum configuration flexibility
 
 ### Declaring Supported Modes
 
 Specify which loop modes your module supports in `module_info.yaml`:
 
 ```yaml
-supported_loop_modes: [once, all]  # Supports both (default)
-supported_loop_modes: [once]       # Only array processing
-supported_loop_modes: [all]        # Only per-galaxy processing
+# In src/modules/my_module/module_info.yaml
+module:
+  name: my_module
+  # ...
+  supported_loop_modes: [once, all]  # Supports both (default, most flexible)
+  # OR
+  supported_loop_modes: [once]       # Only array processing
+  # OR
+  supported_loop_modes: [all]        # Only per-galaxy processing
 ```
 
-**When to use LOOP_MODE_ONCE only**:
-- Array sorting or collective operations
-- Neighbor finding or spatial algorithms
-- Operations requiring access to all galaxies simultaneously
+### Implementing Loop Mode Support
 
-**When to use LOOP_MODE_ALL only**:
-- Per-galaxy time integration
-- Local physics calculations
-- Operations on individual galaxies
+Your `process` function must handle the declared loop modes correctly:
 
-### Referencing Generated Arrays
+**Example 1: Supporting BOTH modes**
+
+```c
+static int my_module_process(struct ModuleContext *ctx,
+                               struct Halo *halos,
+                               int ngal) {
+    // Works correctly whether ngal=1 (ALL) or ngal>1 (ONCE)
+    for (int i = 0; i < ngal; i++) {
+        if (halos[i].Type != 0) continue;
+        if (halos[i].galaxy == NULL) continue;
+
+        // Per-galaxy physics
+        float rate = compute_rate(halos[i].galaxy->ColdGas, ctx->redshift);
+        float delta = rate * ctx->substep_dt;
+        halos[i].galaxy->StellarMass += delta;
+    }
+    return 0;
+}
+```
+
+**Example 2: LOOP_MODE_ONCE only (array operations)**
+
+```c
+// module_info.yaml: supported_loop_modes: [once]
+
+static int my_module_process(struct ModuleContext *ctx,
+                               struct Halo *halos,
+                               int ngal) {
+    // This module REQUIRES full array access
+    if (ngal <= 0) return 0;
+
+    // Sort all halos by mass (requires full array)
+    qsort(halos, ngal, sizeof(struct Halo), compare_by_mass);
+
+    // Process in sorted order
+    for (int i = 0; i < ngal; i++) {
+        // Array-aware processing
+        int rank = i;  // Position in sorted array
+        halos[i].galaxy->Rank = rank;
+    }
+    return 0;
+}
+```
+
+**Example 3: LOOP_MODE_ALL only (per-galaxy time integration)**
+
+```c
+// module_info.yaml: supported_loop_modes: [all]
+
+static int my_module_process(struct ModuleContext *ctx,
+                               struct Halo *halos,
+                               int ngal) {
+    // This module is designed for per-galaxy calls
+    // ngal should always be 1 when called in LOOP_MODE_ALL
+    if (ngal != 1) {
+        ERROR_LOG("Expected ngal=1 in LOOP_MODE_ALL, got %d", ngal);
+        return -1;
+    }
+
+    struct Halo *halo = &halos[0];
+    if (halo->Type != 0 || halo->galaxy == NULL) {
+        return 0;
+    }
+
+    // Time integration using ctx->substep_dt
+    double dt = ctx->substep_dt;
+    double rate = compute_cooling_rate(halo->galaxy, ctx->redshift);
+    halo->galaxy->ColdGas += rate * dt;
+
+    return 0;
+}
+```
+
+### Module Registration with Loop Modes
 
 The build system generates loop mode arrays in `src/modules/_system/generated/module_init.c`:
 
@@ -331,6 +436,8 @@ ERROR: Configuration error in phase 'phase_1':
   Supported modes: all
   Fix: Change loop mode in input YAML to one of the supported modes
 ```
+
+If you configure a module with an unsupported loop mode in your input YAML file, initialization will fail with a clear error message indicating which modes are supported.
 
 ---
 
@@ -392,16 +499,17 @@ static int my_module_init(void) {
 
 **Anti-Patterns**:
 - ❌ Don't modify simulation parameters (`ctx->params` is read-only)
-- ❌ Don't allocate per-halo memory here (do it in `process_halos`)
+- ❌ Don't allocate per-halo memory here (do it in `process`)
 - ❌ Don't hardcode parameter values (define in module_info.yaml)
 
-### 2. Process Phase (`process_halos` function)
+### 2. Process Phase (`process` function)
 
-**Purpose**: Apply physics to a FOF group of halos
+**Purpose**: Apply physics to halos within the multi-phase pipeline
 
 **Responsibilities**:
-- Iterate through halos in FOF group
+- Process halos according to configured loop mode (LOOP_MODE_ONCE or LOOP_MODE_ALL)
 - Access galaxy properties via `halos[i].galaxy->PropertyName`
+- Use `ctx->substep_dt` for time integration (not `halos[i].dT`)
 - Compute physics updates
 - Modify galaxy properties
 - Handle all halo types (central/satellite/orphan)
@@ -426,11 +534,12 @@ static int my_module_process(struct ModuleContext *ctx,
         return 0;  // Nothing to process
     }
 
-    // Access context
+    // Access context (including substep timestep for time integration)
     double z = ctx->redshift;
+    double dt = ctx->substep_dt;  // Use ctx->substep_dt for time integration
     double hubble_h = ctx->params->Hubble_h;
 
-    // Process each halo
+    // Process each halo (or all at once, depending on loop mode)
     for (int i = 0; i < ngal; i++) {
         // Only process centrals (common pattern)
         if (halos[i].Type != 0) {
@@ -447,16 +556,17 @@ static int my_module_process(struct ModuleContext *ctx,
         float cold_gas = halos[i].galaxy->ColdGas;
         float mvir = halos[i].Mvir;
 
-        // Compute physics
-        float delta_mass = compute_my_physics(cold_gas, mvir, z);
+        // Compute physics (using dt from context for time integration)
+        float rate = compute_my_physics_rate(cold_gas, mvir, z);
+        float delta_mass = rate * dt;
 
         // Update properties (outputs)
         halos[i].galaxy->MyProperty += delta_mass;
         halos[i].galaxy->ColdGas -= delta_mass;
 
         // Debug logging (use DEBUG_LOG for per-halo details)
-        DEBUG_LOG("Halo %d: ColdGas=%.3e, ΔMass=%.3e (z=%.3f)",
-                  i, cold_gas, delta_mass, z);
+        DEBUG_LOG("Halo %d: ColdGas=%.3e, ΔMass=%.3e (z=%.3f, dt=%.3e)",
+                  i, cold_gas, delta_mass, z, dt);
     }
 
     return 0;
@@ -467,11 +577,13 @@ static int my_module_process(struct ModuleContext *ctx,
 - ✅ Validate inputs (`halos != NULL`, `ngal > 0`)
 - ✅ Check `halos[i].galaxy != NULL` before access
 - ✅ Filter by halo type if your physics is type-specific
+- ✅ Use `ctx->substep_dt` for time integration (not `halos[i].dT`)
 - ✅ Use context for redshift/time-dependent calculations
 - ✅ Use `DEBUG_LOG` for per-halo details during development (not shown in production)
 - ✅ Return -1 on errors, 0 on success
 
 **Anti-Patterns**:
+- ❌ Don't use `halos[i].dT` - use `ctx->substep_dt` instead
 - ❌ Don't modify halo properties (Mvir, Rvir, etc.) - these are read-only
 - ❌ Don't assume execution order relative to other modules
 - ❌ Don't allocate memory without freeing it (causes leaks)
@@ -1064,19 +1176,24 @@ See `docs/developer/testing.md` for comprehensive testing guide.
 ### Pattern 1: Time Evolution with Timestep
 
 ```c
-// Get timestep (calculated by core)
-float dt = halos[i].dT;
+// Get timestep from context (replaces old halos[i].dT approach)
+double dt = ctx->substep_dt;
 
-// Validate timestep
-if (dt <= 0.0f) {
-    DEBUG_LOG("Halo %d: Invalid dT=%.3f, skipping", i, dt);
-    continue;
+// Validate timestep (optional - core ensures valid dt)
+if (dt <= 0.0) {
+    DEBUG_LOG("Invalid substep_dt=%.3e, skipping", dt);
+    return 0;
 }
 
 // Apply time evolution
-float rate = compute_rate(halos[i].galaxy->SomeProperty, ctx->redshift);
-float delta = rate * dt;
-halos[i].galaxy->SomeProperty += delta;
+for (int i = 0; i < ngal; i++) {
+    if (halos[i].Type != 0) continue;
+    if (halos[i].galaxy == NULL) continue;
+
+    float rate = compute_rate(halos[i].galaxy->SomeProperty, ctx->redshift);
+    float delta = rate * dt;
+    halos[i].galaxy->SomeProperty += delta;
+}
 ```
 
 ### Pattern 2: Redshift-Dependent Physics
@@ -1099,7 +1216,12 @@ If your module depends on properties from another module:
 
 ```c
 static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+    double dt = ctx->substep_dt;
+
     for (int i = 0; i < ngal; i++) {
+        if (halos[i].Type != 0) continue;
+        if (halos[i].galaxy == NULL) continue;
+
         // Check dependency property exists
         float cold_gas = halos[i].galaxy->ColdGas;
 
@@ -1108,8 +1230,9 @@ static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int 
             continue;
         }
 
-        // Use property in physics
-        float star_formation = compute_sf(cold_gas);
+        // Use property in physics (with time integration)
+        float sf_rate = compute_sf_rate(cold_gas, ctx->redshift);
+        float star_formation = sf_rate * dt;
         halos[i].galaxy->StellarMass += star_formation;
         halos[i].galaxy->ColdGas -= star_formation;
     }
@@ -1313,14 +1436,20 @@ static int my_module_init(void) {
 #include "../_shared/my_utility.h"
 
 static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+    double dt = ctx->substep_dt;
+
     for (int i = 0; i < ngal; i++) {
+        if (halos[i].Type != 0) continue;
+        if (halos[i].galaxy == NULL) continue;
+
         // Use shared utility function
         double result = mimic_my_calculation(halos[i].galaxy->SomeProperty,
                                              ctx->params->SomeParameter);
 
-        // Use in your physics
+        // Use in your physics with time integration
         float some_rate = compute_something(result);
-        // ...
+        float delta = some_rate * dt;
+        halos[i].galaxy->SomeProperty += delta;
     }
     return 0;
 }
@@ -1654,10 +1783,13 @@ ERROR_LOG(format, ...);
 When implementing a module, ensure:
 
 - [ ] Module follows naming conventions (`lowercase_with_underscores`)
-- [ ] All three lifecycle functions implemented (`init`, `process_halos`, `cleanup`)
+- [ ] All three lifecycle functions implemented (`init`, `process`, `cleanup`)
 - [ ] Properties defined in YAML metadata, not hardcoded
 - [ ] Parameters read using `model_get_*()` API (or `parameter_helpers.h` macros)
 - [ ] Parameters declared in `module_info.yaml` under `dependencies.parameters`
+- [ ] Loop modes declared in `module_info.yaml` under `supported_loop_modes`
+- [ ] Time integration uses `ctx->substep_dt` (not `halos[i].dT`)
+- [ ] Module struct includes `.supported_loop_modes` and `.num_supported_modes` fields
 - [ ] Memory allocations use `malloc_tracked()` / `free_tracked()`
 - [ ] Error handling returns -1 on failure, 0 on success
 - [ ] Logging uses appropriate levels (INFO/DEBUG/ERROR)

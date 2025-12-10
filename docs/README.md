@@ -161,6 +161,7 @@ make clean && make
 |----------|---------|-------|
 | **[Architecture Vision](architecture/vision.md)** | 8 core architectural principles | 227 |
 | **[Module Developer Guide](developer/module-developer-guide.md)** | Creating physics modules | 1122 |
+| **[Multi-Phase Pipeline Migration](developer/multi-phase-pipeline-migration.md)** | v3.0 API migration guide | 367 |
 | **[Unit System Guide](developer/unit-system-guide.md)** | Code units, conversions, and best practices | ~800 |
 | **[Unit System Audit Checklist](developer/unit-system-audit-checklist.md)** | Systematic module unit audit | ~400 |
 | **[Testing Guide](developer/testing.md)** | Three-tier testing framework | 2127 |

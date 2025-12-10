@@ -413,11 +413,15 @@ static int my_module_cleanup(void) {
 // MODULE REGISTRATION
 // ============================================================================
 
+extern const enum LoopMode my_module_supported_modes[];
+
 static struct Module my_module = {
     .name = "my_module",
     .init = my_module_init,
-    .process_halos = my_module_process,
-    .cleanup = my_module_cleanup
+    .process = my_module_process,
+    .cleanup = my_module_cleanup,
+    .supported_loop_modes = my_module_supported_modes,
+    .num_supported_modes = 1
 };
 
 void my_module_register(void) {

@@ -630,7 +630,7 @@ ERROR:   (defined by module: sage_reionization)
 **Check**: Module names spelled correctly in phase configurations (pre_timestep, phase_1, etc.)
 
 **Problem**: "Phase 'phase_2' must be a sequence" error
-**Check**: Use empty list syntax `phase_2: []` for empty phases, not just comments
+**Solution**: Fixed in current version - phases with only comments are now automatically treated as empty. Using `phase_2: []` syntax still works but is no longer required.
 
 **Problem**: Missing parameter errors
 **Check**: Parameters needed by enabled modules specified in `modules.parameters:` section (check error message for which modules need the parameter)

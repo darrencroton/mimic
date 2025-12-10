@@ -392,6 +392,21 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
     return 0; /* Empty phase is valid */
   }
 
+  /* Handle scalar nodes (happens when phase has only comments in YAML) */
+  if (phase_node->type == YAML_SCALAR_NODE) {
+    const char *value = (const char *)phase_node->data.scalar.value;
+    if (!value || strlen(value) == 0) {
+      /* Empty scalar - treat as empty phase (common when all modules commented out) */
+      DEBUG_LOG("Phase '%s' is empty (all modules commented out)", phase_name);
+      *config = NULL;
+      *num_modules = 0;
+      return 0;
+    }
+    /* Non-empty scalar is an error */
+    ERROR_LOG("Phase '%s' must be a sequence (found scalar: '%s')", phase_name, value);
+    return -1;
+  }
+
   if (phase_node->type != YAML_SEQUENCE_NODE) {
     ERROR_LOG("Phase '%s' must be a sequence", phase_name);
     return -1;
