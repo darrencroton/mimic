@@ -5,24 +5,25 @@ SAGE Satellite Stripping Module - Integration Test
 Validates: Module lifecycle, configuration, and pipeline integration
 Phase: Phase 4.2 (SAGE Modular Refactoring)
 
-This test validates software quality aspects of the sage_satellite_stripping module:
+This test validates software quality aspects of the sage_satellite_stripping module
+running in standalone mode (no dependencies on other physics modules):
 - Module loads and initializes correctly
 - Parameters can be configured via YAML files
 - Module executes without errors or memory leaks
-- Module works correctly with sage_infall (both use HaloBaryonFraction from sage_reionization)
+- Module integrates correctly with multi-phase pipeline
 
-NOTE: Physics validation (stripping correctness) deferred to Phase 4.3+
-      when downstream modules are implemented for end-to-end testing.
+NOTE: Physics validation (actual stripping) deferred to Phase 4.3+ when full
+      pipeline is available. These tests validate module infrastructure only.
 
 Test cases:
   - test_module_loads: Module registration and initialization
   - test_parameter_configuration: GlobalBaryonFraction parameter configuration
-  - test_with_sage_infall: Integration with sage_infall module
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
+  - test_standalone_execution: Module runs without other physics modules
 
 Author: Mimic Development Team
-Date: 2025-11-26
+Date: 2025-12-11
 """
 
 import os
@@ -38,7 +39,7 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 
 # Add tests directory to path to import framework
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import load_binary_halos, create_test_param_file
+from framework import create_test_param_file
 
 # Test state
 temp_dir = None
@@ -56,7 +57,6 @@ def run_mimic(param_file):
     Execute Mimic with specified parameter file
 
     Args:
-        --verbose (required to capture stdout validation)
         param_file (Path): Path to parameter file
 
     Returns:
@@ -77,7 +77,7 @@ def test_module_loads():
 
     Expected: Module initialization succeeds without errors
     Validates: Module registration, initialization, and cleanup lifecycle
-    Note: Requires sage_reionization module to set HaloBaryonFraction property
+    Note: Runs standalone without other physics modules
     """
     print("Testing module load and initialization...")
 
@@ -85,7 +85,7 @@ def test_module_loads():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_load",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
+            'pre_timestep': [],
             'phase_1': [('sage_satellite_stripping', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -100,13 +100,9 @@ def test_module_loads():
     assert returncode == 0, \
         f"Mimic should execute successfully\nStderr: {stderr}"
 
-    # Check initialization log message
+    # Check initialization log message (VERBOSE_LOG)
     assert "SAGE satellite stripping module initialized" in stdout, \
         "sage_satellite_stripping should log initialization message"
-
-    # Check that reionization module ran first
-    assert "SAGE reionization module initialized" in stdout, \
-        "sage_reionization should run before sage_satellite_stripping"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -116,11 +112,10 @@ def test_module_loads():
 
 def test_parameter_configuration():
     """
-    Test that sage_reionization uses GlobalBaryonFraction model parameter
+    Test that sage_satellite_stripping reads GlobalBaryonFraction parameter
 
     Expected: Custom GlobalBaryonFraction value is read from model_parameters and logged
-    Validates: Model parameter reading and usage
-    Note: GlobalBaryonFraction is used by sage_reionization to set HaloBaryonFraction property
+    Validates: Model parameter reading and validation
     """
     print("Testing parameter configuration...")
 
@@ -131,7 +126,7 @@ def test_parameter_configuration():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_params",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
+            'pre_timestep': [],
             'phase_1': [('sage_satellite_stripping', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -145,58 +140,14 @@ def test_parameter_configuration():
     # ===== VALIDATE =====
     assert returncode == 0, "Execution with custom parameters should succeed"
 
-    # Verify parameter was read by sage_reionization
-    assert "GlobalBaryonFraction = 0.2000" in stdout or "GlobalBaryonFraction: 0.2" in stdout, \
+    # Verify parameter was read and logged (VERBOSE_LOG)
+    assert "GlobalBaryonFraction = 0.2000" in stdout, \
         f"Custom GlobalBaryonFraction should be logged\nStdout:\n{stdout}"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
 
     print("  ✓ Parameters are configurable")
-
-
-def test_with_sage_infall():
-    """
-    Test that sage_satellite_stripping works with sage_infall module
-
-    Expected: Both modules execute successfully together
-    Validates: Modules work together using HaloBaryonFraction property from sage_reionization
-    """
-    print("Testing with sage_infall...")
-
-    # ===== SETUP =====
-    param_file, output_dir, test_temp_dir = create_test_param_file(
-        output_name="sage_satellite_stripping_infall",
-        phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
-            'phase_1': [('sage_infall', 'once'), ('sage_satellite_stripping', 'once')],
-            'phase_2': [],
-            'post_timestep': []
-        },
-        model_params={
-            "GlobalBaryonFraction": 0.17
-        }
-    )
-
-    # ===== EXECUTE =====
-    returncode, stdout, stderr = run_mimic(param_file)
-
-    # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Should run with both modules\nStderr: {stderr}"
-
-    # Verify all modules initialized
-    assert "SAGE reionization module initialized" in stdout, \
-        "sage_reionization should initialize first"
-    assert "SAGE infall module initialized" in stdout, \
-        "sage_infall should initialize"
-    assert "SAGE satellite stripping module initialized" in stdout, \
-        "sage_satellite_stripping should initialize"
-
-    # Cleanup
-    shutil.rmtree(test_temp_dir)
-
-    print("  ✓ Works with sage_infall")
 
 
 def test_memory_safety():
@@ -212,7 +163,7 @@ def test_memory_safety():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_memory",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
+            'pre_timestep': [],
             'phase_1': [('sage_satellite_stripping', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -249,7 +200,7 @@ def test_execution_completes():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_complete",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
+            'pre_timestep': [],
             'phase_1': [('sage_satellite_stripping', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -275,6 +226,47 @@ def test_execution_completes():
     print("  ✓ Full pipeline completes")
 
 
+def test_standalone_execution():
+    """
+    Test that sage_satellite_stripping runs standalone without dependencies
+
+    Expected: Module executes without requiring other physics modules
+    Validates: Module self-containment and independence
+    Note: Module uses GlobalBaryonFraction fallback when HaloBaryonFraction not set
+    """
+    print("Testing standalone execution...")
+
+    # ===== SETUP =====
+    param_file, output_dir, test_temp_dir = create_test_param_file(
+        output_name="sage_satellite_stripping_standalone",
+        phase_config={
+            'pre_timestep': [],
+            'phase_1': [('sage_satellite_stripping', 'once')],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={"GlobalBaryonFraction": 0.17},
+        first_file=0,
+        last_file=0
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+
+    # ===== VALIDATE =====
+    assert returncode == 0, \
+        f"Module should run standalone without sage_reionization or sage_infall\nStderr: {stderr}"
+
+    # Verify module initialized and cleaned up
+    assert "SAGE satellite stripping module initialized" in stdout
+    assert "SAGE satellite stripping module cleaned up" in stdout
+
+    # Cleanup
+    shutil.rmtree(test_temp_dir)
+
+    print("  ✓ Standalone execution successful")
+
+
 def main():
     """
     Main test runner
@@ -292,13 +284,17 @@ def main():
         print("Build it first with: make")
         return 1
 
+    # Create temporary directory for test outputs
+    global temp_dir
+    temp_dir = tempfile.mkdtemp(prefix="sage_satellite_stripping_test_")
+
     try:
         tests = [
             test_module_loads,
             test_parameter_configuration,
-            test_with_sage_infall,
             test_memory_safety,
             test_execution_completes,
+            test_standalone_execution,
         ]
 
         passed = 0
@@ -340,6 +336,10 @@ def main():
     except Exception as e:
         print(f"{RED}ERROR: Test suite failed: {e}{NC}")
         return 1
+    finally:
+        # Cleanup temp directory
+        if temp_dir and Path(temp_dir).exists():
+            shutil.rmtree(temp_dir)
 
 
 if __name__ == "__main__":
