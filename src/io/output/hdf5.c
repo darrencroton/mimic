@@ -628,90 +628,150 @@ static void write_redshifts(hid_t parent_group_id) {
 }
 
 /**
- * @brief   Helper to add a module to the unique module list
+ * @brief   Helper to convert ProcessingMode enum to string
  *
- * @param   module_list   Array of module name strings
- * @param   num_modules   Pointer to current count of modules
- * @param   name          Module name to add
- *
- * Adds the module name to the list if it's not already present.
- * Used to collect unique module names from all pipeline phases.
+ * @param   mode   ProcessingMode enum value
+ * @return  String representation of the processing mode
  */
-static void add_unique_module(char module_list[][MAX_STRING_LEN], int *num_modules,
-                              const char *name) {
-  for (int i = 0; i < *num_modules; i++) {
-    if (strcmp(module_list[i], name) == 0) {
-      return; /* Already in list */
-    }
-  }
-  if (*num_modules < 256) {
-    strncpy(module_list[*num_modules], name, MAX_STRING_LEN - 1);
-    (*num_modules)++;
+static const char* processing_mode_to_string(enum ProcessingMode mode) {
+  switch (mode) {
+    case PROCESSING_MODE_FULL_HALO:
+      return "process_full_halo";
+    case PROCESSING_MODE_BY_GALAXY:
+      return "process_by_galaxy";
+    default:
+      return "unknown";
   }
 }
 
 /**
- * @brief   Writes enabled modules list to HDF5 file
+ * @brief   Writes enabled modules configuration to HDF5 file
  *
  * @param   parent_group_id   HDF5 group ID to create EnabledModules dataset in
  *
- * Creates an EnabledModules dataset containing the list of enabled module
- * names from all phases in execution order (pre_timestep → phase_1 → phase_2 → post_timestep).
- * Uses variable-length string dataset for professional HDF5 storage.
+ * Creates an EnabledModules compound dataset containing the complete pipeline
+ * configuration. Each row represents one module instance in the execution pipeline
+ * with three fields:
+ * - module_name: Name of the physics module
+ * - phase: Execution phase (pre_timestep, phase_1, phase_2, post_timestep)
+ * - processing_mode: How the module processes data (process_full_halo, process_by_galaxy)
  *
- * NOTE: This collects unique module names across all phases. A module appearing
- * in multiple phases is only listed once.
+ * This preserves the complete execution pipeline for perfect reproducibility.
+ * If a module appears in multiple phases, it will have multiple entries.
+ *
+ * Vision Principle 1 (Physics-Agnostic Core): Iterates pipeline generically
+ * without knowledge of specific module implementations.
+ *
+ * Vision Principle 4 (Single Source of Truth): Pipeline configuration is already
+ * validated and stored in MimicConfig phase arrays.
  */
 static void write_enabled_modules(hid_t parent_group_id) {
-  hid_t dataset_id, dataspace_id, str_type, attribute_id, attr_space, attr_str_type;
+  hid_t dataset_id, dataspace_id, memtype, filetype, str_type;
+  hid_t attribute_id, attr_space, attr_str_type;
   hsize_t dims;
   herr_t status;
-  char module_list[256][MAX_STRING_LEN]; /* Max 256 module instances */
-  int num_modules = 0;
+  int total_entries = 0;
 
-  /* Collect unique module names from all phases in execution order */
-  for (int i = 0; i < MimicConfig.num_pre_timestep; i++) {
-    add_unique_module(module_list, &num_modules,
-                      MimicConfig.pre_timestep[i].module_name);
-  }
-  for (int i = 0; i < MimicConfig.num_phase_1; i++) {
-    add_unique_module(module_list, &num_modules, MimicConfig.phase_1[i].module_name);
-  }
-  for (int i = 0; i < MimicConfig.num_phase_2; i++) {
-    add_unique_module(module_list, &num_modules, MimicConfig.phase_2[i].module_name);
-  }
-  for (int i = 0; i < MimicConfig.num_post_timestep; i++) {
-    add_unique_module(module_list, &num_modules,
-                      MimicConfig.post_timestep[i].module_name);
-  }
+  /* Count total module entries across all phases */
+  total_entries = MimicConfig.num_pre_timestep + MimicConfig.num_phase_1 +
+                  MimicConfig.num_phase_2 + MimicConfig.num_post_timestep;
 
   /* Check if there are any enabled modules */
-  if (num_modules == 0) {
+  if (total_entries == 0) {
     DEBUG_LOG("No enabled modules to write to HDF5");
     return;
   }
 
-  /* Create variable-length string datatype */
+  /* Define the compound datatype structure in memory */
+  typedef struct {
+    char module_name[MAX_STRING_LEN];
+    char phase[MAX_STRING_LEN];
+    char processing_mode[MAX_STRING_LEN];
+  } ModuleEntry;
+
+  /* Allocate array for all module entries */
+  ModuleEntry *entries = (ModuleEntry *)mymalloc_cat(
+      total_entries * sizeof(ModuleEntry), MEM_IO);
+  if (entries == NULL) {
+    FATAL_ERROR("Memory allocation failed for EnabledModules array (%d entries)",
+                total_entries);
+  }
+
+  /* Populate entries array from all phases in execution order */
+  int idx = 0;
+
+  /* Pre-timestep phase */
+  for (int i = 0; i < MimicConfig.num_pre_timestep; i++, idx++) {
+    strncpy(entries[idx].module_name, MimicConfig.pre_timestep[i].module_name,
+            MAX_STRING_LEN - 1);
+    strncpy(entries[idx].phase, "pre_timestep", MAX_STRING_LEN - 1);
+    strncpy(entries[idx].processing_mode,
+            processing_mode_to_string(MimicConfig.pre_timestep[i].processing_mode),
+            MAX_STRING_LEN - 1);
+  }
+
+  /* Phase 1 */
+  for (int i = 0; i < MimicConfig.num_phase_1; i++, idx++) {
+    strncpy(entries[idx].module_name, MimicConfig.phase_1[i].module_name,
+            MAX_STRING_LEN - 1);
+    strncpy(entries[idx].phase, "phase_1", MAX_STRING_LEN - 1);
+    strncpy(entries[idx].processing_mode,
+            processing_mode_to_string(MimicConfig.phase_1[i].processing_mode),
+            MAX_STRING_LEN - 1);
+  }
+
+  /* Phase 2 */
+  for (int i = 0; i < MimicConfig.num_phase_2; i++, idx++) {
+    strncpy(entries[idx].module_name, MimicConfig.phase_2[i].module_name,
+            MAX_STRING_LEN - 1);
+    strncpy(entries[idx].phase, "phase_2", MAX_STRING_LEN - 1);
+    strncpy(entries[idx].processing_mode,
+            processing_mode_to_string(MimicConfig.phase_2[i].processing_mode),
+            MAX_STRING_LEN - 1);
+  }
+
+  /* Post-timestep phase */
+  for (int i = 0; i < MimicConfig.num_post_timestep; i++, idx++) {
+    strncpy(entries[idx].module_name, MimicConfig.post_timestep[i].module_name,
+            MAX_STRING_LEN - 1);
+    strncpy(entries[idx].phase, "post_timestep", MAX_STRING_LEN - 1);
+    strncpy(entries[idx].processing_mode,
+            processing_mode_to_string(MimicConfig.post_timestep[i].processing_mode),
+            MAX_STRING_LEN - 1);
+  }
+
+  /* Create string datatype for fields */
   str_type = H5Tcopy(H5T_C_S1);
   status = H5Tset_size(str_type, MAX_STRING_LEN);
   if (status < 0) {
-    FATAL_ERROR("Failed to set string type size for EnabledModules dataset");
+    FATAL_ERROR("Failed to set string type size for EnabledModules");
   }
 
+  /* Create compound datatype for memory representation */
+  memtype = H5Tcreate(H5T_COMPOUND, sizeof(ModuleEntry));
+  H5Tinsert(memtype, "module_name", HOFFSET(ModuleEntry, module_name), str_type);
+  H5Tinsert(memtype, "phase", HOFFSET(ModuleEntry, phase), str_type);
+  H5Tinsert(memtype, "processing_mode", HOFFSET(ModuleEntry, processing_mode), str_type);
+
+  /* Create matching compound datatype for file representation */
+  filetype = H5Tcreate(H5T_COMPOUND, sizeof(ModuleEntry));
+  H5Tinsert(filetype, "module_name", HOFFSET(ModuleEntry, module_name), str_type);
+  H5Tinsert(filetype, "phase", HOFFSET(ModuleEntry, phase), str_type);
+  H5Tinsert(filetype, "processing_mode", HOFFSET(ModuleEntry, processing_mode), str_type);
+
   /* Create dataspace */
-  dims = num_modules;
+  dims = total_entries;
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
   /* Create dataset */
-  dataset_id = H5Dcreate(parent_group_id, "EnabledModules", str_type,
+  dataset_id = H5Dcreate(parent_group_id, "EnabledModules", filetype,
                          dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   if (dataset_id < 0) {
     FATAL_ERROR("Failed to create EnabledModules dataset in HDF5 file");
   }
 
-  /* Write the module names array */
-  status = H5Dwrite(dataset_id, str_type, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                    module_list);
+  /* Write the module entries */
+  status = H5Dwrite(dataset_id, memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, entries);
   if (status < 0) {
     FATAL_ERROR("Failed to write EnabledModules dataset to HDF5 file");
   }
@@ -719,10 +779,10 @@ static void write_enabled_modules(hid_t parent_group_id) {
   /* Add description attribute */
   attr_space = H5Screate(H5S_SCALAR);
   attr_str_type = H5Tcopy(H5T_C_S1);
-  H5Tset_size(attr_str_type, 256);
+  H5Tset_size(attr_str_type, 512);
   attribute_id = H5Acreate(dataset_id, "description", attr_str_type,
                            attr_space, H5P_DEFAULT, H5P_DEFAULT);
-  const char *desc = "List of unique physics modules across all phases (pre_timestep, phase_1, phase_2, post_timestep)";
+  const char *desc = "Complete module execution pipeline configuration. Each row specifies one module's name, execution phase, and processing mode. Preserves full pipeline including modules in multiple phases.";
   H5Awrite(attribute_id, attr_str_type, desc);
   H5Aclose(attribute_id);
   H5Tclose(attr_str_type);
@@ -731,7 +791,10 @@ static void write_enabled_modules(hid_t parent_group_id) {
   /* Clean up */
   H5Dclose(dataset_id);
   H5Sclose(dataspace_id);
+  H5Tclose(filetype);
+  H5Tclose(memtype);
   H5Tclose(str_type);
+  myfree(entries);
 }
 
 /**

@@ -408,7 +408,8 @@ model.hdf5
 │   │   ├── @git_commit              # Code version (SHA)
 │   │   ├── @git_branch, @git_date   # Git metadata
 │   │   └── @hdf5_format_version     # Schema version
-│   ├── EnabledModules               # Active physics modules (dataset)
+│   ├── EnabledModules               # Pipeline configuration (compound dataset)
+│   │                                # Fields: module_name, phase, processing_mode
 │   ├── Parameters                   # Runtime parameters (dataset: param_name, value)
 │   └── Redshifts                    # Snapshot redshifts z[64] (dataset)
 ├── /Snap063/            # Snapshot groups with external links to data files

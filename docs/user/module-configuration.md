@@ -194,13 +194,19 @@ The multi-phase pipeline is designed to be extensible. While Mimic currently sup
    - **Important**: Forgetting this step causes memory leaks (2 blocks per new phase)
 
 6. **src/io/output/hdf5.c** (if using HDF5 output)
-   - Add phase_3 collection in `write_enabled_modules()`:
+   - Add phase_3 population in `write_enabled_modules()`:
      ```c
-     for (int i = 0; i < MimicConfig.num_phase_3; i++) {
-       add_unique_module(module_list, &num_modules,
-                         MimicConfig.phase_3[i].module_name);
+     /* Phase 3 */
+     for (int i = 0; i < MimicConfig.num_phase_3; i++, idx++) {
+       strncpy(entries[idx].module_name, MimicConfig.phase_3[i].module_name,
+               MAX_STRING_LEN - 1);
+       strncpy(entries[idx].phase, "phase_3", MAX_STRING_LEN - 1);
+       strncpy(entries[idx].processing_mode,
+               processing_mode_to_string(MimicConfig.phase_3[i].processing_mode),
+               MAX_STRING_LEN - 1);
      }
      ```
+   - Also update the `total_entries` calculation to include `MimicConfig.num_phase_3`
 
 7. **input/millennium.yaml** (example configuration)
    - Add phase_3 section:

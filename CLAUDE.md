@@ -252,7 +252,8 @@ RunProperties/
   │   ├── @git_branch                      (e.g., main)
   │   ├── @git_date, @build_date           (build timestamps)
   │   └── @hdf5_format_version             (schema version: 1.0)
-  ├── EnabledModules [dataset]             (active physics modules list)
+  ├── EnabledModules [compound dataset]    (complete pipeline configuration)
+  │   └── (module_name, phase, processing_mode) for each module
   ├── Parameters [dataset]                 (all runtime parameters)
   │   └── (param_name, value) pairs        (e.g., AGNrecipeOn: 1)
   └── Redshifts [dataset]                  (z for each snapshot: 127.0→0.0)
@@ -268,7 +269,8 @@ Per-file output (`model_000.hdf5`):
 ```
 RunProperties/                             (same as master - self-contained)
   ├── Version/                             (identity & provenance)
-  ├── EnabledModules [dataset]             (configuration)
+  ├── EnabledModules [compound dataset]    (complete pipeline configuration)
+  │   └── (module_name, phase, processing_mode) for each module
   ├── Parameters [dataset]                 (configuration)
   └── Redshifts [dataset]                  (auxiliary data)
 
