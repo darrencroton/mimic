@@ -437,7 +437,7 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
        item < phase_node->data.sequence.items.top; item++) {
     yaml_node_t *module_node = yaml_document_get_node(doc, *item);
 
-    /* Each item should be a mapping with one entry: "module_name: loop_mode" */
+    /* Each item should be a mapping with one entry: "module_name: processing_mode" */
     if (module_node->type != YAML_MAPPING_NODE) {
       ERROR_LOG("Phase '%s': module entry must be 'name: mode'", phase_name);
       myfree(*config);
@@ -458,24 +458,24 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
     yaml_node_t *value = yaml_document_get_node(doc, pair->value);
 
     const char *module_name = get_scalar_value(key);
-    const char *loop_mode_str = get_scalar_value(value);
+    const char *processing_mode_str = get_scalar_value(value);
 
-    if (!module_name || !loop_mode_str) {
+    if (!module_name || !processing_mode_str) {
       ERROR_LOG("Phase '%s': invalid module entry format", phase_name);
       myfree(*config);
       *config = NULL;
       return -1;
     }
 
-    /* Parse loop mode */
-    enum LoopMode loop_mode;
-    if (strcmp(loop_mode_str, "once") == 0) {
-      loop_mode = LOOP_MODE_ONCE;
-    } else if (strcmp(loop_mode_str, "all") == 0) {
-      loop_mode = LOOP_MODE_ALL;
+    /* Parse processing mode */
+    enum ProcessingMode processing_mode;
+    if (strcmp(processing_mode_str, "process_full_halo") == 0) {
+      processing_mode = PROCESSING_MODE_FULL_HALO;
+    } else if (strcmp(processing_mode_str, "process_by_galaxy") == 0) {
+      processing_mode = PROCESSING_MODE_BY_GALAXY;
     } else {
-      ERROR_LOG("Phase '%s': invalid loop mode '%s' (must be 'once' or 'all')",
-                phase_name, loop_mode_str);
+      ERROR_LOG("Phase '%s': invalid processing mode '%s' (must be 'process_full_halo' or 'process_by_galaxy')",
+                phase_name, processing_mode_str);
       myfree(*config);
       *config = NULL;
       return -1;
@@ -483,10 +483,10 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
 
     /* Store in config */
     (*config)[idx].module_name = strdup(module_name);
-    (*config)[idx].loop_mode = loop_mode;
+    (*config)[idx].processing_mode = processing_mode;
 
-    DEBUG_LOG("Phase '%s': %s (loop_mode=%s)", phase_name, module_name,
-              loop_mode_str);
+    DEBUG_LOG("Phase '%s': %s (processing_mode=%s)", phase_name, module_name,
+              processing_mode_str);
     idx++;
   }
 

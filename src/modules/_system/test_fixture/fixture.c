@@ -159,7 +159,7 @@ static int test_fixture_cleanup(void) {
 }
 
 /* Extern reference to generated loop mode array */
-extern const enum LoopMode test_fixture_supported_modes[];
+extern const enum ProcessingMode test_fixture_supported_modes[];
 
 /**
  * @brief   Register test fixture module
@@ -173,7 +173,7 @@ void test_fixture_register(void) {
       .init = test_fixture_init,
       .process = test_fixture_process,
       .cleanup = test_fixture_cleanup,
-      .supported_loop_modes = test_fixture_supported_modes,
+      .supported_processing_modes = test_fixture_supported_modes,
       .num_supported_modes = 2  /* Default: supports both once and all */
   };
 

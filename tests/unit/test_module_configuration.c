@@ -106,12 +106,12 @@ int test_phase_configuration(void) {
     /* Configure modules across multiple phases */
     MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.pre_timestep[0].module_name = strdup("test_fixture");
-    MimicConfig.pre_timestep[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_pre_timestep = 1;
 
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.num_phase_1 = 1;
 
     MimicConfig.SubSteps = 1;
@@ -123,12 +123,12 @@ int test_phase_configuration(void) {
                       "Should have 1 module in phase_1");
     TEST_ASSERT_STRING_EQUAL(MimicConfig.pre_timestep[0].module_name, "test_fixture",
                              "pre_timestep module should be test_fixture");
-    TEST_ASSERT_EQUAL(MimicConfig.pre_timestep[0].loop_mode, LOOP_MODE_ONCE,
-                      "pre_timestep loop mode should be LOOP_MODE_ONCE");
+    TEST_ASSERT_EQUAL(MimicConfig.pre_timestep[0].processing_mode, PROCESSING_MODE_FULL_HALO,
+                      "pre_timestep loop mode should be PROCESSING_MODE_FULL_HALO");
     TEST_ASSERT_STRING_EQUAL(MimicConfig.phase_1[0].module_name, "test_fixture",
                              "phase_1 module should be test_fixture");
-    TEST_ASSERT_EQUAL(MimicConfig.phase_1[0].loop_mode, LOOP_MODE_ALL,
-                      "phase_1 loop mode should be LOOP_MODE_ALL");
+    TEST_ASSERT_EQUAL(MimicConfig.phase_1[0].processing_mode, PROCESSING_MODE_BY_GALAXY,
+                      "phase_1 loop mode should be PROCESSING_MODE_BY_GALAXY");
 
     return TEST_PASS;
 }
@@ -189,12 +189,12 @@ int test_valid_module_initialization(void) {
     /* Configure modules in multiple phases */
     MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.pre_timestep[0].module_name = strdup("test_fixture");
-    MimicConfig.pre_timestep[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_pre_timestep = 1;
 
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.num_phase_1 = 1;
 
     MimicConfig.SubSteps = 1;
@@ -256,7 +256,7 @@ int test_single_phase_configuration(void) {
     /* Enable module only in phase_1 */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.num_phase_1 = 1;
 
     MimicConfig.SubSteps = 1;

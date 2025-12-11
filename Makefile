@@ -487,7 +487,7 @@ test-integration:
 	echo ""; \
 	$(PYTHON) tests/integration/test_substeps.py || FAILED=1; \
 	echo ""; \
-	$(PYTHON) tests/integration/test_loop_modes.py || FAILED=1; \
+	$(PYTHON) tests/integration/test_processing_modes.py || FAILED=1; \
 	echo ""; \
 	$(PYTHON) tests/integration/test_galaxy_major_loop.py || FAILED=1; \
 	echo ""; \

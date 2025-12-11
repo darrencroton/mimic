@@ -38,21 +38,21 @@ SubSteps: 20  # Number of substeps per snapshot (1 = no substeps)
 modules:
   # Phase 1: Setup (runs once before substeps)
   pre_timestep:
-    - sage_reionization: once
-    - sage_calculate_infall: once
+    - sage_reionization: process_full_halo
+    - sage_calculate_infall: process_full_halo
 
   # Phase 2: Main physics (runs each substep for each galaxy)
   phase_1:
-    - sage_cooling: all
-    - sage_starformation_feedback: all
+    - sage_cooling: process_by_galaxy
+    - sage_starformation_feedback: process_by_galaxy
 
   # Phase 3: Mergers/disruption (runs each substep for each galaxy)
   phase_2:
-    - sage_mergers: all
+    - sage_mergers: process_by_galaxy
 
   # Phase 4: Finalization (runs once after substeps)
   post_timestep:
-    - sage_finalization: once
+    - sage_finalization: process_full_halo
 
   # Model parameters (unchanged)
   parameters:
@@ -62,7 +62,7 @@ modules:
 
 **Key Changes**:
 1. ✅ `enabled` list → 4 phase-based lists (`pre_timestep`, `phase_1`, `phase_2`, `post_timestep`)
-2. ✅ Each module entry specifies loop mode (`once` or `all`)
+2. ✅ Each module entry specifies processing mode (`process_full_halo` or `process_by_galaxy`)
 3. ✅ Added `SubSteps` parameter for time sub-stepping
 
 ---
@@ -91,7 +91,7 @@ struct Module {
 // NEW: Multi-phase configuration
 MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
 MimicConfig.phase_1[0].module_name = strdup("my_module");
-MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
 MimicConfig.num_phase_1 = 1;
 MimicConfig.SubSteps = 1;
 
@@ -125,7 +125,7 @@ MimicConfig.NumEnabledModules = 1;
 ```c
 MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
 MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
 MimicConfig.num_phase_1 = 1;
 MimicConfig.SubSteps = 1;
 ```
@@ -156,7 +156,7 @@ param_file, output_dir, temp_dir = create_test_param_file(
 )
 ```
 
-**Backward Compatibility**: The old `enabled_modules` parameter still works (puts all modules in `phase_1` with `loop_mode=all`) but issues a deprecation warning.
+**Backward Compatibility**: The old `enabled_modules` parameter still works (puts all modules in `phase_1` with `processing_mode=process_by_galaxy`) but issues a deprecation warning.
 
 ---
 
@@ -183,8 +183,8 @@ static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int 
     double time_interval = ctx->time_interval; // Total time for snapshot
 
     // Module receives either:
-    // - ngal=1 (if loop_mode=all) - process single galaxy
-    // - ngal>1 (if loop_mode=once) - process full array
+    // - ngal=1 (if processing_mode=process_by_galaxy) - process single galaxy
+    // - ngal>1 (if processing_mode=process_full_halo) - process full array
 }
 ```
 
@@ -197,15 +197,15 @@ static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int 
 
 ---
 
-## Loop Modes
+## Processing Modes
 
-### LOOP_MODE_ONCE
+### PROCESSING_MODE_FULL_HALO
 - Core calls module **once** with full halo array
 - Module receives `ngal` = full array size (e.g., 10, 100)
 - Module processes entire array at once
 - **Use for**: Array-level operations, setup calculations
 
-### LOOP_MODE_ALL
+### PROCESSING_MODE_BY_GALAXY
 - Core loops over galaxies, calls module per-galaxy
 - Module receives `ngal` = 1 always
 - Executed in **galaxy-major order** for better cache locality
@@ -215,8 +215,8 @@ static int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int 
 ```
 Config:
   phase_1:
-    - cooling: all
-    - starformation: all
+    - cooling: process_by_galaxy
+    - starformation: process_by_galaxy
 
 Execution:
   for each galaxy g:
@@ -267,7 +267,7 @@ modules:
 modules:
   pre_timestep: []
   phase_1:
-    - my_module: all
+    - my_module: process_by_galaxy
   phase_2: []
   post_timestep: []
 ```
@@ -279,12 +279,12 @@ modules:
 ```yaml
 modules:
   pre_timestep:
-    - setup_module: once
+    - setup_module: process_full_halo
   phase_1:
-    - physics_module: all
+    - physics_module: process_by_galaxy
   phase_2: []
   post_timestep:
-    - finalize_module: once
+    - finalize_module: process_full_halo
 ```
 
 ### Pattern 3: Time Sub-Stepping
@@ -296,7 +296,7 @@ SubSteps: 20  # 20 substeps for numerical stability
 
 modules:
   phase_1:
-    - cooling: all  # Runs 20 times per galaxy per snapshot
+    - cooling: process_by_galaxy  # Runs 20 times per galaxy per snapshot
 ```
 
 ---
@@ -307,7 +307,7 @@ modules:
 - [ ] Update all YAML parameter files to new multi-phase format
 - [ ] Add `SubSteps` parameter (start with 1, tune as needed)
 - [ ] Assign modules to appropriate phases
-- [ ] Specify loop mode (`once` or `all`) for each module
+- [ ] Specify processing mode (`process_full_halo` or `process_by_galaxy`) for each module
 - [ ] Test configuration produces expected results
 
 ### For Developers
@@ -315,7 +315,7 @@ modules:
 - [ ] Update all test code to use new phase configuration
 - [ ] Update integration tests to use `phase_config` parameter
 - [ ] Update documentation examples
-- [ ] Verify module works in different phases/loop modes
+- [ ] Verify module works in different phases/processing modes
 
 ### For Test Writers
 - [ ] Update C unit tests: use phase arrays instead of `EnabledModules`
@@ -332,7 +332,7 @@ modules:
 **Fix**: Check module_info.yaml `name` field matches YAML exactly
 
 ### Error: "Module 'X' failed on galaxy Y"
-**Cause**: Module doesn't handle `ngal=1` correctly (if `loop_mode=all`)
+**Cause**: Module doesn't handle `ngal=1` correctly (if `processing_mode=process_by_galaxy`)
 **Fix**: Verify module processes single galaxy when `ngal=1`
 
 ### Warning: "enabled_modules parameter is deprecated"

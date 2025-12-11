@@ -480,12 +480,12 @@ process_halo_evolution(halonr, ngal)
 │
 ├─ [PHASE 1: Pre-Timestep (once before substeps)]
 │  └─ execute_phase()                  // src/core/module_registry.c:217
-│     ├─ [PASS 1: LOOP_MODE_ALL modules (galaxy-major loop)]
+│     ├─ [PASS 1: PROCESSING_MODE_BY_GALAXY modules (galaxy-major loop)]
 │     │  └─ for each galaxy g:
 │     │     └─ for each module in phase:
 │     │        └─ module->process(ctx, &halos[g], 1)
 │     │
-│     └─ [PASS 2: LOOP_MODE_ONCE modules (full array)]
+│     └─ [PASS 2: PROCESSING_MODE_FULL_HALO modules (full array)]
 │        └─ for each module in phase:
 │           └─ module->process(ctx, halos, ngal)
 │
@@ -498,24 +498,24 @@ process_halo_evolution(halonr, ngal)
 │     │
 │     ├─ [PHASE 2A: Phase 1 within substep loop]
 │     │  └─ execute_phase()
-│     │     ├─ [PASS 1: Galaxy-major loop for LOOP_MODE_ALL]
+│     │     ├─ [PASS 1: Galaxy-major loop for PROCESSING_MODE_BY_GALAXY]
 │     │     │  └─ for each galaxy:
 │     │     │     └─ cooling → SF → feedback → ... (all phase_1 modules)
 │     │     │
-│     │     └─ [PASS 2: Full array for LOOP_MODE_ONCE]
+│     │     └─ [PASS 2: Full array for PROCESSING_MODE_FULL_HALO]
 │     │
 │     └─ [PHASE 2B: Phase 2 within substep loop]
 │        └─ execute_phase()
-│           ├─ [PASS 1: Galaxy-major loop for LOOP_MODE_ALL]
+│           ├─ [PASS 1: Galaxy-major loop for PROCESSING_MODE_BY_GALAXY]
 │           │  └─ for each galaxy:
 │           │     └─ mergers → disruption → ... (all phase_2 modules)
 │           │
-│           └─ [PASS 2: Full array for LOOP_MODE_ONCE]
+│           └─ [PASS 2: Full array for PROCESSING_MODE_FULL_HALO]
 │
 ├─ [PHASE 4: Post-Timestep (once after substeps)]
 │  └─ execute_phase()
-│     ├─ [PASS 1: Galaxy-major loop for LOOP_MODE_ALL]
-│     └─ [PASS 2: Full array for LOOP_MODE_ONCE]
+│     ├─ [PASS 1: Galaxy-major loop for PROCESSING_MODE_BY_GALAXY]
+│     └─ [PASS 2: Full array for PROCESSING_MODE_FULL_HALO]
 │
 └─ update_halo_properties()            // src/core/build_model.c:385
    │
@@ -542,7 +542,7 @@ process_halo_evolution(halonr, ngal)
 **Multi-Phase Pipeline Details:**
 - **Configuration-Driven**: Phase assignments specified in input YAML file
 - **Generic Phase Names**: phase_1, phase_2 (not physics/mergers) for flexibility
-- **Galaxy-Major Loop**: For LOOP_MODE_ALL modules, all modules execute for galaxy[i]
+- **Galaxy-Major Loop**: For PROCESSING_MODE_BY_GALAXY modules, all modules execute for galaxy[i]
   before moving to galaxy[i+1] (better cache locality, matches SAGE)
 - **Time Sub-Stepping**: SubSteps parameter enables numerical stability for physics integration
 - **Module Context**: Provides modules with snapshot info, substep info, and parameters

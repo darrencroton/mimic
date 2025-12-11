@@ -450,7 +450,7 @@ static int sage_starformation_feedback_cleanup(void) {
 // ============================================================================
 
 /* Extern reference to generated loop mode array */
-extern const enum LoopMode sage_starformation_feedback_supported_modes[];
+extern const enum ProcessingMode sage_starformation_feedback_supported_modes[];
 
 /**
  * @brief   Module interface structure
@@ -460,8 +460,8 @@ static struct Module sage_starformation_feedback_module = {
     .init = sage_starformation_feedback_init,
     .process = sage_starformation_feedback_process,
     .cleanup = sage_starformation_feedback_cleanup,
-    .supported_loop_modes = sage_starformation_feedback_supported_modes,
-    .num_supported_modes = 1  /* Only supports LOOP_MODE_ONCE */
+    .supported_processing_modes = sage_starformation_feedback_supported_modes,
+    .num_supported_modes = 1  /* Only supports PROCESSING_MODE_FULL_HALO */
 };
 
 /**

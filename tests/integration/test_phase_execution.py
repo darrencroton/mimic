@@ -89,7 +89,7 @@ def test_pre_timestep_frequency():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="pre_timestep_freq",
         phase_config={
-            'pre_timestep': [('test_fixture', 'once')],
+            'pre_timestep': [('test_fixture', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -156,7 +156,7 @@ def test_phase_1_frequency():
         output_name="phase_1_freq",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'once')],  # Use 'once' for clearer counting
+            'phase_1': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer counting
             'phase_2': [],
             'post_timestep': []
         },
@@ -226,7 +226,7 @@ def test_phase_2_frequency():
         phase_config={
             'pre_timestep': [],
             'phase_1': [],
-            'phase_2': [('test_fixture', 'once')],  # Use 'once' for clearer counting
+            'phase_2': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer counting
             'post_timestep': []
         },
         model_params={
@@ -290,7 +290,7 @@ def test_post_timestep_frequency():
             'pre_timestep': [],
             'phase_1': [],
             'phase_2': [],
-            'post_timestep': [('test_fixture', 'once')]
+            'post_timestep': [('test_fixture', 'process_full_halo')]
         },
         model_params={
             "TestFixtureDummyParameter": 1.0,
@@ -356,10 +356,10 @@ def test_all_phases_execution_order():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="all_phases",
         phase_config={
-            'pre_timestep': [('test_fixture', 'once')],
-            'phase_1': [('test_fixture', 'once')],  # Use 'once' for clearer pattern
-            'phase_2': [('test_fixture', 'once')],  # Use 'once' for clearer pattern
-            'post_timestep': [('test_fixture', 'once')]
+            'pre_timestep': [('test_fixture', 'process_full_halo')],
+            'phase_1': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer pattern
+            'phase_2': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer pattern
+            'post_timestep': [('test_fixture', 'process_full_halo')]
         },
         model_params={
             "TestFixtureDummyParameter": 1.0,

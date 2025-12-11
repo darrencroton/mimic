@@ -15,7 +15,7 @@ module:
 
   register_function: sage_cooling_register
 
-  supported_loop_modes: [all]
+  supported_processing_modes: [process_by_galaxy]
 
   dependencies:
     properties:

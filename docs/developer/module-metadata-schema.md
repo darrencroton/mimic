@@ -179,8 +179,8 @@ module:
   # Build Configuration (optional)
   compilation_requires: [string, ...]
 
-  # Loop Mode Constraints (optional)
-  supported_loop_modes: [string, ...]  # Default: ["once", "all"]
+  # Processing Mode Constraints (optional)
+  supported_processing_modes: [string, ...]  # Default: ["once", "all"]
 ```
 
 ---
@@ -551,11 +551,11 @@ compilation_requires: []  # No special requirements
 
 ---
 
-### Loop Mode Constraints (optional)
+### Processing Mode Constraints (optional)
 
-#### supported_loop_modes (list of strings, optional)
+#### supported_processing_modes (list of strings, optional)
 
-**Purpose**: Declare which loop modes the module supports for execution
+**Purpose**: Declare which processing modes the module supports for execution
 
 **Rules**:
 - List containing `"once"` and/or `"all"`
@@ -572,32 +572,32 @@ compilation_requires: []  # No special requirements
 **Example**:
 ```yaml
 # Array processing only (e.g., reionization, neighbor finding)
-supported_loop_modes: [once]
+supported_processing_modes: [once]
 
 # Per-galaxy processing only (e.g., cooling, star formation)
-supported_loop_modes: [all]
+supported_processing_modes: [all]
 
 # Supports both modes (e.g., test fixture, flexible modules)
-supported_loop_modes: [once, all]
+supported_processing_modes: [once, all]
 ```
 
 **Runtime Validation**:
 - Mimic validates input YAML configuration against module constraints
-- Fails with clear error if module configured with unsupported loop mode
+- Fails with clear error if module configured with unsupported processing mode
 - Example error:
   ```
   ERROR: Configuration error in phase 'phase_1':
-    Module 'sage_reionization' does not support loop mode 'all'
-    Supported modes: once
-    Fix: Change loop mode in input YAML to one of the supported modes
+    Module 'sage_reionization' does not support processing mode 'all'
+    Supported modes: process_full_halo
+    Fix: Change processing mode in input YAML to one of the supported modes
   ```
 
 **Code Generation**:
-- Auto-generates loop mode array in `src/modules/_system/generated/module_init.c`
+- Auto-generates processing mode array in `src/modules/_system/generated/module_init.c`
 - Module references generated array via extern declaration
 - Example generated code:
   ```c
-  const enum LoopMode sage_cooling_supported_modes[] = {LOOP_MODE_ALL};
+  const enum LoopMode sage_cooling_supported_modes[] = {PROCESSING_MODE_BY_GALAXY};
   ```
 
 **When to Specify**:

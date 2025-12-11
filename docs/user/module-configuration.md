@@ -25,21 +25,21 @@ Mimic uses a **multi-phase pipeline** architecture that organizes module executi
 modules:
   # Pre-timestep: Setup calculations (runs once before substeps)
   pre_timestep:
-    - sage_reionization: once
-    - sage_calculate_infall: once
+    - sage_reionization: process_full_halo
+    - sage_calculate_infall: process_full_halo
 
   # Phase 1: Main physics (runs each substep for each galaxy)
   phase_1:
-    - sage_cooling: all
-    - sage_starformation_feedback: all
+    - sage_cooling: process_by_galaxy
+    - sage_starformation_feedback: process_by_galaxy
 
   # Phase 2: Secondary physics (runs each substep for each galaxy)
   phase_2:
-    - sage_mergers: all
+    - sage_mergers: process_by_galaxy
 
   # Post-timestep: Finalization (runs once after substeps)
   post_timestep:
-    - sage_finalization: once
+    - sage_finalization: process_full_halo
 
   parameters:
     # Model parameters go here (see Model Parameters section)
@@ -80,22 +80,22 @@ modules:
 - `SubSteps: 20`: SAGE-like behavior, phase_1 and phase_2 run 20 times with dt = time_interval/20
 - Modules in pre_timestep and post_timestep always run once regardless of SubSteps
 
-### Loop Modes
+### Processing Modes
 
-Each module can run in one of two loop modes:
+Each module can run in one of two processing modes:
 
-- **`once`**: Module processes the entire galaxy array at once (ngal = full array size)
+- **`process_full_halo`**: Module processes the entire galaxy array at once (ngal = full array size)
   - Use for: Operations that need access to all galaxies simultaneously
   - Example: Snapshot-level calculations, setup operations
   - Performance: Better for vectorized operations
 
-- **`all`**: Core loops over galaxies, module processes one at a time (ngal = 1)
+- **`process_by_galaxy`**: Core loops over galaxies, module processes one at a time (ngal = 1)
   - Use for: Galaxy-specific physics, time integration
   - Example: Cooling, star formation, feedback
   - Performance: Better cache locality, matches SAGE behavior
 
 **Galaxy-Major Loop:**
-When multiple modules use `loop_mode: all` in the same phase, they execute in galaxy-major order:
+When multiple modules use `processing_mode: process_by_galaxy` in the same phase, they execute in galaxy-major order:
 ```
 for each galaxy g:
   module1(galaxy g)
@@ -124,7 +124,7 @@ Or simply omit modules that you don't need:
 ```yaml
 modules:
   pre_timestep:
-    - sage_reionization: once
+    - sage_reionization: process_full_halo
   phase_1: []     # Empty phase
   phase_2: []     # Empty phase
   post_timestep: []
@@ -220,7 +220,7 @@ The multi-phase pipeline is designed to be extensible. While Mimic currently sup
 **Design Philosophy:**
 - Generic phase names (phase_1, phase_2, etc.) avoid assuming specific physics
 - Configuration-driven approach allows maximum flexibility
-- Each phase can have its own mix of loop_mode: once and loop_mode: all modules
+- Each phase can have its own mix of processing_mode: process_full_halo and processing_mode: process_by_galaxy modules
 - Phases inside the substep loop (phase_1, phase_2, etc.) run each substep
 - Phases outside the loop (pre_timestep, post_timestep) run once per snapshot
 
@@ -328,7 +328,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Recommended Phase**: pre_timestep (runs once, before other modules need HaloBaryonFraction)
 
-**Loop Mode**: once (calculates property for all halos in one call)
+**Processing Mode**: process_full_halo (calculates property for all halos in one call)
 
 **Model Parameters Used**: GlobalBaryonFraction
 
@@ -352,7 +352,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Recommended Phase**: pre_timestep (calculates total infall budget for timestep)
 
-**Loop Mode**: once (budget calculation for all halos)
+**Processing Mode**: process_full_halo (budget calculation for all halos)
 
 **Model Parameters Used**: None (uses HaloBaryonFraction property)
 
@@ -370,7 +370,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Recommended Phase**: phase_1 (runs each substep for time integration)
 
-**Loop Mode**: all (processes each satellite galaxy individually)
+**Processing Mode**: process_by_galaxy (processes each satellite galaxy individually)
 
 **Model Parameters Used**: None (uses HaloBaryonFraction property)
 
@@ -388,7 +388,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Recommended Phase**: phase_1 (runs each substep for time integration)
 
-**Loop Mode**: all (processes each galaxy individually)
+**Processing Mode**: process_by_galaxy (processes each galaxy individually)
 
 **Model Parameters Used**: RadioModeEfficiency, AGNrecipeOn, CoolFunctionsDir
 
@@ -406,7 +406,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Recommended Phase**: phase_1 (runs each substep for time integration, after cooling)
 
-**Loop Mode**: all (processes each galaxy individually)
+**Processing Mode**: process_by_galaxy (processes each galaxy individually)
 
 **Model Parameters Used**: SFprescription, SfrEfficiency, EnergySNcode, EtaSNcode, SupernovaRecipeOn, FeedbackReheatingEpsilon, FeedbackEjectionEfficiency, RecycleFraction, Yield, FracZleaveDisk
 
@@ -424,7 +424,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Recommended Phase**: phase_1 (runs each substep for time integration)
 
-**Loop Mode**: all (processes each galaxy individually)
+**Processing Mode**: process_by_galaxy (processes each galaxy individually)
 
 **Model Parameters Used**: ReIncorporationFactor
 
@@ -442,7 +442,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Recommended Phase**: phase_2 (typically runs after main baryonic physics)
 
-**Loop Mode**: all (processes each merger event individually)
+**Processing Mode**: process_by_galaxy (processes each merger event individually)
 
 **Model Parameters Used**: BlackHoleGrowthRate, QuasarModeEfficiency, ThreshMajorMerger
 
@@ -460,7 +460,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Recommended Phase**: phase_1 or phase_2 (flexible, depends on model design)
 
-**Loop Mode**: all (processes each galaxy individually)
+**Processing Mode**: process_by_galaxy (processes each galaxy individually)
 
 **Model Parameters Used**: DiskInstabilityOn, DiskRadiusFactor
 
@@ -519,20 +519,20 @@ SubSteps: 1  # Number of substeps per snapshot (1 = no substeps, 20 = SAGE-like)
 modules:
   # Pre-timestep: Setup (runs once before substeps)
   pre_timestep:
-    - sage_reionization: once
-    - sage_calculate_infall: once
+    - sage_reionization: process_full_halo
+    - sage_calculate_infall: process_full_halo
 
   # Phase 1: Main physics (runs each substep)
   phase_1:
-    - sage_satellite_stripping: once
-    - sage_cooling: all
-    - sage_starformation_feedback: all
-    - sage_reincorporation: all
-    - sage_disk_instability: all
+    - sage_satellite_stripping: process_full_halo
+    - sage_cooling: process_by_galaxy
+    - sage_starformation_feedback: process_by_galaxy
+    - sage_reincorporation: process_by_galaxy
+    - sage_disk_instability: process_by_galaxy
 
   # Phase 2: Mergers (runs each substep)
   phase_2:
-    - sage_mergers: all
+    - sage_mergers: process_by_galaxy
 
   # Post-timestep: Finalization (runs once after substeps)
   post_timestep: []
@@ -572,7 +572,7 @@ If you list a module that isn't registered:
 ```yaml
 modules:
   phase_1:
-    - fake_module: all
+    - fake_module: process_by_galaxy
 ```
 
 **Error**:
@@ -620,7 +620,7 @@ ERROR:   (defined by module: sage_reionization)
 3. **Start simple**: Begin with empty phases (`[]`) and add modules incrementally
 4. **Check logs**: Module initialization logs show which modules loaded and which phases they're in
 5. **Phase placement**: Use recommended phases from module descriptions above
-6. **Loop mode choice**: Use `once` for snapshot-level ops, `all` for per-galaxy physics
+6. **Loop mode choice**: Use `process_full_halo` for snapshot-level ops, `process_by_galaxy` for per-galaxy physics
 7. **Comment your config**: Use `#` in YAML to document physics choices
 8. **Sub-stepping**: Start with `SubSteps: 1` for testing, increase for better numerical stability
 
@@ -639,7 +639,7 @@ ERROR:   (defined by module: sage_reionization)
 **Check**:
 - Modules in correct phases (setup in pre_timestep, main physics in phase_1, etc.)
 - Dependencies satisfied (e.g., sage_reionization before sage_calculate_infall)
-- Correct loop mode (once vs all) for each module
+- Correct processing mode (once vs all) for each module
 
 **Problem**: SubSteps not working
 **Check**: SubSteps is top-level parameter (outside `modules:`), not inside modules section

@@ -2,10 +2,10 @@
 """
 Galaxy-Major Loop Ordering Test
 
-Validates: Multiple LOOP_MODE_ALL modules execute in galaxy-major order
+Validates: Multiple PROCESSING_MODE_ALL modules execute in galaxy-major order
 Phase: Phase 3+ (Multi-Phase Pipeline)
 
-This test validates that when multiple modules with LOOP_MODE_ALL are
+This test validates that when multiple modules with PROCESSING_MODE_ALL are
 configured in the same phase, they execute in galaxy-major order:
   - Galaxy-major: For each galaxy: module1, module2, module3, ...
   - NOT module-major: module1 for all galaxies, then module2 for all, ...
@@ -73,7 +73,7 @@ def parse_test_fixture_executions(stdout):
 
 def test_multiple_modules_galaxy_major():
     """
-    Test that multiple LOOP_MODE_ALL modules execute in galaxy-major order
+    Test that multiple PROCESSING_MODE_ALL modules execute in galaxy-major order
 
     Expected: With 2 modules configured, total executions = 2 × total galaxies
     Validates: Each galaxy processed by all modules before moving to next galaxy
@@ -86,8 +86,8 @@ def test_multiple_modules_galaxy_major():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('test_fixture', 'all'),  # Module instance 1
-                ('test_fixture', 'all'),  # Module instance 2
+                ('test_fixture', 'process_by_galaxy'),  # Module instance 1
+                ('test_fixture', 'process_by_galaxy'),  # Module instance 2
             ],
             'phase_2': [],
             'post_timestep': []
@@ -118,14 +118,14 @@ def test_multiple_modules_galaxy_major():
         # Parse executions
         all_executions = parse_test_fixture_executions(stdout)
 
-        # With 2 LOOP_MODE_ALL modules, should get 2 calls per galaxy
+        # With 2 PROCESSING_MODE_ALL modules, should get 2 calls per galaxy
         # Total calls should be 2 × total_galaxies
         total_executions = len(all_executions)
 
-        # All executions should have ngal=1 (LOOP_MODE_ALL)
+        # All executions should have ngal=1 (PROCESSING_MODE_ALL)
         ngal_values = [e['ngal'] for e in all_executions]
         assert all(ngal == 1 for ngal in ngal_values), \
-            "All executions should have ngal=1 with LOOP_MODE_ALL"
+            "All executions should have ngal=1 with PROCESSING_MODE_ALL"
 
         # Total galaxies processed = total_executions / 2 (2 modules per galaxy)
         total_galaxies = total_executions // 2
@@ -159,11 +159,11 @@ def test_two_phase_modules_ordering():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('test_fixture', 'all'),
-                ('test_fixture', 'all'),
+                ('test_fixture', 'process_by_galaxy'),
+                ('test_fixture', 'process_by_galaxy'),
             ],
             'phase_2': [
-                ('test_fixture', 'all'),
+                ('test_fixture', 'process_by_galaxy'),
             ],
             'post_timestep': []
         },

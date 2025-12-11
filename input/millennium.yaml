@@ -34,22 +34,22 @@ SubSteps: 10  # Number of phase_X substeps per snapshot
 modules:
 
   pre_timestep:                         # Setup calculations (runs once before substeps)
-    - sage_reionization: once
-    - sage_calculate_infall: once
+    - sage_reionization: process_full_halo
+    - sage_calculate_infall: process_full_halo
 
   phase_1:                              # Main physics
-    - sage_add_infall: once
-    - sage_satellite_stripping: once
-    # - sage_reincorporation: all
-    # - sage_cooling: all
-    # - sage_starformation_feedback: all
-    # - sage_disk_instability: all
+    - sage_add_infall: process_full_halo
+    - sage_satellite_stripping: process_full_halo
+    # - sage_reincorporation: process_full_halo
+    # - sage_cooling: process_by_galaxy
+    # - sage_starformation_feedback: process_by_galaxy
+    # - sage_disk_instability: process_by_galaxy
 
   phase_2: []                           # Mergers/disruption
-    # - sage_mergers: all
+    # - sage_mergers: process_by_galaxy
 
   post_timestep: []                     # Finalization (runs once after substeps)
-    # - sage_finalization: once
+    # - sage_finalization: process_full_halo
 
   parameters:
     # Reionisation

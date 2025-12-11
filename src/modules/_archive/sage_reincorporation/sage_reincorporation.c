@@ -103,7 +103,7 @@ static int sage_reincorporation_init(void)
  *   - Metallicity preserved during transfer
  *
  * @param ctx    Module context (substep_dt, redshift, etc.)
- * @param halos  Array of halos (ngal=1 for LOOP_MODE_ALL)
+ * @param halos  Array of halos (ngal=1 for PROCESSING_MODE_BY_GALAXY)
  * @param ngal   Number of halos (always 1)
  *
  * @return       0 on success, -1 on failure
@@ -205,7 +205,7 @@ static int sage_reincorporation_cleanup(void)
 // ============================================================================
 
 /* Extern reference to generated loop mode array */
-extern const enum LoopMode sage_reincorporation_supported_modes[];
+extern const enum ProcessingMode sage_reincorporation_supported_modes[];
 
 /**
  * @brief   Module structure for sage_reincorporation module
@@ -215,8 +215,8 @@ static struct Module sage_reincorporation_module = {
     .init = sage_reincorporation_init,
     .process = sage_reincorporation_process,
     .cleanup = sage_reincorporation_cleanup,
-    .supported_loop_modes = sage_reincorporation_supported_modes,
-    .num_supported_modes = 1  /* Only supports LOOP_MODE_ALL */
+    .supported_processing_modes = sage_reincorporation_supported_modes,
+    .num_supported_modes = 1  /* Only supports PROCESSING_MODE_BY_GALAXY */
 };
 
 /**

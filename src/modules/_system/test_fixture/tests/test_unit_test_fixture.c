@@ -110,7 +110,7 @@ int test_module_initialization(void)
     /* Configure test_fixture module in phase_1 (for testing) */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
 
@@ -146,7 +146,7 @@ int test_parameter_reading(void)
     /* Configure test_fixture module in phase_1 (for testing) */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
 
@@ -216,7 +216,7 @@ int test_memory_safety(void)
     /* Configure test_fixture module in phase_1 (for testing) */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
 

@@ -107,7 +107,7 @@ int test_module_initialization(void)
     /* Configure sage_reionization module in pre_timestep phase (for testing) */
     MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");
-    MimicConfig.pre_timestep[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_pre_timestep = 1;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
@@ -148,7 +148,7 @@ int test_parameter_reading(void)
     /* Configure sage_reionization module in pre_timestep phase (for testing) */
     MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");
-    MimicConfig.pre_timestep[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_pre_timestep = 1;
     MimicConfig.SubSteps = 1;
 
@@ -191,7 +191,7 @@ int test_memory_safety(void)
     /* Configure sage_reionization module in pre_timestep phase (for testing) */
     MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");
-    MimicConfig.pre_timestep[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_pre_timestep = 1;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();

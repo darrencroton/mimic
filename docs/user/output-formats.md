@@ -154,8 +154,8 @@ Properties are provided by modules. To get specific properties:
 ```yaml
 modules:
   phase_1:
-    - sage_cooling: all
-    - sage_starformation_feedback: all
+    - sage_cooling: process_by_galaxy
+    - sage_starformation_feedback: process_by_galaxy
 
   parameters:
     GlobalBaryonFraction: 0.17

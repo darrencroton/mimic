@@ -3,7 +3,7 @@
 **Module**: `sage_satellite_stripping`
 **Version**: 1.0.0
 **Phase**: phase_1
-**Loop Mode**: LOOP_MODE_ONCE
+**Loop Mode**: PROCESSING_MODE_FULL_HALO
 
 ## Overview
 

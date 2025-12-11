@@ -137,15 +137,15 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
     Args:
         output_name (str): Name for output directory (created in temp_dir)
         enabled_modules (list): DEPRECATED - Use phase_config instead.
-                               For backward compatibility, puts all modules in phase_1 with loop_mode=all
+                               For backward compatibility, puts all modules in phase_1 with processing_mode=all
         phase_config (dict): Multi-phase pipeline configuration.
                             Format: {
-                                'pre_timestep': [('module1', 'once'), ('module2', 'once')],
-                                'phase_1': [('module3', 'all'), ('module4', 'all')],
-                                'phase_2': [('module5', 'all')],
-                                'post_timestep': [('module6', 'once')]
+                                'pre_timestep': [('module1', 'process_full_halo'), ('module2', 'process_full_halo')],
+                                'phase_1': [('module3', 'process_by_galaxy'), ('module4', 'process_by_galaxy')],
+                                'phase_2': [('module5', 'process_by_galaxy')],
+                                'post_timestep': [('module6', 'process_full_halo')]
                             }
-                            Each tuple is (module_name, loop_mode) where loop_mode is 'once' or 'all'
+                            Each tuple is (module_name, processing_mode) where processing_mode is 'process_full_halo' or 'process_by_galaxy'
         module_params (dict): DEPRECATED - use model_params instead
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
         first_file (int): First file to process (default: 0)
@@ -168,8 +168,8 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
         param_file, output_dir, temp_dir = create_test_param_file(
             output_name="infall_test",
             phase_config={
-                'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
-                'phase_1': [('sage_cooling', 'all')],
+                'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+                'phase_1': [('sage_cooling', 'process_by_galaxy')],
                 'phase_2': [],
                 'post_timestep': []
             },
@@ -236,7 +236,7 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
             if phase_modules:
                 # Convert list of tuples to YAML dict format
                 config['modules'][phase_name] = [
-                    {module_name: loop_mode} for module_name, loop_mode in phase_modules
+                    {module_name: processing_mode} for module_name, processing_mode in phase_modules
                 ]
             else:
                 config['modules'][phase_name] = []
@@ -252,10 +252,10 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
         if 'enabled' in config['modules']:
             del config['modules']['enabled']
 
-        # Put all modules in phase_1 with loop_mode=all (sensible default)
+        # Put all modules in phase_1 with processing_mode=all (sensible default)
         config['modules']['pre_timestep'] = []
         config['modules']['phase_1'] = [
-            {module_name: 'all'} for module_name in enabled_modules
+            {module_name: 'process_by_galaxy'} for module_name in enabled_modules
         ]
         config['modules']['phase_2'] = []
         config['modules']['post_timestep'] = []

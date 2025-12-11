@@ -422,7 +422,7 @@ static int sage_cooling_init(void)
  * Uses ctx->substep_dt for time evolution.
  *
  * @param   ctx    Module context (substep_dt, redshift, etc.)
- * @param   halos  Array of halos (ngal=1 for LOOP_MODE_ALL)
+ * @param   halos  Array of halos (ngal=1 for PROCESSING_MODE_BY_GALAXY)
  * @param   ngal   Number of halos (always 1)
  * @return  0 on success, -1 on failure
  */
@@ -479,7 +479,7 @@ static int sage_cooling_cleanup(void)
 // ============================================================================
 
 /* Extern reference to generated loop mode array */
-extern const enum LoopMode sage_cooling_supported_modes[];
+extern const enum ProcessingMode sage_cooling_supported_modes[];
 
 /**
  * @brief   Module structure for sage_cooling
@@ -491,8 +491,8 @@ static struct Module sage_cooling_module = {
     .init = sage_cooling_init,
     .process = sage_cooling_process,
     .cleanup = sage_cooling_cleanup,
-    .supported_loop_modes = sage_cooling_supported_modes,
-    .num_supported_modes = 1  /* Only supports LOOP_MODE_ALL */
+    .supported_processing_modes = sage_cooling_supported_modes,
+    .num_supported_modes = 1  /* Only supports PROCESSING_MODE_BY_GALAXY */
 };
 
 /**

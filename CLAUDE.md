@@ -208,7 +208,7 @@ output/mimic-plot/   Plotting system (6 halo plots, modular figures)
 **Module System:**
 - Runtime-configurable via multi-phase pipeline in YAML
 - Four execution phases: pre_timestep, phase_1, phase_2, post_timestep
-- Two loop modes: LOOP_MODE_ONCE (module processes full array), LOOP_MODE_ALL (galaxy-major loop)
+- Two processing modes: PROCESSING_MODE_FULL_HALO (module processes full array), PROCESSING_MODE_BY_GALAXY (galaxy-major loop)
 - Physics-agnostic core (zero knowledge of specific modules)
 - Module lifecycle: init → process → cleanup
 

@@ -313,17 +313,17 @@ def validate_field_types(
                 )
                 valid = False
 
-    # Supported loop modes (optional field)
-    if "supported_loop_modes" in module:
-        modes = module["supported_loop_modes"]
+    # Supported processing modes (optional field)
+    if "supported_processing_modes" in module:
+        modes = module["supported_processing_modes"]
         if not isinstance(modes, list):
             results.add_error(
-                module_name, 1, "Field 'supported_loop_modes' must be a list"
+                module_name, 1, "Field 'supported_processing_modes' must be a list"
             )
             valid = False
         elif not all(isinstance(item, str) for item in modes):
             results.add_error(
-                module_name, 1, "All items in 'supported_loop_modes' must be strings"
+                module_name, 1, "All items in 'supported_processing_modes' must be strings"
             )
             valid = False
 
@@ -488,42 +488,42 @@ def validate_compilation_requires(
     return True
 
 
-def validate_supported_loop_modes(
+def validate_supported_processing_modes(
     module: Dict[str, Any], module_name: str, results: ValidationResults
 ) -> bool:
-    """Validate supported_loop_modes field."""
+    """Validate supported_processing_modes field."""
 
-    # Field is optional - if omitted, defaults to [once, all]
-    if "supported_loop_modes" not in module:
+    # Field is optional - if omitted, defaults to [process_full_halo, process_by_galaxy]
+    if "supported_processing_modes" not in module:
         return True
 
-    modes = module["supported_loop_modes"]
+    modes = module["supported_processing_modes"]
 
     # Empty list not allowed
     if len(modes) == 0:
         results.add_error(
             module_name,
             1,
-            "supported_loop_modes cannot be empty. "
-            "Specify ['once'], ['all'], or ['once', 'all']",
+            "supported_processing_modes cannot be empty. "
+            "Specify ['process_full_halo'], ['process_by_galaxy'], or ['process_full_halo', 'process_by_galaxy']",
         )
         return False
 
     # Check for valid values
-    valid_modes = {"once", "all"}
+    valid_modes = {"process_full_halo", "process_by_galaxy"}
     invalid = [mode for mode in modes if mode not in valid_modes]
     if invalid:
         results.add_error(
             module_name,
             1,
-            f"Invalid loop mode(s): {', '.join(invalid)}. "
-            f"Must be 'once' and/or 'all'",
+            f"Invalid processing mode(s): {', '.join(invalid)}. "
+            f"Must be 'process_full_halo' and/or 'process_by_galaxy'",
         )
         return False
 
     # Check for duplicates
     if len(modes) != len(set(modes)):
-        results.add_error(module_name, 1, "supported_loop_modes contains duplicates")
+        results.add_error(module_name, 1, "supported_processing_modes contains duplicates")
         return False
 
     return True
@@ -839,7 +839,7 @@ def validate_module(
     if not validate_compilation_requires(module, module_name, results):
         return False
 
-    if not validate_supported_loop_modes(module, module_name, results):
+    if not validate_supported_processing_modes(module, module_name, results):
         return False
 
     # File existence validation

@@ -15,11 +15,11 @@
  *
  * Multi-Phase Pipeline Architecture:
  * - pre_timestep: Setup phase (once before substeps)
- * - phase_1: First substep phase (configurable loop mode)
- * - phase_2: Second substep phase (configurable loop mode)
+ * - phase_1: First substep phase (configurable processing mode)
+ * - phase_2: Second substep phase (configurable processing mode)
  * - post_timestep: Finalization phase (once after substeps)
  *
- * Phase assignments and loop modes are specified in the input YAML configuration,
+ * Phase assignments and processing modes are specified in the input YAML configuration,
  * not in module metadata. This provides maximum flexibility - the same module
  * can be used in different phases in different configurations.
  *
@@ -28,7 +28,7 @@
  * 2. Core calls init() during program initialization
  * 3. Core calls process() for each FOF group during tree processing
  *    - May be called once per timestep or multiple times per substep
- *    - May receive full array (loop_mode=once) or single galaxy (loop_mode=all)
+ *    - May receive full halo array (process_full_halo) or single galaxy (process_by_galaxy)
  * 4. Core calls cleanup() during program shutdown
  *
  * Example module implementation:
@@ -44,7 +44,7 @@
  *     int substep = ctx->substep_number;
  *     double dt = ctx->substep_dt;
  *
- *     // Process halos (ngal=1 if loop_mode=all, ngal>1 if loop_mode=once)
+ *     // Process halos (ngal=1 if process_by_galaxy, ngal>1 if process_full_halo)
  *     for (int i = 0; i < ngal; i++) {
  *         if (halos[i].galaxy == NULL) continue;
  *
@@ -112,13 +112,13 @@ enum ModulePhase {
 };
 
 /**
- * @brief   Loop modes for module execution
+ * @brief   Processing modes for module execution
  *
  * Controls how the core calls modules within a phase:
- * - LOOP_MODE_ONCE: Module processes entire halo array at once (ngal = full array size)
- * - LOOP_MODE_ALL: Core loops over galaxies, module processes one at a time (ngal = 1)
+ * - PROCESSING_MODE_FULL_HALO: Module processes entire halo array at once (ngal = full array size)
+ * - PROCESSING_MODE_BY_GALAXY: Core loops over galaxies, module processes one at a time (ngal = 1)
  *
- * When multiple LOOP_MODE_ALL modules exist in a phase, they execute in
+ * When multiple PROCESSING_MODE_BY_GALAXY modules exist in a phase, they execute in
  * galaxy-major order:
  *   for each galaxy g:
  *     module1(galaxy g)
@@ -127,10 +127,10 @@ enum ModulePhase {
  *
  * This provides better cache locality and matches SAGE behavior.
  */
-enum LoopMode {
-  LOOP_MODE_ONCE,  /**< Module called once with full array */
-  LOOP_MODE_ALL,   /**< Module called per-galaxy (galaxy-major loop) */
-  LOOP_MODE_COUNT  /**< Number of loop modes */
+enum ProcessingMode {
+  PROCESSING_MODE_FULL_HALO,  /**< Module called once with full halo array */
+  PROCESSING_MODE_BY_GALAXY,  /**< Module called per-galaxy (galaxy-major loop) */
+  PROCESSING_MODE_COUNT       /**< Number of processing modes */
 };
 
 /**
@@ -239,7 +239,7 @@ struct ModuleContext {
  * these functions at appropriate points in the execution pipeline.
  *
  * KEY DESIGN: Modules are simple - they just implement physics via a single
- * process() function. The module doesn't specify its execution phase or loop
+ * process() function. The module doesn't specify its execution phase or processing
  * mode - those are configuration details specified in the input YAML file.
  * This makes modules maximally reusable.
  */
@@ -272,7 +272,7 @@ struct Module {
    * This is the single processing function called by the pipeline.
    * May be called:
    * - Once or multiple times per timestep (depends on phase and substeps)
-   * - With full array (ngal > 1, loop_mode=once) or single galaxy (ngal = 1, loop_mode=all)
+   * - With full halo array (ngal > 1, process_full_halo) or single galaxy (ngal = 1, process_by_galaxy)
    *
    * The halos array is in FoFWorkspace (temporary processing space). All
    * halos in the array belong to the same FOF group at the same snapshot.
@@ -286,7 +286,7 @@ struct Module {
    *
    * @param ctx   Module execution context (redshift, time, substep info, params)
    * @param halos Array of halos in the FOF group (FoFWorkspace)
-   * @param ngal  Number of halos in the array (1 if loop_mode=all, >1 if loop_mode=once)
+   * @param ngal  Number of halos in the array (1 if process_by_galaxy, >1 if process_full_halo)
    * @return 0 on success, non-zero on failure
    */
   int (*process)(struct ModuleContext *ctx, struct Halo *halos, int ngal);
@@ -304,30 +304,30 @@ struct Module {
   int (*cleanup)(void);
 
   /**
-   * @brief Supported loop modes for this module
+   * @brief Supported processing modes for this module
    *
-   * Declares which loop modes this module can execute in:
-   * - LOOP_MODE_ONCE: Module processes full halo array (array-based operations)
-   * - LOOP_MODE_ALL: Module processes one galaxy at a time (per-galaxy operations)
+   * Declares which processing modes this module can execute in:
+   * - PROCESSING_MODE_FULL_HALO: Module processes full halo array (array-based operations)
+   * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (per-galaxy operations)
    *
-   * Set via module_info.yaml (supported_loop_modes field). If omitted from
+   * Set via module_info.yaml (supported_processing_modes field). If omitted from
    * metadata, defaults to supporting both modes.
    *
    * Runtime validation ensures modules are only configured with supported modes.
    *
    * Example array (generated from metadata):
-   *   static const enum LoopMode my_module_modes[] = {LOOP_MODE_ALL};
+   *   static const enum ProcessingMode my_module_modes[] = {PROCESSING_MODE_BY_GALAXY};
    *
    * Example usage in Module struct:
-   *   .supported_loop_modes = my_module_modes,
+   *   .supported_processing_modes = my_module_modes,
    *   .num_supported_modes = 1
    */
-  const enum LoopMode *supported_loop_modes;
+  const enum ProcessingMode *supported_processing_modes;
 
   /**
-   * @brief Number of supported loop modes
+   * @brief Number of supported processing modes
    *
-   * Length of the supported_loop_modes array. Must be > 0.
+   * Length of the supported_processing_modes array. Must be > 0.
    * Typically 1 (module only works in one mode) or 2 (module supports both modes).
    */
   int num_supported_modes;

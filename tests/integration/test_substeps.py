@@ -87,7 +87,7 @@ def test_substeps_creates_loop():
         output_name="substeps_loop",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'once')],
+            'phase_1': [('test_fixture', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -157,7 +157,7 @@ def test_substep_dt_calculation():
         output_name="substep_dt",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'once')],
+            'phase_1': [('test_fixture', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -229,7 +229,7 @@ def test_module_context_fields():
         output_name="context_fields",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'once')],
+            'phase_1': [('test_fixture', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -314,7 +314,7 @@ def test_substeps_one_no_loop():
         output_name="substeps_one",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'once')],
+            'phase_1': [('test_fixture', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
         },

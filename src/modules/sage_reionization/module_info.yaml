@@ -13,7 +13,7 @@ module:
 
   register_function: sage_reionization_register
 
-  supported_loop_modes: [once]
+  supported_processing_modes: [process_full_halo]
 
   dependencies:
     properties:

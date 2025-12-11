@@ -3,7 +3,7 @@
 **Module**: `sage_add_infall`
 **Version**: 1.0.0
 **Phase**: phase_1
-**Loop Mode**: LOOP_MODE_ONCE
+**Loop Mode**: PROCESSING_MODE_FULL_HALO
 
 ## Overview
 
@@ -70,12 +70,12 @@ None - this module has no configurable parameters.
 
 Infall is split into two modules for proper time sub-stepping:
 
-1. **sage_calculate_infall** (pre_timestep, LOOP_MODE_ONCE):
+1. **sage_calculate_infall** (pre_timestep, PROCESSING_MODE_FULL_HALO):
    - Calculates total `InfallingGas` for the timestep
    - Runs once per timestep before substeps
    - Consolidates satellite reservoirs to central
 
-2. **sage_add_infall** (phase_1, LOOP_MODE_ONCE):
+2. **sage_add_infall** (phase_1, PROCESSING_MODE_FULL_HALO):
    - Distributes `InfallingGas / num_substeps` to `HotGas` each substep
    - Preserves metallicity during transfer
    - Handles negative infall (mass loss)

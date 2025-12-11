@@ -13,8 +13,8 @@
  *
  * Multi-Phase Pipeline:
  * - Pre-timestep phase (once before substeps)
- * - Phase 1 (each substep, configurable loop mode)
- * - Phase 2 (each substep, configurable loop mode)
+ * - Phase 1 (each substep, configurable processing mode)
+ * - Phase 2 (each substep, configurable processing mode)
  * - Post-timestep phase (once after substeps)
  *
  * Usage:
@@ -39,14 +39,14 @@
  *
  * Example YAML:
  *   phase_1:
- *     - sage_cooling: all
- *     - sage_starformation: all
+ *     - sage_cooling: process_by_galaxy
+ *     - sage_starformation: process_by_galaxy
  *
  * This creates two PhaseModuleConfig entries for phase_1.
  */
 struct PhaseModuleConfig {
-  char *module_name;        /**< Module name (must match registered module) */
-  enum LoopMode loop_mode;  /**< How to call module (once or all) */
+  char *module_name;                  /**< Module name (must match registered module) */
+  enum ProcessingMode processing_mode; /**< How to call module (process_full_halo or process_by_galaxy) */
 };
 
 /**
@@ -77,14 +77,14 @@ int module_system_init(void);
  * @brief   Execute modules in a specific phase
  *
  * Core execution engine for multi-phase pipeline. Implements galaxy-major
- * loop for LOOP_MODE_ALL modules.
+ * loop for PROCESSING_MODE_BY_GALAXY modules.
  *
  * Execution order within phase:
- * 1. All LOOP_MODE_ALL modules execute in galaxy-major order:
+ * 1. All PROCESSING_MODE_BY_GALAXY modules execute in galaxy-major order:
  *    for each galaxy g:
  *      module1(galaxy g)
  *      module2(galaxy g)
- * 2. All LOOP_MODE_ONCE modules execute with full array
+ * 2. All PROCESSING_MODE_FULL_HALO modules execute with full halo array
  *
  * Called from process_halo_evolution() for each phase.
  *

@@ -90,7 +90,7 @@ struct Module {
                    struct Halo *halos,
                    int ngal);
     int (*cleanup)(void);                     // Cleanup module (called once)
-    const enum LoopMode *supported_loop_modes; // Array of supported loop modes
+    const enum LoopMode *supported_processing_modes; // Array of supported processing modes
     int num_supported_modes;                  // Number of supported modes
 };
 ```
@@ -163,7 +163,7 @@ module:
   register_function: my_module_register
 
   # Loop mode constraints (optional)
-  supported_loop_modes: [once, all]  # Default: supports both modes
+  supported_processing_modes: [once, all]  # Default: supports both modes
   # Use [once] for array-only processing (e.g., sorting, neighbor finding)
   # Use [all] for per-galaxy processing (e.g., time integration)
 
@@ -267,32 +267,32 @@ Run:
 
 ---
 
-## Loop Mode Configuration
+## Processing Mode Configuration
 
-### Understanding Loop Modes
+### Understanding Processing Modes
 
-The multi-phase pipeline supports two loop modes that control how modules process halos:
+The multi-phase pipeline supports two processing modes that control how modules process halos:
 
-- **LOOP_MODE_ONCE**: Module receives the full halo array (ngal > 1) for array-based operations
+- **PROCESSING_MODE_FULL_HALO**: Module receives the full halo array (ngal > 1) for array-based operations
   - Core calls `module->process(ctx, halos, ngal)` once with all halos
   - Module processes entire array at once
   - Example: `ngal = 100` → module called once with all 100 halos
 
-- **LOOP_MODE_ALL**: Module processes one galaxy at a time (ngal = 1) in a galaxy-major loop
+- **PROCESSING_MODE_BY_GALAXY**: Module processes one galaxy at a time (ngal = 1) in a galaxy-major loop
   - Core calls `module->process(ctx, &halos[i], 1)` for each halo
   - Module sees one halo per call
   - Example: `ngal = 100` → module called 100 times, each with 1 halo
 
 ### When to Use Each Mode
 
-**Use LOOP_MODE_ONCE for:**
+**Use PROCESSING_MODE_FULL_HALO for:**
 - Array sorting or collective operations
 - Neighbor finding or spatial algorithms
 - Operations requiring access to all galaxies simultaneously
 - Accumulation patterns (summing over all galaxies)
 - Example modules: sorting by mass, friends-of-friends, statistical analysis
 
-**Use LOOP_MODE_ALL for:**
+**Use PROCESSING_MODE_BY_GALAXY for:**
 - Per-galaxy time integration (using `ctx->substep_dt`)
 - Local physics calculations (cooling, star formation, feedback)
 - Operations on individual galaxies independent of others
@@ -304,23 +304,23 @@ The multi-phase pipeline supports two loop modes that control how modules proces
 
 ### Declaring Supported Modes
 
-Specify which loop modes your module supports in `module_info.yaml`:
+Specify which processing modes your module supports in `module_info.yaml`:
 
 ```yaml
 # In src/modules/my_module/module_info.yaml
 module:
   name: my_module
   # ...
-  supported_loop_modes: [once, all]  # Supports both (default, most flexible)
+  supported_processing_modes: [once, all]  # Supports both (default, most flexible)
   # OR
-  supported_loop_modes: [once]       # Only array processing
+  supported_processing_modes: [once]       # Only array processing
   # OR
-  supported_loop_modes: [all]        # Only per-galaxy processing
+  supported_processing_modes: [all]        # Only per-galaxy processing
 ```
 
-### Implementing Loop Mode Support
+### Implementing Processing Mode Support
 
-Your `process` function must handle the declared loop modes correctly:
+Your `process` function must handle the declared processing modes correctly:
 
 **Example 1: Supporting BOTH modes**
 
@@ -342,10 +342,10 @@ static int my_module_process(struct ModuleContext *ctx,
 }
 ```
 
-**Example 2: LOOP_MODE_ONCE only (array operations)**
+**Example 2: PROCESSING_MODE_FULL_HALO only (array operations)**
 
 ```c
-// module_info.yaml: supported_loop_modes: [once]
+// module_info.yaml: supported_processing_modes: [once]
 
 static int my_module_process(struct ModuleContext *ctx,
                                struct Halo *halos,
@@ -366,18 +366,18 @@ static int my_module_process(struct ModuleContext *ctx,
 }
 ```
 
-**Example 3: LOOP_MODE_ALL only (per-galaxy time integration)**
+**Example 3: PROCESSING_MODE_BY_GALAXY only (per-galaxy time integration)**
 
 ```c
-// module_info.yaml: supported_loop_modes: [all]
+// module_info.yaml: supported_processing_modes: [all]
 
 static int my_module_process(struct ModuleContext *ctx,
                                struct Halo *halos,
                                int ngal) {
     // This module is designed for per-galaxy calls
-    // ngal should always be 1 when called in LOOP_MODE_ALL
+    // ngal should always be 1 when called in PROCESSING_MODE_BY_GALAXY
     if (ngal != 1) {
-        ERROR_LOG("Expected ngal=1 in LOOP_MODE_ALL, got %d", ngal);
+        ERROR_LOG("Expected ngal=1 in PROCESSING_MODE_BY_GALAXY, got %d", ngal);
         return -1;
     }
 
@@ -395,12 +395,12 @@ static int my_module_process(struct ModuleContext *ctx,
 }
 ```
 
-### Module Registration with Loop Modes
+### Module Registration with Processing Modes
 
-The build system generates loop mode arrays in `src/modules/_system/generated/module_init.c`:
+The build system generates processing mode arrays in `src/modules/_system/generated/module_init.c`:
 
 ```c
-const enum LoopMode my_module_supported_modes[] = {LOOP_MODE_ONCE, LOOP_MODE_ALL};
+const enum LoopMode my_module_supported_modes[] = {PROCESSING_MODE_FULL_HALO, PROCESSING_MODE_BY_GALAXY};
 ```
 
 Reference this array in your module registration:
@@ -408,7 +408,7 @@ Reference this array in your module registration:
 ```c
 // my_module.c
 
-/* Extern reference to generated loop mode array */
+/* Extern reference to generated processing mode array */
 extern const enum LoopMode my_module_supported_modes[];
 
 static struct Module my_module_module = {
@@ -416,7 +416,7 @@ static struct Module my_module_module = {
     .init = my_module_init,
     .process = my_module_process,
     .cleanup = my_module_cleanup,
-    .supported_loop_modes = my_module_supported_modes,
+    .supported_processing_modes = my_module_supported_modes,
     .num_supported_modes = 2  /* Number of modes in array */
 };
 
@@ -427,17 +427,17 @@ void my_module_register(void) {
 
 ### Runtime Validation
 
-The module system validates loop mode configuration during initialization:
+The module system validates processing mode configuration during initialization:
 
 ```
-INFO: Validating module loop mode configurations...
+INFO: Validating module processing mode configurations...
 ERROR: Configuration error in phase 'phase_1':
-  Module 'my_module' does not support loop mode 'once'
-  Supported modes: all
-  Fix: Change loop mode in input YAML to one of the supported modes
+  Module 'my_module' does not support processing mode 'once'
+  Supported modes: process_by_galaxy
+  Fix: Change processing mode in input YAML to one of the supported modes
 ```
 
-If you configure a module with an unsupported loop mode in your input YAML file, initialization will fail with a clear error message indicating which modes are supported.
+If you configure a module with an unsupported processing mode in your input YAML file, initialization will fail with a clear error message indicating which modes are supported.
 
 ---
 
@@ -507,7 +507,7 @@ static int my_module_init(void) {
 **Purpose**: Apply physics to halos within the multi-phase pipeline
 
 **Responsibilities**:
-- Process halos according to configured loop mode (LOOP_MODE_ONCE or LOOP_MODE_ALL)
+- Process halos according to configured processing mode (PROCESSING_MODE_FULL_HALO or PROCESSING_MODE_BY_GALAXY)
 - Access galaxy properties via `halos[i].galaxy->PropertyName`
 - Use `ctx->substep_dt` for time integration (not `halos[i].dT`)
 - Compute physics updates
@@ -539,7 +539,7 @@ static int my_module_process(struct ModuleContext *ctx,
     double dt = ctx->substep_dt;  // Use ctx->substep_dt for time integration
     double hubble_h = ctx->params->Hubble_h;
 
-    // Process each halo (or all at once, depending on loop mode)
+    // Process each halo (or all at once, depending on processing mode)
     for (int i = 0; i < ngal; i++) {
         // Only process centrals (common pattern)
         if (halos[i].Type != 0) {
@@ -875,8 +875,8 @@ Each module should have a concise `README.md` file (~100-150 words) that provide
 ```yaml
 modules:
   phase_1:
-    - upstream_module: all
-    - your_module: all
+    - upstream_module: process_by_galaxy
+    - your_module: process_by_galaxy
   parameters:
     YourModule_Parameter1: value1
     YourModule_Parameter2: value2
@@ -916,7 +916,7 @@ int test_module_initialization(void) {
     /* Configure module in phase_1 */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("my_module");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
 
@@ -1787,9 +1787,9 @@ When implementing a module, ensure:
 - [ ] Properties defined in YAML metadata, not hardcoded
 - [ ] Parameters read using `model_get_*()` API (or `parameter_helpers.h` macros)
 - [ ] Parameters declared in `module_info.yaml` under `dependencies.parameters`
-- [ ] Loop modes declared in `module_info.yaml` under `supported_loop_modes`
+- [ ] Loop modes declared in `module_info.yaml` under `supported_processing_modes`
 - [ ] Time integration uses `ctx->substep_dt` (not `halos[i].dT`)
-- [ ] Module struct includes `.supported_loop_modes` and `.num_supported_modes` fields
+- [ ] Module struct includes `.supported_processing_modes` and `.num_supported_modes` fields
 - [ ] Memory allocations use `malloc_tracked()` / `free_tracked()`
 - [ ] Error handling returns -1 on failure, 0 on success
 - [ ] Logging uses appropriate levels (INFO/DEBUG/ERROR)

@@ -60,7 +60,7 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_load",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -98,7 +98,7 @@ def test_output_properties_exist():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_output",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -142,7 +142,7 @@ def test_parameters_configurable():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_params",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -185,7 +185,7 @@ def test_property_values_physical():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_physical",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -232,7 +232,7 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_memory",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -269,7 +269,7 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_complete",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []

@@ -46,7 +46,7 @@ enum Valid_OutputFormats {
   num_output_formats
 };
 
-/* Forward declaration for PhaseModuleConfig (uses enum LoopMode from module_interface.h) */
+/* Forward declaration for PhaseModuleConfig (uses enum ProcessingMode from module_interface.h) */
 struct PhaseModuleConfig;
 
 /* Configuration structure to hold global parameters */

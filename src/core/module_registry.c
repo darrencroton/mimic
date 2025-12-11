@@ -147,16 +147,16 @@ static void add_module_to_pipeline(const char *module_name) {
 }
 
 /**
- * @brief   Check if module supports the configured loop mode
+ * @brief   Check if module supports the configured processing mode
  *
  * @param   mod             Module to check
- * @param   configured_mode Loop mode from input YAML
+ * @param   configured_mode Processing mode from input YAML
  * @return  true if supported, false otherwise
  */
-static bool module_supports_loop_mode(const struct Module *mod,
-                                      enum LoopMode configured_mode) {
+static bool module_supports_processing_mode(const struct Module *mod,
+                                            enum ProcessingMode configured_mode) {
   for (int i = 0; i < mod->num_supported_modes; i++) {
-    if (mod->supported_loop_modes[i] == configured_mode) {
+    if (mod->supported_processing_modes[i] == configured_mode) {
       return true;
     }
   }
@@ -167,17 +167,17 @@ static bool module_supports_loop_mode(const struct Module *mod,
  * @brief   Format supported modes for error messages
  *
  * @param   mod  Module whose supported modes to format
- * @return  Static string with mode names (e.g., "once, all")
+ * @return  Static string with mode names (e.g., "process_full_halo, process_by_galaxy")
  */
 static const char *format_supported_modes(const struct Module *mod) {
-  static char buffer[64];
+  static char buffer[128];
   buffer[0] = '\0';
 
   for (int i = 0; i < mod->num_supported_modes; i++) {
     if (i > 0)
       strcat(buffer, ", ");
     strcat(buffer,
-           mod->supported_loop_modes[i] == LOOP_MODE_ONCE ? "once" : "all");
+           mod->supported_processing_modes[i] == PROCESSING_MODE_FULL_HALO ? "process_full_halo" : "process_by_galaxy");
   }
   return buffer;
 }
@@ -185,7 +185,7 @@ static const char *format_supported_modes(const struct Module *mod) {
 /**
  * @brief   Validate phase configuration against module constraints
  *
- * Ensures that each module in the phase is configured with a loop mode it
+ * Ensures that each module in the phase is configured with a processing mode it
  * actually supports. Fails hard with clear error messages if mismatch detected.
  *
  * @param   config       Phase module configuration array
@@ -193,9 +193,9 @@ static const char *format_supported_modes(const struct Module *mod) {
  * @param   phase_name   Phase name for error messages
  * @return  0 on success, -1 on validation failure
  */
-static int validate_phase_loop_modes(struct PhaseModuleConfig *config,
-                                     int num_modules,
-                                     const char *phase_name) {
+static int validate_phase_processing_modes(struct PhaseModuleConfig *config,
+                                           int num_modules,
+                                           const char *phase_name) {
   for (int i = 0; i < num_modules; i++) {
     /* Find registered module */
     struct Module *mod = find_module_by_name(config[i].module_name);
@@ -205,15 +205,15 @@ static int validate_phase_loop_modes(struct PhaseModuleConfig *config,
     }
 
     /* Check if configured mode is supported */
-    if (!module_supports_loop_mode(mod, config[i].loop_mode)) {
+    if (!module_supports_processing_mode(mod, config[i].processing_mode)) {
       const char *mode_str =
-          (config[i].loop_mode == LOOP_MODE_ONCE) ? "once" : "all";
+          (config[i].processing_mode == PROCESSING_MODE_FULL_HALO) ? "process_full_halo" : "process_by_galaxy";
 
       ERROR_LOG("Configuration error in phase '%s':", phase_name);
-      ERROR_LOG("  Module '%s' does not support loop mode '%s'", mod->name,
+      ERROR_LOG("  Module '%s' does not support processing mode '%s'", mod->name,
                 mode_str);
       ERROR_LOG("  Supported modes: %s", format_supported_modes(mod));
-      ERROR_LOG("  Fix: Change loop mode in input YAML to one of the "
+      ERROR_LOG("  Fix: Change processing mode in input YAML to one of the "
                 "supported modes");
       return -1;
     }
@@ -255,32 +255,32 @@ int module_system_init(void) {
   INFO_LOG("  Post-timestep: %d module(s)", MimicConfig.num_post_timestep);
   INFO_LOG("  Total unique modules: %d", num_pipeline_modules);
 
-  /* Validate loop mode configurations */
-  INFO_LOG("Validating module loop mode configurations...");
+  /* Validate processing mode configurations */
+  INFO_LOG("Validating module processing mode configurations...");
 
-  if (validate_phase_loop_modes(MimicConfig.pre_timestep,
-                                MimicConfig.num_pre_timestep,
-                                "pre_timestep") != 0) {
+  if (validate_phase_processing_modes(MimicConfig.pre_timestep,
+                                      MimicConfig.num_pre_timestep,
+                                      "pre_timestep") != 0) {
     return -1;
   }
 
-  if (validate_phase_loop_modes(MimicConfig.phase_1, MimicConfig.num_phase_1,
-                                "phase_1") != 0) {
+  if (validate_phase_processing_modes(MimicConfig.phase_1, MimicConfig.num_phase_1,
+                                      "phase_1") != 0) {
     return -1;
   }
 
-  if (validate_phase_loop_modes(MimicConfig.phase_2, MimicConfig.num_phase_2,
-                                "phase_2") != 0) {
+  if (validate_phase_processing_modes(MimicConfig.phase_2, MimicConfig.num_phase_2,
+                                      "phase_2") != 0) {
     return -1;
   }
 
-  if (validate_phase_loop_modes(MimicConfig.post_timestep,
-                                MimicConfig.num_post_timestep,
-                                "post_timestep") != 0) {
+  if (validate_phase_processing_modes(MimicConfig.post_timestep,
+                                      MimicConfig.num_post_timestep,
+                                      "post_timestep") != 0) {
     return -1;
   }
 
-  INFO_LOG("Loop mode validation passed");
+  INFO_LOG("Processing mode validation passed");
 
   /* Initialize all modules in pipeline order */
   for (int i = 0; i < num_pipeline_modules; i++) {
@@ -303,14 +303,14 @@ int module_system_init(void) {
  * @brief   Execute modules in a specific phase
  *
  * Core execution engine for multi-phase pipeline. Implements galaxy-major
- * loop for LOOP_MODE_ALL modules (better cache locality, matches SAGE).
+ * loop for PROCESSING_MODE_BY_GALAXY modules (better cache locality, matches SAGE).
  *
  * Execution order within phase:
- * 1. LOOP_MODE_ALL modules: galaxy-major order
+ * 1. PROCESSING_MODE_BY_GALAXY modules: galaxy-major order
  *    for each galaxy g:
  *      module1(galaxy g)
  *      module2(galaxy g)
- * 2. LOOP_MODE_ONCE modules: called with full array
+ * 2. PROCESSING_MODE_FULL_HALO modules: called with full halo array
  *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip)
@@ -324,10 +324,10 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
     return; // Empty phase or nothing to process
   }
 
-  /* PASS 1: LOOP_MODE_ONCE modules (full array - executes first) */
+  /* PASS 1: PROCESSING_MODE_FULL_HALO modules (full halo array - executes first) */
   for (int i = 0; i < num_modules; i++) {
-    if (phase_config[i].loop_mode != LOOP_MODE_ONCE) {
-      continue; // Skip LOOP_MODE_ALL modules in this pass
+    if (phase_config[i].processing_mode != PROCESSING_MODE_FULL_HALO) {
+      continue; // Skip PROCESSING_MODE_BY_GALAXY modules in this pass
     }
 
     /* Find module by name */
@@ -352,17 +352,17 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
     }
   }
 
-  /* PASS 2: LOOP_MODE_ALL modules (galaxy-major loop - executes after ONCE) */
+  /* PASS 2: PROCESSING_MODE_BY_GALAXY modules (galaxy-major loop - executes after FULL_HALO) */
   for (int g = 0; g < ngal; g++) {
     /* Skip halos without galaxies or already merged */
     if (halos[g].galaxy == NULL || halos[g].Type == 3) {
       continue;
     }
 
-    /* Execute all LOOP_MODE_ALL modules for this galaxy */
+    /* Execute all PROCESSING_MODE_BY_GALAXY modules for this galaxy */
     for (int i = 0; i < num_modules; i++) {
-      if (phase_config[i].loop_mode != LOOP_MODE_ALL) {
-        continue; // Skip LOOP_MODE_ONCE modules (already done)
+      if (phase_config[i].processing_mode != PROCESSING_MODE_BY_GALAXY) {
+        continue; // Skip PROCESSING_MODE_FULL_HALO modules (already done)
       }
 
       /* Find module by name */

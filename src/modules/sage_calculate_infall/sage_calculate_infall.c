@@ -221,15 +221,15 @@ static int sage_calculate_infall_cleanup(void) {
 // ============================================================================
 
 /* Extern reference to generated loop mode array */
-extern const enum LoopMode sage_calculate_infall_supported_modes[];
+extern const enum ProcessingMode sage_calculate_infall_supported_modes[];
 
 static struct Module sage_calculate_infall_module = {
     .name = "sage_calculate_infall",
     .init = sage_calculate_infall_init,
     .process = sage_calculate_infall_process,
     .cleanup = sage_calculate_infall_cleanup,
-    .supported_loop_modes = sage_calculate_infall_supported_modes,
-    .num_supported_modes = 1  /* Only supports LOOP_MODE_ONCE */
+    .supported_processing_modes = sage_calculate_infall_supported_modes,
+    .num_supported_modes = 1  /* Only supports PROCESSING_MODE_FULL_HALO */
 };
 
 void sage_calculate_infall_register(void) { module_registry_add(&sage_calculate_infall_module); }

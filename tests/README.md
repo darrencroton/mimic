@@ -115,7 +115,7 @@ tests/
 │   ├── test_satellite_spatial_distribution.py
 │   ├── test_phase_execution.py
 │   ├── test_substeps.py
-│   ├── test_loop_modes.py
+│   ├── test_processing_modes.py
 │   └── test_galaxy_major_loop.py
 ├── scientific/                # Python scientific tests for core
 │   └── test_scientific.py     # Validates all output properties

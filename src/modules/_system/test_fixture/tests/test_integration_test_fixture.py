@@ -144,14 +144,14 @@ def create_test_param_file(output_name, enabled_modules=None,
     config['input']['last_file'] = last_file
 
     # Update module configuration - multi-phase pipeline format
-    # Put all modules in phase_1 with loop_mode=all (test_fixture is a simple test module)
+    # Put all modules in phase_1 with processing_mode=BY_GALAXY (test_fixture is a simple test module)
     config['modules']['pre_timestep'] = []
     config['modules']['phase_1'] = []
     config['modules']['phase_2'] = []
     config['modules']['post_timestep'] = []
 
     for module_name in enabled_modules:
-        config['modules']['phase_1'].append({module_name: 'all'})
+        config['modules']['phase_1'].append({module_name: 'process_by_galaxy'})
 
     # Add model_parameters (test_fixture needs TestFixtureDummyParameter and TestFixtureEnableLogging)
     config['modules']['parameters'] = {

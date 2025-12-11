@@ -420,7 +420,7 @@ static struct Module my_module = {
     .init = my_module_init,
     .process = my_module_process,
     .cleanup = my_module_cleanup,
-    .supported_loop_modes = my_module_supported_modes,
+    .supported_processing_modes = my_module_supported_modes,
     .num_supported_modes = 1
 };
 

@@ -111,7 +111,7 @@ int test_module_initialization(void)
     /* Configure sage_calculate_infall module in phase_1 (for testing) */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_calculate_infall");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
@@ -152,7 +152,7 @@ int test_parameter_reading(void)
     /* Configure sage_calculate_infall (no parameters needed) */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_calculate_infall");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
@@ -191,7 +191,7 @@ int test_memory_safety(void)
     /* Configure module */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_calculate_infall");
-    MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ONCE;
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();

@@ -70,7 +70,7 @@ def get_available_modules():
                 config = yaml.safe_load(f)
 
             # Trigger error by requesting nonexistent module
-            config['modules']['phase_1'] = [{'__nonexistent_module__': 'all'}]
+            config['modules']['phase_1'] = [{'__nonexistent_module__': 'process_by_galaxy'}]
             config['output']['output_format'] = 'binary'
             config['output']['output_directory'] = temp_dir
 
@@ -118,7 +118,7 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_calculate_infall_load",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -160,7 +160,7 @@ def test_output_properties_exist():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_calculate_infall_output",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -213,7 +213,7 @@ def test_parameters_configurable():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_calculate_infall_params",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -260,8 +260,8 @@ def test_with_satellite_stripping():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_calculate_infall_stripping",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
-            'phase_1': [('sage_satellite_stripping', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'phase_1': [('sage_satellite_stripping', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -302,7 +302,7 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_calculate_infall_memory",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -339,7 +339,7 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_calculate_infall_complete",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -401,8 +401,8 @@ def test_multiple_module_pipeline():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_calculate_infall_multi",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
-            'phase_1': [('sage_add_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'phase_1': [('sage_add_infall', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
         },

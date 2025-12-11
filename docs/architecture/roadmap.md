@@ -99,7 +99,7 @@ The foundational work is complete. Key capabilities now available:
 
 ### Multi-Phase Pipeline Architecture (v3.0)
 - **4 execution phases**: pre_timestep, phase_1, phase_2, post_timestep
-- **2 loop modes**: LOOP_MODE_ONCE (array processing), LOOP_MODE_ALL (galaxy-major loop)
+- **2 processing modes**: PROCESSING_MODE_FULL_HALO (array processing), PROCESSING_MODE_BY_GALAXY (galaxy-major loop)
 - **Time sub-stepping**: SubSteps parameter enables numerical stability
 - **Configuration-driven**: Pipeline structure defined in input YAML
 - **Physics-free mode**: Supported (pure halo tracking, no parameters needed)
@@ -190,7 +190,7 @@ All 6 SAGE physics modules implemented and merged (November 2025):
 **Why**: Enables lean, specialized binaries for specific science cases.
 
 **Key Deliverables**:
-1. **Build Profiles**: `make PROFILE=minimal`, `make PROFILE=all`
+1. **Build Profiles**: `make PROFILE=minimal`, `make PROFILE=process_by_galaxy`
 2. **Custom Module Selection**: `make MODULES="cooling_SD93 stellar_mass"`
 3. **Automatic Code Generation**: Registration code generated only for selected modules
 4. **Clean Errors**: Runtime error if disabled module requested in parameter file

@@ -316,7 +316,7 @@ static int sage_disk_instability_process(struct ModuleContext *ctx,
 // ============================================================================
 
 /* Extern reference to generated loop mode array */
-extern const enum LoopMode sage_disk_instability_supported_modes[];
+extern const enum ProcessingMode sage_disk_instability_supported_modes[];
 
 /**
  * @brief   Module structure for sage_disk_instability module
@@ -326,8 +326,8 @@ static struct Module sage_disk_instability_module = {
     .init = sage_disk_instability_init,
     .process = sage_disk_instability_process,
     .cleanup = sage_disk_instability_cleanup,
-    .supported_loop_modes = sage_disk_instability_supported_modes,
-    .num_supported_modes = 1  /* Only supports LOOP_MODE_ALL */
+    .supported_processing_modes = sage_disk_instability_supported_modes,
+    .num_supported_modes = 1  /* Only supports PROCESSING_MODE_BY_GALAXY */
 };
 
 /**

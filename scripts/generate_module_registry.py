@@ -247,24 +247,24 @@ def generate_module_init_c(
                 lines.append(f'#include "{rel_path}/{header}"')
     lines.append("")
 
-    # Generate loop mode arrays for each module
+    # Generate processing mode arrays for each module
     lines.append(
         "/* ========================================================================== */"
     )
     lines.append(
-        "/* SUPPORTED LOOP MODES (Auto-generated from module_info.yaml)               */"
+        "/* SUPPORTED PROCESSING MODES (Auto-generated from module_info.yaml)         */"
     )
     lines.append(
         "/* ========================================================================== */"
     )
     lines.append("")
     lines.append("/*")
-    lines.append(" * These arrays define which loop modes each module supports:")
-    lines.append(" * - LOOP_MODE_ONCE: Module processes full halo array (ngal > 1)")
-    lines.append(" * - LOOP_MODE_ALL: Module processes one galaxy at a time (ngal = 1)")
+    lines.append(" * These arrays define which processing modes each module supports:")
+    lines.append(" * - PROCESSING_MODE_FULL_HALO: Module processes full halo array (ngal > 1)")
+    lines.append(" * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (ngal = 1)")
     lines.append(" *")
-    lines.append(" * Generated from 'supported_loop_modes' field in module_info.yaml.")
-    lines.append(" * If omitted, defaults to supporting both modes [once, all].")
+    lines.append(" * Generated from 'supported_processing_modes' field in module_info.yaml.")
+    lines.append(" * If omitted, defaults to supporting both modes [process_full_halo, process_by_galaxy].")
     lines.append(" *")
     lines.append(
         " * Modules reference these arrays in their Module struct initialization."
@@ -275,19 +275,19 @@ def generate_module_init_c(
     for module in sorted(runtime_modules, key=lambda m: m["name"]):
         name = module["name"]
         # Get supported modes from metadata (default to both if not specified)
-        modes = module.get("supported_loop_modes", ["once", "all"])
+        modes = module.get("supported_processing_modes", ["process_full_halo", "process_by_galaxy"])
 
         # Convert mode strings to enum values
         mode_enums = []
         for mode in modes:
-            if mode == "once":
-                mode_enums.append("LOOP_MODE_ONCE")
-            elif mode == "all":
-                mode_enums.append("LOOP_MODE_ALL")
+            if mode == "process_full_halo":
+                mode_enums.append("PROCESSING_MODE_FULL_HALO")
+            elif mode == "process_by_galaxy":
+                mode_enums.append("PROCESSING_MODE_BY_GALAXY")
 
         # Generate array
         mode_list = ", ".join(mode_enums)
-        lines.append(f"const enum LoopMode {name}_supported_modes[] = {{{mode_list}}};")
+        lines.append(f"const enum ProcessingMode {name}_supported_modes[] = {{{mode_list}}};")
 
     lines.append("")
 

@@ -134,7 +134,7 @@ Use the `test_fixture` module for ALL infrastructure testing:
 // ✅ CORRECT: Use test_fixture in infrastructure tests
 MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
 MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
 MimicConfig.num_phase_1 = 1;
 MimicConfig.SubSteps = 1;
 ```
@@ -186,7 +186,7 @@ See `src/modules/_system/test_fixture/README.md` for full documentation.
 // Use test_fixture to test that configuration system works
 MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
 MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
 MimicConfig.num_phase_1 = 1;
 MimicConfig.SubSteps = 1;
 int result = module_system_init();
@@ -198,7 +198,7 @@ TEST_ASSERT_EQUAL(result, 0, "Module system should initialize");
 // Use specific module to test its physics calculations
 MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
 MimicConfig.phase_1[0].module_name = strdup("sage_calculate_infall");
-MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
 MimicConfig.num_phase_1 = 1;
 MimicConfig.SubSteps = 1;
 // ... test infall-specific physics ...
@@ -357,7 +357,7 @@ tests/
 │   ├── test_satellite_spatial_distribution.py
 │   ├── test_phase_execution.py
 │   ├── test_substeps.py
-│   ├── test_loop_modes.py
+│   ├── test_processing_modes.py
 │   └── test_galaxy_major_loop.py
 ├── scientific/                # Python scientific tests for core infrastructure
 │   └── test_scientific.py
@@ -1253,7 +1253,7 @@ MimicConfig.Hubble_h = 0.73;
 /* Configure module and provide ALL model parameters */
 MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
 MimicConfig.phase_1[0].module_name = strdup("your_module");
-MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
+MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
 MimicConfig.num_phase_1 = 1;
 MimicConfig.SubSteps = 1;
 set_test_model_parameters();  /* Provides all 20 required parameters */
@@ -1705,7 +1705,7 @@ Mimic's testing framework provides:
 
 **Current test coverage**:
 - 8 unit tests (memory, properties, parameters, trees, numerics, module system)
-- 10 integration tests (pipeline execution, output formats, tree preservation, multi-phase system, time-stepping, loop modes)
+- 10 integration tests (pipeline execution, output formats, tree preservation, multi-phase system, time-stepping, processing modes)
 - 1 scientific test (comprehensive validation: numerical validity, zero warnings, physical ranges)
 
 **Testing is not optional**. It catches bugs early, prevents regressions, and ensures scientific accuracy.
