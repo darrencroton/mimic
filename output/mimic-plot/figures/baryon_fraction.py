@@ -272,16 +272,6 @@ def plot(
     # Total baryon fraction
     ax.plot(central_halo_mass, mean_baryon_fraction, "k-", lw=2, label="TOTAL")
 
-    # Fill between to show variance
-    variance = np.zeros_like(mean_baryon_fraction) + 0.02  # Simple approximation
-    ax.fill_between(
-        central_halo_mass,
-        np.clip(mean_baryon_fraction - variance, 0, None),
-        np.clip(mean_baryon_fraction + variance, 0, None),
-        facecolor="purple",
-        alpha=0.25,
-    )
-
     # Individual components (only plot if available and non-zero)
     if has_stellar:
         if np.any(mean_stars > 0):
