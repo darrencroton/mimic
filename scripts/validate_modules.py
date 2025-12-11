@@ -323,7 +323,9 @@ def validate_field_types(
             valid = False
         elif not all(isinstance(item, str) for item in modes):
             results.add_error(
-                module_name, 1, "All items in 'supported_processing_modes' must be strings"
+                module_name,
+                1,
+                "All items in 'supported_processing_modes' must be strings",
             )
             valid = False
 
@@ -523,7 +525,9 @@ def validate_supported_processing_modes(
 
     # Check for duplicates
     if len(modes) != len(set(modes)):
-        results.add_error(module_name, 1, "supported_processing_modes contains duplicates")
+        results.add_error(
+            module_name, 1, "supported_processing_modes contains duplicates"
+        )
         return False
 
     return True

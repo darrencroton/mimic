@@ -413,7 +413,7 @@ static int my_module_cleanup(void) {
 // MODULE REGISTRATION
 // ============================================================================
 
-extern const enum LoopMode my_module_supported_modes[];
+extern const enum ProcessingMode my_module_supported_modes[];
 
 static struct Module my_module = {
     .name = "my_module",

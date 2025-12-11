@@ -180,7 +180,7 @@ module:
   compilation_requires: [string, ...]
 
   # Processing Mode Constraints (optional)
-  supported_processing_modes: [string, ...]  # Default: ["once", "all"]
+  supported_processing_modes: [string, ...]  # Default: ["process_full_halo", "process_by_galaxy"]
 ```
 
 ---
@@ -558,27 +558,27 @@ compilation_requires: []  # No special requirements
 **Purpose**: Declare which processing modes the module supports for execution
 
 **Rules**:
-- List containing `"once"` and/or `"all"`
-- Default: `["once", "all"]` (supports both modes)
+- List containing `"process_full_halo"` and/or `"process_by_galaxy"`
+- Default: `["process_full_halo", "process_by_galaxy"]` (supports both modes)
 - Must contain at least one mode
 - No duplicates allowed
 
 **Values**:
-- `"once"`: Module processes full array (halos, ngal) in one call
+- `"process_full_halo"`: Module processes full array (halos, ngal) in one call
   - Use for: Array processing, sorting, neighbor finding, collective operations
-- `"all"`: Module processes single galaxy (halo[g], 1) in galaxy-major loop
+- `"process_by_galaxy"`: Module processes single galaxy (halo[g], 1) in galaxy-major loop
   - Use for: Time integration, per-galaxy physics, local calculations
 
 **Example**:
 ```yaml
 # Array processing only (e.g., reionization, neighbor finding)
-supported_processing_modes: [once]
+supported_processing_modes: [process_full_halo]
 
 # Per-galaxy processing only (e.g., cooling, star formation)
-supported_processing_modes: [all]
+supported_processing_modes: [process_by_galaxy]
 
 # Supports both modes (e.g., test fixture, flexible modules)
-supported_processing_modes: [once, all]
+supported_processing_modes: [process_full_halo, process_by_galaxy]
 ```
 
 **Runtime Validation**:
@@ -597,7 +597,7 @@ supported_processing_modes: [once, all]
 - Module references generated array via extern declaration
 - Example generated code:
   ```c
-  const enum LoopMode sage_cooling_supported_modes[] = {PROCESSING_MODE_BY_GALAXY};
+  const enum ProcessingMode sage_cooling_supported_modes[] = {PROCESSING_MODE_BY_GALAXY};
   ```
 
 **When to Specify**:

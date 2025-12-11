@@ -90,7 +90,7 @@ struct Module {
                    struct Halo *halos,
                    int ngal);
     int (*cleanup)(void);                     // Cleanup module (called once)
-    const enum LoopMode *supported_processing_modes; // Array of supported processing modes
+    const enum ProcessingMode *supported_processing_modes; // Array of supported processing modes
     int num_supported_modes;                  // Number of supported modes
 };
 ```
@@ -162,10 +162,10 @@ module:
     - my_module.h
   register_function: my_module_register
 
-  # Loop mode constraints (optional)
-  supported_processing_modes: [once, all]  # Default: supports both modes
-  # Use [once] for array-only processing (e.g., sorting, neighbor finding)
-  # Use [all] for per-galaxy processing (e.g., time integration)
+  # Processing mode constraints (optional)
+  supported_processing_modes: [process_full_halo, process_by_galaxy]  # Default: supports both modes
+  # Use [process_full_halo] for array-only processing (e.g., sorting, neighbor finding)
+  # Use [process_by_galaxy] for per-galaxy processing (e.g., time integration)
 
   # Dependencies
   dependencies:
@@ -311,11 +311,11 @@ Specify which processing modes your module supports in `module_info.yaml`:
 module:
   name: my_module
   # ...
-  supported_processing_modes: [once, all]  # Supports both (default, most flexible)
+  supported_processing_modes: [process_full_halo, process_by_galaxy]  # Supports both (default, most flexible)
   # OR
-  supported_processing_modes: [once]       # Only array processing
+  supported_processing_modes: [process_full_halo]       # Only array processing
   # OR
-  supported_processing_modes: [all]        # Only per-galaxy processing
+  supported_processing_modes: [process_by_galaxy]        # Only per-galaxy processing
 ```
 
 ### Implementing Processing Mode Support
@@ -345,7 +345,7 @@ static int my_module_process(struct ModuleContext *ctx,
 **Example 2: PROCESSING_MODE_FULL_HALO only (array operations)**
 
 ```c
-// module_info.yaml: supported_processing_modes: [once]
+// module_info.yaml: supported_processing_modes: [process_full_halo]
 
 static int my_module_process(struct ModuleContext *ctx,
                                struct Halo *halos,
@@ -369,7 +369,7 @@ static int my_module_process(struct ModuleContext *ctx,
 **Example 3: PROCESSING_MODE_BY_GALAXY only (per-galaxy time integration)**
 
 ```c
-// module_info.yaml: supported_processing_modes: [all]
+// module_info.yaml: supported_processing_modes: [process_by_galaxy]
 
 static int my_module_process(struct ModuleContext *ctx,
                                struct Halo *halos,
@@ -400,7 +400,7 @@ static int my_module_process(struct ModuleContext *ctx,
 The build system generates processing mode arrays in `src/modules/_system/generated/module_init.c`:
 
 ```c
-const enum LoopMode my_module_supported_modes[] = {PROCESSING_MODE_FULL_HALO, PROCESSING_MODE_BY_GALAXY};
+const enum ProcessingMode my_module_supported_modes[] = {PROCESSING_MODE_FULL_HALO, PROCESSING_MODE_BY_GALAXY};
 ```
 
 Reference this array in your module registration:
@@ -409,7 +409,7 @@ Reference this array in your module registration:
 // my_module.c
 
 /* Extern reference to generated processing mode array */
-extern const enum LoopMode my_module_supported_modes[];
+extern const enum ProcessingMode my_module_supported_modes[];
 
 static struct Module my_module_module = {
     .name = "my_module",

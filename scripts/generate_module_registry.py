@@ -260,11 +260,19 @@ def generate_module_init_c(
     lines.append("")
     lines.append("/*")
     lines.append(" * These arrays define which processing modes each module supports:")
-    lines.append(" * - PROCESSING_MODE_FULL_HALO: Module processes full halo array (ngal > 1)")
-    lines.append(" * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (ngal = 1)")
+    lines.append(
+        " * - PROCESSING_MODE_FULL_HALO: Module processes full halo array (ngal > 1)"
+    )
+    lines.append(
+        " * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (ngal = 1)"
+    )
     lines.append(" *")
-    lines.append(" * Generated from 'supported_processing_modes' field in module_info.yaml.")
-    lines.append(" * If omitted, defaults to supporting both modes [process_full_halo, process_by_galaxy].")
+    lines.append(
+        " * Generated from 'supported_processing_modes' field in module_info.yaml."
+    )
+    lines.append(
+        " * If omitted, defaults to supporting both modes [process_full_halo, process_by_galaxy]."
+    )
     lines.append(" *")
     lines.append(
         " * Modules reference these arrays in their Module struct initialization."
@@ -275,7 +283,9 @@ def generate_module_init_c(
     for module in sorted(runtime_modules, key=lambda m: m["name"]):
         name = module["name"]
         # Get supported modes from metadata (default to both if not specified)
-        modes = module.get("supported_processing_modes", ["process_full_halo", "process_by_galaxy"])
+        modes = module.get(
+            "supported_processing_modes", ["process_full_halo", "process_by_galaxy"]
+        )
 
         # Convert mode strings to enum values
         mode_enums = []
@@ -287,7 +297,9 @@ def generate_module_init_c(
 
         # Generate array
         mode_list = ", ".join(mode_enums)
-        lines.append(f"const enum ProcessingMode {name}_supported_modes[] = {{{mode_list}}};")
+        lines.append(
+            f"const enum ProcessingMode {name}_supported_modes[] = {{{mode_list}}};"
+        )
 
     lines.append("")
 
