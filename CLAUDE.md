@@ -2,6 +2,33 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+## ⚠️ CRITICAL: Development Rules
+
+**These rules are MANDATORY and override default behaviors:**
+
+### Code Quality (MUST DO)
+- ✅ **MUST** work to highest professional coding standards at all times
+- ✅ **MUST** write documentation as you go (documentation-as-you-go always)
+- ✅ **MUST** check mimic exit codes after every execution and report failures immediately
+
+### Code Quality (NEVER DO)
+- ❌ **NEVER** simplify tests - failing tests indicate real problems that must be fixed
+- ❌ **NEVER** delete files - **ALWAYS** archive to `ignore/` subdirectories instead
+
+### Git Workflow (REQUIRE USER APPROVAL)
+- 🔒 **MUST** ask before committing to git (never commit without explicit user approval)
+- 📝 **Commit messages MUST**:
+  - Be meaningful and descriptive
+  - List every changed file, grouped logically
+  - Include reason for each change
+
+### File Organization
+- 📁 When asked to write to obsidian → use `obsidian-inbox/` directory
+- 🗄️ When removing files → move to `ignore/` subdirectories (never delete)
+
+---
 
 ## Quick Setup
 
@@ -287,18 +314,12 @@ Benefits:
 - **Self-documenting**: FieldMetadata describes every field (name, units, description)
 - **No external dependencies**: Redshifts included (no need for .a_list file)
 
-See also:
+---
+
+## Documentation Reference
+
+For comprehensive documentation, see:
 - **docs/VISION.md**: Architectural principles and design philosophy
 - **docs/USER-GUIDE.md**: Complete user guide (installation, configuration, running simulations)
 - **docs/DEVELOPER-GUIDE.md**: Complete developer guide (architecture, modules, testing)
 - **docs/REFERENCE.md**: Technical specifications (schemas, formats, API)
-
-## Development Guidelines
-- All work to highest professional coding standards
-- Documentation-as-you-go always
-- When running mimic always check the exit code for success or failure
-- Never simplify tests - failing tests indicate real problems
-- Ask before committing to git
-- Commit messages must be meaningful and list every changed file, grouped logically, with a brief reason for each
-- When asked to write to obsidian, use `obsidian-inbox/`
-- Never delete files! Archive to `ignore/` instead
