@@ -115,7 +115,7 @@ void read_parameter_file(const char *fname) {
   /* Validate and post-process */
   validate_and_postprocess();
 
-  INFO_LOG("Parameter file '%s' read successfully", fname);
+  VERBOSE_LOG("Parameter file '%s' read successfully", fname);
 }
 
 /**
@@ -585,7 +585,7 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
     }
 
     MimicConfig.NumModelParams = idx;
-    INFO_LOG("Loaded %d module parameters", idx);
+    VERBOSE_LOG("Validated %d module parameters", idx);
   }
 }
 
@@ -627,11 +627,6 @@ static void validate_and_postprocess(void) {
   if (MimicConfig.Hubble_h == 0.0) {
     ERROR_LOG("Required parameter 'simulation.cosmology.hubble_h' missing or zero");
     errors++;
-  }
-
-  /* Module parameter validation happens in module init functions */
-  if (MimicConfig.NumModelParams > 0) {
-    INFO_LOG("Loaded %d module parameters", MimicConfig.NumModelParams);
   }
 
   /* Validate ranges */
