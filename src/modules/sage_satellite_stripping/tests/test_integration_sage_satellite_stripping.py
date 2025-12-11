@@ -39,36 +39,14 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 
 # Add tests directory to path to import framework
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import create_test_param_file
+from framework import create_test_param_file, run_mimic
 
-# Test state
-temp_dir = None
-
-# ANSI color codes (module-level constants)
+# ANSI color codes
 BLUE = '\033[1;34m'
 GREEN = '\033[0;32m'
 RED = '\033[0;31m'
 YELLOW = '\033[1;33m'
 NC = '\033[0m'
-
-
-def run_mimic(param_file):
-    """
-    Execute Mimic with specified parameter file
-
-    Args:
-        param_file (Path): Path to parameter file
-
-    Returns:
-        tuple: (returncode, stdout, stderr)
-    """
-    result = subprocess.run(
-        [str(MIMIC_EXE), "--verbose", str(param_file)],
-        capture_output=True,
-        text=True,
-        timeout=60  # 60 second timeout for integration tests
-    )
-    return result.returncode, result.stdout, result.stderr
 
 
 def test_module_loads():
@@ -284,62 +262,49 @@ def main():
         print("Build it first with: make")
         return 1
 
-    # Create temporary directory for test outputs
-    global temp_dir
-    temp_dir = tempfile.mkdtemp(prefix="sage_satellite_stripping_test_")
+    tests = [
+        test_module_loads,
+        test_parameter_configuration,
+        test_memory_safety,
+        test_execution_completes,
+        test_standalone_execution,
+    ]
 
-    try:
-        tests = [
-            test_module_loads,
-            test_parameter_configuration,
-            test_memory_safety,
-            test_execution_completes,
-            test_standalone_execution,
-        ]
+    passed = 0
+    failed = 0
 
-        passed = 0
-        failed = 0
-
-        for test in tests:
-            print()
-            try:
-                test()
-                passed += 1
-            except AssertionError as e:
-                print(f"{RED}✗ FAIL: {test.__name__}{NC}")
-                print(f"  {e}")
-                failed += 1
-            except Exception as e:
-                print(f"{RED}✗ ERROR: {test.__name__}{NC}")
-                print(f"  {e}")
-                failed += 1
-
+    for test in tests:
         print()
-        print(f"{BLUE}{'=' * 60}{NC}")
-        print(f"{BLUE}Test Summary{NC}")
-        print(f"{BLUE}{'=' * 60}{NC}")
-        print(f"Passed: {passed}")
-        print(f"Failed: {failed}")
-        print(f"Total:  {passed + failed}")
-        print(f"{BLUE}{'=' * 60}{NC}")
+        try:
+            test()
+            passed += 1
+        except AssertionError as e:
+            print(f"{RED}✗ FAIL: {test.__name__}{NC}")
+            print(f"  {e}")
+            failed += 1
+        except Exception as e:
+            print(f"{RED}✗ ERROR: {test.__name__}{NC}")
+            print(f"  {e}")
+            failed += 1
+
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"Passed: {passed}")
+    print(f"Failed: {failed}")
+    print(f"Total:  {passed + failed}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
+    if failed == 0:
+        print(f"{GREEN}✓ All tests passed!{NC}")
         print()
-
-        if failed == 0:
-            print(f"{GREEN}✓ All tests passed!{NC}")
-            print()
-            return 0
-        else:
-            print(f"{RED}✗ {failed} test(s) failed{NC}")
-            print()
-            return 1
-
-    except Exception as e:
-        print(f"{RED}ERROR: Test suite failed: {e}{NC}")
+        return 0
+    else:
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
+        print()
         return 1
-    finally:
-        # Cleanup temp directory
-        if temp_dir and Path(temp_dir).exists():
-            shutil.rmtree(temp_dir)
 
 
 if __name__ == "__main__":

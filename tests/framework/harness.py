@@ -63,7 +63,7 @@ def run_mimic(param_file, cwd=None):
         )
 
     result = subprocess.run(
-        [str(MIMIC_EXE), str(param_file)],
+        [str(MIMIC_EXE), "--verbose", str(param_file)],
         cwd=str(cwd),
         capture_output=True,
         text=True

@@ -25,24 +25,20 @@ Author: Mimic Development Team
 Date: 2025-12-11
 """
 
-import os
 import sys
 import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
-# Repository root and paths
-REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
-MIMIC_EXE = REPO_ROOT / "mimic"
-
 # Add tests directory to path to import framework
+REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import load_binary_halos
 
-# Test state
-temp_dir = None
-ref_param_file = None
+from framework import (
+    MIMIC_EXE,
+    create_test_param_file,
+    run_mimic,
+    load_binary_halos,
+)
 
 # ANSI color codes
 BLUE = '\033[1;34m'
@@ -50,109 +46,6 @@ GREEN = '\033[0;32m'
 RED = '\033[0;31m'
 YELLOW = '\033[1;33m'
 NC = '\033[0m'
-
-
-def run_mimic(param_file):
-    """
-    Execute Mimic with specified parameter file
-
-    Args:
-        param_file (Path): Path to parameter file
-
-    Returns:
-        tuple: (returncode, stdout, stderr)
-    """
-    result = subprocess.run(
-        [str(MIMIC_EXE), "--verbose", str(param_file)],
-        capture_output=True,
-        text=True,
-        timeout=60  # 60 second timeout
-    )
-    return result.returncode, result.stdout, result.stderr
-
-
-def create_test_param_file(output_name, enabled_modules=None,
-                          module_params=None, substeps=1, first_file=0, last_file=0):
-    """
-    Create a test YAML parameter file with specified module configuration.
-
-    Args:
-        output_name: Name for output directory
-        enabled_modules: List of module names to enable
-        module_params: Dict of {ParamName: value} for module parameters
-        substeps: Number of substeps (default: 1)
-        first_file: First file to process (default: 0)
-        last_file: Last file to process (default: 0)
-
-    Returns:
-        Path to created parameter file
-    """
-    import yaml
-
-    if enabled_modules is None:
-        enabled_modules = []
-    if module_params is None:
-        module_params = {}
-
-    # Use test data parameter file as reference
-    test_ref_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
-    with open(test_ref_file, 'r') as f:
-        config = yaml.safe_load(f)
-
-    # Create output directory
-    output_dir = Path(temp_dir) / output_name
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Update configuration
-    config['output']['output_directory'] = str(output_dir)
-    config['output']['output_format'] = 'binary'
-    config['input']['first_file'] = first_file
-    config['input']['last_file'] = last_file
-
-    # Update module configuration - multi-phase pipeline format
-    config['modules']['pre_timestep'] = []
-    config['modules']['phase_1'] = []
-    config['modules']['phase_2'] = []
-    config['modules']['post_timestep'] = []
-
-    # Set substeps
-    config['modules']['substeps'] = substeps
-
-    for module_name in enabled_modules:
-        if module_name in ['sage_reionization', 'sage_infall']:
-            # sage_infall runs in pre_timestep (calculates InfallingGas)
-            config['modules']['pre_timestep'].append({module_name: 'once'})
-        elif module_name == 'sage_add_infall':
-            # sage_add_infall runs in phase_1 (distributes InfallingGas)
-            config['modules']['phase_1'].append({module_name: 'once'})
-        else:
-            config['modules']['phase_1'].append({module_name: 'all'})
-
-    # Add model_parameters
-    config['modules']['parameters'] = {
-        'GlobalBaryonFraction': 0.17,
-    }
-
-    # Override model parameters if provided
-    if module_params:
-        for param_name, value in module_params.items():
-            try:
-                value = float(value)
-                if value.is_integer():
-                    value = int(value)
-            except (ValueError, AttributeError):
-                pass
-            config['modules']['parameters'][param_name] = value
-
-    # Write test parameter file as YAML
-    param_path = Path(temp_dir) / f"{output_name}.yaml"
-    with open(param_path, 'w') as f:
-        f.write("#" + "="*77 + "\n")
-        f.write("# sage_add_infall Integration Test\n")
-        f.write("#" + "="*77 + "\n\n")
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-    return param_path
 
 
 def test_module_loads():
@@ -166,9 +59,15 @@ def test_module_loads():
     print("Testing module load and initialization...")
 
     # ===== SETUP =====
-    param_file = create_test_param_file(
+    param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_load",
-        enabled_modules=["sage_reionization", "sage_infall", "sage_add_infall"]
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'phase_1': [('sage_add_infall', 'once')],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====
@@ -186,6 +85,9 @@ def test_module_loads():
     assert "SAGE infall module initialized" in stdout, \
         "sage_infall should run before sage_add_infall"
 
+    # Cleanup
+    shutil.rmtree(temp_dir)
+
     print("  ✓ Module loads and initializes successfully")
 
 
@@ -199,9 +101,15 @@ def test_output_properties_exist():
     print("Testing output properties...")
 
     # ===== SETUP =====
-    param_file = create_test_param_file(
+    param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_output",
-        enabled_modules=["sage_reionization", "sage_infall", "sage_add_infall"]
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'phase_1': [('sage_add_infall', 'once')],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====
@@ -209,7 +117,6 @@ def test_output_properties_exist():
     assert returncode == 0, "Mimic execution should succeed"
 
     # ===== VALIDATE =====
-    output_dir = temp_dir / "sage_add_infall_output"
     output_file = output_dir / "model_z0.000_0"
     assert output_file.exists(), "Output file should exist"
 
@@ -222,6 +129,9 @@ def test_output_properties_exist():
         "HotGas property should exist in output"
     assert 'MetalsHotGas' in halos.dtype.names, \
         "MetalsHotGas property should exist in output"
+
+    # Cleanup
+    shutil.rmtree(temp_dir)
 
     print("  ✓ Output properties exist")
     print(f"  Found {len(halos)} halos")
@@ -237,9 +147,15 @@ def test_with_sage_infall():
     print("Testing with sage_infall...")
 
     # ===== SETUP =====
-    param_file = create_test_param_file(
+    param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_with_infall",
-        enabled_modules=["sage_reionization", "sage_infall", "sage_add_infall"]
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'phase_1': [('sage_add_infall', 'once')],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====
@@ -257,6 +173,9 @@ def test_with_sage_infall():
     assert "SAGE add infall module initialized" in stdout, \
         "sage_add_infall should initialize"
 
+    # Cleanup
+    shutil.rmtree(temp_dir)
+
     print("  ✓ Works with sage_infall")
 
 
@@ -270,9 +189,15 @@ def test_memory_safety():
     print("Testing memory safety...")
 
     # ===== SETUP =====
-    param_file = create_test_param_file(
+    param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_memory",
-        enabled_modules=["sage_reionization", "sage_infall", "sage_add_infall"]
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'phase_1': [('sage_add_infall', 'once')],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====
@@ -284,6 +209,9 @@ def test_memory_safety():
         "Should not have memory leaks"
     assert "Memory leak detected" not in stderr, \
         "Should not have memory leaks in stderr"
+
+    # Cleanup
+    shutil.rmtree(temp_dir)
 
     print("  ✓ No memory leaks detected")
 
@@ -298,9 +226,15 @@ def test_execution_completes():
     print("Testing full pipeline completion...")
 
     # ===== SETUP =====
-    param_file = create_test_param_file(
+    param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_complete",
-        enabled_modules=["sage_reionization", "sage_infall", "sage_add_infall"],
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'phase_1': [('sage_add_infall', 'once')],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={'GlobalBaryonFraction': 0.17},
         first_file=0,
         last_file=0
     )
@@ -315,6 +249,9 @@ def test_execution_completes():
     assert "SAGE add infall module cleaned up" in stdout, \
         "Module cleanup message"
 
+    # Cleanup
+    shutil.rmtree(temp_dir)
+
     print("  ✓ Full pipeline completes")
 
 
@@ -328,11 +265,27 @@ def test_substep_distribution():
     print("Testing substep distribution...")
 
     # ===== SETUP =====
-    param_file = create_test_param_file(
+    import yaml
+
+    param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_substeps",
-        enabled_modules=["sage_reionization", "sage_infall", "sage_add_infall"],
-        substeps=4  # Test with 4 substeps
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'phase_1': [('sage_add_infall', 'once')],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={'GlobalBaryonFraction': 0.17}
     )
+
+    # Update substeps in the parameter file
+    with open(param_file, 'r') as f:
+        config = yaml.safe_load(f)
+
+    config['modules']['substeps'] = 4
+
+    with open(param_file, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
@@ -343,12 +296,14 @@ def test_substep_distribution():
         "Module should initialize with substeps"
 
     # Load output and verify HotGas is reasonable
-    output_dir = temp_dir / "sage_add_infall_substeps"
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
     # Just check that HotGas exists and is non-negative
     assert all(halos['HotGas'] >= 0), "HotGas should be non-negative"
+
+    # Cleanup
+    shutil.rmtree(temp_dir)
 
     print("  ✓ Substep distribution works (4 substeps)")
 
@@ -360,8 +315,6 @@ def main():
     Executes all test cases and reports results.
     Can be run directly or via pytest.
     """
-    global temp_dir, ref_param_file
-
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"{BLUE}Test Suite: SAGE Add Infall Integration Tests{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
@@ -372,64 +325,50 @@ def main():
         print("Build it first with: make")
         return 1
 
-    # Set up test environment
-    ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
-    if not ref_param_file.exists():
-        print(f"{RED}ERROR: Reference parameter file not found: {ref_param_file}{NC}")
+    tests = [
+        test_module_loads,
+        test_output_properties_exist,
+        test_with_sage_infall,
+        test_memory_safety,
+        test_execution_completes,
+        test_substep_distribution,
+    ]
+
+    passed = 0
+    failed = 0
+
+    for test in tests:
+        print()
+        try:
+            test()
+            passed += 1
+        except AssertionError as e:
+            print(f"{RED}✗ FAIL: {test.__name__}{NC}")
+            print(f"  {e}")
+            failed += 1
+        except Exception as e:
+            print(f"{RED}✗ ERROR: {test.__name__}{NC}")
+            print(f"  {e}")
+            failed += 1
+
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"Passed: {passed}")
+    print(f"Failed: {failed}")
+    print(f"Total:  {passed + failed}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
+    if failed == 0:
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        print()
+        return 0
+    else:
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
+        print()
         return 1
-
-    temp_dir = Path(tempfile.mkdtemp(prefix="mimic_sage_add_infall_test_"))
-
-    try:
-        tests = [
-            test_module_loads,
-            test_output_properties_exist,
-            test_with_sage_infall,
-            test_memory_safety,
-            test_execution_completes,
-            test_substep_distribution,
-        ]
-
-        passed = 0
-        failed = 0
-
-        for test in tests:
-            print()
-            try:
-                test()
-                passed += 1
-            except AssertionError as e:
-                print(f"{RED}✗ FAIL: {test.__name__}{NC}")
-                print(f"  {e}")
-                failed += 1
-            except Exception as e:
-                print(f"{RED}✗ ERROR: {test.__name__}{NC}")
-                print(f"  {e}")
-                failed += 1
-
-        print()
-        print(f"{BLUE}{'=' * 60}{NC}")
-        print(f"{BLUE}Test Summary{NC}")
-        print(f"{BLUE}{'=' * 60}{NC}")
-        print(f"Passed: {passed}")
-        print(f"Failed: {failed}")
-        print(f"Total:  {passed + failed}")
-        print(f"{BLUE}{'=' * 60}{NC}")
-        print()
-
-        if failed == 0:
-            print(f"{GREEN}✓ All tests passed!{NC}")
-            print()
-            return 0
-        else:
-            print(f"{RED}✗ {failed} test(s) failed{NC}")
-            print()
-            return 1
-
-    finally:
-        # Clean up
-        if temp_dir and temp_dir.exists():
-            shutil.rmtree(temp_dir)
 
 
 if __name__ == "__main__":
