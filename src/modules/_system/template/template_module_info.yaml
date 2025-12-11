@@ -14,9 +14,14 @@ module:
 
   register_function: template_module_register
 
+  supported_processing_modes: [process_by_galaxy, process_full_halo]
+
   dependencies:
     properties: []
-    parameters: []
+
+    parameters:
+      - ExampleParam1
+      - ExampleParam2
 
   tests:
     unit: tests/test_unit_template_module.c

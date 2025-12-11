@@ -36,6 +36,8 @@ module:
 
   register_function: test_fixture_register
 
+  supported_processing_modes: [process_by_galaxy, process_full_halo]
+
   # ===========================================================================
   # Dependencies
   # ===========================================================================
@@ -44,6 +46,11 @@ module:
     # All properties used by this module
     properties:
       - TestDummyProperty
+
+    # All parameters read by this module
+    parameters:
+      - TestFixtureDummyParameter
+      - TestFixtureEnableLogging
 
   # ===========================================================================
   # Tests

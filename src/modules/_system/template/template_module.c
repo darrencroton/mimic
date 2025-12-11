@@ -29,6 +29,7 @@
 #include <stdlib.h>
 
 #include "error.h"
+#include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "template_module.h"
@@ -111,7 +112,7 @@ static int template_module_init(void) {
 
   // Allocate persistent memory (if needed)
   table_size = 1000;
-  lookup_table = malloc_tracked(table_size * sizeof(double), MEM_UTILITY);
+  lookup_table = mymalloc_cat(table_size * sizeof(double), MEM_UTILITY);
   if (lookup_table == NULL) {
     ERROR_LOG("Failed to allocate lookup table");
     return -1;
@@ -126,10 +127,10 @@ static int template_module_init(void) {
 
   // Log configuration
   INFO_LOG("Template module initialized");
-  INFO_LOG("  Physics: [DESCRIBE YOUR EQUATION]");
-  INFO_LOG("  Parameter1 = %.3f", example_param1);
-  INFO_LOG("  Parameter2 = %.3f", example_param2);
-  INFO_LOG("  Lookup table: %d entries", table_size);
+  VERBOSE_LOG("  Physics: [DESCRIBE YOUR EQUATION]");
+  VERBOSE_LOG("  Parameter1 = %.3f", example_param1);
+  VERBOSE_LOG("  Parameter2 = %.3f", example_param2);
+  VERBOSE_LOG("  Lookup table: %d entries", table_size);
 
   return 0;
 }
@@ -261,7 +262,7 @@ static int template_module_process(struct ModuleContext *ctx,
 static int template_module_cleanup(void) {
   // Free persistent memory
   if (lookup_table != NULL) {
-    free_tracked(lookup_table, MEM_UTILITY);
+    myfree(lookup_table);
     lookup_table = NULL;
   }
 
@@ -298,7 +299,7 @@ static struct Module template_module = {
     .process = template_module_process,
     .cleanup = template_module_cleanup,
     .supported_processing_modes = template_module_supported_modes,
-    .num_supported_modes = 2  /* Default: supports both once and all */
+    .num_supported_modes = 2  /* Default: supports both processing modes */
 };
 
 void template_module_register(void) {

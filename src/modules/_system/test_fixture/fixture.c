@@ -174,7 +174,7 @@ void test_fixture_register(void) {
       .process = test_fixture_process,
       .cleanup = test_fixture_cleanup,
       .supported_processing_modes = test_fixture_supported_modes,
-      .num_supported_modes = 2  /* Default: supports both once and all */
+      .num_supported_modes = 2  /* Default: supports both processing modes */
   };
 
   module_registry_add(&test_fixture_module);

@@ -260,7 +260,7 @@ See `docs/DEVELOPER-GUIDE.md` for comprehensive documentation.
 ## Examples
 
 See working examples:
-- `src/modules/simple_cooling/` - Simple gas cooling
-- `src/modules/simple_sfr/` - Simple star formation
+- `src/modules/sage_calculate_infall/` - Cosmological gas infall (PROCESSING_MODE_FULL_HALO)
+- `src/modules/sage_reionization/` - Reionization suppression (PROCESSING_MODE_FULL_HALO)
 
 These follow the same structure as this template.

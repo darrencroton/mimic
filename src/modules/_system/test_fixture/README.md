@@ -67,8 +67,8 @@ This module should **NEVER** appear in:
 **Category**: testing
 
 **Parameters**:
-- `TestFixture_DummyParameter` (double, default=1.0): Dummy parameter for testing parameter API
-- `TestFixture_EnableLogging` (int, default=0): Enable verbose logging for test validation
+- `TestFixtureDummyParameter` (double): Dummy parameter for testing parameter API
+- `TestFixtureEnableLogging` (int): Enable verbose logging for test validation (0=minimal, 1=verbose)
 
 **Properties Provided**:
 - `TestDummyProperty` (float): Test property for infrastructure testing (not written to output)
