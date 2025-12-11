@@ -71,7 +71,7 @@ Mimic's physics is configured at runtime via YAML files. **No recompilation need
 ```yaml
 modules:
   enabled:
-  - sage_infall
+  - sage_calculate_infall
   - sage_cooling
   parameters:
     BaryonFrac: 0.17

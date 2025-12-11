@@ -35,7 +35,7 @@ modules:
 
   pre_timestep:                         # Setup calculations (runs once before substeps)
     - sage_reionization: once
-    - sage_infall: once
+    - sage_calculate_infall: once
 
   phase_1:                              # Main physics
     - sage_add_infall: once

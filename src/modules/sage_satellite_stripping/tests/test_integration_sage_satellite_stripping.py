@@ -233,7 +233,7 @@ def test_standalone_execution():
 
     # ===== VALIDATE =====
     assert returncode == 0, \
-        f"Module should run standalone without sage_reionization or sage_infall\nStderr: {stderr}"
+        f"Module should run standalone without sage_reionization or sage_calculate_infall\nStderr: {stderr}"
 
     # Verify module initialized and cleaned up
     assert "SAGE satellite stripping module initialized" in stdout

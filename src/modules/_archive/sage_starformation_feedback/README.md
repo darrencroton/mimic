@@ -20,7 +20,7 @@ This module requires the following parameters in the input YAML file:
 
 **Configuration Example**:
 ```
-EnabledModules  sage_infall,sage_cooling,sage_starformation_feedback
+EnabledModules  sage_calculate_infall,sage_cooling,sage_starformation_feedback
 SageStarformationFeedback_SfrEfficiency  0.02
 SageStarformationFeedback_RecycleFraction  0.43
 SageStarformationFeedback_FeedbackReheatingEpsilon  3.0

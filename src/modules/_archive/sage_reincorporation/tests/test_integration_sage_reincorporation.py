@@ -21,7 +21,7 @@ Test cases:
   - test_parameters_configurable: Parameter reading and validation
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
-  - test_multi_module_pipeline: Integration with sage_infall
+  - test_multi_module_pipeline: Integration with sage_calculate_infall
   - test_property_modification: EjectedMass and HotGas modification
   - test_critical_velocity_threshold: Low Vvir halos don't reincorporate
 
@@ -190,12 +190,12 @@ def create_test_param_file(output_file, **overrides):
     # Add model_parameters based on which modules are enabled
     # Module dependencies (from module_info.yaml files):
     #   sage_reincorporation: ReIncorporationFactor
-    #   sage_infall: BaryonFrac
+    #   sage_calculate_infall: BaryonFrac
     params_needed = set()
     for module in enabled_modules:
         if module == 'sage_reincorporation':
             params_needed.add('ReIncorporationFactor')
-        elif module == 'sage_infall':
+        elif module == 'sage_calculate_infall':
             params_needed.add('BaryonFrac')
 
     # Set default values for needed parameters
@@ -341,17 +341,17 @@ def test_multi_module_pipeline():
     """Test that sage_reincorporation works with other modules"""
     print(f"\n{BLUE}TEST:{NC} Multi-module pipeline integration")
 
-    # Check if sage_infall is available
+    # Check if sage_calculate_infall is available
     available = get_available_modules()
-    if 'sage_infall' not in available:
-        print(f"  {YELLOW}⚠ SKIP:{NC} sage_infall not available for multi-module test")
+    if 'sage_calculate_infall' not in available:
+        print(f"  {YELLOW}⚠ SKIP:{NC} sage_calculate_infall not available for multi-module test")
         return True  # Skip, not a failure
 
-    # Create parameter file with sage_infall + sage_reincorporation
+    # Create parameter file with sage_calculate_infall + sage_reincorporation
     param_file = temp_dir / "test_multi_module.yaml"
     create_test_param_file(
         param_file,
-        EnabledModules='sage_infall,sage_reincorporation',
+        EnabledModules='sage_calculate_infall,sage_reincorporation',
         SageInfall_BaryonFrac='0.17',
         SageInfall_ReionizationOn='1',
         SageReincorporation_ReIncorporationFactor='1.0'
@@ -373,17 +373,17 @@ def test_property_modification():
     """Test that module modifies EjectedMass and HotGas properties"""
     print(f"\n{BLUE}TEST:{NC} Property modification (EjectedMass → HotGas)")
 
-    # Check if sage_infall is available (needed to populate EjectedMass)
+    # Check if sage_calculate_infall is available (needed to populate EjectedMass)
     available = get_available_modules()
-    if 'sage_infall' not in available:
-        print(f"  {YELLOW}⚠ SKIP:{NC} sage_infall not available (needed to populate EjectedMass)")
+    if 'sage_calculate_infall' not in available:
+        print(f"  {YELLOW}⚠ SKIP:{NC} sage_calculate_infall not available (needed to populate EjectedMass)")
         return True  # Skip, not a failure
 
     # Create parameter file with modules that populate ejected reservoir
     param_file = temp_dir / "test_properties.yaml"
     create_test_param_file(
         param_file,
-        EnabledModules='sage_infall,sage_reincorporation',
+        EnabledModules='sage_calculate_infall,sage_reincorporation',
         SageInfall_BaryonFrac='0.17',
         SageReincorporation_ReIncorporationFactor='1.0'
     )

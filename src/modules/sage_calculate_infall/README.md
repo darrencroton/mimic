@@ -1,6 +1,6 @@
-# SAGE Infall Module
+# SAGE Calculate Infall Module
 
-**Module**: `sage_infall`
+**Module**: `sage_calculate_infall`
 **Version**: 1.0.0
 **Phase**: pre_timestep
 **Loop Mode**: LOOP_MODE_ONCE
@@ -60,7 +60,7 @@ After consolidation, satellites have these components zeroed out, preventing dou
 ### Two-Module Design
 
 Infall is split into two modules:
-1. **sage_infall** (pre_timestep, LOOP_MODE_ONCE):
+1. **sage_calculate_infall** (pre_timestep, LOOP_MODE_ONCE):
    - Calculates total `InfallingGas` for the timestep
    - Runs once per timestep before substeps
    - Consolidates satellite reservoirs to central
@@ -100,6 +100,6 @@ Infalling gas is assumed primordial (zero metallicity) - metals are inherited fr
 
 ## Testing
 
-- Unit tests: `tests/test_unit_sage_infall.c` (software quality)
-- Integration tests: `tests/test_integration_sage_infall.py` (end-to-end)
-- Scientific validation: `tests/test_scientific_sage_infall.py` (physics accuracy)
+- Unit tests: `tests/test_unit_sage_calculate_infall.c` (software quality)
+- Integration tests: `tests/test_integration_sage_calculate_infall.py` (end-to-end)
+- Scientific validation: `tests/test_scientific_sage_calculate_infall.py` (physics accuracy)

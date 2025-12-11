@@ -8,7 +8,7 @@ Phase: Phase 4.3+ (DEFERRED - requires downstream modules)
 
 STATUS: DEFERRED TO PHASE 4.3+
 
-This test will validate the physics correctness of the sage_infall module
+This test will validate the physics correctness of the sage_calculate_infall module
 by comparing outputs to SAGE reference results. This requires:
 - Downstream modules implemented (cooling, star formation, reincorporation)
 - SAGE reference outputs on identical merger trees

@@ -20,7 +20,7 @@ This module requires the following parameters in the input YAML file:
 
 **Configuration Example**:
 ```
-EnabledModules  sage_infall,sage_cooling,sage_starformation_feedback,sage_mergers
+EnabledModules  sage_calculate_infall,sage_cooling,sage_starformation_feedback,sage_mergers
 SageMergers_ThreshMajorMerger  0.3
 SageMergers_BlackHoleGrowthRate  0.01
 SageMergers_QuasarModeEfficiency  0.001

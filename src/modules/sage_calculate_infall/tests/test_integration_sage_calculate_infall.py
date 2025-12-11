@@ -4,7 +4,7 @@ SAGE Infall Module - Integration Test
 
 Validates: Module lifecycle, configuration, and pipeline integration
 
-This test validates software quality aspects of the sage_infall module:
+This test validates software quality aspects of the sage_calculate_infall module:
 - Module loads and initializes correctly
 - Parameters can be configured via YAML files
 - Module executes without errors or memory leaks
@@ -106,7 +106,7 @@ def get_available_modules():
 
 def test_module_loads():
     """
-    Test that sage_infall module loads and initializes successfully
+    Test that sage_calculate_infall module loads and initializes successfully
 
     Expected: Module initialization succeeds without errors
     Validates: Module registration, initialization, and cleanup lifecycle
@@ -116,9 +116,9 @@ def test_module_loads():
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_infall_load",
+        output_name="sage_calculate_infall_load",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -131,15 +131,15 @@ def test_module_loads():
 
     # ===== VALIDATE =====
     assert returncode == 0, \
-        f"Mimic should execute successfully with sage_infall\nStderr: {stderr}"
+        f"Mimic should execute successfully with sage_calculate_infall\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE infall module initialized" in stdout, \
-        "sage_infall should log initialization message"
+    assert "SAGE calculate infall module initialized" in stdout, \
+        "sage_calculate_infall should log initialization message"
 
     # Check that reionization module ran first
     assert "SAGE reionization module initialized" in stdout, \
-        "sage_reionization should run before sage_infall"
+        "sage_reionization should run before sage_calculate_infall"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -158,9 +158,9 @@ def test_output_properties_exist():
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_infall_output",
+        output_name="sage_calculate_infall_output",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -211,9 +211,9 @@ def test_parameters_configurable():
     import yaml
 
     param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_infall_params",
+        output_name="sage_calculate_infall_params",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -239,7 +239,7 @@ def test_parameters_configurable():
 
 def test_with_satellite_stripping():
     """
-    Test that sage_infall works with sage_satellite_stripping module
+    Test that sage_calculate_infall works with sage_satellite_stripping module
 
     Expected: Both modules execute successfully together
     Validates: Modules work together using HaloBaryonFraction property from sage_reionization
@@ -258,9 +258,9 @@ def test_with_satellite_stripping():
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_infall_stripping",
+        output_name="sage_calculate_infall_stripping",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [('sage_satellite_stripping', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -278,8 +278,8 @@ def test_with_satellite_stripping():
     # Verify all modules initialized
     assert "SAGE reionization module initialized" in stdout, \
         "sage_reionization should initialize first"
-    assert "SAGE infall module initialized" in stdout, \
-        "sage_infall should initialize"
+    assert "SAGE calculate infall module initialized" in stdout, \
+        "sage_calculate_infall should initialize"
     assert "SAGE satellite stripping module initialized" in stdout, \
         "sage_satellite_stripping should initialize"
 
@@ -291,7 +291,7 @@ def test_with_satellite_stripping():
 
 def test_memory_safety():
     """
-    Test that sage_infall doesn't leak memory
+    Test that sage_calculate_infall doesn't leak memory
 
     Expected: No memory leak messages in output
     Validates: Proper memory management in module
@@ -300,9 +300,9 @@ def test_memory_safety():
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_infall_memory",
+        output_name="sage_calculate_infall_memory",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -337,9 +337,9 @@ def test_execution_completes():
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_infall_complete",
+        output_name="sage_calculate_infall_complete",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [],
             'phase_2': [],
             'post_timestep': []
@@ -354,9 +354,9 @@ def test_execution_completes():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Pipeline should complete successfully"
-    assert "SAGE infall module initialized" in stdout, \
+    assert "SAGE calculate infall module initialized" in stdout, \
         "Module initialization message"
-    assert "SAGE infall module cleaned up" in stdout, \
+    assert "SAGE calculate infall module cleaned up" in stdout, \
         "Module cleanup message"
 
     # Cleanup
@@ -367,7 +367,7 @@ def test_execution_completes():
 
 def test_multiple_module_pipeline():
     """
-    Test that sage_infall works with other modules in pipeline
+    Test that sage_calculate_infall works with other modules in pipeline
 
     Expected: Multi-module pipeline executes successfully (if companion module available)
     Validates: Inter-module compatibility
@@ -399,9 +399,9 @@ def test_multiple_module_pipeline():
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="sage_infall_multi",
+        output_name="sage_calculate_infall_multi",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [('sage_add_infall', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -417,8 +417,8 @@ def test_multiple_module_pipeline():
         f"Multi-module pipeline should execute successfully\nStderr: {stderr}"
 
     # Verify all modules initialized
-    assert "SAGE infall module initialized" in stdout, \
-        "sage_infall should initialize"
+    assert "SAGE calculate infall module initialized" in stdout, \
+        "sage_calculate_infall should initialize"
     assert companion_init_msg in stdout, \
         f"{companion_module} should initialize"
 

@@ -25,7 +25,7 @@ Header files should have a concise header with:
 **Good Example (Physics Module)**:
 ```c
 /**
- * @file    sage_infall.h
+ * @file    sage_calculate_infall.h
  * @brief   SAGE infall module interface
  *
  * Implements cosmological gas infall onto central galaxies from the SAGE model.
@@ -37,10 +37,10 @@ Header files should have a concise header with:
  * Reference: Croton et al. (2006, 2016)
  */
 
-#ifndef SAGE_INFALL_H
-#define SAGE_INFALL_H
+#ifndef SAGE_CALCULATE_INFALL_H
+#define SAGE_CALCULATE_INFALL_H
 
-void sage_infall_register(void);
+void sage_calculate_infall_register(void);
 
 #endif
 ```
@@ -48,7 +48,7 @@ void sage_infall_register(void);
 **Bad Example** (too verbose):
 ```c
 /**
- * @file    sage_infall.h
+ * @file    sage_calculate_infall.h
  * @brief   SAGE infall module interface
  *
  * This module implements the cosmological gas infall process from the SAGE
@@ -88,7 +88,7 @@ Implementation files should follow the same pattern as headers:
 **Good Example**:
 ```c
 /**
- * @file    sage_infall.c
+ * @file    sage_calculate_infall.c
  * @brief   SAGE infall module implementation
  *
  * Implements cosmological gas infall onto central galaxies. Baryonic gas accretes
@@ -97,8 +97,8 @@ Implementation files should follow the same pattern as headers:
  * Physics: InfallingGas = HaloBaryonFraction × Mvir - total_baryons
  *
  * Key functions:
- * - sage_infall_init(): Initialize module
- * - sage_infall_process(): Compute infall for central galaxies
+ * - sage_calculate_infall_init(): Initialize module
+ * - sage_calculate_infall_process(): Compute infall for central galaxies
  *
  * Reference: Croton et al. (2006, 2016)
  */
@@ -123,7 +123,7 @@ Function headers should be concise. Include only essential information.
  *
  * @return  0 on success, non-zero on failure
  */
-static int sage_infall_init(void) {
+static int sage_calculate_infall_init(void) {
   INFO_LOG("Infall module initialized");
   return 0;
 }
@@ -141,7 +141,7 @@ static int sage_infall_init(void) {
  * @param   ngal    Number of halos
  * @return  0 on success, non-zero on failure
  */
-static int sage_infall_process(struct ModuleContext *ctx,
+static int sage_calculate_infall_process(struct ModuleContext *ctx,
                                 struct Halo *halos, int ngal) {
   // implementation
 }
@@ -259,19 +259,19 @@ Module metadata should be bare YAML with no comments or section dividers.
 **Good Example**:
 ```yaml
 module:
-  name: sage_infall
+  name: sage_calculate_infall
   display_name: "SAGE Infall"
   description: "Cosmological gas infall onto central galaxies from SAGE model"
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
 
   sources:
-    - sage_infall.c
+    - sage_calculate_infall.c
 
   headers:
-    - sage_infall.h
+    - sage_calculate_infall.h
 
-  register_function: sage_infall_register
+  register_function: sage_calculate_infall_register
 
   dependencies:
     properties:
@@ -280,12 +280,12 @@ module:
     parameters: []
 
   tests:
-    unit: test_unit_sage_infall.c
-    integration: test_integration_sage_infall.py
-    scientific: test_scientific_sage_infall_validation.py
+    unit: test_unit_sage_calculate_infall.c
+    integration: test_integration_sage_calculate_infall.py
+    scientific: test_scientific_sage_calculate_infall_validation.py
 
   docs:
-    physics: src/modules/sage_infall/README.md
+    physics: src/modules/sage_calculate_infall/README.md
 
   compilation_requires: []
 ```
@@ -297,7 +297,7 @@ module:
 # ===========================================================================
 
 module:
-  name: sage_infall  # REQUIRED: lowercase_with_underscores
+  name: sage_calculate_infall  # REQUIRED: lowercase_with_underscores
   display_name: "SAGE Infall"  # REQUIRED: Human-readable name
   description: "Cosmological gas infall onto central galaxies from SAGE model"
   version: "1.0.0"  # Semantic versioning: MAJOR.MINOR.PATCH
@@ -308,12 +308,12 @@ module:
   # ===========================================================================
 
   sources:
-    - sage_infall.c  # Module implementation
+    - sage_calculate_infall.c  # Module implementation
 
   headers:
-    - sage_infall.h  # Module interface
+    - sage_calculate_infall.h  # Module interface
 
-  register_function: sage_infall_register  # Must be {module_name}_register
+  register_function: sage_calculate_infall_register  # Must be {module_name}_register
 
   # ===========================================================================
   # Dependencies (REQUIRED)

@@ -433,7 +433,7 @@ static int sage_cooling_process(struct ModuleContext *ctx, struct Halo *halos, i
     }
 
     /* Only central galaxies cool (Type == 0)
-     * Satellites don't accrete fresh gas (handled by sage_infall module) */
+     * Satellites don't accrete fresh gas (handled by sage_calculate_infall module) */
     if (halos[0].Type != 0) {
         return 0;
     }

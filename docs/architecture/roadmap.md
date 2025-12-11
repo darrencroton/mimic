@@ -53,7 +53,7 @@ Mimic is built on 8 architectural principles (see [vision.md](vision.md)):
 
 **Example**:
 ```
-sage_infall → provides: HotGas, MetalsHotGas
+sage_calculate_infall → provides: HotGas, MetalsHotGas
                  ↓ (via galaxy property system)
 sage_cooling → requires: HotGas, MetalsHotGas
                provides: ColdGas, MetalsColdGas, BlackHoleMass
@@ -128,7 +128,7 @@ All 6 SAGE physics modules implemented and merged (November 2025):
 
 | Module | Physics | Status | Tests |
 |--------|---------|--------|-------|
-| **sage_infall** | Gas accretion, satellite stripping, metallicity | ✅ Production Ready | 5 unit + integration |
+| **sage_calculate_infall** | Gas accretion, satellite stripping, metallicity | ✅ Production Ready | 5 unit + integration |
 | **sage_cooling** | Cooling tables, AGN heating, BH growth | ✅ Production Ready | 9 unit + integration |
 | **sage_starformation_feedback** | Kennicutt-Schmidt SF, SN feedback, metal enrichment | ✅ Merged, Integration Pending | 6 unit + integration |
 | **sage_reincorporation** | Gas return from ejected reservoir | ✅ Merged, Integration Pending | 6 unit + integration |

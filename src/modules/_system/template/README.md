@@ -118,7 +118,7 @@ Add your module to the enabled modules list in your YAML configuration:
 # Enable your module and configure parameters
 modules:
   enabled:
-  - sage_infall
+  - sage_calculate_infall
   - sage_cooling
   - your_module  # Add your module here
   parameters:

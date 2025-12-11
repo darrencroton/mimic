@@ -1,6 +1,6 @@
 /**
- * @file    sage_infall.c
- * @brief   SAGE infall module implementation
+ * @file    sage_calculate_infall.c
+ * @brief   SAGE calculate infall module implementation
  *
  * Implements cosmological gas infall onto central galaxies. Central galaxies
  * accrete baryonic gas proportional to halo growth, modified by reionization
@@ -28,7 +28,7 @@
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
-#include "sage_infall.h"
+#include "sage_calculate_infall.h"
 #include "types.h"
 
 // ============================================================================
@@ -138,15 +138,15 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
 // ============================================================================
 
 /**
- * @brief   Initialize sage_infall module
+ * @brief   Initialize sage_calculate_infall module
  *
  * @return  0 on success
  */
-static int sage_infall_init(void) {
+static int sage_calculate_infall_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                     "cosmic baryon fraction must be physical");
 
-  INFO_LOG("SAGE infall module initialized");
+  INFO_LOG("SAGE calculate infall module initialized");
   VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
   VERBOSE_LOG("  Physics: InfallingGas = HaloBaryonFraction * Mvir - baryons");
 
@@ -164,7 +164,7 @@ static int sage_infall_init(void) {
  * @param   ngal    Number of halos
  * @return  0 on success, non-zero on failure
  */
-static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
+static int sage_calculate_infall_process(struct ModuleContext *ctx, struct Halo *halos,
                                 int ngal) {
   if (halos == NULL || ngal <= 0) {
     return 0;
@@ -207,12 +207,12 @@ static int sage_infall_process(struct ModuleContext *ctx, struct Halo *halos,
 }
 
 /**
- * @brief   Cleanup sage_infall module
+ * @brief   Cleanup sage_calculate_infall module
  *
  * @return  0 on success
  */
-static int sage_infall_cleanup(void) {
-  VERBOSE_LOG("SAGE infall module cleaned up");
+static int sage_calculate_infall_cleanup(void) {
+  VERBOSE_LOG("SAGE calculate infall module cleaned up");
   return 0;
 }
 
@@ -221,15 +221,15 @@ static int sage_infall_cleanup(void) {
 // ============================================================================
 
 /* Extern reference to generated loop mode array */
-extern const enum LoopMode sage_infall_supported_modes[];
+extern const enum LoopMode sage_calculate_infall_supported_modes[];
 
-static struct Module sage_infall_module = {
-    .name = "sage_infall",
-    .init = sage_infall_init,
-    .process = sage_infall_process,
-    .cleanup = sage_infall_cleanup,
-    .supported_loop_modes = sage_infall_supported_modes,
+static struct Module sage_calculate_infall_module = {
+    .name = "sage_calculate_infall",
+    .init = sage_calculate_infall_init,
+    .process = sage_calculate_infall_process,
+    .cleanup = sage_calculate_infall_cleanup,
+    .supported_loop_modes = sage_calculate_infall_supported_modes,
     .num_supported_modes = 1  /* Only supports LOOP_MODE_ONCE */
 };
 
-void sage_infall_register(void) { module_registry_add(&sage_infall_module); }
+void sage_calculate_infall_register(void) { module_registry_add(&sage_calculate_infall_module); }

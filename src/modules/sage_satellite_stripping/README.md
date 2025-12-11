@@ -80,7 +80,7 @@ Stripped amounts are limited to available hot gas and metals to prevent negative
 - `sage_reionization`: Sets `HaloBaryonFraction` based on reionization suppression
 
 **Works with**:
-- `sage_infall`: Provides hot gas reservoir that gets stripped
+- `sage_calculate_infall`: Provides hot gas reservoir that gets stripped
 - Other phase_1 modules: Cooling, star formation, etc.
 
 ## Testing

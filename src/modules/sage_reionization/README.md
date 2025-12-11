@@ -90,7 +90,7 @@ These values are specific to the Gnedin model and should not be modified without
 ### Execution Order
 
 This module **must** run in `pre_timestep` phase **before** modules that read `HaloBaryonFraction`:
-- `sage_infall`: Uses HaloBaryonFraction to calculate infalling gas
+- `sage_calculate_infall`: Uses HaloBaryonFraction to calculate infalling gas
 - `sage_satellite_stripping`: Uses HaloBaryonFraction for stripping calculation
 
 If `sage_reionization` is not enabled, downstream modules fall back to `HaloBaryonFraction = GlobalBaryonFraction` (no suppression).
@@ -130,7 +130,7 @@ These are automatically extracted from the module context.
 - No other modules (sets baseline property)
 
 **Used by**:
-- `sage_infall`: Reads HaloBaryonFraction for cosmological infall calculation
+- `sage_calculate_infall`: Reads HaloBaryonFraction for cosmological infall calculation
 - `sage_satellite_stripping`: Reads HaloBaryonFraction for gas stripping calculation
 
 ## Testing

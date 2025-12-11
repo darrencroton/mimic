@@ -197,7 +197,7 @@ TEST_ASSERT_EQUAL(result, 0, "Module system should initialize");
 ```c
 // Use specific module to test its physics calculations
 MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-MimicConfig.phase_1[0].module_name = strdup("sage_infall");
+MimicConfig.phase_1[0].module_name = strdup("sage_calculate_infall");
 MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ALL;
 MimicConfig.num_phase_1 = 1;
 MimicConfig.SubSteps = 1;
@@ -309,7 +309,7 @@ param_file, output_dir, temp_dir = create_test_param_file(
     output_name="my_test",
     phase_config={
         'pre_timestep': [],
-        'phase_1': [('sage_infall', 'all')],
+        'phase_1': [('sage_calculate_infall', 'all')],
         'phase_2': [],
         'post_timestep': []
     },

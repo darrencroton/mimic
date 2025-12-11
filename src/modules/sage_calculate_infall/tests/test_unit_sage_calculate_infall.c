@@ -1,11 +1,11 @@
 /**
- * @file    test_sage_infall.c
- * @brief   Software quality unit tests for sage_infall module
+ * @file    test_sage_calculate_infall.c
+ * @brief   Software quality unit tests for sage_calculate_infall module
  *
  * Validates: Module lifecycle, memory safety, parameter handling, error handling
  * Phase: Phase 4.2 (SAGE Physics Module Implementation)
  *
- * This test validates software engineering aspects of the sage_infall module:
+ * This test validates software engineering aspects of the sage_calculate_infall module:
  * - Module registration and initialization
  * - Parameter reading and validation
  * - Memory allocation and cleanup (no leaks)
@@ -29,7 +29,7 @@
 #include "framework/test_framework.h"
 #include "../../core/module_registry.h"
 #include "../../core/module_interface.h"
-#include "sage_infall.h"
+#include "sage_calculate_infall.h"
 #include "../../include/types.h"
 #include "../../include/proto.h"
 #include "../../include/globals.h"
@@ -69,10 +69,10 @@ extern void set_test_model_parameters(void);
 
 /**
  * @test    test_module_registration
- * @brief   Test that sage_infall module registers correctly
+ * @brief   Test that sage_calculate_infall module registers correctly
  *
  * Expected: Module registration succeeds without errors
- * Validates: sage_infall_register() works, module appears in registry
+ * Validates: sage_calculate_infall_register() works, module appears in registry
  */
 int test_module_registration(void)
 {
@@ -108,9 +108,9 @@ int test_module_initialization(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_infall module in phase_1 (for testing) */
+    /* Configure sage_calculate_infall module in phase_1 (for testing) */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_infall");
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_infall");
     MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ONCE;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
@@ -134,7 +134,7 @@ int test_module_initialization(void)
  * @brief   Test that module initializes correctly (no parameters needed)
  *
  * Expected: Module initializes successfully without parameters
- * Validates: sage_infall no longer requires parameters (uses HaloBaryonFraction property)
+ * Validates: sage_calculate_infall no longer requires parameters (uses HaloBaryonFraction property)
  * Note: HaloBaryonFraction is set by sage_reionization module
  */
 int test_parameter_reading(void)
@@ -149,9 +149,9 @@ int test_parameter_reading(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_infall (no parameters needed) */
+    /* Configure sage_calculate_infall (no parameters needed) */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_infall");
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_infall");
     MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ONCE;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
@@ -190,7 +190,7 @@ int test_memory_safety(void)
 
     /* Configure module */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_infall");
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_infall");
     MimicConfig.phase_1[0].loop_mode = LOOP_MODE_ONCE;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
@@ -270,13 +270,13 @@ int test_property_access(void)
 /**
  * @brief   Main test runner
  *
- * Executes all sage_infall software quality tests and reports results.
+ * Executes all sage_calculate_infall software quality tests and reports results.
  */
 int main(void)
 {
     printf("%s", BLUE);
     printf("============================================================\n");
-    printf("Test Suite: sage_infall Module\n");
+    printf("Test Suite: sage_calculate_infall Module\n");
     printf("============================================================\n");
     printf("%s\n", NC);
 

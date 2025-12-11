@@ -11,7 +11,7 @@ This module requires the following parameters in the input YAML file:
 
 **Configuration Example**:
 ```
-EnabledModules  sage_infall,sage_cooling,sage_starformation_feedback,sage_disk_instability
+EnabledModules  sage_calculate_infall,sage_cooling,sage_starformation_feedback,sage_disk_instability
 SageDiskInstability_DiskInstabilityOn  1
 SageDiskInstability_DiskRadiusFactor  3.0
 ```

@@ -710,17 +710,17 @@ module:
 ### Example: Simple Module (No Parameters)
 
 ```yaml
-# src/modules/sage_infall/module_info.yaml
+# src/modules/sage_calculate_infall/module_info.yaml
 module:
-  name: sage_infall
+  name: sage_calculate_infall
   display_name: "SAGE Infall"
   description: "Cosmological gas infall onto central galaxies from SAGE model."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
 
-  sources: [sage_infall.c]
-  headers: [sage_infall.h]
-  register_function: sage_infall_register
+  sources: [sage_calculate_infall.c]
+  headers: [sage_calculate_infall.h]
+  register_function: sage_calculate_infall_register
 
   dependencies:
     properties:
@@ -734,12 +734,12 @@ module:
       - BaryonFrac
 
   tests:
-    unit: tests/test_unit_sage_infall.c
-    integration: tests/test_integration_sage_infall.py
-    scientific: tests/test_scientific_sage_infall.py
+    unit: tests/test_unit_sage_calculate_infall.c
+    integration: tests/test_integration_sage_calculate_infall.py
+    scientific: tests/test_scientific_sage_calculate_infall.py
 
   docs:
-    physics: src/modules/sage_infall/README.md
+    physics: src/modules/sage_calculate_infall/README.md
 
   compilation_requires: []
 ```
@@ -820,7 +820,7 @@ Auto-generated from module metadata. Last updated: 2025-11-12
 
 ### Gas Physics (2 modules)
 
-#### sage_infall - SAGE Infall
+#### sage_calculate_infall - SAGE Infall
 
 Cosmological gas infall and satellite stripping from SAGE model.
 
@@ -840,7 +840,7 @@ This module defines the following parameters:
 - Kravtsov et al. (2004) - Filtering mass formulas
 - Croton et al. (2016) - SAGE model description
 
-**Physics Documentation**: [src/modules/sage_infall/README.md](../../src/modules/sage_infall/README.md)
+**Physics Documentation**: [src/modules/sage_calculate_infall/README.md](../../src/modules/sage_calculate_infall/README.md)
 
 ---
 
@@ -1140,15 +1140,15 @@ Then run `make generate`.
 ### ❌ Wrong: Inconsistent naming
 ```yaml
 module:
-  name: sage_infall
-  register_function: sage_infall_init  # Wrong!
+  name: sage_calculate_infall
+  register_function: sage_calculate_infall_init  # Wrong!
 ```
 
 ### ✅ Right: Follow convention
 ```yaml
 module:
-  name: sage_infall
-  register_function: sage_infall_register  # Correct!
+  name: sage_calculate_infall
+  register_function: sage_calculate_infall_register  # Correct!
 ```
 
 ### ❌ Wrong: Missing dependencies

@@ -1,6 +1,6 @@
 /**
- * @file    sage_infall.h
- * @brief   SAGE infall module interface
+ * @file    sage_calculate_infall.h
+ * @brief   SAGE calculate infall module interface
  *
  * Calculates cosmological gas infall for central galaxies and consolidates
  * satellite ejected gas and ICS to centrals. Modified by reionization
@@ -11,9 +11,9 @@
  * Reference: Croton et al. (2006, 2016)
  */
 
-#ifndef SAGE_INFALL_H
-#define SAGE_INFALL_H
+#ifndef SAGE_CALCULATE_INFALL_H
+#define SAGE_CALCULATE_INFALL_H
 
-void sage_infall_register(void);
+void sage_calculate_infall_register(void);
 
 #endif

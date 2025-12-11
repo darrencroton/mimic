@@ -10,7 +10,7 @@ to populate the ejected reservoir. Without star formation and feedback,
 EjectedMass remains at zero, so reincorporation physics cannot be validated.
 
 Full physics validation requires:
-1. sage_infall (✅ COMPLETE) - provides hot gas
+1. sage_calculate_infall (✅ COMPLETE) - provides hot gas
 2. sage_cooling (✅ COMPLETE) - provides cold gas
 3. sage_starformation_feedback (⏳ NEXT) - populates ejected reservoir via SN feedback
 4. sage_reincorporation (THIS MODULE) - returns ejected gas to hot reservoir

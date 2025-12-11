@@ -7,7 +7,7 @@
 
 ## Overview
 
-Distributes infalling gas to the hot gas reservoir with metallicity tracking. Works in tandem with `sage_infall` module which calculates the total `InfallingGas` per timestep in the pre_timestep phase.
+Distributes infalling gas to the hot gas reservoir with metallicity tracking. Works in tandem with `sage_calculate_infall` module which calculates the total `InfallingGas` per timestep in the pre_timestep phase.
 
 This module runs during phase_1 and adds `InfallingGas / num_substeps` to the hot gas reservoir each substep, enabling proper time sub-stepping for numerical stability.
 
@@ -52,7 +52,7 @@ All mass components are floored at zero to prevent negative masses:
 ## Key Properties
 
 **Read**:
-- `InfallingGas`: Total infall for timestep (set by `sage_infall` module)
+- `InfallingGas`: Total infall for timestep (set by `sage_calculate_infall` module)
 
 **Write**:
 - `HotGas`: Hot gas reservoir (receives distributed infall)
@@ -70,7 +70,7 @@ None - this module has no configurable parameters.
 
 Infall is split into two modules for proper time sub-stepping:
 
-1. **sage_infall** (pre_timestep, LOOP_MODE_ONCE):
+1. **sage_calculate_infall** (pre_timestep, LOOP_MODE_ONCE):
    - Calculates total `InfallingGas` for the timestep
    - Runs once per timestep before substeps
    - Consolidates satellite reservoirs to central
@@ -84,7 +84,7 @@ This design enables numerical stability through time sub-stepping while maintain
 
 ### Central Galaxy Only
 
-The module processes only the central galaxy (Type 0) in each FOF group, since `InfallingGas` is calculated for the central galaxy by `sage_infall`.
+The module processes only the central galaxy (Type 0) in each FOF group, since `InfallingGas` is calculated for the central galaxy by `sage_calculate_infall`.
 
 ### Metallicity Handling
 
@@ -100,7 +100,7 @@ The module processes only the central galaxy (Type 0) in each FOF group, since `
 ## Dependencies
 
 **Requires**:
-- `sage_infall`: Must run in pre_timestep phase to calculate `InfallingGas`
+- `sage_calculate_infall`: Must run in pre_timestep phase to calculate `InfallingGas`
 
 **Works with**:
 - All modules that modify baryonic components (affects infall calculation)

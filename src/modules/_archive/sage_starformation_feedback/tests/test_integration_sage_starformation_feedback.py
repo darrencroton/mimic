@@ -10,7 +10,7 @@ This test validates software quality aspects of the sage_starformation_feedback 
 - Parameters can be configured via YAML files
 - Module executes without errors or memory leaks
 - Output properties appear in output files (StellarMass, MetalsStellarMass, DiskScaleRadius, OutflowRate)
-- Module works in multi-module pipelines (after sage_infall and sage_cooling)
+- Module works in multi-module pipelines (after sage_calculate_infall and sage_cooling)
 
 NOTE: Physics validation (SF rates, mass conservation, feedback) deferred to
       scientific validation tests. These tests focus on software quality.
@@ -22,7 +22,7 @@ Test cases:
   - test_feedback_toggle: SupernovaRecipeOn parameter works
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
-  - test_three_module_pipeline: Integration with sage_infall + sage_cooling
+  - test_three_module_pipeline: Integration with sage_calculate_infall + sage_cooling
 
 Author: Mimic Development Team
 Date: 2025-11-17
@@ -157,7 +157,7 @@ def create_test_param_file(output_dir, modules, module_params=None):
     # Module dependencies (from module_info.yaml files):
     #   sage_starformation_feedback: 11 parameters
     #   sage_cooling: RadioModeEfficiency, AGNrecipeOn, CoolFunctionsDir
-    #   sage_infall: BaryonFrac
+    #   sage_calculate_infall: BaryonFrac
     params_needed = {}
     for module in modules:
         if module == 'sage_starformation_feedback':
@@ -180,7 +180,7 @@ def create_test_param_file(output_dir, modules, module_params=None):
                 'AGNrecipeOn': 1,
                 'CoolFunctionsDir': 'src/modules/sage_cooling/CoolFunctions',
             })
-        elif module == 'sage_infall':
+        elif module == 'sage_calculate_infall':
             params_needed.update({
                 'BaryonFrac': 0.17,
             })
@@ -262,7 +262,7 @@ def test_output_properties_exist():
         return
 
     # Check for dependencies
-    required_modules = ['sage_infall', 'sage_cooling']
+    required_modules = ['sage_calculate_infall', 'sage_cooling']
     missing = [m for m in required_modules if m not in available]
     if missing:
         print(f"{YELLOW}⊘ Skipping - missing dependencies: {missing}{NC}")
@@ -272,10 +272,10 @@ def test_output_properties_exist():
     output_dir = temp_dir / "output_properties"
     output_dir.mkdir(exist_ok=True)
 
-    # Create parameter file with sage_infall + sage_cooling + sage_starformation_feedback
+    # Create parameter file with sage_calculate_infall + sage_cooling + sage_starformation_feedback
     param_file = create_test_param_file(
         output_dir,
-        modules=['sage_infall', 'sage_cooling', 'sage_starformation_feedback']
+        modules=['sage_calculate_infall', 'sage_cooling', 'sage_starformation_feedback']
     )
 
     # Run Mimic
@@ -317,7 +317,7 @@ def test_parameters_configurable():
         return
 
     # Check dependencies
-    required_modules = ['sage_infall', 'sage_cooling']
+    required_modules = ['sage_calculate_infall', 'sage_cooling']
     missing = [m for m in required_modules if m not in available]
     if missing:
         print(f"{YELLOW}⊘ Skipping - missing dependencies: {missing}{NC}")
@@ -330,7 +330,7 @@ def test_parameters_configurable():
     # Create parameter file with custom module parameters
     param_file = create_test_param_file(
         output_dir,
-        modules=['sage_infall', 'sage_cooling', 'sage_starformation_feedback'],
+        modules=['sage_calculate_infall', 'sage_cooling', 'sage_starformation_feedback'],
         module_params={
             'SageStarformationFeedback_SfrEfficiency': '0.05',  # Non-default
             'SageStarformationFeedback_RecycleFraction': '0.4'  # Non-default
@@ -362,7 +362,7 @@ def test_feedback_toggle():
         return
 
     # Check dependencies
-    required_modules = ['sage_infall', 'sage_cooling']
+    required_modules = ['sage_calculate_infall', 'sage_cooling']
     missing = [m for m in required_modules if m not in available]
     if missing:
         print(f"{YELLOW}⊘ Skipping - missing dependencies: {missing}{NC}")
@@ -374,7 +374,7 @@ def test_feedback_toggle():
 
     param_file = create_test_param_file(
         output_dir,
-        modules=['sage_infall', 'sage_cooling', 'sage_starformation_feedback'],
+        modules=['sage_calculate_infall', 'sage_cooling', 'sage_starformation_feedback'],
         module_params={'SageStarformationFeedback_SupernovaRecipeOn': '1'}
     )
 
@@ -388,7 +388,7 @@ def test_feedback_toggle():
 
     param_file = create_test_param_file(
         output_dir,
-        modules=['sage_infall', 'sage_cooling', 'sage_starformation_feedback'],
+        modules=['sage_calculate_infall', 'sage_cooling', 'sage_starformation_feedback'],
         module_params={'SageStarformationFeedback_SupernovaRecipeOn': '0'}
     )
 
@@ -412,7 +412,7 @@ def test_memory_safety():
         return
 
     # Check dependencies
-    required_modules = ['sage_infall', 'sage_cooling']
+    required_modules = ['sage_calculate_infall', 'sage_cooling']
     missing = [m for m in required_modules if m not in available]
     if missing:
         print(f"{YELLOW}⊘ Skipping - missing dependencies: {missing}{NC}")
@@ -425,7 +425,7 @@ def test_memory_safety():
     # Create parameter file
     param_file = create_test_param_file(
         output_dir,
-        modules=['sage_infall', 'sage_cooling', 'sage_starformation_feedback']
+        modules=['sage_calculate_infall', 'sage_cooling', 'sage_starformation_feedback']
     )
 
     # Run Mimic
@@ -467,7 +467,7 @@ def test_execution_completes():
         return
 
     # Check dependencies
-    required_modules = ['sage_infall', 'sage_cooling']
+    required_modules = ['sage_calculate_infall', 'sage_cooling']
     missing = [m for m in required_modules if m not in available]
     if missing:
         print(f"{YELLOW}⊘ Skipping - missing dependencies: {missing}{NC}")
@@ -480,7 +480,7 @@ def test_execution_completes():
     # Create parameter file
     param_file = create_test_param_file(
         output_dir,
-        modules=['sage_infall', 'sage_cooling', 'sage_starformation_feedback']
+        modules=['sage_calculate_infall', 'sage_cooling', 'sage_starformation_feedback']
     )
 
     # Run Mimic
@@ -499,7 +499,7 @@ def test_execution_completes():
 
 def test_three_module_pipeline():
     """
-    Test integration with upstream modules (sage_infall + sage_cooling)
+    Test integration with upstream modules (sage_calculate_infall + sage_cooling)
 
     Expected: Three-module pipeline executes successfully with property flow
     """
@@ -507,7 +507,7 @@ def test_three_module_pipeline():
 
     # Check module availability
     available = get_available_modules()
-    required_modules = ['sage_infall', 'sage_cooling', 'sage_starformation_feedback']
+    required_modules = ['sage_calculate_infall', 'sage_cooling', 'sage_starformation_feedback']
     missing = [m for m in required_modules if m not in available]
 
     if missing:
@@ -521,7 +521,7 @@ def test_three_module_pipeline():
     # Create parameter file with all three modules in correct order
     param_file = create_test_param_file(
         output_dir,
-        modules=['sage_infall', 'sage_cooling', 'sage_starformation_feedback']
+        modules=['sage_calculate_infall', 'sage_cooling', 'sage_starformation_feedback']
     )
 
     # Run Mimic
@@ -538,7 +538,7 @@ def test_three_module_pipeline():
 
     # Check all expected properties present
     expected_props = [
-        'HotGas', 'MetalsHotGas',  # from sage_infall
+        'HotGas', 'MetalsHotGas',  # from sage_calculate_infall
         'ColdGas', 'MetalsColdGas', 'BlackHoleMass',  # from sage_cooling
         'StellarMass', 'MetalsStellarMass', 'DiskScaleRadius', 'OutflowRate'  # from sage_starformation_feedback
     ]
@@ -547,7 +547,7 @@ def test_three_module_pipeline():
         assert prop in halos.dtype.names, f"Property {prop} missing from output"
 
     print(f"{GREEN}✓ Three-module pipeline successful{NC}")
-    print(f"  Properties from sage_infall: HotGas, MetalsHotGas")
+    print(f"  Properties from sage_calculate_infall: HotGas, MetalsHotGas")
     print(f"  Properties from sage_cooling: ColdGas, MetalsColdGas, BlackHoleMass")
     print(f"  Properties from sage_starformation_feedback: StellarMass, MetalsStellarMass, DiskScaleRadius, OutflowRate")
 

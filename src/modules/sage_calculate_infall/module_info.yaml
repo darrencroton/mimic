@@ -1,17 +1,17 @@
 module:
-  name: sage_infall
-  display_name: "SAGE Infall"
+  name: sage_calculate_infall
+  display_name: "SAGE Calculate Infall"
   description: "Cosmological gas infall onto central galaxies from SAGE model."
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
 
   sources:
-    - sage_infall.c
+    - sage_calculate_infall.c
 
   headers:
-    - sage_infall.h
+    - sage_calculate_infall.h
 
-  register_function: sage_infall_register
+  register_function: sage_calculate_infall_register
 
   supported_loop_modes: [once]
 
@@ -32,9 +32,9 @@ module:
       - GlobalBaryonFraction
 
   tests:
-    unit: tests/test_unit_sage_infall.c
-    integration: tests/test_integration_sage_infall.py
-    scientific: tests/test_scientific_sage_infall.py
+    unit: tests/test_unit_sage_calculate_infall.c
+    integration: tests/test_integration_sage_calculate_infall.py
+    scientific: tests/test_scientific_sage_calculate_infall.py
 
   docs:
     physics: README.md

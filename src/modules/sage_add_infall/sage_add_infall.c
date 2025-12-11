@@ -2,7 +2,7 @@
  * @file    sage_add_infall.c
  * @brief   SAGE add infall module implementation
  *
- * Distributes infalling gas (calculated by sage_infall) to hot gas reservoir over
+ * Distributes infalling gas (calculated by sage_calculate_infall) to hot gas reservoir over
  * substeps with metallicity tracking. For negative infall (mass loss), removes from
  * ejected reservoir first, then hot gas.
  *

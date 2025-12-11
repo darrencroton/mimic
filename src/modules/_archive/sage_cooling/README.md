@@ -12,7 +12,7 @@ This module requires the following parameters in the input YAML file:
 
 **Configuration Example**:
 ```
-EnabledModules  sage_infall,sage_cooling
+EnabledModules  sage_calculate_infall,sage_cooling
 SageCooling_RadioModeEfficiency  0.01
 SageCooling_AGNrecipeOn  1
 ```

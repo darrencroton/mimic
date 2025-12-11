@@ -26,7 +26,7 @@ modules:
   # Pre-timestep: Setup calculations (runs once before substeps)
   pre_timestep:
     - sage_reionization: once
-    - sage_infall: once
+    - sage_calculate_infall: once
 
   # Phase 1: Main physics (runs each substep for each galaxy)
   phase_1:
@@ -338,7 +338,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 ---
 
-#### sage_infall
+#### sage_calculate_infall
 
 **Purpose**: Cosmological gas infall onto central galaxies
 
@@ -364,7 +364,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Physics**: Removes hot gas from satellites in massive halos using local baryon fraction
 
-**Dependencies**: Requires sage_reionization (provides HaloBaryonFraction) and sage_infall (provides hot gas reservoir)
+**Dependencies**: Requires sage_reionization (provides HaloBaryonFraction) and sage_calculate_infall (provides hot gas reservoir)
 
 **Provides**: Updates HotGas, MetalsHotGas for satellites
 
@@ -382,7 +382,7 @@ The following modules implement the SAGE (Semi-Analytic Galaxy Evolution) model:
 
 **Physics**: Radiative cooling with AGN feedback suppression
 
-**Dependencies**: Requires hot gas (from sage_infall)
+**Dependencies**: Requires hot gas (from sage_calculate_infall)
 
 **Provides**: ColdGas, MetalsColdGas
 
@@ -520,7 +520,7 @@ modules:
   # Pre-timestep: Setup (runs once before substeps)
   pre_timestep:
     - sage_reionization: once
-    - sage_infall: once
+    - sage_calculate_infall: once
 
   # Phase 1: Main physics (runs each substep)
   phase_1:
@@ -580,7 +580,7 @@ modules:
 ERROR: Module 'fake_module' listed in phase_1 but not registered
 Available modules:
   - sage_reionization
-  - sage_infall
+  - sage_calculate_infall
   - sage_satellite_stripping
   - sage_cooling
   - sage_starformation_feedback
@@ -638,7 +638,7 @@ ERROR:   (defined by module: sage_reionization)
 **Problem**: Wrong physics results
 **Check**:
 - Modules in correct phases (setup in pre_timestep, main physics in phase_1, etc.)
-- Dependencies satisfied (e.g., sage_reionization before sage_infall)
+- Dependencies satisfied (e.g., sage_reionization before sage_calculate_infall)
 - Correct loop mode (once vs all) for each module
 
 **Problem**: SubSteps not working

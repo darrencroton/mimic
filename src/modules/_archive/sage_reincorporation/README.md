@@ -10,7 +10,7 @@ This module requires the following parameters in the input YAML file:
 
 **Configuration Example**:
 ```
-EnabledModules  sage_infall,sage_cooling,sage_starformation_feedback,sage_reincorporation
+EnabledModules  sage_calculate_infall,sage_cooling,sage_starformation_feedback,sage_reincorporation
 SageReincorporation_ReIncorporationFactor  1.0
 ```
 

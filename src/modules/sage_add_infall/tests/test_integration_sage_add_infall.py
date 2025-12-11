@@ -8,15 +8,15 @@ This test validates software quality aspects of the sage_add_infall module:
 - Module loads and initializes correctly
 - Module executes without errors or memory leaks
 - Output properties appear in output files
-- Module works with sage_infall in multi-phase pipeline
+- Module works with sage_calculate_infall in multi-phase pipeline
 - Proper substep distribution
 
-NOTE: sage_add_infall requires sage_infall (pre_timestep) to calculate InfallingGas
+NOTE: sage_add_infall requires sage_calculate_infall (pre_timestep) to calculate InfallingGas
 
 Test cases:
   - test_module_loads: Module registration and initialization
   - test_output_properties_exist: HotGas properties in output
-  - test_with_sage_infall: Integration with sage_infall (required)
+  - test_with_sage_calculate_infall: Integration with sage_calculate_infall (required)
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
   - test_substep_distribution: Infall distributed over substeps
@@ -54,7 +54,7 @@ def test_module_loads():
 
     Expected: Module initialization succeeds without errors
     Validates: Module registration, initialization, and cleanup lifecycle
-    Note: Requires sage_infall in pre_timestep to set InfallingGas property
+    Note: Requires sage_calculate_infall in pre_timestep to set InfallingGas property
     """
     print("Testing module load and initialization...")
 
@@ -62,7 +62,7 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_load",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [('sage_add_infall', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -81,9 +81,9 @@ def test_module_loads():
     assert "SAGE add infall module initialized" in stdout, \
         "sage_add_infall should log initialization message"
 
-    # Check that sage_infall ran first
-    assert "SAGE infall module initialized" in stdout, \
-        "sage_infall should run before sage_add_infall"
+    # Check that sage_calculate_infall ran first
+    assert "SAGE calculate infall module initialized" in stdout, \
+        "sage_calculate_infall should run before sage_add_infall"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -104,7 +104,7 @@ def test_output_properties_exist():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_output",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [('sage_add_infall', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -137,20 +137,20 @@ def test_output_properties_exist():
     print(f"  Found {len(halos)} halos")
 
 
-def test_with_sage_infall():
+def test_with_sage_calculate_infall():
     """
-    Test that sage_add_infall works with sage_infall module
+    Test that sage_add_infall works with sage_calculate_infall module
 
     Expected: Both modules execute successfully together
-    Validates: sage_add_infall requires sage_infall to set InfallingGas
+    Validates: sage_add_infall requires sage_calculate_infall to set InfallingGas
     """
-    print("Testing with sage_infall...")
+    print("Testing with sage_calculate_infall...")
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_with_infall",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [('sage_add_infall', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -168,15 +168,15 @@ def test_with_sage_infall():
     # Verify all modules initialized
     assert "SAGE reionization module initialized" in stdout, \
         "sage_reionization should initialize"
-    assert "SAGE infall module initialized" in stdout, \
-        "sage_infall should initialize"
+    assert "SAGE calculate infall module initialized" in stdout, \
+        "sage_calculate_infall should initialize"
     assert "SAGE add infall module initialized" in stdout, \
         "sage_add_infall should initialize"
 
     # Cleanup
     shutil.rmtree(temp_dir)
 
-    print("  ✓ Works with sage_infall")
+    print("  ✓ Works with sage_calculate_infall")
 
 
 def test_memory_safety():
@@ -192,7 +192,7 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_memory",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [('sage_add_infall', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -229,7 +229,7 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_complete",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [('sage_add_infall', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -270,7 +270,7 @@ def test_substep_distribution():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_add_infall_substeps",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+            'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
             'phase_1': [('sage_add_infall', 'once')],
             'phase_2': [],
             'post_timestep': []
@@ -328,7 +328,7 @@ def main():
     tests = [
         test_module_loads,
         test_output_properties_exist,
-        test_with_sage_infall,
+        test_with_sage_calculate_infall,
         test_memory_safety,
         test_execution_completes,
         test_substep_distribution,

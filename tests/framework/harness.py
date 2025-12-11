@@ -168,7 +168,7 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
         param_file, output_dir, temp_dir = create_test_param_file(
             output_name="infall_test",
             phase_config={
-                'pre_timestep': [('sage_reionization', 'once'), ('sage_infall', 'once')],
+                'pre_timestep': [('sage_reionization', 'once'), ('sage_calculate_infall', 'once')],
                 'phase_1': [('sage_cooling', 'all')],
                 'phase_2': [],
                 'post_timestep': []

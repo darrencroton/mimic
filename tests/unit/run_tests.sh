@@ -125,7 +125,7 @@ else
             [[ "$test_path" =~ ^#.*$ ]] && continue
             [[ -z "$test_path" ]] && continue
 
-            # Extract test name from path (e.g., src/modules/sage_infall/test_sage_infall.c -> test_sage_infall)
+            # Extract test name from path (e.g., src/modules/sage_calculate_infall/test_sage_calculate_infall.c -> test_sage_calculate_infall)
             test_name=$(basename "$test_path" .c)
             MODULE_TESTS="$MODULE_TESTS $test_name"
         done < "$MODULE_TEST_REGISTRY"

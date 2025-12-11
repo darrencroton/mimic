@@ -39,7 +39,7 @@ modules:
   # Phase 1: Setup (runs once before substeps)
   pre_timestep:
     - sage_reionization: once
-    - sage_infall: once
+    - sage_calculate_infall: once
 
   # Phase 2: Main physics (runs each substep for each galaxy)
   phase_1:

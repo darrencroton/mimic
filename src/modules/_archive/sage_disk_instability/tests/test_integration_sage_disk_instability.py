@@ -541,8 +541,8 @@ def test_multiple_module_pipeline():
     available = get_available_modules()
 
     modules_to_test = []
-    if 'sage_infall' in available:
-        modules_to_test.append('sage_infall')
+    if 'sage_calculate_infall' in available:
+        modules_to_test.append('sage_calculate_infall')
     if 'sage_cooling' in available:
         modules_to_test.append('sage_cooling')
     modules_to_test.append('sage_disk_instability')
@@ -565,7 +565,7 @@ def test_multiple_module_pipeline():
         'DiskInstabilityOn': 1,
         'DiskRadiusFactor': 3.0
     }
-    if 'sage_infall' in modules_to_test:
+    if 'sage_calculate_infall' in modules_to_test:
         config['modules']['parameters']['BaryonFrac'] = 0.17
     if 'sage_cooling' in modules_to_test:
         config['modules']['parameters'].update({
