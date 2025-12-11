@@ -250,10 +250,10 @@ After customizing the template:
 
 1. **Write Tests**: Add unit, integration, and scientific tests
 2. **Document Physics**: Create comprehensive `README.md` in your module directory
-3. **Update User Guide**: Add to `docs/user/module-configuration.md`
+3. **Update User Guide**: Module configuration is now in `docs/USER-GUIDE.md` (Configuration section)
 4. **Update module_info.yaml**: Ensure `docs.physics` points to your module's `README.md`
 
-See `docs/developer/module-developer-guide.md` for comprehensive documentation.
+See `docs/DEVELOPER-GUIDE.md` for comprehensive documentation.
 
 ---
 

@@ -8,212 +8,170 @@
 /_/  /_/ /___/ /_/  /_/ /___/  \____/
 ```
 
-**Mimic** is a modular framework for galaxy evolution modeling with runtime-configurable physics modules and clean separation between infrastructure and scientific implementations. Built on a robust halo tracking core, it enables flexible experimentation with different physics combinations without recompilation.
+**Mimic** is a physics-agnostic galaxy evolution framework with runtime-configurable physics modules. Built on robust metadata-driven architecture, it enables flexible experimentation with different physics combinations without recompilation—making it ideal for exploring galaxy formation models and testing alternative physics implementations.
 
-## Key Features
+## What Makes Mimic Different
 
-- **Physics-Agnostic Core**: Infrastructure independent of specific physics implementations
-- **Runtime Modularity**: Configure module selection via parameters, not compile-time flags
-- **Robust Memory Management**: Bounded, predictable memory usage for large cosmological simulations
-- **Metadata-Driven Type Safety**: Auto-generated code from YAML with compile-time validation
-- **Multi-Format I/O**: Unified interfaces for binary and HDF5 input/output
-- **Integrated Visualization**: Comprehensive plotting system for halo properties and distributions
+- **Runtime Physics Configuration**: Select and configure physics modules via YAML files—no recompilation needed
+- **Physics-Agnostic Core**: Infrastructure completely independent of specific physics implementations
+- **Metadata-Driven Architecture**: Properties and modules defined once in YAML, auto-generated into type-safe C code
+- **Robust Testing Framework**: Three-tier testing (unit, integration, scientific) ensures reliability
+- **Multi-Format I/O**: Binary and HDF5 output with self-documenting metadata
+- **Production-Ready**: Complete SAGE physics implementation with comprehensive validation
 
-See [docs/architecture/vision.md](docs/architecture/vision.md) for the complete architectural vision.
+**Scientific Heritage**: Mimic builds upon the SAGE (Semi-Analytic Galaxy Evolution) model ([Croton et al. 2016](http://arxiv.org/abs/1601.04709), [2006](http://arxiv.org/abs/astro-ph/0508046)) while providing a modern, extensible foundation for galaxy evolution modeling.
 
-## Getting Started
+## Quick Start
 
-### Requirements
+### Prerequisites
 
 - C compiler (gcc or compatible) and GNU Make
-- Python 3.x with numpy, matplotlib, pyyaml (for plotting)
+- Python 3.6+ with numpy, matplotlib, pyyaml
 - Optional: HDF5 libraries, MPI, clang-format, black/isort
 
-### Automated Setup
+### Build and Run
 
 ```bash
-# Clone and set up in one go
+# Clone and setup
 git clone [repository-url]
 cd mimic
-./scripts/first_run.sh  # Creates dirs, downloads data, sets up mimic_venv
+./scripts/first_run.sh        # Creates directories, downloads test data, sets up Python environment
 
-# Compile and run
+# Build and run test simulation
 make
 ./mimic input/millennium.yaml
 
-# Generate plots
+# Verify success (should output: 0)
+echo $?
+```
+
+**That's it!** You've just run Mimic on the mini-Millennium simulation.
+
+### Generate Plots
+
+```bash
+# Activate Python environment
 source mimic_venv/bin/activate
+
+# Generate all plots
 python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml
+
+# Deactivate when done
 deactivate
 ```
 
-### Manual Setup
-
-If automated setup fails:
+## Build Options
 
 ```bash
-# 1. Create directories
-mkdir -p input/data/millennium output/results/millennium
-
-# 2. Download mini-Millennium simulation
-cd input/data/millennium
-wget "https://www.dropbox.com/s/l5ukpo7ar3rgxo4/mini-millennium-treefiles.tar?dl=0" -O mini-millennium-treefiles.tar
-tar -xf mini-millennium-treefiles.tar && rm mini-millennium-treefiles.tar
-cd ../../..
-
-# 3. Set up Python environment
-python3 -m venv mimic_venv
-source mimic_venv/bin/activate
-pip install -r requirements.txt
-deactivate
-
-# 4. Update input/millennium.yaml with absolute paths for:
-#    - output.directory, input.simulation_dir, input.snapshot_list_file
+make                    # Standard build
+make USE-HDF5=yes      # With HDF5 support
+make USE-MPI=yes       # With MPI parallelization
+make -j$(nproc)        # Parallel compilation (faster)
+make clean             # Clean all build artifacts
+make tests             # Run comprehensive test suite
 ```
 
-### Build Options
+## Where to Go Next
 
-```bash
-make                      # Basic compilation
-make USE-HDF5=yes        # With HDF5 support
-make USE-MPI=yes         # With MPI support
-make generate            # Regenerate code from YAML metadata
-make check-generated     # Verify generated code is current (CI)
-make clean               # Remove all build artifacts
-```
+### For Users (Running Simulations)
 
-## Usage
+→ **[docs/USER-GUIDE.md](docs/USER-GUIDE.md)** - Complete guide to installation, configuration, running simulations, and analyzing output
 
-### Running Simulations
+**Key Topics**:
+- Detailed installation instructions
+- Configuring physics modules
+- Multi-phase pipeline configuration
+- Output formats (binary and HDF5)
+- Plotting and visualization
+- Troubleshooting
 
-```bash
-./mimic <parameter_file>           # Basic execution
-./mimic --debug <parameter_file>   # Enable debug output with context (most verbose)
-./mimic --verbose <parameter_file> # Add context (timestamp, file:line) to messages
-./mimic --quiet <parameter_file>   # Only warnings and errors (least verbose)
-./mimic --skip <parameter_file>    # Skip existing output files
-```
+### For Developers (Extending Mimic)
 
-### Parameter File Structure
+→ **[docs/DEVELOPER-GUIDE.md](docs/DEVELOPER-GUIDE.md)** - Complete guide to architecture, module development, and testing
 
-Configuration uses YAML format with four main sections:
+**Key Topics**:
+- Architecture overview and core principles
+- Creating new physics modules
+- Property system and metadata schemas
+- Testing framework and standards
+- Development workflow
+- Code standards
 
-```yaml
-output:
-  output_filename: model
-  output_directory: /path/to/output/
-  output_format: binary              # or 'hdf5'
-  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
+### For Reference (Looking Up Specifications)
 
-input:
-  tree_type: lhalo_binary     # or 'genesis_lhalo_hdf5'
-  simulation_dir: /path/to/trees/
-  first_file: 0
-  last_file: 7
+→ **[docs/REFERENCE.md](docs/REFERENCE.md)** - Technical specifications for modules, properties, and formats
 
-simulation:
-  cosmology:
-    omega_matter: 0.25
-    omega_lambda: 0.75
-    hubble_h: 0.73
-  box_size: 62.5              # Mpc/h
-  particle_mass: 0.0860657    # 10^10 Msun/h
-  units:
-    length_in_cm: 3.08568e+24   # Mpc/h
-    mass_in_g: 1.989e+43        # 10^10 Msun
-    velocity_in_cm_per_s: 100000.0  # km/s
-```
+**Key Topics**:
+- Module metadata schema
+- Property metadata schema
+- Output format specifications
+- Configuration file reference
+- API reference
 
-See `input/millennium.yaml` for complete parameter documentation.
+### For Understanding Design Philosophy
 
-## Architecture
+→ **[docs/VISION.md](docs/VISION.md)** - Architectural principles and design philosophy
 
-Mimic uses a modular structure with metadata-driven code generation:
-
-- **src/core/**: Main execution and halo tracking infrastructure
-  - `halo_properties.yaml`: Halo property metadata (auto-generates C structs)
-- **src/include/**: Headers and auto-generated property code
-- **src/io/**: Multi-format tree readers (binary, HDF5) and output writers
-- **src/modules/**: Runtime-configurable physics modules
-  - `model_properties.yaml`: Model property metadata (auto-generates C structs and Python dtypes)
-  - `_system/`: Framework infrastructure (physical constants, output helpers, module templates)
-  - `_shared/`: Reusable physics utilities and swappable models
-  - `_archive/`: Historical modules for reference
-- **src/util/**: Memory management, error handling, numeric utilities
-
-Key design patterns: three-tier halo architecture (input → processing → output), category-tracked memory allocation, format-agnostic I/O, and physics-agnostic core with runtime module selection.
-
-See [docs/architecture/vision.md](docs/architecture/vision.md) for detailed design principles.
-
-## Visualization
-
-The plotting system (`output/mimic-plot/`) generates 6 halo property analyses including mass functions, occupation statistics, spin/velocity distributions, and spatial distributions:
-
-```bash
-source mimic_venv/bin/activate
-
-# Generate all plots (snapshot + evolution)
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml
-
-# Generate specific types
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml --snapshot-plots
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml --plots=halo_mass_function,spin_distribution
-```
-
-See [output/mimic-plot/README.md](output/mimic-plot/README.md) for details.
-
-## Development Tools
-
-### Code Formatting
-```bash
-./scripts/beautify.sh           # Format all C and Python code
-./scripts/beautify.sh --c-only  # C code only (requires clang-format)
-./scripts/beautify.sh --py-only # Python only (requires black/isort)
-```
-
-### Performance Benchmarking
-```bash
-cd scripts
-./benchmark_mimic.sh                    # Default benchmark
-./benchmark_mimic.sh custom.yaml        # Custom parameter file
-./benchmark_mimic.sh --verbose          # Detailed output
-```
-
-Results saved to `benchmarks/` (gitignored) in JSON format.
-
-## Testing
-
-```bash
-make tests              # Run all test tiers (validates metadata first)
-make test-unit          # C unit tests (fast, <10s)
-make test-integration   # Python integration tests (<1min)
-make test-scientific    # Scientific validation tests (<5min)
-```
-
-Test data uses the mini-Millennium simulation ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)), automatically downloaded by `scripts/first_run.sh`.
+**Key Topics**:
+- 8 core architectural principles
+- Implementation philosophy
+- Design decisions and rationale
+- Future direction
 
 ## Documentation
 
-- **[docs/architecture/vision.md](docs/architecture/vision.md)**: Design principles and architectural philosophy
-- **[docs/developer/](docs/developer/)**: Development guides, coding standards, testing framework
-- **Inline code documentation**: Comprehensive docstrings following professional standards
+**Complete documentation** is available in the [docs/](docs/) directory:
+
+- **USER-GUIDE.md** - Using Mimic (installation, configuration, running simulations)
+- **DEVELOPER-GUIDE.md** - Extending Mimic (architecture, modules, testing)
+- **REFERENCE.md** - Technical specifications (schemas, formats, API)
+- **VISION.md** - Design philosophy and architectural principles
+
+## Testing
+
+Mimic includes a comprehensive three-tier testing framework:
+
+```bash
+make tests              # Run all tests (validates metadata, runs all tiers)
+make test-unit          # C unit tests (fast, <10s)
+make test-integration   # Python integration tests (<1min)
+make test-scientific    # Physics validation tests (<5min)
+```
+
+Test data uses the mini-Millennium simulation ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)), automatically downloaded during first-time setup.
 
 ## Contributing
 
-Contributions welcome! File issues for bugs, suggest features for new physics modules, or submit pull requests following the coding standards in [docs/developer/coding-standards.md](docs/developer/coding-standards.md). Document as you code, test thoroughly, and align with the architectural vision.
+Contributions are welcome! When contributing:
 
-## Historical Context
+1. Follow the coding standards in [docs/DEVELOPER-GUIDE.md](docs/DEVELOPER-GUIDE.md)
+2. Align with architectural principles in [docs/VISION.md](docs/VISION.md)
+3. Write comprehensive tests for new features
+4. Update relevant documentation
 
-Mimic builds upon the **Semi-Analytic Galaxy Evolution (SAGE)** model by Croton et al. ([2016](http://arxiv.org/abs/1601.04709), [2006](http://arxiv.org/abs/astro-ph/0508046)). The current codebase represents a refactored foundation focusing on physics-agnostic infrastructure with runtime-configurable modules.
+## Citation
 
-**Related SAGE Resources**: [Original SAGE code](https://github.com/darrencroton/sage) | [ASCL](http://ascl.net/1601.006) | [TAO Platform](https://tao.asvo.org.au/) | [![DOI](https://zenodo.org/badge/13542/darrencroton/sage.svg)](https://zenodo.org/badge/latestdoi/13542/darrencroton/sage)
+If you use Mimic in your research, please cite the SAGE papers:
+
+- Croton et al. 2016: [Semi-Analytic Galaxy Evolution (SAGE): Model Calibration and Basic Results](http://arxiv.org/abs/1601.04709)
+- Croton et al. 2006: [The many lives of active galactic nuclei: cooling flows, black holes and the luminosities and colours of galaxies](http://arxiv.org/abs/astro-ph/0508046)
+
+**Related SAGE Resources**:
+- [Original SAGE code](https://github.com/darrencroton/sage)
+- [ASCL Entry](http://ascl.net/1601.006)
+- [TAO Platform](https://tao.asvo.org.au/)
+- [![DOI](https://zenodo.org/badge/13542/darrencroton/sage.svg)](https://zenodo.org/badge/latestdoi/13542/darrencroton/sage)
 
 ## License
 
-Mimic is available under an open-source license. See the LICENSE file for details.
+Mimic is available under an open-source license. See LICENSE file for details.
 
 ## Contact
 
-Questions and comments can be sent to Darren Croton: dcroton@swin.edu.au
+**Darren Croton**
+Email: dcroton@swin.edu.au
+Web: [darrencroton.github.io](https://darrencroton.github.io)
 
-Visit [darrencroton.github.io](https://darrencroton.github.io) for more information.
+---
+
+**Architecture Note**: Mimic is designed around 8 core principles including physics-agnostic infrastructure, runtime modularity, and metadata-driven development. See [docs/VISION.md](docs/VISION.md) for the complete architectural vision.

@@ -84,7 +84,7 @@ static inline double mimic_my_function(double x) {
 
 4. **Write tests** (optional but recommended):
    - Create `src/modules/_shared/tests/test_unit_my_utility.c`
-   - Follow testing guide in `docs/developer/testing.md`
+   - Follow testing guide in `docs/DEVELOPER-GUIDE.md`
 
 ---
 
@@ -147,7 +147,7 @@ tests:
 make test-unit
 ```
 
-See `docs/developer/testing.md` for comprehensive testing guide.
+See `docs/DEVELOPER-GUIDE.md` for comprehensive testing guide.
 
 ---
 
@@ -195,6 +195,5 @@ This maintains Mimic's architectural vision:
 ## See Also
 
 - `src/modules/_system/` - Framework infrastructure (constants, templates)
-- `docs/developer/module-developer-guide.md` - How to create modules
-- `docs/developer/testing.md` - Comprehensive testing guide
-- `docs/architecture/vision.md` - Framework architecture principles
+- `docs/DEVELOPER-GUIDE.md` - How to create modules and comprehensive testing
+- `docs/VISION.md` - Framework architecture principles

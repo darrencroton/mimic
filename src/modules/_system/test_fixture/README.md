@@ -86,8 +86,8 @@ Total implementation: ~150 lines of well-documented code
 
 ## Related Documentation
 
-- **Testing Conventions**: `docs/developer/testing.md` (Infrastructure Testing section)
-- **Vision Principles**: `docs/architecture/vision.md` (Principle #1)
+- **Testing Conventions**: `docs/DEVELOPER-GUIDE.md` (Testing section)
+- **Vision Principles**: `docs/VISION.md` (Principle #1)
 
 ## History
 

@@ -79,7 +79,7 @@ deactivate
 
 ## Working with Units
 
-All Mimic output properties include unit metadata for reproducible science. Units are stored in code units internally (see `docs/developer/unit-system-guide.md`), with metadata available for proper interpretation.
+All Mimic output properties include unit metadata for reproducible science. Units are stored in code units internally (see `docs/DEVELOPER-GUIDE.md` Advanced Topics section), with metadata available for proper interpretation.
 
 ### Accessing Unit Information
 
@@ -141,7 +141,7 @@ h = 0.73  # From parameter file
 mass_physical_msun = halos['Mvir'] * 1e10 / h  # Convert to physical solar masses
 ```
 
-For detailed information on unit conversions and the internal unit system, see `docs/developer/unit-system-guide.md`.
+For detailed information on unit conversions and the internal unit system, see `docs/DEVELOPER-GUIDE.md` Advanced Topics section.
 
 ## Adding New Plot Types
 

@@ -288,11 +288,10 @@ Benefits:
 - **No external dependencies**: Redshifts included (no need for .a_list file)
 
 See also:
-- **docs/architecture/vision.md**: Architectural principles and future vision
-- **docs/architecture/roadmap.md**: Development roadmap (Phases 1-3 complete)
-- **docs/developer/getting-started.md**: Developer setup and workflow
-- **docs/developer/testing.md**: Comprehensive testing guide and standards
-- **docs/user/module-configuration.md**: Guide to configuring physics modules
+- **docs/VISION.md**: Architectural principles and design philosophy
+- **docs/USER-GUIDE.md**: Complete user guide (installation, configuration, running simulations)
+- **docs/DEVELOPER-GUIDE.md**: Complete developer guide (architecture, modules, testing)
+- **docs/REFERENCE.md**: Technical specifications (schemas, formats, API)
 
 ## Development Guidelines
 - All work to highest professional coding standards
