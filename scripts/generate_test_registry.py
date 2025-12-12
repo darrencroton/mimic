@@ -91,7 +91,7 @@ def process_test_entries(test_value, module_path, repo_root, test_type, module_n
 
 def generate_test_registry(strict: bool = False):
     """Generate test registry from module metadata.
-    
+
     Args:
         strict: If True, fail on missing tests (for test runs).
                 If False, warn only (for normal builds).
@@ -141,8 +141,8 @@ def generate_test_registry(strict: bool = False):
         try:
             with open(module_info_file) as f:
                 metadata = yaml.safe_load(f)
-        except Exception as e:
-            print(f"WARNING: Failed to load {module_info_file}: {e}")
+        except (OSError, yaml.YAMLError) as e:
+            print_warning(f"Failed to load {module_info_file}: {e}")
             continue
 
         modules_found.append(module_name)
@@ -244,7 +244,9 @@ def generate_test_registry(strict: bool = False):
             print_warning("Some declared tests not found:")
             for msg in missing_tests:
                 print(f"  {COLOR_YELLOW}- {msg}{COLOR_RESET}")
-            print(f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}")
+            print(
+                f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}"
+            )
 
     print()
     print("Generated files:")

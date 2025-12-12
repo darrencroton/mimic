@@ -208,8 +208,8 @@ def load_valid_properties() -> set:
                 props_yaml = yaml.safe_load(f)
             for prop in props_yaml.get("galaxy_properties", []):
                 valid_properties.add(prop["name"])
-        except Exception as e:
-            print(f"WARNING: Failed to load galaxy properties: {e}", file=sys.stderr)
+        except (OSError, yaml.YAMLError, KeyError, TypeError) as e:
+            print_warning(f"Failed to load galaxy properties: {e}")
 
     # Load halo properties
     halo_props_path = REPO_ROOT / "src" / "core" / "halo_properties.yaml"
@@ -219,8 +219,8 @@ def load_valid_properties() -> set:
                 halo_yaml = yaml.safe_load(f)
             for prop in halo_yaml.get("halo_properties", []):
                 valid_properties.add(prop["name"])
-        except Exception as e:
-            print(f"WARNING: Failed to load halo properties: {e}", file=sys.stderr)
+        except (OSError, yaml.YAMLError, KeyError, TypeError) as e:
+            print_warning(f"Failed to load halo properties: {e}")
 
     return valid_properties
 
@@ -289,6 +289,7 @@ def validate_test_files(modules: List[Dict[str, Any]]) -> List[str]:
     Returns list of warning messages (not errors - tests may be planned).
     """
     warnings = []
+    valid_test_types = {"unit", "integration", "scientific"}
 
     for module in modules:
         module_name = module["name"]
@@ -300,12 +301,22 @@ def validate_test_files(modules: List[Dict[str, Any]]) -> List[str]:
         tests = module.get("tests", {})
 
         for test_type, test_path in tests.items():
+            # Validate test type key
+            if test_type not in valid_test_types:
+                warnings.append(
+                    f"{module_name}: Unknown test type '{test_type}' "
+                    f"(expected: {', '.join(sorted(valid_test_types))})"
+                )
+                continue
+
             if not test_path:
                 continue
 
             full_path = module_dir / test_path
             if not full_path.exists():
-                warnings.append(f"{module_name}: Declared {test_type} test not found: {test_path}")
+                warnings.append(
+                    f"{module_name}: Declared {test_type} test not found: {test_path}"
+                )
 
     return warnings
 
@@ -694,7 +705,9 @@ def main():
                 for err in prop_errors:
                     print(f"  - {err}", file=sys.stderr)
                 return 1
-            print(f"✓ All property dependencies valid ({len(valid_properties)} properties available)")
+            print(
+                f"✓ All property dependencies valid ({len(valid_properties)} properties available)"
+            )
 
         # Check test files (warning only - always shown, not just verbose)
         print("Checking declared test files...")
@@ -703,7 +716,9 @@ def main():
             print_warning("Some declared tests not found:")
             for warn in test_warnings:
                 print(f"  {COLOR_YELLOW}- {warn}{COLOR_RESET}")
-            print(f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}")
+            print(
+                f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}"
+            )
         else:
             print("✓ All declared test files exist")
 
