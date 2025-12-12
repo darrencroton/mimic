@@ -25,9 +25,10 @@
  */
 
 #include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <stdio.h>   /* Required for error.h logging macros */
+#include <stdlib.h>  /* Required for error.h logging macros */
 
+#include "constants.h"
 #include "error.h"
 #include "memory.h"
 #include "module_interface.h"
@@ -299,7 +300,7 @@ static struct Module template_module = {
     .process = template_module_process,
     .cleanup = template_module_cleanup,
     .supported_processing_modes = template_module_supported_modes,
-    .num_supported_modes = 2  /* Default: supports both processing modes */
+    .num_supported_modes = 2  /* Must match count in module_info.yaml supported_processing_modes */
 };
 
 void template_module_register(void) {

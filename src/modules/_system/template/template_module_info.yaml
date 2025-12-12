@@ -17,6 +17,11 @@ module:
   supported_processing_modes: [process_by_galaxy, process_full_halo]
 
   dependencies:
+    # List all properties read or written by this module
+    # Example: properties:
+    #   - HotGas
+    #   - ColdGas
+    #   - StellarMass
     properties: []
 
     parameters:

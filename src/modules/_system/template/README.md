@@ -73,13 +73,14 @@ module:
   description: "Brief description"
   version: "1.0.0"
   author: "Your Name"
-  category: gas_physics
 
   sources:
     - your_module.c
   headers:
     - your_module.h
   register_function: your_module_register
+
+  supported_processing_modes: [process_by_galaxy]  # or [process_full_halo] or both
 
   dependencies:
     # All halo and galaxy properties read or written by this module
@@ -89,13 +90,16 @@ module:
 
     # All model parameters accessed via model_get_*() functions
     parameters:
-      - BaryonFrac
+      - GlobalBaryonFraction
       - SfrEfficiency
 
   tests:
-    unit: test_unit_your_module.c
-    integration: test_integration_your_module.py
-    scientific: test_scientific_your_module_validation.py
+    unit: tests/test_unit_your_module.c
+    integration: tests/test_integration_your_module.py
+    scientific: tests/test_scientific_your_module_validation.py
+
+  docs:
+    physics: README.md
 ```
 
 Module registration is **auto-generated** from this metadata - no manual code needed!
@@ -112,19 +116,27 @@ make test-integration # Run integration tests
 
 ### 8. Configure and Run
 
-Add your module to the enabled modules list in your YAML configuration:
+Add your module to the appropriate phase in your YAML configuration:
 
 ```yaml
-# Enable your module and configure parameters
+# Configure module phases and parameters
 modules:
-  enabled:
-  - sage_calculate_infall
-  - sage_cooling
-  - your_module  # Add your module here
+  pre_timestep:                         # Setup (runs once before substeps)
+    - sage_reionization: process_full_halo
+    - sage_calculate_infall: process_full_halo
+
+  phase_1:                              # Main physics (runs each substep)
+    - your_module: process_by_galaxy    # Add your module to appropriate phase
+
+  phase_2: []                           # Secondary physics (runs each substep)
+
+  post_timestep: []                     # Finalization (runs once after substeps)
+
   parameters:
     # All parameters REQUIRED - shown partially here
-    BaryonFrac: 0.17
+    GlobalBaryonFraction: 0.17
     SfrEfficiency: 0.02
+    YourModuleParam: 1.0
     # ... (add all parameters used by enabled modules)
 ```
 
@@ -222,17 +234,17 @@ static int template_module_init(void) {
 #include "../_system/parameter_helpers.h"
 
 // MODEL PARAMETERS
-static double baryon_frac;  // Read from input YAML via model_get_double()
+static double global_baryon_frac;  // Read from input YAML via model_get_double()
 
 static float compute_cooling_rate(float mvir, double redshift) {
     // Physics: accreted baryons cool from hot halo
-    float cooling_rate = baryon_frac * mvir / (1.0 + redshift);
+    float cooling_rate = global_baryon_frac * mvir / (1.0 + redshift);
     return cooling_rate;
 }
 
 static int your_module_init(void) {
     // Load and validate parameter in one call
-    LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", baryon_frac, 0.0, 1.0,
+    LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", global_baryon_frac, 0.0, 1.0,
                                       "cosmic baryon fraction must be physical");
 
     INFO_LOG("Cooling module initialized with BaryonFrac = %f", baryon_frac);
