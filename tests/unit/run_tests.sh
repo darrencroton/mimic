@@ -112,8 +112,18 @@ if [ $# -gt 0 ]; then
     # Specific test requested
     TESTS="$@"
 else
-    # Core infrastructure tests (not module-specific)
-    CORE_TESTS="test_memory_system test_property_metadata test_parameter_parsing test_tree_loading test_numeric_utilities test_module_configuration test_virial_properties test_property_reset"
+    # Auto-discover core infrastructure tests
+    # Find all test_*.c files in tests/unit/, excluding test_stubs.c
+    CORE_TESTS=""
+    for test_file in "${TEST_DIR}"/test_*.c; do
+        if [ -f "$test_file" ]; then
+            test_name=$(basename "$test_file" .c)
+            # Exclude test_stubs.c (not a test)
+            if [ "$test_name" != "test_stubs" ]; then
+                CORE_TESTS="$CORE_TESTS $test_name"
+            fi
+        fi
+    done
 
     # Auto-discover module tests from registry
     MODULE_TESTS=""

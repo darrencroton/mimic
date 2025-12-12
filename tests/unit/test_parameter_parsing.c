@@ -41,6 +41,25 @@ static int failed = 0;
 extern struct MimicConfig MimicConfig;
 
 /**
+ * @brief   Setup function for test initialization
+ *
+ * Initializes memory system and error handling with warning level.
+ */
+static void setup_test(void) {
+    init_memory_system(0);
+    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+}
+
+/**
+ * @brief   Teardown function for test cleanup
+ *
+ * Checks for memory leaks after test execution.
+ */
+static void teardown_test(void) {
+    check_memory_leaks();
+}
+
+/**
  * @test    test_basic_parsing
  * @brief   Test that parameter file can be parsed without errors
  *
@@ -49,19 +68,16 @@ extern struct MimicConfig MimicConfig;
  */
 int test_basic_parsing(void) {
     /* ===== SETUP ===== */
-    init_memory_system(0);
-    initialize_error_handling(LOG_LEVEL_WARNING, NULL); /* Suppress info logs */
+    setup_test();
 
     /* ===== EXECUTE ===== */
-    /* Read test parameter file */
     read_parameter_file("tests/data/test_binary.yaml");
 
     /* ===== VALIDATE ===== */
-    /* If we got here without crashing, parsing succeeded */
     printf("  ✓ Parameter file parsed successfully\n");
 
     /* ===== CLEANUP ===== */
-    check_memory_leaks();
+    teardown_test();
 
     return TEST_PASS;
 }
@@ -75,8 +91,7 @@ int test_basic_parsing(void) {
  */
 int test_integer_parameters(void) {
     /* ===== SETUP ===== */
-    init_memory_system(0);
-    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+    setup_test();
 
     /* ===== EXECUTE ===== */
     read_parameter_file("tests/data/test_binary.yaml");
@@ -93,7 +108,7 @@ int test_integer_parameters(void) {
     printf("  LastSnapshotNr: %d\n", MimicConfig.LastSnapshotNr);
 
     /* ===== CLEANUP ===== */
-    check_memory_leaks();
+    teardown_test();
 
     return TEST_PASS;
 }
@@ -107,8 +122,7 @@ int test_integer_parameters(void) {
  */
 int test_float_parameters(void) {
     /* ===== SETUP ===== */
-    init_memory_system(0);
-    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+    setup_test();
 
     /* ===== EXECUTE ===== */
     read_parameter_file("tests/data/test_binary.yaml");
@@ -123,7 +137,7 @@ int test_float_parameters(void) {
     printf("  PartMass: %.7f\n", MimicConfig.PartMass);
 
     /* ===== CLEANUP ===== */
-    check_memory_leaks();
+    teardown_test();
 
     return TEST_PASS;
 }
@@ -137,8 +151,7 @@ int test_float_parameters(void) {
  */
 int test_string_parameters(void) {
     /* ===== SETUP ===== */
-    init_memory_system(0);
-    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+    setup_test();
 
     /* ===== EXECUTE ===== */
     read_parameter_file("tests/data/test_binary.yaml");
@@ -159,7 +172,7 @@ int test_string_parameters(void) {
     printf("  SimulationDir: %s\n", MimicConfig.SimulationDir);
 
     /* ===== CLEANUP ===== */
-    check_memory_leaks();
+    teardown_test();
 
     return TEST_PASS;
 }
@@ -173,8 +186,7 @@ int test_string_parameters(void) {
  */
 int test_cosmology_parameters(void) {
     /* ===== SETUP ===== */
-    init_memory_system(0);
-    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+    setup_test();
 
     /* ===== EXECUTE ===== */
     read_parameter_file("tests/data/test_binary.yaml");
@@ -197,7 +209,7 @@ int test_cosmology_parameters(void) {
                             "Omega + OmegaLambda should be ~1.0 (flat universe)");
 
     /* ===== CLEANUP ===== */
-    check_memory_leaks();
+    teardown_test();
 
     return TEST_PASS;
 }
@@ -211,8 +223,7 @@ int test_cosmology_parameters(void) {
  */
 int test_snapshot_list(void) {
     /* ===== SETUP ===== */
-    init_memory_system(0);
-    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+    setup_test();
 
     /* ===== EXECUTE ===== */
     read_parameter_file("tests/data/test_binary.yaml");
@@ -230,7 +241,7 @@ int test_snapshot_list(void) {
     printf("\n");
 
     /* ===== CLEANUP ===== */
-    check_memory_leaks();
+    teardown_test();
 
     return TEST_PASS;
 }
