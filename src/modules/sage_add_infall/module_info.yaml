@@ -8,8 +8,6 @@ module:
   sources:
     - sage_add_infall.c
 
-  register_function: sage_add_infall_register
-
   supported_processing_modes: [process_full_halo]
 
   dependencies:

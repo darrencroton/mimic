@@ -141,7 +141,7 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
  *
  * @return  0 on success
  */
-static int sage_calculate_infall_init(void) {
+int sage_calculate_infall_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                     "cosmic baryon fraction must be physical");
 
@@ -163,7 +163,7 @@ static int sage_calculate_infall_init(void) {
  * @param   ngal    Number of halos
  * @return  0 on success, non-zero on failure
  */
-static int sage_calculate_infall_process(struct ModuleContext *ctx, struct Halo *halos,
+int sage_calculate_infall_process(struct ModuleContext *ctx, struct Halo *halos,
                                 int ngal) {
   if (halos == NULL || ngal <= 0) {
     return 0;
@@ -210,25 +210,7 @@ static int sage_calculate_infall_process(struct ModuleContext *ctx, struct Halo 
  *
  * @return  0 on success
  */
-static int sage_calculate_infall_cleanup(void) {
+int sage_calculate_infall_cleanup(void) {
   VERBOSE_LOG("SAGE calculate infall module cleaned up");
   return 0;
 }
-
-// ============================================================================
-// MODULE REGISTRATION
-// ============================================================================
-
-/* Extern reference to generated loop mode array */
-extern const enum ProcessingMode sage_calculate_infall_supported_modes[];
-
-static struct Module sage_calculate_infall_module = {
-    .name = "sage_calculate_infall",
-    .init = sage_calculate_infall_init,
-    .process = sage_calculate_infall_process,
-    .cleanup = sage_calculate_infall_cleanup,
-    .supported_processing_modes = sage_calculate_infall_supported_modes,
-    .num_supported_modes = 1  /* Only supports PROCESSING_MODE_FULL_HALO */
-};
-
-void sage_calculate_infall_register(void) { module_registry_add(&sage_calculate_infall_module); }

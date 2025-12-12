@@ -11,8 +11,6 @@ module:
   headers:
     - sage_mergers.h
 
-  register_function: sage_mergers_register
-
   supported_processing_modes: [process_full_halo]
 
   dependencies:

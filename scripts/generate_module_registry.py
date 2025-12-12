@@ -366,6 +366,82 @@ def load_saved_hash() -> str:
 # ==============================================================================
 
 
+def generate_lifecycle_forward_declarations(modules: List[Dict[str, Any]]) -> List[str]:
+    """Generate forward declarations for module lifecycle functions."""
+    lines = []
+    lines.append(
+        "/* ========================================================================== */"
+    )
+    lines.append(
+        "/* FORWARD DECLARATIONS FOR MODULE LIFECYCLE FUNCTIONS                       */"
+    )
+    lines.append(
+        "/* ========================================================================== */"
+    )
+    lines.append("")
+    lines.append("/*")
+    lines.append(" * Forward declarations for module lifecycle functions.")
+    lines.append(" * These functions are implemented in each module's .c file.")
+    lines.append(" *")
+    lines.append(" * Eliminates need for per-module header files.")
+    lines.append(" */")
+    lines.append("")
+
+    for module in sorted(modules, key=lambda m: m["name"]):
+        name = module["name"]
+        lines.append(f"extern int {name}_init(void);")
+        lines.append(
+            f"extern int {name}_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);"
+        )
+        lines.append(f"extern int {name}_cleanup(void);")
+        lines.append("")
+
+    return lines
+
+
+def generate_module_struct_definitions(modules: List[Dict[str, Any]]) -> List[str]:
+    """Generate static struct Module definitions for all modules."""
+    lines = []
+    lines.append(
+        "/* ========================================================================== */"
+    )
+    lines.append(
+        "/* MODULE STRUCT DEFINITIONS (auto-generated from module_info.yaml)           */"
+    )
+    lines.append(
+        "/* ========================================================================== */"
+    )
+    lines.append("")
+    lines.append("/*")
+    lines.append(" * Module struct definitions generated from module_info.yaml.")
+    lines.append(
+        " * Each module struct connects lifecycle functions to the module registry."
+    )
+    lines.append(" *")
+    lines.append(" * Single source of truth: module_info.yaml")
+    lines.append(" */")
+    lines.append("")
+
+    for module in sorted(modules, key=lambda m: m["name"]):
+        name = module["name"]
+        modes = module.get(
+            "supported_processing_modes", ["process_full_halo", "process_by_galaxy"]
+        )
+        num_modes = len(modes)
+
+        lines.append(f"static struct Module {name}_module = {{")
+        lines.append(f'    .name = "{name}",')
+        lines.append(f"    .init = {name}_init,")
+        lines.append(f"    .process = {name}_process,")
+        lines.append(f"    .cleanup = {name}_cleanup,")
+        lines.append(f"    .supported_processing_modes = {name}_supported_modes,")
+        lines.append(f"    .num_supported_modes = {num_modes}")
+        lines.append("};")
+        lines.append("")
+
+    return lines
+
+
 def generate_module_init_c(
     modules: List[Dict[str, Any]],
     metadata_hash: str,
@@ -391,13 +467,8 @@ def generate_module_init_c(
     lines.append('#include "module_interface.h"')
     lines.append("")
 
-    # Forward declarations for module registration functions (no headers needed)
-    lines.append("/* Forward declarations for module registration functions */")
-    lines.append("/* (Eliminates need for per-module header files) */")
-    for module in sorted(runtime_modules, key=lambda m: m["name"]):
-        register_func = module.get("register_function", f"{module['name']}_register")
-        lines.append(f"extern void {register_func}(void);")
-    lines.append("")
+    # Forward declarations for module lifecycle functions
+    lines.extend(generate_lifecycle_forward_declarations(runtime_modules))
 
     # Generate processing mode arrays for each module
     lines.append(
@@ -455,6 +526,9 @@ def generate_module_init_c(
 
     lines.append("")
 
+    # Module struct definitions
+    lines.extend(generate_module_struct_definitions(runtime_modules))
+
     # Registration function
     lines.append(
         "/* ========================================================================== */"
@@ -486,19 +560,20 @@ def generate_module_init_c(
     lines.append("void register_all_modules(void) {")
 
     if runtime_modules:
-        lines.append("    /* Register in execution order from config */")
+        lines.append(
+            "    /* Directly register module structs (no per-module functions) */"
+        )
         for module in runtime_modules:
             name = module["name"]
-            register_func = module.get("register_function", f"{name}_register")
             properties = module.get("dependencies", {}).get("properties", [])
 
             # Add inline comment
             if properties:
-                comment = f"Uses: {', '.join(properties)}"
+                comment = f"  /* Uses: {', '.join(properties)} */"
             else:
-                comment = "No properties"
+                comment = ""
 
-            lines.append(f"    {register_func}();  /* {comment} */")
+            lines.append(f"    module_registry_add(&{name}_module);{comment}")
     else:
         lines.append("    /* No modules to register */")
 

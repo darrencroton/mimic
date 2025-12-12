@@ -79,8 +79,6 @@ module:
   headers:
     # - not needed (generator uses forward declarations) unless you want to add your own
 
-  register_function: your_module_register
-
   supported_processing_modes: [process_by_galaxy]  # or [process_full_halo] or both
 
   dependencies:

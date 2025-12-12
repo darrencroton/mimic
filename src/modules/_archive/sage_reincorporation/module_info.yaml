@@ -11,8 +11,6 @@ module:
   headers:
     - sage_reincorporation.h
 
-  register_function: sage_reincorporation_register
-
   supported_processing_modes: [process_by_galaxy]
 
   dependencies:

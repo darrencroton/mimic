@@ -13,8 +13,6 @@ module:
     - sage_cooling.h
     - cooling_tables.h
 
-  register_function: sage_cooling_register
-
   supported_processing_modes: [process_by_galaxy]
 
   dependencies:

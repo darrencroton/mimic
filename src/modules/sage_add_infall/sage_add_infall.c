@@ -28,7 +28,7 @@
  *
  * @return  0 on success
  */
-static int sage_add_infall_init(void) {
+int sage_add_infall_init(void) {
   INFO_LOG("SAGE add infall module initialized");
   VERBOSE_LOG("  Physics: Transfer InfallingGas → HotGas with metallicity");
   VERBOSE_LOG("  Distributes InfallingGas over substeps");
@@ -46,7 +46,7 @@ static int sage_add_infall_init(void) {
  * @param   ngal    Number of halos in FOF group
  * @return  0 on success, non-zero on failure
  */
-static int sage_add_infall_process(struct ModuleContext *ctx, struct Halo *halos,
+int sage_add_infall_process(struct ModuleContext *ctx, struct Halo *halos,
                                     int ngal) {
   if (halos == NULL || ngal <= 0) {
     return 0;
@@ -127,25 +127,7 @@ static int sage_add_infall_process(struct ModuleContext *ctx, struct Halo *halos
  *
  * @return  0 on success
  */
-static int sage_add_infall_cleanup(void) {
+int sage_add_infall_cleanup(void) {
   VERBOSE_LOG("SAGE add infall module cleaned up");
   return 0;
 }
-
-// ============================================================================
-// MODULE REGISTRATION
-// ============================================================================
-
-/* Extern reference to generated loop mode array */
-extern const enum ProcessingMode sage_add_infall_supported_modes[];
-
-static struct Module sage_add_infall_module = {
-    .name = "sage_add_infall",
-    .init = sage_add_infall_init,
-    .process = sage_add_infall_process,
-    .cleanup = sage_add_infall_cleanup,
-    .supported_processing_modes = sage_add_infall_supported_modes,
-    .num_supported_modes = 1  /* Only supports PROCESSING_MODE_FULL_HALO */
-};
-
-void sage_add_infall_register(void) { module_registry_add(&sage_add_infall_module); }

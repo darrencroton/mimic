@@ -13,8 +13,6 @@ module:
   headers:
     - sage_disk_instability.h
 
-  register_function: sage_disk_instability_register
-
   supported_processing_modes: [process_by_galaxy]
 
   dependencies:

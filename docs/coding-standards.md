@@ -272,8 +272,6 @@ module:
   sources:
     - sage_calculate_infall.c
 
-  register_function: sage_calculate_infall_register
-
   dependencies:
     properties:
       - HotGas
@@ -312,8 +310,6 @@ module:
     - sage_calculate_infall.c  # Module implementation
 
   # headers: not needed - generator uses forward declarations
-
-  register_function: sage_calculate_infall_register  # Must be {module_name}_register
 
   # ===========================================================================
   # Dependencies (REQUIRED)
@@ -409,24 +405,7 @@ static int my_module_cleanup(void) {
   return 0;
 }
 
-// ============================================================================
-// MODULE REGISTRATION
-// ============================================================================
-
-extern const enum ProcessingMode my_module_supported_modes[];
-
-static struct Module my_module = {
-    .name = "my_module",
-    .init = my_module_init,
-    .process = my_module_process,
-    .cleanup = my_module_cleanup,
-    .supported_processing_modes = my_module_supported_modes,
-    .num_supported_modes = 1
-};
-
-void my_module_register(void) {
-  module_registry_add(&my_module);
-}
+// Module registration is auto-generated from module_info.yaml
 ```
 
 ---

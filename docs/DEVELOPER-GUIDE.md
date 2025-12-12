@@ -199,6 +199,9 @@ mv template_module_info.yaml module_info.yaml
 ```
 
 **2. Implement module** (`my_module.c`):
+
+You only need to implement three functions - registration is automatic.
+
 ```c
 #include <stdio.h>
 #include <math.h>
@@ -265,24 +268,14 @@ static int my_module_cleanup(void) {
 }
 
 // ============================================================================
-// MODULE REGISTRATION
+// MODULE LIFECYCLE FUNCTIONS (auto-generated from module_info.yaml)
 // ============================================================================
-
-extern const enum ProcessingMode my_module_supported_modes[];
-
-static struct Module my_module = {
-    .name = "my_module",
-    .init = my_module_init,
-    .process = my_module_process,
-    .cleanup = my_module_cleanup,
-    .supported_processing_modes = my_module_supported_modes,
-    .num_supported_modes = 1
-};
-
-void my_module_register(void) {
-  module_registry_add(&my_module);
-}
+// Registration is automatic - no code needed here.
+// The generator creates module struct and registration in module_init.c
 ```
+
+**IMPORTANT**: Function names must follow the convention `{module_name}_{init|process|cleanup}`.
+This is enforced by the code generator.
 
 **4. Create metadata** (`module_info.yaml`):
 ```yaml
@@ -295,8 +288,6 @@ module:
 
   sources:
     - my_module.c
-
-  register_function: my_module_register
 
   processing_modes:
     - process_by_galaxy
@@ -320,10 +311,12 @@ module:
   compilation_requires: []
 ```
 
-**5. Register module**:
+**5. Generate registration code**:
 ```bash
-make generate  # Auto-generates registration code
+make generate  # Auto-generates module_init.c with registration
 ```
+
+This generates all registration code in `module_init.c` from your `module_info.yaml`.
 
 **6. Build and test**:
 ```bash

@@ -59,7 +59,7 @@ static int execution_count = 0;
  *
  * @return  0 on success, -1 on error
  */
-static int test_fixture_init(void) {
+int test_fixture_init(void) {
   // Read parameters from model_get_*() API system
   if (model_get_double("TestFixtureDummyParameter", &DUMMY_PARAMETER) != 0) {
     ERROR_LOG("Failed to read TestFixtureDummyParameter from model_parameters");
@@ -99,7 +99,7 @@ static int test_fixture_init(void) {
  * @param   ngal    Number of halos in the array
  * @return  0 on success, -1 on error
  */
-static int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos,
+int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos,
                                  int ngal) {
   if (halos == NULL || ngal <= 0) {
     return 0; // Nothing to process
@@ -147,7 +147,7 @@ static int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos,
  *
  * @return 0 on success
  */
-static int test_fixture_cleanup(void) {
+int test_fixture_cleanup(void) {
   if (ENABLE_LOGGING) {
     INFO_LOG("TEST_FIXTURE_CLEANUP: total_executions=%d", execution_count);
   }
@@ -155,26 +155,4 @@ static int test_fixture_cleanup(void) {
   execution_count = 0;
   // No resources to free
   return 0;
-}
-
-/* Extern reference to generated loop mode array */
-extern const enum ProcessingMode test_fixture_supported_modes[];
-
-/**
- * @brief   Register test fixture module
- *
- * Creates and registers this module with the module registry.
- * Should be called once during program initialization.
- */
-void test_fixture_register(void) {
-  static struct Module test_fixture_module = {
-      .name = "test_fixture",
-      .init = test_fixture_init,
-      .process = test_fixture_process,
-      .cleanup = test_fixture_cleanup,
-      .supported_processing_modes = test_fixture_supported_modes,
-      .num_supported_modes = 2  /* Default: supports both processing modes */
-  };
-
-  module_registry_add(&test_fixture_module);
 }

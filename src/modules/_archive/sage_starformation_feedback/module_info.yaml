@@ -11,8 +11,6 @@ module:
   headers:
     - sage_starformation_feedback.h
 
-  register_function: sage_starformation_feedback_register
-
   supported_processing_modes: [process_full_halo]
 
   dependencies:

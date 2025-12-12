@@ -253,7 +253,8 @@ def validate_required_fields(
         "author",
     ]
     # Note: headers is optional - generator uses forward declarations instead
-    required_sources = ["sources", "register_function"]
+    # Note: register_function is auto-generated - no longer in YAML
+    required_sources = ["sources"]
     required_deps = ["dependencies"]
     # Phase 4.4: parameters is now optional (centralized modules.parameters system)
     # Modules may have module-specific parameters OR use only global modules.parameters
@@ -296,7 +297,6 @@ def validate_field_types(
         "description",
         "version",
         "author",
-        "register_function",
     ]:
         if field in module and not isinstance(module[field], str):
             results.add_error(module_name, 1, f"Field '{field}' must be a string")
@@ -439,26 +439,6 @@ def validate_name(
             module_name,
             4,
             f"Module name '{name}' doesn't match directory name '{module_dir.name}'",
-        )
-        return False
-
-    return True
-
-
-def validate_register_function(
-    module: Dict[str, Any], module_name: str, results: ValidationResults
-) -> bool:
-    """Validate register function follows naming convention."""
-
-    name = module.get("name", "")
-    register_func = module.get("register_function", "")
-
-    expected = f"{name}_register"
-    if register_func != expected:
-        results.add_error(
-            module_name,
-            4,
-            f"Register function '{register_func}' should be '{expected}'",
         )
         return False
 
@@ -667,48 +647,6 @@ def validate_doc_files(
 # ==============================================================================
 
 
-def validate_register_function_exists(
-    module: Dict[str, Any],
-    module_name: str,
-    module_dir: Path,
-    results: ValidationResults,
-) -> bool:
-    """Verify register function exists in source code."""
-
-    register_func = module.get("register_function", "")
-    if not register_func:
-        return False
-
-    # Search all source files for function definition
-    found = False
-
-    for source in module.get("sources", []):
-        source_path = module_dir / source
-        if not source_path.exists():
-            continue
-
-        try:
-            with open(source_path, "r", encoding="utf-8") as f:
-                content = f.read()
-                # Look for function definition (basic pattern match)
-                pattern = rf"\bvoid\s+{re.escape(register_func)}\s*\("
-                if re.search(pattern, content):
-                    found = True
-                    break
-        except Exception:
-            pass
-
-    if not found:
-        results.add_error(
-            module_name,
-            6,
-            f"Register function '{register_func}' not found in source files",
-        )
-        return False
-
-    return True
-
-
 # ==============================================================================
 # DEPENDENCY VALIDATION
 # ==============================================================================
@@ -838,9 +776,6 @@ def validate_module(
     if not validate_name(module, module_name, module_dir, results):
         return False
 
-    if not validate_register_function(module, module_name, results):
-        return False
-
     if not validate_compilation_requires(module, module_name, results):
         return False
 
@@ -853,9 +788,6 @@ def validate_module(
 
     validate_test_files(module, module_name, module_dir, results)
     validate_doc_files(module, module_name, results)
-
-    # Code verification
-    validate_register_function_exists(module, module_name, module_dir, results)
 
     if verbose:
         print(f"  ✓ {module_name} validated")

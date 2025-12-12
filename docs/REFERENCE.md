@@ -38,8 +38,6 @@ module:
   # headers:                          # OPTIONAL: Not needed (generator uses forward declarations)
   #   - my_module.h
 
-  register_function: my_module_register  # REQUIRED: {module_name}_register
-
   # Processing modes
   processing_modes:                  # REQUIRED: List of supported modes
     - process_by_galaxy              # or process_full_halo
@@ -108,8 +106,6 @@ module:
 
   sources:
     - sage_cooling.c
-
-  register_function: sage_cooling_register
 
   processing_modes:
     - process_by_galaxy

@@ -175,7 +175,7 @@ static double calculate_reionization_modifier(const struct ModuleContext *ctx,
  *
  * @return  0 on success, non-zero on failure
  */
-static int sage_reionization_init(void) {
+int sage_reionization_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                     "cosmic baryon fraction must be physical");
 
@@ -201,7 +201,7 @@ static int sage_reionization_init(void) {
  * @param   ngal    Number of halos
  * @return  0 on success, non-zero on failure
  */
-static int sage_reionization_process(struct ModuleContext *ctx,
+int sage_reionization_process(struct ModuleContext *ctx,
                                        struct Halo *halos,
                                        int ngal) {
   if (halos == NULL || ngal <= 0) {
@@ -243,27 +243,7 @@ static int sage_reionization_process(struct ModuleContext *ctx,
  *
  * @return  0 on success
  */
-static int sage_reionization_cleanup(void) {
+int sage_reionization_cleanup(void) {
   VERBOSE_LOG("SAGE reionization module cleaned up");
   return 0;
-}
-
-// ============================================================================
-// MODULE REGISTRATION
-// ============================================================================
-
-/* Extern reference to generated loop mode array */
-extern const enum ProcessingMode sage_reionization_supported_modes[];
-
-static struct Module sage_reionization_module = {
-    .name = "sage_reionization",
-    .init = sage_reionization_init,
-    .process = sage_reionization_process,
-    .cleanup = sage_reionization_cleanup,
-    .supported_processing_modes = sage_reionization_supported_modes,
-    .num_supported_modes = 1  /* Only supports PROCESSING_MODE_FULL_HALO */
-};
-
-void sage_reionization_register(void) {
-  module_registry_add(&sage_reionization_module);
 }

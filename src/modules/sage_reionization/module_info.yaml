@@ -8,8 +8,6 @@ module:
   sources:
     - sage_reionization.c
 
-  register_function: sage_reionization_register
-
   supported_processing_modes: [process_full_halo]
 
   dependencies:
