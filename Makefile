@@ -233,6 +233,9 @@ $(GENERATED_HEADERS): $(PROP_YAML) scripts/generate_properties.py
 	@echo "Generating property code from metadata..."
 	@python3 scripts/generate_properties.py
 
+# Ensure object compilation waits for generated property and module registration outputs
+$(OBJECTS): | $(GENERATED_HEADERS) $(MODULE_INIT_C)
+
 # -----------------------------------------------------------------------------
 # Module metadata auto-generation
 # -----------------------------------------------------------------------------
