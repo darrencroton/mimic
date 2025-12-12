@@ -17,7 +17,11 @@ DEP_DIR = $(BUILD_DIR)/deps
 # -----------------------------------------------------------------------------
 # Recursive find excluding templates, archives, and test files
 # Note: Includes _system/generated/ and _system/test_fixture/
-SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_system/template/*' ! -path '*/modules/_archive/*' ! -name 'test_*.c')
+SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_system/template/*' ! -path '*/modules/_archive/*' ! -path '*/modules/_system/generated/*' ! -name 'test_*.c')
+
+# Explicitly add generated module_init.c (may not exist at Makefile parse time)
+SOURCES += $(SRC_DIR)/modules/_system/generated/module_init.c
+
 OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES))
 DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
 
