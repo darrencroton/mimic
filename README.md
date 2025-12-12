@@ -63,8 +63,8 @@ deactivate
 ## Build Options
 
 ```bash
-make                    # Standard build
-make USE-HDF5=yes      # With HDF5 support
+make                    # Standard build (HDF5 enabled by default)
+make USE-HDF5=no       # Build without HDF5 support (binary output only)
 make USE-MPI=yes       # With MPI parallelization
 make -j$(nproc)        # Parallel compilation (faster)
 make clean             # Clean all build artifacts

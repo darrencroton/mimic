@@ -564,7 +564,7 @@ make -j$(nproc)
 
 **With optional features**:
 ```bash
-make USE-HDF5=yes USE-MPI=yes
+make USE-HDF5=no USE-MPI=yes   # Disable HDF5 or enable MPI as needed (HDF5 on by default)
 ```
 
 **Show build configuration**:

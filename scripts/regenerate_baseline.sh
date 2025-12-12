@@ -56,7 +56,7 @@ echo ""
 echo -e "${BLUE}Step 1: Checking Mimic executable...${NC}"
 if [ ! -f "$MIMIC_EXE" ]; then
     echo -e "${RED}ERROR: Mimic executable not found at $MIMIC_EXE${NC}"
-    echo "Build it first with: make USE-HDF5=yes"
+    echo "Build it first with: make  # HDF5 is enabled by default"
     exit 1
 fi
 echo -e "${GREEN}✓ Mimic executable found${NC}"
@@ -67,7 +67,7 @@ echo -e "${BLUE}Step 2: Checking HDF5 support...${NC}"
 # Run a quick test to see if HDF5 is compiled in
 if ! "$MIMIC_EXE" --version 2>&1 | grep -qi "hdf5" && ! ldd "$MIMIC_EXE" 2>/dev/null | grep -q "hdf5"; then
     echo -e "${YELLOW}WARNING: Cannot verify HDF5 support from executable${NC}"
-    echo "Assuming HDF5 is available. If next step fails, rebuild with: make clean && make USE-HDF5=yes"
+    echo "Assuming HDF5 is available. If next step fails, rebuild with: make clean && make (remove any USE-HDF5=no overrides)"
 fi
 echo -e "${GREEN}✓ HDF5 support appears available${NC}"
 echo ""

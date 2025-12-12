@@ -94,7 +94,12 @@ endif
 # -----------------------------------------------------------------------------
 # Optional Library Detection - HDF5
 # -----------------------------------------------------------------------------
-ifdef USE-HDF5
+# Default: enable HDF5 unless explicitly opted out
+ifndef USE-HDF5
+	USE-HDF5 := yes
+endif
+
+ifeq ($(USE-HDF5),yes)
     CFLAGS += -DHDF5
     HDF5_FOUND := no
 
@@ -133,13 +138,13 @@ ifdef USE-HDF5
     endif
 
     # Validate HDF5 library was found
-    ifneq ($(HDF5_FOUND),yes)
-        $(error HDF5 not found! Install with: \
-            Ubuntu/Debian: sudo apt-get install libhdf5-dev | \
-            macOS: brew install hdf5 | \
-            Fedora/RHEL: sudo dnf install hdf5-devel | \
-            Or build without HDF5: make (without USE-HDF5=yes))
-    endif
+	ifneq ($(HDF5_FOUND),yes)
+		$(error HDF5 not found! Install with: \
+			Ubuntu/Debian: sudo apt-get install libhdf5-dev | \
+			macOS: brew install hdf5 | \
+			Fedora/RHEL: sudo dnf install hdf5-devel | \
+			Or build without HDF5: make USE-HDF5=no)
+	endif
 else
     # If HDF5 is not enabled, exclude HDF5-specific source files
     SOURCES := $(filter-out %hdf5.c,$(SOURCES))
@@ -303,7 +308,7 @@ help:
 	@echo "  make validate-test-registry - Validate test declarations"
 	@echo ""
 	@echo "Options:"
-	@echo "  make USE-HDF5=yes - Enable HDF5 support"
+	@echo "  make USE-HDF5=no  - Disable HDF5 support (binary-only build)"
 	@echo "  make USE-MPI=yes  - Enable MPI support"
 	@echo "  make -j4          - Parallel build (4 jobs, adjust as needed)"
 	@echo ""
@@ -337,10 +342,10 @@ info:
 	@echo "Library Detection:"
 	@echo "------------------"
 	@echo "YAML library: $(if $(filter yes,$(YAML_FOUND)),✓ Found,✗ Not found)"
-ifdef USE-HDF5
+ifeq ($(USE-HDF5),yes)
 	@echo "HDF5 support: $(if $(filter yes,$(HDF5_FOUND)),✓ Enabled and found,✗ Enabled but not found)"
 else
-	@echo "HDF5 support: ✗ Disabled (use USE-HDF5=yes to enable)"
+	@echo "HDF5 support: ✗ Disabled (set USE-HDF5=yes to enable)"
 endif
 ifdef USE-MPI
 	@echo "MPI support: ✓ Enabled (using $(CC))"
@@ -360,7 +365,7 @@ endif
 	else \
 		echo "  YAML: System paths"; \
 	fi
-ifdef USE-HDF5
+ifeq ($(USE-HDF5),yes)
 	@if pkg-config --exists hdf5 2>/dev/null; then \
 		echo "  HDF5: pkg-config ($(shell pkg-config --modversion hdf5 2>/dev/null))"; \
 	elif command -v brew >/dev/null 2>&1 && brew --prefix hdf5 >/dev/null 2>&1; then \

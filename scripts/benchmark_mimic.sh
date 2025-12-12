@@ -25,7 +25,7 @@
 # ENVIRONMENT VARIABLES:
 #   MIMIC_EXECUTABLE  - Override mimic executable location
 #   MPI_RUN_COMMAND   - Run with MPI (e.g., "mpirun -np 4")
-#   MAKE_FLAGS        - Additional make flags (e.g., "USE-HDF5=yes USE-MPI=yes")
+#   MAKE_FLAGS        - Additional make flags (e.g., "USE-HDF5=no USE-MPI=yes")
 #
 # EXAMPLES:
 #   # Basic benchmark (uses default input/millennium.yaml)
@@ -38,8 +38,8 @@
 #   # Benchmark with MPI
 #   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh
 #
-#   # HDF5 build benchmark
-#   MAKE_FLAGS="USE-HDF5=yes" ./benchmark_mimic.sh
+#   # Binary-only benchmark (opt out of HDF5)
+#   MAKE_FLAGS="USE-HDF5=no" ./benchmark_mimic.sh
 #
 #   # Compare two benchmark runs
 #   diff ../benchmarks/baseline_20250101_120000.json ../benchmarks/baseline_20250102_120000.json
@@ -165,8 +165,8 @@ EXAMPLES:
   # MPI benchmark
   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
 
-  # HDF5 build benchmark
-  MAKE_FLAGS="USE-HDF5=yes" ./scripts/benchmark_mimic.sh
+    # Binary output only benchmark (opt out of HDF5)
+    MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
 
 COMPARING RESULTS:
   # Simple diff
@@ -257,14 +257,12 @@ verbose_log "Detected TreeType: ${TREE_TYPE}"
 
 # Auto-detect if HDF5 support is needed and add to MAKE_FLAGS
 if [[ "$OUTPUT_FORMAT" == "hdf5" ]] || [[ "$TREE_TYPE" == *"hdf5"* ]]; then
-    # Check if USE-HDF5 is already in MAKE_FLAGS
-    if [[ ! "$MAKE_FLAGS" =~ USE-HDF5 ]]; then
-        if [[ -z "$MAKE_FLAGS" ]]; then
-            MAKE_FLAGS="USE-HDF5=yes"
-        else
-            MAKE_FLAGS="${MAKE_FLAGS} USE-HDF5=yes"
-        fi
-        verbose_log "Auto-detected HDF5 requirement, added USE-HDF5=yes to build flags"
+    if [[ "$MAKE_FLAGS" =~ USE-HDF5=no ]]; then
+        error_exit "HDF5 output/tree requested but MAKE_FLAGS disables HDF5 (USE-HDF5=no). Remove the opt-out."
+    elif [[ "$MAKE_FLAGS" =~ USE-HDF5=yes ]]; then
+        verbose_log "HDF5 required; using explicit USE-HDF5=yes from MAKE_FLAGS"
+    else
+        verbose_log "HDF5 required; relying on default HDF5-enabled build"
     fi
 fi
 
@@ -570,7 +568,7 @@ echo "USAGE NOTES:"
 echo "  - Run this script regularly to track performance changes"
 echo "  - Compare JSON files to identify performance regressions"
 echo "  - Specify different parameter files to benchmark different datasets"
-echo "  - Set MAKE_FLAGS for optimized builds (e.g., USE-HDF5=yes)"
+echo "  - Set MAKE_FLAGS for optimized builds (e.g., USE-HDF5=no for binary output-only, USE-MPI=yes)"
 echo "  - Use MPI_RUN_COMMAND for parallel performance testing"
 echo
 

@@ -63,8 +63,8 @@ make check-generated
 # Validate module metadata (checks dependencies, properties, files)
 make validate-modules
 
-# With HDF5 support for HDF5 tree format
-make USE-HDF5=yes
+# HDF5 is enabled by default; disable with
+make USE-HDF5=no
 
 # With MPI support for parallel processing
 make USE-MPI=yes
@@ -166,7 +166,7 @@ cd scripts
 ./benchmark_mimic.sh --verbose
 
 # Benchmark with specific build flags
-MAKE_FLAGS="USE-HDF5=yes" ./benchmark_mimic.sh
+MAKE_FLAGS="USE-HDF5=no" ./benchmark_mimic.sh   # Opt out of HDF5 if needed
 
 # Benchmark with MPI
 MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh

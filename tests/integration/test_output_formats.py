@@ -505,7 +505,7 @@ def test_hdf5_format_execution():
         output = (stdout + stderr)
         if "requires HDF5" in output or "HDF5 support" in output or "Recompile with" in output:
             print(f"  Skipping (Mimic not compiled with HDF5 support)")
-            print(f"  To enable: make clean && make USE-HDF5=yes")
+            print(f"  To enable: make clean && make  # HDF5 is enabled by default")
             return
         else:
             # Execution failed for a different reason

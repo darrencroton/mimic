@@ -204,7 +204,7 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
     } else if (strcasecmp(str, "hdf5") == 0) {
 #ifndef HDF5
       ERROR_LOG("OutputFormat 'hdf5' requires HDF5 support");
-      FATAL_ERROR("Recompile with 'make USE-HDF5=yes'");
+  FATAL_ERROR("Recompile with HDF5 enabled (default) or remove USE-HDF5=no");
 #else
       MimicConfig.OutputFormat = output_hdf5;
 #endif
@@ -265,7 +265,7 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
     } else if (strcasecmp(str, "genesis_lhalo_hdf5") == 0) {
 #ifndef HDF5
       ERROR_LOG("TreeType '%s' requires HDF5 support", str);
-      FATAL_ERROR("Recompile with 'make USE-HDF5=yes'");
+  FATAL_ERROR("Recompile with HDF5 enabled (default) or remove USE-HDF5=no");
 #else
       MimicConfig.TreeType = genesis_lhalo_hdf5;
       strncpy(MimicConfig.TreeExtension, ".hdf5", MAX_STRING_LEN - 1);

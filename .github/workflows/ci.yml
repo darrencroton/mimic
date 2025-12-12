@@ -63,34 +63,3 @@ jobs:
         path: |
           tests/unit/build/*.log
           tests/data/output/binary/metadata/*.log
-
-  test-hdf5:
-    name: Build and Test with HDF5
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.x'
-
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libhdf5-dev libyaml-dev pkg-config
-
-    - name: Install Python dependencies
-      run: |
-        pip install -r requirements.txt
-
-    - name: Build Mimic with HDF5
-      run: |
-        make clean
-        make USE-HDF5=yes
-
-    - name: Run integration tests (HDF5)
-      run: |
-        make test-integration

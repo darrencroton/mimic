@@ -102,9 +102,9 @@ echo $?  # Should output: 0 (success)
 make
 ```
 
-**With HDF5 support** (requires HDF5 libraries installed):
+**Disable HDF5 support** (binary output-only build):
 ```bash
-make USE-HDF5=yes
+make USE-HDF5=no
 ```
 
 **With MPI parallelization** (requires MPI libraries installed):
@@ -189,7 +189,7 @@ Successful execution shows:
 **Production run with HDF5 output**:
 ```bash
 make clean
-make USE-HDF5=yes -j$(nproc)
+make -j$(nproc)                   # HDF5 is enabled by default
 ./mimic -q input/millennium.yaml  # Quiet mode for cleaner logs
 ```
 
@@ -355,7 +355,7 @@ Mimic supports two output formats with identical data:
 **HDF5** (self-documenting, portable):
 - Standard format readable by many tools
 - Self-describing with metadata
-- Requires: `make USE-HDF5=yes`
+- Requires HDF5 libraries (enabled by default; disable with `USE-HDF5=no`)
 - File naming: `model_{filenr}.hdf5` (e.g., `model_000.hdf5`)
 - Use for: data sharing, long-term archival, exploratory analysis
 
@@ -474,7 +474,7 @@ Problem: Mimic not compiled with HDF5 support
 Solution:
 ```bash
 make clean
-make USE-HDF5=yes
+make                 # HDF5 is enabled by default
 ./mimic input/millennium.yaml
 ```
 
