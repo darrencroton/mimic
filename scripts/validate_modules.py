@@ -252,7 +252,8 @@ def validate_required_fields(
         "version",
         "author",
     ]
-    required_sources = ["sources", "headers", "register_function"]
+    # Note: headers is optional - generator uses forward declarations instead
+    required_sources = ["sources", "register_function"]
     required_deps = ["dependencies"]
     # Phase 4.4: parameters is now optional (centralized modules.parameters system)
     # Modules may have module-specific parameters OR use only global modules.parameters

@@ -38,6 +38,31 @@ except ImportError:
     sys.exit(1)
 
 # ==============================================================================
+# COLOR OUTPUT
+# ==============================================================================
+
+# ANSI color codes (disabled if not a TTY)
+if sys.stdout.isatty():
+    COLOR_RED = "\033[91m"
+    COLOR_YELLOW = "\033[93m"
+    COLOR_RESET = "\033[0m"
+else:
+    COLOR_RED = ""
+    COLOR_YELLOW = ""
+    COLOR_RESET = ""
+
+
+def print_error(msg: str) -> None:
+    """Print error message in red."""
+    print(f"{COLOR_RED}ERROR: {msg}{COLOR_RESET}", file=sys.stderr)
+
+
+def print_warning(msg: str) -> None:
+    """Print warning message in yellow."""
+    print(f"{COLOR_YELLOW}WARNING: {msg}{COLOR_RESET}")
+
+
+# ==============================================================================
 # PATHS
 # ==============================================================================
 
@@ -167,6 +192,125 @@ def resolve_dependencies(
 
 
 # ==============================================================================
+# VALIDATION
+# ==============================================================================
+
+
+def load_valid_properties() -> set:
+    """Load all valid property names from halo and galaxy property files."""
+    valid_properties = set()
+
+    # Load galaxy properties
+    galaxy_props_path = MODULES_DIR / "model_properties.yaml"
+    if galaxy_props_path.exists():
+        try:
+            with open(galaxy_props_path, "r", encoding="utf-8") as f:
+                props_yaml = yaml.safe_load(f)
+            for prop in props_yaml.get("galaxy_properties", []):
+                valid_properties.add(prop["name"])
+        except Exception as e:
+            print(f"WARNING: Failed to load galaxy properties: {e}", file=sys.stderr)
+
+    # Load halo properties
+    halo_props_path = REPO_ROOT / "src" / "core" / "halo_properties.yaml"
+    if halo_props_path.exists():
+        try:
+            with open(halo_props_path, "r", encoding="utf-8") as f:
+                halo_yaml = yaml.safe_load(f)
+            for prop in halo_yaml.get("halo_properties", []):
+                valid_properties.add(prop["name"])
+        except Exception as e:
+            print(f"WARNING: Failed to load halo properties: {e}", file=sys.stderr)
+
+    return valid_properties
+
+
+def validate_property_dependencies(
+    modules: List[Dict[str, Any]], valid_properties: set
+) -> List[str]:
+    """
+    Verify all module property dependencies exist in property metadata.
+
+    Returns list of error messages (empty if all valid).
+    """
+    errors = []
+
+    for module in modules:
+        module_name = module["name"]
+        declared_props = module.get("dependencies", {}).get("properties", [])
+
+        for prop in declared_props:
+            if prop not in valid_properties:
+                errors.append(
+                    f"{module_name}/module_info.yaml: Unknown property '{prop}' "
+                    f"in dependencies.properties"
+                )
+
+    return errors
+
+
+def validate_module_files(modules: List[Dict[str, Any]]) -> List[str]:
+    """
+    Verify all declared source files exist.
+
+    Note: Header files are optional - the generator uses forward declarations
+    instead of per-module headers, so headers field is ignored.
+
+    Returns list of error messages (empty if all valid).
+    """
+    errors = []
+
+    for module in modules:
+        module_name = module["name"]
+        module_dir = module.get("_module_dir")
+
+        if not module_dir:
+            continue
+
+        # Check source files (required)
+        for source in module.get("sources", []):
+            source_path = module_dir / source
+            if not source_path.exists():
+                errors.append(
+                    f"{module_name}/module_info.yaml: Source file '{source}' not found\n"
+                    f"    Expected at: {source_path}"
+                )
+
+        # Note: Header files are NOT validated - they are optional/deprecated
+        # The generator uses forward declarations instead of per-module headers
+
+    return errors
+
+
+def validate_test_files(modules: List[Dict[str, Any]]) -> List[str]:
+    """
+    Check that declared test files exist.
+
+    Returns list of warning messages (not errors - tests may be planned).
+    """
+    warnings = []
+
+    for module in modules:
+        module_name = module["name"]
+        module_dir = module.get("_module_dir")
+
+        if not module_dir:
+            continue
+
+        tests = module.get("tests", {})
+
+        for test_type, test_path in tests.items():
+            if not test_path:
+                continue
+
+            full_path = module_dir / test_path
+            if not full_path.exists():
+                warnings.append(f"{module_name}: Declared {test_type} test not found: {test_path}")
+
+    return warnings
+
+
+# ==============================================================================
 # HASH COMPUTATION
 # ==============================================================================
 
@@ -236,15 +380,12 @@ def generate_module_init_c(
     lines.append('#include "module_interface.h"')
     lines.append("")
 
-    # Auto-generated module includes (sorted alphabetically)
-    lines.append("/* Auto-generated module includes (sorted alphabetically) */")
+    # Forward declarations for module registration functions (no headers needed)
+    lines.append("/* Forward declarations for module registration functions */")
+    lines.append("/* (Eliminates need for per-module header files) */")
     for module in sorted(runtime_modules, key=lambda m: m["name"]):
-        module_dir = module.get("_module_dir")
-        if module_dir:
-            rel_path = module_dir.relative_to(MODULES_DIR)
-            header_files = module.get("headers", [])
-            for header in header_files:
-                lines.append(f'#include "{rel_path}/{header}"')
+        register_func = module.get("register_function", f"{module['name']}_register")
+        lines.append(f"extern void {register_func}(void);")
     lines.append("")
 
     # Generate processing mode arrays for each module
@@ -525,6 +666,48 @@ def main():
         print()
     else:
         sorted_modules = []
+
+    # ==========================================================================
+    # VALIDATION
+    # ==========================================================================
+
+    if modules:
+        # Validate module source/header files exist
+        print("Validating module files...")
+        file_errors = validate_module_files(modules)
+        if file_errors:
+            print_error("Missing module files:")
+            for err in file_errors:
+                print(f"  - {err}", file=sys.stderr)
+            return 1
+        print(f"✓ All module files exist")
+
+        # Validate property dependencies
+        print("Validating property dependencies...")
+        valid_properties = load_valid_properties()
+        if not valid_properties:
+            print_warning("No valid properties loaded - skipping property validation")
+        else:
+            prop_errors = validate_property_dependencies(modules, valid_properties)
+            if prop_errors:
+                print_error("Invalid property dependencies:")
+                for err in prop_errors:
+                    print(f"  - {err}", file=sys.stderr)
+                return 1
+            print(f"✓ All property dependencies valid ({len(valid_properties)} properties available)")
+
+        # Check test files (warning only - always shown, not just verbose)
+        print("Checking declared test files...")
+        test_warnings = validate_test_files(modules)
+        if test_warnings:
+            print_warning("Some declared tests not found:")
+            for warn in test_warnings:
+                print(f"  {COLOR_YELLOW}- {warn}{COLOR_RESET}")
+            print(f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}")
+        else:
+            print("✓ All declared test files exist")
+
+        print()
 
     # Compute metadata hash
     metadata_hash = compute_metadata_hash(modules)

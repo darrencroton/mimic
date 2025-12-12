@@ -138,8 +138,8 @@ int main(void) {
 ```yaml
 tests:
   unit:
-    - test_unit_reionization.c
-    - test_unit_my_utility.c  # Add here
+    - tests/test_unit_reionization.c
+    - tests/test_unit_my_utility.c  # Add here
 ```
 
 3. **Run tests**:

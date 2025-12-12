@@ -35,8 +35,8 @@ module:
   sources:                           # REQUIRED: List of .c files
     - my_module.c
 
-  headers:                           # REQUIRED: List of .h files
-    - my_module.h
+  # headers:                          # OPTIONAL: Not needed (generator uses forward declarations)
+  #   - my_module.h
 
   register_function: my_module_register  # REQUIRED: {module_name}_register
 
@@ -108,9 +108,6 @@ module:
 
   sources:
     - sage_cooling.c
-
-  headers:
-    - sage_cooling.h
 
   register_function: sage_cooling_register
 

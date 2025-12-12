@@ -6,7 +6,8 @@ This script scans all module_info.yaml files and generates test manifests
 that allow the test runners to automatically discover and run module tests.
 
 Usage:
-    python scripts/generate_test_registry.py
+    python scripts/generate_test_registry.py           # Warn on missing tests
+    python scripts/generate_test_registry.py --strict  # Fail on missing tests
 
 Generates:
     build/generated/unit_tests.txt        - Unit test paths
@@ -19,11 +20,40 @@ Date: 2025-11-12
 Phase: Phase 4.2 (Test Architecture Refactor)
 """
 
+import argparse
 import hashlib
 import sys
 from pathlib import Path
 
 import yaml
+
+# ==============================================================================
+# COLOR OUTPUT
+# ==============================================================================
+
+# ANSI color codes (disabled if not a TTY)
+if sys.stdout.isatty():
+    COLOR_RED = "\033[91m"
+    COLOR_YELLOW = "\033[93m"
+    COLOR_RESET = "\033[0m"
+else:
+    COLOR_RED = ""
+    COLOR_YELLOW = ""
+    COLOR_RESET = ""
+
+
+def print_error(msg: str) -> None:
+    """Print error message in red."""
+    print(f"{COLOR_RED}ERROR: {msg}{COLOR_RESET}", file=sys.stderr)
+
+
+def print_warning(msg: str) -> None:
+    """Print warning message in yellow."""
+    print(f"{COLOR_YELLOW}WARNING: {msg}{COLOR_RESET}")
+
+
+# Track missing tests globally
+missing_tests = []
 
 
 def process_test_entries(test_value, module_path, repo_root, test_type, module_name):
@@ -51,15 +81,21 @@ def process_test_entries(test_value, module_path, repo_root, test_type, module_n
             rel_path = test_path.relative_to(repo_root)
             test_paths.append(str(rel_path))
         else:
-            print(
-                f"WARNING: {module_name} declares {test_type} test '{test_file}' but file not found"
+            # Collect missing tests for later reporting
+            missing_tests.append(
+                f"{module_name}: {test_type} test '{test_file}' not found"
             )
 
     return test_paths
 
 
-def generate_test_registry():
-    """Generate test registry from module metadata."""
+def generate_test_registry(strict: bool = False):
+    """Generate test registry from module metadata.
+    
+    Args:
+        strict: If True, fail on missing tests (for test runs).
+                If False, warn only (for normal builds).
+    """
 
     print("Generating test registry...")
     print("=" * 70)
@@ -192,6 +228,24 @@ def generate_test_registry():
     print(f"  Integration tests: {len(integration_tests)}")
     print(f"  Scientific tests:  {len(scientific_tests)}")
 
+    # Report missing tests
+    if missing_tests:
+        print()
+        if strict:
+            print_error("Declared tests not found:")
+            for msg in missing_tests:
+                print(f"  {COLOR_RED}- {msg}{COLOR_RESET}", file=sys.stderr)
+            print()
+            print("=" * 70)
+            print(f"{COLOR_RED}✗ TEST REGISTRY GENERATION FAILED{COLOR_RESET}")
+            print("=" * 70)
+            return 1
+        else:
+            print_warning("Some declared tests not found:")
+            for msg in missing_tests:
+                print(f"  {COLOR_YELLOW}- {msg}{COLOR_RESET}")
+            print(f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}")
+
     print()
     print("Generated files:")
     print(f"  ✓ {unit_tests_file.relative_to(repo_root)}")
@@ -208,4 +262,17 @@ def generate_test_registry():
 
 
 if __name__ == "__main__":
-    sys.exit(generate_test_registry())
+    parser = argparse.ArgumentParser(
+        description="Generate test registry from module metadata"
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail if declared tests are missing (use for test runs)",
+    )
+    args = parser.parse_args()
+
+    # Clear global missing_tests list
+    missing_tests.clear()
+
+    sys.exit(generate_test_registry(strict=args.strict))

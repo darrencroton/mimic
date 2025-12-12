@@ -25,7 +25,6 @@
 #include "error.h"
 #include "module_interface.h"
 #include "module_registry.h"
-#include "fixture.h"
 #include "types.h"
 
 /**

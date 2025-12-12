@@ -8,9 +8,6 @@ module:
   sources:
     - sage_satellite_stripping.c
 
-  headers:
-    - sage_satellite_stripping.h
-
   register_function: sage_satellite_stripping_register
 
   supported_processing_modes: [process_full_halo]

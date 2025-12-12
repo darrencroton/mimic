@@ -21,7 +21,6 @@
 #include "framework/test_framework.h"
 #include "../../core/module_registry.h"
 #include "../../core/module_interface.h"
-#include "fixture.h"
 #include "../../include/types.h"
 #include "../../include/proto.h"
 #include "../../include/globals.h"

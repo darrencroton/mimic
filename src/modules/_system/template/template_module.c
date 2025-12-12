@@ -33,7 +33,6 @@
 #include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
-#include "template_module.h"
 #include "types.h"
 
 #include "../_system/parameter_helpers.h"

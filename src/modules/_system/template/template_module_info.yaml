@@ -10,7 +10,7 @@ module:
     - template_module.c
 
   headers:
-    - template_module.h
+    # - not needed (generator uses forward declarations) unless you want to add your own
 
   register_function: template_module_register
 

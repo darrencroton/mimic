@@ -18,14 +18,14 @@ cd src/modules/YOUR_MODULE_NAME
 ### 2. Rename Files
 
 ```bash
-mv template_module.h your_module.h
 mv template_module.c your_module.c
+mv template_module_info.yaml module_info.yaml
 rm README.md  # Remove this file
 ```
 
 ### 3. Find and Replace
 
-In both `.h` and `.c` files:
+In the `.c` file:
 - Replace `template_module` → `your_module` (all occurrences)
 - Replace `TEMPLATE_MODULE` → `YOUR_MODULE`
 - Update file documentation (author, description, physics equations)
@@ -77,7 +77,8 @@ module:
   sources:
     - your_module.c
   headers:
-    - your_module.h
+    # - not needed (generator uses forward declarations) unless you want to add your own
+
   register_function: your_module_register
 
   supported_processing_modes: [process_by_galaxy]  # or [process_full_halo] or both
@@ -151,12 +152,6 @@ Run:
 ---
 
 ## Template Structure
-
-### Header File (`template_module.h`)
-
-- Module interface declaration
-- Documentation for users of the module
-- Single public function: `template_module_register()`
 
 ### Implementation File (`template_module.c`)
 

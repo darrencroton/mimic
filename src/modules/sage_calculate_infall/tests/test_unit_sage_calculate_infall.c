@@ -29,7 +29,6 @@
 #include "framework/test_framework.h"
 #include "../../core/module_registry.h"
 #include "../../core/module_interface.h"
-#include "sage_calculate_infall.h"
 #include "../../include/types.h"
 #include "../../include/proto.h"
 #include "../../include/globals.h"

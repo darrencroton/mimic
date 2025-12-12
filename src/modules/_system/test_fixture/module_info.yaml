@@ -32,7 +32,6 @@ module:
     - fixture.c
 
   headers:
-    - fixture.h
 
   register_function: test_fixture_register
 

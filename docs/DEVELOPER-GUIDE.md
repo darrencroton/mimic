@@ -78,7 +78,7 @@ These principles guide all development decisions.
 - `_system/`: Framework infrastructure (templates, test fixtures)
 - `_shared/`: Reusable physics utilities (user-modifiable)
 - `sage_*/`: SAGE physics implementation
-- Each module: `module.c`, `module.h`, `module_info.yaml`
+- Each module: `module.c`, `module_info.yaml`
 
 **src/util/**: Utilities
 - `memory.c`: Category-tracked memory management
@@ -179,7 +179,6 @@ A physics module consists of:
 
 **Required files**:
 - `module_name.c`: Implementation
-- `module_name.h`: Interface
 - `module_info.yaml`: Metadata (auto-generates registration code)
 
 **Optional files**:
@@ -195,34 +194,14 @@ A physics module consists of:
 ```bash
 cp -r src/modules/_system/template src/modules/my_module
 cd src/modules/my_module
+mv template_module.c my_module.c
+mv template_module_info.yaml module_info.yaml
 ```
 
-**2. Create header** (`my_module.h`):
-```c
-/**
- * @file    my_module.h
- * @brief   [Brief physics description]
- *
- * [1-2 sentence physics summary]
- *
- * Physics: [Key equation]
- *
- * Reference: [Citation]
- */
-
-#ifndef MY_MODULE_H
-#define MY_MODULE_H
-
-void my_module_register(void);
-
-#endif
-```
-
-**3. Implement module** (`my_module.c`):
+**2. Implement module** (`my_module.c`):
 ```c
 #include <stdio.h>
 #include <math.h>
-#include "my_module.h"
 #include "core/module_interface.h"
 #include "core/model_parameters.h"
 #include "util/error.h"
@@ -316,9 +295,6 @@ module:
 
   sources:
     - my_module.c
-
-  headers:
-    - my_module.h
 
   register_function: my_module_register
 
@@ -487,7 +463,7 @@ cd tests/scientific && python test_scientific.py
 #include <stdio.h>
 #include <assert.h>
 #include <math.h>
-#include "my_module.h"
+#include "core/module_registry.h"
 
 void test_compute_physics(void) {
   /* Test physics calculation */

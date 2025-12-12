@@ -447,7 +447,7 @@ test-unit:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING UNIT TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
-	@$(MAKE) generate-test-registry > /dev/null 2>&1
+	@python3 scripts/generate_test_registry.py --strict
 	@cd tests/unit && ./run_tests.sh
 
 test-integration:
@@ -455,6 +455,7 @@ test-integration:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING INTEGRATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
+	@python3 scripts/generate_test_registry.py --strict
 	@if [ ! -f "$(EXEC)" ]; then \
 		echo "Building mimic with HDF5 support for tests..."; \
 		$(MAKE) clean > /dev/null 2>&1; \
@@ -505,6 +506,7 @@ test-scientific:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING SCIENTIFIC VALIDATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
+	@python3 scripts/generate_test_registry.py --strict
 	@if [ ! -f "$(EXEC)" ]; then \
 		echo "Building mimic with HDF5 support for tests..."; \
 		$(MAKE) clean > /dev/null 2>&1; \

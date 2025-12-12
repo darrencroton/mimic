@@ -17,6 +17,10 @@ Mimic code should be **professional, clean, and minimal**. Documentation should 
 
 ### Header Files (.h)
 
+> **Note**: Physics modules no longer require header files. The module registry
+> uses forward declarations generated from `module_info.yaml`. The guidance below
+> applies to core infrastructure headers (e.g., `module_registry.h`, `types.h`).
+
 Header files should have a concise header with:
 1. Brief 1-2 sentence description of the module/component
 2. Key physics equation or principle (for physics modules)
@@ -268,9 +272,6 @@ module:
   sources:
     - sage_calculate_infall.c
 
-  headers:
-    - sage_calculate_infall.h
-
   register_function: sage_calculate_infall_register
 
   dependencies:
@@ -310,8 +311,7 @@ module:
   sources:
     - sage_calculate_infall.c  # Module implementation
 
-  headers:
-    - sage_calculate_infall.h  # Module interface
+  # headers: not needed - generator uses forward declarations
 
   register_function: sage_calculate_infall_register  # Must be {module_name}_register
 

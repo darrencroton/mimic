@@ -15,8 +15,6 @@
  * Reference: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2006, 2016)
  */
 
-#include "sage_satellite_stripping.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 
