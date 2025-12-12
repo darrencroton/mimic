@@ -29,10 +29,6 @@ jobs:
       run: |
         pip install -r requirements.txt
 
-    - name: Generate code from metadata
-      run: |
-        make generate
-
     - name: Build Mimic
       run: |
         make clean
@@ -89,10 +85,6 @@ jobs:
     - name: Install Python dependencies
       run: |
         pip install -r requirements.txt
-
-    - name: Generate code from metadata
-      run: |
-        make generate
 
     - name: Build Mimic with HDF5
       run: |

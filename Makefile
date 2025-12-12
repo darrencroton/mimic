@@ -175,7 +175,7 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 .PHONY: all clean tidy help info generate check-generated tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules lint-parameters validate-build
 
-all: validate-build $(EXEC)
+all: generate validate-build $(EXEC)
 
 # Pre-build validation - runs on every make
 validate-build:
@@ -224,26 +224,7 @@ GENERATED_HEADERS := \
     $(GEN_DIR)/hdf5_field_count.inc \
     $(GEN_DIR)/hdf5_field_definitions.inc
 
-# Sentinel file to track that generated code has been verified
-GEN_VERIFIED := $(BUILD_DIR)/.generated_verified
-
-# Verify generated code is up-to-date before building
-# This catches cases where git pull changes files but timestamps don't reflect dependencies
-$(GEN_VERIFIED): $(PROP_YAML) $(MODULE_YAML) scripts/generate_properties.py scripts/generate_module_registry.py scripts/check_generated.py
-	@echo "Verifying generated code is up-to-date..."
-	@if ! python3 scripts/check_generated.py > /dev/null 2>&1; then \
-		echo "Generated code out of date - auto-regenerating..."; \
-		python3 scripts/generate_properties.py; \
-		python3 scripts/generate_module_registry.py; \
-	fi
-	@mkdir -p $(BUILD_DIR)
-	@touch $@
-
-# Ensure all object files wait for verification (which ensures generated headers exist and are current)
-$(OBJECTS): $(GEN_VERIFIED)
-
-# Fallback rule to (re)generate property code when explicitly needed
-# This is kept for direct make dependencies and manual regeneration
+# Generated headers depend on property YAML - kept for explicit dependency tracking
 $(GENERATED_HEADERS): $(PROP_YAML) scripts/generate_properties.py
 	@echo "Generating property code from metadata..."
 	@python3 scripts/generate_properties.py
