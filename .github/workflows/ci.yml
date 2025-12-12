@@ -25,6 +25,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libhdf5-dev libyaml-dev pkg-config
 
+    - name: Install Python dependencies
+      run: |
+        pip install PyYAML
+
     - name: Build Mimic
       run: |
         make clean
@@ -77,6 +81,10 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y libhdf5-dev libyaml-dev pkg-config
+
+    - name: Install Python dependencies
+      run: |
+        pip install PyYAML
 
     - name: Build Mimic with HDF5
       run: |
