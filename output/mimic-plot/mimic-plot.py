@@ -363,7 +363,7 @@ def setup_matplotlib(use_tex=False):
     plt.rcParams["mathtext.default"] = "regular"
 
 
-def read_data(model_path, first_file, last_file, params=None):
+def read_data(model_path, first_file, last_file, params=None, verbose=False):
     """
     Read galaxy data from Mimic output files.
 
@@ -372,6 +372,7 @@ def read_data(model_path, first_file, last_file, params=None):
         first_file: First file number to read
         last_file: Last file number to read
         params: Dictionary with Mimic parameters
+        verbose: Enable verbose output
 
     Returns:
         Tuple containing:
@@ -379,23 +380,7 @@ def read_data(model_path, first_file, last_file, params=None):
             - Volume of the simulation
             - Dictionary of metadata
     """
-    # This is important information, so show regardless of verbose flag
     print(f"Reading galaxy data from {model_path}")
-    """
-    Read galaxy data from Mimic output files.
-    
-    Args:
-        model_path: Path to model files
-        first_file: First file number to read
-        last_file: Last file number to read
-        params: Dictionary with Mimic parameters
-    
-    Returns:
-        Tuple containing:
-            - Numpy recarray of galaxy data
-            - Volume of the simulation
-            - Dictionary of metadata
-    """
     # Get required parameters from the parameter file
     if not params:
         if colour_enabled():
@@ -428,7 +413,7 @@ def read_data(model_path, first_file, last_file, params=None):
             sys.exit(1)
 
         print(f"Using HDF5 format reader")
-        return read_data_hdf5(model_path, first_file, last_file, params)
+        return read_data_hdf5(model_path, first_file, last_file, params, verbose)
 
     # For binary format (default)
     print(f"Using binary format reader")
@@ -437,7 +422,7 @@ def read_data(model_path, first_file, last_file, params=None):
     # No need for MaxTreeFiles parameter - we'll calculate based on actual files read
 
     # Print the model path for debugging
-    if args.verbose:
+    if verbose:
         print(f"Looking for galaxy files with base: {model_path}")
 
     # Look for files matching the pattern in the same directory
@@ -451,7 +436,7 @@ def read_data(model_path, first_file, last_file, params=None):
     pattern2 = os.path.join(dir_path, f"{base_name}_*")
 
     # Log the patterns we're trying
-    if args.verbose:
+    if verbose:
         print(f"  Trying exact pattern: {pattern1}")
         print(f"  Trying generic pattern: {pattern2}")
 
@@ -459,14 +444,14 @@ def read_data(model_path, first_file, last_file, params=None):
     exact_files = glob.glob(pattern1)
     if exact_files:
         existing_files = exact_files
-        if args.verbose:
+        if verbose:
             print(f"  Found file with exact pattern")
     else:
         # Fall back to the generic pattern
         existing_files = glob.glob(pattern2)
 
     if existing_files:
-        if args.verbose:
+        if verbose:
             print(f"Found {len(existing_files)} files matching the pattern.")
             for f in existing_files[:5]:  # Show first 5 files
                 print(f"  {f}")
@@ -486,7 +471,7 @@ def read_data(model_path, first_file, last_file, params=None):
     tot_ngals = 0
     good_files = 0
 
-    if args.verbose:
+    if verbose:
         print(
             f"Determining storage requirements for files {first_file} to {last_file}..."
         )
@@ -495,7 +480,7 @@ def read_data(model_path, first_file, last_file, params=None):
     # Only show progress bar when verbose is enabled
     file_iterator = (
         tqdm(range(first_file, last_file + 1), desc="Counting galaxies")
-        if args.verbose
+        if verbose
         else range(first_file, last_file + 1)
     )
     for fnr in file_iterator:
@@ -541,7 +526,7 @@ def read_data(model_path, first_file, last_file, params=None):
     # Only show progress bar when verbose is enabled
     file_iterator = (
         tqdm(range(first_file, last_file + 1), desc="Reading galaxies")
-        if args.verbose
+        if verbose
         else range(first_file, last_file + 1)
     )
     for fnr in file_iterator:
@@ -583,7 +568,7 @@ def read_data(model_path, first_file, last_file, params=None):
         total_files = params["NumSimulationTreeFiles"]
         if total_files > 0 and good_files > 0:
             volume = volume * good_files / total_files
-            if args.verbose:
+            if verbose:
                 print(f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}")
                 print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
 
@@ -600,7 +585,7 @@ def read_data(model_path, first_file, last_file, params=None):
     return galaxies, volume, metadata
 
 
-def read_data_hdf5(model_path, first_file, last_file, params):
+def read_data_hdf5(model_path, first_file, last_file, params, verbose=False):
     """
     Read halo data from Mimic HDF5 output files.
 
@@ -609,6 +594,7 @@ def read_data_hdf5(model_path, first_file, last_file, params):
         first_file: First file number to read
         last_file: Last file number to read
         params: Dictionary with Mimic parameters
+        verbose: Enable verbose output
 
     Returns:
         Tuple containing:
@@ -633,7 +619,7 @@ def read_data_hdf5(model_path, first_file, last_file, params):
         parts = base_name.split('_z')
         redshift_str = f"_z{parts[1]}"
         base_name = parts[0]  # Remove the redshift suffix for HDF5 filename
-        if args.verbose:
+        if verbose:
             print(f"Extracted redshift string: {redshift_str}, base name: {base_name}")
 
     # Map redshift string to snapshot number using SnapshotRedshiftMapper
@@ -641,7 +627,8 @@ def read_data_hdf5(model_path, first_file, last_file, params):
     from snapshot_redshift_mapper import SnapshotRedshiftMapper
 
     # Create mapper to find snapshot from redshift
-    mapper = SnapshotRedshiftMapper(args.param_file, params, dir_path)
+    # Note: param_file not available in this context, pass None
+    mapper = SnapshotRedshiftMapper(None, params, dir_path)
 
     # Find the snapshot number that matches the redshift string
     snapshot_num = None
@@ -650,7 +637,7 @@ def read_data_hdf5(model_path, first_file, last_file, params):
         try:
             idx = mapper.redshift_strs.index(redshift_str)
             snapshot_num = mapper.snapshots[idx]
-            if args.verbose:
+            if verbose:
                 print(f"Mapped {redshift_str} to snapshot {snapshot_num}")
         except ValueError:
             print(f"Error: Redshift string {redshift_str} not found in snapshot mapping")
@@ -663,7 +650,7 @@ def read_data_hdf5(model_path, first_file, last_file, params):
         output_snapshots = params.get("OutputSnapshots", [])
         if output_snapshots:
             snapshot_num = output_snapshots[0]
-            if args.verbose:
+            if verbose:
                 print(f"No redshift in path, using first OutputSnapshot: {snapshot_num}")
         else:
             print("Error: No redshift in model path and no OutputSnapshots in parameter file")
@@ -680,7 +667,7 @@ def read_data_hdf5(model_path, first_file, last_file, params):
 
     # Try master file first
     if os.path.exists(master_file):
-        if args.verbose:
+        if verbose:
             print(f"Found master file: {master_file}")
         halos = hdf5_reader.read_hdf5_snapshot(master_file, snapshot_num)
         if halos is not None:
@@ -690,12 +677,12 @@ def read_data_hdf5(model_path, first_file, last_file, params):
             print(f"Read {tot_ngals} halos from master file")
     else:
         # Fall back to individual files
-        if args.verbose:
+        if verbose:
             print(f"Master file not found, reading individual files...")
 
         file_iterator = (
             tqdm(range(first_file, last_file + 1), desc="Reading HDF5 files")
-            if args.verbose
+            if verbose
             else range(first_file, last_file + 1)
         )
 
@@ -728,7 +715,7 @@ def read_data_hdf5(model_path, first_file, last_file, params):
         total_files = params.get("NumSimulationTreeFiles", good_files)
         if total_files > 0 and good_files > 0:
             volume = volume * good_files / total_files
-            if args.verbose:
+            if verbose:
                 print(f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}")
                 print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
 
@@ -792,12 +779,13 @@ def parse_arguments():
     return args
 
 
-def get_available_plot_modules(plot_type):
+def get_available_plot_modules(plot_type, verbose=False):
     """
     Get available plot modules of a specific type.
 
     Args:
         plot_type: 'snapshot' or 'evolution'
+        verbose: Enable verbose output
 
     Returns:
         Dictionary mapping plot names to their modules
@@ -820,7 +808,7 @@ def get_available_plot_modules(plot_type):
             if plot_func:
                 modules[pattern] = plot_func
         except (ImportError, AttributeError) as e:
-            if args.verbose:
+            if verbose:
                 print(f"Warning: Could not import {module_name}: {e}")
 
     return modules
@@ -828,7 +816,6 @@ def get_available_plot_modules(plot_type):
 
 def main():
     """Main execution function."""
-    global args
     args = parse_arguments()
 
     # Startup banner
@@ -1091,6 +1078,7 @@ def main():
                 first_file=first_file,
                 last_file=last_file,
                 params=params.params,
+                verbose=args.verbose,
             )
             if args.verbose:
                 if metadata.get("sample_data", False):
@@ -1111,7 +1099,7 @@ def main():
             sys.exit(1)
 
         # Get available snapshot plot modules
-        plot_modules = get_available_plot_modules("snapshot")
+        plot_modules = get_available_plot_modules("snapshot", args.verbose)
 
         if args.verbose:
             print(f"Available snapshot plots: {', '.join(plot_modules.keys())}")
@@ -1172,7 +1160,7 @@ def main():
     if args.evolution_plots:
         print_phase("EVOLUTION PLOTS")
         # Get available evolution plot modules
-        plot_modules = get_available_plot_modules("evolution")
+        plot_modules = get_available_plot_modules("evolution", args.verbose)
 
         if args.verbose:
             print(f"Available evolution plots: {', '.join(plot_modules.keys())}")
@@ -1313,6 +1301,7 @@ def main():
                     first_file=first_file,
                     last_file=last_file,
                     params=params.params,
+                    verbose=args.verbose,
                 )
                 # Add redshift to metadata
                 metadata["redshift"] = redshift

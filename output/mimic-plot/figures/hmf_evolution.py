@@ -6,28 +6,46 @@ Mimic Halo Mass Function Evolution Plot
 This module generates a halo mass function evolution plot from Mimic halo data.
 """
 
+# Standard library
 import os
 
+# Third-party packages
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import MultipleLocator
+
+# Local application imports
 from figures import (
     AXIS_LABEL_SIZE,
     IN_FIGURE_TEXT_SIZE,
     LEGEND_FONT_SIZE,
-    get_mass_function_labels,
     get_halo_mass_label,
+    get_mass_function_labels,
     setup_legend,
     setup_plot_fonts,
 )
-from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
+    calculate_mass_function,
     check_required_fields,
     create_empty_plot_with_message,
-    setup_figure,
     save_and_close_figure,
-    calculate_mass_function,
+    setup_figure,
+    warn,
 )
+
+# Target redshifts for evolution plots
+TARGET_REDSHIFTS = [0.0, 1.0, 2.0, 3.0]
+TARGET_TOLERANCE = [0.2, 0.5, 0.5, 0.5]  # Tolerance for each target redshift
+
+# Physical limits for halo mass functions
+HALO_MASS_MIN = 10.0  # log10(Msun) - below resolution limit
+HALO_MASS_MAX = 16.0  # log10(Msun) - above cluster scale
+BINWIDTH_DEX = 0.1    # Standard bin width in dex
+PLOT_XLIM = (10.0, 15.0)  # Plot x-axis limits
+PLOT_YLIM = (1.0e-6, 1.0e-1)  # Plot y-axis limits
+
+# Standard evolution plot colors (consistent across all evolution plots)
+EVOLUTION_COLORS = ["k", "b", "g", "r", "m", "y", "c", "orange"]
 
 
 def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=False):
@@ -68,13 +86,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
         return save_and_close_figure(fig, output_dir, "HaloMassFunction_Evolution", output_format, verbose)
 
-    # Define target redshifts and their tolerances
-    target_redshifts = [0.0, 1.0, 2.0, 3.0]
-    target_tolerance = [0.2, 0.5, 0.5, 0.5]
-
-    # Set up binning
-    binwidth = 0.1
-
     # Debug information
     if verbose:
         print(f"  Number of snapshots: {len(snapshots)}")
@@ -95,8 +106,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     target_snapshots = []
 
     # For each target redshift, find the closest snapshot within tolerance
-    for i, target_z in enumerate(target_redshifts):
-        tolerance = target_tolerance[i]
+    for i, target_z in enumerate(TARGET_REDSHIFTS):
+        tolerance = TARGET_TOLERANCE[i]
         # Filter snapshots with z >= target_z
         candidates = [s for s in sorted_snapshots if s[3]["redshift"] >= target_z]
         if candidates:
@@ -110,9 +121,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         elif verbose:
             warn(f"Target z={target_z:.1f}: No suitable snapshot found")
 
-    # Colors for different redshifts
-    colors = ["k", "b", "g", "r", "m", "y", "c", "orange"]
-
     # Check if we have any snapshots to plot
     if len(target_snapshots) == 0:
         warn("No snapshot data available for HMF evolution plot")
@@ -123,7 +131,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     for i, (snap, galaxies, volume, metadata) in enumerate(target_snapshots):
         hubble_h = metadata["hubble_h"]
         redshift = metadata["redshift"]
-        color = colors[i % len(colors)]
+        color = EVOLUTION_COLORS[i % len(EVOLUTION_COLORS)]
 
         # Debug output - only show if verbose is enabled
         if verbose:
@@ -139,24 +147,11 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
         mass = np.log10(galaxies.Mvir[w] * 1.0e10 / hubble_h)
 
-        # Set up histogram bins
-        mi = np.floor(min(mass)) - 1
-        ma = np.floor(max(mass)) + 1
-
-        # Force reasonable limits
-        mi = max(mi, 10.0)
-        ma = min(ma, 16.0)
-
-        nbins = int((ma - mi) / binwidth)
-
-        # Calculate histogram
-        counts, binedges = np.histogram(mass, range=(mi, ma), bins=nbins)
-        xaxis = binedges[:-1] + 0.5 * binwidth
+        # Calculate mass function
+        xaxis, hmf = calculate_mass_function(mass, volume, hubble_h, BINWIDTH_DEX, HALO_MASS_MIN, HALO_MASS_MAX)
 
         # Plot the histogram
-        ax.plot(
-            xaxis, counts / volume * hubble_h**3 / binwidth, color=color, linestyle="-", lw=2
-        )
+        ax.plot(xaxis, hmf, color=color, linestyle="-", lw=2)
 
         # Store redshift values for labels in the top right corner
         if i == 0:
@@ -167,9 +162,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Customize the plot
     ax.set_yscale("log")
-    ax.set_xlim(10.0, 15.0)
-    ax.set_ylim(1.0e-6, 1.0e-1)
-    ax.xaxis.set_minor_locator(MultipleLocator(0.1))
+    ax.set_xlim(*PLOT_XLIM)
+    ax.set_ylim(*PLOT_YLIM)
+    ax.xaxis.set_minor_locator(MultipleLocator(BINWIDTH_DEX))
 
     ax.set_ylabel(get_mass_function_labels(), fontsize=AXIS_LABEL_SIZE)
     ax.set_xlabel(get_halo_mass_label(), fontsize=AXIS_LABEL_SIZE)

@@ -6,11 +6,16 @@ SAGE Baryonic Tully-Fisher Relationship Plot
 This module generates a baryonic Tully-Fisher plot from SAGE galaxy data.
 """
 
+# Standard library
 import os
 from random import sample, seed
 
+# Third-party packages
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import MultipleLocator
+
+# Local application imports
 from figures import (
     AXIS_LABEL_SIZE,
     IN_FIGURE_TEXT_SIZE,
@@ -20,13 +25,12 @@ from figures import (
     setup_legend,
     setup_plot_fonts,
 )
-from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
     check_required_fields,
     create_empty_plot_with_message,
-    setup_figure,
     save_and_close_figure,
+    setup_figure,
+    warn,
 )
 
 
@@ -50,7 +54,10 @@ def plot(
         params: Dictionary with SAGE parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
-        dilute: Maximum number of points to plot (for clarity)
+        dilute: Maximum number of points to plot for visual clarity (default: 7500).
+                This parameter is unique to Tully-Fisher plots to prevent overplotting
+                in scatter plots while maintaining statistical representation.
+        verbose: Enable verbose output
 
     Returns:
         Path to the saved plot file
@@ -98,11 +105,7 @@ def plot(
         msg = "No suitable galaxies found for Tully-Fisher plot"
         warn(msg)
         create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"BaryonicTullyFisher{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+        return save_and_close_figure(fig, output_dir, "BaryonicTullyFisher", output_format, verbose)
 
     # Dilute the sample if needed
     if len(w) > dilute:

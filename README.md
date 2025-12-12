@@ -63,7 +63,7 @@ deactivate
 ## Build Options
 
 ```bash
-make                    # Standard build (HDF5 enabled by default)
+make                   # Standard build (HDF5 enabled by default)
 make USE-HDF5=no       # Build without HDF5 support (binary output only)
 make USE-MPI=yes       # With MPI parallelization
 make -j$(nproc)        # Parallel compilation (faster)
@@ -133,9 +133,9 @@ Mimic includes a comprehensive three-tier testing framework:
 
 ```bash
 make tests              # Run all tests (validates metadata, runs all tiers)
-make test-unit          # C unit tests (fast, <10s)
-make test-integration   # Python integration tests (<1min)
-make test-scientific    # Physics validation tests (<5min)
+make test-unit          # C unit tests
+make test-integration   # Python integration tests
+make test-scientific    # Physics validation tests
 ```
 
 Test data uses the mini-Millennium simulation ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)), automatically downloaded during first-time setup.
@@ -151,10 +151,9 @@ Contributions are welcome! When contributing:
 
 ## Citation
 
-If you use Mimic in your research, please cite the SAGE papers:
+If you use Mimic (SAGE) in your research, please cite the SAGE paper:
 
 - Croton et al. 2016: [Semi-Analytic Galaxy Evolution (SAGE): Model Calibration and Basic Results](http://arxiv.org/abs/1601.04709)
-- Croton et al. 2006: [The many lives of active galactic nuclei: cooling flows, black holes and the luminosities and colours of galaxies](http://arxiv.org/abs/astro-ph/0508046)
 
 **Related SAGE Resources**:
 - [Original SAGE code](https://github.com/darrencroton/sage)

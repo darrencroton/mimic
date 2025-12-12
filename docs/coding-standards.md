@@ -936,7 +936,7 @@ When reviewing code, check for:
 - [ ] Resources freed when no longer needed
 
 ### Code Quality
-- [ ] Functions <100 lines (ideally <50)
+- [ ] Functions <200 lines (ideally <100)
 - [ ] Nesting <4 levels deep
 - [ ] Named constants instead of magic numbers
 - [ ] Descriptive variable names

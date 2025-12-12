@@ -6,28 +6,39 @@ Mimic Halo Mass Function Plot
 This module generates a halo mass function plot from Mimic halo data.
 """
 
+# Standard library
 import os
 
+# Third-party packages
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import MultipleLocator
+
+# Local application imports
 from figures import (
     AXIS_LABEL_SIZE,
     IN_FIGURE_TEXT_SIZE,
     LEGEND_FONT_SIZE,
-    get_mass_function_labels,
     get_halo_mass_label,
+    get_mass_function_labels,
     setup_legend,
     setup_plot_fonts,
 )
-from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
+    calculate_mass_function,
     check_required_fields,
     create_empty_plot_with_message,
-    setup_figure,
     save_and_close_figure,
-    calculate_mass_function,
+    setup_figure,
+    warn,
 )
+
+# Physical limits for halo mass functions
+HALO_MASS_MIN = 10.0  # log10(Msun) - below resolution limit
+HALO_MASS_MAX = 16.0  # log10(Msun) - above cluster scale
+BINWIDTH_DEX = 0.1    # Standard bin width in dex
+PLOT_XLIM = (10.0, 15.0)  # Plot x-axis limits
+PLOT_YLIM = (1.0e-6, 1.0e-1)  # Plot y-axis limits
 
 
 def plot(
@@ -71,9 +82,6 @@ def plot(
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
 
-    # Set up binning
-    binwidth = 0.1
-
     # Prepare data - select halos (Type 0 = central galaxies = halos) with valid masses
     w = np.where((galaxies.Type == 0) & (galaxies.Mvir > 0.0))[0]
 
@@ -85,16 +93,12 @@ def plot(
     # Convert halo mass to log scale (Mvir is in units of 10^10 Msun/h)
     mass = np.log10(galaxies.Mvir[w] * 1.0e10 / hubble_h)
 
-    # Force some reasonable limits for halo masses
-    mi = 10.0  # Don't go below 10^10 Msun
-    ma = 16.0  # Don't go above 10^16 Msun
-
     # Calculate halo mass function
-    xaxis, hmf = calculate_mass_function(mass, volume, hubble_h, binwidth, mi, ma)
+    xaxis, hmf = calculate_mass_function(mass, volume, hubble_h, BINWIDTH_DEX, HALO_MASS_MIN, HALO_MASS_MAX)
 
     # Print debugging info
     if verbose:
-        print(f"  mi={mi}, ma={ma}")
+        print(f"  mi={HALO_MASS_MIN}, ma={HALO_MASS_MAX}")
         print(f"  min mass={min(mass)}, max mass={max(mass)}")
         print(f"  volume={volume}, hubble_h={hubble_h}")
         print(f"  Number of halos: {len(w)}")
@@ -104,9 +108,9 @@ def plot(
 
     # Customize the plot
     ax.set_yscale("log")
-    ax.set_xlim(10.0, 15.0)
-    ax.set_ylim(1.0e-6, 1.0e-1)
-    ax.xaxis.set_minor_locator(MultipleLocator(0.1))
+    ax.set_xlim(*PLOT_XLIM)
+    ax.set_ylim(*PLOT_YLIM)
+    ax.xaxis.set_minor_locator(MultipleLocator(BINWIDTH_DEX))
 
     # Set labels with larger font sizes
     ax.set_ylabel(get_mass_function_labels(), fontsize=AXIS_LABEL_SIZE)
