@@ -6,7 +6,6 @@ Mimic Spatial Distribution Plot
 This module generates a multi-panel plot showing the spatial distribution of galaxies.
 """
 
-import os
 import random
 
 import matplotlib.pyplot as plt
@@ -19,10 +18,11 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
     save_and_close_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -45,9 +45,12 @@ def plot(
         params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
+        verbose: Whether to print verbose output
 
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
@@ -56,22 +59,16 @@ def plot(
         plot_name='Spatial Distribution'
     )
 
-    # Create a figure with 3 subplots (arranged in a 2x2 grid, with one empty)
-    fig, axes = plt.subplots(2, 2, figsize=(10, 10))
-    axes = axes.flatten()
-
-    # Hide the empty subplot (bottom right)
-    axes[3].set_visible(False)
-
-    # Apply consistent font settings to each subplot
-    for ax in axes[:3]:
-        setup_plot_fonts(ax)
-
     if not success:
         warn(msg)
-        for ax in axes[:3]:
-            create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "SpatialDistribution", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
+
+    # Field-level validation
+    has_mvir, count, msg = check_field_has_values(
+        galaxies.Mvir, 'Mvir', threshold=0.0
+    )
+    if not has_mvir:
+        return None, f"Field validation failed: {msg}"
 
     # Set random seed for reproducibility when sampling points
     random.seed(2222)
@@ -83,16 +80,22 @@ def plot(
     # Filter for galaxies with non-zero halo mass
     w = np.where(galaxies.Mvir > 0.0)[0]
 
-    # Check if we have any galaxies to plot
-    if len(w) == 0:
-        warn("No galaxies found with Mvir > 0")
-        for ax in axes[:3]:
-            create_empty_plot_with_message(ax, "No galaxies found with Mvir > 0", IN_FIGURE_TEXT_SIZE)
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"SpatialDistribution{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+    # Filter-level validation
+    is_valid, skip_msg = validate_filtered_data(w, "Spatial Distribution", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    # Create a figure with 3 subplots (arranged in a 2x2 grid, with one empty)
+    fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+    axes = axes.flatten()
+
+    # Hide the empty subplot (bottom right)
+    axes[3].set_visible(False)
+
+    # Apply consistent font settings to each subplot
+    for ax in axes[:3]:
+        setup_plot_fonts(ax)
 
     # If we have too many galaxies, randomly sample a subset
     dilute = 10000  # Higher limit for this plot to show structure
@@ -107,7 +110,6 @@ def plot(
     # Add a small buffer around the box for the plot
     buffer = box_size * 0.1
 
-    # Print some debug information
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"  Number of galaxies plotted: {len(w)}")
@@ -139,4 +141,5 @@ def plot(
     plt.tight_layout()
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "SpatialDistribution", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "SpatialDistribution", output_format, verbose)
+    return plot_path, None

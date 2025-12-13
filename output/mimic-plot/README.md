@@ -149,44 +149,144 @@ To add a new plot type, follow these steps:
 
 1. **Create a new Python module** in the `figures/` directory with a descriptive name (e.g., `new_plot_type.py`)
 
-2. **Implement the plot function** with the appropriate signature:
-   
+2. **Implement the plot function** with the appropriate signature and automatic validation:
+
    For snapshot plots:
    ```python
-   def plot(halos, volume, metadata, params, output_dir="plots", output_format=".png"):
+   from output_utils import (
+       check_field_has_values,
+       check_required_fields,
+       save_and_close_figure,
+       setup_figure,
+       validate_filtered_data,
+       warn,
+   )
+
+   def plot(galaxies, volume, metadata, params, output_dir="plots", output_format=".png", verbose=False):
        """
        Create your new plot type.
 
        Args:
-           halos: Halo data as a numpy recarray
+           galaxies: Galaxy data as a numpy recarray
            volume: Simulation volume in (Mpc/h)^3
            metadata: Dictionary with additional metadata
            params: Dictionary with Mimic parameters
            output_dir: Output directory for the plot
            output_format: File format for the output
+           verbose: Whether to print verbose output
 
        Returns:
-           Path to the saved plot file
+           Tuple of (plot_path, skip_message):
+               - plot_path (str or None): Path to saved plot file if successful
+               - skip_message (str or None): Reason for skipping if validation failed
        """
-       # Your implementation here
+       # 1. Check required fields
+       success, optional, msg = check_required_fields(
+           galaxies,
+           required_fields=['SomeField'],
+           plot_name='Your Plot Name'
+       )
+       if not success:
+           warn(msg)
+           return None, f"Required fields missing: {msg}"
+
+       # 2. Field-level validation (automatic check for all-zero fields)
+       has_values, count, msg = check_field_has_values(
+           galaxies.SomeField, 'SomeField', threshold=0.0
+       )
+       if not has_values:
+           return None, f"Field validation failed: {msg}"
+
+       # 3. Filter data
+       w = np.where(galaxies.SomeField > 0.0)[0]
+
+       # 4. Filter-level validation (automatic check for empty results)
+       is_valid, skip_msg = validate_filtered_data(w, "Your Plot Name", verbose)
+       if not is_valid:
+           return None, skip_msg
+
+       # 5. NOW create the figure (only after validation passes)
+       fig, ax = setup_figure()
+
+       # 6. Your plotting code here...
+
+       # 7. Save and return tuple
+       plot_path = save_and_close_figure(fig, output_dir, "PlotFileName", output_format, verbose)
+       return plot_path, None
    ```
 
    For evolution plots:
    ```python
-   def plot(snapshots, params, output_dir="plots", output_format=".png"):
+   from output_utils import (
+       check_field_has_values,
+       check_required_fields,
+       save_and_close_figure,
+       setup_figure,
+       validate_evolution_snapshot,
+       warn,
+   )
+
+   def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=False):
        """
        Create your new evolution plot type.
 
        Args:
-           snapshots: Dictionary mapping snapshot numbers to tuples of (halos, volume, metadata)
+           snapshots: Dictionary mapping snapshot numbers to tuples of (galaxies, volume, metadata)
            params: Dictionary with Mimic parameters
            output_dir: Output directory for the plot
            output_format: File format for the output
+           verbose: Whether to print verbose output
 
        Returns:
-           Path to the saved plot file
+           Tuple of (plot_path, skip_message):
+               - plot_path (str or None): Path to saved plot file if successful
+               - skip_message (str or None): Reason for skipping if validation failed
        """
-       # Your implementation here
+       # 1. Check if we have snapshots
+       if len(snapshots) == 0:
+           warn("No snapshot data available")
+           return None, "No snapshot data available"
+
+       # 2. Validate using first snapshot as sample
+       first_snap = next(iter(snapshots.values()))
+       galaxies_sample = first_snap[0]
+
+       success, optional, msg = check_required_fields(
+           galaxies_sample,
+           required_fields=['SomeField'],
+           plot_name='Your Evolution Plot'
+       )
+       if not success:
+           warn(msg)
+           return None, f"Required fields missing: {msg}"
+
+       # 3. Field-level validation
+       has_values, count, msg = check_field_has_values(
+           galaxies_sample.SomeField, 'SomeField', threshold=0.0
+       )
+       if not has_values:
+           return None, f"Field validation failed: {msg}"
+
+       # 4. Create figure AFTER validation
+       fig, ax = setup_figure()
+
+       # 5. Loop through snapshots
+       for snap, (galaxies, volume, metadata) in snapshots.items():
+           redshift = metadata['redshift']
+
+           # Filter data
+           w = np.where(galaxies.SomeField > 0.0)[0]
+
+           # Validate this snapshot (skip if no data)
+           is_valid, skip_msg = validate_evolution_snapshot(w, redshift, "Your Plot", verbose)
+           if not is_valid:
+               continue  # Skip this snapshot, continue with others
+
+           # Plot this snapshot...
+
+       # 6. Save and return tuple
+       plot_path = save_and_close_figure(fig, output_dir, "PlotFileName", output_format, verbose)
+       return plot_path, None
    ```
 
 3. **Use consistent styling** by importing and using helper functions from the `figures` package:
@@ -194,7 +294,12 @@ To add a new plot type, follow these steps:
    from figures import setup_plot_fonts, setup_legend, AXIS_LABEL_SIZE
    ```
 
-4. **Add robust error handling** for empty selections, missing data, and division by zero.
+4. **Automatic validation** - The validation helpers provide three levels of automatic checking:
+   - **Property existence**: `check_required_fields()` verifies fields are present
+   - **Field-level validation**: `check_field_has_values()` checks for all-zero fields
+   - **Filter-level validation**: `validate_filtered_data()` / `validate_evolution_snapshot()` check for empty results
+
+   When validation fails, plots are automatically skipped and reported to the user with clear reasons.
 
 5. **Update `figures/__init__.py`** to include your new module:
    ```python
@@ -219,7 +324,7 @@ To add a new plot type, follow these steps:
 
 ### Example Implementation
 
-Here's a minimal example of a new plot module:
+Here's a complete example of a new plot module with automatic validation:
 
 ```python
 #!/usr/bin/env python
@@ -230,41 +335,75 @@ Mimic Example Plot
 This module generates an example plot from Mimic halo data.
 """
 
-import os
 import numpy as np
-import matplotlib.pyplot as plt
 from figures import setup_plot_fonts, setup_legend, AXIS_LABEL_SIZE
+from output_utils import (
+    check_field_has_values,
+    check_required_fields,
+    save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
+)
 
-def plot(halos, volume, metadata, params, output_dir="plots", output_format=".png"):
+def plot(galaxies, volume, metadata, params, output_dir="plots", output_format=".png", verbose=False):
     """
     Create an example plot.
 
     Args:
-        halos: Halo data as a numpy recarray
+        galaxies: Galaxy data as a numpy recarray
         volume: Simulation volume in (Mpc/h)^3
         metadata: Dictionary with additional metadata
         params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
+        verbose: Whether to print verbose output
 
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
-    # Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6))
+    # Check required fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=['Mvir'],
+        plot_name='Example Plot'
+    )
+    if not success:
+        warn(msg)
+        return None, f"Required fields missing: {msg}"
+
+    # Field-level validation
+    has_mvir, count, msg = check_field_has_values(
+        galaxies.Mvir, 'Mvir', threshold=0.0
+    )
+    if not has_mvir:
+        return None, f"Field validation failed: {msg}"
+
+    # Filter data
+    w = np.where((galaxies.Type == 0) & (galaxies.Mvir > 0.0))[0]
+
+    # Filter-level validation
+    is_valid, skip_msg = validate_filtered_data(w, "Example Plot", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only after validation passes)
+    fig, ax = setup_figure()
 
     # Apply consistent font settings
     setup_plot_fonts(ax)
 
     # Your plotting code here...
+    mass = np.log10(galaxies.Mvir[w] * 1.0e10)
+    ax.hist(mass, bins=50)
+    ax.set_xlabel("log$_{10}$(M$_{vir}$ / M$_{\odot}$)", fontsize=AXIS_LABEL_SIZE)
+    ax.set_ylabel("Count", fontsize=AXIS_LABEL_SIZE)
 
-    # Save the figure
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"ExamplePlot{output_format}")
-    plt.savefig(output_path)
-    plt.close()
-
-    return output_path
+    # Save and return tuple
+    plot_path = save_and_close_figure(fig, output_dir, "ExamplePlot", output_format, verbose)
+    return plot_path, None
 ```
 
 ## Architecture

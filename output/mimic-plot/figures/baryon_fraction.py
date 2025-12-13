@@ -10,8 +10,6 @@ Requires: Mvir, Type
 Optional: StellarMass, ColdGas, HotGas, EjectedMass, ICS, BlackHoleMass
 """
 
-import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import (
@@ -24,9 +22,10 @@ from figures import (
 from matplotlib.ticker import MultipleLocator, MaxNLocator
 from output_utils import (
     warn,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
-    setup_figure,
+        setup_figure,
+    validate_filtered_data,
     save_and_close_figure,
 )
 
@@ -57,7 +56,9 @@ def plot(
         verbose: Show detailed output
 
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check required and optional fields
     success, optional, msg = check_required_fields(
@@ -67,13 +68,9 @@ def plot(
         plot_name='Baryon Fraction'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
@@ -97,9 +94,7 @@ def plot(
         msg = "No baryonic properties found\n(Enable physics modules to generate baryon data)"
         if verbose:
             warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
-
+        return None, msg
     # Only use central galaxies (Type = 0) with non-zero Mvir
     central_mask = (galaxies.Type == 0) & (galaxies.Mvir > 0.0)
 
@@ -108,9 +103,7 @@ def plot(
         msg = "No central galaxies found with Mvir > 0"
         if verbose:
             warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
-
+        return None, msg
     # Set up halo mass bins
     min_halo = 11.0
     max_halo = 16.0
@@ -265,8 +258,10 @@ def plot(
         msg = "Insufficient data for baryon fraction analysis\n(Not enough central galaxies in mass bins)"
         if verbose:
             warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
+        return None, msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # Plot the results
     # Total baryon fraction
@@ -325,4 +320,5 @@ def plot(
     leg = setup_legend(ax, loc="upper right")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "BaryonFraction", output_format, verbose)
+    return plot_path, None

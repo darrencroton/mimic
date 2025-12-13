@@ -21,11 +21,12 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
-    setup_figure,
     save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -48,9 +49,12 @@ def plot(
         params: Dictionary with SAGE parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
+        verbose: Whether to print verbose output
 
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
@@ -59,13 +63,31 @@ def plot(
         plot_name='Metallicity'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "Metallicity", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
+
+    # Field-level validation: Check if MetalsColdGas has any non-zero values
+    # This catches the case where metal enrichment hasn't occurred yet
+    has_metals, count, msg = check_field_has_values(
+        galaxies.MetalsColdGas, 'MetalsColdGas', threshold=0.0
+    )
+    if not has_metals:
+        return None, f"Field validation failed: {msg}"
+
+    # Field-level validation: Check if ColdGas has any non-zero values
+    has_gas, count, msg = check_field_has_values(
+        galaxies.ColdGas, 'ColdGas', threshold=0.0
+    )
+    if not has_gas:
+        return None, f"Field validation failed: {msg}"
+
+    # Field-level validation: Check if StellarMass has any non-zero values
+    has_mass, count, msg = check_field_has_values(
+        galaxies.StellarMass, 'StellarMass', threshold=0.01
+    )
+    if not has_mass:
+        return None, f"Field validation failed: {msg}"
 
     # Set random seed for reproducibility when sampling points
     random.seed(2222)
@@ -98,11 +120,13 @@ def plot(
     # Now apply all filters
     w = np.where(valid_mass & (gas_fraction > 0.1))[0]
 
-    # Check if we have any galaxies to plot
-    if len(w) == 0:
-        warn("No suitable galaxies found for metallicity plot")
-        create_empty_plot_with_message(ax, "No suitable galaxies found for metallicity plot", IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "Metallicity", output_format, verbose)
+    # Filter-level validation: Check if filtering produced results
+    is_valid, skip_msg = validate_filtered_data(w, "Metallicity", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # If we have too many galaxies, randomly sample a subset
     if len(w) > dilute:
@@ -167,4 +191,5 @@ def plot(
     setup_legend(ax, loc="lower right")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "Metallicity", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "Metallicity", output_format, verbose)
+    return plot_path, None

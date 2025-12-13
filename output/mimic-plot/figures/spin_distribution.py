@@ -6,8 +6,6 @@ Mimic Spin Distribution Plot
 This module generates a plot showing the distribution of galaxy spin parameters.
 """
 
-import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import (
@@ -20,9 +18,10 @@ from figures import (
 from matplotlib.ticker import MultipleLocator, MaxNLocator
 from output_utils import (
     warn,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
-    setup_figure,
+        setup_figure,
+    validate_filtered_data,
     save_and_close_figure,
 )
 
@@ -47,8 +46,13 @@ def plot(
         output_dir: Output directory for the plot
         output_format: File format for the output
 
+    verbose: Whether to print verbose output
+
+
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
@@ -57,13 +61,9 @@ def plot(
         plot_name='Spin Distribution'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "SpinDistribution", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
 
     # Filter for valid galaxies with non-zero Vvir and Rvir
     valid_galaxies = np.where(
@@ -77,15 +77,10 @@ def plot(
         )
     )[0]
 
-    # Check if we have any galaxies to plot
-    if len(valid_galaxies) == 0:
-        warn("No valid galaxies found for spin distribution plot")
-        create_empty_plot_with_message(ax, "No valid galaxies found for spin distribution plot", IN_FIGURE_TEXT_SIZE)
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"SpinDistribution{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+    # Validate filtered data
+    is_valid, skip_msg = validate_filtered_data(valid_galaxies, "Spin Distribution", verbose)
+    if not is_valid:
+        return None, skip_msg
 
     # Calculate spin parameter according to the formula:
     # λ = |J| / (√2 * Vvir * Rvir)
@@ -105,16 +100,15 @@ def plot(
         (spin_parameter > 0.0) & (spin_parameter < 1.0) & np.isfinite(spin_parameter)
     )[0]
 
-    if len(valid_spins) == 0:
-        warn("No valid spin parameter values found")
-        create_empty_plot_with_message(ax, "No valid spin parameter values found", IN_FIGURE_TEXT_SIZE)
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"SpinDistribution{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+    # Second validation: check if we have valid spin parameter values
+    is_valid, skip_msg = validate_filtered_data(valid_spins, "Spin Distribution (valid parameters)", verbose)
+    if not is_valid:
+        return None, skip_msg
 
     spin_parameter = spin_parameter[valid_spins]
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # Print some debug information
     # Print some debug information if verbose mode is enabled
@@ -176,4 +170,5 @@ def plot(
     setup_legend(ax, loc="upper right")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "SpinDistribution", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "SpinDistribution", output_format, verbose)
+    return plot_path, None

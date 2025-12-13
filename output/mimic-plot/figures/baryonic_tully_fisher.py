@@ -26,10 +26,11 @@ from figures import (
     setup_plot_fonts,
 )
 from output_utils import (
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
-    save_and_close_figure,
+        save_and_close_figure,
     setup_figure,
+    validate_filtered_data,
     warn,
 )
 
@@ -60,7 +61,9 @@ def plot(
         verbose: Enable verbose output
 
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check required fields
     success, optional, msg = check_required_fields(
@@ -69,13 +72,9 @@ def plot(
         plot_name='Baryonic Tully-Fisher'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "BaryonicTullyFisher", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
 
     # Set random seed for reproducibility when diluting
     seed(2222)
@@ -104,8 +103,10 @@ def plot(
     if len(w) == 0:
         msg = "No suitable galaxies found for Tully-Fisher plot"
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "BaryonicTullyFisher", output_format, verbose)
+        return None, msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # Dilute the sample if needed
     if len(w) > dilute:
@@ -139,4 +140,5 @@ def plot(
     setup_legend(ax, loc="lower right")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "BaryonicTullyFisher", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "BaryonicTullyFisher", output_format, verbose)
+    return plot_path, None

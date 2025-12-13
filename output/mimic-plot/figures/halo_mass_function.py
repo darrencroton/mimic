@@ -26,10 +26,11 @@ from figures import (
 )
 from output_utils import (
     calculate_mass_function,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
-    save_and_close_figure,
+        save_and_close_figure,
     setup_figure,
+    validate_filtered_data,
     warn,
 )
 
@@ -61,8 +62,13 @@ def plot(
         output_dir: Output directory for the plot
         output_format: File format for the output
 
+    verbose: Whether to print verbose output
+
+
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
@@ -71,13 +77,9 @@ def plot(
         plot_name='Halo Mass Function'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "HaloMassFunction", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
@@ -85,10 +87,12 @@ def plot(
     # Prepare data - select halos (Type 0 = central galaxies = halos) with valid masses
     w = np.where((galaxies.Type == 0) & (galaxies.Mvir > 0.0))[0]
 
-    if len(w) == 0:
-        warn("No halos found with Mvir > 0.0")
-        create_empty_plot_with_message(ax, "No halos found with Mvir > 0.0", IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "HaloMassFunction", output_format, verbose)
+    is_valid, skip_msg = validate_filtered_data(w, "Plot", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # Convert halo mass to log scale (Mvir is in units of 10^10 Msun/h)
     mass = np.log10(galaxies.Mvir[w] * 1.0e10 / hubble_h)
@@ -120,4 +124,5 @@ def plot(
     setup_legend(ax, loc="lower left")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "HaloMassFunction", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "HaloMassFunction", output_format, verbose)
+    return plot_path, None

@@ -22,12 +22,13 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
-    check_required_fields,
-    create_empty_plot_with_message,
-    setup_figure,
-    save_and_close_figure,
     calculate_mass_function,
+    check_field_has_values,
+    check_required_fields,
+    save_and_close_figure,
+    setup_figure,
+    validate_evolution_snapshot,
+    warn,
 )
 
 
@@ -40,16 +41,17 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
+        verbose: Whether to print verbose output
 
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check if we have any snapshots
     if len(snapshots) == 0:
-        fig, ax = setup_figure()
         warn("No snapshot data available for SMF evolution plot")
-        create_empty_plot_with_message(ax, "No snapshot data available for SMF evolution plot", IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose)
+        return None, "No snapshot data available for SMF evolution plot"
 
     # Check required fields using first snapshot
     first_snap = next(iter(snapshots.values()))
@@ -61,13 +63,16 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         plot_name='Stellar Mass Function Evolution'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
+
+    # Field-level validation: Check if StellarMass has any non-zero values
+    has_mass, count, msg = check_field_has_values(
+        galaxies_sample.StellarMass, 'StellarMass', threshold=0.0
+    )
+    if not has_mass:
+        return None, f"Field validation failed: {msg}"
 
     # Define target redshifts and their tolerances
     target_redshifts = [0.0, 1.3, 2.0, 3.0]
@@ -229,9 +234,11 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Check if we have any snapshots to plot
     if len(target_snapshots) == 0:
-        warn("No snapshot data available for SMF evolution plot")
-        create_empty_plot_with_message(ax, "No snapshot data available for SMF evolution plot", IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose)
+        warn("No snapshots found matching target redshifts for SMF evolution plot")
+        return None, "No snapshots found matching target redshifts for SMF evolution plot"
+
+    # NOW create the figure (only after all validation passed)
+    fig, ax = setup_figure()
 
     # Plot model SMFs at target redshifts
     for i, (snap, galaxies, volume, metadata) in enumerate(target_snapshots):
@@ -246,9 +253,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         # Select all galaxies with valid stellar mass
         w = np.where(galaxies.StellarMass > 0.0)[0]
 
-        # Skip this snapshot if no galaxies found
-        if len(w) == 0:
-            warn(f"No galaxies found for z={redshift:.1f}")
+        # Validate this snapshot - skip if no galaxies found
+        is_valid, skip_msg = validate_evolution_snapshot(w, redshift, "SMF Evolution", verbose)
+        if not is_valid:
             continue
 
         mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
@@ -312,4 +319,5 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     setup_legend(ax, loc="lower left")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose)
+    return plot_path, None

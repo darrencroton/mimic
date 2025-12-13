@@ -22,11 +22,12 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
-    setup_figure,
     save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -51,9 +52,12 @@ def plot(
         output_dir: Output directory for the plot
         output_format: File format for the output
         dilute: Maximum number of points to plot (for clarity)
+        verbose: Whether to print verbose output
 
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
@@ -62,13 +66,22 @@ def plot(
         plot_name='Specific Star Formation Rate'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "SpecificSFR", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
+
+    # Field-level validation: Check if StellarMass and Sfr have non-zero values
+    has_mass, count, msg = check_field_has_values(
+        galaxies.StellarMass, 'StellarMass', threshold=0.01
+    )
+    if not has_mass:
+        return None, f"Field validation failed: {msg}"
+
+    has_sfr, count, msg = check_field_has_values(
+        galaxies.Sfr, 'Sfr', threshold=0.0
+    )
+    if not has_sfr:
+        return None, f"Field validation failed: {msg}"
 
     # Set random seed for reproducibility when diluting
     seed(2222)
@@ -79,10 +92,13 @@ def plot(
     # Select galaxies with sufficient stellar mass
     w = np.where(galaxies.StellarMass > 0.01)[0]
 
-    if len(w) == 0:
-        warn("No galaxies found with stellar mass > 0.01")
-        create_empty_plot_with_message(ax, "No galaxies found with stellar mass > 0.01", IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "SpecificSFR", output_format, verbose)
+    # Filter-level validation: Check if filtering produced results
+    is_valid, skip_msg = validate_filtered_data(w, "Specific SFR", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # Dilute the sample if needed
     if len(w) > dilute:
@@ -127,4 +143,5 @@ def plot(
     setup_legend(ax, loc="upper right")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "SpecificSFR", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "SpecificSFR", output_format, verbose)
+    return plot_path, None

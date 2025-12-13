@@ -26,10 +26,11 @@ from figures import (
 )
 from output_utils import (
     calculate_mass_function,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
     save_and_close_figure,
     setup_figure,
+    validate_evolution_snapshot,
     warn,
 )
 
@@ -57,16 +58,17 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
+        verbose: Whether to print verbose output
 
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check if we have any snapshots
     if len(snapshots) == 0:
-        fig, ax = setup_figure()
         warn("No snapshot data available for HMF evolution plot")
-        create_empty_plot_with_message(ax, "No snapshot data available for HMF evolution plot", IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "HaloMassFunction_Evolution", output_format, verbose)
+        return None, "No snapshot data available for HMF evolution plot"
 
     # Check required fields using first snapshot
     first_snap = next(iter(snapshots.values()))
@@ -78,13 +80,16 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         plot_name='Halo Mass Function Evolution'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "HaloMassFunction_Evolution", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
+
+    # Field-level validation: Check if Mvir has any non-zero values
+    has_mvir, count, msg = check_field_has_values(
+        galaxies_sample.Mvir, 'Mvir', threshold=0.0
+    )
+    if not has_mvir:
+        return None, f"Field validation failed: {msg}"
 
     # Debug information
     if verbose:
@@ -123,9 +128,11 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Check if we have any snapshots to plot
     if len(target_snapshots) == 0:
-        warn("No snapshot data available for HMF evolution plot")
-        create_empty_plot_with_message(ax, "No snapshot data available for HMF evolution plot", IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "HaloMassFunction_Evolution", output_format, verbose)
+        warn("No snapshots found matching target redshifts for HMF evolution plot")
+        return None, "No snapshots found matching target redshifts for HMF evolution plot"
+
+    # NOW create the figure (only after all validation passed)
+    fig, ax = setup_figure()
 
     # Plot model HMFs at target redshifts
     for i, (snap, galaxies, volume, metadata) in enumerate(target_snapshots):
@@ -140,9 +147,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         # Select halos (Type 0 = central galaxies = halos) with valid mass
         w = np.where((galaxies.Type == 0) & (galaxies.Mvir > 0.0))[0]
 
-        # Skip this snapshot if no halos found
-        if len(w) == 0:
-            warn(f"No halos found for z={redshift:.1f}")
+        # Validate this snapshot - skip if no halos found
+        is_valid, skip_msg = validate_evolution_snapshot(w, redshift, "HMF Evolution", verbose)
+        if not is_valid:
             continue
 
         mass = np.log10(galaxies.Mvir[w] * 1.0e10 / hubble_h)
@@ -190,4 +197,5 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             y_pos *= 0.6  # Reduces y-position by 40% each time (works well with log scale)
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "HaloMassFunction_Evolution", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "HaloMassFunction_Evolution", output_format, verbose)
+    return plot_path, None

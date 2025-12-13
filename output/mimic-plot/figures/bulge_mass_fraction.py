@@ -6,8 +6,6 @@ SAGE Bulge Mass Fraction Plot
 This module generates a plot showing the bulge and disk mass fractions vs. stellar mass for SAGE galaxy data.
 """
 
-import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import (
@@ -21,9 +19,10 @@ from figures import (
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     warn,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
-    setup_figure,
+        setup_figure,
+    validate_filtered_data,
     save_and_close_figure,
 )
 
@@ -48,8 +47,13 @@ def plot(
         output_dir: Output directory for the plot
         output_format: File format for the output
 
+    verbose: Whether to print verbose output
+
+
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check required fields
     success, optional, msg = check_required_fields(
@@ -58,13 +62,9 @@ def plot(
         plot_name='Bulge Mass Fraction'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "BulgeMassFraction", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
@@ -73,16 +73,13 @@ def plot(
     # Handle division by zero safely
     valid_galaxies = np.where(galaxies.StellarMass > 0.0)[0]
 
-    # Check if we have any galaxies to plot
-    if len(valid_galaxies) == 0:
-        msg = "No galaxies found with stellar mass > 0"
-        warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"BulgeMassFraction{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+    # Validate filtered data
+    is_valid, skip_msg = validate_filtered_data(valid_galaxies, "Bulge Mass Fraction", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # Calculate bulge and disk fractions
     f_bulge = galaxies.BulgeMass[valid_galaxies] / galaxies.StellarMass[valid_galaxies]
@@ -158,4 +155,5 @@ def plot(
     setup_legend(ax, loc="upper right")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "BulgeMassFraction", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "BulgeMassFraction", output_format, verbose)
+    return plot_path, None

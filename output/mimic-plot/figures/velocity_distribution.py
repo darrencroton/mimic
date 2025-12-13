@@ -6,8 +6,6 @@ Mimic Velocity Distribution Plot
 This module generates a plot showing the distribution of galaxy velocities.
 """
 
-import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import (
@@ -20,9 +18,10 @@ from figures import (
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     warn,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
-    setup_figure,
+        setup_figure,
+    validate_filtered_data,
     save_and_close_figure,
 )
 
@@ -47,8 +46,13 @@ def plot(
         output_dir: Output directory for the plot
         output_format: File format for the output
 
+    verbose: Whether to print verbose output
+
+
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
@@ -57,13 +61,9 @@ def plot(
         plot_name='Velocity Distribution'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "VelocityDistribution", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
@@ -90,11 +90,14 @@ def plot(
     # Skip galaxies with zero distance (to avoid division by zero)
     valid_galaxies = dist_los > 0.0
 
-    # If no valid galaxies, create an empty plot
+    # Validate that we have galaxies with valid positions
     if not np.any(valid_galaxies):
-        warn("No galaxies found with valid positions")
-        create_empty_plot_with_message(ax, "No galaxies found with valid positions", IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "VelocityDistribution", output_format, verbose)
+        msg = "No galaxies found with valid positions"
+        warn(msg)
+        return None, msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # Get line-of-sight velocity: v·r/|r| (projection of velocity onto position)
     pos_x = pos_x[valid_galaxies]
@@ -180,4 +183,5 @@ def plot(
     setup_legend(ax, loc="upper left")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "VelocityDistribution", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "VelocityDistribution", output_format, verbose)
+    return plot_path, None

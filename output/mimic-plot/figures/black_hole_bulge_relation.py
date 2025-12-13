@@ -6,7 +6,6 @@ SAGE Black Hole - Bulge Mass Relation Plot
 This module generates a plot of the relationship between black hole mass and bulge mass from SAGE galaxy data.
 """
 
-import os
 import random
 
 import matplotlib.pyplot as plt
@@ -21,9 +20,10 @@ from figures import (
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     warn,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
-    setup_figure,
+        setup_figure,
+    validate_filtered_data,
     save_and_close_figure,
 )
 
@@ -48,8 +48,13 @@ def plot(
         output_dir: Output directory for the plot
         output_format: File format for the output
 
+    verbose: Whether to print verbose output
+
+
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check required fields
     success, optional, msg = check_required_fields(
@@ -58,13 +63,9 @@ def plot(
         plot_name='Black Hole-Bulge Relation'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "BlackHoleBulgeRelation", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
 
     # Set random seed for reproducibility when sampling points
     random.seed(2222)
@@ -78,16 +79,13 @@ def plot(
     # Filter for valid galaxies with both bulge and black hole mass
     w = np.where((galaxies.BulgeMass > 0.01) & (galaxies.BlackHoleMass > 0.00001))[0]
 
-    # Check if we have any galaxies to plot
-    if len(w) == 0:
-        msg = "No galaxies found with both bulge and black hole mass"
-        warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f"BlackHoleBulgeRelation{output_format}")
-        plt.savefig(output_path)
-        plt.close()
-        return output_path
+    # Validate filtered data
+    is_valid, skip_msg = validate_filtered_data(w, "Black Hole-Bulge Relation", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # If we have too many galaxies, randomly sample a subset
     if len(w) > dilute:
@@ -132,4 +130,5 @@ def plot(
     setup_legend(ax, loc="upper left")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "BlackHoleBulgeRelation", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "BlackHoleBulgeRelation", output_format, verbose)
+    return plot_path, None

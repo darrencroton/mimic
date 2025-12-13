@@ -82,28 +82,109 @@ def check_required_fields(galaxies, required_fields, optional_fields=None, plot_
     return True, available_optional, ""
 
 
-def create_empty_plot_with_message(ax, message, fontsize=14):
+def validate_filtered_data(indices, plot_name, verbose=False):
     """
-    Create a standard empty plot with informative message.
+    Validate that filtered data has results for snapshot plots.
+
+    This function checks if filtering produced non-empty results and returns
+    a standardized skip message if not. Unlike the old pattern, this does NOT
+    create empty plot files - the caller should skip the plot entirely.
 
     Args:
-        ax: Matplotlib axis object
-        message: Message to display
-        fontsize: Font size for message text
+        indices: Array of filtered indices (from np.where)
+        plot_name: Name of plot for error messages
+        verbose: Whether to print warnings
 
     Returns:
-        The axis object for chaining
+        Tuple of (is_valid, skip_message):
+            - is_valid (bool): True if len(indices) > 0, False otherwise
+            - skip_message (str or None): Skip reason if invalid, None if valid
+
+    Example (snapshot plot):
+        >>> w = np.where(galaxies.StellarMass > 0.0)[0]
+        >>> is_valid, skip_msg = validate_filtered_data(w, "Stellar Mass Function", verbose)
+        >>> if not is_valid:
+        >>>     return None, skip_msg  # Skip plot entirely
     """
-    ax.text(
-        0.5,
-        0.5,
-        message,
-        horizontalalignment="center",
-        verticalalignment="center",
-        transform=ax.transAxes,
-        fontsize=fontsize,
-    )
-    return ax
+    if len(indices) == 0:
+        msg = f"No data found for {plot_name} after filtering"
+        if verbose:
+            warn(msg)
+        return False, msg
+    return True, None
+
+
+def validate_evolution_snapshot(indices, redshift, plot_name, verbose=False):
+    """
+    Validate that filtered data has results for evolution plots.
+
+    This function is used inside snapshot loops in evolution plots to validate
+    individual snapshots. Returns False to signal the caller should skip (continue)
+    to the next snapshot.
+
+    Args:
+        indices: Array of filtered indices (from np.where)
+        redshift: Redshift of current snapshot
+        plot_name: Name of plot for context
+        verbose: Whether to print warnings
+
+    Returns:
+        Tuple of (is_valid, skip_message):
+            - is_valid (bool): True if len(indices) > 0, False otherwise
+            - skip_message (str or None): Skip reason if invalid, None if valid
+
+    Example (evolution plot):
+        >>> for snap, (galaxies, volume, metadata) in snapshots.items():
+        >>>     w = np.where(galaxies.Mvir > 0.0)[0]
+        >>>     is_valid, skip_msg = validate_evolution_snapshot(
+        >>>         w, metadata['redshift'], "HMF Evolution", verbose
+        >>>     )
+        >>>     if not is_valid:
+        >>>         continue  # Skip this snapshot
+    """
+    if len(indices) == 0:
+        msg = f"{plot_name}: No data found for z={redshift:.1f}"
+        if verbose:
+            warn(msg)
+        return False, msg
+    return True, None
+
+
+def check_field_has_values(data_array, field_name, threshold=0.0):
+    """
+    Check if a field has meaningful non-zero values (field-level validation).
+
+    This function validates that a field contains values above a threshold,
+    catching cases where all values are zero before any filtering occurs.
+    Use this BEFORE filtering to detect all-zero fields early.
+
+    Args:
+        data_array: NumPy array to check
+        field_name: Name of field for error messages
+        threshold: Minimum value to consider meaningful (default: 0.0)
+
+    Returns:
+        Tuple of (has_values, count_valid, message):
+            - has_values (bool): True if any values > threshold
+            - count_valid (int): Number of values > threshold
+            - message (str): Error message if no values, empty string otherwise
+
+    Example:
+        >>> has_metals, count, msg = check_field_has_values(
+        >>>     galaxies.MetalsColdGas, 'MetalsColdGas', threshold=0.0
+        >>> )
+        >>> if not has_metals:
+        >>>     return None, f"Field validation failed: {msg}"
+    """
+    count_valid = np.sum(data_array > threshold)
+    has_values = count_valid > 0
+
+    if not has_values:
+        msg = f"All values in '{field_name}' are <= {threshold}"
+    else:
+        msg = ""
+
+    return has_values, count_valid, msg
 
 
 def setup_figure(figsize=(8, 6)):

@@ -835,7 +835,7 @@ def main():
             "BoxSize",
             "Hubble_h",
         ]
-        print("Parameter summary:")
+        print("Parameter file summary:")
         for key in summary_keys:
             if key in params.params:
                 print(f"  {key:16s} = {params.params[key]}")
@@ -1135,11 +1135,12 @@ def main():
 
         # Generate each plot
         snapshot_generated_plots = []
+        snapshot_skipped_validation = {}  # Track plots skipped due to data validation
         for plot_name, plot_func in available_plots.items():
             try:
                 if args.verbose:
                     print(f"Generating {plot_name}...")
-                plot_path = plot_func(
+                result = plot_func(
                     galaxies=galaxies,
                     volume=volume,
                     metadata=metadata,
@@ -1148,8 +1149,22 @@ def main():
                     output_format=args.format,
                     verbose=args.verbose,
                 )
-                snapshot_generated_plots.append(plot_path)
-                print(f"Generated: {plot_path}")
+
+                # Handle return value: can be path (old style) or (path, skip_msg) tuple (new style)
+                if isinstance(result, tuple):
+                    plot_path, skip_msg = result
+                    if plot_path:
+                        snapshot_generated_plots.append(plot_path)
+                        print(f"Created {plot_name} plot")
+                    elif skip_msg:
+                        snapshot_skipped_validation[plot_name] = skip_msg
+                        if args.verbose:
+                            print(f"Skipped {plot_name}: {skip_msg}")
+                else:
+                    # Old-style return (just path)
+                    plot_path = result
+                    snapshot_generated_plots.append(plot_path)
+                    print(f"Created {plot_name} plot")
             except Exception as e:
                 print(f"Error generating {plot_name}: {e}")
 
@@ -1346,24 +1361,65 @@ def main():
 
         # Generate each evolution plot
         evolution_generated_plots = []
+        evolution_skipped_validation = {}  # Track plots skipped due to data validation
         for plot_name, plot_func in available_plots.items():
             try:
                 if args.verbose:
                     print(f"Generating {plot_name}...")
-                plot_path = plot_func(
+                result = plot_func(
                     snapshots=snapshot_data,
                     params=params.params,
                     output_dir=output_dir,
                     output_format=args.format,
                     verbose=args.verbose,
                 )
-                evolution_generated_plots.append(plot_path)
-                print(f"Generated: {plot_path}")
+
+                # Handle return value: can be path (old style) or (path, skip_msg) tuple (new style)
+                if isinstance(result, tuple):
+                    plot_path, skip_msg = result
+                    if plot_path:
+                        evolution_generated_plots.append(plot_path)
+                        print(f"Created {plot_name} plot")
+                    elif skip_msg:
+                        evolution_skipped_validation[plot_name] = skip_msg
+                        if args.verbose:
+                            print(f"Skipped {plot_name}: {skip_msg}")
+                else:
+                    # Old-style return (just path)
+                    plot_path = result
+                    evolution_generated_plots.append(plot_path)
+                    print(f"Created {plot_name} plot")
             except Exception as e:
                 print(f"Error generating {plot_name}: {e}")
 
         if args.verbose:
             print(f"Generated {len(evolution_generated_plots)} evolution plots.")
+
+    # Report validation-based skips if any (before COMPLETE section)
+    total_skipped_validation = 0
+    if args.snapshot_plots and 'snapshot_skipped_validation' in locals():
+        total_skipped_validation += len(snapshot_skipped_validation)
+    if args.evolution_plots and 'evolution_skipped_validation' in locals():
+        total_skipped_validation += len(evolution_skipped_validation)
+
+    if total_skipped_validation > 0:
+        print_phase("SKIPPED PLOTS")
+        print(f"Skipped {total_skipped_validation} plot(s) due to insufficient data")
+        print()
+
+        if args.snapshot_plots and 'snapshot_skipped_validation' in locals() and snapshot_skipped_validation:
+            print("Snapshot plots:")
+            for plot_name, reason in snapshot_skipped_validation.items():
+                print(f"  • {plot_name}")
+                print(f"    {reason}")
+            print()
+
+        if args.evolution_plots and 'evolution_skipped_validation' in locals() and evolution_skipped_validation:
+            print("Evolution plots:")
+            for plot_name, reason in evolution_skipped_validation.items():
+                print(f"  • {plot_name}")
+                print(f"    {reason}")
+            print()
 
     # Final completion summary
     print_phase("COMPLETE")
@@ -1379,7 +1435,8 @@ def main():
         total_plots += evolution_count
         print(f"Evolution plots : {evolution_count}")
 
-    print(f"Total plots     : {total_plots}")
+    print(f"Plots created   : {total_plots}")
+    print(f"Skipped plots   : {total_skipped_validation} (run with --verbose flag for details)")
     print(f"Output location : {output_dir}")
 
 

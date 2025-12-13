@@ -6,7 +6,6 @@ SAGE Mass Reservoir Scatter Plot
 This module generates a scatter plot showing the mass in different galaxy components vs. halo mass.
 """
 
-import os
 import random
 
 import matplotlib.pyplot as plt
@@ -19,7 +18,13 @@ from figures import (
     setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
-from output_utils import warn, setup_figure, save_and_close_figure
+from output_utils import (
+    warn,
+    check_required_fields,
+    validate_filtered_data,
+    setup_figure,
+    save_and_close_figure,
+)
 
 
 def plot(
@@ -42,14 +47,27 @@ def plot(
         output_dir: Output directory for the plot
         output_format: File format for the output
 
+    verbose: Whether to print verbose output
+
+
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
+    # Check required fields
+    success, optional, msg = check_required_fields(
+        galaxies,
+        required_fields=['Mvir', 'Type', 'StellarMass', 'ColdGas', 'HotGas', 'EjectedMass', 'ICS'],
+        plot_name='Mass Reservoir Scatter'
+    )
+
+    if not success:
+        warn(msg)
+        return None, f"Required fields missing: {msg}"
+
     # Set random seed for reproducibility when sampling points
     random.seed(2222)
-
-    # Set up the figure
-    fig, ax = setup_figure()
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
@@ -62,20 +80,13 @@ def plot(
         (galaxies.Type == 0) & (galaxies.Mvir > 1.0) & (galaxies.StellarMass > 0.0)
     )[0]
 
-    # Check if we have any galaxies to plot
-    if len(w) == 0:
-        warn("No central galaxies found with Mvir > 1.0 and StellarMass > 0.0")
-        # Create an empty plot with a message
-        ax.text(
-            0.5,
-            0.5,
-            "No central galaxies found with Mvir > 1.0 and StellarMass > 0.0",
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=ax.transAxes,
-            fontsize=IN_FIGURE_TEXT_SIZE,
-        )
-        return save_and_close_figure(fig, output_dir, "MassReservoirScatter", output_format, verbose)
+    # Validate filtered data
+    is_valid, skip_msg = validate_filtered_data(w, "Mass Reservoir Scatter", verbose)
+    if not is_valid:
+        return None, skip_msg
+
+    # NOW create the figure (only if validation passed)
+    fig, ax = setup_figure()
 
     # If we have too many galaxies, randomly sample a subset
     if len(w) > dilute:
@@ -137,4 +148,5 @@ def plot(
     setup_legend(ax, loc="upper left")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "MassReservoirScatter", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "MassReservoirScatter", output_format, verbose)
+    return plot_path, None

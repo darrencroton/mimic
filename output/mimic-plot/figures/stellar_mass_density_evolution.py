@@ -21,9 +21,10 @@ from figures import (
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     warn,
+    check_field_has_values,
     check_required_fields,
-    create_empty_plot_with_message,
-    setup_figure,
+        setup_figure,
+    validate_evolution_snapshot,
     save_and_close_figure,
 )
 
@@ -38,16 +39,20 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         output_dir: Output directory for the plot
         output_format: File format for the output
 
+    verbose: Whether to print verbose output
+
+
     Returns:
-        Path to the saved plot file
+        Tuple of (plot_path, skip_message):
+            - plot_path (str or None): Path to saved plot file if successful
+            - skip_message (str or None): Reason for skipping if validation failed
     """
     # Check if we have any snapshots
     if len(snapshots) == 0:
         fig, ax = setup_figure()
         warn("No snapshot data available for stellar mass density evolution plot")
-        create_empty_plot_with_message(ax, "No snapshot data available for stellar mass density evolution plot", IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "Stellar_Mass_Density_Evolution", output_format, verbose)
-
+        # Skip plot - No snapshot data available for stellar mass density evolution plot
+    return plot_path, None
     # Check required fields using first snapshot
     first_snap = next(iter(snapshots.values()))
     galaxies_sample = first_snap[0]
@@ -58,13 +63,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         plot_name='Stellar Mass Density Evolution'
     )
 
-    # Set up the figure
-    fig, ax = setup_figure()
-
     if not success:
         warn(msg)
-        create_empty_plot_with_message(ax, msg, IN_FIGURE_TEXT_SIZE)
-        return save_and_close_figure(fig, output_dir, "Stellar_Mass_Density_Evolution", output_format, verbose)
+        return None, f"Required fields missing: {msg}"
 
     # Determine IMF type from params
     whichimf = 1  # Default to Chabrier
@@ -283,4 +284,5 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     setup_legend(ax, loc="upper right")
 
     # Save and close the figure
-    return save_and_close_figure(fig, output_dir, "Stellar_Mass_Density_Evolution", output_format, verbose)
+    plot_path = save_and_close_figure(fig, output_dir, "Stellar_Mass_Density_Evolution", output_format, verbose)
+    return plot_path, None
