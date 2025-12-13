@@ -127,19 +127,26 @@ cd tests && python -c "from framework import load_binary_halos; print(load_binar
 
 # Test the plotting system (activate virtual environment first)
 source mimic_venv/bin/activate
-cd output/mimic-plot
+
+# Run plotting validation unit tests
+cd output/mimic-plot/tests
+python3 test_validation_helpers.py
+
+# Run plotting integration tests
 ./test_plotting.sh
 
-# Generate all halo plots (both snapshot and evolution - default behavior)
+# Generate all plots (both snapshot and evolution - default behavior)
+# 18 snapshot plots + 4 evolution plots
+cd ..
 python mimic-plot.py --param-file=../../input/millennium.yaml
 
 # Generate specific plots
 python mimic-plot.py --param-file=../../input/millennium.yaml --plots=halo_mass_function,spin_distribution
 
-# Generate only snapshot plots (5 halo plots)
+# Generate only snapshot plots (18 plots: 5 halo + 13 galaxy physics)
 python mimic-plot.py --param-file=../../input/millennium.yaml --snapshot-plots
 
-# Generate only evolution plots (1 halo plot)
+# Generate only evolution plots (4 plots: 1 halo + 3 galaxy physics)
 python mimic-plot.py --param-file=../../input/millennium.yaml --evolution-plots
 
 # Cross-directory execution works from anywhere
@@ -208,7 +215,8 @@ build/generated/     Build-time generated files (git_version.h, test lists)
 tests/               Unit, integration, and scientific tests
   └── generated/     Auto-generated test metadata
 docs/generated/      Auto-generated documentation
-output/mimic-plot/   Plotting system (6 halo plots, modular figures)
+output/mimic-plot/   Plotting system (22 plots: 18 snapshot, 4 evolution)
+  ├── tests/         Plotting system tests (unit and integration)
   └── generated/     Auto-generated Python dtypes
 ```
 

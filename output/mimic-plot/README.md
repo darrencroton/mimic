@@ -74,17 +74,41 @@ The tool supports three verbosity levels:
 
 ## Available Plots
 
+The plotting system includes 18 snapshot plots and 4 evolution plots. Check the `figures/` directory for the complete current list.
+
 ### Snapshot Plots (Single Redshift)
 
-- `halo_mass_function`: Halo mass function showing the abundance of halos vs. mass
+**Halo Property Plots** (always available):
+- `halo_mass_function`: Halo mass function showing abundance vs. mass
 - `halo_occupation`: Halo occupation distribution
 - `spin_distribution`: Distribution of halo spin parameters
 - `velocity_distribution`: Distribution of halo velocities
-- `spatial_distribution`: Spatial distribution of halos in the simulation volume
+- `spatial_distribution`: Spatial distribution of halos in simulation volume
+
+**Galaxy Physics Plots** (require physics modules):
+- `stellar_mass_function`: Stellar mass function
+- `cold_gas_function`: Cold gas mass function
+- `baryon_fraction`: Baryon fraction as function of halo mass
+- `baryonic_mass_function`: Baryonic mass function
+- `gas_mass_function`: Gas mass function
+- `baryonic_tully_fisher`: Baryonic Tully-Fisher relation
+- `specific_sfr`: Specific star formation rate distribution
+- `black_hole_bulge_relation`: Black hole mass vs. bulge mass relation
+- `gas_fraction`: Gas fraction as function of stellar mass
+- `metallicity`: Metallicity distribution
+- `bulge_mass_fraction`: Bulge-to-total mass ratio
+- `quiescent_fraction`: Quiescent galaxy fraction
+- `mass_reservoir_scatter`: Scatter in mass reservoirs
 
 ### Evolution Plots (Multiple Redshifts)
 
-- `hmf_evolution`: Evolution of the halo mass function across cosmic time
+**Halo Property Evolution** (always available):
+- `hmf_evolution`: Evolution of halo mass function across cosmic time
+
+**Galaxy Physics Evolution** (require physics modules):
+- `smf_evolution`: Stellar mass function evolution
+- `sfr_density_evolution`: Star formation rate density evolution
+- `stellar_mass_density_evolution`: Stellar mass density evolution
 
 ## Working with Units
 
@@ -410,6 +434,34 @@ def plot(galaxies, volume, metadata, params, output_dir="plots", output_format="
     plot_path = save_and_close_figure(fig, output_dir, "ExamplePlot", output_format, verbose)
     return plot_path, None
 ```
+
+## Testing
+
+The plotting system includes comprehensive tests to ensure reliability and correctness.
+
+### Running Tests
+
+```bash
+# Activate Python environment first
+source ../../mimic_venv/bin/activate
+
+# Run validation helper unit tests
+cd tests
+python3 test_validation_helpers.py
+
+# Run plotting system integration tests
+./test_plotting.sh
+
+# Both from mimic root
+cd ../..
+python3 output/mimic-plot/tests/test_validation_helpers.py
+output/mimic-plot/tests/test_plotting.sh
+```
+
+### Test Suite
+
+- **`test_validation_helpers.py`**: Unit tests for plot validation functions (13 tests covering edge cases, thresholds, and error handling)
+- **`test_plotting.sh`**: Integration tests for the plotting pipeline (5 tests covering different command-line options and plot types)
 
 ## Architecture
 
