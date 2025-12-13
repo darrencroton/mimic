@@ -38,9 +38,6 @@ static double GLOBAL_BARYON_FRAC;
 // ============================================================================
 // Hardcoded parameters specific to Gnedin (2000) model.
 
-/* Enable/disable reionization suppression */
-#define REIONIZATION_ON 1
-
 /* Redshift when UV background turns on */
 #define REIONIZATION_Z0 8.0
 
@@ -97,10 +94,6 @@ static double calculate_reionization_modifier(const struct ModuleContext *ctx,
   double a, a_on_a0, a_on_ar, f_of_a;
   double Mjeans, Mfiltering, Vchar, omegaZ, xZ, deltacritZ, HubbleZ;
   double G_code, Mchar, mass_to_use, modifier;
-
-  if (!REIONIZATION_ON) {
-    return 1.0;
-  }
 
   a = safe_div(1.0, 1.0 + redshift, 0.0);
   a_on_a0 = safe_div(a, REIONIZATION_A0, 0.0);
