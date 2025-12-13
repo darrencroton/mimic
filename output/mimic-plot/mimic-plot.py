@@ -19,7 +19,8 @@ Options:
   --plots=<list>         Comma-separated list of plots to generate
                          [default: all available plots]
   --use-tex              Use LaTeX for text rendering (not recommended)
-  --verbose              Show detailed output
+  --verbose, -v          Show detailed output including skipped plots
+  --quiet, -q            Show minimal output (only summary)
   --help                 Show this help message
 
 Note: By default, both snapshot and evolution plots are generated if neither
@@ -363,7 +364,7 @@ def setup_matplotlib(use_tex=False):
     plt.rcParams["mathtext.default"] = "regular"
 
 
-def read_data(model_path, first_file, last_file, params=None, verbose=False):
+def read_data(model_path, first_file, last_file, params=None, verbose=False, quiet=False):
     """
     Read galaxy data from Mimic output files.
 
@@ -373,6 +374,7 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False):
         last_file: Last file number to read
         params: Dictionary with Mimic parameters
         verbose: Enable verbose output
+        quiet: Suppress all output
 
     Returns:
         Tuple containing:
@@ -380,7 +382,8 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False):
             - Volume of the simulation
             - Dictionary of metadata
     """
-    print(f"Reading galaxy data from {model_path}")
+    if verbose:
+        print(f"Reading galaxy data from {model_path}")
     # Get required parameters from the parameter file
     if not params:
         if colour_enabled():
@@ -412,11 +415,13 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False):
                 print("Please install h5py: pip install h5py")
             sys.exit(1)
 
-        print(f"Using HDF5 format reader")
-        return read_data_hdf5(model_path, first_file, last_file, params, verbose)
+        if verbose:
+            print(f"Using HDF5 format reader")
+        return read_data_hdf5(model_path, first_file, last_file, params, verbose, quiet)
 
     # For binary format (default)
-    print(f"Using binary format reader")
+    if verbose:
+        print(f"Using binary format reader")
 
     # For volume calculation, we'll use the number of good files read
     # No need for MaxTreeFiles parameter - we'll calculate based on actual files read
@@ -543,7 +548,8 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False):
                 ntotgals = np.fromfile(fin, np.dtype(np.int32), 1)[0]
                 gals_per_tree = np.fromfile(fin, np.dtype((np.int32, ntrees)), 1)
 
-                print(f"Reading {ntotgals} galaxies from file: {fname}")
+                if verbose:
+                    print(f"Reading {ntotgals} galaxies from file: {fname}")
 
                 gg = np.fromfile(fin, galdesc, ntotgals)
 
@@ -585,7 +591,7 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False):
     return galaxies, volume, metadata
 
 
-def read_data_hdf5(model_path, first_file, last_file, params, verbose=False):
+def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, quiet=False):
     """
     Read halo data from Mimic HDF5 output files.
 
@@ -595,6 +601,7 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False):
         last_file: Last file number to read
         params: Dictionary with Mimic parameters
         verbose: Enable verbose output
+        quiet: Suppress all output
 
     Returns:
         Tuple containing:
@@ -602,7 +609,8 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False):
             - Volume of the simulation
             - Dictionary of metadata
     """
-    print(f"Reading galaxy data from HDF5 files: {model_path}")
+    if verbose:
+        print(f"Reading galaxy data from HDF5 files: {model_path}")
 
     hubble_h = params["Hubble_h"]
     box_size = params["BoxSize"]
@@ -628,7 +636,11 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False):
 
     # Create mapper to find snapshot from redshift
     # Note: param_file not available in this context, pass None
-    mapper = SnapshotRedshiftMapper(None, params, dir_path)
+    # Add quiet and verbose flags to params for mapper
+    mapper_params = params.copy()
+    mapper_params["quiet"] = quiet
+    mapper_params["verbose"] = verbose
+    mapper = SnapshotRedshiftMapper(None, mapper_params, dir_path)
 
     # Find the snapshot number that matches the redshift string
     snapshot_num = None
@@ -656,7 +668,8 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False):
             print("Error: No redshift in model path and no OutputSnapshots in parameter file")
             sys.exit(1)
 
-    print(f"Reading snapshot {snapshot_num}")
+    if verbose:
+        print(f"Reading snapshot {snapshot_num}")
 
     # Try to find the master file first
     master_file = os.path.join(dir_path, f"{base_name}.hdf5")
@@ -674,7 +687,8 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False):
             tot_ngals = len(halos)
             galaxies_list.append(halos)
             good_files = last_file - first_file + 1  # All files represented in master
-            print(f"Read {tot_ngals} halos from master file")
+            if verbose:
+                print(f"Read {tot_ngals} halos from master file")
     else:
         # Fall back to individual files
         if verbose:
@@ -697,7 +711,8 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False):
                 galaxies_list.append(halos)
                 tot_ngals += len(halos)
                 good_files += 1
-                print(f"Read {len(halos)} halos from {fname}")
+                if verbose:
+                    print(f"Read {len(halos)} halos from {fname}")
 
     if not galaxies_list:
         print("Error: No halos found in HDF5 files.")
@@ -707,7 +722,8 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False):
     galaxies = np.concatenate(galaxies_list)
     galaxies = galaxies.view(np.recarray)
 
-    print(f"Total halos read: {tot_ngals}")
+    if verbose:
+        print(f"Total halos read: {tot_ngals}")
 
     # Calculate volume
     volume = box_size**3.0
@@ -763,9 +779,14 @@ def parse_arguments():
         action="store_true",
         help="Use LaTeX for text rendering (not recommended)",
     )
-    parser.add_argument("--verbose", action="store_true", help="Show detailed output")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed output")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Show minimal output")
 
     args = parser.parse_args()
+
+    # Quiet and verbose are mutually exclusive
+    if args.quiet and args.verbose:
+        parser.error("--quiet and --verbose cannot be used together")
 
     # Default to both snapshot and evolution plots if neither is specified
     if not args.evolution_plots and not args.snapshot_plots:
@@ -822,23 +843,25 @@ def main():
     print_banner(args.param_file)
 
     # Parse the parameter file
-    print_phase("CONFIGURATION")
+    if not args.quiet:
+        print_phase("CONFIGURATION")
     try:
         params = MimicParameters(args.param_file)
 
-        # Always show a concise summary so Phase 1 isn't visually empty
-        summary_keys = [
-            "OutputDir",
-            "OutputFileBaseName",
-            "FirstFile",
-            "LastFile",
-            "BoxSize",
-            "Hubble_h",
-        ]
-        print("Parameter file summary:")
-        for key in summary_keys:
-            if key in params.params:
-                print(f"  {key:16s} = {params.params[key]}")
+        # Show a concise summary unless in quiet mode
+        if not args.quiet:
+            summary_keys = [
+                "OutputDir",
+                "OutputFileBaseName",
+                "FirstFile",
+                "LastFile",
+                "BoxSize",
+                "Hubble_h",
+            ]
+            print("Parameter file summary:")
+            for key in summary_keys:
+                if key in params.params:
+                    print(f"  {key:16s} = {params.params[key]}")
 
         # Extra detail only in verbose mode
         if args.verbose:
@@ -976,10 +999,14 @@ def main():
     else:
         selected_plots = [p.strip() for p in args.plots.split(",")]
 
+    # Show simple progress message in quiet mode
+    if args.quiet:
+        print("\nCreating plots ...")
 
     # Generate snapshot plots
     if args.snapshot_plots:
-        print_phase("SNAPSHOT PLOTS")
+        if not args.quiet:
+            print_phase("SNAPSHOT PLOTS")
         # Get required parameters for finding model files
         if "OutputDir" not in params:
             if colour_enabled():
@@ -1024,7 +1051,11 @@ def main():
             sys.exit(1)
 
         # Get the redshift for this snapshot using the mapper
-        mapper = SnapshotRedshiftMapper(args.param_file, params.params, model_path)
+        # Add quiet and verbose flags to params for mapper
+        mapper_params = params.params.copy()
+        mapper_params["quiet"] = args.quiet
+        mapper_params["verbose"] = args.verbose
+        mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, model_path)
         redshift_str = mapper.get_redshift_str(snapshot)
         
         if args.verbose:
@@ -1079,6 +1110,7 @@ def main():
                 last_file=last_file,
                 params=params.params,
                 verbose=args.verbose,
+                quiet=args.quiet,
             )
             if args.verbose:
                 if metadata.get("sample_data", False):
@@ -1155,7 +1187,8 @@ def main():
                     plot_path, skip_msg = result
                     if plot_path:
                         snapshot_generated_plots.append(plot_path)
-                        print(f"Created {plot_name} plot")
+                        if not args.quiet:
+                            print(f"Created {plot_name} plot")
                     elif skip_msg:
                         snapshot_skipped_validation[plot_name] = skip_msg
                         if args.verbose:
@@ -1164,16 +1197,19 @@ def main():
                     # Old-style return (just path)
                     plot_path = result
                     snapshot_generated_plots.append(plot_path)
-                    print(f"Created {plot_name} plot")
+                    if not args.quiet:
+                        print(f"Created {plot_name} plot")
             except Exception as e:
-                print(f"Error generating {plot_name}: {e}")
+                if not args.quiet:
+                    print(f"Error generating {plot_name}: {e}")
 
         if args.verbose:
             print(f"Generated {len(snapshot_generated_plots)} snapshot plots.")
 
     # Generate evolution plots
     if args.evolution_plots:
-        print_phase("EVOLUTION PLOTS")
+        if not args.quiet:
+            print_phase("EVOLUTION PLOTS")
         # Get available evolution plot modules
         plot_modules = get_available_plot_modules("evolution", args.verbose)
 
@@ -1187,14 +1223,18 @@ def main():
             }
 
         # Create a snapshot-to-redshift mapper
+        # Add quiet and verbose flags to params for mapper
+        mapper_params = params.params.copy()
+        mapper_params["quiet"] = args.quiet
+        mapper_params["verbose"] = args.verbose
         mapper = SnapshotRedshiftMapper(
-            args.param_file, params.params, model_output_dir
+            args.param_file, mapper_params, model_output_dir
         )
         if args.verbose:
             print(mapper.debug_info())
 
         # Create the mapper from parameter file (paths already resolved)
-        mapper = SnapshotRedshiftMapper(args.param_file, params.params, params["OutputDir"])
+        mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, params["OutputDir"])
         
         # Determine which snapshots to process
         if args.all_snapshots:
@@ -1317,6 +1357,7 @@ def main():
                     last_file=last_file,
                     params=params.params,
                     verbose=args.verbose,
+                    quiet=args.quiet,
                 )
                 # Add redshift to metadata
                 metadata["redshift"] = redshift
@@ -1379,7 +1420,8 @@ def main():
                     plot_path, skip_msg = result
                     if plot_path:
                         evolution_generated_plots.append(plot_path)
-                        print(f"Created {plot_name} plot")
+                        if not args.quiet:
+                            print(f"Created {plot_name} plot")
                     elif skip_msg:
                         evolution_skipped_validation[plot_name] = skip_msg
                         if args.verbose:
@@ -1388,21 +1430,24 @@ def main():
                     # Old-style return (just path)
                     plot_path = result
                     evolution_generated_plots.append(plot_path)
-                    print(f"Created {plot_name} plot")
+                    if not args.quiet:
+                        print(f"Created {plot_name} plot")
             except Exception as e:
-                print(f"Error generating {plot_name}: {e}")
+                if not args.quiet:
+                    print(f"Error generating {plot_name}: {e}")
 
         if args.verbose:
             print(f"Generated {len(evolution_generated_plots)} evolution plots.")
 
     # Report validation-based skips if any (before COMPLETE section)
+    # Only show in verbose mode
     total_skipped_validation = 0
     if args.snapshot_plots and 'snapshot_skipped_validation' in locals():
         total_skipped_validation += len(snapshot_skipped_validation)
     if args.evolution_plots and 'evolution_skipped_validation' in locals():
         total_skipped_validation += len(evolution_skipped_validation)
 
-    if total_skipped_validation > 0:
+    if args.verbose and total_skipped_validation > 0:
         print_phase("SKIPPED PLOTS")
         print(f"Skipped {total_skipped_validation} plot(s) due to insufficient data")
         print()
@@ -1421,8 +1466,13 @@ def main():
                 print(f"    {reason}")
             print()
 
+    # Show completion message for quiet mode
+    if args.quiet:
+        print("... finished\n")
+
     # Final completion summary
-    print_phase("COMPLETE")
+    if not args.quiet:
+        print_phase("COMPLETE")
 
     total_plots = 0
     if args.snapshot_plots and 'snapshot_generated_plots' in locals():

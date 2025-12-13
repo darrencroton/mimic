@@ -68,7 +68,6 @@ def plot(
     )
 
     if not success:
-        warn(msg)
         return None, f"Required fields missing: {msg}"
 
     # Extract necessary metadata

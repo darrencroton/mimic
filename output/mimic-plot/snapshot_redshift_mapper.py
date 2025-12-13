@@ -186,7 +186,8 @@ class SnapshotRedshiftMapper:
                 for i in range(len(self.snapshots))
             ]
 
-            print(f"Loaded {len(self.redshifts)} redshift values from {a_list_file}")
+            if self.params.get("verbose", False):
+                print(f"Loaded {len(self.redshifts)} redshift values from {a_list_file}")
             if self.params.get("verbose", False):
                 # Print first few snapshot-redshift pairs
                 print("Snapshot-Redshift mapping (showing first 5):")
@@ -370,8 +371,9 @@ class SnapshotRedshiftMapper:
                     # This ensures we get a proper evolution sequence
                     snap_z_pairs = [(snap, self.get_redshift(snap)) for snap in valid_snapshots]
                     sorted_pairs = sorted(snap_z_pairs, key=lambda x: x[1])
-                    
-                    print(f"Using {len(sorted_pairs)} snapshots from parameter file for evolution plots")
+
+                    if self.params.get("verbose", False):
+                        print(f"Using {len(sorted_pairs)} snapshots from parameter file for evolution plots")
                     
                     # Return just the snapshot numbers, sorted by redshift
                     return [snap for snap, _ in sorted_pairs]

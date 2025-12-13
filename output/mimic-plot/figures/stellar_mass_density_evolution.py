@@ -49,10 +49,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     """
     # Check if we have any snapshots
     if len(snapshots) == 0:
-        fig, ax = setup_figure()
-        warn("No snapshot data available for stellar mass density evolution plot")
-        # Skip plot - No snapshot data available for stellar mass density evolution plot
-    return plot_path, None
+        return None, "No snapshot data available for stellar mass density evolution plot"
     # Check required fields using first snapshot
     first_snap = next(iter(snapshots.values()))
     galaxies_sample = first_snap[0]
@@ -64,7 +61,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     )
 
     if not success:
-        warn(msg)
         return None, f"Required fields missing: {msg}"
 
     # Determine IMF type from params
@@ -179,6 +175,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         elsner2008,
     ]
 
+    # Create the figure (after validation passes)
+    fig, ax = setup_figure()
+
     # Plot all observations
     for o in obs:
         xval = ((o[:, 1] - o[:, 0]) / 2.0) + o[:, 0]
@@ -264,9 +263,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         if verbose:
             print(f"  Plotting {len(nonzero)} nonzero Stellar Mass Density points")
         ax.plot(redshifts[nonzero], smd[nonzero], "k-", lw=3.0, label="Model")
-    else:
-        # Always show warnings even without verbose
-        warn("No nonzero Stellar Mass Density points to plot!")
 
     # Customize the plot
     ax.set_ylabel(

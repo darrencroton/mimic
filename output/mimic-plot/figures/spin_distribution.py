@@ -62,7 +62,6 @@ def plot(
     )
 
     if not success:
-        warn(msg)
         return None, f"Required fields missing: {msg}"
 
     # Filter for valid galaxies with non-zero Vvir and Rvir

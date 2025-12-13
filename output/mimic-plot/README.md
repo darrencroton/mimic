@@ -57,11 +57,20 @@ deactivate
 --format=<format>      Output format (.png, .pdf) [default: .png]
 --plots=<list>         Comma-separated list of plots to generate [default: all]
 --use-tex              Use LaTeX for text rendering (not recommended)
---verbose              Show detailed output
+--verbose, -v          Show detailed output including skipped plots
+--quiet, -q            Show minimal output (only summary)
 --help                 Show this help message
 ```
 
 **Note:** By default, both snapshot and evolution plots are generated if neither `--evolution-plots` nor `--snapshot-plots` is specified.
+
+### Output Verbosity
+
+The tool supports three verbosity levels:
+
+- **Normal** (default): Shows standard progress messages and created plots
+- **Verbose** (`--verbose` or `-v`): Shows detailed information including data loading progress, validation details, and a SKIPPED PLOTS section with reasons for any skipped plots
+- **Quiet** (`--quiet` or `-q`): Shows only the final summary with plot counts and output location
 
 ## Available Plots
 
@@ -187,7 +196,6 @@ To add a new plot type, follow these steps:
            plot_name='Your Plot Name'
        )
        if not success:
-           warn(msg)
            return None, f"Required fields missing: {msg}"
 
        # 2. Field-level validation (automatic check for all-zero fields)
@@ -244,7 +252,6 @@ To add a new plot type, follow these steps:
        """
        # 1. Check if we have snapshots
        if len(snapshots) == 0:
-           warn("No snapshot data available")
            return None, "No snapshot data available"
 
        # 2. Validate using first snapshot as sample
@@ -257,7 +264,6 @@ To add a new plot type, follow these steps:
            plot_name='Your Evolution Plot'
        )
        if not success:
-           warn(msg)
            return None, f"Required fields missing: {msg}"
 
        # 3. Field-level validation
@@ -371,7 +377,6 @@ def plot(galaxies, volume, metadata, params, output_dir="plots", output_format="
         plot_name='Example Plot'
     )
     if not success:
-        warn(msg)
         return None, f"Required fields missing: {msg}"
 
     # Field-level validation

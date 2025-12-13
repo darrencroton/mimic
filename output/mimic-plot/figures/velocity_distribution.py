@@ -62,7 +62,6 @@ def plot(
     )
 
     if not success:
-        warn(msg)
         return None, f"Required fields missing: {msg}"
 
     # Extract necessary metadata
@@ -93,7 +92,6 @@ def plot(
     # Validate that we have galaxies with valid positions
     if not np.any(valid_galaxies):
         msg = "No galaxies found with valid positions"
-        warn(msg)
         return None, msg
 
     # NOW create the figure (only if validation passed)

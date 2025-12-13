@@ -51,10 +51,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     """
     # Check if we have any snapshots
     if len(snapshots) == 0:
-        fig, ax = setup_figure()
-        warn("No snapshot data available for SFR density evolution plot")
-        # Skip plot - No snapshot data available for SFR density evolution plot
-    return plot_path, None
+        return None, "No snapshot data available for SFR density evolution plot"
     # Check if SFR field is available in the data
     # Get the first snapshot to check for field availability
     first_snap = next(iter(snapshots.values()))
@@ -67,7 +64,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     )
 
     if not success:
-        warn(msg)
         return None, f"Required fields missing: {msg}"
 
     # Add observational data (compilation used in many papers)
@@ -179,9 +175,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             lw=3.0,
             label="Model",
         )
-    else:
-        # Always show warnings even without verbose
-        warn("No nonzero SFR density points to plot!")
 
     # Customize the plot
     ax.set_ylabel(get_sfr_density_label(), fontsize=AXIS_LABEL_SIZE)

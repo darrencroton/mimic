@@ -63,7 +63,6 @@ def plot(
     )
 
     if not success:
-        warn(msg)
         return None, f"Required fields missing: {msg}"
 
     # Set random seed for reproducibility when sampling points

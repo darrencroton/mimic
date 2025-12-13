@@ -65,7 +65,6 @@ def plot(
     )
 
     if not success:
-        warn(msg)
         return None, f"Required fields missing: {msg}"
 
     # Extract necessary metadata
@@ -84,7 +83,6 @@ def plot(
     # Check if we have any galaxies to plot
     if len(w) == 0:
         msg = "No galaxies found with baryonic mass > 0.0"
-        warn(msg)
         return None, msg
 
     # NOW create the figure (only if validation passed)

@@ -73,7 +73,6 @@ def plot(
     )
 
     if not success:
-        warn(msg)
         return None, f"Required fields missing: {msg}"
 
     # Set random seed for reproducibility when diluting
@@ -102,7 +101,6 @@ def plot(
     # Check if we have any galaxies to plot
     if len(w) == 0:
         msg = "No suitable galaxies found for Tully-Fisher plot"
-        warn(msg)
         return None, msg
 
     # NOW create the figure (only if validation passed)

@@ -67,7 +67,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     """
     # Check if we have any snapshots
     if len(snapshots) == 0:
-        warn("No snapshot data available for HMF evolution plot")
         return None, "No snapshot data available for HMF evolution plot"
 
     # Check required fields using first snapshot
@@ -81,7 +80,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     )
 
     if not success:
-        warn(msg)
         return None, f"Required fields missing: {msg}"
 
     # Field-level validation: Check if Mvir has any non-zero values
@@ -128,7 +126,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Check if we have any snapshots to plot
     if len(target_snapshots) == 0:
-        warn("No snapshots found matching target redshifts for HMF evolution plot")
         return None, "No snapshots found matching target redshifts for HMF evolution plot"
 
     # NOW create the figure (only after all validation passed)
