@@ -50,9 +50,9 @@ void log_phase_banner(MimicPhase phase) {
   /* In quiet mode, show simple "Running..." / "Completed" messages */
   if (is_quiet) {
     if (phase == PHASE_TREE_PROCESSING) {
-      fprintf(stdout, "\nRunning...\n");
+      fprintf(stdout, "\nMimic is running ...\n");
     } else if (phase == PHASE_SHUTDOWN) {
-      fprintf(stdout, "  ...completed\n");
+      fprintf(stdout, "Mimic has completed (check the config file for details)\n");
     }
     /* Skip other phase banners in quiet mode */
     return;
