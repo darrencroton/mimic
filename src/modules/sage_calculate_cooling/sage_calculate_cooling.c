@@ -32,21 +32,6 @@
 #include "cooling_tables.h"
 
 // ============================================================================
-// MODULE PARAMETERS
-// ============================================================================
-
-static char COOL_FUNCTIONS_DIR[512];
-
-// ============================================================================
-// PHYSICS CONSTANTS
-// ============================================================================
-
-static const double VIRIAL_TEMP_COEFF = 35.9;       /* T_vir coefficient (K/(km/s)^2) */
-static const double COOLING_MU_FACTOR = 0.885;      /* 3/2 × μ (μ=0.59) */
-static const double SPHERE_VOLUME_COEFF = 4.0;      /* 4π approximation */
-static const double COOLING_TIME_DIVISOR = 2.0;
-
-// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
@@ -90,7 +75,7 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx, doubl
     tcool = safe_div(rvir, vvir, 0.0);
 
     /* Calculate virial temperature from virial velocity */
-    temp = VIRIAL_TEMP_COEFF * vvir * vvir;
+    temp = 35.9 * vvir * vvir;
 
     /* Calculate log of metallicity (Z/Z_sun) for cooling function lookup */
     if (metals_hot_gas > EPSILON_SMALL) {
@@ -114,10 +99,10 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx, doubl
     /* Calculate density at cooling radius
      * Factor 0.885 = 3/2 * mu, where mu=0.59 for fully ionized gas
      * This is the density where cooling time equals dynamical time */
-    rho_rcool = safe_div(x, tcool, 0.0) * COOLING_MU_FACTOR;
+    rho_rcool = safe_div(x, tcool, 0.0) * 0.885;
 
     /* Calculate central density assuming isothermal profile for hot gas */
-    rho0 = safe_div(hot_gas, SPHERE_VOLUME_COEFF * M_PI * rvir, 0.0);
+    rho0 = safe_div(hot_gas, 4.0 * M_PI * rvir, 0.0);
 
     /* Calculate cooling radius where tcool = tdyn */
     rcool = sqrt(safe_div(rho0, rho_rcool, 0.0));
@@ -134,7 +119,7 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx, doubl
         /* "Hot halo cooling" regime - cooling only within cooling radius
          * This follows from integrating the isothermal density profile
          * within rcool and dividing by the cooling time */
-        coolingGas = safe_div(hot_gas, rvir, 0.0) * safe_div(rcool, COOLING_TIME_DIVISOR * tcool, 0.0) * dt;
+        coolingGas = safe_div(hot_gas, rvir, 0.0) * safe_div(rcool, 2.0 * tcool, 0.0) * dt;
     }
 
     /* Apply limits to ensure physically sensible cooling */
@@ -153,27 +138,21 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx, doubl
 /**
  * @brief   Initialize the sage_calculate_cooling module
  *
- * Reads module parameters from the parameter file, loads cooling function
- * tables, and prepares the module for execution.
+ * Loads cooling function tables, and prepares the module for execution.
  *
  * @return  0 on success, -1 on failure
  */
 int sage_calculate_cooling_init(void)
 {
-    /* Load cooling tables directory path */
-    LOAD_PARAM_STRING("CoolFunctionsDir", COOL_FUNCTIONS_DIR, sizeof(COOL_FUNCTIONS_DIR));
-
     /* Initialize cooling function tables */
-    if (cooling_tables_init(COOL_FUNCTIONS_DIR) != 0) {
+    if (cooling_tables_init("src/modules/sage_calculate_cooling/CoolFunctions") != 0) {
         ERROR_LOG("Failed to initialize cooling function tables");
         return -1;
     }
 
     /* Log module configuration */
     INFO_LOG("SAGE calculate cooling module initialized");
-    VERBOSE_LOG("  CoolFunctionsDir = %s", COOL_FUNCTIONS_DIR);
     VERBOSE_LOG("  Physics: Calculates CoolingGas for this substep");
-    VERBOSE_LOG("  Execution: Runs each substep in phase_1 (process_by_galaxy)");
 
     return 0;
 }

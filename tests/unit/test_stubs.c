@@ -55,9 +55,6 @@ void set_test_model_parameters(void) {
     strcpy(MimicConfig.ModelParams[idx].param_name, "AGNrecipeOn");
     strcpy(MimicConfig.ModelParams[idx++].value, "1");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "CoolFunctionsDir");
-    strcpy(MimicConfig.ModelParams[idx++].value, "src/modules/sage_calculate_cooling/CoolFunctions");
-
     /* Star Formation */
     strcpy(MimicConfig.ModelParams[idx].param_name, "SFprescription");
     strcpy(MimicConfig.ModelParams[idx++].value, "0");

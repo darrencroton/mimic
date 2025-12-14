@@ -454,33 +454,6 @@ modules:
     # ... (module-specific parameters)
 ```
 
-### SAGE Module Parameters
-
-| Parameter | Type | Units | Valid Range | Description |
-|-----------|------|-------|-------------|-------------|
-| `GlobalBaryonFraction` | double | dimensionless | [0.0, 1.0] | Cosmic baryon fraction |
-| `RadioModeEfficiency` | double | dimensionless | [0.0, 1.0] | Radio-mode AGN heating efficiency |
-| `AGNrecipeOn` | int | flag | [0, 2] | AGN feedback mode |
-| `CoolFunctionsDir` | string | path | - | Cooling function table directory |
-| `SFprescription` | int | flag | [0, 1] | Star formation prescription |
-| `SfrEfficiency` | double | dimensionless | [0.0, 1.0] | Star formation efficiency |
-| `EnergySNcode` | double | code units | [0.0, 10.0] | SN energy normalization |
-| `EtaSNcode` | double | dimensionless | [0.0, 10.0] | SN mass loading factor |
-| `SupernovaRecipeOn` | int | flag | [0, 1] | Enable SN feedback |
-| `FeedbackReheatingEpsilon` | double | dimensionless | [0.0, 10.0] | Reheating efficiency |
-| `FeedbackEjectionEfficiency` | double | dimensionless | [0.0, 1.0] | Ejection efficiency |
-| `RecycleFraction` | double | dimensionless | [0.0, 1.0] | Stellar recycling fraction |
-| `Yield` | double | dimensionless | [0.0, 0.1] | Metal yield |
-| `FracZleaveDisk` | double | dimensionless | [0.0, 1.0] | Fraction of metals leaving disk |
-| `ReIncorporationFactor` | double | dimensionless | [0.0, 10.0] | Reincorporation efficiency |
-| `BlackHoleGrowthRate` | double | dimensionless | [0.0, 1.0] | BH accretion rate fraction |
-| `QuasarModeEfficiency` | double | dimensionless | [0.0, 1.0] | Quasar-mode AGN efficiency |
-| `ThreshMajorMerger` | double | dimensionless | [0.0, 1.0] | Major merger mass ratio threshold |
-| `DiskInstabilityOn` | int | flag | [0, 1] | Enable disk instability |
-| `DiskRadiusFactor` | double | dimensionless | [0.0, 10.0] | Disk size normalization |
-
-See individual module `module_info.yaml` files for detailed parameter descriptions and physics context.
-
 ---
 
 ## API Reference

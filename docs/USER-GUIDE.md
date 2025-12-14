@@ -86,7 +86,6 @@ deactivate
 Edit `input/millennium.yaml` and set absolute paths for:
 - `output.output_directory`
 - `input.simulation_dir`
-- `modules.parameters.CoolFunctionsDir`
 
 **5. Build and Test**:
 ```bash
@@ -299,7 +298,6 @@ modules:
     GlobalBaryonFraction: 0.17
     RadioModeEfficiency: 0.01
     AGNrecipeOn: 1
-    CoolFunctionsDir: "input/CoolFunctions"
     # ... (see REFERENCE.md for complete parameter list)
 ```
 

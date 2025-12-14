@@ -32,9 +32,6 @@ Cooling tables are located in `CoolFunctions/` directory and loaded at module in
 - MetalsHotGas (read) - Metal content in hot gas
 - CoolingGas (write) - Calculated cooling for this substep
 
-**Parameters**:
-- CoolFunctionsDir - Path to cooling function tables
-
 ## Pipeline Position
 
 Runs in `phase_1` each substep to calculate cooling budget.

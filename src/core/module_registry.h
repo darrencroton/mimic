@@ -154,7 +154,7 @@ int model_get_int(const char *param_name, int *out_value);
 /**
  * @brief   Get required model parameter as string
  *
- * @param   param_name      Parameter name (e.g., "CoolFunctionsDir")
+ * @param   param_name      Parameter name
  * @param   out_value       Output buffer for string value
  * @param   max_len         Maximum length of output buffer
  * @return  0 on success, -1 if parameter missing
