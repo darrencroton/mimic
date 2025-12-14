@@ -116,13 +116,13 @@ After `make generate`:
 
 ```yaml
 module:
-  name: sage_cooling
-  display_name: "SAGE Cooling"
-  description: "Radiative cooling from hot halo to cold disk with AGN feedback"
+  name: sage_calculate_cooling
+  display_name: "SAGE Calculate Cooling"
+  description: "Calculates cooling budget from hot halo using metallicity-dependent cooling functions"
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
 
-  # sage_cooling.c is implicit (auto-included)
+  # sage_calculate_cooling.c is implicit (auto-included)
   additional_files:
     - cooling_tables.c
     - cooling_tables.h
@@ -134,18 +134,11 @@ module:
     properties:
       - HotGas
       - MetalsHotGas
-      - ColdGas
-      - MetalsColdGas
-      - BlackHoleMass
+      - CoolingGas
+      - Rcool
 
     parameters:
-      - RadioModeEfficiency
-      - AGNrecipeOn
       - CoolFunctionsDir
-
-  tests:
-    unit: test_unit_sage_cooling.c
-    integration: test_integration_sage_cooling.py
 
   compilation_requires: []
 ```
@@ -445,7 +438,9 @@ modules:
     - sage_calculate_infall: process_full_halo
 
   phase_1:
-    - sage_cooling: process_by_galaxy
+    - sage_calculate_cooling: process_by_galaxy
+    - sage_radio_mode_heating: process_by_galaxy
+    - sage_add_cooling: process_by_galaxy
     - sage_starformation_feedback: process_by_galaxy
 
   phase_2:

@@ -513,7 +513,7 @@ Mimic uses **three-tier testing**:
 **Tier 1: Unit Tests** (C, <10s)
 - Test individual functions and modules in isolation
 - Located in `tests/unit/`
-- Example: `test_memory_system.test`, `test_unit_sage_cooling.test`
+- Example: `test_memory_system.c`, `test_property_reset.c`, `test_numeric_utilities.c`
 
 **Tier 2: Integration Tests** (Python, <1min)
 - Test end-to-end workflows and format compatibility

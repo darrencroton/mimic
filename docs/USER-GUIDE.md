@@ -280,7 +280,9 @@ modules:
 
   # Main physics (runs each substep)
   phase_1:
-    - sage_cooling: process_by_galaxy
+    - sage_calculate_cooling: process_by_galaxy
+    - sage_radio_mode_heating: process_by_galaxy
+    - sage_add_cooling: process_by_galaxy
     - sage_starformation_feedback: process_by_galaxy
     - sage_reincorporation: process_by_galaxy
     - sage_disk_instability: process_by_galaxy
@@ -315,7 +317,9 @@ modules:
 - `sage_reionization`: Reionization suppression for low-mass halos
 - `sage_calculate_infall`: Gas infall onto central galaxies
 - `sage_satellite_stripping`: Environmental stripping for satellites
-- `sage_cooling`: Radiative cooling with AGN feedback
+- `sage_calculate_cooling`: Calculate cooling budget from hot halo
+- `sage_radio_mode_heating`: AGN radio-mode feedback suppresses cooling
+- `sage_add_cooling`: Transfer cooled gas to cold reservoir
 - `sage_starformation_feedback`: Star formation and supernova feedback
 - `sage_reincorporation`: Reincorporation of ejected gas
 - `sage_mergers`: Galaxy mergers and black hole growth
@@ -489,7 +493,7 @@ modules:
     GlobalBaryonFraction: 0.17
 ```
 
-**"Module 'sage_cooling' listed in phase_1 but not registered"**
+**"Module 'my_module' listed in phase_1 but not registered"**
 
 Problem: Module name misspelled or not compiled
 

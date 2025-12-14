@@ -39,8 +39,7 @@ make test-scientific    # Physics validation (<5min)
 **Unit tests**:
 ```bash
 cd tests/unit
-./test_memory_system.test
-./test_unit_sage_cooling.test
+./run_tests.sh
 ```
 
 **Integration tests**:

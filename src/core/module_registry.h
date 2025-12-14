@@ -39,10 +39,11 @@
  *
  * Example YAML:
  *   phase_1:
- *     - sage_cooling: process_by_galaxy
- *     - sage_starformation: process_by_galaxy
+ *     - sage_calculate_cooling: process_by_galaxy
+ *     - sage_radio_mode_heating: process_by_galaxy
+ *     - sage_add_cooling: process_by_galaxy
  *
- * This creates two PhaseModuleConfig entries for phase_1.
+ * This creates three PhaseModuleConfig entries for phase_1.
  */
 struct PhaseModuleConfig {
   char *module_name;                  /**< Module name (must match registered module) */
