@@ -155,7 +155,7 @@ def load_module_metadata(module_dir: Path) -> Optional[Dict[str, Any]]:
 
 
 def discover_modules() -> List[Tuple[Path, Optional[Dict[str, Any]]]]:
-    """Discover all modules in src/modules/ directory."""
+    """Discover all modules in src/modules/ directory (both directory and standalone)."""
     modules = []
 
     if not MODULES_DIR.exists():
@@ -163,15 +163,26 @@ def discover_modules() -> List[Tuple[Path, Optional[Dict[str, Any]]]]:
         return []
 
     for item in sorted(MODULES_DIR.iterdir()):
-        if not item.is_dir():
-            continue
+        # Pattern 1: Directory with module_info.yaml
+        if item.is_dir():
+            # Skip template directory
+            if item.name.startswith("_"):
+                continue
 
-        # Skip template directory
-        if item.name.startswith("_"):
-            continue
+            metadata = load_module_metadata(item)
+            modules.append((item, metadata))
 
-        metadata = load_module_metadata(item)
-        modules.append((item, metadata))
+        # Pattern 2: Standalone .c file
+        elif item.is_file() and item.suffix == ".c":
+            # Create minimal synthetic metadata for validation
+            module_name = item.stem
+            synthetic_metadata = {
+                "name": module_name,
+                "_standalone": True,  # Flag for lightweight validation
+                "_file": item
+            }
+            # Use parent dir as module_dir (src/modules/)
+            modules.append((item.parent, synthetic_metadata))
 
     return modules
 
@@ -882,6 +893,41 @@ def main():
             )
             continue
 
+        # Lightweight validation for standalone modules
+        if metadata.get("_standalone", False):
+            module_name = metadata["name"]
+
+            if args.verbose:
+                print(f"Validating standalone module: {module_name}")
+
+            # Verify file exists
+            c_file = metadata.get("_file")
+            if not c_file or not c_file.exists():
+                results.add_error(
+                    module_name, 2, f"Standalone module file not found: {module_name}.c"
+                )
+                continue
+
+            # Verify name is valid C identifier
+            if not C_IDENTIFIER_PATTERN.match(module_name):
+                results.add_error(
+                    module_name, 4, f"Module name '{module_name}' is not a valid C identifier"
+                )
+                continue
+
+            # Check lowercase convention (warning only)
+            if not module_name.islower() or not all(c.isalnum() or c == "_" for c in module_name):
+                results.add_warning(
+                    module_name, f"Module name '{module_name}' should be lowercase_with_underscores"
+                )
+
+            if args.verbose:
+                print(f"  ✓ {module_name} validated (standalone module)")
+
+            valid_modules.append((module_dir, metadata))
+            continue
+
+        # Full validation for directory modules
         validate_module(module_dir, metadata, property_metadata, results, args.verbose)
         valid_modules.append((module_dir, metadata))
 
