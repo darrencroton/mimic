@@ -7,8 +7,6 @@ This module generates a plot of the star formation rate density evolution from M
 Requires: Sfr property (from galaxy physics modules)
 """
 
-import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import (
@@ -65,6 +63,60 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     if not success:
         return None, f"Required fields missing: {msg}"
+
+    # Field-level validation: Check if Sfr has any non-zero values
+    has_sfr, count, msg = check_field_has_values(
+        galaxies_sample.Sfr, 'Sfr', threshold=0.0
+    )
+    if not has_sfr:
+        return None, f"Field validation failed: {msg}"
+
+    # Calculate SFR density for each snapshot BEFORE creating figure
+    sfr_density = []
+    redshifts = []
+
+    for snap, (galaxies, volume, metadata) in snapshots.items():
+        # Get the redshift for this snapshot
+        redshift = metadata.get("redshift", 0.0)
+        redshifts.append(redshift)
+
+        # Extract hubble_h from metadata
+        hubble_h = metadata.get("hubble_h", 0.73)
+
+        # Skip if volume is zero (no valid data)
+        if volume == 0:
+            sfr_density.append(0.0)
+            continue
+
+        # Sum SFR and normalize by volume
+        sfr_sum = np.sum(galaxies.Sfr)
+        sfr_density.append(sfr_sum / volume * hubble_h**3)
+
+    # Convert to numpy arrays
+    redshifts = np.array(redshifts)
+    sfr_density = np.array(sfr_density)
+
+    # Sort by redshift
+    sort_idx = np.argsort(redshifts)
+    redshifts = redshifts[sort_idx]
+    sfr_density = sfr_density[sort_idx]
+
+    # Debug information
+    if verbose:
+        print(f"  Number of snapshots: {len(snapshots)}")
+        print(f"  Redshifts available: {redshifts}")
+        print(f"  SFR density values: {sfr_density}")
+
+    # Check if we have any nonzero SFR density values
+    nonzero = np.where(sfr_density > 0.0)[0]
+    if len(nonzero) == 0:
+        return None, "No nonzero SFR density values found across all snapshots"
+
+    if verbose:
+        print(f"  Plotting {len(nonzero)} nonzero SFR density points")
+
+    # NOW create the figure (only after all validation passed)
+    fig, ax = setup_figure()
 
     # Add observational data (compilation used in many papers)
     ObsSFRdensity = np.array(
@@ -126,55 +178,14 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         label="Observations",
     )
 
-    # Calculate SFR density for each snapshot
-    sfr_density = []
-    redshifts = []
-
-    for snap, (galaxies, volume, metadata) in snapshots.items():
-        # Get the redshift for this snapshot
-        redshift = metadata.get("redshift", 0.0)
-        redshifts.append(redshift)
-
-        # Extract hubble_h from metadata
-        hubble_h = metadata.get("hubble_h", 0.73)
-
-        # Skip if volume is zero (no valid data)
-        if volume == 0:
-            sfr_density.append(0.0)
-            continue
-
-        # Sum SFR and normalize by volume
-        sfr_sum = np.sum(galaxies.Sfr)
-        sfr_density.append(sfr_sum / volume * hubble_h**3)
-
-    # Convert to numpy arrays
-    redshifts = np.array(redshifts)
-    sfr_density = np.array(sfr_density)
-
-    # Sort by redshift
-    sort_idx = np.argsort(redshifts)
-    redshifts = redshifts[sort_idx]
-    sfr_density = sfr_density[sort_idx]
-
-    # Print debug information if verbose mode is enabled
-    if verbose:
-        print(f"  Number of snapshots: {len(snapshots)}")
-        print(f"  Redshifts available: {redshifts}")
-        print(f"  SFR density values: {sfr_density}")
-
-    # Plot the model results
-    nonzero = np.where(sfr_density > 0.0)[0]
-    if len(nonzero) > 0:
-        if verbose:
-            print(f"  Plotting {len(nonzero)} nonzero SFR density points")
-        # Use blue color to match the original plot
-        ax.plot(
-            redshifts[nonzero],
-            np.log10(sfr_density[nonzero]),
-            "b-",
-            lw=3.0,
-            label="Model",
-        )
+    # Plot the model results (nonzero was already validated above)
+    ax.plot(
+        redshifts[nonzero],
+        np.log10(sfr_density[nonzero]),
+        "b-",
+        lw=3.0,
+        label="Model",
+    )
 
     # Customize the plot
     ax.set_ylabel(get_sfr_density_label(), fontsize=AXIS_LABEL_SIZE)

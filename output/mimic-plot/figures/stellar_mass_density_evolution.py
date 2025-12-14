@@ -6,8 +6,6 @@ SAGE Stellar Mass Density Evolution Plot
 This module generates a plot of the stellar mass density evolution from SAGE galaxy data.
 """
 
-import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import (
@@ -62,6 +60,13 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     if not success:
         return None, f"Required fields missing: {msg}"
+
+    # Field-level validation: Check if StellarMass has any non-zero values
+    has_stellar_mass, count, msg = check_field_has_values(
+        galaxies_sample.StellarMass, 'StellarMass', threshold=0.0
+    )
+    if not has_stellar_mass:
+        return None, f"Field validation failed: {msg}"
 
     # Determine IMF type from params
     whichimf = 1  # Default to Chabrier
@@ -175,41 +180,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         elsner2008,
     ]
 
-    # Create the figure (after validation passes)
-    fig, ax = setup_figure()
-
-    # Plot all observations
-    for o in obs:
-        xval = ((o[:, 1] - o[:, 0]) / 2.0) + o[:, 0]
-        if whichimf == 0:
-            ax.errorbar(
-                xval,
-                np.log10(10 ** o[:, 2] * 1.6),
-                xerr=(xval - o[:, 0], o[:, 1] - xval),
-                yerr=(o[:, 3], o[:, 4]),
-                alpha=0.3,
-                lw=1.0,
-                marker="o",
-                ls="none",
-            )
-        elif whichimf == 1:
-            ax.errorbar(
-                xval,
-                np.log10(10 ** o[:, 2] * 1.6 / 1.8),
-                xerr=(xval - o[:, 0], o[:, 1] - xval),
-                yerr=(o[:, 3], o[:, 4]),
-                alpha=0.3,
-                lw=1.0,
-                marker="o",
-                ls="none",
-            )
-
-    # Add a line for the legend
-    ax.plot(
-        [], [], color="k", alpha=0.3, marker="o", ls="none", label="Observational data"
-    )
-
-    # Calculate stellar mass density for each snapshot
+    # Calculate stellar mass density for each snapshot BEFORE creating figure
     smd = []
     redshifts = []
 
@@ -251,18 +222,55 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     smd = smd[sort_idx]
 
     # Debug information
-    # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"  Number of snapshots: {len(snapshots)}")
         print(f"  Redshifts available: {redshifts}")
         print(f"  Stellar Mass Density values: {smd}")
 
-    # Plot the model results
+    # Check if we have any nonzero stellar mass density values
     nonzero = np.where(smd > 0.0)[0]
-    if len(nonzero) > 0:
-        if verbose:
-            print(f"  Plotting {len(nonzero)} nonzero Stellar Mass Density points")
-        ax.plot(redshifts[nonzero], smd[nonzero], "k-", lw=3.0, label="Model")
+    if len(nonzero) == 0:
+        return None, "No nonzero stellar mass density values found across all snapshots"
+
+    if verbose:
+        print(f"  Plotting {len(nonzero)} nonzero Stellar Mass Density points")
+
+    # NOW create the figure (only after all validation passed)
+    fig, ax = setup_figure()
+
+    # Plot all observations
+    for o in obs:
+        xval = ((o[:, 1] - o[:, 0]) / 2.0) + o[:, 0]
+        if whichimf == 0:
+            ax.errorbar(
+                xval,
+                np.log10(10 ** o[:, 2] * 1.6),
+                xerr=(xval - o[:, 0], o[:, 1] - xval),
+                yerr=(o[:, 3], o[:, 4]),
+                alpha=0.3,
+                lw=1.0,
+                marker="o",
+                ls="none",
+            )
+        elif whichimf == 1:
+            ax.errorbar(
+                xval,
+                np.log10(10 ** o[:, 2] * 1.6 / 1.8),
+                xerr=(xval - o[:, 0], o[:, 1] - xval),
+                yerr=(o[:, 3], o[:, 4]),
+                alpha=0.3,
+                lw=1.0,
+                marker="o",
+                ls="none",
+            )
+
+    # Add a line for the legend
+    ax.plot(
+        [], [], color="k", alpha=0.3, marker="o", ls="none", label="Observational data"
+    )
+
+    # Plot the model results (nonzero was already validated above)
+    ax.plot(redshifts[nonzero], smd[nonzero], "k-", lw=3.0, label="Model")
 
     # Customize the plot
     ax.set_ylabel(
