@@ -19,8 +19,8 @@
 #include <stdlib.h>
 
 #include "error.h"
-#include "../_system/parameter_helpers.h"
-#include "../_shared/metallicity.h"
+#include "_system/parameter_helpers.h"
+#include "_shared/metallicity.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "types.h"

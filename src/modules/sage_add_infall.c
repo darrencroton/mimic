@@ -13,7 +13,7 @@
 
 #include "constants.h"
 #include "error.h"
-#include "../_shared/metallicity.h"
+#include "_shared/metallicity.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
