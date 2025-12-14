@@ -1,93 +1,59 @@
 /**
  * @file    template_module.c
- * @brief   Template physics module implementation (v3.0 Multi-Phase Pipeline API)
+ * @brief   TODO: One-line description of your module's physics
  *
- * [Brief description of physics process - 1-2 sentences]
+ * TODO: 2-3 sentence description of the physics this module implements
  *
- * Physics: [Key equation]
+ * Physics: TODO: Key equation or physical process
  *
- * Key functions:
- * - compute_physics(): [Brief description]
- *
- * Reference: [Citation and/or SAGE source]
- *
- * ============================================================================
- * MULTI-PHASE PIPELINE API v3.0 KEY POINTS:
- * ============================================================================
- * - Use ctx->substep_dt for time integration (NOT halos[i].dT)
- * - Access substep info: ctx->substep_number, ctx->num_substeps
- * - Processing modes (choose based on physics):
- *   * PROCESSING_MODE_FULL_HALO: Process full array (ngal > 1) for group-level physics
- *   * PROCESSING_MODE_BY_GALAXY: Process one galaxy (ngal = 1) for per-galaxy physics
- * - Declare supported modes via module_info.yaml: supported_processing_modes: [process_full_halo, process_by_galaxy]
- * - Module struct must include .supported_processing_modes and .num_supported_modes
- * - See examples below in template_module_process() for both processing mode patterns
+ * Reference: TODO: Citation if applicable
  */
 
 #include <math.h>
-#include <stdio.h>   /* Required for error.h logging macros */
-#include <stdlib.h>  /* Required for error.h logging macros */
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "constants.h"
 #include "error.h"
 #include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
+#include "numeric.h"
 #include "types.h"
 
+// NOTE: For directory modules (src/modules/my_module/my_module.c):
+//       Use: #include "../_system/parameter_helpers.h"
+// NOTE: For standalone modules (src/modules/my_module.c):
+//       Use: #include "_system/parameter_helpers.h"
 #include "../_system/parameter_helpers.h"
 
 // ============================================================================
 // MODEL PARAMETERS
 // ============================================================================
 
-// Parameters read from YAML via model_get_*() functions
-// Declare in module_info.yaml under dependencies.parameters
-static double example_param1;
-static double example_param2;
+// TODO: Declare static variables for parameters loaded from YAML
+// Example:
+// static double my_efficiency;
+// static int my_option;
 
 // ============================================================================
-// PHYSICS CONSTANTS
+// MODULE STATE (if needed)
 // ============================================================================
 
-// Module-specific constants (use _shared/physics_constants.h for shared values)
-// Example: static const double SOME_COEFF = 2.5;  // Brief explanation
-
-// ============================================================================
-// MODULE STATE
-// ============================================================================
-
-// Persistent module data (lookup tables, cached calculations, etc.)
-// Allocate in init(), free in cleanup()
-static double *lookup_table = NULL;
-static int table_size = 0;
+// TODO: Declare persistent module data (lookup tables, cached values, etc.)
+// Example:
+// static double *lookup_table = NULL;
+// static int table_size = 0;
 
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * @brief   [Brief description of physics calculation]
- *
- * @param   input1  [Description]
- * @param   input2  [Description]
- * @return  [Description]
- */
-static float compute_physics(float input1, double input2) {
-  // TODO: Implement physics calculation
-  float result = example_param1 * input1 * input2;
-  return result;
-}
-
-/**
- * @brief   [Another helper if needed]
- *
- * Keep physics logic in helpers for testability.
- */
-static float another_helper(float x) {
-  // TODO: Implement
-  return x * example_param2;
-}
+// TODO: Implement physics calculations as helper functions
+// Example:
+// static float compute_my_physics(float input, double dt) {
+//     return my_efficiency * input * dt;
+// }
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -96,41 +62,22 @@ static float another_helper(float x) {
 /**
  * @brief   Initialize template module
  *
- * Load parameters, allocate memory, initialize lookup tables, log configuration.
+ * TODO: Load parameters, allocate memory, initialize lookup tables
  *
  * @return  0 on success, non-zero on failure
  */
 int template_module_init(void) {
-  // Load and validate parameters (declare in module_info.yaml)
-  // See parameter_helpers.h for LOAD_PARAM_*, VALIDATE_*, LOAD_AND_VALIDATE_* macros
+  // TODO: Load and validate parameters
+  // LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("MyParam", my_param, 0.0, 1.0, "description");
+  // LOAD_PARAM_INT("MyOption", my_option);
 
-  // TODO: Replace with actual parameters
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ExampleParam1", example_param1, 0.0, 10.0,
-                                    "example physics parameter");
-  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ExampleParam2", example_param2, 0.0, 1.0,
-                                    "example efficiency factor");
+  // TODO: Allocate persistent memory if needed
+  // table_size = 1000;
+  // lookup_table = mymalloc_cat(table_size * sizeof(double), MEM_UTILITY);
 
-  // Allocate persistent memory (if needed)
-  table_size = 1000;
-  lookup_table = mymalloc_cat(table_size * sizeof(double), MEM_UTILITY);
-  if (lookup_table == NULL) {
-    ERROR_LOG("Failed to allocate lookup table");
-    return -1;
-  }
-
-  // TODO: Initialize table contents
-  for (int i = 0; i < table_size; i++) {
-    lookup_table[i] = 0.0;
-  }
-
-  // TODO: Load external data files if needed
-
-  // Log configuration
-  INFO_LOG("Template module initialized");
-  VERBOSE_LOG("  Physics: [DESCRIBE YOUR EQUATION]");
-  VERBOSE_LOG("  Parameter1 = %.3f", example_param1);
-  VERBOSE_LOG("  Parameter2 = %.3f", example_param2);
-  VERBOSE_LOG("  Lookup table: %d entries", table_size);
+  // TODO: Log initialization
+  // INFO_LOG("My Module initialized");
+  // VERBOSE_LOG("  MyParam = %.3f", my_param);
 
   return 0;
 }
@@ -138,26 +85,11 @@ int template_module_init(void) {
 /**
  * @brief   Process halos in a FOF group
  *
- * Compute galaxy physics for each halo. This function is called by the
- * multi-phase pipeline in the configured phase and loop mode.
- *
- * LOOP MODE USAGE:
- * - PROCESSING_MODE_FULL_HALO: Module processes entire halo array (ngal > 1)
- *   Use when physics requires global information (e.g., summing over all galaxies,
- *   central-satellite interactions, group-level properties).
- *   Example: Calculating total infall budget for FOF group
- *
- * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (ngal = 1)
- *   Use when physics is per-galaxy and independent (e.g., cooling, star formation).
- *   Provides better cache locality in galaxy-major loop execution.
- *   Example: Cooling rates that depend only on individual galaxy properties
- *
- * Choose processing mode in module_info.yaml based on your physics requirements.
- * If your module supports both, declare: supported_processing_modes: [process_full_halo, process_by_galaxy]
+ * TODO: Implement your physics here
  *
  * @param   ctx     Module execution context (redshift, time, substep info, params)
  * @param   halos   Array of halos in FOF group
- * @param   ngal    Number of halos (1 if processing_mode=BY_GALAXY, >1 if processing_mode=FULL_HALO)
+ * @param   ngal    Number of halos (1 if process_by_galaxy, >1 if process_full_halo)
  * @return  0 on success, non-zero on failure
  */
 int template_module_process(struct ModuleContext *ctx,
@@ -166,87 +98,30 @@ int template_module_process(struct ModuleContext *ctx,
     return 0;
   }
 
-  // Extract simulation context (if needed)
-  double z = ctx->redshift;
-  double time = ctx->time;
-  double hubble_h = ctx->params->Hubble_h;
+  // TODO: Extract context if needed
+  // double z = ctx->redshift;
+  // double dt = ctx->substep_dt;  // Use this for time integration!
 
-  // Access substep information for time integration
-  // Use ctx->substep_dt instead of halos[i].dT for multi-phase pipeline
-  double dt = ctx->substep_dt;
-  int substep = ctx->substep_number;
-  int num_substeps = ctx->num_substeps;
-
-  (void)time;
-  (void)hubble_h;
-  (void)substep;
-  (void)num_substeps;
-
-  // ========== EXAMPLE 1: PROCESSING_MODE_FULL_HALO ==========
-  // Process entire array when global information is needed
-  // Uncomment this block if your module uses PROCESSING_MODE_FULL_HALO
-  /*
-  // Find central galaxy index
-  int central_idx = ctx->central_index;
-
-  // Compute group-level properties
-  double total_mass = 0.0;
+  // TODO: Implement your physics
+  // For process_by_galaxy mode (ngal=1):
   for (int i = 0; i < ngal; i++) {
-    if (halos[i].galaxy != NULL) {
-      total_mass += halos[i].Mvir;
-    }
-  }
-
-  // Update central galaxy based on group properties
-  if (halos[central_idx].galaxy != NULL) {
-    float delta = compute_physics(total_mass, z) * dt;
-    halos[central_idx].galaxy->SomeProperty += delta;
-
-    DEBUG_LOG("Central: total_mass=%.3e, delta=%.3e, z=%.3f, substep=%d/%d",
-             total_mass, delta, z, substep + 1, num_substeps);
-  }
-  */
-
-  // ========== EXAMPLE 2: PROCESSING_MODE_BY_GALAXY ==========
-  // Process each halo independently (ngal will be 1 in PROCESSING_MODE_BY_GALAXY)
-  // This is the standard pattern for per-galaxy physics
-  for (int i = 0; i < ngal; i++) {
-
-    // Filter by halo type if needed (Type 0=central, 1=satellite, 2=orphan)
-    // Many modules only operate on central galaxies
-    if (halos[i].Type != 0) {
-      continue;
-    }
-
     if (halos[i].galaxy == NULL) {
-      ERROR_LOG("Halo %d (Type=%d) has NULL galaxy data", i, halos[i].Type);
-      return -1;
-    }
-
-    // Read halo properties (read-only)
-    float mvir = halos[i].Mvir;
-    float rvir = halos[i].Rvir;
-    float vvir = halos[i].Vvir;
-
-    // Validate inputs
-    if (dt <= 0.0) {
-      DEBUG_LOG("Halo %d: Invalid substep_dt=%.3f, skipping", i, dt);
       continue;
     }
 
-    // TODO: Compute physics using helper functions
-    float result = compute_physics(mvir, z);
-    float delta = result * dt;  // Scale by timestep for integration
+    struct GalaxyData *gal = halos[i].galaxy;
 
-    (void)rvir;
-    (void)vvir;
-    (void)delta;
+    // TODO: Read input properties
+    // float cold_gas = gal->ColdGas;
 
-    // TODO: Update galaxy properties (galaxy struct is mutable, halo struct is not)
-    // halos[i].galaxy->SomeProperty += delta;
+    // TODO: Compute physics
+    // float result = compute_my_physics(cold_gas, dt);
 
-    DEBUG_LOG("Halo %d: Mvir=%.3e, result=%.3e, delta=%.3e, z=%.3f, substep=%d/%d",
-             i, mvir, result, delta, z, substep + 1, num_substeps);
+    // TODO: Update output properties
+    // gal->StellarMass += result;
+
+    // TODO: Add debug logging if needed
+    // DEBUG_LOG("Halo %d: result=%.3e", i, result);
   }
 
   return 0;
@@ -255,44 +130,18 @@ int template_module_process(struct ModuleContext *ctx,
 /**
  * @brief   Cleanup template module
  *
- * Free memory, close files, log final statistics.
+ * TODO: Free memory, close files, log final statistics
  *
  * @return  0 on success, non-zero on failure
  */
 int template_module_cleanup(void) {
-  // Free persistent memory
-  if (lookup_table != NULL) {
-    myfree(lookup_table);
-    lookup_table = NULL;
-  }
+  // TODO: Free persistent memory
+  // if (lookup_table != NULL) {
+  //   myfree(lookup_table);
+  //   lookup_table = NULL;
+  // }
 
-  // TODO: Close files if any were opened
-
-  INFO_LOG("Template module cleaned up");
+  // VERBOSE_LOG("My Module cleaned up");
 
   return 0;
 }
-
-// ============================================================================
-// MODULE LIFECYCLE FUNCTIONS - AUTOMATIC REGISTRATION
-// ============================================================================
-//
-// Mimic uses metadata-driven module registration. You only need to implement
-// the three lifecycle functions above. The module struct and registration are
-// auto-generated in module_init.c from module_info.yaml.
-//
-// NAMING CONVENTION (enforced):
-//   {module_name}_init     : Initialize module (called once at startup)
-//   {module_name}_process  : Process halos (called each timestep/substep)
-//   {module_name}_cleanup  : Cleanup module (called once at shutdown)
-//
-// PROCESSING MODES:
-// Specify in module_info.yaml which processing modes your module supports:
-//   supported_processing_modes: [process_full_halo]   # Array processing (ngal > 1)
-//   supported_processing_modes: [process_by_galaxy]   # Per-galaxy (ngal = 1)
-//   supported_processing_modes: [process_full_halo, process_by_galaxy]  # Both modes
-//
-// If omitted, defaults to supporting both modes.
-//
-// After editing module_info.yaml, run `make generate` to update registration.
-//

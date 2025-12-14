@@ -1,40 +1,70 @@
-# Template module metadata - copy to your module directory as module_info.yaml and customize
-#
-# ULTRA-SIMPLIFIED FORMAT:
-#   - Only 'name' and 'supported_processing_modes' are required
-#   - {name}.c is always auto-included
-#   - additional_files: Only needed for multi-file modules
-#   - description: Optional
-#   - dependencies: Optional (skip validation if absent)
-#
-# For simple modules, you can just create a standalone .c file with no module_info.yaml at all!
+# Template module metadata
+# See: docs/REFERENCE.md for complete field documentation
+# See: docs/DEVELOPER-GUIDE.md for module development guide
 
 module:
-  name: template_module
-  description: "Brief description of module physics"
+  # ============================================================================
+  # REQUIRED FIELDS
+  # ============================================================================
 
-  # Required: How to execute this module
-  supported_processing_modes: [process_by_galaxy, process_full_halo]
+  name: template_module                    # REQUIRED: Module name (lowercase_with_underscores)
 
-  # Optional - only needed for multi-file modules
-  # {name}.c is ALWAYS auto-included, don't list it here!
-  # additional_files:
-  #   - helper.c
-  #   - helper.h
+  supported_processing_modes:              # REQUIRED: Which modes this module supports (usually just one)
+    - process_by_galaxy                    #   process_by_galaxy: Per-galaxy processing (ngal=1)
+    - process_full_halo                    #   process_full_halo: Array processing (ngal>1)
 
-  # Optional - validation helpers (recommended for production modules)
-  dependencies:
-    properties: []       # List all properties used by this module
-    parameters: []       # List all parameters needed by this module
+  # ============================================================================
+  # RECOMMENDED FIELDS (for production modules)
+  # ============================================================================
 
-  # Optional - test files (for production modules with test coverage)
-  tests:
+  description: "Brief physics description" # Recommended: 1-2 sentence summary
+
+  dependencies:                            # Recommended: Provides extra validation only
+    properties:                            #   Validate properties exist
+      - ColdGas
+      - StellarMass
+    parameters:                            #   Validate parameters match input YAML
+      - MyEfficiency
+      - MyParameter
+
+  # ============================================================================
+  # OPTIONAL FIELDS (auto-generated if omitted)
+  # ============================================================================
+
+  display_name: "Template Module"       # Optional: Human-readable name (auto-generated from name)
+  version: "1.0.0"                      # Optional: Semantic versioning (defaults to "1.0.0")
+  author: "Your Name"                   # Optional: Attribution
+
+  # ============================================================================
+  # MULTI-FILE MODULES ONLY
+  # ============================================================================
+
+  # NOTE: {module_name}.c is ALWAYS auto-included - never declare it!
+  # Only list ADDITIONAL files here:
+
+  additional_files:                     # Optional: For multi-file modules
+    - helper.c
+    - lookup_tables.c
+    - helper.h
+
+  # ============================================================================
+  # TESTING (production modules)
+  # ============================================================================
+
+  tests:                                # Optional: Test coverage
     unit: tests/test_unit_template_module.c
     integration: tests/test_integration_template_module.py
+    scientific: tests/test_scientific_template_module.py
 
-  # Optional - documentation
-  docs:
+  # ============================================================================
+  # DOCUMENTATION
+  # ============================================================================
+
+  docs:                                 # Optional: Documentation
     physics: README.md
 
-  # Optional - compilation features required (HDF5, MPI, GSL)
-  compilation_requires: []
+  # ============================================================================
+  # COMPILATION REQUIREMENTS (special cases only)
+  # ============================================================================
+
+  compilation_requires: []              # Optional: Required features ["hdf5", "mpi", "gsl"]

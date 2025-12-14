@@ -20,8 +20,9 @@ src/modules/
 
 ## What Goes Where
 
-**Physics Modules** (e.g., `sage_reionization/`, `my_physics_module/`):
-- Individual module directories containing code, tests, and `module_info.yaml`
+**Physics Modules** (e.g., `my_physics_module/`, `my_different_module_.c`):
+- Module directories containing code, tests, and `module_info.yaml`
+- Standalone module `.c` files
 - Each module is self-contained with its own physics implementation
 
 **Shared Utilities** (`_shared/`):
@@ -41,7 +42,7 @@ src/modules/
 ## Creating a New Module
 
 **Quick start**:
-1. Copy template: `cp -r _system/template/ my_module/`
+1. Copy template `cp -r _system/template/ my_module/` or create standalone `my_module.c`
 2. Follow step-by-step instructions in `_system/template/README.md`
 3. See comprehensive guide in `docs/DEVELOPER-GUIDE.md`
 
