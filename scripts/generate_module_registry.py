@@ -146,7 +146,7 @@ def load_module_metadata(module_dir: Path) -> Optional[Dict[str, Any]]:
                 if "additional_files" in module:
                     # Add any additional .c files
                     additional = module["additional_files"]
-                    sources.extend([f for f in additional if f.endswith('.c')])
+                    sources.extend([f for f in additional if f.endswith(".c")])
 
                 module["sources"] = sources
 
@@ -165,13 +165,10 @@ def create_standalone_module_metadata(module_name: str, c_file: Path) -> Dict[st
         "author": "Auto-generated",
         "sources": [f"{module_name}.c"],
         "supported_processing_modes": ["process_full_halo", "process_by_galaxy"],
-        "dependencies": {
-            "properties": [],
-            "parameters": []
-        },
+        "dependencies": {"properties": [], "parameters": []},
         "_module_dir": c_file.parent,
         "_pattern": "standalone",
-        "_standalone_file": c_file
+        "_standalone_file": c_file,
     }
 
 

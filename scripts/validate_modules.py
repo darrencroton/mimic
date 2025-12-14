@@ -179,7 +179,7 @@ def discover_modules() -> List[Tuple[Path, Optional[Dict[str, Any]]]]:
             synthetic_metadata = {
                 "name": module_name,
                 "_standalone": True,  # Flag for lightweight validation
-                "_file": item
+                "_file": item,
             }
             # Use parent dir as module_dir (src/modules/)
             modules.append((item.parent, synthetic_metadata))
@@ -550,8 +550,7 @@ def validate_source_files(
     main_file = module_dir / f"{module_name}.c"
     if not main_file.exists():
         results.add_error(
-            module_name, 2,
-            f"Main module file not found: {module_name}.c"
+            module_name, 2, f"Main module file not found: {module_name}.c"
         )
         valid = False
 
@@ -911,14 +910,19 @@ def main():
             # Verify name is valid C identifier
             if not C_IDENTIFIER_PATTERN.match(module_name):
                 results.add_error(
-                    module_name, 4, f"Module name '{module_name}' is not a valid C identifier"
+                    module_name,
+                    4,
+                    f"Module name '{module_name}' is not a valid C identifier",
                 )
                 continue
 
             # Check lowercase convention (warning only)
-            if not module_name.islower() or not all(c.isalnum() or c == "_" for c in module_name):
+            if not module_name.islower() or not all(
+                c.isalnum() or c == "_" for c in module_name
+            ):
                 results.add_warning(
-                    module_name, f"Module name '{module_name}' should be lowercase_with_underscores"
+                    module_name,
+                    f"Module name '{module_name}' should be lowercase_with_underscores",
                 )
 
             if args.verbose:
