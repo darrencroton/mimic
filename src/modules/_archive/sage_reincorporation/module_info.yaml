@@ -5,11 +5,8 @@ module:
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
 
-  sources:
-    - sage_reincorporation.c
-
-  headers:
-    - sage_reincorporation.h
+  # sage_reincorporation.c is implicit (auto-included)
+  # No additional_files needed for single-file module
 
   supported_processing_modes: [process_by_galaxy]
 

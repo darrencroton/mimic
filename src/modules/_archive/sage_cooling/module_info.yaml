@@ -5,12 +5,9 @@ module:
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
 
-  sources:
-    - sage_cooling.c
+  # sage_cooling.c is implicit (auto-included)
+  additional_files:
     - cooling_tables.c
-
-  headers:
-    - sage_cooling.h
     - cooling_tables.h
 
   supported_processing_modes: [process_by_galaxy]

@@ -22,48 +22,54 @@
 
 ### Required Fields
 
+**Minimal (required fields only)**:
 ```yaml
 module:
-  # Core identification
-  name: my_module                    # REQUIRED: lowercase_with_underscores
-  display_name: "My Module"          # REQUIRED: Human-readable name
-  description: "Brief physics desc"  # REQUIRED: 1-2 sentence summary
-  version: "1.0.0"                   # REQUIRED: Semantic versioning
-  author: "Your Name"                # REQUIRED: Attribution
+  name: my_module                           # REQUIRED: lowercase_with_underscores
+  supported_processing_modes: [...]         # REQUIRED: List of supported modes
+```
 
-  # Source files
-  sources:                           # REQUIRED: List of .c files
-    - my_module.c
+**That's it!** Everything else is optional.
 
-  # headers:                          # OPTIONAL: Not needed (generator uses forward declarations)
-  #   - my_module.h
+### Optional Fields
 
-  # Processing modes
-  processing_modes:                  # REQUIRED: List of supported modes
-    - process_by_galaxy              # or process_full_halo
+```yaml
+module:
+  # Optional metadata (auto-generated if omitted)
+  description: "Brief physics description"  # 1-2 sentence summary
+  display_name: "My Module"                 # Human-readable name (auto-generated from name)
+  version: "1.0.0"                          # Semantic versioning (defaults to "1.0.0")
+  author: "Your Name"                       # Attribution
 
-  # Dependencies
+  # Optional source files
+  # {name}.c is ALWAYS implicit - never declare it!
+  # Only declare ADDITIONAL files here:
+  additional_files:                         # For multi-file modules only
+    - helper.c
+    - lookup_tables.c
+    - helper.h
+
+  # Optional validation helpers (recommended for production)
   dependencies:
-    properties:                      # List of properties used (read or write)
+    properties:                             # List of properties used (read or write)
       - ColdGas
       - StellarMass
+    parameters:                             # List of parameters from input YAML
+      - MyEfficiency
+      - MyParameter
 
-    parameters:                      # List of parameters from input file
-      - name: MyEfficiency           # Parameter name (as in YAML input file)
-        type: double                 # double, int, long, string
-        default: null                # null (required) or default value
-        valid_range: [0.0, 1.0]      # [min, max] for validation (optional)
-        units: "dimensionless"       # Physical units
-        description: "Brief desc"    # What this parameter controls
-
-  # Testing (optional but recommended)
+  # Optional testing (recommended for production)
   tests:
-    unit: test_unit_my_module.c
-    integration: test_integration_my_module.py
-    scientific: test_scientific_my_module_validation.py
+    unit: tests/test_unit_my_module.c
+    integration: tests/test_integration_my_module.py
+    scientific: tests/test_scientific_my_module.py
 
-  # Compilation requirements (optional)
-  compilation_requires: []           # e.g., ["hdf5", "mpi"]
+  # Optional documentation
+  docs:
+    physics: README.md
+
+  # Optional compilation requirements
+  compilation_requires: []                  # e.g., ["hdf5", "mpi", "gsl"]
 ```
 
 ### Processing Modes
@@ -78,14 +84,26 @@ module:
 - Best for: Snapshot-level operations, vectorized calculations
 - Better for array operations
 
-### Parameter Types
+### Parameter Specification
 
-| Type | C Type | Example |
-|------|--------|---------|
-| `double` | `double` | `0.17`, `1.5e-3` |
-| `int` | `int` | `1`, `20` |
-| `long` | `long` | `1000000` |
-| `string` | `const char*` | `"input/CoolFunctions"` |
+Parameters are simply listed by name in `module_info.yaml`:
+
+```yaml
+dependencies:
+  parameters:
+    - MyEfficiency
+    - MyParameter
+```
+
+The actual parameter values are specified in the input YAML file, and modules load them using helper macros or `model_get_*()` functions:
+
+```c
+LOAD_PARAM_DOUBLE("MyEfficiency", my_efficiency);
+LOAD_PARAM_INT("MyParameter", my_parameter);
+LOAD_PARAM_STRING("MyPath", my_path);
+```
+
+See `src/modules/_system/parameter_helpers.h` for available macros.
 
 ### Auto-Generated Files
 
@@ -104,10 +122,12 @@ module:
   version: "1.0.0"
   author: "Mimic Team (ported from SAGE)"
 
-  sources:
-    - sage_cooling.c
+  # sage_cooling.c is implicit (auto-included)
+  additional_files:
+    - cooling_tables.c
+    - cooling_tables.h
 
-  processing_modes:
+  supported_processing_modes:
     - process_by_galaxy
 
   dependencies:
@@ -119,25 +139,9 @@ module:
       - BlackHoleMass
 
     parameters:
-      - name: RadioModeEfficiency
-        type: double
-        default: null
-        valid_range: [0.0, 1.0]
-        units: "dimensionless"
-        description: "Radio-mode AGN heating efficiency"
-
-      - name: AGNrecipeOn
-        type: int
-        default: null
-        valid_range: [0, 2]
-        units: "flag"
-        description: "AGN feedback mode (0=off, 1=radio, 2=quasar+radio)"
-
-      - name: CoolFunctionsDir
-        type: string
-        default: null
-        units: "path"
-        description: "Directory containing cooling function tables"
+      - RadioModeEfficiency
+      - AGNrecipeOn
+      - CoolFunctionsDir
 
   tests:
     unit: test_unit_sage_cooling.c

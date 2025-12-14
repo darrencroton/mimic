@@ -1,12 +1,6 @@
 module:
   name: sage_satellite_stripping
-  display_name: "SAGE Satellite Stripping"
   description: "Environmental gas stripping from satellites to central galaxy."
-  version: "1.0.0"
-  author: "Mimic Team (extracted from SAGE)"
-
-  sources:
-    - sage_satellite_stripping.c
 
   supported_processing_modes: [process_full_halo]
 
@@ -21,14 +15,12 @@ module:
       - BlackHoleMass
       - ICS
       - MetalsHotGas
-
     parameters:
       - GlobalBaryonFraction
 
   tests:
     unit: tests/test_unit_sage_satellite_stripping.c
     integration: tests/test_integration_sage_satellite_stripping.py
-    scientific: tests/test_scientific_sage_satellite_stripping.py
 
   docs:
     physics: README.md

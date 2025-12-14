@@ -1,38 +1,40 @@
 # Template module metadata - copy to your module directory as module_info.yaml and customize
+#
+# ULTRA-SIMPLIFIED FORMAT:
+#   - Only 'name' and 'supported_processing_modes' are required
+#   - {name}.c is always auto-included
+#   - additional_files: Only needed for multi-file modules
+#   - description: Optional
+#   - dependencies: Optional (skip validation if absent)
+#
+# For simple modules, you can just create a standalone .c file with no module_info.yaml at all!
+
 module:
   name: template_module
-  display_name: "Template Module"
   description: "Brief description of module physics"
-  version: "1.0.0"
-  author: "Your Name"
 
-  sources:
-    - template_module.c
-
-  headers:
-    # - not needed (generator uses forward declarations) unless you want to add your own
-
-
+  # Required: How to execute this module
   supported_processing_modes: [process_by_galaxy, process_full_halo]
 
+  # Optional - only needed for multi-file modules
+  # {name}.c is ALWAYS auto-included, don't list it here!
+  # additional_files:
+  #   - helper.c
+  #   - helper.h
+
+  # Optional - validation helpers (recommended for production modules)
   dependencies:
-    # List all properties read or written by this module
-    # Example: properties:
-    #   - HotGas
-    #   - ColdGas
-    #   - StellarMass
-    properties: []
+    properties: []       # List all properties used by this module
+    parameters: []       # List all parameters needed by this module
 
-    parameters:
-      - ExampleParam1
-      - ExampleParam2
-
+  # Optional - test files (for production modules with test coverage)
   tests:
     unit: tests/test_unit_template_module.c
     integration: tests/test_integration_template_module.py
-    scientific: tests/test_scientific_template_module_validation.py
 
+  # Optional - documentation
   docs:
-    physics: src/modules/template_module/README.md
+    physics: README.md
 
+  # Optional - compilation features required (HDF5, MPI, GSL)
   compilation_requires: []

@@ -136,14 +136,47 @@ def load_module_metadata(module_dir: Path) -> Optional[Dict[str, Any]]:
             if module:
                 # Add module directory path for reference
                 module["_module_dir"] = module_dir
+                module["_pattern"] = "directory"
+
+                # Build sources list
+                # {name}.c is always implicit, only additional files need declaration
+                name = module["name"]
+                sources = [f"{name}.c"]
+
+                if "additional_files" in module:
+                    # Add any additional .c files
+                    additional = module["additional_files"]
+                    sources.extend([f for f in additional if f.endswith('.c')])
+
+                module["sources"] = sources
+
             return module
     except yaml.YAMLError as e:
         print(f"ERROR: Failed to parse {yaml_path}: {e}", file=sys.stderr)
         return None
 
 
+def create_standalone_module_metadata(module_name: str, c_file: Path) -> Dict[str, Any]:
+    """Create minimal metadata for standalone .c file module."""
+    return {
+        "name": module_name,
+        "display_name": module_name.replace("_", " ").title(),
+        "version": "1.0.0",
+        "author": "Auto-generated",
+        "sources": [f"{module_name}.c"],
+        "supported_processing_modes": ["process_full_halo", "process_by_galaxy"],
+        "dependencies": {
+            "properties": [],
+            "parameters": []
+        },
+        "_module_dir": c_file.parent,
+        "_pattern": "standalone",
+        "_standalone_file": c_file
+    }
+
+
 def discover_modules() -> List[Dict[str, Any]]:
-    """Discover all modules with module_info.yaml files."""
+    """Discover all modules (directories with module_info.yaml OR standalone .c files)."""
     modules = []
 
     if not MODULES_DIR.exists():
@@ -151,26 +184,32 @@ def discover_modules() -> List[Dict[str, Any]]:
         return []
 
     for item in sorted(MODULES_DIR.iterdir()):
-        if not item.is_dir():
-            continue
-
-        # Skip directories starting with underscore, except _system
+        # Skip items starting with underscore (except _system)
         if item.name.startswith("_") and item.name != "_system":
             continue
 
-        # Handle _system directory specially - only include test_fixture
-        if item.name == "_system":
-            test_fixture_dir = item / "test_fixture"
-            if test_fixture_dir.exists() and test_fixture_dir.is_dir():
-                metadata = load_module_metadata(test_fixture_dir)
-                if metadata:
-                    modules.append(metadata)
-            continue
+        # Pattern 1: Directory with module_info.yaml
+        if item.is_dir():
+            # Handle _system directory specially - only include test_fixture
+            if item.name == "_system":
+                test_fixture_dir = item / "test_fixture"
+                if test_fixture_dir.exists() and test_fixture_dir.is_dir():
+                    metadata = load_module_metadata(test_fixture_dir)
+                    if metadata:
+                        modules.append(metadata)
+                continue
 
-        # Regular module directory
-        metadata = load_module_metadata(item)
-        if metadata:
+            # Regular module directory
+            metadata = load_module_metadata(item)
+            if metadata:
+                modules.append(metadata)
+
+        # Pattern 2: Standalone .c file
+        elif item.is_file() and item.suffix == ".c":
+            module_name = item.stem
+            metadata = create_standalone_module_metadata(module_name, item)
             modules.append(metadata)
+            print(f"  Discovered standalone module: {module_name}")
 
     return modules
 
@@ -231,12 +270,20 @@ def validate_property_dependencies(
     """
     Verify all module property dependencies exist in property metadata.
 
+    Standalone modules skip property validation (minimal metadata).
+
     Returns list of error messages (empty if all valid).
     """
     errors = []
 
     for module in modules:
         module_name = module["name"]
+        pattern = module.get("_pattern", "directory")
+
+        # Skip validation for standalone modules (no metadata)
+        if pattern == "standalone":
+            continue
+
         declared_props = module.get("dependencies", {}).get("properties", [])
 
         for prop in declared_props:
@@ -253,8 +300,8 @@ def validate_module_files(modules: List[Dict[str, Any]]) -> List[str]:
     """
     Verify all declared source files exist.
 
-    Note: Header files are optional - the generator uses forward declarations
-    instead of per-module headers, so headers field is ignored.
+    Supports both new 'files' field and legacy 'sources' field.
+    Standalone modules are automatically validated during discovery.
 
     Returns list of error messages (empty if all valid).
     """
@@ -263,8 +310,13 @@ def validate_module_files(modules: List[Dict[str, Any]]) -> List[str]:
     for module in modules:
         module_name = module["name"]
         module_dir = module.get("_module_dir")
+        pattern = module.get("_pattern", "directory")
 
         if not module_dir:
+            continue
+
+        # Standalone modules already validated during discovery
+        if pattern == "standalone":
             continue
 
         # Check source files (required)
@@ -275,9 +327,6 @@ def validate_module_files(modules: List[Dict[str, Any]]) -> List[str]:
                     f"{module_name}/module_info.yaml: Source file '{source}' not found\n"
                     f"    Expected at: {source_path}"
                 )
-
-        # Note: Header files are NOT validated - they are optional/deprecated
-        # The generator uses forward declarations instead of per-module headers
 
     return errors
 
@@ -732,9 +781,19 @@ def main():
         # Continue with empty list to generate valid (but empty) code
 
     if modules:
+        # Count patterns
+        directory_modules = [m for m in modules if m.get("_pattern") == "directory"]
+        standalone_modules = [m for m in modules if m.get("_pattern") == "standalone"]
+
         print(f"Found {len(modules)} module(s):")
-        for module in modules:
-            print(f"  - {module['name']} ({module.get('version', '1.0.0')})")
+        if directory_modules:
+            print(f"  Directory modules ({len(directory_modules)}):")
+            for module in directory_modules:
+                print(f"    - {module['name']} ({module.get('version', '1.0.0')})")
+        if standalone_modules:
+            print(f"  Standalone modules ({len(standalone_modules)}):")
+            for module in standalone_modules:
+                print(f"    - {module['name']} (standalone .c file)")
         print()
 
     # Resolve dependencies

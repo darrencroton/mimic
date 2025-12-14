@@ -24,7 +24,7 @@
 
 #include "constants.h"
 #include "error.h"
-#include "../_system/parameter_helpers.h"  // Parameter loading and validation macros
+#include "_system/parameter_helpers.h"  // Parameter loading and validation macros
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"

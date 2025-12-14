@@ -25,13 +25,11 @@ module:
   author: "Mimic Development Team"
 
   # ===========================================================================
-  # Source Files
+  # Processing Configuration
   # ===========================================================================
 
-  sources:
-    - fixture.c
-
-  headers:
+  # test_fixture.c is implicit (auto-included)
+  # No additional_files needed for single-file module
 
   supported_processing_modes: [process_by_galaxy, process_full_halo]
 

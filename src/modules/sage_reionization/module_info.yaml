@@ -1,26 +1,18 @@
 module:
   name: sage_reionization
-  display_name: "SAGE Reionization"
   description: "Reionization suppression of gas accretion (Gnedin 2000 model)."
-  version: "1.0.0"
-  author: "Mimic Team (ported from SAGE)"
-
-  sources:
-    - sage_reionization.c
 
   supported_processing_modes: [process_full_halo]
 
   dependencies:
     properties:
       - HaloBaryonFraction
-
     parameters:
       - GlobalBaryonFraction
 
   tests:
     unit: tests/test_unit_sage_reionization.c
     integration: tests/test_integration_sage_reionization.py
-    scientific: tests/test_scientific_sage_reionization.py
 
   docs:
     physics: README.md

@@ -1,271 +1,538 @@
 # Module Template
 
-**Purpose**: Boilerplate code for creating new Mimic physics modules
-
-**Status**: Template (do not compile directly)
+**Purpose**: Complete guide and boilerplate for creating new Mimic physics modules
 
 ---
 
-## Quick Start
+## Quick Start Guide
+
+Mimic supports **two patterns** for creating modules:
+
+### Pattern 1: Standalone Module (Simplest)
+
+**Use when**: Single .c file, no tests or validation needed
+
+```bash
+# Just create the .c file in src/modules/
+touch src/modules/my_module.c
+
+# Implement the three required functions:
+# - my_module_init()
+# - my_module_process()
+# - my_module_cleanup()
+
+# Add to your input YAML:
+modules:
+  phase_1:
+    - my_module: process_by_galaxy
+```
+
+**That's it!** No `module_info.yaml` needed. The system auto-discovers standalone modules.
+
+### Pattern 2: Directory Module (Full-Featured)
+
+**Use when**: Multiple files, tests, documentation, or validation needed
+
+```bash
+# Copy template
+cp -r src/modules/_system/template src/modules/my_module
+cd src/modules/my_module
+
+# Rename files
+mv template_module.c my_module.c
+mv template_module_info.yaml module_info.yaml
+
+# Edit and implement your physics
+```
+
+---
+
+## Step-by-Step: Directory Module
 
 ### 1. Copy Template
 
 ```bash
-cp -r src/modules/_system/template src/modules/YOUR_MODULE_NAME
-cd src/modules/YOUR_MODULE_NAME
+cp -r src/modules/_system/template src/modules/my_module
+cd src/modules/my_module
 ```
 
 ### 2. Rename Files
 
 ```bash
-mv template_module.c your_module.c
+mv template_module.c my_module.c
 mv template_module_info.yaml module_info.yaml
-rm README.md  # Remove this file
+rm README.md  # Remove this file, create your own
 ```
 
-### 3. Find and Replace
+### 3. Update module_info.yaml
 
-In the `.c` file:
-- Replace `template_module` → `your_module` (all occurrences)
-- Replace `TEMPLATE_MODULE` → `YOUR_MODULE`
-- Update file documentation (author, description, physics equations)
-
-### 4. Define Properties (if needed)
-
-If your module creates new galaxy properties:
-
-```bash
-# Edit metadata
-vim src/modules/model_properties.yaml
-
-# Add your properties:
-#   - name: YourProperty
-#     type: float
-#     units: "1e10 Msun/h"
-#     description: "Your physics quantity"
-#     output: true
-#     init_source: default
-#     init_value: 0.0
-
-# Generate code
-make generate
-```
-
-### 5. Implement Physics
-
-Edit `your_module.c`:
-- Update `MODEL PARAMETERS` section - declare variables for the model parameters your module uses
-- Implement helper functions for physics calculations
-- Update `your_module_init()` to read and validate model parameters (use parameter_helpers.h macros)
-- Update `your_module_process()` with your physics logic
-- Update `your_module_cleanup()` to free any resources
-
-**Parameter Loading**: Modules read parameters from the input YAML file using `model_get_*()` functions or the convenient helper macros from `parameter_helpers.h`. All parameters must be declared in your `module_info.yaml` under `dependencies.parameters`.
-
-### 6. Create Module Metadata
-
-Create `module_info.yaml` in your module directory (see existing modules for examples):
-
+**Minimal (required fields only)**:
 ```yaml
 module:
-  name: your_module
-  display_name: "Your Module"
+  name: my_module
+  supported_processing_modes: [process_by_galaxy]
+```
+
+**With validation** (recommended for production):
+```yaml
+module:
+  name: my_module
+  description: "Brief description of physics"
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - ColdGas
+      - StellarMass
+    parameters:
+      - MyEfficiency
+      - MyParameter
+```
+
+**Multi-file module**:
+```yaml
+module:
+  name: my_module
   description: "Brief description"
+  supported_processing_modes: [process_by_galaxy]
+
+  # my_module.c is implicit (always auto-included)
+  # Only list ADDITIONAL files here:
+  additional_files:
+    - helper.c
+    - lookup_tables.c
+    - helper.h
+
+  dependencies:
+    properties:
+      - ColdGas
+    parameters:
+      - MyParam
+```
+
+**Complete metadata** (production module with tests):
+```yaml
+module:
+  name: my_module
+  display_name: "My Physics Module"
+  description: "Detailed description of physics implemented"
   version: "1.0.0"
   author: "Your Name"
 
-  sources:
-    - your_module.c
-  headers:
-    # - not needed (generator uses forward declarations) unless you want to add your own
+  supported_processing_modes: [process_by_galaxy]
 
-  supported_processing_modes: [process_by_galaxy]  # or [process_full_halo] or both
+  additional_files:
+    - helper.c
+    - helper.h
 
   dependencies:
-    # All halo and galaxy properties read or written by this module
     properties:
-      - HotGas
       - ColdGas
-
-    # All model parameters accessed via model_get_*() functions
+      - StellarMass
     parameters:
-      - GlobalBaryonFraction
-      - SfrEfficiency
+      - MyEfficiency
 
   tests:
-    unit: tests/test_unit_your_module.c
-    integration: tests/test_integration_your_module.py
-    scientific: tests/test_scientific_your_module_validation.py
+    unit: tests/test_unit_my_module.c
+    integration: tests/test_integration_my_module.py
 
   docs:
     physics: README.md
 ```
 
-Module registration is **auto-generated** from this metadata - no manual code needed!
+### 4. Implement Module (my_module.c)
 
-**Important**: The `dependencies.parameters` list declares which parameters your module uses. All parameters must be specified in the input YAML file. The parameter linter (`make lint-parameters`) verifies this list matches actual usage.
+Your module needs three functions:
 
-### 7. Build and Test
-
-```bash
-make                  # Compile
-make test-unit        # Run unit tests
-make test-integration # Run integration tests
-```
-
-### 8. Configure and Run
-
-Add your module to the appropriate phase in your YAML configuration:
-
-```yaml
-# Configure module phases and parameters
-modules:
-  pre_timestep:                         # Setup (runs once before substeps)
-    - sage_reionization: process_full_halo
-    - sage_calculate_infall: process_full_halo
-
-  phase_1:                              # Main physics (runs each substep)
-    - your_module: process_by_galaxy    # Add your module to appropriate phase
-
-  phase_2: []                           # Secondary physics (runs each substep)
-
-  post_timestep: []                     # Finalization (runs once after substeps)
-
-  parameters:
-    # All parameters REQUIRED - shown partially here
-    GlobalBaryonFraction: 0.17
-    SfrEfficiency: 0.02
-    YourModuleParam: 1.0
-    # ... (add all parameters used by enabled modules)
-```
-
-**Important**: All parameters used by your module must be specified in the `modules.parameters:` section. No defaults are provided. See `input/millennium.yaml` for a complete example.
-
-Run:
-
-```bash
-./mimic input/millennium.yaml
-```
-
----
-
-## Template Structure
-
-### Implementation File (`template_module.c`)
-
-Structured in sections:
-
-1. **MODEL PARAMETERS**: Static variables for model parameters this module uses
-2. **MODULE STATE**: Persistent data (lookup tables, caches, etc.)
-3. **HELPER FUNCTIONS**: Pure physics calculations (testable independently)
-4. **MODULE LIFECYCLE FUNCTIONS**:
-   - `init()`: Initialize once at startup (read model parameters)
-   - `process()`: Process each FOF group
-   - `cleanup()`: Cleanup at shutdown
-5. **MODULE REGISTRATION**: Register with module system
-
----
-
-## What to Modify
-
-### Essential Changes
-
-These sections **must** be updated:
-
-- [ ] File documentation (description, physics equations, references)
-- [ ] Module name in `struct Module`
-- [ ] `init()`: Model parameter reading using `model_get_*()` functions
-- [ ] `process()`: Physics calculations
-- [ ] Helper functions: Implement your physics logic
-- [ ] Property reads/writes: Use actual properties from your physics
-- [ ] MODEL PARAMETERS section: Declare variables for parameters your module needs
-
-### Optional Changes
-
-These sections are optional depending on your module:
-
-- [ ] MODULE STATE: Add persistent data if needed
-- [ ] `cleanup()`: Add resource cleanup if you allocated memory/files
-- [ ] Additional helper functions for complex physics
-
-### What NOT to Change
-
-These sections should not need changes:
-
-- Module interface structure (follows standard pattern)
-- Function signatures (match `module_interface.h`)
-- Error handling patterns (standard across all modules)
-- Logging style (use INFO_LOG/DEBUG_LOG/ERROR_LOG)
-
----
-
-## Example Customization
-
-From template to a simple "gas cooling" module:
-
-### Before (Template)
 ```c
-// MODEL PARAMETERS
-static double example_param1;
+#include <stdio.h>
+#include <math.h>
+#include "module_interface.h"
+#include "error.h"
+#include "_system/parameter_helpers.h"  // Convenient parameter loading macros
 
-static float compute_physics(float input1, double input2) {
-    float result = example_param1 * input1 * input2;
-    return result;
+// ============================================================================
+// MODEL PARAMETERS
+// ============================================================================
+
+static double my_efficiency;
+static int my_option;
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+static float compute_physics(float mass, double dt) {
+    return my_efficiency * mass * dt;
 }
 
-static int template_module_init(void) {
-    if (model_get_double("ExampleParam1", &example_param1) != 0) {
-        ERROR_LOG("Failed to read ExampleParam1");
+// ============================================================================
+// MODULE LIFECYCLE FUNCTIONS
+// ============================================================================
+
+int my_module_init(void) {
+    /* Load and validate parameters */
+    LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("MyEfficiency", my_efficiency, 0.0, 1.0,
+                                      "efficiency must be between 0 and 1");
+    LOAD_PARAM_INT("MyOption", my_option);
+
+    if (my_option < 0 || my_option > 2) {
+        ERROR_LOG("MyOption = %d out of valid range [0, 2]", my_option);
         return -1;
     }
-    // ...
+
+    VERBOSE_LOG("My Module initialized");
+    VERBOSE_LOG("  MyEfficiency = %.3f", my_efficiency);
+    VERBOSE_LOG("  MyOption = %d", my_option);
+    return 0;
+}
+
+int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+    /* Process each galaxy */
+    for (int i = 0; i < ngal; i++) {
+        struct GalaxyData *gal = halos[i].galaxy;
+
+        /* Read properties (inputs) */
+        float cold_gas = gal->ColdGas;
+        float stellar_mass = gal->StellarMass;
+
+        /* Compute physics */
+        float result = compute_physics(cold_gas, ctx->dt);
+
+        /* Write properties (outputs) */
+        gal->StellarMass += result;
+        gal->ColdGas -= result;
+    }
+
+    return 0;
+}
+
+int my_module_cleanup(void) {
+    VERBOSE_LOG("My Module cleaned up");
+    return 0;
 }
 ```
 
-### After (Custom Cooling Module)
-```c
-#include "../_system/parameter_helpers.h"
+**Important**:
+- Function names **must** follow pattern: `{module_name}_{init|process|cleanup}`
+- Use `LOAD_PARAM_*` macros or `model_get_*()` functions to read parameters
+- Parameters must be in input YAML file (no defaults)
+- Return 0 on success, non-zero on failure
 
-// MODEL PARAMETERS
-static double global_baryon_frac;  // Read from input YAML via model_get_double()
+### 5. Define Properties (if needed)
 
-static float compute_cooling_rate(float mvir, double redshift) {
-    // Physics: accreted baryons cool from hot halo
-    float cooling_rate = global_baryon_frac * mvir / (1.0 + redshift);
-    return cooling_rate;
-}
+If your module creates new galaxy properties:
 
-static int your_module_init(void) {
-    // Load and validate parameter in one call
-    LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", global_baryon_frac, 0.0, 1.0,
-                                      "cosmic baryon fraction must be physical");
+```bash
+# Edit property metadata
+vim src/modules/model_properties.yaml
 
-    INFO_LOG("Cooling module initialized with BaryonFrac = %f", baryon_frac);
-    // ...
-}
+# Add your properties:
+properties:
+  - name: MyNewProperty
+    type: float
+    units: "1e10 Msun/h"
+    description: "Description of what this property represents"
+    output: true
+    init_source: default
+    init_value: 0.0f
+
+# Generate code
+make generate
 ```
 
-**Note**: All parameters used by your module must be specified in the input YAML file (no defaults). Declare them in your `module_info.yaml` under `dependencies.parameters`.
+### 6. Build and Test
+
+```bash
+# Generate module registration
+make generate
+
+# Build
+make clean && make
+
+# Test
+./mimic input/test.yaml
+
+# Run full test suite
+make tests
+```
+
+### 7. Add to Configuration
+
+Edit your input YAML file:
+
+```yaml
+modules:
+  # Choose appropriate phase
+  pre_timestep:                    # Setup (runs once before substeps)
+    - sage_reionization: process_full_halo
+
+  phase_1:                         # Main physics (runs each substep)
+    - my_module: process_by_galaxy # Add your module here
+
+  phase_2:                         # Secondary physics (runs each substep)
+    - sage_mergers: process_full_halo
+
+  post_timestep: []                # Finalization (runs once after substeps)
+
+  parameters:
+    # All parameters used by enabled modules MUST be specified
+    MyEfficiency: 0.1
+    MyOption: 1
+    # ... (all other parameters)
+```
 
 ---
 
-## Next Steps
+## Module Structure Reference
 
-After customizing the template:
+### Required Fields
 
-1. **Write Tests**: Add unit, integration, and scientific tests
-2. **Document Physics**: Create comprehensive `README.md` in your module directory
-3. **Update User Guide**: Module configuration is now in `docs/USER-GUIDE.md` (Configuration section)
-4. **Update module_info.yaml**: Ensure `docs.physics` points to your module's `README.md`
+**module_info.yaml**:
+```yaml
+module:
+  name: my_module                           # REQUIRED
+  supported_processing_modes: [...]         # REQUIRED
+```
 
-See `docs/DEVELOPER-GUIDE.md` for comprehensive documentation.
+**my_module.c**:
+- `my_module_init()` - Initialize parameters, validate
+- `my_module_process()` - Main physics logic
+- `my_module_cleanup()` - Free resources
+
+### Optional Fields
+
+```yaml
+module:
+  description: "..."                # Human-readable description
+  display_name: "..."               # Auto-generated from name if omitted
+  version: "1.0.0"                  # Defaults to "1.0.0"
+  author: "..."                     # Attribution
+
+  additional_files:                 # For multi-file modules
+    - helper.c
+    - helper.h
+
+  dependencies:                     # Validation helpers
+    properties: [...]               # Properties used (read or written)
+    parameters: [...]               # Parameters from input YAML
+
+  tests:                            # Test coverage
+    unit: tests/test_unit_my_module.c
+    integration: tests/test_integration_my_module.py
+
+  docs:                             # Documentation
+    physics: README.md
+
+  compilation_requires: []          # Features needed (hdf5, mpi, gsl)
+```
+
+---
+
+## Processing Modes
+
+Choose the appropriate mode for your physics:
+
+### process_by_galaxy
+
+**What**: Core loops over galaxies, module processes one at a time (ngal = 1)
+
+**Use when**:
+- Per-galaxy physics
+- Time integration with dt
+- No cross-galaxy dependencies
+
+**Examples**: Cooling, star formation, feedback
+
+**Code pattern**:
+```c
+int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+    // ngal will always be 1
+    struct GalaxyData *gal = halos[0].galaxy;
+
+    // Process this one galaxy using ctx->dt
+    float delta_mass = my_efficiency * gal->ColdGas * ctx->dt;
+    gal->StellarMass += delta_mass;
+
+    return 0;
+}
+```
+
+### process_full_halo
+
+**What**: Module receives entire galaxy array (ngal ≥ 1)
+
+**Use when**:
+- Snapshot-level operations
+- Cross-galaxy interactions
+- FOF-group calculations
+
+**Examples**: Reionization, infall budget, mergers
+
+**Code pattern**:
+```c
+int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+    // Process all galaxies in FOF group
+    for (int i = 0; i < ngal; i++) {
+        struct GalaxyData *gal = halos[i].galaxy;
+
+        // Can access other galaxies in array
+        // for cross-galaxy operations
+    }
+
+    return 0;
+}
+```
+
+---
+
+## Parameter Loading
+
+### Using Helper Macros (Recommended)
+
+```c
+#include "_system/parameter_helpers.h"
+
+// Load and validate in one call
+LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("MyParam", my_param, 0.0, 1.0, "must be between 0 and 1");
+LOAD_AND_VALIDATE_RANGE_INCLUSIVE("MyMass", my_mass, 1e8, 1e12, "must be realistic mass");
+LOAD_AND_VALIDATE_POSITIVE("MyRate", my_rate, "must be positive");
+
+// Load without validation
+LOAD_PARAM_DOUBLE("MyDouble", my_double);
+LOAD_PARAM_INT("MyInt", my_int);
+LOAD_PARAM_STRING("MyPath", my_path);
+```
+
+### Using Direct Functions
+
+```c
+#include "model_parameters.h"
+
+double my_efficiency;
+if (model_get_double("MyEfficiency", &my_efficiency) != 0) {
+    ERROR_LOG("Failed to read MyEfficiency");
+    return -1;
+}
+
+// Validate
+if (my_efficiency < 0.0 || my_efficiency > 1.0) {
+    ERROR_LOG("MyEfficiency = %.3f out of range [0.0, 1.0]", my_efficiency);
+    return -1;
+}
+```
+
+**Important**: All parameters used must be:
+1. Listed in `module_info.yaml` under `dependencies.parameters`
+2. Specified in input YAML file (no defaults in code)
+
+---
+
+## Best Practices
+
+### Module Independence
+- ✅ Modules communicate **only** through property system
+- ❌ Never call other module functions directly
+- ✅ Declare dependencies in `module_info.yaml`
+
+### Property Access
+- ✅ Read inputs: `float mass = gal->StellarMass;`
+- ✅ Write outputs: `gal->ColdGas += accreted_mass;`
+- ❌ Don't modify read-only halo properties (Mvir, Rvir, etc.)
+
+### Memory Management
+```c
+#include "memory.h"
+
+// Allocate with category tracking
+float *data = mymalloc_cat(size * sizeof(float), MEM_PHYSICS);
+
+// Free in cleanup
+myfree(data);
+```
+
+### Error Handling
+```c
+// Errors (always logged)
+ERROR_LOG("Critical failure: %s", reason);
+return -1;
+
+// Verbose output (only with --verbose or --debug)
+VERBOSE_LOG("Module initialized with param = %.3f", param);
+
+// Debug output (only with --debug)
+DEBUG_LOG("Detailed debug info: %d", value);
+```
+
+### Shared Utilities
+- Place reusable physics code in `src/modules/_shared/`
+- Header-only utilities for fast compilation
+- Include via: `#include "_shared/my_utility.h"`
 
 ---
 
 ## Examples
 
-See working examples:
-- `src/modules/sage_calculate_infall/` - Cosmological gas infall (PROCESSING_MODE_FULL_HALO)
-- `src/modules/sage_reionization/` - Reionization suppression (PROCESSING_MODE_FULL_HALO)
+### Simple Single-File Module
 
-These follow the same structure as this template.
+**src/modules/simple_infall.c**:
+```c
+#include "module_interface.h"
+#include "error.h"
+#include "_system/parameter_helpers.h"
+
+static double baryon_fraction;
+
+int simple_infall_init(void) {
+    LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", baryon_fraction, 0.0, 1.0,
+                                      "baryon fraction must be physical");
+    VERBOSE_LOG("Simple infall initialized: f_b = %.3f", baryon_fraction);
+    return 0;
+}
+
+int simple_infall_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+    struct GalaxyData *gal = halos[0].galaxy;
+
+    // Simple infall calculation
+    float infall = baryon_fraction * halos[0].Mvir;
+    gal->ColdGas += infall * ctx->dt;
+
+    return 0;
+}
+
+int simple_infall_cleanup(void) {
+    return 0;
+}
+```
+
+No `module_info.yaml` needed! Just add to input YAML:
+```yaml
+modules:
+  phase_1:
+    - simple_infall: process_by_galaxy
+  parameters:
+    GlobalBaryonFraction: 0.17
+```
+
+### Full-Featured Production Module
+
+See working examples:
+- `src/modules/sage_add_infall/` - Infall with metallicity tracking
+- `src/modules/sage_reionization/` - Reionization suppression
+- `src/modules/_archive/sage_cooling/` - Multi-file with lookup tables
+
+---
+
+## Next Steps
+
+After creating your module:
+
+1. **Write Tests**: Unit, integration, and scientific validation
+2. **Document Physics**: Create comprehensive README.md in your module directory
+3. **Run Tests**: `make tests` to verify everything works
+4. **Update Documentation**: Add physics description to your README
+
+**Need help?**
+- Architecture principles: `docs/VISION.md`
+- Complete developer guide: `docs/DEVELOPER-GUIDE.md`
+- Module schema reference: `docs/REFERENCE.md`

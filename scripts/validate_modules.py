@@ -245,22 +245,20 @@ def validate_required_fields(
 ) -> bool:
     """Validate that all required fields are present."""
 
+    # Minimal required fields - only name and processing mode!
     required_core = [
         "name",
-        "display_name",
-        "description",
-        "version",
-        "author",
+        "supported_processing_modes",  # Required: how to execute the module
     ]
-    # Note: headers is optional - generator uses forward declarations instead
-    # Note: register_function is auto-generated - no longer in YAML
-    required_sources = ["sources"]
-    required_deps = ["dependencies"]
-    # Phase 4.4: parameters is now optional (centralized modules.parameters system)
-    # Modules may have module-specific parameters OR use only global modules.parameters
-    required_params = []  # parameters field is now optional
+    # Everything else is optional:
+    # - description: optional (can be empty)
+    # - display_name: auto-generated from name
+    # - version: defaults to "1.0.0"
+    # - author: optional
+    # - additional_files: optional (only needed for multi-file modules)
+    # - dependencies: optional (skip validation if absent)
 
-    all_required = required_core + required_sources + required_deps + required_params
+    all_required = required_core
 
     missing = [field for field in all_required if field not in module]
 
@@ -270,15 +268,16 @@ def validate_required_fields(
         )
         return False
 
-    # Check dependencies subfields
-    deps = module.get("dependencies", {})
-    if "properties" not in deps or "parameters" not in deps:
-        results.add_error(
-            module_name,
-            1,
-            "dependencies must have both 'properties' and 'parameters' fields",
-        )
-        return False
+    # Validate dependencies subfields IF present
+    if "dependencies" in module:
+        deps = module["dependencies"]
+        if "properties" not in deps or "parameters" not in deps:
+            results.add_error(
+                module_name,
+                1,
+                "dependencies (if present) must have both 'properties' and 'parameters' fields",
+            )
+            return False
 
     return True
 
@@ -303,16 +302,15 @@ def validate_field_types(
             valid = False
 
     # List fields
-    for field in ["sources", "headers"]:
-        if field in module:
-            if not isinstance(module[field], list):
-                results.add_error(module_name, 1, f"Field '{field}' must be a list")
-                valid = False
-            elif not all(isinstance(item, str) for item in module[field]):
-                results.add_error(
-                    module_name, 1, f"All items in '{field}' must be strings"
-                )
-                valid = False
+    if "additional_files" in module:
+        if not isinstance(module["additional_files"], list):
+            results.add_error(module_name, 1, "Field 'additional_files' must be a list")
+            valid = False
+        elif not all(isinstance(item, str) for item in module["additional_files"]):
+            results.add_error(
+                module_name, 1, "All items in 'additional_files' must be strings"
+            )
+            valid = False
 
     # Supported processing modes (optional field)
     if "supported_processing_modes" in module:
@@ -396,9 +394,14 @@ def validate_field_types(
 def validate_version(
     module: Dict[str, Any], module_name: str, results: ValidationResults
 ) -> bool:
-    """Validate version follows semantic versioning."""
+    """Validate version follows semantic versioning (if present)."""
 
+    # Version is optional - defaults to "1.0.0" if not specified
     version = module.get("version", "")
+    if not version:
+        # No version specified - this is valid
+        return True
+
     if not VERSION_PATTERN.match(version):
         results.add_error(
             module_name,
@@ -525,20 +528,28 @@ def validate_source_files(
     module_dir: Path,
     results: ValidationResults,
 ) -> bool:
-    """Validate that all source files exist."""
+    """Validate that all source files exist.
+
+    Format: {name}.c is always implicit, additional_files lists extras
+    """
 
     valid = True
 
-    for source in module.get("sources", []):
-        source_path = module_dir / source
-        if not source_path.exists():
-            results.add_error(module_name, 2, f"Source file not found: {source}")
-            valid = False
+    # Check main module file (always required)
+    main_file = module_dir / f"{module_name}.c"
+    if not main_file.exists():
+        results.add_error(
+            module_name, 2,
+            f"Main module file not found: {module_name}.c"
+        )
+        valid = False
 
-    for header in module.get("headers", []):
-        header_path = module_dir / header
-        if not header_path.exists():
-            results.add_error(module_name, 2, f"Header file not found: {header}")
+    # Check additional files (if any)
+    additional = module.get("additional_files", [])
+    for file in additional:
+        file_path = module_dir / file
+        if not file_path.exists():
+            results.add_error(module_name, 2, f"Additional file not found: {file}")
             valid = False
 
     return valid

@@ -173,30 +173,105 @@ make clean && make
 
 ## Module Development
 
-### Module Structure
+### Module Patterns
 
-A physics module consists of:
+Mimic supports **three complexity tiers** for modules:
 
-**Required files**:
+**Tier 1 - Standalone** (Simplest, ~80% of modules):
+```
+src/modules/
+  my_module.c              # Just the .c file!
+```
+- No `module_info.yaml` needed
+- Auto-discovered by build system
+- Perfect for prototyping and simple physics
+
+**Tier 2 - Minimal Directory** (Standard, ~15% of modules):
+```
+src/modules/my_module/
+  my_module.c
+  module_info.yaml         # Minimal metadata
+  README.md
+```
+- Simplified `module_info.yaml` with optional fields
+- Tests and validation recommended but optional
+
+**Tier 3 - Full-Featured** (Complex, ~5% of modules):
+```
+src/modules/my_module/
+  my_module.c
+  helper.c                 # Multiple source files
+  module_info.yaml         # Complete metadata
+  README.md
+  tests/
+    test_unit.c
+    test_integration.py
+```
+- Complete metadata with validation
+- Full test coverage
+- Production-quality module
+
+### Module Structure (Directory Pattern)
+
+For directory-based modules, the structure is:
+
+**Required**:
 - `module_name.c`: Implementation
-- `module_info.yaml`: Metadata (auto-generates registration code)
+- `module_info.yaml`: Metadata (optional for standalone)
 
-**Optional files**:
+**Optional**:
+- Additional `.c` files (listed in `files:`)
 - `README.md`: Physics documentation
-- `test_unit_module_name.c`: Unit tests
-- `test_integration_module_name.py`: Integration tests
+- `tests/`: Test files
 
-**Location**: `src/modules/module_name/`
+**Location**: `src/modules/module_name/` OR `src/modules/module_name.c`
 
 ### Creating a Module
 
-**1. Copy template**:
+Mimic supports **two patterns** for creating modules:
+
+#### Pattern 1: Standalone Module (Simplest)
+
+For simple modules, just create a single `.c` file:
+
+```bash
+# Create the .c file
+touch src/modules/my_module.c
+
+# Implement the three required functions:
+# - my_module_init()
+# - my_module_process()
+# - my_module_cleanup()
+
+# Add to input YAML configuration:
+modules:
+  phase_1:
+    - my_module: process_by_galaxy
+```
+
+**That's it!** No `module_info.yaml` needed. The system auto-discovers standalone modules.
+
+**Use standalone modules when:**
+- Single .c file
+- No tests, docs, or validation needed
+- Quick prototyping
+
+#### Pattern 2: Directory Module (Full-featured)
+
+For complex modules, use the traditional directory structure:
+
 ```bash
 cp -r src/modules/_system/template src/modules/my_module
 cd src/modules/my_module
 mv template_module.c my_module.c
 mv template_module_info.yaml module_info.yaml
 ```
+
+**Use directory modules when:**
+- Multiple source files
+- Need tests and documentation
+- Want property/parameter validation
+- Production-quality module
 
 **2. Implement module** (`my_module.c`):
 
@@ -277,39 +352,61 @@ static int my_module_cleanup(void) {
 **IMPORTANT**: Function names must follow the convention `{module_name}_{init|process|cleanup}`.
 This is enforced by the code generator.
 
-**4. Create metadata** (`module_info.yaml`):
+**3. Create metadata** (`module_info.yaml`) - **Ultra-Simplified Format**:
+
+**Minimal (required fields only)**:
 ```yaml
 module:
   name: my_module
-  display_name: "My Module"
+  supported_processing_modes: [process_by_galaxy]
+```
+
+**With validation** (recommended for production):
+```yaml
+module:
+  name: my_module
   description: "Brief description of physics"
-  version: "1.0.0"
-  author: "Your Name"
+  supported_processing_modes: [process_by_galaxy]
 
-  sources:
-    - my_module.c
-
-  processing_modes:
-    - process_by_galaxy
+  # my_module.c is implicit (always auto-included)
+  # No additional_files needed for single-file module
 
   dependencies:
     properties:
       - StellarMass
       - NewProperty
-
     parameters:
-      - name: MyEfficiency
-        type: double
-        default: null
-        valid_range: [0.0, 1.0]
-        units: "dimensionless"
-        description: "Efficiency parameter"
+      - MyEfficiency
 
   tests:
-    unit: test_unit_my_module.c
-
-  compilation_requires: []
+    unit: tests/test_unit_my_module.c
 ```
+
+**Multi-file module**:
+```yaml
+module:
+  name: my_module
+  description: "Brief description"
+  supported_processing_modes: [process_by_galaxy]
+
+  # my_module.c is implicit (always auto-included)
+  additional_files:
+    - helper.c
+    - helper.h
+
+  dependencies:
+    properties:
+      - ColdGas
+    parameters:
+      - MyParam
+```
+
+**What's new:**
+- ✅ Only `name` and `supported_processing_modes` are required
+- ✅ `{name}.c` is always implicit - never declare it
+- ✅ `additional_files` for multi-file modules (helper files only)
+- ✅ `display_name`, `version`, `author` are optional (auto-generated)
+- ✅ `dependencies` optional but recommended for validation
 
 **5. Generate registration code**:
 ```bash
