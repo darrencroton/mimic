@@ -78,21 +78,21 @@ int sage_add_infall_process(struct ModuleContext *ctx, struct Halo *halos,
   float metallicity;
 
   /* For mass loss (negative infall), first remove from ejected reservoir */
-  if (infallingGas < 0.0 && galaxy->EjectedMass > 0.0f) {
-    metallicity = mimic_get_metallicity(galaxy->EjectedMass, galaxy->MetalsEjectedMass);
+  if (infallingGas < 0.0 && galaxy->EjectedGas > 0.0f) {
+    metallicity = mimic_get_metallicity(galaxy->EjectedGas, galaxy->MetalsEjectedGas);
 
-    galaxy->MetalsEjectedMass += (float)(infallingGas * metallicity);
-    if (galaxy->MetalsEjectedMass < 0.0f) {
-      galaxy->MetalsEjectedMass = 0.0f;
+    galaxy->MetalsEjectedGas += (float)(infallingGas * metallicity);
+    if (galaxy->MetalsEjectedGas < 0.0f) {
+      galaxy->MetalsEjectedGas = 0.0f;
     }
 
-    galaxy->EjectedMass += (float)infallingGas;
+    galaxy->EjectedGas += (float)infallingGas;
 
     /* If ejected reservoir depleted, continue removing from hot gas */
-    if (galaxy->EjectedMass < 0.0f) {
-      infallingGas = galaxy->EjectedMass;
-      galaxy->EjectedMass = 0.0f;
-      galaxy->MetalsEjectedMass = 0.0f;
+    if (galaxy->EjectedGas < 0.0f) {
+      infallingGas = galaxy->EjectedGas;
+      galaxy->EjectedGas = 0.0f;
+      galaxy->MetalsEjectedGas = 0.0f;
     } else {
       infallingGas = 0.0;
     }

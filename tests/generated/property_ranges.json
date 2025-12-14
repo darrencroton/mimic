@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "7a4fb02536ba02f3da983937ebf37928",
+    "source_md5": "9975f548f64d4bfe08d70bb306934cd6",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -259,8 +259,8 @@
         0.0
       ]
     },
-    "EjectedMass": {
-      "name": "EjectedMass",
+    "EjectedGas": {
+      "name": "EjectedGas",
       "type": "float",
       "units": "1e10 Msun/h",
       "is_vector": false,
@@ -376,8 +376,8 @@
         0.0
       ]
     },
-    "MetalsEjectedMass": {
-      "name": "MetalsEjectedMass",
+    "MetalsEjectedGas": {
+      "name": "MetalsEjectedGas",
       "type": "float",
       "units": "1e10 Msun/h",
       "is_vector": false,

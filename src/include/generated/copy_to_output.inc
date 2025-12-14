@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 7a4fb02536ba02f3da983937ebf37928
+ * Source MD5: 9975f548f64d4bfe08d70bb306934cd6
  * To regenerate: make generate
  */
 
@@ -49,7 +49,7 @@ o->infallVmax = output_infall_property_or_zero(g, g->infallVmax);
 o->HaloBaryonFraction = g->galaxy->HaloBaryonFraction;
 o->ColdGas = g->galaxy->ColdGas;
 o->HotGas = g->galaxy->HotGas;
-o->EjectedMass = g->galaxy->EjectedMass;
+o->EjectedGas = g->galaxy->EjectedGas;
 o->StellarMass = g->galaxy->StellarMass;
 o->BulgeMass = g->galaxy->BulgeMass;
 o->ICS = g->galaxy->ICS;
@@ -58,7 +58,7 @@ o->MetalsBulgeMass = g->galaxy->MetalsBulgeMass;
 o->MetalsColdGas = g->galaxy->MetalsColdGas;
 o->MetalsHotGas = g->galaxy->MetalsHotGas;
 o->MetalsICS = g->galaxy->MetalsICS;
-o->MetalsEjectedMass = g->galaxy->MetalsEjectedMass;
+o->MetalsEjectedGas = g->galaxy->MetalsEjectedGas;
 o->BlackHoleMass = g->galaxy->BlackHoleMass;
 o->QuasarModeBHaccretionMass = g->galaxy->QuasarModeBHaccretionMass;
 o->Cooling = g->galaxy->Cooling;

@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 7a4fb02536ba02f3da983937ebf37928
+ * Source MD5: 9975f548f64d4bfe08d70bb306934cd6
  * To regenerate: make generate
  */
 
@@ -151,10 +151,10 @@ HDF5_dst_sizes[i] = sizeof(galout.HotGas);
 HDF5_field_names[i] = "HotGas";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
-/* EjectedMass */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, EjectedMass);
-HDF5_dst_sizes[i] = sizeof(galout.EjectedMass);
-HDF5_field_names[i] = "EjectedMass";
+/* EjectedGas */
+HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, EjectedGas);
+HDF5_dst_sizes[i] = sizeof(galout.EjectedGas);
+HDF5_field_names[i] = "EjectedGas";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
 /* StellarMass */
@@ -205,10 +205,10 @@ HDF5_dst_sizes[i] = sizeof(galout.MetalsICS);
 HDF5_field_names[i] = "MetalsICS";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
-/* MetalsEjectedMass */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MetalsEjectedMass);
-HDF5_dst_sizes[i] = sizeof(galout.MetalsEjectedMass);
-HDF5_field_names[i] = "MetalsEjectedMass";
+/* MetalsEjectedGas */
+HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MetalsEjectedGas);
+HDF5_dst_sizes[i] = sizeof(galout.MetalsEjectedGas);
+HDF5_field_names[i] = "MetalsEjectedGas";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
 /* BlackHoleMass */

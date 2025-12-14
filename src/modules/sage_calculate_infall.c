@@ -89,9 +89,9 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
     tot_coldMass += gal->ColdGas;
     tot_hotMass += gal->HotGas;
     tot_ICS += gal->ICS;
-    tot_ejected += gal->EjectedMass;
+    tot_ejected += gal->EjectedGas;
     tot_ICSMetals += gal->MetalsICS;
-    tot_ejectedMetals += gal->MetalsEjectedMass;
+    tot_ejectedMetals += gal->MetalsEjectedGas;
     
     if (halos[i].Type == 2) {
       orphan_hotMass += gal->HotGas;
@@ -101,8 +101,8 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
     if (i != central_idx) {
       gal->ICS = 0.0f;
       gal->MetalsICS = 0.0f;
-      gal->EjectedMass = 0.0f;
-      gal->MetalsEjectedMass = 0.0f;
+      gal->EjectedGas = 0.0f;
+      gal->MetalsEjectedGas = 0.0f;
 
       if (halos[i].Type == 2) {
         gal->HotGas = 0.0f;
@@ -114,9 +114,9 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
   struct GalaxyData *central = halos[central_idx].galaxy;
 
   /* Consolidate ejected mass, ICS and type 2 hot mass to central */
-  central->EjectedMass = (float)tot_ejected;
-  central->MetalsEjectedMass = (float)tot_ejectedMetals;
-  validate_mass_metals(&central->EjectedMass, &central->MetalsEjectedMass);
+  central->EjectedGas = (float)tot_ejected;
+  central->MetalsEjectedGas = (float)tot_ejectedMetals;
+  validate_mass_metals(&central->EjectedGas, &central->MetalsEjectedGas);
 
   central->ICS = (float)tot_ICS;
   central->MetalsICS = (float)tot_ICSMetals;

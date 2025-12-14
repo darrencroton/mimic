@@ -133,7 +133,7 @@ int test_cumulative_properties_preserved(void) {
     galaxy->BulgeMass = 30.0;
     galaxy->ColdGas = 50.0;
     galaxy->HotGas = 120.0;
-    galaxy->EjectedMass = 20.0;
+    galaxy->EjectedGas = 20.0;
     galaxy->ICS = 5.0;
     galaxy->MetalsColdGas = 2.5;
     galaxy->MetalsHotGas = 6.0;
@@ -162,7 +162,7 @@ int test_cumulative_properties_preserved(void) {
     TEST_ASSERT(fabs(galaxy->BulgeMass - 30.0) < 1e-6, "BulgeMass preserved");
     TEST_ASSERT(fabs(galaxy->ColdGas - 50.0) < 1e-6, "ColdGas preserved");
     TEST_ASSERT(fabs(galaxy->HotGas - 120.0) < 1e-6, "HotGas preserved");
-    TEST_ASSERT(fabs(galaxy->EjectedMass - 20.0) < 1e-6, "EjectedMass preserved");
+    TEST_ASSERT(fabs(galaxy->EjectedGas - 20.0) < 1e-6, "EjectedGas preserved");
     TEST_ASSERT(fabs(galaxy->ICS - 5.0) < 1e-6, "ICS preserved");
     TEST_ASSERT(fabs(galaxy->MetalsColdGas - 2.5) < 1e-6, "MetalsColdGas preserved");
     TEST_ASSERT(fabs(galaxy->MetalsHotGas - 6.0) < 1e-6, "MetalsHotGas preserved");

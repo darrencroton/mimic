@@ -527,7 +527,7 @@ def test_unit_consistency():
 
     print("\n3. Mass positivity: All masses >= 0")
 
-    mass_fields = ['Mvir', 'ColdGas', 'StellarMass', 'HotGas', 'EjectedMass',
+    mass_fields = ['Mvir', 'ColdGas', 'StellarMass', 'HotGas', 'EjectedGas',
                    'BlackHoleMass', 'ICS']
     mass_failures = 0
 

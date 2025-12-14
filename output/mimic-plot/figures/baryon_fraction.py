@@ -7,7 +7,7 @@ This module generates a plot showing the baryon fraction vs. halo mass.
 Adaptively plots all available baryonic components.
 
 Requires: Mvir, Type
-Optional: StellarMass, ColdGas, HotGas, EjectedMass, ICS, BlackHoleMass
+Optional: StellarMass, ColdGas, HotGas, EjectedGas, ICS, BlackHoleMass
 """
 
 import matplotlib.pyplot as plt
@@ -64,7 +64,7 @@ def plot(
     success, optional, msg = check_required_fields(
         galaxies,
         required_fields=['Mvir', 'UniqueCentralGalaxyID'],
-        optional_fields=['StellarMass', 'ColdGas', 'HotGas', 'EjectedMass', 'ICS', 'BlackHoleMass'],
+        optional_fields=['StellarMass', 'ColdGas', 'HotGas', 'EjectedGas', 'ICS', 'BlackHoleMass'],
         plot_name='Baryon Fraction'
     )
 
@@ -81,7 +81,7 @@ def plot(
     has_stellar = optional.get('StellarMass', False)
     has_cold = optional.get('ColdGas', False)
     has_hot = optional.get('HotGas', False)
-    has_ejected = optional.get('EjectedMass', False)
+    has_ejected = optional.get('EjectedGas', False)
     has_ics = optional.get('ICS', False)
     has_bh = optional.get('BlackHoleMass', False)
 
@@ -161,7 +161,7 @@ def plot(
         if has_hot:
             group_data["hot"] = galaxies.HotGas[central_groups]
         if has_ejected:
-            group_data["ejected"] = galaxies.EjectedMass[central_groups]
+            group_data["ejected"] = galaxies.EjectedGas[central_groups]
         if has_ics:
             group_data["ics"] = galaxies.ICS[central_groups]
         if has_bh:

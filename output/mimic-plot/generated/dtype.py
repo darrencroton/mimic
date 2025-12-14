@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: 7a4fb02536ba02f3da983937ebf37928
+Source MD5: 9975f548f64d4bfe08d70bb306934cd6
 To regenerate: make generate
 """
 
@@ -38,7 +38,7 @@ def get_binary_dtype():
         ("HaloBaryonFraction", np.float32),
         ("ColdGas", np.float32),
         ("HotGas", np.float32),
-        ("EjectedMass", np.float32),
+        ("EjectedGas", np.float32),
         ("StellarMass", np.float32),
         ("BulgeMass", np.float32),
         ("ICS", np.float32),
@@ -47,7 +47,7 @@ def get_binary_dtype():
         ("MetalsColdGas", np.float32),
         ("MetalsHotGas", np.float32),
         ("MetalsICS", np.float32),
-        ("MetalsEjectedMass", np.float32),
+        ("MetalsEjectedGas", np.float32),
         ("BlackHoleMass", np.float32),
         ("QuasarModeBHaccretionMass", np.float32),
         ("Cooling", np.float64),
@@ -85,7 +85,7 @@ def get_hdf5_dtype():
         ("HaloBaryonFraction", np.float32),
         ("ColdGas", np.float32),
         ("HotGas", np.float32),
-        ("EjectedMass", np.float32),
+        ("EjectedGas", np.float32),
         ("StellarMass", np.float32),
         ("BulgeMass", np.float32),
         ("ICS", np.float32),
@@ -94,7 +94,7 @@ def get_hdf5_dtype():
         ("MetalsColdGas", np.float32),
         ("MetalsHotGas", np.float32),
         ("MetalsICS", np.float32),
-        ("MetalsEjectedMass", np.float32),
+        ("MetalsEjectedGas", np.float32),
         ("BlackHoleMass", np.float32),
         ("QuasarModeBHaccretionMass", np.float32),
         ("Cooling", np.float64),
@@ -142,7 +142,7 @@ def get_units():
         'HaloBaryonFraction': 'dimensionless',
         'ColdGas': '1e10 Msun/h',
         'HotGas': '1e10 Msun/h',
-        'EjectedMass': '1e10 Msun/h',
+        'EjectedGas': '1e10 Msun/h',
         'StellarMass': '1e10 Msun/h',
         'BulgeMass': '1e10 Msun/h',
         'ICS': '1e10 Msun/h',
@@ -151,7 +151,7 @@ def get_units():
         'MetalsColdGas': '1e10 Msun/h',
         'MetalsHotGas': '1e10 Msun/h',
         'MetalsICS': '1e10 Msun/h',
-        'MetalsEjectedMass': '1e10 Msun/h',
+        'MetalsEjectedGas': '1e10 Msun/h',
         'BlackHoleMass': '1e10 Msun/h',
         'QuasarModeBHaccretionMass': '1e10 Msun/h',
         'Cooling': '(km/s)^2 * 1e10 Msun/h',

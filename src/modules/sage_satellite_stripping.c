@@ -109,7 +109,7 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx,
 
     /* Calculate total baryons in satellite */
     double total_baryons = sat_gal->StellarMass + sat_gal->ColdGas + sat_gal->HotGas +
-                           sat_gal->EjectedMass + sat_gal->BlackHoleMass + sat_gal->ICS;
+                           sat_gal->EjectedGas + sat_gal->BlackHoleMass + sat_gal->ICS;
 
     /* Calculate amount to strip (distributed over substeps for stability) */
     double strippedGas = -1.0 * (halo_baryon_frac * halos[i].Mvir - total_baryons) /

@@ -58,7 +58,7 @@ def plot(
     # Check required fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['Mvir', 'Type', 'StellarMass', 'ColdGas', 'HotGas', 'EjectedMass', 'ICS'],
+        required_fields=['Mvir', 'Type', 'StellarMass', 'ColdGas', 'HotGas', 'EjectedGas', 'ICS'],
         plot_name='Mass Reservoir Scatter'
     )
 
@@ -98,7 +98,7 @@ def plot(
     stellar_mass = np.log10(galaxies.StellarMass[w] * 1.0e10)
     cold_gas = np.log10(np.maximum(galaxies.ColdGas[w] * 1.0e10, 1.0))  # Avoid log(0)
     hot_gas = np.log10(np.maximum(galaxies.HotGas[w] * 1.0e10, 1.0))
-    ejected_gas = np.log10(np.maximum(galaxies.EjectedMass[w] * 1.0e10, 1.0))
+    ejected_gas = np.log10(np.maximum(galaxies.EjectedGas[w] * 1.0e10, 1.0))
     ics = np.log10(np.maximum(galaxies.ICS[w] * 1.0e10, 1.0))
 
     # Print some debug information

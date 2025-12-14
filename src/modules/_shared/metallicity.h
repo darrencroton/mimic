@@ -21,7 +21,7 @@
  * where gas mass is zero or negligible to prevent division by zero.
  * Enforces physical limit: metallicity ≤ 1.0 (100% metal mass fraction).
  *
- * @param gas     Total gas mass (e.g., HotGas, ColdGas, EjectedMass)
+ * @param gas     Total gas mass (e.g., HotGas, ColdGas, EjectedGas)
  * @param metals  Metal mass in the gas (e.g., MetalsHotGas)
  * @return        Metallicity (0.0 to 1.0), or 0.0 if gas <= EPSILON_SMALL
  *

@@ -6,19 +6,18 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 7a4fb02536ba02f3da983937ebf37928
+ * Source MD5: 9975f548f64d4bfe08d70bb306934cd6
  * To regenerate: make generate
  */
 
 /* Initialize galaxy properties after allocating FoFWorkspace[p].galaxy */
 
 FoFWorkspace[p].galaxy->HaloBaryonFraction = -1.0;
-FoFWorkspace[p].galaxy->ColdGas = 0.0;
-FoFWorkspace[p].galaxy->HotGas = 0.0;
-FoFWorkspace[p].galaxy->EjectedMass = 0.0;
 FoFWorkspace[p].galaxy->InfallingGas = 0.0;
 FoFWorkspace[p].galaxy->CoolingGas = 0.0;
-FoFWorkspace[p].galaxy->Rcool = 0.0;
+FoFWorkspace[p].galaxy->ColdGas = 0.0;
+FoFWorkspace[p].galaxy->HotGas = 0.0;
+FoFWorkspace[p].galaxy->EjectedGas = 0.0;
 FoFWorkspace[p].galaxy->StellarMass = 0.0;
 FoFWorkspace[p].galaxy->BulgeMass = 0.0;
 FoFWorkspace[p].galaxy->ICS = 0.0;
@@ -27,11 +26,12 @@ FoFWorkspace[p].galaxy->MetalsBulgeMass = 0.0;
 FoFWorkspace[p].galaxy->MetalsColdGas = 0.0;
 FoFWorkspace[p].galaxy->MetalsHotGas = 0.0;
 FoFWorkspace[p].galaxy->MetalsICS = 0.0;
-FoFWorkspace[p].galaxy->MetalsEjectedMass = 0.0;
+FoFWorkspace[p].galaxy->MetalsEjectedGas = 0.0;
 FoFWorkspace[p].galaxy->BlackHoleMass = 0.0;
 FoFWorkspace[p].galaxy->QuasarModeBHaccretionMass = 0.0;
 FoFWorkspace[p].galaxy->Cooling = 0.0;
 FoFWorkspace[p].galaxy->Heating = 0.0;
+FoFWorkspace[p].galaxy->Rcool = 0.0;
 FoFWorkspace[p].galaxy->Rheat = 0.0;
 FoFWorkspace[p].galaxy->OutflowRate = 0.0;
 FoFWorkspace[p].galaxy->DiskScaleRadius = 0.0;

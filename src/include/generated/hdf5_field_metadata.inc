@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 7a4fb02536ba02f3da983937ebf37928
+ * Source MD5: 9975f548f64d4bfe08d70bb306934cd6
  * To regenerate: make generate
  */
 
@@ -45,19 +45,19 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"infallMvir", "1e10 Msun/h", "Virial mass at infall (satellites only, 0 for centrals)"},
   {"infallVvir", "km/s", "Virial velocity at infall (satellites only, 0 for centrals)"},
   {"infallVmax", "km/s", "Maximum circular velocity at infall (satellites only, 0 for centrals)"},
-  {"HaloBaryonFraction", "dimensionless", "Local baryon fraction for this halo (cosmic value modified by reionization suppression)"},
+  {"HaloBaryonFraction", "dimensionless", "Local baryon fraction for this halo"},
   {"ColdGas", "1e10 Msun/h", "Cold gas mass available for star formation"},
   {"HotGas", "1e10 Msun/h", "Hot gas mass in halo atmosphere"},
-  {"EjectedMass", "1e10 Msun/h", "Mass of gas ejected from galaxy by feedback"},
+  {"EjectedGas", "1e10 Msun/h", "Mass of gas ejected from galaxy by feedback"},
   {"StellarMass", "1e10 Msun/h", "Total stellar mass"},
   {"BulgeMass", "1e10 Msun/h", "Stellar mass in bulge component"},
-  {"ICS", "1e10 Msun/h", "Intracluster stellar mass (from disrupted satellites)"},
+  {"ICS", "1e10 Msun/h", "Intracluster stellar mass"},
   {"MetalsStellarMass", "1e10 Msun/h", "Metal mass in stellar component"},
   {"MetalsBulgeMass", "1e10 Msun/h", "Metal mass in bulge component"},
   {"MetalsColdGas", "1e10 Msun/h", "Metal mass in cold gas reservoir"},
   {"MetalsHotGas", "1e10 Msun/h", "Metal mass in hot gas reservoir"},
   {"MetalsICS", "1e10 Msun/h", "Metal mass in intracluster stars"},
-  {"MetalsEjectedMass", "1e10 Msun/h", "Metal mass in ejected gas reservoir"},
+  {"MetalsEjectedGas", "1e10 Msun/h", "Metal mass in ejected gas reservoir"},
   {"BlackHoleMass", "1e10 Msun/h", "Central supermassive black hole mass"},
   {"QuasarModeBHaccretionMass", "1e10 Msun/h", "Current timestep black hole accretion mass in quasar mode"},
   {"Cooling", "(km/s)^2 * 1e10 Msun/h", "Cumulative cooling energy (0.5 * m * V_vir^2)"},
