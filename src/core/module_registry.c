@@ -306,11 +306,11 @@ int module_system_init(void) {
  * loop for PROCESSING_MODE_BY_GALAXY modules (better cache locality, matches SAGE).
  *
  * Execution order within phase:
- * 1. PROCESSING_MODE_BY_GALAXY modules: galaxy-major order
+ * 1. PROCESSING_MODE_FULL_HALO modules: called with full halo array
+ * 2. PROCESSING_MODE_BY_GALAXY modules: galaxy-major order
  *    for each galaxy g:
  *      module1(galaxy g)
  *      module2(galaxy g)
- * 2. PROCESSING_MODE_FULL_HALO modules: called with full halo array
  *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip)
