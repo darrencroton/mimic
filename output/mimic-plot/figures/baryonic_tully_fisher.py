@@ -7,7 +7,6 @@ This module generates a baryonic Tully-Fisher plot from SAGE galaxy data.
 """
 
 # Standard library
-import os
 from random import sample, seed
 
 # Third-party packages

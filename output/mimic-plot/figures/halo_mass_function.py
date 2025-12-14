@@ -6,9 +6,6 @@ Mimic Halo Mass Function Plot
 This module generates a halo mass function plot from Mimic halo data.
 """
 
-# Standard library
-import os
-
 # Third-party packages
 import matplotlib.pyplot as plt
 import numpy as np

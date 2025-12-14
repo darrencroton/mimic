@@ -6,9 +6,6 @@ Mimic Halo Mass Function Evolution Plot
 This module generates a halo mass function evolution plot from Mimic halo data.
 """
 
-# Standard library
-import os
-
 # Third-party packages
 import matplotlib.pyplot as plt
 import numpy as np

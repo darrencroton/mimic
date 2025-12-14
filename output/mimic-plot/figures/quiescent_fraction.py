@@ -6,8 +6,6 @@ SAGE Quiescent Fraction Plot
 This module generates a plot showing the fraction of quiescent galaxies as a function of stellar mass.
 """
 
-import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import (

@@ -6,7 +6,6 @@ SAGE Metallicity Plot
 This module generates a plot showing the gas-phase metallicity vs. stellar mass for SAGE galaxy data.
 """
 
-import os
 import random
 
 import matplotlib.pyplot as plt

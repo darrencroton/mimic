@@ -7,8 +7,6 @@ This module generates a stellar mass function evolution plot from Mimic galaxy d
 Requires: StellarMass property (from galaxy physics modules)
 """
 
-import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 from figures import (

@@ -6,7 +6,6 @@ SAGE Specific Star Formation Rate Plot
 This module generates a specific star formation rate plot from SAGE galaxy data.
 """
 
-import os
 from random import sample, seed
 
 import matplotlib.pyplot as plt
