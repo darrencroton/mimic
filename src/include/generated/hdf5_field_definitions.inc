@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: dd07b3544a9f2c55cbdacbdb497529f3
+ * Source MD5: 7a4fb02536ba02f3da983937ebf37928
  * To regenerate: make generate
  */
 
@@ -235,10 +235,10 @@ HDF5_dst_sizes[i] = sizeof(galout.Heating);
 HDF5_field_names[i] = "Heating";
 HDF5_field_types[i++] = H5T_NATIVE_DOUBLE;
 
-/* r_heat */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, r_heat);
-HDF5_dst_sizes[i] = sizeof(galout.r_heat);
-HDF5_field_names[i] = "r_heat";
+/* Rheat */
+HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Rheat);
+HDF5_dst_sizes[i] = sizeof(galout.Rheat);
+HDF5_field_names[i] = "Rheat";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
 /* OutflowRate */

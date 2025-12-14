@@ -1,0 +1,18 @@
+module:
+  name: sage_calculate_cooling
+  description: "Calculates cooling budget from hot halo using metallicity-dependent cooling functions"
+
+  additional_files:
+    - cooling_tables.c
+    - cooling_tables.h
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - HotGas
+      - MetalsHotGas
+      - CoolingGas
+      - Rcool
+    parameters:
+      - CoolFunctionsDir

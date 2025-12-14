@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: dd07b3544a9f2c55cbdacbdb497529f3
+Source MD5: 7a4fb02536ba02f3da983937ebf37928
 To regenerate: make generate
 """
 
@@ -52,7 +52,7 @@ def get_binary_dtype():
         ("QuasarModeBHaccretionMass", np.float32),
         ("Cooling", np.float64),
         ("Heating", np.float64),
-        ("r_heat", np.float32),
+        ("Rheat", np.float32),
         ("OutflowRate", np.float32),
         ("DiskScaleRadius", np.float32),
         ("TimeOfLastMajorMerger", np.float32),
@@ -99,7 +99,7 @@ def get_hdf5_dtype():
         ("QuasarModeBHaccretionMass", np.float32),
         ("Cooling", np.float64),
         ("Heating", np.float64),
-        ("r_heat", np.float32),
+        ("Rheat", np.float32),
         ("OutflowRate", np.float32),
         ("DiskScaleRadius", np.float32),
         ("TimeOfLastMajorMerger", np.float32),
@@ -156,7 +156,7 @@ def get_units():
         'QuasarModeBHaccretionMass': '1e10 Msun/h',
         'Cooling': '(km/s)^2 * 1e10 Msun/h',
         'Heating': '(km/s)^2 * 1e10 Msun/h',
-        'r_heat': 'Mpc/h',
+        'Rheat': 'Mpc/h',
         'OutflowRate': '1e10 Msun/h / time_unit',
         'DiskScaleRadius': 'Mpc/h',
         'TimeOfLastMajorMerger': 'Gyr',

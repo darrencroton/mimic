@@ -186,10 +186,10 @@ int test_metallicity_numerical_stability(void) {
     TEST_ASSERT(fabsf(Z - 0.0f) < 1e-10f,
                 "Gas just below EPSILON_SMALL should return 0.0");
 
-    /* Test case 4: Metals > Gas (unphysical but should handle) */
-    Z = mimic_get_metallicity(10.0f, 20.0f);  /* Z > 1.0 */
+    /* Test case 4: Metals > Gas (unphysical - should cap at 1.0) */
+    Z = mimic_get_metallicity(10.0f, 20.0f);  /* Would be Z=2.0 without cap */
     TEST_ASSERT(isfinite(Z), "Metals > Gas should not crash");
-    TEST_ASSERT(Z > 1.0f, "Metals > Gas should give Z > 1.0 (even if unphysical)");
+    TEST_ASSERT(fabsf(Z - 1.0f) < 1e-6f, "Metallicity should be capped at 1.0 (100%)");
 
     printf("  Numerical stability tests passed (no NaN/Inf)\n");
 

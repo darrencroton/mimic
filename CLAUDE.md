@@ -258,6 +258,20 @@ output/mimic-plot/   Plotting system (22 plots: 18 snapshot, 4 evolution)
   - Example: converting accumulators to rates
 - **SubSteps**: Time sub-stepping parameter for numerical stability (1 = no substeps)
 
+**Module Patterns:**
+- **Calculate → Modify → Apply** (3-module chain in phase_1):
+  - `sage_calculate_cooling`: Calculates cooling for this substep
+  - `sage_radio_mode_heating`: AGN suppresses calculated cooling
+  - `sage_add_cooling`: Transfers remaining cooling to cold gas
+  - All 3 run sequentially each substep. Order is critical.
+  - Example: Cooling modules implement physics requiring sequential processing
+
+- **Calculate → Add** (2-module chain: pre_timestep → phase_1):
+  - `sage_calculate_infall` (pre_timestep): Calculates total infall budget once
+  - `sage_add_infall` (phase_1): Distributes infall over substeps
+  - Used when total budget must be calculated once, then distributed
+  - Example: Cosmological infall
+
 **Memory Management:**
 - Custom allocator with leak detection
 - Categorized tracking (MEM_HALOS, MEM_TREES, MEM_IO, MEM_UTILITY)

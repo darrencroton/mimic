@@ -141,7 +141,7 @@ int test_cumulative_properties_preserved(void) {
     galaxy->MetalsBulgeMass = 1.5;
     galaxy->BlackHoleMass = 0.1;
     galaxy->DiskScaleRadius = 0.05;
-    galaxy->r_heat = 0.15;
+    galaxy->Rheat = 0.15;
     galaxy->TimeOfLastMajorMerger = 2.5;
     galaxy->TimeOfLastMinorMerger = 1.8;
     galaxy->HaloBaryonFraction = 0.17;
@@ -170,7 +170,7 @@ int test_cumulative_properties_preserved(void) {
     TEST_ASSERT(fabs(galaxy->MetalsBulgeMass - 1.5) < 1e-6, "MetalsBulgeMass preserved");
     TEST_ASSERT(fabs(galaxy->BlackHoleMass - 0.1) < 1e-6, "BlackHoleMass preserved");
     TEST_ASSERT(fabs(galaxy->DiskScaleRadius - 0.05) < 1e-6, "DiskScaleRadius preserved");
-    TEST_ASSERT(fabs(galaxy->r_heat - 0.15) < 1e-6, "r_heat preserved");
+    TEST_ASSERT(fabs(galaxy->Rheat - 0.15) < 1e-6, "Rheat preserved");
     TEST_ASSERT(fabs(galaxy->TimeOfLastMajorMerger - 2.5) < 1e-6, "TimeOfLastMajorMerger preserved");
     TEST_ASSERT(fabs(galaxy->TimeOfLastMinorMerger - 1.8) < 1e-6, "TimeOfLastMinorMerger preserved");
     TEST_ASSERT(fabs(galaxy->HaloBaryonFraction - 0.17) < 1e-6, "HaloBaryonFraction preserved");

@@ -74,6 +74,30 @@ galaxy_properties:
     range: [-100000.0, 100000.0]  # Can be negative for mass loss
     sentinels: [0.0]  # Can be zero if no infall (e.g., satellites)
 
+  - name: CoolingGas
+    type: float
+    units: 1e10 Msun/h
+    description: Gas mass cooling from hot to cold this substep
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (cannot be negative)
+    sentinels: [0.0]  # Can legitimately be zero (no cooling)
+
+  - name: Rcool
+    type: float
+    units: Mpc/h
+    description: Cooling radius calculated this substep
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true
+    output_source: galaxy_property
+    range: [0.0, 10.0]  # 0 to 100 Mpc/h (cannot be negative)
+    sentinels: [0.0]  # Can be zero if no cooling
+
   # =============================================================================
   # STELLAR COMPONENTS
   # =============================================================================
@@ -236,7 +260,7 @@ galaxy_properties:
     range: [0.0, 1000000.0]  # Energy can accumulate to very large values
     sentinels: [0.0]  # Can be zero if no AGN heating has occurred
 
-  - name: r_heat
+  - name: Rheat
     type: float
     units: Mpc/h
     description: Heating radius from past AGN feedback events

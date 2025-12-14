@@ -40,10 +40,10 @@ modules:
   phase_1:
     - sage_add_infall: process_full_halo
     - sage_satellite_stripping: process_full_halo
+    - sage_calculate_cooling: process_by_galaxy
+    - sage_radio_mode_heating: process_by_galaxy
+    - sage_add_cooling: process_by_galaxy
     # - sage_reincorporation: process_full_halo
-    # - sage_calculate_cooling: process_by_galaxy
-    # - sage_radio_mode_heating: process_by_galaxy
-    # - sage_do_cooling: process_by_galaxy
     # - sage_starformation_feedback: process_by_galaxy
     # - sage_disk_instability: process_by_galaxy
 
@@ -58,7 +58,7 @@ modules:
     GlobalBaryonFraction: 0.17          # Cosmic baryon fraction (Planck 2018)
 
     # Cooling & AGN Feedback
-    CoolFunctionsDir: "src/modules/sage_cooling/CoolFunctions"  # Cooling function tables directory
+    CoolFunctionsDir: "src/modules/sage_calculate_cooling/CoolFunctions"  # Cooling function tables directory
     AGNrecipeOn: 1                      # AGN feedback mode (0=off, 1=empirical, 2=Bondi, 3=cold cloud)
     RadioModeEfficiency: 0.01           # Radio-mode AGN feedback efficiency
 

@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: dd07b3544a9f2c55cbdacbdb497529f3
+ * Source MD5: 7a4fb02536ba02f3da983937ebf37928
  * To regenerate: make generate
  */
 
@@ -52,6 +52,8 @@ struct GalaxyData {
   float HotGas;
   float EjectedMass;
   float InfallingGas;
+  float CoolingGas;
+  float Rcool;
   float StellarMass;
   float BulgeMass;
   float ICS;
@@ -65,7 +67,7 @@ struct GalaxyData {
   float QuasarModeBHaccretionMass;
   double Cooling;
   double Heating;
-  float r_heat;
+  float Rheat;
   float OutflowRate;
   float DiskScaleRadius;
   float TimeOfLastMajorMerger;
@@ -115,7 +117,7 @@ struct HaloOutput {
   float QuasarModeBHaccretionMass;
   double Cooling;
   double Heating;
-  float r_heat;
+  float Rheat;
   float OutflowRate;
   float DiskScaleRadius;
   float TimeOfLastMajorMerger;
