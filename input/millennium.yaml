@@ -29,26 +29,28 @@ simulation:
     mass_in_g: 1.989e+43
     velocity_in_cm_per_s: 100000.0
 
-SubSteps: 10  # Number of phase_X substeps per snapshot
+SubSteps: 10
 
 modules:
 
-  pre_timestep:                         # Setup calculations (runs once before substeps)
+  pre_timestep:
     - sage_reionization: process_full_halo
     - sage_calculate_infall: process_full_halo
 
-  phase_1:                              # Main physics
+  phase_1:
     - sage_add_infall: process_full_halo
     - sage_satellite_stripping: process_full_halo
     # - sage_reincorporation: process_full_halo
-    # - sage_cooling: process_by_galaxy
+    # - sage_calculate_cooling: process_by_galaxy
+    # - sage_radio_mode_heating: process_by_galaxy
+    # - sage_do_cooling: process_by_galaxy
     # - sage_starformation_feedback: process_by_galaxy
     # - sage_disk_instability: process_by_galaxy
 
-  phase_2: []                           # Mergers/disruption
+  phase_2: []
     # - sage_mergers: process_by_galaxy
 
-  post_timestep: []                     # Finalization (runs once after substeps)
+  post_timestep: []
     # - sage_finalization: process_full_halo
 
   parameters:
