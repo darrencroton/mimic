@@ -59,7 +59,7 @@ from figures import *
 from snapshot_redshift_mapper import SnapshotRedshiftMapper
 
 
-def print_banner(param_file):
+def print_banner(param_file, quiet=False):
     """Print a coloured MIMIC PLOT ASCII banner and basic run context."""
 
     if colour_enabled():
@@ -74,13 +74,15 @@ def print_banner(param_file):
     else:
         reset = magenta = blue = cyan = green = yellow = bold = ""
 
-    print(f"{bold}{magenta}    __  ___  ____  __  ___  ____  ______       ____    __     ___    ______{reset}")
-    print(f"{blue}   /  |/  / /  _/ /  |/  / /  _/ / ____/      / __ \\  / /    / __ \\ /_  __/{reset}")
-    print(f"{cyan}  / /|_/ /  / /  / /|_/ /  / /  / /          / /_/ / / /    / / / /  / /   {reset}")
-    print(f"{green} / /  / / _/ /  / /  / / _/ /  / /___       / ____/ / /___ / /_/ /  / /    {reset}")
-    print(f"{yellow}/_/  /_/ /___/ /_/  /_/ /___/  \\____/      /_/     /_____/ \\____/  /_/     {bold}{reset}\n")
+    # Skip ASCII art in quiet mode, but keep informational lines
+    if not quiet:
+        print(f"{bold}{magenta}    __  ___  ____  __  ___  ____  ______       ____    __     ___    ______{reset}")
+        print(f"{blue}   /  |/  / /  _/ /  |/  / /  _/ / ____/      / __ \\  / /    / __ \\ /_  __/{reset}")
+        print(f"{cyan}  / /|_/ /  / /  / /|_/ /  / /  / /          / /_/ / / /    / / / /  / /   {reset}")
+        print(f"{green} / /  / / _/ /  / /  / / _/ /  / /___       / ____/ / /___ / /_/ /  / /    {reset}")
+        print(f"{yellow}/_/  /_/ /___/ /_/  /_/ /___/  \\____/      /_/     /_____/ \\____/  /_/     {bold}{reset}\n")
 
-    print(f"{bold}Galaxy Evolution Plotting Tool{reset}")
+    print(f"{bold}MIMIC Galaxy Evolution Plotting Tool{reset}")
     print(f"Parameter file : {param_file}")
 
 
@@ -840,7 +842,7 @@ def main():
     args = parse_arguments()
 
     # Startup banner
-    print_banner(args.param_file)
+    print_banner(args.param_file, quiet=args.quiet)
 
     # Parse the parameter file
     if not args.quiet:

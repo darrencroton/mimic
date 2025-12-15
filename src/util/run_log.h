@@ -1,6 +1,8 @@
 #ifndef RUN_LOG_H
 #define RUN_LOG_H
 
+#include "error.h"
+
 /**
  * @brief Simple phase identifiers for grouping runtime output
  */
@@ -24,8 +26,9 @@ extern int MimicLogUseColor;
  * @brief Print a compact run header at startup
  *
  * @param param_file Path to the main parameter file
+ * @param log_level  Current log level (for quiet mode check)
  */
-void log_run_header(const char *param_file);
+void log_run_header(const char *param_file, LogLevel log_level);
 
 /**
  * @brief Print a simple banner for the current execution phase

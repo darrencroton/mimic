@@ -643,7 +643,9 @@ def generate_copy_to_output(
                 if transform == "log10":
                     if sentinels:
                         # Generate conditional transform (skip sentinels like 0.0 to avoid log10(0) = -inf)
-                        conditions = [f"o->{name} != {s}{type_suffix}" for s in sentinels]
+                        conditions = [
+                            f"o->{name} != {s}{type_suffix}" for s in sentinels
+                        ]
                         condition_str = " && ".join(conditions)
                         code += f"if ({condition_str}) {{\n"
                         code += f"  o->{name} = log10(o->{name});\n"

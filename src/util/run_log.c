@@ -7,7 +7,10 @@
 
 int MimicLogUseColor = 0;
 
-void log_run_header(const char *param_file) {
+void log_run_header(const char *param_file, LogLevel log_level) {
+  /* Check if we're in quiet mode */
+  int is_quiet = (log_level >= LOG_LEVEL_WARNING);
+
   const char *bold = MimicLogUseColor ? "\x1b[1m" : "";
   const char *reset = MimicLogUseColor ? "\x1b[0m" : "";
 
@@ -23,12 +26,15 @@ void log_run_header(const char *param_file) {
   char time_str[32];
   strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", localtime(&now));
 
+  /* Skip ASCII art in quiet mode, but keep informational lines */
+  if (!is_quiet) {
     fprintf(stdout, "%s%s    __  ___  ____  __  ___  ____  ______%s\n", bold, c1, reset);
     fprintf(stdout, "%s   /  |/  / /  _/ /  |/  / /  _/ / ____/%s\n", c2, reset);
     fprintf(stdout, "%s  / /|_/ /  / /  / /|_/ /  / /  / /     %s\n", c3, reset);
     fprintf(stdout, "%s / /  / / _/ /  / /  / / _/ /  / /___   %s\n", c4, reset);
     fprintf(stdout, "%s/_/  /_/ /___/ /_/  /_/ /___/  \\____/   %s%s\n\n", c5,
       bold, reset);
+  }
 
   fprintf(stdout, "%sMIMIC Galaxy Evolution Framework%s\n", bold, reset);
   fprintf(stdout, "%sCommit%s  : %s (%s)\n", bold, reset, GIT_COMMIT,
@@ -52,7 +58,7 @@ void log_phase_banner(MimicPhase phase) {
     if (phase == PHASE_TREE_PROCESSING) {
       fprintf(stdout, "\nMimic is running ...\n");
     } else if (phase == PHASE_SHUTDOWN) {
-      fprintf(stdout, "Mimic has completed (check the config file for details)\n");
+      fprintf(stdout, "Mimic has completed (check the config file for details)\n\n");
     }
     /* Skip other phase banners in quiet mode */
     return;

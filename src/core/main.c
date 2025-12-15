@@ -261,7 +261,7 @@ int main(int argc, char **argv) {
   MimicLogUseColor = isatty(STDOUT_FILENO) ? 1 : 0;
 
   /* Print run header */
-  log_run_header(argv[1]);
+  log_run_header(argv[1], log_level);
 
   /* Initialize error handling system first to set log level */
   /* (must be done before any INFO_LOG/FATAL_ERROR calls) */
