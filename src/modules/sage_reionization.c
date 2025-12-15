@@ -1,27 +1,21 @@
 /**
  * @file    sage_reionization.c
- * @brief   SAGE reionization suppression module implementation
+ * @brief   SAGE reionization module - suppression of gas accretion onto low-mass halos
  *
- * Implements reionization suppression of gas accretion onto low-mass halos. After
- * reionization, increased gas temperature and Jeans mass suppress accretion onto
- * halos below characteristic mass.
- *
- * Physics: HaloBaryonFraction = GlobalBaryonFraction × f_reion(Mvir, z)
- *
- * Key functions:
- * - sage_reionization_init(): Initialize module
- * - sage_reionization_process(): Calculate HaloBaryonFraction for all halos
+ * Calculates reionization suppression factor for halos using Gnedin (2000) model
+ * with fitting formulas from Kravtsov et al. (2004) Appendix B. Sets HaloBaryonFraction
+ * property used by infall and stripping modules.
  *
  * Reference: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2016)
  */
 
 #include <math.h>
-#include <stdio.h>   /* Required for error.h logging macros */
-#include <stdlib.h>  /* Required for error.h logging macros */
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "constants.h"
 #include "error.h"
-#include "_system/parameter_helpers.h"  // Parameter loading and validation macros
+#include "_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
@@ -34,209 +28,115 @@
 static double GLOBAL_BARYON_FRAC;
 
 // ============================================================================
-// REIONIZATION MODEL PARAMETERS (Gnedin 2000)
-// ============================================================================
-// Hardcoded parameters specific to Gnedin (2000) model.
-
-/* Redshift when UV background turns on */
-#define REIONIZATION_Z0 8.0
-
-/* Redshift of full reionization */
-#define REIONIZATION_ZR 7.0
-
-/* Derived scale factors (calculated at compile time) */
-#define REIONIZATION_A0 (1.0 / (1.0 + REIONIZATION_Z0))
-#define REIONIZATION_AR (1.0 / (1.0 + REIONIZATION_ZR))
-
-/* Gnedin (2000) model parameters */
-#define REIONIZATION_ALPHA 6.0     /* Best fit to Gnedin data */
-#define REIONIZATION_TVIR 1e4      /* Virial temperature threshold (K) */
-
-/* Jeans mass: M_J = 25.0 * Omega^-0.5 * mu^-1.5 */
-#define MJEANS_BASE_COEFF 25.0        /* Jeans mass coefficient (1e10 Msun/h) */
-#define IONIZED_GAS_MU_FACTOR 2.21    /* mu^-1.5 for ionized gas (mu=0.59) */
-#define FILTERING_MASS_EXPONENT 1.5   /* M_filter exponent */
-
-#define TEMP_TO_VEL_COEFF 36.0        /* V_char from T_vir: V^2 = T/36 */
-#define HUBBLE_CONVERSION 100.0       /* H_0 = 100h km/s/Mpc */
-
-/* Critical overdensity (Bryan & Norman 1998) */
-#define DELTACRIT_COEFF_0 18.0
-#define DELTACRIT_COEFF_1 82.0
-#define DELTACRIT_COEFF_2 39.0
-#define DELTACRIT_FACTOR 0.5
-
-/* Suppression strength (Kravtsov 2004 Appendix B) */
-#define GNEDIN_SUPPRESSION_COEFF 0.26
-#define GNEDIN_SUPPRESSION_POWER 3.0
-
-// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * @brief   Calculate reionization suppression factor for gas accretion
- *
- * Implements Gnedin (2000) model with Kravtsov et al. (2004) fitting formulas.
- * Suppression depends on ratio between halo mass and characteristic mass (maximum
- * of filtering mass and mass corresponding to Tvir = 10^4 K).
- *
- * @param   ctx   Module context (provides redshift and cosmology)
- * @param   mvir  Virial mass of halo (1e10 Msun/h)
- * @return  Suppression factor (0 = complete suppression, 1 = no suppression)
- */
-static double calculate_reionization_modifier(const struct ModuleContext *ctx,
-                                                float mvir) {
-  double redshift = ctx->redshift;
-  double omega = ctx->params->Omega;
-  double omega_lambda = ctx->params->OmegaLambda;
-  double hubble_h = ctx->params->Hubble_h;
-  double a, a_on_a0, a_on_ar, f_of_a;
-  double Mjeans, Mfiltering, Vchar, omegaZ, xZ, deltacritZ, HubbleZ;
-  double G_code, Mchar, mass_to_use, modifier;
+// Calculate reionization suppression factor for gas accretion.
+// Implements Gnedin (2000) model with Kravtsov et al. (2004) fitting formulas.
+static double calculate_reionization_modifier(const struct ModuleContext *ctx, float mvir)
+{
+    // Alpha gives best fit to Gnedin data, Tvir = 10^4 K is virial temperature threshold
+    const double alpha = 6.0;
+    const double Tvir = 1e4;
 
-  a = safe_div(1.0, 1.0 + redshift, 0.0);
-  a_on_a0 = safe_div(a, REIONIZATION_A0, 0.0);
-  a_on_ar = safe_div(a, REIONIZATION_AR, 0.0);
+    const double redshift = ctx->redshift;
+    const double omega = ctx->params->Omega;
+    const double omega_lambda = ctx->params->OmegaLambda;
+    const double hubble_h = ctx->params->Hubble_h;
 
-  /* Calculate f_of_a from Kravtsov et al. (2004) fitting formula */
-  if (a <= REIONIZATION_A0) {
-    f_of_a = 3.0 * a /
-             ((2.0 + REIONIZATION_ALPHA) * (5.0 + 2.0 * REIONIZATION_ALPHA)) *
-             pow(a_on_a0, REIONIZATION_ALPHA);
-  } else if (a < REIONIZATION_AR) {
-    f_of_a = safe_div(3.0, a, 0.0) * REIONIZATION_A0 * REIONIZATION_A0 *
-                 (1.0 / (2.0 + REIONIZATION_ALPHA) -
-                  2.0 * pow(a_on_a0, -0.5) /
-                      (5.0 + 2.0 * REIONIZATION_ALPHA)) +
-             a * a / 10.0 -
-             (REIONIZATION_A0 * REIONIZATION_A0 / 10.0) *
-                 (5.0 - 4.0 * pow(a_on_a0, -0.5));
-  } else {
-    f_of_a =
-        safe_div(3.0, a, 0.0) *
-            (REIONIZATION_A0 * REIONIZATION_A0 *
-                 (1.0 / (2.0 + REIONIZATION_ALPHA) -
-                  2.0 * pow(a_on_a0, -0.5) /
-                      (5.0 + 2.0 * REIONIZATION_ALPHA)) +
-             (REIONIZATION_AR * REIONIZATION_AR / 10.0) *
-                 (5.0 - 4.0 * pow(a_on_ar, -0.5)) -
-             (REIONIZATION_A0 * REIONIZATION_A0 / 10.0) *
-                 (5.0 - 4.0 * pow(a_on_a0, -0.5)) +
-             a * REIONIZATION_AR / 3.0 -
-             (REIONIZATION_AR * REIONIZATION_AR / 3.0) *
-                 (3.0 - 2.0 * pow(a_on_ar, -0.5)));
-  }
+    // Calculate filtering mass using Kravtsov et al. (2004) fitting formula
+    const double a = 1.0 / (1.0 + redshift);
+    const double a0 = 1.0 / (1.0 + 8.0);      // z0 = 8.0 (UV background turns on)
+    const double ar = 1.0 / (1.0 + 7.0);      // zr = 7.0 (full reionization)
+    const double a_on_a0 = a / a0;
+    const double a_on_ar = a / ar;
 
-  /* Calculate filtering mass */
-  Mjeans = MJEANS_BASE_COEFF * pow(omega, -0.5) * IONIZED_GAS_MU_FACTOR;
-  Mfiltering = Mjeans * pow(f_of_a, FILTERING_MASS_EXPONENT);
+    double f_of_a;
+    if (a <= a0) {
+        f_of_a = 3.0 * a / ((2.0 + alpha) * (5.0 + 2.0 * alpha)) * pow(a_on_a0, alpha);
+    } else if (a < ar) {
+        f_of_a = (3.0 / a) * a0 * a0 * (1.0 / (2.0 + alpha) - 2.0 / sqrt(a_on_a0) / (5.0 + 2.0 * alpha)) +
+                 a * a / 10.0 - (a0 * a0 / 10.0) * (5.0 - 4.0 / sqrt(a_on_a0));
+    } else {
+        f_of_a = (3.0 / a) * (a0 * a0 * (1.0 / (2.0 + alpha) - 2.0 / sqrt(a_on_a0) / (5.0 + 2.0 * alpha)) +
+                              (ar * ar / 10.0) * (5.0 - 4.0 / sqrt(a_on_ar)) -
+                              (a0 * a0 / 10.0) * (5.0 - 4.0 / sqrt(a_on_a0)) +
+                              a * ar / 3.0 - (ar * ar / 3.0) * (3.0 - 2.0 / sqrt(a_on_ar)));
+    }
 
-  /* Calculate characteristic mass from Tvir = 10^4 K */
-  Vchar = sqrt(REIONIZATION_TVIR / TEMP_TO_VEL_COEFF);
+    // Jeans mass in units of 1e10 Msun/h. Note mu=0.59 for fully ionized gas, mu^-1.5 = 2.21
+    const double Mjeans = 25.0 / sqrt(omega) * 2.21;
+    const double Mfiltering = Mjeans * pow(f_of_a, 1.5);
 
-  omegaZ = omega * pow(1.0 + redshift, 3.0) /
-           (omega * pow(1.0 + redshift, 3.0) + omega_lambda + EPSILON_SMALL);
-  xZ = omegaZ - 1.0;
-  deltacritZ = DELTACRIT_COEFF_0 * M_PI * M_PI + DELTACRIT_COEFF_1 * xZ -
-               DELTACRIT_COEFF_2 * xZ * xZ;
+    // Calculate characteristic mass corresponding to halo with Tvir = 10^4 K
+    const double Vchar = sqrt(Tvir / 36.0);  // V^2 = T/36 in code units
+    const double omegaZ = omega * (1.0 + redshift) * (1.0 + redshift) * (1.0 + redshift) /
+                          (omega * (1.0 + redshift) * (1.0 + redshift) * (1.0 + redshift) + omega_lambda);
+    const double xZ = omegaZ - 1.0;
+    const double deltacritZ = 18.0 * M_PI * M_PI + 82.0 * xZ - 39.0 * xZ * xZ;  // Bryan & Norman (1998)
+    const double HubbleZ = 100.0 * hubble_h * sqrt(omega * (1.0 + redshift) * (1.0 + redshift) * (1.0 + redshift) + omega_lambda);
 
-  HubbleZ = HUBBLE_CONVERSION * hubble_h *
-            sqrt(omega * pow(1.0 + redshift, 3.0) + omega_lambda);
+    const double G_code = ctx->params->G;  // G in code units
+    const double Mchar = Vchar * Vchar * Vchar / (G_code * HubbleZ * sqrt(0.5 * deltacritZ));
 
-  G_code = ctx->params->G;  /* Pre-computed G in code units */
+    // Use maximum of filtering mass and characteristic mass
+    const double mass_to_use = fmax(Mfiltering, Mchar);
+    const double modifier = 1.0 / ((1.0 + 0.26 * mass_to_use / mvir) * (1.0 + 0.26 * mass_to_use / mvir) * (1.0 + 0.26 * mass_to_use / mvir));
 
-  Mchar = Vchar * Vchar * Vchar /
-          (G_code * HubbleZ * sqrt(DELTACRIT_FACTOR * deltacritZ) +
-           EPSILON_SMALL);
-
-  mass_to_use = fmax(Mfiltering, Mchar);
-
-  modifier = 1.0 / pow(1.0 + GNEDIN_SUPPRESSION_COEFF * mass_to_use /
-                                 (mvir + EPSILON_SMALL),
-                       GNEDIN_SUPPRESSION_POWER);
-
-  return modifier;
+    return modifier;
 }
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
-/**
- * @brief   Initialize sage_reionization module
- *
- * @return  0 on success, non-zero on failure
- */
-int sage_reionization_init(void) {
-  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
-                                    "cosmic baryon fraction must be physical");
+int sage_reionization_init(void)
+{
+    LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
+                                       "cosmic baryon fraction must be physical");
 
-  INFO_LOG("SAGE reionization module initialized");
-  VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
-  VERBOSE_LOG("  Physics: HaloBaryonFraction = GlobalBaryonFraction * f_reion(Mvir, z)");
-  VERBOSE_LOG("  Reionization model: Gnedin (2000)");
-  VERBOSE_LOG("    z0 = %.1f (UV background turns on)", REIONIZATION_Z0);
-  VERBOSE_LOG("    zr = %.1f (full reionization)", REIONIZATION_ZR);
-  VERBOSE_LOG("    alpha = %.1f (suppression strength)", REIONIZATION_ALPHA);
+    INFO_LOG("SAGE reionization module initialized");
+    VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
+    VERBOSE_LOG("  Physics: HaloBaryonFraction = GlobalBaryonFraction * f_reion(Mvir, z)");
 
-  return 0;
-}
-
-/**
- * @brief   Process halos in a FOF group
- *
- * Calculates HaloBaryonFraction for each halo from GlobalBaryonFraction and
- * reionization suppression factor.
- *
- * @param   ctx     Module execution context
- * @param   halos   Array of halos in FOF group
- * @param   ngal    Number of halos
- * @return  0 on success, non-zero on failure
- */
-int sage_reionization_process(struct ModuleContext *ctx,
-                                       struct Halo *halos,
-                                       int ngal) {
-  if (halos == NULL || ngal <= 0) {
     return 0;
-  }
-
-  for (int i = 0; i < ngal; i++) {
-    if (halos[i].galaxy == NULL || halos[i].Type == 3) {
-      continue;
-    }
-
-    if (halos[i].Mvir > EPSILON_SMALL) {
-      if (halos[i].Type == 0) {
-        double reionization_modifier = calculate_reionization_modifier(ctx, halos[i].Mvir);
-
-        halos[i].galaxy->HaloBaryonFraction =
-            (float)(GLOBAL_BARYON_FRAC * reionization_modifier);
-
-        DEBUG_LOG(
-            "Halo %d (Type=0): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f",
-            i, halos[i].Mvir, reionization_modifier,
-            halos[i].galaxy->HaloBaryonFraction, ctx->redshift);
-      } else {
-        /* Initialize HaloBaryonFraction to GlobalBaryonFraction if first time */
-        if (halos[i].galaxy->HaloBaryonFraction == -1.0f) {
-          halos[i].galaxy->HaloBaryonFraction = (float)GLOBAL_BARYON_FRAC;
-        }
-      }
-    } else {
-      halos[i].galaxy->HaloBaryonFraction = 0.0;
-    }
-  }
-
-  return 0;
 }
 
-/**
- * @brief   Cleanup sage_reionization module
- *
- * @return  0 on success
- */
-int sage_reionization_cleanup(void) {
-  VERBOSE_LOG("SAGE reionization module cleaned up");
-  return 0;
+int sage_reionization_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
+{
+    if (halos == NULL || ngal <= 0) {
+        return 0;
+    }
+
+    for (int i = 0; i < ngal; i++) {
+        if (halos[i].galaxy == NULL || halos[i].Type == 3) {
+            continue;
+        }
+
+        if (halos[i].Mvir > EPSILON_SMALL) {
+            if (halos[i].Type == 0) {
+                const double reionization_modifier = calculate_reionization_modifier(ctx, halos[i].Mvir);
+                halos[i].galaxy->HaloBaryonFraction = (float)(GLOBAL_BARYON_FRAC * reionization_modifier);
+
+                DEBUG_LOG("Halo %d (Type=0): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f",
+                          i, halos[i].Mvir, reionization_modifier,
+                          halos[i].galaxy->HaloBaryonFraction, ctx->redshift);
+            } else {
+                // Initialize HaloBaryonFraction to GlobalBaryonFraction if first time
+                if (halos[i].galaxy->HaloBaryonFraction == -1.0f) {
+                    halos[i].galaxy->HaloBaryonFraction = (float)GLOBAL_BARYON_FRAC;
+                }
+            }
+        } else {
+            halos[i].galaxy->HaloBaryonFraction = 0.0;
+        }
+    }
+
+    return 0;
+}
+
+int sage_reionization_cleanup(void)
+{
+    VERBOSE_LOG("SAGE reionization module cleaned up");
+    return 0;
 }
