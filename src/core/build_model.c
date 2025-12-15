@@ -237,6 +237,11 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
         memcpy(FoFWorkspace[ngal].galaxy,
                ProcessedHalos[HaloAux[prog].FirstHalo + i].galaxy,
                sizeof(struct GalaxyData));
+
+        // Reset snapshot-scoped accumulator properties (auto-generated from metadata)
+        // These properties track values during a single snapshot and must start fresh
+        // This happens for ALL galaxies (including orphans) after deep copy
+        #include "../include/generated/reset_galaxy_properties.inc"
       }
 
       FoFWorkspace[ngal].HaloNr = halonr;
@@ -289,12 +294,6 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
                 get_virial_velocity(halonr); // use the maximum Vvir in model
           }
           FoFWorkspace[ngal].Mvir = get_virial_mass(halonr);
-
-          // Reset snapshot-scoped accumulator properties (auto-generated from metadata)
-          // These properties track values during a single snapshot and must start fresh
-          if (FoFWorkspace[ngal].galaxy != NULL) {
-            #include "../include/generated/reset_galaxy_properties.inc"
-          }
 
           if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
             // a central
