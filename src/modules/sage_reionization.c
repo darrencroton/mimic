@@ -2,9 +2,9 @@
  * @file    sage_reionization.c
  * @brief   SAGE reionization module - suppression of gas accretion onto low-mass halos
  *
- * Calculates reionization suppression factor for halos using Gnedin (2000) model
- * with fitting formulas from Kravtsov et al. (2004) Appendix B. Sets HaloBaryonFraction
- * property used by infall and stripping modules.
+ * Calculates reionization suppression factor using Gnedin (2000) filtering mass model
+ * with fitting formulas from Kravtsov et al. (2004). Sets HaloBaryonFraction property
+ * used by infall and stripping modules.
  *
  * Reference: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2016)
  */

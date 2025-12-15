@@ -1,6 +1,12 @@
 /**
- * @file sage_starformation_feedback.c
- * @brief Star formation and supernova feedback (SAGE model)
+ * @file    sage_starformation_feedback.c
+ * @brief   SAGE star formation and feedback module
+ *
+ * Converts cold gas to stars via efficiency-based star formation, with stellar
+ * recycling and metal enrichment. Implements supernova feedback that reheats gas
+ * to hot halo and ejects gas from the virial radius.
+ *
+ * Reference: Croton et al. (2006, 2016)
  */
 
 #include <math.h>
