@@ -56,16 +56,10 @@ void set_test_model_parameters(void) {
     strcpy(MimicConfig.ModelParams[idx++].value, "1");
 
     /* Star Formation */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "SFprescription");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0");
-
     strcpy(MimicConfig.ModelParams[idx].param_name, "SfrEfficiency");
     strcpy(MimicConfig.ModelParams[idx++].value, "0.02");
 
     /* Stellar Feedback */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "SupernovaRecipeOn");
-    strcpy(MimicConfig.ModelParams[idx++].value, "1");
-
     strcpy(MimicConfig.ModelParams[idx].param_name, "FeedbackReheatingEpsilon");
     strcpy(MimicConfig.ModelParams[idx++].value, "3.0");
 
@@ -103,12 +97,9 @@ void set_test_model_parameters(void) {
     strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
 
     /* Disk Instability */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "DiskInstabilityOn");
-    strcpy(MimicConfig.ModelParams[idx++].value, "1");
-
     strcpy(MimicConfig.ModelParams[idx].param_name, "DiskRadiusFactor");
     strcpy(MimicConfig.ModelParams[idx++].value, "3.0");
 
-    /* Set count (should be 20) */
+    /* Set count (reduced from 20 to 17 after removing SFprescription, SupernovaRecipeOn, DiskInstabilityOn) */
     MimicConfig.NumModelParams = idx;
 }
