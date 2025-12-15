@@ -258,9 +258,14 @@ def calculate_mass_function(mass_array, volume, hubble_h, binwidth=0.1, mi=None,
     """
     Calculate a mass function histogram with standardized binning.
 
+    This function provides consistent normalization for all mass functions (halo,
+    stellar, baryonic, etc.). The volume parameter is automatically scaled by the
+    fraction of files read (good_files/total_files) in read_data(), ensuring
+    correct normalization regardless of how many simulation files are processed.
+
     Args:
         mass_array: Array of log10(mass/Msun) values
-        volume: Simulation volume in (Mpc/h)^3
+        volume: Simulation volume in (Mpc/h)^3 (already scaled by file fraction)
         hubble_h: Hubble parameter h
         binwidth: Histogram bin width in dex (default: 0.1)
         mi: Minimum mass bin (if None, auto-determined)
@@ -269,7 +274,13 @@ def calculate_mass_function(mass_array, volume, hubble_h, binwidth=0.1, mi=None,
     Returns:
         Tuple of (xaxis, yaxis) for plotting
         - xaxis: Bin centers
-        - yaxis: Number density (Mpc^-3 dex^-1)
+        - yaxis: Number density (Mpc^-3 h^3 dex^-1) in comoving coordinates
+
+    Normalization formula:
+        phi = counts / volume * h^3 / binwidth
+
+        This gives the comoving number density per dex. The h^3 factor converts
+        from (Mpc/h)^-3 to physical units when needed.
 
     Example:
         >>> mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
@@ -284,6 +295,9 @@ def calculate_mass_function(mass_array, volume, hubble_h, binwidth=0.1, mi=None,
     nbins = int((ma - mi) / binwidth)
     counts, binedges = np.histogram(mass_array, range=(mi, ma), bins=nbins)
     xaxis = binedges[:-1] + 0.5 * binwidth
+
+    # Normalize: counts per comoving volume per dex
+    # Volume is already scaled by good_files/total_files in read_data()
     yaxis = counts / volume * hubble_h**3 / binwidth
 
     return xaxis, yaxis

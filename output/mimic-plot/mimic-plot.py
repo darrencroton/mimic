@@ -517,13 +517,13 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
 
     # Check if we found any galaxies
     if tot_ngals == 0:
-        if colour_enabled():
-            print("\x1b[31mERROR: No galaxies found in the model files.\x1b[0m")
-            print("\x1b[33mPlease check that the model files exist and are not empty.\x1b[0m")
-        else:
-            print("ERROR: No galaxies found in the model files.")
-            print("Please check that the model files exist and are not empty.")
-        sys.exit(1)
+        error_msg = "No galaxies found in the model files"
+        if verbose:
+            if colour_enabled():
+                print(f"\x1b[31mERROR: {error_msg}. Please check that the model files exist and are not empty.\x1b[0m")
+            else:
+                print(f"ERROR: {error_msg}. Please check that the model files exist and are not empty.")
+        raise FileNotFoundError(error_msg)
 
     # Initialize the storage array
     galaxies = np.empty(tot_ngals, dtype=galdesc)
@@ -717,8 +717,13 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
                     print(f"Read {len(halos)} halos from {fname}")
 
     if not galaxies_list:
-        print("Error: No halos found in HDF5 files.")
-        sys.exit(1)
+        error_msg = "No halos found in HDF5 files"
+        if verbose:
+            if colour_enabled():
+                print(f"\x1b[31mERROR: {error_msg}. Please check that the HDF5 files exist and contain data.\x1b[0m")
+            else:
+                print(f"ERROR: {error_msg}. Please check that the HDF5 files exist and contain data.")
+        raise FileNotFoundError(error_msg)
 
     # Concatenate all halos
     galaxies = np.concatenate(galaxies_list)
@@ -1125,88 +1130,112 @@ def main():
                 print(
                     f"Read {len(galaxies)} galaxies from volume {volume:.2f} (Mpc/h)³"
                 )
+            snapshot_data_available = True
         except Exception as e:
-            if colour_enabled():
-                print(f"\x1b[31mERROR reading galaxy data: {e}\x1b[0m")
-            else:
-                print(f"ERROR reading galaxy data: {e}")
-            sys.exit(1)
-
-        # Get available snapshot plot modules
-        plot_modules = get_available_plot_modules("snapshot", args.verbose)
-
-        if args.verbose:
-            print(f"Available snapshot plots: {', '.join(plot_modules.keys())}")
-
-        # Filter to selected plots if specified
-        if selected_plots:
-            plot_modules = {
-                k: v for k, v in plot_modules.items() if k in selected_plots
-            }
-
-        # Filter plots based on available properties
-        from figures import check_required_properties, PLOT_REQUIREMENTS
-
-        available_plots = {}
-        skipped_plots = {}
-
-        for plot_name, plot_func in plot_modules.items():
-            required_props = PLOT_REQUIREMENTS.get(plot_name, [])
-            if required_props:
-                # Check if required properties are available
-                props_available, missing_props = check_required_properties(galaxies, required_props)
-                if not props_available:
-                    skipped_plots[plot_name] = missing_props
-                    continue
-            available_plots[plot_name] = plot_func
-
-        # Report skipped plots
-        if skipped_plots:
-            print(f"\nSkipping {len(skipped_plots)} plot(s) due to missing properties:")
-            for plot_name, missing in skipped_plots.items():
-                print(f"  - {plot_name}: missing {', '.join(missing)}")
-            print(f"  (Enable physics modules to generate these plots)\n")
-
-        # Generate each plot
-        snapshot_generated_plots = []
-        snapshot_skipped_validation = {}  # Track plots skipped due to data validation
-        for plot_name, plot_func in available_plots.items():
-            try:
+            # Set empty list for snapshot plots
+            snapshot_generated_plots = []
+            snapshot_data_available = False
+            if not args.quiet:
                 if args.verbose:
-                    print(f"Generating {plot_name}...")
-                result = plot_func(
-                    galaxies=galaxies,
-                    volume=volume,
-                    metadata=metadata,
-                    params=params.params,
-                    output_dir=output_dir,
-                    output_format=args.format,
-                    verbose=args.verbose,
-                )
+                    # Show detailed error only in verbose mode
+                    if colour_enabled():
+                        print(f"\x1b[33mWARNING: Could not read snapshot data: {e}\x1b[0m")
+                    else:
+                        print(f"WARNING: Could not read snapshot data: {e}")
+                if colour_enabled():
+                    print(f"\x1b[33mSkipping snapshot plots (no data available)\x1b[0m")
+                else:
+                    print(f"Skipping snapshot plots (no data available)")
+            # Continue to evolution plots (if enabled)
+            if not args.evolution_plots:
+                # If only snapshot plots were requested and they failed, exit with error
+                if colour_enabled():
+                    print(f"\x1b[31mERROR: No plots could be generated.\x1b[0m")
+                else:
+                    print(f"ERROR: No plots could be generated.")
+                sys.exit(1)
+            else:
+                # Continue to evolution plots section
+                if not args.quiet:
+                    print("")
 
-                # Handle return value: can be path (old style) or (path, skip_msg) tuple (new style)
-                if isinstance(result, tuple):
-                    plot_path, skip_msg = result
-                    if plot_path:
+        # Only generate snapshot plots if data was successfully loaded
+        if snapshot_data_available:
+            # Get available snapshot plot modules
+            plot_modules = get_available_plot_modules("snapshot", args.verbose)
+
+            if args.verbose:
+                print(f"Available snapshot plots: {', '.join(plot_modules.keys())}")
+
+            # Filter to selected plots if specified
+            if selected_plots:
+                plot_modules = {
+                    k: v for k, v in plot_modules.items() if k in selected_plots
+                }
+
+            # Filter plots based on available properties
+            from figures import check_required_properties, PLOT_REQUIREMENTS
+
+            available_plots = {}
+            skipped_plots = {}
+
+            for plot_name, plot_func in plot_modules.items():
+                required_props = PLOT_REQUIREMENTS.get(plot_name, [])
+                if required_props:
+                    # Check if required properties are available
+                    props_available, missing_props = check_required_properties(galaxies, required_props)
+                    if not props_available:
+                        skipped_plots[plot_name] = missing_props
+                        continue
+                available_plots[plot_name] = plot_func
+
+            # Report skipped plots
+            if skipped_plots:
+                print(f"\nSkipping {len(skipped_plots)} plot(s) due to missing properties:")
+                for plot_name, missing in skipped_plots.items():
+                    print(f"  - {plot_name}: missing {', '.join(missing)}")
+                print(f"  (Enable physics modules to generate these plots)\n")
+
+            # Generate each plot
+            snapshot_generated_plots = []
+            snapshot_skipped_validation = {}  # Track plots skipped due to data validation
+            for plot_name, plot_func in available_plots.items():
+                try:
+                    if args.verbose:
+                        print(f"Generating {plot_name}...")
+                    result = plot_func(
+                        galaxies=galaxies,
+                        volume=volume,
+                        metadata=metadata,
+                        params=params.params,
+                        output_dir=output_dir,
+                        output_format=args.format,
+                        verbose=args.verbose,
+                    )
+
+                    # Handle return value: can be path (old style) or (path, skip_msg) tuple (new style)
+                    if isinstance(result, tuple):
+                        plot_path, skip_msg = result
+                        if plot_path:
+                            snapshot_generated_plots.append(plot_path)
+                            if not args.quiet:
+                                print(f"Created {plot_name} plot")
+                        elif skip_msg:
+                            snapshot_skipped_validation[plot_name] = skip_msg
+                            if args.verbose:
+                                print(f"Skipped {plot_name}: {skip_msg}")
+                    else:
+                        # Old-style return (just path)
+                        plot_path = result
                         snapshot_generated_plots.append(plot_path)
                         if not args.quiet:
                             print(f"Created {plot_name} plot")
-                    elif skip_msg:
-                        snapshot_skipped_validation[plot_name] = skip_msg
-                        if args.verbose:
-                            print(f"Skipped {plot_name}: {skip_msg}")
-                else:
-                    # Old-style return (just path)
-                    plot_path = result
-                    snapshot_generated_plots.append(plot_path)
+                except Exception as e:
                     if not args.quiet:
-                        print(f"Created {plot_name} plot")
-            except Exception as e:
-                if not args.quiet:
-                    print(f"Error generating {plot_name}: {e}")
+                        print(f"Error generating {plot_name}: {e}")
 
-        if args.verbose:
-            print(f"Generated {len(snapshot_generated_plots)} snapshot plots.")
+            if args.verbose:
+                print(f"Generated {len(snapshot_generated_plots)} snapshot plots.")
 
     # Generate evolution plots
     if args.evolution_plots:
@@ -1367,79 +1396,90 @@ def main():
                 if args.verbose:
                     print(f"  Read {len(galaxies)} galaxies at z={redshift:.2f}")
             except Exception as e:
-                if colour_enabled():
-                    print(f"\x1b[31mERROR reading snapshot {snap}: {e}\x1b[0m")
-                else:
-                    print(f"ERROR reading snapshot {snap}: {e}")
-
-        # Filter evolution plots based on available properties
-        # Check properties in first available snapshot as representative sample
-        from figures import check_required_properties, PLOT_REQUIREMENTS
-
-        available_plots = {}
-        skipped_plots = {}
-
-        # Get a sample galaxy dataset from any snapshot to check properties
-        sample_galaxies = None
-        if snapshot_data:
-            sample_snap = next(iter(snapshot_data.values()))
-            sample_galaxies = sample_snap[0]  # galaxies from (galaxies, volume, metadata) tuple
-
-        for plot_name, plot_func in plot_modules.items():
-            required_props = PLOT_REQUIREMENTS.get(plot_name, [])
-            if required_props and sample_galaxies is not None:
-                # Check if required properties are available
-                props_available, missing_props = check_required_properties(sample_galaxies, required_props)
-                if not props_available:
-                    skipped_plots[plot_name] = missing_props
-                    continue
-            available_plots[plot_name] = plot_func
-
-        # Report skipped plots
-        if skipped_plots:
-            print(f"\nSkipping {len(skipped_plots)} evolution plot(s) due to missing properties:")
-            for plot_name, missing in skipped_plots.items():
-                print(f"  - {plot_name}: missing {', '.join(missing)}")
-            print(f"  (Enable physics modules to generate these plots)\n")
-
-        # Generate each evolution plot
-        evolution_generated_plots = []
-        evolution_skipped_validation = {}  # Track plots skipped due to data validation
-        for plot_name, plot_func in available_plots.items():
-            try:
                 if args.verbose:
-                    print(f"Generating {plot_name}...")
-                result = plot_func(
-                    snapshots=snapshot_data,
-                    params=params.params,
-                    output_dir=output_dir,
-                    output_format=args.format,
-                    verbose=args.verbose,
-                )
+                    if colour_enabled():
+                        print(f"\x1b[33mWARNING: Could not read snapshot {snap}: {e}\x1b[0m")
+                    else:
+                        print(f"WARNING: Could not read snapshot {snap}: {e}")
+                # Continue to next snapshot - skipped snapshots won't be in the summary
 
-                # Handle return value: can be path (old style) or (path, skip_msg) tuple (new style)
-                if isinstance(result, tuple):
-                    plot_path, skip_msg = result
-                    if plot_path:
+        # Check if we have any snapshot data for evolution plots
+        if not snapshot_data:
+            evolution_generated_plots = []
+            if not args.quiet:
+                if colour_enabled():
+                    print(f"\x1b[33mSkipping evolution plots (no data available)\x1b[0m")
+                else:
+                    print(f"Skipping evolution plots (no data available)")
+        else:
+            # Filter evolution plots based on available properties
+            # Check properties in first available snapshot as representative sample
+            from figures import check_required_properties, PLOT_REQUIREMENTS
+
+            available_plots = {}
+            skipped_plots = {}
+
+            # Get a sample galaxy dataset from any snapshot to check properties
+            sample_galaxies = None
+            if snapshot_data:
+                sample_snap = next(iter(snapshot_data.values()))
+                sample_galaxies = sample_snap[0]  # galaxies from (galaxies, volume, metadata) tuple
+
+            for plot_name, plot_func in plot_modules.items():
+                required_props = PLOT_REQUIREMENTS.get(plot_name, [])
+                if required_props and sample_galaxies is not None:
+                    # Check if required properties are available
+                    props_available, missing_props = check_required_properties(sample_galaxies, required_props)
+                    if not props_available:
+                        skipped_plots[plot_name] = missing_props
+                        continue
+                available_plots[plot_name] = plot_func
+
+            # Report skipped plots
+            if skipped_plots:
+                print(f"\nSkipping {len(skipped_plots)} evolution plot(s) due to missing properties:")
+                for plot_name, missing in skipped_plots.items():
+                    print(f"  - {plot_name}: missing {', '.join(missing)}")
+                print(f"  (Enable physics modules to generate these plots)\n")
+
+            # Generate each evolution plot
+            evolution_generated_plots = []
+            evolution_skipped_validation = {}  # Track plots skipped due to data validation
+            for plot_name, plot_func in available_plots.items():
+                try:
+                    if args.verbose:
+                        print(f"Generating {plot_name}...")
+                    result = plot_func(
+                        snapshots=snapshot_data,
+                        params=params.params,
+                        output_dir=output_dir,
+                        output_format=args.format,
+                        verbose=args.verbose,
+                    )
+
+                    # Handle return value: can be path (old style) or (path, skip_msg) tuple (new style)
+                    if isinstance(result, tuple):
+                        plot_path, skip_msg = result
+                        if plot_path:
+                            evolution_generated_plots.append(plot_path)
+                            if not args.quiet:
+                                print(f"Created {plot_name} plot")
+                        elif skip_msg:
+                            evolution_skipped_validation[plot_name] = skip_msg
+                            if args.verbose:
+                                print(f"Skipped {plot_name}: {skip_msg}")
+                    else:
+                        # Old-style return (just path)
+                        plot_path = result
                         evolution_generated_plots.append(plot_path)
                         if not args.quiet:
                             print(f"Created {plot_name} plot")
-                    elif skip_msg:
-                        evolution_skipped_validation[plot_name] = skip_msg
-                        if args.verbose:
-                            print(f"Skipped {plot_name}: {skip_msg}")
-                else:
-                    # Old-style return (just path)
-                    plot_path = result
-                    evolution_generated_plots.append(plot_path)
+                except Exception as e:
                     if not args.quiet:
-                        print(f"Created {plot_name} plot")
-            except Exception as e:
-                if not args.quiet:
-                    print(f"Error generating {plot_name}: {e}")
+                        print(f"Error generating {plot_name}: {e}")
 
-        if args.verbose:
-            print(f"Generated {len(evolution_generated_plots)} evolution plots.")
+            if args.verbose:
+                print(f"Generated {len(evolution_generated_plots)} evolution plots.")
 
     # Report validation-based skips if any (before COMPLETE section)
     # Only show in verbose mode
