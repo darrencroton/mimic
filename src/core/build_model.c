@@ -369,6 +369,9 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
  *
  * Each FOF group has exactly one Type 0 central, possibly multiple Type 1
  * satellites (satellite subhalo centrals), and any number of Type 2 orphans.
+ *
+ * IMPORTANT: This must be called BEFORE module execution so UniqueCentralGalaxyID
+ * is available for modules to use for validation and tracking.
  */
 void set_halo_centrals(int ngalstart, int ngal) {
   int i, centralgal;
@@ -386,9 +389,13 @@ void set_halo_centrals(int ngalstart, int ngal) {
     }
   }
 
-  /* Set ALL galaxies to point to the FOF group's Type 0 central */
-  for (i = ngalstart; i < ngal; i++)
+  /* Set ALL galaxies to point to the FOF group's Type 0 central
+   * This sets both the index (CentralHalo) and unique ID (UniqueCentralGalaxyID)
+   * so modules can reliably validate galaxy associations during execution */
+  for (i = ngalstart; i < ngal; i++) {
     FoFWorkspace[i].CentralHalo = centralgal;
+    FoFWorkspace[i].UniqueCentralGalaxyID = FoFWorkspace[centralgal].UniqueGalaxyID;
+  }
 }
 
 /**
@@ -448,13 +455,6 @@ void update_halo_properties(int ngal) {
           NumProcessedHalos;           /* Index of first one in this halo */
       HaloAux[currenthalo].NHalos = 0; /* Reset counter */
     }
-
-    /* Set UniqueCentralGalaxyID from the central halo's UniqueGalaxyID
-     * This must be done for ALL galaxies (not just non-merged) to maintain
-     * consistency. Uses FoFWorkspace relationships (set by set_halo_centrals)
-     * which are always correct, avoiding fragile tree lookups. */
-    int central_idx = FoFWorkspace[p].CentralHalo;
-    FoFWorkspace[p].UniqueCentralGalaxyID = FoFWorkspace[central_idx].UniqueGalaxyID;
 
     /* Copy non-merged halos to the permanent array
      * Type=3 halos are skipped (marked by physics modules as merged) */
