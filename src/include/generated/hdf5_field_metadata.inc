@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 9975f548f64d4bfe08d70bb306934cd6
+ * Source MD5: 7203ef8733bf04a41c69e7db7a6852b8
  * To regenerate: make generate
  */
 
@@ -60,8 +60,8 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"MetalsEjectedGas", "1e10 Msun/h", "Metal mass in ejected gas reservoir"},
   {"BlackHoleMass", "1e10 Msun/h", "Central supermassive black hole mass"},
   {"QuasarModeBHaccretionMass", "1e10 Msun/h", "Current timestep black hole accretion mass in quasar mode"},
-  {"Cooling", "(km/s)^2 * 1e10 Msun/h", "Cumulative cooling energy (0.5 * m * V_vir^2)"},
-  {"Heating", "(km/s)^2 * 1e10 Msun/h", "Cumulative AGN heating energy (0.5 * m * V_vir^2)"},
+  {"Cooling", "log10(erg/s)", "Cumulative cooling energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed"},
+  {"Heating", "log10(erg/s)", "Cumulative AGN heating energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed"},
   {"Rheat", "Mpc/h", "Heating radius from past AGN feedback events"},
   {"OutflowRate", "1e10 Msun/h / time_unit", "Current gas outflow rate from supernova feedback"},
   {"DiskScaleRadius", "Mpc/h", "Disk scale radius (exponential disk scale length)"},

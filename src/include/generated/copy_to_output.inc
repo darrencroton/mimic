@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 9975f548f64d4bfe08d70bb306934cd6
+ * Source MD5: 7203ef8733bf04a41c69e7db7a6852b8
  * To regenerate: make generate
  */
 
@@ -62,7 +62,19 @@ o->MetalsEjectedGas = g->galaxy->MetalsEjectedGas;
 o->BlackHoleMass = g->galaxy->BlackHoleMass;
 o->QuasarModeBHaccretionMass = g->galaxy->QuasarModeBHaccretionMass;
 o->Cooling = g->galaxy->Cooling;
+if (o->Cooling != 0.0) {
+  o->Cooling *= UnitEnergy_in_cgs / UnitTime_in_s;
+}
+if (o->Cooling != 0.0) {
+  o->Cooling = log10(o->Cooling);
+}
 o->Heating = g->galaxy->Heating;
+if (o->Heating != 0.0) {
+  o->Heating *= UnitEnergy_in_cgs / UnitTime_in_s;
+}
+if (o->Heating != 0.0) {
+  o->Heating = log10(o->Heating);
+}
 o->Rheat = g->galaxy->Rheat;
 o->OutflowRate = g->galaxy->OutflowRate;
 o->DiskScaleRadius = g->galaxy->DiskScaleRadius;

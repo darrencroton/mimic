@@ -223,25 +223,29 @@ galaxy_properties:
 
   - name: Cooling
     type: double  # Note: double precision for energy accumulation over time
-    units: (km/s)^2 * 1e10 Msun/h
-    description: Cumulative cooling energy (0.5 * m * V_vir^2)
+    units: log10(erg/s)
+    description: Cumulative cooling energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed
     output: true
     init_source: default
     init_value: 0.0
     init_repeat: true  # Reset each snapshot
     output_source: galaxy_property
+    output_convert: UnitEnergy_in_cgs / UnitTime_in_s  # Convert from code units to erg/s
+    output_transform: log10  # Apply log10 transform (sentinel 0.0 is skipped)
     range: [0.0, 1000000.0]  # Energy can accumulate to very large values
     sentinels: [0.0]  # Can be zero if no cooling has occurred
 
   - name: Heating
     type: double  # Note: double precision for energy accumulation over time
-    units: (km/s)^2 * 1e10 Msun/h
-    description: Cumulative AGN heating energy (0.5 * m * V_vir^2)
+    units: log10(erg/s)
+    description: Cumulative AGN heating energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed
     output: true
     init_source: default
     init_value: 0.0
     init_repeat: true  # Reset each snapshot
     output_source: galaxy_property
+    output_convert: UnitEnergy_in_cgs / UnitTime_in_s  # Convert from code units to erg/s
+    output_transform: log10  # Apply log10 transform (sentinel 0.0 is skipped)
     range: [0.0, 1000000.0]  # Energy can accumulate to very large values
     sentinels: [0.0]  # Can be zero if no AGN heating has occurred
 

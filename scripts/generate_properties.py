@@ -105,6 +105,9 @@ VALID_OUTPUT_SOURCES = [
     "custom",
     "galaxy_property",
 ]
+VALID_OUTPUT_TRANSFORMS = [
+    "log10",
+]
 
 # ==============================================================================
 # PATHS
@@ -205,6 +208,14 @@ def validate_property(prop: Dict[str, Any], category: str) -> None:
                 raise ValueError(
                     f"Property '{name}' with output_source=conditional must have {field}"
                 )
+
+    # Check output_transform if specified
+    if "output_transform" in prop:
+        if prop["output_transform"] not in VALID_OUTPUT_TRANSFORMS:
+            raise ValueError(
+                f"Invalid output_transform '{prop['output_transform']}' for '{name}'. "
+                f"Must be one of: {VALID_OUTPUT_TRANSFORMS}"
+            )
 
     # Check init_repeat (only for galaxy properties)
     if "init_repeat" in prop:
@@ -558,6 +569,30 @@ def generate_copy_to_output(
                 # Unconditional conversion
                 code += f"o->{name} *= {conversion_expr};\n"
 
+        # Apply output transform if specified (e.g., log10)
+        # Transform is applied AFTER unit conversion
+        if output_source != "custom" and "output_transform" in prop:
+            transform = prop["output_transform"]
+            sentinels = prop.get("sentinels", [])
+
+            # Determine type suffix for sentinel comparisons
+            if prop["type"] == "float":
+                type_suffix = "f"
+            else:
+                type_suffix = ""
+
+            if transform == "log10":
+                if sentinels:
+                    # Generate conditional transform (skip sentinels like 0.0 to avoid log10(0) = -inf)
+                    conditions = [f"o->{name} != {s}{type_suffix}" for s in sentinels]
+                    condition_str = " && ".join(conditions)
+                    code += f"if ({condition_str}) {{\n"
+                    code += f"  o->{name} = log10(o->{name});\n"
+                    code += "}\n"
+                else:
+                    # Unconditional transform
+                    code += f"o->{name} = log10(o->{name});\n"
+
     code += "\n/* Galaxy properties */\n"
     for prop in galaxy_props:
         if not prop["output"]:
@@ -592,6 +627,30 @@ def generate_copy_to_output(
                 else:
                     # Unconditional conversion
                     code += f"o->{name} *= {conversion_expr};\n"
+
+            # Apply output transform if specified (e.g., log10)
+            # Transform is applied AFTER unit conversion
+            if "output_transform" in prop:
+                transform = prop["output_transform"]
+                sentinels = prop.get("sentinels", [])
+
+                # Determine type suffix for sentinel comparisons
+                if prop["type"] == "float":
+                    type_suffix = "f"
+                else:
+                    type_suffix = ""
+
+                if transform == "log10":
+                    if sentinels:
+                        # Generate conditional transform (skip sentinels like 0.0 to avoid log10(0) = -inf)
+                        conditions = [f"o->{name} != {s}{type_suffix}" for s in sentinels]
+                        condition_str = " && ".join(conditions)
+                        code += f"if ({condition_str}) {{\n"
+                        code += f"  o->{name} = log10(o->{name});\n"
+                        code += "}\n"
+                    else:
+                        # Unconditional transform
+                        code += f"o->{name} = log10(o->{name});\n"
 
     return code
 

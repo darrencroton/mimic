@@ -12,6 +12,7 @@
  * - prepare_halo_for_output(): Converts internal halo format to output format
  */
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 

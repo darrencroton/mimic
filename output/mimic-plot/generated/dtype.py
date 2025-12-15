@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: 9975f548f64d4bfe08d70bb306934cd6
+Source MD5: 7203ef8733bf04a41c69e7db7a6852b8
 To regenerate: make generate
 """
 
@@ -154,8 +154,8 @@ def get_units():
         'MetalsEjectedGas': '1e10 Msun/h',
         'BlackHoleMass': '1e10 Msun/h',
         'QuasarModeBHaccretionMass': '1e10 Msun/h',
-        'Cooling': '(km/s)^2 * 1e10 Msun/h',
-        'Heating': '(km/s)^2 * 1e10 Msun/h',
+        'Cooling': 'log10(erg/s)',
+        'Heating': 'log10(erg/s)',
         'Rheat': 'Mpc/h',
         'OutflowRate': '1e10 Msun/h / time_unit',
         'DiskScaleRadius': 'Mpc/h',
