@@ -113,7 +113,7 @@ static void do_AGN_heating(struct Halo *halo, struct ModuleContext *ctx, const d
     const double hot_gas = halo->galaxy->HotGas;
     const double metals_hot_gas = halo->galaxy->MetalsHotGas;
     const double black_hole_mass = halo->galaxy->BlackHoleMass;
-    const double r_heat = halo->galaxy->Rheat;
+    const double rheat = halo->galaxy->Rheat;
     const double mvir = halo->Mvir;
     const double vvir = halo->Vvir;
     const double rvir = halo->Rvir;
@@ -125,9 +125,9 @@ static void do_AGN_heating(struct Halo *halo, struct ModuleContext *ctx, const d
     if (rcool <= EPSILON_SMALL) {
         // No cooling if cooling radius is zero
         coolingGas = 0.0;
-    } else if (r_heat < rcool) {
+    } else if (rheat < rcool) {
         // Partial suppression based on heating radius fraction
-        coolingGas = (1.0 - r_heat / rcool) * coolingGas;
+        coolingGas = (1.0 - rheat / rcool) * coolingGas;
     } else {
         // Complete suppression if heating radius exceeds cooling radius
         coolingGas = 0.0;
@@ -186,10 +186,10 @@ static void do_AGN_heating(struct Halo *halo, struct ModuleContext *ctx, const d
         halo->galaxy->MetalsHotGas -= metallicity * AGNaccreted;
 
         // Update heating radius
-        if (r_heat < rcool && coolingGas > 0.0) {
-            double r_heat_new = (AGNheating / coolingGas) * rcool;
-            if (r_heat_new > r_heat) {
-                halo->galaxy->Rheat = r_heat_new;
+        if (rheat < rcool && coolingGas > 0.0) {
+            double rheat_new = (AGNheating / coolingGas) * rcool;
+            if (rheat_new > rheat) {
+                halo->galaxy->Rheat = rheat_new;
             }
         }
 
