@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "7203ef8733bf04a41c69e7db7a6852b8",
+    "source_md5": "dbf0edc240e2535bea7f90db23200b66",
     "regenerate": "make generate"
   },
   "schema_version": 1,

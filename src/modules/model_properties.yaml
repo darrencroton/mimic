@@ -221,6 +221,42 @@ galaxy_properties:
   # ENERGY & FEEDBACK
   # =============================================================================
 
+  - name: NewStarsMass
+    type: float
+    units: 1e10 Msun/h
+    description: New stars formed this timestep (before recycling), calculated by star formation module
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Zero when no star formation occurring
+
+  - name: SupernovaReheatedMass
+    type: float
+    units: 1e10 Msun/h
+    description: Gas mass to be reheated by supernova feedback this timestep
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Zero when no feedback occurring
+
+  - name: SupernovaEjectedMass
+    type: float
+    units: 1e10 Msun/h
+    description: Gas mass to be ejected by supernova feedback this timestep
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Zero when no feedback occurring
+
   - name: Cooling
     type: double  # Note: double precision for energy accumulation over time
     units: log10(erg/s)

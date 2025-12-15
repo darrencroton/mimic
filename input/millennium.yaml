@@ -39,12 +39,14 @@ modules:
 
   phase_1:
     - sage_add_infall: process_full_halo
+    - sage_reincorporation: process_full_halo
     - sage_satellite_stripping: process_full_halo
     - sage_calculate_cooling: process_by_galaxy
     - sage_radio_mode_heating: process_by_galaxy
     - sage_add_cooling: process_by_galaxy
-    - sage_reincorporation: process_full_halo
-    - sage_starformation_feedback: process_by_galaxy
+    - sage_calculate_star_formation: process_by_galaxy
+    - sage_calculate_supernova_feedback: process_by_galaxy
+    - sage_update_star_formation_supernova: process_by_galaxy
     # - sage_disk_instability: process_by_galaxy
 
   phase_2: []
