@@ -30,24 +30,8 @@
 /* ===== Speed of Light (various units) ===== */
 
 static const double C_CGS = 2.9979e10;               /* c in cm/s */
-static const double C_KM_S = 2.99792458e5;           /* c in km/s */
 static const double C_SQUARED_CGS = 8.9875e20;       /* c² in cm²/s² (exact: C_CGS²) */
-
-/* ===== Stellar Populations & Metallicity ===== */
-
-static const double SOLAR_METALLICITY = 0.02;        /* Z_sun by mass (Asplund+ 2009) */
-
-/* ===== Supernovae ===== */
-
-static const double SN_ENERGY_ERG = 1.0e51;          /* E_SN per event (erg) */
-
-/* ===== Accretion & Black Holes ===== */
-
-static const double RADIATIVE_EFFICIENCY = 0.1;      /* η, thin disk efficiency (Shakura & Sunyaev 1973) */
-
-/* ===== Feedback & Ejection ===== */
-
-static const double METAL_MASS_SCALE = 30.0;         /* Metal ejection scale, 10^10 Msun/h (calibrated) */
-static const double KINETIC_ENERGY_FACTOR = 0.5;     /* E = ½mv² coefficient */
+static const double C_KM_S = 2.99792458e5;           /* c in km/s */
+static const double C_SQUARED_KM_S = 8.9875e10;      /* c² in (km/s)² */
 
 #endif /* MIMIC_SYSTEM_PHYSICAL_CONSTANTS_H */

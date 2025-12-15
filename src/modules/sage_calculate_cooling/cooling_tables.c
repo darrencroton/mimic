@@ -86,8 +86,8 @@ int cooling_tables_init(const char *cool_functions_dir)
         return 0;
     }
 
-    // Convert metallicities from [Fe/H] to absolute log(Z) by adding log10(Z_sun)
-    const double log10_zsun = log10(SOLAR_METALLICITY);
+    // Convert metallicities from [Fe/H] to absolute log(Z) by adding log10(Z_sun), Z_sun=0.02
+    const double log10_zsun = log10(0.02);
     for (int i = 0; i < 8; i++)
         metallicities[i] += log10_zsun;
 
