@@ -145,7 +145,7 @@ int model_get_double(const char *param_name, double *out_value);
 /**
  * @brief   Get required model parameter as integer
  *
- * @param   param_name      Parameter name (e.g., "AGNrecipeOn")
+ * @param   param_name      Parameter name (e.g., "AGNrecipe")
  * @param   out_value       Output pointer for integer value
  * @return  0 on success, -1 if parameter missing or validation fails
  */

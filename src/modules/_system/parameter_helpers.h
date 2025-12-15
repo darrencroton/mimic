@@ -134,7 +134,7 @@
  * For mode selectors and discrete options.
  *
  * Example:
- *   VALIDATE_OPTION("AGNrecipeOn", agn_recipe, 3, "0=off, 1=radio, 2=quasar, 3=both");
+ *   VALIDATE_OPTION("AGNrecipe", agn_recipe, 3, "0=off, 1=radio, 2=quasar, 3=both");
  */
 #define VALIDATE_OPTION(param, value, max_value, context) \
   do { \
@@ -192,7 +192,7 @@
  * For mode selectors: validates value is in [0, max_value]
  *
  * Example:
- *   LOAD_AND_VALIDATE_OPTION("AGNrecipeOn", agn_recipe, 3,
+ *   LOAD_AND_VALIDATE_OPTION("AGNrecipe", agn_recipe, 3,
  *                            "0=off, 1=radio, 2=quasar, 3=both");
  */
 #define LOAD_AND_VALIDATE_OPTION(param, var, max_value, context) \

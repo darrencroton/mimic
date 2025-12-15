@@ -297,7 +297,7 @@ modules:
   parameters:
     GlobalBaryonFraction: 0.17
     RadioModeEfficiency: 0.01
-    AGNrecipeOn: 1
+    AGNrecipe: 1
     # ... (see REFERENCE.md for complete parameter list)
 ```
 

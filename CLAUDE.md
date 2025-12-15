@@ -304,7 +304,7 @@ RunProperties/
   ├── EnabledModules [compound dataset]    (complete pipeline configuration)
   │   └── (module_name, phase, processing_mode) for each module
   ├── Parameters [dataset]                 (all runtime parameters)
-  │   └── (param_name, value) pairs        (e.g., AGNrecipeOn: 1)
+  │   └── (param_name, value) pairs        (e.g., AGNrecipe: 1)
   └── Redshifts [dataset]                  (z for each snapshot: 127.0→0.0)
 
 Snap063/

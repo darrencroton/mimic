@@ -52,7 +52,7 @@ void set_test_model_parameters(void) {
     strcpy(MimicConfig.ModelParams[idx].param_name, "RadioModeEfficiency");
     strcpy(MimicConfig.ModelParams[idx++].value, "0.01");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "AGNrecipeOn");
+    strcpy(MimicConfig.ModelParams[idx].param_name, "AGNrecipe");
     strcpy(MimicConfig.ModelParams[idx++].value, "1");
 
     /* Star Formation */

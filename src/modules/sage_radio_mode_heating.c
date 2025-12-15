@@ -212,12 +212,12 @@ int sage_radio_mode_heating_init(void)
     // Load and validate parameters
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RadioModeEfficiency", RADIO_MODE_EFFICIENCY, 0.0, 1.0,
                                       "AGN radio mode heating efficiency");
-    LOAD_AND_VALIDATE_OPTION("AGNrecipeOn", AGN_RECIPE_ON, 3,
+    LOAD_AND_VALIDATE_OPTION("AGNrecipe", AGN_RECIPE_ON, 3,
                              "0=off, 1=empirical, 2=Bondi, 3=cold cloud");
 
     INFO_LOG("SAGE radio-mode AGN heating module initialized");
     VERBOSE_LOG("  RadioModeEfficiency = %.4f", RADIO_MODE_EFFICIENCY);
-    VERBOSE_LOG("  AGNrecipeOn = %d (0=off, 1=empirical, 2=Bondi, 3=cold cloud)", AGN_RECIPE_ON);
+    VERBOSE_LOG("  AGNrecipe = %d (0=off, 1=empirical, 2=Bondi, 3=cold cloud)", AGN_RECIPE_ON);
     return 0;
 }
 
