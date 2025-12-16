@@ -70,8 +70,6 @@ modules:
     # Supernova Feedback
     FeedbackReheatingEpsilon: 3.0       # Reheating efficiency
     FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
-    EnergySNcode: 1.0                   # Supernova energy (code units)
-    EtaSNcode: 0.5                      # Supernova rate per unit stellar mass
 
     # Metals
     RecycleFraction: 0.43               # Instantaneous recycling fraction

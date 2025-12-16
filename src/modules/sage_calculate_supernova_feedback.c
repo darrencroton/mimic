@@ -14,7 +14,9 @@
 #include "error.h"
 #include "module_interface.h"
 #include "types.h"
+#include "globals.h"
 #include "_system/parameter_helpers.h"
+#include "_system/physical_constants.h"
 
 // ============================================================================
 // MODULE PARAMETERS
@@ -22,8 +24,13 @@
 
 static double FEEDBACK_REHEATING_EPSILON;
 static double FEEDBACK_EJECTION_EFFICIENCY;
-static double ENERGY_SN_CODE;
-static double ETA_SN_CODE;
+
+// ============================================================================
+// MODULE-LOCAL CONSTANTS (converted from physical constants)
+// ============================================================================
+
+static double EnergySNcode;
+static double EtaSNcode;
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -35,16 +42,16 @@ int sage_calculate_supernova_feedback_init(void)
                                       "reheating efficiency");
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackEjectionEfficiency", FEEDBACK_EJECTION_EFFICIENCY, 0.0, 100.0,
                                       "ejection efficiency");
-    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("EnergySNcode", ENERGY_SN_CODE, 0.0, 100.0,
-                                      "supernova energy");
-    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("EtaSNcode", ETA_SN_CODE, 0.0, 10.0,
-                                      "mass loading factor");
+
+    // Convert physical constants to code units (module-local conversion)
+    EnergySNcode = ENERGY_SN / UnitEnergy_in_cgs * MimicConfig.Hubble_h;
+    EtaSNcode = ETA_SN * (UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
 
     INFO_LOG("SAGE calculate supernova feedback module initialized");
     VERBOSE_LOG("  FeedbackReheatingEpsilon = %.3f", FEEDBACK_REHEATING_EPSILON);
     VERBOSE_LOG("  FeedbackEjectionEfficiency = %.3f", FEEDBACK_EJECTION_EFFICIENCY);
-    VERBOSE_LOG("  EnergySNcode = %.3f", ENERGY_SN_CODE);
-    VERBOSE_LOG("  EtaSNcode = %.3f", ETA_SN_CODE);
+    VERBOSE_LOG("  EnergySNcode = %.6e (from ENERGY_SN physical constant)", EnergySNcode);
+    VERBOSE_LOG("  EtaSNcode = %.6e (from ETA_SN physical constant)", EtaSNcode);
 
     return 0;
 }
@@ -88,7 +95,7 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx,
     // Determine ejection (uses galaxy's own Vvir for both centrals and satellites)
     double ejected_mass = 0.0;
     if(halo->Vvir > 0.0) {
-        ejected_mass = (FEEDBACK_EJECTION_EFFICIENCY * (ETA_SN_CODE * ENERGY_SN_CODE) /
+        ejected_mass = (FEEDBACK_EJECTION_EFFICIENCY * (EtaSNcode * EnergySNcode) /
                        (halo->Vvir * halo->Vvir) - FEEDBACK_REHEATING_EPSILON) * stars;
     }
 

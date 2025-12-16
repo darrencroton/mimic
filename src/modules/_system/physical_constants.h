@@ -34,4 +34,9 @@ static const double C_SQUARED_CGS = 8.9875e20;       /* c² in cm²/s² (exact: 
 static const double C_KM_S = 2.99792458e5;           /* c in km/s */
 static const double C_SQUARED_KM_S = 8.9875e10;      /* c² in (km/s)² */
 
+/* ===== Supernova Physics ===== */
+
+#define ENERGY_SN 1.0e51                 /* Canonical supernova energy in erg (Croton+ 2006) */
+#define ETA_SN 5.0e-3                    /* Supernova mass loading efficiency (Croton+ 2006) */
+
 #endif /* MIMIC_SYSTEM_PHYSICAL_CONSTANTS_H */

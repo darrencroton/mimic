@@ -66,12 +66,6 @@ void set_test_model_parameters(void) {
     strcpy(MimicConfig.ModelParams[idx].param_name, "FeedbackEjectionEfficiency");
     strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "EnergySNcode");
-    strcpy(MimicConfig.ModelParams[idx++].value, "1.0");
-
-    strcpy(MimicConfig.ModelParams[idx].param_name, "EtaSNcode");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.5");
-
     /* Stellar Evolution */
     strcpy(MimicConfig.ModelParams[idx].param_name, "RecycleFraction");
     strcpy(MimicConfig.ModelParams[idx++].value, "0.43");
@@ -100,6 +94,6 @@ void set_test_model_parameters(void) {
     strcpy(MimicConfig.ModelParams[idx].param_name, "DiskRadiusFactor");
     strcpy(MimicConfig.ModelParams[idx++].value, "3.0");
 
-    /* Set count (reduced from 20 to 17 after removing SFprescription, SupernovaRecipeOn, DiskInstabilityOn) */
+    /* Set count (reduced from 20 to 15 after removing SFprescription, SupernovaRecipeOn, DiskInstabilityOn, EnergySNcode, EtaSNcode) */
     MimicConfig.NumModelParams = idx;
 }
