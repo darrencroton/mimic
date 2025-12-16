@@ -4,7 +4,7 @@
  *
  * Applies calculated star formation and supernova feedback to galaxy properties.
  * Handles stellar recycling, metal enrichment, gas transfers (cold→hot→ejected),
- * and resets temporary calculation properties (NewStarsMass, SupernovaReheatedMass,
+ * and resets temporary calculation properties (NewStellarMass, SupernovaReheatedMass,
  * SupernovaEjectedMass) to zero after processing.
  *
  * Reference: Croton et al. (2006, 2016)
@@ -67,14 +67,14 @@ int sage_update_star_formation_supernova_process(struct ModuleContext *ctx,
     struct GalaxyData *central_gal = ctx->central_galaxy->galaxy;
 
     // Read calculated values from previous modules
-    const double stars = gal->NewStarsMass;
+    const double stars = gal->NewStellarMass;
     const double reheated_mass = gal->SupernovaReheatedMass;
     double ejected_mass = gal->SupernovaEjectedMass;
 
     // Skip if no star formation occurred
     if (stars <= EPSILON_SMALL) {
         // Zero out temporary properties even if no SF
-        gal->NewStarsMass = 0.0;
+        gal->NewStellarMass = 0.0;
         gal->SupernovaReheatedMass = 0.0;
         gal->SupernovaEjectedMass = 0.0;
         return 0;
@@ -153,7 +153,7 @@ int sage_update_star_formation_supernova_process(struct ModuleContext *ctx,
     // CLEANUP: Zero out temporary calculation properties
     // ========================================================================
 
-    gal->NewStarsMass = 0.0;
+    gal->NewStellarMass = 0.0;
     gal->SupernovaReheatedMass = 0.0;
     gal->SupernovaEjectedMass = 0.0;
 

@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "2b9dd19ea75e84c235d3a287c604ac40",
+    "source_md5": "eb20eeee97506761969a386c9d2b6b2f",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -311,6 +311,19 @@
         0.0
       ]
     },
+    "StarFormationRate": {
+      "name": "StarFormationRate",
+      "type": "float",
+      "units": "Msun/yr",
+      "is_vector": false,
+      "range": [
+        0.0,
+        10000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
     "MetalsStellarMass": {
       "name": "MetalsStellarMass",
       "type": "float",
@@ -449,19 +462,6 @@
       "range": [
         0.0,
         100000.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "StarFormationRate": {
-      "name": "StarFormationRate",
-      "type": "float",
-      "units": "Msun/yr",
-      "is_vector": false,
-      "range": [
-        0.0,
-        10000.0
       ],
       "sentinels": [
         0.0

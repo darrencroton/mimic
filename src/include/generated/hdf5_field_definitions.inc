@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 2b9dd19ea75e84c235d3a287c604ac40
+ * Source MD5: eb20eeee97506761969a386c9d2b6b2f
  * To regenerate: make generate
  */
 
@@ -175,6 +175,12 @@ HDF5_dst_sizes[i] = sizeof(galout.ICS);
 HDF5_field_names[i] = "ICS";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
+/* StarFormationRate */
+HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, StarFormationRate);
+HDF5_dst_sizes[i] = sizeof(galout.StarFormationRate);
+HDF5_field_names[i] = "StarFormationRate";
+HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
+
 /* MetalsStellarMass */
 HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, MetalsStellarMass);
 HDF5_dst_sizes[i] = sizeof(galout.MetalsStellarMass);
@@ -239,12 +245,6 @@ HDF5_field_types[i++] = H5T_NATIVE_DOUBLE;
 HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, SupernovaOutflowRate);
 HDF5_dst_sizes[i] = sizeof(galout.SupernovaOutflowRate);
 HDF5_field_names[i] = "SupernovaOutflowRate";
-HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-/* StarFormationRate */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, StarFormationRate);
-HDF5_dst_sizes[i] = sizeof(galout.StarFormationRate);
-HDF5_field_names[i] = "StarFormationRate";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
 /* DiskScaleRadius */

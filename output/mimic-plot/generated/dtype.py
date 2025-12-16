@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: 2b9dd19ea75e84c235d3a287c604ac40
+Source MD5: eb20eeee97506761969a386c9d2b6b2f
 To regenerate: make generate
 """
 
@@ -42,6 +42,7 @@ def get_binary_dtype():
         ("StellarMass", np.float32),
         ("BulgeMass", np.float32),
         ("ICS", np.float32),
+        ("StarFormationRate", np.float32),
         ("MetalsStellarMass", np.float32),
         ("MetalsBulgeMass", np.float32),
         ("MetalsColdGas", np.float32),
@@ -53,7 +54,6 @@ def get_binary_dtype():
         ("Cooling", np.float64),
         ("Heating", np.float64),
         ("SupernovaOutflowRate", np.float32),
-        ("StarFormationRate", np.float32),
         ("DiskScaleRadius", np.float32),
         ("TimeOfLastMajorMerger", np.float32),
         ("TimeOfLastMinorMerger", np.float32),
@@ -89,6 +89,7 @@ def get_hdf5_dtype():
         ("StellarMass", np.float32),
         ("BulgeMass", np.float32),
         ("ICS", np.float32),
+        ("StarFormationRate", np.float32),
         ("MetalsStellarMass", np.float32),
         ("MetalsBulgeMass", np.float32),
         ("MetalsColdGas", np.float32),
@@ -100,7 +101,6 @@ def get_hdf5_dtype():
         ("Cooling", np.float64),
         ("Heating", np.float64),
         ("SupernovaOutflowRate", np.float32),
-        ("StarFormationRate", np.float32),
         ("DiskScaleRadius", np.float32),
         ("TimeOfLastMajorMerger", np.float32),
         ("TimeOfLastMinorMerger", np.float32),
@@ -146,6 +146,7 @@ def get_units():
         'StellarMass': '1e10 Msun/h',
         'BulgeMass': '1e10 Msun/h',
         'ICS': '1e10 Msun/h',
+        'StarFormationRate': 'Msun/yr',
         'MetalsStellarMass': '1e10 Msun/h',
         'MetalsBulgeMass': '1e10 Msun/h',
         'MetalsColdGas': '1e10 Msun/h',
@@ -157,7 +158,6 @@ def get_units():
         'Cooling': 'log10(erg/s)',
         'Heating': 'log10(erg/s)',
         'SupernovaOutflowRate': '1e10 Msun/h / time_unit',
-        'StarFormationRate': 'Msun/yr',
         'DiskScaleRadius': 'Mpc/h',
         'TimeOfLastMajorMerger': 'Gyr',
         'TimeOfLastMinorMerger': 'Gyr',
