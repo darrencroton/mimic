@@ -314,12 +314,7 @@ module:
 
 ### Processing Modes
 
-**Two modes available**:
-
-| Mode | Core Behavior | Module Receives | Best For |
-|------|---------------|-----------------|----------|
-| `process_full_halo` | Module called once | Full galaxy array (ngal > 1) | Snapshot-level operations, vectorized calculations |
-| `process_by_galaxy` | Core loops over galaxies | One galaxy (ngal = 1) | Per-galaxy physics, time integration |
+Modules can process galaxies in two modes (see [Appendix A6](#a6-processing-modes) for complete reference):
 
 **Example: process_by_galaxy** (better cache locality):
 
@@ -371,24 +366,43 @@ supported_processing_modes:
 
 ### Pipeline Phases
 
-**Four execution phases**:
-
-| Phase | When | Typical Use | SubSteps |
-|-------|------|-------------|----------|
-| `pre_timestep` | Once before substeps | Setup, budget calculation | No |
-| `phase_1` | Each substep | Main baryonic physics | Yes |
-| `phase_2` | Each substep | Secondary physics (mergers) | Yes |
-| `post_timestep` | Once after substeps | Finalization, rate conversion | No |
-
-**Execution order**:
+The multi-phase pipeline executes modules in four distinct phases (see [Appendix A7](#a7-pipeline-phases) for complete reference):
 
 ```
-Snapshot N → N+1:
-  pre_timestep modules (once)
-  for each substep:
-    phase_1 modules
-    phase_2 modules
-  post_timestep modules (once)
+┌─────────────────────────────────────────────────────────────────┐
+│ Snapshot N → N+1                                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  PRE_TIMESTEP (runs once):                                      │
+│    ├─ Pass 1: Execute all process_full_halo modules            │
+│    └─ Pass 2: For g = 0..ngal:                                 │
+│                 Execute all process_by_galaxy modules           │
+│                                                                 │
+│  FOR each substep (0..SubSteps-1):                             │
+│    │                                                            │
+│    ├─ PHASE_1 (runs each substep):                             │
+│    │    ├─ Pass 1: Execute all process_full_halo modules       │
+│    │    └─ Pass 2: For g = 0..ngal:                            │
+│    │                 Execute all process_by_galaxy modules      │
+│    │                                                            │
+│    └─ PHASE_2 (runs each substep):                             │
+│         ├─ Pass 1: Execute all process_full_halo modules       │
+│         └─ Pass 2: For g = 0..ngal:                            │
+│                      Execute all process_by_galaxy modules      │
+│                                                                 │
+│  POST_TIMESTEP (runs once):                                     │
+│    ├─ Pass 1: Execute all process_full_halo modules            │
+│    └─ Pass 2: For g = 0..ngal:                                 │
+│                 Execute all process_by_galaxy modules           │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+Key execution details:
+  • Within each phase, process_full_halo modules ALWAYS execute first
+  • Then process_by_galaxy modules execute in galaxy-major loop
+  • Each by_galaxy module receives single galaxy (ngal=1)
+  • Full_halo modules receive entire array (ngal can be 1-1000s)
+  • Module order within same mode is preserved from YAML config
 ```
 
 **Example: Multi-phase cooling**:
@@ -610,46 +624,9 @@ halo_properties:
 
 ### Property Metadata Fields
 
-**Required fields**:
+For complete schema specification with all fields and options, see [Appendix A2](#a2-property-metadata-schema).
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Property name (PascalCase, e.g., `ColdGas`) |
-| `type` | enum | C type: `float`, `double`, `int`, `long` |
-| `units` | string | Physical units (e.g., `"1e10 Msun/h"`) |
-| `description` | string | Human-readable description |
-| `output` | boolean | Include in output files? |
-| `init_source` | enum | How to initialize (see below) |
-| `output_source` | enum | How to output (see below) |
-
-**Initialization sources** (`init_source`):
-
-| Value | `init_value` Required | Description |
-|-------|----------------------|-------------|
-| `default` | Yes | Initialize to constant (e.g., `0.0`) |
-| `copy_from_tree` | Yes (tree field) | Copy from merger tree input |
-| `calculate` | Yes (function) | Call function to calculate |
-| `skip` | No | Custom initialization (manual) |
-
-**Output sources** (`output_source`):
-
-| Value | Description |
-|-------|-------------|
-| `copy_direct` | Copy halo property directly |
-| `galaxy_property` | Copy galaxy property directly |
-| `recalculate` | Call function at output time |
-
-**Optional fields**:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `init_repeat` | boolean | Re-initialize each snapshot? (default: false) |
-| `output_convert` | string | Unit conversion at output (e.g., `"sec to Myr"`) |
-| `output_transform` | string | Transform at output (e.g., `"log10"`) |
-| `range` | array | Valid range `[min, max]` for validation |
-| `sentinels` | array | Special values exempt from range checks |
-
-**Example: Property with conversion**:
+**Quick reference**:
 
 ```yaml
 - name: dT
@@ -1335,7 +1312,7 @@ module:
 | `description` | string | Human-readable description | `"Cold gas mass in disk"` |
 | `output` | boolean | Include in output files? | `true` |
 | `init_source` | enum | Initialization method (see table below) | `default` |
-| `output_source` | enum | Output method (see table below) | `galaxy_property` |
+| `output_source` | enum | Output method (required only if `output: true`) | `galaxy_property` |
 
 **Initialization sources** (`init_source`):
 
@@ -1346,13 +1323,15 @@ module:
 | `calculate` | `init_function` (function name) | Call function to calculate |
 | `skip` | - | Custom initialization (manual in code) |
 
-**Output sources** (`output_source`):
+**Output sources** (`output_source`, only required if `output: true`):
 
 | Value | Description |
 |-------|-------------|
 | `copy_direct` | Copy halo property directly to output |
 | `galaxy_property` | Copy galaxy property directly to output |
 | `recalculate` | Call function at output time (`output_function` required) |
+
+**Note**: Properties with `output: false` do not require `output_source` and will not be written to output files.
 
 **Optional fields**:
 
@@ -1371,7 +1350,7 @@ module:
 **Complete examples**:
 
 ```yaml
-# Simple galaxy property
+# Output property (requires output_source)
 - name: ColdGas
   type: float
   units: "1e10 Msun/h"
@@ -1380,6 +1359,18 @@ module:
   init_source: default
   init_value: 0.0
   output_source: galaxy_property
+  range: [0.0, 100000.0]
+  sentinels: [0.0]
+
+# Internal property (no output_source needed)
+- name: CoolingGas
+  type: float
+  units: "1e10 Msun/h"
+  description: "Gas mass cooling this substep (working variable)"
+  output: false
+  init_source: default
+  init_value: 0.0
+  init_repeat: true
   range: [0.0, 100000.0]
   sentinels: [0.0]
 
