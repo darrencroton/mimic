@@ -82,6 +82,51 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Set up binning
     binwidth = 0.1
 
+    # Debug information
+    if verbose:
+        print(f"  Number of snapshots: {len(snapshots)}")
+        for snap, (galaxies, volume, metadata) in snapshots.items():
+            print(
+                f"  Snapshot {snap}: {len(galaxies)} galaxies, z={metadata.get('redshift', 'unknown')}"
+            )
+
+    # Sort snapshots by redshift and filter to target redshifts
+    sorted_snapshots = [
+        (snap, galaxies, volume, metadata)
+        for snap, (galaxies, volume, metadata) in snapshots.items()
+    ]
+    # Sort by redshift
+    sorted_snapshots.sort(key=lambda x: x[3]["redshift"])
+
+    # Filter snapshots to match target redshifts
+    target_snapshots = []
+
+    # For each target redshift, find the closest snapshot within tolerance
+    for i, target_z in enumerate(target_redshifts):
+        tolerance = target_tolerance[i]
+        # Filter snapshots with z >= target_z
+        candidates = [s for s in sorted_snapshots if s[3]["redshift"] >= target_z]
+        if candidates:
+            # Find the closest one
+            closest = min(candidates, key=lambda x: abs(x[3]["redshift"] - target_z))
+            # Check if it's within tolerance
+            if abs(closest[3]["redshift"] - target_z) <= tolerance:
+                target_snapshots.append(closest)
+                if verbose:
+                    warn(f"Target z={target_z:.1f}: Using snapshot with z={closest[3]['redshift']:.3f}")
+        elif verbose:
+            warn(f"Target z={target_z:.1f}: No suitable snapshot found")
+
+    # Colors for different redshifts
+    colors = ["k", "b", "g", "r", "m", "y", "c", "orange"]
+
+    # Check if we have any snapshots to plot
+    if len(target_snapshots) == 0:
+        return None, "No snapshots found matching target redshifts for SMF evolution plot"
+
+    # NOW create the figure (only after all validation passed)
+    fig, ax = setup_figure()
+
     # Add Marchesini et al. 2009 observational data (z=[0.1])
     M = np.arange(7.0, 11.8, 0.01)
     Mstar = np.log10(10.0**10.96)
@@ -189,51 +234,6 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             alpha=0.5,
             label="... z=[3.0,4.0]",
         )
-
-    # Debug information
-    if verbose:
-        print(f"  Number of snapshots: {len(snapshots)}")
-        for snap, (galaxies, volume, metadata) in snapshots.items():
-            print(
-                f"  Snapshot {snap}: {len(galaxies)} galaxies, z={metadata.get('redshift', 'unknown')}"
-            )
-
-    # Sort snapshots by redshift and filter to target redshifts
-    sorted_snapshots = [
-        (snap, galaxies, volume, metadata)
-        for snap, (galaxies, volume, metadata) in snapshots.items()
-    ]
-    # Sort by redshift
-    sorted_snapshots.sort(key=lambda x: x[3]["redshift"])
-
-    # Filter snapshots to match target redshifts
-    target_snapshots = []
-
-    # For each target redshift, find the closest snapshot within tolerance
-    for i, target_z in enumerate(target_redshifts):
-        tolerance = target_tolerance[i]
-        # Filter snapshots with z >= target_z
-        candidates = [s for s in sorted_snapshots if s[3]["redshift"] >= target_z]
-        if candidates:
-            # Find the closest one
-            closest = min(candidates, key=lambda x: abs(x[3]["redshift"] - target_z))
-            # Check if it's within tolerance
-            if abs(closest[3]["redshift"] - target_z) <= tolerance:
-                target_snapshots.append(closest)
-                if verbose:
-                    warn(f"Target z={target_z:.1f}: Using snapshot with z={closest[3]['redshift']:.3f}")
-        elif verbose:
-            warn(f"Target z={target_z:.1f}: No suitable snapshot found")
-
-    # Colors for different redshifts
-    colors = ["k", "b", "g", "r", "m", "y", "c", "orange"]
-
-    # Check if we have any snapshots to plot
-    if len(target_snapshots) == 0:
-        return None, "No snapshots found matching target redshifts for SMF evolution plot"
-
-    # NOW create the figure (only after all validation passed)
-    fig, ax = setup_figure()
 
     # Plot model SMFs at target redshifts
     for i, (snap, galaxies, volume, metadata) in enumerate(target_snapshots):
