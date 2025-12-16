@@ -30,7 +30,6 @@ module:
   # List of tests (add new tests here)
   tests:
     unit:
-      - tests/test_unit_disk_radius.c
       - tests/test_unit_metallicity.c
 
     integration: []

@@ -13,10 +13,8 @@
 
 #include "constants.h"
 #include "error.h"
-#include "globals.h" // For access to InputTreeHalos
 #include "module_interface.h"
 #include "types.h"
-#include "_shared/disk_radius.h"
 #include "_system/parameter_helpers.h"
 
 // ============================================================================
@@ -56,20 +54,6 @@ int sage_calculate_star_formation_process(struct ModuleContext *ctx,
     }
 
     struct GalaxyData *gal = halo->galaxy;
-
-    // Validate HaloNr bounds
-    if (halo->HaloNr < 0 || halo->HaloNr >= InputTreeNHalos[TreeID]) {
-        ERROR_LOG("Halo has invalid HaloNr=%d (valid range: 0-%d)",
-                 halo->HaloNr, InputTreeNHalos[TreeID] - 1);
-        return -1;
-    }
-
-    // Update disk scale radius
-    gal->DiskScaleRadius = mimic_get_disk_radius(
-        InputTreeHalos[halo->HaloNr].Spin[0],
-        InputTreeHalos[halo->HaloNr].Spin[1],
-        InputTreeHalos[halo->HaloNr].Spin[2],
-        halo->Vvir, halo->Rvir);
 
     const double dt = ctx->substep_dt;
 
