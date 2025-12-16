@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: dbf0edc240e2535bea7f90db23200b66
+ * Source MD5: 59d5564a6e9137bf5c4b5e9a8090e654
  * To regenerate: make generate
  */
 
@@ -21,6 +21,7 @@ FoFWorkspace[p].galaxy->EjectedGas = 0.0;
 FoFWorkspace[p].galaxy->StellarMass = 0.0;
 FoFWorkspace[p].galaxy->BulgeMass = 0.0;
 FoFWorkspace[p].galaxy->ICS = 0.0;
+FoFWorkspace[p].galaxy->NewStarsMass = 0.0;
 FoFWorkspace[p].galaxy->MetalsStellarMass = 0.0;
 FoFWorkspace[p].galaxy->MetalsBulgeMass = 0.0;
 FoFWorkspace[p].galaxy->MetalsColdGas = 0.0;
@@ -29,14 +30,13 @@ FoFWorkspace[p].galaxy->MetalsICS = 0.0;
 FoFWorkspace[p].galaxy->MetalsEjectedGas = 0.0;
 FoFWorkspace[p].galaxy->BlackHoleMass = 0.0;
 FoFWorkspace[p].galaxy->QuasarModeBHaccretionMass = 0.0;
-FoFWorkspace[p].galaxy->NewStarsMass = 0.0;
 FoFWorkspace[p].galaxy->SupernovaReheatedMass = 0.0;
 FoFWorkspace[p].galaxy->SupernovaEjectedMass = 0.0;
 FoFWorkspace[p].galaxy->Cooling = 0.0;
 FoFWorkspace[p].galaxy->Heating = 0.0;
 FoFWorkspace[p].galaxy->Rcool = 0.0;
 FoFWorkspace[p].galaxy->Rheat = 0.0;
-FoFWorkspace[p].galaxy->OutflowRate = 0.0;
+FoFWorkspace[p].galaxy->SupernovaOutflowRate = 0.0;
 FoFWorkspace[p].galaxy->DiskScaleRadius = 0.0;
 FoFWorkspace[p].galaxy->TimeOfLastMajorMerger = 0.0;
 FoFWorkspace[p].galaxy->TimeOfLastMinorMerger = 0.0;

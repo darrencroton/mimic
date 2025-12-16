@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: dbf0edc240e2535bea7f90db23200b66
+ * Source MD5: 59d5564a6e9137bf5c4b5e9a8090e654
  * To regenerate: make generate
  */
 
@@ -235,16 +235,10 @@ HDF5_dst_sizes[i] = sizeof(galout.Heating);
 HDF5_field_names[i] = "Heating";
 HDF5_field_types[i++] = H5T_NATIVE_DOUBLE;
 
-/* Rheat */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, Rheat);
-HDF5_dst_sizes[i] = sizeof(galout.Rheat);
-HDF5_field_names[i] = "Rheat";
-HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-/* OutflowRate */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, OutflowRate);
-HDF5_dst_sizes[i] = sizeof(galout.OutflowRate);
-HDF5_field_names[i] = "OutflowRate";
+/* SupernovaOutflowRate */
+HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, SupernovaOutflowRate);
+HDF5_dst_sizes[i] = sizeof(galout.SupernovaOutflowRate);
+HDF5_field_names[i] = "SupernovaOutflowRate";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
 /* DiskScaleRadius */

@@ -36,7 +36,7 @@ modules:
   pre_timestep:
     - sage_reionization: process_full_halo
     - sage_calculate_infall: process_full_halo
-    - sage_disk_radius: process_full_halo
+    - sage_update_disk_radius: process_full_halo
 
   phase_1:
     - sage_add_infall: process_full_halo

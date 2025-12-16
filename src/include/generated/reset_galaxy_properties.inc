@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: dbf0edc240e2535bea7f90db23200b66
+ * Source MD5: 59d5564a6e9137bf5c4b5e9a8090e654
  * To regenerate: make generate
  */
 
@@ -22,11 +22,11 @@
 /* Resetting 10 snapshot-scoped accumulator properties */
 FoFWorkspace[ngal].galaxy->InfallingGas = 0.0;
 FoFWorkspace[ngal].galaxy->CoolingGas = 0.0;
-FoFWorkspace[ngal].galaxy->QuasarModeBHaccretionMass = 0.0;
 FoFWorkspace[ngal].galaxy->NewStarsMass = 0.0;
+FoFWorkspace[ngal].galaxy->QuasarModeBHaccretionMass = 0.0;
 FoFWorkspace[ngal].galaxy->SupernovaReheatedMass = 0.0;
 FoFWorkspace[ngal].galaxy->SupernovaEjectedMass = 0.0;
 FoFWorkspace[ngal].galaxy->Cooling = 0.0;
 FoFWorkspace[ngal].galaxy->Heating = 0.0;
 FoFWorkspace[ngal].galaxy->Rcool = 0.0;
-FoFWorkspace[ngal].galaxy->OutflowRate = 0.0;
+FoFWorkspace[ngal].galaxy->SupernovaOutflowRate = 0.0;

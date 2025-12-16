@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "dbf0edc240e2535bea7f90db23200b66",
+    "source_md5": "59d5564a6e9137bf5c4b5e9a8090e654",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -441,21 +441,8 @@
         0.0
       ]
     },
-    "Rheat": {
-      "name": "Rheat",
-      "type": "float",
-      "units": "Mpc/h",
-      "is_vector": false,
-      "range": [
-        0.0,
-        10.0
-      ],
-      "sentinels": [
-        0.0
-      ]
-    },
-    "OutflowRate": {
-      "name": "OutflowRate",
+    "SupernovaOutflowRate": {
+      "name": "SupernovaOutflowRate",
       "type": "float",
       "units": "1e10 Msun/h / time_unit",
       "is_vector": false,

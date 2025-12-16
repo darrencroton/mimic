@@ -43,7 +43,7 @@ static int failed = 0;
  * @brief   Test that accumulator properties reset to init_value
  *
  * Expected: Properties with init_repeat: true reset to 0.0
- * Validates: Cooling, Heating, QuasarModeBHaccretionMass, OutflowRate
+ * Validates: Cooling, Heating, QuasarModeBHaccretionMass, SupernovaOutflowRate
  */
 int test_accumulator_properties_reset(void) {
     /* ===== SETUP ===== */
@@ -56,7 +56,7 @@ int test_accumulator_properties_reset(void) {
     galaxy->Cooling = 100.5;
     galaxy->Heating = 250.75;
     galaxy->QuasarModeBHaccretionMass = 0.5;
-    galaxy->OutflowRate = 10.25;
+    galaxy->SupernovaOutflowRate = 10.25;
 
     /* Set some cumulative properties to verify they're NOT reset */
     galaxy->StellarMass = 50.0;
@@ -78,15 +78,15 @@ int test_accumulator_properties_reset(void) {
                 "Before reset: Heating should be 250.75");
     TEST_ASSERT(fabs(galaxy->QuasarModeBHaccretionMass - 0.5) < 1e-6,
                 "Before reset: QuasarModeBHaccretionMass should be 0.5");
-    TEST_ASSERT(fabs(galaxy->OutflowRate - 10.25) < 1e-6,
-                "Before reset: OutflowRate should be 10.25");
+    TEST_ASSERT(fabs(galaxy->SupernovaOutflowRate - 10.25) < 1e-6,
+                "Before reset: SupernovaOutflowRate should be 10.25");
 
     /* Apply the reset (simulating what happens in build_model.c) */
     /* This mimics the generated code from reset_galaxy_properties.inc */
     galaxy->Cooling = 0.0;
     galaxy->Heating = 0.0;
     galaxy->QuasarModeBHaccretionMass = 0.0;
-    galaxy->OutflowRate = 0.0;
+    galaxy->SupernovaOutflowRate = 0.0;
 
     /* ===== VALIDATE ===== */
     /* After reset: accumulator properties should be 0.0 */
@@ -96,8 +96,8 @@ int test_accumulator_properties_reset(void) {
                 "After reset: Heating should be 0.0");
     TEST_ASSERT(fabs(galaxy->QuasarModeBHaccretionMass) < 1e-10,
                 "After reset: QuasarModeBHaccretionMass should be 0.0");
-    TEST_ASSERT(fabs(galaxy->OutflowRate) < 1e-10,
-                "After reset: OutflowRate should be 0.0");
+    TEST_ASSERT(fabs(galaxy->SupernovaOutflowRate) < 1e-10,
+                "After reset: SupernovaOutflowRate should be 0.0");
 
     /* Cumulative properties should be UNCHANGED */
     TEST_ASSERT(fabs(galaxy->StellarMass - 50.0) < 1e-6,
@@ -154,7 +154,7 @@ int test_cumulative_properties_preserved(void) {
     galaxy->Cooling = 0.0;
     galaxy->Heating = 0.0;
     galaxy->QuasarModeBHaccretionMass = 0.0;
-    galaxy->OutflowRate = 0.0;
+    galaxy->SupernovaOutflowRate = 0.0;
 
     /* ===== VALIDATE ===== */
     /* All cumulative properties should be UNCHANGED */
@@ -210,7 +210,7 @@ int test_mixed_property_behavior(void) {
     progenitor->Cooling = 150.5;      // Accumulated energy
     progenitor->Heating = 85.2;       // Accumulated energy
     progenitor->QuasarModeBHaccretionMass = 0.002;  // BH growth this snapshot
-    progenitor->OutflowRate = 5.7;    // Outflow rate from previous snapshot
+    progenitor->SupernovaOutflowRate = 5.7;    // Outflow rate from previous snapshot
 
     /* Create a "descendant" galaxy (simulating memcpy in copy_halos_from_progenitors) */
     struct GalaxyData *descendant = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
@@ -227,7 +227,7 @@ int test_mixed_property_behavior(void) {
     descendant->Cooling = 0.0;
     descendant->Heating = 0.0;
     descendant->QuasarModeBHaccretionMass = 0.0;
-    descendant->OutflowRate = 0.0;
+    descendant->SupernovaOutflowRate = 0.0;
 
     /* ===== VALIDATE ===== */
     /* Accumulator properties: RESET to 0.0 */
@@ -237,8 +237,8 @@ int test_mixed_property_behavior(void) {
                 "Descendant: Heating reset to 0.0");
     TEST_ASSERT(fabs(descendant->QuasarModeBHaccretionMass) < 1e-10,
                 "Descendant: QuasarModeBHaccretionMass reset to 0.0");
-    TEST_ASSERT(fabs(descendant->OutflowRate) < 1e-10,
-                "Descendant: OutflowRate reset to 0.0");
+    TEST_ASSERT(fabs(descendant->SupernovaOutflowRate) < 1e-10,
+                "Descendant: SupernovaOutflowRate reset to 0.0");
 
     /* Cumulative properties: PRESERVED from progenitor */
     TEST_ASSERT(fabs(descendant->StellarMass - progenitor->StellarMass) < 1e-6,
@@ -279,14 +279,14 @@ int test_reset_to_correct_init_value(void) {
     galaxy->Cooling = 999.9;
     galaxy->Heating = 888.8;
     galaxy->QuasarModeBHaccretionMass = 7.77;
-    galaxy->OutflowRate = 66.6;
+    galaxy->SupernovaOutflowRate = 66.6;
 
     /* ===== EXECUTE ===== */
     /* Apply reset to init_value (which is 0.0 for all 4 properties) */
     galaxy->Cooling = 0.0;  /* init_value from model_properties.yaml */
     galaxy->Heating = 0.0;  /* init_value from model_properties.yaml */
     galaxy->QuasarModeBHaccretionMass = 0.0;  /* init_value from model_properties.yaml */
-    galaxy->OutflowRate = 0.0;  /* init_value from model_properties.yaml */
+    galaxy->SupernovaOutflowRate = 0.0;  /* init_value from model_properties.yaml */
 
     /* ===== VALIDATE ===== */
     /* Verify exact reset to init_value (0.0) */
@@ -294,7 +294,7 @@ int test_reset_to_correct_init_value(void) {
     TEST_ASSERT(galaxy->Heating == 0.0, "Heating reset to init_value (0.0)");
     TEST_ASSERT(galaxy->QuasarModeBHaccretionMass == 0.0,
                 "QuasarModeBHaccretionMass reset to init_value (0.0)");
-    TEST_ASSERT(galaxy->OutflowRate == 0.0, "OutflowRate reset to init_value (0.0)");
+    TEST_ASSERT(galaxy->SupernovaOutflowRate == 0.0, "SupernovaOutflowRate reset to init_value (0.0)");
 
     /* ===== CLEANUP ===== */
     myfree(galaxy);
@@ -325,7 +325,7 @@ int test_new_halo_initialization(void) {
     galaxy->Cooling = 0.0;
     galaxy->Heating = 0.0;
     galaxy->QuasarModeBHaccretionMass = 0.0;
-    galaxy->OutflowRate = 0.0;
+    galaxy->SupernovaOutflowRate = 0.0;
 
     /* Sample of cumulative properties (init_value: 0.0 for most) */
     galaxy->StellarMass = 0.0;
@@ -342,7 +342,7 @@ int test_new_halo_initialization(void) {
     TEST_ASSERT(galaxy->Heating == 0.0, "New halo: Heating = 0.0");
     TEST_ASSERT(galaxy->QuasarModeBHaccretionMass == 0.0,
                 "New halo: QuasarModeBHaccretionMass = 0.0");
-    TEST_ASSERT(galaxy->OutflowRate == 0.0, "New halo: OutflowRate = 0.0");
+    TEST_ASSERT(galaxy->SupernovaOutflowRate == 0.0, "New halo: SupernovaOutflowRate = 0.0");
 
     /* Verify cumulative properties initialize to 0.0 */
     TEST_ASSERT(galaxy->StellarMass == 0.0, "New halo: StellarMass = 0.0");
@@ -377,7 +377,7 @@ int test_property_count_consistency(void) {
      *   1. Cooling
      *   2. Heating
      *   3. QuasarModeBHaccretionMass
-     *   4. OutflowRate
+     *   4. SupernovaOutflowRate
      *
      * All other galaxy properties (21 total) have init_repeat: false (default)
      */

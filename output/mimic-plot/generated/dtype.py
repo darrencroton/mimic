@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: dbf0edc240e2535bea7f90db23200b66
+Source MD5: 59d5564a6e9137bf5c4b5e9a8090e654
 To regenerate: make generate
 """
 
@@ -52,8 +52,7 @@ def get_binary_dtype():
         ("QuasarModeBHaccretionMass", np.float32),
         ("Cooling", np.float64),
         ("Heating", np.float64),
-        ("Rheat", np.float32),
-        ("OutflowRate", np.float32),
+        ("SupernovaOutflowRate", np.float32),
         ("DiskScaleRadius", np.float32),
         ("TimeOfLastMajorMerger", np.float32),
         ("TimeOfLastMinorMerger", np.float32),
@@ -99,8 +98,7 @@ def get_hdf5_dtype():
         ("QuasarModeBHaccretionMass", np.float32),
         ("Cooling", np.float64),
         ("Heating", np.float64),
-        ("Rheat", np.float32),
-        ("OutflowRate", np.float32),
+        ("SupernovaOutflowRate", np.float32),
         ("DiskScaleRadius", np.float32),
         ("TimeOfLastMajorMerger", np.float32),
         ("TimeOfLastMinorMerger", np.float32),
@@ -156,8 +154,7 @@ def get_units():
         'QuasarModeBHaccretionMass': '1e10 Msun/h',
         'Cooling': 'log10(erg/s)',
         'Heating': 'log10(erg/s)',
-        'Rheat': 'Mpc/h',
-        'OutflowRate': '1e10 Msun/h / time_unit',
+        'SupernovaOutflowRate': '1e10 Msun/h / time_unit',
         'DiskScaleRadius': 'Mpc/h',
         'TimeOfLastMajorMerger': 'Gyr',
         'TimeOfLastMinorMerger': 'Gyr',

@@ -163,7 +163,7 @@ static void update_from_feedback(struct GalaxyData *gal, struct GalaxyData *cent
   central_gal->MetalsEjectedMass += metallicity_hot * ejected_mass;
 
   /* Update outflow rate */
-  gal->OutflowRate += reheated_mass;
+  gal->SupernovaOutflowRate += reheated_mass;
 }
 
 /* ============================================================================

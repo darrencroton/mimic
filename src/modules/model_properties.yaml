@@ -34,7 +34,6 @@ galaxy_properties:
     init_source: default
     init_value: 0.0
     init_repeat: true
-    output_source: galaxy_property
     range: [-100000.0, 100000.0]  # Can be negative for mass loss
     sentinels: [0.0]  # Can be zero if no infall (e.g., satellites)
 
@@ -46,7 +45,6 @@ galaxy_properties:
     init_source: default
     init_value: 0.0
     init_repeat: true
-    output_source: galaxy_property
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (cannot be negative)
     sentinels: [0.0]  # Can legitimately be zero (no cooling)
 
@@ -119,6 +117,17 @@ galaxy_properties:
     output_source: galaxy_property
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
     sentinels: [0.0]  # Zero if no satellites have been disrupted
+
+  - name: NewStarsMass
+    type: float
+    units: 1e10 Msun/h
+    description: New stars formed this timestep (before recycling), calculated by star formation module
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
+    sentinels: [0.0]  # Zero when no star formation occurring
 
   # =============================================================================
   # CHEMICAL COMPOSITION
@@ -221,18 +230,6 @@ galaxy_properties:
   # ENERGY & FEEDBACK
   # =============================================================================
 
-  - name: NewStarsMass
-    type: float
-    units: 1e10 Msun/h
-    description: New stars formed this timestep (before recycling), calculated by star formation module
-    output: false
-    init_source: default
-    init_value: 0.0
-    init_repeat: true  # Reset each snapshot
-    output_source: galaxy_property
-    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
-    sentinels: [0.0]  # Zero when no star formation occurring
-
   - name: SupernovaReheatedMass
     type: float
     units: 1e10 Msun/h
@@ -241,7 +238,6 @@ galaxy_properties:
     init_source: default
     init_value: 0.0
     init_repeat: true  # Reset each snapshot
-    output_source: galaxy_property
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
     sentinels: [0.0]  # Zero when no feedback occurring
 
@@ -253,7 +249,6 @@ galaxy_properties:
     init_source: default
     init_value: 0.0
     init_repeat: true  # Reset each snapshot
-    output_source: galaxy_property
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
     sentinels: [0.0]  # Zero when no feedback occurring
 
@@ -293,7 +288,6 @@ galaxy_properties:
     init_source: default
     init_value: 0.0
     init_repeat: true
-    output_source: galaxy_property
     range: [0.0, 10.0]  # 0 to 10 Mpc/h (cannot be negative)
     sentinels: [0.0]  # Can be zero if no cooling
 
@@ -301,14 +295,13 @@ galaxy_properties:
     type: float
     units: Mpc/h
     description: Heating radius from past AGN feedback events
-    output: true
+    output: false
     init_source: default
     init_value: 0.0
-    output_source: galaxy_property
     range: [0.0, 10.0]  # Comparable to virial radius
     sentinels: [0.0]  # Can be zero if no AGN heating has occurred
 
-  - name: OutflowRate
+  - name: SupernovaOutflowRate
     type: float
     units: 1e10 Msun/h / time_unit
     description: Current gas outflow rate from supernova feedback

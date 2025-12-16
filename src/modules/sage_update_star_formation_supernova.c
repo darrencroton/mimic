@@ -132,7 +132,7 @@ int sage_update_star_formation_supernova_process(struct ModuleContext *ctx,
     gal->MetalsEjectedGas += metallicity_hot * ejected_mass;
 
     // Update outflow rate
-    gal->OutflowRate += reheated_mass;
+    gal->SupernovaOutflowRate += reheated_mass;
 
     // ========================================================================
     // METAL ENRICHMENT: Instantaneous recycling approximation

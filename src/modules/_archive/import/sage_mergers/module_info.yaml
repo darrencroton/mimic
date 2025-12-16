@@ -28,7 +28,7 @@ module:
       - QuasarModeBHaccretionMass
       - TimeOfLastMajorMerger
       - TimeOfLastMinorMerger
-      - OutflowRate
+      - SupernovaOutflowRate
       - DiskScaleRadius
 
     parameters:

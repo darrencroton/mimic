@@ -1,5 +1,5 @@
 /**
- * @file    sage_disk_radius.c
+ * @file    sage_update_disk_radius.c
  * @brief   SAGE disk radius module - calculates disk scale radii for galaxies
  *
  * Computes disk scale radius for Type 1 and Type 2 galaxies based on Mo, Mao & White (1998)
@@ -72,15 +72,15 @@ static float calculate_disk_radius(float spin_x, float spin_y, float spin_z,
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
-int sage_disk_radius_init(void)
+int sage_update_disk_radius_init(void)
 {
-    INFO_LOG("SAGE disk radius module initialized");
+    INFO_LOG("SAGE update disk radius module initialized");
     VERBOSE_LOG("  Physics: DiskScaleRadius = (λ / √2) * Rvir (Mo98 model)");
 
     return 0;
 }
 
-int sage_disk_radius_process(struct ModuleContext *ctx __attribute__((unused)),
+int sage_update_disk_radius_process(struct ModuleContext *ctx __attribute__((unused)),
                               struct Halo *halos, int ngal)
 {
     if (halos == NULL || ngal <= 0) {
@@ -108,7 +108,7 @@ int sage_disk_radius_process(struct ModuleContext *ctx __attribute__((unused)),
     return 0;
 }
 
-int sage_disk_radius_cleanup(void)
+int sage_update_disk_radius_cleanup(void)
 {
     VERBOSE_LOG("SAGE disk radius module cleaned up");
     return 0;
