@@ -122,7 +122,7 @@ int cooling_tables_init(const char *cool_functions_dir)
     }
 
     tables_initialized = 1;
-    INFO_LOG("Cooling function tables loaded successfully from %s", cool_functions_dir);
+    VERBOSE_LOG("Cooling function tables loaded successfully from %s", cool_functions_dir);
 
     return 0;
 }

@@ -58,7 +58,7 @@
  * Validated in module init function. */
 
 static int DISK_INSTABILITY_ON;
-static double DISK_RADIUS_FACTOR;
+static double STAR_FORMING_DISK_FACTOR;
 
 /* ============================================================================
  * PHYSICS CONSTANTS
@@ -109,7 +109,7 @@ static double calculate_disk_scale_radius(float rvir) {
  *
  * Implements the Mo, Mao & White (1998) stability criterion:
  *   Mcrit = Vmax^2 * Reff / G
- * where Reff = DISK_RADIUS_FACTOR * DiskScaleRadius
+ * where Reff = STAR_FORMING_DISK_FACTOR * DiskScaleRadius
  *
  * Disks with mass exceeding Mcrit are gravitationally unstable and
  * will transfer excess mass to the bulge.
@@ -122,7 +122,7 @@ static double calculate_disk_scale_radius(float rvir) {
 static double calculate_critical_disk_mass(float vmax, float disk_scale_radius,
                                            double G_code) {
   /* Calculate effective disk radius */
-  double reff = DISK_RADIUS_FACTOR * disk_scale_radius;
+  double reff = STAR_FORMING_DISK_FACTOR * disk_scale_radius;
 
   /* Stability criterion: Mcrit = Vmax^2 * Reff / G */
   double mcrit = safe_div(vmax * vmax * reff, G_code, 0.0);
@@ -148,14 +148,14 @@ static int sage_disk_instability_init(void) {
   /* Load and validate parameters from input YAML file */
   LOAD_AND_VALIDATE_OPTION("DiskInstabilityOn", DISK_INSTABILITY_ON, 1,
                            "0=disabled, 1=enabled");
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("DiskRadiusFactor", DISK_RADIUS_FACTOR, 1.0, 10.0,
-                                    "disk radius scaling factor");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("StarFormingDiskFactor", STAR_FORMING_DISK_FACTOR, 0.0, 10.0,
+                                    "star forming disk factor");
 
   /* Log initialization */
   if (DISK_INSTABILITY_ON) {
     VERBOSE_LOG("SAGE Disk Instability module initialized (v1.0.0 - PARTIAL IMPLEMENTATION)");
     VERBOSE_LOG("  Physics: Mcrit = Vmax^2 * (3 * Rd) / G, transfer excess to bulge");
-    VERBOSE_LOG("  DiskRadiusFactor = %.2f (from config)", DISK_RADIUS_FACTOR);
+    VERBOSE_LOG("  StarFormingDiskFactor = %.2f (from config)", STAR_FORMING_DISK_FACTOR);
     VERBOSE_LOG("  Note: Starburst and AGN components deferred pending sage_mergers module");
   } else {
     VERBOSE_LOG("SAGE Disk Instability module initialized but DISABLED");

@@ -476,12 +476,32 @@ int module_cleanup(void);
 **Module Context**:
 ```c
 struct ModuleContext {
-  double redshift;     /* Current redshift */
-  double dt;           /* Timestep (sec) */
-  float a_scale;       /* Scale factor */
-  int snapshot;        /* Snapshot number */
+  /* Snapshot information */
+  double redshift;           /* Current redshift */
+  double time;               /* Cosmic time (Gyr/h) */
+  int snapshot_number;       /* Snapshot index */
+
+  /* Sub-stepping information */
+  int substep_number;        /* Current substep (0-indexed) */
+  int num_substeps;          /* Total substeps this timestep */
+  double time_interval;      /* Total time for this timestep */
+  double substep_time;       /* Time at substep midpoint */
+  double substep_dt;         /* Timestep for this substep (use for integration) */
+
+  /* Halo information */
+  int central_index;         /* Index of Type 0 central in array */
+  struct Halo *central_galaxy;  /* Direct pointer to FOF central galaxy */
+
+  /* Configuration */
+  const struct MimicConfig *params;  /* Read-only config access */
 };
 ```
+
+**Key context fields:**
+- `substep_dt`: Use this for time integration in physics modules
+- `central_galaxy`: Access FOF central's halo and galaxy properties (both centrals and satellites)
+- `central_galaxy->Vvir`: Central's virial velocity (for ejection calculations)
+- `central_galaxy->galaxy->HotGas`: Central's hot gas reservoir (satellites add gas here)
 
 ### Model Parameter Access
 

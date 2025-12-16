@@ -22,6 +22,7 @@
 // ============================================================================
 
 static double SFR_EFFICIENCY;
+static double STAR_FORMING_DISK_FACTOR;
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -31,9 +32,12 @@ int sage_calculate_star_formation_init(void)
 {
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("SfrEfficiency", SFR_EFFICIENCY, 0.0, 1.0,
                                       "star formation efficiency");
+    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("StarFormingDiskFactor", STAR_FORMING_DISK_FACTOR, 0.0, 10.0,
+                                      "star forming disk factor");
 
     INFO_LOG("SAGE calculate star formation module initialized");
     VERBOSE_LOG("  SfrEfficiency = %.4f", SFR_EFFICIENCY);
+    VERBOSE_LOG("  StarFormingDiskFactor = %.2f (from config)", STAR_FORMING_DISK_FACTOR);
 
     return 0;
 }
@@ -48,8 +52,7 @@ int sage_calculate_star_formation_process(struct ModuleContext *ctx,
 
     struct Halo *halo = &halos[0];
 
-    // Skip orphan galaxies (type 2)
-    if (halo->Type == 2 || halo->galaxy == NULL) {
+    if (halo->galaxy == NULL) {
         return 0;
     }
 
@@ -58,8 +61,8 @@ int sage_calculate_star_formation_process(struct ModuleContext *ctx,
     const double dt = ctx->substep_dt;
 
     // Star formation recipe: Kennicutt-Schmidt with critical threshold
-    // We take the typical star forming region as 3.0*r_s using the Milky Way as a guide
-    const double reff = 3.0 * gal->DiskScaleRadius;
+    // We take the typical star forming region as STAR_FORMING_DISK_FACTOR*r_s (typically 3.0*r_s)
+    const double reff = STAR_FORMING_DISK_FACTOR * gal->DiskScaleRadius;
     const double tdyn = reff / halo->Vvir;
 
     // From Kauffmann (1996) eq7 x piR^2, (Vvir in km/s, reff in Mpc/h) in units of 10^10Msun/h

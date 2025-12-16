@@ -332,6 +332,13 @@ static int my_module_process(struct ModuleContext *ctx,
 
     /* Write properties (outputs) */
     gal->NewProperty = result;
+
+    /* Access central galaxy (available for both centrals and satellites) */
+    struct GalaxyData *central_gal = ctx->central_galaxy->galaxy;
+    double central_vvir = ctx->central_galaxy->Vvir;
+
+    /* Example: Add gas to central's hot halo (satellites are stripped) */
+    central_gal->HotGas += some_mass;
   }
 
   return 0;
@@ -486,6 +493,16 @@ modules:
 - Read inputs from `gal->PropertyName`
 - Write outputs to `gal->PropertyName`
 - Don't modify read-only halo properties
+
+**Accessing central galaxy** (both `process_by_galaxy` and `process_full_halo`):
+- Use `ctx->central_galaxy` to access the FOF group's Type 0 central
+- Access central's halo properties: `ctx->central_galaxy->Vvir`, `ctx->central_galaxy->Mvir`, etc.
+- Access central's galaxy properties: `ctx->central_galaxy->galaxy->HotGas`, etc.
+- Use cases:
+  - Calculate ejection relative to central's potential well
+  - Add satellite's reheated gas to central's hot halo
+  - Eject gas from central's hot halo to central's ejected reservoir
+- Safe to use even when processing a central (points to self)
 
 **Memory management**:
 - Use `mymalloc_cat()` / `myfree()` for allocations

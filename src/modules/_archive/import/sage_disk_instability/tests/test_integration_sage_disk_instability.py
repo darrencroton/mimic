@@ -178,7 +178,7 @@ def test_output_properties_exist():
     # Add model_parameters (sage_disk_instability needs 2 parameters)
     config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
-        'DiskRadiusFactor': 3.0
+        'StarFormingDiskFactor': 3.0
     }
 
     with open(test_param, 'w') as f:
@@ -250,10 +250,10 @@ def test_parameters_configurable():
     config['output']['output_directory'] = str(temp_dir)
     config['output']['output_format'] = 'binary'
 
-    # Add model_parameters with custom DiskRadiusFactor to test configurability
+    # Add model_parameters with custom StarFormingDiskFactor to test configurability
     config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
-        'DiskRadiusFactor': 5.0  # Custom value (default is 3.0)
+        'StarFormingDiskFactor': 5.0  # Custom value (default is 3.0)
     }
 
     with open(test_param, 'w') as f:
@@ -272,7 +272,7 @@ def test_parameters_configurable():
         return False
 
     # Check that parameters were read (look for message in output)
-    if 'DiskRadiusFactor = 5.00' in result.stdout or 'DiskRadiusFactor = 5.00' in result.stderr:
+    if 'StarFormingDiskFactor = 5.00' in result.stdout or 'StarFormingDiskFactor = 5.00' in result.stderr:
         print(f"{GREEN}✓ PASS{NC}: Module parameters configured successfully")
         return True
     else:
@@ -299,7 +299,7 @@ def test_stability_physics():
     # Add model_parameters (sage_disk_instability needs 2 parameters)
     config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
-        'DiskRadiusFactor': 3.0
+        'StarFormingDiskFactor': 3.0
     }
 
     with open(test_param, 'w') as f:
@@ -374,7 +374,7 @@ def test_stellar_conservation():
     # Add model_parameters (sage_disk_instability needs 2 parameters)
     config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
-        'DiskRadiusFactor': 3.0
+        'StarFormingDiskFactor': 3.0
     }
 
     with open(test_param, 'w') as f:
@@ -446,7 +446,7 @@ def test_memory_safety():
     # Add model_parameters (sage_disk_instability needs 2 parameters)
     config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
-        'DiskRadiusFactor': 3.0
+        'StarFormingDiskFactor': 3.0
     }
 
     with open(test_param, 'w') as f:
@@ -505,7 +505,7 @@ def test_execution_completes():
     # Add model_parameters (sage_disk_instability needs 2 parameters)
     config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
-        'DiskRadiusFactor': 3.0
+        'StarFormingDiskFactor': 3.0
     }
 
     with open(test_param, 'w') as f:
@@ -563,7 +563,7 @@ def test_multiple_module_pipeline():
     # Add model_parameters for all enabled modules
     config['modules']['parameters'] = {
         'DiskInstabilityOn': 1,
-        'DiskRadiusFactor': 3.0
+        'StarFormingDiskFactor': 3.0
     }
     if 'sage_calculate_infall' in modules_to_test:
         config['modules']['parameters']['BaryonFrac'] = 0.17

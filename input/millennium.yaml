@@ -66,6 +66,7 @@ modules:
 
     # Star Formation
     SfrEfficiency: 0.02                 # Star formation efficiency
+    StarFormingDiskFactor: 3.0          # Number of disc scale radii to form stars over
 
     # Supernova Feedback
     FeedbackReheatingEpsilon: 3.0       # Reheating efficiency
@@ -83,6 +84,3 @@ modules:
     ThreshMajorMerger: 0.3              # Mass ratio threshold for major mergers
     BlackHoleGrowthRate: 0.01           # BH growth efficiency during mergers
     QuasarModeEfficiency: 0.001         # Quasar-mode AGN feedback efficiency
-
-    # Disk Instability
-    DiskRadiusFactor: 3.0               # Disk effective radius factor

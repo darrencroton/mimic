@@ -166,7 +166,7 @@ int test_parameter_reading(void)
     /* Set all required parameters, then override specific ones for testing */
     set_test_model_parameters();
     strcpy(MimicConfig.ModelParams[18].value, "0");    /* DiskInstabilityOn = off */
-    strcpy(MimicConfig.ModelParams[19].value, "5.0");  /* DiskRadiusFactor custom value */
+    strcpy(MimicConfig.ModelParams[19].value, "5.0");  /* StarFormingDiskFactor custom value */
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();

@@ -52,8 +52,6 @@ int sage_update_star_formation_supernova_init(void)
 int sage_update_star_formation_supernova_process(struct ModuleContext *ctx,
                                                   struct Halo *halos, int ngal)
 {
-    (void)ctx;  // Unused in this module
-
     if (ngal != 1) {
         ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
         return -1;
@@ -61,12 +59,12 @@ int sage_update_star_formation_supernova_process(struct ModuleContext *ctx,
 
     struct Halo *halo = &halos[0];
 
-    // Skip orphan galaxies (type 2)
-    if (halo->Type == 2 || halo->galaxy == NULL) {
+    if (halo->galaxy == NULL) {
         return 0;
     }
 
     struct GalaxyData *gal = halo->galaxy;
+    struct GalaxyData *central_gal = ctx->central_galaxy->galaxy;
 
     // Read calculated values from previous modules
     const double stars = gal->NewStarsMass;
@@ -103,47 +101,47 @@ int sage_update_star_formation_supernova_process(struct ModuleContext *ctx,
     // Recompute metallicity after star formation
     metallicity = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);
 
-    // Remove reheated gas from cold phase
+    // Remove reheated gas from this galaxy's cold phase
     gal->ColdGas -= reheated_mass;
     gal->MetalsColdGas -= metallicity * reheated_mass;
 
-    // Add reheated gas to hot phase (for both centrals and satellites)
-    gal->HotGas += reheated_mass;
-    gal->MetalsHotGas += metallicity * reheated_mass;
+    // Add reheated gas to central's hot halo (satellites are stripped)
+    central_gal->HotGas += reheated_mass;
+    central_gal->MetalsHotGas += metallicity * reheated_mass;
 
     // ========================================================================
     // SUPERNOVA FEEDBACK: Ejection (hot → ejected)
     // ========================================================================
 
-    // Limit ejected mass to available hot gas
-    if(ejected_mass > gal->HotGas) {
-        ejected_mass = gal->HotGas;
+    // Limit ejected mass to available hot gas in central
+    if(ejected_mass > central_gal->HotGas) {
+        ejected_mass = central_gal->HotGas;
     }
 
-    // Calculate current hot gas metallicity
-    const double metallicity_hot = mimic_get_metallicity(gal->HotGas, gal->MetalsHotGas);
+    // Calculate central's hot gas metallicity
+    const double metallicity_hot = mimic_get_metallicity(central_gal->HotGas, central_gal->MetalsHotGas);
 
-    // Remove ejected gas from hot phase
-    gal->HotGas -= ejected_mass;
-    gal->MetalsHotGas -= metallicity_hot * ejected_mass;
+    // Remove ejected gas from central's hot phase
+    central_gal->HotGas -= ejected_mass;
+    central_gal->MetalsHotGas -= metallicity_hot * ejected_mass;
 
-    // Add ejected gas to ejected reservoir
-    gal->EjectedGas += ejected_mass;
-    gal->MetalsEjectedGas += metallicity_hot * ejected_mass;
+    // Add ejected gas to central's ejected reservoir
+    central_gal->EjectedGas += ejected_mass;
+    central_gal->MetalsEjectedGas += metallicity_hot * ejected_mass;
 
-    // Update outflow rate
+    // Update outflow rate (for tracking)
     gal->SupernovaOutflowRate += reheated_mass;
 
     // ========================================================================
     // METAL ENRICHMENT: Instantaneous recycling approximation
     // ========================================================================
 
-    if(gal->ColdGas > 1.0e-8) {
+    if(gal->ColdGas > EPSILON_SMALL) {
         const double FracZleaveDiskVal = FRAC_Z_LEAVE_DISK * exp(-1.0 * halo->Mvir / 30.0);  // Krumholz & Dekel 2011 Eq. 22 (metal ejection scale = 30.0 in 10^10 Msun/h)
         gal->MetalsColdGas += YIELD * (1.0 - FracZleaveDiskVal) * stars;
-        gal->MetalsHotGas += YIELD * FracZleaveDiskVal * stars;
+        central_gal->MetalsHotGas += YIELD * FracZleaveDiskVal * stars;
     } else {
-        gal->MetalsHotGas += YIELD * stars;
+        central_gal->MetalsHotGas += YIELD * stars;
     }
 
     // ========================================================================

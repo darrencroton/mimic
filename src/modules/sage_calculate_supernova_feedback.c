@@ -59,8 +59,6 @@ int sage_calculate_supernova_feedback_init(void)
 int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx,
                                                struct Halo *halos, int ngal)
 {
-    (void)ctx;  // Unused in this module
-
     if (ngal != 1) {
         ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
         return -1;
@@ -68,8 +66,7 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx,
 
     struct Halo *halo = &halos[0];
 
-    // Skip orphan galaxies (type 2)
-    if (halo->Type == 2 || halo->galaxy == NULL) {
+    if (halo->galaxy == NULL) {
         return 0;
     }
 
@@ -92,11 +89,13 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx,
         gal->NewStarsMass = stars;
     }
 
-    // Determine ejection (uses galaxy's own Vvir for both centrals and satellites)
+    // Determine ejection relative to central's potential well
+    // Both centrals and satellites eject into the FOF group's halo
     double ejected_mass = 0.0;
-    if(halo->Vvir > 0.0) {
+    const double central_vvir = ctx->central_galaxy->Vvir;
+    if(central_vvir > 0.0) {
         ejected_mass = (FEEDBACK_EJECTION_EFFICIENCY * (EtaSNcode * EnergySNcode) /
-                       (halo->Vvir * halo->Vvir) - FEEDBACK_REHEATING_EPSILON) * stars;
+                       (central_vvir * central_vvir) - FEEDBACK_REHEATING_EPSILON) * stars;
     }
 
     if(ejected_mass < 0.0) {
@@ -107,8 +106,8 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx,
     gal->SupernovaReheatedMass = reheated_mass;
     gal->SupernovaEjectedMass = ejected_mass;
 
-    DEBUG_LOG("Type=%d: Stars=%.3e, Reheat=%.3e, Eject=%.3e (Vvir=%.2f)",
-             halo->Type, stars, reheated_mass, ejected_mass, halo->Vvir);
+    DEBUG_LOG("Type=%d: Stars=%.3e, Reheat=%.3e, Eject=%.3e (CentralVvir=%.2f)",
+             halo->Type, stars, reheated_mass, ejected_mass, central_vvir);
 
     return 0;
 }

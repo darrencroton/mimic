@@ -25,7 +25,7 @@ module:
 
     parameters:
       - DiskInstabilityOn
-      - DiskRadiusFactor
+      - StarFormingDiskFactor
 
   tests:
     unit: tests/test_unit_sage_disk_instability.c

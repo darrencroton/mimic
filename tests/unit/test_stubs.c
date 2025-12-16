@@ -91,7 +91,7 @@ void set_test_model_parameters(void) {
     strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
 
     /* Disk Instability */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "DiskRadiusFactor");
+    strcpy(MimicConfig.ModelParams[idx].param_name, "StarFormingDiskFactor");
     strcpy(MimicConfig.ModelParams[idx++].value, "3.0");
 
     /* Set count (reduced from 20 to 15 after removing SFprescription, SupernovaRecipeOn, DiskInstabilityOn, EnergySNcode, EtaSNcode) */

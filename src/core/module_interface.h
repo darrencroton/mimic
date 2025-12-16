@@ -221,6 +221,22 @@ struct ModuleContext {
    */
   int central_index;
 
+  /**
+   * @brief Pointer to central galaxy for this FOF group
+   *
+   * Direct access to the Type 0 central galaxy (FoFWorkspace[central_index]).
+   * This allows process_by_galaxy modules to access central galaxy properties
+   * when processing satellites.
+   *
+   * Use cases:
+   * - Access central's Vvir for ejection calculations
+   * - Modify central's HotGas/EjectedGas from satellite modules
+   * - Read central's properties for satellite physics
+   *
+   * Always non-NULL during module execution. Safe to dereference.
+   */
+  struct Halo *central_galaxy;
+
   /* ===== Configuration Access ===== */
 
   /**
