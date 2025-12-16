@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 59d5564a6e9137bf5c4b5e9a8090e654
+ * Source MD5: 2b9dd19ea75e84c235d3a287c604ac40
  * To regenerate: make generate
  */
 
@@ -14,7 +14,7 @@
 /* Provides discoverable, queryable metadata for all output fields */
 
 /* Total number of output fields */
-#define NUM_FIELDS 41
+#define NUM_FIELDS 42
 
 /* Define metadata structure */
 struct FieldMetadata {
@@ -63,6 +63,7 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"Cooling", "log10(erg/s)", "Cumulative cooling energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed"},
   {"Heating", "log10(erg/s)", "Cumulative AGN heating energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed"},
   {"SupernovaOutflowRate", "1e10 Msun/h / time_unit", "Current gas outflow rate from supernova feedback"},
+  {"StarFormationRate", "Msun/yr", "Average star formation rate over snapshot (total stars formed / dT)"},
   {"DiskScaleRadius", "Mpc/h", "Disk scale radius (exponential disk scale length)"},
   {"TimeOfLastMajorMerger", "Gyr", "Cosmic time of last major merger (mass ratio > threshold)"},
   {"TimeOfLastMinorMerger", "Gyr", "Cosmic time of last minor merger (mass ratio > 0.1)"},

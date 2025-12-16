@@ -58,8 +58,8 @@ def plot(
     # Check required and optional fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['StellarMass'],
-        optional_fields=['Sfr', 'CentralMvir'],
+        required_fields=['StellarMass', 'StarFormationRate'],
+        optional_fields=['CentralMvir'],
         plot_name='Quiescent Fraction'
     )
 
@@ -73,7 +73,7 @@ def plot(
     sSFRcut = -11.0  # Log10 of specific SFR in yr^-1
 
     # Define the stellar mass threshold for "group" scale halos (log10 Msun)
-    groupscale = 12.5
+    groupscale = 13.0
 
     # Filter for galaxies with non-zero stellar mass
     w = np.where(galaxies.StellarMass > 0.0)[0]
@@ -106,8 +106,8 @@ def plot(
     stellar_mass_phys = galaxies.StellarMass[w] * 1.0e10 / hubble_h
     nonzero_mass = stellar_mass_phys > 0
 
-    if np.any(nonzero_mass) and optional.get('Sfr', False):
-        sfr = galaxies.Sfr[w][nonzero_mass]
+    if np.any(nonzero_mass):
+        sfr = galaxies.StarFormationRate[w][nonzero_mass]
         sSFR[nonzero_mass] = sfr / stellar_mass_phys[nonzero_mass]
 
     # Define mass bins
@@ -156,7 +156,7 @@ def plot(
             central_fraction.append(0.0)
 
         # Satellite galaxies in this mass bin
-        satellite_bin_mask = this_bin_mask & (Type == 1)
+        satellite_bin_mask = this_bin_mask & (Type > 0)
         satellite_bin_count = np.sum(satellite_bin_mask)
 
         if satellite_bin_count > 0:
@@ -228,12 +228,12 @@ def plot(
     # Satellites in low-mass halos
     mask = satellite_fraction_lo > 0
     if np.any(mask):
-        ax.plot(mass[mask], satellite_fraction_lo[mask], "r--", label="Satellites-Lo", linewidth=0.8)
+        ax.plot(mass[mask], satellite_fraction_lo[mask], "r--", label="Satellites (groups/clusters)", linewidth=0.8)
 
     # Satellites in high-mass halos
     mask = satellite_fraction_hi > 0
     if np.any(mask):
-        ax.plot(mass[mask], satellite_fraction_hi[mask], "r-", label="Satellites-Hi", linewidth=0.8, dashes=[8, 3])
+        ax.plot(mass[mask], satellite_fraction_hi[mask], "r-", label="Satellites (field)", linewidth=0.8, dashes=[8, 3])
 
     # Customize the plot
     ax.set_xlabel(get_stellar_mass_label(), fontsize=AXIS_LABEL_SIZE)

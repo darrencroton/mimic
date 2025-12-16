@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 59d5564a6e9137bf5c4b5e9a8090e654
+ * Source MD5: 2b9dd19ea75e84c235d3a287c604ac40
  * To regenerate: make generate
  */
 
@@ -37,6 +37,7 @@ FoFWorkspace[p].galaxy->Heating = 0.0;
 FoFWorkspace[p].galaxy->Rcool = 0.0;
 FoFWorkspace[p].galaxy->Rheat = 0.0;
 FoFWorkspace[p].galaxy->SupernovaOutflowRate = 0.0;
+FoFWorkspace[p].galaxy->StarFormationRate = 0.0;
 FoFWorkspace[p].galaxy->DiskScaleRadius = 0.0;
 FoFWorkspace[p].galaxy->TimeOfLastMajorMerger = 0.0;
 FoFWorkspace[p].galaxy->TimeOfLastMinorMerger = 0.0;

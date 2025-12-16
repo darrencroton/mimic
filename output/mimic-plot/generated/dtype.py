@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: 59d5564a6e9137bf5c4b5e9a8090e654
+Source MD5: 2b9dd19ea75e84c235d3a287c604ac40
 To regenerate: make generate
 """
 
@@ -53,6 +53,7 @@ def get_binary_dtype():
         ("Cooling", np.float64),
         ("Heating", np.float64),
         ("SupernovaOutflowRate", np.float32),
+        ("StarFormationRate", np.float32),
         ("DiskScaleRadius", np.float32),
         ("TimeOfLastMajorMerger", np.float32),
         ("TimeOfLastMinorMerger", np.float32),
@@ -99,6 +100,7 @@ def get_hdf5_dtype():
         ("Cooling", np.float64),
         ("Heating", np.float64),
         ("SupernovaOutflowRate", np.float32),
+        ("StarFormationRate", np.float32),
         ("DiskScaleRadius", np.float32),
         ("TimeOfLastMajorMerger", np.float32),
         ("TimeOfLastMinorMerger", np.float32),
@@ -155,6 +157,7 @@ def get_units():
         'Cooling': 'log10(erg/s)',
         'Heating': 'log10(erg/s)',
         'SupernovaOutflowRate': '1e10 Msun/h / time_unit',
+        'StarFormationRate': 'Msun/yr',
         'DiskScaleRadius': 'Mpc/h',
         'TimeOfLastMajorMerger': 'Gyr',
         'TimeOfLastMinorMerger': 'Gyr',

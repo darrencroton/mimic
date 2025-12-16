@@ -313,6 +313,19 @@ galaxy_properties:
     range: [0.0, 100000.0]  # Generous upper bound for outflow rates
     sentinels: [0.0]  # Zero when no star formation/feedback occurring
 
+  - name: StarFormationRate
+    type: float
+    units: Msun/yr
+    description: Average star formation rate over snapshot (total stars formed / dT)
+    output: true
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    output_convert: "10.0"  # Convert code units (1e10 Msun/Gyr) to Msun/yr: (1e10/1e9 = 10)
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
+    sentinels: [0.0]  # Zero when no star formation
+
   # =============================================================================
   # STRUCTURE
   # =============================================================================

@@ -6,11 +6,11 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 59d5564a6e9137bf5c4b5e9a8090e654
+ * Source MD5: 2b9dd19ea75e84c235d3a287c604ac40
  * To regenerate: make generate
  */
 
 /* HDF5 field count and counter initialization */
 
-HDF5_n_props = 41;
+HDF5_n_props = 42;
 int i = 0;

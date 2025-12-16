@@ -4,7 +4,7 @@
 Mimic Star Formation Rate Density Evolution Plot
 
 This module generates a plot of the star formation rate density evolution from Mimic galaxy data.
-Requires: Sfr property (from galaxy physics modules)
+Requires: StarFormationRate property (from galaxy physics modules)
 """
 
 import matplotlib.pyplot as plt
@@ -57,19 +57,20 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     success, optional, msg = check_required_fields(
         galaxies_sample,
-        required_fields=['Sfr'],
+        required_fields=['StarFormationRate', 'StellarMass'],
         plot_name='SFR Density Evolution'
     )
 
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    # Field-level validation: Check if Sfr has any non-zero values
+    # Field-level validation: Check if StarFormationRate has any non-zero values
+    # Note: We don't fail if SFR is all zeros - just warn and continue
     has_sfr, count, msg = check_field_has_values(
-        galaxies_sample.Sfr, 'Sfr', threshold=0.0
+        galaxies_sample.StarFormationRate, 'StarFormationRate', threshold=0.0
     )
-    if not has_sfr:
-        return None, f"Field validation failed: {msg}"
+    if not has_sfr and verbose:
+        warn(f"StarFormationRate field has no non-zero values in sample snapshot - plot may be empty: {msg}")
 
     # Calculate SFR density for each snapshot BEFORE creating figure
     sfr_density = []
@@ -88,9 +89,20 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             sfr_density.append(0.0)
             continue
 
-        # Sum SFR and normalize by volume
-        sfr_sum = np.sum(galaxies.Sfr)
-        sfr_density.append(sfr_sum / volume * hubble_h**3)
+        # Filter galaxies with reasonable stellar masses (like stellar mass density plot)
+        w = np.where(
+            (galaxies.StellarMass / hubble_h > 0.01)
+            & (galaxies.StellarMass / hubble_h < 1000.0)
+        )[0]
+
+        if len(w) > 0:
+            # Sum SFR and normalize by volume
+            # StarFormationRate is in Msun/yr, volume in (Mpc/h)^3
+            # Result: (Msun/yr) * h^3 / (Mpc/h)^3 = (Msun/yr) / Mpc^3
+            sfr_sum = np.sum(galaxies.StarFormationRate[w])
+            sfr_density.append(sfr_sum / volume * hubble_h**3)
+        else:
+            sfr_density.append(0.0)
 
     # Convert to numpy arrays
     redshifts = np.array(redshifts)
