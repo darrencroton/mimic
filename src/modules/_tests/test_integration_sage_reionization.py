@@ -2,29 +2,32 @@
 """
 SAGE Reionization Module - Integration Test
 
-Validates: Module lifecycle, configuration, and pipeline integration
+Validates: Module lifecycle, configuration, pipeline integration, and high-level physics
 
-This test validates software quality aspects of the sage_reionization module:
+This test validates software quality and high-level physics aspects:
 - Module loads and initializes correctly
 - Parameters can be configured via YAML files
 - Module executes without errors or memory leaks
 - Output properties appear in output files
 - HaloBaryonFraction property is set correctly
+- Mass-dependence: low-mass halos are more suppressed than high-mass halos
 
 Test cases:
   - test_module_loads: Module registration and initialization
   - test_output_properties_exist: HaloBaryonFraction property in output
   - test_parameters_configurable: GlobalBaryonFraction parameter configuration
   - test_property_values_physical: HaloBaryonFraction values are physical
+  - test_mass_dependence: Low-mass halos more suppressed than high-mass
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
 
 Author: Mimic Development Team
-Date: 2025-12-11
+Date: 2025-12-17 (Refactored)
 """
 
 import sys
 import shutil
+import numpy as np
 from pathlib import Path
 
 # Add tests directory to path to import framework
@@ -219,6 +222,79 @@ def test_property_values_physical():
     print("  ✓ Property values are physical")
 
 
+def test_mass_dependence():
+    """
+    Test that low-mass halos are more suppressed than high-mass halos
+
+    Expected: HaloBaryonFraction increases with Mvir
+    Validates: Correct mass-dependence of reionization suppression
+    Physics: Low-mass halos below the filtering mass should have stronger suppression
+    """
+    print("Testing mass-dependence of suppression...")
+
+    # ===== SETUP =====
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="sage_reionization_mass_dep",
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'process_full_halo')],
+            'phase_1': [],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={'GlobalBaryonFraction': 0.17}
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, "Execution should succeed"
+
+    # ===== VALIDATE =====
+    output_file = output_dir / "model_z0.000_0"
+    halos, metadata = load_binary_halos(output_file)
+
+    # Filter halos with mass and Type 0 (centrals only - they have reionization suppression)
+    centrals = halos[(halos['Mvir'] > 0) & (halos['Type'] == 0)]
+
+    if len(centrals) == 0:
+        print(f"{YELLOW}  ⚠ No Type 0 centrals found, skipping mass-dependence test{NC}")
+        shutil.rmtree(temp_dir)
+        return
+
+    # Bin halos by mass (use quartiles)
+    mvir_sorted = np.sort(centrals['Mvir'])
+    n = len(mvir_sorted)
+
+    # Define mass bins (low, mid, high)
+    low_mass_threshold = mvir_sorted[n // 3]
+    high_mass_threshold = mvir_sorted[2 * n // 3]
+
+    low_mass = centrals[centrals['Mvir'] <= low_mass_threshold]
+    high_mass = centrals[centrals['Mvir'] >= high_mass_threshold]
+
+    # Calculate mean HaloBaryonFraction in each bin
+    mean_low = np.mean(low_mass['HaloBaryonFraction'])
+    mean_high = np.mean(high_mass['HaloBaryonFraction'])
+
+    print(f"  Low-mass halos (Mvir <= {low_mass_threshold:.2e}): mean HaloBaryonFraction = {mean_low:.4f}")
+    print(f"  High-mass halos (Mvir >= {high_mass_threshold:.2e}): mean HaloBaryonFraction = {mean_high:.4f}")
+
+    # Low-mass halos should be more suppressed (lower HaloBaryonFraction)
+    assert mean_low < mean_high, \
+        f"Low-mass halos should have lower HaloBaryonFraction than high-mass halos " \
+        f"(got {mean_low:.4f} vs {mean_high:.4f})"
+
+    # The difference should be non-trivial (at least 5% relative difference)
+    relative_diff = (mean_high - mean_low) / mean_high
+    assert relative_diff > 0.05, \
+        f"Mass-dependence should be non-trivial (relative difference = {relative_diff:.3f}, expected > 0.05)"
+
+    # Cleanup
+    shutil.rmtree(temp_dir)
+
+    print("  ✓ Mass-dependence validated")
+    print(f"  Relative difference: {relative_diff * 100:.1f}%")
+
+
 def test_memory_safety():
     """
     Test that sage_reionization doesn't leak memory
@@ -317,6 +393,7 @@ def main():
         test_output_properties_exist,
         test_parameters_configurable,
         test_property_values_physical,
+        test_mass_dependence,
         test_memory_safety,
         test_execution_completes,
     ]
