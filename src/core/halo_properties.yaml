@@ -109,8 +109,8 @@ halo_properties:
     units: dimensionless
     description: Dimensionless spin parameter (Bullock definition)
     output: true
-    init_source: skip  # Not in struct Halo
-    output_source: copy_from_tree_array
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
     output_tree_field: Spin
     range: [-20.0, 20.0]  # Dimensionless spin components (can be negative)
 
@@ -199,9 +199,7 @@ halo_properties:
     description: Velocity dispersion
     output: true
     init_source: copy_from_tree
-    output_source: recalculate
-    output_function: output_veldisp_conditional
-    output_function_arg: g
+    output_source: copy_direct
     range: [0.0, 5000.0]  # Velocity dispersion is positive
 
   # ===========================================================================

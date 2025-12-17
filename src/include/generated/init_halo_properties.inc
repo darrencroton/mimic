@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 3b937cb0f1c26186a10a1b52f8bc3707
+ * Source MD5: 4f8e0fade42a6782cf663361e370551b
  * To regenerate: make generate
  */
 
@@ -26,7 +26,9 @@ for (int j = 0; j < 3; j++) {
 for (int j = 0; j < 3; j++) {
   FoFWorkspace[p].Vel[j] = InputTreeHalos[halonr].Vel[j];
 }
-/* Spin: skip (output-only, not in struct Halo) */
+for (int j = 0; j < 3; j++) {
+  FoFWorkspace[p].Spin[j] = InputTreeHalos[halonr].Spin[j];
+}
 FoFWorkspace[p].Len = InputTreeHalos[halonr].Len;
 FoFWorkspace[p].Mvir = get_virial_mass(halonr);
 FoFWorkspace[p].deltaMvir = 0.0;
