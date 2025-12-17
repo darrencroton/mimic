@@ -15,3 +15,8 @@ module:
       - CoolingGas
       - Rcool
     parameters: []
+
+  tests:
+    unit: _tests/test_unit_sage_cooling.c
+    integration: _tests/test_integration_sage_cooling.py
+    scientific: null

@@ -32,6 +32,29 @@ module:
 
   # List of tests (add new tests here)
   tests:
-    unit: []
-    integration: []
-    scientific: []
+    unit:
+      - test_unit_sage_reionization.c
+      - test_unit_sage_calculate_infall.c
+      - test_unit_sage_add_infall.c
+      - test_unit_sage_calculate_star_formation.c
+      - test_unit_sage_calculate_supernova_feedback.c
+      - test_unit_sage_update_star_formation_supernova.c
+      - test_unit_sage_reincorporation.c
+      - test_unit_sage_satellite_stripping.c
+
+    integration:
+      - test_integration_sage_reionization.py
+      - test_integration_sage_calculate_infall.py
+      - test_integration_sage_add_infall.py
+      - test_integration_sage_calculate_star_formation.py
+      - test_integration_sage_calculate_supernova_feedback.py
+      - test_integration_sage_update_star_formation_supernova.py
+      - test_integration_sage_reincorporation.py
+      - test_integration_sage_satellite_stripping.py
+
+    scientific:
+      - test_scientific_sage_reionization.py
+      - test_scientific_sage_calculate_infall.py
+      - test_scientific_sage_add_infall.py
+      - test_scientific_sage_reincorporation.py
+      - test_scientific_sage_satellite_stripping.py
