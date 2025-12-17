@@ -83,7 +83,7 @@ static inline double mimic_my_function(double x) {
 ```
 
 4. **Write tests** (optional but recommended):
-   - Create `src/modules/_shared/tests/test_unit_my_utility.c`
+   - Create `src/modules/_shared/_tests/test_unit_my_utility.c`
    - Follow testing guide in `docs/DEVELOPER-GUIDE.md`
 
 ---
@@ -115,9 +115,9 @@ make clean && make
 
 ### Adding Tests
 
-1. **Create test file** in `_shared/tests/` directory:
+1. **Create test file** in `_shared/_tests/` directory:
 ```c
-// src/modules/_shared/tests/test_unit_my_utility.c
+// src/modules/_shared/_tests/test_unit_my_utility.c
 #include "../../../tests/framework/test_framework.h"
 #include "../my_utility.h"
 
@@ -138,8 +138,8 @@ int main(void) {
 ```yaml
 tests:
   unit:
-    - tests/test_unit_reionization.c
-    - tests/test_unit_my_utility.c  # Add here
+    - _tests/test_unit_reionization.c
+    - _tests/test_unit_my_utility.c  # Add here
 ```
 
 3. **Run tests**:

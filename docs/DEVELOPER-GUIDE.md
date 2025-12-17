@@ -164,7 +164,7 @@ src/modules/my_module/
   module_info.yaml
   helper.c
   README.md
-  tests/
+  _tests/
 ```
 - Multiple source files
 - Metadata for validation
@@ -268,7 +268,7 @@ src/modules/my_cooling/
   cooling_tables.h       # Helper headers
   module_info.yaml       # Metadata
   README.md              # Physics documentation
-  tests/
+  _tests/
     test_unit.c
 ```
 
@@ -303,7 +303,7 @@ module:
       - CoolFunctionsDir
 
   tests:
-    unit: tests/test_unit.c
+    unit: _tests/test_unit.c
 ```
 
 **Key points**:
@@ -833,7 +833,7 @@ int main(void) {
 
 ```yaml
 tests:
-  unit: tests/test_unit_my_module.c
+  unit: _tests/test_unit_my_module.c
 ```
 
 **Build and run**:
@@ -1172,7 +1172,7 @@ src/modules/advanced_cooling/
   cooling_tables.h
   module_info.yaml
   README.md
-  tests/
+  _tests/
     test_unit.c
 ```
 
@@ -1340,7 +1340,7 @@ module:
       - CoolFunctionsDir
 
   tests:
-    unit: tests/test_unit.c
+    unit: _tests/test_unit.c
 ```
 
 **Build and run**:
@@ -1409,8 +1409,8 @@ module:
       - CoolFunctionsDir
 
   tests:
-    unit: tests/test_unit_cooling.c
-    integration: tests/test_integration_cooling.py
+    unit: _tests/test_unit_cooling.c
+    integration: _tests/test_integration_cooling.py
 
   compilation_requires: []
 ```
