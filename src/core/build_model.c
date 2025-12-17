@@ -297,12 +297,9 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
 
           if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
             // a central
-            FoFWorkspace[ngal].MergTime = 999.9;
-
             FoFWorkspace[ngal].Type = 0;
           } else {
             // a satellite with subhalo
-
             if (FoFWorkspace[ngal].Type ==
                 0) // remember the infall properties before becoming a subhalo
             {
@@ -310,13 +307,6 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
               FoFWorkspace[ngal].infallVvir = previousVvir;
               FoFWorkspace[ngal].infallVmax = previousVmax;
             }
-
-            if (FoFWorkspace[ngal].Type == 0 ||
-                FoFWorkspace[ngal].MergTime > 999.0)
-              // here the halo has gone from type 1 to type 2 or otherwise
-              // doesn't have a merging time.
-              FoFWorkspace[ngal].MergTime =
-                  999.9; /* No merging without physics */
 
             FoFWorkspace[ngal].Type = 1;
           }

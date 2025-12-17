@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 1a7621898b0dff2a03fea0ec4a460cae
+ * Source MD5: 3b937cb0f1c26186a10a1b52f8bc3707
  * To regenerate: make generate
  */
 
@@ -19,7 +19,6 @@ FoFWorkspace[p].Type = 0;
 FoFWorkspace[p].MostBoundID = InputTreeHalos[halonr].MostBoundID;
 FoFWorkspace[p].UniqueGalaxyID = 0;
 FoFWorkspace[p].UniqueCentralGalaxyID = 0;
-FoFWorkspace[p].MergTime = 999.9;
 FoFWorkspace[p].dT = -1.0;
 for (int j = 0; j < 3; j++) {
   FoFWorkspace[p].Pos[j] = InputTreeHalos[halonr].Pos[j];

@@ -346,6 +346,15 @@ galaxy_properties:
   # MERGER HISTORY
   # =============================================================================
 
+  - name: MergTime
+    type: float
+    units: Gyr
+    description: Merger timescale (internal, not output)
+    output: false
+    init_source: default
+    init_value: 999.9
+    range: [0.0, 1000.0]
+
   - name: TimeOfLastMajorMerger
     type: float
     units: Gyr
