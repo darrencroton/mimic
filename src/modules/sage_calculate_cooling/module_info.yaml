@@ -17,6 +17,6 @@ module:
     parameters: []
 
   tests:
-    unit: _tests/test_unit_sage_cooling.c
-    integration: _tests/test_integration_sage_cooling.py
-    scientific: null
+    unit: _tests/test_unit_sage_calculate_cooling.c
+    integration: _tests/test_integration_sage_calculate_cooling.py
+    scientific: []

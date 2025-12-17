@@ -111,9 +111,12 @@ int test_module_initialization(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_reincorporation module */
-    strcpy(MimicConfig.EnabledModules[0], "sage_reincorporation");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure sage_reincorporation module in phase_1 */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_reincorporation");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
@@ -148,9 +151,12 @@ int test_parameter_reading(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_reincorporation with custom parameter */
-    strcpy(MimicConfig.EnabledModules[0], "sage_reincorporation");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure sage_reincorporation in phase_1 with custom parameter */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_reincorporation");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
 
     /* Set all required parameters, then override specific ones for testing */
     set_test_model_parameters();
@@ -188,9 +194,12 @@ int test_memory_safety(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_reincorporation */
-    strcpy(MimicConfig.EnabledModules[0], "sage_reincorporation");
-    MimicConfig.NumEnabledModules = 1;
+    /* Configure sage_reincorporation in phase_1 */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_reincorporation");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
     /* ===== EXECUTE ===== */

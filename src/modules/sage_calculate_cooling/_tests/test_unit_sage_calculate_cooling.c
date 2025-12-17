@@ -83,8 +83,11 @@ int test_module_registration(void)
 
     /* Check module is registered by trying to enable it */
     reset_config();
-    strcpy(MimicConfig.EnabledModules[0], "sage_cooling");
-    MimicConfig.NumEnabledModules = 1;
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_cooling");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
     /* Should fail if module not registered */
@@ -109,7 +112,7 @@ int test_module_registration(void)
 int test_cooling_tables_loading(void)
 {
     /* Test loading from module directory */
-    const char *cool_dir = "src/modules/sage_cooling/CoolFunctions";
+    const char *cool_dir = "src/modules/sage_calculate_cooling/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
 
@@ -130,7 +133,7 @@ int test_cooling_tables_loading(void)
  */
 int test_temperature_interpolation(void)
 {
-    const char *cool_dir = "src/modules/sage_cooling/CoolFunctions";
+    const char *cool_dir = "src/modules/sage_calculate_cooling/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
     TEST_ASSERT(result == 0, "Tables must load for interpolation test");
@@ -160,7 +163,7 @@ int test_temperature_interpolation(void)
  */
 int test_metallicity_interpolation(void)
 {
-    const char *cool_dir = "src/modules/sage_cooling/CoolFunctions";
+    const char *cool_dir = "src/modules/sage_calculate_cooling/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
     TEST_ASSERT(result == 0, "Tables must load for interpolation test");
@@ -197,7 +200,7 @@ int test_metallicity_interpolation(void)
  */
 int test_primordial_gas_cooling(void)
 {
-    const char *cool_dir = "src/modules/sage_cooling/CoolFunctions";
+    const char *cool_dir = "src/modules/sage_calculate_cooling/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
     TEST_ASSERT(result == 0, "Tables must load for primordial test");
@@ -225,7 +228,7 @@ int test_primordial_gas_cooling(void)
  */
 int test_super_solar_metallicity(void)
 {
-    const char *cool_dir = "src/modules/sage_cooling/CoolFunctions";
+    const char *cool_dir = "src/modules/sage_calculate_cooling/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
     TEST_ASSERT(result == 0, "Tables must load for super-solar test");
@@ -258,7 +261,7 @@ int test_super_solar_metallicity(void)
  */
 int test_extreme_temperatures(void)
 {
-    const char *cool_dir = "src/modules/sage_cooling/CoolFunctions";
+    const char *cool_dir = "src/modules/sage_calculate_cooling/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
     TEST_ASSERT(result == 0, "Tables must load for temperature test");
@@ -298,8 +301,11 @@ int test_memory_safety(void)
 
     /* Initialize module */
     reset_config();
-    strcpy(MimicConfig.EnabledModules[0], "sage_cooling");
-    MimicConfig.NumEnabledModules = 1;
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_cooling");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
     int result = module_system_init();
@@ -326,8 +332,11 @@ int test_parameter_reading(void)
     ensure_modules_registered();
 
     reset_config();
-    strcpy(MimicConfig.EnabledModules[0], "sage_cooling");
-    MimicConfig.NumEnabledModules = 1;
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_cooling");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
 
     /* Set all required parameters, then override specific ones for testing */
     set_test_model_parameters();

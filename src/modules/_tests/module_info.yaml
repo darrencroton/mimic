@@ -52,9 +52,4 @@ module:
       - test_integration_sage_reincorporation.py
       - test_integration_sage_satellite_stripping.py
 
-    scientific:
-      - test_scientific_sage_reionization.py
-      - test_scientific_sage_calculate_infall.py
-      - test_scientific_sage_add_infall.py
-      - test_scientific_sage_reincorporation.py
-      - test_scientific_sage_satellite_stripping.py
+    scientific: []

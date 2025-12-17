@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Integration tests for sage_cooling module
+Integration tests for sage_calculate_cooling module
 
-Tests the sage_cooling module in a full pipeline context:
+Tests the sage_calculate_cooling module in a full pipeline context:
 - Module loads and initializes correctly
 - Integrates properly with sage_calculate_infall (hot gas → cold gas)
 - Properties are created and written to output
@@ -35,7 +35,7 @@ YELLOW = '\033[1;33m'
 NC = '\033[0m'
 
 class TestSageCoolingIntegration:
-    """Integration tests for sage_cooling module
+    """Integration tests for sage_calculate_cooling module
 
     Following sage_calculate_infall pattern - tests focus on software quality:
     - Module loading and initialization
@@ -45,14 +45,14 @@ class TestSageCoolingIntegration:
     """
 
     def test_module_loads(self):
-        """Test that sage_cooling module loads successfully"""
+        """Test that sage_calculate_cooling module loads successfully"""
         param_file, output_dir, temp_dir = harness.create_test_param_file(
-            output_name="sage_cooling_load",
-            enabled_modules=["sage_cooling"],
+            output_name="sage_calculate_cooling_load",
+            enabled_modules=["sage_calculate_cooling"],
             model_params={
                 "RadioModeEfficiency": 0.01,
                 "AGNrecipeOn": 1,
-                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+                "CoolFunctionsDir": "src/modules/sage_calculate_cooling/CoolFunctions"
             }
         )
 
@@ -61,15 +61,15 @@ class TestSageCoolingIntegration:
         assert returncode == 0, f"Mimic should run successfully\nStderr: {stderr}"
 
     def test_infall_cooling_pipeline(self):
-        """Test sage_calculate_infall → sage_cooling pipeline integration"""
+        """Test sage_calculate_infall → sage_calculate_cooling pipeline integration"""
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="infall_cooling_pipeline",
-            enabled_modules=["sage_calculate_infall", "sage_cooling"],
+            enabled_modules=["sage_calculate_infall", "sage_calculate_cooling"],
             model_params={
-                "BaryonFrac": 0.17,
+                "GlobalBaryonFraction": 0.17,
                 "RadioModeEfficiency": 0.01,
                 "AGNrecipeOn": 1,
-                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+                "CoolFunctionsDir": "src/modules/sage_calculate_cooling/CoolFunctions"
             }
         )
 
@@ -86,12 +86,12 @@ class TestSageCoolingIntegration:
 
             param_file, output_dir, temp_dir = harness.create_test_param_file(
                 output_name=f"agn_mode_{agn_mode}",
-                enabled_modules=["sage_calculate_infall", "sage_cooling"],
+                enabled_modules=["sage_calculate_infall", "sage_calculate_cooling"],
                 model_params={
-                    "BaryonFrac": 0.17,
+                    "GlobalBaryonFraction": 0.17,
                     "RadioModeEfficiency": 0.01,
                     "AGNrecipeOn": agn_mode,
-                    "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+                    "CoolFunctionsDir": "src/modules/sage_calculate_cooling/CoolFunctions"
                 }
             )
 
@@ -100,15 +100,15 @@ class TestSageCoolingIntegration:
                 f"AGN mode {agn_mode} ({mode_names[agn_mode]}) should run\nStderr: {stderr}"
 
     def test_parameters_configurable(self):
-        """Test that all sage_cooling parameters can be configured"""
+        """Test that all sage_calculate_cooling parameters can be configured"""
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_params",
-            enabled_modules=["sage_calculate_infall", "sage_cooling"],
+            enabled_modules=["sage_calculate_infall", "sage_calculate_cooling"],
             model_params={
-                "BaryonFrac": 0.17,
+                "GlobalBaryonFraction": 0.17,
                 "RadioModeEfficiency": 0.02,  # Non-default
                 "AGNrecipeOn": 2,  # Bondi-Hoyle mode
-                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+                "CoolFunctionsDir": "src/modules/sage_calculate_cooling/CoolFunctions"
             }
         )
 
@@ -116,15 +116,15 @@ class TestSageCoolingIntegration:
         assert returncode == 0, f"Custom parameters should work\nStderr: {stderr}"
 
     def test_memory_safety(self):
-        """Test that sage_cooling doesn't leak memory"""
+        """Test that sage_calculate_cooling doesn't leak memory"""
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_memory",
-            enabled_modules=["sage_calculate_infall", "sage_cooling"],
+            enabled_modules=["sage_calculate_infall", "sage_calculate_cooling"],
             model_params={
-                "BaryonFrac": 0.17,
+                "GlobalBaryonFraction": 0.17,
                 "RadioModeEfficiency": 0.01,
                 "AGNrecipeOn": 1,
-                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+                "CoolFunctionsDir": "src/modules/sage_calculate_cooling/CoolFunctions"
             }
         )
 
@@ -136,12 +136,12 @@ class TestSageCoolingIntegration:
         """Test that full pipeline execution completes without errors"""
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_complete",
-            enabled_modules=["sage_calculate_infall", "sage_cooling"],
+            enabled_modules=["sage_calculate_infall", "sage_calculate_cooling"],
             model_params={
-                "BaryonFrac": 0.17,
+                "GlobalBaryonFraction": 0.17,
                 "RadioModeEfficiency": 0.01,
                 "AGNrecipeOn": 1,
-                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+                "CoolFunctionsDir": "src/modules/sage_calculate_cooling/CoolFunctions"
             },
             first_file=0,
             last_file=0
@@ -155,12 +155,12 @@ class TestSageCoolingIntegration:
         # Correct order: infall then cooling
         param_file_correct, output_dir1, temp_dir1 = harness.create_test_param_file(
             output_name="cooling_order_correct",
-            enabled_modules=["sage_calculate_infall", "sage_cooling"],
+            enabled_modules=["sage_calculate_infall", "sage_calculate_cooling"],
             model_params={
-                "BaryonFrac": 0.17,
+                "GlobalBaryonFraction": 0.17,
                 "RadioModeEfficiency": 0.01,
                 "AGNrecipeOn": 1,
-                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+                "CoolFunctionsDir": "src/modules/sage_calculate_cooling/CoolFunctions"
             }
         )
 
@@ -170,12 +170,12 @@ class TestSageCoolingIntegration:
         # Wrong order: cooling then infall (still runs, but ineffective)
         param_file_wrong, output_dir2, temp_dir2 = harness.create_test_param_file(
             output_name="cooling_order_wrong",
-            enabled_modules=["sage_cooling", "sage_calculate_infall"],  # Wrong order
+            enabled_modules=["sage_calculate_cooling", "sage_calculate_infall"],  # Wrong order
             model_params={
-                "BaryonFrac": 0.17,
+                "GlobalBaryonFraction": 0.17,
                 "RadioModeEfficiency": 0.01,
                 "AGNrecipeOn": 1,
-                "CoolFunctionsDir": "src/modules/sage_cooling/CoolFunctions"
+                "CoolFunctionsDir": "src/modules/sage_calculate_cooling/CoolFunctions"
             }
         )
 
@@ -194,7 +194,7 @@ def main():
     errors = []
 
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: sage_cooling Integration Tests{NC}")
+    print(f"{BLUE}Test Suite: sage_calculate_cooling Integration Tests{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
