@@ -179,8 +179,8 @@ compile_and_run_test() {
 
     # Add module directory to include path if this is a module test
     local module_include=""
-    if [[ "$test_file" == *"/modules/"*"/tests/"* ]]; then
-        # Extract module directory (parent of tests/)
+    if [[ "$test_file" == *"/modules/"*"/_tests/"* ]] || [[ "$test_file" == *"/modules/"*"/tests/"* ]]; then
+        # Extract module directory (parent of _tests/ or tests/)
         module_dir=$(dirname "$(dirname "$test_file")")
         module_include="-I${module_dir}"
     fi

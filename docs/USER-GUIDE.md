@@ -253,7 +253,7 @@ To convert to physical units: divide by `h` (from `hubble_h` parameter).
 **Conditionally included** (galaxy properties, if physics enabled):
 - Baryonic: ColdGas, HotGas, StellarMass, BulgeMass, EjectedGas
 - Metals: MetalsColdGas, MetalsHotGas, MetalsStellarMass, MetalsBulgeMass
-- Star formation: Sfr, NewStarsMass
+- Star formation: Sfr, NewStellarMass
 - Black holes: BlackHoleMass, QuasarModeBHaccretionMass
 - Structure: DiskScaleRadius
 - Mergers: TimeOfLastMajorMerger, TimeOfLastMinorMerger

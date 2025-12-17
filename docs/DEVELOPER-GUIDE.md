@@ -83,24 +83,24 @@ Mimic follows **8 architectural principles** (see [VISION.md](VISION.md)):
 ### System Architecture
 
 ```
-┌───────────────────────────────────────────────────────────┐
-│                    Mimic Application                      │
-├───────────────────────────────────────────────────────────┤
-│  Configuration        │  Module System                    │
-│  - YAML parsing       │  - Runtime registration           │
-│  - Validation         │  - Dependency resolution          │
-├───────────────────────────────────────────────────────────┤
-│               Physics-Agnostic Core                       │
-│  ┌─────────────┬──────────────┬────────────────────┐     │
-│  │ Memory Mgmt │ Properties   │ I/O System         │     │
-│  │ Tree Process│ Pipeline     │ Testing            │     │
-│  └─────────────┴──────────────┴────────────────────┘     │
-├───────────────────────────────────────────────────────────┤
-│                   Physics Modules                         │
-│  ┌──────────────┬───────────────┬─────────────────┐      │
-│  │ SAGE Modules │ Custom Modules│ Test Fixtures   │      │
-│  └──────────────┴───────────────┴─────────────────┘      │
-└───────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────┐
+│                    Mimic Application                  │
+├───────────────────────────────────────────────────────┤
+│  Configuration        │  Module System                │
+│  - YAML parsing       │  - Runtime registration       │
+│  - Validation         │  - Dependency resolution      │
+├───────────────────────────────────────────────────────┤
+│               Physics-Agnostic Core                   │
+│  ┌─────────────┬──────────────┬────────────────────┐  │
+│  │ Memory Mgmt │ Properties   │ I/O System         │  │
+│  │ Tree Process│ Pipeline     │ Testing            │  │
+│  └─────────────┴──────────────┴────────────────────┘  │
+├───────────────────────────────────────────────────────┤
+│                   Physics Modules                     │
+│  ┌──────────────┬───────────────┬─────────────────┐   │
+│  │ SAGE Modules │ Custom Modules│ Test Fixtures   │   │
+│  └──────────────┴───────────────┴─────────────────┘   │
+└───────────────────────────────────────────────────────┘
 ```
 
 **Key directories**:
@@ -164,7 +164,7 @@ src/modules/my_module/
   module_info.yaml
   helper.c
   README.md
-  tests/
+  _tests/
 ```
 - Multiple source files
 - Metadata for validation
@@ -268,7 +268,7 @@ src/modules/my_cooling/
   cooling_tables.h       # Helper headers
   module_info.yaml       # Metadata
   README.md              # Physics documentation
-  tests/
+  _tests/
     test_unit.c
 ```
 
@@ -303,7 +303,7 @@ module:
       - CoolFunctionsDir
 
   tests:
-    unit: tests/test_unit.c
+    unit: _tests/test_unit.c
 ```
 
 **Key points**:
@@ -369,33 +369,33 @@ supported_processing_modes:
 The multi-phase pipeline executes modules in four distinct phases (see [Appendix A7](#a7-pipeline-phases) for complete reference):
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ Snapshot N → N+1                                                │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  PRE_TIMESTEP (runs once):                                      │
-│    ├─ Pass 1: Execute all process_full_halo modules            │
-│    └─ Pass 2: For g = 0..ngal:                                 │
-│                 Execute all process_by_galaxy modules           │
-│                                                                 │
-│  FOR each substep (0..SubSteps-1):                             │
-│    │                                                            │
-│    ├─ PHASE_1 (runs each substep):                             │
-│    │    ├─ Pass 1: Execute all process_full_halo modules       │
-│    │    └─ Pass 2: For g = 0..ngal:                            │
-│    │                 Execute all process_by_galaxy modules      │
-│    │                                                            │
-│    └─ PHASE_2 (runs each substep):                             │
-│         ├─ Pass 1: Execute all process_full_halo modules       │
-│         └─ Pass 2: For g = 0..ngal:                            │
-│                      Execute all process_by_galaxy modules      │
-│                                                                 │
-│  POST_TIMESTEP (runs once):                                     │
-│    ├─ Pass 1: Execute all process_full_halo modules            │
-│    └─ Pass 2: For g = 0..ngal:                                 │
-│                 Execute all process_by_galaxy modules           │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│ Snapshot N → N+1                                              │
+├───────────────────────────────────────────────────────────────┤
+│                                                               │
+│  PRE_TIMESTEP (runs once):                                    │
+│    ├─ Pass 1: Execute all process_full_halo modules           │
+│    └─ Pass 2: For g = 0..ngal:                                │
+│                 Execute all process_by_galaxy modules         │
+│                                                               │
+│  FOR each substep (0..SubSteps-1):                            │
+│    │                                                          │
+│    ├─ PHASE_1 (runs each substep):                            │
+│    │    ├─ Pass 1: Execute all process_full_halo modules      │
+│    │    └─ Pass 2: For g = 0..ngal:                           │
+│    │                 Execute all process_by_galaxy modules    │
+│    │                                                          │
+│    └─ PHASE_2 (runs each substep):                            │
+│         ├─ Pass 1: Execute all process_full_halo modules      │
+│         └─ Pass 2: For g = 0..ngal:                           │
+│                      Execute all process_by_galaxy modules    │
+│                                                               │
+│  POST_TIMESTEP (runs once):                                   │
+│    ├─ Pass 1: Execute all process_full_halo modules           │
+│    └─ Pass 2: For g = 0..ngal:                                │
+│                 Execute all process_by_galaxy modules         │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
 
 Key execution details:
   • Within each phase, process_full_halo modules ALWAYS execute first
@@ -642,6 +642,124 @@ For complete schema specification with all fields and options, see [Appendix A2]
   sentinels: [-1.0]  # -1 for unset (not converted)
 ```
 
+### Output Modifier Functions
+
+**When to use**: Properties that need conditional or calculated values at output time.
+
+**Common use cases**:
+- Type-dependent output (centrals vs satellites vs orphans)
+- Properties recalculated from current state (virial quantities for Type 0/1)
+- Conditional logic too complex for property metadata alone
+
+**How it works**:
+1. Set `output_source: recalculate` in property metadata
+2. Specify `output_function: function_name` (function defined in `output_helpers.h`)
+3. Specify `output_function_arg: "args"` (arguments passed to function)
+4. Code generation creates: `o->PropertyName = function_name(args);`
+
+**Example 1: Type-dependent output** (satellites only):
+
+**Problem**: `infallMvir` should output actual value for satellites, but 0.0 for centrals (which never experienced infall).
+
+**Solution**:
+
+**1. Define helper function** in `src/modules/_system/output_helpers.h`:
+
+```c
+/**
+ * Output infall property for satellites, 0.0 for centrals
+ *
+ * @param g Halo pointer
+ * @param value The infall property value
+ * @return value if satellite (Type != 0), 0.0 if central (Type == 0)
+ */
+static inline float output_infall_property_or_zero(const struct Halo *g,
+                                                     float value)
+{
+    return (g->Type != 0) ? value : 0.0f;
+}
+```
+
+**2. Reference in property metadata** (`halo_properties.yaml`):
+
+```yaml
+- name: infallMvir
+  type: float
+  units: "1e10 Msun/h"
+  description: "Virial mass at infall (satellites only, 0 for centrals)"
+  output: true
+  init_source: default
+  init_value: -1.0
+  output_source: recalculate
+  output_function: output_infall_property_or_zero
+  output_function_arg: "g, g->infallMvir"  # Pass halo pointer and value
+  range: [0.000001, 1000000.0]
+  sentinels: [0.0, -1.0]
+```
+
+**3. Auto-generated code** (in `copy_to_output.inc`):
+
+```c
+o->infallMvir = output_infall_property_or_zero(g, g->infallMvir);
+```
+
+**Example 2: Recalculate from current state**:
+
+**Problem**: `Rvir` should recalculate current virial radius for Type 0/1, but preserve the stored value for Type 2 orphans (which no longer have a resolved halo).
+
+**1. Define helper function** in `src/modules/_system/output_helpers.h`:
+
+```c
+/**
+ * Output Rvir: recalculate current for Type 0/1, preserve for Type 2
+ */
+static inline float output_rvir_conditional(const struct Halo *g)
+{
+    // Type 2 orphans: return preserved value (no current halo)
+    // Type 0/1: recalculate current value
+    return (g->Type == 2) ? g->Rvir : (float)get_virial_radius(g->HaloNr);
+}
+```
+
+**2. Reference in property metadata**:
+
+```yaml
+- name: Rvir
+  type: float
+  units: "Mpc/h"
+  description: "Virial radius"
+  output: true
+  init_source: calculate
+  init_function: get_virial_radius
+  output_source: recalculate
+  output_function: output_rvir_conditional
+  output_function_arg: "g"  # Only need halo pointer
+  range: [0.001, 10.0]
+```
+
+**Guidelines**:
+
+**Where to place functions**:
+- `src/modules/_system/output_helpers.h` (for general-purpose helpers)
+- Make functions `static inline` for performance
+- Use `const struct Halo *g` when function doesn't modify halo
+
+**Function signature**:
+- Return type must match property type (`float`, `double`, `int`, `long`)
+- Common arguments: `g` (halo pointer), `g->PropertyName` (property value)
+- Access global arrays if needed: `InputTreeHalos[g->HaloNr]`
+
+**Testing**:
+- After adding function, run `make generate && make`
+- Verify output with small test run
+- Check both centrals and satellites if type-dependent
+
+**Existing helper functions** (see `src/modules/_system/output_helpers.h`):
+- `output_infall_property_or_zero(g, value)`: Satellites only (0.0 for centrals)
+- `output_rvir_conditional(g)`: Recalculate Type 0/1, preserve Type 2
+- `output_vvir_conditional(g)`: Recalculate Type 0/1, preserve Type 2
+- `output_veldisp_conditional(g)`: Copy from tree Type 0/1, preserve Type 2
+
 ---
 
 ## Testing
@@ -715,7 +833,7 @@ int main(void) {
 
 ```yaml
 tests:
-  unit: tests/test_unit_my_module.c
+  unit: _tests/test_unit_my_module.c
 ```
 
 **Build and run**:
@@ -1054,7 +1172,7 @@ src/modules/advanced_cooling/
   cooling_tables.h
   module_info.yaml
   README.md
-  tests/
+  _tests/
     test_unit.c
 ```
 
@@ -1222,7 +1340,7 @@ module:
       - CoolFunctionsDir
 
   tests:
-    unit: tests/test_unit.c
+    unit: _tests/test_unit.c
 ```
 
 **Build and run**:
@@ -1291,8 +1409,8 @@ module:
       - CoolFunctionsDir
 
   tests:
-    unit: tests/test_unit_cooling.c
-    integration: tests/test_integration_cooling.py
+    unit: _tests/test_unit_cooling.c
+    integration: _tests/test_integration_cooling.py
 
   compilation_requires: []
 ```
@@ -1401,7 +1519,25 @@ module:
   output_transform: log10
   range: [0.0, 1000000.0]
   sentinels: [0.0]
+
+# Property with output modifier function
+- name: infallMvir
+  type: float
+  units: "1e10 Msun/h"
+  description: "Virial mass at infall (satellites only, 0 for centrals)"
+  output: true
+  init_source: default
+  init_value: -1.0
+  output_source: recalculate
+  output_function: output_infall_property_or_zero
+  output_function_arg: "g, g->infallMvir"
+  range: [0.000001, 1000000.0]
+  sentinels: [0.0, -1.0]
 ```
+
+**Note**: For detailed guide on implementing output modifier functions, see [Output Modifier Functions](#output-modifier-functions).
+
+---
 
 ### A3. Input Configuration YAML
 

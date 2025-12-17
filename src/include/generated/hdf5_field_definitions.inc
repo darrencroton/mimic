@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 59d5564a6e9137bf5c4b5e9a8090e654
+ * Source MD5: 4f8e0fade42a6782cf663361e370551b
  * To regenerate: make generate
  */
 
@@ -173,6 +173,12 @@ HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, ICS);
 HDF5_dst_sizes[i] = sizeof(galout.ICS);
 HDF5_field_names[i] = "ICS";
+HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
+
+/* StarFormationRate */
+HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, StarFormationRate);
+HDF5_dst_sizes[i] = sizeof(galout.StarFormationRate);
+HDF5_field_names[i] = "StarFormationRate";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 
 /* MetalsStellarMass */

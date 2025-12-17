@@ -106,19 +106,4 @@ static inline float output_vvir_conditional(const struct Halo *g)
     return (g->Type == 2) ? g->Vvir : (float)get_virial_velocity(g->HaloNr);
 }
 
-/**
- * @brief Output VelDisp: copy from tree for Type 0/1, preserve for Type 2
- *
- * Type 0/1: Output current velocity dispersion from tree
- * Type 2:   Output preserved velocity dispersion (from when orphan had subhalo)
- *
- * Used by: VelDisp property
- */
-static inline float output_veldisp_conditional(const struct Halo *g)
-{
-    // Type 2 orphans: return preserved value (no current halo in tree)
-    // Type 0/1: get current value from InputTreeHalos
-    return (g->Type == 2) ? g->VelDisp : InputTreeHalos[g->HaloNr].VelDisp;
-}
-
 #endif /* OUTPUT_HELPERS_H */

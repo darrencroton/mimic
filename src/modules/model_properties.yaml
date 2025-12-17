@@ -118,16 +118,29 @@ galaxy_properties:
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
     sentinels: [0.0]  # Zero if no satellites have been disrupted
 
-  - name: NewStarsMass
+  - name: NewStellarMass
     type: float
     units: 1e10 Msun/h
-    description: New stars formed this timestep (before recycling), calculated by star formation module
+    description: New stars formed this timestep
     output: false
     init_source: default
     init_value: 0.0
     init_repeat: true  # Reset each snapshot
     range: [0.0, 100000.0]  # 0 to 10^15 Msun/h
     sentinels: [0.0]  # Zero when no star formation occurring
+
+  - name: StarFormationRate
+    type: float
+    units: Msun/yr
+    description: Average star formation rate over snapshot (total stars formed / dT)
+    output: true
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    output_convert: UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
+    sentinels: [0.0]  # Zero when no star formation
 
   # =============================================================================
   # CHEMICAL COMPOSITION
@@ -303,14 +316,15 @@ galaxy_properties:
 
   - name: SupernovaOutflowRate
     type: float
-    units: 1e10 Msun/h / time_unit
+    units: Msun/yr
     description: Current gas outflow rate from supernova feedback
     output: true
     init_source: default
     init_value: 0.0
     init_repeat: true  # Reset each snapshot
     output_source: galaxy_property
-    range: [0.0, 100000.0]  # Generous upper bound for outflow rates
+    output_convert: UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
     sentinels: [0.0]  # Zero when no star formation/feedback occurring
 
   # =============================================================================
@@ -331,6 +345,15 @@ galaxy_properties:
   # =============================================================================
   # MERGER HISTORY
   # =============================================================================
+
+  - name: MergTime
+    type: float
+    units: Gyr
+    description: Merger timescale (internal, not output)
+    output: false
+    init_source: default
+    init_value: 999.9
+    range: [0.0, 1000.0]
 
   - name: TimeOfLastMajorMerger
     type: float

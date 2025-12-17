@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 59d5564a6e9137bf5c4b5e9a8090e654
+ * Source MD5: 4f8e0fade42a6782cf663361e370551b
  * To regenerate: make generate
  */
 
@@ -14,7 +14,7 @@
 /* Provides discoverable, queryable metadata for all output fields */
 
 /* Total number of output fields */
-#define NUM_FIELDS 41
+#define NUM_FIELDS 42
 
 /* Define metadata structure */
 struct FieldMetadata {
@@ -52,6 +52,7 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"StellarMass", "1e10 Msun/h", "Total stellar mass"},
   {"BulgeMass", "1e10 Msun/h", "Stellar mass in bulge component"},
   {"ICS", "1e10 Msun/h", "Intracluster stellar mass"},
+  {"StarFormationRate", "Msun/yr", "Average star formation rate over snapshot (total stars formed / dT)"},
   {"MetalsStellarMass", "1e10 Msun/h", "Metal mass in stellar component"},
   {"MetalsBulgeMass", "1e10 Msun/h", "Metal mass in bulge component"},
   {"MetalsColdGas", "1e10 Msun/h", "Metal mass in cold gas reservoir"},
@@ -62,7 +63,7 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"QuasarModeBHaccretionMass", "1e10 Msun/h", "Current timestep black hole accretion mass in quasar mode"},
   {"Cooling", "log10(erg/s)", "Cumulative cooling energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed"},
   {"Heating", "log10(erg/s)", "Cumulative AGN heating energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed"},
-  {"SupernovaOutflowRate", "1e10 Msun/h / time_unit", "Current gas outflow rate from supernova feedback"},
+  {"SupernovaOutflowRate", "Msun/yr", "Current gas outflow rate from supernova feedback"},
   {"DiskScaleRadius", "Mpc/h", "Disk scale radius (exponential disk scale length)"},
   {"TimeOfLastMajorMerger", "Gyr", "Cosmic time of last major merger (mass ratio > threshold)"},
   {"TimeOfLastMinorMerger", "Gyr", "Cosmic time of last minor merger (mass ratio > 0.1)"},

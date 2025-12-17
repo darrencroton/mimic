@@ -79,7 +79,7 @@ def plot(
     success, optional, msg = check_required_fields(
         galaxies,
         required_fields=['StellarMass'],
-        optional_fields=['Sfr'],
+        optional_fields=['StarFormationRate'],
         plot_name='Stellar Mass Function'
     )
 
@@ -107,11 +107,11 @@ def plot(
     mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
 
     # Check if we have SFR for red/blue separation
-    has_sfr = optional.get('Sfr', False)
+    has_sfr = optional.get('StarFormationRate', False)
 
     # Calculate specific SFR for red/blue division (if SFR properties available)
     if has_sfr:
-        sfr = galaxies.Sfr[w]
+        sfr = galaxies.StarFormationRate[w]
         stellar_mass = galaxies.StellarMass[w] * 1.0e10 / hubble_h
         ssfr = sfr / stellar_mass
 

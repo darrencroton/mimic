@@ -30,7 +30,7 @@ module:
   # List of tests (add new tests here)
   tests:
     unit:
-      - tests/test_unit_metallicity.c
+      - _tests/test_unit_metallicity.c
 
     integration: []
     scientific: []

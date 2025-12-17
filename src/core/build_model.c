@@ -278,6 +278,7 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
           for (j = 0; j < 3; j++) {
             FoFWorkspace[ngal].Pos[j] = InputTreeHalos[halonr].Pos[j];
             FoFWorkspace[ngal].Vel[j] = InputTreeHalos[halonr].Vel[j];
+            FoFWorkspace[ngal].Spin[j] = InputTreeHalos[halonr].Spin[j];
           }
 
           FoFWorkspace[ngal].Len = InputTreeHalos[halonr].Len;
@@ -288,21 +289,22 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
               get_virial_mass(halonr) - FoFWorkspace[ngal].Mvir;
 
           if (get_virial_mass(halonr) > FoFWorkspace[ngal].Mvir) {
-            FoFWorkspace[ngal].Rvir =
-                get_virial_radius(halonr); // use the maximum Rvir in model
-            FoFWorkspace[ngal].Vvir =
-                get_virial_velocity(halonr); // use the maximum Vvir in model
+            // Use maximum-ever values during evolution.
+            // Rationale: Galaxies reside deep in the potential well and are somewhat
+            // protected from halo fluctuations. Using maximum values provides stability
+            // for galaxy property evolution calculations.
+            // Note: At output, current tree values are reported for Type 0/1 (scientific
+            // accuracy), while Type 2 orphans preserve their last known values.
+            FoFWorkspace[ngal].Rvir = get_virial_radius(halonr);
+            FoFWorkspace[ngal].Vvir = get_virial_velocity(halonr);
           }
           FoFWorkspace[ngal].Mvir = get_virial_mass(halonr);
 
           if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
             // a central
-            FoFWorkspace[ngal].MergTime = 999.9;
-
             FoFWorkspace[ngal].Type = 0;
           } else {
             // a satellite with subhalo
-
             if (FoFWorkspace[ngal].Type ==
                 0) // remember the infall properties before becoming a subhalo
             {
@@ -310,13 +312,6 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
               FoFWorkspace[ngal].infallVvir = previousVvir;
               FoFWorkspace[ngal].infallVmax = previousVmax;
             }
-
-            if (FoFWorkspace[ngal].Type == 0 ||
-                FoFWorkspace[ngal].MergTime > 999.0)
-              // here the halo has gone from type 1 to type 2 or otherwise
-              // doesn't have a merging time.
-              FoFWorkspace[ngal].MergTime =
-                  999.9; /* No merging without physics */
 
             FoFWorkspace[ngal].Type = 1;
           }

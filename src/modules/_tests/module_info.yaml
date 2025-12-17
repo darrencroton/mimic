@@ -1,0 +1,55 @@
+# Standalone Module Test Registry
+#
+# This file enables automatic test discovery for standalone physics modules.
+# Standalone modules are single .c files in src/modules/ (not in subdirectories).
+#
+# To add a new standalone module test:
+# 1. Create test file in _tests/ directory:
+#    - Unit test: _tests/test_unit_MODULE_NAME.c
+#    - Integration test: _tests/test_integration_MODULE_NAME.py
+#    - Scientific test: _tests/test_scientific_MODULE_NAME.py
+# 2. Add filename to tests list below
+# 3. Run: make generate
+# 4. Tests auto-run with: make test-unit, make test-integration, make test-scientific
+#
+# Tests can be listed in block format or inline:
+#   E.g. inline:
+#     unit: [_tests/test_unit_foo.c, _tests/test_unit_bar.c]
+#   E.g. block (recommended for readability):
+#     unit:
+#       - _tests/test_unit_foo.c
+#       - _tests/test_unit_bar.c
+#
+# See: docs/DEVELOPER-GUIDE.md for comprehensive testing guide
+
+module:
+  name: _tests
+  display_name: "Standalone Module Tests"
+  description: "Collection of tests for standalone physics modules"
+
+  # Mark as utility collection (not a runtime physics module)
+  is_utility: true
+
+  # List of tests (add new tests here)
+  tests:
+    unit:
+      - test_unit_sage_reionization.c
+      - test_unit_sage_calculate_infall.c
+      - test_unit_sage_add_infall.c
+      - test_unit_sage_calculate_star_formation.c
+      - test_unit_sage_calculate_supernova_feedback.c
+      - test_unit_sage_update_star_formation_supernova.c
+      - test_unit_sage_reincorporation.c
+      - test_unit_sage_satellite_stripping.c
+
+    integration:
+      - test_integration_sage_reionization.py
+      - test_integration_sage_calculate_infall.py
+      - test_integration_sage_add_infall.py
+      - test_integration_sage_calculate_star_formation.py
+      - test_integration_sage_calculate_supernova_feedback.py
+      - test_integration_sage_update_star_formation_supernova.py
+      - test_integration_sage_reincorporation.py
+      - test_integration_sage_satellite_stripping.py
+
+    scientific: []

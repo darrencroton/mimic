@@ -52,8 +52,8 @@ module:
   # ===========================================================================
 
   tests:
-    unit: tests/test_unit_test_fixture.c
-    integration: tests/test_integration_test_fixture.py
+    unit: _tests/test_unit_test_fixture.c
+    integration: _tests/test_integration_test_fixture.py
     scientific: null  # No scientific validation for test fixture
 
   # ===========================================================================

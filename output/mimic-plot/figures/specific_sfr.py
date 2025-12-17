@@ -61,14 +61,14 @@ def plot(
     # Check for required fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['StellarMass', 'Sfr'],
+        required_fields=['StellarMass', 'StarFormationRate'],
         plot_name='Specific Star Formation Rate'
     )
 
     if not success:
         return None, f"Required fields missing: {msg}"
 
-    # Field-level validation: Check if StellarMass and Sfr have non-zero values
+    # Field-level validation: Check if StellarMass and StarFormationRate have non-zero values
     has_mass, count, msg = check_field_has_values(
         galaxies.StellarMass, 'StellarMass', threshold=0.01
     )
@@ -76,7 +76,7 @@ def plot(
         return None, f"Field validation failed: {msg}"
 
     has_sfr, count, msg = check_field_has_values(
-        galaxies.Sfr, 'Sfr', threshold=0.0
+        galaxies.StarFormationRate, 'StarFormationRate', threshold=0.0
     )
     if not has_sfr:
         return None, f"Field validation failed: {msg}"
@@ -104,7 +104,7 @@ def plot(
 
     # Calculate stellar mass and specific SFR
     mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
-    sfr = galaxies.Sfr[w]
+    sfr = galaxies.StarFormationRate[w]
 
     # Avoid log10(0) and division by zero
     valid_sfr = sfr > 0

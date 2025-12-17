@@ -3,7 +3,7 @@
  * @brief   SAGE supernova feedback calculation module
  *
  * Calculates reheated and ejected gas masses from supernova feedback based on
- * NewStarsMass. Applies renormalization to ensure star formation and feedback
+ * NewStellarMass. Applies renormalization to ensure star formation and feedback
  * don't exceed available cold gas. Stores results in SupernovaReheatedMass and
  * SupernovaEjectedMass properties.
  *
@@ -73,7 +73,7 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx,
     struct GalaxyData *gal = halo->galaxy;
 
     // Read calculated star formation from previous module
-    double stars = gal->NewStarsMass;
+    double stars = gal->NewStellarMass;
 
     // Calculate initial feedback amounts
     double reheated_mass = FEEDBACK_REHEATING_EPSILON * stars;
@@ -85,8 +85,8 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx,
         stars *= fac;
         reheated_mass *= fac;
 
-        // Update NewStarsMass with renormalized value
-        gal->NewStarsMass = stars;
+        // Update NewStellarMass with renormalized value
+        gal->NewStellarMass = stars;
     }
 
     // Determine ejection relative to central's potential well

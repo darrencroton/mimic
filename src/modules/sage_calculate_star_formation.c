@@ -3,7 +3,7 @@
  * @brief   SAGE star formation calculation module
  *
  * Calculates star formation via Kennicutt-Schmidt efficiency-based model with
- * critical threshold. Stores result in NewStarsMass property for subsequent
+ * critical threshold. Stores result in NewStellarMass property for subsequent
  * processing by feedback and update modules.
  *
  * Reference: Croton et al. (2006, 2016)
@@ -78,8 +78,8 @@ int sage_calculate_star_formation_process(struct ModuleContext *ctx,
         stars = 0.0;
     }
 
-    // Store in NewStarsMass property for subsequent processing
-    gal->NewStarsMass = stars;
+    // Store in NewStellarMass property for subsequent processing
+    gal->NewStellarMass = stars;
 
     DEBUG_LOG("Type=%d: Calculated SF=%.3e, SFR=%.3e, ColdGas=%.3e, DiskScaleRadius=%.3e",
              halo->Type, stars, stars / dt, gal->ColdGas, gal->DiskScaleRadius);

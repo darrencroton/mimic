@@ -13,8 +13,8 @@ halo_properties:
 
   - name: SnapNum
     type: int
-    units: "dimensionless"
-    description: "Snapshot number (index in simulation output)"
+    units: dimensionless
+    description: Snapshot number (index in simulation output)
     output: true
     init_source: copy_from_tree
     output_source: copy_direct
@@ -22,8 +22,8 @@ halo_properties:
 
   - name: Type
     type: int
-    units: "dimensionless"
-    description: "Halo type (0=central, 1=satellite, 2=orphan)"
+    units: dimensionless
+    description: Halo type (0=central, 1=satellite, 2=orphan)
     output: true
     init_source: default
     init_value: 0
@@ -32,30 +32,30 @@ halo_properties:
 
   - name: CentralHalo
     type: int
-    units: "dimensionless"
-    description: "Index of central halo in FoF group (working variable, not output)"
+    units: dimensionless
+    description: Index of central halo in FoF group (working variable, not output)
     output: false
     init_source: skip  # Set in build_model.c, not in init_halo()
 
   - name: HaloNr
     type: int
-    units: "dimensionless"
-    description: "Halo number in tree (internal index, not output)"
+    units: dimensionless
+    description: Halo number in tree (internal index, not output)
     output: false
     init_source: skip  # Custom: set to halonr parameter directly
 
   - name: MostBoundID
     type: long long
-    units: "dimensionless"
-    description: "ID of most bound particle (original simulation halo ID)"
+    units: dimensionless
+    description: ID of most bound particle (original simulation halo ID)
     output: true
     init_source: copy_from_tree
     output_source: copy_direct
 
   - name: UniqueGalaxyID
     type: long long
-    units: "dimensionless"
-    description: "Persistent unique galaxy identifier across all snapshots (file*10^15 + tree*10^9 + creation_halonr)"
+    units: dimensionless
+    description: Persistent unique galaxy identifier across all snapshots (file*10^15 + tree*10^9 + creation_halonr)
     output: true
     init_source: default  # Initialized to 0, then set in init_halo() after auto-gen code
     init_value: 0
@@ -63,34 +63,22 @@ halo_properties:
 
   - name: UniqueCentralGalaxyID
     type: long long
-    units: "dimensionless"
-    description: "Persistent UniqueGalaxyID of current central galaxy (equals UniqueGalaxyID if Type=0)"
+    units: dimensionless
+    description: Persistent UniqueGalaxyID of current central galaxy (equals UniqueGalaxyID if Type=0)
     output: true
     init_source: default  # Initialized to 0, then set in update_halo_properties()
     init_value: 0
     output_source: copy_direct
 
-  # ===========================================================================
-  # MERGE TRACKING PROPERTIES
-  # ===========================================================================
-
-  - name: MergTime
-    type: float
-    units: "Gyr"
-    description: "Merger timescale (internal, not output)"
-    output: false
-    init_source: default
-    init_value: 999.9
-
   - name: dT
     type: float
-    units: "Myr"  # Output units (stored internally as seconds in code units)
-    description: "Time elapsed since progenitor snapshot (lookback time difference)"
+    units: Myr
+    description: Time elapsed since progenitor snapshot (lookback time difference)
     output: true
     init_source: default
     init_value: -1.0
     output_source: copy_direct
-    output_convert: "UnitTime_in_s / SEC_PER_MEGAYEAR"  # Convert seconds → Myr
+    output_convert: UnitTime_in_s / SEC_PER_MEGAYEAR  # Convert seconds → Myr
     range: [0.0, 2000.0]  # Reasonable time between snapshots (in Myr)
     sentinels: [-1.0]  # -1 for unset/invalid (preserved, not converted)
 
@@ -100,8 +88,8 @@ halo_properties:
 
   - name: Pos
     type: vec3_float
-    units: "Mpc/h"
-    description: "3D position vector (comoving coordinates)"
+    units: Mpc/h
+    description: 3D position vector (comoving coordinates)
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
@@ -109,8 +97,8 @@ halo_properties:
 
   - name: Vel
     type: vec3_float
-    units: "km/s"
-    description: "3D velocity vector (peculiar velocity)"
+    units: km/s
+    description: 3D velocity vector (peculiar velocity)
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
@@ -118,11 +106,11 @@ halo_properties:
 
   - name: Spin
     type: vec3_float
-    units: "dimensionless"
-    description: "Dimensionless spin parameter (Bullock definition)"
+    units: dimensionless
+    description: Dimensionless spin parameter (Bullock definition)
     output: true
-    init_source: skip  # Not in struct Halo
-    output_source: copy_from_tree_array
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
     output_tree_field: Spin
     range: [-20.0, 20.0]  # Dimensionless spin components (can be negative)
 
@@ -132,8 +120,8 @@ halo_properties:
 
   - name: Len
     type: int
-    units: "particles"
-    description: "Number of particles in halo"
+    units: particles
+    description: Number of particles in halo
     output: true
     init_source: copy_from_tree
     output_source: copy_direct
@@ -142,8 +130,8 @@ halo_properties:
 
   - name: Mvir
     type: float
-    units: "1e10 Msun/h"
-    description: "Virial mass (M200c definition)"
+    units: 1e10 Msun/h
+    description: Virial mass (M200c definition)
     output: true
     init_source: calculate
     init_function: get_virial_mass
@@ -152,8 +140,8 @@ halo_properties:
 
   - name: deltaMvir
     type: float
-    units: "1e10 Msun/h"
-    description: "Change in virial mass since last snapshot (internal, not output)"
+    units: 1e10 Msun/h
+    description: Change in virial mass since last snapshot (internal, not output)
     output: true
     init_source: default
     init_value: 0.0
@@ -162,44 +150,44 @@ halo_properties:
 
   - name: CentralMvir
     type: float
-    units: "1e10 Msun/h"
-    description: "Virial mass of the central halo in this FoF group"
+    units: 1e10 Msun/h
+    description: Virial mass of the central halo in this FoF group
     output: true
     init_source: skip  # Not in struct Halo
     output_source: recalculate
     output_function: get_virial_mass
-    output_function_arg: "InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup"
+    output_function_arg: InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup
     range: [0.0, 1000000.0]  # 0 for unresolved halos, up to 10^16 Msun/h
     sentinels: [0.0]  # Unresolved or below mass limit
 
   - name: Rvir
     type: float
-    units: "Mpc/h"
-    description: "Virial radius (radius at which density is 200 * critical density)"
+    units: Mpc/h
+    description: Virial radius (radius at which density is 200 * critical density)
     output: true
     init_source: calculate
     init_function: get_virial_radius
     output_source: recalculate
     output_function: output_rvir_conditional
-    output_function_arg: "g"
+    output_function_arg: g
     range: [0.001, 10.0]  # 1 kpc/h to 10 Mpc/h
 
   - name: Vvir
     type: float
-    units: "km/s"
-    description: "Virial velocity (circular velocity at virial radius)"
+    units: km/s
+    description: Virial velocity (circular velocity at virial radius)
     output: true
     init_source: calculate
     init_function: get_virial_velocity
     output_source: recalculate
     output_function: output_vvir_conditional
-    output_function_arg: "g"
+    output_function_arg: g
     range: [10.0, 5000.0]  # Physical halo velocities
 
   - name: Vmax
     type: float
-    units: "km/s"
-    description: "Maximum circular velocity"
+    units: km/s
+    description: Maximum circular velocity
     output: true
     init_source: copy_from_tree
     output_source: copy_direct
@@ -207,13 +195,11 @@ halo_properties:
 
   - name: VelDisp
     type: float
-    units: "km/s"
-    description: "Velocity dispersion"
+    units: km/s
+    description: Velocity dispersion
     output: true
     init_source: copy_from_tree
-    output_source: recalculate
-    output_function: output_veldisp_conditional
-    output_function_arg: "g"
+    output_source: copy_direct
     range: [0.0, 5000.0]  # Velocity dispersion is positive
 
   # ===========================================================================
@@ -222,39 +208,39 @@ halo_properties:
 
   - name: infallMvir
     type: float
-    units: "1e10 Msun/h"
-    description: "Virial mass at infall (satellites only, 0 for centrals)"
+    units: 1e10 Msun/h
+    description: Virial mass at infall (satellites only, 0 for centrals)
     output: true
     init_source: default
     init_value: -1.0
     output_source: recalculate
     output_function: output_infall_property_or_zero
-    output_function_arg: "g, g->infallMvir"
+    output_function_arg: g, g->infallMvir
     range: [0.000001, 1000000.0]  # 10^4 Msun/h to 10^16 Msun/h
     sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
 
   - name: infallVvir
     type: float
-    units: "km/s"
-    description: "Virial velocity at infall (satellites only, 0 for centrals)"
+    units: km/s
+    description: Virial velocity at infall (satellites only, 0 for centrals)
     output: true
     init_source: default
     init_value: -1.0
     output_source: recalculate
     output_function: output_infall_property_or_zero
-    output_function_arg: "g, g->infallVvir"
+    output_function_arg: g, g->infallVvir
     range: [10.0, 5000.0]  # Same as Vvir
     sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
 
   - name: infallVmax
     type: float
-    units: "km/s"
-    description: "Maximum circular velocity at infall (satellites only, 0 for centrals)"
+    units: km/s
+    description: Maximum circular velocity at infall (satellites only, 0 for centrals)
     output: true
     init_source: default
     init_value: -1.0
     output_source: recalculate
     output_function: output_infall_property_or_zero
-    output_function_arg: "g, g->infallVmax"
+    output_function_arg: g, g->infallVmax
     range: [10.0, 5000.0]  # Same as Vmax
     sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
