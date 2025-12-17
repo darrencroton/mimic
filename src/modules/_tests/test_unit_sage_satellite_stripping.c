@@ -1,298 +1,602 @@
 /**
- * @file    test_sage_satellite_stripping.c
- * @brief   Software quality unit tests for sage_satellite_stripping module
+ * @file    test_unit_sage_satellite_stripping.c
+ * @brief   Unit tests for sage_satellite_stripping module physics
  *
- * Validates: Module lifecycle, memory safety, parameter handling, error handling
- * Phase: Phase 4.2 (SAGE Modular Refactoring)
- *
- * This test validates software engineering aspects of the sage_satellite_stripping module:
- * - Module registration and initialization
- * - Parameter reading and validation
- * - Memory allocation and cleanup (no leaks)
- * - Null pointer safety
- * - Property access patterns
- *
- * Test cases:
- *   - test_module_registration: Module registers correctly
- *   - test_module_initialization: Module init/cleanup lifecycle
- *   - test_parameter_reading: Module parameters read from config
- *   - test_memory_safety: No memory leaks during operation
- *   - test_property_access: Galaxy property access works correctly
- *
- * NOTE: Physics validation (satellite stripping correctness) deferred to Phase 4.3+
- *       when downstream modules are implemented for end-to-end testing.
+ * Tests the satellite stripping physics calculation in isolation using minimal mocks.
+ * Validates:
+ *   - Stripping calculation logic
+ *   - Mass and metal conservation
+ *   - Metallicity preservation
+ *   - Edge cases (zero gas, boundary conditions, type filtering)
+ *   - Substep distribution
  *
  * @author  Mimic Development Team
- * @date    2025-11-26
+ * @date    2025-12-18
  */
-
-#include "../../../tests/framework/test_framework.h"
-#include "../core/module_registry.h"
-#include "../core/module_interface.h"
-#include "../include/types.h"
-#include "../include/proto.h"
-#include "../include/globals.h"
-#include "../util/error.h"
-#include "../util/memory.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <assert.h>
 
-/* Test statistics (required for TEST_RUN macro) */
+// Include module under test
+extern int sage_satellite_stripping_init(void);
+extern int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage_satellite_stripping_cleanup(void);
+
+// Minimal includes for types
+#include "../include/types.h"
+#include "../core/module_interface.h"
+#include "../include/globals.h"
+#include "../util/memory.h"
+
+/* Test statistics */
 static int passed = 0;
 static int failed = 0;
 
-/* Track whether modules have been registered */
-static int modules_registered = 0;
+/* ANSI colors */
+#define GREEN "\033[0;32m"
+#define RED "\033[0;31m"
+#define BLUE "\033[1;34m"
+#define NC "\033[0m"
 
-/* Test fixture: reset configuration state */
-static void reset_config(void)
+/* Test macros */
+#define TEST_ASSERT(condition, message) \
+    do { \
+        if (!(condition)) { \
+            printf("%s✗ FAIL: %s%s\n", RED, message, NC); \
+            printf("  at %s:%d\n", __FILE__, __LINE__); \
+            failed++; \
+            return 1; \
+        } \
+    } while(0)
+
+#define TEST_PASS \
+    do { \
+        passed++; \
+        return 0; \
+    } while(0)
+
+#define FLOAT_EQ(a, b, epsilon) (fabs((a) - (b)) < (epsilon))
+
+/* Mock configuration */
+static void setup_mock_config(void)
 {
     memset(&MimicConfig, 0, sizeof(MimicConfig));
+    MimicConfig.Omega = 0.25;
+    MimicConfig.OmegaLambda = 0.75;
+    MimicConfig.Hubble_h = 0.73;
 }
 
-/* Test fixture: ensure modules are registered (only once) */
-static void ensure_modules_registered(void)
+/* Helper: Create minimal module context */
+static struct ModuleContext create_test_context(int num_substeps)
 {
-    if (!modules_registered) {
-        register_all_modules();
-        modules_registered = 1;
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    ctx.redshift = 0.0;
+    ctx.time = 13.6;
+    ctx.snapshot_number = 63;
+    ctx.substep_number = 0;
+    ctx.num_substeps = num_substeps;
+    ctx.time_interval = 0.1;
+    ctx.substep_dt = ctx.time_interval / num_substeps;
+    ctx.params = &MimicConfig;
+
+    return ctx;
+}
+
+/* Helper: Create test halo */
+static struct Halo create_test_halo(int type, double mvir, struct GalaxyData *galaxy)
+{
+    struct Halo halo;
+    memset(&halo, 0, sizeof(halo));
+
+    halo.Type = type;
+    halo.Mvir = mvir;
+    halo.SnapNum = 63;
+    halo.galaxy = galaxy;
+
+    return halo;
+}
+
+/* Helper: Create test galaxy */
+static struct GalaxyData create_test_galaxy(float hot_gas, float metals_hot,
+                                             float stellar_mass, float cold_gas)
+{
+    struct GalaxyData gal;
+    memset(&gal, 0, sizeof(gal));
+
+    gal.HotGas = hot_gas;
+    gal.MetalsHotGas = metals_hot;
+    gal.StellarMass = stellar_mass;
+    gal.ColdGas = cold_gas;
+    gal.HaloBaryonFraction = 0.17;  // Default baryon fraction
+
+    return gal;
+}
+
+/**
+ * @test    test_no_stripping_when_below_threshold
+ * @brief   Satellites below baryon fraction threshold should not be stripped
+ */
+int test_no_stripping_when_below_threshold(void)
+{
+    printf("  Testing: No stripping when below threshold...\n");
+
+    /* Setup */
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(1);
+
+    // Central galaxy
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+
+    // Satellite with baryons BELOW threshold (should not strip)
+    // Mvir=10, baryon_frac=0.17 → allowed=1.7, actual=1.0 → excess=-0.7 (no stripping)
+    struct GalaxyData sat_gal = create_test_galaxy(1.0, 0.02, 0.0, 0.0);
+    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+
+    ctx.central_galaxy = &central;
+
+    struct Halo halos[2] = {central, satellite};
+
+    float initial_sat_hot = sat_gal.HotGas;
+    float initial_cen_hot = cen_gal.HotGas;
+
+    /* Execute */
+    int result = sage_satellite_stripping_process(&ctx, halos, 2);
+
+    /* Validate */
+    TEST_ASSERT(result == 0, "Process should succeed");
+    TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, initial_sat_hot, 1e-6),
+                "Satellite HotGas should be unchanged (below threshold)");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
+                "Central HotGas should be unchanged");
+
+    TEST_PASS;
+}
+
+/**
+ * @test    test_stripping_when_above_threshold
+ * @brief   Satellites above baryon fraction threshold should be stripped
+ */
+int test_stripping_when_above_threshold(void)
+{
+    printf("  Testing: Stripping when above threshold...\n");
+
+    /* Setup */
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(10);  // 10 substeps
+
+    // Central galaxy
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+
+    // Satellite with baryons ABOVE threshold (should strip)
+    // Mvir=10, baryon_frac=0.17 → allowed=1.7
+    // actual=5.0 hot + 0.0 stellar = 5.0 → excess=5.0-1.7=3.3
+    // Per substep: 3.3/10 = 0.33
+    struct GalaxyData sat_gal = create_test_galaxy(5.0, 0.1, 0.0, 0.0);
+    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+
+    ctx.central_galaxy = &central;
+
+    struct Halo halos[2] = {central, satellite};
+
+    float initial_sat_hot = sat_gal.HotGas;
+    float initial_cen_hot = cen_gal.HotGas;
+
+    /* Execute */
+    int result = sage_satellite_stripping_process(&ctx, halos, 2);
+
+    /* Validate */
+    TEST_ASSERT(result == 0, "Process should succeed");
+
+    // Calculate expected stripping
+    double baryon_frac = 0.17;
+    double total_baryons = 5.0;  // Only hot gas
+    double allowed = baryon_frac * 10.0;  // 1.7
+    double excess = total_baryons - allowed;  // 3.3
+    double stripped_per_substep = excess / 10.0;  // 0.33
+
+    TEST_ASSERT(halos[1].galaxy->HotGas < initial_sat_hot,
+                "Satellite HotGas should decrease");
+    TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, initial_sat_hot - stripped_per_substep, 0.01),
+                "Satellite should lose correct amount");
+    TEST_ASSERT(halos[0].galaxy->HotGas > initial_cen_hot,
+                "Central HotGas should increase");
+
+    TEST_PASS;
+}
+
+/**
+ * @test    test_mass_conservation
+ * @brief   Stripped mass from satellite equals mass gained by central
+ */
+int test_mass_conservation(void)
+{
+    printf("  Testing: Mass conservation...\n");
+
+    /* Setup */
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(1);
+
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+
+    struct GalaxyData sat_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
+    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, satellite};
+
+    float initial_sat_hot = sat_gal.HotGas;
+    float initial_cen_hot = cen_gal.HotGas;
+    float initial_total = initial_sat_hot + initial_cen_hot;
+
+    /* Execute */
+    sage_satellite_stripping_process(&ctx, halos, 2);
+
+    /* Validate */
+    float final_total = halos[1].galaxy->HotGas + halos[0].galaxy->HotGas;
+    TEST_ASSERT(FLOAT_EQ(final_total, initial_total, 1e-4),
+                "Total mass should be conserved");
+
+    // Verify: satellite lost = central gained
+    float sat_lost = initial_sat_hot - halos[1].galaxy->HotGas;
+    float cen_gained = halos[0].galaxy->HotGas - initial_cen_hot;
+    TEST_ASSERT(FLOAT_EQ(sat_lost, cen_gained, 1e-4),
+                "Satellite mass lost should equal central mass gained");
+
+    TEST_PASS;
+}
+
+/**
+ * @test    test_metal_conservation
+ * @brief   Stripped metals from satellite equals metals gained by central
+ */
+int test_metal_conservation(void)
+{
+    printf("  Testing: Metal conservation...\n");
+
+    /* Setup */
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(1);
+
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+
+    struct GalaxyData sat_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);  // Z = 0.02
+    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, satellite};
+
+    float initial_sat_metals = sat_gal.MetalsHotGas;
+    float initial_cen_metals = cen_gal.MetalsHotGas;
+    float initial_total_metals = initial_sat_metals + initial_cen_metals;
+
+    /* Execute */
+    sage_satellite_stripping_process(&ctx, halos, 2);
+
+    /* Validate */
+    float final_total_metals = halos[1].galaxy->MetalsHotGas + halos[0].galaxy->MetalsHotGas;
+    TEST_ASSERT(FLOAT_EQ(final_total_metals, initial_total_metals, 1e-5),
+                "Total metals should be conserved");
+
+    // Verify: satellite metals lost = central metals gained
+    float sat_metals_lost = initial_sat_metals - halos[1].galaxy->MetalsHotGas;
+    float cen_metals_gained = halos[0].galaxy->MetalsHotGas - initial_cen_metals;
+    TEST_ASSERT(FLOAT_EQ(sat_metals_lost, cen_metals_gained, 1e-5),
+                "Satellite metals lost should equal central metals gained");
+
+    TEST_PASS;
+}
+
+/**
+ * @test    test_metallicity_preservation
+ * @brief   Metallicity should be preserved during stripping
+ */
+int test_metallicity_preservation(void)
+{
+    printf("  Testing: Metallicity preservation...\n");
+
+    /* Setup */
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(1);
+
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 1.0, 50.0, 20.0);  // Z=0.01
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+
+    struct GalaxyData sat_gal = create_test_galaxy(10.0, 0.3, 0.0, 0.0);  // Z=0.03
+    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+
+    float initial_sat_Z = sat_gal.MetalsHotGas / sat_gal.HotGas;
+
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, satellite};
+
+    /* Execute */
+    sage_satellite_stripping_process(&ctx, halos, 2);
+
+    /* Validate */
+    // Satellite metallicity should be unchanged (same Z, less mass)
+    if (halos[1].galaxy->HotGas > 0.0) {
+        float final_sat_Z = halos[1].galaxy->MetalsHotGas / halos[1].galaxy->HotGas;
+        TEST_ASSERT(FLOAT_EQ(final_sat_Z, initial_sat_Z, 1e-4),
+                    "Satellite metallicity should be preserved");
     }
-}
 
-/* Test fixture: Set all required model parameters (Parameter system)
- * Defined in tests/unit/test_stubs.c - provides all 20 required parameters */
-extern void set_test_model_parameters(void);
-
-/**
- * @test    test_module_registration
- * @brief   Test that sage_satellite_stripping module registers correctly
- *
- * Expected: Module registration succeeds without errors
- * Validates: sage_satellite_stripping_register() works, module appears in registry
- */
-int test_module_registration(void)
-{
-    /* ===== SETUP ===== */
-    reset_config();
-
-    /* ===== EXECUTE ===== */
-    ensure_modules_registered();
-
-    /* ===== VALIDATE ===== */
-    /* If we got here without crashing, registration succeeded */
-    /* Module registry is internal, but we can test that module init works */
-
-    return TEST_PASS;
+    TEST_PASS;
 }
 
 /**
- * @test    test_module_initialization
- * @brief   Test module initialization and cleanup lifecycle
- *
- * Expected: Module init and cleanup succeed without errors or leaks
- * Validates: Module lifecycle management
+ * @test    test_zero_hot_gas_no_stripping
+ * @brief   Satellites with zero hot gas should not be stripped
  */
-int test_module_initialization(void)
+int test_zero_hot_gas_no_stripping(void)
 {
-    /* ===== SETUP ===== */
-    reset_config();
+    printf("  Testing: Zero hot gas - no stripping...\n");
+
+    /* Setup */
     init_memory_system(0);
-    ensure_modules_registered();
+    struct ModuleContext ctx = create_test_context(1);
 
-    /* Set up minimal cosmology configuration */
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
 
-    /* Configure sage_satellite_stripping module */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_satellite_stripping");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-    MimicConfig.num_phase_1 = 1;
-    MimicConfig.SubSteps = 1;
-    set_test_model_parameters();
+    // Satellite with zero hot gas (but other baryons)
+    struct GalaxyData sat_gal = create_test_galaxy(0.0, 0.0, 5.0, 2.0);
+    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
 
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, satellite};
 
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == 0, "Module system initialization should succeed");
+    float initial_cen_hot = cen_gal.HotGas;
 
-    /* ===== CLEANUP ===== */
-    module_system_cleanup();
-    check_memory_leaks();
+    /* Execute */
+    sage_satellite_stripping_process(&ctx, halos, 2);
 
-    return TEST_PASS;
+    /* Validate */
+    TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, 0.0, 1e-6),
+                "Satellite HotGas should remain zero");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
+                "Central should not gain gas (satellite has none to strip)");
+
+    TEST_PASS;
 }
 
 /**
- * @test    test_parameter_reading
- * @brief   Test that module reads GlobalBaryonFraction parameter correctly
- *
- * Expected: Module initializes successfully and reads GlobalBaryonFraction
- * Validates: Parameter reading and validation via LOAD_AND_VALIDATE_RANGE_EXCLUSIVE
- * Note: HaloBaryonFraction property is set by sage_reionization module
+ * @test    test_clamping_to_available_gas
+ * @brief   Cannot strip more gas than satellite has available
  */
-int test_parameter_reading(void)
+int test_clamping_to_available_gas(void)
 {
-    /* ===== SETUP ===== */
-    reset_config();
+    printf("  Testing: Clamping to available gas...\n");
+
+    /* Setup */
     init_memory_system(0);
-    ensure_modules_registered();
+    struct ModuleContext ctx = create_test_context(1);
 
-    /* Set up configuration */
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
 
-    /* Configure sage_satellite_stripping module */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_satellite_stripping");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-    MimicConfig.num_phase_1 = 1;
-    MimicConfig.SubSteps = 1;
-    set_test_model_parameters();
+    // Satellite with huge excess but limited hot gas
+    // Mvir=100 → allowed=17, but has stellar=50 + hot=2 = 52 → excess=35
+    // Should only strip 2.0 (all available hot gas)
+    struct GalaxyData sat_gal = create_test_galaxy(2.0, 0.04, 50.0, 0.0);
+    struct Halo satellite = create_test_halo(1, 100.0, &sat_gal);
 
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, satellite};
 
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == 0, "Module should initialize and read GlobalBaryonFraction");
+    float initial_sat_hot = sat_gal.HotGas;
+    float initial_cen_hot = cen_gal.HotGas;
 
-    /* ===== CLEANUP ===== */
-    module_system_cleanup();
-    check_memory_leaks();
+    /* Execute */
+    sage_satellite_stripping_process(&ctx, halos, 2);
 
-    return TEST_PASS;
+    /* Validate */
+    TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, 0.0, 1e-6),
+                "Satellite should be stripped to zero (clamped)");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot + initial_sat_hot, 1e-4),
+                "Central should gain all available satellite hot gas");
+
+    TEST_PASS;
 }
 
 /**
- * @test    test_memory_safety
- * @brief   Test that module doesn't leak memory during normal operation
- *
- * Expected: No memory leaks after init, process, cleanup cycle
- * Validates: Memory management in module
+ * @test    test_type_2_orphans_skipped
+ * @brief   Type 2 orphans should not be processed
  */
-int test_memory_safety(void)
+int test_type_2_orphans_skipped(void)
 {
-    /* ===== SETUP ===== */
-    reset_config();
+    printf("  Testing: Type 2 orphans skipped...\n");
+
+    /* Setup */
     init_memory_system(0);
-    ensure_modules_registered();
+    struct ModuleContext ctx = create_test_context(1);
 
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
 
-    /* Configure sage_satellite_stripping module */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_satellite_stripping");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-    MimicConfig.num_phase_1 = 1;
-    MimicConfig.SubSteps = 1;
-    set_test_model_parameters();
+    // Type 2 orphan (should be skipped)
+    struct GalaxyData orphan_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
+    struct Halo orphan = create_test_halo(2, 10.0, &orphan_gal);
 
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
-    TEST_ASSERT(result == 0, "Module initialization should succeed");
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, orphan};
 
-    /* ===== VALIDATE ===== */
-    /* Module initialized successfully without memory leaks */
-    /* (Full pipeline processing tested in integration tests) */
+    float initial_orphan_hot = orphan_gal.HotGas;
+    float initial_cen_hot = cen_gal.HotGas;
 
-    /* ===== CLEANUP ===== */
-    module_system_cleanup();
-    check_memory_leaks();
+    /* Execute */
+    sage_satellite_stripping_process(&ctx, halos, 2);
 
-    return TEST_PASS;
+    /* Validate */
+    TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, initial_orphan_hot, 1e-6),
+                "Type 2 orphan should not be stripped");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
+                "Central should not gain gas from orphan");
+
+    TEST_PASS;
 }
 
 /**
- * @test    test_property_access
- * @brief   Test that module can safely access galaxy properties
- *
- * Expected: Property access doesn't crash, handles zero/null gracefully
- * Validates: Property access patterns in module (HotGas, MetalsHotGas)
+ * @test    test_type_3_ejected_skipped
+ * @brief   Type 3 ejected galaxies should not be processed
  */
-int test_property_access(void)
+int test_type_3_ejected_skipped(void)
 {
-    /* ===== SETUP ===== */
+    printf("  Testing: Type 3 ejected galaxies skipped...\n");
+
+    /* Setup */
     init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(1);
 
-    /* Create test halo and galaxy with various property states */
-    struct Halo test_halo;
-    memset(&test_halo, 0, sizeof(test_halo));
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
 
-    struct GalaxyData test_galaxy;
-    memset(&test_galaxy, 0, sizeof(test_galaxy));
+    // Type 3 ejected (should be skipped)
+    struct GalaxyData ejected_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
+    struct Halo ejected = create_test_halo(3, 10.0, &ejected_gal);
 
-    /* Set up central halo */
-    test_halo.Mvir = 100.0;  /* 10^12 Msun/h */
-    test_halo.Type = 0;  /* Central */
-    test_halo.SnapNum = 63;
-    test_halo.galaxy = &test_galaxy;
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, ejected};
 
-    /* Set up satellite with hot gas */
-    struct Halo sat_halo;
-    memset(&sat_halo, 0, sizeof(sat_halo));
-    struct GalaxyData sat_galaxy;
-    memset(&sat_galaxy, 0, sizeof(sat_galaxy));
+    float initial_ejected_hot = ejected_gal.HotGas;
+    float initial_cen_hot = cen_gal.HotGas;
 
-    sat_halo.Mvir = 10.0;  /* 10^11 Msun/h */
-    sat_halo.Type = 1;  /* Type 1 satellite */
-    sat_halo.galaxy = &sat_galaxy;
-    sat_galaxy.HotGas = 5.0;
-    sat_galaxy.MetalsHotGas = 0.1;
+    /* Execute */
+    sage_satellite_stripping_process(&ctx, halos, 2);
 
-    /* ===== VALIDATE ===== */
-    /* Test that halo properties can be accessed without crashing */
-    TEST_ASSERT(test_halo.Mvir > 0.0, "Mvir should be accessible");
-    TEST_ASSERT(test_halo.Type == 0, "Type should be accessible");
-    TEST_ASSERT(sat_halo.Type == 1, "Satellite Type should be accessible");
+    /* Validate */
+    TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, initial_ejected_hot, 1e-6),
+                "Type 3 ejected galaxy should not be stripped");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
+                "Central should not gain gas from ejected galaxy");
 
-    /* Test that galaxy properties can be accessed */
-    TEST_ASSERT(sat_galaxy.HotGas >= 0.0, "HotGas should be non-negative");
-    TEST_ASSERT(sat_galaxy.MetalsHotGas >= 0.0, "MetalsHotGas should be non-negative");
+    TEST_PASS;
+}
 
-    /* Test with zero values (edge case) */
-    struct GalaxyData zero_galaxy;
-    memset(&zero_galaxy, 0, sizeof(zero_galaxy));
-    TEST_ASSERT(zero_galaxy.HotGas == 0.0, "Zero-initialized galaxy should have HotGas=0");
-    TEST_ASSERT(zero_galaxy.MetalsHotGas == 0.0, "Zero-initialized galaxy should have MetalsHotGas=0");
+/**
+ * @test    test_null_galaxy_handling
+ * @brief   NULL galaxy pointers should be handled safely
+ */
+int test_null_galaxy_handling(void)
+{
+    printf("  Testing: NULL galaxy handling...\n");
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+    /* Setup */
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(1);
 
-    return TEST_PASS;
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+
+    // Satellite with NULL galaxy
+    struct Halo satellite = create_test_halo(1, 10.0, NULL);
+
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, satellite};
+
+    float initial_cen_hot = cen_gal.HotGas;
+
+    /* Execute */
+    int result = sage_satellite_stripping_process(&ctx, halos, 2);
+
+    /* Validate */
+    TEST_ASSERT(result == 0, "Should handle NULL galaxy gracefully");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
+                "Central should not change when satellite has NULL galaxy");
+
+    TEST_PASS;
+}
+
+/**
+ * @test    test_multiple_satellites
+ * @brief   Multiple satellites should all be processed correctly
+ */
+int test_multiple_satellites(void)
+{
+    printf("  Testing: Multiple satellites...\n");
+
+    /* Setup */
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(1);
+
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+
+    struct GalaxyData sat1_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
+    struct Halo sat1 = create_test_halo(1, 10.0, &sat1_gal);
+
+    struct GalaxyData sat2_gal = create_test_galaxy(8.0, 0.16, 0.0, 0.0);
+    struct Halo sat2 = create_test_halo(1, 10.0, &sat2_gal);
+
+    ctx.central_galaxy = &central;
+    struct Halo halos[3] = {central, sat1, sat2};
+
+    float initial_cen_hot = cen_gal.HotGas;
+    float initial_sat1_hot = sat1_gal.HotGas;
+    float initial_sat2_hot = sat2_gal.HotGas;
+
+    /* Execute */
+    sage_satellite_stripping_process(&ctx, halos, 3);
+
+    /* Validate */
+    TEST_ASSERT(halos[0].galaxy->HotGas > initial_cen_hot,
+                "Central should gain gas from both satellites");
+    TEST_ASSERT(halos[1].galaxy->HotGas < initial_sat1_hot,
+                "Satellite 1 should lose gas");
+    TEST_ASSERT(halos[2].galaxy->HotGas < initial_sat2_hot,
+                "Satellite 2 should lose gas");
+
+    TEST_PASS;
 }
 
 /**
  * @brief   Main test runner
- *
- * Executes all sage_satellite_stripping software quality tests and reports results.
  */
 int main(void)
 {
     printf("%s", BLUE);
     printf("============================================================\n");
-    printf("Test Suite: sage_satellite_stripping Module\n");
+    printf("Unit Test Suite: sage_satellite_stripping Physics\n");
     printf("============================================================\n");
     printf("%s\n", NC);
 
-    /* Initialize error handling for tests */
-    initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
+    /* Run all tests */
+    test_no_stripping_when_below_threshold();
+    test_stripping_when_above_threshold();
+    test_mass_conservation();
+    test_metal_conservation();
+    test_metallicity_preservation();
+    test_zero_hot_gas_no_stripping();
+    test_clamping_to_available_gas();
+    test_type_2_orphans_skipped();
+    test_type_3_ejected_skipped();
+    test_null_galaxy_handling();
+    test_multiple_satellites();
 
-    /* Run all test cases */
-    TEST_RUN(test_module_registration);
-    TEST_RUN(test_module_initialization);
-    TEST_RUN(test_parameter_reading);
-    TEST_RUN(test_memory_safety);
-    TEST_RUN(test_property_access);
+    /* Print summary */
+    printf("\n%s", BLUE);
+    printf("============================================================\n");
+    printf("Test Summary\n");
+    printf("============================================================\n");
+    printf("%s", NC);
+    printf("Passed: %s%d%s\n", GREEN, passed, NC);
+    printf("Failed: %s%d%s\n", failed > 0 ? RED : NC, failed, NC);
+    printf("Total:  %d\n", passed + failed);
+    printf("%s============================================================%s\n\n", BLUE, NC);
 
-    /* Print summary and return result */
-    TEST_SUMMARY();
-    return TEST_RESULT();
+    if (failed == 0) {
+        printf("%s✓ All tests passed!%s\n\n", GREEN, NC);
+        return 0;
+    } else {
+        printf("%s✗ %d test(s) failed%s\n\n", RED, failed, NC);
+        return 1;
+    }
 }
