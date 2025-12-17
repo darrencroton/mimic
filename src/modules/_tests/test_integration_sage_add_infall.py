@@ -20,6 +20,7 @@ Test cases:
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
   - test_substep_distribution: Infall distributed over substeps
+  - test_negative_infall_physics: Negative infall handling (HotGas/EjectedGas reduction)
 
 Author: Mimic Development Team
 Date: 2025-12-11
@@ -308,6 +309,87 @@ def test_substep_distribution():
     print("  ✓ Substep distribution works (4 substeps)")
 
 
+def test_negative_infall_physics():
+    """
+    Test that negative infall is handled correctly (mass loss)
+
+    Expected: When InfallingGas is negative, HotGas and EjectedGas are reduced appropriately
+    Validates: Negative infall handling doesn't produce NaN or negative masses
+    """
+    print("Testing negative infall physics...")
+
+    # ===== SETUP =====
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="sage_add_infall_negative",
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'phase_1': [('sage_add_infall', 'process_full_halo')],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={'GlobalBaryonFraction': 0.17}
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, "Mimic execution should succeed"
+
+    # ===== VALIDATE =====
+    output_file = output_dir / "model_z0.000_0"
+    assert output_file.exists(), "Output file should exist"
+
+    # Load halos
+    halos, metadata = load_binary_halos(output_file)
+    assert len(halos) > 0, "Should have halos in output"
+
+    # Filter to Type 0 centrals
+    import numpy as np
+    type0_mask = halos['Type'] == 0
+    type0_halos = halos[type0_mask]
+
+    # Check that all gas reservoirs are physically reasonable
+    assert np.all(np.isfinite(type0_halos['HotGas'])), \
+        "HotGas should have finite values"
+    assert np.all(type0_halos['HotGas'] >= 0), \
+        "HotGas should be non-negative (negative infall handled correctly)"
+
+    assert np.all(np.isfinite(type0_halos['EjectedGas'])), \
+        "EjectedGas should have finite values"
+    assert np.all(type0_halos['EjectedGas'] >= 0), \
+        "EjectedGas should be non-negative (negative infall handled correctly)"
+
+    assert np.all(np.isfinite(type0_halos['MetalsHotGas'])), \
+        "MetalsHotGas should have finite values"
+    assert np.all(type0_halos['MetalsHotGas'] >= 0), \
+        "MetalsHotGas should be non-negative"
+
+    # Check if there are any halos with InfallingGas in the data
+    # (InfallingGas is calculated in sage_calculate_infall, may be positive or negative)
+    if 'InfallingGas' in type0_halos.dtype.names:
+        infalling = type0_halos['InfallingGas']
+        negative_infall_mask = infalling < 0
+
+        if np.any(negative_infall_mask):
+            num_negative = np.sum(negative_infall_mask)
+            print(f"  Found {num_negative} halos with negative infall (mass loss)")
+
+            # Verify these halos have reasonable gas reservoirs
+            negative_infall_halos = type0_halos[negative_infall_mask]
+            assert np.all(negative_infall_halos['HotGas'] >= 0), \
+                "Halos with negative infall should still have non-negative HotGas"
+            assert np.all(negative_infall_halos['EjectedGas'] >= 0), \
+                "Halos with negative infall should still have non-negative EjectedGas"
+
+            print(f"  ✓ Negative infall handled correctly for {num_negative} halos")
+        else:
+            print("  ✓ No negative infall cases in test data (edge case not tested)")
+    else:
+        print("  ✓ Gas reservoirs are physically reasonable")
+
+    # Cleanup
+    shutil.rmtree(temp_dir)
+
+
 def main():
     """
     Main test runner
@@ -332,6 +414,7 @@ def main():
         test_memory_safety,
         test_execution_completes,
         test_substep_distribution,
+        test_negative_infall_physics,
     ]
 
     passed = 0

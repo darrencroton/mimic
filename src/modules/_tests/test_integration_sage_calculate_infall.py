@@ -19,6 +19,7 @@ Test cases:
   - test_with_satellite_stripping: Integration with sage_satellite_stripping
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
+  - test_infalling_gas_calculation: Physics validation of InfallingGas calculation
   - test_multiple_module_pipeline: Multi-module integration
 
 Author: Mimic Development Team
@@ -365,6 +366,96 @@ def test_execution_completes():
     print("  ✓ Full pipeline completes")
 
 
+def test_infalling_gas_calculation():
+    """
+    Test that InfallingGas is calculated correctly based on HaloBaryonFraction
+
+    Expected: InfallingGas values are physically reasonable
+    Validates: Core physics calculation (InfallingGas = HaloBaryonFraction × Mvir - existing_baryons)
+    """
+    print("Testing InfallingGas calculation physics...")
+
+    # ===== SETUP =====
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="sage_calculate_infall_physics",
+        phase_config={
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'phase_1': [],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={'GlobalBaryonFraction': 0.17}
+    )
+
+    # ===== EXECUTE =====
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, "Mimic execution should succeed"
+
+    # ===== VALIDATE =====
+    output_file = output_dir / "model_z0.000_0"
+    assert output_file.exists(), "Output file should exist"
+
+    # Load halos
+    halos, metadata = load_binary_halos(output_file)
+    assert len(halos) > 0, "Should have halos in output"
+
+    # Filter to Type 0 centrals (where InfallingGas is calculated)
+    import numpy as np
+    type0_mask = halos['Type'] == 0
+    type0_halos = halos[type0_mask]
+
+    assert len(type0_halos) > 0, "Should have Type 0 centrals for testing"
+
+    # Validate InfallingGas values are reasonable
+    # InfallingGas = HaloBaryonFraction × Mvir - existing_baryons
+    # Can be positive (net infall) or negative (mass loss)
+
+    # Check that HaloBaryonFraction is used in calculation
+    assert 'HaloBaryonFraction' in type0_halos.dtype.names, \
+        "HaloBaryonFraction should be set by sage_reionization"
+
+    # NOTE: InfallingGas may be calc_only and not written to output
+    # If it exists, validate the physics; if not, validate other gas reservoirs
+    if 'InfallingGas' in type0_halos.dtype.names:
+        # InfallingGas is in output - validate physics
+        infalling_gas = type0_halos['InfallingGas']
+        assert np.all(np.isfinite(infalling_gas)), \
+            "InfallingGas should have finite values"
+        # Find halos with minimal baryonic content
+        total_baryons = (type0_halos['StellarMass'] + type0_halos['ColdGas'] +
+                         type0_halos['HotGas'] + type0_halos['EjectedGas'] +
+                         type0_halos['ICS'] + type0_halos['BlackHoleMass'])
+
+        # Find halos where total baryons < 1% of virial mass
+        minimal_baryon_mask = total_baryons < 0.01 * type0_halos['Mvir']
+        minimal_baryon_halos = type0_halos[minimal_baryon_mask]
+
+        if len(minimal_baryon_halos) > 10:
+            # For these halos, InfallingGas ≈ HaloBaryonFraction × Mvir
+            expected_infall = minimal_baryon_halos['HaloBaryonFraction'] * minimal_baryon_halos['Mvir']
+            actual_infall = minimal_baryon_halos['InfallingGas']
+
+            # Check correlation (should be high)
+            correlation = np.corrcoef(expected_infall, actual_infall)[0, 1]
+            assert correlation > 0.95, \
+                f"InfallingGas should correlate strongly with HaloBaryonFraction × Mvir (got r={correlation:.3f})"
+
+            print(f"  ✓ InfallingGas calculation verified (r={correlation:.3f} for {len(minimal_baryon_halos)} clean halos)")
+        else:
+            print(f"  ✓ InfallingGas values are finite (found {len(type0_halos)} Type 0 centrals)")
+    else:
+        # InfallingGas is calc_only, validate that gas reservoirs are reasonable instead
+        # The module should still affect EjectedGas and ICS through satellite consolidation
+        assert np.all(np.isfinite(type0_halos['HotGas'])), "HotGas should be finite"
+        assert np.all(np.isfinite(type0_halos['EjectedGas'])), "EjectedGas should be finite"
+        assert np.all(np.isfinite(type0_halos['ICS'])), "ICS should be finite"
+
+        print(f"  ✓ InfallingGas is calc_only (not in output), gas reservoirs are physically reasonable")
+
+    # Cleanup
+    shutil.rmtree(temp_dir)
+
+
 def test_multiple_module_pipeline():
     """
     Test that sage_calculate_infall works with other modules in pipeline
@@ -452,6 +543,7 @@ def main():
         test_with_satellite_stripping,
         test_memory_safety,
         test_execution_completes,
+        test_infalling_gas_calculation,
         test_multiple_module_pipeline,
     ]
 

@@ -9,16 +9,23 @@
  * - Memory allocation and cleanup (no leaks)
  * - Null pointer safety
  * - Property access patterns
- * - Infall distribution over substeps
- * - Negative infall handling
+ * - Infall distribution over substeps (actual module execution)
+ * - Negative infall handling (ejected→hot priority)
+ * - Metallicity preservation during transfers
+ * - Edge cases (zero infall, multiple substeps)
  *
  * Test cases:
  *   - test_module_registration: Module registers correctly
  *   - test_module_initialization: Module init/cleanup lifecycle
  *   - test_memory_safety: No memory leaks during operation
  *   - test_property_access: Galaxy property access works correctly
- *   - test_positive_infall: Positive infall distribution
- *   - test_negative_infall: Negative infall handling (ejected→hot)
+ *   - test_physics_positive_infall_single_substep: Positive infall with 1 substep
+ *   - test_physics_positive_infall_multiple_substeps: Infall distributed over 4 substeps
+ *   - test_physics_negative_infall_from_ejected: Negative infall depletes ejected first
+ *   - test_physics_negative_infall_from_hot: Negative infall depletes hot when ejected empty
+ *   - test_physics_negative_infall_cascade: Negative infall depletes ejected then hot
+ *   - test_zero_infall: Edge case with zero infall
+ *   - test_no_central_galaxy: Edge case with no Type 0 central
  *
  * @author  Mimic Development Team
  * @date    2025-12-11
@@ -63,6 +70,58 @@ static void ensure_modules_registered(void)
 /* Test fixture: Set all required model parameters
  * Defined in tests/unit/test_stubs.c - provides all required parameters */
 extern void set_test_model_parameters(void);
+
+/* External module interface for direct testing */
+extern int sage_add_infall_init(void);
+extern int sage_add_infall_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage_add_infall_cleanup(void);
+
+/* Test fixtures for physics tests */
+
+/**
+ * @brief Initialize sage_add_infall module for physics testing
+ *
+ * Sets up minimal module state without full module system.
+ * Module has no init-time parameters to configure.
+ */
+static void setup_module_for_physics_test(void)
+{
+    sage_add_infall_init();
+}
+
+/**
+ * @brief Create a test halo with galaxy for physics tests
+ *
+ * @param type Halo type (0=central, 1=satellite, 2=orphan, 3=ejected)
+ * @param mvir Virial mass in code units (1e10 Msun/h)
+ * @return Allocated halo (must be freed with free_test_halo)
+ */
+static struct Halo create_test_halo(int type, float mvir)
+{
+    struct Halo halo;
+    memset(&halo, 0, sizeof(halo));
+
+    halo.Type = type;
+    halo.Mvir = mvir;
+    halo.SnapNum = 63;  /* z=0 */
+
+    /* Allocate galaxy data */
+    halo.galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
+    memset(halo.galaxy, 0, sizeof(struct GalaxyData));
+
+    return halo;
+}
+
+/**
+ * @brief Free test halo resources
+ */
+static void free_test_halo(struct Halo *halo)
+{
+    if (halo->galaxy != NULL) {
+        myfree(halo->galaxy);
+        halo->galaxy = NULL;
+    }
+}
 
 /**
  * @test    test_module_registration
@@ -214,115 +273,325 @@ int test_property_access(void)
 }
 
 /**
- * @test    test_positive_infall
- * @brief   Test positive infall distribution over substeps
+ * @test    test_physics_positive_infall_single_substep
+ * @brief   Test positive infall with single substep
  *
- * Expected: InfallingGas distributed evenly over substeps to HotGas
- * Validates: Infall distribution logic
+ * Expected: InfallingGas added to HotGas in single substep
+ * Validates: Basic infall distribution
  */
-int test_positive_infall(void)
+int test_physics_positive_infall_single_substep(void)
 {
     /* ===== SETUP ===== */
     init_memory_system(0);
+    setup_module_for_physics_test();
 
-    /* Create test halo and galaxy */
-    struct Halo test_halo;
-    memset(&test_halo, 0, sizeof(test_halo));
-
-    struct GalaxyData test_galaxy;
-    memset(&test_galaxy, 0, sizeof(test_galaxy));
-
-    test_halo.Type = 0;  /* Central */
-    test_halo.galaxy = &test_galaxy;
+    struct Halo test_halo = create_test_halo(0, 100.0);  /* Type 0 central */
 
     /* Initial state */
-    test_galaxy.InfallingGas = 10.0;  /* Total infall */
-    test_galaxy.HotGas = 5.0;
-    test_galaxy.MetalsHotGas = 0.1;
+    test_halo.galaxy->InfallingGas = 10.0;
+    test_halo.galaxy->HotGas = 5.0;
+    test_halo.galaxy->MetalsHotGas = 0.1;
 
-    /* Validate substep distribution logic without needing ModuleContext */
-    /* For unit test, we verify the expected behavior:
-     * - First substep: HotGas += 10.0/2 = 5.0 → HotGas = 10.0
-     * - Second substep: HotGas += 10.0/2 = 5.0 → HotGas = 15.0
-     */
+    /* Create module context */
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.num_substeps = 1;
+    ctx.substep_number = 0;
 
-    float initial_hot = test_galaxy.HotGas;
-    int num_substeps = 2;
-    float infall_per_step = test_galaxy.InfallingGas / (float)num_substeps;
+    /* ===== EXECUTE ===== */
+    int result = sage_add_infall_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT_DOUBLE_EQUAL(infall_per_step, 5.0, 0.001, "Infall per substep should be 5.0");
-    TEST_ASSERT_DOUBLE_EQUAL(initial_hot, 5.0, 0.001, "Initial HotGas should be 5.0");
-
-    /* After one substep */
-    float expected_hot_step1 = initial_hot + infall_per_step;
-    TEST_ASSERT_DOUBLE_EQUAL(expected_hot_step1, 10.0, 0.001, "HotGas after substep 1 should be 10.0");
-
-    /* After two substeps */
-    float expected_hot_step2 = expected_hot_step1 + infall_per_step;
-    TEST_ASSERT_DOUBLE_EQUAL(expected_hot_step2, 15.0, 0.001, "HotGas after substep 2 should be 15.0");
+    TEST_ASSERT(result == 0, "Module processing should succeed");
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, 15.0, 0.001, "HotGas should be 5.0 + 10.0 = 15.0");
 
     /* ===== CLEANUP ===== */
+    free_test_halo(&test_halo);
+    sage_add_infall_cleanup();
     check_memory_leaks();
 
     return TEST_PASS;
 }
 
 /**
- * @test    test_negative_infall
- * @brief   Test negative infall handling (mass loss)
+ * @test    test_physics_positive_infall_multiple_substeps
+ * @brief   Test positive infall distributed over 4 substeps
  *
- * Expected: Negative infall removes from ejected first, then hot gas
- * Validates: Priority order and metallicity preservation
+ * Expected: InfallingGas/4 added each substep
+ * Validates: Substep distribution logic
  */
-int test_negative_infall(void)
+int test_physics_positive_infall_multiple_substeps(void)
 {
     /* ===== SETUP ===== */
     init_memory_system(0);
+    setup_module_for_physics_test();
 
-    /* Create test halo and galaxy */
-    struct Halo test_halo;
-    memset(&test_halo, 0, sizeof(test_halo));
-
-    struct GalaxyData test_galaxy;
-    memset(&test_galaxy, 0, sizeof(test_galaxy));
-
-    test_halo.Type = 0;  /* Central */
-    test_halo.galaxy = &test_galaxy;
+    struct Halo test_halo = create_test_halo(0, 100.0);
 
     /* Initial state */
-    test_galaxy.InfallingGas = -8.0;  /* Mass loss */
-    test_galaxy.EjectedGas = 3.0;
-    test_galaxy.MetalsEjectedGas = 0.06;  /* Z = 0.02 */
-    test_galaxy.HotGas = 10.0;
-    test_galaxy.MetalsHotGas = 0.2;  /* Z = 0.02 */
+    test_halo.galaxy->InfallingGas = 12.0;  /* 3.0 per substep */
+    test_halo.galaxy->HotGas = 5.0;
+    test_halo.galaxy->MetalsHotGas = 0.1;
 
-    /* Expected behavior (1 substep):
-     * 1. Remove 8.0 from ejected (only 3.0 available)
-     *    - EjectedGas: 3.0 - 8.0 = -5.0 → depleted
-     *    - Carry over: -5.0 to hot gas
-     * 2. Remove -5.0 from hot gas
-     *    - HotGas: 10.0 - 5.0 = 5.0
-     *    - MetalsHotGas: 0.2 - 5.0*0.02 = 0.1
-     */
+    /* Create module context */
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.num_substeps = 4;
 
-    float initial_hot = test_galaxy.HotGas;
-    float initial_ejected = test_galaxy.EjectedGas;
-    float infall_per_step = test_galaxy.InfallingGas;  /* -8.0 with 1 substep */
+    /* ===== EXECUTE ===== */
+    /* Simulate 4 substeps */
+    for (int i = 0; i < 4; i++) {
+        ctx.substep_number = i;
+        int result = sage_add_infall_process(&ctx, &test_halo, 1);
+        TEST_ASSERT(result == 0, "Module processing should succeed for each substep");
+    }
 
     /* ===== VALIDATE ===== */
-    /* Expected final state after processing */
-    float expected_ejected = 0.0;  /* Depleted */
-    float expected_hot = initial_hot + (infall_per_step + initial_ejected);  /* 10.0 + (-8.0 + 3.0) = 5.0 */
-
-    TEST_ASSERT_DOUBLE_EQUAL(expected_ejected, 0.0, 0.001, "Ejected should be depleted");
-    TEST_ASSERT_DOUBLE_EQUAL(expected_hot, 5.0, 0.001, "HotGas should be reduced to 5.0");
-
-    /* Verify metals would be reduced proportionally (Z preserved) */
-    float expected_metals_hot = 0.1;  /* 5.0 * 0.02 */
-    TEST_ASSERT_DOUBLE_EQUAL(expected_metals_hot, 0.1, 0.001, "Metals should be reduced proportionally");
+    /* After 4 substeps: HotGas = 5.0 + 4*(12.0/4) = 5.0 + 12.0 = 17.0 */
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, 17.0, 0.001, "HotGas should be 5.0 + 12.0 = 17.0");
 
     /* ===== CLEANUP ===== */
+    free_test_halo(&test_halo);
+    sage_add_infall_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_physics_negative_infall_from_ejected
+ * @brief   Test negative infall removes from ejected reservoir first
+ *
+ * Expected: EjectedGas reduced, HotGas unchanged (ejected has enough mass)
+ * Validates: Priority order (ejected before hot)
+ */
+int test_physics_negative_infall_from_ejected(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    setup_module_for_physics_test();
+
+    struct Halo test_halo = create_test_halo(0, 100.0);
+
+    /* Initial state */
+    test_halo.galaxy->InfallingGas = -5.0;  /* Mass loss */
+    test_halo.galaxy->EjectedGas = 10.0;
+    test_halo.galaxy->MetalsEjectedGas = 0.2;  /* Z = 0.02 */
+    test_halo.galaxy->HotGas = 20.0;
+    test_halo.galaxy->MetalsHotGas = 0.4;  /* Z = 0.02 */
+
+    /* Create module context */
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.num_substeps = 1;
+    ctx.substep_number = 0;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_add_infall_process(&ctx, &test_halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Module processing should succeed");
+
+    /* Ejected should be reduced: 10.0 - 5.0 = 5.0 */
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->EjectedGas, 5.0, 0.001, "EjectedGas should be 10.0 - 5.0 = 5.0");
+
+    /* Hot should be unchanged (ejected had enough mass) */
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, 20.0, 0.001, "HotGas should be unchanged at 20.0");
+
+    /* Metallicity preserved in ejected: 5.0 * 0.02 = 0.1 */
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsEjectedGas, 0.1, 0.001, "MetalsEjectedGas should be 0.1");
+
+    /* ===== CLEANUP ===== */
+    free_test_halo(&test_halo);
+    sage_add_infall_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_physics_negative_infall_from_hot
+ * @brief   Test negative infall removes from hot gas when ejected is empty
+ *
+ * Expected: HotGas reduced, EjectedGas remains 0
+ * Validates: Fallback to hot gas when ejected is depleted
+ */
+int test_physics_negative_infall_from_hot(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    setup_module_for_physics_test();
+
+    struct Halo test_halo = create_test_halo(0, 100.0);
+
+    /* Initial state */
+    test_halo.galaxy->InfallingGas = -5.0;  /* Mass loss */
+    test_halo.galaxy->EjectedGas = 0.0;  /* Empty ejected */
+    test_halo.galaxy->MetalsEjectedGas = 0.0;
+    test_halo.galaxy->HotGas = 20.0;
+    test_halo.galaxy->MetalsHotGas = 0.4;  /* Z = 0.02 */
+
+    /* Create module context */
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.num_substeps = 1;
+    ctx.substep_number = 0;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_add_infall_process(&ctx, &test_halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Module processing should succeed");
+
+    /* Ejected should remain 0 */
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->EjectedGas, 0.0, 0.001, "EjectedGas should remain 0.0");
+
+    /* Hot should be reduced: 20.0 - 5.0 = 15.0 */
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, 15.0, 0.001, "HotGas should be 20.0 - 5.0 = 15.0");
+
+    /* Metallicity preserved in hot: 15.0 * 0.02 = 0.3 */
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsHotGas, 0.3, 0.001, "MetalsHotGas should be 0.3");
+
+    /* ===== CLEANUP ===== */
+    free_test_halo(&test_halo);
+    sage_add_infall_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_physics_negative_infall_cascade
+ * @brief   Test negative infall cascades: depletes ejected, then hot
+ *
+ * Expected: EjectedGas → 0, HotGas reduced by remaining deficit
+ * Validates: Cascade logic (ejected → hot)
+ */
+int test_physics_negative_infall_cascade(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    setup_module_for_physics_test();
+
+    struct Halo test_halo = create_test_halo(0, 100.0);
+
+    /* Initial state */
+    test_halo.galaxy->InfallingGas = -8.0;  /* Mass loss exceeds ejected */
+    test_halo.galaxy->EjectedGas = 3.0;  /* Only 3.0 available */
+    test_halo.galaxy->MetalsEjectedGas = 0.06;  /* Z = 0.02 */
+    test_halo.galaxy->HotGas = 10.0;
+    test_halo.galaxy->MetalsHotGas = 0.2;  /* Z = 0.02 */
+
+    /* Create module context */
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.num_substeps = 1;
+    ctx.substep_number = 0;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_add_infall_process(&ctx, &test_halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Module processing should succeed");
+
+    /* Ejected should be depleted */
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->EjectedGas, 0.0, 0.001, "EjectedGas should be depleted to 0.0");
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsEjectedGas, 0.0, 0.001, "MetalsEjectedGas should be 0.0");
+
+    /* Hot should absorb remaining: 10.0 + (-8.0 + 3.0) = 5.0 */
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, 5.0, 0.001, "HotGas should be 10.0 - 5.0 = 5.0");
+
+    /* Metallicity preserved in hot: 5.0 * 0.02 = 0.1 */
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsHotGas, 0.1, 0.001, "MetalsHotGas should be 0.1");
+
+    /* ===== CLEANUP ===== */
+    free_test_halo(&test_halo);
+    sage_add_infall_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_zero_infall
+ * @brief   Test edge case with zero infall
+ *
+ * Expected: No changes to gas reservoirs
+ * Validates: Zero infall handling
+ */
+int test_zero_infall(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    setup_module_for_physics_test();
+
+    struct Halo test_halo = create_test_halo(0, 100.0);
+
+    /* Initial state */
+    test_halo.galaxy->InfallingGas = 0.0;  /* Zero infall */
+    test_halo.galaxy->HotGas = 10.0;
+    test_halo.galaxy->MetalsHotGas = 0.2;
+    test_halo.galaxy->EjectedGas = 5.0;
+    test_halo.galaxy->MetalsEjectedGas = 0.1;
+
+    /* Create module context */
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.num_substeps = 1;
+    ctx.substep_number = 0;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_add_infall_process(&ctx, &test_halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Module processing should succeed");
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, 10.0, 0.001, "HotGas should be unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->EjectedGas, 5.0, 0.001, "EjectedGas should be unchanged");
+
+    /* ===== CLEANUP ===== */
+    free_test_halo(&test_halo);
+    sage_add_infall_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_no_central_galaxy
+ * @brief   Test edge case with no Type 0 central galaxy
+ *
+ * Expected: Module returns 0 (graceful handling)
+ * Validates: No-central-galaxy safety
+ */
+int test_no_central_galaxy(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    setup_module_for_physics_test();
+
+    /* Create satellite-only group */
+    struct Halo satellite = create_test_halo(1, 10.0);  /* Type 1 satellite */
+    satellite.galaxy->InfallingGas = 5.0;
+    satellite.galaxy->HotGas = 3.0;
+
+    /* Create module context */
+    struct ModuleContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.num_substeps = 1;
+    ctx.substep_number = 0;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_add_infall_process(&ctx, &satellite, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Module should handle no-central case gracefully");
+
+    /* Satellite should be unchanged (infall only applies to centrals) */
+    TEST_ASSERT_DOUBLE_EQUAL(satellite.galaxy->HotGas, 3.0, 0.001, "Satellite HotGas should be unchanged");
+
+    /* ===== CLEANUP ===== */
+    free_test_halo(&satellite);
+    sage_add_infall_cleanup();
     check_memory_leaks();
 
     return TEST_PASS;
@@ -349,8 +618,13 @@ int main(void)
     TEST_RUN(test_module_initialization);
     TEST_RUN(test_memory_safety);
     TEST_RUN(test_property_access);
-    TEST_RUN(test_positive_infall);
-    TEST_RUN(test_negative_infall);
+    TEST_RUN(test_physics_positive_infall_single_substep);
+    TEST_RUN(test_physics_positive_infall_multiple_substeps);
+    TEST_RUN(test_physics_negative_infall_from_ejected);
+    TEST_RUN(test_physics_negative_infall_from_hot);
+    TEST_RUN(test_physics_negative_infall_cascade);
+    TEST_RUN(test_zero_infall);
+    TEST_RUN(test_no_central_galaxy);
 
     /* Print summary and return result */
     TEST_SUMMARY();
