@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: eb20eeee97506761969a386c9d2b6b2f
+ * Source MD5: 1a7621898b0dff2a03fea0ec4a460cae
  * To regenerate: make generate
  */
 
@@ -55,7 +55,7 @@ o->BulgeMass = g->galaxy->BulgeMass;
 o->ICS = g->galaxy->ICS;
 o->StarFormationRate = g->galaxy->StarFormationRate;
 if (o->StarFormationRate != 0.0f) {
-  o->StarFormationRate *= 10.0;
+  o->StarFormationRate *= UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS;
 }
 o->MetalsStellarMass = g->galaxy->MetalsStellarMass;
 o->MetalsBulgeMass = g->galaxy->MetalsBulgeMass;
@@ -80,6 +80,9 @@ if (o->Heating != 0.0) {
   o->Heating = log10(o->Heating);
 }
 o->SupernovaOutflowRate = g->galaxy->SupernovaOutflowRate;
+if (o->SupernovaOutflowRate != 0.0f) {
+  o->SupernovaOutflowRate *= UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS;
+}
 o->DiskScaleRadius = g->galaxy->DiskScaleRadius;
 o->TimeOfLastMajorMerger = g->galaxy->TimeOfLastMajorMerger;
 o->TimeOfLastMinorMerger = g->galaxy->TimeOfLastMinorMerger;

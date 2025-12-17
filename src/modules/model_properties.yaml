@@ -138,7 +138,7 @@ galaxy_properties:
     init_value: 0.0
     init_repeat: true  # Reset each snapshot
     output_source: galaxy_property
-    output_convert: "10.0"  # Convert code units (1e10 Msun/Gyr) to Msun/yr: (1e10/1e9 = 10)
+    output_convert: "UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS"
     range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
     sentinels: [0.0]  # Zero when no star formation
 
@@ -316,14 +316,15 @@ galaxy_properties:
 
   - name: SupernovaOutflowRate
     type: float
-    units: 1e10 Msun/h / time_unit
+    units: Msun/yr
     description: Current gas outflow rate from supernova feedback
     output: true
     init_source: default
     init_value: 0.0
     init_repeat: true  # Reset each snapshot
     output_source: galaxy_property
-    range: [0.0, 100000.0]  # Generous upper bound for outflow rates
+    output_convert: "UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS"
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
     sentinels: [0.0]  # Zero when no star formation/feedback occurring
 
   # =============================================================================

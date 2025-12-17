@@ -95,9 +95,7 @@ int sage_update_star_formation_supernova_process(struct ModuleContext *ctx,
     gal->MetalsStellarMass += metallicity * (1.0 - RECYCLE_FRACTION) * stars;
 
     // Accumulate star formation rate in code units: (1e10 Msun/h) / (Gyr/h)
-    if (halo->dT > 0.0) {
-        gal->StarFormationRate += stars / halo->dT;
-    }
+    gal->StarFormationRate += stars / halo->dT;
 
     // ========================================================================
     // SUPERNOVA FEEDBACK: Reheating (cold → hot)
@@ -135,7 +133,7 @@ int sage_update_star_formation_supernova_process(struct ModuleContext *ctx,
     central_gal->MetalsEjectedGas += metallicity_hot * ejected_mass;
 
     // Update outflow rate (for tracking)
-    gal->SupernovaOutflowRate += reheated_mass;
+    gal->SupernovaOutflowRate += reheated_mass / halo->dT;
 
     // ========================================================================
     // METAL ENRICHMENT: Instantaneous recycling approximation

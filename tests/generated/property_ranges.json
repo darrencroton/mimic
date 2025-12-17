@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "eb20eeee97506761969a386c9d2b6b2f",
+    "source_md5": "1a7621898b0dff2a03fea0ec4a460cae",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -457,11 +457,11 @@
     "SupernovaOutflowRate": {
       "name": "SupernovaOutflowRate",
       "type": "float",
-      "units": "1e10 Msun/h / time_unit",
+      "units": "Msun/yr",
       "is_vector": false,
       "range": [
         0.0,
-        100000.0
+        10000.0
       ],
       "sentinels": [
         0.0
