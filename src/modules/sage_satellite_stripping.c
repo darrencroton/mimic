@@ -67,7 +67,8 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *hal
 
     // Strip hot gas from satellites and transfer to central
     for (int i = 0; i < ngal; i++) {
-        if (i == central_idx || halos[i].galaxy == NULL || halos[i].Type == 3 || halos[i].galaxy->HotGas <= 0.0f) {
+        // Skip: central, NULL galaxy, orphans (Type 2), ejected (Type 3), or zero hot gas
+        if (i == central_idx || halos[i].galaxy == NULL || halos[i].Type >= 2 || halos[i].galaxy->HotGas <= 0.0f) {
             continue;
         }
 
@@ -99,7 +100,7 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *hal
             sat_gal->HotGas -= (float)strippedGas;
             sat_gal->MetalsHotGas -= (float)strippedMetals;
             cen_gal->HotGas += (float)strippedGas;
-            cen_gal->MetalsHotGas += (float)strippedGas * metallicity;
+            cen_gal->MetalsHotGas += (float)strippedMetals;
         }
     }
 
