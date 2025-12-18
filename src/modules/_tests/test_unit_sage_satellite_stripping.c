@@ -20,16 +20,16 @@
 #include <math.h>
 #include <assert.h>
 
-// Include module under test
-extern int sage_satellite_stripping_init(void);
-extern int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
-extern int sage_satellite_stripping_cleanup(void);
-
-// Minimal includes for types
+// Minimal includes for types (MUST come before extern declarations)
 #include "../include/types.h"
 #include "../core/module_interface.h"
 #include "../include/globals.h"
 #include "../util/memory.h"
+
+// Include module under test
+extern int sage_satellite_stripping_init(void);
+extern int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage_satellite_stripping_cleanup(void);
 
 /* Test statistics */
 static int passed = 0;
@@ -567,6 +567,9 @@ int main(void)
     printf("Unit Test Suite: sage_satellite_stripping Physics\n");
     printf("============================================================\n");
     printf("%s\n", NC);
+
+    /* Initialize mock configuration */
+    setup_mock_config();
 
     /* Run all tests */
     test_no_stripping_when_below_threshold();
