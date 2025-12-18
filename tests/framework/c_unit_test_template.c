@@ -1,138 +1,445 @@
 /**
- * @file    test_example.c
- * @brief   [DESCRIBE WHAT THIS TEST VALIDATES]
+ * @file    test_unit_[module_name].c
+ * @brief   Unit tests for [module_name] module
  *
- * Validates: [SPECIFIC REQUIREMENT OR BUG PREVENTION]
- * Phase: [ROADMAP PHASE - e.g., Phase 2, Phase 3, etc.]
+ * Validates: Physics calculation logic, edge cases, parameter handling, conservation laws
  *
- * This test validates [detailed explanation of what is being tested and why].
+ * This test validates the [module_name] module:
+ * - [Primary physics calculation 1]
+ * - [Primary physics calculation 2]
+ * - [Edge cases and boundary conditions]
+ * - [Conservation laws if applicable]
+ * - Module lifecycle and memory safety
  *
  * Test cases:
- *   - test_[specific_behavior_1]: [Description]
- *   - test_[specific_behavior_2]: [Description]
- *   - test_[specific_behavior_3]: [Description]
+ *   SOFTWARE QUALITY:
+ *   - test_module_initialization: Module lifecycle
+ *   - test_memory_safety: No memory leaks
  *
- * @author  [YOUR NAME]
+ *   PHYSICS CALCULATIONS:
+ *   - test_[physics_calculation_1]: [Description]
+ *   - test_[physics_calculation_2]: [Description]
+ *   - test_[edge_case_1]: [Description]
+ *   - test_[conservation_law]: [Description if applicable]
+ *
+ * @author  Mimic Development Team
  * @date    [DATE]
  */
 
-#include "../framework/test_framework.h"
-#include "../../src/util/memory.h"
-#include "../../src/util/error.h"
+#include "../../../tests/framework/test_framework.h"
+#include "../core/module_registry.h"
+#include "../core/module_interface.h"
+#include "../include/types.h"
+#include "../include/proto.h"
+#include "../include/globals.h"
+#include "../util/error.h"
+#include "../util/memory.h"
 
-/* Add any other necessary includes here */
-/* #include "../../src/include/..." */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
 
 /* Test statistics (required for TEST_RUN macro) */
 static int passed = 0;
 static int failed = 0;
 
-/**
- * @test    test_basic_functionality
- * @brief   [ONE-LINE DESCRIPTION OF WHAT THIS TEST DOES]
- *
- * Expected: [WHAT SHOULD HAPPEN]
- * Validates: [WHAT THIS PREVENTS/ENSURES]
- *
- * This test verifies that [detailed explanation]...
- */
-int test_basic_functionality(void) {
-    /* ===== SETUP ===== */
-    /* Initialize memory system for leak detection */
-    init_memory_system();
+/* Track whether modules have been registered */
+static int modules_registered = 0;
 
-    /* Add any other setup needed */
+/* Module parameters (set by setup helpers) */
+static double test_param1 = 1.0;
+static double test_param2 = 0.5;
+
+/* Module functions (extern declarations for direct testing) */
+extern int [module_name]_init(void);
+extern int [module_name]_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int [module_name]_cleanup(void);
+
+/* External stubs */
+extern void set_test_model_parameters(void);
+
+// ============================================================================
+// TEST FIXTURES AND HELPERS
+// ============================================================================
+
+/**
+ * @brief   Reset global configuration state
+ */
+static void reset_config(void)
+{
+    memset(&MimicConfig, 0, sizeof(MimicConfig));
+}
+
+/**
+ * @brief   Ensure modules are registered (only once)
+ */
+static void ensure_modules_registered(void)
+{
+    if (!modules_registered) {
+        register_all_modules();
+        modules_registered = 1;
+    }
+}
+
+/**
+ * @brief   Setup module parameters for testing
+ *
+ * @param   param1      First parameter value
+ * @param   param2      Second parameter value
+ */
+static void setup_test_parameters(double param1, double param2)
+{
+    /* Set model parameters in MimicConfig */
+    int idx = 0;
+
+    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "Param1Name");
+    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", param1);
+
+    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "Param2Name");
+    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", param2);
+
+    MimicConfig.NumModelParams = idx;
+
+    /* Update test variables */
+    test_param1 = param1;
+    test_param2 = param2;
+}
+
+/**
+ * @brief   Setup module context for testing
+ *
+ * @param   ctx             ModuleContext to initialize
+ * @param   central         Pointer to central galaxy halo
+ * @param   dt              Time step (Gyr/h)
+ */
+static void setup_module_context(struct ModuleContext *ctx, struct Halo *central, double dt)
+{
+    memset(ctx, 0, sizeof(struct ModuleContext));
+    ctx->central_galaxy = central;
+    ctx->substep_dt = dt;
+    ctx->params = &MimicConfig;
+    ctx->redshift = 0.0;
+    ctx->time = 13.8;  /* Gyr/h */
+    ctx->snapshot_number = 63;
+    ctx->substep_number = 0;
+    ctx->num_substeps = 1;
+}
+
+/**
+ * @brief   Setup test halo and galaxy with specified properties
+ *
+ * @param   halo            Halo to initialize
+ * @param   galaxy          Galaxy to initialize
+ * @param   type            Halo type (0=central, 1=satellite, 2=orphan)
+ * @param   mvir            Virial mass (1e10 Msun/h)
+ * @param   vvir            Virial velocity (km/s)
+ * @param   [add_property_params_as_needed]
+ */
+static void setup_test_halo(struct Halo *halo, struct GalaxyData *galaxy,
+                             int type, double mvir, double vvir)
+{
+    memset(halo, 0, sizeof(struct Halo));
+    memset(galaxy, 0, sizeof(struct GalaxyData));
+
+    halo->Type = type;
+    halo->Mvir = mvir;
+    halo->Vvir = vvir;
+    halo->SnapNum = 63;
+    halo->galaxy = galaxy;
+
+    /* Set galaxy properties as needed for your module */
+    /* galaxy->PropertyName = value; */
+}
+
+// ============================================================================
+// SOFTWARE QUALITY TESTS
+// ============================================================================
+
+/**
+ * @test    test_module_initialization
+ * @brief   Test module initialization and cleanup lifecycle
+ *
+ * Expected: Module init and cleanup succeed without errors or leaks
+ * Validates: Module lifecycle management
+ */
+int test_module_initialization(void)
+{
+    /* ===== SETUP ===== */
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    /* Set up minimal cosmology configuration */
+    MimicConfig.Omega = 0.25;
+    MimicConfig.OmegaLambda = 0.75;
+    MimicConfig.Hubble_h = 0.73;
+
+    /* Configure module in appropriate phase */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("[module_name]");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
-    /* Call the function or code being tested */
-    int result = 42;  /* Replace with actual function call */
+    int result = module_system_init();
 
     /* ===== VALIDATE ===== */
-    /* Check that results match expectations */
-    TEST_ASSERT(result == 42, "Result should be 42");
-
-    /* Add more assertions as needed */
-    /* TEST_ASSERT(condition, "Error message"); */
-    /* TEST_ASSERT_EQUAL(a, b, "Values should match"); */
-    /* TEST_ASSERT_DOUBLE_EQUAL(a, b, 1e-6, "Floats should match"); */
+    TEST_ASSERT(result == 0, "Module system initialization should succeed");
 
     /* ===== CLEANUP ===== */
-    /* Free any allocated memory */
-
-    /* Check for memory leaks (MANDATORY) */
-    int leaks = check_memory_leaks();
-    TEST_ASSERT(leaks == 0, "Memory leak detected");
+    module_system_cleanup();
+    check_memory_leaks();
 
     return TEST_PASS;
 }
 
 /**
- * @test    test_edge_case
- * @brief   [DESCRIPTION OF EDGE CASE BEING TESTED]
+ * @test    test_memory_safety
+ * @brief   Test that module doesn't leak memory during normal operation
  *
- * Expected: [WHAT SHOULD HAPPEN]
- * Validates: [WHAT THIS PREVENTS/ENSURES]
+ * Expected: No memory leaks after init, cleanup cycle
+ * Validates: Memory management in module
  */
-int test_edge_case(void) {
+int test_memory_safety(void)
+{
     /* ===== SETUP ===== */
-    init_memory_system();
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    MimicConfig.Omega = 0.25;
+    MimicConfig.OmegaLambda = 0.75;
+    MimicConfig.Hubble_h = 0.73;
+
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("[module_name]");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
-    /* Test edge case behavior */
+    int result = module_system_init();
+    TEST_ASSERT(result == 0, "Module initialization should succeed");
 
     /* ===== VALIDATE ===== */
-    /* Verify edge case handled correctly */
+    /* Module initialized successfully without memory leaks */
 
     /* ===== CLEANUP ===== */
-    int leaks = check_memory_leaks();
-    TEST_ASSERT(leaks == 0, "Memory leak detected");
+    module_system_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+// ============================================================================
+// PHYSICS CALCULATION TESTS
+// ============================================================================
+
+/**
+ * @test    test_basic_physics_calculation
+ * @brief   Test basic physics calculation
+ *
+ * Physics: [Equation or description of what's being calculated]
+ *
+ * Expected: [Expected physical behavior]
+ * Validates: [What this test ensures about the physics]
+ */
+int test_basic_physics_calculation(void)
+{
+    /* ===== SETUP ===== */
+    setup_test_parameters(1.0, 0.5);
+
+    int init_result = [module_name]_init();
+    TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+
+    struct Halo test_halo, central_halo;
+    struct GalaxyData test_galaxy, central_galaxy;
+
+    /* Setup central */
+    setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 150.0);
+
+    /* Setup test galaxy with specific conditions */
+    setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 150.0);
+    /* Set specific property values for this test */
+
+    struct ModuleContext ctx;
+    setup_module_context(&ctx, &central_halo, 0.1);
+
+    /* ===== EXECUTE ===== */
+    int result = [module_name]_process(&ctx, &test_halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Module process should succeed");
+
+    /* Validate physics calculation results */
+    /* double expected_value = ...; */
+    /* TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.Property, expected_value, 1e-6,
+                               "Property should match expected physics"); */
 
     return TEST_PASS;
 }
 
 /**
- * @test    test_error_handling
- * @brief   [DESCRIPTION OF ERROR CONDITION BEING TESTED]
+ * @test    test_edge_case_zero_input
+ * @brief   Test handling of zero input values
  *
- * Expected: [WHAT SHOULD HAPPEN ON ERROR]
- * Validates: [PROPER ERROR HANDLING]
+ * Expected: Module handles zero input gracefully (no crash, correct behavior)
+ * Validates: Edge case handling
  */
-int test_error_handling(void) {
+int test_edge_case_zero_input(void)
+{
     /* ===== SETUP ===== */
-    init_memory_system();
+    setup_test_parameters(1.0, 0.5);
+
+    int init_result = [module_name]_init();
+    TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+
+    struct Halo test_halo, central_halo;
+    struct GalaxyData test_galaxy, central_galaxy;
+
+    setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 150.0);
+    setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 150.0);
+
+    /* Set all relevant properties to zero */
+    /* test_galaxy.Property = 0.0; */
+
+    struct ModuleContext ctx;
+    setup_module_context(&ctx, &central_halo, 0.1);
 
     /* ===== EXECUTE ===== */
-    /* Test error condition */
+    int result = [module_name]_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
-    /* Verify error handled gracefully */
+    TEST_ASSERT(result == 0, "Module should handle zero input gracefully");
 
-    /* ===== CLEANUP ===== */
-    int leaks = check_memory_leaks();
-    TEST_ASSERT(leaks == 0, "Memory leak detected");
+    /* Validate expected behavior with zero input */
+    /* TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.OutputProperty, 0.0, 1e-6,
+                               "Output should be zero when input is zero"); */
 
     return TEST_PASS;
 }
+
+/**
+ * @test    test_conservation_law
+ * @brief   Test that relevant conservation law is satisfied
+ *
+ * Physics: [Conservation law equation - e.g., mass, energy, angular momentum]
+ *
+ * Expected: [Conserved quantity unchanged or changes by expected amount]
+ * Validates: Conservation law compliance
+ */
+int test_conservation_law(void)
+{
+    /* ===== SETUP ===== */
+    setup_test_parameters(1.0, 0.5);
+
+    int init_result = [module_name]_init();
+    TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+
+    struct Halo test_halo, central_halo;
+    struct GalaxyData test_galaxy, central_galaxy;
+
+    setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 150.0);
+    setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 150.0);
+
+    /* Set initial conditions */
+    /* Calculate initial conserved quantity */
+    /* double initial_total = ...; */
+
+    struct ModuleContext ctx;
+    setup_module_context(&ctx, &central_halo, 0.1);
+
+    /* ===== EXECUTE ===== */
+    int result = [module_name]_process(&ctx, &test_halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Module process should succeed");
+
+    /* Calculate final conserved quantity */
+    /* double final_total = ...; */
+
+    /* TEST_ASSERT_DOUBLE_EQUAL(final_total, initial_total, 1e-5,
+                               "Conserved quantity should be preserved"); */
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_parameter_sensitivity
+ * @brief   Test that changing parameters affects results correctly
+ *
+ * Expected: Different parameter values produce different results
+ * Validates: Parameter effects on physics
+ */
+int test_parameter_sensitivity(void)
+{
+    /* Run with param1 = 1.0 */
+    setup_test_parameters(1.0, 0.5);
+    int init_result = [module_name]_init();
+    TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+
+    struct Halo test_halo, central_halo;
+    struct GalaxyData test_galaxy, central_galaxy;
+
+    setup_test_halo(&central_halo, &central_galaxy, 0, 100.0, 150.0);
+    setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 150.0);
+
+    struct ModuleContext ctx;
+    setup_module_context(&ctx, &central_halo, 0.1);
+
+    [module_name]_process(&ctx, &test_halo, 1);
+    /* double result1 = test_galaxy.OutputProperty; */
+
+    /* Run with param1 = 2.0 (different value) */
+    setup_test_parameters(2.0, 0.5);
+    [module_name]_init();
+
+    setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, 150.0);
+    [module_name]_process(&ctx, &test_halo, 1);
+    /* double result2 = test_galaxy.OutputProperty; */
+
+    /* ===== VALIDATE ===== */
+    /* TEST_ASSERT(result2 != result1, "Different parameters should produce different results"); */
+    /* Can also test direction of change if known */
+
+    return TEST_PASS;
+}
+
+// ============================================================================
+// MAIN TEST RUNNER
+// ============================================================================
 
 /**
  * @brief   Main test runner
  *
- * Executes all test cases and reports results.
+ * Executes all [module_name] unit tests and reports results.
  */
-int main(void) {
+int main(void)
+{
     printf("%s", BLUE);
     printf("============================================================\n");
-    printf("Test Suite: [TEST SUITE NAME] (filename.c)\n");
+    printf("Test Suite: [module_name] Module\n");
     printf("============================================================\n");
     printf("%s\n", NC);
 
-    /* Run all test cases */
-    TEST_RUN(test_basic_functionality);
-    TEST_RUN(test_edge_case);
-    TEST_RUN(test_error_handling);
+    /* Initialize error handling for tests */
+    initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
+
+    /* Run software quality tests */
+    TEST_RUN(test_module_initialization);
+    TEST_RUN(test_memory_safety);
+
+    /* Run physics calculation tests */
+    TEST_RUN(test_basic_physics_calculation);
+    TEST_RUN(test_edge_case_zero_input);
+    TEST_RUN(test_conservation_law);
+    TEST_RUN(test_parameter_sensitivity);
 
     /* Add more tests as needed */
-    /* TEST_RUN(test_another_case); */
 
     /* Print summary and return result */
     TEST_SUMMARY();
@@ -143,47 +450,51 @@ int main(void) {
  * TEMPLATE USAGE INSTRUCTIONS:
  * ============================
  *
- * 1. Copy this template to tests/unit/test_yourname.c
+ * 1. Copy this template to src/modules/_tests/test_unit_[module_name].c
  *
- * 2. Update the file header:
- *    - Change @file to match filename
- *    - Fill in @brief with concise description
- *    - Specify what is validated
- *    - Note the roadmap phase
- *    - Add your name and date
+ * 2. Replace all [module_name] placeholders with your actual module name
  *
- * 3. Implement test functions:
- *    - Follow setup → execute → validate → cleanup structure
- *    - Always check for memory leaks at the end
- *    - Use descriptive test function names
- *    - Document expected behavior and what is validated
+ * 3. Update the file header:
+ *    - Fill in what the module validates
+ *    - List the key physics calculations
+ *    - List all test cases
  *
- * 4. Add test to run_tests.sh:
- *    - Edit tests/unit/run_tests.sh
- *    - Add compilation and execution commands
+ * 4. Implement setup helpers:
+ *    - setup_test_parameters(): Set your module's parameters
+ *    - setup_test_halo(): Initialize halo/galaxy properties for your module
  *
- * 5. Verify test works:
- *    - Compile: gcc -I../../src/include -o test_yourname test_yourname.c ../../src/util/memory.c ...
- *    - Run: ./test_yourname
- *    - Should see PASS for all tests and zero leaks
+ * 5. Implement physics tests:
+ *    - Test each major physics calculation separately
+ *    - Test edge cases (zero values, boundary conditions)
+ *    - Test conservation laws if applicable
+ *    - Test parameter sensitivity
  *
- * 6. Run via Makefile:
- *    - make test-unit
- *    - Verify your test is included and passes
+ * 6. Build and run:
+ *    - make clean && make test-unit
+ *    - All tests should PASS
+ *    - No memory leaks
  *
- * ASSERTION MACROS:
- * ================
- * TEST_ASSERT(cond, msg)                    - General assertion
- * TEST_ASSERT_EQUAL(a, b, msg)              - Integer equality
- * TEST_ASSERT_DOUBLE_EQUAL(a, b, tol, msg)  - Float equality with tolerance
- * TEST_ASSERT_STRING_EQUAL(a, b, msg)       - String equality
+ * KEY PRINCIPLES:
+ * ==============
+ * - C unit tests validate PHYSICS and MATH, not integration
+ * - Use direct function calls (not full pipeline)
+ * - Test calculations, edge cases, conservation laws
+ * - Mock dependencies when needed
+ * - Keep tests fast (<10 seconds total for all tests)
+ * - Every test must check memory leaks
  *
- * GUIDELINES:
- * ===========
- * - Every test MUST check for memory leaks
- * - Use clear, descriptive error messages
- * - Document expected behavior
- * - Test both success and failure cases
- * - Keep tests focused (one behavior per test function)
- * - Run tests frequently during development
+ * PHYSICS TESTING PATTERN:
+ * =======================
+ * For each physics calculation:
+ * 1. Test normal case (expected physics)
+ * 2. Test edge cases (zero, boundary values)
+ * 3. Test parameter sensitivity
+ * 4. Test conservation if applicable
+ *
+ * EXAMPLE: Testing star formation
+ * - test_sf_above_threshold: Normal star formation
+ * - test_sf_below_threshold: No SF when below threshold
+ * - test_sf_at_threshold: Boundary condition
+ * - test_sf_zero_gas: Edge case
+ * - test_sf_parameter_sensitivity: Efficiency affects results
  */

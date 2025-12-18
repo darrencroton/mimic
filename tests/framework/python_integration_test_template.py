@@ -1,279 +1,373 @@
 #!/usr/bin/env python3
 """
-[TEST NAME] - Integration Test
+[Module Name] Module - Integration Test
 
-Validates: [SPECIFIC REQUIREMENT OR INTEGRATION BEHAVIOR]
-Phase: [ROADMAP PHASE - e.g., Phase 2, Phase 3, etc.]
+Validates: End-to-end physics correctness, conservation laws, parameter sensitivity
 
-This test validates [detailed explanation of what is being tested and why].
-It executes the full Mimic pipeline and verifies [what is checked].
+This test validates the [module_name] module integration:
+- [Primary integration test 1]
+- [Primary integration test 2]
+- Conservation laws (if applicable)
+- Parameter sensitivity
+- Edge cases
+- Memory safety and performance
 
 Test cases:
-  - test_[specific_behavior_1]: [Description]
-  - test_[specific_behavior_2]: [Description]
-  - test_[specific_behavior_3]: [Description]
+  - test_full_pipeline_execution: Module executes in pipeline
+  - test_[physics_validation]: Physics correctness validation
+  - test_conservation_laws: Conservation validation (if applicable)
+  - test_parameter_sensitivity: Parameters affect results
+  - test_edge_cases: Edge cases and boundary conditions
+  - test_memory_and_performance: Memory leaks and performance
 
-Author: [YOUR NAME]
+Author: Mimic Development Team
 Date: [DATE]
 """
 
-import subprocess
+import os
 import sys
-from pathlib import Path
+import shutil
 import numpy as np
+from pathlib import Path
 
-# Add output/mimic-plot to path for data loading utilities
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "output" / "mimic-plot"))
+# Repository root and paths
+REPO_ROOT = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+from framework import create_test_param_file, run_mimic, load_binary_halos, check_no_memory_leaks
 
-# You may need to import plotting utilities for data loading
-# from mimic_plot import load_binary_data, load_hdf5_data
-
-# ANSI color codes (module-level constants)
+# ANSI color codes
 BLUE = '\033[1;34m'
 GREEN = '\033[0;32m'
 RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
 NC = '\033[0m'
 
 
-def run_mimic(param_file, cwd=None):
+def test_full_pipeline_execution():
+    """Test module executes successfully in full pipeline
+
+    Validates:
+    - Module loads and initializes
+    - Pipeline executes without errors
+    - Output files created
+    - Basic data validity (non-negative, finite values)
     """
-    Execute Mimic with specified parameter file
+    print(f"\n{BLUE}TEST: Full pipeline execution{NC}")
 
-    Args:
-        param_file (str): Path to parameter file
-        cwd (str): Working directory for execution (default: repo root)
-
-    Returns:
-        tuple: (returncode, stdout, stderr)
-
-    Example:
-        returncode, stdout, stderr = run_mimic("tests/data/test_binary.yaml")
-        assert returncode == 0, f"Mimic failed: {stderr}"
-    """
-    if cwd is None:
-        cwd = Path(__file__).parent.parent.parent  # Repo root
-
-    mimic_exe = cwd / "mimic"
-    if not mimic_exe.exists():
-        raise FileNotFoundError(f"Mimic executable not found at {mimic_exe}")
-
-    result = subprocess.run(
-        [str(mimic_exe), param_file],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="[module_name]_pipeline",
+        phase_config={
+            'pre_timestep': [],
+            'phase_1': [
+                ('[module_name]', 'process_by_galaxy'),
+                # Add dependencies if needed
+            ],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={
+            'Param1Name': 1.0,
+            'Param2Name': 0.5,
+            # Add all required module parameters
+        }
     )
 
-    return result.returncode, result.stdout, result.stderr
-
-
-def load_binary_output(output_file):
-    """
-    Load halo data from binary output file
-
-    Args:
-        output_file (str): Path to binary output file
-
-    Returns:
-        np.ndarray: Structured array with halo properties
-
-    TODO: Implement using existing plotting infrastructure
-    See output/mimic-plot/mimic_plot.py for reference
-    """
-    # Implementation depends on binary format
-    # Use code from mimic-plot.py
-    raise NotImplementedError("Load binary data using mimic-plot utilities")
-
-
-def load_hdf5_output(output_file):
-    """
-    Load halo data from HDF5 output file
-
-    Args:
-        output_file (str): Path to HDF5 output file
-
-    Returns:
-        np.ndarray: Structured array with halo properties
-
-    TODO: Implement using existing plotting infrastructure
-    See output/mimic-plot/hdf5_reader.py for reference
-    """
-    # Implementation depends on HDF5 structure
-    # Use code from hdf5_reader.py
-    raise NotImplementedError("Load HDF5 data using existing utilities")
-
-
-def check_no_memory_leaks(log_dir):
-    """
-    Check that Mimic run had no memory leaks
-
-    Args:
-        log_dir (str): Directory containing log files
-
-    Returns:
-        bool: True if no leaks, False if leaks detected
-
-    Example:
-        assert check_no_memory_leaks("tests/data/output/binary/metadata/")
-    """
-    log_dir = Path(log_dir)
-    if not log_dir.exists():
-        print(f"Warning: Log directory not found: {log_dir}")
-        return True
-
-    for log_file in log_dir.glob("*.log"):
-        with open(log_file) as f:
-            content = f.read().lower()
-            if "memory leak" in content:
-                print(f"Memory leak detected in {log_file}")
-                return False
-
-    return True
-
-
-def test_basic_integration():
-    """
-    [ONE-LINE DESCRIPTION OF WHAT THIS TEST DOES]
-
-    Expected: [WHAT SHOULD HAPPEN]
-    Validates: [WHAT THIS PREVENTS/ENSURES]
-
-    Detailed explanation of what this test verifies...
-    """
-    print("Testing [basic integration]...")
-
-    # ===== SETUP =====
-    # Prepare test environment
-    param_file = "tests/data/test_binary.yaml"
-    output_dir = Path("tests/data/output/binary/")
-
-    # Clean previous test output if needed
-    # if output_dir.exists():
-    #     shutil.rmtree(output_dir)
-
-    # ===== EXECUTE =====
-    # Run Mimic pipeline
     returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
 
-    # ===== VALIDATE =====
-    # Check execution success
-    assert returncode == 0, f"Mimic execution failed with code {returncode}\nSTDERR: {stderr}"
+    output_file = output_dir / "model_z0.000_0"
+    halos, metadata = load_binary_halos(output_file)
 
-    # Check no memory leaks
-    assert check_no_memory_leaks(output_dir / "metadata"), "Memory leak detected"
+    # Basic validity checks
+    assert len(halos) > 0, "Should have halos in output"
 
-    # Check output files exist
-    # expected_output = output_dir / "model_063.dat"
-    # assert expected_output.exists(), f"Output file not created: {expected_output}"
+    # Check key properties are valid
+    # for prop in ['Mvir', 'Vvir', ...]:
+    #     assert prop in halos.dtype.names, f"Property {prop} should exist"
+    #     assert np.all(np.isfinite(halos[prop])), f"{prop} should be finite"
 
-    # Load and validate output
-    # halos = load_binary_output(expected_output)
-    # assert len(halos) > 0, "No halos in output"
-    # assert np.all(halos['Mvir'] > 0), "Invalid Mvir values"
-
-    print("✓ Basic integration test passed")
+    shutil.rmtree(temp_dir)
+    print(f"{GREEN}✓ Full pipeline execution validated{NC}")
 
 
-def test_edge_case_integration():
+def test_physics_validation():
+    """Test physics calculation correctness
+
+    Validates:
+    - [Specific physics calculation 1]
+    - [Specific physics calculation 2]
+    - Physical reasonableness of results
+    - Expected property relationships
     """
-    [DESCRIPTION OF EDGE CASE BEING TESTED]
+    print(f"\n{BLUE}TEST: Physics validation{NC}")
 
-    Expected: [WHAT SHOULD HAPPEN]
-    Validates: [PROPER HANDLING OF EDGE CASE]
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="[module_name]_physics",
+        phase_config={
+            'pre_timestep': [],
+            'phase_1': [
+                ('[module_name]', 'process_by_galaxy'),
+            ],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={
+            'Param1Name': 1.0,
+            'Param2Name': 0.5,
+        }
+    )
+
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
+
+    output_file = output_dir / "model_z0.000_0"
+    halos, metadata = load_binary_halos(output_file)
+
+    # Validate physics calculations
+    # Example: Check that calculated property is reasonable
+    # calculated_prop = halos['CalculatedProperty']
+    # non_zero = calculated_prop > 1e-10
+    # if np.sum(non_zero) > 0:
+    #     assert np.all(calculated_prop[non_zero] > 0), "Property should be positive"
+    #     assert np.all(calculated_prop[non_zero] < 1e6), "Property should be reasonable"
+
+    shutil.rmtree(temp_dir)
+    print(f"{GREEN}✓ Physics validation successful{NC}")
+
+
+def test_conservation_laws():
+    """Test conservation laws (if applicable)
+
+    Validates:
+    - [Conservation law 1 - e.g., mass conservation]
+    - [Conservation law 2 - e.g., metal conservation]
+    - Total conserved quantities unchanged or change by expected amount
     """
-    print("Testing [edge case]...")
+    print(f"\n{BLUE}TEST: Conservation laws{NC}")
 
-    # ===== SETUP =====
-    # Set up edge case scenario
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="[module_name]_conservation",
+        phase_config={
+            'pre_timestep': [],
+            'phase_1': [
+                ('[module_name]', 'process_by_galaxy'),
+            ],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={
+            'Param1Name': 1.0,
+            'Param2Name': 0.5,
+        }
+    )
 
-    # ===== EXECUTE =====
-    # Run with edge case configuration
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
 
-    # ===== VALIDATE =====
-    # Verify edge case handled correctly
+    output_file = output_dir / "model_z0.000_0"
+    halos, metadata = load_binary_halos(output_file)
 
-    print("✓ Edge case test passed")
+    # Validate conservation
+    # Example: Total mass should be conserved
+    # total_mass = halos['Component1'] + halos['Component2'] + halos['Component3']
+    # assert np.all(total_mass >= 0), "Total mass should be non-negative"
+    # assert np.all(np.isfinite(total_mass)), "Total mass should be finite"
+
+    shutil.rmtree(temp_dir)
+    print(f"{GREEN}✓ Conservation laws validated{NC}")
 
 
-def test_error_handling_integration():
+def test_parameter_sensitivity():
+    """Test that parameters affect results correctly
+
+    Validates:
+    - Param1 affects results as expected
+    - Param2 affects results as expected
+    - Different parameter values produce different results
     """
-    [DESCRIPTION OF ERROR CONDITION BEING TESTED]
+    print(f"\n{BLUE}TEST: Parameter sensitivity{NC}")
 
-    Expected: [WHAT SHOULD HAPPEN ON ERROR]
-    Validates: [PROPER ERROR HANDLING]
+    # Run 1: Default parameters
+    param_file1, output_dir1, temp_dir1 = create_test_param_file(
+        output_name="[module_name]_params_default",
+        phase_config={
+            'pre_timestep': [],
+            'phase_1': [
+                ('[module_name]', 'process_by_galaxy'),
+            ],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={
+            'Param1Name': 1.0,
+            'Param2Name': 0.5,
+        }
+    )
+
+    returncode1, stdout1, stderr1 = run_mimic(param_file1)
+    assert returncode1 == 0, f"Run 1 should execute successfully\nSTDERR: {stderr1}"
+
+    output_file1 = output_dir1 / "model_z0.000_0"
+    halos1, metadata1 = load_binary_halos(output_file1)
+
+    # Run 2: Different parameters
+    param_file2, output_dir2, temp_dir2 = create_test_param_file(
+        output_name="[module_name]_params_modified",
+        phase_config={
+            'pre_timestep': [],
+            'phase_1': [
+                ('[module_name]', 'process_by_galaxy'),
+            ],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={
+            'Param1Name': 2.0,  # Changed value
+            'Param2Name': 0.5,
+        }
+    )
+
+    returncode2, stdout2, stderr2 = run_mimic(param_file2)
+    assert returncode2 == 0, f"Run 2 should execute successfully\nSTDERR: {stderr2}"
+
+    output_file2 = output_dir2 / "model_z0.000_0"
+    halos2, metadata2 = load_binary_halos(output_file2)
+
+    # Compare results
+    # Example: Check that changing Param1 affects output
+    # output1 = np.sum(halos1['OutputProperty'])
+    # output2 = np.sum(halos2['OutputProperty'])
+    # if output1 > 0 and output2 > 0:
+    #     assert output1 != output2, "Different parameters should produce different results"
+
+    shutil.rmtree(temp_dir1)
+    shutil.rmtree(temp_dir2)
+    print(f"{GREEN}✓ Parameter sensitivity validated{NC}")
+
+
+def test_edge_cases():
+    """Test edge cases and boundary conditions
+
+    Validates:
+    - Zero input values handled correctly
+    - Boundary conditions respected
+    - No NaNs or Infs in output
+    - All values within expected ranges
     """
-    print("Testing [error handling]...")
+    print(f"\n{BLUE}TEST: Edge cases{NC}")
 
-    # ===== SETUP =====
-    # Create error condition
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="[module_name]_edge_cases",
+        phase_config={
+            'pre_timestep': [],
+            'phase_1': [
+                ('[module_name]', 'process_by_galaxy'),
+            ],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={
+            'Param1Name': 1.0,
+            'Param2Name': 0.5,
+        }
+    )
 
-    # ===== EXECUTE =====
-    # Run with invalid configuration
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
 
-    # ===== VALIDATE =====
-    # Verify error detected and handled gracefully
-    # returncode, stdout, stderr = run_mimic("invalid.yaml")
-    # assert returncode != 0, "Should fail with invalid config"
-    # assert "error" in stderr.lower(), "Should report error"
+    output_file = output_dir / "model_z0.000_0"
+    halos, metadata = load_binary_halos(output_file)
 
-    print("✓ Error handling test passed")
+    # Check for NaNs and Infs in key properties
+    # for field in ['Property1', 'Property2', ...]:
+    #     assert not np.any(np.isnan(halos[field])), f"{field} should not have NaN values"
+    #     assert not np.any(np.isinf(halos[field])), f"{field} should not have Inf values"
+
+    # Check values are non-negative if expected
+    # for field in ['NonNegativeProperty1', ...]:
+    #     assert np.all(halos[field] >= 0.0), f"{field} should be non-negative"
+
+    shutil.rmtree(temp_dir)
+    print(f"{GREEN}✓ Edge cases handled correctly{NC}")
+
+
+def test_memory_and_performance():
+    """Test memory safety and performance baseline
+
+    Validates:
+    - No memory leaks
+    - Execution completes successfully
+    - Output file size reasonable
+    - Performance acceptable
+    """
+    print(f"\n{BLUE}TEST: Memory and performance{NC}")
+
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="[module_name]_memory",
+        phase_config={
+            'pre_timestep': [],
+            'phase_1': [
+                ('[module_name]', 'process_by_galaxy'),
+            ],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={
+            'Param1Name': 1.0,
+            'Param2Name': 0.5,
+        }
+    )
+
+    returncode, stdout, stderr = run_mimic(param_file)
+    assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
+
+    # Check for memory leaks
+    assert check_no_memory_leaks(output_dir), "Should not have memory leaks"
+
+    # Check output file
+    output_file = output_dir / "model_z0.000_0"
+    assert output_file.exists(), "Output file should exist"
+
+    file_size = output_file.stat().st_size
+    print(f"  Output file size: {file_size} bytes")
+    assert file_size > 0, "Output file should have content"
+
+    shutil.rmtree(temp_dir)
+    print(f"{GREEN}✓ Memory and performance validated{NC}")
 
 
 def main():
-    """
-    Main test runner
+    """Main test runner"""
+    print(f"{BLUE}{'=' * 70}{NC}")
+    print(f"{BLUE}Test Suite: [module_name] Integration Tests{NC}")
+    print(f"{BLUE}{'=' * 70}{NC}")
 
-    Executes all test cases and reports results.
-    Can be run directly or via pytest.
-    """
-    # Print test suite header
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: [TEST SUITE NAME] (filename.py){NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
+    try:
+        test_full_pipeline_execution()
+        test_physics_validation()
+        test_conservation_laws()
+        test_parameter_sensitivity()
+        test_edge_cases()
+        test_memory_and_performance()
 
-    tests = [
-        test_basic_integration,
-        test_edge_case_integration,
-        test_error_handling_integration,
-    ]
-
-    passed = 0
-    failed = 0
-
-    for test in tests:
-        try:
-            test()
-            passed += 1
-        except AssertionError as e:
-            print(f"✗ FAIL: {test.__name__}")
-            print(f"  {e}")
-            failed += 1
-        except Exception as e:
-            print(f"✗ ERROR: {test.__name__}")
-            print(f"  {e}")
-            failed += 1
-
-    # Print summary
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed: {passed}")
-    print(f"Failed: {failed}")
-    print(f"Total:  {passed + failed}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
+        print(f"\n{GREEN}{'=' * 70}{NC}")
+        print(f"{GREEN}All integration tests passed!{NC}")
+        print(f"{GREEN}{'=' * 70}{NC}")
         return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
+
+    except AssertionError as e:
+        print(f"\n{RED}{'=' * 70}{NC}")
+        print(f"{RED}Test failed: {e}{NC}")
+        print(f"{RED}{'=' * 70}{NC}")
+        return 1
+
+    except Exception as e:
+        print(f"\n{RED}{'=' * 70}{NC}")
+        print(f"{RED}Unexpected error: {e}{NC}")
+        print(f"{RED}{'=' * 70}{NC}")
         return 1
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())
 
 
@@ -281,49 +375,83 @@ if __name__ == "__main__":
 TEMPLATE USAGE INSTRUCTIONS:
 ============================
 
-1. Copy this template to tests/integration/test_yourname.py
+1. Copy this template to src/modules/_tests/test_integration_[module_name].py
 
-2. Update the file header:
-   - Change test name
-   - Fill in description of what is validated
-   - Note the roadmap phase
-   - Add your name and date
+2. Replace all [module_name] placeholders with your actual module name
 
-3. Implement test functions:
-   - Follow setup → execute → validate structure
-   - Test full pipeline execution
-   - Validate output files created and correct
-   - Check for memory leaks
-   - Use descriptive test function names
+3. Update the file header:
+   - Fill in what the module validates
+   - List the key integration tests
+   - List all test cases
 
-4. Implement data loading:
-   - Use existing utilities from output/mimic-plot/
-   - load_binary_output() or load_hdf5_output()
-   - Adapt to actual data formats
+4. Implement test functions:
+   - test_full_pipeline_execution: Basic pipeline test
+   - test_physics_validation: Validate physics calculations
+   - test_conservation_laws: Check conservation (if applicable)
+   - test_parameter_sensitivity: Test parameter effects
+   - test_edge_cases: Test boundary conditions
+   - test_memory_and_performance: Memory and performance checks
 
-5. Add test to pytest discovery:
-   - Tests automatically discovered by pytest
-   - Or run directly: python test_yourname.py
+5. Configure phase_config and model_params:
+   - Set up correct pipeline phase for your module
+   - Include all required module parameters
+   - Add dependencies if your module requires other modules
 
-6. Verify test works:
-   - Run: python test_yourname.py
-   - Or: pytest test_yourname.py -v
-   - Or: make test-integration
+6. Build and run:
+   - make clean && make test-integration
+   - All tests should PASS
+   - No memory leaks
 
-PYTEST COMPATIBILITY:
+KEY PRINCIPLES:
+==============
+- Python integration tests validate END-TO-END behavior
+- Test full pipeline execution (not isolated functions)
+- Validate physics correctness at system level
+- Test conservation laws across pipeline
+- Test parameter sensitivity
+- Check memory safety
+- Keep tests fast (<30 seconds per test)
+
+INTEGRATION TESTING PATTERN:
+===========================
+For each module:
+1. Test pipeline execution (loads, runs, completes)
+2. Test physics validation (results are correct)
+3. Test conservation (if applicable)
+4. Test parameter sensitivity (params affect results)
+5. Test edge cases (boundary conditions)
+6. Test memory safety (no leaks)
+
+EXAMPLE: Testing star formation module
+- test_full_pipeline_execution: Module runs in pipeline
+- test_physics_validation: Star formation rates are reasonable
+- test_conservation_laws: Mass conserved during SF
+- test_parameter_sensitivity: SFR efficiency affects results
+- test_edge_cases: Zero cold gas handled correctly
+- test_memory_and_performance: No leaks, acceptable speed
+
+WHAT TO VALIDATE:
+================
+- Physics correctness (realistic values, expected relationships)
+- Conservation laws (mass, metals, energy if applicable)
+- Parameter effects (changing params changes results correctly)
+- Edge cases (zero values, boundary conditions, type variations)
+- Memory safety (no leaks)
+- Performance (execution time acceptable)
+
+WHAT NOT TO TEST:
+================
+- Internal calculations (that's for C unit tests)
+- Detailed math validation (that's for C unit tests)
+- Mock scenarios (use real pipeline execution)
+- Individual function behavior (test system behavior)
+
+DATA VALIDATION TIPS:
 ====================
-This template works both standalone and with pytest:
-- Standalone: python test_yourname.py
-- Pytest: pytest test_yourname.py -v
-- Pytest discovers test_* functions automatically
-
-GUIDELINES:
-===========
-- Test end-to-end pipeline execution
-- Validate output files exist and have correct format
-- Check for memory leaks in all tests
-- Use clear, descriptive error messages
-- Test both success and failure paths
-- Keep test data small and fast (<10 seconds)
-- Document expected behavior clearly
+- Check for NaN and Inf values
+- Check value ranges are physical
+- Check conservation laws
+- Compare with expected scaling relations
+- Validate across different galaxy types (centrals, satellites)
+- Test with minimal dataset (fast tests)
 """
