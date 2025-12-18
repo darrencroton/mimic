@@ -41,6 +41,7 @@ module:
       - test_unit_sage_update_star_formation_supernova.c
       - test_unit_sage_reincorporation.c
       - test_unit_sage_satellite_stripping.c
+      - test_unit_sage_update_disk_radius.c
 
     integration:
       - test_integration_sage_reionization.py
@@ -51,5 +52,6 @@ module:
       - test_integration_sage_update_star_formation_supernova.py
       - test_integration_sage_reincorporation.py
       - test_integration_sage_satellite_stripping.py
+      - test_integration_sage_update_disk_radius.py
 
     scientific: []
