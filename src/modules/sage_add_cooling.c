@@ -40,7 +40,11 @@ static void cool_gas_onto_galaxy(struct Halo *halo, const double coolingGas, con
         }
 
         // Track cooling energy: E_cool = 0.5 * m * V_vir^2
-        halo->galaxy->Cooling += (0.5 * coolingGas * vvir * vvir) / halo->dT;
+        // Only calculate cooling rate if dT is valid (> 0)
+        // Newly formed halos (no progenitor) have dT = -1.0 (sentinel value)
+        if (halo->dT > 0.0) {
+            halo->galaxy->Cooling += (0.5 * coolingGas * vvir * vvir) / halo->dT;
+        }
     }
 }
 
