@@ -1,32 +1,35 @@
 /**
- * @file    test_unit_sage_cooling.c
- * @brief   Software quality unit tests for sage_cooling module
+ * @file    test_unit_sage_calculate_cooling.c
+ * @brief   Unit tests for sage_calculate_cooling module
  *
  * Validates: Module lifecycle, cooling tables, interpolation, memory safety
  * Phase: Phase 4.2 (SAGE Physics Module Implementation)
  *
- * This test validates software engineering aspects of the sage_cooling module:
+ * This test validates software engineering aspects of the sage_calculate_cooling module:
  * - Module registration and initialization
  * - Cooling table loading and validation
- * - Temperature and metallicity interpolation
+ * - Temperature and metallicity interpolation (2D)
  * - Edge case handling (primordial gas, super-solar Z, extreme temps)
  * - Memory allocation and cleanup (no leaks)
- * - Parameter reading and validation
  *
- * Test cases:
- *   - test_module_registration: Module registers correctly
- *   - test_cooling_tables_loading: Tables load successfully from module directory
- *   - test_temperature_interpolation: Temperature interpolation is accurate
- *   - test_metallicity_interpolation: 2D interpolation works correctly
- *   - test_primordial_gas_cooling: Handles zero metallicity correctly
- *   - test_super_solar_metallicity: Handles high metallicity correctly
- *   - test_extreme_temperatures: Handles temperature limits correctly
- *   - test_memory_safety: No memory leaks during operation
+ * Test Organization:
+ *   Suite 1: Cooling Tables (helper functions)
+ *     - Table loading from disk
+ *     - Temperature interpolation (1D)
+ *     - Metallicity interpolation (2D)
+ *     - Edge cases (primordial, super-solar, extreme temps)
  *
- * NOTE: Physics validation (comparison with SAGE) handled separately in integration tests
+ *   Suite 2: Module Integration
+ *     - Module registration
+ *     - Memory safety
+ *
+ * NOTE:
+ * - Core physics (cooling_recipe) tested indirectly via process function in integration tests
+ * - This module has NO runtime parameters (CoolFunctions path is hardcoded)
+ * - Physics validation (comparison with SAGE) handled in scientific tests
  *
  * @author  Mimic Development Team
- * @date    2025-11-13
+ * @date    2025-11-13 (Updated 2025-12-18)
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -320,58 +323,32 @@ int test_memory_safety(void)
     return 0;
 }
 
-/**
- * @test    test_parameter_reading
- * @brief   Test module parameter reading and validation
- *
- * Expected: Parameters read correctly from configuration
- * Validates: model_get_double(), model_get_int() for sage_cooling
- */
-int test_parameter_reading(void)
-{
-    ensure_modules_registered();
-
-    reset_config();
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_cooling");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
-    MimicConfig.SubSteps = 1;
-
-    /* Set all required parameters, then override specific ones for testing */
-    set_test_model_parameters();
-    strcpy(MimicConfig.ModelParams[1].value, "0.02");  /* RadioModeEfficiency custom value */
-    strcpy(MimicConfig.ModelParams[2].value, "2");     /* AGNrecipeOn = Bondi-Hoyle mode */
-
-    int result = module_system_init();
-    TEST_ASSERT(result == 0, "Module should initialize with custom parameters");
-
-    /* Clean up */
-    if (result == 0) {
-        module_system_cleanup();
-    }
-
-    return 0;
-}
 
 /* Main test runner */
 int main(void)
 {
     printf("%s", BLUE);
     printf("============================================================\n");
-    printf("Test Suite: sage_cooling Module\n");
+    printf("Test Suite: sage_calculate_cooling Module\n");
     printf("============================================================\n");
     printf("%s", NC);
+    printf("\n");
+    printf("Suite 1: Cooling Tables (helper functions)\n");
+    printf("------------------------------------------------------------\n");
 
-    TEST_RUN(test_module_registration);
     TEST_RUN(test_cooling_tables_loading);
     TEST_RUN(test_temperature_interpolation);
     TEST_RUN(test_metallicity_interpolation);
     TEST_RUN(test_primordial_gas_cooling);
     TEST_RUN(test_super_solar_metallicity);
     TEST_RUN(test_extreme_temperatures);
+
+    printf("\n");
+    printf("Suite 2: Module Integration\n");
+    printf("------------------------------------------------------------\n");
+
+    TEST_RUN(test_module_registration);
     TEST_RUN(test_memory_safety);
-    TEST_RUN(test_parameter_reading);
 
     /* Print summary and return result */
     TEST_SUMMARY();
