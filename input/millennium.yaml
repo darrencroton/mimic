@@ -37,24 +37,45 @@ modules:
     - sage_reionization: process_full_halo
     - sage_calculate_infall: process_full_halo
     - sage_update_disk_radius: process_full_halo
+    - sage_calculate_merger_timescale: process_full_halo
 
   phase_1:
+    # Infall & Reincorporation
     - sage_add_infall: process_full_halo
     - sage_reincorporation: process_full_halo
-    - sage_satellite_stripping: process_full_halo
+
+    # Cooling (Calculate → Modify → Apply)
     - sage_calculate_cooling: process_by_galaxy
     - sage_radio_mode_heating: process_by_galaxy
     - sage_add_cooling: process_by_galaxy
+
+    # Star Formation (Calculate → Calculate → Update)
     - sage_calculate_star_formation: process_by_galaxy
     - sage_calculate_supernova_feedback: process_by_galaxy
     - sage_update_star_formation_supernova: process_by_galaxy
-    # - sage_disk_instability: process_by_galaxy
 
-  phase_2: []
-    # - sage_mergers: process_by_galaxy
+    # Satellite Stripping
+    - sage_satellite_stripping: process_full_halo
+
+    # Disk Instability (Check → Transfer → Trigger Physics)
+    - sage_check_disk_instability: process_by_galaxy
+    - sage_transfer_disk_to_bulge: process_by_galaxy
+    - sage_grow_black_hole: process_by_galaxy          # Checks disk instability trigger
+    - sage_quasar_mode_wind: process_by_galaxy         # Executes if BH accretion occurred
+    - sage_trigger_starburst: process_by_galaxy        # Checks disk instability trigger
+
+  phase_2:
+    # Merger Triggering & Execution
+    - sage_update_merger_time: process_full_halo       # Decrement MergTime, set flags
+    - sage_merge_galaxies: process_full_halo           # Combine + morphology
+    - sage_disrupt_satellites: process_full_halo       # Tidal disruption to ICS
+
+    # Post-Merger Physics (for merged galaxies)
+    - sage_grow_black_hole: process_by_galaxy          # REUSED - checks merger trigger
+    - sage_quasar_mode_wind: process_by_galaxy         # REUSED - executes if BH accretion
+    - sage_trigger_starburst: process_by_galaxy        # REUSED - checks merger trigger
 
   post_timestep: []
-    # - sage_finalization: process_full_halo
 
   parameters:
     # Reionisation
@@ -62,6 +83,7 @@ modules:
 
     # Cooling & AGN Feedback
     AGNrecipe: 1                        # AGN feedback mode (0=off, 1=empirical, 2=Bondi, 3=cold cloud)
+    AGNrecipeOn: 1                      # AGN recipe enabled (0=off, 1=on)
     RadioModeEfficiency: 0.01           # Radio-mode AGN feedback efficiency
 
     # Star Formation
@@ -69,8 +91,11 @@ modules:
     StarFormingDiskFactor: 3.0          # Number of disc scale radii to form stars over
 
     # Supernova Feedback
+    SupernovaRecipeOn: 1                # Supernova feedback enabled (0=off, 1=on)
     FeedbackReheatingEpsilon: 3.0       # Reheating efficiency
     FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
+    EtaSNcode: 5.0e-3                   # Supernova mass loading efficiency
+    EnergySNcode: 1.0e51                # Supernova energy in code units
 
     # Metals
     RecycleFraction: 0.43               # Instantaneous recycling fraction
@@ -79,6 +104,9 @@ modules:
 
     # Gas Reincorporation
     ReIncorporationFactor: 1.0          # Reincorporation timescale factor
+
+    # Disk Instability
+    DiskInstabilityOn: 1                # Disk instability enabled (0=off, 1=on)
 
     # Mergers & BH Growth
     ThreshMajorMerger: 0.3              # Mass ratio threshold for major mergers

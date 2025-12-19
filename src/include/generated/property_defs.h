@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 4f8e0fade42a6782cf663361e370551b
+ * Source MD5: e2285558c3958b340fdad32858d79d32
  * To regenerate: make generate
  */
 
@@ -77,6 +77,11 @@ struct GalaxyData {
   float MergTime;
   float TimeOfLastMajorMerger;
   float TimeOfLastMinorMerger;
+  float UnstableDiskGasFraction;
+  float UnstableDiskStarFraction;
+  int IsMerging;
+  int IsDisrupting;
+  float MergerMassRatio;
   float TestDummyProperty;
 };
 

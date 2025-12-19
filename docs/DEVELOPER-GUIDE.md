@@ -1649,16 +1649,44 @@ modules:
   pre_timestep:
     - sage_reionization: process_full_halo
     - sage_calculate_infall: process_full_halo
+    - sage_update_disk_radius: process_full_halo
+    - sage_calculate_merger_timescale: process_full_halo
 
   phase_1:
+    # Infall & Reincorporation
     - sage_add_infall: process_full_halo
+    - sage_reincorporation: process_full_halo
+
+    # Cooling (Calculate → Modify → Apply)
     - sage_calculate_cooling: process_by_galaxy
     - sage_radio_mode_heating: process_by_galaxy
     - sage_add_cooling: process_by_galaxy
-    - sage_starformation_feedback: process_by_galaxy
+
+    # Star Formation (Calculate → Calculate → Update)
+    - sage_calculate_star_formation: process_by_galaxy
+    - sage_calculate_supernova_feedback: process_by_galaxy
+    - sage_update_star_formation_supernova: process_by_galaxy
+
+    # Satellite Stripping
+    - sage_satellite_stripping: process_full_halo
+
+    # Disk Instability (Check → Transfer → Trigger Physics)
+    - sage_check_disk_instability: process_by_galaxy
+    - sage_transfer_disk_to_bulge: process_by_galaxy
+    - sage_grow_black_hole: process_by_galaxy          # Checks disk instability trigger
+    - sage_quasar_mode_wind: process_by_galaxy         # Executes if BH accretion occurred
+    - sage_trigger_starburst: process_by_galaxy        # Checks disk instability trigger
 
   phase_2:
-    - sage_mergers: process_by_galaxy
+    # Merger Triggering & Execution
+    - sage_update_merger_time: process_full_halo       # Decrement MergTime, set flags
+    - sage_merge_galaxies: process_full_halo           # Combine + morphology
+    - sage_disrupt_satellites: process_full_halo       # Tidal disruption to ICS
+
+    # Post-Merger Physics (for merged galaxies)
+    - sage_grow_black_hole: process_by_galaxy          # REUSED - checks merger trigger
+    - sage_quasar_mode_wind: process_by_galaxy         # REUSED - executes if BH accretion
+    - sage_trigger_starburst: process_by_galaxy        # REUSED - checks merger trigger
 
   post_timestep: []
 
@@ -1666,20 +1694,33 @@ modules:
     # Reionisation
     GlobalBaryonFraction: 0.17
 
-    # Cooling & AGN
+    # Cooling & AGN Feedback
     AGNrecipe: 1
+    AGNrecipeOn: 1
     RadioModeEfficiency: 0.01
 
     # Star Formation
     SfrEfficiency: 0.02
 
     # Supernova Feedback
+    SupernovaRecipeOn: 1
     FeedbackReheatingEpsilon: 3.0
     FeedbackEjectionEfficiency: 0.3
+    EtaSNcode: 5.0e-3
+    EnergySNcode: 1.0e51
 
     # Metals
     RecycleFraction: 0.43
     Yield: 0.03
+    FracZleaveDisk: 0.3
+
+    # Disk Instability
+    DiskInstabilityOn: 1
+
+    # Mergers & BH Growth
+    ThreshMajorMerger: 0.3
+    BlackHoleGrowthRate: 0.01
+    QuasarModeEfficiency: 0.001
 ```
 
 ### A4. ModuleContext Structure
