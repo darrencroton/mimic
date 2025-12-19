@@ -462,6 +462,12 @@ void update_halo_properties(int ngal) {
       ProcessedHalos[NumProcessedHalos++] =
           FoFWorkspace[p]; /* Copy to permanent array and increment counter */
       HaloAux[currenthalo].NHalos++; /* Increment count for this halo */
+    } else {
+      /* Free galaxy data for merged halos to prevent memory leak */
+      if (FoFWorkspace[p].galaxy != NULL) {
+        myfree(FoFWorkspace[p].galaxy);
+        FoFWorkspace[p].galaxy = NULL;
+      }
     }
   }
 }
