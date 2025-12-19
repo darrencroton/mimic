@@ -1670,12 +1670,10 @@ modules:
     # Satellite Stripping
     - sage_satellite_stripping: process_full_halo
 
-    # Disk Instability (Check → Transfer → Trigger Physics)
-    - sage_check_disk_instability: process_by_galaxy
-    - sage_transfer_disk_to_bulge: process_by_galaxy
-    - sage_grow_black_hole: process_by_galaxy          # Checks disk instability trigger
-    - sage_quasar_mode_wind: process_by_galaxy         # Executes if BH accretion occurred
-    - sage_trigger_starburst: process_by_galaxy        # Checks disk instability trigger
+    # Disk Instability Triggered Physics
+    - sage_disk_instability: process_by_galaxy         # Check stability & transfer to bulge
+    - sage_quasar_mode: process_by_galaxy              # BH growth & quasar winds
+    - sage_collisional_starburst: process_by_galaxy    # Starburst with SN feedback
 
   phase_2:
     # Merger Triggering & Execution
@@ -1683,10 +1681,9 @@ modules:
     - sage_merge_galaxies: process_full_halo           # Combine + morphology
     - sage_disrupt_satellites: process_full_halo       # Tidal disruption to ICS
 
-    # Post-Merger Physics (for merged galaxies)
-    - sage_grow_black_hole: process_by_galaxy          # REUSED - checks merger trigger
-    - sage_quasar_mode_wind: process_by_galaxy         # REUSED - executes if BH accretion
-    - sage_trigger_starburst: process_by_galaxy        # REUSED - checks merger trigger
+    # Post-Merger Physics (reuse same modules as disk instability)
+    - sage_quasar_mode: process_by_galaxy              # BH growth & quasar winds (merger trigger)
+    - sage_collisional_starburst: process_by_galaxy    # Starburst with SN feedback (merger trigger)
 
   post_timestep: []
 
