@@ -55,20 +55,20 @@ modules:
     - sage_calculate_supernova_feedback: process_by_galaxy
     - sage_update_star_formation_supernova: process_by_galaxy
 
-    # Disk Instability Triggered Physics
-    - sage_disk_instability: process_by_galaxy         # Check stability & transfer to bulge
-    - sage_quasar_mode: process_by_galaxy              # BH growth & quasar winds
-    - sage_collisional_starburst: process_by_galaxy    # Starburst with SN feedback
+    # Disk Instability (Check → Transfer → Trigger Physics)
+    - sage_disk_instability: process_by_galaxy
+    - sage_quasar_mode: process_by_galaxy
+    - sage_collisional_starburst: process_by_galaxy
 
   phase_2:
-    # Merger Triggering & Execution
-    - sage_update_merger_time: process_full_halo       # Decrement MergTime, set flags
-    - sage_merge_galaxies: process_full_halo           # Combine + morphology
-    - sage_disrupt_satellites: process_full_halo       # Tidal disruption to ICS
+    # Mergers (Check → Transfer → Trigger Physics)
+    - sage_update_merger_time: process_full_halo
+    - sage_merge_galaxies: process_full_halo
+    - sage_disrupt_satellites: process_full_halo
 
-    # Post-Merger Physics (reuse same modules as disk instability)
-    - sage_quasar_mode: process_by_galaxy              # BH growth & quasar winds (merger trigger)
-    - sage_collisional_starburst: process_by_galaxy    # Starburst with SN feedback (merger trigger)
+    # Post-Merger Physics
+    - sage_quasar_mode: process_by_galaxy
+    - sage_collisional_starburst: process_by_galaxy
 
   post_timestep:
 
