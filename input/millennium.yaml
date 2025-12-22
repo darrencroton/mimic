@@ -63,7 +63,7 @@ modules:
   phase_2:
     # Mergers (Check → Transfer → Trigger Physics)
     - sage_update_merger_time: process_full_halo
-    # - sage_merge_galaxies: process_full_halo
+    - sage_merge_galaxies: process_full_halo
     # - sage_disrupt_satellites: process_full_halo
 
     # Post-Merger Physics
