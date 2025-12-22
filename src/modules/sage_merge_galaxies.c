@@ -20,7 +20,7 @@ int sage_merge_galaxies_init(void)
 {
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThresholdMajorMerger", THRESHOLD_MAJOR_MERGER,
                                        0.0, 1.0, "major merger mass ratio threshold");
-    VERBOSE_LOG("SAGE Merge Galaxies initialized");
+    INFO_LOG("SAGE Merge Galaxies initialized");
     VERBOSE_LOG("  ThresholdMajorMerger = %.3f", THRESHOLD_MAJOR_MERGER);
     return 0;
 }
@@ -59,7 +59,7 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
             continue;
         }
 
-        // Cantrals shouldn't be marked as merging!
+        // Centrals shouldn't be marked as merging!
         assert(halos[i].Type != 0);
 
         struct GalaxyData *satellite = halos[i].galaxy;
