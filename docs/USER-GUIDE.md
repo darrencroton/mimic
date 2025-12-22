@@ -224,7 +224,8 @@ modules:
     FracZleaveDisk: 0.3
 
     # Mergers & BH Growth
-    ThreshMajorMerger: 0.3
+    ThresholdMajorMerger: 0.3
+    ThresholdSatDisruption: 1.0
     BlackHoleGrowthRate: 0.01
     QuasarModeEfficiency: 0.001
 ```
@@ -253,7 +254,7 @@ modules:
 | `sage_disk_instability` | phase_1 | Disk stability check & stellar transfer to bulge |
 | `sage_quasar_mode` | phase_1, phase_2 | BH growth & quasar-mode AGN winds |
 | `sage_collisional_starburst` | phase_1, phase_2 | Merger/instability-induced starbursts |
-| `sage_update_merger_time` | phase_2 | Decrement merger timescales |
+| `sage_update_merger_time` | phase_2 | Decrement merger timescales, trigger merger/disruption events |
 | `sage_merge_galaxies` | phase_2 | Combine merging galaxies |
 | `sage_disrupt_satellites` | phase_2 | Tidal disruption to ICS |
 

@@ -16,14 +16,14 @@
 #include "module_interface.h"
 #include "types.h"
 
-static double THRESH_MAJOR_MERGER;
+static double THRESHOLD_MAJOR_MERGER;
 
 int sage_merge_galaxies_init(void)
 {
-    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThreshMajorMerger", THRESH_MAJOR_MERGER,
+    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThresholdMajorMerger", THRESHOLD_MAJOR_MERGER,
                                        0.0, 1.0, "major merger mass ratio threshold");
     VERBOSE_LOG("SAGE Merge Galaxies initialized");
-    VERBOSE_LOG("  ThreshMajorMerger = %.3f", THRESH_MAJOR_MERGER);
+    VERBOSE_LOG("  ThresholdMajorMerger = %.3f", THRESHOLD_MAJOR_MERGER);
     return 0;
 }
 
@@ -87,7 +87,7 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
         central->MetalsBulgeMass += satellite->MetalsStellarMass;
 
         /* PART 2: Morphological transformation for major mergers (SAGE lines 186-188) */
-        if (mass_ratio > THRESH_MAJOR_MERGER) {
+        if (mass_ratio > THRESHOLD_MAJOR_MERGER) {
             /* Major merger: violent relaxation destroys disk */
             central->BulgeMass = central->StellarMass;
             central->MetalsBulgeMass = central->MetalsStellarMass;

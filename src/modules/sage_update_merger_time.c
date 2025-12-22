@@ -1,65 +1,63 @@
 /**
  * @file    sage_update_merger_time.c
- * @brief   Decrement merger timescales and set merger/disruption flags
+ * @brief   SAGE merger time evolution - trigger merger and disruption events
  *
- * This module manages merger timing by:
- * 1. Decrementing MergTime by dt for each satellite
- * 2. Detecting when mergers occur (MergTime <= 0)
- * 3. Setting IsMerging or IsDisrupting flags based on mass ratio
+ * Decrements merger timescales and detects when satellites merge or disrupt.
+ * Uses halo-to-baryonic mass ratio to determine eligibility: satellites with
+ * Mvir/Mbaryons <= ThresholdSatDisruption either merge (MergTime <= 0) or
+ * disrupt to ICS (MergTime > 0, too stripped to survive until merger).
  *
- * Severely stripped satellites (very low mass ratio) are marked for
- * disruption to ICS instead of merging.
+ * Reference: SAGE core_build_model.c lines 366-406
  */
 
+#include <math.h>
+
+#include "_system/parameter_helpers.h"
 #include "error.h"
 #include "module_interface.h"
-#include "numeric.h"
 #include "types.h"
 
-/* Threshold for satellite disruption (instead of merger) */
-static const double DISRUPTION_THRESHOLD = 0.001;  /* 1:1000 mass ratio */
+// ============================================================================
+// MODULE PARAMETERS
+// ============================================================================
+
+static double THRESHOLD_SAT_DISRUPTION;
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+// Calculate baryonic mass ratio (mi/ma where mi <= ma) for merger efficiency.
+static double calculate_mass_ratio(const struct GalaxyData *sat, const struct GalaxyData *cen)
+{
+    const double sat_mass = sat->StellarMass + sat->ColdGas;
+    const double cen_mass = cen->StellarMass + cen->ColdGas;
+
+    const double mi = (sat_mass < cen_mass) ? sat_mass : cen_mass;
+    const double ma = (sat_mass < cen_mass) ? cen_mass : sat_mass;
+
+    return (ma > 0.0) ? mi / ma : 0.0;
+}
+
+// ============================================================================
+// MODULE LIFECYCLE FUNCTIONS
+// ============================================================================
 
 int sage_update_merger_time_init(void)
 {
-    VERBOSE_LOG("SAGE Update Merger Time initialized");
+    LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ThresholdSatDisruption", THRESHOLD_SAT_DISRUPTION,
+                                       0.0, 1000.0, "halo-to-baryonic mass ratio threshold");
+
+    INFO_LOG("SAGE merger time evolution initialized");
+    VERBOSE_LOG("  ThresholdSatDisruption = %.3f", THRESHOLD_SAT_DISRUPTION);
+    VERBOSE_LOG("  Physics: Satellites merge if MergTime <= 0 AND Mvir/Mbaryons <= threshold");
+    VERBOSE_LOG("           Satellites disrupt if MergTime > 0 AND Mvir/Mbaryons <= threshold");
+
     return 0;
 }
 
-int sage_update_merger_time_cleanup(void)
-{
-    return 0;
-}
-
-/**
- * @brief   Helper to find central halo index
- */
-static int find_central(struct Halo *halos, int ngal)
-{
-    for (int i = 0; i < ngal; i++) {
-        if (halos[i].Type == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-/**
- * @brief   Calculate mass ratio (mi/ma where mi <= ma)
- */
-static double calculate_mass_ratio(struct GalaxyData *sat, struct GalaxyData *cen)
-{
-    double sat_mass = sat->StellarMass + sat->ColdGas;
-    double cen_mass = cen->StellarMass + cen->ColdGas;
-
-    double mi = (sat_mass < cen_mass) ? sat_mass : cen_mass;
-    double ma = (sat_mass < cen_mass) ? cen_mass : sat_mass;
-
-    return safe_div(mi, ma, 0.0);
-}
-
-/**
- * @brief   Decrement merger timescales and set merger/disruption flags
- */
+// Decrement merger timescales and trigger merger/disruption events.
+// Matches SAGE core_build_model.c lines 366-406.
 int sage_update_merger_time_process(struct ModuleContext *ctx,
                                      struct Halo *halos,
                                      int ngal)
@@ -68,44 +66,83 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
         return 0;
     }
 
-    double dt = ctx->substep_dt;
-
-    int central_idx = find_central(halos, ngal);
-    if (central_idx < 0) {
-        return 0;  /* No central */
-    }
-
-    struct GalaxyData *central_gal = halos[central_idx].galaxy;
-    if (central_gal == NULL) {
-        return 0;
-    }
-
-    /* Process each satellite */
+    // Find central galaxy (Type 0)
+    int central_idx = -1;
     for (int i = 0; i < ngal; i++) {
-        if (halos[i].Type != 1) continue;  /* Only satellites */
-        if (halos[i].galaxy == NULL) continue;
-
-        /* Decrement merger time */
-        halos[i].galaxy->MergTime -= dt;
-
-        /* Check if merger/disruption occurs this substep */
-        if (halos[i].galaxy->MergTime <= 0.0) {
-            double mass_ratio = calculate_mass_ratio(halos[i].galaxy, central_gal);
-
-            /* Severely stripped satellites disrupt to ICS */
-            if (mass_ratio < DISRUPTION_THRESHOLD) {
-                halos[i].galaxy->IsDisrupting = 1;
-                DEBUG_LOG("Satellite %d disrupting (ratio=%.6f < %.6f)",
-                          halos[i].HaloNr, mass_ratio, DISRUPTION_THRESHOLD);
-            } else {
-                /* Otherwise merge with central */
-                halos[i].galaxy->IsMerging = 1;
-                halos[i].galaxy->MergerMassRatio = mass_ratio;
-                DEBUG_LOG("Satellite %d merging (ratio=%.3f)",
-                          halos[i].HaloNr, mass_ratio);
-            }
+        if (halos[i].Type == 0) {
+            central_idx = i;
+            break;
         }
     }
 
+    if (central_idx == -1) {
+        return 0;  // No central in this FOF group
+    }
+
+    if (halos[central_idx].galaxy == NULL) {
+        ERROR_LOG("Central galaxy has NULL galaxy data");
+        return -1;
+    }
+
+    const struct GalaxyData *central_gal = halos[central_idx].galaxy;
+    const double dt = ctx->substep_dt;
+
+    // Process each satellite (Type 1 or Type 2)
+    for (int i = 0; i < ngal; i++) {
+        if (halos[i].Type == 0 || halos[i].Type > 2) continue;
+        if (halos[i].galaxy == NULL) continue;
+
+        struct GalaxyData *sat = halos[i].galaxy;
+
+        // Validate MergTime has been set (should be < 999.0 for satellites)
+        if (sat->MergTime >= 999.0) {
+            ERROR_LOG("Satellite %d has unset MergTime (%.1f)", halos[i].HaloNr, sat->MergTime);
+            return -1;
+        }
+
+        // Decrement merger time (SAGE line 377)
+        sat->MergTime -= dt;
+
+        // Calculate current Mvir with substep interpolation (SAGE line 381)
+        // Linearly interpolate between snapshots based on substep progress
+        const double fraction = ((double)ctx->substep_number + 1.0) / (double)ctx->num_substeps;
+        const double currentMvir = halos[i].Mvir + halos[i].deltaMvir * fraction;
+
+        // Calculate total baryonic mass (SAGE line 382)
+        const double galaxyBaryons = sat->StellarMass + sat->ColdGas;
+
+        // Check if satellite is eligible for merger/disruption (SAGE line 383)
+        // Condition: Zero baryonic mass OR halo-to-baryonic ratio exceeds threshold
+        const int eligible = (galaxyBaryons == 0.0) ||
+                            (galaxyBaryons > 0.0 && (currentMvir / galaxyBaryons <= THRESHOLD_SAT_DISRUPTION));
+
+        if (!eligible) continue;
+
+        // Satellite is eligible - check if disruption or merger occurs
+        if (!isfinite(sat->MergTime)) {
+            WARNING_LOG("Satellite %d has non-finite MergTime", halos[i].HaloNr);
+            continue;
+        }
+
+        // SAGE lines 394-401: Disruption if MergTime > 0, merger if MergTime <= 0
+        if (sat->MergTime > 0.0) {
+            // Disruption: Satellite too stripped to survive until merger (SAGE line 396)
+            sat->IsDisrupting = 1;
+            DEBUG_LOG("Satellite %d disrupting (MergTime=%.3f, Mvir/Mbary=%.1f)",
+                      halos[i].HaloNr, sat->MergTime, currentMvir / galaxyBaryons);
+        } else {
+            // Merger: Orbital decay complete (SAGE lines 398-400)
+            sat->IsMerging = 1;
+            sat->MergerMassRatio = calculate_mass_ratio(sat, central_gal);
+            DEBUG_LOG("Satellite %d merging (ratio=%.3f, Mvir/Mbary=%.1f)",
+                      halos[i].HaloNr, sat->MergerMassRatio, currentMvir / galaxyBaryons);
+        }
+    }
+
+    return 0;
+}
+
+int sage_update_merger_time_cleanup(void)
+{
     return 0;
 }

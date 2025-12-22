@@ -1709,7 +1709,8 @@ modules:
     FracZleaveDisk: 0.3
 
     # Mergers & BH Growth
-    ThreshMajorMerger: 0.3
+    ThresholdMajorMerger: 0.3
+    ThresholdSatDisruption: 1.0
     BlackHoleGrowthRate: 0.01
     QuasarModeEfficiency: 0.001
 ```

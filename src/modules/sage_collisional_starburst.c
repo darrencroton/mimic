@@ -40,7 +40,7 @@ static double FEEDBACK_EJECTION_EFFICIENCY;
 static double RECYCLE_FRACTION;
 static double YIELD;
 static double FRAC_Z_LEAVE_DISK;
-static double THRESH_MAJOR_MERGER;
+static double THRESHOLD_MAJOR_MERGER;
 
 // Calculated from physical constants (converted to code units)
 static double EnergySNcode;
@@ -73,7 +73,7 @@ int sage_collisional_starburst_init(void)
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("Yield", YIELD, 0.0, 1.0, "metal yield");
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FracZleaveDisk", FRAC_Z_LEAVE_DISK,
                                       0.0, 1.0, "frac Z leave disk");
-    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThreshMajorMerger", THRESH_MAJOR_MERGER,
+    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThresholdMajorMerger", THRESHOLD_MAJOR_MERGER,
                                       0.0, 1.0, "major merger threshold");
 
     // Convert physical constants to code units (same as sage_calculate_supernova_feedback)
@@ -236,7 +236,7 @@ static void collisional_starburst_recipe(const double efficiency_factor,
     }
 
     // Formation of new metals - instantaneous recycling approximation - only SNII
-    if (gal->ColdGas > EPSILON_SMALL && efficiency_factor < THRESH_MAJOR_MERGER) {
+    if (gal->ColdGas > EPSILON_SMALL && efficiency_factor < THRESHOLD_MAJOR_MERGER) {
         // Minor merger or disk instability: metals distributed between cold and hot
         // Metal ejection scale from Krumholz & Dekel (2011) Eq. 22
         const double FracZleaveDiskVal = FRAC_Z_LEAVE_DISK * exp(-1.0 * central_halo->Mvir / 30.0);  // 30.0 in units of 1e10 Msun/h

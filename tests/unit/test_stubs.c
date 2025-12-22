@@ -87,7 +87,7 @@ void set_test_model_parameters(void) {
     strcpy(MimicConfig.ModelParams[idx].param_name, "QuasarModeEfficiency");
     strcpy(MimicConfig.ModelParams[idx++].value, "0.001");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "ThreshMajorMerger");
+    strcpy(MimicConfig.ModelParams[idx].param_name, "ThresholdMajorMerger");
     strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
 
     /* Disk Instability */
