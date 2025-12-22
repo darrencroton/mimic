@@ -194,7 +194,7 @@ static void do_AGN_heating(struct Halo *halo, struct ModuleContext *ctx, const d
         }
 
         // Track heating energy
-        if (AGNheating > 0.0) {
+        if (AGNheating > 0.0 && halo->dT > 0.0) {
             halo->galaxy->Heating += (0.5 * AGNheating * vvir * vvir) / halo->dT;
         }
     }
