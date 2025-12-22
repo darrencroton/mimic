@@ -208,7 +208,6 @@ modules:
 
     # Cooling & AGN Feedback
     AGNrecipe: 1
-    AGNrecipeOn: 1
     RadioModeEfficiency: 0.01
 
     # Star Formation

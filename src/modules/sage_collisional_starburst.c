@@ -85,6 +85,16 @@ static const double STARBURST_EFFICIENCY_NORM = 0.56;
 static const double STARBURST_MASS_RATIO_POWER = 0.7;
 
 // ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+static void execute_starburst(struct GalaxyData *gal,
+                               struct GalaxyData *central_gal,
+                               const struct ModuleContext *ctx,
+                               double efficiency_factor,
+                               int mode);
+
+// ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
@@ -139,26 +149,42 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
         return 0;
     }
 
-    /* Check trigger conditions - module is independent, just checks properties */
-    double efficiency_factor = 0.0;
-    int mode = 0;  /* 0=merger, 1=disk instability */
-
+    /* Process disk instability trigger (if present) */
     if (gal->UnstableDiskGasFraction > 0.0) {
-        /* Disk instability triggered starburst */
-        efficiency_factor = gal->UnstableDiskGasFraction;
-        mode = 1;
-        DEBUG_LOG("Starburst from disk instability (eff=%.3f)", efficiency_factor);
-    }
-    else if (gal->IsMerging && gal->MergerMassRatio > 0.0) {
-        /* Merger triggered starburst */
-        efficiency_factor = gal->MergerMassRatio;
-        mode = 0;
-        DEBUG_LOG("Starburst from merger (ratio=%.3f)", efficiency_factor);
-    }
-    else {
-        return 0;  /* No trigger */
+        DEBUG_LOG("Starburst from disk instability (eff=%.3f)", gal->UnstableDiskGasFraction);
+        execute_starburst(gal, central_gal, ctx, gal->UnstableDiskGasFraction, 1);
     }
 
+    /* Process merger trigger (if present) */
+    if (gal->IsMerging && gal->MergerMassRatio > 0.0) {
+        DEBUG_LOG("Starburst from merger (ratio=%.3f)", gal->MergerMassRatio);
+        execute_starburst(gal, central_gal, ctx, gal->MergerMassRatio, 0);
+    }
+
+    /* Clear triggers after processing (prevents double-processing if misconfigured) */
+    gal->UnstableDiskGasFraction = 0.0;
+    gal->UnstableDiskStarFraction = 0.0;
+    gal->IsMerging = 0;
+    gal->MergerMassRatio = 0.0;
+
+    return 0;
+}
+
+/**
+ * Execute starburst physics for a single trigger event
+ *
+ * @param gal Galaxy experiencing starburst
+ * @param central_gal Central galaxy (feedback destination)
+ * @param ctx Module context
+ * @param efficiency_factor Trigger efficiency (disk gas fraction or merger mass ratio)
+ * @param mode Trigger mode (1=disk instability, 0=merger)
+ */
+static void execute_starburst(struct GalaxyData *gal,
+                               struct GalaxyData *central_gal,
+                               const struct ModuleContext *ctx,
+                               double efficiency_factor,
+                               int mode)
+{
     /* Calculate starburst efficiency */
     double eburst;
     if (mode == 1) {
@@ -262,8 +288,6 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
 
     DEBUG_LOG("Starburst: formed %.3e Msun stars, reheated %.3e, ejected %.3e",
               stars, reheated_mass, ejected_mass);
-
-    return 0;
 }
 
 int sage_collisional_starburst_cleanup(void)
