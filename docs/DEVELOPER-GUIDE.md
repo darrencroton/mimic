@@ -1699,11 +1699,9 @@ modules:
     SfrEfficiency: 0.02
 
     # Supernova Feedback
-    SupernovaRecipeOn: 1
     FeedbackReheatingEpsilon: 3.0
     FeedbackEjectionEfficiency: 0.3
-    EtaSNcode: 5.0e-3
-    EnergySNcode: 1.0e51
+    # Note: EtaSNcode and EnergySNcode are calculated from physical constants
 
     # Metals
     RecycleFraction: 0.43
