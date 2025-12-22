@@ -384,6 +384,15 @@ void set_halo_centrals(int ngalstart, int ngal) {
     }
   }
 
+  if (centralgal == -1) {
+      ERROR_LOG("FATAL: No Type 0 central found in FOF group (range %d-%d)", ngalstart, ngal);
+      // Log all galaxies for debugging
+      for (i = ngalstart; i < ngal; i++) {
+          ERROR_LOG("  Galaxy %d: Type=%d, HaloNr=%d", i, FoFWorkspace[i].Type, FoFWorkspace[i].HaloNr);
+      }
+      assert(centralgal != -1);
+  }
+
   /* Set ALL galaxies to point to the FOF group's Type 0 central
    * This sets both the index (CentralHalo) and unique ID (UniqueCentralGalaxyID)
    * so modules can reliably validate galaxy associations during execution */
