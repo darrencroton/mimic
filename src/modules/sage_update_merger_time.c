@@ -6,8 +6,6 @@
  * Uses halo-to-baryonic mass ratio to determine eligibility: satellites with
  * Mvir/Mbaryons <= ThresholdSatDisruption either merge (MergTime <= 0) or
  * disrupt to ICS (MergTime > 0, too stripped to survive until merger).
- *
- * Reference: SAGE core_build_model.c lines 366-406
  */
 
 #include <math.h>
@@ -57,7 +55,6 @@ int sage_update_merger_time_init(void)
 }
 
 // Decrement merger timescales and trigger merger/disruption events.
-// Matches SAGE core_build_model.c lines 366-406.
 int sage_update_merger_time_process(struct ModuleContext *ctx,
                                      struct Halo *halos,
                                      int ngal)
@@ -100,20 +97,21 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
             return -1;
         }
 
-        // Decrement merger time (SAGE line 377)
+        // Decrement merger time
         sat->MergTime -= dt;
 
-        // Calculate current Mvir with substep interpolation (SAGE line 381)
+        // Calculate current Mvir with substep interpolation
         // Linearly interpolate between snapshots based on substep progress
         const double fraction = ((double)ctx->substep_number + 1.0) / (double)ctx->num_substeps;
-        const double currentMvir = halos[i].Mvir + halos[i].deltaMvir * fraction;
+        double currentMvir = halos[i].Mvir - halos[i].deltaMvir * (1.0 - fraction);
+        if (currentMvir < 0.0) currentMvir = 0.0;
 
-        // Calculate total baryonic mass (SAGE line 382)
+        // Calculate total baryonic mass
         const double galaxyBaryons = sat->StellarMass + sat->ColdGas;
 
-        // Check if satellite is eligible for merger/disruption (SAGE line 383)
-        // Condition: Zero baryonic mass OR halo-to-baryonic ratio exceeds threshold
-        const int eligible = (galaxyBaryons == 0.0) ||
+        // Check if satellite is eligible for merger/disruption
+        // Condition: Zero baryonic mass OR orphan OR halo-to-baryonic ratio exceeds threshold
+        const int eligible = (galaxyBaryons == 0.0) || (halos[i].Type == 2) ||
                             (galaxyBaryons > 0.0 && (currentMvir / galaxyBaryons <= THRESHOLD_SAT_DISRUPTION));
 
         if (!eligible) continue;
@@ -124,14 +122,14 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
             continue;
         }
 
-        // SAGE lines 394-401: Disruption if MergTime > 0, merger if MergTime <= 0
+        // Disruption if MergTime > 0, merger if MergTime <= 0
         if (sat->MergTime > 0.0) {
-            // Disruption: Satellite too stripped to survive until merger (SAGE line 396)
+            // Disruption: Satellite too stripped to survive until merger
             sat->IsDisrupting = 1;
             DEBUG_LOG("Satellite %d disrupting (MergTime=%.3f, Mvir/Mbary=%.1f)",
                       halos[i].HaloNr, sat->MergTime, currentMvir / galaxyBaryons);
         } else {
-            // Merger: Orbital decay complete (SAGE lines 398-400)
+            // Merger: Orbital decay complete
             sat->IsMerging = 1;
             sat->MergerMassRatio = calculate_mass_ratio(sat, central_gal);
             DEBUG_LOG("Satellite %d merging (ratio=%.3f, Mvir/Mbary=%.1f)",

@@ -317,9 +317,9 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
           }
         } else {
           // an orphan satellite
-          FoFWorkspace[ngal].Len = 0;
+          FoFWorkspace[ngal].deltaMvir = -1.0*FoFWorkspace[ngal].Mvir;
           FoFWorkspace[ngal].Mvir = 0.0;
-          FoFWorkspace[ngal].deltaMvir = 0.0;
+          FoFWorkspace[ngal].Len = 0;
 
           if (FoFWorkspace[ngal].Type == 0) {
             // here the halo has gone from type 0 to type 2
