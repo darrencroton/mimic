@@ -57,18 +57,18 @@ modules:
 
     # Disk Instability (Check → Transfer → Trigger Physics)
     - sage_disk_instability: process_by_galaxy
-    - sage_quasar_mode: process_by_galaxy
-    - sage_collisional_starburst: process_by_galaxy
+    # - sage_quasar_mode: process_by_galaxy
+    # - sage_collisional_starburst: process_by_galaxy
 
   phase_2:
     # Mergers (Check → Transfer → Trigger Physics)
-    - sage_update_merger_time: process_full_halo
-    - sage_merge_galaxies: process_full_halo
-    - sage_disrupt_satellites: process_full_halo
+    # - sage_update_merger_time: process_full_halo
+    # - sage_merge_galaxies: process_full_halo
+    # - sage_disrupt_satellites: process_full_halo
 
     # Post-Merger Physics
-    - sage_quasar_mode: process_by_galaxy
-    - sage_collisional_starburst: process_by_galaxy
+    # - sage_quasar_mode: process_by_galaxy
+    # - sage_collisional_starburst: process_by_galaxy
 
   post_timestep:
 
@@ -99,9 +99,6 @@ modules:
 
     # Gas Reincorporation
     ReIncorporationFactor: 1.0          # Reincorporation timescale factor
-
-    # Disk Instability
-    DiskInstabilityOn: 1                # Disk instability enabled (0=off, 1=on)
 
     # Mergers & BH Growth
     ThreshMajorMerger: 0.3              # Mass ratio threshold for major mergers

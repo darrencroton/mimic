@@ -226,9 +226,6 @@ modules:
     Yield: 0.03
     FracZleaveDisk: 0.3
 
-    # Disk Instability
-    DiskInstabilityOn: 1
-
     # Mergers & BH Growth
     ThreshMajorMerger: 0.3
     BlackHoleGrowthRate: 0.01
