@@ -40,9 +40,6 @@ cd mimic
 # Build and run test simulation
 make
 ./mimic input/millennium.yaml
-
-# Verify success (should output: 0)
-echo $?
 ```
 
 **That's it!** You've just run Mimic on the mini-Millennium simulation.
@@ -110,14 +107,6 @@ make tests             # Run comprehensive test suite
 - Design decisions and rationale
 - Future direction
 
-## Documentation
-
-**Complete documentation** is available in the [docs/](docs/) directory:
-
-- **USER-GUIDE.md** - Using Mimic (installation, configuration, running simulations)
-- **DEVELOPER-GUIDE.md** - Extending Mimic (architecture, modules, testing, schemas, formats, API)
-- **VISION.md** - Design philosophy and architectural principles
-
 ## Testing
 
 Mimic includes a comprehensive three-tier testing framework:
@@ -129,7 +118,7 @@ make test-integration   # Python integration tests
 make test-scientific    # Physics validation tests
 ```
 
-Test data uses the mini-Millennium simulation ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)), automatically downloaded during first-time setup.
+Test data uses a single tree file from the mini-Millennium simulation ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)), already part of the `tests/` directory.
 
 ## Contributing
 
@@ -161,7 +150,3 @@ Mimic is available under an open-source license. See LICENSE file for details.
 **Darren Croton**
 Email: dcroton@swin.edu.au
 Web: [darrencroton.github.io](https://darrencroton.github.io)
-
----
-
-**Architecture Note**: Mimic is designed around 8 core principles including physics-agnostic infrastructure, runtime modularity, and metadata-driven development. See [docs/VISION.md](docs/VISION.md) for the complete architectural vision.
