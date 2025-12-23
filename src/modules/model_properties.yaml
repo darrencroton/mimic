@@ -304,6 +304,17 @@ galaxy_properties:
     range: [0.0, 10.0]  # 0 to 10 Mpc/h (cannot be negative)
     sentinels: [0.0]  # Can be zero if no cooling
 
+  - name: CoolingLambda
+    type: float
+    units: erg cm^3/s
+    description: Metallicity-dependent cooling function Lambda(T,Z) from Sutherland & Dopita (1993)
+    output: false
+    init_source: default
+    init_value: 0.0
+    init_repeat: true
+    range: [0.0, 1.0e-20]  # Cooling function range (cannot be negative)
+    sentinels: [0.0]  # Can be zero if no cooling or primordial gas
+
   - name: Rheat
     type: float
     units: Mpc/h

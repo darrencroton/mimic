@@ -31,7 +31,7 @@
  *
  * Two regimes: (1) cold accretion when rcool > Rvir, (2) hot halo cooling when rcool < Rvir
  */
-static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx, const double dt, double *rcool_out)
+static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx, const double dt, double *rcool_out, double *lambda_out)
 {
     double coolingGas;
 
@@ -70,9 +70,11 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx, const
         }
 
         *rcool_out = rcool;
+        *lambda_out = lambda;
     } else {
         coolingGas = 0.0;
         *rcool_out = 0.0;
+        *lambda_out = 0.0;
     }
 
     return coolingGas;
@@ -109,12 +111,13 @@ int sage_calculate_cooling_process(struct ModuleContext *ctx, struct Halo *halos
     }
 
     // Calculate cooling using substep timestep
-    double rcool;
-    double coolingGas = cooling_recipe(halo, ctx, ctx->substep_dt, &rcool);
+    double rcool, lambda;
+    double coolingGas = cooling_recipe(halo, ctx, ctx->substep_dt, &rcool, &lambda);
 
     // Store in properties for subsequent modules
     halo->galaxy->CoolingGas = (float)coolingGas;
     halo->galaxy->Rcool = (float)rcool;
+    halo->galaxy->CoolingLambda = (float)lambda;
 
     return 0;
 }

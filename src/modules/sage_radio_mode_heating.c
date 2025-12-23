@@ -63,20 +63,21 @@ static double calculate_agn_rate_empirical(const double black_hole_mass, const d
 /**
  * @brief AGN Mode 2: Bondi-Hoyle accretion recipe
  *
- * Based on BH mass and local gas properties: AGNrate ~ G * rho * M_BH^2 / c_s^3
- * NOTE: Not implemented - requires 'x' variable from cooling_recipe.
- *       To enable: add 'x' as a galaxy property or recalculate here.
+ * Based on spherical accretion: M_dot = 4π G² M_BH² ρ / c_s³
  */
-/* COMMENTED OUT - NOT IMPLEMENTED
-static double calculate_agn_rate_bondi(const double black_hole_mass, const double x,
-                                       const struct params *run_params)
+static double calculate_agn_rate_bondi(const double black_hole_mass, const double vvir, const double lambda,
+                                       const struct MimicConfig *run_params)
 {
-    // AGNrate = (2.5 * M_PI * run_params->G) * (0.375 * 0.6 * x) *
-    //          black_hole_mass * RADIO_MODE_EFFICIENCY;
-    // return AGNrate;
-    return 0.0;
+    const double temp = 35.9 * vvir * vvir;  // T_vir in Kelvin
+
+    double x = PROTONMASS * BOLTZMANN * temp / lambda;  // sec * g/cm^3
+    x /= (run_params->UnitDensity_in_cgs * run_params->UnitTime_in_s);  // convert to code units
+
+    const double AGNrate = (2.5 * M_PI * run_params->G) * (0.375 * 0.6 * x) *
+             black_hole_mass * RADIO_MODE_EFFICIENCY;
+
+    return AGNrate;
 }
-*/
 
 /**
  * @brief AGN Mode 3: Cold cloud accretion recipe
@@ -113,6 +114,7 @@ static void do_AGN_heating(struct Halo *halo, struct ModuleContext *ctx, const d
     const double hot_gas = halo->galaxy->HotGas;
     const double metals_hot_gas = halo->galaxy->MetalsHotGas;
     const double black_hole_mass = halo->galaxy->BlackHoleMass;
+    const double lambda = halo->galaxy->CoolingLambda;
     const double rheat = halo->galaxy->Rheat;
     const double mvir = halo->Mvir;
     const double vvir = halo->Vvir;
@@ -137,12 +139,10 @@ static void do_AGN_heating(struct Halo *halo, struct ModuleContext *ctx, const d
     if (hot_gas > 0.0) {
         // Select AGN accretion mode
         if (AGN_RECIPE_ON == 2) {
-            // Bondi-Hoyle mode not implemented
-            ERROR_LOG("AGN Mode 2 (Bondi-Hoyle) not implemented - requires additional properties");
-            AGNrate = 0.0;
-            // AGNrate = calculate_agn_rate_bondi(black_hole_mass, x, ctx->params);
+            // Bondi-Hoyle accretion recipe
+            AGNrate = calculate_agn_rate_bondi(black_hole_mass, vvir, lambda, ctx->params);
         } else if (AGN_RECIPE_ON == 3) {
-            // Cold cloud accretion
+            // Cold cloud accretion recipe
             AGNrate = calculate_agn_rate_cold_cloud(black_hole_mass, mvir, rcool, rvir, coolingGas, dt);
         } else {
             // Empirical (default) accretion recipe

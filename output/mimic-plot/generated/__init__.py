@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: 989199dd360cdb3a4fc2225d74c18491
+Source MD5: 071a21cc10e455df70ef6e2491f81ae5
 
 This package provides generated data types for reading Mimic output files.
 To regenerate: make generate
