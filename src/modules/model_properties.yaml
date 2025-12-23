@@ -392,17 +392,6 @@ galaxy_properties:
     range: [0.0, 1.0]
     sentinels: [0.0]
 
-  - name: UnstableDiskStarFraction
-    type: float
-    units: dimensionless
-    description: Fraction of disk stars that is unstable (0.0-1.0)
-    output: false
-    init_source: default
-    init_value: 0.0
-    init_repeat: true  # Reset each snapshot
-    range: [0.0, 1.0]
-    sentinels: [0.0]
-
   - name: IsMerging
     type: int
     units: dimensionless

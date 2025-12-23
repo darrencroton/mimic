@@ -126,7 +126,6 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
 
     // Clear triggers after processing
     gal->UnstableDiskGasFraction = 0.0;
-    gal->UnstableDiskStarFraction = 0.0;
     gal->IsMerging = 0;
     gal->MergerMassRatio = 0.0;
 

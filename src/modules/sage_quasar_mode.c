@@ -169,7 +169,6 @@ int sage_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int 
 
     // Clear triggers after processing (prevents double-processing if misconfigured)
     gal->UnstableDiskGasFraction = 0.0;
-    gal->UnstableDiskStarFraction = 0.0;
     gal->IsMerging = 0;
     gal->MergerMassRatio = 0.0;
 

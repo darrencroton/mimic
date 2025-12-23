@@ -12,8 +12,8 @@
  *     unstable_stars = star_fraction * (diskmass - Mcrit)
  *     BulgeMass += unstable_stars (with metallicity preservation)
  *
- * Trigger Flags:
- *   Sets UnstableDiskGasFraction and UnstableDiskStarFraction for downstream modules:
+ * Trigger Flag:
+ *   Sets UnstableDiskGasFraction for downstream modules:
  *     - sage_quasar_mode: BH growth + quasar winds from unstable gas
  *     - sage_collisional_starburst: Starburst + SN feedback from unstable gas
  *
@@ -79,11 +79,11 @@ int sage_disk_instability_process(struct ModuleContext *ctx, struct Halo *halos,
         const double unstable_gas = gas_fraction * (diskmass - Mcrit);
         const double star_fraction = 1.0 - gas_fraction;
         const double unstable_stars = star_fraction * (diskmass - Mcrit);
-        const double disk_stellar_mass = gal->StellarMass - gal->BulgeMass;
-
+        
         // Transfer unstable stars to bulge
         if (unstable_stars > 0.0) {
             // Use disk metallicity (exclude existing bulge)
+            const double disk_stellar_mass = gal->StellarMass - gal->BulgeMass;
             const double disk_metal_mass = gal->MetalsStellarMass - gal->MetalsBulgeMass;
             const double metallicity = mimic_get_metallicity(disk_stellar_mass, disk_metal_mass);
 
@@ -107,27 +107,19 @@ int sage_disk_instability_process(struct ModuleContext *ctx, struct Halo *halos,
                       halo->HaloNr, unstable_stars);
         }
 
-        // Set trigger flags for downstream modules (sage_quasar_mode, sage_collisional_starburst)
+        // Set trigger flag for downstream modules (sage_quasar_mode, sage_collisional_starburst)
         if (unstable_gas > 0.0) {
             const double unstable_gas_fraction = unstable_gas / gal->ColdGas;
             gal->UnstableDiskGasFraction = unstable_gas_fraction;
 
-            // Star fraction for tracking (used by downstream modules)
-            const double unstable_star_fraction = (unstable_stars > 0.0 && disk_stellar_mass > 0.0)
-                                                   ? unstable_stars / (gal->StellarMass - gal->BulgeMass)
-                                                   : 0.0;
-            gal->UnstableDiskStarFraction = unstable_star_fraction;
-
-            DEBUG_LOG("Halo %d: Unstable gas fraction = %.4f, star fraction = %.4f",
-                      halo->HaloNr, unstable_gas_fraction, unstable_star_fraction);
+            DEBUG_LOG("Halo %d: Unstable gas fraction = %.4f",
+                      halo->HaloNr, unstable_gas_fraction);
         } else {
             gal->UnstableDiskGasFraction = 0.0;
-            gal->UnstableDiskStarFraction = 0.0;
         }
     } else {
         // Stable disk (no mass or negative mass)
         gal->UnstableDiskGasFraction = 0.0;
-        gal->UnstableDiskStarFraction = 0.0;
     }
 
     return 0;

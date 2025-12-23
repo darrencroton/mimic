@@ -44,6 +44,7 @@ module:
       - test_unit_sage_update_disk_radius.c
       - test_unit_sage_add_cooling.c
       - test_unit_sage_radio_mode_heating.c
+      - test_unit_sage_disk_instability.c
 
     integration:
       - test_integration_sage_reionization.py
@@ -57,5 +58,6 @@ module:
       - test_integration_sage_update_disk_radius.py
       - test_integration_sage_add_cooling.py
       - test_integration_sage_radio_mode_heating.py
+      - test_integration_sage_disk_instability.py
 
     scientific: []
