@@ -1590,7 +1590,7 @@ int main(void)
     printf("============================================================\n");
     printf("Test Suite: sage_merge_galaxies Unit Tests\n");
     printf("============================================================\n");
-    printf("%s\n", NC);
+    printf("%s", NC);
 
     /* Initialize error handling for tests */
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
