@@ -47,6 +47,7 @@ module:
       - test_unit_sage_disk_instability.c
       - test_unit_sage_quasar_mode.c
       - test_unit_sage_collisional_starburst.c
+      - test_unit_sage_calculate_merger_timescale.c
 
     integration:
       - test_integration_sage_reionization.py
@@ -63,5 +64,6 @@ module:
       - test_integration_sage_disk_instability.py
       - test_integration_sage_quasar_mode.py
       - test_integration_sage_collisional_starburst.py
+      - test_integration_sage_calculate_merger_timescale.py
 
     scientific: []
