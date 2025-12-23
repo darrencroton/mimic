@@ -566,6 +566,58 @@ int test_type_3_already_disrupted_skipped(void)
 }
 
 /**
+ * @test    test_type_0_central_never_disrupted
+ * @brief   Type 0 centrals never disrupted even if IsDisrupting mistakenly set
+ */
+int test_type_0_central_never_disrupted(void)
+{
+    printf("  Testing: Type 0 central never disrupted (IsDisrupting protection)...\n");
+
+    /* Setup */
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(1);
+
+    // Central galaxy with IsDisrupting MISTAKENLY set to 1
+    struct GalaxyData cen_gal = create_test_galaxy(20.0, 100.0, 50.0, 10.0, 5.0, 1);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+
+    // Normal satellite (not disrupting)
+    struct GalaxyData sat_gal = create_test_galaxy(5.0, 3.0, 10.0, 2.0, 1.0, 0);
+    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, satellite};
+
+    // Record initial central properties
+    float initial_cen_cold = cen_gal.ColdGas;
+    float initial_cen_hot = cen_gal.HotGas;
+    float initial_cen_stellar = cen_gal.StellarMass;
+    float initial_cen_ejected = cen_gal.EjectedGas;
+    float initial_cen_ics = cen_gal.ICS;
+
+    /* Execute */
+    int result = sage_disrupt_satellites_process(&ctx, halos, 2);
+
+    /* Validate */
+    TEST_ASSERT(result == 0, "Process should succeed");
+    TEST_ASSERT(halos[0].Type == 0, "Central should remain Type 0 (never disrupted)");
+
+    // Central's properties should be completely unchanged
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->ColdGas, initial_cen_cold, 1e-6),
+                "Central ColdGas should be unchanged");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_cen_hot, 1e-6),
+                "Central HotGas should be unchanged");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->StellarMass, initial_cen_stellar, 1e-6),
+                "Central StellarMass should be unchanged");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->EjectedGas, initial_cen_ejected, 1e-6),
+                "Central EjectedGas should be unchanged");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->ICS, initial_cen_ics, 1e-6),
+                "Central ICS should be unchanged");
+
+    TEST_PASS;
+}
+
+/**
  * @test    test_null_galaxy_handling
  * @brief   NULL galaxy pointer handled gracefully
  */
@@ -748,6 +800,7 @@ int main(void)
     test_metal_conservation();
     test_type_2_orphan_disruption();
     test_type_3_already_disrupted_skipped();
+    test_type_0_central_never_disrupted();
     test_null_galaxy_handling();
     test_multiple_disrupting_satellites();
     test_empty_halos_array();

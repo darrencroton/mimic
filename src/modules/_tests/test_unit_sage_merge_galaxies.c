@@ -30,6 +30,7 @@
  *   - test_zero_mass_satellite: Zero mass satellite handled
  *   - test_null_central_galaxy: NULL central handled
  *   - test_null_satellite_galaxy: NULL satellite skipped
+ *   - test_type_0_central_never_merged: Type 0 central protection
  *   - test_no_merging_satellites: No IsMerging flags
  *   - test_null_halos_array: NULL halos pointer
  *   - test_ngal_zero: ngal = 0
@@ -992,6 +993,73 @@ int test_null_satellite_galaxy(void)
 }
 
 /**
+ * @test    test_type_0_central_never_merged
+ * @brief   Test Type 0 centrals never merged even if IsMerging mistakenly set
+ *
+ * Expected: Central properties unchanged, ERROR_LOG emitted
+ * Validates: Type 0 protection against upstream module bugs
+ */
+int test_type_0_central_never_merged(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+    setup_test_parameters(0.3);
+    sage_merge_galaxies_init();
+
+    // Central galaxy with IsMerging MISTAKENLY set to 1
+    struct Halo central_halo;
+    struct GalaxyData central_gal;
+    setup_test_galaxy(&central_halo, &central_gal, 0,
+                      10.0, 0.2, 5.0, 0.1, 1.0, 0.02,
+                      50.0, 1.0, 5.0, 0.1, 0.5, 0.01, 0.1);
+    central_gal.IsMerging = 1;  // MISTAKENLY set
+    central_gal.MergerMassRatio = 0.5;
+
+    // Normal satellite (not merging)
+    struct Halo sat_halo;
+    struct GalaxyData sat_gal;
+    setup_test_galaxy(&sat_halo, &sat_gal, 1,
+                      2.0, 0.04, 1.0, 0.02, 0.2, 0.004,
+                      10.0, 0.2, 1.0, 0.02, 0.1, 0.002, 0.02);
+    sat_gal.IsMerging = 0;
+
+    struct Halo halos[2] = {central_halo, sat_halo};
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx);
+
+    // Record initial central properties
+    const double initial_central_cold = central_gal.ColdGas;
+    const double initial_central_stellar = central_gal.StellarMass;
+    const double initial_central_bulge = central_gal.BulgeMass;
+    const double initial_central_hot = central_gal.HotGas;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_merge_galaxies_process(&ctx, halos, 2);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Process should succeed");
+    TEST_ASSERT(halos[0].Type == 0, "Central should remain Type 0 (never merged)");
+
+    // Central's properties should be completely unchanged
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->ColdGas, initial_central_cold, 1e-10,
+                             "Central ColdGas should be unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->StellarMass, initial_central_stellar, 1e-10,
+                             "Central StellarMass should be unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->BulgeMass, initial_central_bulge, 1e-10,
+                             "Central BulgeMass should be unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->HotGas, initial_central_hot, 1e-10,
+                             "Central HotGas should be unchanged");
+
+    /* ===== CLEANUP ===== */
+    sage_merge_galaxies_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
  * @test    test_no_merging_satellites
  * @brief   Test no IsMerging flags set
  *
@@ -1611,6 +1679,7 @@ int main(void)
     TEST_RUN(test_zero_mass_satellite);
     TEST_RUN(test_null_central_galaxy);
     TEST_RUN(test_null_satellite_galaxy);
+    TEST_RUN(test_type_0_central_never_merged);
     TEST_RUN(test_no_merging_satellites);
     TEST_RUN(test_null_halos_array);
     TEST_RUN(test_ngal_zero);

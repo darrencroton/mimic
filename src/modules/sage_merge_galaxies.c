@@ -7,7 +7,6 @@
  *   - make_bulge_from_burst: Morphological transformation for major mergers
  */
 
-#include <assert.h>
 #include "constants.h"
 #include "error.h"
 #include "../modules/_system/parameter_helpers.h"
@@ -59,8 +58,12 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
             continue;
         }
 
-        // Centrals shouldn't be marked as merging!
-        assert(halos[i].Type != 0);
+        // Type 0 centrals should never be marked for merging (upstream module bug)
+        if (halos[i].Type == 0) {
+            ERROR_LOG("Type 0 central (HaloNr=%lld) marked IsMerging=1 - skipping (upstream module bug)",
+                      halos[i].HaloNr);
+            continue;
+        }
 
         struct GalaxyData *satellite = halos[i].galaxy;
         const double mass_ratio = satellite->MergerMassRatio;

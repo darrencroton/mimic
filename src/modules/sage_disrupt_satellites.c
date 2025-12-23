@@ -6,7 +6,6 @@
  * Gas is heated and added to central hot halo. Stars are added to ICS.
  */
 
-#include <assert.h>
 #include "error.h"
 #include "module_interface.h"
 #include "types.h"
@@ -44,8 +43,12 @@ int sage_disrupt_satellites_process(struct ModuleContext *ctx,
             continue;
         }
 
-        // Centrals shouldn't be marked as disrupting!
-        assert(halos[i].Type != 0);
+        // Type 0 centrals should never be marked for disruption (upstream module bug)
+        if (halos[i].Type == 0) {
+            ERROR_LOG("Type 0 central (HaloNr=%lld) marked IsDisrupting=1 - skipping (upstream module bug)",
+                      halos[i].HaloNr);
+            continue;
+        }
 
         const struct GalaxyData *sat = halos[i].galaxy;
 
