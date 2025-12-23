@@ -48,7 +48,7 @@ void init_halo(int p, int halonr, int tree, int filenr) {
   FoFWorkspace[p].HaloNr = halonr;
 
   /* AUTO-GENERATED: Initialize all halo properties from metadata */
-  #include "../../include/generated/init_halo_properties.inc"
+  #include "../include/generated/init_halo_properties.inc"
 
   /* Custom override: SnapNum needs -1 adjustment for internal indexing */
   FoFWorkspace[p].SnapNum = InputTreeHalos[halonr].SnapNum - 1;
@@ -66,7 +66,7 @@ void init_halo(int p, int halonr, int tree, int filenr) {
   FoFWorkspace[p].galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
 
   /* AUTO-GENERATED: Initialize all galaxy properties from metadata */
-  #include "../../include/generated/init_galaxy_properties.inc"
+  #include "../include/generated/init_galaxy_properties.inc"
 }
 
 /**
