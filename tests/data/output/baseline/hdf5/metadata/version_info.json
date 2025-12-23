@@ -1,9 +1,9 @@
 {
-  "git_commit": "a2301f9aa9a478084498b68c2a5ac65abb5aba50",
+  "git_commit": "acb1fae04adb1a1018b5b48b6c3b87c328ea2d9c",
   "git_branch": "main",
-  "github_url": "https://github.com/darrencroton/mimic/commit/a2301f9aa9a478084498b68c2a5ac65abb5aba50",
+  "github_url": "https://github.com/darrencroton/mimic/commit/acb1fae04adb1a1018b5b48b6c3b87c328ea2d9c",
   "build_date": "Dec 23 2025",
-  "run_date": "2025-12-23T08:27:59Z",
+  "run_date": "2025-12-23T12:28:48Z",
   "parameters": {
     "file_path": "/Users/dcroton/Local/git-repos/mimic/tests/data/test_hdf5.yaml",
     "parameter_md5_checksum": "ad43f6e40e992d2ea85945636f9fa48e"

@@ -53,6 +53,13 @@ void init_halo(int p, int halonr, int tree, int filenr) {
   /* Custom override: SnapNum needs -1 adjustment for internal indexing */
   FoFWorkspace[p].SnapNum = InputTreeHalos[halonr].SnapNum - 1;
 
+  /* Set dT to snapshot interval for newly formed halos (grew from zero mass) */
+  int current_snap = InputTreeHalos[halonr].SnapNum;
+  if (current_snap > 0) {
+    FoFWorkspace[p].dT = Age[current_snap - 1] - Age[current_snap];
+  }
+  /* else: keep sentinel -1.0 from auto-init (first snapshot has no prior) */
+
   /* Assign persistent UniqueGalaxyID at creation (AFTER auto-init to avoid overwrite) */
   long long file_mul_fac = (MimicConfig.LastFile >= 10000) ?
                             (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
