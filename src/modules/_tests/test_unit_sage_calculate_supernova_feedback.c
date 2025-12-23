@@ -86,7 +86,7 @@ static void ensure_modules_registered(void)
  *
  * @param   ctx             ModuleContext to initialize
  * @param   central         Pointer to central galaxy halo
- * @param   substep_dt      Time step for substep (Gyr/h)
+ * @param   substep_dt      Time step for substep
  */
 static void setup_module_context(struct ModuleContext *ctx, struct Halo *central, double substep_dt)
 {
@@ -95,7 +95,7 @@ static void setup_module_context(struct ModuleContext *ctx, struct Halo *central
     ctx->substep_dt = substep_dt;
     ctx->params = &MimicConfig;
     ctx->redshift = 0.0;
-    ctx->time = 13.8;  /* Gyr/h */
+    ctx->time = 13.8;  /* Gyr */
     ctx->snapshot_number = 63;
     ctx->substep_number = 0;
     ctx->num_substeps = 1;

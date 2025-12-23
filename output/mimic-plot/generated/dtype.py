@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: c69aeae447734bd4aba0f0bbc0d4ea9e
+Source MD5: 989199dd360cdb3a4fc2225d74c18491
 To regenerate: make generate
 """
 
@@ -124,7 +124,7 @@ def get_units():
         'MostBoundID': 'dimensionless',
         'UniqueGalaxyID': 'dimensionless',
         'UniqueCentralGalaxyID': 'dimensionless',
-        'dT': 'Myr',
+        'dT': 'Myr/h',
         'Pos': 'Mpc/h',
         'Vel': 'km/s',
         'Spin': 'dimensionless',
@@ -159,6 +159,6 @@ def get_units():
         'Heating': 'log10(erg/s)',
         'SupernovaOutflowRate': 'Msun/yr',
         'DiskScaleRadius': 'Mpc/h',
-        'TimeOfLastMajorMerger': 'Gyr',
-        'TimeOfLastMinorMerger': 'Gyr',
+        'TimeOfLastMajorMerger': 'Gyr/h',
+        'TimeOfLastMinorMerger': 'Gyr/h',
     }

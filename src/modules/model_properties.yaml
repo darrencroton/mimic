@@ -348,7 +348,7 @@ galaxy_properties:
 
   - name: MergTime
     type: float
-    units: Gyr
+    units: Internal
     description: Merger timescale (internal, not output)
     output: false
     init_source: default
@@ -357,23 +357,25 @@ galaxy_properties:
 
   - name: TimeOfLastMajorMerger
     type: float
-    units: Gyr
+    units: Gyr/h
     description: Cosmic time of last major merger (mass ratio > threshold)
     output: true
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
+    output_convert: UnitTime_in_s / SEC_PER_MEGAYEAR / 1000.0
     range: [0.0, 14.0]  # Age of universe
     sentinels: [0.0]  # Zero if no major merger occurred
 
   - name: TimeOfLastMinorMerger
     type: float
-    units: Gyr
+    units: Gyr/h
     description: Cosmic time of last minor merger (mass ratio > 0.1)
     output: true
     init_source: default
     init_value: 0.0
     output_source: galaxy_property
+    output_convert: UnitTime_in_s / SEC_PER_MEGAYEAR / 1000.0
     range: [0.0, 14.0]  # Age of universe
     sentinels: [0.0]  # Zero if no minor merger occurred
 

@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: c69aeae447734bd4aba0f0bbc0d4ea9e
+ * Source MD5: 989199dd360cdb3a4fc2225d74c18491
  * To regenerate: make generate
  */
 
@@ -30,7 +30,7 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"MostBoundID", "dimensionless", "ID of most bound particle (original simulation halo ID)"},
   {"UniqueGalaxyID", "dimensionless", "Persistent unique galaxy identifier across all snapshots (file*10^15 + tree*10^9 + creation_halonr)"},
   {"UniqueCentralGalaxyID", "dimensionless", "Persistent UniqueGalaxyID of current central galaxy (equals UniqueGalaxyID if Type=0)"},
-  {"dT", "Myr", "Time elapsed since progenitor snapshot (lookback time difference)"},
+  {"dT", "Myr/h", "Time elapsed since progenitor snapshot (lookback time difference)"},
   {"Pos", "Mpc/h", "3D position vector (comoving coordinates)"},
   {"Vel", "km/s", "3D velocity vector (peculiar velocity)"},
   {"Spin", "dimensionless", "Dimensionless spin parameter (Bullock definition)"},
@@ -65,8 +65,8 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"Heating", "log10(erg/s)", "Cumulative AGN heating energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed"},
   {"SupernovaOutflowRate", "Msun/yr", "Current gas outflow rate from supernova feedback"},
   {"DiskScaleRadius", "Mpc/h", "Disk scale radius (exponential disk scale length)"},
-  {"TimeOfLastMajorMerger", "Gyr", "Cosmic time of last major merger (mass ratio > threshold)"},
-  {"TimeOfLastMinorMerger", "Gyr", "Cosmic time of last minor merger (mass ratio > 0.1)"},
+  {"TimeOfLastMajorMerger", "Gyr/h", "Cosmic time of last major merger (mass ratio > threshold)"},
+  {"TimeOfLastMinorMerger", "Gyr/h", "Cosmic time of last minor merger (mass ratio > 0.1)"},
 };
 
 /* Create HDF5 compound datatype for metadata */

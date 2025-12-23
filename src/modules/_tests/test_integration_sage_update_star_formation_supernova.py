@@ -176,7 +176,7 @@ def test_gas_transfer_physics():
               f"{np.max(halos['StellarMass'][star_forming]):.2e}")
 
         # Check that SFR is reasonable (< 50% of cold gas per Gyr, accounting for recycle)
-        # SFR is in units of (1e10 Msun/h) / (Gyr/h), assume dt ~ 0.1 Gyr
+        # SFR in units of (1e10 Msun/h) / (Gyr/h), assume dt ~ 0.1 Gyr
         # Max reasonable SFR ~ ColdGas / 0.1 = 10 * ColdGas
         cold_gas_sf = halos['ColdGas'][star_forming]
         sfr_sf = halos['StarFormationRate'][star_forming]

@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: c69aeae447734bd4aba0f0bbc0d4ea9e
+ * Source MD5: 989199dd360cdb3a4fc2225d74c18491
  * To regenerate: make generate
  */
 
@@ -85,4 +85,10 @@ if (o->SupernovaOutflowRate != 0.0f) {
 }
 o->DiskScaleRadius = g->galaxy->DiskScaleRadius;
 o->TimeOfLastMajorMerger = g->galaxy->TimeOfLastMajorMerger;
+if (o->TimeOfLastMajorMerger != 0.0f) {
+  o->TimeOfLastMajorMerger *= UnitTime_in_s / SEC_PER_MEGAYEAR / 1000.0;
+}
 o->TimeOfLastMinorMerger = g->galaxy->TimeOfLastMinorMerger;
+if (o->TimeOfLastMinorMerger != 0.0f) {
+  o->TimeOfLastMinorMerger *= UnitTime_in_s / SEC_PER_MEGAYEAR / 1000.0;
+}

@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "c69aeae447734bd4aba0f0bbc0d4ea9e",
+    "source_md5": "989199dd360cdb3a4fc2225d74c18491",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -52,7 +52,7 @@
     "dT": {
       "name": "dT",
       "type": "float",
-      "units": "Myr",
+      "units": "Myr/h",
       "is_vector": false,
       "range": [
         0.0,
@@ -483,7 +483,7 @@
     "TimeOfLastMajorMerger": {
       "name": "TimeOfLastMajorMerger",
       "type": "float",
-      "units": "Gyr",
+      "units": "Gyr/h",
       "is_vector": false,
       "range": [
         0.0,
@@ -496,7 +496,7 @@
     "TimeOfLastMinorMerger": {
       "name": "TimeOfLastMinorMerger",
       "type": "float",
-      "units": "Gyr",
+      "units": "Gyr/h",
       "is_vector": false,
       "range": [
         0.0,

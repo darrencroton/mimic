@@ -111,7 +111,7 @@ static void setup_test_parameters(double param1, double param2)
  *
  * @param   ctx             ModuleContext to initialize
  * @param   central         Pointer to central galaxy halo
- * @param   dt              Time step (Gyr/h)
+ * @param   dt              Time step
  */
 static void setup_module_context(struct ModuleContext *ctx, struct Halo *central, double dt)
 {
@@ -120,7 +120,7 @@ static void setup_module_context(struct ModuleContext *ctx, struct Halo *central
     ctx->substep_dt = dt;
     ctx->params = &MimicConfig;
     ctx->redshift = 0.0;
-    ctx->time = 13.8;  /* Gyr/h */
+    ctx->time = 13.8;  /* Gyr */
     ctx->snapshot_number = 63;
     ctx->substep_number = 0;
     ctx->num_substeps = 1;

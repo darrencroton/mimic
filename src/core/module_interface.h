@@ -156,7 +156,7 @@ struct ModuleContext {
   /**
    * @brief Current cosmic time (lookback time from z=0)
    *
-   * Time at current snapshot in internal units (Gyr/h).
+   * Time at current snapshot in internal units.
    * Use for time-dependent physics.
    */
   double time;
@@ -189,7 +189,7 @@ struct ModuleContext {
   /**
    * @brief Total time interval for this timestep
    *
-   * Time between previous snapshot and current snapshot (Gyr/h).
+   * Time between previous snapshot and current snapshot.
    * time_interval = Age[prev] - Age[current]
    */
   double time_interval;
@@ -197,7 +197,7 @@ struct ModuleContext {
   /**
    * @brief Cosmic time at current substep midpoint
    *
-   * Interpolated time for this substep (Gyr/h).
+   * Interpolated time for this substep.
    * substep_time = time - (substep_number + 0.5) * substep_dt
    */
   double substep_time;
@@ -205,7 +205,7 @@ struct ModuleContext {
   /**
    * @brief Time interval for this substep
    *
-   * Time step for this substep (Gyr/h).
+   * Time step for this substep.
    * substep_dt = time_interval / num_substeps
    * Use this for time integration within modules.
    */

@@ -129,7 +129,7 @@ static void setup_test_parameters(double efficiency, double disk_factor)
  * @brief   Create minimal module context for testing
  *
  * @param   ctx         Context to initialize
- * @param   dt          Time step [Gyr/h]
+ * @param   dt          Time step
  */
 static void setup_test_context(struct ModuleContext *ctx, double dt)
 {

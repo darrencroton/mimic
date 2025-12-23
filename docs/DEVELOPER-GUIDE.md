@@ -202,7 +202,7 @@ static int my_cooling_init(void) {
 static int my_cooling_process(struct ModuleContext *ctx,
                                struct Halo *halos, int ngal) {
   /* Access simulation context */
-  double dt = ctx->substep_dt;       /* Time step (Gyr/h) */
+  double dt = ctx->substep_dt;       /* Time step */
   double z = ctx->redshift;           /* Current redshift */
   double h = ctx->params->Hubble_h;   /* Hubble parameter */
 
@@ -1002,7 +1002,7 @@ gdb ./mimic
 
 /* Module parameters */
 static double sf_efficiency;
-static double sf_timescale;  /* Gyr */
+static double sf_timescale;
 
 static int simple_sf_init(void) {
   /* Load parameters */
@@ -1015,19 +1015,19 @@ static int simple_sf_init(void) {
     return -1;
   }
   if (sf_timescale <= 0.0) {
-    ERROR_LOG("SfTimescale must be positive, got %.3f Gyr", sf_timescale);
+    ERROR_LOG("SfTimescale must be positive, got %.3f", sf_timescale);
     return -1;
   }
 
   VERBOSE_LOG("Simple Star Formation initialized");
   VERBOSE_LOG("  SfEfficiency = %.3f", sf_efficiency);
-  VERBOSE_LOG("  SfTimescale = %.3f Gyr", sf_timescale);
+  VERBOSE_LOG("  SfTimescale = %.3f", sf_timescale);
   return 0;
 }
 
 static int simple_sf_process(struct ModuleContext *ctx,
                               struct Halo *halos, int ngal) {
-  double dt = ctx->substep_dt;  /* Gyr/h */
+  double dt = ctx->substep_dt;
 
   for (int i = 0; i < ngal; i++) {
     struct GalaxyData *gal = halos[i].galaxy;
@@ -1036,7 +1036,7 @@ static int simple_sf_process(struct ModuleContext *ctx,
     /* Only central galaxies form stars (satellites are stripped) */
     if (halos[i].Type != 0) continue;
 
-    /* Star formation rate (Msun/Gyr) */
+    /* Star formation rate */
     double sfr = sf_efficiency * gal->ColdGas / sf_timescale;
 
     /* Stars formed this substep (1e10 Msun/h) */
@@ -1070,7 +1070,7 @@ modules:
 
   parameters:
     SfEfficiency: 0.02
-    SfTimescale: 2.0  # Gyr
+    SfTimescale: 2.0
 ```
 
 ### Example 2: AGN Feedback Module
@@ -1726,7 +1726,7 @@ modules:
 | Field | Type | Description |
 |-------|------|-------------|
 | `redshift` | double | Current snapshot redshift |
-| `time` | double | Cosmic time (lookback from z=0, Gyr/h) |
+| `time` | double | Cosmic time (lookback from z=0) |
 | `snapshot_number` | int | Snapshot index (0 = z=127) |
 
 **Sub-stepping information**:
@@ -1735,9 +1735,9 @@ modules:
 |-------|------|-------------|
 | `substep_number` | int | Current substep (0-indexed, 0 to num_substeps-1) |
 | `num_substeps` | int | Total substeps (from SubSteps config) |
-| `time_interval` | double | Total time for this timestep (Gyr/h) |
-| `substep_time` | double | Cosmic time at substep midpoint (Gyr/h) |
-| `substep_dt` | double | **Time step for this substep** (Gyr/h) - **use for integration** |
+| `time_interval` | double | Total time for this timestep |
+| `substep_time` | double | Cosmic time at substep midpoint |
+| `substep_dt` | double | **Time step for this substep** - **use for integration** |
 
 **Halo information**:
 

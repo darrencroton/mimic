@@ -287,7 +287,7 @@ Select in YAML: `output.output_format: binary` or `hdf5`
 | Mass | 1e10 Msun/h | Mvir, StellarMass, ColdGas |
 | Length | Mpc/h | Rvir, Pos, DiskScaleRadius |
 | Velocity | km/s | Vvir, Vmax, Vel |
-| Time | Myr (output), Gyr/h (internal) | dT, TimeOfLastMajorMerger |
+| Time | Myr/h, Gyr/h (output) | dT, TimeOfLastMajorMerger |
 
 To convert to physical units: divide by `h` (from `hubble_h` parameter).
 

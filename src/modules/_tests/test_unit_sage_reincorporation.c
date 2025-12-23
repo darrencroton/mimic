@@ -154,7 +154,7 @@ static struct ModuleContext create_test_context(double dt)
 
     ctx.substep_dt = dt;
     ctx.redshift = 0.0;
-    ctx.time = 13.6;  /* Gyr/h */
+    ctx.time = 13.6;  /* Gyr */
     ctx.snapshot_number = 63;
     ctx.substep_number = 0;
     ctx.num_substeps = 1;

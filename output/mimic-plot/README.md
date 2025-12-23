@@ -166,7 +166,7 @@ Mimic uses a consistent code unit system:
 - **Mass**: `1e10 Msun/h` (10^10 solar masses with Hubble parameter)
 - **Length**: `Mpc/h` (megaparsecs comoving with Hubble parameter)
 - **Velocity**: `km/s` (kilometers per second)
-- **Time**: `Myr` or `Gyr` (megayears or gigayears for output)
+- **Time**: `Myr/h` or `Gyr/h` (megayears or gigayears for output)
 
 The `/h` notation means the value includes the Hubble parameter (h = H0 / 100 km/s/Mpc). To convert to physical units, divide by `h`. For example:
 ```python

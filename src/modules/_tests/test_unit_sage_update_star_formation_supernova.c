@@ -133,7 +133,7 @@ static void setup_test_parameters(double recycle, double yield, double frac_z)
  *
  * @param   ctx             ModuleContext to initialize
  * @param   central         Pointer to central galaxy halo
- * @param   dt              Time step (Gyr/h)
+ * @param   dt              Time step
  */
 static void setup_module_context(struct ModuleContext *ctx, struct Halo *central, double dt)
 {
@@ -142,7 +142,7 @@ static void setup_module_context(struct ModuleContext *ctx, struct Halo *central
     ctx->substep_dt = dt;
     ctx->params = &MimicConfig;
     ctx->redshift = 0.0;
-    ctx->time = 13.8;  /* Gyr/h */
+    ctx->time = 13.8;  /* Gyr */
     ctx->snapshot_number = 63;
     ctx->substep_number = 0;
     ctx->num_substeps = 1;
@@ -155,7 +155,7 @@ static void setup_module_context(struct ModuleContext *ctx, struct Halo *central
  * @param   galaxy          Galaxy to initialize
  * @param   type            Halo type (0=central, 1=satellite, 2=orphan)
  * @param   mvir            Virial mass (1e10 Msun/h)
- * @param   dt              Time step (Gyr/h) for rate calculations
+ * @param   dt              Time step (Gyr) for rate calculations
  * @param   cold_gas        Cold gas mass (1e10 Msun/h)
  * @param   hot_gas         Hot gas mass (1e10 Msun/h)
  * @param   ejected_gas     Ejected gas mass (1e10 Msun/h)
@@ -411,7 +411,7 @@ int test_star_formation_metal_transfer(void)
  *
  * Physics: StarFormationRate += NewStellarMass / dT
  *
- * Expected: SFR in code units (1e10 Msun/h) / (Gyr/h)
+ * Expected: SFR in code units (1e10 Msun/h) / (978 Gyr/h)
  * Validates: SFR accumulation
  */
 int test_star_formation_rate_accumulation(void)
@@ -430,7 +430,7 @@ int test_star_formation_rate_accumulation(void)
                     0.0, 0.0, 0.0, 0.0,
                     0.0, 0.0, 0.0);
 
-    double dt = 0.1;  /* Gyr/h */
+    double dt = 0.1;  /* 978 Gyr/h */
     double new_stars = 1.0;  /* 1e10 Msun/h */
     setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, dt,
                     10.0, 50.0, 0.0, 20.0,
@@ -610,7 +610,7 @@ int test_reheating_outflow_rate(void)
                     0.0, 0.0, 0.0, 0.0,
                     0.0, 0.0, 0.0);
 
-    double dt = 0.1;  /* Gyr/h */
+    double dt = 0.1;  /* 978 Gyr/h */
     double reheated_mass = 0.5;  /* 1e10 Msun/h */
     setup_test_halo(&test_halo, &test_galaxy, 0, 100.0, dt,
                     10.0, 50.0, 0.0, 20.0,

@@ -72,7 +72,7 @@ halo_properties:
 
   - name: dT
     type: float
-    units: Myr
+    units: Myr/h
     description: Time elapsed since progenitor snapshot (lookback time difference)
     output: true
     init_source: default
