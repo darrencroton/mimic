@@ -1,5 +1,4 @@
-# Mimic Model Configuration
-# For documentation see: docs/user/module-configuration.md
+# Mimic SAGE Model Configuration
 
 output:
   output_filename: model
@@ -101,5 +100,5 @@ modules:
     FracZleaveDisk: 0.0                 # Fraction of metals leaving disk
 
     # Mergers & Disruption
-    ThresholdMajorMerger: 0.3              # Mass ratio threshold for major mergers
+    ThresholdMajorMerger: 0.3           # Mass ratio threshold for major mergers
     ThresholdSatDisruption: 1.0         # Mvir-to-baryonic mass ratio threshold for sat merger/disruption
