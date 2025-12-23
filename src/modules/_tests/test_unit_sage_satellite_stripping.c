@@ -25,6 +25,7 @@
 #include "../core/module_interface.h"
 #include "../include/globals.h"
 #include "../util/memory.h"
+#include "../util/error.h"
 
 // Include module under test
 extern int sage_satellite_stripping_init(void);
@@ -562,6 +563,9 @@ int test_multiple_satellites(void)
  */
 int main(void)
 {
+    /* Suppress INFO/DEBUG messages during tests - only show warnings and errors */
+    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+
     printf("%s", BLUE);
     printf("============================================================\n");
     printf("Unit Test Suite: sage_satellite_stripping Physics\n");

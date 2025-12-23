@@ -30,6 +30,7 @@
 #include "../core/module_interface.h"
 #include "../include/globals.h"
 #include "../util/memory.h"
+#include "../util/error.h"
 
 // Include module under test
 extern int sage_calculate_merger_timescale_init(void);
@@ -781,6 +782,9 @@ int test_empty_halos_array(void)
  */
 int main(void)
 {
+    /* Suppress INFO/DEBUG messages during tests - only show warnings and errors */
+    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+
     printf("%s", BLUE);
     printf("============================================================\n");
     printf("Unit Test Suite: sage_calculate_merger_timescale Physics\n");
