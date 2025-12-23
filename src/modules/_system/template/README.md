@@ -4,7 +4,6 @@ Quick start template for creating new Mimic physics modules.
 
 **For complete documentation, see:**
 - **[docs/DEVELOPER-GUIDE.md](../../../docs/DEVELOPER-GUIDE.md)** - Complete module development guide
-- **[docs/REFERENCE.md](../../../docs/REFERENCE.md)** - Full metadata schema reference
 - **[docs/VISION.md](../../../docs/VISION.md)** - Architecture principles
 
 ---

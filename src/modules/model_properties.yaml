@@ -3,7 +3,7 @@
 # This file defines galaxy baryonic physics properties used in Mimic.
 # These properties are created and modified by physics modules.
 #
-# See: docs/REFERENCE.md for complete schema documentation
+# See: docs/DEVELOPER-GUIDE.md for complete schema documentation
 
 galaxy_properties:
 

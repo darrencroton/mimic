@@ -344,4 +344,3 @@ For comprehensive documentation, see:
 - **docs/VISION.md**: Architectural principles and design philosophy
 - **docs/USER-GUIDE.md**: Complete user guide (installation, configuration, running simulations)
 - **docs/DEVELOPER-GUIDE.md**: Complete developer guide (architecture, modules, testing)
-- **docs/REFERENCE.md**: Technical specifications (schemas, formats, API)

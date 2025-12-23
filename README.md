@@ -95,18 +95,10 @@ make tests             # Run comprehensive test suite
 - Property system and metadata schemas
 - Testing framework and standards
 - Development workflow
-- Code standards
-
-### For Reference (Looking Up Specifications)
-
-→ **[docs/REFERENCE.md](docs/REFERENCE.md)** - Technical specifications for modules, properties, and formats
-
-**Key Topics**:
-- Module metadata schema
-- Property metadata schema
 - Output format specifications
 - Configuration file reference
 - API reference
+- Code standards
 
 ### For Understanding Design Philosophy
 
@@ -123,8 +115,7 @@ make tests             # Run comprehensive test suite
 **Complete documentation** is available in the [docs/](docs/) directory:
 
 - **USER-GUIDE.md** - Using Mimic (installation, configuration, running simulations)
-- **DEVELOPER-GUIDE.md** - Extending Mimic (architecture, modules, testing)
-- **REFERENCE.md** - Technical specifications (schemas, formats, API)
+- **DEVELOPER-GUIDE.md** - Extending Mimic (architecture, modules, testing, schemas, formats, API)
 - **VISION.md** - Design philosophy and architectural principles
 
 ## Testing
