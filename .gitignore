@@ -11,6 +11,7 @@ benchmarks
 # Archive and scratch space
 ignore
 obsidian-inbox
+sage-code
 
 # Build artifacts
 build/
