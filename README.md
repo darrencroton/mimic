@@ -33,7 +33,7 @@
 
 ```bash
 # Clone and setup
-git clone [repository-url]
+git clone https://github.com/darrencroton/mimic.git
 cd mimic
 ./scripts/first_run.sh        # Creates directories, downloads test data, sets up Python environment
 
