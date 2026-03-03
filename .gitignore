@@ -50,8 +50,8 @@ __pycache__/
 .claude/
 
 # Agent session handoff files (platform-neutral, not committed)
-.agents/context.md
-.agents/task-history.md
+HANDOFF.md
+HANDOFF-history.md
 
 # Python virtual environment
 mimic_venv/
