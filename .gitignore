@@ -49,5 +49,9 @@ __pycache__/
 # Claude Code session data
 .claude/
 
+# Agent session handoff files (platform-neutral, not committed)
+.agents/context.md
+.agents/task-history.md
+
 # Python virtual environment
 mimic_venv/
