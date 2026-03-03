@@ -2,8 +2,6 @@
 
 This file provides guidance to AI coding assistants (Claude Code, Codex CLI, etc.) working in this repository.
 
-> **Session continuity**: At the start of each session, check if `.agents/context.md` exists. If it does, read it and incorporate that context before proceeding.
-
 ---
 
 ## ⚠️ CRITICAL: Development Rules
