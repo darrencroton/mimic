@@ -197,8 +197,8 @@ struct ModuleContext {
   /**
    * @brief Cosmic time at current substep midpoint
    *
-   * Interpolated time for this substep.
-   * substep_time = time - (substep_number + 0.5) * substep_dt
+   * Interpolated midpoint time for this substep.
+   * substep_time = (time + time_interval) - (substep_number + 0.5) * substep_dt
    */
   double substep_time;
 

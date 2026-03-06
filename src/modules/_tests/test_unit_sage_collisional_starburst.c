@@ -30,7 +30,7 @@
  *   - test_no_triggers: No processing without triggers
  *   - test_null_galaxy: NULL galaxy handled
  *   - test_null_central_galaxy: NULL central handled
- *   - test_triggers_cleared: Triggers cleared after processing
+ *   - test_triggers_preserved: Trigger lifecycle owned by clear modules
  *   - test_invalid_ngal: Error when ngal != 1
  *   - test_zero_vvir: Ejection = 0 when Vvir = 0
  *   - test_insufficient_cold_gas: Balancing works
@@ -244,7 +244,7 @@ static void setup_test_context(struct ModuleContext *ctx, struct Halo *central_h
  * @test    test_disk_instability_starburst
  * @brief   Test starburst from disk instability trigger
  *
- * Expected: Stars form, cold gas decreases, bulge increases, triggers cleared
+ * Expected: Stars form, cold gas decreases, bulge increases
  * Validates: Disk instability trigger physics (mode=1, eburst = efficiency)
  */
 int test_disk_instability_starburst(void)
@@ -294,9 +294,9 @@ int test_disk_instability_starburst(void)
     TEST_ASSERT(gal.BulgeMass > initial_bulge,
                 "Bulge mass should increase from starburst");
 
-    /* Trigger should be cleared */
-    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.0, 1e-10,
-                             "Disk instability trigger should be cleared");
+    /* Trigger lifecycle is owned by clear modules, not collisional_starburst */
+    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
+                             "Disk-instability trigger should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();
@@ -341,10 +341,10 @@ int test_merger_starburst(void)
     TEST_ASSERT(gal.StellarMass > initial_stellar,
                 "Stellar mass should increase from merger starburst");
 
-    /* Triggers should be cleared */
-    TEST_ASSERT(gal.IsMerging == 0, "IsMerging should be cleared");
-    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.0, 1e-10,
-                             "MergerMassRatio should be cleared");
+    /* Trigger lifecycle is owned by clear modules, not collisional_starburst */
+    TEST_ASSERT(gal.IsMerging == 1, "IsMerging should remain unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.3, 1e-6,
+                             "MergerMassRatio should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();
@@ -390,10 +390,10 @@ int test_both_triggers(void)
     TEST_ASSERT(gal.StellarMass > initial_stellar,
                 "Stellar mass should increase from both starbursts");
 
-    /* Both triggers should be cleared */
-    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.0, 1e-10,
-                             "Disk trigger cleared");
-    TEST_ASSERT(gal.IsMerging == 0, "Merger trigger cleared");
+    /* Trigger lifecycle is owned by clear modules, not collisional_starburst */
+    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
+                             "Disk trigger should remain unchanged");
+    TEST_ASSERT(gal.IsMerging == 1, "Merger trigger should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();
@@ -882,13 +882,13 @@ int test_null_central_galaxy(void)
 }
 
 /**
- * @test    test_triggers_cleared
- * @brief   Test triggers cleared after processing
+ * @test    test_triggers_preserved
+ * @brief   Test triggers preserved after processing
  *
- * Expected: All trigger flags = 0 after processing
- * Validates: Trigger cleanup
+ * Expected: Trigger flags remain unchanged after processing
+ * Validates: Trigger lifecycle ownership by dedicated clear modules
  */
-int test_triggers_cleared(void)
+int test_triggers_preserved(void)
 {
     /* ===== SETUP ===== */
     init_memory_system(0);
@@ -911,11 +911,11 @@ int test_triggers_cleared(void)
     sage_collisional_starburst_process(&ctx, &halo, 1);
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.0, 1e-10,
-                             "UnstableDiskGasFraction should be cleared");
-    TEST_ASSERT(gal.IsMerging == 0, "IsMerging should be cleared");
-    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.0, 1e-10,
-                             "MergerMassRatio should be cleared");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
+                             "UnstableDiskGasFraction should remain unchanged");
+    TEST_ASSERT(gal.IsMerging == 1, "IsMerging should remain unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.3, 1e-6,
+                             "MergerMassRatio should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();
@@ -1383,7 +1383,7 @@ int main(void)
     TEST_RUN(test_no_triggers);
     TEST_RUN(test_null_galaxy);
     TEST_RUN(test_null_central_galaxy);
-    TEST_RUN(test_triggers_cleared);
+    TEST_RUN(test_triggers_preserved);
     TEST_RUN(test_invalid_ngal);
     TEST_RUN(test_zero_vvir);
     TEST_RUN(test_insufficient_cold_gas);

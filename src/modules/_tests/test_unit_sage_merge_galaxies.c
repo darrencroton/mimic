@@ -180,6 +180,7 @@ static void setup_test_context(struct ModuleContext *ctx)
     ctx->substep_dt = 0.01;
     ctx->redshift = 0.0;
     ctx->time = 13.8;
+    ctx->substep_time = 13.75;
     ctx->snapshot_number = 63;
     ctx->substep_number = 0;
     ctx->num_substeps = 1;
@@ -330,7 +331,7 @@ int test_single_major_merger(void)
                              "BulgeMass should equal StellarMass after major merger");
 
     /* TimeOfLastMajorMerger set */
-    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->TimeOfLastMajorMerger, ctx.time, 1e-6,
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->TimeOfLastMajorMerger, ctx.substep_time, 1e-6,
                              "TimeOfLastMajorMerger should be set");
 
     /* ===== CLEANUP ===== */
@@ -682,12 +683,13 @@ int test_merger_timing_tracking(void)
     struct ModuleContext ctx;
     setup_test_context(&ctx);
     ctx.time = 10.5;
+    ctx.substep_time = 10.25;
 
     /* ===== EXECUTE MAJOR MERGER ===== */
     sage_merge_galaxies_process(&ctx, halos_major, 2);
 
     /* ===== VALIDATE MAJOR MERGER ===== */
-    TEST_ASSERT_DOUBLE_EQUAL(halos_major[0].galaxy->TimeOfLastMajorMerger, 10.5, 1e-6,
+    TEST_ASSERT_DOUBLE_EQUAL(halos_major[0].galaxy->TimeOfLastMajorMerger, 10.25, 1e-6,
                              "TimeOfLastMajorMerger should be set for major merger");
 
     /* Reset for minor merger test */
@@ -714,12 +716,13 @@ int test_merger_timing_tracking(void)
     struct Halo halos_minor[2] = {central_halo2, sat_minor};
 
     ctx.time = 11.0;
+    ctx.substep_time = 10.75;
 
     /* ===== EXECUTE MINOR MERGER ===== */
     sage_merge_galaxies_process(&ctx, halos_minor, 2);
 
     /* ===== VALIDATE MINOR MERGER ===== */
-    TEST_ASSERT_DOUBLE_EQUAL(halos_minor[0].galaxy->TimeOfLastMinorMerger, 11.0, 1e-6,
+    TEST_ASSERT_DOUBLE_EQUAL(halos_minor[0].galaxy->TimeOfLastMinorMerger, 10.75, 1e-6,
                              "TimeOfLastMinorMerger should be set for ratio > 0.1");
 
     /* ===== CLEANUP ===== */

@@ -31,7 +31,7 @@
  *   - test_no_triggers: No processing without triggers
  *   - test_orphan_galaxy_skipped: Type 2 orphans skipped
  *   - test_null_galaxy: NULL galaxy handled
- *   - test_triggers_cleared: Triggers cleared after processing
+ *   - test_triggers_preserved: Trigger lifecycle owned by clear modules
  *   - test_invalid_ngal: Error when ngal != 1
  *   - test_parameter_sensitivity_growth_rate: Growth rate parameter
  *   - test_parameter_sensitivity_quasar_efficiency: Efficiency parameter
@@ -250,9 +250,9 @@ int test_bh_growth_disk_instability(void)
                              accreted, 1e-6,
                              "QuasarModeBHaccretionMass should track accretion");
 
-    /* Trigger should be cleared */
-    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.0, 1e-10,
-                             "Trigger should be cleared after processing");
+    /* Trigger lifecycle is owned by clear modules, not quasar_mode */
+    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
+                             "Disk-instability trigger should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();
@@ -297,10 +297,10 @@ int test_bh_growth_merger(void)
     TEST_ASSERT(gal.BlackHoleMass > initial_bh_mass,
                 "BH mass should increase from merger");
 
-    /* Triggers should be cleared */
-    TEST_ASSERT(gal.IsMerging == 0, "IsMerging should be cleared");
-    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.0, 1e-10,
-                             "MergerMassRatio should be cleared");
+    /* Trigger lifecycle is owned by clear modules, not quasar_mode */
+    TEST_ASSERT(gal.IsMerging == 1, "IsMerging should remain unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.3, 1e-6,
+                             "MergerMassRatio should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();
@@ -346,10 +346,10 @@ int test_bh_growth_both_triggers(void)
     TEST_ASSERT(gal.BlackHoleMass > initial_bh_mass,
                 "BH mass should increase from both triggers");
 
-    /* Both triggers should be cleared */
-    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.0, 1e-10,
-                             "Disk instability trigger cleared");
-    TEST_ASSERT(gal.IsMerging == 0, "Merger trigger cleared");
+    /* Trigger lifecycle is owned by clear modules, not quasar_mode */
+    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
+                             "Disk-instability trigger should remain unchanged");
+    TEST_ASSERT(gal.IsMerging == 1, "Merger trigger should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();
@@ -883,13 +883,13 @@ int test_null_galaxy(void)
 }
 
 /**
- * @test    test_triggers_cleared
- * @brief   Test triggers are cleared after processing
+ * @test    test_triggers_preserved
+ * @brief   Test triggers are preserved after processing
  *
- * Expected: All trigger flags = 0 after processing
- * Validates: Trigger cleanup (prevents double-processing)
+ * Expected: Trigger flags remain unchanged after processing
+ * Validates: Trigger lifecycle ownership by dedicated clear modules
  */
-int test_triggers_cleared(void)
+int test_triggers_preserved(void)
 {
     /* ===== SETUP ===== */
     init_memory_system(0);
@@ -912,11 +912,11 @@ int test_triggers_cleared(void)
     sage_quasar_mode_process(&ctx, &halo, 1);
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.0, 1e-10,
-                             "UnstableDiskGasFraction should be cleared");
-    TEST_ASSERT(gal.IsMerging == 0, "IsMerging should be cleared");
-    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.0, 1e-10,
-                             "MergerMassRatio should be cleared");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
+                             "UnstableDiskGasFraction should remain unchanged");
+    TEST_ASSERT(gal.IsMerging == 1, "IsMerging should remain unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.3, 1e-6,
+                             "MergerMassRatio should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();
@@ -1202,7 +1202,7 @@ int main(void)
     TEST_RUN(test_no_triggers);
     TEST_RUN(test_orphan_galaxy_skipped);
     TEST_RUN(test_null_galaxy);
-    TEST_RUN(test_triggers_cleared);
+    TEST_RUN(test_triggers_preserved);
     TEST_RUN(test_invalid_ngal);
 
     /* Run parameter sensitivity tests */

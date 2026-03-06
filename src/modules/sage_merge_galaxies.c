@@ -103,14 +103,14 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
             // Major merger: transform entire stellar mass to bulge
             central->BulgeMass = central->StellarMass;
             central->MetalsBulgeMass = central->MetalsStellarMass;
-            central->TimeOfLastMajorMerger = ctx->time;
+            central->TimeOfLastMajorMerger = ctx->substep_time;
 
             DEBUG_LOG("Major merger: ratio=%.3f, transformed to spheroid", mass_ratio);
         }
 
         // Track minor merger timing
         if (mass_ratio > 0.1) {  // 0.1 = threshold for significant merger
-            central->TimeOfLastMinorMerger = ctx->time;
+            central->TimeOfLastMinorMerger = ctx->substep_time;
         }
 
         // Mark satellite as merged (Type 3 for internal tracking)

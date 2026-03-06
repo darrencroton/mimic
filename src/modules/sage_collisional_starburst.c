@@ -124,11 +124,7 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
         collisional_starburst_recipe(gal->MergerMassRatio, gal, central_gal, ctx, 0);
     }
 
-    // Clear triggers after processing
-    gal->UnstableDiskGasFraction = 0.0;
-    gal->IsMerging = 0;
-    gal->MergerMassRatio = 0.0;
-
+    /* Trigger lifecycle is managed by dedicated clear modules in pipeline config. */
     return 0;
 }
 

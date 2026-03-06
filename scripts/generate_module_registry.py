@@ -373,13 +373,21 @@ def validate_test_files(modules: List[Dict[str, Any]]) -> List[str]:
 
 
 def compute_metadata_hash(modules: List[Dict[str, Any]]) -> str:
-    """Compute MD5 hash of all module metadata files."""
+    """Compute MD5 hash of module metadata plus standalone module identities."""
     md5 = hashlib.md5()
 
     # Sort by module name for consistent ordering
     sorted_modules = sorted(modules, key=lambda m: m["name"])
 
     for module in sorted_modules:
+        pattern = module.get("_pattern", "directory")
+        if pattern == "standalone":
+            standalone_file = module.get("_standalone_file")
+            if standalone_file:
+                relative_path = str(Path(standalone_file).relative_to(REPO_ROOT))
+                md5.update(f"standalone:{module['name']}:{relative_path}".encode("utf-8"))
+            continue
+
         module_dir = module.get("_module_dir")
         if module_dir:
             yaml_path = module_dir / "module_info.yaml"

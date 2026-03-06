@@ -5,7 +5,7 @@
  * Tests the merger time evolution physics in isolation using minimal mocks.
  * Validates:
  *   - MergTime decrement by substep dt
- *   - Eligibility conditions (zero baryons, Type 2, Mvir/Mbaryons threshold)
+ *   - Eligibility conditions (zero baryons, Mvir/Mbaryons threshold)
  *   - Merger triggering (MergTime <= 0 AND eligible)
  *   - Disruption triggering (MergTime > 0 AND eligible)
  *   - MergerMassRatio calculation (min/max baryonic mass)
@@ -232,7 +232,7 @@ int test_type2_orphan_processed(void)
     struct GalaxyData cen_gal = create_test_galaxy(999.9f, 50.0, 20.0, 0, 0, 0.0f);
     struct Halo central = create_test_halo(0, 100.0, 0.0, 0.5, 200.0, &cen_gal);
 
-    // Type 2 orphan with high MergTime (will be eligible immediately as Type 2)
+    // Type 2 orphan with high MergTime and high ratio (not eligible at threshold=1.0)
     float initial_mergtime = 10.0f;
     struct GalaxyData orphan_gal = create_test_galaxy(initial_mergtime, 3.0, 1.0, 0, 0, 0.0f);
     struct Halo orphan = create_test_halo(2, 5.0, 0.0, 0.1, 50.0, &orphan_gal);
@@ -245,9 +245,8 @@ int test_type2_orphan_processed(void)
 
     /* Validate */
     TEST_ASSERT(result == 0, "Process should succeed");
-    // Type 2 is always eligible, MergTime > 0 → should disrupt
-    TEST_ASSERT(halos[1].galaxy->IsDisrupting == 1,
-                "Type 2 orphan should be disrupting (always eligible, MergTime > 0)");
+    TEST_ASSERT(halos[1].galaxy->IsDisrupting == 0,
+                "Type 2 orphan should not disrupt when ratio is above threshold");
     // MergTime was decremented before eligibility check
     TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->MergTime, initial_mergtime - dt, 0.001),
                 "Type 2 orphan MergTime should be decremented");
@@ -415,12 +414,12 @@ int test_zero_baryons_eligible(void)
 }
 
 /**
- * @test    test_type2_always_eligible
- * @brief   Type 2 orphans are always eligible regardless of Mvir/Mbaryons
+ * @test    test_type2_threshold_controlled
+ * @brief   Type 2 orphan eligibility still uses Mvir/Mbaryons threshold
  */
-int test_type2_always_eligible(void)
+int test_type2_threshold_controlled(void)
 {
-    printf("  Testing: Type 2 orphans always eligible...\n");
+    printf("  Testing: Type 2 orphan threshold eligibility...\n");
 
     /* Setup */
     init_memory_system(0);
@@ -443,8 +442,8 @@ int test_type2_always_eligible(void)
     sage_update_merger_time_process(&ctx, halos, 2);
 
     /* Validate */
-    TEST_ASSERT(halos[1].galaxy->IsDisrupting == 1,
-                "Type 2 orphan should be eligible and disrupting regardless of Mvir/Mbaryons");
+    TEST_ASSERT(halos[1].galaxy->IsDisrupting == 0,
+                "Type 2 orphan above threshold should not be eligible");
 
     sage_update_merger_time_cleanup();
     TEST_PASS;
@@ -1039,7 +1038,7 @@ int main(void)
     setup_mock_config();  // Reset config
     test_zero_baryons_eligible();
     setup_mock_config();
-    test_type2_always_eligible();
+    test_type2_threshold_controlled();
     setup_mock_config();
     test_threshold_at_boundary();
     setup_mock_config();

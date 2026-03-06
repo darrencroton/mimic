@@ -81,11 +81,11 @@ int module_system_init(void);
  * loop for PROCESSING_MODE_BY_GALAXY modules.
  *
  * Execution order within phase:
- * 1. All PROCESSING_MODE_BY_GALAXY modules execute in galaxy-major order:
+ * 1. All PROCESSING_MODE_FULL_HALO modules execute with full halo array
+ * 2. All PROCESSING_MODE_BY_GALAXY modules execute in galaxy-major order:
  *    for each galaxy g:
  *      module1(galaxy g)
  *      module2(galaxy g)
- * 2. All PROCESSING_MODE_FULL_HALO modules execute with full halo array
  *
  * Called from process_halo_evolution() for each phase.
  *

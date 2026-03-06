@@ -58,6 +58,7 @@ modules:
     - sage_disk_instability: process_by_galaxy
     - sage_quasar_mode: process_by_galaxy
     - sage_collisional_starburst: process_by_galaxy
+    - sage_clear_disk_instability_triggers: process_by_galaxy
 
   phase_2:
     # Mergers (Check → Transfer → Trigger Physics)

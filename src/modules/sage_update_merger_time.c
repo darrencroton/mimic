@@ -109,9 +109,9 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
         // Calculate total baryonic mass
         const double galaxyBaryons = sat->StellarMass + sat->ColdGas;
 
-        // Check if satellite is eligible for merger/disruption
-        // Condition: Zero baryonic mass OR orphan OR halo-to-baryonic ratio exceeds threshold
-        const int eligible = (galaxyBaryons == 0.0) || (halos[i].Type == 2) ||
+        // Check if satellite is eligible for merger/disruption.
+        // SAGE parity: eligibility is based on zero baryons OR Mvir/Mbaryons threshold.
+        const int eligible = (galaxyBaryons == 0.0) ||
                             (galaxyBaryons > 0.0 && (currentMvir / galaxyBaryons <= THRESHOLD_SAT_DISRUPTION));
 
         if (!eligible) continue;

@@ -530,8 +530,9 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr,
  */
 static void update_context_for_substep(struct ModuleContext *ctx, int step) {
   ctx->substep_number = step;
-  /* Substep time is at midpoint of substep interval */
-  ctx->substep_time = ctx->time - (step + 0.5) * ctx->substep_dt;
+  /* Interpolate from progenitor snapshot age toward current snapshot age. */
+  const double progenitor_age = ctx->time + ctx->time_interval;
+  ctx->substep_time = progenitor_age - (step + 0.5) * ctx->substep_dt;
 }
 
 /**
