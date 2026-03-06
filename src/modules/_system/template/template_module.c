@@ -22,10 +22,10 @@
 #include "types.h"
 
 // NOTE: For directory modules (src/modules/my_module/my_module.c):
-//       Use: #include "../_system/parameter_helpers.h"
+//       Use: #include "_system/parameter_helpers.h"
 // NOTE: For standalone modules (src/modules/my_module.c):
 //       Use: #include "_system/parameter_helpers.h"
-#include "../_system/parameter_helpers.h"
+#include "_system/parameter_helpers.h"
 
 // ============================================================================
 // MODEL PARAMETERS

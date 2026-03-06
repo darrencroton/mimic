@@ -60,6 +60,9 @@ make generate
 # Verify generated code is up-to-date (CI check)
 make check-generated
 
+# Validate documentation links and USER-GUIDE module phase consistency
+make check-docs
+
 # Validate module metadata (checks dependencies, properties, files)
 make validate-modules
 
@@ -185,6 +188,8 @@ diff ../benchmarks/baseline_YYYYMMDD_HHMMSS.json ../benchmarks/baseline_YYYYMMDD
 
 ## Code Architecture
 
+For comprehensive details see `docs/DEVELOPER-GUIDE.md` (architecture, module development, API reference) and `docs/USER-GUIDE.md` (configuration, pipeline setup, output formats).
+
 ### Directory Structure
 ```
 src/
@@ -222,119 +227,24 @@ output/mimic-plot/   Plotting system (22 plots: 18 snapshot, 4 evolution)
 
 ### Key Concepts
 
-**Three-Tier Halo Architecture:**
-- `InputTreeHalos`: Raw merger tree input (immutable)
-- `FoFWorkspace`: Temporary processing workspace (dynamic)
-- `ProcessedHalos`: Final processed halos (written to output)
+**Halo Data Structures:** `InputTreeHalos` (immutable tree input) → `FoFWorkspace` (processing workspace) → `ProcessedHalos` (written to output). Structs: `struct Halo`, `struct GalaxyData`, `struct HaloOutput`.
 
-**Metadata-Driven Property System:**
-- Halo properties: `src/core/halo_properties.yaml`
-- Model properties: `src/modules/model_properties.yaml`
-- Auto-generated into C structs via `make generate`
-- Includes: struct Halo, struct GalaxyData, struct HaloOutput
-- Python dtypes auto-generated for reading output
+**Property System:** Properties are defined in YAML (`src/core/halo_properties.yaml`, `src/modules/model_properties.yaml`) and generated via `make generate` into C structs, init/output logic, and Python dtypes.
 
-**Model Parameter System:**
-- Parameters loaded from input YAML file (required, no defaults)
-- Type-safe access via `model_get_double()`, `model_get_int()`, `model_get_string()`
-- Physics-based validation in each module's init function
-- Complete module independence: modules read and validate their own parameters
+**Module System:** Runtime-configurable physics modules execute through a 4-phase pipeline (`pre_timestep` → `phase_1` → `phase_2` → `post_timestep`) with two processing modes: `PROCESSING_MODE_FULL_HALO` and `PROCESSING_MODE_BY_GALAXY`. Module lifecycle is `init()` → `process()` → `cleanup()`.
 
-**Module System:**
-- Runtime-configurable via multi-phase pipeline in YAML
-- Four execution phases: pre_timestep, phase_1, phase_2, post_timestep
-- Two processing modes: PROCESSING_MODE_FULL_HALO (module processes full array), PROCESSING_MODE_BY_GALAXY (galaxy-major loop)
-- Physics-agnostic core (zero knowledge of specific modules)
-- Module lifecycle: init → process → cleanup
-
-**Multi-Phase Pipeline:**
-- **pre_timestep**: Setup calculations (runs once before substeps)
-  - Example: reionization, infall budget calculation
-- **phase_1**: Main physics (runs each substep for each galaxy)
-  - Example: cooling, star formation, feedback, stripping
-- **phase_2**: Secondary physics (runs each substep for each galaxy)
-  - Example: mergers, disruption
-- **post_timestep**: Finalization (runs once after all substeps)
-  - Example: converting accumulators to rates
-- **SubSteps**: Time sub-stepping parameter for numerical stability (1 = no substeps)
-
-**Module Patterns:**
-- **Calculate → Modify → Apply** (3-module chain in phase_1):
-  - `sage_calculate_cooling`: Calculates cooling for this substep
-  - `sage_radio_mode_heating`: AGN suppresses calculated cooling
-  - `sage_add_cooling`: Transfers remaining cooling to cold gas
-  - All 3 run sequentially each substep. Order is critical.
-  - Example: Cooling modules implement physics requiring sequential processing
-
-- **Calculate → Add** (2-module chain: pre_timestep → phase_1):
-  - `sage_calculate_infall` (pre_timestep): Calculates total infall budget once
-  - `sage_add_infall` (phase_1): Distributes infall over substeps
-  - Used when total budget must be calculated once, then distributed
-  - Example: Cosmological infall
-
-**Memory Management:**
-- Custom allocator with leak detection
-- Categorized tracking (MEM_HALOS, MEM_TREES, MEM_IO, MEM_UTILITY)
-- Use `print_allocated()` or `print_allocated_by_category()` to check leaks
+**Parameters:** Model parameters come from the input YAML and are accessed via typed getters (`model_get_double()`, `model_get_int()`, `model_get_string()`), with module-local validation in each module `init()`.
 
 **Core Execution Flow:**
 1. `load_tree_table()` → Load tree metadata
-2. `build_halo_tree()` → Recursively construct halo tracking structures
-3. `process_halo_evolution()` → Execute multi-phase pipeline:
-   - Execute pre_timestep phase (once)
-   - Loop over SubSteps:
-     - Execute phase_1 (galaxy-major or array)
-     - Execute phase_2 (galaxy-major or array)
-   - Execute post_timestep phase (once)
+2. `build_halo_tree()` → Construct halo tracking structures
+3. `process_halo_evolution()` → Execute multi-phase pipeline
 4. `save_halos()` → Write to binary or HDF5 output
 5. `free_halos_and_tree()` → Cleanup memory
 
-**HDF5 Output Structure:**
-Mimic's HDF5 output is self-contained and fully reproducible, containing both data and complete metadata.
+**Memory:** Custom allocator with leak detection and categorized tracking (`MEM_HALOS`, `MEM_TREES`, `MEM_IO`, `MEM_UTILITY`, `MEM_PHYSICS`).
 
-Master file (`model.hdf5`):
-```
-RunProperties/
-  ├── @BoxSize, @Hubble_h, @Omega, etc.    (simulation config)
-  ├── Version/                             (identity & provenance)
-  │   ├── @git_commit                      (e.g., e1288e79...)
-  │   ├── @git_branch                      (e.g., main)
-  │   ├── @git_date, @build_date           (build timestamps)
-  │   └── @hdf5_format_version             (schema version: 1.0)
-  ├── EnabledModules [compound dataset]    (complete pipeline configuration)
-  │   └── (module_name, phase, processing_mode) for each module
-  ├── Parameters [dataset]                 (all runtime parameters)
-  │   └── (param_name, value) pairs        (e.g., AGNrecipe: 1)
-  └── Redshifts [dataset]                  (z for each snapshot: 127.0→0.0)
-
-Snap063/
-  ├── FieldMetadata [dataset]              (field names, units, descriptions)
-  └── File000/
-      ├── Galaxies [external link]         (→ model_000.hdf5)
-      └── TreeHalosPerSnap [external link] (→ model_000.hdf5)
-```
-
-Per-file output (`model_000.hdf5`):
-```
-RunProperties/                             (same as master - self-contained)
-  ├── Version/                             (identity & provenance)
-  ├── EnabledModules [compound dataset]    (complete pipeline configuration)
-  │   └── (module_name, phase, processing_mode) for each module
-  ├── Parameters [dataset]                 (configuration)
-  └── Redshifts [dataset]                  (auxiliary data)
-
-Snap063/
-  ├── FieldMetadata [dataset]              (47 fields with metadata)
-  ├── Galaxies [compound dataset]          (9265 halos, all properties)
-  │   └── @Ntrees, @TotHalosPerSnap
-  └── TreeHalosPerSnap [dataset]           (halos per tree array)
-```
-
-Benefits:
-- **Self-contained**: Each file has complete metadata for standalone analysis
-- **Reproducible**: Version info and all parameters stored for exact reproduction
-- **Self-documenting**: FieldMetadata describes every field (name, units, description)
-- **No external dependencies**: Redshifts included (no need for .a_list file)
+**Output:** Detailed binary/HDF5 structure is documented in `docs/USER-GUIDE.md#output`.
 
 ---
 

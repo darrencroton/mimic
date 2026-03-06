@@ -10,6 +10,8 @@ Mimic is a **physics-agnostic core with runtime-configurable physics modules**, 
 
 This architecture enables researchers to easily experiment with different physics combinations, developers to work independently on core infrastructure and physics modules, and the system to evolve gracefully as new scientific understanding emerges.
 
+The key insight is that **scientific accuracy and architectural elegance are not mutually exclusive**. By applying proven software engineering principles to scientific computing, Mimic accelerates scientific discovery through improved flexibility, reliability, and maintainability.
+
 ---
 
 ## 8 Core Architectural Principles
@@ -122,65 +124,7 @@ These principles guide all design decisions and implementation choices in Mimic:
 
 ---
 
-## Implementation Philosophy
-
-### Metadata-Driven Development
-- **Single Source of Truth**: YAML metadata prevents synchronization bugs between code representations.
-- **Property Metadata** (`src/core/halo_properties.yaml`, `src/modules/model_properties.yaml`): Halo and galaxy properties auto-generate C structs, accessors, output code, and Python dtypes.
-- **Module Metadata** (`src/modules/*/module_info.yaml`): Physics modules define their own parameters, dependencies, and capabilities. Auto-generates registration code, parameter validation, test configuration, and documentation.
-- **Code Generation**: Type-safe C code is automatically generated from metadata definitions.
-- **Build Integration**: Code generation is integrated into the build system with automatic regeneration on metadata changes.
-
-### Physics-Agnostic Core
-- **Zero Physics Knowledge**: Core infrastructure has no understanding of specific physics processes.
-- **Interface-Based Interaction**: Physics modules interact with core only through well-defined interfaces.
-- **Independent Development**: Core infrastructure and physics modules are developed independently.
-
-### Type Safety First
-- **Compile-Time Validation**: Errors are caught at compile-time rather than runtime.
-- **Generated Access Patterns**: Type-safe property access is generated from metadata.
-- **IDE Integration**: Full autocomplete, go-to-definition, and refactoring support in modern IDEs.
-
-### Standard Tools
-- **Industry Standards**: Proven tools (CMake, HDF5, JSON) rather than custom solutions.
-- **Professional Workflow**: Modern development environment with IDE integration.
-- **Debugging Support**: All standard debugging tools (GDB, Valgrind) work out of the box.
-
----
-
-## System Architecture
-
-### Component Structure
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Mimic Application                       │
-├─────────────────────────────────────────────────────────────┤
-│  Configuration System     │  Module System                  │
-│  - YAML configuration     │  - Runtime loading              │
-│  - Schema validation      │  - Dependency resolution        │
-├─────────────────────────────────────────────────────────────┤
-│                  Physics-Agnostic Core                     │
-│  ┌─────────────────┬─────────────────┬─────────────────┐   │
-│  │ Memory Mgmt     │ Property System │ I/O System      │   │
-│  │ - Scoped alloc  │ - Type-safe     │ - Format unified│   │
-│  │ - Auto cleanup  │ - Generated     │ - Cross-platform│   │
-│  └─────────────────┴─────────────────┴─────────────────┘   │
-│  ┌─────────────────┬─────────────────┬─────────────────┐   │
-│  │ Tree Processing │ Pipeline Exec   │ Test Framework  │   │
-│  │ - Unified model │ - Configurable  │ - Multi-level   │   │
-│  │ - Inheritance   │ - Module phases │ - Scientific    │   │
-│  └─────────────────┴─────────────────┴─────────────────┘   │
-├─────────────────────────────────────────────────────────────┤
-│                    Physics Modules                         │
-│  ┌─────────────────┬─────────────────┬─────────────────┐   │
-│  │ Module A        │ Module B        │ Module C        │   │
-│  │ Module D        │ Module E        │ Module F        │   │
-│  └─────────────────┴─────────────────┴─────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Data Flow
+## Data Flow
 
 1. **Configuration Loading**: Configuration files are loaded and validated.
 2. **Module Registration**: Physics modules auto-register from metadata in dependency-resolved order.
@@ -189,39 +133,4 @@ These principles guide all design decisions and implementation choices in Mimic:
 5. **Module Execution**: Physics modules execute in dependency-resolved order.
 6. **Output Generation**: A property-based output system adapts to available properties.
 
----
-
-## Quality Attributes
-
-### Maintainability
-- **Modularity**: Clear separation of concerns with well-defined interfaces.
-- **Documentation**: Comprehensive documentation for developers and users.
-- **Code Quality**: Professional coding standards with consistent style.
-- **Testing**: Automated testing covering all major functionality.
-
-### Extensibility
-- **Module Development**: Clear patterns for adding new physics modules.
-- **Format Support**: Straightforward process for adding new I/O formats.
-- **Property Extension**: Easy addition of new galaxy properties via metadata.
-- **Configuration**: Flexible configuration system supporting new use cases.
-
-### Reliability
-- **Error Handling**: Robust error detection and recovery mechanisms.
-- **Validation**: Comprehensive input and state validation.
-- **Memory Safety**: Automatic memory management preventing leaks and corruption.
-- **Debugging**: Clear error messages and debugging capabilities.
-
-### Usability
-- **Scientific Workflow**: Intuitive configuration for different scientific use cases.
-- **Performance Analysis**: Built-in tools for understanding system performance.
-- **Debugging Support**: Clear diagnostics for troubleshooting problems.
-
----
-
-## Design Philosophy
-
-This architectural vision defines Mimic as a modern, maintainable scientific software framework. The eight core principles provide a clear foundation for all development decisions, ensuring the system remains focused on its primary goals: scientific accuracy, developer productivity, and long-term maintainability.
-
-The key insight is that **scientific accuracy and architectural elegance are not mutually exclusive**. By applying proven software engineering principles to scientific computing, Mimic accelerates scientific discovery through improved flexibility, reliability, and maintainability.
-
-Success is measured not just by technical metrics, but by the system's ability to enable new scientific insights through easier experimentation, more reliable results, and faster development of new physics models.
+For the system architecture diagram and detailed execution flow, see [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md#architecture-overview).

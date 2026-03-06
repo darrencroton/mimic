@@ -12,7 +12,7 @@
 4. [Property System](#property-system)
 5. [Testing](#testing)
 6. [Development Workflow](#development-workflow)
-7. [Complete Examples](#complete-examples)
+7. [Complete Example: Multi-File Module](#complete-example-multi-file-module)
 8. [Appendix: Reference Tables](#appendix-reference-tables)
 
 ---
@@ -24,7 +24,7 @@
 ```bash
 # 1. Create module file
 cat > src/modules/my_module.c << 'EOF'
-#include "../_system/parameter_helpers.h"
+#include "_system/parameter_helpers.h"
 
 static double my_efficiency;
 
@@ -67,18 +67,7 @@ That's it! No metadata files required for simple modules.
 
 ## Architecture Overview
 
-### Core Principles
-
-Mimic follows **8 architectural principles** (see [VISION.md](VISION.md)):
-
-1. **Physics-Agnostic Core**: Core has zero knowledge of specific physics
-2. **Runtime Modularity**: Configure modules via YAML, no recompilation
-3. **Metadata-Driven**: Properties auto-generated from YAML
-4. **Single Source of Truth**: One authoritative data representation
-5. **Unified Processing**: One consistent merger tree processing method
-6. **Memory Efficiency**: Bounded, predictable memory usage
-7. **Format-Agnostic I/O**: Multiple formats via unified interfaces
-8. **Type Safety**: Compile-time validation with generated accessors
+For the design principles behind these decisions, see [VISION.md](VISION.md).
 
 ### System Architecture
 
@@ -114,27 +103,13 @@ Mimic follows **8 architectural principles** (see [VISION.md](VISION.md)):
 - `src/util/`: Memory, logging, numerical utilities
 - `src/include/generated/`: Auto-generated code from metadata
 
-### Data Flow
-
-**Multi-phase pipeline execution**:
-
-1. **Initialization**: Load YAML config, register modules, validate dependencies
-2. **Tree Processing**: Load merger trees, build halo structures
-3. **Multi-Phase Evolution** (for each FOF group):
-   - **pre_timestep**: Setup (runs once)
-   - Loop over SubSteps:
-     - **phase_1**: Main physics (each substep)
-     - **phase_2**: Secondary physics (each substep)
-   - **post_timestep**: Finalization (runs once)
-4. **Output**: Write properties to binary or HDF5
-
-**Halo data structures**:
+### Halo Data Structures
 
 - **InputTreeHalos**: Raw merger tree (immutable, from file)
 - **FoFWorkspace**: Temporary processing (modules modify this)
 - **ProcessedHalos**: Final output (written to file)
 
-**Module communication**:
+### Module Communication
 
 - Modules **never** call each other directly
 - Communication **only** through galaxy property system
@@ -176,7 +151,7 @@ src/modules/my_module/
 **Standalone module** (`src/modules/my_cooling.c`):
 
 ```c
-#include "../_system/parameter_helpers.h"
+#include "_system/parameter_helpers.h"
 
 /* Module parameters */
 static double cooling_efficiency;
@@ -357,16 +332,9 @@ static int my_module_process(struct ModuleContext *ctx,
 }
 ```
 
-**Specify in module_info.yaml**:
-
-```yaml
-supported_processing_modes:
-  - process_by_galaxy    # or process_full_halo, or both
-```
-
 ### Pipeline Phases
 
-The multi-phase pipeline executes modules in four distinct phases (see [Appendix A7](#a7-pipeline-phases) for complete reference):
+The multi-phase pipeline executes modules in four distinct phases:
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -470,7 +438,7 @@ static int my_module_process(struct ModuleContext *ctx,
 
 ### Module Best Practices
 
-**Parameter handling**:
+**Parameter handling** (see [Appendix A5](#a5-parameter-loading-macros) for full reference):
 ```c
 /* Load in init() */
 static int my_module_init(void) {
@@ -499,7 +467,7 @@ gal->StellarMass += new_stars;
 gal->ColdGas -= consumed_gas;
 ```
 
-**Memory management**:
+**Memory management** (see [Appendix A8](#a8-memory-management) for categories and functions):
 ```c
 #include "util/memory.h"
 
@@ -513,7 +481,7 @@ static int my_module_cleanup(void) {
 }
 ```
 
-**Error handling**:
+**Error handling and logging** (see [Appendix A9](#a9-logging-macros) for all levels):
 ```c
 /* Return 0 on success, non-zero on failure */
 if (error_condition) {
@@ -521,12 +489,11 @@ if (error_condition) {
   return -1;
 }
 
-/* Use appropriate logging levels */
 DEBUG_LOG("Detailed debugging info");        /* --debug only */
 VERBOSE_LOG("Configuration info");           /* --verbose or --debug */
 INFO_LOG("General progress");                /* Default level */
 WARNING_LOG("Non-fatal issues");             /* Always shown */
-ERROR_LOG("Fatal errors");                   /* Always shown */
+FATAL_ERROR("Fatal errors");                 /* Always shown, exits program */
 ```
 
 **Shared utilities**:
@@ -916,13 +883,9 @@ make -j$(nproc)  # Parallel build
 **4. Test**:
 ```bash
 ./mimic --debug input/millennium.yaml
+make check-docs  # Docs links + USER-GUIDE module phase consistency
 make tests  # Full test suite
 ```
-
-**5. Commit** (ask user first per CLAUDE.md):
-- Format code
-- Run tests
-- Meaningful commit message listing all changed files
 
 ### Code Generation
 
@@ -939,28 +902,6 @@ make generate
 **Verify current** (CI check):
 ```bash
 make check-generated
-```
-
-### Build Options
-
-```bash
-# Standard
-make
-
-# Clean build
-make clean && make
-
-# Parallel (faster)
-make -j$(nproc)
-
-# Disable HDF5
-make USE-HDF5=no
-
-# Enable MPI
-make USE-MPI=yes
-
-# Show configuration
-make info
 ```
 
 ### Debugging
@@ -990,178 +931,9 @@ gdb ./mimic
 
 ---
 
-## Complete Examples
+## Complete Example: Multi-File Module
 
-### Example 1: Simple Star Formation Module
-
-**File**: `src/modules/simple_sf.c`
-
-```c
-#include "../_system/parameter_helpers.h"
-#include "physical_constants.h"
-
-/* Module parameters */
-static double sf_efficiency;
-static double sf_timescale;
-
-static int simple_sf_init(void) {
-  /* Load parameters */
-  LOAD_PARAM_DOUBLE("SfEfficiency", sf_efficiency);
-  LOAD_PARAM_DOUBLE("SfTimescale", sf_timescale);
-
-  /* Validate */
-  if (sf_efficiency <= 0.0 || sf_efficiency > 1.0) {
-    ERROR_LOG("SfEfficiency must be in (0,1], got %.3f", sf_efficiency);
-    return -1;
-  }
-  if (sf_timescale <= 0.0) {
-    ERROR_LOG("SfTimescale must be positive, got %.3f", sf_timescale);
-    return -1;
-  }
-
-  VERBOSE_LOG("Simple Star Formation initialized");
-  VERBOSE_LOG("  SfEfficiency = %.3f", sf_efficiency);
-  VERBOSE_LOG("  SfTimescale = %.3f", sf_timescale);
-  return 0;
-}
-
-static int simple_sf_process(struct ModuleContext *ctx,
-                              struct Halo *halos, int ngal) {
-  double dt = ctx->substep_dt;
-
-  for (int i = 0; i < ngal; i++) {
-    struct GalaxyData *gal = halos[i].galaxy;
-    if (gal == NULL) continue;
-
-    /* Only central galaxies form stars (satellites are stripped) */
-    if (halos[i].Type != 0) continue;
-
-    /* Star formation rate */
-    double sfr = sf_efficiency * gal->ColdGas / sf_timescale;
-
-    /* Stars formed this substep (1e10 Msun/h) */
-    double new_stars = sfr * dt;
-
-    /* Don't form more stars than available gas */
-    if (new_stars > gal->ColdGas) {
-      new_stars = gal->ColdGas;
-    }
-
-    /* Update properties */
-    gal->ColdGas -= new_stars;
-    gal->StellarMass += new_stars;
-  }
-
-  return 0;
-}
-
-static int simple_sf_cleanup(void) {
-  VERBOSE_LOG("Simple Star Formation cleaned up");
-  return 0;
-}
-```
-
-**Configure**:
-
-```yaml
-modules:
-  phase_1:
-    - simple_sf: process_by_galaxy
-
-  parameters:
-    SfEfficiency: 0.02
-    SfTimescale: 2.0
-```
-
-### Example 2: AGN Feedback Module
-
-**File**: `src/modules/simple_agn.c`
-
-```c
-#include "../_system/parameter_helpers.h"
-
-/* Module parameters */
-static double radio_efficiency;
-static double quasar_efficiency;
-static int agn_mode;  /* 0=off, 1=radio only, 2=quasar only, 3=both */
-
-static int simple_agn_init(void) {
-  /* Load and validate in one call */
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RadioEfficiency", radio_efficiency,
-                                     0.0, 1.0, "feedback efficiency");
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("QuasarEfficiency", quasar_efficiency,
-                                     0.0, 1.0, "feedback efficiency");
-  LOAD_AND_VALIDATE_OPTION("AGNmode", agn_mode, 3,
-                           "0=off, 1=radio, 2=quasar, 3=both");
-
-  VERBOSE_LOG("Simple AGN initialized");
-  VERBOSE_LOG("  AGNmode = %d", agn_mode);
-  VERBOSE_LOG("  RadioEfficiency = %.3f", radio_efficiency);
-  VERBOSE_LOG("  QuasarEfficiency = %.3f", quasar_efficiency);
-  return 0;
-}
-
-static int simple_agn_process(struct ModuleContext *ctx,
-                               struct Halo *halos, int ngal) {
-  if (agn_mode == 0) return 0;  /* AGN off */
-
-  double dt = ctx->substep_dt;
-
-  for (int i = 0; i < ngal; i++) {
-    struct GalaxyData *gal = halos[i].galaxy;
-    if (gal == NULL) continue;
-
-    /* Only massive centrals have AGN */
-    if (halos[i].Type != 0) continue;
-    if (halos[i].Mvir < 100.0) continue;  /* 10^12 Msun/h threshold */
-
-    /* Radio mode: suppress cooling */
-    if (agn_mode == 1 || agn_mode == 3) {
-      double bh_mass = gal->BlackHoleMass;
-      double heating = radio_efficiency * bh_mass * dt;
-
-      /* Reduce cooling (set by previous module) */
-      if (gal->CoolingGas > heating) {
-        gal->CoolingGas -= heating;
-      } else {
-        gal->CoolingGas = 0.0;
-      }
-    }
-
-    /* Quasar mode: black hole growth during mergers */
-    if (agn_mode == 2 || agn_mode == 3) {
-      /* (Simplified: real implementation would check for mergers) */
-      double bh_accretion = quasar_efficiency * gal->ColdGas * dt;
-      gal->BlackHoleMass += bh_accretion;
-      gal->ColdGas -= bh_accretion;
-      gal->QuasarModeBHaccretionMass += bh_accretion;
-    }
-  }
-
-  return 0;
-}
-
-static int simple_agn_cleanup(void) {
-  return 0;
-}
-```
-
-**Configure**:
-
-```yaml
-modules:
-  phase_1:
-    - calculate_cooling: process_by_galaxy  # Must run first
-    - simple_agn: process_by_galaxy         # Suppresses cooling
-    - add_cooling: process_by_galaxy        # Applies remaining cooling
-
-  parameters:
-    AGNmode: 3  # Both radio and quasar
-    RadioEfficiency: 0.01
-    QuasarEfficiency: 0.001
-```
-
-### Example 3: Multi-File Module with Helper Functions
+This example demonstrates a production-quality module with helper files, metadata, and tests.
 
 **Directory structure**:
 
@@ -1257,7 +1029,7 @@ void free_cooling_tables(void) {
 **File**: `src/modules/advanced_cooling/advanced_cooling.c`
 
 ```c
-#include "../_system/parameter_helpers.h"
+#include "_system/parameter_helpers.h"
 #include "cooling_tables.h"
 
 /* Module parameters */
@@ -1381,40 +1153,6 @@ make clean && make
 | `docs.physics` | string | - | Path to physics documentation |
 | `compilation_requires` | array | `[]` | Required features: `["hdf5", "mpi", "gsl"]` |
 
-**Complete example**:
-
-```yaml
-module:
-  name: sage_calculate_cooling
-  display_name: "SAGE Calculate Cooling"
-  description: "Calculates cooling budget from hot halo using metallicity-dependent cooling functions"
-  version: "1.0.0"
-  author: "Mimic Team (ported from SAGE)"
-
-  # sage_calculate_cooling.c is implicit
-  additional_files:
-    - cooling_tables.c
-    - cooling_tables.h
-
-  supported_processing_modes:
-    - process_by_galaxy
-
-  dependencies:
-    properties:
-      - HotGas
-      - MetalsHotGas
-      - CoolingGas
-      - Rcool
-    parameters:
-      - CoolFunctionsDir
-
-  tests:
-    unit: _tests/test_unit_cooling.c
-    integration: _tests/test_integration_cooling.py
-
-  compilation_requires: []
-```
-
 ### A2. Property Metadata Schema
 
 **Halo properties**: `src/core/halo_properties.yaml`
@@ -1505,21 +1243,6 @@ module:
   range: [0.0, 2000.0]
   sentinels: [-1.0]
 
-# Property with log transform
-- name: Cooling
-  type: double
-  units: "log10(erg/s)"
-  description: "Cumulative cooling energy"
-  output: true
-  init_source: default
-  init_value: 0.0
-  init_repeat: true
-  output_source: galaxy_property
-  output_convert: "UnitEnergy_in_cgs / UnitTime_in_s"
-  output_transform: log10
-  range: [0.0, 1000000.0]
-  sentinels: [0.0]
-
 # Property with output modifier function
 - name: infallMvir
   type: float
@@ -1537,9 +1260,9 @@ module:
 
 **Note**: For detailed guide on implementing output modifier functions, see [Output Modifier Functions](#output-modifier-functions).
 
----
-
 ### A3. Input Configuration YAML
+
+For a complete working configuration example with all SAGE modules, see the [Configuration section in USER-GUIDE.md](USER-GUIDE.md#configuration).
 
 **Top-level sections**:
 
@@ -1610,106 +1333,6 @@ module:
 modules:
   phase_name:
     - module_name: processing_mode
-```
-
-**Processing modes**:
-
-- `process_full_halo`: Module receives full galaxy array
-- `process_by_galaxy`: Core loops, module processes one galaxy at a time
-
-**Complete example**:
-
-```yaml
-output:
-  output_filename: model
-  output_directory: ./output/results/millennium/
-  output_format: hdf5
-  snapshot_list: [63, 37, 32, 27]
-
-input:
-  first_file: 0
-  last_file: 7
-  tree_name: trees_063
-  tree_type: lhalo_binary
-  simulation_dir: ./input/data/millennium/
-  snapshot_list_file: ./input/data/millennium/millennium.a_list
-  last_snapshot: 63
-
-simulation:
-  cosmology:
-    omega_matter: 0.25
-    omega_lambda: 0.75
-    hubble_h: 0.73
-  box_size: 62.5
-  particle_mass: 0.0860657
-
-SubSteps: 10
-
-modules:
-  pre_timestep:
-    - sage_reionization: process_full_halo
-    - sage_calculate_infall: process_full_halo
-    - sage_update_disk_radius: process_full_halo
-    - sage_calculate_merger_timescale: process_full_halo
-
-  phase_1:
-    # Infall & Reincorporation
-    - sage_add_infall: process_full_halo
-    - sage_reincorporation: process_full_halo
-
-    # Cooling (Calculate → Modify → Apply)
-    - sage_calculate_cooling: process_by_galaxy
-    - sage_radio_mode_heating: process_by_galaxy
-    - sage_add_cooling: process_by_galaxy
-
-    # Star Formation (Calculate → Calculate → Update)
-    - sage_calculate_star_formation: process_by_galaxy
-    - sage_calculate_supernova_feedback: process_by_galaxy
-    - sage_update_star_formation_supernova: process_by_galaxy
-
-    # Satellite Stripping
-    - sage_satellite_stripping: process_full_halo
-
-    # Disk Instability Triggered Physics
-    - sage_disk_instability: process_by_galaxy         # Check stability & transfer to bulge
-    - sage_quasar_mode: process_by_galaxy              # BH growth & quasar winds
-    - sage_collisional_starburst: process_by_galaxy    # Starburst with SN feedback
-    - sage_clear_disk_instability_triggers: process_by_galaxy  # Clear DI trigger channel
-
-  phase_2:
-    # Merger Triggering & Execution
-    - sage_update_merger_time: process_full_halo       # Decrement MergTime, set flags
-    - sage_merge_galaxies: process_full_halo           # Combine + inline BH/starburst + morphology
-    - sage_disrupt_satellites: process_full_halo       # Tidal disruption to ICS
-
-  post_timestep: []
-
-  parameters:
-    # Reionisation
-    GlobalBaryonFraction: 0.17
-
-    # Cooling & AGN Feedback
-    AGNrecipe: 1
-    RadioModeEfficiency: 0.01
-
-    # Star Formation
-    SfrEfficiency: 0.02
-
-    # Supernova Feedback
-    FeedbackReheatingEpsilon: 3.0
-    FeedbackEjectionEfficiency: 0.3
-    # Note: EtaSNcode and EnergySNcode are calculated from physical constants
-
-    # Metals
-    RecycleFraction: 0.43
-    Yield: 0.03
-    FracZleaveDisk: 0.3
-
-    # Mergers & BH Growth
-    ThresholdMajorMerger: 0.3
-    ThresholdSatDisruption: 1.0
-    BlackHoleGrowthRate: 0.01
-    QuasarModeEfficiency: 0.001
 ```
 
 ### A4. ModuleContext Structure
@@ -1806,35 +1429,6 @@ static int my_module_process(struct ModuleContext *ctx,
 | `LOAD_AND_VALIDATE_RANGE_INCLUSIVE(param, var, min, max, msg)` | Load + validate inclusive range |
 | `LOAD_AND_VALIDATE_OPTION(param, var, max, msg)` | Load + validate option |
 
-**Usage example**:
-
-```c
-static int my_module_init(void) {
-  /* Load only */
-  LOAD_PARAM_DOUBLE("MyEfficiency", my_efficiency);
-
-  /* Custom validation */
-  if (my_efficiency <= 0.0 || my_efficiency > 1.0) {
-    ERROR_LOG("MyEfficiency out of range: %.3f", my_efficiency);
-    return -1;
-  }
-
-  /* Load and validate in one call */
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("MyOtherParam", other_param,
-                                     0.0, 10.0, "must be non-negative");
-
-  /* Load option selector */
-  LOAD_AND_VALIDATE_OPTION("MyMode", my_mode, 3,
-                           "0=off, 1=mode1, 2=mode2, 3=mode3");
-
-  /* Load string */
-  char my_path[MAX_STRING_LEN];
-  LOAD_PARAM_STRING("MyPath", my_path, MAX_STRING_LEN);
-
-  return 0;
-}
-```
-
 ### A6. Processing Modes
 
 **Definition**: `src/core/module_interface.h`
@@ -1853,44 +1447,11 @@ static int my_module_init(void) {
 | `process_full_halo` | Snapshot-level operations, array calculations | Lower | Better | No |
 | `process_by_galaxy` | Per-galaxy physics, time integration | Better | Lower | Yes |
 
-**Specify in module_info.yaml**:
-
-```yaml
-supported_processing_modes:
-  - process_by_galaxy    # Most common
-  # or
-  - process_full_halo
-  # or both:
-  - process_by_galaxy
-  - process_full_halo
-```
-
-**Configure in input YAML**:
-
-```yaml
-modules:
-  phase_1:
-    - my_module: process_by_galaxy
-    # or
-    - my_module: process_full_halo
-```
-
 ### A7. Pipeline Phases
 
-**Definition**: `src/core/module_interface.h`
+For the detailed execution diagram and phase-selection guidance, see [Pipeline Phases](#pipeline-phases).
 
-**Phase execution order**:
-
-```
-For snapshot N → N+1:
-  1. pre_timestep phase (runs once)
-  2. Loop over SubSteps:
-     a. phase_1 (runs each substep)
-     b. phase_2 (runs each substep)
-  3. post_timestep phase (runs once)
-```
-
-**Phase characteristics**:
+**Quick reference**:
 
 | Phase | Runs | Has dt | Typical Use |
 |-------|------|--------|-------------|
@@ -1898,29 +1459,6 @@ For snapshot N → N+1:
 | `phase_1` | Each substep | Yes (`ctx->substep_dt`) | Main baryonic physics (cooling, SF, feedback) |
 | `phase_2` | Each substep | Yes (`ctx->substep_dt`) | Secondary physics (mergers, disruption) |
 | `post_timestep` | Once after substeps | No | Finalization, converting accumulators to rates |
-
-**Example: Multi-phase cooling**:
-
-```yaml
-SubSteps: 10
-
-modules:
-  # Calculate total cooling budget (once)
-  pre_timestep:
-    - calculate_cooling_budget: process_full_halo
-
-  # Distribute cooling over substeps
-  phase_1:
-    - add_cooling: process_by_galaxy
-
-  # Merge galaxies (after cooling/SF)
-  phase_2:
-    - galaxy_mergers: process_by_galaxy
-
-  # Convert total cooling to rate (once)
-  post_timestep:
-    - convert_to_cooling_rate: process_full_halo
-```
 
 ### A8. Memory Management
 
@@ -1943,18 +1481,6 @@ modules:
 | `print_allocated()` | Print total allocated memory |
 | `print_allocated_by_category()` | Print memory by category |
 
-**Usage example**:
-
-```c
-#include "util/memory.h"
-
-/* In module init() */
-float *lookup_table = mymalloc_cat(size * sizeof(float), MEM_PHYSICS);
-
-/* In module cleanup() */
-myfree(lookup_table);
-```
-
 ### A9. Logging Macros
 
 **Definition**: `src/util/error.h`
@@ -1970,25 +1496,6 @@ myfree(lookup_table);
 | `ERROR_LOG(fmt, ...)` | Always shown | Errors (non-fatal) |
 | `FATAL_ERROR(fmt, ...)` | Always shown | Fatal errors (terminates program) |
 
-**Usage example**:
-
-```c
-#include "util/error.h"
-
-static int my_module_init(void) {
-  VERBOSE_LOG("My Module initialized");  /* Configuration info */
-  VERBOSE_LOG("  MyParam = %.3f", my_param);
-
-  if (error_condition) {
-    ERROR_LOG("Failed to load parameter: %s", param_name);
-    return -1;
-  }
-
-  DEBUG_LOG("Detailed internal state: %d", internal_var);
-  return 0;
-}
-```
-
 ### A10. Physical Constants
 
 **Definition**: `src/modules/_system/physical_constants.h`
@@ -1997,7 +1504,7 @@ static int my_module_init(void) {
 
 | Constant | Value | Units | Description |
 |----------|-------|-------|-------------|
-| `G` | 43007.1 | (km/s)² Mpc/Msun | Gravitational constant |
+| `G` | 43007.1 | (km/s)^2 Mpc/Msun | Gravitational constant |
 | `c` | 2.99792458e5 | km/s | Speed of light |
 | `PROTONMASS` | 1.6726e-24 | g | Proton mass |
 | `BOLTZMANN` | 1.3806e-16 | erg/K | Boltzmann constant |
@@ -2005,21 +1512,8 @@ static int my_module_init(void) {
 | `SOLAR_MASS` | 1.989e33 | g | Solar mass |
 | `MPC_IN_CM` | 3.0857e24 | cm | Megaparsec in cm |
 
-**Usage**:
-
-```c
-#include "../_system/physical_constants.h"
-
-/* Calculate virial velocity */
-double vvir = sqrt(G * mvir / rvir);  /* km/s */
-
-/* Convert time */
-double time_myr = time_sec / SEC_PER_MEGAYEAR;
-```
-
 ---
 
 **For additional details**:
 - Architecture principles: [VISION.md](VISION.md)
-- User guide: [USER-GUIDE.md](USER-GUIDE.md)
-- Running simulations: [USER-GUIDE.md](USER-GUIDE.md#running-simulations)
+- Installation and configuration: [USER-GUIDE.md](USER-GUIDE.md)

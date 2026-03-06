@@ -182,7 +182,7 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate check-generated tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules lint-parameters validate-build
+.PHONY: all clean tidy help info generate check-generated check-docs tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules lint-parameters validate-build
 
 all: generate validate-build $(EXEC)
 
@@ -292,6 +292,7 @@ help:
 	@echo "  make tidy         - Remove build directory only"
 	@echo "  make generate     - Generate all code from metadata (properties + modules)"
 	@echo "  make check-generated - Verify generated code is up-to-date (CI)"
+	@echo "  make check-docs   - Validate docs links and USER-GUIDE module phase consistency"
 	@echo ""
 	@echo "Module targets:"
 	@echo "  make generate-modules  - Generate module registration code"
@@ -401,6 +402,9 @@ lint-parameters:
 check-generated:
 	@python3 scripts/check_generated.py
 
+check-docs:
+	@python3 scripts/check_docs.py
+
 # Test registry generation (auto-discovers module tests)
 generate-test-registry:
 	@python3 scripts/generate_test_registry.py
@@ -419,6 +423,8 @@ tests:
 	@$(MAKE) USE-HDF5=yes
 	@mkdir -p build
 	@rm -f build/.test_failures
+	@echo ""
+	@$(MAKE) check-docs || echo "docs" >> build/.test_failures || true
 	@echo ""
 	@$(MAKE) validate-modules || echo "validate-modules" >> build/.test_failures || true
 	@echo ""

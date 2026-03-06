@@ -15,8 +15,8 @@
 
 Include constants and helpers in your module:
 ```c
-#include "../_system/physical_constants.h"
-#include "../_system/parameter_helpers.h"
+#include "_system/physical_constants.h"
+#include "_system/parameter_helpers.h"
 ```
 
 See `docs/DEVELOPER-GUIDE.md` for usage examples and module development guide.

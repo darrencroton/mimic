@@ -78,7 +78,7 @@ int my_module_cleanup(void);        // Free memory
 
 **Standalone modules** (`src/modules/my_module.c`):
 ```c
-#include "../_system/parameter_helpers.h"
+#include "_system/parameter_helpers.h"
 #include "_shared/my_utility.h"
 ```
 

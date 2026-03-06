@@ -10,6 +10,7 @@
 2. [Running Simulations](#running-simulations)
 3. [Configuration](#configuration)
 4. [Output](#output)
+5. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -403,6 +404,58 @@ deactivate
 *Evolution*: Halo/stellar mass function evolution, SFRD evolution, cold gas density evolution
 
 Plots saved to `output/results/millennium/plots/`
+
+---
+
+## Troubleshooting
+
+### Build Issues
+
+**HDF5 not found**: If `make` reports missing HDF5 headers, either install HDF5 development libraries (`libhdf5-dev` on Debian/Ubuntu, `hdf5` via Homebrew on macOS) or build without HDF5:
+```bash
+make USE-HDF5=no
+```
+
+**Compiler errors after code changes**: If you've edited property YAML files or module metadata, regenerate before building:
+```bash
+make generate
+make clean && make
+```
+
+**`make info` shows unexpected configuration**: Use this to verify which libraries were detected and which features are enabled.
+
+### Runtime Issues
+
+**Non-zero exit code**: Mimic returns exit code 0 on success. Check stderr output for error messages. Run with `--debug` for full diagnostic output:
+```bash
+./mimic --debug input/millennium.yaml 2>&1 | tee debug.log
+```
+
+**"Cannot open file" errors**: Check that paths in your YAML configuration are correct. Both `output.output_directory` and `input.simulation_dir` must exist. Use absolute paths if relative paths cause issues.
+
+**Missing test data**: Run the setup script to download mini-Millennium data:
+```bash
+./scripts/first_run.sh
+```
+
+### Plotting Issues
+
+**`ModuleNotFoundError`**: Activate the Python virtual environment first:
+```bash
+source mimic_venv/bin/activate
+```
+
+**No plots generated / all plots skipped**: If physics modules are not enabled, only halo property plots will be generated. Galaxy physics plots require physics modules in the pipeline. Run with `--verbose` to see skip reasons:
+```bash
+python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml --verbose
+```
+
+**Virtual environment missing**: Recreate it:
+```bash
+python3 -m venv mimic_venv
+source mimic_venv/bin/activate
+pip install -r requirements.txt
+```
 
 ---
 
