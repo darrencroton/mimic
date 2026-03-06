@@ -103,11 +103,12 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
 
         struct Halo *event_halo = &halos[0];
         struct GalaxyData *gal = event_halo->galaxy;
+        struct Halo *central_halo = ctx->central_galaxy;
         struct GalaxyData *central_gal = NULL;
         const struct ModuleEvent *event = ctx->active_event;
 
-        if (ctx->central_galaxy != NULL) {
-            central_gal = ctx->central_galaxy->galaxy;
+        if (central_halo != NULL) {
+            central_gal = central_halo->galaxy;
         }
 
         if (gal == NULL || central_gal == NULL) {
@@ -122,7 +123,8 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
             return 0;
         }
 
-        mimic_apply_collisional_starburst(event->value0, gal, central_gal, ctx, 0,
+        mimic_apply_collisional_starburst(event->value0, gal, central_gal,
+                                          central_halo, 0,
                                           &params);
         DEBUG_LOG("Starburst from merger event (ratio=%.3f, source=%d, target=%d)",
                   event->value0, event->source_index, event->target_index);
@@ -139,11 +141,14 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
     struct GalaxyData *gal = halo->galaxy;
 
     // Get central galaxy for feedback destination
+    struct Halo *central_halo = NULL;
     struct GalaxyData *central_gal = NULL;
     if (halo->Type == 0) {
+        central_halo = halo;
         central_gal = gal;
     } else if (ctx->central_galaxy != NULL) {
-        central_gal = ctx->central_galaxy->galaxy;
+        central_halo = ctx->central_galaxy;
+        central_gal = central_halo->galaxy;
     }
 
     if (gal == NULL || central_gal == NULL) {
@@ -153,7 +158,7 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
     /* Disk-instability channel (by-galaxy path). */
     if (gal->UnstableDiskGasFraction > 0.0) {
         mimic_apply_collisional_starburst(gal->UnstableDiskGasFraction, gal,
-                                          central_gal, ctx, 1, &params);
+                                          central_gal, central_halo, 1, &params);
         DEBUG_LOG("Starburst from disk instability (eff=%.3f)",
                   gal->UnstableDiskGasFraction);
     }

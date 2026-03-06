@@ -29,7 +29,7 @@ Each issue is documented with:
 | P3 | Critical | Trigger clearing suppresses disk instability starburst | Split channels + by-galaxy clear (P3-A) | Low-Med | Done |
 | P4 | High | Type 2 eligibility bypasses baryonic protection | Remove Type==2 condition | Trivial | Done |
 | P5 | High | Type 0→2 transitions lack immediate merge | Add MergTime=0.0 | Low | Pending |
-| P6 | High | Central-link semantics differ (FOF vs per-subhalo) | Restore per-subhalo central semantics (P6-B) | High | Pending |
+| P6 | High | Central-link semantics differ (FOF vs per-subhalo) | Restore per-subhalo central semantics (P6-B) | High | Done (with explicit ID contract) |
 | P7 | Low | Virial mass condition edge case | Change > to >= | Trivial | Skipped |
 | P8 | Low | Documentation execution-order mismatch | Fix header comment | Trivial | Done |
 | P9 | Low | Merger lineage fields not in output | Add to metadata if needed | Low | Skipped |
@@ -637,7 +637,7 @@ SAGE outputs `mergeType`, `mergeIntoID`, `mergeIntoSnapNum` for lineage reconstr
 |-------|----------|---------|----------------|----------------------|
 | 0.1 | Merger physics approach | P2-A (inline helpers) vs P2-B (event queue) | P2-A for SAGE parity | Accepted and implemented (shared helpers called inline from `sage_merge_galaxies`) |
 | 0.2 | Trigger lifecycle | P3-A (split channels) vs P3-B (unified clear) | P3-A for clarity | Accepted and applied for phase_1 via by-galaxy clear module |
-| 0.3 | Central-link policy | P6-A (document fallback) vs P6-B (restore SAGE behavior) | P6-B (mandatory for strict parity) | Recommendation accepted; implementation deferred (P6 skipped for now) |
+| 0.3 | Central-link policy | P6-A (document fallback) vs P6-B (restore SAGE behavior) | P6-B (mandatory for strict parity) | Implemented: `CentralHalo` per-subhalo, `UniqueCentralGalaxyID` mapped to FOF Type 0 host central for robust output contract |
 
 ### Phase 1: Critical Correctness (Must complete first)
 
@@ -654,7 +654,7 @@ SAGE outputs `mergeType`, `mergeIntoID`, `mergeIntoSnapNum` for lineage reconstr
 |-------|-------|--------|-------|----------------------|
 | 2.1 | P4 | Remove Type 2 eligibility bypass | `sage_update_merger_time.c` | Done |
 | 2.2 | P5 | Add MergTime=0.0 for Type 0→2 | `build_model.c` | Pending |
-| 2.3 | P6 | Restore per-subhalo central assignment for strict parity | `build_model.c`, modules using `CentralHalo` | Pending |
+| 2.3 | P6 | Restore per-subhalo central assignment for strict parity | `build_model.c`, modules using `CentralHalo` | Done (plus robust Unique ID contract + regression tests) |
 
 ### Phase 3: Medium/Low Priority
 
@@ -710,18 +710,19 @@ src/modules/sage_clear_disk_instability_triggers.c  # P3 (process_by_galaxy clea
 
 ## Acceptance Criteria
 
-- [ ] All substep time calculations use correct base reference (P1)
-- [ ] Merger timestamps (`TimeOfLastMajorMerger`, `TimeOfLastMinorMerger`) use corrected substep midpoint timing (P1)
+- [x] All substep time calculations use correct base reference (P1)
+- [x] Merger timestamps (`TimeOfLastMajorMerger`, `TimeOfLastMinorMerger`) use corrected substep midpoint timing (P1)
 - [x] Merger-triggered BH growth occurs for every merger event (P2)
 - [x] Merger-triggered starburst occurs for every merger event (P2)
 - [x] Multiple mergers per central per substep handled correctly (P2, Amendment C2)
 - [x] Disk instability starburst occurs for every unstable disk (P3)
 - [x] Clear modules use `process_by_galaxy` and run after consumers (P3, Amendment C1)
 - [x] Triggers don't leak across phases (P3, Amendment C3)
-- [ ] Type 2 orphans with high baryons protected in early substeps (P4)
+- [x] Type 2 orphans with high baryons protected in early substeps (P4)
 - [ ] Type 0→2 transitions trigger immediate merge (P5)
-- [ ] Per-subhalo central semantics restored and validated against SAGE behavior (P6-B)
-- [ ] No test regressions
+- [x] Per-subhalo central semantics restored and validated against SAGE behavior (P6-B)
+- [x] Unique ID contract validated: `UniqueGalaxyID` unique, `UniqueCentralGalaxyID` points to host Type 0 central
+- [x] No test regressions
 - [ ] Parity metrics within acceptable tolerance
 
 ---
@@ -781,3 +782,33 @@ src/modules/sage_clear_disk_instability_triggers.c  # P3 (process_by_galaxy clea
 **Fix**: Locked P6 recommendation to restore per-subhalo central semantics (P6-B) for this parity plan.
 
 **Impact**: Plan scope now matches strict Mimic-SAGE parity target and removes policy ambiguity.
+
+### Amendment 2026-03-06: Review-Driven Hardening (R1-R3)
+
+#### R1: Subhalo-central uniqueness guard restored
+
+**Problem**: `set_halo_centrals` accepted multiple Type 0/1 entries per subhalo slice and silently kept the last one.
+
+**Fix**: Added explicit uniqueness enforcement (fail-fast on multiple Type 0/1 centrals in a slice) to match SAGE invariants.
+
+**Impact**: Prevents silent central-link corruption and improves diagnostics for upstream state errors.
+
+#### R2: Merger-event starburst destination corrected
+
+**Problem**: In `process_per_event`, collisional starburst feedback destination incorrectly used event target as central.
+
+**Fix**: Restored SAGE-consistent semantics: burst host is event target (`merger_centralgal`), feedback destination is FOF central (`centralgal` via `ctx->central_galaxy`).
+
+**Impact**: Corrects hot/ejected/metal routing for non-Type0 merger targets.
+
+#### R3: Execution-time merger ratio and ID contract regression tests
+
+**Problem**: `MergerMassRatio` could be stale if target changed before execution; ID invariants were not explicitly tested.
+
+**Fix**:
+- Recompute merger ratio in `sage_merge_galaxies` at execution against final target.
+- Added unit test for target-fallback + ratio recomputation.
+- Added unit test for per-event starburst destination semantics.
+- Added integration test for `UniqueGalaxyID`/`UniqueCentralGalaxyID` contract.
+
+**Impact**: Hardens long-term correctness and catches the reviewed failure modes automatically.

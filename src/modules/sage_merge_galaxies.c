@@ -12,9 +12,22 @@
 #include "module_interface.h"
 #include "types.h"
 #include "_shared/sage_events.h"
+#include "_shared/central_link.h"
 #include "_system/parameter_helpers.h"
 
 static double THRESHOLD_MAJOR_MERGER;
+
+// SAGE mass-ratio convention: mi/ma, with fallback to 1.0 when both are zero.
+static double calculate_mass_ratio(const struct GalaxyData *sat,
+                                   const struct GalaxyData *cen)
+{
+    const double sat_mass = sat->StellarMass + sat->ColdGas;
+    const double cen_mass = cen->StellarMass + cen->ColdGas;
+    const double mi = (sat_mass < cen_mass) ? sat_mass : cen_mass;
+    const double ma = (sat_mass < cen_mass) ? cen_mass : sat_mass;
+
+    return (ma > 0.0) ? (mi / ma) : 1.0;
+}
 
 int sage_merge_galaxies_init(void)
 {
@@ -39,20 +52,11 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
         return 0;
     }
 
-    // Find central galaxy (Type 0)
-    int central_idx = -1;
-    for (int i = 0; i < ngal; i++) {
-        if (halos[i].Type == 0) {
-            central_idx = i;
-            break;
-        }
-    }
-
+    // Find FOF central (Type 0), used as fallback target for non-Type2 satellites.
+    const int central_idx = mimic_find_fof_central_index(halos, ngal);
     if (central_idx < 0 || halos[central_idx].galaxy == NULL) {
         return 0;
     }
-
-    struct GalaxyData *central = halos[central_idx].galaxy;
 
     // Process all merging satellites
     for (int i = 0; i < ngal; i++) {
@@ -68,7 +72,20 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
         }
 
         struct GalaxyData *satellite = halos[i].galaxy;
-        const double mass_ratio = satellite->MergerMassRatio;
+        const int target_idx =
+            mimic_resolve_type2_target_index(halos, ngal, i, central_idx);
+
+        if (target_idx < 0 || target_idx >= ngal || target_idx == i ||
+            halos[target_idx].galaxy == NULL) {
+            ERROR_LOG("Invalid merger target (satellite=%d, target=%d)", i, target_idx);
+            return -1;
+        }
+
+        struct GalaxyData *central = halos[target_idx].galaxy;
+        const double mass_ratio = calculate_mass_ratio(satellite, central);
+
+        // Keep this property synchronized with the final execution target.
+        satellite->MergerMassRatio = mass_ratio;
 
         // =====================================================================
         // PART 1: Add galaxies together
@@ -100,11 +117,11 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
         // PART 2: Emit merger event for per-event consumers
         // =====================================================================
         if (mass_ratio > 0.0) {
-            if (module_emit_event(ctx, SAGE_EVENT_MERGER, i, central_idx,
+            if (module_emit_event(ctx, SAGE_EVENT_MERGER, i, target_idx,
                                   mass_ratio, 0.0) != 0) {
                 ERROR_LOG("Failed to emit merger event (source=%d, target=%d, "
                           "ratio=%.6f)",
-                          i, central_idx, mass_ratio);
+                          i, target_idx, mass_ratio);
                 return -1;
             }
         }
@@ -133,8 +150,8 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
         // Mark satellite as merged (Type 3 for internal tracking)
         halos[i].Type = 3;
 
-        DEBUG_LOG("Merged satellite %lld into central (ratio=%.3f)",
-                  halos[i].HaloNr, mass_ratio);
+        DEBUG_LOG("Merged satellite %lld into target %d (ratio=%.3f)",
+                  halos[i].HaloNr, target_idx, mass_ratio);
     }
 
     return 0;

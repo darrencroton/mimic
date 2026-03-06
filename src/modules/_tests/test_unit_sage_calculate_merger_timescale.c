@@ -773,6 +773,59 @@ int test_empty_halos_array(void)
     TEST_PASS;
 }
 
+/**
+ * @test    test_type2_orphan_uses_centralhalo_host
+ * @brief   Type 2 timescale uses its CentralHalo host properties
+ */
+int test_type2_orphan_uses_centralhalo_host(void)
+{
+    printf("  Testing: Type 2 orphan uses CentralHalo host for timescale...\n");
+
+    /* Setup */
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context();
+
+    /* FOF Type 0 central (fallback target) */
+    struct GalaxyData fof_central_gal = create_test_galaxy(999.9f, 50.0, 20.0);
+    struct Halo fof_central = create_test_halo(0, 200.0, 1.0, 300.0, 1000, 0.0, &fof_central_gal);
+
+    /* Type 1 subhalo central (intended host for Type 2 orphan) */
+    struct GalaxyData subhalo_central_gal = create_test_galaxy(999.9f, 5.0, 2.0);
+    struct Halo subhalo_central = create_test_halo(1, 40.0, 0.2, 100.0, 20, 0.0, &subhalo_central_gal);
+
+    /* Type 2 orphan linked to subhalo central */
+    struct GalaxyData orphan_gal = create_test_galaxy(999.9f, 1.0, 0.5);
+    struct Halo orphan = create_test_halo(2, 5.0, 0.1, 50.0, 0, 10.0, &orphan_gal);
+    orphan.CentralHalo = 1;
+
+    ctx.central_galaxy = &fof_central;
+    struct Halo halos[3] = {fof_central, subhalo_central, orphan};
+
+    /* Execute */
+    int result = sage_calculate_merger_timescale_process(&ctx, halos, 3);
+
+    /* Validate */
+    TEST_ASSERT(result == 0, "Process should succeed");
+    TEST_ASSERT(halos[2].galaxy->MergTime < 999.0f,
+                "Type 2 orphan should have MergTime calculated");
+
+    const double sat_mass = halos[2].Mvir + halos[2].galaxy->StellarMass + halos[2].galaxy->ColdGas;
+    const double coulomb_subhalo = log1p((double)halos[1].Len / 10.0);
+    const double expected_subhalo = 2.0 * 1.17 * halos[1].Rvir * halos[1].Rvir * halos[1].Vvir /
+                                    (coulomb_subhalo * MimicConfig.G * sat_mass);
+
+    const double coulomb_fof = log1p((double)halos[0].Len / 10.0);
+    const double expected_fof = 2.0 * 1.17 * halos[0].Rvir * halos[0].Rvir * halos[0].Vvir /
+                                (coulomb_fof * MimicConfig.G * sat_mass);
+
+    TEST_ASSERT(FLOAT_EQ(halos[2].galaxy->MergTime, expected_subhalo, 1e-6),
+                "MergTime should match CentralHalo (Type 1) host formula");
+    TEST_ASSERT(fabs(halos[2].galaxy->MergTime - expected_fof) > 1e-3,
+                "MergTime should differ from FOF Type 0 fallback formula");
+
+    TEST_PASS;
+}
+
 // ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
@@ -818,6 +871,7 @@ int main(void)
     test_no_central_returns_early();
     test_multiple_satellites();
     test_empty_halos_array();
+    test_type2_orphan_uses_centralhalo_host();
 
     /* Print summary */
     printf("\n%s", BLUE);

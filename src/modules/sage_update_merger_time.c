@@ -14,6 +14,7 @@
 #include "error.h"
 #include "module_interface.h"
 #include "types.h"
+#include "_shared/central_link.h"
 
 // ============================================================================
 // MODULE PARAMETERS
@@ -34,7 +35,7 @@ static double calculate_mass_ratio(const struct GalaxyData *sat, const struct Ga
     const double mi = (sat_mass < cen_mass) ? sat_mass : cen_mass;
     const double ma = (sat_mass < cen_mass) ? cen_mass : sat_mass;
 
-    return (ma > 0.0) ? mi / ma : 0.0;
+    return (ma > 0.0) ? mi / ma : 1.0;
 }
 
 // ============================================================================
@@ -63,15 +64,8 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
         return 0;
     }
 
-    // Find central galaxy (Type 0)
-    int central_idx = -1;
-    for (int i = 0; i < ngal; i++) {
-        if (halos[i].Type == 0) {
-            central_idx = i;
-            break;
-        }
-    }
-
+    // Find FOF central (Type 0), used as fallback target for non-Type2 satellites.
+    const int central_idx = mimic_find_fof_central_index(halos, ngal);
     if (central_idx == -1) {
         return 0;  // No central in this FOF group
     }
@@ -80,8 +74,6 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
         ERROR_LOG("Central galaxy has NULL galaxy data");
         return -1;
     }
-
-    const struct GalaxyData *central_gal = halos[central_idx].galaxy;
     const double dt = ctx->substep_dt;
 
     // Process each satellite (Type 1 or Type 2)
@@ -130,10 +122,19 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
                       halos[i].HaloNr, sat->MergTime, currentMvir / galaxyBaryons);
         } else {
             // Merger: Orbital decay complete
+            const int target_idx =
+                mimic_resolve_type2_target_index(halos, ngal, i, central_idx);
+            if (target_idx < 0 || target_idx >= ngal || halos[target_idx].galaxy == NULL) {
+                ERROR_LOG("Satellite %d has invalid merger target index %d",
+                          halos[i].HaloNr, target_idx);
+                return -1;
+            }
+
             sat->IsMerging = 1;
-            sat->MergerMassRatio = calculate_mass_ratio(sat, central_gal);
-            DEBUG_LOG("Satellite %d merging (ratio=%.3f, Mvir/Mbary=%.1f)",
-                      halos[i].HaloNr, sat->MergerMassRatio, currentMvir / galaxyBaryons);
+            sat->MergerMassRatio = calculate_mass_ratio(sat, halos[target_idx].galaxy);
+            DEBUG_LOG("Satellite %d merging into %d (ratio=%.3f, Mvir/Mbary=%.1f)",
+                      halos[i].HaloNr, target_idx, sat->MergerMassRatio,
+                      currentMvir / galaxyBaryons);
         }
     }
 

@@ -410,12 +410,12 @@ int test_multiple_satellites_merge(void)
     gals[2].IsMerging = 1;
     gals[2].MergerMassRatio = 0.1;
 
-    /* Satellite 3 */
+    /* Satellite 3: baryons chosen so final merge ratio is major (>0.3). */
     setup_test_galaxy(&halos[3], &gals[3], 1,
-                      3.0, 0.06, 2.0, 0.04, 0.5, 0.01,
+                      4.0, 0.08, 4.0, 0.08, 0.5, 0.01,
                       15.0, 0.3, 2.0, 0.04, 0.2, 0.004, 0.05);
     gals[3].IsMerging = 1;
-    gals[3].MergerMassRatio = 0.4;  /* Major merger */
+    gals[3].MergerMassRatio = 0.4;  /* Hint only; module now recomputes ratio from masses. */
 
     struct ModuleContext ctx;
     setup_test_context(&ctx);
@@ -1383,10 +1383,10 @@ int test_threshold_boundary_high(void)
     struct Halo sat_halo;
     struct GalaxyData sat_gal;
     setup_test_galaxy(&sat_halo, &sat_gal, 1,
-                      2.0, 0.04, 1.0, 0.02, 0.2, 0.004,
+                      3.0, 0.06, 1.6, 0.032, 0.2, 0.004,
                       10.0, 0.2, 1.0, 0.02, 0.1, 0.002, 0.02);
     sat_gal.IsMerging = 1;
-    sat_gal.MergerMassRatio = 0.30001;  /* Just above 0.3 */
+    sat_gal.MergerMassRatio = 0.30001;  /* Hint only; module now recomputes ratio from masses. */
 
     struct Halo halos[2] = {central_halo, sat_halo};
 
@@ -1490,10 +1490,10 @@ int test_parameter_sensitivity_threshold(void)
     struct Halo sat_low;
     struct GalaxyData sat_gal_low;
     setup_test_galaxy(&sat_low, &sat_gal_low, 1,
-                      2.0, 0.04, 1.0, 0.02, 0.2, 0.004,
+                      2.5, 0.05, 1.25, 0.025, 0.2, 0.004,
                       10.0, 0.2, 1.0, 0.02, 0.1, 0.002, 0.02);
     sat_gal_low.IsMerging = 1;
-    sat_gal_low.MergerMassRatio = 0.25;  /* Between 0.2 and 0.4 */
+    sat_gal_low.MergerMassRatio = 0.25;  /* Hint only; module now recomputes ratio from masses. */
 
     struct Halo halos_low[2] = {central_low, sat_low};
 
@@ -1522,10 +1522,10 @@ int test_parameter_sensitivity_threshold(void)
     struct Halo sat_high;
     struct GalaxyData sat_gal_high;
     setup_test_galaxy(&sat_high, &sat_gal_high, 1,
-                      2.0, 0.04, 1.0, 0.02, 0.2, 0.004,
+                      2.5, 0.05, 1.25, 0.025, 0.2, 0.004,
                       10.0, 0.2, 1.0, 0.02, 0.1, 0.002, 0.02);
     sat_gal_high.IsMerging = 1;
-    sat_gal_high.MergerMassRatio = 0.25;  /* Same ratio */
+    sat_gal_high.MergerMassRatio = 0.25;  /* Hint only; module now recomputes ratio from masses. */
 
     struct Halo halos_high[2] = {central_high, sat_high};
 
@@ -1736,6 +1736,134 @@ int test_memory_safety(void)
     return TEST_PASS;
 }
 
+/**
+ * @test    test_type2_merges_into_centralhalo_target
+ * @brief   Type 2 merger targets its CentralHalo (Type 1) instead of FOF Type 0
+ */
+int test_type2_merges_into_centralhalo_target(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+    setup_test_parameters(0.3);
+    sage_merge_galaxies_init();
+
+    struct Halo fof_central_halo;
+    struct GalaxyData fof_central_gal;
+    setup_test_galaxy(&fof_central_halo, &fof_central_gal, 0,
+                      20.0, 0.4, 100.0, 2.0, 10.0, 0.2,
+                      60.0, 1.2, 6.0, 0.12, 1.0, 0.02, 0.2);
+
+    struct Halo subhalo_central_halo;
+    struct GalaxyData subhalo_central_gal;
+    setup_test_galaxy(&subhalo_central_halo, &subhalo_central_gal, 1,
+                      5.0, 0.1, 10.0, 0.2, 2.0, 0.04,
+                      20.0, 0.4, 2.0, 0.04, 0.2, 0.004, 0.05);
+
+    struct Halo orphan_halo;
+    struct GalaxyData orphan_gal;
+    setup_test_galaxy(&orphan_halo, &orphan_gal, 2,
+                      1.5, 0.03, 3.0, 0.06, 0.4, 0.008,
+                      4.0, 0.08, 0.5, 0.01, 0.1, 0.002, 0.01);
+    orphan_gal.IsMerging = 1;
+    orphan_gal.MergerMassRatio = 0.2;
+    orphan_halo.CentralHalo = 1;
+
+    struct Halo halos[3] = {fof_central_halo, subhalo_central_halo, orphan_halo};
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx);
+
+    const double initial_fof_stellar = halos[0].galaxy->StellarMass;
+    const double initial_subhalo_stellar = halos[1].galaxy->StellarMass;
+    const double orphan_stellar = halos[2].galaxy->StellarMass;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_merge_galaxies_process(&ctx, halos, 3);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Process should succeed");
+    TEST_ASSERT(halos[2].Type == 3, "Type 2 satellite should become Type 3");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->StellarMass,
+                             initial_subhalo_stellar + orphan_stellar, 1e-6,
+                             "Type 1 CentralHalo target should receive orphan stellar mass");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->StellarMass, initial_fof_stellar, 1e-6,
+                             "FOF Type 0 central should be unchanged for this merger");
+
+    /* ===== CLEANUP ===== */
+    sage_merge_galaxies_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_mass_ratio_recomputed_after_target_fallback
+ * @brief   Merge classification uses execution-time target, not stale precomputed ratio
+ */
+int test_mass_ratio_recomputed_after_target_fallback(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+    setup_test_parameters(0.3);
+    sage_merge_galaxies_init();
+
+    struct Halo fof_central_halo;
+    struct GalaxyData fof_central_gal;
+    setup_test_galaxy(&fof_central_halo, &fof_central_gal, 0,
+                      5.0, 0.1, 5.0, 0.1, 1.0, 0.02,
+                      20.0, 0.4, 2.0, 0.04, 0.2, 0.004, 0.05);
+
+    struct Halo stale_target_halo;
+    struct GalaxyData stale_target_gal;
+    setup_test_galaxy(&stale_target_halo, &stale_target_gal, 1,
+                      0.5, 0.01, 0.5, 0.01, 0.1, 0.002,
+                      5.0, 0.1, 0.5, 0.01, 0.05, 0.001, 0.01);
+    stale_target_halo.Type = 3;  /* Force fallback to FOF central at execution. */
+
+    struct Halo orphan_halo;
+    struct GalaxyData orphan_gal;
+    setup_test_galaxy(&orphan_halo, &orphan_gal, 2,
+                      1.0, 0.02, 1.0, 0.02, 0.2, 0.004,
+                      3.0, 0.06, 0.5, 0.01, 0.1, 0.002, 0.01);
+    orphan_halo.CentralHalo = 1;      /* Stale precomputed target (now invalid). */
+    orphan_gal.IsMerging = 1;
+    orphan_gal.MergerMassRatio = 0.9; /* Stale value should not be reused. */
+
+    struct Halo halos[3] = {fof_central_halo, stale_target_halo, orphan_halo};
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx);
+
+    const double initial_bulge = halos[0].galaxy->BulgeMass;
+    const double initial_stellar = halos[0].galaxy->StellarMass;
+    const double orphan_stellar = halos[2].galaxy->StellarMass;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_merge_galaxies_process(&ctx, halos, 3);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Process should succeed");
+    TEST_ASSERT(halos[2].Type == 3, "Type 2 satellite should become Type 3");
+
+    /* Recomputed ratio against FOF central is minor, so no full spheroid transform. */
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->BulgeMass,
+                             initial_bulge + orphan_stellar, 1e-6,
+                             "Minor merger should only add satellite stars to bulge");
+    TEST_ASSERT(halos[0].galaxy->BulgeMass < halos[0].galaxy->StellarMass,
+                "Major-merger spheroid transform should not trigger");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->StellarMass,
+                             initial_stellar + orphan_stellar, 1e-6,
+                             "FOF central should receive orphan stellar mass");
+
+    /* ===== CLEANUP ===== */
+    sage_merge_galaxies_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
 // ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
@@ -1781,6 +1909,8 @@ int main(void)
     TEST_RUN(test_threshold_boundary_low);
     TEST_RUN(test_threshold_boundary_high);
     TEST_RUN(test_orphan_merger);
+    TEST_RUN(test_type2_merges_into_centralhalo_target);
+    TEST_RUN(test_mass_ratio_recomputed_after_target_fallback);
 
     /* Run parameter sensitivity tests */
     TEST_RUN(test_parameter_sensitivity_threshold);

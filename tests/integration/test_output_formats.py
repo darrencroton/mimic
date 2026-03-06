@@ -669,6 +669,80 @@ def test_hdf5_baseline_comparison():
     print(f"{GREEN}  ✓ HDF5 output matches baseline - all core properties validated{NC}")
 
 
+def test_unique_id_contract():
+    """
+    Test UniqueGalaxyID/UniqueCentralGalaxyID contract on current HDF5 output.
+
+    Contract:
+      - UniqueGalaxyID is unique per snapshot
+      - Type 0: UniqueCentralGalaxyID == UniqueGalaxyID
+      - Type 1/2: UniqueCentralGalaxyID points to an existing Type 0 central
+    """
+    print("Testing Unique ID contract...")
+
+    if not MIMIC_EXE.exists():
+        print(f"  Skipping (Mimic not built)")
+        return
+
+    if not check_hdf5_support():
+        print(f"  Skipping (Mimic not compiled with HDF5 support)")
+        return
+
+    try:
+        import h5py  # noqa: F401 - import used only for availability check
+    except ImportError:
+        print(f"  Skipping (h5py not available)")
+        return
+
+    output_dir = TEST_DATA_DIR / "output" / "hdf5"
+    output_file = output_dir / "model_000.hdf5"
+
+    if not output_file.exists():
+        param_file = TEST_DATA_DIR / "test_hdf5.yaml"
+        returncode, _, stderr = run_mimic(param_file)
+        assert returncode == 0, f"Mimic execution failed: {stderr}"
+
+    halos, metadata = load_hdf5_halos(output_file)
+    print(f"  Loaded {metadata['TotHalos']} halos")
+
+    unique_ids = halos.UniqueGalaxyID
+    central_ids = halos.UniqueCentralGalaxyID
+    types = halos.Type
+
+    # UniqueGalaxyID must be unique within each snapshot.
+    n_unique = len(np.unique(unique_ids))
+    assert n_unique == len(halos), (
+        f"UniqueGalaxyID not unique: {n_unique} unique values for {len(halos)} halos"
+    )
+
+    id_to_type = {int(uid): int(t) for uid, t in zip(unique_ids, types)}
+
+    type0_mask = types == 0
+    assert np.all(central_ids[type0_mask] == unique_ids[type0_mask]), (
+        "Type 0 halos must satisfy UniqueCentralGalaxyID == UniqueGalaxyID"
+    )
+
+    sat_mask = np.isin(types, [1, 2])
+    sat_central_ids = central_ids[sat_mask]
+
+    missing = [int(cid) for cid in sat_central_ids if int(cid) not in id_to_type]
+    assert not missing, (
+        f"{len(missing)} satellites reference missing UniqueCentralGalaxyID targets"
+    )
+
+    bad_type = [int(cid) for cid in sat_central_ids if id_to_type[int(cid)] != 0]
+    assert not bad_type, (
+        f"{len(bad_type)} satellites reference non-Type0 UniqueCentralGalaxyID targets"
+    )
+
+    self_refs = np.sum(unique_ids[sat_mask] == sat_central_ids)
+    assert self_refs == 0, (
+        f"{self_refs} satellites self-reference UniqueCentralGalaxyID"
+    )
+
+    print("  ✓ UniqueGalaxyID uniqueness and UniqueCentralGalaxyID host-central mapping validated")
+
+
 def test_format_equivalence():
     """
     Test that binary and HDF5 formats produce identical output (all properties)
@@ -812,6 +886,7 @@ def main():
         test_hdf5_format_execution,
         test_hdf5_format_loading,
         test_hdf5_baseline_comparison,  # Validates core property determinism
+        test_unique_id_contract,  # Validates UniqueGalaxyID/UniqueCentralGalaxyID invariants
         test_format_equivalence,  # Validates binary matches HDF5 (all properties)
     ]
 

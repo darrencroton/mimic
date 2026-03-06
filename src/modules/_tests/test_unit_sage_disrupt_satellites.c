@@ -772,6 +772,56 @@ int test_mixed_disrupting_non_disrupting(void)
 }
 
 /**
+ * @test    test_type2_disruption_uses_centralhalo_target
+ * @brief   Type 2 disruption deposits mass into its CentralHalo (Type 1)
+ */
+int test_type2_disruption_uses_centralhalo_target(void)
+{
+    printf("  Testing: Type 2 disruption uses CentralHalo target...\n");
+
+    /* Setup */
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(1);
+
+    struct GalaxyData fof_cen_gal = create_test_galaxy(20.0, 100.0, 50.0, 10.0, 5.0, 0);
+    struct Halo fof_central = create_test_halo(0, 200.0, &fof_cen_gal);
+
+    struct GalaxyData subhalo_cen_gal = create_test_galaxy(8.0, 30.0, 12.0, 3.0, 1.0, 0);
+    struct Halo subhalo_central = create_test_halo(1, 60.0, &subhalo_cen_gal);
+
+    struct GalaxyData orphan_gal = create_test_galaxy(4.0, 2.0, 7.0, 1.5, 0.8, 1);
+    struct Halo orphan = create_test_halo(2, 10.0, &orphan_gal);
+    orphan.CentralHalo = 1;
+
+    ctx.central_galaxy = &fof_central;
+    struct Halo halos[3] = {fof_central, subhalo_central, orphan};
+
+    const float initial_fof_hot = halos[0].galaxy->HotGas;
+    const float initial_fof_ics = halos[0].galaxy->ICS;
+    const float initial_subhalo_hot = halos[1].galaxy->HotGas;
+    const float initial_subhalo_ics = halos[1].galaxy->ICS;
+
+    /* Execute */
+    int result = sage_disrupt_satellites_process(&ctx, halos, 3);
+
+    /* Validate */
+    TEST_ASSERT(result == 0, "Process should succeed");
+    TEST_ASSERT(halos[2].Type == 3, "Type 2 orphan should become Type 3");
+    TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas,
+                         initial_subhalo_hot + orphan_gal.ColdGas + orphan_gal.HotGas, 1e-4),
+                "Type 1 CentralHalo target should receive orphan gas");
+    TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->ICS,
+                         initial_subhalo_ics + orphan_gal.ICS + orphan_gal.StellarMass, 1e-4),
+                "Type 1 CentralHalo target should receive orphan ICS + stars");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->HotGas, initial_fof_hot, 1e-6),
+                "FOF Type 0 hot gas should remain unchanged");
+    TEST_ASSERT(FLOAT_EQ(halos[0].galaxy->ICS, initial_fof_ics, 1e-6),
+                "FOF Type 0 ICS should remain unchanged");
+
+    TEST_PASS;
+}
+
+/**
  * @brief   Main test runner
  */
 int main(void)
@@ -805,6 +855,7 @@ int main(void)
     test_multiple_disrupting_satellites();
     test_empty_halos_array();
     test_mixed_disrupting_non_disrupting();
+    test_type2_disruption_uses_centralhalo_target();
 
     /* Print summary */
     printf("\n%s", BLUE);

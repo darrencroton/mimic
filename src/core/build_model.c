@@ -102,12 +102,6 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
       fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
     }
 
-    /* Set central references for entire FOF group
-     * Called here (not per-subhalo) to ensure all galaxies point to the
-     * FOF group's Type 0 central, including satellites and orphans from
-     * satellite subhalos */
-    set_halo_centrals(0, ngal);
-
     process_halo_evolution(InputTreeHalos[halonr].FirstHaloInFOFgroup, ngal);
   }
 }
@@ -352,40 +346,42 @@ int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tre
 }
 
 /**
- * @brief   Sets the central object reference for all galaxies in a FOF group
+ * @brief   Sets subhalo-local central index links for one galaxy slice
  *
- * @param   ngalstart    Starting index of galaxies for this FOF group
- * @param   ngal         Ending index (exclusive) of galaxies for this FOF group
+ * @param   ngalstart    Starting index of galaxies for this subhalo
+ * @param   ngal         Ending index (exclusive) of galaxies for this subhalo
  *
- * This function identifies the Type 0 central galaxy for a FOF group
- * and sets ALL galaxies (including Type 1 satellites and Type 2 orphans) to
- * reference this central galaxy. This ensures UniqueCentralGalaxyID correctly points
- * to the FOF group's main central, not to individual satellite subhalo centrals.
- *
- * Each FOF group has exactly one Type 0 central, possibly multiple Type 1
- * satellites (satellite subhalo centrals), and any number of Type 2 orphans.
- *
- * IMPORTANT: This must be called BEFORE module execution so UniqueCentralGalaxyID
- * is available for modules to use for validation and tracking.
+ * SAGE-parity semantics: each subhalo slice points to its local central via
+ * CentralHalo. The local central is the Type 0 or Type 1 galaxy in
+ * [ngalstart, ngal). This allows Type 2 galaxies in satellite subhalos to
+ * reference their Type 1 central, rather than always referencing the FOF Type 0.
  */
 void set_halo_centrals(int ngalstart, int ngal) {
-  int i, centralgal;
+  int i, centralgal, ncentrals;
 
-  /* Find the Type 0 central galaxy for this FOF group
-   * Note: FOF groups can have multiple Type 1 satellites, but only one Type 0 */
-  for (i = ngalstart, centralgal = -1; i < ngal; i++) {
-    if (FoFWorkspace[i].Type == 0) {
-      if (centralgal != -1) {
-        ERROR_LOG("Multiple Type 0 galaxies in FOF group (range %d-%d)", ngalstart, ngal);
-        assert(centralgal == -1);
+  if (ngal <= ngalstart) {
+    return;
+  }
+
+  /* Find subhalo-local central (Type 0 or Type 1) and enforce uniqueness. */
+  centralgal = -1;
+  ncentrals = 0;
+  for (i = ngalstart; i < ngal; i++) {
+    if (FoFWorkspace[i].Type == 0 || FoFWorkspace[i].Type == 1) {
+      ncentrals++;
+      if (ncentrals > 1) {
+        ERROR_LOG("FATAL: Multiple Type 0/1 centrals found in subhalo slice "
+                  "(range %d-%d, first=%d, second=%d)",
+                  ngalstart, ngal, centralgal, i);
+        assert(ncentrals == 1);
       }
       centralgal = i;
-      break; /* Found it, no need to continue */
     }
   }
 
   if (centralgal == -1) {
-      ERROR_LOG("FATAL: No Type 0 central found in FOF group (range %d-%d)", ngalstart, ngal);
+      ERROR_LOG("FATAL: No Type 0/1 central found in subhalo slice (range %d-%d)",
+                ngalstart, ngal);
       // Log all galaxies for debugging
       for (i = ngalstart; i < ngal; i++) {
           ERROR_LOG("  Galaxy %d: Type=%d, HaloNr=%d", i, FoFWorkspace[i].Type, FoFWorkspace[i].HaloNr);
@@ -393,12 +389,9 @@ void set_halo_centrals(int ngalstart, int ngal) {
       assert(centralgal != -1);
   }
 
-  /* Set ALL galaxies to point to the FOF group's Type 0 central
-   * This sets both the index (CentralHalo) and unique ID (UniqueCentralGalaxyID)
-   * so modules can reliably validate galaxy associations during execution */
+  /* Set all galaxies in this slice to point to the subhalo-local central. */
   for (i = ngalstart; i < ngal; i++) {
     FoFWorkspace[i].CentralHalo = centralgal;
-    FoFWorkspace[i].UniqueCentralGalaxyID = FoFWorkspace[centralgal].UniqueGalaxyID;
   }
 }
 
@@ -417,9 +410,9 @@ void set_halo_centrals(int ngalstart, int ngal) {
  * 1. Identifies the most massive progenitor with halos
  * 2. Copies and updates halos from all progenitors
  *
- * Note: Central-satellite relationships are established in build_halo_tree()
- * after all subhalos in the FOF group have been processed, ensuring all
- * galaxies reference the FOF group's Type 0 central.
+ * Note: Central-satellite relationships are established here per subhalo slice.
+ * This preserves SAGE parity where Type 2 satellites can reference a Type 1
+ * subhalo central instead of always pointing to the FOF Type 0 central.
  *
  * The function ensures proper inheritance of object properties while
  * maintaining the hierarchy of central and satellite halos.
@@ -433,8 +426,10 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
   /* Copy halos from progenitors to the current snapshot */
   ngal = copy_progenitor_halos(halonr, ngalstart, first_occupied, tree, filenr);
 
-  /* Central assignment deferred to build_halo_tree() which processes entire
-   * FOF group at once (see set_halo_centrals call after subhalo loop) */
+  /* Set central links for this subhalo slice only (SAGE parity). */
+  if (ngal > ngalstart) {
+    set_halo_centrals(ngalstart, ngal);
+  }
 
   return ngal;
 }
@@ -555,13 +550,30 @@ static void update_context_for_substep(struct ModuleContext *ctx, int step) {
  * SubSteps parameter controls time sub-stepping (0 or 1 = no substeps).
  */
 void process_halo_evolution(int halonr, int ngal) {
-  int centralgal;
+  int centralgal, i;
   struct ModuleContext ctx;
 
-  /* Identify the central galaxy for this FOF group */
-  centralgal = FoFWorkspace[0].CentralHalo;
-  assert(FoFWorkspace[centralgal].Type == 0 &&
-         FoFWorkspace[centralgal].HaloNr == halonr);
+  /* Identify the FOF Type 0 central used for global module context. */
+  centralgal = -1;
+  for (i = 0; i < ngal; i++) {
+    if (FoFWorkspace[i].Type == 0) {
+      centralgal = i;
+      break;
+    }
+  }
+
+  if (centralgal == -1) {
+    ERROR_LOG("FATAL: No Type 0 central found for FOF halo %d (ngal=%d)", halonr,
+              ngal);
+    assert(centralgal != -1);
+  }
+
+  assert(FoFWorkspace[centralgal].HaloNr == halonr);
+
+  /* Set FOF-host central unique ID for all members (stable output contract). */
+  for (i = 0; i < ngal; i++) {
+    FoFWorkspace[i].UniqueCentralGalaxyID = FoFWorkspace[centralgal].UniqueGalaxyID;
+  }
 
   /* Setup module execution context */
   setup_module_context(&ctx, halonr, centralgal);

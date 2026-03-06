@@ -9,6 +9,7 @@
 #include "error.h"
 #include "module_interface.h"
 #include "types.h"
+#include "_shared/central_link.h"
 
 int sage_disrupt_satellites_init(void)
 {
@@ -26,15 +27,16 @@ int sage_disrupt_satellites_process(struct ModuleContext *ctx,
                                      struct Halo *halos,
                                      int ngal)
 {
+    (void)ctx;
+
     if (halos == NULL || ngal <= 0) {
         return 0;
     }
 
-    // Access FOF central galaxy (always non-NULL, guaranteed by core)
-    struct GalaxyData *central = ctx->central_galaxy->galaxy;
-    if (central == NULL) {
-        ERROR_LOG("Central galaxy has NULL galaxy data");
-        return -1;
+    // Find FOF central (Type 0), used as fallback target for non-Type2 satellites.
+    const int fof_central_idx = mimic_find_fof_central_index(halos, ngal);
+    if (fof_central_idx < 0 || halos[fof_central_idx].galaxy == NULL) {
+        return 0;
     }
 
     // Process all disrupting satellites
@@ -51,6 +53,17 @@ int sage_disrupt_satellites_process(struct ModuleContext *ctx,
         }
 
         const struct GalaxyData *sat = halos[i].galaxy;
+        const int target_idx =
+            mimic_resolve_type2_target_index(halos, ngal, i, fof_central_idx);
+
+        if (target_idx < 0 || target_idx >= ngal || target_idx == i ||
+            halos[target_idx].galaxy == NULL) {
+            ERROR_LOG("Invalid disruption target (satellite=%d, target=%d)",
+                      i, target_idx);
+            return -1;
+        }
+
+        struct GalaxyData *central = halos[target_idx].galaxy;
 
         // Transfer gas to hot phase (disruption heats gas)
         central->HotGas += sat->ColdGas + sat->HotGas;
@@ -73,8 +86,8 @@ int sage_disrupt_satellites_process(struct ModuleContext *ctx,
         // Mark satellite as disrupted (Type 3)
         halos[i].Type = 3;
 
-        DEBUG_LOG("Disrupted satellite %d to ICS (%.3e Msun)",
-                  halos[i].HaloNr, sat->StellarMass);
+        DEBUG_LOG("Disrupted satellite %d into target %d ICS (%.3e Msun)",
+                  halos[i].HaloNr, target_idx, sat->StellarMass);
     }
 
     return 0;

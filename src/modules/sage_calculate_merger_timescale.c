@@ -20,6 +20,7 @@
 #include "error.h"
 #include "module_interface.h"
 #include "types.h"
+#include "_shared/central_link.h"
 
 int sage_calculate_merger_timescale_init(void)
 {
@@ -37,20 +38,11 @@ int sage_calculate_merger_timescale_process(struct ModuleContext *ctx,
         return 0;
     }
 
-    // Find central halo (Type 0)
-    int central_idx = -1;
-    for (int i = 0; i < ngal; i++) {
-        if (halos[i].Type == 0) {
-            central_idx = i;
-            break;
-        }
-    }
-
-    if (central_idx == -1) {
+    /* Find FOF central (Type 0) used as fallback target. */
+    const int fof_central_idx = mimic_find_fof_central_index(halos, ngal);
+    if (fof_central_idx == -1) {
         return 0;  // No central (shouldn't happen in normal FOF groups)
     }
-
-    const struct Halo *central = &halos[central_idx];
 
     // Calculate merger timescale for Type 1/2 satellites that just became satellites
     for (int i = 0; i < ngal; i++) {
@@ -70,6 +62,14 @@ int sage_calculate_merger_timescale_process(struct ModuleContext *ctx,
         }
             
         if (halos[i].Type > 2) continue;  // Only Type 1/2 satellites
+
+        const int target_idx =
+            mimic_resolve_type2_target_index(halos, ngal, i, fof_central_idx);
+        if (target_idx < 0 || target_idx >= ngal) {
+            continue;
+        }
+
+        const struct Halo *central = &halos[target_idx];
 
         // Only calculate when galaxy FIRST becomes a satellite
         // infallMvir > 0 means infall properties have been set (Type 0→1/2 transition)
@@ -108,8 +108,9 @@ int sage_calculate_merger_timescale_process(struct ModuleContext *ctx,
 
         halos[i].galaxy->MergTime = mergtime;
 
-        DEBUG_LOG("Satellite %d: Set MergTime=%.3f (Len=%d, Mvir=%.3e, infallMvir=%.3e)",
-                  halos[i].HaloNr, mergtime, halos[i].Len, halos[i].Mvir, halos[i].infallMvir);
+        DEBUG_LOG("Satellite %d: Set MergTime=%.3f (target=%d, Len=%d, Mvir=%.3e, infallMvir=%.3e)",
+                  halos[i].HaloNr, mergtime, target_idx, halos[i].Len, halos[i].Mvir,
+                  halos[i].infallMvir);
     }
 
     return 0;

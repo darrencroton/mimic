@@ -463,6 +463,66 @@ int test_per_event_merger_starburst(void)
 }
 
 /**
+ * @test    test_per_event_merger_uses_fof_central_feedback_destination
+ * @brief   Per-event merger channel deposits reheated/ejected gas to FOF central
+ *
+ * Expected: Event target forms stars, but feedback destination is ctx->central_galaxy
+ * Validates: SAGE parity for merger_centralgal vs centralgal roles
+ */
+int test_per_event_merger_uses_fof_central_feedback_destination(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+
+    /* Zero ejection to isolate reheating destination behavior. */
+    setup_test_parameters(3.0, 0.0, 0.43, 0.03, 0.5, 0.3);
+    sage_collisional_starburst_init();
+
+    struct Halo fof_central_halo;
+    struct GalaxyData fof_central_gal;
+    setup_test_galaxy(&fof_central_halo, &fof_central_gal, 0,
+                      120.0, 260.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+
+    struct Halo event_target_halo;
+    struct GalaxyData event_target_gal;
+    setup_test_galaxy(&event_target_halo, &event_target_gal, 1,
+                      25.0, 180.0, 8.0, 0.16, 2.0, 0.5, 5.0, 0.1);
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &fof_central_halo);
+
+    struct ModuleEvent event = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = SAGE_EVENT_MERGER,
+        .source_index = 2,
+        .target_index = 1,
+        .value0 = 0.3,
+        .value1 = 0.0
+    };
+    ctx.active_event = &event;
+
+    const double initial_fof_hot = fof_central_halo.galaxy->HotGas;
+    const double initial_target_hot = event_target_halo.galaxy->HotGas;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_collisional_starburst_process(&ctx, &event_target_halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Per-event merger processing should succeed");
+    TEST_ASSERT(fof_central_halo.galaxy->HotGas > initial_fof_hot,
+                "Reheated gas should be deposited to FOF central hot gas");
+    TEST_ASSERT_DOUBLE_EQUAL(event_target_halo.galaxy->HotGas, initial_target_hot, 1e-8,
+                             "Event target hot gas should not receive reheated gas directly");
+
+    /* ===== CLEANUP ===== */
+    sage_collisional_starburst_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
  * @test    test_per_event_unknown_code_noop
  * @brief   Test unknown event code is a no-op
  *
@@ -1487,6 +1547,7 @@ int main(void)
     TEST_RUN(test_merger_starburst);
     TEST_RUN(test_both_triggers);
     TEST_RUN(test_per_event_merger_starburst);
+    TEST_RUN(test_per_event_merger_uses_fof_central_feedback_destination);
     TEST_RUN(test_per_event_unknown_code_noop);
     TEST_RUN(test_major_vs_minor_merger);
     TEST_RUN(test_mass_conservation);

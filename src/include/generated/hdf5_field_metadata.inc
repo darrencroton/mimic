@@ -6,7 +6,7 @@
  *   - src/core/halo_properties.yaml
  *   - src/modules/model_properties.yaml
  *
- * Source MD5: 5f31fa745936f21ddf15c8db4ab2f3e2
+ * Source MD5: 9bb5e82ececcea1588043a8478a840f5
  * To regenerate: make generate
  */
 
@@ -29,7 +29,7 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"Type", "dimensionless", "Halo type (0=central, 1=satellite, 2=orphan)"},
   {"MostBoundID", "dimensionless", "ID of most bound particle (original simulation halo ID)"},
   {"UniqueGalaxyID", "dimensionless", "Persistent unique galaxy identifier across all snapshots (file*10^15 + tree*10^9 + creation_halonr)"},
-  {"UniqueCentralGalaxyID", "dimensionless", "Persistent UniqueGalaxyID of current central galaxy (equals UniqueGalaxyID if Type=0)"},
+  {"UniqueCentralGalaxyID", "dimensionless", "Persistent UniqueGalaxyID of FOF host Type 0 central galaxy (equals UniqueGalaxyID if Type=0)"},
   {"dT", "Myr/h", "Time elapsed since progenitor snapshot (lookback time difference)"},
   {"Pos", "Mpc/h", "3D position vector (comoving coordinates)"},
   {"Vel", "km/s", "3D velocity vector (peculiar velocity)"},

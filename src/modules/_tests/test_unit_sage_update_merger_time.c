@@ -1003,6 +1003,48 @@ int test_multiple_satellites(void)
     TEST_PASS;
 }
 
+/**
+ * @test    test_type2_merger_ratio_uses_centralhalo
+ * @brief   Type 2 merger ratio uses CentralHalo target, not FOF Type 0
+ */
+int test_type2_merger_ratio_uses_centralhalo(void)
+{
+    printf("  Testing: Type 2 merger ratio uses CentralHalo target...\n");
+
+    /* Setup */
+    init_memory_system(0);
+    sage_update_merger_time_init();
+    struct ModuleContext ctx = create_test_context(0.1, 0, 1);
+
+    /* FOF Type 0 central: very massive baryons (would give tiny ratio if used) */
+    struct GalaxyData fof_central_gal = create_test_galaxy(999.9f, 80.0, 20.0, 0, 0, 0.0f);
+    struct Halo fof_central = create_test_halo(0, 300.0, 0.0, 0.8, 220.0, &fof_central_gal);
+
+    /* Type 1 subhalo central: modest baryons (intended target for Type 2) */
+    struct GalaxyData subhalo_central_gal = create_test_galaxy(5.0f, 0.5, 0.5, 0, 0, 0.0f);
+    struct Halo subhalo_central = create_test_halo(1, 100.0, 0.0, 0.3, 140.0, &subhalo_central_gal);
+
+    /* Type 2 orphan set to merge this substep and linked to Type 1 central */
+    struct GalaxyData orphan_gal = create_test_galaxy(0.05f, 1.0, 1.0, 0, 0, 0.0f);
+    struct Halo orphan = create_test_halo(2, 0.1, 0.0, 0.1, 60.0, &orphan_gal);
+    orphan.CentralHalo = 1;
+
+    ctx.central_galaxy = &fof_central;
+    struct Halo halos[3] = {fof_central, subhalo_central, orphan};
+
+    /* Execute */
+    int result = sage_update_merger_time_process(&ctx, halos, 3);
+
+    /* Validate */
+    TEST_ASSERT(result == 0, "Process should succeed");
+    TEST_ASSERT(halos[2].galaxy->IsMerging == 1, "Type 2 orphan should merge");
+    TEST_ASSERT(FLOAT_EQ(halos[2].galaxy->MergerMassRatio, 0.5f, 1e-3),
+                "MergerMassRatio should use Type 1 CentralHalo target");
+
+    sage_update_merger_time_cleanup();
+    TEST_PASS;
+}
+
 // ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
@@ -1051,6 +1093,8 @@ int main(void)
     test_merger_mass_ratio_calculation();
     setup_mock_config();
     test_mass_ratio_satellite_larger();
+    setup_mock_config();
+    test_type2_merger_ratio_uses_centralhalo();
 
     /* Run disruption triggering tests */
     setup_mock_config();

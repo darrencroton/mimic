@@ -33,7 +33,7 @@ halo_properties:
   - name: CentralHalo
     type: int
     units: dimensionless
-    description: Index of central halo in FoF group (working variable, not output)
+    description: Index of local Type 0/1 central halo for this subhalo slice (working variable, not output)
     output: false
     init_source: skip  # Set in build_model.c, not in init_halo()
 
@@ -64,7 +64,7 @@ halo_properties:
   - name: UniqueCentralGalaxyID
     type: long long
     units: dimensionless
-    description: Persistent UniqueGalaxyID of current central galaxy (equals UniqueGalaxyID if Type=0)
+    description: Persistent UniqueGalaxyID of FOF host Type 0 central galaxy (equals UniqueGalaxyID if Type=0)
     output: true
     init_source: default  # Initialized to 0, then set in update_halo_properties()
     init_value: 0

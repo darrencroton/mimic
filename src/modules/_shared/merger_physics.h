@@ -112,9 +112,8 @@ static inline void mimic_apply_quasar_mode_wind(
  */
 static inline void mimic_apply_collisional_starburst(
     double efficiency_factor, struct GalaxyData *gal,
-    struct GalaxyData *central_gal, const struct ModuleContext *ctx, int mode,
+    struct GalaxyData *central_gal, const struct Halo *central_halo, int mode,
     const struct MimicStarburstParams *p) {
-  const struct Halo *central_halo;
   double eburst;
   double stars;
   double reheated_mass;
@@ -124,13 +123,8 @@ static inline void mimic_apply_collisional_starburst(
   double metallicity_cold;
   double metallicity_hot;
 
-  if (gal == NULL || central_gal == NULL || ctx == NULL || p == NULL ||
+  if (gal == NULL || central_gal == NULL || central_halo == NULL || p == NULL ||
       efficiency_factor <= 0.0) {
-    return;
-  }
-
-  central_halo = ctx->central_galaxy;
-  if (central_halo == NULL) {
     return;
   }
 
