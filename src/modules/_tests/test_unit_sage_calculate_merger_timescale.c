@@ -8,6 +8,7 @@
  *   - Coulomb logarithm calculation
  *   - Type filtering (centrals vs satellites)
  *   - MergTime reset for Type 0 centrals
+ *   - Type 2 sentinel policy (force immediate merge via MergTime=0.0)
  *   - Sentinel value handling (999.9 = unset)
  *   - Edge cases (zero mass, NULL galaxy, no central)
  *   - MergTime capping at 998.0
@@ -228,12 +229,12 @@ int test_type1_satellite_calculation(void)
 }
 
 /**
- * @test    test_type2_orphan_calculation
- * @brief   Type 2 orphans also get MergTime calculated
+ * @test    test_type2_orphan_forces_immediate_merge
+ * @brief   Type 2 orphans with unset MergTime are forced to immediate merge
  */
-int test_type2_orphan_calculation(void)
+int test_type2_orphan_forces_immediate_merge(void)
 {
-    printf("  Testing: Type 2 orphan MergTime calculation...\n");
+    printf("  Testing: Type 2 orphan immediate-merge forcing...\n");
 
     /* Setup */
     init_memory_system(0);
@@ -256,10 +257,8 @@ int test_type2_orphan_calculation(void)
 
     /* Validate */
     TEST_ASSERT(result == 0, "Process should succeed");
-    TEST_ASSERT(halos[1].galaxy->MergTime < 999.0f,
-                "Type 2 orphan should have MergTime calculated");
-    TEST_ASSERT(halos[1].galaxy->MergTime > 0.0f,
-                "MergTime should be positive");
+    TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->MergTime, 0.0f, 0.01),
+                "Type 2 orphan with sentinel MergTime should be forced to 0.0");
 
     TEST_PASS;
 }
@@ -776,12 +775,12 @@ int test_empty_halos_array(void)
 }
 
 /**
- * @test    test_type2_orphan_uses_centralhalo_host
- * @brief   Type 2 timescale uses its CentralHalo host properties
+ * @test    test_type2_non_sentinel_preserved
+ * @brief   Type 2 satellites with pre-set MergTime keep existing value
  */
-int test_type2_orphan_uses_centralhalo_host(void)
+int test_type2_non_sentinel_preserved(void)
 {
-    printf("  Testing: Type 2 orphan uses CentralHalo host for timescale...\n");
+    printf("  Testing: Type 2 non-sentinel MergTime preserved...\n");
 
     /* Setup */
     init_memory_system(0);
@@ -795,8 +794,8 @@ int test_type2_orphan_uses_centralhalo_host(void)
     struct GalaxyData subhalo_central_gal = create_test_galaxy(999.9f, 5.0, 2.0);
     struct Halo subhalo_central = create_test_halo(1, 40.0, 0.2, 100.0, 20, 0.0, &subhalo_central_gal);
 
-    /* Type 2 orphan linked to subhalo central */
-    struct GalaxyData orphan_gal = create_test_galaxy(999.9f, 1.0, 0.5);
+    /* Type 2 orphan linked to subhalo central with existing merger clock */
+    struct GalaxyData orphan_gal = create_test_galaxy(5.0f, 1.0, 0.5);
     struct Halo orphan = create_test_halo(2, 5.0, 0.1, 50.0, 0, 10.0, &orphan_gal);
     orphan.CentralHalo = 1;
 
@@ -808,22 +807,8 @@ int test_type2_orphan_uses_centralhalo_host(void)
 
     /* Validate */
     TEST_ASSERT(result == 0, "Process should succeed");
-    TEST_ASSERT(halos[2].galaxy->MergTime < 999.0f,
-                "Type 2 orphan should have MergTime calculated");
-
-    const double sat_mass = halos[2].Mvir + halos[2].galaxy->StellarMass + halos[2].galaxy->ColdGas;
-    const double coulomb_subhalo = log1p((double)halos[1].Len / 10.0);
-    const double expected_subhalo = 2.0 * 1.17 * halos[1].Rvir * halos[1].Rvir * halos[1].Vvir /
-                                    (coulomb_subhalo * MimicConfig.G * sat_mass);
-
-    const double coulomb_fof = log1p((double)halos[0].Len / 10.0);
-    const double expected_fof = 2.0 * 1.17 * halos[0].Rvir * halos[0].Rvir * halos[0].Vvir /
-                                (coulomb_fof * MimicConfig.G * sat_mass);
-
-    TEST_ASSERT(FLOAT_EQ(halos[2].galaxy->MergTime, expected_subhalo, 1e-6),
-                "MergTime should match CentralHalo (Type 1) host formula");
-    TEST_ASSERT(fabs(halos[2].galaxy->MergTime - expected_fof) > 1e-3,
-                "MergTime should differ from FOF Type 0 fallback formula");
+    TEST_ASSERT(FLOAT_EQ(halos[2].galaxy->MergTime, 5.0f, 0.01),
+                "Type 2 with non-sentinel MergTime should keep prior value");
 
     TEST_PASS;
 }
@@ -853,7 +838,7 @@ int main(void)
     test_type0_central_skipped();
     test_type0_mergtime_reset();
     test_type1_satellite_calculation();
-    test_type2_orphan_calculation();
+    test_type2_orphan_forces_immediate_merge();
     test_type3_plus_skipped();
 
     /* Run sentinel and condition tests */
@@ -873,7 +858,7 @@ int main(void)
     test_no_central_returns_early();
     test_multiple_satellites();
     test_empty_halos_array();
-    test_type2_orphan_uses_centralhalo_host();
+    test_type2_non_sentinel_preserved();
 
     /* Print summary */
     printf("\n%s", BLUE);

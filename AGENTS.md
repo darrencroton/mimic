@@ -111,6 +111,18 @@ make tidy
 ## Testing
 
 ```bash
+# Long-running test workflow (recommended):
+# 1) Capture full output to a log file
+# 2) Check exit code explicitly
+# 3) Inspect tail and scan for failure keywords
+mkdir -p ignore/test-logs
+make test-unit > ignore/test-logs/test-unit.log 2>&1
+test_rc=$?
+tail -n 60 ignore/test-logs/test-unit.log
+rg -n -i "failed|error|traceback" ignore/test-logs/test-unit.log
+echo "exit_code=${test_rc}"
+# Treat non-zero exit code as failure, regardless of log text
+
 # Run all tests (validates metadata first, then runs all test tiers)
 make tests
 

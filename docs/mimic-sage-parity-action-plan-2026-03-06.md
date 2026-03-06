@@ -28,7 +28,7 @@ Each issue is documented with:
 | P2  | Critical | Merger physics disconnected (BH/starburst missed)        | Shared helpers inline (P2-A)                 | Low-Med | Done                |
 | P3  | Critical | Trigger clearing suppresses disk instability starburst   | Split channels + by-galaxy clear (P3-A)      | Low-Med | Done                |
 | P4  | High     | Type 2 eligibility bypasses baryonic protection          | Remove Type==2 condition                     | Trivial | Done                |
-| P5  | High     | Type 0→2 transitions lack immediate merge                | Add MergTime=0.0                             | Low     | Pending             |
+| P5  | High     | Type 0→2 transitions lack immediate merge                | Module-level Type 2 sentinel force-to-zero   | Low     | Done                |
 | P6  | High     | Central-link semantics differ (FOF vs per-subhalo)       | Restore per-subhalo central semantics (P6-B) | High    | Done                |
 | P7  | Low      | Virial mass condition edge case                          | Change > to >=                               | Trivial | Done                |
 | P8  | Low      | Documentation execution-order mismatch                   | Fix header comment                           | Trivial | Done                |
@@ -424,7 +424,7 @@ FoFWorkspace[ngal].Type = 2;
 
 **Solutions**:
 
-#### Solution P5-A: Add MergTime = 0.0 for Type 0→2 ⭐ RECOMMENDED
+#### Solution P5-A: Add MergTime = 0.0 for Type 0→2 in core (NOT RECOMMENDED)
 
 ```c
 if (FoFWorkspace[ngal].Type == 0) {
@@ -440,10 +440,31 @@ FoFWorkspace[ngal].Type = 2;
 ```
 
 **Vision Alignment**:
-- Vision 1: ⚠️ This is physics logic in core - acceptable as it's type transition handling
+- Vision 1: ❌ Violates core-physics separation
 - Vision 5: ✅ Matches SAGE unified processing model
 
 **Effort**: Low (add 3 lines)
+
+#### Solution P5-B: Force Type 2 sentinel to immediate merge in module ⭐ RECOMMENDED
+
+Implement in `sage_calculate_merger_timescale.c`:
+
+```c
+if (halos[i].Type == 2 && halos[i].galaxy->MergTime > 999.0f) {
+    halos[i].galaxy->MergTime = 0.0f;
+    continue;
+}
+```
+
+This preserves core-physics separation while reproducing SAGE behavior for
+direct Type 0→2 orphan transitions (and any Type 2 sentinel residuals).
+
+**Vision Alignment**:
+- Vision 1: ✅ Physics stays in physics module
+- Vision 2: ✅ Runtime modularity preserved
+- Vision 5: ✅ Matches SAGE immediate-merge path semantics
+
+**Effort**: Low (small module change + unit tests)
 
 ---
 
@@ -653,7 +674,7 @@ SAGE outputs `mergeType`, `mergeIntoID`, `mergeIntoSnapNum` for lineage reconstr
 | Order | Issue | Action | Files | Status (2026-03-06) |
 |-------|-------|--------|-------|----------------------|
 | 2.1 | P4 | Remove Type 2 eligibility bypass | `sage_update_merger_time.c` | Done |
-| 2.2 | P5 | Add MergTime=0.0 for Type 0→2 | `build_model.c` | Pending |
+| 2.2 | P5 | Force Type 2 sentinel MergTime to 0.0 in merger-timescale module | `sage_calculate_merger_timescale.c` | Done |
 | 2.3 | P6 | Restore per-subhalo central assignment for strict parity | `build_model.c`, modules using `CentralHalo` | Done (plus robust Unique ID contract + regression tests) |
 
 ### Phase 3: Medium/Low Priority
@@ -677,7 +698,7 @@ SAGE outputs `mergeType`, `mergeIntoID`, `mergeIntoSnapNum` for lineage reconstr
 
 | Principle | P1 | P2 | P3 | P4 | P5 | P6 | P7 | P8 | P9 |
 |-----------|----|----|----|----|----|----|----|----|----|
-| 1. Physics-Agnostic Core | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ | ✅ | N/A | ✅ |
+| 1. Physics-Agnostic Core | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ |
 | 2. Runtime Modularity | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ |
 | 3. Metadata-Driven | N/A | ✅ | N/A | N/A | N/A | N/A | N/A | N/A | ✅ |
 | 4. Single Source of Truth | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ |
@@ -690,10 +711,11 @@ SAGE outputs `mergeType`, `mergeIntoID`, `mergeIntoSnapNum` for lineage reconstr
 ## Quick Reference: Files to Modify
 
 ```
-src/core/build_model.c          # P1, P5, P6
+src/core/build_model.c          # P1, P6
 src/core/virial.c               # P7
 src/core/module_registry.h      # P8
 src/modules/sage_update_merger_time.c      # P4
+src/modules/sage_calculate_merger_timescale.c  # P5 (Type 2 sentinel -> immediate merge)
 src/modules/sage_merge_galaxies.c          # P1, P2 (midpoint timestamps + helper calls)
 src/modules/sage_quasar_mode.c             # P3 (remove inline clears)
 src/modules/sage_collisional_starburst.c   # P3 (remove inline clears)
@@ -719,7 +741,7 @@ src/modules/sage_clear_disk_instability_triggers.c  # P3 (process_by_galaxy clea
 - [x] Clear modules use `process_by_galaxy` and run after consumers (P3, Amendment C1)
 - [x] Triggers don't leak across phases (P3, Amendment C3)
 - [x] Type 2 orphans with high baryons protected in early substeps (P4)
-- [ ] Type 0→2 transitions trigger immediate merge (P5)
+- [x] Type 0→2 transitions trigger immediate merge (P5)
 - [x] Per-subhalo central semantics restored and validated against SAGE behavior (P6-B)
 - [x] Unique ID contract validated: `UniqueGalaxyID` unique, `UniqueCentralGalaxyID` points to host Type 0 central
 - [x] No test regressions

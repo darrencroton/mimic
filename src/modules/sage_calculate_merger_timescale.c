@@ -30,6 +30,11 @@ int sage_calculate_merger_timescale_init(void)
 
 // Calculate merger timescale for satellites using dynamical friction formula.
 // Runs only when MergTime is still at the unset sentinel (> 999.0).
+//
+// SAGE parity note:
+// - Type 2 satellites with sentinel MergTime are forced to immediate merge
+//   (MergTime = 0.0), matching SAGE's Type 0->2 orphan transition handling.
+// - Dynamical friction timescale is computed for Type 1 satellites only.
 int sage_calculate_merger_timescale_process(struct ModuleContext *ctx,
                                              struct Halo *halos,
                                              int ngal)
@@ -62,6 +67,15 @@ int sage_calculate_merger_timescale_process(struct ModuleContext *ctx,
         }
             
         if (halos[i].Type > 2) continue;  // Only Type 1/2 satellites
+
+        // SAGE parity: unresolved Type 2 entries with unset merger time must
+        // merge immediately rather than receive a new dynamical-friction clock.
+        if (halos[i].Type == 2 && halos[i].galaxy->MergTime > 999.0f) {
+            halos[i].galaxy->MergTime = 0.0f;
+            DEBUG_LOG("Type 2 satellite %d: forcing immediate merge (MergTime=0.0)",
+                      halos[i].HaloNr);
+            continue;
+        }
 
         const int target_idx =
             mimic_resolve_type2_target_index(halos, ngal, i, fof_central_idx);
