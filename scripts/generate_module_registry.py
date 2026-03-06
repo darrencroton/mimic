@@ -164,7 +164,11 @@ def create_standalone_module_metadata(module_name: str, c_file: Path) -> Dict[st
         "version": "1.0.0",
         "author": "Auto-generated",
         "sources": [f"{module_name}.c"],
-        "supported_processing_modes": ["process_full_halo", "process_by_galaxy"],
+        "supported_processing_modes": [
+            "process_full_halo",
+            "process_per_event",
+            "process_by_galaxy",
+        ],
         "dependencies": {"properties": [], "parameters": []},
         "_module_dir": c_file.parent,
         "_pattern": "standalone",
@@ -479,7 +483,8 @@ def generate_module_struct_definitions(modules: List[Dict[str, Any]]) -> List[st
     for module in sorted(modules, key=lambda m: m["name"]):
         name = module["name"]
         modes = module.get(
-            "supported_processing_modes", ["process_full_halo", "process_by_galaxy"]
+            "supported_processing_modes",
+            ["process_full_halo", "process_per_event", "process_by_galaxy"],
         )
         num_modes = len(modes)
 
@@ -541,6 +546,9 @@ def generate_module_init_c(
         " * - PROCESSING_MODE_FULL_HALO: Module processes full halo array (ngal > 1)"
     )
     lines.append(
+        " * - PROCESSING_MODE_PER_EVENT: Module processes one event target at a time (ngal = 1)"
+    )
+    lines.append(
         " * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (ngal = 1)"
     )
     lines.append(" *")
@@ -548,7 +556,7 @@ def generate_module_init_c(
         " * Generated from 'supported_processing_modes' field in module_info.yaml."
     )
     lines.append(
-        " * If omitted, defaults to supporting both modes [process_full_halo, process_by_galaxy]."
+        " * If omitted, defaults to [process_full_halo, process_per_event, process_by_galaxy]."
     )
     lines.append(" *")
     lines.append(
@@ -561,7 +569,8 @@ def generate_module_init_c(
         name = module["name"]
         # Get supported modes from metadata (default to both if not specified)
         modes = module.get(
-            "supported_processing_modes", ["process_full_halo", "process_by_galaxy"]
+            "supported_processing_modes",
+            ["process_full_halo", "process_per_event", "process_by_galaxy"],
         )
 
         # Convert mode strings to enum values
@@ -569,6 +578,8 @@ def generate_module_init_c(
         for mode in modes:
             if mode == "process_full_halo":
                 mode_enums.append("PROCESSING_MODE_FULL_HALO")
+            elif mode == "process_per_event":
+                mode_enums.append("PROCESSING_MODE_PER_EVENT")
             elif mode == "process_by_galaxy":
                 mode_enums.append("PROCESSING_MODE_BY_GALAXY")
 

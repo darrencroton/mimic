@@ -195,8 +195,10 @@ modules:
   phase_2:
     # Merger Triggering & Execution
     - sage_update_merger_time: process_full_halo       # Decrement MergTime, set flags
-    - sage_merge_galaxies: process_full_halo           # Combine + inline BH/starburst + morphology
+    - sage_merge_galaxies: process_full_halo           # Combine + emit merger events + morphology
     - sage_disrupt_satellites: process_full_halo       # Tidal disruption to ICS
+    - sage_quasar_mode: process_per_event              # Merger-triggered BH growth & quasar winds
+    - sage_collisional_starburst: process_per_event    # Merger-triggered starburst with SN feedback
 
   post_timestep: []
 
@@ -230,6 +232,7 @@ modules:
 
 **Processing modes**:
 - `process_full_halo`: Module processes entire galaxy array
+- `process_per_event`: Core dispatches each emitted event target with `ctx->active_event` set
 - `process_by_galaxy`: Core loops over galaxies (better cache locality)
 
 **Available SAGE modules**:
@@ -250,11 +253,11 @@ modules:
 | `sage_calculate_supernova_feedback` | phase_1 | Supernova feedback |
 | `sage_update_star_formation_supernova` | phase_1 | Apply SF and feedback |
 | `sage_disk_instability` | phase_1 | Disk stability check & stellar transfer to bulge |
-| `sage_quasar_mode` | phase_1 | Disk-instability BH growth & quasar-mode AGN winds |
-| `sage_collisional_starburst` | phase_1 | Disk-instability starbursts with SN feedback |
+| `sage_quasar_mode` | phase_1, phase_2 | Disk-instability BH growth (phase_1) + merger-event quasar winds (phase_2) |
+| `sage_collisional_starburst` | phase_1, phase_2 | Disk-instability starbursts (phase_1) + merger-event starbursts (phase_2) |
 | `sage_clear_disk_instability_triggers` | phase_1 | Clear `UnstableDiskGasFraction` after phase_1 consumers |
 | `sage_update_merger_time` | phase_2 | Decrement merger timescales, trigger merger/disruption events |
-| `sage_merge_galaxies` | phase_2 | Combine mergers and run merger BH/starburst inline |
+| `sage_merge_galaxies` | phase_2 | Combine mergers, update morphology, emit merger events |
 | `sage_disrupt_satellites` | phase_2 | Tidal disruption to ICS |
 
 **Physics-free mode** (halo tracking only):

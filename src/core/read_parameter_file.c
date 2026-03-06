@@ -471,10 +471,14 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
     enum ProcessingMode processing_mode;
     if (strcmp(processing_mode_str, "process_full_halo") == 0) {
       processing_mode = PROCESSING_MODE_FULL_HALO;
+    } else if (strcmp(processing_mode_str, "process_per_event") == 0) {
+      processing_mode = PROCESSING_MODE_PER_EVENT;
     } else if (strcmp(processing_mode_str, "process_by_galaxy") == 0) {
       processing_mode = PROCESSING_MODE_BY_GALAXY;
     } else {
-      ERROR_LOG("Phase '%s': invalid processing mode '%s' (must be 'process_full_halo' or 'process_by_galaxy')",
+      ERROR_LOG("Phase '%s': invalid processing mode '%s' (must be "
+                "'process_full_halo', 'process_per_event', or "
+                "'process_by_galaxy')",
                 phase_name, processing_mode_str);
       myfree(*config);
       *config = NULL;

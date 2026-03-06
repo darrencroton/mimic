@@ -47,7 +47,7 @@
  */
 struct PhaseModuleConfig {
   char *module_name;                  /**< Module name (must match registered module) */
-  enum ProcessingMode processing_mode; /**< How to call module (process_full_halo or process_by_galaxy) */
+  enum ProcessingMode processing_mode; /**< How to call module */
 };
 
 /**
@@ -78,11 +78,14 @@ int module_system_init(void);
  * @brief   Execute modules in a specific phase
  *
  * Core execution engine for multi-phase pipeline. Implements galaxy-major
- * loop for PROCESSING_MODE_BY_GALAXY modules.
+ * loop for PROCESSING_MODE_BY_GALAXY modules and event dispatch for
+ * PROCESSING_MODE_PER_EVENT modules.
  *
  * Execution order within phase:
  * 1. All PROCESSING_MODE_FULL_HALO modules execute with full halo array
- * 2. All PROCESSING_MODE_BY_GALAXY modules execute in galaxy-major order:
+ * 2. Events emitted by full-halo modules are dispatched to all
+ *    PROCESSING_MODE_PER_EVENT modules in YAML order
+ * 3. All PROCESSING_MODE_BY_GALAXY modules execute in galaxy-major order:
  *    for each galaxy g:
  *      module1(galaxy g)
  *      module2(galaxy g)

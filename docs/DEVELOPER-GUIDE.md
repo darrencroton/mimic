@@ -289,7 +289,7 @@ module:
 
 ### Processing Modes
 
-Modules can process galaxies in two modes (see [Appendix A6](#a6-processing-modes) for complete reference):
+Modules can process galaxies in three modes (see [Appendix A6](#a6-processing-modes) for complete reference):
 
 **Example: process_by_galaxy** (better cache locality):
 
@@ -332,6 +332,21 @@ static int my_module_process(struct ModuleContext *ctx,
 }
 ```
 
+**Example: process_per_event** (event-driven channel):
+
+```c
+static int my_module_process(struct ModuleContext *ctx,
+                              struct Halo *halos, int ngal) {
+  if (ctx->active_event == NULL) return 0;  /* Not in per-event dispatch */
+  if (ngal != 1) return -1;
+
+  if (ctx->active_event->event_code == MY_EVENT_CODE) {
+    apply_event_physics(&halos[0], ctx->active_event->value0);
+  }
+  return 0;
+}
+```
+
 ### Pipeline Phases
 
 The multi-phase pipeline executes modules in four distinct phases:
@@ -343,32 +358,38 @@ The multi-phase pipeline executes modules in four distinct phases:
 │                                                               │
 │  PRE_TIMESTEP (runs once):                                    │
 │    ├─ Pass 1: Execute all process_full_halo modules           │
-│    └─ Pass 2: For g = 0..ngal:                                │
+│    ├─ Pass 2: Dispatch emitted events to process_per_event    │
+│    └─ Pass 3: For g = 0..ngal:                                │
 │                 Execute all process_by_galaxy modules         │
 │                                                               │
 │  FOR each substep (0..SubSteps-1):                            │
 │    │                                                          │
 │    ├─ PHASE_1 (runs each substep):                            │
 │    │    ├─ Pass 1: Execute all process_full_halo modules      │
-│    │    └─ Pass 2: For g = 0..ngal:                           │
+│    │    ├─ Pass 2: Dispatch emitted events to process_per_event│
+│    │    └─ Pass 3: For g = 0..ngal:                           │
 │    │                 Execute all process_by_galaxy modules    │
 │    │                                                          │
 │    └─ PHASE_2 (runs each substep):                            │
 │         ├─ Pass 1: Execute all process_full_halo modules      │
-│         └─ Pass 2: For g = 0..ngal:                           │
+│         ├─ Pass 2: Dispatch emitted events to process_per_event│
+│         └─ Pass 3: For g = 0..ngal:                           │
 │                      Execute all process_by_galaxy modules    │
 │                                                               │
 │  POST_TIMESTEP (runs once):                                   │
 │    ├─ Pass 1: Execute all process_full_halo modules           │
-│    └─ Pass 2: For g = 0..ngal:                                │
+│    ├─ Pass 2: Dispatch emitted events to process_per_event    │
+│    └─ Pass 3: For g = 0..ngal:                                │
 │                 Execute all process_by_galaxy modules         │
 │                                                               │
 └───────────────────────────────────────────────────────────────┘
 
 Key execution details:
   • Within each phase, process_full_halo modules ALWAYS execute first
+  • Events emitted by full-halo modules are dispatched to process_per_event modules
   • Then process_by_galaxy modules execute in galaxy-major loop
   • Each by_galaxy module receives single galaxy (ngal=1)
+  • Each per_event module receives single event target halo (ngal=1, `ctx->active_event != NULL`)
   • Full_halo modules receive entire array (ngal can be 1-1000s)
   • Module order within same mode is preserved from YAML config
 ```
@@ -1438,13 +1459,15 @@ static int my_module_process(struct ModuleContext *ctx,
 | Mode | Value | Description |
 |------|-------|-------------|
 | `PROCESSING_MODE_FULL_HALO` | 0 | Module receives full galaxy array (ngal can be 1 to 1000s) |
-| `PROCESSING_MODE_BY_GALAXY` | 1 | Core loops over galaxies, module processes one at a time (ngal = 1) |
+| `PROCESSING_MODE_PER_EVENT` | 1 | Core dispatches one emitted event target at a time (ngal = 1, `ctx->active_event` set) |
+| `PROCESSING_MODE_BY_GALAXY` | 2 | Core loops over galaxies, module processes one at a time (ngal = 1) |
 
 **When to use**:
 
 | Mode | Best For | Cache | Vectorization | SAGE Compatibility |
 |------|----------|-------|---------------|-------------------|
 | `process_full_halo` | Snapshot-level operations, array calculations | Lower | Better | No |
+| `process_per_event` | Event-triggered physics linked to full-halo producers | Event-local | Low | Yes |
 | `process_by_galaxy` | Per-galaxy physics, time integration | Better | Lower | Yes |
 
 ### A7. Pipeline Phases

@@ -3,7 +3,11 @@
  * @brief SAGE quasar-mode AGN feedback (BH growth + energy-driven winds)
  *
  * Implements Kauffmann & Haehnelt (2000) black hole growth coupled with
- * energy-driven gas ejection. Triggered by disk instability in phase_1.
+ * energy-driven gas ejection.
+ *
+ * Trigger channels:
+ * - process_by_galaxy: disk instability trigger (phase_1)
+ * - process_per_event: merger event trigger (phase_2)
  *
  * References:
  *   - SAGE: model_mergers.c (grow_black_hole, quasar_mode_wind)
@@ -15,6 +19,7 @@
 #include "constants.h"
 #include "error.h"
 #include "_shared/merger_physics.h"
+#include "_shared/sage_events.h"
 #include "_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "types.h"
@@ -43,6 +48,43 @@ int sage_quasar_mode_init(void)
 
 int sage_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
 {
+    if (ctx == NULL || halos == NULL || ngal <= 0) {
+        return 0;
+    }
+
+    if (ctx->active_event != NULL) {
+        if (ngal != 1) {
+            ERROR_LOG("sage_quasar_mode (process_per_event) expects ngal=1, got %d", ngal);
+            return -1;
+        }
+
+        struct Halo *event_halo = &halos[0];
+        if (event_halo->galaxy == NULL) {
+            return 0;
+        }
+
+        const struct ModuleEvent *event = ctx->active_event;
+        if (event->event_code != SAGE_EVENT_MERGER) {
+            return 0; /* Unknown event code: graceful no-op */
+        }
+
+        const double merger_ratio = event->value0;
+        if (merger_ratio <= 0.0) {
+            return 0;
+        }
+
+        const double bh_accrete = mimic_apply_black_hole_growth(
+            event_halo, merger_ratio, BLACK_HOLE_GROWTH_RATE);
+        if (bh_accrete > 0.0) {
+            mimic_apply_quasar_mode_wind(event_halo, bh_accrete,
+                                         QUASAR_MODE_EFFICIENCY, ctx);
+        }
+
+        DEBUG_LOG("Quasar mode from merger event (ratio=%.3f, source=%d, target=%d)",
+                  merger_ratio, event->source_index, event->target_index);
+        return 0;
+    }
+
     if (ngal != 1) {
         ERROR_LOG("sage_quasar_mode expects ngal=1, got %d", ngal);
         return -1;
@@ -55,7 +97,7 @@ int sage_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int 
         return 0;
     }
 
-    /* Disk-instability channel only. Merger channel is handled inline in merge module. */
+    /* Disk-instability channel (by-galaxy path). */
     if (gal->UnstableDiskGasFraction > 0.0) {
         const double BHaccrete = mimic_apply_black_hole_growth(
             halo, gal->UnstableDiskGasFraction, BLACK_HOLE_GROWTH_RATE);

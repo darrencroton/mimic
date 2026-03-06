@@ -145,7 +145,8 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
                                 'phase_2': [('module5', 'process_by_galaxy')],
                                 'post_timestep': [('module6', 'process_full_halo')]
                             }
-                            Each tuple is (module_name, processing_mode) where processing_mode is 'process_full_halo' or 'process_by_galaxy'
+                            Each tuple is (module_name, processing_mode) where processing_mode is
+                            'process_full_halo', 'process_per_event', or 'process_by_galaxy'
         module_params (dict): DEPRECATED - use model_params instead
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
         first_file (int): First file to process (default: 0)

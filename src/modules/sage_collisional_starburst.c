@@ -1,12 +1,13 @@
 /**
  * @file    sage_collisional_starburst.c
- * @brief   Collisional starburst from disk instability (phase_1 channel)
+ * @brief   Collisional starburst from disk instability and merger channels
  *
  * Implements starburst recipe similar to Somerville et al. (2001).
  * The efficiency coefficients are taken from TJ Cox's PhD thesis.
  *
- * Triggered by:
- *   - Disk instability: UnstableDiskGasFraction > 0 (mode=1, eburst = efficiency)
+ * Trigger channels:
+ *   - process_by_galaxy: Disk instability (UnstableDiskGasFraction > 0, mode=1)
+ *   - process_per_event: Merger event payload (mode=0)
  *
  * Physics: Stars form in burst, feedback reheats cold gas to hot, ejects hot gas.
  * Newly formed stars contribute to bulge mass (starbursts form spheroids).
@@ -24,6 +25,7 @@
 #include "module_interface.h"
 #include "types.h"
 #include "_shared/merger_physics.h"
+#include "_shared/sage_events.h"
 #include "_system/parameter_helpers.h"
 #include "_system/physical_constants.h"
 
@@ -77,6 +79,56 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
                                        struct Halo *halos,
                                        int ngal)
 {
+    if (ctx == NULL || halos == NULL || ngal <= 0) {
+        return 0;
+    }
+
+    const struct MimicStarburstParams params = {
+        .feedback_reheating_epsilon = FEEDBACK_REHEATING_EPSILON,
+        .feedback_ejection_efficiency = FEEDBACK_EJECTION_EFFICIENCY,
+        .recycle_fraction = RECYCLE_FRACTION,
+        .yield = YIELD,
+        .frac_z_leave_disk = FRAC_Z_LEAVE_DISK,
+        .threshold_major_merger = THRESHOLD_MAJOR_MERGER,
+        .energy_sn_code = EnergySNcode,
+        .eta_sn_code = EtaSNcode,
+    };
+
+    if (ctx->active_event != NULL) {
+        if (ngal != 1) {
+            ERROR_LOG("sage_collisional_starburst (process_per_event) expects ngal=1, got %d",
+                      ngal);
+            return -1;
+        }
+
+        struct Halo *event_halo = &halos[0];
+        struct GalaxyData *gal = event_halo->galaxy;
+        struct GalaxyData *central_gal = NULL;
+        const struct ModuleEvent *event = ctx->active_event;
+
+        if (ctx->central_galaxy != NULL) {
+            central_gal = ctx->central_galaxy->galaxy;
+        }
+
+        if (gal == NULL || central_gal == NULL) {
+            return 0;
+        }
+
+        if (event->event_code != SAGE_EVENT_MERGER) {
+            return 0; /* Unknown event code: graceful no-op */
+        }
+
+        if (event->value0 <= 0.0) {
+            return 0;
+        }
+
+        mimic_apply_collisional_starburst(event->value0, gal, central_gal, ctx, 0,
+                                          &params);
+        DEBUG_LOG("Starburst from merger event (ratio=%.3f, source=%d, target=%d)",
+                  event->value0, event->source_index, event->target_index);
+        return 0;
+    }
+
     // Verify process_by_galaxy mode
     if (ngal != 1) {
         ERROR_LOG("sage_collisional_starburst expects ngal=1, got %d", ngal);
@@ -98,18 +150,8 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
         return 0;
     }
 
-    /* Disk-instability channel only. Merger channel is handled inline in merge module. */
+    /* Disk-instability channel (by-galaxy path). */
     if (gal->UnstableDiskGasFraction > 0.0) {
-        const struct MimicStarburstParams params = {
-            .feedback_reheating_epsilon = FEEDBACK_REHEATING_EPSILON,
-            .feedback_ejection_efficiency = FEEDBACK_EJECTION_EFFICIENCY,
-            .recycle_fraction = RECYCLE_FRACTION,
-            .yield = YIELD,
-            .frac_z_leave_disk = FRAC_Z_LEAVE_DISK,
-            .threshold_major_merger = THRESHOLD_MAJOR_MERGER,
-            .energy_sn_code = EnergySNcode,
-            .eta_sn_code = EtaSNcode,
-        };
         mimic_apply_collisional_starburst(gal->UnstableDiskGasFraction, gal,
                                           central_gal, ctx, 1, &params);
         DEBUG_LOG("Starburst from disk instability (eff=%.3f)",

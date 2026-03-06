@@ -28,7 +28,8 @@
  * 2. Core calls init() during program initialization
  * 3. Core calls process() for each FOF group during tree processing
  *    - May be called once per timestep or multiple times per substep
- *    - May receive full halo array (process_full_halo) or single galaxy (process_by_galaxy)
+ *    - May receive full halo array (process_full_halo), event target halo
+ *      (process_per_event), or single galaxy (process_by_galaxy)
  * 4. Core calls cleanup() during program shutdown
  *
  * Example module implementation:
@@ -44,7 +45,9 @@
  *     int substep = ctx->substep_number;
  *     double dt = ctx->substep_dt;
  *
- *     // Process halos (ngal=1 if process_by_galaxy, ngal>1 if process_full_halo)
+ *     // Process halos:
+ *     //   - ngal=1 for process_by_galaxy and process_per_event
+ *     //   - ngal>1 for process_full_halo
  *     for (int i = 0; i < ngal; i++) {
  *         if (halos[i].galaxy == NULL) continue;
  *
@@ -116,6 +119,7 @@ enum ModulePhase {
  *
  * Controls how the core calls modules within a phase:
  * - PROCESSING_MODE_FULL_HALO: Module processes entire halo array at once (ngal = full array size)
+ * - PROCESSING_MODE_PER_EVENT: Module processes one emitted event target at a time (ngal = 1)
  * - PROCESSING_MODE_BY_GALAXY: Core loops over galaxies, module processes one at a time (ngal = 1)
  *
  * When multiple PROCESSING_MODE_BY_GALAXY modules exist in a phase, they execute in
@@ -129,8 +133,35 @@ enum ModulePhase {
  */
 enum ProcessingMode {
   PROCESSING_MODE_FULL_HALO,  /**< Module called once with full halo array */
+  PROCESSING_MODE_PER_EVENT,  /**< Module called for each emitted event target */
   PROCESSING_MODE_BY_GALAXY,  /**< Module called per-galaxy (galaxy-major loop) */
   PROCESSING_MODE_COUNT       /**< Number of processing modes */
+};
+
+/**
+ * @brief   Generic module event payload type
+ *
+ * Events are physics-agnostic at core level. Producers define event_code
+ * semantics in module-level headers.
+ */
+enum ModuleEventType {
+  MODULE_EVENT_TYPE_NONE = 0,    /**< Unused/default value */
+  MODULE_EVENT_TYPE_SCALAR = 1   /**< Generic scalar payload event */
+};
+
+/**
+ * @brief   Generic phase-local event payload
+ *
+ * Events are emitted by full-halo producer modules and consumed by
+ * PROCESSING_MODE_PER_EVENT modules.
+ */
+struct ModuleEvent {
+  enum ModuleEventType type;  /**< Payload encoding */
+  int event_code;             /**< Producer-defined semantic code */
+  int source_index;           /**< Source halo index in FoFWorkspace */
+  int target_index;           /**< Target halo index in FoFWorkspace */
+  double value0;              /**< Primary scalar payload */
+  double value1;              /**< Secondary scalar payload */
 };
 
 /**
@@ -237,6 +268,16 @@ struct ModuleContext {
    */
   struct Halo *central_galaxy;
 
+  /* ===== Event Information ===== */
+
+  /**
+   * @brief Active event payload for PROCESSING_MODE_PER_EVENT invocations
+   *
+   * NULL for PROCESSING_MODE_FULL_HALO and PROCESSING_MODE_BY_GALAXY calls.
+   * Non-NULL only when core is dispatching one emitted event.
+   */
+  const struct ModuleEvent *active_event;
+
   /* ===== Configuration Access ===== */
 
   /**
@@ -247,6 +288,23 @@ struct ModuleContext {
    */
   const struct MimicConfig *params;
 };
+
+/**
+ * @brief Emit a phase-local event for PROCESSING_MODE_PER_EVENT consumers
+ *
+ * Intended for producer modules running in PROCESSING_MODE_FULL_HALO.
+ * Events are transient and cleared automatically at phase end.
+ *
+ * @param ctx           Module context from current process() call
+ * @param event_code    Producer-defined semantic event code
+ * @param source_index  Source halo index in FoFWorkspace
+ * @param target_index  Target halo index in FoFWorkspace
+ * @param value0        Primary scalar payload
+ * @param value1        Secondary scalar payload
+ * @return 0 on success, non-zero on failure
+ */
+int module_emit_event(struct ModuleContext *ctx, int event_code, int source_index,
+                      int target_index, double value0, double value1);
 
 /**
  * @brief   Galaxy physics module interface
@@ -288,7 +346,9 @@ struct Module {
    * This is the single processing function called by the pipeline.
    * May be called:
    * - Once or multiple times per timestep (depends on phase and substeps)
-   * - With full halo array (ngal > 1, process_full_halo) or single galaxy (ngal = 1, process_by_galaxy)
+   * - With full halo array (ngal > 1, process_full_halo)
+   * - With one event target halo (ngal = 1, process_per_event)
+   * - With single galaxy (ngal = 1, process_by_galaxy)
    *
    * The halos array is in FoFWorkspace (temporary processing space). All
    * halos in the array belong to the same FOF group at the same snapshot.
@@ -302,7 +362,8 @@ struct Module {
    *
    * @param ctx   Module execution context (redshift, time, substep info, params)
    * @param halos Array of halos in the FOF group (FoFWorkspace)
-   * @param ngal  Number of halos in the array (1 if process_by_galaxy, >1 if process_full_halo)
+   * @param ngal  Number of halos in the array (1 if process_by_galaxy or
+   *              process_per_event, >1 if process_full_halo)
    * @return 0 on success, non-zero on failure
    */
   int (*process)(struct ModuleContext *ctx, struct Halo *halos, int ngal);
@@ -324,6 +385,7 @@ struct Module {
    *
    * Declares which processing modes this module can execute in:
    * - PROCESSING_MODE_FULL_HALO: Module processes full halo array (array-based operations)
+   * - PROCESSING_MODE_PER_EVENT: Module processes one event target at a time
    * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (per-galaxy operations)
    *
    * Set via module_info.yaml (supported_processing_modes field). If omitted from

@@ -27,7 +27,7 @@
  *   - test_merger_timing_tracking: Merger times recorded correctly
  *   - test_satellite_type_change: Satellite Type → 3 after merger
  *   - test_all_baryonic_components: All 11 fields transferred
- *   - test_inline_merger_physics: Merger-triggered BH growth/starburst executed inline
+ *   - test_inline_merger_physics: Merger-triggered physics moved to per-event channel
  *   - test_zero_mass_satellite: Zero mass satellite handled
  *   - test_null_central_galaxy: NULL central handled
  *   - test_null_satellite_galaxy: NULL satellite skipped
@@ -879,10 +879,10 @@ int test_all_baryonic_components(void)
 
 /**
  * @test    test_inline_merger_physics
- * @brief   Test merger-triggered BH growth and starburst run inline
+ * @brief   Test merge step no longer applies inline quasar/starburst physics
  *
- * Expected: Central BH and stellar mass increase beyond pure transfer
- * Validates: P2 inline merger physics execution path
+ * Expected: Central BH/stellar match pure transfer; trigger state is cleared
+ * Validates: Merge module now emits events and leaves physics to per-event consumers
  */
 int test_inline_merger_physics(void)
 {
@@ -922,10 +922,10 @@ int test_inline_merger_physics(void)
     sage_merge_galaxies_process(&ctx, halos, 2);
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT(halos[0].galaxy->BlackHoleMass > transfer_only_bh,
-                "Merger BH growth should increase central BH beyond pure transfer");
-    TEST_ASSERT(halos[0].galaxy->StellarMass > transfer_only_stellar,
-                "Merger starburst should increase stellar mass beyond pure transfer");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->BlackHoleMass, transfer_only_bh, 1e-9,
+                             "Merge step should only transfer BH mass");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->StellarMass, transfer_only_stellar, 1e-9,
+                             "Merge step should only transfer stellar mass");
     TEST_ASSERT(halos[1].Type == 3, "Satellite should be marked merged");
     TEST_ASSERT(halos[1].galaxy->IsMerging == 0, "Satellite IsMerging flag should be cleared");
     TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->MergerMassRatio, 0.0, 1e-12,

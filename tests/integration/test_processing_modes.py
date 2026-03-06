@@ -17,6 +17,8 @@ Test cases:
   - test_processing_mode_once_array_processing: Module receives full array
   - test_processing_mode_all_per_galaxy: Module called once per galaxy
   - test_processing_mode_all_ngal_is_one: Verify ngal=1 for each call
+  - test_processing_mode_per_event_no_emissions: No-op when no producer emits events
+  - test_processing_mode_per_event_mode_mismatch_fails: Validation rejects unsupported mode
 
 Author: Mimic Testing Team
 Date: 2025-12-09
@@ -283,6 +285,101 @@ def test_processing_mode_all_ngal_is_one():
         shutil.rmtree(temp_dir)
 
 
+def test_processing_mode_per_event_no_emissions():
+    """
+    Test that process_per_event consumers are no-op when no events are emitted
+
+    Expected: Run succeeds and per-event module is never called
+    Validates: process_per_event parser/dispatch baseline behavior
+    """
+    print("Testing PROCESSING_MODE_PER_EVENT no-emission behavior...")
+
+    # ===== SETUP =====
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="loop_per_event_no_emissions",
+        phase_config={
+            'pre_timestep': [],
+            'phase_1': [('test_fixture', 'process_per_event')],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={
+            "TestFixtureDummyParameter": 1.0,
+            "TestFixtureEnableLogging": 1
+        },
+        first_file=0,
+        last_file=0
+    )
+
+    try:
+        # Use SubSteps=1 for simpler analysis
+        import yaml
+        with open(param_file, 'r') as f:
+            config = yaml.safe_load(f)
+        config['SubSteps'] = 1
+        with open(param_file, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+
+        # ===== EXECUTE =====
+        returncode, stdout, stderr = run_mimic(param_file)
+
+        # ===== VALIDATE =====
+        assert returncode == 0, f"Mimic failed: {stderr}"
+
+        all_executions = parse_test_fixture_executions(stdout)
+        assert len(all_executions) == 0, \
+            f"Expected no test_fixture executions without emitted events, got {len(all_executions)}"
+
+        print("  ✓ PROCESSING_MODE_PER_EVENT no-emission behavior verified")
+        print("    - Run completed successfully")
+        print("    - No per-event invocations occurred without producers")
+
+    finally:
+        # ===== CLEANUP =====
+        shutil.rmtree(temp_dir)
+
+
+def test_processing_mode_per_event_mode_mismatch_fails():
+    """
+    Test that unsupported process_per_event configuration fails validation
+
+    Expected: module_system_init reports mode mismatch and exits non-zero
+    Validates: mode support checks include process_per_event
+    """
+    print("Testing PROCESSING_MODE_PER_EVENT mode-mismatch validation...")
+
+    # ===== SETUP =====
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="loop_per_event_invalid_module",
+        phase_config={
+            'pre_timestep': [],
+            'phase_1': [('sage_calculate_cooling', 'process_per_event')],
+            'phase_2': [],
+            'post_timestep': []
+        },
+        model_params={},
+        first_file=0,
+        last_file=0
+    )
+
+    try:
+        # ===== EXECUTE =====
+        returncode, stdout, stderr = run_mimic(param_file)
+
+        # ===== VALIDATE =====
+        combined_output = f"{stdout}\n{stderr}"
+        assert returncode != 0, "Expected non-zero exit for unsupported process_per_event module"
+        assert "does not support processing mode 'process_per_event'" in combined_output, \
+            "Expected clear processing mode mismatch message"
+
+        print("  ✓ PROCESSING_MODE_PER_EVENT mismatch rejected as expected")
+        print("    - Run failed fast during mode validation")
+
+    finally:
+        # ===== CLEANUP =====
+        shutil.rmtree(temp_dir)
+
+
 def main():
     """
     Main test runner
@@ -299,6 +396,8 @@ def main():
         test_processing_mode_once_array_processing,
         test_processing_mode_all_per_galaxy,
         test_processing_mode_all_ngal_is_one,
+        test_processing_mode_per_event_no_emissions,
+        test_processing_mode_per_event_mode_mismatch_fails,
     ]
 
     passed = 0

@@ -490,7 +490,8 @@ def validate_supported_processing_modes(
 ) -> bool:
     """Validate supported_processing_modes field."""
 
-    # Field is optional - if omitted, defaults to [process_full_halo, process_by_galaxy]
+    # Field is optional - if omitted, defaults to
+    # [process_full_halo, process_per_event, process_by_galaxy]
     if "supported_processing_modes" not in module:
         return True
 
@@ -502,19 +503,19 @@ def validate_supported_processing_modes(
             module_name,
             1,
             "supported_processing_modes cannot be empty. "
-            "Specify ['process_full_halo'], ['process_by_galaxy'], or ['process_full_halo', 'process_by_galaxy']",
+            "Specify one or more of ['process_full_halo', 'process_per_event', 'process_by_galaxy']",
         )
         return False
 
     # Check for valid values
-    valid_modes = {"process_full_halo", "process_by_galaxy"}
+    valid_modes = {"process_full_halo", "process_per_event", "process_by_galaxy"}
     invalid = [mode for mode in modes if mode not in valid_modes]
     if invalid:
         results.add_error(
             module_name,
             1,
             f"Invalid processing mode(s): {', '.join(invalid)}. "
-            f"Must be 'process_full_halo' and/or 'process_by_galaxy'",
+            f"Must be from {sorted(valid_modes)}",
         )
         return False
 

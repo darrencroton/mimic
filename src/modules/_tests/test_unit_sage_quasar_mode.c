@@ -17,8 +17,10 @@
  *
  * Test cases:
  *   - test_bh_growth_disk_instability: BH grows from disk instability
- *   - test_bh_growth_merger: Merger trigger is ignored (handled in merge module)
+ *   - test_bh_growth_merger: By-galaxy path ignores merger flags
  *   - test_bh_growth_both_triggers: Disk trigger processed while merger trigger preserved
+ *   - test_bh_growth_per_event_merger: Merger event processed in process_per_event mode
+ *   - test_per_event_unknown_code_noop: Unknown per-event code ignored safely
  *   - test_vvir_suppression: Low Vvir suppresses accretion
  *   - test_mass_conservation_accretion: Mass conserved
  *   - test_metallicity_preservation_accretion: Metallicity preserved
@@ -50,6 +52,7 @@
 #include "../include/globals.h"
 #include "../util/error.h"
 #include "../util/memory.h"
+#include "_shared/sage_events.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -350,6 +353,112 @@ int test_bh_growth_both_triggers(void)
     TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
                              "Disk-instability trigger should remain unchanged");
     TEST_ASSERT(gal.IsMerging == 1, "Merger trigger should remain unchanged");
+
+    /* ===== CLEANUP ===== */
+    sage_quasar_mode_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_bh_growth_per_event_merger
+ * @brief   Test BH growth from merger event in process_per_event path
+ *
+ * Expected: BH mass increases and cold gas decreases
+ * Validates: process_per_event merger channel behavior
+ */
+int test_bh_growth_per_event_merger(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+
+    setup_test_parameters(0.01, 0.001);
+    sage_quasar_mode_init();
+
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx);
+
+    struct ModuleEvent event = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = SAGE_EVENT_MERGER,
+        .source_index = 1,
+        .target_index = 0,
+        .value0 = 0.3,
+        .value1 = 0.0
+    };
+    ctx.active_event = &event;
+
+    const double initial_bh = gal.BlackHoleMass;
+    const double initial_cold = gal.ColdGas;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_quasar_mode_process(&ctx, &halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Per-event merger processing should succeed");
+    TEST_ASSERT(gal.BlackHoleMass > initial_bh,
+                "BH mass should increase from merger event");
+    TEST_ASSERT(gal.ColdGas < initial_cold,
+                "Cold gas should decrease from merger event");
+
+    /* ===== CLEANUP ===== */
+    sage_quasar_mode_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_per_event_unknown_code_noop
+ * @brief   Test unknown per-event code is graceful no-op
+ *
+ * Expected: No property changes and success return
+ * Validates: Defensive unknown event handling
+ */
+int test_per_event_unknown_code_noop(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+
+    setup_test_parameters(0.01, 0.001);
+    sage_quasar_mode_init();
+
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx);
+
+    struct ModuleEvent event = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = 999,
+        .source_index = 1,
+        .target_index = 0,
+        .value0 = 0.5,
+        .value1 = 0.0
+    };
+    ctx.active_event = &event;
+
+    const double initial_bh = gal.BlackHoleMass;
+    const double initial_cold = gal.ColdGas;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_quasar_mode_process(&ctx, &halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Unknown per-event code should be a no-op success");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh, 1e-12,
+                             "BH mass should remain unchanged for unknown event");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
+                             "Cold gas should remain unchanged for unknown event");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();
@@ -1188,6 +1297,8 @@ int main(void)
     TEST_RUN(test_bh_growth_disk_instability);
     TEST_RUN(test_bh_growth_merger);
     TEST_RUN(test_bh_growth_both_triggers);
+    TEST_RUN(test_bh_growth_per_event_merger);
+    TEST_RUN(test_per_event_unknown_code_noop);
     TEST_RUN(test_vvir_suppression);
     TEST_RUN(test_mass_conservation_accretion);
     TEST_RUN(test_metallicity_preservation_accretion);

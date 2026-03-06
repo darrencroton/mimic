@@ -33,6 +33,9 @@
 /** Maximum number of modules that can be registered */
 #define MAX_MODULES 32
 
+/** Maximum number of phase-local events buffered before hard failure */
+#define MAX_PHASE_EVENTS 4096
+
 /** Array of all registered modules (available for use) */
 static struct Module *registered_modules[MAX_MODULES];
 
@@ -44,6 +47,36 @@ static struct Module *execution_pipeline[MAX_MODULES];
 
 /** Number of modules in execution pipeline */
 static int num_pipeline_modules = 0;
+
+/**
+ * @brief Phase-local event dispatch state
+ *
+ * Active only during execute_phase(). Enables module_emit_event() to append
+ * events and dispatch them to PROCESSING_MODE_PER_EVENT consumers.
+ */
+struct PhaseEventDispatchState {
+  struct ModuleEvent events[MAX_PHASE_EVENTS];
+  int event_count;
+  int last_dispatched_event;
+  struct PhaseModuleConfig *phase_config;
+  int num_modules;
+  struct ModuleContext *ctx;
+  struct Halo *halos;
+  int ngal;
+  bool active;
+  bool emission_allowed;
+};
+
+static struct PhaseEventDispatchState phase_event_state = {
+    .event_count = 0,
+    .last_dispatched_event = 0,
+    .phase_config = NULL,
+    .num_modules = 0,
+    .ctx = NULL,
+    .halos = NULL,
+    .ngal = 0,
+    .active = false,
+    .emission_allowed = false};
 
 /**
  * @brief   Find a registered module by name
@@ -164,10 +197,26 @@ static bool module_supports_processing_mode(const struct Module *mod,
 }
 
 /**
+ * @brief   Convert processing mode enum to configuration string
+ */
+static const char *processing_mode_to_string(enum ProcessingMode mode) {
+  switch (mode) {
+    case PROCESSING_MODE_FULL_HALO:
+      return "process_full_halo";
+    case PROCESSING_MODE_PER_EVENT:
+      return "process_per_event";
+    case PROCESSING_MODE_BY_GALAXY:
+      return "process_by_galaxy";
+    default:
+      return "unknown";
+  }
+}
+
+/**
  * @brief   Format supported modes for error messages
  *
  * @param   mod  Module whose supported modes to format
- * @return  Static string with mode names (e.g., "process_full_halo, process_by_galaxy")
+ * @return  Static string with mode names (e.g., "process_full_halo, process_per_event, process_by_galaxy")
  */
 static const char *format_supported_modes(const struct Module *mod) {
   static char buffer[128];
@@ -176,8 +225,7 @@ static const char *format_supported_modes(const struct Module *mod) {
   for (int i = 0; i < mod->num_supported_modes; i++) {
     if (i > 0)
       strcat(buffer, ", ");
-    strcat(buffer,
-           mod->supported_processing_modes[i] == PROCESSING_MODE_FULL_HALO ? "process_full_halo" : "process_by_galaxy");
+    strcat(buffer, processing_mode_to_string(mod->supported_processing_modes[i]));
   }
   return buffer;
 }
@@ -206,8 +254,7 @@ static int validate_phase_processing_modes(struct PhaseModuleConfig *config,
 
     /* Check if configured mode is supported */
     if (!module_supports_processing_mode(mod, config[i].processing_mode)) {
-      const char *mode_str =
-          (config[i].processing_mode == PROCESSING_MODE_FULL_HALO) ? "process_full_halo" : "process_by_galaxy";
+      const char *mode_str = processing_mode_to_string(config[i].processing_mode);
 
       ERROR_LOG("Configuration error in phase '%s':", phase_name);
       ERROR_LOG("  Module '%s' does not support processing mode '%s'", mod->name,
@@ -300,17 +347,176 @@ int module_system_init(void) {
 }
 
 /**
+ * @brief   Initialize per-phase event dispatch state
+ */
+static void begin_phase_event_dispatch(struct PhaseModuleConfig *phase_config,
+                                       int num_modules,
+                                       struct ModuleContext *ctx,
+                                       struct Halo *halos, int ngal) {
+  phase_event_state.event_count = 0;
+  phase_event_state.last_dispatched_event = 0;
+  phase_event_state.phase_config = phase_config;
+  phase_event_state.num_modules = num_modules;
+  phase_event_state.ctx = ctx;
+  phase_event_state.halos = halos;
+  phase_event_state.ngal = ngal;
+  phase_event_state.active = true;
+  phase_event_state.emission_allowed = false;
+
+  if (ctx != NULL) {
+    ctx->active_event = NULL;
+  }
+}
+
+/**
+ * @brief   Clear per-phase event dispatch state
+ */
+static void end_phase_event_dispatch(void) {
+  if (phase_event_state.ctx != NULL) {
+    phase_event_state.ctx->active_event = NULL;
+  }
+
+  phase_event_state.event_count = 0;
+  phase_event_state.last_dispatched_event = 0;
+  phase_event_state.phase_config = NULL;
+  phase_event_state.num_modules = 0;
+  phase_event_state.ctx = NULL;
+  phase_event_state.halos = NULL;
+  phase_event_state.ngal = 0;
+  phase_event_state.active = false;
+  phase_event_state.emission_allowed = false;
+}
+
+/**
+ * @brief   Dispatch a contiguous range of queued events to per-event modules
+ */
+static void dispatch_events_range(int start_index, int end_index) {
+  if (!phase_event_state.active || start_index >= end_index) {
+    return;
+  }
+
+  /*
+   * Event emission is producer-only for v1.
+   * Disable emission while running per-event consumers to prevent recursive
+   * re-emit loops from consumer modules.
+   */
+  bool prior_emission_allowed = phase_event_state.emission_allowed;
+  phase_event_state.emission_allowed = false;
+
+  for (int event_index = start_index; event_index < end_index; event_index++) {
+    const struct ModuleEvent *event = &phase_event_state.events[event_index];
+
+    if (event->target_index < 0 || event->target_index >= phase_event_state.ngal) {
+      ERROR_LOG("Event dispatch failed: target_index=%d out of bounds [0, %d)",
+                event->target_index, phase_event_state.ngal);
+      exit(EXIT_FAILURE);
+    }
+
+    struct Halo *target_halo = &phase_event_state.halos[event->target_index];
+
+    for (int i = 0; i < phase_event_state.num_modules; i++) {
+      if (phase_event_state.phase_config[i].processing_mode !=
+          PROCESSING_MODE_PER_EVENT) {
+        continue;
+      }
+
+      struct Module *mod =
+          find_module_by_name(phase_event_state.phase_config[i].module_name);
+      if (mod == NULL) {
+        ERROR_LOG("Module '%s' configured but not registered",
+                  phase_event_state.phase_config[i].module_name);
+        exit(EXIT_FAILURE);
+      }
+
+      phase_event_state.ctx->active_event = event;
+
+      DEBUG_LOG("Executing module: %s (event_code=%d, source=%d, target=%d, "
+                "substep %d/%d, z=%.3f)",
+                mod->name, event->event_code, event->source_index,
+                event->target_index, phase_event_state.ctx->substep_number + 1,
+                phase_event_state.ctx->num_substeps, phase_event_state.ctx->redshift);
+
+      int result = mod->process(phase_event_state.ctx, target_halo, 1);
+      if (result != 0) {
+        ERROR_LOG("Module '%s' failed on event %d (event_code=%d, substep %d)",
+                  mod->name, event_index, event->event_code,
+                  phase_event_state.ctx->substep_number);
+        exit(EXIT_FAILURE);
+      }
+    }
+
+    phase_event_state.ctx->active_event = NULL;
+  }
+
+  phase_event_state.emission_allowed = prior_emission_allowed;
+  phase_event_state.last_dispatched_event = end_index;
+}
+
+int module_emit_event(struct ModuleContext *ctx, int event_code, int source_index,
+                      int target_index, double value0, double value1) {
+  if (ctx == NULL) {
+    ERROR_LOG("module_emit_event called with NULL context");
+    return -1;
+  }
+
+  /* Allow direct module unit tests to call producers without active dispatch. */
+  if (!phase_event_state.active) {
+    DEBUG_LOG("Dropping event code=%d because no phase dispatch context is active",
+              event_code);
+    return 0;
+  }
+
+  if (ctx != phase_event_state.ctx) {
+    ERROR_LOG("module_emit_event called with mismatched ModuleContext");
+    return -1;
+  }
+
+  if (!phase_event_state.emission_allowed) {
+    ERROR_LOG("module_emit_event is only allowed during PROCESSING_MODE_FULL_HALO execution");
+    return -1;
+  }
+
+  if (source_index < 0 || source_index >= phase_event_state.ngal) {
+    ERROR_LOG("module_emit_event invalid source_index=%d (ngal=%d)", source_index,
+              phase_event_state.ngal);
+    return -1;
+  }
+
+  if (target_index < 0 || target_index >= phase_event_state.ngal) {
+    ERROR_LOG("module_emit_event invalid target_index=%d (ngal=%d)", target_index,
+              phase_event_state.ngal);
+    return -1;
+  }
+
+  if (phase_event_state.event_count >= MAX_PHASE_EVENTS) {
+    ERROR_LOG("Phase event buffer overflow: emitted %d events (max %d)",
+              phase_event_state.event_count, MAX_PHASE_EVENTS);
+    return -1;
+  }
+
+  int event_index = phase_event_state.event_count;
+  struct ModuleEvent *event = &phase_event_state.events[event_index];
+  event->type = MODULE_EVENT_TYPE_SCALAR;
+  event->event_code = event_code;
+  event->source_index = source_index;
+  event->target_index = target_index;
+  event->value0 = value0;
+  event->value1 = value1;
+
+  phase_event_state.event_count++;
+
+  /* Dispatch immediately to preserve producer-side event ordering semantics. */
+  dispatch_events_range(event_index, event_index + 1);
+  return 0;
+}
+
+/**
  * @brief   Execute modules in a specific phase
  *
- * Core execution engine for multi-phase pipeline. Implements galaxy-major
- * loop for PROCESSING_MODE_BY_GALAXY modules (better cache locality, matches SAGE).
- *
- * Execution order within phase:
- * 1. PROCESSING_MODE_FULL_HALO modules: called with full halo array
- * 2. PROCESSING_MODE_BY_GALAXY modules: galaxy-major order
- *    for each galaxy g:
- *      module1(galaxy g)
- *      module2(galaxy g)
+ * Core execution engine for multi-phase pipeline:
+ * 1. PROCESSING_MODE_FULL_HALO modules
+ * 2. Event dispatch to PROCESSING_MODE_PER_EVENT modules
+ * 3. PROCESSING_MODE_BY_GALAXY modules (galaxy-major loop)
  *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip)
@@ -320,52 +526,55 @@ int module_system_init(void) {
  */
 void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                    struct ModuleContext *ctx, struct Halo *halos, int ngal) {
-  if (num_modules == 0 || halos == NULL || ngal <= 0) {
-    return; // Empty phase or nothing to process
+  if (num_modules == 0 || ctx == NULL || halos == NULL || ngal <= 0) {
+    return; /* Empty phase or nothing to process */
   }
 
-  /* PASS 1: PROCESSING_MODE_FULL_HALO modules (full halo array - executes first) */
+  begin_phase_event_dispatch(phase_config, num_modules, ctx, halos, ngal);
+
+  /* PASS 1: PROCESSING_MODE_FULL_HALO modules (always first) */
   for (int i = 0; i < num_modules; i++) {
     if (phase_config[i].processing_mode != PROCESSING_MODE_FULL_HALO) {
-      continue; // Skip PROCESSING_MODE_BY_GALAXY modules in this pass
+      continue;
     }
 
-    /* Find module by name */
     struct Module *mod = find_module_by_name(phase_config[i].module_name);
     if (mod == NULL) {
       ERROR_LOG("Module '%s' configured but not registered",
-                  phase_config[i].module_name);
+                phase_config[i].module_name);
       exit(EXIT_FAILURE);
     }
 
-    /* Call module with full halo array */
-    DEBUG_LOG("Executing module: %s (full array, ngal=%d, substep %d/%d, "
-              "z=%.3f)",
+    DEBUG_LOG("Executing module: %s (full array, ngal=%d, substep %d/%d, z=%.3f)",
               mod->name, ngal, ctx->substep_number + 1, ctx->num_substeps,
               ctx->redshift);
 
+    ctx->active_event = NULL;
+    phase_event_state.emission_allowed = true;
     int result = mod->process(ctx, halos, ngal);
+    phase_event_state.emission_allowed = false;
+
     if (result != 0) {
-      ERROR_LOG("Module '%s' failed (substep %d)", mod->name,
-                ctx->substep_number);
+      ERROR_LOG("Module '%s' failed (substep %d)", mod->name, ctx->substep_number);
       exit(EXIT_FAILURE);
     }
+
+    /* Safety dispatch for any events not yet dispatched during emission. */
+    dispatch_events_range(phase_event_state.last_dispatched_event,
+                          phase_event_state.event_count);
   }
 
-  /* PASS 2: PROCESSING_MODE_BY_GALAXY modules (galaxy-major loop - executes after FULL_HALO) */
+  /* PASS 2: PROCESSING_MODE_BY_GALAXY modules (after full-halo/event work) */
   for (int g = 0; g < ngal; g++) {
-    /* Skip halos without galaxies or already merged */
     if (halos[g].galaxy == NULL || halos[g].Type == 3) {
       continue;
     }
 
-    /* Execute all PROCESSING_MODE_BY_GALAXY modules for this galaxy */
     for (int i = 0; i < num_modules; i++) {
       if (phase_config[i].processing_mode != PROCESSING_MODE_BY_GALAXY) {
-        continue; // Skip PROCESSING_MODE_FULL_HALO modules (already done)
+        continue;
       }
 
-      /* Find module by name */
       struct Module *mod = find_module_by_name(phase_config[i].module_name);
       if (mod == NULL) {
         ERROR_LOG("Module '%s' configured but not registered",
@@ -373,11 +582,11 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
         exit(EXIT_FAILURE);
       }
 
-      /* Call module with single galaxy (ngal=1) */
       DEBUG_LOG("Executing module: %s (galaxy %d/%d, substep %d/%d, z=%.3f)",
                 mod->name, g, ngal, ctx->substep_number + 1, ctx->num_substeps,
                 ctx->redshift);
 
+      ctx->active_event = NULL;
       int result = mod->process(ctx, &halos[g], 1);
       if (result != 0) {
         ERROR_LOG("Module '%s' failed on galaxy %d (substep %d)", mod->name, g,
@@ -386,6 +595,8 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
       }
     }
   }
+
+  end_phase_event_dispatch();
 }
 
 /**

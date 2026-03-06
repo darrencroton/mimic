@@ -113,6 +113,12 @@ int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos,
     INFO_LOG("TEST_FIXTURE_EXEC: count=%d ngal=%d substep=%d/%d substep_dt=%.6e z=%.4f",
              execution_count, ngal, ctx->substep_number, ctx->num_substeps,
              ctx->substep_dt, ctx->redshift);
+    if (ctx->active_event != NULL) {
+      INFO_LOG("TEST_FIXTURE_EVENT: code=%d source=%d target=%d value0=%.6e value1=%.6e",
+               ctx->active_event->event_code, ctx->active_event->source_index,
+               ctx->active_event->target_index, ctx->active_event->value0,
+               ctx->active_event->value1);
+    }
   }
 
   // Process each halo in the FOF group

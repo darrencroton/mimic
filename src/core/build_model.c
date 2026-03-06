@@ -500,6 +500,7 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr,
   /* Halo information */
   ctx->central_index = centralgal;
   ctx->central_galaxy = &FoFWorkspace[centralgal];
+  ctx->active_event = NULL;
 
   /* Configuration access */
   ctx->params = &MimicConfig;

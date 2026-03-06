@@ -637,6 +637,8 @@ static const char* processing_mode_to_string(enum ProcessingMode mode) {
   switch (mode) {
     case PROCESSING_MODE_FULL_HALO:
       return "process_full_halo";
+    case PROCESSING_MODE_PER_EVENT:
+      return "process_per_event";
     case PROCESSING_MODE_BY_GALAXY:
       return "process_by_galaxy";
     default:
@@ -654,7 +656,8 @@ static const char* processing_mode_to_string(enum ProcessingMode mode) {
  * with three fields:
  * - module_name: Name of the physics module
  * - phase: Execution phase (pre_timestep, phase_1, phase_2, post_timestep)
- * - processing_mode: How the module processes data (process_full_halo, process_by_galaxy)
+ * - processing_mode: How the module processes data (process_full_halo,
+ *   process_per_event, process_by_galaxy)
  *
  * This preserves the complete execution pipeline for perfect reproducibility.
  * If a module appears in multiple phases, it will have multiple entries.

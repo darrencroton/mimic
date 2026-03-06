@@ -6,7 +6,8 @@
  *
  * This test validates the sage_collisional_starburst module physics:
  * - Disk instability trigger (mode=1, eburst = efficiency)
- * - Merger trigger is ignored here (handled inline in sage_merge_galaxies)
+ * - By-galaxy path ignores merger flags (merger channel uses process_per_event)
+ * - Per-event merger trigger support via ctx->active_event
  * - Star formation and bulge growth
  * - Feedback reheating and ejection
  * - Mass and metallicity conservation
@@ -19,6 +20,8 @@
  *   - test_disk_instability_starburst: Disk instability trigger physics
  *   - test_merger_starburst: Merger-only trigger is ignored in this module
  *   - test_both_triggers: Disk trigger processed while merger trigger preserved
+ *   - test_per_event_merger_starburst: Merger event triggers starburst physics
+ *   - test_per_event_unknown_code_noop: Unknown event code is no-op
  *   - test_major_vs_minor_merger: Merger-only major/minor triggers are both ignored
  *   - test_mass_conservation: Total mass conserved
  *   - test_metallicity_preservation: Metallicity preserved
@@ -52,6 +55,7 @@
 #include "../include/globals.h"
 #include "../util/error.h"
 #include "../util/memory.h"
+#include "_shared/sage_events.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -394,6 +398,118 @@ int test_both_triggers(void)
     TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
                              "Disk trigger should remain unchanged");
     TEST_ASSERT(gal.IsMerging == 1, "Merger trigger should remain unchanged");
+
+    /* ===== CLEANUP ===== */
+    sage_collisional_starburst_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_per_event_merger_starburst
+ * @brief   Test merger event triggers starburst in process_per_event path
+ *
+ * Expected: Stellar and bulge mass increase, cold gas decreases
+ * Validates: process_per_event merger channel behavior
+ */
+int test_per_event_merger_starburst(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+
+    setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+    sage_collisional_starburst_init();
+
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &halo);
+
+    struct ModuleEvent event = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = SAGE_EVENT_MERGER,
+        .source_index = 1,
+        .target_index = 0,
+        .value0 = 0.3,
+        .value1 = 0.0
+    };
+    ctx.active_event = &event;
+
+    const double initial_stellar = gal.StellarMass;
+    const double initial_bulge = gal.BulgeMass;
+    const double initial_cold = gal.ColdGas;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_collisional_starburst_process(&ctx, &halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Per-event merger processing should succeed");
+    TEST_ASSERT(gal.StellarMass > initial_stellar,
+                "Stellar mass should increase from merger event");
+    TEST_ASSERT(gal.BulgeMass > initial_bulge,
+                "Bulge mass should increase from merger event");
+    TEST_ASSERT(gal.ColdGas < initial_cold,
+                "Cold gas should decrease from merger event");
+
+    /* ===== CLEANUP ===== */
+    sage_collisional_starburst_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_per_event_unknown_code_noop
+ * @brief   Test unknown event code is a no-op
+ *
+ * Expected: No property changes and success return
+ * Validates: Defensive unknown event handling
+ */
+int test_per_event_unknown_code_noop(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+
+    setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+    sage_collisional_starburst_init();
+
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &halo);
+
+    struct ModuleEvent event = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = 999,
+        .source_index = 1,
+        .target_index = 0,
+        .value0 = 0.4,
+        .value1 = 0.0
+    };
+    ctx.active_event = &event;
+
+    const double initial_stellar = gal.StellarMass;
+    const double initial_bulge = gal.BulgeMass;
+    const double initial_cold = gal.ColdGas;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_collisional_starburst_process(&ctx, &halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Unknown per-event code should be no-op success");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, initial_stellar, 1e-12,
+                             "Stellar mass should remain unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.BulgeMass, initial_bulge, 1e-12,
+                             "Bulge mass should remain unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
+                             "Cold gas should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();
@@ -1370,6 +1486,8 @@ int main(void)
     TEST_RUN(test_disk_instability_starburst);
     TEST_RUN(test_merger_starburst);
     TEST_RUN(test_both_triggers);
+    TEST_RUN(test_per_event_merger_starburst);
+    TEST_RUN(test_per_event_unknown_code_noop);
     TEST_RUN(test_major_vs_minor_merger);
     TEST_RUN(test_mass_conservation);
     TEST_RUN(test_metallicity_preservation);

@@ -31,7 +31,7 @@ module:
   # test_fixture.c is implicit (auto-included)
   # No additional_files needed for single-file module
 
-  supported_processing_modes: [process_by_galaxy, process_full_halo]
+  supported_processing_modes: [process_by_galaxy, process_per_event, process_full_halo]
 
   # ===========================================================================
   # Dependencies
