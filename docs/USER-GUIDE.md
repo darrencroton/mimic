@@ -189,16 +189,13 @@ modules:
     - sage_disk_instability: process_by_galaxy         # Check stability & transfer to bulge
     - sage_quasar_mode: process_by_galaxy              # BH growth & quasar winds
     - sage_collisional_starburst: process_by_galaxy    # Starburst with SN feedback
+    - sage_clear_disk_instability_triggers: process_by_galaxy  # Clear phase_1 DI trigger
 
   phase_2:
     # Merger Triggering & Execution
     - sage_update_merger_time: process_full_halo       # Decrement MergTime, set flags
-    - sage_merge_galaxies: process_full_halo           # Combine + morphology
+    - sage_merge_galaxies: process_full_halo           # Combine + inline BH/starburst + morphology
     - sage_disrupt_satellites: process_full_halo       # Tidal disruption to ICS
-
-    # Post-Merger Physics (reuse same modules as disk instability)
-    - sage_quasar_mode: process_by_galaxy              # BH growth & quasar winds (merger trigger)
-    - sage_collisional_starburst: process_by_galaxy    # Starburst with SN feedback (merger trigger)
 
   post_timestep: []
 
@@ -252,10 +249,11 @@ modules:
 | `sage_calculate_supernova_feedback` | phase_1 | Supernova feedback |
 | `sage_update_star_formation_supernova` | phase_1 | Apply SF and feedback |
 | `sage_disk_instability` | phase_1 | Disk stability check & stellar transfer to bulge |
-| `sage_quasar_mode` | phase_1, phase_2 | BH growth & quasar-mode AGN winds |
-| `sage_collisional_starburst` | phase_1, phase_2 | Merger/instability-induced starbursts |
+| `sage_quasar_mode` | phase_1 | Disk-instability BH growth & quasar-mode AGN winds |
+| `sage_collisional_starburst` | phase_1 | Disk-instability starbursts with SN feedback |
+| `sage_clear_disk_instability_triggers` | phase_1 | Clear `UnstableDiskGasFraction` after phase_1 consumers |
 | `sage_update_merger_time` | phase_2 | Decrement merger timescales, trigger merger/disruption events |
-| `sage_merge_galaxies` | phase_2 | Combine merging galaxies |
+| `sage_merge_galaxies` | phase_2 | Combine mergers and run merger BH/starburst inline |
 | `sage_disrupt_satellites` | phase_2 | Tidal disruption to ICS |
 
 **Physics-free mode** (halo tracking only):

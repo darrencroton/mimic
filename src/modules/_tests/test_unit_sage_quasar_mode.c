@@ -5,7 +5,7 @@
  * Validates: Quasar-mode AGN physics, BH growth, energy-driven winds, edge cases
  *
  * This test validates the sage_quasar_mode module physics:
- * - Black hole growth from disk instability and mergers (Kauffmann & Haehnelt 2000)
+ * - Black hole growth from disk instability (Kauffmann & Haehnelt 2000)
  * - Vvir suppression at low masses (< 280 km/s)
  * - Mass conservation during accretion
  * - Metallicity preservation
@@ -17,8 +17,8 @@
  *
  * Test cases:
  *   - test_bh_growth_disk_instability: BH grows from disk instability
- *   - test_bh_growth_merger: BH grows from merger trigger
- *   - test_bh_growth_both_triggers: Both triggers processed
+ *   - test_bh_growth_merger: Merger trigger is ignored (handled in merge module)
+ *   - test_bh_growth_both_triggers: Disk trigger processed while merger trigger preserved
  *   - test_vvir_suppression: Low Vvir suppresses accretion
  *   - test_mass_conservation_accretion: Mass conserved
  *   - test_metallicity_preservation_accretion: Metallicity preserved
@@ -263,10 +263,10 @@ int test_bh_growth_disk_instability(void)
 
 /**
  * @test    test_bh_growth_merger
- * @brief   Test BH growth from merger trigger
+ * @brief   Test merger trigger is ignored in quasar mode module
  *
- * Expected: BH mass increases, cold gas decreases
- * Validates: Merger trigger physics
+ * Expected: BH mass unchanged (merger channel handled inline in merge module)
+ * Validates: Channel separation between phase_1 and phase_2 trigger paths
  */
 int test_bh_growth_merger(void)
 {
@@ -294,8 +294,8 @@ int test_bh_growth_merger(void)
     sage_quasar_mode_process(&ctx, &halo, 1);
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT(gal.BlackHoleMass > initial_bh_mass,
-                "BH mass should increase from merger");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh_mass, 1e-10,
+                             "BH mass should be unchanged when only merger trigger is set");
 
     /* Trigger lifecycle is owned by clear modules, not quasar_mode */
     TEST_ASSERT(gal.IsMerging == 1, "IsMerging should remain unchanged");
@@ -313,8 +313,8 @@ int test_bh_growth_merger(void)
  * @test    test_bh_growth_both_triggers
  * @brief   Test BH growth when both triggers present
  *
- * Expected: Both triggers processed (two separate accretion events)
- * Validates: Multiple trigger handling
+ * Expected: Disk trigger is processed; merger trigger is preserved/ignored here
+ * Validates: Disk-instability-only behavior in quasar module
  */
 int test_bh_growth_both_triggers(void)
 {
@@ -344,7 +344,7 @@ int test_bh_growth_both_triggers(void)
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(gal.BlackHoleMass > initial_bh_mass,
-                "BH mass should increase from both triggers");
+                "BH mass should increase from disk-instability trigger");
 
     /* Trigger lifecycle is owned by clear modules, not quasar_mode */
     TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,

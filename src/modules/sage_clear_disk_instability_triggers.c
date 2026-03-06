@@ -26,7 +26,7 @@ int sage_clear_disk_instability_triggers_process(struct ModuleContext *ctx,
     return 0;
   }
 
-  halos[0].galaxy->UnstableDiskGasFraction = 0.0f;
+  halos[0].galaxy->UnstableDiskGasFraction = 0.0;
   return 0;
 }
 

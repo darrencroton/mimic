@@ -40,6 +40,17 @@ GREEN = '\033[0;32m'
 RED = '\033[0;31m'
 NC = '\033[0m'
 
+# Required by sage_merge_galaxies_init() after P2 inline merger-physics wiring
+MERGE_PHYSICS_PARAMS = {
+    'BlackHoleGrowthRate': 0.01,
+    'QuasarModeEfficiency': 0.001,
+    'FeedbackReheatingEpsilon': 3.0,
+    'FeedbackEjectionEfficiency': 0.3,
+    'RecycleFraction': 0.43,
+    'Yield': 0.03,
+    'FracZleaveDisk': 0.3,
+}
+
 
 def test_module_pipeline_integration():
     """Test that module integrates correctly into full pipeline
@@ -63,6 +74,7 @@ def test_module_pipeline_integration():
             'post_timestep': []
         },
         model_params={
+            **MERGE_PHYSICS_PARAMS,
             'ThresholdMajorMerger': 0.3
         }
     )
@@ -145,6 +157,7 @@ def test_merger_physics_correctness():
             'post_timestep': []
         },
         model_params={
+            **MERGE_PHYSICS_PARAMS,
             'ThresholdMajorMerger': 0.3
         }
     )
@@ -224,6 +237,7 @@ def test_parameter_sensitivity():
             'post_timestep': []
         },
         model_params={
+            **MERGE_PHYSICS_PARAMS,
             'ThresholdMajorMerger': 0.1  # Low threshold
         }
     )
@@ -247,6 +261,7 @@ def test_parameter_sensitivity():
             'post_timestep': []
         },
         model_params={
+            **MERGE_PHYSICS_PARAMS,
             'ThresholdMajorMerger': 0.7  # High threshold
         }
     )
@@ -301,6 +316,7 @@ def test_memory_and_performance():
             'post_timestep': []
         },
         model_params={
+            **MERGE_PHYSICS_PARAMS,
             'ThresholdMajorMerger': 0.3
         }
     )
@@ -370,6 +386,7 @@ def test_full_pipeline_merger():
             # Reincorporation
             'ReIncorporationFactor': 0.15,
             # Merger
+            **MERGE_PHYSICS_PARAMS,
             'ThresholdMajorMerger': 0.3
         }
     )

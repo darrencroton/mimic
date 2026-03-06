@@ -1674,16 +1674,13 @@ modules:
     - sage_disk_instability: process_by_galaxy         # Check stability & transfer to bulge
     - sage_quasar_mode: process_by_galaxy              # BH growth & quasar winds
     - sage_collisional_starburst: process_by_galaxy    # Starburst with SN feedback
+    - sage_clear_disk_instability_triggers: process_by_galaxy  # Clear DI trigger channel
 
   phase_2:
     # Merger Triggering & Execution
     - sage_update_merger_time: process_full_halo       # Decrement MergTime, set flags
-    - sage_merge_galaxies: process_full_halo           # Combine + morphology
+    - sage_merge_galaxies: process_full_halo           # Combine + inline BH/starburst + morphology
     - sage_disrupt_satellites: process_full_halo       # Tidal disruption to ICS
-
-    # Post-Merger Physics (reuse same modules as disk instability)
-    - sage_quasar_mode: process_by_galaxy              # BH growth & quasar winds (merger trigger)
-    - sage_collisional_starburst: process_by_galaxy    # Starburst with SN feedback (merger trigger)
 
   post_timestep: []
 

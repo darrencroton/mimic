@@ -66,10 +66,6 @@ modules:
     - sage_merge_galaxies: process_full_halo
     - sage_disrupt_satellites: process_full_halo
 
-    # Post-Merger Physics
-    - sage_quasar_mode: process_by_galaxy
-    - sage_collisional_starburst: process_by_galaxy
-
   post_timestep:
 
   parameters:

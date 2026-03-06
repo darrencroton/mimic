@@ -25,8 +25,8 @@ Each issue is documented with:
 | ID | Severity | Summary | Recommended Solution | Effort | Status (2026-03-06) |
 |----|----------|---------|---------------------|--------|----------------------|
 | P1 | Critical | Substep time base and merger timestamp consumer mismatch | Fix base + midpoint consumer usage | Low | Done |
-| P2 | Critical | Merger physics disconnected (BH/starburst missed) | Shared helpers inline (P2-A) | Low-Med | Next |
-| P3 | Critical | Trigger clearing suppresses disk instability starburst | Split channels + by-galaxy clear (P3-A) | Low-Med | Next |
+| P2 | Critical | Merger physics disconnected (BH/starburst missed) | Shared helpers inline (P2-A) | Low-Med | Done |
+| P3 | Critical | Trigger clearing suppresses disk instability starburst | Split channels + by-galaxy clear (P3-A) | Low-Med | Done |
 | P4 | High | Type 2 eligibility bypasses baryonic protection | Remove Type==2 condition | Trivial | Done |
 | P5 | High | Type 0→2 transitions lack immediate merge | Add MergTime=0.0 | Low | Pending |
 | P6 | High | Central-link semantics differ (FOF vs per-subhalo) | Restore per-subhalo central semantics (P6-B) | High | Pending |
@@ -635,7 +635,7 @@ SAGE outputs `mergeType`, `mergeIntoID`, `mergeIntoSnapNum` for lineage reconstr
 
 | Order | Decision | Options | Recommendation | Status (2026-03-06) |
 |-------|----------|---------|----------------|----------------------|
-| 0.1 | Merger physics approach | P2-A (inline helpers) vs P2-B (event queue) | P2-A for SAGE parity | Next |
+| 0.1 | Merger physics approach | P2-A (inline helpers) vs P2-B (event queue) | P2-A for SAGE parity | Accepted and implemented (shared helpers called inline from `sage_merge_galaxies`) |
 | 0.2 | Trigger lifecycle | P3-A (split channels) vs P3-B (unified clear) | P3-A for clarity | Accepted and applied for phase_1 via by-galaxy clear module |
 | 0.3 | Central-link policy | P6-A (document fallback) vs P6-B (restore SAGE behavior) | P6-B (mandatory for strict parity) | Recommendation accepted; implementation deferred (P6 skipped for now) |
 
@@ -644,8 +644,8 @@ SAGE outputs `mergeType`, `mergeIntoID`, `mergeIntoSnapNum` for lineage reconstr
 | Order | Issue | Action | Files | Status (2026-03-06) |
 |-------|-------|--------|-------|----------------------|
 | 1.1 | P1 | Fix substep time formula | `build_model.c` | Done |
-| 1.2 | P3 | Remove inline clears, add `process_by_galaxy` clear module | `sage_quasar_mode.c`, `sage_collisional_starburst.c`, new module, `millennium.yaml` | Next |
-| 1.3 | P2 | Extract shared helpers, call from `sage_merge_galaxies` | `sage_merge_galaxies.c`, new `_shared/merger_physics.h` | Next |
+| 1.2 | P3 | Remove inline clears, add `process_by_galaxy` clear module | `sage_quasar_mode.c`, `sage_collisional_starburst.c`, new module, `millennium.yaml` | Done |
+| 1.3 | P2 | Extract shared helpers, call from `sage_merge_galaxies` | `sage_merge_galaxies.c`, new `_shared/merger_physics.h` | Done |
 | 1.4 | P1 | Update merger timestamp consumers to midpoint time (`ctx->substep_time`) | `sage_merge_galaxies.c` | Done |
 
 ### Phase 2: High Priority Fixes
@@ -712,12 +712,12 @@ src/modules/sage_clear_disk_instability_triggers.c  # P3 (process_by_galaxy clea
 
 - [ ] All substep time calculations use correct base reference (P1)
 - [ ] Merger timestamps (`TimeOfLastMajorMerger`, `TimeOfLastMinorMerger`) use corrected substep midpoint timing (P1)
-- [ ] Merger-triggered BH growth occurs for every merger event (P2)
-- [ ] Merger-triggered starburst occurs for every merger event (P2)
-- [ ] Multiple mergers per central per substep handled correctly (P2, Amendment C2)
-- [ ] Disk instability starburst occurs for every unstable disk (P3)
-- [ ] Clear modules use `process_by_galaxy` and run after consumers (P3, Amendment C1)
-- [ ] Triggers don't leak across phases (P3, Amendment C3)
+- [x] Merger-triggered BH growth occurs for every merger event (P2)
+- [x] Merger-triggered starburst occurs for every merger event (P2)
+- [x] Multiple mergers per central per substep handled correctly (P2, Amendment C2)
+- [x] Disk instability starburst occurs for every unstable disk (P3)
+- [x] Clear modules use `process_by_galaxy` and run after consumers (P3, Amendment C1)
+- [x] Triggers don't leak across phases (P3, Amendment C3)
 - [ ] Type 2 orphans with high baryons protected in early substeps (P4)
 - [ ] Type 0→2 transitions trigger immediate merge (P5)
 - [ ] Per-subhalo central semantics restored and validated against SAGE behavior (P6-B)

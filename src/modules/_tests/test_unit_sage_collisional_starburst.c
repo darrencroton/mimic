@@ -6,7 +6,7 @@
  *
  * This test validates the sage_collisional_starburst module physics:
  * - Disk instability trigger (mode=1, eburst = efficiency)
- * - Merger trigger (mode=0, eburst = 0.56 * ratio^0.7)
+ * - Merger trigger is ignored here (handled inline in sage_merge_galaxies)
  * - Star formation and bulge growth
  * - Feedback reheating and ejection
  * - Mass and metallicity conservation
@@ -17,9 +17,9 @@
  *
  * Test cases:
  *   - test_disk_instability_starburst: Disk instability trigger physics
- *   - test_merger_starburst: Merger trigger with Somerville scaling
- *   - test_both_triggers: Both triggers processed
- *   - test_major_vs_minor_merger: Metal distribution differs
+ *   - test_merger_starburst: Merger-only trigger is ignored in this module
+ *   - test_both_triggers: Disk trigger processed while merger trigger preserved
+ *   - test_major_vs_minor_merger: Merger-only major/minor triggers are both ignored
  *   - test_mass_conservation: Total mass conserved
  *   - test_metallicity_preservation: Metallicity preserved
  *   - test_bulge_formation: Stars added to bulge
@@ -307,10 +307,10 @@ int test_disk_instability_starburst(void)
 
 /**
  * @test    test_merger_starburst
- * @brief   Test starburst from merger trigger
+ * @brief   Test merger-only trigger is ignored in collisional_starburst
  *
- * Expected: Stars form with Somerville scaling (eburst = 0.56 * ratio^0.7)
- * Validates: Merger trigger physics
+ * Expected: No star formation change (merger channel handled in merge module)
+ * Validates: Channel separation between phase_1 and phase_2
  */
 int test_merger_starburst(void)
 {
@@ -338,8 +338,8 @@ int test_merger_starburst(void)
     sage_collisional_starburst_process(&ctx, &halo, 1);
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT(gal.StellarMass > initial_stellar,
-                "Stellar mass should increase from merger starburst");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, initial_stellar, 1e-10,
+                             "Stellar mass should be unchanged for merger-only trigger");
 
     /* Trigger lifecycle is owned by clear modules, not collisional_starburst */
     TEST_ASSERT(gal.IsMerging == 1, "IsMerging should remain unchanged");
@@ -355,10 +355,10 @@ int test_merger_starburst(void)
 
 /**
  * @test    test_both_triggers
- * @brief   Test both triggers processed when present
+ * @brief   Test disk trigger processed while merger trigger is ignored
  *
- * Expected: Both disk instability and merger starbursts occur
- * Validates: Multiple trigger handling
+ * Expected: Disk-instability starburst occurs; merger trigger remains unchanged
+ * Validates: Disk-only behavior in phase_1 module
  */
 int test_both_triggers(void)
 {
@@ -388,7 +388,7 @@ int test_both_triggers(void)
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(gal.StellarMass > initial_stellar,
-                "Stellar mass should increase from both starbursts");
+                "Stellar mass should increase from disk-instability starburst");
 
     /* Trigger lifecycle is owned by clear modules, not collisional_starburst */
     TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
@@ -404,11 +404,10 @@ int test_both_triggers(void)
 
 /**
  * @test    test_major_vs_minor_merger
- * @brief   Test metal distribution differs for major vs minor mergers
+ * @brief   Test merger-only major/minor triggers are both ignored
  *
- * Expected: Major merger sends all metals to hot phase
- *           Minor merger splits metals between cold and hot
- * Validates: Metal distribution physics
+ * Expected: No stellar mass growth from merger-only triggers
+ * Validates: Merger channel is not consumed in phase_1 starburst module
  */
 int test_major_vs_minor_merger(void)
 {
@@ -421,7 +420,7 @@ int test_major_vs_minor_merger(void)
 
     struct ModuleContext ctx;
 
-    /* Test 1: Minor merger (ratio < threshold) */
+    /* Test 1: Minor merger trigger only (ratio < threshold) */
     struct Halo halo_minor;
     struct GalaxyData gal_minor;
     setup_test_galaxy(&halo_minor, &gal_minor, 0, 100.0, 300.0, 10.0, 0.2,
@@ -433,7 +432,7 @@ int test_major_vs_minor_merger(void)
 
     sage_collisional_starburst_process(&ctx, &halo_minor, 1);
 
-    /* Test 2: Major merger (ratio > threshold) */
+    /* Test 2: Major merger trigger only (ratio > threshold) */
     struct Halo halo_major;
     struct GalaxyData gal_major;
     setup_test_galaxy(&halo_major, &gal_major, 0, 100.0, 300.0, 10.0, 0.2,
@@ -446,9 +445,10 @@ int test_major_vs_minor_merger(void)
     sage_collisional_starburst_process(&ctx, &halo_major, 1);
 
     /* ===== VALIDATE ===== */
-    /* Basic validation: both processed successfully */
-    TEST_ASSERT(gal_minor.StellarMass > 5.0, "Minor merger formed stars");
-    TEST_ASSERT(gal_major.StellarMass > 5.0, "Major merger formed stars");
+    TEST_ASSERT_DOUBLE_EQUAL(gal_minor.StellarMass, 5.0, 1e-10,
+                             "Minor merger-only trigger should be ignored");
+    TEST_ASSERT_DOUBLE_EQUAL(gal_major.StellarMass, 5.0, 1e-10,
+                             "Major merger-only trigger should be ignored");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();

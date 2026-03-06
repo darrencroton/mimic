@@ -27,6 +27,7 @@
  *   - test_merger_timing_tracking: Merger times recorded correctly
  *   - test_satellite_type_change: Satellite Type → 3 after merger
  *   - test_all_baryonic_components: All 11 fields transferred
+ *   - test_inline_merger_physics: Merger-triggered BH growth/starburst executed inline
  *   - test_zero_mass_satellite: Zero mass satellite handled
  *   - test_null_central_galaxy: NULL central handled
  *   - test_null_satellite_galaxy: NULL satellite skipped
@@ -83,11 +84,28 @@ extern int sage_merge_galaxies_cleanup(void);
 // ============================================================================
 
 /**
+ * @brief   Initialize global unit conversion constants
+ */
+static void init_unit_constants(void)
+{
+    UnitLength_in_cm = 3.08568e24;       /* 1 Mpc in cm */
+    UnitVelocity_in_cm_per_s = 1.0e5;    /* 1 km/s in cm/s */
+    UnitMass_in_g = 1.989e43;            /* 1e10 Msun in g */
+
+    UnitTime_in_s = UnitLength_in_cm / UnitVelocity_in_cm_per_s;
+    UnitEnergy_in_cgs = UnitMass_in_g * UnitLength_in_cm * UnitLength_in_cm /
+                        (UnitTime_in_s * UnitTime_in_s);
+}
+
+/**
  * @brief   Reset global configuration state
  */
 static void reset_config(void)
 {
     memset(&MimicConfig, 0, sizeof(MimicConfig));
+    init_unit_constants();
+    MimicConfig.Hubble_h = 0.73;
+    MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
 }
 
 /**
@@ -166,6 +184,20 @@ static void setup_test_parameters(double threshold)
     int idx = 0;
     snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
     snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", threshold);
+    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "BlackHoleGrowthRate");
+    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.01");
+    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "QuasarModeEfficiency");
+    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.0");
+    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "FeedbackReheatingEpsilon");
+    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "3.0");
+    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "FeedbackEjectionEfficiency");
+    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.3");
+    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "RecycleFraction");
+    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.43");
+    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "Yield");
+    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.03");
+    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "FracZleaveDisk");
+    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.3");
     MimicConfig.NumModelParams = idx;
 }
 
@@ -837,6 +869,67 @@ int test_all_baryonic_components(void)
                              "MetalsICS transferred");
     TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->BlackHoleMass, 0.12, 1e-6,
                              "BlackHoleMass transferred");
+
+    /* ===== CLEANUP ===== */
+    sage_merge_galaxies_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_inline_merger_physics
+ * @brief   Test merger-triggered BH growth and starburst run inline
+ *
+ * Expected: Central BH and stellar mass increase beyond pure transfer
+ * Validates: P2 inline merger physics execution path
+ */
+int test_inline_merger_physics(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+    setup_test_parameters(0.5);  /* Keep merger minor for easier assertions */
+    sage_merge_galaxies_init();
+
+    struct Halo central_halo;
+    struct GalaxyData central_gal;
+    setup_test_galaxy(&central_halo, &central_gal, 0,
+                      10.0, 0.2, 5.0, 0.1, 1.0, 0.02,
+                      50.0, 1.0, 5.0, 0.1, 0.5, 0.01, 0.1);
+    central_halo.Vvir = 220.0f;
+    central_halo.Mvir = 120.0f;
+    central_halo.dT = 0.1f;
+
+    struct Halo sat_halo;
+    struct GalaxyData sat_gal;
+    setup_test_galaxy(&sat_halo, &sat_gal, 1,
+                      2.0, 0.04, 1.0, 0.02, 0.2, 0.004,
+                      10.0, 0.2, 1.0, 0.02, 0.1, 0.002, 0.02);
+    sat_gal.IsMerging = 1;
+    sat_gal.MergerMassRatio = 0.3;
+
+    struct Halo halos[2] = {central_halo, sat_halo};
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx);
+    ctx.central_galaxy = &halos[0];
+
+    const double transfer_only_bh = central_gal.BlackHoleMass + sat_gal.BlackHoleMass;
+    const double transfer_only_stellar = central_gal.StellarMass + sat_gal.StellarMass;
+
+    /* ===== EXECUTE ===== */
+    sage_merge_galaxies_process(&ctx, halos, 2);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(halos[0].galaxy->BlackHoleMass > transfer_only_bh,
+                "Merger BH growth should increase central BH beyond pure transfer");
+    TEST_ASSERT(halos[0].galaxy->StellarMass > transfer_only_stellar,
+                "Merger starburst should increase stellar mass beyond pure transfer");
+    TEST_ASSERT(halos[1].Type == 3, "Satellite should be marked merged");
+    TEST_ASSERT(halos[1].galaxy->IsMerging == 0, "Satellite IsMerging flag should be cleared");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->MergerMassRatio, 0.0, 1e-12,
+                             "Satellite MergerMassRatio should be cleared");
 
     /* ===== CLEANUP ===== */
     sage_merge_galaxies_cleanup();
@@ -1581,10 +1674,7 @@ int test_module_initialization(void)
     MimicConfig.phase_2[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_phase_2 = 1;
 
-    int idx = 0;
-    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
-    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.3");
-    MimicConfig.NumModelParams = idx;
+    setup_test_parameters(0.3);
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();
@@ -1677,6 +1767,7 @@ int main(void)
     TEST_RUN(test_merger_timing_tracking);
     TEST_RUN(test_satellite_type_change);
     TEST_RUN(test_all_baryonic_components);
+    TEST_RUN(test_inline_merger_physics);
 
     /* Run edge case tests */
     TEST_RUN(test_zero_mass_satellite);
