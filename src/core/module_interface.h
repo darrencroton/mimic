@@ -302,6 +302,12 @@ struct ModuleContext {
  * @param value0        Primary scalar payload
  * @param value1        Secondary scalar payload
  * @return 0 on success, non-zero on failure
+ *
+ * Failure cases include invalid context, invalid halo indices, buffer overflow,
+ * or calling outside PROCESSING_MODE_FULL_HALO dispatch.
+ *
+ * Special case for direct module unit tests: when no phase dispatch context is
+ * active, the event is dropped and 0 is returned.
  */
 int module_emit_event(struct ModuleContext *ctx, int event_code, int source_index,
                       int target_index, double value0, double value1);

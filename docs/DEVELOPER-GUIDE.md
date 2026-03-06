@@ -332,20 +332,70 @@ static int my_module_process(struct ModuleContext *ctx,
 }
 ```
 
-**Example: process_per_event** (event-driven channel):
+**Example: process_per_event** (complete wiring):
+
+Event codes are model-defined labels (you choose them). Define them once in a
+shared header used by producers and consumers.
 
 ```c
-static int my_module_process(struct ModuleContext *ctx,
-                              struct Halo *halos, int ngal) {
-  if (ctx->active_event == NULL) return 0;  /* Not in per-event dispatch */
+/* my_events.h */
+enum MyEventCode {
+  MY_EVENT_NONE = 0,
+  MY_EVENT_MERGER = 1
+};
+```
+
+```c
+/* my_merge_producer.c (process_full_halo) */
+#include "my_events.h"
+
+/* ... inside process() ... */
+if (module_emit_event(ctx, MY_EVENT_MERGER, satellite_idx, central_idx,
+                      mass_ratio, 0.0) != 0) {
+  ERROR_LOG("Failed to emit MY_EVENT_MERGER (source=%d target=%d ratio=%.6f)",
+            satellite_idx, central_idx, mass_ratio);
+  return -1;
+}
+```
+
+`module_emit_event(...)` returns `0` on success and non-zero on failure. Treat
+non-zero as fatal in producer modules to avoid silent physics divergence.
+In normal pipeline execution, non-zero means invalid context/mode/indices or
+event-buffer overflow. For direct producer unit tests (outside active phase
+dispatch), events are intentionally dropped and `0` is returned.
+
+```c
+/* my_quasar_consumer.c (process_per_event) */
+#include "my_events.h"
+
+static int my_quasar_consumer_process(struct ModuleContext *ctx,
+                                      struct Halo *halos, int ngal) {
+  if (ctx->active_event == NULL) return 0;
   if (ngal != 1) return -1;
 
-  if (ctx->active_event->event_code == MY_EVENT_CODE) {
-    apply_event_physics(&halos[0], ctx->active_event->value0);
+  if (ctx->active_event->event_code != MY_EVENT_MERGER) {
+    return 0;  /* Unknown event labels: no-op */
   }
+
+  apply_event_physics(&halos[0], ctx->active_event->value0);
   return 0;
 }
 ```
+
+**Using process_per_event in YAML (recommended pattern)**:
+
+```yaml
+phase_2:
+  - my_merge_producer: process_full_halo         # Emits MY_EVENT_MERGER
+  - my_other_full_halo_step: process_full_halo
+  - my_quasar_consumer: process_per_event         # Triggered by my_merge_producer events
+  - my_starburst_consumer: process_per_event      # Triggered by my_merge_producer events
+```
+
+Notes:
+- `process_per_event` consumers are called when a producer emits events, not at a fixed YAML position.
+- YAML order of `process_per_event` entries defines consumer order (`quasar` then `starburst` above).
+- For readability, keep per-event consumers near their expected producer and add an inline trigger comment.
 
 ### Pipeline Phases
 
@@ -387,6 +437,7 @@ The multi-phase pipeline executes modules in four distinct phases:
 Key execution details:
   • Within each phase, process_full_halo modules ALWAYS execute first
   • Events emitted by full-halo modules are dispatched to process_per_event modules
+  • process_per_event YAML placement controls consumer order, not exact timing vs full_halo lines
   • Then process_by_galaxy modules execute in galaxy-major loop
   • Each by_galaxy module receives single galaxy (ngal=1)
   • Each per_event module receives single event target halo (ngal=1, `ctx->active_event != NULL`)

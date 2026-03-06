@@ -64,9 +64,9 @@ modules:
     # Mergers (Check/Transfer → Event-triggered Physics → Cleanup)
     - sage_update_merger_time: process_full_halo
     - sage_merge_galaxies: process_full_halo
+    - sage_quasar_mode: process_per_event          # Triggered by sage_merge_galaxies merger events
+    - sage_collisional_starburst: process_per_event  # Triggered by sage_merge_galaxies merger events
     - sage_disrupt_satellites: process_full_halo
-    - sage_quasar_mode: process_per_event
-    - sage_collisional_starburst: process_per_event
 
   post_timestep:
 
