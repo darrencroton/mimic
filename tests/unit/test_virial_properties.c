@@ -14,6 +14,7 @@
  *
  * Test cases:
  *   - test_virial_mass_from_mvir: Virial mass when Mvir available
+ *   - test_virial_mass_zero_catalog_central: Central Mvir=0 uses catalog value
  *   - test_virial_mass_from_particles: Virial mass from particle count
  *   - test_virial_radius_calculation: Virial radius physics
  *   - test_virial_velocity_calculation: Virial velocity from mass/radius
@@ -71,6 +72,46 @@ int test_virial_mass_from_mvir(void) {
                              "Virial mass should match Mvir for central halo");
 
     printf("  Mvir from catalog: %.2f (10^10 Msun/h)\n", mvir);
+
+    /* ===== CLEANUP ===== */
+    myfree(InputTreeHalos);
+    InputTreeHalos = NULL;
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_virial_mass_zero_catalog_central
+ * @brief   Test central halos with catalog Mvir exactly zero
+ *
+ * Expected: Returns catalog Mvir (0.0), not Len * PartMass fallback
+ * Validates: get_virial_mass() parity behavior for Mvir == 0.0
+ */
+int test_virial_mass_zero_catalog_central(void) {
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+
+    InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
+    InputTreeHalos[0].Mvir = 0.0;  /* Catalog edge case */
+    InputTreeHalos[0].FirstHaloInFOFgroup = 0;  /* Central halo */
+    InputTreeHalos[0].Len = 500;  /* Would yield fallback 50.0 if used */
+
+    MimicConfig.PartMass = 0.1;
+
+    /* ===== EXECUTE ===== */
+    double mvir = get_virial_mass(0);
+    double fallback = InputTreeHalos[0].Len * MimicConfig.PartMass;
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT_DOUBLE_EQUAL(mvir, 0.0, 1e-6,
+                             "Central halo with Mvir=0 should preserve catalog value");
+    TEST_ASSERT(fabs(mvir - fallback) > 1e-6,
+                "Central halo with Mvir=0 must not use particle fallback");
+
+    printf("  Mvir=0 central: catalog %.2f retained (fallback would be %.2f)\n",
+           mvir, fallback);
 
     /* ===== CLEANUP ===== */
     myfree(InputTreeHalos);
@@ -356,6 +397,7 @@ int main(void) {
     printf("%s", NC);
 
     TEST_RUN(test_virial_mass_from_mvir);
+    TEST_RUN(test_virial_mass_zero_catalog_central);
     TEST_RUN(test_virial_mass_from_particles);
     TEST_RUN(test_virial_radius_calculation);
     TEST_RUN(test_virial_velocity_calculation);

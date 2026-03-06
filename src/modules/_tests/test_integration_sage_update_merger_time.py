@@ -15,7 +15,6 @@ integrates with the Mimic pipeline:
 
 IMPORTANT: This module REQUIRES upstream module to set MergTime for satellites:
   - sage_calculate_merger_timescale: Calculates initial MergTime using dynamical friction
-  - infallMvir is set by core build_model.c during Type transitions
 
 NOTE: The output properties IsMerging, IsDisrupting, and MergerMassRatio are
       transient flags (output: false in model_properties.yaml) that are consumed
@@ -76,7 +75,6 @@ def get_full_pipeline_config():
     
     sage_update_merger_time requires MergTime to be set by upstream module:
     - sage_calculate_merger_timescale: Calculates MergTime for satellites
-      (infallMvir is set by core build_model.c during Type transitions)
     """
     return {
         'pre_timestep': [],

@@ -337,12 +337,12 @@ int test_already_calculated_skipped(void)
 }
 
 /**
- * @test    test_no_infall_mvir_skipped
- * @brief   Satellites with infallMvir <= 0 are skipped (not yet infalled)
+ * @test    test_no_infall_mvir_still_calculated
+ * @brief   Satellites with infallMvir <= 0 still get MergTime when unset
  */
-int test_no_infall_mvir_skipped(void)
+int test_no_infall_mvir_still_calculated(void)
 {
-    printf("  Testing: No infallMvir satellites skipped...\n");
+    printf("  Testing: No infallMvir satellites still calculated...\n");
 
     /* Setup */
     init_memory_system(0);
@@ -352,7 +352,7 @@ int test_no_infall_mvir_skipped(void)
     struct GalaxyData cen_gal = create_test_galaxy(999.9f, 50.0, 20.0);
     struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
 
-    // Satellite with infallMvir = 0 (hasn't infalled yet)
+    // Satellite with infallMvir = 0 (catalog edge case after parity fixes)
     struct GalaxyData sat_gal = create_test_galaxy(999.9f, 5.0, 2.0);
     struct Halo satellite = create_test_halo(1, 20.0, 0.2, 100.0, 200, 0.0, &sat_gal);  // infallMvir=0
 
@@ -364,8 +364,10 @@ int test_no_infall_mvir_skipped(void)
 
     /* Validate */
     TEST_ASSERT(result == 0, "Process should succeed");
-    TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->MergTime, 999.9f, 0.01),
-                "Satellite with infallMvir=0 should remain at sentinel");
+    TEST_ASSERT(halos[1].galaxy->MergTime < 999.0f,
+                "Satellite with infallMvir=0 should still get a merger timescale");
+    TEST_ASSERT(halos[1].galaxy->MergTime > 0.0f,
+                "Calculated merger timescale should be positive");
 
     TEST_PASS;
 }
@@ -856,7 +858,7 @@ int main(void)
 
     /* Run sentinel and condition tests */
     test_already_calculated_skipped();
-    test_no_infall_mvir_skipped();
+    test_no_infall_mvir_still_calculated();
 
     /* Run physics calculation tests */
     test_dynamical_friction_formula();

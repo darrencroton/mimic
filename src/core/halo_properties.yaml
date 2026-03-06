@@ -170,7 +170,8 @@ halo_properties:
     output_source: recalculate
     output_function: output_rvir_conditional
     output_function_arg: g
-    range: [0.001, 10.0]  # 1 kpc/h to 10 Mpc/h
+    range: [0.0, 10.0]  # 0 for zero-mass edge cases, up to 10 Mpc/h
+    sentinels: [0.0]  # Valid for halos with catalog Mvir=0
 
   - name: Vvir
     type: float
@@ -182,7 +183,8 @@ halo_properties:
     output_source: recalculate
     output_function: output_vvir_conditional
     output_function_arg: g
-    range: [10.0, 5000.0]  # Physical halo velocities
+    range: [0.0, 5000.0]  # 0 for zero-mass edge cases, up to physical maximum
+    sentinels: [0.0]  # Valid for halos with catalog Mvir=0
 
   - name: Vmax
     type: float

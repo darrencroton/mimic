@@ -6,7 +6,7 @@
       "src/core/halo_properties.yaml",
       "src/modules/model_properties.yaml"
     ],
-    "source_md5": "9bb5e82ececcea1588043a8478a840f5",
+    "source_md5": "757f656e0414a5a5b93b503a2772a379",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -144,8 +144,11 @@
       "units": "Mpc/h",
       "is_vector": false,
       "range": [
-        0.001,
+        0.0,
         10.0
+      ],
+      "sentinels": [
+        0.0
       ]
     },
     "Vvir": {
@@ -154,8 +157,11 @@
       "units": "km/s",
       "is_vector": false,
       "range": [
-        10.0,
+        0.0,
         5000.0
+      ],
+      "sentinels": [
+        0.0
       ]
     },
     "Vmax": {

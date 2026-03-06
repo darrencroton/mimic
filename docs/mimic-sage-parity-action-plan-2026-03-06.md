@@ -22,17 +22,17 @@ Each issue is documented with:
 
 ## Issue Summary Table
 
-| ID | Severity | Summary | Recommended Solution | Effort | Status (2026-03-06) |
-|----|----------|---------|---------------------|--------|----------------------|
-| P1 | Critical | Substep time base and merger timestamp consumer mismatch | Fix base + midpoint consumer usage | Low | Done |
-| P2 | Critical | Merger physics disconnected (BH/starburst missed) | Shared helpers inline (P2-A) | Low-Med | Done |
-| P3 | Critical | Trigger clearing suppresses disk instability starburst | Split channels + by-galaxy clear (P3-A) | Low-Med | Done |
-| P4 | High | Type 2 eligibility bypasses baryonic protection | Remove Type==2 condition | Trivial | Done |
-| P5 | High | Type 0→2 transitions lack immediate merge | Add MergTime=0.0 | Low | Pending |
-| P6 | High | Central-link semantics differ (FOF vs per-subhalo) | Restore per-subhalo central semantics (P6-B) | High | Done (with explicit ID contract) |
-| P7 | Low | Virial mass condition edge case | Change > to >= | Trivial | Skipped |
-| P8 | Low | Documentation execution-order mismatch | Fix header comment | Trivial | Done |
-| P9 | Low | Merger lineage fields not in output | Add to metadata if needed | Low | Skipped |
+| ID  | Severity | Summary                                                  | Recommended Solution                         | Effort  | Status (2026-03-06) |
+| --- | -------- | -------------------------------------------------------- | -------------------------------------------- | ------- | ------------------- |
+| P1  | Critical | Substep time base and merger timestamp consumer mismatch | Fix base + midpoint consumer usage           | Low     | Done                |
+| P2  | Critical | Merger physics disconnected (BH/starburst missed)        | Shared helpers inline (P2-A)                 | Low-Med | Done                |
+| P3  | Critical | Trigger clearing suppresses disk instability starburst   | Split channels + by-galaxy clear (P3-A)      | Low-Med | Done                |
+| P4  | High     | Type 2 eligibility bypasses baryonic protection          | Remove Type==2 condition                     | Trivial | Done                |
+| P5  | High     | Type 0→2 transitions lack immediate merge                | Add MergTime=0.0                             | Low     | Pending             |
+| P6  | High     | Central-link semantics differ (FOF vs per-subhalo)       | Restore per-subhalo central semantics (P6-B) | High    | Done                |
+| P7  | Low      | Virial mass condition edge case                          | Change > to >=                               | Trivial | Done                |
+| P8  | Low      | Documentation execution-order mismatch                   | Fix header comment                           | Trivial | Done                |
+| P9  | Low      | Merger lineage fields not in output                      | Add to metadata if needed                    | Low     | Skipped             |
 
 ---
 
@@ -660,7 +660,7 @@ SAGE outputs `mergeType`, `mergeIntoID`, `mergeIntoSnapNum` for lineage reconstr
 
 | Order | Issue | Action | Files | Status (2026-03-06) |
 |-------|-------|--------|-------|----------------------|
-| 3.1 | P7 | Fix virial mass condition | `virial.c` | Skipped |
+| 3.1 | P7 | Fix virial mass condition | `virial.c` | Done |
 | 3.2 | P8 | Fix documentation | `module_registry.h` | Done |
 | 3.3 | P9 | Add lineage fields if needed | `model_properties.yaml` | Skipped |
 

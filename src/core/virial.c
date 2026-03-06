@@ -87,14 +87,13 @@ void init_halo(int p, int halonr, int tree, int filenr) {
  * or when spherical overdensity mass is not available, it returns the mass
  * estimated from particle counts.
  *
- * For central halos (FirstHaloInFOFgroup), it uses the Mvir property if
- * positive (> 0.0). If Mvir=0 but Len>0 (edge case: unresolved or artifact),
- * it falls back to particle-based mass calculation.
- * Otherwise, it calculates mass as number of particles × particle mass.
+ * For central halos (FirstHaloInFOFgroup), it uses the catalog Mvir when
+ * non-negative (>= 0.0). Otherwise, it calculates mass as number of 
+ * particles × particle mass.
  */
 double get_virial_mass(int halonr) {
   if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup &&
-      InputTreeHalos[halonr].Mvir > 0.0)
+      InputTreeHalos[halonr].Mvir >= 0.0)
     return InputTreeHalos[halonr]
         .Mvir; /* take spherical overdensity mass estimate */
   else

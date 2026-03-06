@@ -4,7 +4,7 @@
  *
  * Implements Binney & Tremaine (1987) dynamical friction formula to estimate
  * when satellites will merge with the central galaxy. Calculates merger time
- * ONCE when a galaxy first becomes a satellite (Type 0→1 transition).
+ * once per satellite episode, keyed by the MergTime sentinel state.
  *
  * Physics: Chandrasekhar dynamical friction with Coulomb logarithm
  *   t_merge = 2 * 1.17 * R_vir^2 * V_vir / (ln(N_cen/N_sat) * G * M_sat)
@@ -29,7 +29,7 @@ int sage_calculate_merger_timescale_init(void)
 }
 
 // Calculate merger timescale for satellites using dynamical friction formula.
-// Only calculates when galaxy first becomes a satellite (infallMvir > 0 and MergTime unset).
+// Runs only when MergTime is still at the unset sentinel (> 999.0).
 int sage_calculate_merger_timescale_process(struct ModuleContext *ctx,
                                              struct Halo *halos,
                                              int ngal)
@@ -71,11 +71,10 @@ int sage_calculate_merger_timescale_process(struct ModuleContext *ctx,
 
         const struct Halo *central = &halos[target_idx];
 
-        // Only calculate when galaxy FIRST becomes a satellite
-        // infallMvir > 0 means infall properties have been set (Type 0→1/2 transition)
-        // MergTime > 999.0 means MergTime hasn't been calculated yet (sentinel = 999.9)
-        if (halos[i].infallMvir <= 0.0 || halos[i].galaxy->MergTime <= 999.0) {
-            continue;  // Already calculated or not yet a satellite
+        // Calculate only once per satellite episode: skip if already set.
+        // SAGE parity uses MergTime sentinel state, not infallMvir sign.
+        if (halos[i].galaxy->MergTime <= 999.0) {
+            continue;  // Already calculated
         }
 
         const int MinNumPartSatHalo = 10;
