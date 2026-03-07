@@ -51,6 +51,7 @@ module:
       - test_unit_sage_calculate_merger_timescale.c
       - test_unit_sage_update_merger_time.c
       - test_unit_sage_merge_galaxies.c
+      - test_unit_mixed_dt_parity.c
 
     integration:
       - test_integration_sage_reionization.py
