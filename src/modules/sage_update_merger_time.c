@@ -74,14 +74,13 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
         ERROR_LOG("Central galaxy has NULL galaxy data");
         return -1;
     }
-    const double dt = ctx->substep_dt;
-
     // Process each satellite (Type 1 or Type 2)
     for (int i = 0; i < ngal; i++) {
         if (halos[i].Type == 0 || halos[i].Type > 2) continue;
         if (halos[i].galaxy == NULL) continue;
 
         struct GalaxyData *sat = halos[i].galaxy;
+        const double dt = halos[i].dT / ctx->num_substeps;
 
         // Validate MergTime has been set (should be < 999.0 for satellites)
         if (sat->MergTime >= 999.0) {

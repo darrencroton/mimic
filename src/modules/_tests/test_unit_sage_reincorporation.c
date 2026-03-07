@@ -125,6 +125,7 @@ static struct Halo create_test_halo(int type, float vvir, float rvir)
     halo.Vvir = vvir;
     halo.Rvir = rvir;
     halo.SnapNum = 63;  /* z=0 */
+    halo.dT = 0.1;      /* Default test timestep (overridden when needed) */
 
     /* Allocate galaxy data */
     halo.galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
@@ -470,6 +471,7 @@ int test_physics_mass_capping(void)
 
     /* Create very massive halo with small ejected reservoir */
     struct Halo halo = create_test_halo(0, 800.0, 0.3);  /* Very high Vvir */
+    halo.dT = 1.0;  /* Override default: large dt for this test */
     halo.galaxy->EjectedGas = 0.5;           /* Small reservoir */
     halo.galaxy->MetalsEjectedGas = 0.01;
     halo.galaxy->HotGas = 5.0;

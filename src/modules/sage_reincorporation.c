@@ -72,12 +72,12 @@ int sage_reincorporation_process(struct ModuleContext *ctx,
     }
 
     // Calculate reincorporation rate: (Vvir/Vcrit - 1) * M_eject / (Rvir/Vvir) * dt
-    double reincorporated = (Vvir / Vcrit - 1.0) * gal->EjectedGas / (Rvir / Vvir) * ctx->substep_dt;
+    double reincorporated = (Vvir / Vcrit - 1.0) * gal->EjectedGas / (Rvir / Vvir) * halos[0].dT / ctx->num_substeps;
 
     // Sanity check: reincorporation rate must be positive
     if (reincorporated < 0.0) {
         ERROR_LOG("Negative reincorporation: %.3e (Vvir=%.1f, Rvir=%.3f, EjectedGas=%.3e, dt=%.3e)",
-                  reincorporated, Vvir, Rvir, gal->EjectedGas, ctx->substep_dt);
+                  reincorporated, Vvir, Rvir, gal->EjectedGas, halos[0].dT / ctx->num_substeps);
         return -1;
     }
 

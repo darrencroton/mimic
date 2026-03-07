@@ -114,6 +114,7 @@ static struct Halo create_test_halo(int type, double mvir, double delta_mvir,
     halo.Vvir = vvir;
     halo.SnapNum = 63;
     halo.HaloNr = 1;
+    halo.dT = 0.1;  /* Default test timestep (overridden when needed) */
     halo.galaxy = galaxy;
 
     return halo;
@@ -317,6 +318,7 @@ int test_mergtime_decrement(void)
     float initial_mergtime = 10.0f;
     struct GalaxyData sat_gal = create_test_galaxy(initial_mergtime, 1.0, 0.5, 0, 0, 0.0f);
     struct Halo satellite = create_test_halo(1, 100.0, 0.0, 0.2, 100.0, &sat_gal);
+    satellite.dT = dt;  /* Per-object timestep (num_substeps=1) */
 
     ctx.central_galaxy = &central;
     struct Halo halos[2] = {central, satellite};
@@ -548,6 +550,7 @@ int test_merger_triggered(void)
     // Also eligible: Mvir/Mbaryons = 5/10 = 0.5 <= 1.0
     struct GalaxyData sat_gal = create_test_galaxy(0.1f, 5.0, 5.0, 0, 0, 0.0f);
     struct Halo satellite = create_test_halo(1, 5.0, 0.0, 0.2, 100.0, &sat_gal);
+    satellite.dT = 0.2;  /* Per-object timestep (num_substeps=1) */
 
     ctx.central_galaxy = &central;
     struct Halo halos[2] = {central, satellite};
@@ -586,6 +589,7 @@ int test_merger_mass_ratio_calculation(void)
     // MergTime will go negative → merger
     struct GalaxyData sat_gal = create_test_galaxy(0.1f, 5.0, 2.0, 0, 0, 0.0f);
     struct Halo satellite = create_test_halo(1, 0.0, 0.0, 0.2, 100.0, &sat_gal);  // Low Mvir → eligible
+    satellite.dT = 0.2;  /* Per-object timestep (num_substeps=1) */
 
     ctx.central_galaxy = &central;
     struct Halo halos[2] = {central, satellite};
@@ -624,6 +628,7 @@ int test_mass_ratio_satellite_larger(void)
     // Satellite with baryons = 50 + 20 = 70 (larger than central)
     struct GalaxyData sat_gal = create_test_galaxy(0.1f, 50.0, 20.0, 0, 0, 0.0f);
     struct Halo satellite = create_test_halo(1, 0.0, 0.0, 0.2, 100.0, &sat_gal);  // Low Mvir → eligible
+    satellite.dT = 0.2;  /* Per-object timestep (num_substeps=1) */
 
     ctx.central_galaxy = &central;
     struct Halo halos[2] = {central, satellite};
@@ -704,10 +709,12 @@ int test_no_double_trigger(void)
     // Merger case
     struct GalaxyData sat_gal1 = create_test_galaxy(0.1f, 5.0, 5.0, 0, 0, 0.0f);
     struct Halo satellite1 = create_test_halo(1, 5.0, 0.0, 0.2, 100.0, &sat_gal1);
+    satellite1.dT = 0.2;  /* Per-object timestep (num_substeps=1) */
 
     // Disruption case
     struct GalaxyData sat_gal2 = create_test_galaxy(5.0f, 5.0, 5.0, 0, 0, 0.0f);
     struct Halo satellite2 = create_test_halo(1, 5.0, 0.0, 0.2, 100.0, &sat_gal2);
+    satellite2.dT = 0.2;  /* Per-object timestep (num_substeps=1) */
 
     ctx.central_galaxy = &central;
     struct Halo halos[3] = {central, satellite1, satellite2};
@@ -755,6 +762,7 @@ int test_mvir_interpolation(void)
     // At substep 9/10: fraction = 1.0, currentMvir = 20 - 10*(1-1.0) = 20
     struct GalaxyData sat_gal = create_test_galaxy(10.0f, 5.0, 5.0, 0, 0, 0.0f);
     struct Halo satellite = create_test_halo(1, 20.0, 10.0, 0.2, 100.0, &sat_gal);
+    satellite.dT = 1.0;  /* Per-object total timestep (0.1 * 10 substeps) */
     // baryons = 10, at substep 0: Mvir/baryons = 11/10 = 1.1 > 1.0 → not eligible
     // At substep 9: Mvir/baryons = 20/10 = 2.0 > 1.0 → not eligible
 
@@ -776,6 +784,7 @@ int test_mvir_interpolation(void)
 
     struct GalaxyData sat_gal2 = create_test_galaxy(10.0f, 5.0, 5.0, 0, 0, 0.0f);
     struct Halo satellite2 = create_test_halo(1, 20.0, 10.0, 0.2, 100.0, &sat_gal2);
+    satellite2.dT = 1.0;  /* Per-object total timestep (0.1 * 10 substeps) */
     struct Halo halos2[2] = {central, satellite2};
     sage_update_merger_time_process(&ctx, halos2, 2);
 
@@ -809,6 +818,7 @@ int test_mvir_clamped_at_zero(void)
     // But at fraction 0.1: currentMvir = 5 - 20*0.9 = 5 - 18 = -13 → should clamp to 0
     struct GalaxyData sat_gal = create_test_galaxy(10.0f, 5.0, 5.0, 0, 0, 0.0f);
     struct Halo satellite = create_test_halo(1, 5.0, 20.0, 0.2, 100.0, &sat_gal);
+    satellite.dT = 1.0;  /* Per-object total timestep (0.1 * 10 substeps) */
 
     ctx.central_galaxy = &central;
     ctx.substep_number = 0;

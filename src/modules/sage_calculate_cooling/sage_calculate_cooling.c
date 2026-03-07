@@ -110,9 +110,9 @@ int sage_calculate_cooling_process(struct ModuleContext *ctx, struct Halo *halos
         return 0;
     }
 
-    // Calculate cooling using substep timestep
+    // Calculate cooling using per-object substep timestep (SAGE parity)
     double rcool, lambda;
-    double coolingGas = cooling_recipe(halo, ctx, ctx->substep_dt, &rcool, &lambda);
+    double coolingGas = cooling_recipe(halo, ctx, halo->dT / ctx->num_substeps, &rcool, &lambda);
 
     // Store in properties for subsequent modules
     halo->galaxy->CoolingGas = (float)coolingGas;

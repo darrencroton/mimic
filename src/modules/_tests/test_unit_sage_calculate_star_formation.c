@@ -98,6 +98,7 @@ static void setup_test_galaxy(struct Halo *halo, struct GalaxyData *gal,
     halo->Mvir = 100.0;  /* 10^12 Msun/h */
     halo->Vvir = (float)vvir;
     halo->SnapNum = 63;
+    halo->dT = 0.01;  /* Default substep dt for tests (num_substeps=1) */
     halo->galaxy = gal;
 
     gal->ColdGas = (float)cold_gas;
