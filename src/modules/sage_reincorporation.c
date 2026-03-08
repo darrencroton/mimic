@@ -15,6 +15,7 @@
 #include "module_registry.h"
 #include "types.h"
 #include "_shared/metallicity.h"
+#include "_shared/time_parity.h"
 #include "_system/parameter_helpers.h"
 
 // ============================================================================
@@ -43,6 +44,9 @@ int sage_reincorporation_process(struct ModuleContext *ctx,
                                   struct Halo *halos,
                                   int ngal)
 {
+    double dt_obj = 0.0;
+    enum MimicObjectTimeStatus dt_status;
+
     // Only central galaxies can reincorporate gas
     if (halos == NULL || ngal <= 0 || halos[0].Type != 0) {
         return 0;
@@ -71,13 +75,25 @@ int sage_reincorporation_process(struct ModuleContext *ctx,
         return 0;
     }
 
+    dt_status = mimic_object_substep_dt(&halos[0], ctx, &dt_obj);
+    if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
+        return 0;
+    }
+    if (dt_status != MIMIC_OBJECT_TIME_OK) {
+        ERROR_LOG("Invalid reincorporation dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, status=%s)",
+                  halos[0].HaloNr, halos[0].SnapNum, halos[0].dT,
+                  (ctx != NULL) ? ctx->num_substeps : -1,
+                  mimic_object_time_status_str(dt_status));
+        return -1;
+    }
+
     // Calculate reincorporation rate: (Vvir/Vcrit - 1) * M_eject / (Rvir/Vvir) * dt
-    double reincorporated = (Vvir / Vcrit - 1.0) * gal->EjectedGas / (Rvir / Vvir) * halos[0].dT / ctx->num_substeps;
+    double reincorporated = (Vvir / Vcrit - 1.0) * gal->EjectedGas / (Rvir / Vvir) * dt_obj;
 
     // Sanity check: reincorporation rate must be positive
     if (reincorporated < 0.0) {
         ERROR_LOG("Negative reincorporation: %.3e (Vvir=%.1f, Rvir=%.3f, EjectedGas=%.3e, dt=%.3e)",
-                  reincorporated, Vvir, Rvir, gal->EjectedGas, halos[0].dT / ctx->num_substeps);
+                  reincorporated, Vvir, Rvir, gal->EjectedGas, dt_obj);
         return -1;
     }
 

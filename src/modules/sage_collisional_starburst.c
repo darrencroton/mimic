@@ -26,6 +26,7 @@
 #include "types.h"
 #include "_shared/merger_physics.h"
 #include "_shared/sage_events.h"
+#include "_shared/time_parity.h"
 #include "_system/parameter_helpers.h"
 #include "_system/physical_constants.h"
 
@@ -123,8 +124,14 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
             return 0;
         }
 
+        if (event->value1 <= 0.0) {
+            ERROR_LOG("Merger event missing valid source dt (value1=%.3e, source=%d, target=%d)",
+                      event->value1, event->source_index, event->target_index);
+            return -1;
+        }
+
         mimic_apply_collisional_starburst(event->value0, gal, central_gal,
-                                          central_halo, 0,
+                                          central_halo, 0, event->value1,
                                           &params);
         DEBUG_LOG("Starburst from merger event (ratio=%.3f, source=%d, target=%d)",
                   event->value0, event->source_index, event->target_index);
@@ -157,8 +164,22 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
 
     /* Disk-instability channel (by-galaxy path). */
     if (gal->UnstableDiskGasFraction > 0.0) {
+        double disk_dt = 0.0;
+        enum MimicObjectTimeStatus dt_status = mimic_object_substep_dt(halo, ctx, &disk_dt);
+
+        if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
+            return 0;
+        }
+        if (dt_status != MIMIC_OBJECT_TIME_OK) {
+            ERROR_LOG("Invalid disk-instability dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, status=%s)",
+                      halo->HaloNr, halo->SnapNum, halo->dT,
+                      ctx->num_substeps, mimic_object_time_status_str(dt_status));
+            return -1;
+        }
+
         mimic_apply_collisional_starburst(gal->UnstableDiskGasFraction, gal,
-                                          central_gal, central_halo, 1, &params);
+                                          central_gal, central_halo, 1, disk_dt,
+                                          &params);
         DEBUG_LOG("Starburst from disk instability (eff=%.3f)",
                   gal->UnstableDiskGasFraction);
     }

@@ -15,6 +15,7 @@
 #include "module_interface.h"
 #include "types.h"
 #include "_shared/central_link.h"
+#include "_shared/time_parity.h"
 
 // ============================================================================
 // MODULE PARAMETERS
@@ -60,6 +61,12 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
                                      struct Halo *halos,
                                      int ngal)
 {
+    if (ctx == NULL || ctx->num_substeps <= 0) {
+        ERROR_LOG("Invalid merger-time context (ctx=%p, num_substeps=%d)",
+                  (void *)ctx, (ctx != NULL) ? ctx->num_substeps : -1);
+        return -1;
+    }
+
     if (halos == NULL || ngal <= 0) {
         return 0;
     }
@@ -76,11 +83,24 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
     }
     // Process each satellite (Type 1 or Type 2)
     for (int i = 0; i < ngal; i++) {
+        double dt = 0.0;
+        enum MimicObjectTimeStatus dt_status;
+
         if (halos[i].Type == 0 || halos[i].Type > 2) continue;
         if (halos[i].galaxy == NULL) continue;
 
         struct GalaxyData *sat = halos[i].galaxy;
-        const double dt = halos[i].dT / ctx->num_substeps;
+
+        dt_status = mimic_object_substep_dt(&halos[i], ctx, &dt);
+        if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
+            continue;
+        }
+        if (dt_status != MIMIC_OBJECT_TIME_OK) {
+            ERROR_LOG("Invalid merger-time dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, status=%s)",
+                      halos[i].HaloNr, halos[i].SnapNum, halos[i].dT,
+                      ctx->num_substeps, mimic_object_time_status_str(dt_status));
+            return -1;
+        }
 
         // Validate MergTime has been set (should be < 999.0 for satellites)
         if (sat->MergTime >= 999.0) {

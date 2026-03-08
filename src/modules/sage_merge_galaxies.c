@@ -13,6 +13,7 @@
 #include "types.h"
 #include "_shared/sage_events.h"
 #include "_shared/central_link.h"
+#include "_shared/time_parity.h"
 #include "_system/parameter_helpers.h"
 
 static double THRESHOLD_MAJOR_MERGER;
@@ -60,6 +61,11 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
 
     // Process all merging satellites
     for (int i = 0; i < ngal; i++) {
+        double source_dt = 0.0;
+        double source_time = 0.0;
+        enum MimicObjectTimeStatus dt_status;
+        enum MimicObjectTimeStatus time_status;
+
         if (!halos[i].galaxy || !halos[i].galaxy->IsMerging || halos[i].Type > 2) {
             continue;
         }
@@ -72,6 +78,18 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
         }
 
         struct GalaxyData *satellite = halos[i].galaxy;
+
+        dt_status = mimic_object_substep_dt(&halos[i], ctx, &source_dt);
+        time_status = mimic_object_substep_time(&halos[i], ctx, &source_time);
+        if (dt_status != MIMIC_OBJECT_TIME_OK || time_status != MIMIC_OBJECT_TIME_OK) {
+            ERROR_LOG("Invalid merger event timing for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, dt_status=%s, time_status=%s)",
+                      halos[i].HaloNr, halos[i].SnapNum, halos[i].dT,
+                      (ctx != NULL) ? ctx->num_substeps : -1,
+                      mimic_object_time_status_str(dt_status),
+                      mimic_object_time_status_str(time_status));
+            return -1;
+        }
+
         const int target_idx =
             mimic_resolve_type2_target_index(halos, ngal, i, central_idx);
 
@@ -118,7 +136,7 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
         // =====================================================================
         if (mass_ratio > 0.0) {
             if (module_emit_event(ctx, SAGE_EVENT_MERGER, i, target_idx,
-                                  mass_ratio, 0.0) != 0) {
+                                  mass_ratio, source_dt) != 0) {
                 ERROR_LOG("Failed to emit merger event (source=%d, target=%d, "
                           "ratio=%.6f)",
                           i, target_idx, mass_ratio);
@@ -132,14 +150,14 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
 
         // Track minor merger timing
         if (mass_ratio > 0.1) {  // 0.1 = threshold for significant merger
-            central->TimeOfLastMinorMerger = ctx->substep_time;
+            central->TimeOfLastMinorMerger = source_time;
         }
 
         if (mass_ratio > THRESHOLD_MAJOR_MERGER) {
             // Major merger: transform entire stellar mass to bulge
             central->BulgeMass = central->StellarMass;
             central->MetalsBulgeMass = central->MetalsStellarMass;
-            central->TimeOfLastMajorMerger = ctx->substep_time;
+            central->TimeOfLastMajorMerger = source_time;
 
             DEBUG_LOG("Major merger: ratio=%.3f, transformed to spheroid", mass_ratio);
         }

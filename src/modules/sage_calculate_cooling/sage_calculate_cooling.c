@@ -16,6 +16,7 @@
 #include "constants.h"
 #include "error.h"
 #include "../_shared/metallicity.h"
+#include "../_shared/time_parity.h"
 #include "../_system/physical_constants.h"
 #include "module_interface.h"
 #include "module_registry.h"
@@ -98,6 +99,9 @@ int sage_calculate_cooling_init(void)
 
 int sage_calculate_cooling_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
 {
+    double dt_obj = 0.0;
+    enum MimicObjectTimeStatus dt_status;
+
     if (ngal != 1) {
         ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
         return -1;
@@ -110,9 +114,21 @@ int sage_calculate_cooling_process(struct ModuleContext *ctx, struct Halo *halos
         return 0;
     }
 
+    dt_status = mimic_object_substep_dt(halo, ctx, &dt_obj);
+    if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
+        return 0;
+    }
+    if (dt_status != MIMIC_OBJECT_TIME_OK) {
+        ERROR_LOG("Invalid cooling dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, status=%s)",
+                  halo->HaloNr, halo->SnapNum, halo->dT,
+                  (ctx != NULL) ? ctx->num_substeps : -1,
+                  mimic_object_time_status_str(dt_status));
+        return -1;
+    }
+
     // Calculate cooling using per-object substep timestep (SAGE parity)
     double rcool, lambda;
-    double coolingGas = cooling_recipe(halo, ctx, halo->dT / ctx->num_substeps, &rcool, &lambda);
+    double coolingGas = cooling_recipe(halo, ctx, dt_obj, &rcool, &lambda);
 
     // Store in properties for subsequent modules
     halo->galaxy->CoolingGas = (float)coolingGas;

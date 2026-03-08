@@ -15,9 +15,12 @@
  *   MERGER TIME TESTS:
  *   - test_mixed_dt_merger_decrement: Each satellite's MergTime decremented by its own dt
  *   - test_mixed_dt_merger_trigger: Mixed dT causes one satellite to merge, other not
+ *   - test_mixed_dt_merger_timestamp_source_time: Merger timestamp uses source-object time
  *
  *   REINCORPORATION TESTS:
  *   - test_mixed_dt_reincorporation: Central uses its own dT for reincorporation rate
+ *   - test_boundary_sentinel_reincorporation_noop: SnapNum<0,dT<=0 is a deterministic no-op
+ *   - test_invalid_nonboundary_reincorporation_error: SnapNum>=0,dT<=0 fails fast
  *
  *   STAR FORMATION TESTS:
  *   - test_mixed_dt_star_formation: Different dT gives different stellar mass
@@ -28,6 +31,9 @@
  *
  *   RADIO MODE HEATING TESTS:
  *   - test_mixed_dt_radio_mode_ignores_global: AGN heating uses halo->dT, not ctx->substep_dt
+ *
+ *   VALIDATION TESTS:
+ *   - test_invalid_nonboundary_merger_time_error: non-boundary dT<=0 fails fast
  *
  * @author  Mimic Development Team
  * @date    2026-03-07
@@ -73,6 +79,10 @@ extern int sage_calculate_cooling_cleanup(void);
 extern int sage_radio_mode_heating_init(void);
 extern int sage_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 extern int sage_radio_mode_heating_cleanup(void);
+
+extern int sage_merge_galaxies_init(void);
+extern int sage_merge_galaxies_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage_merge_galaxies_cleanup(void);
 
 extern void set_test_model_parameters(void);
 
@@ -413,6 +423,126 @@ int test_mixed_dt_merger_substeps(void)
 }
 
 /* ========================================================================== */
+/* MERGER TIMESTAMP: USES SOURCE-OBJECT TIME                                 */
+/* ========================================================================== */
+
+/**
+ * @test    test_mixed_dt_merger_timestamp_source_time
+ * @brief   TimeOfLastMinorMerger uses source-object time, not ctx->substep_time
+ */
+int test_mixed_dt_merger_timestamp_source_time(void)
+{
+    init_memory_system(0);
+    reset_config();
+
+    snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
+    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "0.3");
+    MimicConfig.NumModelParams = 1;
+    sage_merge_galaxies_init();
+
+    struct GalaxyData *central_gal = alloc_galaxy();
+    central_gal->StellarMass = 10.0;
+    central_gal->ColdGas = 5.0;
+    central_gal->TimeOfLastMinorMerger = 0.0;
+    struct Halo central = {0};
+    central.Type = 0;
+    central.SnapNum = 63;
+    central.dT = 0.2;
+    central.galaxy = central_gal;
+
+    struct GalaxyData *sat_gal = alloc_galaxy();
+    sat_gal->StellarMass = 2.0;  /* ratio > 0.1 */
+    sat_gal->ColdGas = 1.0;
+    sat_gal->IsMerging = 1;
+    struct Halo sat = {0};
+    sat.Type = 1;
+    sat.HaloNr = 7;
+    sat.SnapNum = 60;
+    sat.dT = 0.4;
+    sat.galaxy = sat_gal;
+
+    struct ModuleContext ctx = create_context(0.2, 2);
+    ctx.time = 13.0;
+    ctx.substep_number = 1;
+    ctx.substep_time = 12.7;  /* Deliberately different from source-object time */
+    ctx.central_galaxy = &central;
+
+    struct Halo halos[2] = {central, sat};
+    int result = sage_merge_galaxies_process(&ctx, halos, 2);
+    TEST_ASSERT(result == 0, "Merger processing should succeed");
+
+    const double dt_obj = sat.dT / ctx.num_substeps;
+    const double expected_time = (ctx.time + sat.dT) - ((double)ctx.substep_number + 0.5) * dt_obj;
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->TimeOfLastMinorMerger, expected_time, 1e-6,
+                             "Minor merger timestamp should use source-object time");
+    TEST_ASSERT(fabs(halos[0].galaxy->TimeOfLastMinorMerger - ctx.substep_time) > 1e-3,
+                "Minor merger timestamp should not use global ctx->substep_time");
+
+    free_galaxy(&central_gal);
+    free_galaxy(&sat_gal);
+    sage_merge_galaxies_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/* ========================================================================== */
+/* INVALID DT: FAIL-FAST AND BOUNDARY NO-OP                                  */
+/* ========================================================================== */
+
+/**
+ * @test    test_invalid_nonboundary_merger_time_error
+ * @brief   Non-boundary dT<=0 in merger-time module fails fast
+ */
+int test_invalid_nonboundary_merger_time_error(void)
+{
+    init_memory_system(0);
+    reset_config();
+    MimicConfig.Omega = 0.25;
+    MimicConfig.OmegaLambda = 0.75;
+    MimicConfig.Hubble_h = 0.73;
+    MimicConfig.G = 43.02;
+    snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
+    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "1.0");
+    MimicConfig.NumModelParams = 1;
+    sage_update_merger_time_init();
+
+    struct GalaxyData *cen_gal = alloc_galaxy();
+    cen_gal->StellarMass = 10.0;
+    cen_gal->ColdGas = 5.0;
+    struct Halo central = {0};
+    central.Type = 0;
+    central.SnapNum = 63;
+    central.dT = 0.2;
+    central.galaxy = cen_gal;
+
+    struct GalaxyData *sat_gal = alloc_galaxy();
+    sat_gal->MergTime = 1.0f;
+    sat_gal->StellarMass = 1.0;
+    sat_gal->ColdGas = 1.0;
+    struct Halo sat = {0};
+    sat.Type = 1;
+    sat.HaloNr = 3;
+    sat.SnapNum = 63;   /* Non-boundary */
+    sat.dT = -1.0;      /* Invalid */
+    sat.galaxy = sat_gal;
+
+    struct ModuleContext ctx = create_context(0.2, 1);
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, sat};
+
+    const int result = sage_update_merger_time_process(&ctx, halos, 2);
+    TEST_ASSERT(result != 0, "Merger-time module should fail for non-boundary dT<=0");
+
+    free_galaxy(&cen_gal);
+    free_galaxy(&sat_gal);
+    sage_update_merger_time_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/* ========================================================================== */
 /* REINCORPORATION: CENTRAL USES ITS OWN DT                                 */
 /* ========================================================================== */
 
@@ -486,6 +616,89 @@ int test_mixed_dt_reincorporation(void)
 
     free_galaxy(&gal1);
     free_galaxy(&gal2);
+    sage_reincorporation_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_boundary_sentinel_reincorporation_noop
+ * @brief   Boundary sentinel (SnapNum<0,dT<=0) is a deterministic no-op
+ */
+int test_boundary_sentinel_reincorporation_noop(void)
+{
+    init_memory_system(0);
+    reset_config();
+    set_test_model_parameters();
+    sage_reincorporation_init();
+
+    struct GalaxyData *gal = alloc_galaxy();
+    gal->EjectedGas = 8.0;
+    gal->MetalsEjectedGas = 0.16;
+    gal->HotGas = 2.0;
+    gal->MetalsHotGas = 0.04;
+
+    struct Halo halo = {0};
+    halo.Type = 0;
+    halo.Vvir = 500.0;
+    halo.Rvir = 0.2;
+    halo.SnapNum = -1;  /* Boundary sentinel state */
+    halo.dT = -1.0;
+    halo.galaxy = gal;
+
+    struct ModuleContext ctx = create_context(0.2, 1);
+    ctx.central_galaxy = &halo;
+
+    const float initial_ejected = gal->EjectedGas;
+    const float initial_hot = gal->HotGas;
+    const int result = sage_reincorporation_process(&ctx, &halo, 1);
+
+    TEST_ASSERT(result == 0, "Boundary sentinel should be a no-op success");
+    TEST_ASSERT_DOUBLE_EQUAL(gal->EjectedGas, initial_ejected, 1e-10,
+                             "Boundary sentinel should not change EjectedGas");
+    TEST_ASSERT_DOUBLE_EQUAL(gal->HotGas, initial_hot, 1e-10,
+                             "Boundary sentinel should not change HotGas");
+
+    free_galaxy(&gal);
+    sage_reincorporation_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_invalid_nonboundary_reincorporation_error
+ * @brief   Non-boundary dT<=0 in reincorporation fails fast
+ */
+int test_invalid_nonboundary_reincorporation_error(void)
+{
+    init_memory_system(0);
+    reset_config();
+    set_test_model_parameters();
+    sage_reincorporation_init();
+
+    struct GalaxyData *gal = alloc_galaxy();
+    gal->EjectedGas = 8.0;
+    gal->MetalsEjectedGas = 0.16;
+    gal->HotGas = 2.0;
+    gal->MetalsHotGas = 0.04;
+
+    struct Halo halo = {0};
+    halo.Type = 0;
+    halo.Vvir = 500.0;
+    halo.Rvir = 0.2;
+    halo.SnapNum = 63;  /* Non-boundary */
+    halo.dT = -1.0;     /* Invalid */
+    halo.galaxy = gal;
+
+    struct ModuleContext ctx = create_context(0.2, 1);
+    ctx.central_galaxy = &halo;
+
+    const int result = sage_reincorporation_process(&ctx, &halo, 1);
+    TEST_ASSERT(result != 0, "Non-boundary dT<=0 should fail fast");
+
+    free_galaxy(&gal);
     sage_reincorporation_cleanup();
     check_memory_leaks();
 
@@ -876,9 +1089,13 @@ int main(void)
     TEST_RUN(test_mixed_dt_merger_decrement);
     TEST_RUN(test_mixed_dt_merger_trigger);
     TEST_RUN(test_mixed_dt_merger_substeps);
+    TEST_RUN(test_mixed_dt_merger_timestamp_source_time);
+    TEST_RUN(test_invalid_nonboundary_merger_time_error);
 
     printf("\n%sREINCORPORATION TESTS:%s\n", BLUE, NC);
     TEST_RUN(test_mixed_dt_reincorporation);
+    TEST_RUN(test_boundary_sentinel_reincorporation_noop);
+    TEST_RUN(test_invalid_nonboundary_reincorporation_error);
 
     printf("\n%sSTAR FORMATION TESTS:%s\n", BLUE, NC);
     TEST_RUN(test_mixed_dt_star_formation);

@@ -15,6 +15,7 @@
 #include "constants.h"
 #include "error.h"
 #include "_shared/metallicity.h"
+#include "_shared/time_parity.h"
 #include "_system/parameter_helpers.h"
 #include "_system/physical_constants.h"
 #include "module_interface.h"
@@ -223,6 +224,9 @@ int sage_radio_mode_heating_init(void)
 
 int sage_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
 {
+    double dt_obj = 0.0;
+    enum MimicObjectTimeStatus dt_status;
+
     if (ngal != 1) {
         ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
         return -1;
@@ -237,7 +241,18 @@ int sage_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *halo
 
     // Only apply AGN heating if cooling is occurring and AGN is enabled
     if (halo->galaxy->CoolingGas > EPSILON_SMALL && AGN_RECIPE_ON > 0) {
-        do_AGN_heating(halo, ctx, halo->dT / ctx->num_substeps);
+        dt_status = mimic_object_substep_dt(halo, ctx, &dt_obj);
+        if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
+            return 0;
+        }
+        if (dt_status != MIMIC_OBJECT_TIME_OK) {
+            ERROR_LOG("Invalid radio-mode dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, status=%s)",
+                      halo->HaloNr, halo->SnapNum, halo->dT,
+                      (ctx != NULL) ? ctx->num_substeps : -1,
+                      mimic_object_time_status_str(dt_status));
+            return -1;
+        }
+        do_AGN_heating(halo, ctx, dt_obj);
     }
 
     return 0;

@@ -113,7 +113,7 @@ static inline void mimic_apply_quasar_mode_wind(
 static inline void mimic_apply_collisional_starburst(
     double efficiency_factor, struct GalaxyData *gal,
     struct GalaxyData *central_gal, const struct Halo *central_halo, int mode,
-    const struct MimicStarburstParams *p) {
+    double rate_dt, const struct MimicStarburstParams *p) {
   double eburst;
   double stars;
   double reheated_mass;
@@ -169,8 +169,8 @@ static inline void mimic_apply_collisional_starburst(
   gal->BulgeMass += (1.0 - p->recycle_fraction) * stars;
   gal->MetalsBulgeMass += metallicity * (1.0 - p->recycle_fraction) * stars;
 
-  if (central_halo->dT > 0.0) {
-    gal->StarFormationRate += stars / central_halo->dT;
+  if (rate_dt > 0.0) {
+    gal->StarFormationRate += stars / rate_dt;
   }
 
   metallicity_cold = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);
@@ -191,8 +191,8 @@ static inline void mimic_apply_collisional_starburst(
   central_gal->EjectedGas += ejected_mass;
   central_gal->MetalsEjectedGas += metallicity_hot * ejected_mass;
 
-  if (central_halo->dT > 0.0) {
-    gal->SupernovaOutflowRate += reheated_mass / central_halo->dT;
+  if (rate_dt > 0.0) {
+    gal->SupernovaOutflowRate += reheated_mass / rate_dt;
   }
 
   if (gal->ColdGas > EPSILON_SMALL &&

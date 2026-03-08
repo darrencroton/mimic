@@ -153,6 +153,7 @@ static void setup_test_galaxy(struct Halo *halo, struct GalaxyData *gal,
     halo->Type = type;
     halo->HaloNr = 1000 + type;
     halo->SnapNum = 63;
+    halo->dT = 0.1f;
     halo->galaxy = gal;
 
     gal->ColdGas = (float)cold_gas;
@@ -217,6 +218,12 @@ static void setup_test_context(struct ModuleContext *ctx)
     ctx->substep_number = 0;
     ctx->num_substeps = 1;
     ctx->params = &MimicConfig;
+}
+
+static double expected_source_time(const struct Halo *source, const struct ModuleContext *ctx)
+{
+    const double dt = source->dT / (double)ctx->num_substeps;
+    return (ctx->time + source->dT) - ((double)ctx->substep_number + 0.5) * dt;
 }
 
 // ============================================================================
@@ -363,7 +370,8 @@ int test_single_major_merger(void)
                              "BulgeMass should equal StellarMass after major merger");
 
     /* TimeOfLastMajorMerger set */
-    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->TimeOfLastMajorMerger, ctx.substep_time, 1e-6,
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->TimeOfLastMajorMerger,
+                             expected_source_time(&halos[1], &ctx), 1e-6,
                              "TimeOfLastMajorMerger should be set");
 
     /* ===== CLEANUP ===== */
@@ -721,7 +729,8 @@ int test_merger_timing_tracking(void)
     sage_merge_galaxies_process(&ctx, halos_major, 2);
 
     /* ===== VALIDATE MAJOR MERGER ===== */
-    TEST_ASSERT_DOUBLE_EQUAL(halos_major[0].galaxy->TimeOfLastMajorMerger, 10.25, 1e-6,
+    TEST_ASSERT_DOUBLE_EQUAL(halos_major[0].galaxy->TimeOfLastMajorMerger,
+                             expected_source_time(&halos_major[1], &ctx), 1e-6,
                              "TimeOfLastMajorMerger should be set for major merger");
 
     /* Reset for minor merger test */
@@ -754,7 +763,8 @@ int test_merger_timing_tracking(void)
     sage_merge_galaxies_process(&ctx, halos_minor, 2);
 
     /* ===== VALIDATE MINOR MERGER ===== */
-    TEST_ASSERT_DOUBLE_EQUAL(halos_minor[0].galaxy->TimeOfLastMinorMerger, 10.75, 1e-6,
+    TEST_ASSERT_DOUBLE_EQUAL(halos_minor[0].galaxy->TimeOfLastMinorMerger,
+                             expected_source_time(&halos_minor[1], &ctx), 1e-6,
                              "TimeOfLastMinorMerger should be set for ratio > 0.1");
 
     /* ===== CLEANUP ===== */

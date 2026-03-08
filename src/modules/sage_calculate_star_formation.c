@@ -15,6 +15,7 @@
 #include "error.h"
 #include "module_interface.h"
 #include "types.h"
+#include "_shared/time_parity.h"
 #include "_system/parameter_helpers.h"
 
 // ============================================================================
@@ -45,6 +46,9 @@ int sage_calculate_star_formation_init(void)
 int sage_calculate_star_formation_process(struct ModuleContext *ctx,
                                           struct Halo *halos, int ngal)
 {
+    double dt = 0.0;
+    enum MimicObjectTimeStatus dt_status;
+
     if (ngal != 1) {
         ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
         return -1;
@@ -58,7 +62,17 @@ int sage_calculate_star_formation_process(struct ModuleContext *ctx,
 
     struct GalaxyData *gal = halo->galaxy;
 
-    const double dt = halo->dT / ctx->num_substeps;
+    dt_status = mimic_object_substep_dt(halo, ctx, &dt);
+    if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
+        return 0;
+    }
+    if (dt_status != MIMIC_OBJECT_TIME_OK) {
+        ERROR_LOG("Invalid star formation dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, status=%s)",
+                  halo->HaloNr, halo->SnapNum, halo->dT,
+                  (ctx != NULL) ? ctx->num_substeps : -1,
+                  mimic_object_time_status_str(dt_status));
+        return -1;
+    }
 
     // Star formation recipe: Kennicutt-Schmidt with critical threshold
     // We take the typical star forming region as STAR_FORMING_DISK_FACTOR*r_s (typically 3.0*r_s)

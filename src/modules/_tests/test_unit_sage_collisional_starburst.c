@@ -310,6 +310,73 @@ int test_disk_instability_starburst(void)
 }
 
 /**
+ * @test    test_disk_instability_uses_per_object_substep_dt_for_rates
+ * @brief   Disk-instability channel normalizes rates with halo->dT/num_substeps
+ *
+ * Expected: With identical physics and num_substeps changing from 1 to 2,
+ * StarFormationRate and SupernovaOutflowRate double (inverse-dt scaling).
+ */
+int test_disk_instability_uses_per_object_substep_dt_for_rates(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+
+    setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+    sage_collisional_starburst_init();
+
+    struct Halo halo1;
+    struct GalaxyData gal1;
+    setup_test_galaxy(&halo1, &gal1, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+    halo1.dT = 0.2f;
+    gal1.UnstableDiskGasFraction = 0.5;
+
+    struct ModuleContext ctx1;
+    setup_test_context(&ctx1, &halo1);
+    ctx1.num_substeps = 1;
+
+    int result = sage_collisional_starburst_process(&ctx1, &halo1, 1);
+    TEST_ASSERT(result == 0, "First disk-instability processing should succeed");
+    const double sfr1 = gal1.StarFormationRate;
+    const double outflow1 = gal1.SupernovaOutflowRate;
+
+    struct Halo halo2;
+    struct GalaxyData gal2;
+    setup_test_galaxy(&halo2, &gal2, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+    halo2.dT = 0.2f;
+    gal2.UnstableDiskGasFraction = 0.5;
+
+    struct ModuleContext ctx2;
+    setup_test_context(&ctx2, &halo2);
+    ctx2.num_substeps = 2;  /* Same halo dT, half per-substep dt */
+
+    result = sage_collisional_starburst_process(&ctx2, &halo2, 1);
+    TEST_ASSERT(result == 0, "Second disk-instability processing should succeed");
+    const double sfr2 = gal2.StarFormationRate;
+    const double outflow2 = gal2.SupernovaOutflowRate;
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(sfr1 > 0.0 && sfr2 > 0.0,
+                "Both runs should produce positive star formation rate");
+    TEST_ASSERT(outflow1 > 0.0 && outflow2 > 0.0,
+                "Both runs should produce positive outflow rate");
+    TEST_ASSERT_DOUBLE_EQUAL(sfr2 / sfr1, 2.0, 1e-4,
+                             "Disk-instability SFR must scale with per-object substep dt");
+    TEST_ASSERT_DOUBLE_EQUAL(outflow2 / outflow1, 2.0, 1e-4,
+                             "Disk-instability outflow must scale with per-object substep dt");
+    TEST_ASSERT_DOUBLE_EQUAL(gal2.StellarMass, gal1.StellarMass, 1e-6,
+                             "Mass transfer should be timestep-invariant");
+    TEST_ASSERT_DOUBLE_EQUAL(gal2.ColdGas, gal1.ColdGas, 1e-6,
+                             "Cold-gas evolution should be timestep-invariant");
+
+    /* ===== CLEANUP ===== */
+    sage_collisional_starburst_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
  * @test    test_merger_starburst
  * @brief   Test merger-only trigger is ignored in collisional_starburst
  *
@@ -435,7 +502,7 @@ int test_per_event_merger_starburst(void)
         .source_index = 1,
         .target_index = 0,
         .value0 = 0.3,
-        .value1 = 0.0
+        .value1 = 0.1
     };
     ctx.active_event = &event;
 
@@ -498,7 +565,7 @@ int test_per_event_merger_uses_fof_central_feedback_destination(void)
         .source_index = 2,
         .target_index = 1,
         .value0 = 0.3,
-        .value1 = 0.0
+        .value1 = 0.1
     };
     ctx.active_event = &event;
 
@@ -514,6 +581,97 @@ int test_per_event_merger_uses_fof_central_feedback_destination(void)
                 "Reheated gas should be deposited to FOF central hot gas");
     TEST_ASSERT_DOUBLE_EQUAL(event_target_halo.galaxy->HotGas, initial_target_hot, 1e-8,
                              "Event target hot gas should not receive reheated gas directly");
+
+    /* ===== CLEANUP ===== */
+    sage_collisional_starburst_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_per_event_merger_uses_event_dt_for_rates
+ * @brief   Per-event merger channel normalizes rates with event payload dt
+ *
+ * Expected: With identical physics and different event dt values,
+ * StarFormationRate and SupernovaOutflowRate scale as 1/dt.
+ */
+int test_per_event_merger_uses_event_dt_for_rates(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+
+    setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+    sage_collisional_starburst_init();
+
+    struct Halo central1;
+    struct GalaxyData central_gal1;
+    setup_test_galaxy(&central1, &central_gal1, 0,
+                      120.0, 260.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+    central1.dT = 0.05f;
+
+    struct Halo target1;
+    struct GalaxyData target_gal1;
+    setup_test_galaxy(&target1, &target_gal1, 1,
+                      25.0, 180.0, 8.0, 0.16, 2.0, 0.5, 5.0, 0.1);
+    target1.dT = 0.9f;
+
+    struct ModuleContext ctx1;
+    setup_test_context(&ctx1, &central1);
+    struct ModuleEvent event1 = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = SAGE_EVENT_MERGER,
+        .source_index = 2,
+        .target_index = 1,
+        .value0 = 0.3,
+        .value1 = 0.1
+    };
+    ctx1.active_event = &event1;
+
+    int result = sage_collisional_starburst_process(&ctx1, &target1, 1);
+    TEST_ASSERT(result == 0, "First per-event merger processing should succeed");
+    const double sfr1 = target1.galaxy->StarFormationRate;
+    const double outflow1 = target1.galaxy->SupernovaOutflowRate;
+
+    struct Halo central2;
+    struct GalaxyData central_gal2;
+    setup_test_galaxy(&central2, &central_gal2, 0,
+                      120.0, 260.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+    central2.dT = 0.8f;
+
+    struct Halo target2;
+    struct GalaxyData target_gal2;
+    setup_test_galaxy(&target2, &target_gal2, 1,
+                      25.0, 180.0, 8.0, 0.16, 2.0, 0.5, 5.0, 0.1);
+    target2.dT = 0.2f;
+
+    struct ModuleContext ctx2;
+    setup_test_context(&ctx2, &central2);
+    struct ModuleEvent event2 = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = SAGE_EVENT_MERGER,
+        .source_index = 2,
+        .target_index = 1,
+        .value0 = 0.3,
+        .value1 = 0.2
+    };
+    ctx2.active_event = &event2;
+
+    result = sage_collisional_starburst_process(&ctx2, &target2, 1);
+    TEST_ASSERT(result == 0, "Second per-event merger processing should succeed");
+    const double sfr2 = target2.galaxy->StarFormationRate;
+    const double outflow2 = target2.galaxy->SupernovaOutflowRate;
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(sfr1 > 0.0 && sfr2 > 0.0,
+                "Both runs should produce positive star formation rate");
+    TEST_ASSERT(outflow1 > 0.0 && outflow2 > 0.0,
+                "Both runs should produce positive outflow rate");
+    TEST_ASSERT_DOUBLE_EQUAL(sfr1 / sfr2, 2.0, 1e-4,
+                             "StarFormationRate ratio should follow inverse event dt");
+    TEST_ASSERT_DOUBLE_EQUAL(outflow1 / outflow2, 2.0, 1e-4,
+                             "SupernovaOutflowRate ratio should follow inverse event dt");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();
@@ -551,7 +709,7 @@ int test_per_event_unknown_code_noop(void)
         .source_index = 1,
         .target_index = 0,
         .value0 = 0.4,
-        .value1 = 0.0
+        .value1 = 0.1
     };
     ctx.active_event = &event;
 
@@ -570,6 +728,98 @@ int test_per_event_unknown_code_noop(void)
                              "Bulge mass should remain unchanged");
     TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
                              "Cold gas should remain unchanged");
+
+    /* ===== CLEANUP ===== */
+    sage_collisional_starburst_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_disk_instability_invalid_nonboundary_dt_errors
+ * @brief   Invalid non-boundary dT must fail fast in disk-instability path
+ *
+ * Expected: SnapNum >= 0 with dT <= 0 returns error.
+ */
+int test_disk_instability_invalid_nonboundary_dt_errors(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+
+    setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+    sage_collisional_starburst_init();
+
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+    halo.SnapNum = 63;
+    halo.dT = -1.0f;
+    gal.UnstableDiskGasFraction = 0.5;
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &halo);
+    ctx.num_substeps = 1;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_collisional_starburst_process(&ctx, &halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == -1,
+                "Non-boundary dT <= 0 must fail with error");
+
+    /* ===== CLEANUP ===== */
+    sage_collisional_starburst_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_disk_instability_boundary_sentinel_dt_noop
+ * @brief   Boundary sentinel dT is a no-op for first-snapshot objects
+ *
+ * Expected: SnapNum < 0 with dT <= 0 returns success with no property changes.
+ */
+int test_disk_instability_boundary_sentinel_dt_noop(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+
+    setup_test_parameters(3.0, 0.5, 0.43, 0.03, 0.5, 0.3);
+    sage_collisional_starburst_init();
+
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
+    halo.SnapNum = -1;
+    halo.dT = -1.0f;
+    gal.UnstableDiskGasFraction = 0.5;
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, &halo);
+    ctx.num_substeps = 1;
+
+    const double initial_stellar = gal.StellarMass;
+    const double initial_cold = gal.ColdGas;
+    const double initial_sfr = gal.StarFormationRate;
+    const double initial_outflow = gal.SupernovaOutflowRate;
+
+    /* ===== EXECUTE ===== */
+    int result = sage_collisional_starburst_process(&ctx, &halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Boundary sentinel dT should be a no-op success");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, initial_stellar, 1e-12,
+                             "Stellar mass should remain unchanged on boundary skip");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
+                             "Cold gas should remain unchanged on boundary skip");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.StarFormationRate, initial_sfr, 1e-12,
+                             "SFR should remain unchanged on boundary skip");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.SupernovaOutflowRate, initial_outflow, 1e-12,
+                             "Outflow rate should remain unchanged on boundary skip");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();
@@ -1544,10 +1794,12 @@ int main(void)
 
     /* Run physics calculation tests */
     TEST_RUN(test_disk_instability_starburst);
+    TEST_RUN(test_disk_instability_uses_per_object_substep_dt_for_rates);
     TEST_RUN(test_merger_starburst);
     TEST_RUN(test_both_triggers);
     TEST_RUN(test_per_event_merger_starburst);
     TEST_RUN(test_per_event_merger_uses_fof_central_feedback_destination);
+    TEST_RUN(test_per_event_merger_uses_event_dt_for_rates);
     TEST_RUN(test_per_event_unknown_code_noop);
     TEST_RUN(test_major_vs_minor_merger);
     TEST_RUN(test_mass_conservation);
@@ -1564,6 +1816,8 @@ int main(void)
     TEST_RUN(test_null_central_galaxy);
     TEST_RUN(test_triggers_preserved);
     TEST_RUN(test_invalid_ngal);
+    TEST_RUN(test_disk_instability_invalid_nonboundary_dt_errors);
+    TEST_RUN(test_disk_instability_boundary_sentinel_dt_noop);
     TEST_RUN(test_zero_vvir);
     TEST_RUN(test_insufficient_cold_gas);
 
