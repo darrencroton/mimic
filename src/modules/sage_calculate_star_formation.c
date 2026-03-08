@@ -58,7 +58,7 @@ int sage_calculate_star_formation_process(struct ModuleContext *ctx,
 
     struct GalaxyData *gal = halo->galaxy;
 
-    const double dt = ctx->substep_dt;
+    const double dt = halo->dT / ctx->num_substeps;
 
     // Star formation recipe: Kennicutt-Schmidt with critical threshold
     // We take the typical star forming region as STAR_FORMING_DISK_FACTOR*r_s (typically 3.0*r_s)

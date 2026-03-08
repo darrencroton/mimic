@@ -237,7 +237,7 @@ int sage_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *halo
 
     // Only apply AGN heating if cooling is occurring and AGN is enabled
     if (halo->galaxy->CoolingGas > EPSILON_SMALL && AGN_RECIPE_ON > 0) {
-        do_AGN_heating(halo, ctx, ctx->substep_dt);
+        do_AGN_heating(halo, ctx, halo->dT / ctx->num_substeps);
     }
 
     return 0;
