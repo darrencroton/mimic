@@ -22,6 +22,13 @@
  *   STAR FORMATION TESTS:
  *   - test_mixed_dt_star_formation: Different dT gives different stellar mass
  *
+ *   COOLING TESTS:
+ *   - test_mixed_dt_cooling_ignores_global: Cooling uses halo->dT, not ctx->substep_dt
+ *   - test_mixed_dt_cooling_scales_with_dt: CoolingGas scales linearly with dT
+ *
+ *   RADIO MODE HEATING TESTS:
+ *   - test_mixed_dt_radio_mode_ignores_global: AGN heating uses halo->dT, not ctx->substep_dt
+ *
  * @author  Mimic Development Team
  * @date    2026-03-07
  */
@@ -58,6 +65,14 @@ extern int sage_reincorporation_cleanup(void);
 extern int sage_calculate_star_formation_init(void);
 extern int sage_calculate_star_formation_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 extern int sage_calculate_star_formation_cleanup(void);
+
+extern int sage_calculate_cooling_init(void);
+extern int sage_calculate_cooling_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage_calculate_cooling_cleanup(void);
+
+extern int sage_radio_mode_heating_init(void);
+extern int sage_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage_radio_mode_heating_cleanup(void);
 
 extern void set_test_model_parameters(void);
 
@@ -606,6 +621,244 @@ int test_mixed_dt_star_formation_ignores_global(void)
 }
 
 /* ========================================================================== */
+/* COOLING: USES PER-OBJECT DT, NOT GLOBAL SUBSTEP_DT                       */
+/* ========================================================================== */
+
+/**
+ * @test    test_mixed_dt_cooling_ignores_global
+ * @brief   Cooling uses halo->dT, not ctx->substep_dt
+ *
+ * Same halo->dT but different ctx->substep_dt → identical CoolingGas.
+ * If the code used ctx->substep_dt, the two runs would differ.
+ */
+int test_mixed_dt_cooling_ignores_global(void)
+{
+    init_memory_system(0);
+    reset_config();
+
+    /* Unit conversions needed by cooling_recipe() */
+    MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
+    MimicConfig.UnitTime_in_s = 3.08568e16;
+
+    sage_calculate_cooling_init();
+
+    const float halo_dT = 0.2;
+
+    /* Run 1: ctx->substep_dt = 0.2 (matches halo dT) */
+    struct GalaxyData *gal1 = alloc_galaxy();
+    gal1->HotGas = 10.0;
+    gal1->MetalsHotGas = 0.02;  /* 0.2% metallicity */
+    struct Halo halo1 = {0};
+    halo1.Type = 0;
+    halo1.Vvir = 200.0;
+    halo1.Rvir = 0.2;
+    halo1.SnapNum = 63;
+    halo1.dT = halo_dT;
+    halo1.galaxy = gal1;
+
+    struct ModuleContext ctx1 = create_context(0.2, 1);
+    sage_calculate_cooling_process(&ctx1, &halo1, 1);
+    float cooling1 = gal1->CoolingGas;
+
+    /* Run 2: ctx->substep_dt = 0.9 (different!), but halo->dT still 0.2 */
+    struct GalaxyData *gal2 = alloc_galaxy();
+    gal2->HotGas = 10.0;
+    gal2->MetalsHotGas = 0.02;
+    struct Halo halo2 = {0};
+    halo2.Type = 0;
+    halo2.Vvir = 200.0;
+    halo2.Rvir = 0.2;
+    halo2.SnapNum = 63;
+    halo2.dT = halo_dT;
+    halo2.galaxy = gal2;
+
+    struct ModuleContext ctx2 = create_context(0.9, 1);  /* Different global dt */
+    sage_calculate_cooling_process(&ctx2, &halo2, 1);
+    float cooling2 = gal2->CoolingGas;
+
+    /* Must be identical — module uses halo->dT, not ctx->substep_dt */
+    TEST_ASSERT_DOUBLE_EQUAL(cooling1, cooling2, 1e-10,
+                             "Cooling must use halo->dT, not ctx->substep_dt");
+    TEST_ASSERT(cooling1 > 0.0, "Some cooling should have occurred");
+
+    free_galaxy(&gal1);
+    free_galaxy(&gal2);
+    sage_calculate_cooling_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_mixed_dt_cooling_scales_with_dt
+ * @brief   Two identical halos with different dT produce different CoolingGas
+ *
+ * CoolingGas is proportional to dt. With dT_A=0.1 and dT_B=0.3,
+ * the ratio of CoolingGas must be 1/3.
+ */
+int test_mixed_dt_cooling_scales_with_dt(void)
+{
+    init_memory_system(0);
+    reset_config();
+
+    MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
+    MimicConfig.UnitTime_in_s = 3.08568e16;
+
+    sage_calculate_cooling_init();
+
+    /* Use very small dT values to stay well below HotGas cap.
+     * Cold accretion rate ~ HotGas/(Rvir/Vvir) * dt = 10/0.001 * dt = 10000*dt
+     * So dt must be << 0.001 to avoid capping at HotGas=10. */
+
+    /* Halo A: dT = 0.0001 → coolingGas ~ 1.0 (< HotGas=10) */
+    struct GalaxyData *gal_a = alloc_galaxy();
+    gal_a->HotGas = 10.0;
+    gal_a->MetalsHotGas = 0.02;
+    struct Halo halo_a = {0};
+    halo_a.Type = 0;
+    halo_a.Vvir = 200.0;
+    halo_a.Rvir = 0.2;
+    halo_a.SnapNum = 63;
+    halo_a.dT = 0.0001;
+    halo_a.galaxy = gal_a;
+
+    struct ModuleContext ctx_a = create_context(0.0001, 1);
+    sage_calculate_cooling_process(&ctx_a, &halo_a, 1);
+    float cooling_a = gal_a->CoolingGas;
+
+    /* Halo B: identical properties but dT = 0.0003 → coolingGas ~ 3.0 (< HotGas=10) */
+    struct GalaxyData *gal_b = alloc_galaxy();
+    gal_b->HotGas = 10.0;
+    gal_b->MetalsHotGas = 0.02;
+    struct Halo halo_b = {0};
+    halo_b.Type = 0;
+    halo_b.Vvir = 200.0;
+    halo_b.Rvir = 0.2;
+    halo_b.SnapNum = 63;
+    halo_b.dT = 0.0003;
+    halo_b.galaxy = gal_b;
+
+    struct ModuleContext ctx_b = create_context(0.0003, 1);
+    sage_calculate_cooling_process(&ctx_b, &halo_b, 1);
+    float cooling_b = gal_b->CoolingGas;
+
+    /* Both must cool (sanity) */
+    TEST_ASSERT(cooling_a > 0.0, "Halo A should cool");
+    TEST_ASSERT(cooling_b > 0.0, "Halo B should cool");
+
+    /* CoolingGas scales linearly with dt → ratio must be dT_A/dT_B = 1/3 */
+    double ratio = cooling_a / cooling_b;
+    TEST_ASSERT_DOUBLE_EQUAL(ratio, 1.0 / 3.0, 1e-5,
+                             "CoolingGas ratio must equal dT ratio (proves per-object dt)");
+
+    free_galaxy(&gal_a);
+    free_galaxy(&gal_b);
+    sage_calculate_cooling_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/* ========================================================================== */
+/* RADIO MODE HEATING: USES PER-OBJECT DT, NOT GLOBAL SUBSTEP_DT            */
+/* ========================================================================== */
+
+/**
+ * @test    test_mixed_dt_radio_mode_ignores_global
+ * @brief   Radio-mode AGN heating uses halo->dT, not ctx->substep_dt
+ *
+ * Same halo->dT but different ctx->substep_dt → identical BH accretion
+ * and cooling suppression. If the code used ctx->substep_dt, results differ.
+ */
+int test_mixed_dt_radio_mode_ignores_global(void)
+{
+    init_memory_system(0);
+    reset_config();
+
+    /* Unit conversions needed by AGN rate calculations */
+    MimicConfig.UnitMass_in_g = 1.989e43;
+    MimicConfig.UnitTime_in_s = 3.08568e16;
+    MimicConfig.UnitEnergy_in_cgs = 1.989e53;
+    MimicConfig.Hubble_h = 0.73;
+
+    /* Set radio mode parameters */
+    snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "RadioModeEfficiency");
+    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "0.08");
+    snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "AGNrecipe");
+    snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "1");
+    MimicConfig.NumModelParams = 2;
+
+    sage_radio_mode_heating_init();
+
+    const float halo_dT = 0.2;
+
+    /* Run 1: ctx->substep_dt = 0.2 (matches halo dT) */
+    struct GalaxyData *gal1 = alloc_galaxy();
+    gal1->HotGas = 10.0;
+    gal1->MetalsHotGas = 0.2;
+    gal1->BlackHoleMass = 0.01;
+    gal1->CoolingGas = 1.0;
+    gal1->Rcool = 0.05;
+    gal1->Rheat = 0.0;
+    struct Halo halo1 = {0};
+    halo1.Type = 0;
+    halo1.Mvir = 100.0;
+    halo1.Vvir = 200.0;
+    halo1.Rvir = 0.2;
+    halo1.SnapNum = 63;
+    halo1.dT = halo_dT;
+    halo1.galaxy = gal1;
+
+    struct ModuleContext ctx1 = create_context(0.2, 1);
+    sage_radio_mode_heating_process(&ctx1, &halo1, 1);
+    float bh1 = gal1->BlackHoleMass;
+    float hot1 = gal1->HotGas;
+    float cool1 = gal1->CoolingGas;
+
+    /* Run 2: ctx->substep_dt = 0.9 (different!), but halo->dT still 0.2 */
+    struct GalaxyData *gal2 = alloc_galaxy();
+    gal2->HotGas = 10.0;
+    gal2->MetalsHotGas = 0.2;
+    gal2->BlackHoleMass = 0.01;
+    gal2->CoolingGas = 1.0;
+    gal2->Rcool = 0.05;
+    gal2->Rheat = 0.0;
+    struct Halo halo2 = {0};
+    halo2.Type = 0;
+    halo2.Mvir = 100.0;
+    halo2.Vvir = 200.0;
+    halo2.Rvir = 0.2;
+    halo2.SnapNum = 63;
+    halo2.dT = halo_dT;
+    halo2.galaxy = gal2;
+
+    struct ModuleContext ctx2 = create_context(0.9, 1);  /* Different global dt */
+    sage_radio_mode_heating_process(&ctx2, &halo2, 1);
+    float bh2 = gal2->BlackHoleMass;
+    float hot2 = gal2->HotGas;
+    float cool2 = gal2->CoolingGas;
+
+    /* Must be identical — module uses halo->dT, not ctx->substep_dt */
+    TEST_ASSERT_DOUBLE_EQUAL(bh1, bh2, 1e-10,
+                             "BH mass must use halo->dT, not ctx->substep_dt");
+    TEST_ASSERT_DOUBLE_EQUAL(hot1, hot2, 1e-10,
+                             "HotGas must match when halo->dT is the same");
+    TEST_ASSERT_DOUBLE_EQUAL(cool1, cool2, 1e-10,
+                             "CoolingGas must match when halo->dT is the same");
+
+    /* Sanity: AGN should have done something */
+    TEST_ASSERT(bh1 > 0.01 || cool1 < 1.0,
+                "AGN should have accreted or suppressed cooling");
+
+    free_galaxy(&gal1);
+    free_galaxy(&gal2);
+    sage_radio_mode_heating_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/* ========================================================================== */
 /* MAIN TEST RUNNER                                                          */
 /* ========================================================================== */
 
@@ -630,6 +883,13 @@ int main(void)
     printf("\n%sSTAR FORMATION TESTS:%s\n", BLUE, NC);
     TEST_RUN(test_mixed_dt_star_formation);
     TEST_RUN(test_mixed_dt_star_formation_ignores_global);
+
+    printf("\n%sCOOLING TESTS:%s\n", BLUE, NC);
+    TEST_RUN(test_mixed_dt_cooling_ignores_global);
+    TEST_RUN(test_mixed_dt_cooling_scales_with_dt);
+
+    printf("\n%sRADIO MODE HEATING TESTS:%s\n", BLUE, NC);
+    TEST_RUN(test_mixed_dt_radio_mode_ignores_global);
 
     TEST_SUMMARY();
     return TEST_RESULT();
