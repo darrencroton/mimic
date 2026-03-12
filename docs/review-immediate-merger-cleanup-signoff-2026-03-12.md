@@ -41,7 +41,7 @@ The current tests cover the immediate merger handler in isolation and the per-ev
 `sage_handle_mergers_immediate -> module_emit_event() -> process_per_event consumers`
 
 Evidence:
-- `src/modules/_tests/test_unit_sage_merger_ordering_parity.c:245-367` calls `sage_handle_mergers_immediate_process(...)` directly in a unit-test context.
+- `src/modules/sage_handle_mergers_immediate/_tests/test_unit_sage_merger_ordering_parity.c:245-367` calls `sage_handle_mergers_immediate_process(...)` directly in a unit-test context.
 - `src/core/module_registry.c:462-466` explicitly drops emitted events when no phase-dispatch context is active, so those unit tests do not exercise `sage_quasar_mode` or `sage_collisional_starburst`.
 - `src/modules/_tests/module_info.yaml:54-70` has no integration test registered for the immediate merger event chain.
 - Existing consumer tests exercise `process_per_event` behavior by constructing synthetic events directly: `src/modules/_tests/test_unit_sage_quasar_mode.c:355-405` and `src/modules/_tests/test_unit_sage_collisional_starburst.c:467-520`.

@@ -196,7 +196,7 @@ Behavioral result:
 ### Completed Task B: Integration-Level Event Consumer Test
 
 Delivered:
-- Added `src/modules/_tests/test_integration_sage_merger_event_consumers.py`
+- Added `src/modules/sage_handle_mergers_immediate/_tests/test_integration_sage_merger_event_consumers.py`
 - Registered the test through the module's own metadata, avoiding duplicate
   central registration
 - Covered three production-path assertions:

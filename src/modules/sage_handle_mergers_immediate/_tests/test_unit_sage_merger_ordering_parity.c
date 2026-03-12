@@ -3,16 +3,16 @@
  * @brief   Immediate-order parity fixtures for SAGE merger/disruption ordering
  *
  * These tests exercise the dedicated immediate-order parity handler against the
- * SAGE ordering contract in docs/sage-merger-ordering-parity-contract.md.
+ * live SAGE ordering contract documented in the module README.
  */
 
-#include "../../../tests/framework/parity_trace.h"
-#include "../../../tests/framework/test_framework.h"
-#include "../core/module_interface.h"
-#include "../include/globals.h"
-#include "../include/types.h"
-#include "../util/error.h"
-#include "../util/memory.h"
+#include "../../../../tests/framework/parity_trace.h"
+#include "../../../../tests/framework/test_framework.h"
+#include "../../../core/module_interface.h"
+#include "../../../include/globals.h"
+#include "../../../include/types.h"
+#include "../../../util/error.h"
+#include "../../../util/memory.h"
 
 #include <math.h>
 #include <stdio.h>

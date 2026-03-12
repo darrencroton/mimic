@@ -33,8 +33,8 @@ module:
       - ThresholdSatDisruption
 
   tests:
-    unit: ../_tests/test_unit_sage_merger_ordering_parity.c
-    integration: ../_tests/test_integration_sage_merger_event_consumers.py
+    unit: _tests/test_unit_sage_merger_ordering_parity.c
+    integration: _tests/test_integration_sage_merger_event_consumers.py
     scientific: []
 
   docs:
