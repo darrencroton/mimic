@@ -12,11 +12,11 @@
 
 #include <math.h>
 
-#include "_shared/central_link.h"
-#include "_shared/sage_events.h"
-#include "_shared/sage_merger_ops.h"
-#include "_shared/time_parity.h"
-#include "_system/parameter_helpers.h"
+#include "../_shared/central_link.h"
+#include "../_shared/sage_events.h"
+#include "../_shared/sage_merger_ops.h"
+#include "../_shared/time_parity.h"
+#include "../_system/parameter_helpers.h"
 #include "error.h"
 #include "module_interface.h"
 #include "types.h"

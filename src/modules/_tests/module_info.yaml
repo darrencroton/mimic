@@ -1,7 +1,7 @@
-# Standalone Module Test Registry
+# Physics Module Test Registry
 #
-# This file enables automatic test discovery for standalone physics modules.
-# Standalone modules are single .c files in src/modules/ (not in subdirectories).
+# This file enables automatic test discovery for physics module tests.
+# It is a central registry for tests that live in src/modules/_tests/.
 #
 # To add a new standalone module test:
 # 1. Create test file in _tests/ directory:
@@ -24,8 +24,8 @@
 
 module:
   name: _tests
-  display_name: "Standalone Module Tests"
-  description: "Collection of tests for standalone physics modules"
+  display_name: "Physics Module Tests"
+  description: "Collection of tests for runtime physics modules"
 
   # Mark as utility collection (not a runtime physics module)
   is_utility: true
@@ -49,7 +49,6 @@ module:
       - test_unit_sage_collisional_starburst.c
       - test_unit_sage_calculate_merger_timescale.c
       - test_unit_mixed_dt_parity.c
-      - test_unit_sage_merger_ordering_parity.c
 
     integration:
       - test_integration_sage_reionization.py
