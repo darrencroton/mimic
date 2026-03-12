@@ -405,37 +405,6 @@ galaxy_properties:
     range: [0.0, 1.0]
     sentinels: [0.0]
 
-  - name: IsMerging
-    type: int
-    units: dimensionless
-    description: Flag indicating galaxy is merging this substep (0=no, 1=yes)
-    output: false
-    init_source: default
-    init_value: 0
-    init_repeat: true  # Reset each snapshot
-    range: [0, 1]
-
-  - name: IsDisrupting
-    type: int
-    units: dimensionless
-    description: Flag indicating satellite is being disrupted (0=no, 1=yes)
-    output: false
-    init_source: default
-    init_value: 0
-    init_repeat: true  # Reset each snapshot
-    range: [0, 1]
-
-  - name: MergerMassRatio
-    type: float
-    units: dimensionless
-    description: Merger mass ratio (minor/major, 0.0-1.0)
-    output: false
-    init_source: default
-    init_value: 0.0
-    init_repeat: true  # Reset each snapshot
-    range: [0.0, 1.0]
-    sentinels: [0.0]
-
   # =============================================================================
   # TESTING INFRASTRUCTURE (DO NOT USE IN PRODUCTION)
   # =============================================================================

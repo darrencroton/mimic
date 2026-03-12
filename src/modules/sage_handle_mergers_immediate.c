@@ -40,16 +40,6 @@ static void record_action(const char *action, int source_index, int target_index
   }
 }
 
-static void clear_satellite_action_state(struct Halo *halo) {
-  if (halo == NULL || halo->galaxy == NULL) {
-    return;
-  }
-
-  halo->galaxy->IsMerging = 0;
-  halo->galaxy->IsDisrupting = 0;
-  halo->galaxy->MergerMassRatio = 0.0;
-}
-
 int sage_handle_mergers_immediate_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThresholdMajorMerger",
                                     THRESHOLD_MAJOR_MERGER, 0.0, 1.0,
@@ -152,7 +142,6 @@ int sage_handle_mergers_immediate_process(struct ModuleContext *ctx,
 
     if (satellite->MergTime > 0.0) {
       mimic_sage_disruption_transfer(target, satellite);
-      clear_satellite_action_state(&halos[i]);
       halos[i].Type = 3;
       record_action("disrupt", i, target_idx, 0.0);
       continue;
@@ -169,7 +158,6 @@ int sage_handle_mergers_immediate_process(struct ModuleContext *ctx,
 
     const double mass_ratio =
         mimic_sage_calculate_merger_mass_ratio(satellite, target);
-    satellite->MergerMassRatio = mass_ratio;
 
     mimic_sage_merge_transfer(target, satellite);
 
@@ -192,7 +180,6 @@ int sage_handle_mergers_immediate_process(struct ModuleContext *ctx,
       target->TimeOfLastMajorMerger = source_time;
     }
 
-    clear_satellite_action_state(&halos[i]);
     halos[i].Type = 3;
     record_action("merge", i, target_idx, mass_ratio);
   }

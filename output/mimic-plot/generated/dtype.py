@@ -6,7 +6,7 @@ Source files:
   - src/core/halo_properties.yaml
   - src/modules/model_properties.yaml
 
-Source MD5: 757f656e0414a5a5b93b503a2772a379
+Source MD5: 209a3f61540a7c6c7dd212766e55b9d7
 To regenerate: make generate
 """
 

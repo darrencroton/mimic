@@ -137,8 +137,6 @@ static void setup_test_galaxy(struct Halo *halo, struct GalaxyData *gal,
     gal->MetalsEjectedGas = 0.0;
     gal->QuasarModeBHaccretionMass = 0.0;
     gal->UnstableDiskGasFraction = 0.0;
-    gal->IsMerging = 0;
-    gal->MergerMassRatio = 0.0;
 }
 
 /**
@@ -285,8 +283,6 @@ int test_bh_growth_merger(void)
     setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
 
     /* Set merger trigger */
-    gal.IsMerging = 1;
-    gal.MergerMassRatio = 0.3;  /* Major merger */
 
     struct ModuleContext ctx;
     setup_test_context(&ctx);
@@ -301,9 +297,6 @@ int test_bh_growth_merger(void)
                              "BH mass should be unchanged when only merger trigger is set");
 
     /* Trigger lifecycle is owned by clear modules, not quasar_mode */
-    TEST_ASSERT(gal.IsMerging == 1, "IsMerging should remain unchanged");
-    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.3, 1e-6,
-                             "MergerMassRatio should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();
@@ -334,8 +327,6 @@ int test_bh_growth_both_triggers(void)
 
     /* Set both triggers */
     gal.UnstableDiskGasFraction = 0.5;
-    gal.IsMerging = 1;
-    gal.MergerMassRatio = 0.3;
 
     struct ModuleContext ctx;
     setup_test_context(&ctx);
@@ -352,7 +343,6 @@ int test_bh_growth_both_triggers(void)
     /* Trigger lifecycle is owned by clear modules, not quasar_mode */
     TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
                              "Disk-instability trigger should remain unchanged");
-    TEST_ASSERT(gal.IsMerging == 1, "Merger trigger should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();
@@ -1011,8 +1001,6 @@ int test_triggers_preserved(void)
     struct GalaxyData gal;
     setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 0.0, 0.0, 0.01);
     gal.UnstableDiskGasFraction = 0.5;
-    gal.IsMerging = 1;
-    gal.MergerMassRatio = 0.3;
 
     struct ModuleContext ctx;
     setup_test_context(&ctx);
@@ -1023,9 +1011,6 @@ int test_triggers_preserved(void)
     /* ===== VALIDATE ===== */
     TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
                              "UnstableDiskGasFraction should remain unchanged");
-    TEST_ASSERT(gal.IsMerging == 1, "IsMerging should remain unchanged");
-    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.3, 1e-6,
-                             "MergerMassRatio should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();

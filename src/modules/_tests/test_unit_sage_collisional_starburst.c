@@ -175,8 +175,6 @@ static void setup_test_galaxy(struct Halo *halo, struct GalaxyData *gal,
     gal->StarFormationRate = 0.0;
     gal->SupernovaOutflowRate = 0.0;
     gal->UnstableDiskGasFraction = 0.0;
-    gal->IsMerging = 0;
-    gal->MergerMassRatio = 0.0;
 }
 
 /**
@@ -397,8 +395,6 @@ int test_merger_starburst(void)
     setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
 
     /* Set merger trigger */
-    gal.IsMerging = 1;
-    gal.MergerMassRatio = 0.3;  /* Minor merger */
 
     struct ModuleContext ctx;
     setup_test_context(&ctx, &halo);
@@ -413,9 +409,6 @@ int test_merger_starburst(void)
                              "Stellar mass should be unchanged for merger-only trigger");
 
     /* Trigger lifecycle is owned by clear modules, not collisional_starburst */
-    TEST_ASSERT(gal.IsMerging == 1, "IsMerging should remain unchanged");
-    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.3, 1e-6,
-                             "MergerMassRatio should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();
@@ -446,8 +439,6 @@ int test_both_triggers(void)
 
     /* Set both triggers */
     gal.UnstableDiskGasFraction = 0.5;
-    gal.IsMerging = 1;
-    gal.MergerMassRatio = 0.3;
 
     struct ModuleContext ctx;
     setup_test_context(&ctx, &halo);
@@ -464,7 +455,6 @@ int test_both_triggers(void)
     /* Trigger lifecycle is owned by clear modules, not collisional_starburst */
     TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
                              "Disk trigger should remain unchanged");
-    TEST_ASSERT(gal.IsMerging == 1, "Merger trigger should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();
@@ -851,8 +841,6 @@ int test_major_vs_minor_merger(void)
     struct GalaxyData gal_minor;
     setup_test_galaxy(&halo_minor, &gal_minor, 0, 100.0, 300.0, 10.0, 0.2,
                       5.0, 1.0, 50.0, 1.0);
-    gal_minor.IsMerging = 1;
-    gal_minor.MergerMassRatio = 0.2;  /* < 0.3 threshold */
 
     setup_test_context(&ctx, &halo_minor);
 
@@ -863,8 +851,6 @@ int test_major_vs_minor_merger(void)
     struct GalaxyData gal_major;
     setup_test_galaxy(&halo_major, &gal_major, 0, 100.0, 300.0, 10.0, 0.2,
                       5.0, 1.0, 50.0, 1.0);
-    gal_major.IsMerging = 1;
-    gal_major.MergerMassRatio = 0.5;  /* > 0.3 threshold */
 
     setup_test_context(&ctx, &halo_major);
 
@@ -1327,8 +1313,6 @@ int test_triggers_preserved(void)
     struct GalaxyData gal;
     setup_test_galaxy(&halo, &gal, 0, 100.0, 300.0, 10.0, 0.2, 5.0, 1.0, 50.0, 1.0);
     gal.UnstableDiskGasFraction = 0.5;
-    gal.IsMerging = 1;
-    gal.MergerMassRatio = 0.3;
 
     struct ModuleContext ctx;
     setup_test_context(&ctx, &halo);
@@ -1339,9 +1323,6 @@ int test_triggers_preserved(void)
     /* ===== VALIDATE ===== */
     TEST_ASSERT_DOUBLE_EQUAL(gal.UnstableDiskGasFraction, 0.5, 1e-10,
                              "UnstableDiskGasFraction should remain unchanged");
-    TEST_ASSERT(gal.IsMerging == 1, "IsMerging should remain unchanged");
-    TEST_ASSERT_DOUBLE_EQUAL(gal.MergerMassRatio, 0.3, 1e-6,
-                             "MergerMassRatio should remain unchanged");
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();

@@ -12,10 +12,11 @@
  * Per-substep dt for object p: deltaT_p / num_substeps
  *
  * Test cases:
- *   MERGER TIME TESTS:
- *   - test_mixed_dt_merger_decrement: Each satellite's MergTime decremented by its own dt
- *   - test_mixed_dt_merger_trigger: Mixed dT causes one satellite to merge, other not
+ *   MERGER TIME TESTS (IMMEDIATE HANDLER):
  *   - test_mixed_dt_merger_timestamp_source_time: Merger timestamp uses source-object time
+ *
+ *   INVALID DT TESTS (IMMEDIATE HANDLER):
+ *   - test_invalid_nonboundary_merger_time_error: non-boundary dT<=0 fails fast
  *
  *   REINCORPORATION TESTS:
  *   - test_mixed_dt_reincorporation: Central uses its own dT for reincorporation rate
@@ -31,9 +32,6 @@
  *
  *   RADIO MODE HEATING TESTS:
  *   - test_mixed_dt_radio_mode_ignores_global: AGN heating uses halo->dT, not ctx->substep_dt
- *
- *   VALIDATION TESTS:
- *   - test_invalid_nonboundary_merger_time_error: non-boundary dT<=0 fails fast
  *
  * @author  Mimic Development Team
  * @date    2026-03-07
@@ -60,10 +58,6 @@ __attribute__((unused)) static int *_passed_ptr = &passed;
 __attribute__((unused)) static int *_failed_ptr = &failed;
 
 /* External module interfaces */
-extern int sage_update_merger_time_init(void);
-extern int sage_update_merger_time_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
-extern int sage_update_merger_time_cleanup(void);
-
 extern int sage_reincorporation_init(void);
 extern int sage_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 extern int sage_reincorporation_cleanup(void);
@@ -80,9 +74,10 @@ extern int sage_radio_mode_heating_init(void);
 extern int sage_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 extern int sage_radio_mode_heating_cleanup(void);
 
-extern int sage_merge_galaxies_init(void);
-extern int sage_merge_galaxies_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
-extern int sage_merge_galaxies_cleanup(void);
+extern int sage_handle_mergers_immediate_init(void);
+extern int sage_handle_mergers_immediate_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage_handle_mergers_immediate_cleanup(void);
+extern void sage_handle_mergers_immediate_set_action_hook(void (*hook)(const char *action, int source_index, int target_index, double mass_ratio));
 
 extern void set_test_model_parameters(void);
 
@@ -128,307 +123,19 @@ static void free_galaxy(struct GalaxyData **gal)
 }
 
 /* ========================================================================== */
-/* MERGER TIME: MIXED-DT DECREMENT                                           */
-/* ========================================================================== */
-
-/**
- * @test    test_mixed_dt_merger_decrement
- * @brief   Two satellites with different dT get different MergTime decrements
- *
- * Fixture: Central (dT=0.2), Satellite A (dT=0.2), Satellite B (dT=0.5)
- * With num_substeps=1, Sat A decrements by 0.2, Sat B by 0.5.
- * If the code used global ctx->substep_dt (=0.2), both would decrement by 0.2.
- */
-int test_mixed_dt_merger_decrement(void)
-{
-    init_memory_system(0);
-    reset_config();
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
-    MimicConfig.G = 43.02;
-    snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
-    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "1.0");
-    MimicConfig.NumModelParams = 1;
-    sage_update_merger_time_init();
-
-    /* Central: Type 0 */
-    struct GalaxyData *cen_gal = alloc_galaxy();
-    cen_gal->MergTime = 999.9f;
-    cen_gal->StellarMass = 50.0;
-    cen_gal->ColdGas = 20.0;
-    struct Halo central = {0};
-    central.Type = 0;
-    central.Mvir = 200.0;
-    central.Vvir = 200.0;
-    central.Rvir = 0.5;
-    central.SnapNum = 63;
-    central.dT = 0.2;
-    central.galaxy = cen_gal;
-
-    /* Satellite A: dT = 0.2 (same snap as central) */
-    struct GalaxyData *sat_a_gal = alloc_galaxy();
-    sat_a_gal->MergTime = 10.0f;
-    sat_a_gal->StellarMass = 1.0;
-    sat_a_gal->ColdGas = 0.5;
-    struct Halo sat_a = {0};
-    sat_a.Type = 1;
-    sat_a.Mvir = 100.0;  /* High Mvir/baryons → not eligible */
-    sat_a.Vvir = 100.0;
-    sat_a.Rvir = 0.2;
-    sat_a.SnapNum = 63;
-    sat_a.HaloNr = 1;
-    sat_a.dT = 0.2;
-    sat_a.galaxy = sat_a_gal;
-
-    /* Satellite B: dT = 0.5 (accreted from earlier snapshot) */
-    struct GalaxyData *sat_b_gal = alloc_galaxy();
-    sat_b_gal->MergTime = 10.0f;
-    sat_b_gal->StellarMass = 1.0;
-    sat_b_gal->ColdGas = 0.5;
-    struct Halo sat_b = {0};
-    sat_b.Type = 1;
-    sat_b.Mvir = 100.0;  /* High Mvir/baryons → not eligible */
-    sat_b.Vvir = 100.0;
-    sat_b.Rvir = 0.2;
-    sat_b.SnapNum = 60;  /* Different snapshot → different dT */
-    sat_b.HaloNr = 2;
-    sat_b.dT = 0.5;
-    sat_b.galaxy = sat_b_gal;
-
-    struct ModuleContext ctx = create_context(0.2, 1);
-    ctx.central_galaxy = &central;
-    struct Halo halos[3] = {central, sat_a, sat_b};
-
-    sage_update_merger_time_process(&ctx, halos, 3);
-
-    /* Sat A should decrement by dT_A/num_substeps = 0.2/1 = 0.2 */
-    TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->MergTime, 10.0 - 0.2, 1e-5,
-                             "Satellite A MergTime should decrement by 0.2 (its own dT)");
-
-    /* Sat B should decrement by dT_B/num_substeps = 0.5/1 = 0.5 */
-    TEST_ASSERT_DOUBLE_EQUAL(halos[2].galaxy->MergTime, 10.0 - 0.5, 1e-5,
-                             "Satellite B MergTime should decrement by 0.5 (its own dT)");
-
-    /* Key assertion: they must differ (proves per-object, not global) */
-    TEST_ASSERT(fabs(halos[1].galaxy->MergTime - halos[2].galaxy->MergTime) > 0.1,
-                "Satellites with different dT must have different MergTime decrements");
-
-    free_galaxy(&cen_gal);
-    free_galaxy(&sat_a_gal);
-    free_galaxy(&sat_b_gal);
-    sage_update_merger_time_cleanup();
-    check_memory_leaks();
-
-    return TEST_PASS;
-}
-
-/* ========================================================================== */
-/* MERGER TIME: MIXED-DT TRIGGER DIVERGENCE                                  */
-/* ========================================================================== */
-
-/**
- * @test    test_mixed_dt_merger_trigger
- * @brief   Different dT causes one satellite to merge while the other does not
- *
- * Both satellites start with MergTime = 0.3. With dT_A = 0.2 the decrement
- * is 0.2 → MergTime = 0.1 (still positive → disruption only if eligible).
- * With dT_B = 0.5 the decrement is 0.5 → MergTime = -0.2 (merger).
- * Both are eligible (low Mvir/baryons).
- */
-int test_mixed_dt_merger_trigger(void)
-{
-    init_memory_system(0);
-    reset_config();
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
-    MimicConfig.G = 43.02;
-    snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
-    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "1.0");
-    MimicConfig.NumModelParams = 1;
-    sage_update_merger_time_init();
-
-    /* Central */
-    struct GalaxyData *cen_gal = alloc_galaxy();
-    cen_gal->MergTime = 999.9f;
-    cen_gal->StellarMass = 50.0;
-    cen_gal->ColdGas = 20.0;
-    struct Halo central = {0};
-    central.Type = 0;
-    central.Mvir = 200.0;
-    central.Vvir = 200.0;
-    central.Rvir = 0.5;
-    central.SnapNum = 63;
-    central.dT = 0.2;
-    central.galaxy = cen_gal;
-
-    /* Satellite A: dT = 0.2 → decrement = 0.2, MergTime 0.3 → 0.1 > 0 → disrupt */
-    struct GalaxyData *sat_a_gal = alloc_galaxy();
-    sat_a_gal->MergTime = 0.3f;
-    sat_a_gal->StellarMass = 5.0;
-    sat_a_gal->ColdGas = 5.0;
-    struct Halo sat_a = {0};
-    sat_a.Type = 1;
-    sat_a.Mvir = 5.0;  /* Mvir/baryons = 5/10 = 0.5 ≤ 1.0 → eligible */
-    sat_a.Vvir = 100.0;
-    sat_a.Rvir = 0.2;
-    sat_a.SnapNum = 63;
-    sat_a.HaloNr = 1;
-    sat_a.dT = 0.2;
-    sat_a.galaxy = sat_a_gal;
-
-    /* Satellite B: dT = 0.5 → decrement = 0.5, MergTime 0.3 → -0.2 ≤ 0 → merge */
-    struct GalaxyData *sat_b_gal = alloc_galaxy();
-    sat_b_gal->MergTime = 0.3f;
-    sat_b_gal->StellarMass = 5.0;
-    sat_b_gal->ColdGas = 5.0;
-    struct Halo sat_b = {0};
-    sat_b.Type = 1;
-    sat_b.Mvir = 5.0;  /* Mvir/baryons = 5/10 = 0.5 ≤ 1.0 → eligible */
-    sat_b.Vvir = 100.0;
-    sat_b.Rvir = 0.2;
-    sat_b.SnapNum = 60;
-    sat_b.HaloNr = 2;
-    sat_b.dT = 0.5;
-    sat_b.galaxy = sat_b_gal;
-
-    struct ModuleContext ctx = create_context(0.2, 1);
-    ctx.central_galaxy = &central;
-    struct Halo halos[3] = {central, sat_a, sat_b};
-
-    sage_update_merger_time_process(&ctx, halos, 3);
-
-    /* Sat A: MergTime = 0.1 > 0 and eligible → disrupting */
-    TEST_ASSERT(halos[1].galaxy->IsDisrupting == 1,
-                "Satellite A (small dT) should disrupt (MergTime still positive)");
-    TEST_ASSERT(halos[1].galaxy->IsMerging == 0,
-                "Satellite A should not merge");
-
-    /* Sat B: MergTime = -0.2 ≤ 0 and eligible → merging */
-    TEST_ASSERT(halos[2].galaxy->IsMerging == 1,
-                "Satellite B (large dT) should merge (MergTime crossed zero)");
-    TEST_ASSERT(halos[2].galaxy->IsDisrupting == 0,
-                "Satellite B should not disrupt");
-
-    free_galaxy(&cen_gal);
-    free_galaxy(&sat_a_gal);
-    free_galaxy(&sat_b_gal);
-    sage_update_merger_time_cleanup();
-    check_memory_leaks();
-
-    return TEST_PASS;
-}
-
-/* ========================================================================== */
-/* MERGER TIME: MULTI-SUBSTEP MIXED-DT                                       */
-/* ========================================================================== */
-
-/**
- * @test    test_mixed_dt_merger_substeps
- * @brief   Per-object dt divides each object's dT by num_substeps independently
- *
- * With num_substeps=5: Sat A (dT=0.5) gets dt=0.1, Sat B (dT=1.0) gets dt=0.2.
- * After 5 substeps: Sat A decremented by 5*0.1=0.5, Sat B by 5*0.2=1.0.
- */
-int test_mixed_dt_merger_substeps(void)
-{
-    init_memory_system(0);
-    reset_config();
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
-    MimicConfig.G = 43.02;
-    snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
-    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "0.01");  /* Very low → not eligible */
-    MimicConfig.NumModelParams = 1;
-    sage_update_merger_time_init();
-
-    /* Central */
-    struct GalaxyData *cen_gal = alloc_galaxy();
-    cen_gal->MergTime = 999.9f;
-    cen_gal->StellarMass = 50.0;
-    cen_gal->ColdGas = 20.0;
-    struct Halo central = {0};
-    central.Type = 0;
-    central.Mvir = 200.0;
-    central.Vvir = 200.0;
-    central.Rvir = 0.5;
-    central.SnapNum = 63;
-    central.dT = 0.5;
-    central.galaxy = cen_gal;
-
-    /* Satellite A: dT = 0.5 → dt per substep = 0.1 */
-    struct GalaxyData *sat_a_gal = alloc_galaxy();
-    sat_a_gal->MergTime = 8.0f;
-    sat_a_gal->StellarMass = 1.0;
-    sat_a_gal->ColdGas = 0.5;
-    struct Halo sat_a = {0};
-    sat_a.Type = 1;
-    sat_a.Mvir = 100.0;
-    sat_a.Vvir = 100.0;
-    sat_a.SnapNum = 63;
-    sat_a.HaloNr = 1;
-    sat_a.dT = 0.5;
-    sat_a.galaxy = sat_a_gal;
-
-    /* Satellite B: dT = 1.0 → dt per substep = 0.2 */
-    struct GalaxyData *sat_b_gal = alloc_galaxy();
-    sat_b_gal->MergTime = 8.0f;
-    sat_b_gal->StellarMass = 1.0;
-    sat_b_gal->ColdGas = 0.5;
-    struct Halo sat_b = {0};
-    sat_b.Type = 1;
-    sat_b.Mvir = 100.0;
-    sat_b.Vvir = 100.0;
-    sat_b.SnapNum = 58;
-    sat_b.HaloNr = 2;
-    sat_b.dT = 1.0;
-    sat_b.galaxy = sat_b_gal;
-
-    /* Run 5 substeps */
-    for (int step = 0; step < 5; step++) {
-        struct ModuleContext ctx = create_context(0.5, 5);
-        ctx.substep_number = step;
-        ctx.central_galaxy = &central;
-        struct Halo halos[3] = {central, sat_a, sat_b};
-
-        /* Point galaxy pointers into array for this call */
-        halos[0].galaxy = cen_gal;
-        halos[1].galaxy = sat_a_gal;
-        halos[2].galaxy = sat_b_gal;
-
-        sage_update_merger_time_process(&ctx, halos, 3);
-    }
-
-    /* Sat A: 5 * (0.5/5) = 0.5 total decrement → 8.0 - 0.5 = 7.5 */
-    TEST_ASSERT_DOUBLE_EQUAL(sat_a_gal->MergTime, 7.5, 1e-4,
-                             "Satellite A total decrement should equal its dT over all substeps");
-
-    /* Sat B: 5 * (1.0/5) = 1.0 total decrement → 8.0 - 1.0 = 7.0 */
-    TEST_ASSERT_DOUBLE_EQUAL(sat_b_gal->MergTime, 7.0, 1e-4,
-                             "Satellite B total decrement should equal its dT over all substeps");
-
-    /* The difference (0.5) proves per-object timestep, not global */
-    TEST_ASSERT_DOUBLE_EQUAL(sat_a_gal->MergTime - sat_b_gal->MergTime, 0.5, 1e-4,
-                             "MergTime difference must equal dT difference after full integration");
-
-    free_galaxy(&cen_gal);
-    free_galaxy(&sat_a_gal);
-    free_galaxy(&sat_b_gal);
-    sage_update_merger_time_cleanup();
-    check_memory_leaks();
-
-    return TEST_PASS;
-}
-
-/* ========================================================================== */
-/* MERGER TIMESTAMP: USES SOURCE-OBJECT TIME                                 */
+/* MERGER TIME: MIXED-DT TIMESTAMP (IMMEDIATE HANDLER)                       */
 /* ========================================================================== */
 
 /**
  * @test    test_mixed_dt_merger_timestamp_source_time
  * @brief   TimeOfLastMinorMerger uses source-object time, not ctx->substep_time
+ *
+ * Satellite dT=0.4, num_substeps=2, substep_number=1.
+ * source_dt = 0.4/2 = 0.2.
+ * Satellite MergTime = 0.1 -> after decrement: 0.1 - 0.2 = -0.1 <= 0 -> merge.
+ * Expected TimeOfLastMinorMerger = ctx.time + sat.dT - (substep+0.5)*dt_obj
+ *                                 = 13.0 + 0.4 - (1.5 * 0.2) = 13.1
+ * ctx.substep_time = 12.7 (deliberately different to detect wrong source).
  */
 int test_mixed_dt_merger_timestamp_source_time(void)
 {
@@ -437,8 +144,10 @@ int test_mixed_dt_merger_timestamp_source_time(void)
 
     snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
     snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "0.3");
-    MimicConfig.NumModelParams = 1;
-    sage_merge_galaxies_init();
+    snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
+    snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "2.0");
+    MimicConfig.NumModelParams = 2;
+    sage_handle_mergers_immediate_init();
 
     struct GalaxyData *central_gal = alloc_galaxy();
     central_gal->StellarMass = 10.0;
@@ -451,25 +160,27 @@ int test_mixed_dt_merger_timestamp_source_time(void)
     central.galaxy = central_gal;
 
     struct GalaxyData *sat_gal = alloc_galaxy();
-    sat_gal->StellarMass = 2.0;  /* ratio > 0.1 */
+    sat_gal->StellarMass = 2.0;   /* mass_ratio = (2+1)/(10+5) = 0.2 -> minor merger */
     sat_gal->ColdGas = 1.0;
-    sat_gal->IsMerging = 1;
+    sat_gal->MergTime = 0.1f;     /* 0.1 - source_dt(0.2) = -0.1 -> merge */
     struct Halo sat = {0};
     sat.Type = 1;
     sat.HaloNr = 7;
     sat.SnapNum = 60;
     sat.dT = 0.4;
+    sat.Mvir = 5.0;    /* virial_to_baryons = 5/(2+1) = 1.67 <= 2.0 -> eligible */
     sat.galaxy = sat_gal;
 
     struct ModuleContext ctx = create_context(0.2, 2);
     ctx.time = 13.0;
+    ctx.snapshot_number = 63;
     ctx.substep_number = 1;
     ctx.substep_time = 12.7;  /* Deliberately different from source-object time */
     ctx.central_galaxy = &central;
 
     struct Halo halos[2] = {central, sat};
-    int result = sage_merge_galaxies_process(&ctx, halos, 2);
-    TEST_ASSERT(result == 0, "Merger processing should succeed");
+    int result = sage_handle_mergers_immediate_process(&ctx, halos, 2);
+    TEST_ASSERT(result == 0, "Immediate merger processing should succeed");
 
     const double dt_obj = sat.dT / ctx.num_substeps;
     const double expected_time = (ctx.time + sat.dT) - ((double)ctx.substep_number + 0.5) * dt_obj;
@@ -480,32 +191,31 @@ int test_mixed_dt_merger_timestamp_source_time(void)
 
     free_galaxy(&central_gal);
     free_galaxy(&sat_gal);
-    sage_merge_galaxies_cleanup();
+    sage_handle_mergers_immediate_cleanup();
     check_memory_leaks();
 
     return TEST_PASS;
 }
 
 /* ========================================================================== */
-/* INVALID DT: FAIL-FAST AND BOUNDARY NO-OP                                  */
+/* INVALID DT: FAIL-FAST (IMMEDIATE HANDLER)                                 */
 /* ========================================================================== */
 
 /**
  * @test    test_invalid_nonboundary_merger_time_error
- * @brief   Non-boundary dT<=0 in merger-time module fails fast
+ * @brief   Immediate handler fails fast for non-boundary dT<=0
  */
 int test_invalid_nonboundary_merger_time_error(void)
 {
     init_memory_system(0);
     reset_config();
-    MimicConfig.Omega = 0.25;
-    MimicConfig.OmegaLambda = 0.75;
-    MimicConfig.Hubble_h = 0.73;
-    MimicConfig.G = 43.02;
-    snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
-    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "1.0");
-    MimicConfig.NumModelParams = 1;
-    sage_update_merger_time_init();
+
+    snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
+    snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "0.3");
+    snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
+    snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "1.0");
+    MimicConfig.NumModelParams = 2;
+    sage_handle_mergers_immediate_init();
 
     struct GalaxyData *cen_gal = alloc_galaxy();
     cen_gal->StellarMass = 10.0;
@@ -523,20 +233,20 @@ int test_invalid_nonboundary_merger_time_error(void)
     struct Halo sat = {0};
     sat.Type = 1;
     sat.HaloNr = 3;
-    sat.SnapNum = 63;   /* Non-boundary */
-    sat.dT = -1.0;      /* Invalid */
+    sat.SnapNum = 63;  /* Non-boundary */
+    sat.dT = -1.0;     /* Invalid */
     sat.galaxy = sat_gal;
 
     struct ModuleContext ctx = create_context(0.2, 1);
     ctx.central_galaxy = &central;
     struct Halo halos[2] = {central, sat};
 
-    const int result = sage_update_merger_time_process(&ctx, halos, 2);
-    TEST_ASSERT(result != 0, "Merger-time module should fail for non-boundary dT<=0");
+    const int result = sage_handle_mergers_immediate_process(&ctx, halos, 2);
+    TEST_ASSERT(result != 0, "Immediate handler should fail for non-boundary dT<=0");
 
     free_galaxy(&cen_gal);
     free_galaxy(&sat_gal);
-    sage_update_merger_time_cleanup();
+    sage_handle_mergers_immediate_cleanup();
     check_memory_leaks();
 
     return TEST_PASS;
@@ -1086,9 +796,6 @@ int main(void)
     printf("%s\n", NC);
 
     printf("\n%sMERGER TIME TESTS:%s\n", BLUE, NC);
-    TEST_RUN(test_mixed_dt_merger_decrement);
-    TEST_RUN(test_mixed_dt_merger_trigger);
-    TEST_RUN(test_mixed_dt_merger_substeps);
     TEST_RUN(test_mixed_dt_merger_timestamp_source_time);
     TEST_RUN(test_invalid_nonboundary_merger_time_error);
 

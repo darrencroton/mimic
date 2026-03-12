@@ -41,7 +41,6 @@ module:
       - test_unit_sage_update_star_formation_supernova.c
       - test_unit_sage_reincorporation.c
       - test_unit_sage_satellite_stripping.c
-      - test_unit_sage_disrupt_satellites.c
       - test_unit_sage_update_disk_radius.c
       - test_unit_sage_add_cooling.c
       - test_unit_sage_radio_mode_heating.c
@@ -49,8 +48,6 @@ module:
       - test_unit_sage_quasar_mode.c
       - test_unit_sage_collisional_starburst.c
       - test_unit_sage_calculate_merger_timescale.c
-      - test_unit_sage_update_merger_time.c
-      - test_unit_sage_merge_galaxies.c
       - test_unit_mixed_dt_parity.c
       - test_unit_sage_merger_ordering_parity.c
 
@@ -63,7 +60,6 @@ module:
       - test_integration_sage_update_star_formation_supernova.py
       - test_integration_sage_reincorporation.py
       - test_integration_sage_satellite_stripping.py
-      - test_integration_sage_disrupt_satellites.py
       - test_integration_sage_update_disk_radius.py
       - test_integration_sage_add_cooling.py
       - test_integration_sage_radio_mode_heating.py
@@ -71,7 +67,4 @@ module:
       - test_integration_sage_quasar_mode.py
       - test_integration_sage_collisional_starburst.py
       - test_integration_sage_calculate_merger_timescale.py
-      - test_integration_sage_update_merger_time.py
-      - test_integration_sage_merge_galaxies.py
-
     scientific: []

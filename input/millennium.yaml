@@ -61,12 +61,10 @@ modules:
     - sage_clear_disk_instability_triggers: process_by_galaxy
 
   phase_2:
-    # Mergers (Check/Transfer → Event-triggered Physics → Cleanup)
-    - sage_update_merger_time: process_full_halo
-    - sage_merge_galaxies: process_full_halo
-    - sage_quasar_mode: process_per_event          # Triggered by sage_merge_galaxies merger events
-    - sage_collisional_starburst: process_per_event  # Triggered by sage_merge_galaxies merger events
-    - sage_disrupt_satellites: process_full_halo
+    # Mergers — single-pass immediate handler (SAGE ordering parity)
+    - sage_handle_mergers_immediate: process_full_halo
+    - sage_quasar_mode: process_per_event          # Triggered by sage_handle_mergers_immediate merger events
+    - sage_collisional_starburst: process_per_event  # Triggered by sage_handle_mergers_immediate merger events
 
   post_timestep:
 

@@ -193,11 +193,9 @@ modules:
     - sage_clear_disk_instability_triggers: process_by_galaxy  # Clear phase_1 DI trigger
 
   phase_2:
-    # Merger Triggering & Execution
-    - sage_update_merger_time: process_full_halo       # Decrement MergTime, set flags
-    - sage_merge_galaxies: process_full_halo           # Combine + emit merger events + morphology
-    - sage_disrupt_satellites: process_full_halo       # Tidal disruption to ICS
-    - sage_quasar_mode: process_per_event              # Merger-triggered BH growth & quasar winds
+    # Mergers — single-pass immediate handler (SAGE ordering parity)
+    - sage_handle_mergers_immediate: process_full_halo
+    - sage_quasar_mode: process_per_event              # Merger-triggered BH growth and quasar winds
     - sage_collisional_starburst: process_per_event    # Merger-triggered starburst with SN feedback
 
   post_timestep: []
@@ -256,9 +254,7 @@ modules:
 | `sage_quasar_mode` | phase_1, phase_2 | Disk-instability BH growth (phase_1) + merger-event quasar winds (phase_2) |
 | `sage_collisional_starburst` | phase_1, phase_2 | Disk-instability starbursts (phase_1) + merger-event starbursts (phase_2) |
 | `sage_clear_disk_instability_triggers` | phase_1 | Clear `UnstableDiskGasFraction` after phase_1 consumers |
-| `sage_update_merger_time` | phase_2 | Decrement merger timescales, trigger merger/disruption events |
-| `sage_merge_galaxies` | phase_2 | Combine mergers, update morphology, emit merger events |
-| `sage_disrupt_satellites` | phase_2 | Tidal disruption to ICS |
+| `sage_handle_mergers_immediate` | phase_2 | Single-pass SAGE-parity immediate merger and disruption handler |
 
 **Physics-free mode** (halo tracking only):
 ```yaml

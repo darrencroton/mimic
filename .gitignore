@@ -55,3 +55,6 @@ HANDOFF-history.md
 
 # Python virtual environment
 mimic_venv/
+
+# Archived local work
+ignore/archived-split-pass/
