@@ -12,7 +12,9 @@ from pathlib import Path
 
 import numpy as np
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+# Add tests directory to path to import framework
+# This test is one level deeper than src/modules/_tests/ so needs 5 parent hops
+REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import create_test_param_file, load_binary_halos, run_mimic
@@ -182,9 +184,11 @@ def test_quasar_consumer_receives_merger_events():
         bh_delta = float(np.sum(base_bh - no_quasar_bh))
         accretion_delta = float(np.sum(base_accretion - no_quasar_accretion))
 
+        # ~0.05 M_sun/h total BH mass added across merger remnants in the test snapshot
         assert bh_delta > 0.05, (
             "Phase_2 quasar consumer should increase remnant BH mass via merger events"
         )
+        # ~0.002 M_sun/h total accretion recorded across merger remnants
         assert accretion_delta > 0.002, (
             "Phase_2 quasar consumer should record merger-driven BH accretion"
         )
@@ -234,12 +238,15 @@ def test_starburst_consumer_receives_merger_events():
         stellar_delta = float(np.sum(base_stellar - no_starburst_stellar))
         cold_gas_delta = float(np.sum(base_cold_gas - no_starburst_cold_gas))
 
+        # ~5 M_sun/h total bulge mass added across merger remnants in the test snapshot
         assert bulge_delta > 5.0, (
             "Phase_2 starburst consumer should increase merger-remnant bulge mass"
         )
+        # ~5 M_sun/h net stellar mass increase from burst star formation
         assert stellar_delta > 5.0, (
             "Phase_2 starburst consumer should form additional stars in merger remnants"
         )
+        # ~5 M_sun/h cold gas consumed by burst star formation
         assert cold_gas_delta < -5.0, (
             "Phase_2 starburst consumer should consume cold gas in merger remnants"
         )
