@@ -3,7 +3,10 @@
 Date: 2026-03-08
 Status: Ready for execution
 Audience: Fresh dev team (core + SAGE module maintainers)
-Primary source: `docs/mimic-vs-sage-core-pipeline-audit-2026-03-06.md`
+Primary sources:
+- `sage-code/sage/core_build_model.c` (`handle_mergers(...)`)
+- `sage-code/sage/model_mergers.c` (`deal_with_galaxy_merger(...)`, `disrupt_satellite_to_ICS(...)`)
+- `docs/sage-merger-ordering-parity-contract.md`
 
 ## 1) Problem Statement
 
@@ -15,8 +18,9 @@ SAGE behavior (single-pass immediate handling):
 1. decrements `MergTime`,
 2. checks eligibility,
 3. resolves target,
-4. executes either disruption or merger on the spot,
-5. mutates shared state before the next satellite is processed.
+4. if the chosen target already has `mergeType > 0`, redirects exactly one hop via that target's `CentralGal`,
+5. executes either disruption or merger on the spot,
+6. mutates shared state before the next satellite is processed.
 
 Current Mimic behavior (split-pass handling):
 - Files:
@@ -113,7 +117,8 @@ Tasks:
 - one FOF Type 0 central,
 - one Type 1 subhalo central,
 - two or more satellites that can both target overlapping centrals,
-- one case where one satellite is disruption-eligible while another is merger-eligible in the same substep.
+- one case where one satellite is disruption-eligible while another is merger-eligible in the same substep,
+- one case where a Type 2 target must be redirected after an earlier same-substep target consumption.
 2. Add trace capture in both codepaths for each satellite processed:
 - satellite id/index,
 - substep,
@@ -140,12 +145,12 @@ Tasks:
 - `sage-code/sage/core_build_model.c` `handle_mergers(...)`
 - `sage-code/sage/model_mergers.c` merge/disrupt functions.
 2. Record edge-case decisions:
-- target redirection behavior if target already marked consumed,
-- ordering of state mutation relative to event-triggered physics,
-- treatment of Type 2 `CentralHalo` links after earlier in-loop mutations.
+- one-hop target redirection behavior if target already has `mergeType > 0`,
+- ordering of state mutation relative to merger-triggered black-hole growth, starburst physics, and major-merger morphology,
+- treatment of Type 2 target links after earlier in-loop mutations, including how Mimic's `CentralHalo` mapping must emulate SAGE's `CentralGal` redirect.
 
 Suggested location:
-- `docs/generated/` or `docs/DEVELOPER-GUIDE.md` parity subsection.
+- `docs/sage-merger-ordering-parity-contract.md`
 
 Acceptance for WS2:
 - Team agrees on explicit parity contract before code refactor lands.
@@ -204,7 +209,7 @@ Acceptance for WS4:
 - Runs after all merges today; key suspected source of ordering divergence.
 
 6. `src/modules/_shared/central_link.h`
-- Compare fallback behavior against SAGE target redirection semantics.
+- Compare fallback behavior against SAGE's one-hop `mergeType > 0` then `CentralGal` redirection semantics.
 
 7. `src/core/module_registry.c`
 - Understand hard constraints of full-halo pass ordering and event dispatch.
@@ -257,4 +262,3 @@ Risk: Core creep.
 2. Create a short RFC issue capturing the WS2 parity contract before implementation lands.
 3. Implement module-level immediate handling behind a clearly named SAGE parity module/config entry.
 4. Land deterministic parity tests in same PR series as behavior change.
-

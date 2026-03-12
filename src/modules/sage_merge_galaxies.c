@@ -11,24 +11,13 @@
 #include "error.h"
 #include "module_interface.h"
 #include "types.h"
+#include "_shared/sage_merger_ops.h"
 #include "_shared/sage_events.h"
 #include "_shared/central_link.h"
 #include "_shared/time_parity.h"
 #include "_system/parameter_helpers.h"
 
 static double THRESHOLD_MAJOR_MERGER;
-
-// SAGE mass-ratio convention: mi/ma, with fallback to 1.0 when both are zero.
-static double calculate_mass_ratio(const struct GalaxyData *sat,
-                                   const struct GalaxyData *cen)
-{
-    const double sat_mass = sat->StellarMass + sat->ColdGas;
-    const double cen_mass = cen->StellarMass + cen->ColdGas;
-    const double mi = (sat_mass < cen_mass) ? sat_mass : cen_mass;
-    const double ma = (sat_mass < cen_mass) ? cen_mass : sat_mass;
-
-    return (ma > 0.0) ? (mi / ma) : 1.0;
-}
 
 int sage_merge_galaxies_init(void)
 {
@@ -100,7 +89,8 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
         }
 
         struct GalaxyData *central = halos[target_idx].galaxy;
-        const double mass_ratio = calculate_mass_ratio(satellite, central);
+        const double mass_ratio =
+            mimic_sage_calculate_merger_mass_ratio(satellite, central);
 
         // Keep this property synchronized with the final execution target.
         satellite->MergerMassRatio = mass_ratio;
@@ -110,26 +100,7 @@ int sage_merge_galaxies_process(struct ModuleContext *ctx,
         // Transfer all baryonic components from satellite to central
         // =====================================================================
 
-        central->ColdGas += satellite->ColdGas;
-        central->MetalsColdGas += satellite->MetalsColdGas;
-
-        central->StellarMass += satellite->StellarMass;
-        central->MetalsStellarMass += satellite->MetalsStellarMass;
-
-        central->HotGas += satellite->HotGas;
-        central->MetalsHotGas += satellite->MetalsHotGas;
-
-        central->EjectedGas += satellite->EjectedGas;
-        central->MetalsEjectedGas += satellite->MetalsEjectedGas;
-
-        central->ICS += satellite->ICS;
-        central->MetalsICS += satellite->MetalsICS;
-
-        central->BlackHoleMass += satellite->BlackHoleMass;
-
-        // Add satellite stars to central bulge (all mergers contribute to bulge)
-        central->BulgeMass += satellite->StellarMass;
-        central->MetalsBulgeMass += satellite->MetalsStellarMass;
+        mimic_sage_merge_transfer(central, satellite);
 
         // =====================================================================
         // PART 2: Emit merger event for per-event consumers

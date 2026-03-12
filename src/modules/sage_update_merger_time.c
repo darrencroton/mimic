@@ -22,7 +22,6 @@
 // ============================================================================
 
 static double THRESHOLD_SAT_DISRUPTION;
-
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -52,7 +51,6 @@ int sage_update_merger_time_init(void)
     VERBOSE_LOG("  ThresholdSatDisruption = %.3f", THRESHOLD_SAT_DISRUPTION);
     VERBOSE_LOG("  Physics: Satellites merge if MergTime <= 0 AND Mvir/Mbaryons <= threshold");
     VERBOSE_LOG("           Satellites disrupt if MergTime > 0 AND Mvir/Mbaryons <= threshold");
-
     return 0;
 }
 
@@ -81,6 +79,7 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
         ERROR_LOG("Central galaxy has NULL galaxy data");
         return -1;
     }
+
     // Process each satellite (Type 1 or Type 2)
     for (int i = 0; i < ngal; i++) {
         double dt = 0.0;
@@ -90,7 +89,6 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
         if (halos[i].galaxy == NULL) continue;
 
         struct GalaxyData *sat = halos[i].galaxy;
-
         dt_status = mimic_object_substep_dt(&halos[i], ctx, &dt);
         if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
             continue;
@@ -119,11 +117,13 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
 
         // Calculate total baryonic mass
         const double galaxyBaryons = sat->StellarMass + sat->ColdGas;
+        const double virial_to_baryons =
+            (galaxyBaryons > 0.0) ? (currentMvir / galaxyBaryons) : -1.0;
 
         // Check if satellite is eligible for merger/disruption.
         // SAGE parity: eligibility is based on zero baryons OR Mvir/Mbaryons threshold.
         const int eligible = (galaxyBaryons == 0.0) ||
-                            (galaxyBaryons > 0.0 && (currentMvir / galaxyBaryons <= THRESHOLD_SAT_DISRUPTION));
+                            (galaxyBaryons > 0.0 && (virial_to_baryons <= THRESHOLD_SAT_DISRUPTION));
 
         if (!eligible) continue;
 
@@ -138,7 +138,7 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
             // Disruption: Satellite too stripped to survive until merger
             sat->IsDisrupting = 1;
             DEBUG_LOG("Satellite %d disrupting (MergTime=%.3f, Mvir/Mbary=%.1f)",
-                      halos[i].HaloNr, sat->MergTime, currentMvir / galaxyBaryons);
+                      halos[i].HaloNr, sat->MergTime, virial_to_baryons);
         } else {
             // Merger: Orbital decay complete
             const int target_idx =
@@ -153,7 +153,7 @@ int sage_update_merger_time_process(struct ModuleContext *ctx,
             sat->MergerMassRatio = calculate_mass_ratio(sat, halos[target_idx].galaxy);
             DEBUG_LOG("Satellite %d merging into %d (ratio=%.3f, Mvir/Mbary=%.1f)",
                       halos[i].HaloNr, target_idx, sat->MergerMassRatio,
-                      currentMvir / galaxyBaryons);
+                      virial_to_baryons);
         }
     }
 

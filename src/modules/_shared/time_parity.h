@@ -1,6 +1,8 @@
 #ifndef MIMIC_SHARED_TIME_PARITY_H
 #define MIMIC_SHARED_TIME_PARITY_H
 
+#include <stddef.h>
+
 #include "module_interface.h"
 #include "types.h"
 

@@ -10,6 +10,7 @@
 #include "module_interface.h"
 #include "types.h"
 #include "_shared/central_link.h"
+#include "_shared/sage_merger_ops.h"
 
 int sage_disrupt_satellites_init(void)
 {
@@ -65,21 +66,7 @@ int sage_disrupt_satellites_process(struct ModuleContext *ctx,
 
         struct GalaxyData *central = halos[target_idx].galaxy;
 
-        // Transfer gas to hot phase (disruption heats gas)
-        central->HotGas += sat->ColdGas + sat->HotGas;
-        central->MetalsHotGas += sat->MetalsColdGas + sat->MetalsHotGas;
-
-        // Transfer ejected mass
-        central->EjectedGas += sat->EjectedGas;
-        central->MetalsEjectedGas += sat->MetalsEjectedGas;
-
-        // Transfer existing ICS
-        central->ICS += sat->ICS;
-        central->MetalsICS += sat->MetalsICS;
-
-        // Add ALL stellar mass to intracluster stars
-        central->ICS += sat->StellarMass;
-        central->MetalsICS += sat->MetalsStellarMass;
+        mimic_sage_disruption_transfer(central, sat);
 
         // Note: Black hole is lost during disruption
 
