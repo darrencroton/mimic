@@ -1,0 +1,21 @@
+module:
+  name: sage_calculate_supernova_feedback
+  description: "Calculates supernova reheated and ejected gas masses from NewStellarMass with renormalization; stores results in SupernovaReheatedMass and SupernovaEjectedMass"
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - Vvir
+      - ColdGas
+      - NewStellarMass
+      - SupernovaReheatedMass
+      - SupernovaEjectedMass
+    parameters:
+      - FeedbackReheatingEpsilon
+      - FeedbackEjectionEfficiency
+
+  tests:
+    unit: _tests/test_unit_sage_calculate_supernova_feedback.c
+    integration: _tests/test_integration_sage_calculate_supernova_feedback.py
+    scientific: []

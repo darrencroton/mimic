@@ -1,0 +1,21 @@
+module:
+  name: sage_add_infall
+  description: "Distributes infalling gas to hot reservoir over substeps with metallicity tracking; acts on FOF central only"
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type
+      - Mvir
+      - InfallingGas
+      - HotGas
+      - MetalsHotGas
+      - EjectedGas
+      - MetalsEjectedGas
+    parameters: []
+
+  tests:
+    unit: _tests/test_unit_sage_add_infall.c
+    integration: _tests/test_integration_sage_add_infall.py
+    scientific: []

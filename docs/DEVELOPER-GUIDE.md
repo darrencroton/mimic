@@ -19,11 +19,14 @@
 
 ## Quick Start
 
-**Create a minimal module in 2 steps**:
+**Create a minimal runtime module in 3 steps**:
 
 ```bash
-# 1. Create module file
-cat > src/modules/my_module.c << 'EOF'
+# 1. Create module directory
+mkdir -p src/modules/my_module/_tests
+
+# 2. Create module implementation
+cat > src/modules/my_module/my_module.c << 'EOF'
 #include "_system/parameter_helpers.h"
 
 static double my_efficiency;
@@ -49,7 +52,12 @@ static int my_module_cleanup(void) {
 }
 EOF
 
-# 2. Configure and run
+# 3. Add metadata, configure, and run
+# Create src/modules/my_module/module_info.yaml:
+# module:
+#   name: my_module
+#   supported_processing_modes: [process_by_galaxy]
+#
 # Add to input/millennium.yaml:
 #   modules:
 #     phase_1:
@@ -57,11 +65,12 @@ EOF
 #     parameters:
 #       MyEfficiency: 0.5
 
-make clean && make
+make generate && make
 ./mimic input/millennium.yaml
 ```
 
-That's it! No metadata files required for simple modules.
+Every runtime module now lives in its own directory and must declare
+`supported_processing_modes` in `module_info.yaml`.
 
 ---
 
@@ -99,6 +108,8 @@ For the design principles behind these decisions, see [VISION.md](VISION.md).
 - `src/modules/`: Physics modules
   - `_system/`: Framework infrastructure (don't modify)
   - `_shared/`: Reusable physics utilities (can modify/extend)
+  - `_tests/`: Shared cross-module regression tests only
+  - `_archive/`: Retired modules/tests kept out of the live runtime tree
   - `sage_*/`: SAGE physics implementation
 - `src/util/`: Memory, logging, numerical utilities
 - `src/include/generated/`: Auto-generated code from metadata
@@ -119,20 +130,9 @@ For the design principles behind these decisions, see [VISION.md](VISION.md).
 
 ## Creating Physics Modules
 
-### Module Patterns
+### Runtime Module Pattern
 
-Mimic supports **two development patterns**:
-
-**Pattern 1: Standalone Module** (90% of use cases)
-```
-src/modules/my_module.c
-```
-- Single `.c` file
-- Auto-discovered by build system
-- No `module_info.yaml` needed
-- Perfect for prototyping and simple physics
-
-**Pattern 2: Directory Module** (complex modules)
+Runtime physics modules use a single directory-based pattern:
 ```
 src/modules/my_module/
   my_module.c
@@ -141,14 +141,19 @@ src/modules/my_module/
   README.md
   _tests/
 ```
-- Multiple source files
-- Metadata for validation
-- Full test coverage
-- Production-quality
+- `module_info.yaml` is required for runtime modules
+- `supported_processing_modes` must be declared explicitly
+- Module-specific tests live in the module-local `_tests/` directory
+- Additional helper files are optional
+
+Two special collections also exist under `src/modules/`:
+
+- `_tests/`: shared cross-module tests that do not belong to one module
+- `_archive/`: retired modules/tests preserved for reference, not compiled
 
 ### Minimal Module Example
 
-**Standalone module** (`src/modules/my_cooling.c`):
+**Runtime module** (`src/modules/my_cooling/my_cooling.c`):
 
 ```c
 #include "_system/parameter_helpers.h"
@@ -208,6 +213,14 @@ static int my_cooling_cleanup(void) {
 }
 ```
 
+**Minimal `module_info.yaml`** (`src/modules/my_cooling/module_info.yaml`):
+
+```yaml
+module:
+  name: my_cooling
+  supported_processing_modes: [process_by_galaxy]
+```
+
 **Configure in `input/millennium.yaml`**:
 
 ```yaml
@@ -222,17 +235,14 @@ modules:
 **Build and run**:
 
 ```bash
-make clean && make
+make generate && make
 ./mimic input/millennium.yaml
 ```
 
 ### Directory Module with Metadata
 
-**When you need**:
-- Multiple source files
-- Property/parameter validation
-- Test coverage
-- Production quality
+This is the standard runtime module layout for both simple and complex modules.
+Use extra helper files only when needed.
 
 **Structure**:
 
@@ -278,14 +288,17 @@ module:
       - CoolFunctionsDir
 
   tests:
-    unit: _tests/test_unit.c
+    unit: _tests/test_unit_my_cooling.c
 ```
 
 **Key points**:
+- Runtime modules must be directory modules with `module_info.yaml`
 - `{module_name}.c` is **always** implicit - never declare it
 - `additional_files` only for **helper** files
 - `dependencies` provides validation, not enforcement
 - All fields except `name` and `supported_processing_modes` are optional
+- Put module-specific tests in `src/modules/<module>/_tests/`
+- Use `src/modules/_tests/` only for shared cross-module coverage
 
 ### Processing Modes
 
@@ -839,7 +852,7 @@ cd tests/unit && ./test_memory_system.test
 
 ### Writing Unit Tests
 
-**Create test file** (`tests/unit/test_unit_my_module.c`):
+**Create test file** (`src/modules/my_module/_tests/test_unit_my_module.c`):
 
 ```c
 #include <stdio.h>
@@ -884,7 +897,7 @@ make test-unit
 
 ### Writing Integration Tests
 
-**Create test file** (`tests/integration/test_my_module.py`):
+**Create test file** (`src/modules/my_module/_tests/test_integration_my_module.py`):
 
 ```python
 #!/usr/bin/env python3
@@ -927,8 +940,7 @@ if __name__ == '__main__':
 **Run**:
 
 ```bash
-cd tests/integration
-python test_my_module.py
+python3 src/modules/my_module/_tests/test_integration_my_module.py
 ```
 
 ---
@@ -939,7 +951,7 @@ python test_my_module.py
 
 **1. Edit code**:
 ```bash
-vim src/modules/my_module.c
+vim src/modules/my_module/my_module.c
 ```
 
 **2. Format code** (before commits):

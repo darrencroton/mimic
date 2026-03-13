@@ -607,7 +607,11 @@ def generate_module_init_c(
         " * Generated from 'supported_processing_modes' field in module_info.yaml."
     )
     lines.append(
-        " * If omitted, defaults to [process_full_halo, process_per_event, process_by_galaxy]."
+        " * Runtime directory modules must declare this field explicitly."
+    )
+    lines.append(" *")
+    lines.append(
+        " * Legacy standalone fallback metadata, if still discovered, defaults to all three modes."
     )
     lines.append(" *")
     lines.append(

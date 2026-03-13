@@ -1,6 +1,6 @@
-# Standalone Module Tests (_tests/)
+# Shared Module Tests (_tests/)
 
-**Purpose**: Tests for standalone physics modules (single `.c` files in `src/modules/`).
+**Purpose**: Shared cross-module regression tests for the physics-module system.
 
 **DO NOT PUT MODULE CODE HERE** - This directory is for tests only.
 
@@ -8,15 +8,15 @@
 
 ## What Goes Here
 
-This directory contains **tests for standalone modules**:
+This directory contains **shared tests only**:
 
-- **Unit Tests** (`test_unit_*.c`): Test individual module functions and physics calculations
-- **Integration Tests** (`test_integration_*.py`): Test modules in full pipeline execution
-- **Scientific Tests** (`test_scientific_*.py`): Validate physics accuracy against published results
+- **Unit Tests** (`test_unit_*.c`): Cross-module or framework-facing regressions
+- **Integration Tests** (`test_integration_*.py`): Startup/dispatch/pipeline contract tests spanning multiple modules
+- **Scientific Tests** (`test_scientific_*.py`): Shared scientific validations, if needed
 
-**Standalone modules** are single `.c` files directly in `src/modules/` (e.g., `sage_add_cooling.c`, `sage_reionization.c`).
-
-**Directory modules** (modules with their own subdirectory like `sage_calculate_cooling/`) should place tests in their own `_tests/` subdirectory instead.
+Module-specific tests belong in the owning module directory:
+`src/modules/<module>/_tests/`.
+Retired tests belong in `src/modules/_archive/`.
 
 ---
 
@@ -158,17 +158,17 @@ Tests are auto-discovered via `make generate`, which:
 src/modules/
 ├── _tests/                          # This directory
 │   ├── README.md                    # This file
-│   ├── module_info.yaml             # Test registry
-│   ├── test_unit_*.c                # Unit tests
-│   ├── test_integration_*.py        # Integration tests
-│   └── test_scientific_*.py         # Scientific tests
-├── my_standalone_module.c           # Standalone module (tested here)
-├── another_standalone_module.c      # Another standalone module
-└── my_directory_module/             # Directory module (has own _tests/)
+│   ├── module_info.yaml             # Shared test registry
+│   ├── test_unit_*.c                # Shared unit tests
+│   ├── test_integration_*.py        # Shared integration tests
+│   └── test_scientific_*.py         # Shared scientific tests
+├── _archive/                        # Retired modules/tests
+└── my_directory_module/             # Runtime module (owns its own tests)
     ├── my_directory_module.c
     ├── module_info.yaml
-    └── _tests/                      # Module's own tests (NOT here)
-        └── test_unit_*.c
+    └── _tests/
+        ├── test_unit_*.c
+        └── test_integration_*.py
 ```
 
 ---
@@ -186,9 +186,10 @@ src/modules/
 - **Document test purpose** - Explain what physics is being validated
 
 ### When to Test Here vs. Module Directory
-- **Standalone modules** → Test in `_tests/`
-- **Directory modules** → Test in module's own `_tests/` subdirectory
-- **Shared utilities** → Test in `_shared/_tests/`
+- **Module-specific runtime behavior** → `src/modules/<module>/_tests/`
+- **Cross-module contracts and shared regressions** → `src/modules/_tests/`
+- **Shared utilities** → `src/modules/_shared/_tests/`
+- **Retired code/tests** → `src/modules/_archive/`
 
 ---
 

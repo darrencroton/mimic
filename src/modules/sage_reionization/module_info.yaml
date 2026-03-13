@@ -1,0 +1,18 @@
+module:
+  name: sage_reionization
+  description: "Calculates reionization suppression factor using Gnedin (2000) model; sets HaloBaryonFraction used by infall and stripping modules"
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type
+      - Mvir
+      - HaloBaryonFraction
+    parameters:
+      - GlobalBaryonFraction
+
+  tests:
+    unit: _tests/test_unit_sage_reionization.c
+    integration: _tests/test_integration_sage_reionization.py
+    scientific: []

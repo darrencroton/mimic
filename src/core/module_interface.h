@@ -394,8 +394,9 @@ struct Module {
    * - PROCESSING_MODE_PER_EVENT: Module processes one event target at a time
    * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (per-galaxy operations)
    *
-   * Set via module_info.yaml (supported_processing_modes field). If omitted from
-   * metadata, defaults to supporting both modes.
+   * Set via module_info.yaml (supported_processing_modes field).
+   * Runtime directory modules must declare this explicitly. Legacy standalone
+   * fallback metadata, if still present, may advertise broader support.
    *
    * Runtime validation ensures modules are only configured with supported modes.
    *

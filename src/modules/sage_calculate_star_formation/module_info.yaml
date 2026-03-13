@@ -1,0 +1,24 @@
+module:
+  name: sage_calculate_star_formation
+  description: "Calculates star formation via Kennicutt-Schmidt efficiency model with critical threshold; stores result in NewStellarMass"
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - Type
+      - HaloNr
+      - SnapNum
+      - dT
+      - Vvir
+      - ColdGas
+      - DiskScaleRadius
+      - NewStellarMass
+    parameters:
+      - SfrEfficiency
+      - StarFormingDiskFactor
+
+  tests:
+    unit: _tests/test_unit_sage_calculate_star_formation.c
+    integration: _tests/test_integration_sage_calculate_star_formation.py
+    scientific: []

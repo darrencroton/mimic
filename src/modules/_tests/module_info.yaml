@@ -1,14 +1,14 @@
 # Physics Module Test Registry
 #
-# This file enables automatic test discovery for physics module tests.
-# It is a central registry for tests that live in src/modules/_tests/.
+# This file enables automatic discovery for shared cross-module tests that live
+# in src/modules/_tests/.
 #
-# To add a new standalone module test:
-# 1. Create test file in _tests/ directory:
-#    - Unit test: _tests/test_unit_MODULE_NAME.c
-#    - Integration test: _tests/test_integration_MODULE_NAME.py
-#    - Scientific test: _tests/test_scientific_MODULE_NAME.py
-# 2. Add filename to tests list below
+# Do not register module-specific tests here. Runtime modules own their tests in
+# src/modules/<module>/_tests/, and retired tests belong in src/modules/_archive/.
+#
+# To add a new shared module-system test:
+# 1. Create test file in this _tests/ directory
+# 2. Add filename to the tests list below
 # 3. Run: make generate
 # 4. Tests auto-run with: make test-unit, make test-integration, make test-scientific
 #
@@ -25,7 +25,7 @@
 module:
   name: _tests
   display_name: "Physics Module Tests"
-  description: "Collection of tests for runtime physics modules"
+  description: "Shared cross-module tests for runtime physics modules"
 
   # Mark as utility collection (not a runtime physics module)
   is_utility: true
@@ -33,37 +33,8 @@ module:
   # List of tests (add new tests here)
   tests:
     unit:
-      - test_unit_sage_reionization.c
-      - test_unit_sage_calculate_infall.c
-      - test_unit_sage_add_infall.c
-      - test_unit_sage_calculate_star_formation.c
-      - test_unit_sage_calculate_supernova_feedback.c
-      - test_unit_sage_update_star_formation_supernova.c
-      - test_unit_sage_reincorporation.c
-      - test_unit_sage_satellite_stripping.c
-      - test_unit_sage_update_disk_radius.c
-      - test_unit_sage_add_cooling.c
-      - test_unit_sage_radio_mode_heating.c
-      - test_unit_sage_disk_instability.c
-      - test_unit_sage_quasar_mode.c
-      - test_unit_sage_collisional_starburst.c
-      - test_unit_sage_calculate_merger_timescale.c
       - test_unit_mixed_dt_parity.c
 
     integration:
-      - test_integration_sage_reionization.py
-      - test_integration_sage_calculate_infall.py
-      - test_integration_sage_add_infall.py
-      - test_integration_sage_calculate_star_formation.py
-      - test_integration_sage_calculate_supernova_feedback.py
-      - test_integration_sage_update_star_formation_supernova.py
-      - test_integration_sage_reincorporation.py
-      - test_integration_sage_satellite_stripping.py
-      - test_integration_sage_update_disk_radius.py
-      - test_integration_sage_add_cooling.py
-      - test_integration_sage_radio_mode_heating.py
-      - test_integration_sage_disk_instability.py
-      - test_integration_sage_quasar_mode.py
-      - test_integration_sage_collisional_starburst.py
-      - test_integration_sage_calculate_merger_timescale.py
+      - test_integration_processing_mode_contracts.py
     scientific: []

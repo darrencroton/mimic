@@ -1,0 +1,15 @@
+module:
+  name: sage_clear_disk_instability_triggers
+  description: "Clears UnstableDiskGasFraction trigger field after phase_1 consumers (sage_quasar_mode, sage_collisional_starburst) have processed it"
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - UnstableDiskGasFraction
+    parameters: []
+
+  tests:
+    unit: []
+    integration: []
+    scientific: []

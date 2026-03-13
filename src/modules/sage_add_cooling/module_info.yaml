@@ -1,0 +1,23 @@
+module:
+  name: sage_add_cooling
+  description: "Transfers CoolingGas from the hot halo to the cold reservoir and tracks cooling energy"
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - Type
+      - dT
+      - Vvir
+      - HotGas
+      - MetalsHotGas
+      - ColdGas
+      - MetalsColdGas
+      - CoolingGas
+      - Cooling
+    parameters: []
+
+  tests:
+    unit: _tests/test_unit_sage_add_cooling.c
+    integration: _tests/test_integration_sage_add_cooling.py
+    scientific: []
