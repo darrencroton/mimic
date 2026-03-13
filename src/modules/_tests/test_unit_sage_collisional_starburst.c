@@ -21,6 +21,10 @@
  *   - test_merger_starburst: Merger-only trigger is ignored in this module
  *   - test_both_triggers: Disk trigger processed while merger trigger preserved
  *   - test_per_event_merger_starburst: Merger event triggers starburst physics
+ *   - test_per_event_minor_merger_rechecks_disk_instability: Minor mergers run
+ *     same-step post-starburst disk instability follow-up when configured
+ *   - test_per_event_recheck_respects_phase2_quasar_configuration: Same-step
+ *     follow-up skips BH growth when the quasar event consumer is absent
  *   - test_per_event_unknown_code_noop: Unknown event code is no-op
  *   - test_major_vs_minor_merger: Merger-only major/minor triggers are both ignored
  *   - test_mass_conservation: Total mass conserved
@@ -213,6 +217,73 @@ static void setup_test_parameters(double reheating_eps, double ejection_eff,
     snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", threshold_major);
 
     MimicConfig.NumModelParams = idx;
+}
+
+static void append_model_param(const char *param_name, double value)
+{
+    const int idx = MimicConfig.NumModelParams;
+    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "%s",
+             param_name);
+    snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%.6f", value);
+    MimicConfig.NumModelParams = idx + 1;
+}
+
+static void setup_post_merger_recheck_parameters(int include_quasar)
+{
+    append_model_param("StarFormingDiskFactor", 3.0);
+    if (include_quasar) {
+        append_model_param("BlackHoleGrowthRate", 0.02);
+        append_model_param("QuasarModeEfficiency", 0.001);
+    }
+}
+
+static char *alloc_module_name(const char *name)
+{
+    const size_t len = strlen(name) + 1;
+    char *buf = mymalloc_cat(len, MEM_UTILITY);
+    snprintf(buf, len, "%s", name);
+    return buf;
+}
+
+static void setup_runtime_phase_config(int enable_disk_instability,
+                                       int enable_phase2_quasar)
+{
+    if (enable_disk_instability) {
+        MimicConfig.phase_1 =
+            mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+        MimicConfig.phase_1[0].module_name = alloc_module_name("sage_disk_instability");
+        MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+        MimicConfig.num_phase_1 = 1;
+    }
+
+    if (enable_phase2_quasar) {
+        MimicConfig.phase_2 =
+            mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+        MimicConfig.phase_2[0].module_name = alloc_module_name("sage_quasar_mode");
+        MimicConfig.phase_2[0].processing_mode = PROCESSING_MODE_PER_EVENT;
+        MimicConfig.num_phase_2 = 1;
+    }
+}
+
+static void teardown_runtime_phase_config(void)
+{
+    if (MimicConfig.phase_1 != NULL) {
+        for (int i = 0; i < MimicConfig.num_phase_1; i++) {
+            myfree(MimicConfig.phase_1[i].module_name);
+        }
+        myfree(MimicConfig.phase_1);
+        MimicConfig.phase_1 = NULL;
+        MimicConfig.num_phase_1 = 0;
+    }
+
+    if (MimicConfig.phase_2 != NULL) {
+        for (int i = 0; i < MimicConfig.num_phase_2; i++) {
+            myfree(MimicConfig.phase_2[i].module_name);
+        }
+        myfree(MimicConfig.phase_2);
+        MimicConfig.phase_2 = NULL;
+        MimicConfig.num_phase_2 = 0;
+    }
 }
 
 /**
@@ -665,6 +736,247 @@ int test_per_event_merger_uses_event_dt_for_rates(void)
 
     /* ===== CLEANUP ===== */
     sage_collisional_starburst_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_per_event_minor_merger_rechecks_disk_instability
+ * @brief   Minor merger event applies same-step disk-instability follow-up
+ *
+ * Expected: Enabling the phase_1 disk-instability module adds extra bulge and
+ * stellar growth and, when the quasar event consumer is present, BH growth too.
+ */
+int test_per_event_minor_merger_rechecks_disk_instability(void)
+{
+    init_memory_system(0);
+
+    reset_config();
+    setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
+    setup_runtime_phase_config(0, 0);
+    MimicConfig.G = 43007.1;
+    int result = sage_collisional_starburst_init();
+    TEST_ASSERT(result == 0, "Baseline init should succeed");
+
+    struct Halo base_central;
+    struct GalaxyData base_central_gal;
+    setup_test_galaxy(&base_central, &base_central_gal, 0,
+                      120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+
+    struct Halo base_target;
+    struct GalaxyData base_target_gal;
+    setup_test_galaxy(&base_target, &base_target_gal, 1,
+                      30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
+    base_target.Vmax = 120.0;
+    base_target.galaxy->DiskScaleRadius = 5.0;
+    base_target.galaxy->BlackHoleMass = 0.05;
+
+    struct ModuleContext base_ctx;
+    setup_test_context(&base_ctx, &base_central);
+    struct ModuleEvent base_event = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = SAGE_EVENT_MERGER,
+        .source_index = 2,
+        .target_index = 1,
+        .value0 = 0.2,
+        .value1 = 0.1
+    };
+    base_ctx.active_event = &base_event;
+
+    result = sage_collisional_starburst_process(&base_ctx, &base_target, 1);
+    TEST_ASSERT(result == 0, "Baseline per-event merger processing should succeed");
+
+    const double baseline_bulge = base_target.galaxy->BulgeMass;
+    const double baseline_stellar = base_target.galaxy->StellarMass;
+    const double baseline_cold_gas = base_target.galaxy->ColdGas;
+    const double baseline_bh = base_target.galaxy->BlackHoleMass;
+    const double baseline_bh_accretion =
+        base_target.galaxy->QuasarModeBHaccretionMass;
+
+    sage_collisional_starburst_cleanup();
+    teardown_runtime_phase_config();
+
+    reset_config();
+    setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
+    setup_post_merger_recheck_parameters(1);
+    setup_runtime_phase_config(1, 1);
+    MimicConfig.G = 43007.1;
+    result = sage_collisional_starburst_init();
+    TEST_ASSERT(result == 0, "Follow-up init should succeed");
+
+    struct Halo follow_central;
+    struct GalaxyData follow_central_gal;
+    setup_test_galaxy(&follow_central, &follow_central_gal, 0,
+                      120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+
+    struct Halo follow_target;
+    struct GalaxyData follow_target_gal;
+    setup_test_galaxy(&follow_target, &follow_target_gal, 1,
+                      30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
+    follow_target.Vmax = 120.0;
+    follow_target.galaxy->DiskScaleRadius = 5.0;
+    follow_target.galaxy->BlackHoleMass = 0.05;
+
+    struct ModuleContext follow_ctx;
+    setup_test_context(&follow_ctx, &follow_central);
+    struct ModuleEvent follow_event = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = SAGE_EVENT_MERGER,
+        .source_index = 2,
+        .target_index = 1,
+        .value0 = 0.2,
+        .value1 = 0.1
+    };
+    follow_ctx.active_event = &follow_event;
+
+    /* Capture combined baryon total across target + central before the call.
+     * Conservation: ColdGas + StellarMass + HotGas + EjectedGas + BlackHoleMass
+     * must hold across both galaxies (feedback reheating moves cold→hot→ejected
+     * within this closed system; BH growth moves ColdGas→BlackHoleMass). */
+    const double pre_target_total = follow_target.galaxy->ColdGas
+        + follow_target.galaxy->StellarMass
+        + follow_target.galaxy->HotGas
+        + follow_target.galaxy->EjectedGas
+        + follow_target.galaxy->BlackHoleMass;
+    const double pre_central_total = follow_central.galaxy->HotGas
+        + follow_central.galaxy->EjectedGas;
+    const double pre_combined = pre_target_total + pre_central_total;
+
+    result = sage_collisional_starburst_process(&follow_ctx, &follow_target, 1);
+    TEST_ASSERT(result == 0, "Follow-up per-event merger processing should succeed");
+
+    const double post_target_total = follow_target.galaxy->ColdGas
+        + follow_target.galaxy->StellarMass
+        + follow_target.galaxy->HotGas
+        + follow_target.galaxy->EjectedGas
+        + follow_target.galaxy->BlackHoleMass;
+    const double post_central_total = follow_central.galaxy->HotGas
+        + follow_central.galaxy->EjectedGas;
+    TEST_ASSERT_DOUBLE_EQUAL(post_target_total + post_central_total, pre_combined,
+                             1e-4,
+                             "Total baryons (target+central) must be conserved across post-merger follow-up");
+
+    TEST_ASSERT(follow_target.galaxy->BulgeMass > baseline_bulge,
+                "Disk-instability follow-up should add extra bulge growth");
+    TEST_ASSERT(follow_target.galaxy->StellarMass > baseline_stellar,
+                "Disk-instability follow-up should form additional stars");
+    TEST_ASSERT(follow_target.galaxy->ColdGas < baseline_cold_gas,
+                "Disk-instability follow-up should consume more cold gas");
+    TEST_ASSERT(follow_target.galaxy->BlackHoleMass > baseline_bh,
+                "Disk-instability follow-up should grow the black hole when quasar consumer is enabled");
+    TEST_ASSERT(follow_target.galaxy->QuasarModeBHaccretionMass >
+                    baseline_bh_accretion,
+                "Disk-instability follow-up should record extra BH accretion");
+
+    sage_collisional_starburst_cleanup();
+    teardown_runtime_phase_config();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_per_event_recheck_respects_phase2_quasar_configuration
+ * @brief   Post-merger recheck skips BH growth if quasar event consumer is absent
+ *
+ * Expected: The disk-instability starburst still runs, but BH growth is gated
+ * by whether sage_quasar_mode is configured for phase_2 process_per_event.
+ */
+int test_per_event_recheck_respects_phase2_quasar_configuration(void)
+{
+    init_memory_system(0);
+
+    reset_config();
+    setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
+    setup_post_merger_recheck_parameters(0);
+    setup_runtime_phase_config(1, 0);
+    MimicConfig.G = 43007.1;
+    int result = sage_collisional_starburst_init();
+    TEST_ASSERT(result == 0, "Init without phase_2 quasar should succeed");
+
+    struct Halo no_quasar_central;
+    struct GalaxyData no_quasar_central_gal;
+    setup_test_galaxy(&no_quasar_central, &no_quasar_central_gal, 0,
+                      120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+
+    struct Halo no_quasar_target;
+    struct GalaxyData no_quasar_target_gal;
+    setup_test_galaxy(&no_quasar_target, &no_quasar_target_gal, 1,
+                      30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
+    no_quasar_target.Vmax = 120.0;
+    no_quasar_target.galaxy->DiskScaleRadius = 5.0;
+    no_quasar_target.galaxy->BlackHoleMass = 0.05;
+
+    struct ModuleContext no_quasar_ctx;
+    setup_test_context(&no_quasar_ctx, &no_quasar_central);
+    struct ModuleEvent no_quasar_event = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = SAGE_EVENT_MERGER,
+        .source_index = 2,
+        .target_index = 1,
+        .value0 = 0.2,
+        .value1 = 0.1
+    };
+    no_quasar_ctx.active_event = &no_quasar_event;
+
+    result = sage_collisional_starburst_process(&no_quasar_ctx, &no_quasar_target, 1);
+    TEST_ASSERT(result == 0, "No-quasar follow-up should succeed");
+
+    const double no_quasar_bh = no_quasar_target.galaxy->BlackHoleMass;
+    const double no_quasar_bh_accretion =
+        no_quasar_target.galaxy->QuasarModeBHaccretionMass;
+    TEST_ASSERT_DOUBLE_EQUAL(no_quasar_bh, 0.05, 1e-6,
+                             "BH mass should remain unchanged when the phase_2 quasar consumer is disabled");
+    TEST_ASSERT_DOUBLE_EQUAL(no_quasar_bh_accretion, 0.0, 1e-6,
+                             "BH accretion should remain zero without the phase_2 quasar consumer");
+
+    sage_collisional_starburst_cleanup();
+    teardown_runtime_phase_config();
+
+    reset_config();
+    setup_test_parameters(1.0, 0.0, 0.43, 0.03, 0.0, 0.3);
+    setup_post_merger_recheck_parameters(1);
+    setup_runtime_phase_config(1, 1);
+    MimicConfig.G = 43007.1;
+    result = sage_collisional_starburst_init();
+    TEST_ASSERT(result == 0, "Init with phase_2 quasar should succeed");
+
+    struct Halo with_quasar_central;
+    struct GalaxyData with_quasar_central_gal;
+    setup_test_galaxy(&with_quasar_central, &with_quasar_central_gal, 0,
+                      120.0, 220.0, 4.0, 0.08, 6.0, 1.5, 40.0, 0.8);
+
+    struct Halo with_quasar_target;
+    struct GalaxyData with_quasar_target_gal;
+    setup_test_galaxy(&with_quasar_target, &with_quasar_target_gal, 1,
+                      30.0, 140.0, 8.0, 0.16, 5.0, 1.0, 5.0, 0.1);
+    with_quasar_target.Vmax = 120.0;
+    with_quasar_target.galaxy->DiskScaleRadius = 5.0;
+    with_quasar_target.galaxy->BlackHoleMass = 0.05;
+
+    struct ModuleContext with_quasar_ctx;
+    setup_test_context(&with_quasar_ctx, &with_quasar_central);
+    struct ModuleEvent with_quasar_event = {
+        .type = MODULE_EVENT_TYPE_SCALAR,
+        .event_code = SAGE_EVENT_MERGER,
+        .source_index = 2,
+        .target_index = 1,
+        .value0 = 0.2,
+        .value1 = 0.1
+    };
+    with_quasar_ctx.active_event = &with_quasar_event;
+
+    result = sage_collisional_starburst_process(&with_quasar_ctx, &with_quasar_target, 1);
+    TEST_ASSERT(result == 0, "Quasar-enabled follow-up should succeed");
+    TEST_ASSERT(with_quasar_target.galaxy->BlackHoleMass > no_quasar_bh,
+                "BH growth should only occur when the phase_2 quasar consumer is configured");
+    TEST_ASSERT(with_quasar_target.galaxy->QuasarModeBHaccretionMass >
+                    no_quasar_bh_accretion,
+                "BH accretion tracking should only increase with the quasar event consumer");
+
+    sage_collisional_starburst_cleanup();
+    teardown_runtime_phase_config();
     check_memory_leaks();
 
     return TEST_PASS;
@@ -1781,6 +2093,8 @@ int main(void)
     TEST_RUN(test_per_event_merger_starburst);
     TEST_RUN(test_per_event_merger_uses_fof_central_feedback_destination);
     TEST_RUN(test_per_event_merger_uses_event_dt_for_rates);
+    TEST_RUN(test_per_event_minor_merger_rechecks_disk_instability);
+    TEST_RUN(test_per_event_recheck_respects_phase2_quasar_configuration);
     TEST_RUN(test_per_event_unknown_code_noop);
     TEST_RUN(test_major_vs_minor_merger);
     TEST_RUN(test_mass_conservation);

@@ -19,12 +19,16 @@
  *   - Croton et al. (2006, 2016)
  */
 
+#include <stdbool.h>
+#include <string.h>
+
 #include "constants.h"
 #include "error.h"
 #include "globals.h"
 #include "module_interface.h"
 #include "types.h"
 #include "_shared/merger_physics.h"
+#include "_shared/sage_disk_instability_physics.h"
 #include "_shared/sage_events.h"
 #include "_shared/time_parity.h"
 #include "_system/parameter_helpers.h"
@@ -40,10 +44,77 @@ static double RECYCLE_FRACTION;
 static double YIELD;
 static double FRAC_Z_LEAVE_DISK;
 static double THRESHOLD_MAJOR_MERGER;
+static double POST_MERGER_STAR_FORMING_DISK_FACTOR;
+static double POST_MERGER_BLACK_HOLE_GROWTH_RATE;
+static double POST_MERGER_QUASAR_MODE_EFFICIENCY;
 
 // Calculated from physical constants (converted to code units)
 static double EnergySNcode;
 static double EtaSNcode;
+static bool POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED;
+static bool POST_MERGER_QUASAR_FOLLOWUP_ENABLED;
+
+static bool phase_has_module(const struct PhaseModuleConfig *phase_config,
+                             int num_modules, const char *module_name,
+                             enum ProcessingMode mode)
+{
+    if (phase_config == NULL || module_name == NULL || num_modules <= 0) {
+        return false;
+    }
+
+    for (int i = 0; i < num_modules; i++) {
+        if (phase_config[i].module_name == NULL) {
+            continue;
+        }
+        if (phase_config[i].processing_mode == mode &&
+            strcmp(phase_config[i].module_name, module_name) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void maybe_apply_post_merger_disk_instability_followup(
+    struct ModuleContext *ctx, struct Halo *event_halo,
+    struct Halo *central_halo, double mass_ratio, double event_dt,
+    const struct MimicStarburstParams *params)
+{
+    if (!POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED || ctx == NULL ||
+        event_halo == NULL || event_halo->galaxy == NULL ||
+        central_halo == NULL || central_halo->galaxy == NULL ||
+        params == NULL || mass_ratio >= params->threshold_major_merger) {
+        return;
+    }
+
+    const double unstable_gas_fraction = mimic_sage_apply_disk_instability(
+        event_halo, ctx, POST_MERGER_STAR_FORMING_DISK_FACTOR);
+    if (unstable_gas_fraction <= 0.0) {
+        return;
+    }
+
+    if (POST_MERGER_QUASAR_FOLLOWUP_ENABLED) {
+        const double bh_accrete = mimic_apply_black_hole_growth(
+            event_halo, unstable_gas_fraction,
+            POST_MERGER_BLACK_HOLE_GROWTH_RATE);
+        if (bh_accrete > 0.0) {
+            /* Note: SAGE's check_disk_instability() only calls grow_black_hole()
+             * here; it does not apply a quasar wind in this context. This wind
+             * step is a deliberate Mimic extension that mirrors the same-step
+             * consequences sage_quasar_mode would produce as a phase_2 event
+             * consumer, applied inline when that consumer is configured. */
+            mimic_apply_quasar_mode_wind(
+                event_halo, bh_accrete,
+                POST_MERGER_QUASAR_MODE_EFFICIENCY, ctx);
+        }
+    }
+
+    mimic_apply_collisional_starburst(
+        unstable_gas_fraction, event_halo->galaxy, central_halo->galaxy,
+        central_halo, 1, event_dt, params);
+    DEBUG_LOG("Post-merger disk instability follow-up (eff=%.3f)",
+              unstable_gas_fraction);
+}
 
 int sage_collisional_starburst_init(void)
 {
@@ -61,6 +132,35 @@ int sage_collisional_starburst_init(void)
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThresholdMajorMerger", THRESHOLD_MAJOR_MERGER,
                                       0.0, 1.0, "major merger threshold");
 
+    POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED = phase_has_module(
+        MimicConfig.phase_1, MimicConfig.num_phase_1,
+        "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
+    POST_MERGER_QUASAR_FOLLOWUP_ENABLED = phase_has_module(
+        MimicConfig.phase_2, MimicConfig.num_phase_2,
+        "sage_quasar_mode", PROCESSING_MODE_PER_EVENT);
+
+    if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED) {
+        LOAD_AND_VALIDATE_RANGE_INCLUSIVE("StarFormingDiskFactor",
+                                          POST_MERGER_STAR_FORMING_DISK_FACTOR,
+                                          0.0, 10.0, "star forming disk factor");
+    } else {
+        VERBOSE_LOG("  (StarFormingDiskFactor not loaded: sage_disk_instability"
+                    " not present in phase_1 as process_by_galaxy)");
+    }
+
+    if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED &&
+        POST_MERGER_QUASAR_FOLLOWUP_ENABLED) {
+        LOAD_AND_VALIDATE_RANGE_EXCLUSIVE(
+            "BlackHoleGrowthRate", POST_MERGER_BLACK_HOLE_GROWTH_RATE,
+            0.0, 1.0, "BH growth rate");
+        LOAD_AND_VALIDATE_RANGE_INCLUSIVE(
+            "QuasarModeEfficiency", POST_MERGER_QUASAR_MODE_EFFICIENCY,
+            0.0, 1.0, "quasar mode efficiency");
+    } else if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED) {
+        VERBOSE_LOG("  (BlackHoleGrowthRate, QuasarModeEfficiency not loaded:"
+                    " sage_quasar_mode not present in phase_2 as process_per_event)");
+    }
+
     // Convert physical constants to code units (same as sage_calculate_supernova_feedback)
     EnergySNcode = ENERGY_SN / UnitEnergy_in_cgs * MimicConfig.Hubble_h;
     EtaSNcode = ETA_SN * (UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
@@ -72,6 +172,13 @@ int sage_collisional_starburst_init(void)
     VERBOSE_LOG("  Yield = %.4f", YIELD);
     VERBOSE_LOG("  EnergySNcode = %.6e (from ENERGY_SN physical constant)", EnergySNcode);
     VERBOSE_LOG("  EtaSNcode = %.6e (from ETA_SN physical constant)", EtaSNcode);
+    VERBOSE_LOG("  post-minor-merger disk instability follow-up = %s",
+                POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED ? "enabled" : "disabled");
+    VERBOSE_LOG("  post-minor-merger quasar follow-up = %s",
+                (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED &&
+                 POST_MERGER_QUASAR_FOLLOWUP_ENABLED)
+                    ? "enabled"
+                    : "disabled");
 
     return 0;
 }
@@ -133,6 +240,9 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
         mimic_apply_collisional_starburst(event->value0, gal, central_gal,
                                           central_halo, 0, event->value1,
                                           &params);
+        maybe_apply_post_merger_disk_instability_followup(
+            ctx, event_halo, central_halo, event->value0, event->value1,
+            &params);
         DEBUG_LOG("Starburst from merger event (ratio=%.3f, source=%d, target=%d)",
                   event->value0, event->source_index, event->target_index);
         return 0;
@@ -189,6 +299,11 @@ int sage_collisional_starburst_process(struct ModuleContext *ctx,
 
 int sage_collisional_starburst_cleanup(void)
 {
+    POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED = false;
+    POST_MERGER_QUASAR_FOLLOWUP_ENABLED = false;
+    POST_MERGER_STAR_FORMING_DISK_FACTOR = 0.0;
+    POST_MERGER_BLACK_HOLE_GROWTH_RATE = 0.0;
+    POST_MERGER_QUASAR_MODE_EFFICIENCY = 0.0;
     INFO_LOG("SAGE collisional starburst module cleaned up");
     return 0;
 }
