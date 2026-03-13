@@ -10,6 +10,10 @@ module:
     parameters: []
 
   tests:
+    # No tests registered intentionally. This module is a trivial single-field
+    # reset with no physics logic. The process_by_galaxy contract class is covered
+    # by the shared integration test test_by_galaxy_only_module_rejects_process_full_halo
+    # (sage_add_cooling). If real logic is ever added here, add tests before merging.
     unit: []
     integration: []
     scientific: []

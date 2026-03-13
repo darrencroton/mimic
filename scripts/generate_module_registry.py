@@ -210,7 +210,7 @@ def discover_modules() -> List[Dict[str, Any]]:
             module_name = item.stem
             metadata = create_standalone_module_metadata(module_name, item)
             modules.append(metadata)
-            print(f"  Discovered standalone module: {module_name}")
+            print_warning(f"Standalone module '{module_name}' inherits all three processing modes (no module_info.yaml).")
 
     return modules
 

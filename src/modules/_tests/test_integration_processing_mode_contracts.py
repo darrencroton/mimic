@@ -76,10 +76,28 @@ def test_dual_mode_module_rejects_process_full_halo():
     )
 
 
+def test_full_halo_only_module_rejects_process_per_event():
+    # process_per_event is the historically highest-risk invalid mode: it was
+    # the specific mode that triggered the original merger-pathway bug, and
+    # it was absent from the rejection matrix until this test was added.
+    assert_invalid_mode_rejected(
+        output_name="mode_contract_full_halo_rejects_per_event",
+        phase_config={
+            "pre_timestep": [],
+            "phase_1": [("sage_add_infall", "process_per_event")],
+            "phase_2": [],
+            "post_timestep": [],
+        },
+        expected_mode="process_per_event",
+        expected_supported="process_full_halo",
+    )
+
+
 def main():
     test_full_halo_only_module_rejects_process_by_galaxy()
     test_by_galaxy_only_module_rejects_process_full_halo()
     test_dual_mode_module_rejects_process_full_halo()
+    test_full_halo_only_module_rejects_process_per_event()
     return 0
 
 

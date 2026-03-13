@@ -410,6 +410,25 @@ Notes:
 - YAML order of `process_per_event` entries defines consumer order (`quasar` then `starburst` above).
 - For readability, keep per-event consumers near their expected producer and add an inline trigger comment.
 
+**Standalone modules and mode inheritance**
+
+A bare `.c` file placed directly in `src/modules/` (no `module_info.yaml`) is a
+valid standalone module. The generator will discover it and automatically assign
+all three processing modes. This is intentional: standalone modules are a
+lightweight option for quick prototyping or simple utilities that genuinely
+support any calling convention.
+
+When a standalone module is discovered, `make generate` prints:
+
+```
+WARNING: Standalone module 'my_module' inherits all three processing modes (no module_info.yaml).
+```
+
+This is informational. If the module has a real mode constraint, convert it to a
+directory module and declare `supported_processing_modes` explicitly — the
+generator will then enforce the declaration and startup validation will reject
+misconfigured pipelines.
+
 ### Pipeline Phases
 
 The multi-phase pipeline executes modules in four distinct phases:
