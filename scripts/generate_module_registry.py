@@ -235,6 +235,12 @@ def resolve_dependencies(
 # VALIDATION
 # ==============================================================================
 
+VALID_PROCESSING_MODES = {
+    "process_full_halo",
+    "process_per_event",
+    "process_by_galaxy",
+}
+
 
 def load_valid_properties() -> set:
     """Load all valid property names from halo and galaxy property files."""
@@ -263,6 +269,51 @@ def load_valid_properties() -> set:
             print_warning(f"Failed to load halo properties: {e}")
 
     return valid_properties
+
+
+def validate_processing_modes(modules: List[Dict[str, Any]]) -> List[str]:
+    """Verify runtime directory modules declare valid processing modes."""
+    errors = []
+
+    for module in modules:
+        module_name = module["name"]
+        pattern = module.get("_pattern", "directory")
+
+        # Utility collections and legacy standalone modules do not require
+        # module-owned runtime processing-mode metadata.
+        if module.get("is_utility", False) or pattern == "standalone":
+            continue
+
+        if "supported_processing_modes" not in module:
+            errors.append(
+                f"{module_name}/module_info.yaml: Missing required field "
+                f"'supported_processing_modes' for runtime module"
+            )
+            continue
+
+        modes = module["supported_processing_modes"]
+        if not isinstance(modes, list) or len(modes) == 0:
+            errors.append(
+                f"{module_name}/module_info.yaml: 'supported_processing_modes' "
+                f"must be a non-empty list"
+            )
+            continue
+
+        invalid_modes = [mode for mode in modes if mode not in VALID_PROCESSING_MODES]
+        if invalid_modes:
+            errors.append(
+                f"{module_name}/module_info.yaml: Invalid processing mode(s) "
+                f"{invalid_modes} in 'supported_processing_modes' "
+                f"(expected subset of {sorted(VALID_PROCESSING_MODES)})"
+            )
+
+        if len(set(modes)) != len(modes):
+            errors.append(
+                f"{module_name}/module_info.yaml: Duplicate entries in "
+                f"'supported_processing_modes': {modes}"
+            )
+
+    return errors
 
 
 def validate_property_dependencies(
@@ -833,6 +884,15 @@ def main():
     # ==========================================================================
 
     if modules:
+        print("Validating processing mode metadata...")
+        processing_mode_errors = validate_processing_modes(modules)
+        if processing_mode_errors:
+            print_error("Invalid processing mode metadata:")
+            for err in processing_mode_errors:
+                print(f"  - {err}", file=sys.stderr)
+            return 1
+        print("✓ All runtime module processing modes valid")
+
         # Validate module source/header files exist
         print("Validating module files...")
         file_errors = validate_module_files(modules)

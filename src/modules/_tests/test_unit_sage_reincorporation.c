@@ -27,6 +27,7 @@
  *   PHYSICS TESTS:
  *   - test_physics_basic_reincorporation: Standard reincorporation calculation
  *   - test_physics_central_only: Only Type 0 centrals reincorporate
+ *   - test_physics_full_halo_nonzero_central_index: Full-halo dispatch uses the true FOF central
  *   - test_physics_velocity_threshold: Vvir > Vcrit requirement
  *   - test_physics_mass_capping: Reincorporated limited to available EjectedGas
  *   - test_physics_metallicity_preservation: Metallicity conserved in transfer
@@ -379,6 +380,53 @@ int test_physics_central_only(void)
     free_test_halo(&satellite);
     free_test_halo(&orphan);
     free_test_halo(&central);
+    sage_reincorporation_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_physics_full_halo_nonzero_central_index
+ * @brief   Test that full-halo dispatch uses the context central, not halos[0]
+ */
+int test_physics_full_halo_nonzero_central_index(void)
+{
+    init_memory_system(0);
+    setup_module_for_physics_test();
+
+    struct Halo halos[2];
+    halos[0] = create_test_halo(1, 500.0, 0.2);
+    halos[1] = create_test_halo(0, 600.0, 0.3);
+
+    halos[0].galaxy->EjectedGas = 4.0;
+    halos[0].galaxy->HotGas = 2.0;
+    halos[1].galaxy->EjectedGas = 10.0;
+    halos[1].galaxy->HotGas = 5.0;
+
+    struct ModuleContext ctx = create_test_context(0.1);
+    ctx.central_index = 1;
+    ctx.central_galaxy = &halos[1];
+
+    const double central_initial_ejected = halos[1].galaxy->EjectedGas;
+    const double central_initial_hot = halos[1].galaxy->HotGas;
+    const double satellite_initial_ejected = halos[0].galaxy->EjectedGas;
+    const double satellite_initial_hot = halos[0].galaxy->HotGas;
+
+    int result = sage_reincorporation_process(&ctx, halos, 2);
+    TEST_ASSERT(result == 0, "Full-halo reincorporation should succeed");
+
+    TEST_ASSERT(halos[1].galaxy->EjectedGas < central_initial_ejected,
+                "Central EjectedGas should decrease");
+    TEST_ASSERT(halos[1].galaxy->HotGas > central_initial_hot,
+                "Central HotGas should increase");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->EjectedGas, satellite_initial_ejected, 1e-10,
+                             "Satellite EjectedGas should be unchanged");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->HotGas, satellite_initial_hot, 1e-10,
+                             "Satellite HotGas should be unchanged");
+
+    free_test_halo(&halos[0]);
+    free_test_halo(&halos[1]);
     sage_reincorporation_cleanup();
     check_memory_leaks();
 
@@ -796,6 +844,7 @@ int main(void)
     printf("\n%sPHYSICS TESTS:%s\n", BLUE, NC);
     TEST_RUN(test_physics_basic_reincorporation);
     TEST_RUN(test_physics_central_only);
+    TEST_RUN(test_physics_full_halo_nonzero_central_index);
     TEST_RUN(test_physics_velocity_threshold);
     TEST_RUN(test_physics_mass_capping);
     TEST_RUN(test_physics_metallicity_preservation);

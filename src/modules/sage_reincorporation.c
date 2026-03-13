@@ -46,26 +46,38 @@ int sage_reincorporation_process(struct ModuleContext *ctx,
 {
     double dt_obj = 0.0;
     enum MimicObjectTimeStatus dt_status;
+    struct Halo *central_halo;
+    struct GalaxyData *gal;
 
-    // Only central galaxies can reincorporate gas
-    if (halos == NULL || ngal <= 0 || halos[0].Type != 0) {
+    // Reincorporation follows SAGE: act on the FOF central only.
+    if (ctx == NULL || halos == NULL || ngal <= 0 || ctx->central_galaxy == NULL) {
         return 0;
     }
 
-    if (halos[0].galaxy == NULL) {
+    // Direct single-halo calls on satellites/orphans should remain a no-op.
+    if (ngal == 1 && halos[0].Type != 0) {
+        return 0;
+    }
+
+    central_halo = ctx->central_galaxy;
+    if (central_halo->Type != 0) {
+        return 0;
+    }
+
+    if (central_halo->galaxy == NULL) {
         ERROR_LOG("Central halo has NULL galaxy data");
         return -1;
     }
 
-    struct GalaxyData *gal = halos[0].galaxy;
+    gal = central_halo->galaxy;
 
     // Skip if no ejected gas to reincorporate
     if (gal->EjectedGas <= EPSILON_SMALL) {
         return 0;
     }
 
-    const float Vvir = halos[0].Vvir;
-    const float Rvir = halos[0].Rvir;
+    const float Vvir = central_halo->Vvir;
+    const float Rvir = central_halo->Rvir;
 
     // SN velocity 630 km/s → critical velocity = 630/sqrt(2) = 445.48 km/s
     const double Vcrit = 445.48 * REINCORPORATION_FACTOR;
@@ -75,13 +87,13 @@ int sage_reincorporation_process(struct ModuleContext *ctx,
         return 0;
     }
 
-    dt_status = mimic_object_substep_dt(&halos[0], ctx, &dt_obj);
+    dt_status = mimic_object_substep_dt(central_halo, ctx, &dt_obj);
     if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
         return 0;
     }
     if (dt_status != MIMIC_OBJECT_TIME_OK) {
         ERROR_LOG("Invalid reincorporation dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, status=%s)",
-                  halos[0].HaloNr, halos[0].SnapNum, halos[0].dT,
+                  central_halo->HaloNr, central_halo->SnapNum, central_halo->dT,
                   (ctx != NULL) ? ctx->num_substeps : -1,
                   mimic_object_time_status_str(dt_status));
         return -1;
