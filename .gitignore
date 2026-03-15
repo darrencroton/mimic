@@ -48,13 +48,10 @@ __pycache__/
 
 # Claude Code session data
 .claude/
+.ai-orchestrator/
 
 # Agent session handoff files (platform-neutral, not committed)
 HANDOFF.md
-HANDOFF-history.md
 
 # Python virtual environment
 mimic_venv/
-
-# Archived local work
-ignore/archived-split-pass/
