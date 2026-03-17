@@ -98,7 +98,8 @@ Within `execute_phase()`, processing happens in three passes:
 
 - Events can **only** be emitted during `PROCESSING_MODE_FULL_HALO` execution.
 - Emission is **disabled** during consumer dispatch to prevent recursive re-emit.
-- Outside active phase dispatch (e.g., unit tests), events are silently dropped.
+- Outside active phase dispatch (e.g., some unit tests), events are dropped with a
+  `DEBUG_LOG` message rather than an error.
 
 ### 1.6 Current Usage
 

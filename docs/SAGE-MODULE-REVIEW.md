@@ -109,7 +109,7 @@ If neither criterion applies, the split exposes implementation transport fields 
 
 ### What already works well
 
-- The **core phase model** matches SAGE's structural division (`src/core/build_model.c:540-550`, `:581-599`).
+- The **core phase model** matches SAGE's structural division (`src/core/build_model.c:540-550`, `src/core/build_model.c:581-599`).
 - The **YAML groupings** already tell most of the story (`input/millennium.yaml:41-67`).
 - The **cooling calculate → modify → apply chain** improves on SAGE's embedded `do_AGN_heating()` (`src/modules/sage_calculate_cooling/README.md:39-42`).
 - The **SF/SN module split** enables independent swapping of the SF rate law and SN feedback model.
@@ -450,7 +450,7 @@ These should be fixed regardless of any larger reorganisation. All are correctne
 **Metadata and documentation:**
 
 9. **Fix all 8 metadata drift bugs** in §12.
-10. **Update `docs/USER-GUIDE.md`**, all renamed module READMEs, and `input/millennium.yaml`** per §9.
+10. **Update `docs/USER-GUIDE.md`**, all renamed module READMEs, and `input/millennium.yaml` per §9.
 
 ### Nice-to-have
 
