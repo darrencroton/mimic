@@ -13,7 +13,7 @@
 
 Key decisions:
 
-- **Keep SF and SN as separately swappable prescriptions; rename the apply step.** `sage_calculate_star_formation` and `sage_calculate_supernova_feedback` represent two independently swappable physics models and must remain as separate YAML entries. `sage_update_star_formation_supernova` is an infrastructure apply step — not a physics prescription — and should be renamed `sage_apply_stellar_feedback` to make its role clear. Either SF or SN may be removed from the YAML independently; the absent module's transport fields remain at their init value of 0.0, and the apply step commits zeros correctly.
+- **Keep SF and SN as separately swappable prescriptions; rename the apply step.** `sage_calculate_star_formation` and `sage_calculate_supernova_feedback` represent two independently swappable physics models and must remain as separate YAML entries. `sage_update_star_formation_supernova` is an infrastructure apply step — not a physics prescription — and should be renamed `sage_apply_star_formation_supernova` to make its role clear. Either SF or SN may be removed from the YAML independently; the absent module's transport fields remain at their init value of 0.0, and the apply step commits zeros correctly.
 - **Keep the cooling chain split and visible.** Cooling, AGN suppression, and cooling application are a real three-step scientific story because `sage_radio_mode_heating` modifies `CoolingGas` between calculation and commitment. This split is scientifically meaningful and should remain (`src/modules/sage_calculate_cooling/README.md:39-42`, `src/modules/sage_radio_mode_heating/sage_radio_mode_heating.c:127-137`).
 - **Remove housekeeping from the visible pipeline.** `sage_clear_disk_instability_triggers` zeroing a scratch field is not a SAGE physics stage. It should not appear in the YAML alongside real physics.
 - **Rename modules to use physics-stage names.** Several names describe implementation mechanics rather than the science a researcher would recognise.
@@ -100,7 +100,7 @@ If neither criterion applies, the split exposes implementation transport fields 
 |---|---|---|---|
 | `calculate_cooling_budget` → `radio_mode_heating` → `apply_cooling` | Yes — `radio_mode_heating` modifies `CoolingGas` | Yes | **Keep** |
 | `star_formation` → `supernova_feedback` | No | **Yes — distinct physics prescriptions** | **Keep** |
-| SF/SN calculate steps → `apply_stellar_feedback` | No | No (apply is infrastructure) | Apply kept but named as infrastructure |
+| SF/SN calculate steps → `apply_star_formation_supernova` | No | No (apply is infrastructure) | Apply kept but named as infrastructure |
 | `prepare_infall_budget` → `apply_infall` | No | No (phase boundary) | **Keep** (phase-lifecycle reason) |
 
 ---
@@ -109,17 +109,17 @@ If neither criterion applies, the split exposes implementation transport fields 
 
 ### What already works well
 
-- The **core phase model** is clean and matches SAGE's structural division: setup before substeps, baryonic physics within substeps, merger/disruption resolution at end of substep (`src/core/build_model.c:540-550`, `src/core/build_model.c:581-599`).
-- The **YAML groupings** already tell most of the story. Inline comment groups (Cooling, Star Formation, etc.) make the flow visible without opening any source file (`input/millennium.yaml:41-67`).
-- The **cooling calculate → modify → apply chain** is a genuine improvement over SAGE's embedded `do_AGN_heating()`. The visible AGN slot makes model replacement trivial (`src/modules/sage_calculate_cooling/README.md:39-42`).
-- The **SF/SN module split** correctly maps to Mimic's swappability goal. Keeping SF and SN as separate modules allows a researcher to swap the SF rate law, swap the SN feedback model, or disable either independently.
-- The **dual-use modules** are scientifically correct. `sage_quasar_mode` and `sage_collisional_starburst` spanning disk-instability and merger channels maps directly to SAGE physics, where `check_disk_instability()` and `collisional_starburst_recipe()` serve both trigger types.
+- The **core phase model** matches SAGE's structural division (`src/core/build_model.c:540-550`, `:581-599`).
+- The **YAML groupings** already tell most of the story (`input/millennium.yaml:41-67`).
+- The **cooling calculate → modify → apply chain** improves on SAGE's embedded `do_AGN_heating()` (`src/modules/sage_calculate_cooling/README.md:39-42`).
+- The **SF/SN module split** enables independent swapping of the SF rate law and SN feedback model.
+- The **dual-use modules** (`sage_quasar_mode`, `sage_collisional_starburst`) spanning disk-instability and merger channels map directly to SAGE physics.
 - The **infall split** faithfully mirrors SAGE's loop structure: budget computed once pre-substep, applied incrementally within substeps.
 
 ### What is unclear or misleading
 
 - **`sage_update_star_formation_supernova`** uses an implementation name that gives no indication of its architectural role. Alongside `sage_calculate_star_formation` and `sage_calculate_supernova_feedback` in the YAML, a researcher cannot distinguish it from a third physics prescription. It is an infrastructure apply step and should be named accordingly.
-- **No dependency or ordering enforcement exists.** If `sage_apply_stellar_feedback` is accidentally placed before SF and SN in the YAML, it silently applies stale values from the previous substep. If the event producer `sage_resolve_mergers_and_disruption` is removed while its event consumers remain, those consumers are silently never called. The framework currently validates only module name registration and processing mode support.
+- **No dependency or ordering enforcement exists.** If `sage_apply_star_formation_supernova` is accidentally placed before SF and SN in the YAML, it silently applies stale values from the previous substep. If the event producer `sage_resolve_mergers_and_disruption` is removed while its event consumers remain, those consumers are silently never called. The framework currently validates only module name registration and processing mode support.
 - **`sage_clear_disk_instability_triggers`** zeroing a scratch field is visible alongside real physics stages — a researcher has to know this is housekeeping, not a scientific step.
 - **Several names describe implementation mechanics** rather than the science. `sage_handle_mergers_immediate` is architecturally precise but obscures the user-facing step ("resolve mergers and disruption"). `sage_calculate_infall` is not a pure calculator — it also consolidates satellite reservoirs (`src/modules/sage_calculate_infall/sage_calculate_infall.c:62-121`).
 - **`sage_calculate_merger_timescale` understates its scope.** It also resets `MergTime` to the sentinel for Type 0 promotions and forces `MergTime=0` for unresolved Type 2 orphans (`src/modules/sage_calculate_merger_timescale/sage_calculate_merger_timescale.c:56-88`). This is merger state management, not just timescale calculation.
@@ -141,7 +141,7 @@ Use **physics-stage names** for every user-facing SAGE module. Reserve `calculat
 | `sage_add_cooling` | `sage_apply_cooling` | This is the commit step: `CoolingGas` → `ColdGas` (`sage_add_cooling.c:23-48`) |
 | `sage_calculate_star_formation` | `sage_star_formation` | Physics-stage name; this is a swappable SF rate prescription |
 | `sage_calculate_supernova_feedback` | `sage_supernova_feedback` | Physics-stage name; this is a swappable SN feedback prescription |
-| `sage_update_star_formation_supernova` | `sage_apply_stellar_feedback` | Infrastructure apply step: commits SF and SN scratch fields to galaxy reservoirs; not a swappable prescription |
+| `sage_update_star_formation_supernova` | `sage_apply_star_formation_supernova` | Infrastructure apply step: commits SF and SN scratch fields to galaxy reservoirs; not a swappable prescription |
 | `sage_collisional_starburst` | `sage_starburst_feedback` | Under-describes scope: handles disk-instability-triggered, merger-triggered, and post-minor-merger bursts (`sage_collisional_starburst.c:8-19`) |
 | `sage_calculate_merger_timescale` | `sage_initialise_merger_clock` | Communicates lifecycle purpose; the module also handles Type 0 reset and Type 2 force-merge (`sage_calculate_merger_timescale.c:56-88`) |
 | `sage_handle_mergers_immediate` | `sage_resolve_mergers_and_disruption` | This is the science stage a researcher expects to see in the flow (`sage_handle_mergers_immediate.c:5-10`) |
@@ -153,26 +153,21 @@ Use **physics-stage names** for every user-facing SAGE module. Reserve `calculat
 
 ### Keep split: SF and SN as independently swappable prescriptions
 
-**Recommendation: Keep `sage_star_formation` and `sage_supernova_feedback` as separate YAML entries.** These modules represent two distinct scientific prescriptions — the SF rate law and the SN feedback model — that a researcher may independently want to swap, tune, or disable. Mimic's central value proposition is YAML-level physics configurability; consolidating them would remove exactly that capability for the two most likely candidates for model comparison.
+**Recommendation: Keep `sage_star_formation` and `sage_supernova_feedback` as separate YAML entries.** These are distinct scientific prescriptions — the SF rate law and SN feedback model — and the two most likely candidates for model comparison. Consolidating them would remove YAML-level swappability for both.
 
-**Either module may be removed from the YAML independently:**
-- Remove `sage_star_formation`: `NewStellarMass` retains its init value of 0.0. `sage_supernova_feedback` reads zero new stellar mass and produces zero feedback. `sage_apply_stellar_feedback` commits zeros. The galaxy evolves with no SF or SN — correct and well-defined.
-- Remove `sage_supernova_feedback`: `NewStellarMass` is written by SF as normal. SN scratch fields retain 0.0. `sage_apply_stellar_feedback` commits SF results without SN feedback — stars form, but no reheating or ejection occurs. Correct and well-defined.
-- Remove both: Apply commits all zeros. Correct.
+**Either module may be removed independently.** The absent module's transport fields remain at 0.0; `sage_apply_star_formation_supernova` commits zeros correctly. Removing both also works — apply commits all zeros.
 
-**`sage_apply_stellar_feedback` is infrastructure, not physics.** It contains no swappable model. Its role is to commit the SF and SN scratch fields to galaxy reservoirs at the end of the calculation step — analogous to `sage_apply_cooling` for the cooling chain. It should always be present whenever either prescription is configured, and its README and `module_info.yaml` must document this role explicitly. The dependency framework (§7) enforces the ordering constraint at init time.
+**`sage_apply_star_formation_supernova` is infrastructure, not physics** — analogous to `sage_apply_cooling` for the cooling chain. It must always be present whenever either prescription is configured; the dependency framework (§7) enforces this at init time.
 
-**Dependency between SF and SN:** `sage_supernova_feedback` reads `NewStellarMass` written by `sage_star_formation`. If both are configured, SF must precede SN in the YAML. This ordering constraint is enforced at init time via the framework API (§7).
+**Ordering and parity constraints:**
+- If both are configured, SF must precede SN (SN reads `NewStellarMass` written by SF). Enforced via §7.
+- `sage_apply_star_formation_supernova` must preserve SAGE's internal call order: apply SF results → metallicity refresh → apply SN transfers (`model_starformation_and_feedback.c:79-94`).
 
-**SAGE parity:** Preserve the internal call order in `sage_apply_stellar_feedback`: apply SF results → metallicity refresh → apply SN transfers. This matches SAGE's `starformation_and_feedback()` internal sequence (`model_starformation_and_feedback.c:79-94`).
-
-**Transport fields:** `NewStellarMass` remains an inter-module transport field — the contract between the SF and SN prescriptions. `SupernovaReheatedMass` and `SupernovaEjectedMass` are inter-module transport fields between SN and apply. All three remain in the global property schema and should be documented as transient transport fields (see §11.4).
+**Transport fields:** `NewStellarMass`, `SupernovaReheatedMass`, and `SupernovaEjectedMass` are inter-module transport fields that remain in the global property schema. Document as transient (see §11.4).
 
 ### Keep split: cooling chain
 
-**Recommendation: No consolidation.** `sage_radio_mode_heating` is a real physics module with three selectable AGN accretion models that a researcher may want to swap, suppress, or compare. The visible slot between cooling calculation and application is a genuine architectural improvement over SAGE's `do_AGN_heating()` being embedded inside `cooling_recipe()`.
-
-**Rename the endpoints** to `sage_calculate_cooling_budget` and `sage_apply_cooling` to make the calculate-modify-apply pattern explicit.
+**Recommendation: No consolidation.** `sage_radio_mode_heating` has three selectable AGN accretion models — the visible slot between calculation and application is a genuine improvement over SAGE's embedded `do_AGN_heating()`. Rename endpoints to `sage_calculate_cooling_budget` and `sage_apply_cooling` per §5.
 
 ### Remove from pipeline: `sage_clear_disk_instability_triggers`
 
@@ -192,11 +187,9 @@ Use **physics-stage names** for every user-facing SAGE module. Reserve `calculat
 
 ### Address: `sage_collisional_starburst` hidden coupling
 
-**Issue:** At init time, `sage_collisional_starburst` calls a module-local static `phase_has_module()` to check for `sage_disk_instability` in phase_1 and `sage_quasar_mode` in phase_2, silently changing its own behaviour (`sage_collisional_starburst.c:135-140`). A researcher who removes `sage_quasar_mode` from phase_2 while keeping it in phase_1 would silently lose quasar wind physics from the post-merger disk instability path — with no warning.
+**Issue:** As described in §4, the module silently adjusts behaviour based on `phase_has_module()` queries at init time (`sage_collisional_starburst.c:135-140`). This is a SAGE parity requirement — in original SAGE, `deal_with_galaxy_merger()` calls `check_disk_instability()` inline for minor mergers (`model_mergers.c:277`), which Mimic's event-based architecture cannot replicate directly.
 
-**This is a SAGE parity requirement.** In original SAGE, `deal_with_galaxy_merger()` calls `check_disk_instability()` directly for minor mergers (`model_mergers.c:277`), which in turn calls `grow_black_hole()` and `quasar_mode_wind()` inline. Mimic cannot replicate this inline call within the event-based architecture without the module knowing what consumers exist downstream.
-
-**Recommendation:** Replace the module-local `phase_has_module()` static with the public framework API (`module_configured_in_phase()` from §7). Add an explicit `WARNING`-level log message in `sage_starburst_feedback_init()` when `sage_disk_instability` is present in phase_1 but `sage_quasar_mode` is absent from phase_2, so the silent physics loss becomes visible. Document the design decision in the module's README.
+**Recommendation:** Replace the module-local `phase_has_module()` static with `module_configured_in_phase()` from §7. Add `WARNING_LOG` in `sage_starburst_feedback_init()` when `sage_disk_instability` is in phase_1 but `sage_quasar_mode` is absent from phase_2. Document in the module's README.
 
 ---
 
@@ -208,7 +201,7 @@ Use **physics-stage names** for every user-facing SAGE module. Reserve `calculat
 
 The framework currently validates only two things during `module_system_init()`: module names must be registered, and configured processing modes must be declared as supported by the module. No inter-module dependency or ordering checks exist. This means:
 
-- A badly ordered YAML (e.g., `sage_apply_stellar_feedback` placed before `sage_star_formation`) silently applies stale values from the previous substep.
+- A badly ordered YAML (e.g., `sage_apply_star_formation_supernova` placed before `sage_star_formation`) silently applies stale values from the previous substep.
 - Event consumers configured without an event producer (`sage_quasar_mode: process_per_event` with no `sage_resolve_mergers_and_disruption` in the same phase) are silently never called.
 - Cross-phase dependencies (e.g., `sage_apply_infall` requires `sage_prepare_infall_budget` in `pre_timestep`) are never checked.
 
@@ -264,8 +257,8 @@ Each module's `init()` function calls these utilities and either:
 | Module | Constraint | Severity | Notes |
 |---|---|---|---|
 | `sage_supernova_feedback` | `sage_star_formation` precedes it in same phase (if both configured) | ERROR | SN reads `NewStellarMass` written by SF; wrong order applies stale values |
-| `sage_apply_stellar_feedback` | Any SF/SN module precedes it in same phase (ordering) | ERROR | Apply must commit freshly computed values, not previous-substep residuals |
-| `sage_apply_stellar_feedback` | Neither `sage_star_formation` nor `sage_supernova_feedback` present | WARNING | All fields will be zero; likely a configuration mistake |
+| `sage_apply_star_formation_supernova` | Any SF/SN module precedes it in same phase (ordering) | ERROR | Apply must commit freshly computed values, not previous-substep residuals |
+| `sage_apply_star_formation_supernova` | Neither `sage_star_formation` nor `sage_supernova_feedback` present | WARNING | All fields will be zero; likely a configuration mistake |
 | `sage_apply_cooling` | `sage_calculate_cooling_budget` present and preceding in same phase | ERROR | `CoolingGas` would be 0 without it; ordering matters |
 | `sage_apply_infall` | `sage_prepare_infall_budget` present in `pre_timestep` | ERROR | `InfallingGas` is 0 without it; cross-phase check against `MimicConfig.pre_timestep` |
 | `sage_resolve_mergers_and_disruption` | `sage_initialise_merger_clock` present in `pre_timestep` | WARNING | `MergTime` values from tree load may be stale; not always wrong, but suspicious |
@@ -295,7 +288,7 @@ Each constraint should have a dedicated test. The natural home is `tests/unit/te
 
 | File | Recommendation | Justification |
 |---|---|---|
-| `metallicity.h` | **Keep** | Textbook shared utility: small, stateless, header-only, used by 7 modules (`sage_apply_infall`, `sage_calculate_cooling_budget`, `sage_apply_cooling`, `sage_radio_mode_heating`, `sage_reincorporation`, `sage_satellite_stripping`, `sage_apply_stellar_feedback`) |
+| `metallicity.h` | **Keep** | Textbook shared utility: small, stateless, header-only, used by 7 modules (`sage_apply_infall`, `sage_calculate_cooling_budget`, `sage_apply_cooling`, `sage_radio_mode_heating`, `sage_reincorporation`, `sage_satellite_stripping`, `sage_apply_star_formation_supernova`) |
 | `time_parity.h` | **Keep** | High-value shared runtime/SAGE-parity support used by 6 modules across cooling, SF, mergers, and starbursts |
 | `central_link.h` | **Keep** | Shared by two merger modules; encodes SAGE-specific target-resolution rules used by both |
 | `sage_disk_instability_physics.h` | **Keep while two consumers exist** | Used by `sage_disk_instability` and `sage_starburst_feedback`; justified by the post-merger follow-up. If the follow-up is ever removed, move to `sage_disk_instability/` as a private header |
@@ -353,12 +346,12 @@ modules:
 
     # Star formation and supernova feedback
     # sage_star_formation and sage_supernova_feedback are each independently optional.
-    # Removing either leaves its transport fields at 0.0; sage_apply_stellar_feedback
-    # commits zeros, which is correct. sage_apply_stellar_feedback is required
+    # Removing either leaves its transport fields at 0.0; sage_apply_star_formation_supernova
+    # commits zeros, which is correct. sage_apply_star_formation_supernova is required
     # whenever either prescription is active; see §7 for enforced ordering constraints.
     - sage_star_formation:            process_by_galaxy   # prescription: SF rate law
     - sage_supernova_feedback:        process_by_galaxy   # prescription: SN feedback model (optional)
-    - sage_apply_stellar_feedback:    process_by_galaxy   # infrastructure: commit SF/SN results
+    - sage_apply_star_formation_supernova:    process_by_galaxy   # infrastructure: commit SF/SN results
 
     # Disk instability
     - sage_disk_instability:          process_by_galaxy
@@ -384,33 +377,13 @@ The physics of SAGE is visible in the YAML without opening any source file.
 
 ### Three SF/SN modules with dependency enforcement (recommended)
 
-**Benefits:**
-- SF and SN prescriptions are independently swappable via YAML — the tool's core design goal is preserved.
-- Removing either prescription passes zeros through cleanly; the pipeline remains valid.
-- Unit tests remain fine-grained: SF and SN can be tested in isolation, and `sage_apply_stellar_feedback` can be tested with controlled input values for each field.
-- The pattern is structurally consistent with the cooling chain: two calculate steps (SF, SN) feed one apply step, just as `calculate_cooling_budget` and `radio_mode_heating` feed `apply_cooling`.
-- The dependency framework (§7) makes the ordering constraint explicit and enforced, removing the silent-breakage risk.
+The three-module structure (SF prescription + SN prescription + infrastructure apply) preserves YAML-level swappability, enables fine-grained unit testing, and is structurally consistent with the cooling chain. The cost is three YAML entries and three documentation surfaces to maintain. The dependency framework (§7) is a **required companion** — without it, deleting `sage_apply_star_formation_supernova` from the YAML produces silent wrong output.
 
-**Costs:**
-- Three YAML entries for what is conceptually one physics bundle. The YAML comments and the `sage_apply_stellar_feedback` name mitigate this, but the apply step is still visible.
-- Three module directories, three `module_info.yaml` files, three README surfaces to keep in sync.
-- Without the dependency enforcement framework, a user who deletes `sage_apply_stellar_feedback` from the YAML gets silent wrong output. The dependency framework (§7) is therefore a **required companion** to this approach, not an optional improvement.
-
-**Assessment:** The three-module structure is the right design for a swappable physics platform. The apply-step visibility problem is a documentation and enforcement problem, not an architectural one. It is solved by the dependency framework and clear naming.
+**Assessment:** The right design for a swappable physics platform. The apply-step visibility is a documentation and enforcement problem, solved by §7 and clear naming.
 
 ### If Mimic consolidated the SF/SN triple (not recommended)
 
-**Benefits:**
-- One YAML entry for one conceptual SAGE physics step.
-- Three transport properties could become module-private scratch, reducing the global property surface.
-- Fewer metadata declarations, fewer documentation surfaces.
-
-**Costs:**
-- YAML-level swappability is gone. To run SF without SN, a researcher must edit C source code or add a conditional parameter — not remove a YAML entry.
-- "Swap the SF rate law" becomes "fork the entire SF+SN+apply module and modify one function inside it."
-- Inconsistent with the rest of Mimic's architecture — every other physics prescription (cooling, AGN, reincorporation, reionization) is a separate module.
-
-**Assessment:** Consolidation trades the tool's primary feature for visual tidiness. This is the wrong trade-off for Mimic.
+Consolidation would reduce to one YAML entry and privatise three transport fields, but YAML-level swappability is lost — swapping the SF rate law becomes "fork the entire module." This trades the tool's primary feature for visual tidiness, inconsistent with every other physics prescription in Mimic.
 
 ---
 
@@ -426,9 +399,7 @@ In original SAGE, `do_reionization()` is called in two places: inside `infall_re
 
 ### 11.2 `sage_starburst_feedback` pipeline coupling contract
 
-When `sage_quasar_mode` is absent from phase_2 but `sage_disk_instability` is present in phase_1, the post-merger disk instability path silently skips quasar wind physics (`sage_collisional_starburst.c:138`). The unit tests codify this behaviour (`test_unit_sage_collisional_starburst.c:929, 972`), but it is not visible from the YAML.
-
-This is addressed by the dependency framework (§7): the module-local `phase_has_module()` static is replaced with `module_configured_in_phase()` from the public API, and the dangerous combination triggers an explicit `WARNING_LOG` at init time. The unit tests for this combination should be updated to assert the warning is emitted.
+The hidden coupling described in §4 and §6 means removing `sage_quasar_mode` from phase_2 silently skips post-merger quasar wind physics (`sage_collisional_starburst.c:138`). Unit tests codify this behaviour (`test_unit_sage_collisional_starburst.c:929, 972`) but it is invisible from the YAML. Addressed by the dependency framework (§7) — update tests to assert the `WARNING_LOG` is emitted.
 
 ### 11.3 `post_timestep` not yet implemented
 
@@ -461,39 +432,33 @@ These should be fixed regardless of any larger reorganisation. All are correctne
 
 **Renaming and restructuring:**
 
-1. **Rename the modules** listed in §5. The highest-priority renames are those that actively mislead: `sage_calculate_infall` (not a pure calculator), `sage_handle_mergers_immediate` (obscures the physics step), `sage_collisional_starburst` (understates scope), and `sage_update_star_formation_supernova` (implementation name, not architectural role).
-2. **Rename `sage_update_star_formation_supernova` → `sage_apply_stellar_feedback`** and update its `module_info.yaml` and README to document explicitly that it is an infrastructure apply step, not a swappable physics prescription. State clearly that it must always follow SF and/or SN modules in the pipeline.
-3. **Remove `sage_clear_disk_instability_triggers` from the visible YAML pipeline.** Handle the scratch field clear inside the existing module lifecycle or as infrastructure.
+1. **Rename all modules** per §5. Highest-priority: `sage_calculate_infall`, `sage_handle_mergers_immediate`, `sage_collisional_starburst`, `sage_update_star_formation_supernova`.
+2. **Remove `sage_clear_disk_instability_triggers`** from the visible YAML pipeline (§6).
 
-**Dependency enforcement framework (§7):**
+**Dependency enforcement (§7):**
 
-4. **Implement the public API** in `module_registry.h` / `module_registry.c`: `module_configured_in_phase()`, `module_configured_anywhere()`, `module_precedes_in_phase()`. These are thin wrappers over `MimicConfig` phase array scans.
-5. **Add dependency checks to each module's `init()`** per the constraint table in §7. Each check either returns non-zero (hard ERROR) or emits a `WARNING_LOG` (soft advisory), matching the severity column.
-6. **Replace `sage_collisional_starburst`'s module-local `phase_has_module()` static** with calls to the public API. Update the init logic to use `WARNING_LOG` for the detected dangerous combination.
-7. **Write dependency enforcement tests** for each constraint in the §7 table, in `tests/unit/test_module_configuration.c`. Follow the mock-config pattern in `test_unit_sage_collisional_starburst.c:251-256`.
+3. **Implement the public API** (`module_configured_in_phase()`, `module_configured_anywhere()`, `module_precedes_in_phase()`) in `module_registry.h` / `module_registry.c`.
+4. **Add dependency checks** to each module's `init()` per the §7 constraint table.
+5. **Replace `sage_collisional_starburst`'s module-local `phase_has_module()`** with the public API.
+6. **Write dependency enforcement tests** for each §7 constraint in `tests/unit/test_module_configuration.c`.
 
-**`_shared/` cleanup:**
+**`_shared/` cleanup (§8):**
 
-8. **Move `sage_merger_ops.h` out of `_shared/`** into `sage_resolve_mergers_and_disruption/` as a private header. Single consumer violates the directory's stated policy.
-9. **Split `merger_physics.h`** into `sage_agn_physics.h` (BH growth and quasar-wind helpers) and `sage_starburst_physics.h` (starburst and SN/recycling/enrichment). Update all consumers.
+7. **Move `sage_merger_ops.h`** into `sage_resolve_mergers_and_disruption/` as a private header.
+8. **Split `merger_physics.h`** into `sage_agn_physics.h` and `sage_starburst_physics.h`.
 
-**Metadata correctness:**
+**Metadata and documentation:**
 
-10. **Fix all 8 metadata drift bugs** in §12. These are correctness errors, not style preferences.
-
-**Documentation:**
-
-11. **Update `docs/USER-GUIDE.md`:** correct the phase_1 order bug (§12 bug #6); update the pipeline walkthrough to show the new module names; document the SF/SN optional/required pattern and `sage_apply_stellar_feedback` infrastructure role; add a note explaining `process_per_event` execution semantics.
-12. **Update each renamed module's README** to reflect its new name, role, and any dependency contracts it enforces at init time.
-13. **Update `input/millennium.yaml`** to use new module names and add inline comments as shown in §9.
+9. **Fix all 8 metadata drift bugs** in §12.
+10. **Update `docs/USER-GUIDE.md`**, all renamed module READMEs, and `input/millennium.yaml`** per §9.
 
 ### Nice-to-have
 
-1. **Implement `sage_finalise_outputs`** in `post_timestep` to close the SAGE output-normalization gap (§11.3).
-2. **Verify `sage_reionization` satellite parity** against SAGE scientific output (§11.1). If a gap is confirmed, restructure the module or move reionization logic into the consuming modules.
-3. **Reclassify transient transport fields** in `model_properties.yaml` with explicit `role: transport` documentation identifying the producer and consumer module for each field (§11.4).
-4. **Add a SAGE pipeline index to `src/modules/README.md`** — a one-page table mapping every live SAGE module to one physics stage in visible order.
-5. **Consider subdirectory structure or naming convention** in `_shared/` to distinguish pure utilities from shared physics kernels from contract headers (see §8).
+1. **Implement `sage_finalise_outputs`** in `post_timestep` (§11.3).
+2. **Verify `sage_reionization` satellite parity** against SAGE output (§11.1).
+3. **Reclassify transient transport fields** with `role: transport` annotations in `model_properties.yaml` (§11.4).
+4. **Add a SAGE pipeline index** to `src/modules/README.md`.
+5. **Organise `_shared/`** with subdirectories or naming conventions per §8.
 
 ---
 
