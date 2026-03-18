@@ -9,7 +9,7 @@ output/results
 benchmarks
 
 # Archive and scratch space
-ignore
+archive
 obsidian-inbox
 sage-code
 
