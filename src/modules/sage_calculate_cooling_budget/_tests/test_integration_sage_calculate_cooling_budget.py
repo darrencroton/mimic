@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Integration tests for sage_calculate_cooling module
+Integration tests for sage_calculate_cooling_budget module
 
-Tests the sage_calculate_cooling module in a full pipeline context:
+Tests the sage_calculate_cooling_budget module in a full pipeline context:
 - Module loads and initializes correctly
-- Integrates properly with sage_calculate_infall (provides hot gas source)
+- Integrates properly with sage_prepare_infall_budget (provides hot gas source)
 - CoolingGas and Rcool properties are created and written to output
 - Output validation: CoolingGas and Rcool values are physically reasonable
 - Type 2 orphans are skipped correctly
@@ -36,26 +36,26 @@ YELLOW = '\033[1;33m'
 NC = '\033[0m'
 
 class TestSageCoolingIntegration:
-    """Integration tests for sage_calculate_cooling module
+    """Integration tests for sage_calculate_cooling_budget module
 
     Tests focus on integration and output validation:
     - Module loading and initialization
-    - Pipeline integration (with sage_calculate_infall)
+    - Pipeline integration (with sage_prepare_infall_budget)
     - Output validation (CoolingGas and Rcool properties)
     - Physics constraints (values in valid ranges)
     - Memory safety (no leaks)
 
     NOTE: This module has NO runtime parameters.
-          CoolFunctions path is hardcoded in sage_calculate_cooling.c
+          CoolFunctions path is hardcoded in sage_calculate_cooling_budget.c
     """
 
     def test_module_loads(self):
-        """Test that sage_calculate_cooling module loads successfully"""
+        """Test that sage_calculate_cooling_budget module loads successfully"""
         param_file, output_dir, temp_dir = harness.create_test_param_file(
-            output_name="sage_calculate_cooling_load",
+            output_name="sage_calculate_cooling_budget_load",
             phase_config={
                 'pre_timestep': [],
-                'phase_1': [('sage_calculate_cooling', 'process_by_galaxy')],
+                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
                 'phase_2': [],
                 'post_timestep': []
             }
@@ -67,17 +67,17 @@ class TestSageCoolingIntegration:
         assert returncode == 0, f"Mimic should run successfully\nStderr: {stderr}"
 
     def test_infall_cooling_pipeline(self):
-        """Test sage_calculate_infall → sage_calculate_cooling pipeline integration"""
+        """Test sage_prepare_infall_budget → sage_calculate_cooling_budget pipeline integration"""
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="infall_cooling_pipeline",
             phase_config={
-                'pre_timestep': [('sage_calculate_infall', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling', 'process_by_galaxy')],
+                'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
+                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
                 'phase_2': [],
                 'post_timestep': []
             },
             model_params={
-                "GlobalBaryonFraction": 0.17  # For sage_calculate_infall
+                "GlobalBaryonFraction": 0.17  # For sage_prepare_infall_budget
             }
         )
 
@@ -88,17 +88,17 @@ class TestSageCoolingIntegration:
         assert harness.check_no_memory_leaks(output_dir), "Should have no memory leaks"
 
     def test_memory_safety(self):
-        """Test that sage_calculate_cooling doesn't leak memory"""
+        """Test that sage_calculate_cooling_budget doesn't leak memory"""
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_memory",
             phase_config={
-                'pre_timestep': [('sage_calculate_infall', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling', 'process_by_galaxy')],
+                'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
+                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
                 'phase_2': [],
                 'post_timestep': []
             },
             model_params={
-                "GlobalBaryonFraction": 0.17  # For sage_calculate_infall
+                "GlobalBaryonFraction": 0.17  # For sage_prepare_infall_budget
             }
         )
 
@@ -111,13 +111,13 @@ class TestSageCoolingIntegration:
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_complete",
             phase_config={
-                'pre_timestep': [('sage_calculate_infall', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling', 'process_by_galaxy')],
+                'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
+                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
                 'phase_2': [],
                 'post_timestep': []
             },
             model_params={
-                "GlobalBaryonFraction": 0.17  # For sage_calculate_infall
+                "GlobalBaryonFraction": 0.17  # For sage_prepare_infall_budget
             },
             first_file=0,
             last_file=0
@@ -137,13 +137,13 @@ class TestSageCoolingIntegration:
         param_file_correct, output_dir1, temp_dir1 = harness.create_test_param_file(
             output_name="cooling_order_correct",
             phase_config={
-                'pre_timestep': [('sage_calculate_infall', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling', 'process_by_galaxy')],
+                'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
+                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
                 'phase_2': [],
                 'post_timestep': []
             },
             model_params={
-                "GlobalBaryonFraction": 0.17  # For sage_calculate_infall
+                "GlobalBaryonFraction": 0.17  # For sage_prepare_infall_budget
             }
         )
 
@@ -154,13 +154,13 @@ class TestSageCoolingIntegration:
         param_file_wrong, output_dir2, temp_dir2 = harness.create_test_param_file(
             output_name="cooling_order_wrong",
             phase_config={
-                'pre_timestep': [('sage_calculate_cooling', 'process_by_galaxy')],
-                'phase_1': [('sage_calculate_infall', 'process_full_halo')],  # Wrong order
+                'pre_timestep': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
+                'phase_1': [('sage_prepare_infall_budget', 'process_full_halo')],  # Wrong order
                 'phase_2': [],
                 'post_timestep': []
             },
             model_params={
-                "GlobalBaryonFraction": 0.17  # For sage_calculate_infall
+                "GlobalBaryonFraction": 0.17  # For sage_prepare_infall_budget
             }
         )
 
@@ -179,13 +179,13 @@ class TestSageCoolingIntegration:
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_output_check",
             phase_config={
-                'pre_timestep': [('sage_calculate_infall', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling', 'process_by_galaxy')],
+                'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
+                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
                 'phase_2': [],
                 'post_timestep': []
             },
             model_params={
-                "GlobalBaryonFraction": 0.17  # For sage_calculate_infall
+                "GlobalBaryonFraction": 0.17  # For sage_prepare_infall_budget
             },
             output_format='hdf5',
             first_file=0,
@@ -216,7 +216,7 @@ class TestSageCoolingIntegration:
             print(f"✓ Output file created with {len(halos)} halos")
 
     def test_downstream_effects(self):
-        """Test that sage_calculate_cooling produces expected downstream effects
+        """Test that sage_calculate_cooling_budget produces expected downstream effects
 
         Since CoolingGas/Rcool are working variables, we verify that the
         module execution produces the expected effects on HotGas properties.
@@ -227,13 +227,13 @@ class TestSageCoolingIntegration:
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_downstream_check",
             phase_config={
-                'pre_timestep': [('sage_calculate_infall', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling', 'process_by_galaxy')],
+                'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
+                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
                 'phase_2': [],
                 'post_timestep': []
             },
             model_params={
-                "GlobalBaryonFraction": 0.17  # For sage_calculate_infall
+                "GlobalBaryonFraction": 0.17  # For sage_prepare_infall_budget
             },
             output_format='hdf5',
             first_file=0,
@@ -266,8 +266,8 @@ class TestSageCoolingIntegration:
                 f"HotGas should be finite, found {np.sum(~np.isfinite(hot_gas))} invalid values"
 
             # 3. Verify execution completed successfully
-            # NOTE: sage_calculate_cooling only CALCULATES cooling, doesn't transfer it
-            #       The actual transfer happens in sage_add_cooling (not tested here)
+            # NOTE: sage_calculate_cooling_budget only CALCULATES cooling, doesn't transfer it
+            #       The actual transfer happens in sage_apply_cooling (not tested here)
             #       So we just verify the module ran without corrupting data
 
             print(f"✓ HotGas range: [{hot_gas.min():.6f}, {hot_gas.max():.6f}]")
@@ -286,7 +286,7 @@ def main():
     errors = []
 
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: sage_calculate_cooling Integration Tests{NC}")
+    print(f"{BLUE}Test Suite: sage_calculate_cooling_budget Integration Tests{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 

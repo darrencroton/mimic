@@ -131,7 +131,7 @@ int sage_prepare_infall_budget_init(void)
     LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                        "cosmic baryon fraction must be physical");
 
-    INFO_LOG("SAGE calculate infall module initialized");
+    INFO_LOG("SAGE prepare infall budget module initialized");
     VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
 
     return 0;
@@ -180,6 +180,6 @@ int sage_prepare_infall_budget_process(struct ModuleContext *ctx, struct Halo *h
 
 int sage_prepare_infall_budget_cleanup(void)
 {
-    VERBOSE_LOG("SAGE calculate infall module cleaned up");
+    VERBOSE_LOG("SAGE prepare infall budget module cleaned up");
     return 0;
 }

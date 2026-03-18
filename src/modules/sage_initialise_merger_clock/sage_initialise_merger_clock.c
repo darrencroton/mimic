@@ -24,7 +24,7 @@
 
 int sage_initialise_merger_clock_init(void)
 {
-    VERBOSE_LOG("SAGE calculate merger timescale initialized");
+    VERBOSE_LOG("SAGE initialise merger clock initialized");
     return 0;
 }
 

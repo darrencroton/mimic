@@ -8,17 +8,17 @@ This test validates software quality aspects of the sage_apply_cooling module:
 - Module loads and initializes correctly
 - Module executes without errors or memory leaks
 - Output properties appear in output files
-- Module works with sage_calculate_cooling in multi-phase pipeline
+- Module works with sage_calculate_cooling_budget in multi-phase pipeline
 - Proper gas transfer from hot to cold reservoirs
 - Metallicity preservation during transfer
 - Cooling energy tracking
 
-NOTE: sage_apply_cooling requires sage_calculate_cooling (phase_1) to calculate CoolingGas
+NOTE: sage_apply_cooling requires sage_calculate_cooling_budget (phase_1) to calculate CoolingGas
 
 Test cases:
   - test_module_loads: Module registration and initialization
   - test_output_properties_exist: ColdGas, HotGas properties in output
-  - test_with_sage_calculate_cooling: Integration with sage_calculate_cooling (required)
+  - test_with_sage_calculate_cooling_budget: Integration with sage_calculate_cooling_budget (required)
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
   - test_gas_transfer_physics: Hot to cold gas transfer validation
@@ -58,7 +58,7 @@ def test_module_loads():
 
     Expected: Module initialization succeeds without errors
     Validates: Module registration, initialization, and cleanup lifecycle
-    Note: Requires sage_calculate_cooling in phase_1 to set CoolingGas property
+    Note: Requires sage_calculate_cooling_budget in phase_1 to set CoolingGas property
     """
     print("Testing module load and initialization...")
 
@@ -66,8 +66,8 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_load",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
-            'phase_1': [('sage_add_infall', 'process_full_halo'), ('sage_calculate_cooling', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
+            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -82,12 +82,12 @@ def test_module_loads():
         f"Mimic should execute successfully with sage_apply_cooling\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE add cooling module initialized" in stdout, \
+    assert "SAGE apply cooling module initialized" in stdout, \
         "sage_apply_cooling should log initialization message"
 
-    # Check that sage_calculate_cooling ran first
-    assert "SAGE calculate cooling module initialized" in stdout, \
-        "sage_calculate_cooling should run before sage_apply_cooling"
+    # Check that sage_calculate_cooling_budget ran first
+    assert "SAGE calculate cooling budget module initialized" in stdout, \
+        "sage_calculate_cooling_budget should run before sage_apply_cooling"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -108,8 +108,8 @@ def test_output_properties_exist():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_output",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
-            'phase_1': [('sage_add_infall', 'process_full_halo'), ('sage_calculate_cooling', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
+            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -147,21 +147,21 @@ def test_output_properties_exist():
     print(f"  Found {len(halos)} halos")
 
 
-def test_with_sage_calculate_cooling():
+def test_with_sage_calculate_cooling_budget():
     """
-    Test that sage_apply_cooling works with sage_calculate_cooling module
+    Test that sage_apply_cooling works with sage_calculate_cooling_budget module
 
     Expected: Both modules execute successfully together
-    Validates: sage_apply_cooling requires sage_calculate_cooling to set CoolingGas
+    Validates: sage_apply_cooling requires sage_calculate_cooling_budget to set CoolingGas
     """
-    print("Testing with sage_calculate_cooling...")
+    print("Testing with sage_calculate_cooling_budget...")
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_with_calc",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
-            'phase_1': [('sage_add_infall', 'process_full_halo'), ('sage_calculate_cooling', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
+            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -178,19 +178,19 @@ def test_with_sage_calculate_cooling():
     # Verify all modules initialized
     assert "SAGE reionization module initialized" in stdout, \
         "sage_reionization should initialize"
-    assert "SAGE calculate infall module initialized" in stdout, \
-        "sage_calculate_infall should initialize"
-    assert "SAGE add infall module initialized" in stdout, \
-        "sage_add_infall should initialize"
-    assert "SAGE calculate cooling module initialized" in stdout, \
-        "sage_calculate_cooling should initialize"
-    assert "SAGE add cooling module initialized" in stdout, \
+    assert "SAGE prepare infall budget module initialized" in stdout, \
+        "sage_prepare_infall_budget should initialize"
+    assert "SAGE apply infall module initialized" in stdout, \
+        "sage_apply_infall should initialize"
+    assert "SAGE calculate cooling budget module initialized" in stdout, \
+        "sage_calculate_cooling_budget should initialize"
+    assert "SAGE apply cooling module initialized" in stdout, \
         "sage_apply_cooling should initialize"
 
     # Cleanup
     shutil.rmtree(temp_dir)
 
-    print("  ✓ Works with sage_calculate_cooling")
+    print("  ✓ Works with sage_calculate_cooling_budget")
 
 
 def test_memory_safety():
@@ -206,8 +206,8 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_memory",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
-            'phase_1': [('sage_add_infall', 'process_full_halo'), ('sage_calculate_cooling', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
+            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -243,8 +243,8 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_complete",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
-            'phase_1': [('sage_add_infall', 'process_full_halo'), ('sage_calculate_cooling', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
+            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -258,9 +258,9 @@ def test_execution_completes():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Pipeline should complete successfully"
-    assert "SAGE add cooling module initialized" in stdout, \
+    assert "SAGE apply cooling module initialized" in stdout, \
         "Module initialization message"
-    assert "SAGE add cooling module cleaned up" in stdout, \
+    assert "SAGE apply cooling module cleaned up" in stdout, \
         "Module cleanup message"
 
     # Cleanup
@@ -282,8 +282,8 @@ def test_gas_transfer_physics():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_transfer",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
-            'phase_1': [('sage_add_infall', 'process_full_halo'), ('sage_calculate_cooling', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
+            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -338,8 +338,8 @@ def test_metallicity_preservation():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_metallicity",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
-            'phase_1': [('sage_add_infall', 'process_full_halo'), ('sage_calculate_cooling', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
+            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -400,8 +400,8 @@ def test_cooling_energy_tracking():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_energy",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
-            'phase_1': [('sage_add_infall', 'process_full_halo'), ('sage_calculate_cooling', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
+            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -460,7 +460,7 @@ def main():
     tests = [
         test_module_loads,
         test_output_properties_exist,
-        test_with_sage_calculate_cooling,
+        test_with_sage_calculate_cooling_budget,
         test_memory_safety,
         test_execution_completes,
         test_gas_transfer_physics,

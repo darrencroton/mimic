@@ -44,7 +44,18 @@ int sage_supernova_feedback_init(void)
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackEjectionEfficiency", FEEDBACK_EJECTION_EFFICIENCY, 0.0, 100.0,
                                       "ejection efficiency");
 
-    /* Dependency check: if both SF and SN are configured, SF must precede SN */
+    /* Dependency checks — §7 of SAGE-MODULE-REVIEW.md */
+
+    /* ERROR: apply step is required to commit SN transport fields to galaxy reservoirs */
+    if (!module_configured_anywhere("sage_apply_star_formation_supernova")) {
+        ERROR_LOG("sage_supernova_feedback requires sage_apply_star_formation_supernova "
+                  "in the pipeline — without it, SupernovaReheatedMass and "
+                  "SupernovaEjectedMass are computed each substep but never "
+                  "committed to galaxy reservoirs (silent output loss)");
+        return -1;
+    }
+
+    /* ERROR: if both SF and SN are configured, SF must precede SN */
     if (module_configured_anywhere("sage_star_formation") &&
         !module_precedes_in_phase("sage_star_formation", "sage_supernova_feedback",
                                   MimicConfig.phase_1, MimicConfig.num_phase_1)) {
@@ -125,6 +136,6 @@ int sage_supernova_feedback_process(struct ModuleContext *ctx,
 
 int sage_supernova_feedback_cleanup(void)
 {
-    INFO_LOG("SAGE calculate supernova feedback module cleaned up");
+    INFO_LOG("SAGE supernova feedback module cleaned up");
     return 0;
 }

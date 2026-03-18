@@ -112,6 +112,6 @@ int sage_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, int
 
 int sage_apply_infall_cleanup(void)
 {
-    VERBOSE_LOG("SAGE add infall module cleaned up");
+    VERBOSE_LOG("SAGE apply infall module cleaned up");
     return 0;
 }

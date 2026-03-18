@@ -8,15 +8,15 @@ This test validates software quality aspects of the sage_apply_infall module:
 - Module loads and initializes correctly
 - Module executes without errors or memory leaks
 - Output properties appear in output files
-- Module works with sage_calculate_infall in multi-phase pipeline
+- Module works with sage_prepare_infall_budget in multi-phase pipeline
 - Proper substep distribution
 
-NOTE: sage_apply_infall requires sage_calculate_infall (pre_timestep) to calculate InfallingGas
+NOTE: sage_apply_infall requires sage_prepare_infall_budget (pre_timestep) to calculate InfallingGas
 
 Test cases:
   - test_module_loads: Module registration and initialization
   - test_output_properties_exist: HotGas properties in output
-  - test_with_sage_calculate_infall: Integration with sage_calculate_infall (required)
+  - test_with_sage_prepare_infall_budget: Integration with sage_prepare_infall_budget (required)
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
   - test_substep_distribution: Infall distributed over substeps
@@ -55,7 +55,7 @@ def test_module_loads():
 
     Expected: Module initialization succeeds without errors
     Validates: Module registration, initialization, and cleanup lifecycle
-    Note: Requires sage_calculate_infall in pre_timestep to set InfallingGas property
+    Note: Requires sage_prepare_infall_budget in pre_timestep to set InfallingGas property
     """
     print("Testing module load and initialization...")
 
@@ -63,7 +63,7 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_load",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
             'phase_1': [('sage_apply_infall', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
@@ -79,12 +79,12 @@ def test_module_loads():
         f"Mimic should execute successfully with sage_apply_infall\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE add infall module initialized" in stdout, \
+    assert "SAGE apply infall module initialized" in stdout, \
         "sage_apply_infall should log initialization message"
 
-    # Check that sage_calculate_infall ran first
-    assert "SAGE calculate infall module initialized" in stdout, \
-        "sage_calculate_infall should run before sage_apply_infall"
+    # Check that sage_prepare_infall_budget ran first
+    assert "SAGE prepare infall budget module initialized" in stdout, \
+        "sage_prepare_infall_budget should run before sage_apply_infall"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -105,7 +105,7 @@ def test_output_properties_exist():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_output",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
             'phase_1': [('sage_apply_infall', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
@@ -138,20 +138,20 @@ def test_output_properties_exist():
     print(f"  Found {len(halos)} halos")
 
 
-def test_with_sage_calculate_infall():
+def test_with_sage_prepare_infall_budget():
     """
-    Test that sage_apply_infall works with sage_calculate_infall module
+    Test that sage_apply_infall works with sage_prepare_infall_budget module
 
     Expected: Both modules execute successfully together
-    Validates: sage_apply_infall requires sage_calculate_infall to set InfallingGas
+    Validates: sage_apply_infall requires sage_prepare_infall_budget to set InfallingGas
     """
-    print("Testing with sage_calculate_infall...")
+    print("Testing with sage_prepare_infall_budget...")
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_with_infall",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
             'phase_1': [('sage_apply_infall', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
@@ -169,15 +169,15 @@ def test_with_sage_calculate_infall():
     # Verify all modules initialized
     assert "SAGE reionization module initialized" in stdout, \
         "sage_reionization should initialize"
-    assert "SAGE calculate infall module initialized" in stdout, \
-        "sage_calculate_infall should initialize"
-    assert "SAGE add infall module initialized" in stdout, \
+    assert "SAGE prepare infall budget module initialized" in stdout, \
+        "sage_prepare_infall_budget should initialize"
+    assert "SAGE apply infall module initialized" in stdout, \
         "sage_apply_infall should initialize"
 
     # Cleanup
     shutil.rmtree(temp_dir)
 
-    print("  ✓ Works with sage_calculate_infall")
+    print("  ✓ Works with sage_prepare_infall_budget")
 
 
 def test_memory_safety():
@@ -193,7 +193,7 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_memory",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
             'phase_1': [('sage_apply_infall', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
@@ -230,7 +230,7 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_complete",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
             'phase_1': [('sage_apply_infall', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
@@ -245,9 +245,9 @@ def test_execution_completes():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Pipeline should complete successfully"
-    assert "SAGE add infall module initialized" in stdout, \
+    assert "SAGE apply infall module initialized" in stdout, \
         "Module initialization message"
-    assert "SAGE add infall module cleaned up" in stdout, \
+    assert "SAGE apply infall module cleaned up" in stdout, \
         "Module cleanup message"
 
     # Cleanup
@@ -271,7 +271,7 @@ def test_substep_distribution():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_substeps",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
             'phase_1': [('sage_apply_infall', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
@@ -293,7 +293,7 @@ def test_substep_distribution():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Execution with substeps should succeed"
-    assert "SAGE add infall module initialized" in stdout, \
+    assert "SAGE apply infall module initialized" in stdout, \
         "Module should initialize with substeps"
 
     # Load output and verify HotGas is reasonable
@@ -322,7 +322,7 @@ def test_negative_infall_physics():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_negative",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
+            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
             'phase_1': [('sage_apply_infall', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
@@ -364,7 +364,7 @@ def test_negative_infall_physics():
         "MetalsHotGas should be non-negative"
 
     # Check if there are any halos with InfallingGas in the data
-    # (InfallingGas is calculated in sage_calculate_infall, may be positive or negative)
+    # (InfallingGas is calculated in sage_prepare_infall_budget, may be positive or negative)
     if 'InfallingGas' in type0_halos.dtype.names:
         infalling = type0_halos['InfallingGas']
         negative_infall_mask = infalling < 0
@@ -410,7 +410,7 @@ def main():
     tests = [
         test_module_loads,
         test_output_properties_exist,
-        test_with_sage_calculate_infall,
+        test_with_sage_prepare_infall_budget,
         test_memory_safety,
         test_execution_completes,
         test_substep_distribution,

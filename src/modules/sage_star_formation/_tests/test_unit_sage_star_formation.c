@@ -50,6 +50,17 @@ static int modules_registered = 0;
 extern double SFR_EFFICIENCY;
 extern double STAR_FORMING_DISK_FACTOR;
 
+/* Stable string storage for pipeline config used by physics tests that call
+ * sage_star_formation_init() directly.  The SF dependency check requires the
+ * apply step to be visible in MimicConfig; static storage avoids the memory
+ * system requirement. */
+static char sf_pipeline_name0[] = "sage_star_formation";
+static char sf_pipeline_name1[] = "sage_apply_star_formation_supernova";
+static struct PhaseModuleConfig sf_physics_pipeline[2];
+
+/* External stubs */
+extern void set_test_model_parameters(void);
+
 /* Module functions (extern declarations for direct testing) */
 extern int sage_star_formation_init(void);
 extern int sage_star_formation_process(struct ModuleContext *ctx,
@@ -124,6 +135,15 @@ static void setup_test_parameters(double efficiency, double disk_factor)
     snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", disk_factor);
 
     MimicConfig.NumModelParams = idx;
+
+    /* The SF dependency check requires sage_apply_star_formation_supernova to be
+     * visible in MimicConfig when sage_star_formation_init() is called directly. */
+    sf_physics_pipeline[0].module_name = sf_pipeline_name0;
+    sf_physics_pipeline[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    sf_physics_pipeline[1].module_name = sf_pipeline_name1;
+    sf_physics_pipeline[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.phase_1 = sf_physics_pipeline;
+    MimicConfig.num_phase_1 = 2;
 }
 
 /**
@@ -465,19 +485,17 @@ int test_module_initialization(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    /* SF requires sage_apply_star_formation_supernova in the pipeline */
+    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_star_formation");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
+    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 2;
     MimicConfig.SubSteps = 1;
 
-    /* Set required parameters */
-    int idx = 0;
-    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "SfrEfficiency");
-    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "0.02");
-    snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "StarFormingDiskFactor");
-    snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "3.0");
-    MimicConfig.NumModelParams = idx;
+    /* Set required parameters — use full set since apply step is also initialized */
+    set_test_model_parameters();
 
     /* ===== EXECUTE ===== */
     int result = module_system_init();

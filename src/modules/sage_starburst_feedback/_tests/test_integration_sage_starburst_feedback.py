@@ -229,7 +229,7 @@ def test_disk_instability_trigger():
     - Collisional starburst processes the trigger gracefully
     - Output properties are valid (no NaNs, non-negative)
 
-    NOTE: Without upstream modules (sage_add_infall, sage_add_cooling), galaxies
+    NOTE: Without upstream modules (sage_apply_infall, sage_apply_cooling), galaxies
     have no cold gas, so no actual star formation occurs. This test validates
     the module chain operates correctly; star formation physics is tested in
     test_full_pipeline_star_formation.
@@ -559,16 +559,16 @@ def test_full_pipeline_star_formation():
         phase_config={
             'pre_timestep': [
                 ('sage_reionization', 'process_full_halo'),
-                ('sage_calculate_infall', 'process_full_halo'),
-                ('sage_update_disk_radius', 'process_full_halo')
+                ('sage_prepare_infall_budget', 'process_full_halo'),
+                ('sage_set_disk_scale_radius', 'process_full_halo')
             ],
             'phase_1': [
                 # Gas accretion chain
-                ('sage_add_infall', 'process_full_halo'),
+                ('sage_apply_infall', 'process_full_halo'),
                 ('sage_reincorporation', 'process_full_halo'),
                 # Cooling chain
-                ('sage_calculate_cooling', 'process_by_galaxy'),
-                ('sage_add_cooling', 'process_by_galaxy'),
+                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
+                ('sage_apply_cooling', 'process_by_galaxy'),
                 # Disk instability and starburst
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_starburst_feedback', 'process_by_galaxy')

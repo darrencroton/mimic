@@ -89,7 +89,7 @@ def test_module_loads():
         f"Mimic should execute successfully\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE calculate merger timescale initialized" in stdout, \
+    assert "SAGE initialise merger clock initialized" in stdout, \
         f"sage_initialise_merger_clock should log initialization message\nStdout:\n{stdout}"
 
     # Cleanup
@@ -364,7 +364,7 @@ def test_standalone_execution():
         f"Module should run standalone without other modules\nStderr: {stderr}"
 
     # Verify module initialized (log message check)
-    assert "SAGE calculate merger timescale initialized" in stdout, \
+    assert "SAGE initialise merger clock initialized" in stdout, \
         f"Module should initialize\nStdout:\n{stdout}"
 
     # Cleanup

@@ -221,7 +221,7 @@ class TestModulePipeline(unittest.TestCase):
 
         Note: This test validates basic execution ordering infrastructure.
         Dependency-based ordering will be tested when modules with actual
-        dependencies are implemented (e.g., sage_cooling depends on sage_calculate_infall).
+        dependencies are implemented (e.g., sage_calculate_cooling_budget depends on sage_prepare_infall_budget).
         """
         # Create parameter file with test_fixture
         param_file, output_dir, _ = create_test_param_file(

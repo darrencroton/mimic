@@ -13,7 +13,9 @@
 
 #include "constants.h"
 #include "error.h"
+#include "globals.h"
 #include "module_interface.h"
+#include "module_registry.h"
 #include "types.h"
 #include "_shared/time_parity.h"
 #include "_system/parameter_helpers.h"
@@ -36,7 +38,16 @@ int sage_star_formation_init(void)
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("StarFormingDiskFactor", STAR_FORMING_DISK_FACTOR, 0.0, 10.0,
                                       "star forming disk factor");
 
-    INFO_LOG("SAGE calculate star formation module initialized");
+    /* Dependency check: apply step is required to commit NewStellarMass to galaxy
+     * reservoirs.  Without it, every substep's SF results are silently discarded. */
+    if (!module_configured_anywhere("sage_apply_star_formation_supernova")) {
+        ERROR_LOG("sage_star_formation requires sage_apply_star_formation_supernova "
+                  "in the pipeline — without it, NewStellarMass is computed each "
+                  "substep but never committed to galaxy reservoirs (silent output loss)");
+        return -1;
+    }
+
+    INFO_LOG("SAGE star formation module initialized");
     VERBOSE_LOG("  SfrEfficiency = %.4f", SFR_EFFICIENCY);
     VERBOSE_LOG("  StarFormingDiskFactor = %.2f (from config)", STAR_FORMING_DISK_FACTOR);
 
@@ -103,6 +114,6 @@ int sage_star_formation_process(struct ModuleContext *ctx,
 
 int sage_star_formation_cleanup(void)
 {
-    INFO_LOG("SAGE calculate star formation module cleaned up");
+    INFO_LOG("SAGE star formation module cleaned up");
     return 0;
 }

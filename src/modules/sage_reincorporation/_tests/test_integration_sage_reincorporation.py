@@ -20,7 +20,7 @@ Test cases:
   - test_parameters_configurable: Parameter reading and validation
   - test_memory_safety: No memory leaks
   - test_execution_completes: Full pipeline completion
-  - test_multi_module_pipeline: Integration with sage_calculate_infall
+  - test_multi_module_pipeline: Integration with sage_prepare_infall_budget
 
   PHYSICS VALIDATION TESTS:
   - test_physics_mass_conservation: EjectedGas decreases, HotGas increases by same amount
@@ -167,11 +167,11 @@ def test_multi_module_pipeline():
     """Test that sage_reincorporation works with other modules"""
     print(f"\n{BLUE}TEST: Multi-module pipeline integration{NC}")
 
-    # Test with sage_calculate_infall to have realistic setup
+    # Test with sage_prepare_infall_budget to have realistic setup
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_pipeline",
         phase_config={
-            'pre_timestep': [('sage_calculate_infall', 'process_full_halo')],
+            'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
             'phase_1': [('sage_reincorporation', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
@@ -210,10 +210,10 @@ def test_physics_mass_conservation():
         phase_config={
             'pre_timestep': [
                 ('sage_reionization', 'process_full_halo'),
-                ('sage_calculate_infall', 'process_full_halo')
+                ('sage_prepare_infall_budget', 'process_full_halo')
             ],
             'phase_1': [
-                ('sage_add_infall', 'process_full_halo'),
+                ('sage_apply_infall', 'process_full_halo'),
                 ('sage_reincorporation', 'process_full_halo')
             ],
             'phase_2': [],
@@ -258,10 +258,10 @@ def test_physics_metallicity_conservation():
         phase_config={
             'pre_timestep': [
                 ('sage_reionization', 'process_full_halo'),
-                ('sage_calculate_infall', 'process_full_halo')
+                ('sage_prepare_infall_budget', 'process_full_halo')
             ],
             'phase_1': [
-                ('sage_add_infall', 'process_full_halo'),
+                ('sage_apply_infall', 'process_full_halo'),
                 ('sage_reincorporation', 'process_full_halo')
             ],
             'phase_2': [],
@@ -309,10 +309,10 @@ def test_physics_central_only():
         phase_config={
             'pre_timestep': [
                 ('sage_reionization', 'process_full_halo'),
-                ('sage_calculate_infall', 'process_full_halo')
+                ('sage_prepare_infall_budget', 'process_full_halo')
             ],
             'phase_1': [
-                ('sage_add_infall', 'process_full_halo'),
+                ('sage_apply_infall', 'process_full_halo'),
                 ('sage_reincorporation', 'process_full_halo')
             ],
             'phase_2': [],
@@ -361,10 +361,10 @@ def test_physics_velocity_threshold():
         phase_config={
             'pre_timestep': [
                 ('sage_reionization', 'process_full_halo'),
-                ('sage_calculate_infall', 'process_full_halo')
+                ('sage_prepare_infall_budget', 'process_full_halo')
             ],
             'phase_1': [
-                ('sage_add_infall', 'process_full_halo'),
+                ('sage_apply_infall', 'process_full_halo'),
                 ('sage_reincorporation', 'process_full_halo')
             ],
             'phase_2': [],

@@ -1,6 +1,6 @@
 module:
   name: sage_clear_disk_instability_triggers
-  description: "Clears UnstableDiskGasFraction trigger field after phase_1 consumers (sage_quasar_mode, sage_collisional_starburst) have processed it"
+  description: "Clears UnstableDiskGasFraction trigger field after phase_1 consumers (sage_quasar_mode, sage_starburst_feedback) have processed it"
 
   supported_processing_modes: [process_by_galaxy]
 
@@ -13,7 +13,7 @@ module:
     # No tests registered intentionally. This module is a trivial single-field
     # reset with no physics logic. The process_by_galaxy contract class is covered
     # by the shared integration test test_by_galaxy_only_module_rejects_process_full_halo
-    # (sage_add_cooling). If real logic is ever added here, add tests before merging.
+    # (sage_apply_cooling). If real logic is ever added here, add tests before merging.
     unit: []
     integration: []
     scientific: []

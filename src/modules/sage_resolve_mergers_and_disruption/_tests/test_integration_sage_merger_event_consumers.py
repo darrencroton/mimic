@@ -40,24 +40,24 @@ MERGER_MODEL_PARAMS = {
 
 PRE_TIMESTEP_PHASE = [
     ("sage_reionization", "process_full_halo"),
-    ("sage_calculate_infall", "process_full_halo"),
-    ("sage_update_disk_radius", "process_full_halo"),
-    ("sage_calculate_merger_timescale", "process_full_halo"),
+    ("sage_prepare_infall_budget", "process_full_halo"),
+    ("sage_set_disk_scale_radius", "process_full_halo"),
+    ("sage_initialise_merger_clock", "process_full_halo"),
 ]
 
 PHASE_1_MODULES = [
-    ("sage_add_infall", "process_full_halo"),
+    ("sage_apply_infall", "process_full_halo"),
     ("sage_reincorporation", "process_full_halo"),
     ("sage_satellite_stripping", "process_full_halo"),
-    ("sage_calculate_cooling", "process_by_galaxy"),
+    ("sage_calculate_cooling_budget", "process_by_galaxy"),
     ("sage_radio_mode_heating", "process_by_galaxy"),
-    ("sage_add_cooling", "process_by_galaxy"),
-    ("sage_calculate_star_formation", "process_by_galaxy"),
-    ("sage_calculate_supernova_feedback", "process_by_galaxy"),
-    ("sage_update_star_formation_supernova", "process_by_galaxy"),
+    ("sage_apply_cooling", "process_by_galaxy"),
+    ("sage_star_formation", "process_by_galaxy"),
+    ("sage_supernova_feedback", "process_by_galaxy"),
+    ("sage_apply_star_formation_supernova", "process_by_galaxy"),
     ("sage_disk_instability", "process_by_galaxy"),
     ("sage_quasar_mode", "process_by_galaxy"),
-    ("sage_collisional_starburst", "process_by_galaxy"),
+    ("sage_starburst_feedback", "process_by_galaxy"),
     ("sage_clear_disk_instability_triggers", "process_by_galaxy"),
 ]
 
@@ -70,7 +70,7 @@ def build_phase_config(merger_mode="process_full_halo",
     if enable_phase2_quasar:
         phase_2.append(("sage_quasar_mode", "process_per_event"))
     if enable_phase2_starburst:
-        phase_2.append(("sage_collisional_starburst", "process_per_event"))
+        phase_2.append(("sage_starburst_feedback", "process_per_event"))
 
     return {
         "pre_timestep": PRE_TIMESTEP_PHASE,

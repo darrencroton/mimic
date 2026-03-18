@@ -353,7 +353,7 @@ def test_processing_mode_per_event_mode_mismatch_fails():
         output_name="loop_per_event_invalid_module",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_calculate_cooling', 'process_per_event')],
+            'phase_1': [('sage_calculate_cooling_budget', 'process_per_event')],
             'phase_2': [],
             'post_timestep': []
         },

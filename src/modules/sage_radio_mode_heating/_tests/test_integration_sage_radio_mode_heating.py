@@ -56,7 +56,7 @@ def test_module_pipeline_integration():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_cooling', 'process_by_galaxy'),
+                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -128,7 +128,7 @@ def test_agn_physics_correctness():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_cooling', 'process_by_galaxy'),
+                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -204,7 +204,7 @@ def test_parameter_sensitivity():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_cooling', 'process_by_galaxy'),
+                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -234,7 +234,7 @@ def test_parameter_sensitivity():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_cooling', 'process_by_galaxy'),
+                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -267,7 +267,7 @@ def test_parameter_sensitivity():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_cooling', 'process_by_galaxy'),
+                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -300,7 +300,7 @@ def test_parameter_sensitivity():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_cooling', 'process_by_galaxy'),
+                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -360,7 +360,7 @@ def test_memory_and_performance():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_cooling', 'process_by_galaxy'),
+                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
             'phase_2': [],

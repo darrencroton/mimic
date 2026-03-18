@@ -39,7 +39,7 @@ def test_full_halo_only_module_rejects_process_by_galaxy():
         output_name="mode_contract_full_halo_rejects_by_galaxy",
         phase_config={
             "pre_timestep": [],
-            "phase_1": [("sage_add_infall", "process_by_galaxy")],
+            "phase_1": [("sage_apply_infall", "process_by_galaxy")],
             "phase_2": [],
             "post_timestep": [],
         },
@@ -53,7 +53,7 @@ def test_by_galaxy_only_module_rejects_process_full_halo():
         output_name="mode_contract_by_galaxy_rejects_full_halo",
         phase_config={
             "pre_timestep": [],
-            "phase_1": [("sage_add_cooling", "process_full_halo")],
+            "phase_1": [("sage_apply_cooling", "process_full_halo")],
             "phase_2": [],
             "post_timestep": [],
         },
@@ -84,7 +84,7 @@ def test_full_halo_only_module_rejects_process_per_event():
         output_name="mode_contract_full_halo_rejects_per_event",
         phase_config={
             "pre_timestep": [],
-            "phase_1": [("sage_add_infall", "process_per_event")],
+            "phase_1": [("sage_apply_infall", "process_per_event")],
             "phase_2": [],
             "post_timestep": [],
         },

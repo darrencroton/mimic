@@ -320,6 +320,6 @@ int sage_starburst_feedback_cleanup(void)
     POST_MERGER_STAR_FORMING_DISK_FACTOR = 0.0;
     POST_MERGER_BLACK_HOLE_GROWTH_RATE = 0.0;
     POST_MERGER_QUASAR_MODE_EFFICIENCY = 0.0;
-    INFO_LOG("SAGE collisional starburst module cleaned up");
+    INFO_LOG("SAGE starburst feedback module cleaned up");
     return 0;
 }

@@ -169,8 +169,8 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
         param_file, output_dir, temp_dir = create_test_param_file(
             output_name="infall_test",
             phase_config={
-                'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_calculate_infall', 'process_full_halo')],
-                'phase_1': [('sage_cooling', 'process_by_galaxy')],
+                'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
+                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
                 'phase_2': [],
                 'post_timestep': []
             },

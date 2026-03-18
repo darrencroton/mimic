@@ -93,7 +93,7 @@ int sage_calculate_cooling_budget_init(void)
         return -1;
     }
 
-    INFO_LOG("SAGE calculate cooling module initialized");
+    INFO_LOG("SAGE calculate cooling budget module initialized");
     return 0;
 }
 
@@ -141,6 +141,6 @@ int sage_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Halo
 int sage_calculate_cooling_budget_cleanup(void)
 {
     cooling_tables_cleanup();
-    VERBOSE_LOG("SAGE calculate cooling module cleaned up");
+    VERBOSE_LOG("SAGE calculate cooling budget module cleaned up");
     return 0;
 }

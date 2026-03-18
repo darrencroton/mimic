@@ -74,7 +74,7 @@ static float calculate_disk_radius(float spin_x, float spin_y, float spin_z,
 
 int sage_set_disk_scale_radius_init(void)
 {
-    INFO_LOG("SAGE update disk radius module initialized");
+    INFO_LOG("SAGE set disk scale radius module initialized");
     VERBOSE_LOG("  Physics: DiskScaleRadius = (λ / √2) * Rvir (Mo98 model)");
 
     return 0;
@@ -110,6 +110,6 @@ int sage_set_disk_scale_radius_process(struct ModuleContext *ctx __attribute__((
 
 int sage_set_disk_scale_radius_cleanup(void)
 {
-    VERBOSE_LOG("SAGE disk radius module cleaned up");
+    VERBOSE_LOG("SAGE set disk scale radius module cleaned up");
     return 0;
 }

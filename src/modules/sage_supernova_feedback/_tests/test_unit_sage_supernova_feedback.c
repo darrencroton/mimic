@@ -49,6 +49,13 @@ static int modules_registered = 0;
 static double test_epsilon = 3.0;   /* FeedbackReheatingEpsilon */
 static double test_eta = 0.3;       /* FeedbackEjectionEfficiency */
 
+/* Minimal pipeline config for physics tests that call sage_supernova_feedback_init()
+ * directly.  The dependency check requires the apply step to be visible in
+ * MimicConfig; we use static storage to avoid needing the memory system. */
+static char sn_pipeline_name0[] = "sage_supernova_feedback";
+static char sn_pipeline_name1[] = "sage_apply_star_formation_supernova";
+static struct PhaseModuleConfig sn_physics_pipeline[2];
+
 /* Physics constants (computed during init) */
 static double EnergySNcode_test;
 static double EtaSNcode_test;
@@ -156,6 +163,15 @@ static void init_test_constants(void)
     /* Unit conversions (from module initialization) */
     EnergySNcode_test = ENERGY_SN / UnitEnergy_in_cgs * MimicConfig.Hubble_h;
     EtaSNcode_test = ETA_SN * (UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
+
+    /* Minimal pipeline config: the SN dependency check requires the apply step
+     * to be visible in MimicConfig even when init is called directly. */
+    sn_physics_pipeline[0].module_name = sn_pipeline_name0;
+    sn_physics_pipeline[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    sn_physics_pipeline[1].module_name = sn_pipeline_name1;
+    sn_physics_pipeline[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.phase_1 = sn_physics_pipeline;
+    MimicConfig.num_phase_1 = 2;
 }
 
 /**
@@ -221,10 +237,13 @@ int test_module_initialization(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* Configure sage_supernova_feedback module in phase_1 */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    /* SN requires sage_apply_star_formation_supernova in the pipeline */
+    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_supernova_feedback");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
+    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 2;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -259,10 +278,13 @@ int test_parameter_reading(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    /* SN requires sage_apply_star_formation_supernova in the pipeline */
+    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_supernova_feedback");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
+    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 2;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -297,10 +319,13 @@ int test_memory_safety(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    /* SN requires sage_apply_star_formation_supernova in the pipeline */
+    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_supernova_feedback");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
+    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 2;
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 

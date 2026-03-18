@@ -135,7 +135,7 @@ def test_module_loads():
         f"Mimic should execute successfully with sage_prepare_infall_budget\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE calculate infall module initialized" in stdout, \
+    assert "SAGE prepare infall budget module initialized" in stdout, \
         "sage_prepare_infall_budget should log initialization message"
 
     # Check that reionization module ran first
@@ -279,7 +279,7 @@ def test_with_satellite_stripping():
     # Verify all modules initialized
     assert "SAGE reionization module initialized" in stdout, \
         "sage_reionization should initialize first"
-    assert "SAGE calculate infall module initialized" in stdout, \
+    assert "SAGE prepare infall budget module initialized" in stdout, \
         "sage_prepare_infall_budget should initialize"
     assert "SAGE satellite stripping module initialized" in stdout, \
         "sage_satellite_stripping should initialize"
@@ -355,9 +355,9 @@ def test_execution_completes():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Pipeline should complete successfully"
-    assert "SAGE calculate infall module initialized" in stdout, \
+    assert "SAGE prepare infall budget module initialized" in stdout, \
         "Module initialization message"
-    assert "SAGE calculate infall module cleaned up" in stdout, \
+    assert "SAGE prepare infall budget module cleaned up" in stdout, \
         "Module cleanup message"
 
     # Cleanup
@@ -463,7 +463,7 @@ def test_multiple_module_pipeline():
     Expected: Multi-module pipeline executes successfully (if companion module available)
     Validates: Inter-module compatibility
 
-    Note: Uses sage_add_infall as companion module. If not available, test is skipped
+    Note: Uses sage_apply_infall as companion module. If not available, test is skipped
           with a warning (not a failure). This handles cases where modules have
           been archived or are not compiled.
     """
@@ -472,19 +472,19 @@ def test_multiple_module_pipeline():
     # ===== CHECK MODULE AVAILABILITY =====
     available_modules = get_available_modules()
 
-    # Prefer sage_add_infall as companion module (downstream consumer)
+    # Prefer sage_apply_infall as companion module (downstream consumer)
     companion_module = None
     companion_init_msg = None
 
-    if "sage_add_infall" in available_modules:
-        companion_module = "sage_add_infall"
-        companion_init_msg = "SAGE add infall module initialized"
+    if "sage_apply_infall" in available_modules:
+        companion_module = "sage_apply_infall"
+        companion_init_msg = "SAGE apply infall module initialized"
 
     # If no companion module available, skip test with warning
     if not companion_module:
         print(f"{YELLOW}⚠ SKIP: No companion module available for multi-module test{NC}")
         print(f"  Available modules: {', '.join(sorted(available_modules))}")
-        print(f"  Test requires: sage_add_infall")
+        print(f"  Test requires: sage_apply_infall")
         print(f"  This is not a failure - modules may be archived or not compiled")
         return
 
@@ -493,7 +493,7 @@ def test_multiple_module_pipeline():
         output_name="sage_prepare_infall_budget_multi",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_add_infall', 'process_full_halo')],
+            'phase_1': [('sage_apply_infall', 'process_full_halo')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -508,7 +508,7 @@ def test_multiple_module_pipeline():
         f"Multi-module pipeline should execute successfully\nStderr: {stderr}"
 
     # Verify all modules initialized
-    assert "SAGE calculate infall module initialized" in stdout, \
+    assert "SAGE prepare infall budget module initialized" in stdout, \
         "sage_prepare_infall_budget should initialize"
     assert companion_init_msg in stdout, \
         f"{companion_module} should initialize"

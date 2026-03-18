@@ -10,7 +10,7 @@ This test validates both software quality and physics correctness:
 - Module loads and initializes correctly
 - Parameters can be configured via YAML files
 - Module executes without errors or memory leaks
-- Module works in pipeline with sage_calculate_star_formation
+- Module works in pipeline with sage_star_formation
 
 **Physics Validation Tests**:
 - Feedback properties have physically reasonable values
@@ -58,8 +58,9 @@ def test_module_loads():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -68,7 +69,10 @@ def test_module_loads():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3
+            'FeedbackEjectionEfficiency': 0.3,
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -91,8 +95,9 @@ def test_output_properties_exist():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -101,7 +106,10 @@ def test_output_properties_exist():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3
+            'FeedbackEjectionEfficiency': 0.3,
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -127,8 +135,9 @@ def test_parameters_configurable():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -137,7 +146,10 @@ def test_parameters_configurable():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 5.0,  # Custom value
-            'FeedbackEjectionEfficiency': 0.8  # Custom value
+            'FeedbackEjectionEfficiency': 0.8,  # Custom value
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -157,8 +169,9 @@ def test_memory_safety():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -167,7 +180,10 @@ def test_memory_safety():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3
+            'FeedbackEjectionEfficiency': 0.3,
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -189,8 +205,9 @@ def test_execution_completes():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -199,7 +216,10 @@ def test_execution_completes():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3
+            'FeedbackEjectionEfficiency': 0.3,
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -226,8 +246,9 @@ def test_pipeline_with_star_formation():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -236,7 +257,10 @@ def test_pipeline_with_star_formation():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3
+            'FeedbackEjectionEfficiency': 0.3,
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -267,8 +291,9 @@ def test_feedback_values_nonnegative():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -277,7 +302,10 @@ def test_feedback_values_nonnegative():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3
+            'FeedbackEjectionEfficiency': 0.3,
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -308,8 +336,9 @@ def test_feedback_proportional_to_sf():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -318,7 +347,10 @@ def test_feedback_proportional_to_sf():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3
+            'FeedbackEjectionEfficiency': 0.3,
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -361,8 +393,9 @@ def test_feedback_reasonable_magnitude():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -371,7 +404,10 @@ def test_feedback_reasonable_magnitude():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 3.0,  # epsilon = 3
-            'FeedbackEjectionEfficiency': 0.3
+            'FeedbackEjectionEfficiency': 0.3,
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -414,8 +450,9 @@ def test_edge_case_zero_efficiency():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -424,7 +461,10 @@ def test_edge_case_zero_efficiency():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 0.0,  # Zero reheating
-            'FeedbackEjectionEfficiency': 0.0  # Zero ejection
+            'FeedbackEjectionEfficiency': 0.0,  # Zero ejection
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -459,8 +499,9 @@ def test_edge_case_very_high_efficiency():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -469,7 +510,10 @@ def test_edge_case_very_high_efficiency():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 50.0,  # Very high reheating
-            'FeedbackEjectionEfficiency': 10.0  # Very high ejection
+            'FeedbackEjectionEfficiency': 10.0,  # Very high ejection
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -498,8 +542,9 @@ def test_parameter_variation_effect():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -508,7 +553,10 @@ def test_parameter_variation_effect():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 1.0,  # Low
-            'FeedbackEjectionEfficiency': 0.1
+            'FeedbackEjectionEfficiency': 0.1,
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
@@ -525,8 +573,9 @@ def test_parameter_variation_effect():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy')
+                ('sage_star_formation', 'process_by_galaxy'),
+                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
             'post_timestep': []
@@ -535,7 +584,10 @@ def test_parameter_variation_effect():
             'SfrEfficiency': 0.02,
             'StarFormingDiskFactor': 3.0,
             'FeedbackReheatingEpsilon': 5.0,  # High
-            'FeedbackEjectionEfficiency': 0.5
+            'FeedbackEjectionEfficiency': 0.5,
+            'RecycleFraction': 0.43,
+            'Yield': 0.025,
+            'FracZleaveDisk': 0.0
         }
     )
 
