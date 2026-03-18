@@ -7,6 +7,11 @@
  *
  * Split from merger_physics.h; starburst/SN half only.
  * For BH growth and quasar-mode wind see sage_agn_physics.h.
+ *
+ * Single-consumer note: sage_starburst_feedback is the sole consumer, but this
+ * header lives in _shared/ as the architectural counterpart to sage_agn_physics.h.
+ * Both halves of the split belong here; consolidating one into the module would
+ * leave an asymmetric split and complicate a future second consumer.
  */
 
 #include <math.h>

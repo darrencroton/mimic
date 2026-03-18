@@ -465,8 +465,8 @@ These should be fixed regardless of any larger reorganisation. All are correctne
 1. ~~**Implement `sage_finalise_outputs`** in `post_timestep` (§11.3).~~ **Redundant** — normalization is already handled inline in each module with the same mathematical result; see §11.3.
 2. ~~**Verify `sage_reionization` satellite parity** against SAGE output (§11.1).~~ **Fixed 2026-03-18** — confirmed parity loss; per-satellite suppression now computed using each satellite's own Mvir.
 3. ~~**Reclassify transient transport fields** with `role: transport` annotations in `model_properties.yaml` (§11.4).~~ **Done 2026-03-18** — all 8 transport fields already carried `role: transport` annotations; `DEVELOPER-GUIDE.md §A2` updated to document `role` as a formal optional schema field with a `CoolingGas` example.
-4. **Add a SAGE pipeline index** to `src/modules/README.md`.
-5. **Organise `_shared/`** with subdirectories or naming conventions per §8.
+4. ~~**Add a SAGE pipeline index** to `src/modules/README.md`.~~ **Not needed** — `src/modules/README.md` is intentionally generic (modules are runtime-swappable; a hardcoded list would go stale). The YAML pipeline file (`input/millennium.yaml`) already serves as the living pipeline index.
+5. ~~**Organise `_shared/`** with subdirectories or naming conventions per §8.~~ **Done** — all §8 structural renames were completed in prior work (`merger_physics.h` split into `sage_agn_physics.h` + `sage_starburst_physics.h`; `sage_events.h` renamed to `sage_merger_event_contract.h`; `sage_merger_ops.h` moved to `sage_resolve_mergers_and_disruption/`). The three-category taxonomy (utilities / physics kernels / contracts) is now fully expressed by file naming alone; subdirectories would add include-path churn for no gain on 8 files. Single-consumer exception for `sage_starburst_physics.h` documented in the header.
 
 ---
 
