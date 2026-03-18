@@ -27,6 +27,7 @@
 #ifndef MODULE_REGISTRY_H
 #define MODULE_REGISTRY_H
 
+#include <stdbool.h>
 #include <stddef.h> /* for size_t */
 
 #include "module_interface.h"
@@ -163,5 +164,56 @@ int model_get_int(const char *param_name, int *out_value);
  * @return  0 on success, -1 if parameter missing
  */
 int model_get_string(const char *param_name, char *out_value, size_t max_len);
+
+/* ==============================================================================
+ * DEPENDENCY ENFORCEMENT API
+ * ==============================================================================
+ *
+ * Module init() functions use these utilities to enforce inter-module dependency
+ * contracts at startup. Violations either exit (ERROR) or warn and continue
+ * (WARNING), depending on severity.
+ *
+ * All functions are safe to call from any module init() — MimicConfig phase
+ * arrays are fully populated before any init() is called.
+ */
+
+/**
+ * @brief   Check if a module is configured in a given phase with a specific mode
+ *
+ * Intended for use in module init() functions to enforce dependency contracts.
+ *
+ * @param   name         Module name to search for
+ * @param   phase        Phase config array (e.g., MimicConfig.phase_1)
+ * @param   num_modules  Number of entries in the phase array
+ * @param   mode         Processing mode to match
+ * @return  true if the module is present in the phase with the given mode
+ */
+bool module_configured_in_phase(const char *name,
+                                const struct PhaseModuleConfig *phase,
+                                int num_modules, enum ProcessingMode mode);
+
+/**
+ * @brief   Check if a module is configured in any phase with any mode
+ *
+ * @param   name  Module name to search for
+ * @return  true if the module appears in any phase
+ */
+bool module_configured_anywhere(const char *name);
+
+/**
+ * @brief   Check if 'first' appears before 'second' in a phase array
+ *
+ * Returns false if either module is absent from the phase.
+ * Used to enforce ordering constraints between dependent modules.
+ *
+ * @param   first        Module that must appear earlier
+ * @param   second       Module that must appear later
+ * @param   phase        Phase config array to search
+ * @param   num_modules  Number of entries in the phase array
+ * @return  true if first precedes second; false if either is absent or order is wrong
+ */
+bool module_precedes_in_phase(const char *first, const char *second,
+                              const struct PhaseModuleConfig *phase,
+                              int num_modules);
 
 #endif // MODULE_REGISTRY_H

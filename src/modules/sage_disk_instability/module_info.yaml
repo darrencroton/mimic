@@ -7,7 +7,7 @@ module:
   dependencies:
     properties:
       - Type
-      - Vvir
+      - Vmax
       - ColdGas
       - StellarMass
       - BulgeMass

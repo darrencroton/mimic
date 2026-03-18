@@ -18,11 +18,13 @@
 
 #include "constants.h"
 #include "error.h"
-#include "_shared/merger_physics.h"
-#include "_shared/sage_events.h"
+#include "_shared/sage_agn_physics.h"
+#include "_shared/sage_merger_event_contract.h"
 #include "_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "types.h"
+#include "globals.h"
+#include "module_registry.h"
 
 // Module parameters
 static double BLACK_HOLE_GROWTH_RATE;
@@ -38,6 +40,19 @@ int sage_quasar_mode_init(void)
                                         0.0, 1.0, "BH growth rate");
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("QuasarModeEfficiency", QUASAR_MODE_EFFICIENCY,
                                         0.0, 1.0, "quasar mode efficiency");
+
+    /* Dependency check: process_per_event requires a merger event producer */
+    if (module_configured_in_phase("sage_quasar_mode",
+                                   MimicConfig.phase_2, MimicConfig.num_phase_2,
+                                   PROCESSING_MODE_PER_EVENT) &&
+        !module_configured_in_phase("sage_resolve_mergers_and_disruption",
+                                    MimicConfig.phase_2, MimicConfig.num_phase_2,
+                                    PROCESSING_MODE_FULL_HALO)) {
+        ERROR_LOG("sage_quasar_mode (process_per_event) requires "
+                  "sage_resolve_mergers_and_disruption in phase_2 as "
+                  "process_full_halo — no merger events will be emitted without it");
+        return -1;
+    }
 
     INFO_LOG("SAGE quasar-mode AGN feedback initialized");
     VERBOSE_LOG("  BlackHoleGrowthRate = %.4f", BLACK_HOLE_GROWTH_RATE);

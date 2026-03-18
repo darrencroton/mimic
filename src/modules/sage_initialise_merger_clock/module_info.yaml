@@ -1,0 +1,24 @@
+module:
+  name: sage_initialise_merger_clock
+  description: "Initialises the merger clock for new Type 1 satellites (Binney & Tremaine 1987); also resets MergTime for Type 0 promotions and force-merges Type 2 orphans"
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - HaloNr
+      - Type
+      - CentralHalo
+      - Len
+      - Mvir
+      - Rvir
+      - Vvir
+      - MergTime
+      - StellarMass
+      - ColdGas
+    parameters: []
+
+  tests:
+    unit: _tests/test_unit_sage_initialise_merger_clock.c
+    integration: _tests/test_integration_sage_initialise_merger_clock.py
+    scientific: []

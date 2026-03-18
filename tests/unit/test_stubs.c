@@ -90,6 +90,9 @@ void set_test_model_parameters(void) {
     strcpy(MimicConfig.ModelParams[idx].param_name, "ThresholdMajorMerger");
     strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
 
+    strcpy(MimicConfig.ModelParams[idx].param_name, "ThresholdSatDisruption");
+    strcpy(MimicConfig.ModelParams[idx++].value, "1.0");
+
     /* Disk Instability */
     strcpy(MimicConfig.ModelParams[idx].param_name, "StarFormingDiskFactor");
     strcpy(MimicConfig.ModelParams[idx++].value, "3.0");

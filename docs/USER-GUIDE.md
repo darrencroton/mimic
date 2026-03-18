@@ -163,40 +163,39 @@ SubSteps: 10
 
 modules:
   pre_timestep:
-    - sage_reionization: process_full_halo
-    - sage_calculate_infall: process_full_halo
-    - sage_update_disk_radius: process_full_halo
-    - sage_calculate_merger_timescale: process_full_halo
+    # Setup and snapshot budgets
+    - sage_reionization:              process_full_halo
+    - sage_prepare_infall_budget:     process_full_halo
+    - sage_set_disk_scale_radius:     process_full_halo
+    - sage_initialise_merger_clock:   process_full_halo
 
   phase_1:
-    # Infall & Reincorporation
-    - sage_add_infall: process_full_halo
-    - sage_reincorporation: process_full_halo
+    # Baryon supply — process_full_halo modules always execute before process_by_galaxy
+    - sage_apply_infall:              process_full_halo
+    - sage_reincorporation:           process_full_halo
+    - sage_satellite_stripping:       process_full_halo
 
-    # Cooling (Calculate → Modify → Apply)
-    - sage_calculate_cooling: process_by_galaxy
-    - sage_radio_mode_heating: process_by_galaxy
-    - sage_add_cooling: process_by_galaxy
+    # Cooling and AGN suppression (Calculate → Modify → Apply)
+    - sage_calculate_cooling_budget:  process_by_galaxy
+    - sage_radio_mode_heating:        process_by_galaxy
+    - sage_apply_cooling:             process_by_galaxy
 
-    # Star Formation (Calculate → Calculate → Update)
-    - sage_calculate_star_formation: process_by_galaxy
-    - sage_calculate_supernova_feedback: process_by_galaxy
-    - sage_update_star_formation_supernova: process_by_galaxy
+    # Star formation and supernova feedback
+    # sage_star_formation and sage_supernova_feedback are independently optional.
+    - sage_star_formation:            process_by_galaxy   # prescription: SF rate law
+    - sage_supernova_feedback:        process_by_galaxy   # prescription: SN feedback model
+    - sage_apply_star_formation_supernova: process_by_galaxy  # infrastructure: commit SF/SN results
 
-    # Satellite Stripping
-    - sage_satellite_stripping: process_full_halo
-
-    # Disk Instability Triggered Physics
-    - sage_disk_instability: process_by_galaxy         # Check stability & transfer to bulge
-    - sage_quasar_mode: process_by_galaxy              # BH growth & quasar winds
-    - sage_collisional_starburst: process_by_galaxy    # Starburst with SN feedback
-    - sage_clear_disk_instability_triggers: process_by_galaxy  # Clear phase_1 DI trigger
+    # Disk instability
+    - sage_disk_instability:          process_by_galaxy
+    - sage_quasar_mode:               process_by_galaxy
+    - sage_starburst_feedback:        process_by_galaxy
 
   phase_2:
-    # Mergers — single-pass immediate handler (SAGE ordering parity)
-    - sage_handle_mergers_immediate: process_full_halo
-    - sage_quasar_mode: process_per_event              # Merger-triggered BH growth and quasar winds
-    - sage_collisional_starburst: process_per_event    # Merger-triggered starburst with SN feedback
+    # Mergers and disruption — runs after all galaxy physics for the current substep
+    - sage_resolve_mergers_and_disruption: process_full_halo
+    - sage_quasar_mode:               process_per_event   # merger event consumer
+    - sage_starburst_feedback:        process_per_event   # merger event consumer
 
   post_timestep: []
 
@@ -226,6 +225,7 @@ modules:
     ThresholdSatDisruption: 1.0
     BlackHoleGrowthRate: 0.01
     QuasarModeEfficiency: 0.001
+    StarFormingDiskFactor: 3.0
 ```
 
 **Processing modes**:
@@ -238,23 +238,22 @@ modules:
 | Module | Phase | Description |
 |--------|-------|-------------|
 | `sage_reionization` | pre_timestep | Reionization suppression |
-| `sage_calculate_infall` | pre_timestep | Cosmological infall budget |
-| `sage_update_disk_radius` | pre_timestep | Disk scale radius |
-| `sage_calculate_merger_timescale` | pre_timestep | Dynamical friction timescales |
-| `sage_add_infall` | phase_1 | Add infalling gas |
+| `sage_prepare_infall_budget` | pre_timestep | Cosmological infall budget; consolidates satellite reservoirs |
+| `sage_set_disk_scale_radius` | pre_timestep | Disk scale radius from halo spin |
+| `sage_initialise_merger_clock` | pre_timestep | Merger timescales, Type 0/2 state management |
+| `sage_apply_infall` | phase_1 | Distribute infall budget to hot reservoir over substeps |
 | `sage_reincorporation` | phase_1 | Reincorporation of ejected gas |
-| `sage_satellite_stripping` | phase_1 | Environmental stripping |
-| `sage_calculate_cooling` | phase_1 | Cooling budget |
-| `sage_radio_mode_heating` | phase_1 | AGN suppresses cooling |
-| `sage_add_cooling` | phase_1 | Transfer cooled gas |
-| `sage_calculate_star_formation` | phase_1 | Star formation rate |
-| `sage_calculate_supernova_feedback` | phase_1 | Supernova feedback |
-| `sage_update_star_formation_supernova` | phase_1 | Apply SF and feedback |
-| `sage_disk_instability` | phase_1 | Disk stability check & stellar transfer to bulge |
-| `sage_quasar_mode` | phase_1, phase_2 | Disk-instability BH growth (phase_1) + merger-event quasar winds (phase_2) |
-| `sage_collisional_starburst` | phase_1, phase_2 | Disk-instability starbursts (phase_1) + merger-event starbursts (phase_2) |
-| `sage_clear_disk_instability_triggers` | phase_1 | Clear `UnstableDiskGasFraction` after phase_1 consumers |
-| `sage_handle_mergers_immediate` | phase_2 | Single-pass SAGE-parity immediate merger and disruption handler |
+| `sage_satellite_stripping` | phase_1 | Environmental stripping of satellite hot gas |
+| `sage_calculate_cooling_budget` | phase_1 | Compute cooling rate and budget |
+| `sage_radio_mode_heating` | phase_1 | AGN radio-mode suppression of cooling |
+| `sage_apply_cooling` | phase_1 | Transfer cooled gas (hot → cold) |
+| `sage_star_formation` | phase_1 | Star formation rate prescription (swappable) |
+| `sage_supernova_feedback` | phase_1 | Supernova feedback prescription (swappable, optional) |
+| `sage_apply_star_formation_supernova` | phase_1 | Infrastructure: commit SF/SN results to galaxy reservoirs |
+| `sage_disk_instability` | phase_1 | Disk stability check; stellar transfer to bulge |
+| `sage_quasar_mode` | phase_1, phase_2 | Disk-instability BH growth (phase_1); merger-event quasar winds (phase_2) |
+| `sage_starburst_feedback` | phase_1, phase_2 | Disk-instability starbursts (phase_1); merger-event starbursts (phase_2) |
+| `sage_resolve_mergers_and_disruption` | phase_2 | Merger coalescence and satellite disruption; emits merger events |
 
 **Physics-free mode** (halo tracking only):
 ```yaml

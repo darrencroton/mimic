@@ -7,6 +7,7 @@ module:
   dependencies:
     properties:
       - BlackHoleMass
+      - QuasarModeBHaccretionMass
       - ColdGas
       - MetalsColdGas
       - HotGas
@@ -14,6 +15,7 @@ module:
       - EjectedGas
       - MetalsEjectedGas
       - UnstableDiskGasFraction
+      - Vvir
     parameters:
       - BlackHoleGrowthRate
       - QuasarModeEfficiency

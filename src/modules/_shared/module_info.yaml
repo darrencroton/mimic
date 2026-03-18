@@ -17,7 +17,7 @@
 #       - test_integration_foo.py
 #       - test_integration_bar.py
 #
-# See: src/modules/shared/README.md for shared utility development guide
+# See: src/modules/_shared/README.md for shared utility development guide
 
 module:
   name: shared

@@ -33,38 +33,43 @@ SubSteps: 10
 modules:
 
   pre_timestep:
-    - sage_reionization: process_full_halo
-    - sage_calculate_infall: process_full_halo
-    - sage_update_disk_radius: process_full_halo
-    - sage_calculate_merger_timescale: process_full_halo
+    # Setup and snapshot budgets
+    - sage_reionization:              process_full_halo
+    - sage_prepare_infall_budget:     process_full_halo
+    - sage_set_disk_scale_radius:     process_full_halo
+    - sage_initialise_merger_clock:   process_full_halo
 
   phase_1:
-    # Infall, Reincorporation & Stripping
-    - sage_add_infall: process_full_halo
-    - sage_reincorporation: process_full_halo
-    - sage_satellite_stripping: process_full_halo
+    # Baryon supply
+    - sage_apply_infall:              process_full_halo
+    - sage_reincorporation:           process_full_halo
+    - sage_satellite_stripping:       process_full_halo
 
-    # Cooling (Calculate → Modify → Apply)
-    - sage_calculate_cooling: process_by_galaxy
-    - sage_radio_mode_heating: process_by_galaxy
-    - sage_add_cooling: process_by_galaxy
+    # Cooling and AGN suppression
+    - sage_calculate_cooling_budget:  process_by_galaxy
+    - sage_radio_mode_heating:        process_by_galaxy
+    - sage_apply_cooling:             process_by_galaxy
 
-    # Star Formation (Calculate → Calculate → Update)
-    - sage_calculate_star_formation: process_by_galaxy
-    - sage_calculate_supernova_feedback: process_by_galaxy
-    - sage_update_star_formation_supernova: process_by_galaxy
+    # Star formation and supernova feedback
+    # sage_star_formation and sage_supernova_feedback are each independently optional.
+    # Removing either leaves its transport fields at 0.0; sage_apply_star_formation_supernova
+    # commits zeros, which is correct. sage_apply_star_formation_supernova is required
+    # whenever either prescription is active.
+    - sage_star_formation:            process_by_galaxy   # prescription: SF rate law
+    - sage_supernova_feedback:        process_by_galaxy   # prescription: SN feedback model (optional)
+    - sage_apply_star_formation_supernova: process_by_galaxy   # infrastructure: commit SF/SN results
 
-    # Disk Instability (Check → Transfer → Trigger Physics)
-    - sage_disk_instability: process_by_galaxy
-    - sage_quasar_mode: process_by_galaxy
-    - sage_collisional_starburst: process_by_galaxy
-    - sage_clear_disk_instability_triggers: process_by_galaxy
+    # Disk instability
+    - sage_disk_instability:          process_by_galaxy
+    - sage_quasar_mode:               process_by_galaxy
+    - sage_starburst_feedback:        process_by_galaxy
 
   phase_2:
-    # Mergers — single-pass immediate handler (SAGE ordering parity)
-    - sage_handle_mergers_immediate: process_full_halo
-    - sage_quasar_mode: process_per_event          # Triggered by sage_handle_mergers_immediate merger events
-    - sage_collisional_starburst: process_per_event  # Triggered by sage_handle_mergers_immediate merger events
+    # Mergers and disruption — runs after all galaxy physics for the current substep
+    # sage_resolve_mergers_and_disruption emits SAGE_EVENT_MERGER for downstream consumers
+    - sage_resolve_mergers_and_disruption: process_full_halo
+    - sage_quasar_mode:               process_per_event   # merger event consumer
+    - sage_starburst_feedback:        process_per_event   # merger event consumer
 
   post_timestep:
 

@@ -1,0 +1,19 @@
+module:
+  name: sage_set_disk_scale_radius
+  description: "Computes disk scale radius for Type 0/1 galaxies using Mo, Mao & White (1998) model; sets DiskScaleRadius from halo spin and virial properties"
+
+  supported_processing_modes: [process_full_halo]
+
+  dependencies:
+    properties:
+      - Type
+      - Spin
+      - Vvir
+      - Rvir
+      - DiskScaleRadius
+    parameters: []
+
+  tests:
+    unit: _tests/test_unit_sage_set_disk_scale_radius.c
+    integration: _tests/test_integration_sage_set_disk_scale_radius.py
+    scientific: []

@@ -230,6 +230,75 @@ static const char *format_supported_modes(const struct Module *mod) {
   return buffer;
 }
 
+/* ==============================================================================
+ * DEPENDENCY ENFORCEMENT API (public — see module_registry.h)
+ * ============================================================================== */
+
+bool module_configured_in_phase(const char *name,
+                                const struct PhaseModuleConfig *phase,
+                                int num_modules, enum ProcessingMode mode) {
+  if (name == NULL || phase == NULL || num_modules <= 0) {
+    return false;
+  }
+  for (int i = 0; i < num_modules; i++) {
+    if (phase[i].module_name != NULL &&
+        phase[i].processing_mode == mode &&
+        strcmp(phase[i].module_name, name) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool module_configured_anywhere(const char *name) {
+  if (name == NULL) {
+    return false;
+  }
+  const struct PhaseModuleConfig *phases[4] = {
+      MimicConfig.pre_timestep, MimicConfig.phase_1,
+      MimicConfig.phase_2,      MimicConfig.post_timestep};
+  const int counts[4] = {MimicConfig.num_pre_timestep, MimicConfig.num_phase_1,
+                         MimicConfig.num_phase_2, MimicConfig.num_post_timestep};
+
+  for (int p = 0; p < 4; p++) {
+    if (phases[p] == NULL) {
+      continue;
+    }
+    for (int i = 0; i < counts[p]; i++) {
+      if (phases[p][i].module_name != NULL &&
+          strcmp(phases[p][i].module_name, name) == 0) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool module_precedes_in_phase(const char *first, const char *second,
+                              const struct PhaseModuleConfig *phase,
+                              int num_modules) {
+  if (first == NULL || second == NULL || phase == NULL || num_modules <= 0) {
+    return false;
+  }
+  int first_idx = -1;
+  int second_idx = -1;
+  for (int i = 0; i < num_modules; i++) {
+    if (phase[i].module_name == NULL) {
+      continue;
+    }
+    if (first_idx < 0 && strcmp(phase[i].module_name, first) == 0) {
+      first_idx = i;
+    }
+    if (second_idx < 0 && strcmp(phase[i].module_name, second) == 0) {
+      second_idx = i;
+    }
+  }
+  if (first_idx < 0 || second_idx < 0) {
+    return false;
+  }
+  return first_idx < second_idx;
+}
+
 /**
  * @brief   Validate phase configuration against module constraints
  *

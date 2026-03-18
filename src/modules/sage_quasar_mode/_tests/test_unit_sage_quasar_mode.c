@@ -52,7 +52,7 @@
 #include "../../../include/globals.h"
 #include "../../../util/error.h"
 #include "../../../util/memory.h"
-#include "_shared/sage_events.h"
+#include "_shared/sage_merger_event_contract.h"
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -62,22 +62,22 @@ extern int sage_reincorporation_init(void);
 extern int sage_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 extern int sage_reincorporation_cleanup(void);
 
-extern int sage_calculate_star_formation_init(void);
-extern int sage_calculate_star_formation_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
-extern int sage_calculate_star_formation_cleanup(void);
+extern int sage_star_formation_init(void);
+extern int sage_star_formation_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage_star_formation_cleanup(void);
 
-extern int sage_calculate_cooling_init(void);
-extern int sage_calculate_cooling_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
-extern int sage_calculate_cooling_cleanup(void);
+extern int sage_calculate_cooling_budget_init(void);
+extern int sage_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage_calculate_cooling_budget_cleanup(void);
 
 extern int sage_radio_mode_heating_init(void);
 extern int sage_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 extern int sage_radio_mode_heating_cleanup(void);
 
-extern int sage_handle_mergers_immediate_init(void);
-extern int sage_handle_mergers_immediate_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
-extern int sage_handle_mergers_immediate_cleanup(void);
-extern void sage_handle_mergers_immediate_set_action_hook(void (*hook)(const char *action, int source_index, int target_index, double mass_ratio));
+extern int sage_resolve_mergers_and_disruption_init(void);
+extern int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+extern int sage_resolve_mergers_and_disruption_cleanup(void);
+extern void sage_resolve_mergers_and_disruption_set_action_hook(void (*hook)(const char *action, int source_index, int target_index, double mass_ratio));
 
 extern void set_test_model_parameters(void);
 
@@ -147,7 +147,7 @@ int test_mixed_dt_merger_timestamp_source_time(void)
     snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
     snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "2.0");
     MimicConfig.NumModelParams = 2;
-    sage_handle_mergers_immediate_init();
+    sage_resolve_mergers_and_disruption_init();
 
     struct GalaxyData *central_gal = alloc_galaxy();
     central_gal->StellarMass = 10.0;
@@ -179,7 +179,7 @@ int test_mixed_dt_merger_timestamp_source_time(void)
     ctx.central_galaxy = &central;
 
     struct Halo halos[2] = {central, sat};
-    int result = sage_handle_mergers_immediate_process(&ctx, halos, 2);
+    int result = sage_resolve_mergers_and_disruption_process(&ctx, halos, 2);
     TEST_ASSERT(result == 0, "Immediate merger processing should succeed");
 
     const double dt_obj = sat.dT / ctx.num_substeps;
@@ -191,7 +191,7 @@ int test_mixed_dt_merger_timestamp_source_time(void)
 
     free_galaxy(&central_gal);
     free_galaxy(&sat_gal);
-    sage_handle_mergers_immediate_cleanup();
+    sage_resolve_mergers_and_disruption_cleanup();
     check_memory_leaks();
 
     return TEST_PASS;
@@ -215,7 +215,7 @@ int test_invalid_nonboundary_merger_time_error(void)
     snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
     snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "1.0");
     MimicConfig.NumModelParams = 2;
-    sage_handle_mergers_immediate_init();
+    sage_resolve_mergers_and_disruption_init();
 
     struct GalaxyData *cen_gal = alloc_galaxy();
     cen_gal->StellarMass = 10.0;
@@ -241,12 +241,12 @@ int test_invalid_nonboundary_merger_time_error(void)
     ctx.central_galaxy = &central;
     struct Halo halos[2] = {central, sat};
 
-    const int result = sage_handle_mergers_immediate_process(&ctx, halos, 2);
+    const int result = sage_resolve_mergers_and_disruption_process(&ctx, halos, 2);
     TEST_ASSERT(result != 0, "Immediate handler should fail for non-boundary dT<=0");
 
     free_galaxy(&cen_gal);
     free_galaxy(&sat_gal);
-    sage_handle_mergers_immediate_cleanup();
+    sage_resolve_mergers_and_disruption_cleanup();
     check_memory_leaks();
 
     return TEST_PASS;
@@ -432,7 +432,7 @@ int test_mixed_dt_star_formation(void)
     init_memory_system(0);
     reset_config();
     set_test_model_parameters();
-    sage_calculate_star_formation_init();
+    sage_star_formation_init();
 
     /* Halo A: dT = 0.1 */
     struct GalaxyData *gal_a = alloc_galaxy();
@@ -448,7 +448,7 @@ int test_mixed_dt_star_formation(void)
     struct ModuleContext ctx_a = create_context(0.1, 1);
     ctx_a.central_galaxy = &halo_a;
 
-    sage_calculate_star_formation_process(&ctx_a, &halo_a, 1);
+    sage_star_formation_process(&ctx_a, &halo_a, 1);
     float stars_a = gal_a->NewStellarMass;
 
     /* Halo B: identical properties but dT = 0.3 */
@@ -465,7 +465,7 @@ int test_mixed_dt_star_formation(void)
     struct ModuleContext ctx_b = create_context(0.3, 1);
     ctx_b.central_galaxy = &halo_b;
 
-    sage_calculate_star_formation_process(&ctx_b, &halo_b, 1);
+    sage_star_formation_process(&ctx_b, &halo_b, 1);
     float stars_b = gal_b->NewStellarMass;
 
     /* Both must form stars (sanity) */
@@ -479,7 +479,7 @@ int test_mixed_dt_star_formation(void)
 
     free_galaxy(&gal_a);
     free_galaxy(&gal_b);
-    sage_calculate_star_formation_cleanup();
+    sage_star_formation_cleanup();
     check_memory_leaks();
 
     return TEST_PASS;
@@ -496,7 +496,7 @@ int test_mixed_dt_star_formation_ignores_global(void)
     init_memory_system(0);
     reset_config();
     set_test_model_parameters();
-    sage_calculate_star_formation_init();
+    sage_star_formation_init();
 
     const float halo_dT = 0.2;
 
@@ -512,7 +512,7 @@ int test_mixed_dt_star_formation_ignores_global(void)
     halo1.galaxy = gal1;
 
     struct ModuleContext ctx1 = create_context(0.2, 1);
-    sage_calculate_star_formation_process(&ctx1, &halo1, 1);
+    sage_star_formation_process(&ctx1, &halo1, 1);
     float stars1 = gal1->NewStellarMass;
 
     /* Run 2: ctx->substep_dt = 0.9 (different!), but halo->dT still 0.2 */
@@ -527,7 +527,7 @@ int test_mixed_dt_star_formation_ignores_global(void)
     halo2.galaxy = gal2;
 
     struct ModuleContext ctx2 = create_context(0.9, 1);  /* Different global dt */
-    sage_calculate_star_formation_process(&ctx2, &halo2, 1);
+    sage_star_formation_process(&ctx2, &halo2, 1);
     float stars2 = gal2->NewStellarMass;
 
     /* Must be identical — module uses halo->dT, not ctx->substep_dt */
@@ -537,7 +537,7 @@ int test_mixed_dt_star_formation_ignores_global(void)
 
     free_galaxy(&gal1);
     free_galaxy(&gal2);
-    sage_calculate_star_formation_cleanup();
+    sage_star_formation_cleanup();
     check_memory_leaks();
 
     return TEST_PASS;
@@ -563,7 +563,7 @@ int test_mixed_dt_cooling_ignores_global(void)
     MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
     MimicConfig.UnitTime_in_s = 3.08568e16;
 
-    sage_calculate_cooling_init();
+    sage_calculate_cooling_budget_init();
 
     const float halo_dT = 0.2;
 
@@ -580,7 +580,7 @@ int test_mixed_dt_cooling_ignores_global(void)
     halo1.galaxy = gal1;
 
     struct ModuleContext ctx1 = create_context(0.2, 1);
-    sage_calculate_cooling_process(&ctx1, &halo1, 1);
+    sage_calculate_cooling_budget_process(&ctx1, &halo1, 1);
     float cooling1 = gal1->CoolingGas;
 
     /* Run 2: ctx->substep_dt = 0.9 (different!), but halo->dT still 0.2 */
@@ -596,7 +596,7 @@ int test_mixed_dt_cooling_ignores_global(void)
     halo2.galaxy = gal2;
 
     struct ModuleContext ctx2 = create_context(0.9, 1);  /* Different global dt */
-    sage_calculate_cooling_process(&ctx2, &halo2, 1);
+    sage_calculate_cooling_budget_process(&ctx2, &halo2, 1);
     float cooling2 = gal2->CoolingGas;
 
     /* Must be identical — module uses halo->dT, not ctx->substep_dt */
@@ -606,7 +606,7 @@ int test_mixed_dt_cooling_ignores_global(void)
 
     free_galaxy(&gal1);
     free_galaxy(&gal2);
-    sage_calculate_cooling_cleanup();
+    sage_calculate_cooling_budget_cleanup();
     check_memory_leaks();
 
     return TEST_PASS;
@@ -627,7 +627,7 @@ int test_mixed_dt_cooling_scales_with_dt(void)
     MimicConfig.UnitDensity_in_cgs = 6.769911178294543e-22;
     MimicConfig.UnitTime_in_s = 3.08568e16;
 
-    sage_calculate_cooling_init();
+    sage_calculate_cooling_budget_init();
 
     /* Use very small dT values to stay well below HotGas cap.
      * Cold accretion rate ~ HotGas/(Rvir/Vvir) * dt = 10/0.001 * dt = 10000*dt
@@ -646,7 +646,7 @@ int test_mixed_dt_cooling_scales_with_dt(void)
     halo_a.galaxy = gal_a;
 
     struct ModuleContext ctx_a = create_context(0.0001, 1);
-    sage_calculate_cooling_process(&ctx_a, &halo_a, 1);
+    sage_calculate_cooling_budget_process(&ctx_a, &halo_a, 1);
     float cooling_a = gal_a->CoolingGas;
 
     /* Halo B: identical properties but dT = 0.0003 → coolingGas ~ 3.0 (< HotGas=10) */
@@ -662,7 +662,7 @@ int test_mixed_dt_cooling_scales_with_dt(void)
     halo_b.galaxy = gal_b;
 
     struct ModuleContext ctx_b = create_context(0.0003, 1);
-    sage_calculate_cooling_process(&ctx_b, &halo_b, 1);
+    sage_calculate_cooling_budget_process(&ctx_b, &halo_b, 1);
     float cooling_b = gal_b->CoolingGas;
 
     /* Both must cool (sanity) */
@@ -676,7 +676,7 @@ int test_mixed_dt_cooling_scales_with_dt(void)
 
     free_galaxy(&gal_a);
     free_galaxy(&gal_b);
-    sage_calculate_cooling_cleanup();
+    sage_calculate_cooling_budget_cleanup();
     check_memory_leaks();
 
     return TEST_PASS;

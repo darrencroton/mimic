@@ -237,6 +237,277 @@ int test_unknown_module_error(void) {
     return TEST_PASS;
 }
 
+/* ============================================================================
+ * DEPENDENCY ENFORCEMENT TESTS (§7 of SAGE-MODULE-REVIEW.md)
+ * ============================================================================
+ *
+ * Each test verifies one constraint from the §7 dependency table.
+ *
+ * Naming convention:
+ *   test_dep_<module>_<condition>_<error|warn>
+ *
+ * ERROR tests assert module_system_init() returns non-zero.
+ * WARNING tests assert module_system_init() returns zero (warning is logged,
+ * but execution continues).
+ */
+
+extern void set_test_model_parameters(void);
+
+/**
+ * @test    test_dep_apply_infall_missing_prepare_error
+ * @brief   sage_apply_infall requires sage_prepare_infall_budget in pre_timestep (ERROR)
+ */
+int test_dep_apply_infall_missing_prepare_error(void)
+{
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    /* Only sage_apply_infall in phase_1; pre_timestep is empty */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_apply_infall");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
+
+    int result = module_system_init();
+    TEST_ASSERT(result != 0,
+                "sage_apply_infall without sage_prepare_infall_budget must fail init");
+
+    if (result == 0) { module_system_cleanup(); }
+    check_memory_leaks();
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_apply_cooling_wrong_order_error
+ * @brief   sage_apply_cooling requires sage_calculate_cooling_budget to precede it (ERROR)
+ */
+int test_dep_apply_cooling_wrong_order_error(void)
+{
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    /* sage_apply_cooling before sage_calculate_cooling_budget — wrong order */
+    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_apply_cooling");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.phase_1[1].module_name = strdup("sage_calculate_cooling_budget");
+    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 2;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
+
+    int result = module_system_init();
+    TEST_ASSERT(result != 0,
+                "sage_apply_cooling before sage_calculate_cooling_budget must fail init");
+
+    if (result == 0) { module_system_cleanup(); }
+    check_memory_leaks();
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_supernova_wrong_order_error
+ * @brief   sage_supernova_feedback requires sage_star_formation to precede it (ERROR)
+ *
+ * Triggers when both are configured but in wrong order (SN before SF).
+ */
+int test_dep_supernova_wrong_order_error(void)
+{
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    /* SN before SF — wrong order; apply step also present after both */
+    MimicConfig.phase_1 = mymalloc_cat(3 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_supernova_feedback");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.phase_1[1].module_name = strdup("sage_star_formation");
+    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.phase_1[2].module_name = strdup("sage_apply_star_formation_supernova");
+    MimicConfig.phase_1[2].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 3;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
+
+    int result = module_system_init();
+    TEST_ASSERT(result != 0,
+                "sage_supernova_feedback before sage_star_formation must fail init");
+
+    if (result == 0) { module_system_cleanup(); }
+    check_memory_leaks();
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_apply_sfn_wrong_order_error
+ * @brief   sage_apply_star_formation_supernova must follow SF/SN modules (ERROR)
+ *
+ * Triggers when apply step precedes SF in same phase.
+ */
+int test_dep_apply_sfn_wrong_order_error(void)
+{
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    /* apply step before SF — wrong order */
+    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_apply_star_formation_supernova");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.phase_1[1].module_name = strdup("sage_star_formation");
+    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 2;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
+
+    int result = module_system_init();
+    TEST_ASSERT(result != 0,
+                "sage_apply_sfn before sage_star_formation must fail init");
+
+    if (result == 0) { module_system_cleanup(); }
+    check_memory_leaks();
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_quasar_per_event_missing_producer_error
+ * @brief   sage_quasar_mode process_per_event requires merger event producer (ERROR)
+ */
+int test_dep_quasar_per_event_missing_producer_error(void)
+{
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    /* quasar_mode as per_event with no merger event producer in phase_2 */
+    MimicConfig.phase_2 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_2[0].module_name = strdup("sage_quasar_mode");
+    MimicConfig.phase_2[0].processing_mode = PROCESSING_MODE_PER_EVENT;
+    MimicConfig.num_phase_2 = 1;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
+
+    int result = module_system_init();
+    TEST_ASSERT(result != 0,
+                "sage_quasar_mode per_event without merger producer must fail init");
+
+    if (result == 0) { module_system_cleanup(); }
+    check_memory_leaks();
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_starburst_per_event_missing_producer_error
+ * @brief   sage_starburst_feedback process_per_event requires merger event producer (ERROR)
+ */
+int test_dep_starburst_per_event_missing_producer_error(void)
+{
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    /* starburst_feedback as per_event with no merger event producer in phase_2 */
+    MimicConfig.phase_2 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_2[0].module_name = strdup("sage_starburst_feedback");
+    MimicConfig.phase_2[0].processing_mode = PROCESSING_MODE_PER_EVENT;
+    MimicConfig.num_phase_2 = 1;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
+
+    int result = module_system_init();
+    TEST_ASSERT(result != 0,
+                "sage_starburst_feedback per_event without merger producer must fail init");
+
+    if (result == 0) { module_system_cleanup(); }
+    check_memory_leaks();
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_apply_sfn_warns_no_prescriptions
+ * @brief   sage_apply_star_formation_supernova alone emits WARNING but succeeds (WARNING)
+ */
+int test_dep_apply_sfn_warns_no_prescriptions(void)
+{
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    /* apply step alone — no SF or SN configured anywhere */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_apply_star_formation_supernova");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
+
+    int result = module_system_init();
+    TEST_ASSERT(result == 0,
+                "sage_apply_sfn alone should warn but not fail init");
+
+    module_system_cleanup();
+    check_memory_leaks();
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_resolve_mergers_warns_no_clock
+ * @brief   sage_resolve_mergers_and_disruption without merger clock emits WARNING (WARNING)
+ */
+int test_dep_resolve_mergers_warns_no_clock(void)
+{
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    /* sage_resolve_mergers_and_disruption in phase_2 with no sage_initialise_merger_clock */
+    MimicConfig.phase_2 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_2[0].module_name = strdup("sage_resolve_mergers_and_disruption");
+    MimicConfig.phase_2[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+    MimicConfig.num_phase_2 = 1;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
+
+    int result = module_system_init();
+    TEST_ASSERT(result == 0,
+                "sage_resolve_mergers without merger clock should warn but not fail");
+
+    module_system_cleanup();
+    check_memory_leaks();
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_dep_starburst_warns_no_disk_instability
+ * @brief   sage_starburst_feedback by_galaxy without disk_instability emits WARNING (WARNING)
+ */
+int test_dep_starburst_warns_no_disk_instability(void)
+{
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    /* starburst_feedback as by_galaxy without sage_disk_instability before it */
+    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.phase_1[0].module_name = strdup("sage_starburst_feedback");
+    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
+    MimicConfig.num_phase_1 = 1;
+    MimicConfig.SubSteps = 1;
+    set_test_model_parameters();
+
+    int result = module_system_init();
+    TEST_ASSERT(result == 0,
+                "sage_starburst_feedback by_galaxy without disk_instability should warn but not fail");
+
+    module_system_cleanup();
+    check_memory_leaks();
+    return TEST_PASS;
+}
+
 /**
  * @test    test_single_phase_configuration
  * @brief   Test initializing modules in a single phase only
@@ -294,6 +565,17 @@ int main(void) {
     TEST_RUN(test_valid_module_initialization);
     TEST_RUN(test_unknown_module_error);
     TEST_RUN(test_single_phase_configuration);
+
+    /* Dependency enforcement tests (§7 of SAGE-MODULE-REVIEW.md) */
+    TEST_RUN(test_dep_apply_infall_missing_prepare_error);
+    TEST_RUN(test_dep_apply_cooling_wrong_order_error);
+    TEST_RUN(test_dep_supernova_wrong_order_error);
+    TEST_RUN(test_dep_apply_sfn_wrong_order_error);
+    TEST_RUN(test_dep_quasar_per_event_missing_producer_error);
+    TEST_RUN(test_dep_starburst_per_event_missing_producer_error);
+    TEST_RUN(test_dep_apply_sfn_warns_no_prescriptions);
+    TEST_RUN(test_dep_resolve_mergers_warns_no_clock);
+    TEST_RUN(test_dep_starburst_warns_no_disk_instability);
 
     /* Print summary */
     TEST_SUMMARY();
