@@ -124,10 +124,9 @@ def generate_test_registry(strict: bool = False):
     for item in sorted(module_dir.glob("*/module_info.yaml")):
         module_info_files.append(item)
 
-    # Also check _system/test_fixture
-    system_test_fixture = module_dir / "_system" / "test_fixture" / "module_info.yaml"
-    if system_test_fixture.exists():
-        module_info_files.append(system_test_fixture)
+    # Also include all _system/test_* modules (test infrastructure modules)
+    for item in sorted((module_dir / "_system").glob("test_*/module_info.yaml")):
+        module_info_files.append(item)
 
     for module_info_file in sorted(module_info_files):
         module_path = module_info_file.parent

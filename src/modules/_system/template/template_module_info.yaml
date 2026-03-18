@@ -48,6 +48,27 @@ module:
     - helper.h
 
   # ============================================================================
+  # EVENT SYSTEM (modules that emit or consume events)
+  # ============================================================================
+
+  # Producer: declare events this module can emit (process_full_halo modules only)
+  # Numeric event IDs and C enum constants are generated automatically.
+  #
+  # Consumer: declare events this module subscribes to (process_per_event modules only)
+  # The core routes only subscribed events to each consumer — no defensive
+  # event-code checks needed in module C code.
+  #
+  # Both sections are optional. Omit if this module does not use the event system.
+
+  events:
+    emits:                                # Optional: Emit section (process_full_halo only)
+      - name: my_event                    #   Event name (lowercase_with_underscores)
+        description: "What triggered it" #   Human-readable description
+    consumes:                             # Optional: Consume section (process_per_event only)
+      - producer: other_module_name       #   Producer module name (must be registered)
+        event: my_event                   #   Event name as declared in producer metadata
+
+  # ============================================================================
   # TESTING (production modules)
   # ============================================================================
 

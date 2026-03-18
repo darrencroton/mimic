@@ -41,6 +41,7 @@
 /* Forward declarations for helper functions */
 static void write_version_metadata(hid_t parent_group_id);
 static void write_enabled_modules(hid_t parent_group_id);
+static void write_event_contracts(hid_t parent_group_id);
 static void write_parameters_metadata(hid_t parent_group_id);
 static void write_redshifts(hid_t parent_group_id);
 static void write_perfile_metadata(hid_t file_id);
@@ -800,6 +801,151 @@ static void write_enabled_modules(hid_t parent_group_id) {
   myfree(entries);
 }
 
+/* ── Event contract types and file-scope callbacks ───────────────────────── */
+
+/** Row layout for the EventContracts HDF5 compound dataset */
+typedef struct {
+  char phase[MAX_STRING_LEN];
+  char consumer_module[MAX_STRING_LEN];
+  char producer_module[MAX_STRING_LEN];
+  char event_name[MAX_STRING_LEN];
+  int  event_id;
+} ContractEntry;
+
+/** Accumulator state passed to fill_contract_cb */
+typedef struct {
+  ContractEntry *buf;
+  int idx;
+} FillState;
+
+/** EventContractCallback: count pass — increments *(int *)userdata */
+static void count_contract_cb(const char *phase, const char *consumer,
+                               const char *producer, const char *event_name,
+                               int event_id, void *userdata) {
+  (void)phase; (void)consumer; (void)producer;
+  (void)event_name; (void)event_id;
+  (*(int *)userdata)++;
+}
+
+/** EventContractCallback: fill pass — appends one row via FillState */
+static void fill_contract_cb(const char *phase, const char *consumer,
+                              const char *producer, const char *event_name,
+                              int event_id, void *userdata) {
+  FillState *fs = (FillState *)userdata;
+  ContractEntry *e = &fs->buf[fs->idx++];
+  strncpy(e->phase,           phase,      MAX_STRING_LEN - 1); e->phase[MAX_STRING_LEN - 1]           = '\0';
+  strncpy(e->consumer_module, consumer,   MAX_STRING_LEN - 1); e->consumer_module[MAX_STRING_LEN - 1] = '\0';
+  strncpy(e->producer_module, producer,   MAX_STRING_LEN - 1); e->producer_module[MAX_STRING_LEN - 1] = '\0';
+  strncpy(e->event_name,      event_name, MAX_STRING_LEN - 1); e->event_name[MAX_STRING_LEN - 1]      = '\0';
+  e->event_id = event_id;
+}
+
+/**
+ * @brief   Writes resolved event contracts to HDF5 file
+ *
+ * @param   parent_group_id   HDF5 group ID to create EventContracts dataset in
+ *
+ * Creates an EventContracts compound dataset containing all resolved event
+ * subscription contracts active for this run. Each row represents one
+ * consumer's subscription to one producer event with five fields:
+ * - phase:           Execution phase (e.g., "phase_2")
+ * - consumer_module: Name of the subscribing module
+ * - producer_module: Name of the event-emitting module
+ * - event_name:      Human-readable event name (e.g., "merger")
+ * - event_id:        Generated numeric event ID
+ *
+ * This makes event wiring explicit in output for reproducibility.
+ * If no event contracts are configured, no dataset is written.
+ *
+ * Vision Principle 7 (Preserve reproducibility): Event contracts are resolved
+ * at startup and recorded here so runs remain self-describing.
+ */
+static void write_event_contracts(hid_t parent_group_id) {
+  hid_t dataset_id, dataspace_id, memtype, filetype, str_type;
+  hid_t attribute_id, attr_space, attr_str_type;
+  hsize_t dims;
+  herr_t status;
+
+  /* --- Count pass --- */
+  int count = 0;
+  module_system_enumerate_event_contracts(count_contract_cb, &count);
+
+  if (count == 0) {
+    DEBUG_LOG("No event contracts to write to HDF5");
+    return;
+  }
+
+  /* --- Allocate buffer --- */
+  ContractEntry *entries = (ContractEntry *)mymalloc_cat(
+      count * sizeof(ContractEntry), MEM_IO);
+  if (entries == NULL) {
+    FATAL_ERROR("Memory allocation failed for EventContracts array (%d entries)",
+                count);
+  }
+
+  /* --- Fill pass --- */
+  FillState fs = { entries, 0 };
+  module_system_enumerate_event_contracts(fill_contract_cb, &fs);
+
+  /* --- Build HDF5 compound type --- */
+  str_type = H5Tcopy(H5T_C_S1);
+  status = H5Tset_size(str_type, MAX_STRING_LEN);
+  if (status < 0) {
+    FATAL_ERROR("Failed to set string type size for EventContracts");
+  }
+
+  memtype = H5Tcreate(H5T_COMPOUND, sizeof(ContractEntry));
+  H5Tinsert(memtype, "phase",           HOFFSET(ContractEntry, phase),           str_type);
+  H5Tinsert(memtype, "consumer_module", HOFFSET(ContractEntry, consumer_module), str_type);
+  H5Tinsert(memtype, "producer_module", HOFFSET(ContractEntry, producer_module), str_type);
+  H5Tinsert(memtype, "event_name",      HOFFSET(ContractEntry, event_name),      str_type);
+  H5Tinsert(memtype, "event_id",        HOFFSET(ContractEntry, event_id),        H5T_NATIVE_INT);
+
+  filetype = H5Tcreate(H5T_COMPOUND, sizeof(ContractEntry));
+  H5Tinsert(filetype, "phase",           HOFFSET(ContractEntry, phase),           str_type);
+  H5Tinsert(filetype, "consumer_module", HOFFSET(ContractEntry, consumer_module), str_type);
+  H5Tinsert(filetype, "producer_module", HOFFSET(ContractEntry, producer_module), str_type);
+  H5Tinsert(filetype, "event_name",      HOFFSET(ContractEntry, event_name),      str_type);
+  H5Tinsert(filetype, "event_id",        HOFFSET(ContractEntry, event_id),        H5T_NATIVE_INT);
+
+  dims = (hsize_t)count;
+  dataspace_id = H5Screate_simple(1, &dims, NULL);
+
+  dataset_id = H5Dcreate(parent_group_id, "EventContracts", filetype,
+                          dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (dataset_id < 0) {
+    FATAL_ERROR("Failed to create EventContracts dataset in HDF5 file");
+  }
+
+  status = H5Dwrite(dataset_id, memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, entries);
+  if (status < 0) {
+    FATAL_ERROR("Failed to write EventContracts dataset to HDF5 file");
+  }
+
+  /* Add description attribute */
+  attr_space = H5Screate(H5S_SCALAR);
+  attr_str_type = H5Tcopy(H5T_C_S1);
+  H5Tset_size(attr_str_type, 512);
+  attribute_id = H5Acreate(dataset_id, "description", attr_str_type,
+                            attr_space, H5P_DEFAULT, H5P_DEFAULT);
+  const char *desc =
+      "Resolved event subscription contracts active for this run. Each row "
+      "specifies one consumer module's subscription to one producer event "
+      "with the execution phase, module names, event name, and numeric event ID.";
+  H5Awrite(attribute_id, attr_str_type, desc);
+  H5Aclose(attribute_id);
+  H5Tclose(attr_str_type);
+  H5Sclose(attr_space);
+
+  /* Cleanup */
+  H5Dclose(dataset_id);
+  H5Sclose(dataspace_id);
+  H5Tclose(filetype);
+  H5Tclose(memtype);
+  H5Tclose(str_type);
+  myfree(entries);
+}
+
 /**
  * @brief   Writes essential metadata to per-file output for self-containment
  *
@@ -825,6 +971,7 @@ static void write_perfile_metadata(hid_t file_id) {
   /* Write essential metadata for self-containment (same order as master) */
   write_version_metadata(props_group_id);     /* Identity */
   write_enabled_modules(props_group_id);      /* Configuration */
+  write_event_contracts(props_group_id);      /* Configuration: event wiring */
   write_parameters_metadata(props_group_id);  /* Configuration */
   write_redshifts(props_group_id);            /* Auxiliary */
 
@@ -976,6 +1123,7 @@ static void store_run_properties(hid_t master_file_id) {
   /* Add extended metadata using helper functions (ordered by importance) */
   write_version_metadata(props_group_id);     /* Identity: version & provenance */
   write_enabled_modules(props_group_id);      /* Configuration: which physics */
+  write_event_contracts(props_group_id);      /* Configuration: event wiring */
   write_parameters_metadata(props_group_id);  /* Configuration: parameter values */
   write_redshifts(props_group_id);            /* Auxiliary: snapshot mapping */
 

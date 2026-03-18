@@ -31,7 +31,7 @@
 #include "_shared/sage_agn_physics.h"
 #include "_shared/sage_starburst_physics.h"
 #include "_shared/sage_disk_instability_physics.h"
-#include "_shared/sage_merger_event_contract.h"
+#include "_system/generated/event_contracts.h"
 #include "_shared/time_parity.h"
 #include "_system/parameter_helpers.h"
 #include "_system/physical_constants.h"
@@ -239,10 +239,8 @@ int sage_starburst_feedback_process(struct ModuleContext *ctx,
             return 0;
         }
 
-        if (event->event_code != SAGE_EVENT_MERGER) {
-            return 0; /* Unknown event code: graceful no-op */
-        }
-
+        /* Subscription routing (see module_info.yaml events.consumes) ensures
+         * only merger events reach this module — no event_id check needed. */
         if (event->value0 <= 0.0) {
             return 0;
         }

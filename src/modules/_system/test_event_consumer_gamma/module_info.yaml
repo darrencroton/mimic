@@ -1,0 +1,29 @@
+# Module Metadata: test_event_consumer_gamma
+#
+# WARNING: This module is for TESTING INFRASTRUCTURE ONLY
+#
+# Purpose: Consumer subscribing to test_event_producer_b's test_event_b.
+# Used together with test_event_consumer_alpha (subscribes to test_event_producer's
+# test_event) to prove that two independent producers dispatching in the same
+# phase each reach only their respective subscribed consumers.
+
+module:
+  name: test_event_consumer_gamma
+  description: "Third consumer in event routing integration tests. NOT FOR PRODUCTION."
+  version: "1.0.0"
+  author: "Mimic Development Team"
+
+  supported_processing_modes: [process_per_event]
+
+  events:
+    consumes:
+      - producer: test_event_producer_b
+        event: test_event_b
+
+  dependencies:
+    properties: []
+    parameters: []
+
+  tests:
+    unit: null
+    integration: null

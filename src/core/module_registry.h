@@ -84,8 +84,8 @@ int module_system_init(void);
  *
  * Execution order within phase:
  * 1. All PROCESSING_MODE_FULL_HALO modules execute with full halo array
- * 2. Events emitted by full-halo modules are dispatched to all
- *    PROCESSING_MODE_PER_EVENT modules in YAML order
+ * 2. Events emitted by full-halo modules are dispatched only to subscribed
+ *    PROCESSING_MODE_PER_EVENT modules (resolved from module_info.yaml events.consumes)
  * 3. All PROCESSING_MODE_BY_GALAXY modules execute in galaxy-major order:
  *    for each galaxy g:
  *      module1(galaxy g)
@@ -199,6 +199,47 @@ bool module_configured_in_phase(const char *name,
  * @return  true if the module appears in any phase
  */
 bool module_configured_anywhere(const char *name);
+
+/* ==============================================================================
+ * EVENT CONTRACT ENUMERATION
+ * ==============================================================================
+ *
+ * Provides a read-only view of the resolved event contracts for use by
+ * output subsystems (e.g., HDF5 metadata writer). Only valid after
+ * module_system_init() has been called.
+ */
+
+/**
+ * @brief   Callback invoked for each resolved event subscription contract
+ *
+ * @param   phase             Phase name (e.g., "phase_2")
+ * @param   consumer_module   Consumer module name
+ * @param   producer_module   Producer module name
+ * @param   event_name        Event name (e.g., "merger")
+ * @param   event_id          Generated numeric event ID
+ * @param   userdata          Caller-supplied context pointer
+ */
+typedef void (*EventContractCallback)(const char *phase,
+                                      const char *consumer_module,
+                                      const char *producer_module,
+                                      const char *event_name,
+                                      int event_id,
+                                      void *userdata);
+
+/**
+ * @brief   Enumerate all resolved event contracts
+ *
+ * Iterates all configured process_per_event consumers and their subscriptions,
+ * calling cb once for each (consumer, subscription) pair.
+ *
+ * Intended for use by output subsystems (e.g., HDF5 metadata) to record
+ * event wiring for reproducibility. Only valid after module_system_init().
+ *
+ * @param   cb        Callback function called for each contract (may be NULL)
+ * @param   userdata  Caller-supplied pointer passed to each callback invocation
+ */
+void module_system_enumerate_event_contracts(EventContractCallback cb,
+                                             void *userdata);
 
 /**
  * @brief   Check if 'first' appears before 'second' in a phase array

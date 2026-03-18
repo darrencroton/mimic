@@ -287,16 +287,24 @@ def test_processing_mode_all_ngal_is_one():
 
 def test_processing_mode_per_event_no_emissions():
     """
-    Test that process_per_event consumers are no-op when no events are emitted
+    Test that configuring a module as process_per_event without declared subscriptions
+    produces a clear startup error.
 
-    Expected: Run succeeds and per-event module is never called
-    Validates: process_per_event parser/dispatch baseline behavior
+    Under subscription-based routing, every process_per_event module must declare
+    events.consumes in its module_info.yaml. A module with no subscriptions can
+    never receive events, so the configuration is rejected at startup with a
+    diagnostic message.
+
+    Expected: Run fails with a clear error about missing subscriptions
+    Validates: validate_event_subscriptions() startup check (module_registry.c)
     """
-    print("Testing PROCESSING_MODE_PER_EVENT no-emission behavior...")
+    print("Testing PROCESSING_MODE_PER_EVENT subscription requirement...")
 
     # ===== SETUP =====
+    # test_fixture has no events.consumes — configuring it as process_per_event
+    # should be rejected by validate_event_subscriptions()
     param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="loop_per_event_no_emissions",
+        output_name="loop_per_event_no_subscriptions",
         phase_config={
             'pre_timestep': [],
             'phase_1': [('test_fixture', 'process_per_event')],
@@ -312,27 +320,20 @@ def test_processing_mode_per_event_no_emissions():
     )
 
     try:
-        # Use SubSteps=1 for simpler analysis
-        import yaml
-        with open(param_file, 'r') as f:
-            config = yaml.safe_load(f)
-        config['SubSteps'] = 1
-        with open(param_file, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
-
         # ===== EXECUTE =====
         returncode, stdout, stderr = run_mimic(param_file)
 
         # ===== VALIDATE =====
-        assert returncode == 0, f"Mimic failed: {stderr}"
+        assert returncode != 0, \
+            "Expected startup failure: process_per_event without subscriptions should be rejected"
 
-        all_executions = parse_test_fixture_executions(stdout)
-        assert len(all_executions) == 0, \
-            f"Expected no test_fixture executions without emitted events, got {len(all_executions)}"
+        combined = stdout + stderr
+        assert "declares no event subscriptions" in combined, \
+            f"Expected subscription-missing error in output, got:\n{combined}"
 
-        print("  ✓ PROCESSING_MODE_PER_EVENT no-emission behavior verified")
-        print("    - Run completed successfully")
-        print("    - No per-event invocations occurred without producers")
+        print("  ✓ PROCESSING_MODE_PER_EVENT subscription requirement validated")
+        print("    - Run correctly rejected at startup")
+        print("    - Error message references missing subscriptions")
 
     finally:
         # ===== CLEANUP =====

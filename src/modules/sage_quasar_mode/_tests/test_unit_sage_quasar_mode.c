@@ -52,7 +52,7 @@
 #include "../../../include/globals.h"
 #include "../../../util/error.h"
 #include "../../../util/memory.h"
-#include "_shared/sage_merger_event_contract.h"
+#include "_system/generated/event_contracts.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -375,8 +375,8 @@ int test_bh_growth_per_event_merger(void)
     setup_test_context(&ctx);
 
     struct ModuleEvent event = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = SAGE_EVENT_MERGER,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 1,
         .target_index = 0,
         .value0 = 0.3,
@@ -406,10 +406,13 @@ int test_bh_growth_per_event_merger(void)
 
 /**
  * @test    test_per_event_unknown_code_noop
- * @brief   Test unknown per-event code is graceful no-op
+ * @brief   Test zero merger ratio event is a graceful no-op
+ *
+ * Subscription routing ensures only valid events reach this module.
+ * The remaining guard is value0 <= 0.0 (zero/negative merger ratio).
  *
  * Expected: No property changes and success return
- * Validates: Defensive unknown event handling
+ * Validates: Zero-ratio early-exit guard in process_per_event path
  */
 int test_per_event_unknown_code_noop(void)
 {
@@ -428,11 +431,11 @@ int test_per_event_unknown_code_noop(void)
     setup_test_context(&ctx);
 
     struct ModuleEvent event = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = 999,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 1,
         .target_index = 0,
-        .value0 = 0.5,
+        .value0 = 0.0,  /* zero ratio — must be a no-op */
         .value1 = 0.0
     };
     ctx.active_event = &event;
@@ -444,11 +447,11 @@ int test_per_event_unknown_code_noop(void)
     int result = sage_quasar_mode_process(&ctx, &halo, 1);
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == 0, "Unknown per-event code should be a no-op success");
+    TEST_ASSERT(result == 0, "Zero merger ratio event should be a no-op success");
     TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh, 1e-12,
-                             "BH mass should remain unchanged for unknown event");
+                             "BH mass should remain unchanged for zero-ratio event");
     TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, initial_cold, 1e-12,
-                             "Cold gas should remain unchanged for unknown event");
+                             "Cold gas should remain unchanged for zero-ratio event");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();

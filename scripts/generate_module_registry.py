@@ -2,9 +2,9 @@
 """
 Module Registry Generator for Mimic
 
-Generates module registration code and test configurations from module_info.yaml
-metadata files. This eliminates manual synchronization and implements the
-metadata-driven module architecture.
+Generates module registration code, event contract headers, and test configurations
+from module_info.yaml metadata files. Eliminates manual synchronization and
+implements the metadata-driven module architecture including the event system.
 
 Usage:
     python3 scripts/generate_module_registry.py [--dry-run] [--verbose]
@@ -13,23 +13,23 @@ Reads:
     src/modules/*/module_info.yaml
 
 Generates:
-    src/modules/_system/generated/module_init.c    - Module registration code
-    tests/generated/module_sources.mk              - Test build configuration
-    build/module_registry_hash.txt                 - Validation hash
+    src/modules/_system/generated/module_init.c      - Module registration code
+    src/modules/_system/generated/event_contracts.h  - Event ID enums and module IDs
+    tests/generated/module_sources.mk                - Test build configuration
+    build/module_registry_hash.txt                   - Validation hash
 
 Exit codes:
     0 - Success
     1 - Generation failed (validation errors, I/O errors)
 
-Author: Module Metadata System (Phase 4.2.5)
-Date: 2025-11-12
+Author: Module Metadata System
 """
 
 import argparse
 import hashlib
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
 
 try:
     import yaml
@@ -75,6 +75,9 @@ MODULES_DIR = REPO_ROOT / "src" / "modules"
 # Output files
 MODULE_INIT_C = (
     REPO_ROOT / "src" / "modules" / "_system" / "generated" / "module_init.c"
+)
+EVENT_CONTRACTS_H = (
+    REPO_ROOT / "src" / "modules" / "_system" / "generated" / "event_contracts.h"
 )
 MODULE_SOURCES_MK = REPO_ROOT / "tests" / "generated" / "module_sources.mk"
 MODULE_HASH_FILE = REPO_ROOT / "build" / "module_registry_hash.txt"
@@ -191,13 +194,13 @@ def discover_modules() -> List[Dict[str, Any]]:
 
         # Pattern 1: Directory with module_info.yaml
         if item.is_dir():
-            # Handle _system directory specially - only include test_fixture
+            # Handle _system directory — include all subdirs with module_info.yaml
             if item.name == "_system":
-                test_fixture_dir = item / "test_fixture"
-                if test_fixture_dir.exists() and test_fixture_dir.is_dir():
-                    metadata = load_module_metadata(test_fixture_dir)
-                    if metadata:
-                        modules.append(metadata)
+                for sub in sorted(item.iterdir()):
+                    if sub.is_dir() and (sub / "module_info.yaml").exists():
+                        metadata = load_module_metadata(sub)
+                        if metadata:
+                            modules.append(metadata)
                 continue
 
             # Regular module directory
@@ -423,6 +426,286 @@ def validate_test_files(modules: List[Dict[str, Any]]) -> List[str]:
 
 
 # ==============================================================================
+# EVENT SYSTEM HELPERS
+# ==============================================================================
+
+
+def module_name_to_id_macro(module_name: str) -> str:
+    """Convert module name to MODULE_ID_ macro name."""
+    return f"MODULE_ID_{module_name.upper()}"
+
+
+def event_name_to_enum_constant(producer_name: str, event_name: str) -> str:
+    """Convert producer name + event name to C enum constant."""
+    return f"{producer_name.upper()}_EVENT_{event_name.upper()}"
+
+
+def producer_name_to_enum_type(producer_name: str) -> str:
+    """Convert producer module name to C enum type name (PascalCase + EventId)."""
+    parts = producer_name.split("_")
+    return "".join(p.capitalize() for p in parts) + "EventId"
+
+
+def collect_event_info(
+    modules: List[Dict[str, Any]]
+) -> Tuple[Dict[str, Any], List[str]]:
+    """
+    Collect and index event declarations from all modules.
+
+    Returns:
+        (event_info, errors) where event_info is a dict with:
+            producer_ids: {module_name: int}  — assigned 1-indexed IDs for producers
+            emits: {module_name: [{name, description}]}
+            consumes: {module_name: [{producer, event}]}
+        errors: list of error strings (empty if valid)
+    """
+    errors: List[str] = []
+    emits: Dict[str, List[Dict[str, str]]] = {}
+    consumes: Dict[str, List[Dict[str, str]]] = {}
+
+    for module in modules:
+        name = module["name"]
+        events = module.get("events", {})
+        if events is None:
+            continue
+
+        emit_list = events.get("emits", []) or []
+        consume_list = events.get("consumes", []) or []
+
+        if emit_list:
+            emits[name] = emit_list
+        if consume_list:
+            consumes[name] = consume_list
+
+    # Assign stable producer IDs (sorted by module name, 1-indexed)
+    producer_ids = {
+        name: idx + 1
+        for idx, name in enumerate(sorted(emits.keys()))
+    }
+
+    return {"producer_ids": producer_ids, "emits": emits, "consumes": consumes}, errors
+
+
+def validate_event_declarations(
+    modules: List[Dict[str, Any]], event_info: Dict[str, Any]
+) -> List[str]:
+    """
+    Validate all event declarations across all modules.
+
+    Rules enforced:
+    - events.emits only valid for modules supporting process_full_halo
+    - events.consumes only valid for modules supporting process_per_event
+    - Emitted event names must be unique within a producer
+    - Consumed (producer, event) pairs must be unique within a consumer
+    - Each consumed producer must exist and declare the referenced event
+    """
+    errors: List[str] = []
+    emits = event_info["emits"]
+    consumes = event_info["consumes"]
+
+    # Build lookup: {producer_name: {event_name}} for cross-reference validation
+    all_emitted: Dict[str, set] = {
+        prod: {e["name"] for e in events} for prod, events in emits.items()
+    }
+
+    # Index module metadata by name for quick lookup
+    module_by_name: Dict[str, Dict[str, Any]] = {m["name"]: m for m in modules}
+
+    # Validate producers
+    for producer_name, emit_list in emits.items():
+        module = module_by_name.get(producer_name, {})
+        modes = module.get("supported_processing_modes", [])
+
+        if "process_full_halo" not in modes:
+            errors.append(
+                f"{producer_name}/module_info.yaml: 'events.emits' is only valid for "
+                f"modules that support process_full_halo; this module supports {modes}"
+            )
+
+        # Check for duplicate event names within a producer
+        seen_names: set = set()
+        for event in emit_list:
+            event_name = event.get("name", "")
+            if not event_name:
+                errors.append(
+                    f"{producer_name}/module_info.yaml: event in 'events.emits' "
+                    f"is missing required 'name' field"
+                )
+                continue
+            if event_name in seen_names:
+                errors.append(
+                    f"{producer_name}/module_info.yaml: duplicate event name "
+                    f"'{event_name}' in 'events.emits'"
+                )
+            seen_names.add(event_name)
+
+    # Validate consumers
+    for consumer_name, consume_list in consumes.items():
+        module = module_by_name.get(consumer_name, {})
+        modes = module.get("supported_processing_modes", [])
+
+        if "process_per_event" not in modes:
+            errors.append(
+                f"{consumer_name}/module_info.yaml: 'events.consumes' is only valid for "
+                f"modules that support process_per_event; this module supports {modes}"
+            )
+
+        # Check for duplicate (producer, event) pairs within a consumer
+        seen_pairs: set = set()
+        for sub in consume_list:
+            prod = sub.get("producer", "")
+            event = sub.get("event", "")
+            if not prod or not event:
+                errors.append(
+                    f"{consumer_name}/module_info.yaml: subscription in 'events.consumes' "
+                    f"is missing required 'producer' or 'event' field"
+                )
+                continue
+            pair = (prod, event)
+            if pair in seen_pairs:
+                errors.append(
+                    f"{consumer_name}/module_info.yaml: duplicate subscription "
+                    f"(producer='{prod}', event='{event}') in 'events.consumes'"
+                )
+            seen_pairs.add(pair)
+
+            # Referenced producer must exist and declare the referenced event
+            if prod not in all_emitted:
+                errors.append(
+                    f"{consumer_name}/module_info.yaml: subscribes to producer "
+                    f"'{prod}' but that module does not declare any 'events.emits'"
+                )
+            elif event not in all_emitted[prod]:
+                declared = sorted(all_emitted[prod])
+                errors.append(
+                    f"{consumer_name}/module_info.yaml: subscribes to event "
+                    f"'{event}' on producer '{prod}', but that event is not declared; "
+                    f"declared events: {declared}"
+                )
+
+    return errors
+
+
+# ==============================================================================
+# CODE GENERATION - event_contracts.h
+# ==============================================================================
+
+
+def generate_event_contracts_h(
+    modules: List[Dict[str, Any]],
+    event_info: Dict[str, Any],
+    metadata_hash: str,
+    output_path: Path,
+    dry_run: bool = False,
+) -> bool:
+    """Generate the public event contracts header (module IDs + event enums)."""
+    producer_ids = event_info["producer_ids"]
+    emits = event_info["emits"]
+    consumes = event_info["consumes"]
+
+    lines: List[str] = []
+
+    # Header comment
+    header = generate_c_header(
+        metadata_hash,
+        "Public event contract definitions for module C code.\n"
+        "Include as: #include \"_system/generated/event_contracts.h\"\n"
+        "  (or ../_ system/generated/event_contracts.h for relative includes)",
+    )
+    lines.extend(header.splitlines())
+    lines.append("")
+
+    lines.append("#ifndef MIMIC_EVENT_CONTRACTS_H")
+    lines.append("#define MIMIC_EVENT_CONTRACTS_H")
+    lines.append("")
+    lines.append('#include "module_interface.h"')
+    lines.append("")
+
+    if producer_ids:
+        lines.append(
+            "/* ========================================================================== */"
+        )
+        lines.append(
+            "/* PRODUCER MODULE IDS                                                        */"
+        )
+        lines.append(
+            "/* ========================================================================== */"
+        )
+        lines.append("")
+        lines.append("/*")
+        lines.append(
+            " * Stable numeric IDs for producer modules, generated from sorted module names."
+        )
+        lines.append(
+            " * Used in ModuleEvent.producer_module_id and EventSubscription.producer_module_id."
+        )
+        lines.append(
+            " * These IDs are injected by the core; producers never set them manually."
+        )
+        lines.append(" */")
+        lines.append("")
+        for name in sorted(producer_ids.keys()):
+            macro = module_name_to_id_macro(name)
+            lines.append(f"#define {macro} {producer_ids[name]}")
+        lines.append("")
+
+    if emits:
+        lines.append(
+            "/* ========================================================================== */"
+        )
+        lines.append(
+            "/* PER-PRODUCER EVENT ID ENUMS                                                */"
+        )
+        lines.append(
+            "/* ========================================================================== */"
+        )
+        lines.append("")
+        lines.append("/*")
+        lines.append(
+            " * Use these constants as the event_id argument to module_emit_event()."
+        )
+        lines.append(
+            " * IDs start at 1; 0 is reserved for 'unset'."
+        )
+        lines.append(" */")
+        lines.append("")
+        for producer_name in sorted(emits.keys()):
+            emit_list = emits[producer_name]
+            enum_type = producer_name_to_enum_type(producer_name)
+            lines.append(f"enum {enum_type} {{")
+            for idx, event in enumerate(emit_list, start=1):
+                event_name = event["name"]
+                constant = event_name_to_enum_constant(producer_name, event_name)
+                desc = event.get("description", "")
+                if desc:
+                    lines.append(f"  {constant} = {idx}, /**< {desc} */")
+                else:
+                    lines.append(f"  {constant} = {idx},")
+            lines.append(f"}};")
+            lines.append("")
+
+    lines.append("#endif /* MIMIC_EVENT_CONTRACTS_H */")
+    lines.append("")
+
+    content = "\n".join(lines)
+
+    if dry_run:
+        print("\n=== event_contracts.h (DRY RUN) ===")
+        print(content)
+        return True
+
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"✓ Generated: {output_path.relative_to(REPO_ROOT)}")
+        return True
+    except Exception as e:
+        print(f"ERROR: Failed to write {output_path}: {e}", file=sys.stderr)
+        return False
+
+
+# ==============================================================================
 # HASH COMPUTATION
 # ==============================================================================
 
@@ -508,8 +791,14 @@ def generate_lifecycle_forward_declarations(modules: List[Dict[str, Any]]) -> Li
     return lines
 
 
-def generate_module_struct_definitions(modules: List[Dict[str, Any]]) -> List[str]:
+def generate_module_struct_definitions(
+    modules: List[Dict[str, Any]], event_info: Dict[str, Any]
+) -> List[str]:
     """Generate static struct Module definitions for all modules."""
+    producer_ids = event_info["producer_ids"]
+    consumes = event_info["consumes"]
+    emits = event_info["emits"]
+
     lines = []
     lines.append(
         "/* ========================================================================== */"
@@ -539,13 +828,26 @@ def generate_module_struct_definitions(modules: List[Dict[str, Any]]) -> List[st
         )
         num_modes = len(modes)
 
+        # Event system fields
+        module_id = producer_ids.get(name, 0)
+        num_subscriptions = len(consumes.get(name, []))
+        subscriptions_val = f"{name}_subscriptions" if num_subscriptions > 0 else "NULL"
+        emit_list = emits.get(name, [])
+        num_emitted = len(emit_list)
+        emitted_ids_val = f"{name}_emitted_event_ids" if num_emitted > 0 else "NULL"
+
         lines.append(f"static struct Module {name}_module = {{")
         lines.append(f'    .name = "{name}",')
         lines.append(f"    .init = {name}_init,")
         lines.append(f"    .process = {name}_process,")
         lines.append(f"    .cleanup = {name}_cleanup,")
         lines.append(f"    .supported_processing_modes = {name}_supported_modes,")
-        lines.append(f"    .num_supported_modes = {num_modes}")
+        lines.append(f"    .num_supported_modes = {num_modes},")
+        lines.append(f"    .module_id = {module_id},")
+        lines.append(f"    .subscriptions = {subscriptions_val},")
+        lines.append(f"    .num_subscriptions = {num_subscriptions},")
+        lines.append(f"    .emitted_event_ids = {emitted_ids_val},")
+        lines.append(f"    .num_emitted_events = {num_emitted}")
         lines.append("};")
         lines.append("")
 
@@ -554,6 +856,7 @@ def generate_module_struct_definitions(modules: List[Dict[str, Any]]) -> List[st
 
 def generate_module_init_c(
     modules: List[Dict[str, Any]],
+    event_info: Dict[str, Any],
     metadata_hash: str,
     output_path: Path,
     dry_run: bool = False,
@@ -562,6 +865,10 @@ def generate_module_init_c(
 
     # Filter out utilities (is_utility: true) - they're test-only, not runtime modules
     runtime_modules = [m for m in modules if not m.get("is_utility", False)]
+
+    producer_ids = event_info["producer_ids"]
+    emits = event_info["emits"]
+    consumes = event_info["consumes"]
 
     lines = []
 
@@ -575,6 +882,8 @@ def generate_module_init_c(
     # Includes
     lines.append('#include "module_registry.h"')
     lines.append('#include "module_interface.h"')
+    if emits or consumes:
+        lines.append('#include "event_contracts.h"')
     lines.append("")
 
     # Forward declarations for module lifecycle functions
@@ -646,8 +955,105 @@ def generate_module_init_c(
 
     lines.append("")
 
+    # Generate producer emit ID arrays (for emit-time validation in module_emit_event)
+    producer_modules = {name: events for name, events in emits.items()
+                        if any(m["name"] == name for m in runtime_modules)}
+    if producer_modules:
+        lines.append(
+            "/* ========================================================================== */"
+        )
+        lines.append(
+            "/* PRODUCER EMIT ID ARRAYS (Auto-generated from module_info.yaml)            */"
+        )
+        lines.append(
+            "/* ========================================================================== */"
+        )
+        lines.append("")
+        lines.append("/*")
+        lines.append(
+            " * Emit ID arrays record which event IDs each producer module declared."
+        )
+        lines.append(
+            " * module_emit_event() validates against these arrays at emit time so"
+        )
+        lines.append(
+            " * undeclared event IDs are rejected immediately rather than silently"
+        )
+        lines.append(
+            " * routing to no consumer."
+        )
+        lines.append(" *")
+        lines.append(
+            " * Generated from 'events.emits' sections in module_info.yaml."
+        )
+        lines.append(" */")
+        lines.append("")
+        for producer_name in sorted(producer_modules.keys()):
+            emit_list = producer_modules[producer_name]
+            id_list = ", ".join(
+                str(event_name_to_enum_constant(producer_name, e["name"]))
+                for e in emit_list
+            )
+            lines.append(
+                f"static const int {producer_name}_emitted_event_ids[] = {{{id_list}}};"
+            )
+            lines.append("")
+
+    # Generate event subscription tables for consumers
+    consumer_modules = {name: subs for name, subs in consumes.items()
+                        if any(m["name"] == name for m in runtime_modules)}
+    if consumer_modules:
+        lines.append(
+            "/* ========================================================================== */"
+        )
+        lines.append(
+            "/* EVENT SUBSCRIPTION TABLES (Auto-generated from module_info.yaml)          */"
+        )
+        lines.append(
+            "/* ========================================================================== */"
+        )
+        lines.append("")
+        lines.append("/*")
+        lines.append(
+            " * Subscription tables define which (producer, event) pairs each"
+        )
+        lines.append(
+            " * process_per_event consumer module is subscribed to."
+        )
+        lines.append(
+            " * The dispatch loop checks these before calling consumer modules —"
+        )
+        lines.append(
+            " * no event-code filtering is needed in module C code."
+        )
+        lines.append(" *")
+        lines.append(
+            " * Generated from 'events.consumes' sections in module_info.yaml."
+        )
+        lines.append(" */")
+        lines.append("")
+
+        for consumer_name in sorted(consumer_modules.keys()):
+            sub_list = consumer_modules[consumer_name]
+            lines.append(
+                f"static const struct EventSubscription {consumer_name}_subscriptions[] = {{"
+            )
+            for sub in sub_list:
+                prod = sub["producer"]
+                event = sub["event"]
+                prod_id_macro = module_name_to_id_macro(prod)
+                event_id_const = event_name_to_enum_constant(prod, event)
+                lines.append(f"    {{")
+                lines.append(f"        .producer_module_id = {prod_id_macro},")
+                lines.append(f"        .event_id = {event_id_const},")
+                lines.append(f'        .event_name = "{event}",')
+                lines.append(f'        .producer_name = "{prod}",')
+                lines.append(f"    }},")
+            lines.append("};")
+            lines.append("")
+
     # Module struct definitions
-    lines.extend(generate_module_struct_definitions(runtime_modules))
+    lines.extend(generate_module_struct_definitions(runtime_modules, event_info))
 
     # Registration function
     lines.append(
@@ -938,6 +1344,36 @@ def main():
 
         print()
 
+    # ==========================================================================
+    # EVENT SYSTEM VALIDATION
+    # ==========================================================================
+
+    print("Collecting event declarations...")
+    event_info, event_collect_errors = collect_event_info(modules)
+    if event_collect_errors:
+        print_error("Event collection errors:")
+        for err in event_collect_errors:
+            print(f"  - {err}", file=sys.stderr)
+        return 1
+
+    producers = event_info["emits"]
+    consumers = event_info["consumes"]
+    if producers or consumers:
+        print(f"  Producers: {sorted(producers.keys()) or '(none)'}")
+        print(f"  Consumers: {sorted(consumers.keys()) or '(none)'}")
+
+        print("Validating event declarations...")
+        event_errors = validate_event_declarations(modules, event_info)
+        if event_errors:
+            print_error("Invalid event declarations:")
+            for err in event_errors:
+                print(f"  - {err}", file=sys.stderr)
+            return 1
+        print("✓ All event declarations valid")
+    else:
+        print("  (no event declarations found)")
+    print()
+
     # Compute metadata hash
     metadata_hash = compute_metadata_hash(modules)
     if args.verbose:
@@ -970,8 +1406,11 @@ def main():
     print("Generating files...")
 
     success = True
+    success &= generate_event_contracts_h(
+        sorted_modules, event_info, metadata_hash, EVENT_CONTRACTS_H, args.dry_run
+    )
     success &= generate_module_init_c(
-        sorted_modules, metadata_hash, MODULE_INIT_C, args.dry_run
+        sorted_modules, event_info, metadata_hash, MODULE_INIT_C, args.dry_run
     )
     success &= generate_module_sources_mk(
         sorted_modules, metadata_hash, MODULE_SOURCES_MK, args.dry_run

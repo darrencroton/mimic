@@ -21,6 +21,11 @@ SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_system/templa
 # Explicitly add system modules (may not exist or be excluded by pattern above)
 SOURCES += $(SRC_DIR)/modules/_system/generated/module_init.c
 SOURCES += $(SRC_DIR)/modules/_system/test_fixture/test_fixture.c
+SOURCES += $(SRC_DIR)/modules/_system/test_event_producer/test_event_producer.c
+SOURCES += $(SRC_DIR)/modules/_system/test_event_consumer_alpha/test_event_consumer_alpha.c
+SOURCES += $(SRC_DIR)/modules/_system/test_event_consumer_beta/test_event_consumer_beta.c
+SOURCES += $(SRC_DIR)/modules/_system/test_event_producer_b/test_event_producer_b.c
+SOURCES += $(SRC_DIR)/modules/_system/test_event_consumer_gamma/test_event_consumer_gamma.c
 
 OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES))
 DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
@@ -484,6 +489,10 @@ test-integration: generate validate-build $(EXEC)
 	$(PYTHON) tests/integration/test_processing_modes.py || FAILED=1; \
 	echo ""; \
 	$(PYTHON) tests/integration/test_galaxy_major_loop.py || FAILED=1; \
+	echo ""; \
+	$(PYTHON) tests/integration/test_event_routing.py || FAILED=1; \
+	echo ""; \
+	$(PYTHON) tests/integration/test_event_schema_validation.py || FAILED=1; \
 	echo ""; \
 	echo "Running module integration tests from registry..."; \
 	for test in $$(grep -v '^#' build/generated/integration_tests.txt | grep -v '^$$'); do \

@@ -33,6 +33,11 @@ module:
       - ThresholdMajorMerger
       - ThresholdSatDisruption
 
+  events:
+    emits:
+      - name: merger
+        description: "Emitted after live-target merger transfer completes; payload: value0=baryonic mass ratio, value1=source substep dt"
+
   tests:
     unit: _tests/test_unit_sage_merger_ordering_parity.c
     integration: _tests/test_integration_sage_merger_event_consumers.py

@@ -52,7 +52,7 @@ static int num_pipeline_modules = 0;
  * @brief Phase-local event dispatch state
  *
  * Active only during execute_phase(). Enables module_emit_event() to append
- * events and dispatch them to PROCESSING_MODE_PER_EVENT consumers.
+ * events and dispatch them to subscribed PROCESSING_MODE_PER_EVENT consumers.
  */
 struct PhaseEventDispatchState {
   struct ModuleEvent events[MAX_PHASE_EVENTS];
@@ -65,6 +65,7 @@ struct PhaseEventDispatchState {
   int ngal;
   bool active;
   bool emission_allowed;
+  int current_producer_module_id; /**< module_id of the currently executing producer */
 };
 
 static struct PhaseEventDispatchState phase_event_state = {
@@ -76,7 +77,8 @@ static struct PhaseEventDispatchState phase_event_state = {
     .halos = NULL,
     .ngal = 0,
     .active = false,
-    .emission_allowed = false};
+    .emission_allowed = false,
+    .current_producer_module_id = 0};
 
 /**
  * @brief   Find a registered module by name
@@ -87,6 +89,24 @@ static struct PhaseEventDispatchState phase_event_state = {
 static struct Module *find_module_by_name(const char *name) {
   for (int i = 0; i < num_registered_modules; i++) {
     if (strcmp(registered_modules[i]->name, name) == 0) {
+      return registered_modules[i];
+    }
+  }
+  return NULL;
+}
+
+/**
+ * @brief   Find a registered module by its generated module_id
+ *
+ * @param   module_id   Generated producer ID (from MODULE_ID_* macros)
+ * @return  Pointer to module if found, NULL otherwise
+ */
+static struct Module *find_module_by_id(int module_id) {
+  if (module_id <= 0) {
+    return NULL;
+  }
+  for (int i = 0; i < num_registered_modules; i++) {
+    if (registered_modules[i]->module_id == module_id) {
       return registered_modules[i];
     }
   }
@@ -337,6 +357,77 @@ static int validate_phase_processing_modes(struct PhaseModuleConfig *config,
   return 0;
 }
 
+/**
+ * @brief   Validate event subscription contracts for a phase
+ *
+ * Ensures every process_per_event module in the phase:
+ * 1. Declares at least one subscription (process_per_event with no subscriptions
+ *    is a configuration error that would silently receive no events).
+ * 2. Each referenced producer is present in the same phase as process_full_halo.
+ *
+ * @param   config       Phase module configuration array
+ * @param   num_modules  Number of modules in phase
+ * @param   phase_name   Phase name for error messages
+ * @return  0 on success, -1 on validation failure
+ */
+static int validate_event_subscriptions(struct PhaseModuleConfig *config,
+                                        int num_modules,
+                                        const char *phase_name) {
+  for (int i = 0; i < num_modules; i++) {
+    if (config[i].processing_mode != PROCESSING_MODE_PER_EVENT) {
+      continue;
+    }
+
+    struct Module *consumer = find_module_by_name(config[i].module_name);
+    if (consumer == NULL) {
+      continue; /* Missing module handled by add_module_to_pipeline */
+    }
+
+    /* Every process_per_event module must declare subscriptions */
+    if (consumer->num_subscriptions == 0) {
+      ERROR_LOG("Configuration error in phase '%s':", phase_name);
+      ERROR_LOG("  Module '%s' is configured as process_per_event but declares "
+                "no event subscriptions in module_info.yaml",
+                consumer->name);
+      ERROR_LOG("  Fix: Add an events.consumes section to %s/module_info.yaml",
+                consumer->name);
+      return -1;
+    }
+
+    /* Each subscription's producer must be in the same phase as process_full_halo */
+    for (int s = 0; s < consumer->num_subscriptions; s++) {
+      int producer_id = consumer->subscriptions[s].producer_module_id;
+      const char *producer_name = consumer->subscriptions[s].producer_name;
+      bool producer_found = false;
+
+      for (int j = 0; j < num_modules; j++) {
+        if (config[j].processing_mode != PROCESSING_MODE_FULL_HALO) {
+          continue;
+        }
+        struct Module *candidate = find_module_by_name(config[j].module_name);
+        if (candidate != NULL && candidate->module_id == producer_id) {
+          producer_found = true;
+          break;
+        }
+      }
+
+      if (!producer_found) {
+        ERROR_LOG("Configuration error in phase '%s':", phase_name);
+        ERROR_LOG("  Module '%s' (process_per_event) subscribes to producer "
+                  "'%s' (id=%d, event='%s'), but that producer is not "
+                  "configured as process_full_halo in the same phase",
+                  consumer->name, producer_name, producer_id,
+                  consumer->subscriptions[s].event_name);
+        ERROR_LOG("  Fix: Add '%s: process_full_halo' to the %s phase in "
+                  "the input YAML, or move both modules to the same phase",
+                  producer_name, phase_name);
+        return -1;
+      }
+    }
+  }
+  return 0;
+}
+
 int module_system_init(void) {
   INFO_LOG("Initializing multi-phase module system");
 
@@ -398,6 +489,33 @@ int module_system_init(void) {
 
   INFO_LOG("Processing mode validation passed");
 
+  /* Validate event subscription contracts for each phase */
+  INFO_LOG("Validating event subscription contracts...");
+
+  if (validate_event_subscriptions(MimicConfig.pre_timestep,
+                                   MimicConfig.num_pre_timestep,
+                                   "pre_timestep") != 0) {
+    return -1;
+  }
+
+  if (validate_event_subscriptions(MimicConfig.phase_1, MimicConfig.num_phase_1,
+                                   "phase_1") != 0) {
+    return -1;
+  }
+
+  if (validate_event_subscriptions(MimicConfig.phase_2, MimicConfig.num_phase_2,
+                                   "phase_2") != 0) {
+    return -1;
+  }
+
+  if (validate_event_subscriptions(MimicConfig.post_timestep,
+                                   MimicConfig.num_post_timestep,
+                                   "post_timestep") != 0) {
+    return -1;
+  }
+
+  INFO_LOG("Event subscription validation passed");
+
   /* Initialize all modules in pipeline order */
   for (int i = 0; i < num_pipeline_modules; i++) {
     struct Module *mod = execution_pipeline[i];
@@ -431,6 +549,7 @@ static void begin_phase_event_dispatch(struct PhaseModuleConfig *phase_config,
   phase_event_state.ngal = ngal;
   phase_event_state.active = true;
   phase_event_state.emission_allowed = false;
+  phase_event_state.current_producer_module_id = 0;
 
   if (ctx != NULL) {
     ctx->active_event = NULL;
@@ -454,10 +573,15 @@ static void end_phase_event_dispatch(void) {
   phase_event_state.ngal = 0;
   phase_event_state.active = false;
   phase_event_state.emission_allowed = false;
+  phase_event_state.current_producer_module_id = 0;
 }
 
 /**
- * @brief   Dispatch a contiguous range of queued events to per-event modules
+ * @brief   Dispatch a contiguous range of queued events to subscribed per-event modules
+ *
+ * Only delivers each event to consumers whose EventSubscription records match
+ * the event's (producer_module_id, event_id) pair. This is the primary routing
+ * filter; consumer modules do not need to perform defensive event-code checks.
  */
 static void dispatch_events_range(int start_index, int end_index) {
   if (!phase_event_state.active || start_index >= end_index) {
@@ -497,18 +621,33 @@ static void dispatch_events_range(int start_index, int end_index) {
         exit(EXIT_FAILURE);
       }
 
+      /* Subscription routing: only dispatch to consumers subscribed to this event */
+      bool subscribed = false;
+      for (int s = 0; s < mod->num_subscriptions; s++) {
+        if (mod->subscriptions[s].producer_module_id == event->producer_module_id &&
+            mod->subscriptions[s].event_id == event->event_id) {
+          subscribed = true;
+          break;
+        }
+      }
+      if (!subscribed) {
+        continue;
+      }
+
       phase_event_state.ctx->active_event = event;
 
-      DEBUG_LOG("Executing module: %s (event_code=%d, source=%d, target=%d, "
-                "substep %d/%d, z=%.3f)",
-                mod->name, event->event_code, event->source_index,
-                event->target_index, phase_event_state.ctx->substep_number + 1,
-                phase_event_state.ctx->num_substeps, phase_event_state.ctx->redshift);
+      DEBUG_LOG("Executing module: %s (event_id=%d, producer_module_id=%d, "
+                "source=%d, target=%d, substep %d/%d, z=%.3f)",
+                mod->name, event->event_id, event->producer_module_id,
+                event->source_index, event->target_index,
+                phase_event_state.ctx->substep_number + 1,
+                phase_event_state.ctx->num_substeps,
+                phase_event_state.ctx->redshift);
 
       int result = mod->process(phase_event_state.ctx, target_halo, 1);
       if (result != 0) {
-        ERROR_LOG("Module '%s' failed on event %d (event_code=%d, substep %d)",
-                  mod->name, event_index, event->event_code,
+        ERROR_LOG("Module '%s' failed on event %d (event_id=%d, substep %d)",
+                  mod->name, event_index, event->event_id,
                   phase_event_state.ctx->substep_number);
         exit(EXIT_FAILURE);
       }
@@ -521,7 +660,7 @@ static void dispatch_events_range(int start_index, int end_index) {
   phase_event_state.last_dispatched_event = end_index;
 }
 
-int module_emit_event(struct ModuleContext *ctx, int event_code, int source_index,
+int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
                       int target_index, double value0, double value1) {
   if (ctx == NULL) {
     ERROR_LOG("module_emit_event called with NULL context");
@@ -530,8 +669,8 @@ int module_emit_event(struct ModuleContext *ctx, int event_code, int source_inde
 
   /* Allow direct module unit tests to call producers without active dispatch. */
   if (!phase_event_state.active) {
-    DEBUG_LOG("Dropping event code=%d because no phase dispatch context is active",
-              event_code);
+    DEBUG_LOG("Dropping event_id=%d because no phase dispatch context is active",
+              event_id);
     return 0;
   }
 
@@ -543,6 +682,40 @@ int module_emit_event(struct ModuleContext *ctx, int event_code, int source_inde
   if (!phase_event_state.emission_allowed) {
     ERROR_LOG("module_emit_event is only allowed during PROCESSING_MODE_FULL_HALO execution");
     return -1;
+  }
+
+  /* Validate the emitting module declared events.emits (module_id == 0 means
+   * the generator assigned no producer ID — the module has no emits declaration) */
+  if (phase_event_state.current_producer_module_id == 0) {
+    ERROR_LOG("module_emit_event called from a module with no events.emits declaration "
+              "(module_id == 0); add an events.emits section to module_info.yaml");
+    return -1;
+  }
+
+  /* Validate event_id is positive (0 is reserved for unset) */
+  if (event_id <= 0) {
+    ERROR_LOG("module_emit_event: invalid event_id=%d (must be > 0; use generated "
+              "constants from _system/generated/event_contracts.h)", event_id);
+    return -1;
+  }
+
+  /* Validate the (producer, event_id) pair was declared in module_info.yaml */
+  const struct Module *producer =
+      find_module_by_id(phase_event_state.current_producer_module_id);
+  if (producer != NULL && producer->num_emitted_events > 0) {
+    bool event_declared = false;
+    for (int i = 0; i < producer->num_emitted_events; i++) {
+      if (producer->emitted_event_ids[i] == event_id) {
+        event_declared = true;
+        break;
+      }
+    }
+    if (!event_declared) {
+      ERROR_LOG("module_emit_event: module '%s' emitted event_id=%d which is not "
+                "declared in its events.emits (module_info.yaml)",
+                producer->name, event_id);
+      return -1;
+    }
   }
 
   if (source_index < 0 || source_index >= phase_event_state.ngal) {
@@ -565,8 +738,8 @@ int module_emit_event(struct ModuleContext *ctx, int event_code, int source_inde
 
   int event_index = phase_event_state.event_count;
   struct ModuleEvent *event = &phase_event_state.events[event_index];
-  event->type = MODULE_EVENT_TYPE_SCALAR;
-  event->event_code = event_code;
+  event->producer_module_id = phase_event_state.current_producer_module_id;
+  event->event_id = event_id;
   event->source_index = source_index;
   event->target_index = target_index;
   event->value0 = value0;
@@ -619,9 +792,11 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
               ctx->redshift);
 
     ctx->active_event = NULL;
+    phase_event_state.current_producer_module_id = mod->module_id;
     phase_event_state.emission_allowed = true;
     int result = mod->process(ctx, halos, ngal);
     phase_event_state.emission_allowed = false;
+    phase_event_state.current_producer_module_id = 0;
 
     if (result != 0) {
       ERROR_LOG("Module '%s' failed (substep %d)", mod->name, ctx->substep_number);
@@ -741,6 +916,49 @@ int module_system_cleanup(void) {
 
   INFO_LOG("Module system cleanup complete");
   return result;
+}
+
+/* ==============================================================================
+ * EVENT CONTRACT ENUMERATION
+ * ============================================================================== */
+
+void module_system_enumerate_event_contracts(EventContractCallback cb,
+                                             void *userdata) {
+  if (cb == NULL) {
+    return;
+  }
+
+  static const char *phase_names[MODULE_PHASE_COUNT] = {
+      "pre_timestep", "phase_1", "phase_2", "post_timestep"};
+
+  const struct PhaseModuleConfig *phases[MODULE_PHASE_COUNT] = {
+      MimicConfig.pre_timestep, MimicConfig.phase_1,
+      MimicConfig.phase_2,      MimicConfig.post_timestep};
+
+  const int counts[MODULE_PHASE_COUNT] = {
+      MimicConfig.num_pre_timestep, MimicConfig.num_phase_1,
+      MimicConfig.num_phase_2,      MimicConfig.num_post_timestep};
+
+  for (int p = 0; p < MODULE_PHASE_COUNT; p++) {
+    if (phases[p] == NULL) {
+      continue;
+    }
+    for (int i = 0; i < counts[p]; i++) {
+      if (phases[p][i].processing_mode != PROCESSING_MODE_PER_EVENT) {
+        continue;
+      }
+      const char *consumer_name = phases[p][i].module_name;
+      struct Module *consumer = find_module_by_name(consumer_name);
+      if (consumer == NULL || consumer->num_subscriptions == 0) {
+        continue;
+      }
+      for (int s = 0; s < consumer->num_subscriptions; s++) {
+        const struct EventSubscription *sub = &consumer->subscriptions[s];
+        cb(phase_names[p], consumer_name, sub->producer_name,
+           sub->event_name, sub->event_id, userdata);
+      }
+    }
+  }
 }
 
 /* ==============================================================================

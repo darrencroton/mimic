@@ -1,0 +1,36 @@
+# Module Metadata: test_event_producer
+#
+# WARNING: This module is for TESTING INFRASTRUCTURE ONLY
+#
+# Purpose: Minimal event producer for testing event system routing.
+# Emits a synthetic test_event from process_full_halo so that
+# test_event_consumer_alpha and test_event_consumer_beta can verify
+# that routing delivers events only to subscribed consumers.
+#
+# Part of the dedicated event system test suite (see docs/EVENT-SYSTEM-IMPROVEMENTS.md
+# Phase 5). Kept separate from test_fixture to maintain single responsibility.
+
+module:
+  name: test_event_producer
+  description: "Minimal event producer for event routing integration tests. NOT FOR PRODUCTION."
+  version: "1.0.0"
+  author: "Mimic Development Team"
+
+  supported_processing_modes: [process_full_halo]
+
+  events:
+    emits:
+      - name: test_event
+        description: "Synthetic event emitted for routing and dispatch integration tests"
+      - name: test_event_alt
+        description: "Alternate synthetic event emitted selectively to test per-subscription routing"
+
+  dependencies:
+    properties: []
+    parameters:
+      - TestEventProducerEmitCount
+      - TestEventProducerEmitAltCount
+
+  tests:
+    unit: null
+    integration: null

@@ -59,7 +59,7 @@
 #include "../../../include/globals.h"
 #include "../../../util/error.h"
 #include "../../../util/memory.h"
-#include "_shared/sage_merger_event_contract.h"
+#include "_system/generated/event_contracts.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -558,8 +558,8 @@ int test_per_event_merger_starburst(void)
     setup_test_context(&ctx, &halo);
 
     struct ModuleEvent event = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = SAGE_EVENT_MERGER,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 1,
         .target_index = 0,
         .value0 = 0.3,
@@ -621,8 +621,8 @@ int test_per_event_merger_uses_fof_central_feedback_destination(void)
     setup_test_context(&ctx, &fof_central_halo);
 
     struct ModuleEvent event = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = SAGE_EVENT_MERGER,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 2,
         .target_index = 1,
         .value0 = 0.3,
@@ -681,8 +681,8 @@ int test_per_event_merger_uses_event_dt_for_rates(void)
     struct ModuleContext ctx1;
     setup_test_context(&ctx1, &central1);
     struct ModuleEvent event1 = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = SAGE_EVENT_MERGER,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 2,
         .target_index = 1,
         .value0 = 0.3,
@@ -710,8 +710,8 @@ int test_per_event_merger_uses_event_dt_for_rates(void)
     struct ModuleContext ctx2;
     setup_test_context(&ctx2, &central2);
     struct ModuleEvent event2 = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = SAGE_EVENT_MERGER,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 2,
         .target_index = 1,
         .value0 = 0.3,
@@ -775,8 +775,8 @@ int test_per_event_minor_merger_rechecks_disk_instability(void)
     struct ModuleContext base_ctx;
     setup_test_context(&base_ctx, &base_central);
     struct ModuleEvent base_event = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = SAGE_EVENT_MERGER,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 2,
         .target_index = 1,
         .value0 = 0.2,
@@ -821,8 +821,8 @@ int test_per_event_minor_merger_rechecks_disk_instability(void)
     struct ModuleContext follow_ctx;
     setup_test_context(&follow_ctx, &follow_central);
     struct ModuleEvent follow_event = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = SAGE_EVENT_MERGER,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 2,
         .target_index = 1,
         .value0 = 0.2,
@@ -911,8 +911,8 @@ int test_per_event_recheck_respects_phase2_quasar_configuration(void)
     struct ModuleContext no_quasar_ctx;
     setup_test_context(&no_quasar_ctx, &no_quasar_central);
     struct ModuleEvent no_quasar_event = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = SAGE_EVENT_MERGER,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 2,
         .target_index = 1,
         .value0 = 0.2,
@@ -958,8 +958,8 @@ int test_per_event_recheck_respects_phase2_quasar_configuration(void)
     struct ModuleContext with_quasar_ctx;
     setup_test_context(&with_quasar_ctx, &with_quasar_central);
     struct ModuleEvent with_quasar_event = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = SAGE_EVENT_MERGER,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 2,
         .target_index = 1,
         .value0 = 0.2,
@@ -984,10 +984,13 @@ int test_per_event_recheck_respects_phase2_quasar_configuration(void)
 
 /**
  * @test    test_per_event_unknown_code_noop
- * @brief   Test unknown event code is a no-op
+ * @brief   Test zero mass ratio event is a graceful no-op
+ *
+ * Subscription routing ensures only valid events reach this module.
+ * The remaining guard is value0 <= 0.0 (zero/negative baryonic mass ratio).
  *
  * Expected: No property changes and success return
- * Validates: Defensive unknown event handling
+ * Validates: Zero-ratio early-exit guard in process_per_event path
  */
 int test_per_event_unknown_code_noop(void)
 {
@@ -1006,11 +1009,11 @@ int test_per_event_unknown_code_noop(void)
     setup_test_context(&ctx, &halo);
 
     struct ModuleEvent event = {
-        .type = MODULE_EVENT_TYPE_SCALAR,
-        .event_code = 999,
+        .producer_module_id = MODULE_ID_SAGE_RESOLVE_MERGERS_AND_DISRUPTION,
+        .event_id = SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
         .source_index = 1,
         .target_index = 0,
-        .value0 = 0.4,
+        .value0 = 0.0,  /* zero ratio — must be a no-op */
         .value1 = 0.1
     };
     ctx.active_event = &event;
@@ -1023,7 +1026,7 @@ int test_per_event_unknown_code_noop(void)
     int result = sage_starburst_feedback_process(&ctx, &halo, 1);
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == 0, "Unknown per-event code should be no-op success");
+    TEST_ASSERT(result == 0, "Zero mass ratio event should be no-op success");
     TEST_ASSERT_DOUBLE_EQUAL(gal.StellarMass, initial_stellar, 1e-12,
                              "Stellar mass should remain unchanged");
     TEST_ASSERT_DOUBLE_EQUAL(gal.BulgeMass, initial_bulge, 1e-12,

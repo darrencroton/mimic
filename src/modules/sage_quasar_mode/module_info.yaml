@@ -20,6 +20,11 @@ module:
       - BlackHoleGrowthRate
       - QuasarModeEfficiency
 
+  events:
+    consumes:
+      - producer: sage_resolve_mergers_and_disruption
+        event: merger
+
   tests:
     unit: _tests/test_unit_sage_quasar_mode.c
     integration: _tests/test_integration_sage_quasar_mode.py

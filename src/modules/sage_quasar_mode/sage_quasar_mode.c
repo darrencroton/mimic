@@ -19,7 +19,7 @@
 #include "constants.h"
 #include "error.h"
 #include "_shared/sage_agn_physics.h"
-#include "_shared/sage_merger_event_contract.h"
+#include "_system/generated/event_contracts.h"
 #include "_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "types.h"
@@ -79,10 +79,9 @@ int sage_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int 
         }
 
         const struct ModuleEvent *event = ctx->active_event;
-        if (event->event_code != SAGE_EVENT_MERGER) {
-            return 0; /* Unknown event code: graceful no-op */
-        }
 
+        /* Subscription routing (see module_info.yaml events.consumes) ensures
+         * only merger events reach this module — no event_id check needed. */
         const double merger_ratio = event->value0;
         if (merger_ratio <= 0.0) {
             return 0;

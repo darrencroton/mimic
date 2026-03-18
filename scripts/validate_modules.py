@@ -165,8 +165,14 @@ def discover_modules() -> List[Tuple[Path, Optional[Dict[str, Any]]]]:
     for item in sorted(MODULES_DIR.iterdir()):
         # Pattern 1: Directory with module_info.yaml
         if item.is_dir():
-            # Skip template directory
+            # Skip infrastructure directories — but include _system/test_* modules,
+            # which are compiled and registered as runtime modules (same rule as
+            # generate_module_registry.py and generate_test_registry.py).
             if item.name.startswith("_"):
+                if item.name == "_system":
+                    # Include test_* subdirectories only
+                    for sub in sorted(item.glob("test_*/module_info.yaml")):
+                        modules.append((sub.parent, load_module_metadata(sub.parent)))
                 continue
 
             metadata = load_module_metadata(item)
@@ -583,8 +589,11 @@ def validate_test_files(
     # Unit tests can be in tests/unit/ OR co-located with module
     if "unit" in tests:
         unit_test = tests["unit"]
+        # null means "no unit test" — treat as absent
+        if unit_test is None:
+            pass
         # Handle list format (e.g., shared utilities with multiple tests)
-        if isinstance(unit_test, list):
+        elif isinstance(unit_test, list):
             for test_file in unit_test:
                 # Check module directory first (co-located)
                 module_test_path = module_dir / test_file
@@ -607,8 +616,11 @@ def validate_test_files(
     # Integration tests are co-located with module
     if "integration" in tests:
         integration_test = tests["integration"]
+        # null means "no integration test" — treat as absent
+        if integration_test is None:
+            pass
         # Handle list format
-        if isinstance(integration_test, list):
+        elif isinstance(integration_test, list):
             for test_file in integration_test:
                 int_test_path = module_dir / test_file
                 if not int_test_path.exists():
@@ -625,8 +637,11 @@ def validate_test_files(
     # Scientific tests are co-located with module
     if "scientific" in tests:
         scientific_test = tests["scientific"]
+        # null means "no scientific test" — treat as absent
+        if scientific_test is None:
+            pass
         # Handle list format
-        if isinstance(scientific_test, list):
+        elif isinstance(scientific_test, list):
             for test_file in scientific_test:
                 sci_test_path = module_dir / test_file
                 if not sci_test_path.exists():
@@ -655,11 +670,14 @@ def validate_doc_files(
     docs = module["docs"]
 
     if "physics" in docs:
-        physics_doc_path = REPO_ROOT / docs["physics"]
-        if not physics_doc_path.exists():
-            results.add_warning(
-                module_name, f"Physics documentation not found: {docs['physics']}"
-            )
+        physics_doc = docs["physics"]
+        # null means "no physics doc" — treat as absent
+        if physics_doc is not None:
+            physics_doc_path = REPO_ROOT / physics_doc
+            if not physics_doc_path.exists():
+                results.add_warning(
+                    module_name, f"Physics documentation not found: {physics_doc}"
+                )
 
     return True
 

@@ -353,6 +353,7 @@ Master file (`model.hdf5`):
   ├── @BoxSize, @Hubble_h, @Omega (simulation parameters)
   ├── Version/ (@git_commit, @git_branch, @hdf5_format_version)
   ├── EnabledModules (module_name, phase, processing_mode)
+  ├── EventContracts (phase, consumer_module, producer_module, event_name, event_id)
   ├── Parameters (param_name, value pairs)
   └── Redshifts (z for each snapshot)
 
@@ -370,6 +371,20 @@ Per-file output (`model_000.hdf5`):
   │   ├── @Ntrees
   │   └── @TotHalosPerSnap
   └── TreeHalosPerSnap (halos per tree)
+```
+
+`EventContracts` records every active event subscription for this run — one row
+per consumer/producer pair. If no modules use the event system, the dataset is
+omitted. Read it to verify which modules are wired together:
+
+```python
+with h5py.File("model.hdf5", "r") as f:
+    if "RunProperties/EventContracts" in f:
+        contracts = f["RunProperties/EventContracts"][:]
+        for row in contracts:
+            print(f"{row['phase'].decode()}: {row['consumer_module'].decode()} "
+                  f"← {row['producer_module'].decode()}/{row['event_name'].decode()} "
+                  f"(id={row['event_id']})")
 ```
 
 ### Plotting

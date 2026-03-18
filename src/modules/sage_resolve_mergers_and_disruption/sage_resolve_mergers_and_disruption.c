@@ -13,7 +13,7 @@
 #include <math.h>
 
 #include "../_shared/central_link.h"
-#include "../_shared/sage_merger_event_contract.h"
+#include "../_system/generated/event_contracts.h"
 #include "sage_merger_ops.h"
 #include "../_shared/time_parity.h"
 #include "../_system/parameter_helpers.h"
@@ -174,8 +174,8 @@ int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx,
     mimic_sage_merge_transfer(target, satellite);
 
     if (mass_ratio > 0.0) {
-      if (module_emit_event(ctx, SAGE_EVENT_MERGER, i, target_idx, mass_ratio,
-                            source_dt) != 0) {
+      if (module_emit_event(ctx, SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                            i, target_idx, mass_ratio, source_dt) != 0) {
         ERROR_LOG("Failed to emit immediate merger event (source=%d, target=%d, ratio=%.6f)",
                   i, target_idx, mass_ratio);
         return -1;
