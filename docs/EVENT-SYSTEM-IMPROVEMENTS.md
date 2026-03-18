@@ -1,496 +1,565 @@
-# Event System Improvements: Routing and Flexible Payloads
+# Event System Implementation Plan
 
-**Purpose**: Design improvements to Mimic's event system so that multiple physics
-models — not just SAGE — can define, emit, and consume diverse event types without
-modifying core infrastructure.
+## Objective
 
-**Scope**: Core event dispatch (`module_registry.c`), event payload structure
-(`module_interface.h`), module metadata (`module_info.yaml`), and YAML pipeline
-configuration.
+Provide an implementation-ready plan for generalising Mimic's event system so it:
 
-**Guiding Principles**: All changes must satisfy the 8 core architectural
-principles in `docs/VISION.md`. The two most relevant are:
+1. serves as clean core infrastructure rather than merger-shaped infrastructure
+2. remains simple and transparent for model builders
+3. supports the current SAGE merger pathway as the first user of the generalised system
+4. leaves room for future non-merger event uses without redesigning the core again
 
-- **Principle 1 (Physics-Agnostic Core)**: The core must never know specific event
-  codes or payload semantics. Event codes remain module-defined integers.
-- **Principle 3 (Metadata-Driven Architecture)**: New capabilities should be
-  expressible through metadata and YAML configuration, not hardcoded logic.
+This plan supersedes the earlier proposal-oriented contents of this file.
 
----
+## Scope
 
-## 1. Current Event System (Baseline)
+Included:
 
-### 1.1 Architecture Overview
+- event identity, contracts, routing, and validation
+- module metadata and generator changes
+- core runtime changes
+- migration of the current SAGE merger event chain
+- output metadata
+- documentation and testing requirements
 
-The event system enables cross-galaxy communication during phase execution.
-It has three roles:
+Excluded:
 
-| Role | Processing Mode | Description |
-|------|----------------|-------------|
-| **Producer** | `process_full_halo` | Iterates the full FOF halo array, emits events via `module_emit_event()` |
-| **Consumer** | `process_per_event` | Receives one event at a time; core sets `ctx->active_event` and passes the target halo |
-| **Bystander** | `process_by_galaxy` | Runs after all events are dispatched; sees `ctx->active_event == NULL` |
+- arbitrary pointer payloads
+- asynchronous or deferred event dispatch
+- non-event pipeline redesign
+- cross-phase event persistence
 
-### 1.2 Key Files
+## Context
 
-| File | Role |
-|------|------|
-| `src/core/module_interface.h` | Defines `struct ModuleEvent`, `enum ModuleEventType`, `module_emit_event()` signature |
-| `src/core/module_registry.c` | Implements event buffering, dispatch loop, emission guards |
-| `src/core/module_registry.h` | Defines `struct PhaseModuleConfig` (module name + processing mode) |
-| `src/modules/_shared/sage_events.h` | SAGE-specific event codes (`SAGE_EVENT_MERGER = 1`) |
+Mimic already has a useful event-system skeleton:
 
-### 1.3 Data Structures
+- producers emit during `process_full_halo`
+- consumers receive targeted halos during `process_per_event`
+- dispatch is phase-local and synchronous
 
-```c
-/* module_interface.h */
-enum ModuleEventType {
-  MODULE_EVENT_TYPE_NONE = 0,
-  MODULE_EVENT_TYPE_SCALAR = 1
-};
+The current implementation is still too narrow for long-term reuse because:
 
-struct ModuleEvent {
-  enum ModuleEventType type;   /* Payload encoding */
-  int event_code;              /* Producer-defined semantic code */
-  int source_index;            /* Source halo index in FoFWorkspace */
-  int target_index;            /* Target halo index in FoFWorkspace */
-  double value0;               /* Primary scalar payload */
-  double value1;               /* Secondary scalar payload */
-};
-```
+- every `process_per_event` consumer receives every event
+- event identity is effectively just a raw integer
+- event wiring is not visible in module metadata or run metadata
+- consumer modules still rely on defensive manual filtering in C
 
-Phase-local buffering (`module_registry.c`):
+The goal is not to create a fully generic message bus. The goal is to define a
+small, stable, scientific-computing event mechanism that fits Mimic's
+architecture and can be reused by different galaxy models.
 
-```c
-#define MAX_PHASE_EVENTS 4096
+## Problem Statement
 
-struct PhaseEventDispatchState {
-  struct ModuleEvent events[MAX_PHASE_EVENTS];
-  int event_count;
-  int last_dispatched_event;
-  struct PhaseModuleConfig *phase_config;
-  int num_modules;
-  struct ModuleContext *ctx;
-  struct Halo *halos;
-  int ngal;
-  bool active;
-  bool emission_allowed;
-};
-```
+The current event system is under-generalised in the wrong places and
+over-flexible in the wrong places.
 
-### 1.4 Dispatch Flow
+Under-generalised:
 
-Within `execute_phase()`, processing happens in three passes:
+- event routing is broadcast-based rather than contract-based
+- event identity is not producer-scoped
+- event behavior is not represented in module metadata
+- run metadata does not preserve event wiring explicitly
 
-1. **Pass 1 — Full-halo producers**: Each `process_full_halo` module runs with
-   `emission_allowed = true`. When a producer calls `module_emit_event()`, the
-   event is appended to the phase buffer and **immediately dispatched** to all
-   `process_per_event` consumers in YAML order.
+Over-flexible in the previous proposal:
 
-2. **Pass 2 — Safety dispatch**: After each full-halo module completes, any
-   un-dispatched events are flushed (defensive — normally a no-op since events
-   dispatch immediately on emit).
+- arbitrary opaque payload pointers add lifetime and ownership complexity before
+  Mimic has a demonstrated need for them
 
-3. **Pass 3 — By-galaxy modules**: Galaxy-major loop over all
-   `process_by_galaxy` modules. `ctx->active_event` is NULL.
+Mimic needs a simpler and more architectural solution:
 
-### 1.5 Emission Guards
+- human-authored event contracts belong in module metadata
+- runtime dispatch should use resolved machine-friendly identifiers
+- the current merger pathway should become the first clean instance of the
+  general system
 
-- Events can **only** be emitted during `PROCESSING_MODE_FULL_HALO` execution.
-- Emission is **disabled** during consumer dispatch to prevent recursive re-emit.
-- Outside active phase dispatch (e.g., some unit tests), events are dropped with a
-  `DEBUG_LOG` message rather than an error.
+## Goals
 
-### 1.6 Current Usage
+- Generalise the event system without changing Mimic's high-level execution model.
+- Keep input YAML focused on phase structure and processing mode.
+- Move event contracts into `module_info.yaml` so they become metadata-driven.
+- Make event identity producer-scoped.
+- Route only to subscribed consumers.
+- Keep the first generalised payload model small and numeric.
+- Preserve or improve reproducibility via run metadata.
+- Give a fresh implementation team a concrete file-by-file path.
 
-Only one event type exists: `SAGE_EVENT_MERGER`.
+## Non-Goals
 
-- **Producer**: `sage_handle_mergers_immediate` (phase_2, `process_full_halo`)
-  emits merger events after `mimic_sage_merge_transfer()` completes.
-- **Consumers**: `sage_quasar_mode` and `sage_collisional_starburst` (phase_2,
-  `process_per_event`) both receive every event and check
-  `event->event_code == SAGE_EVENT_MERGER` before acting.
+- No wildcard or broadcast consumer mode in the first generalised version.
+- No arbitrary `void *` or borrowed-pointer payloads.
+- No event emission from `process_per_event` or `process_by_galaxy` in v1.
+- No attempt to solve every hypothetical future event shape now.
+- No changes to the existing phase model (`pre_timestep`, `phase_1`, `phase_2`,
+  `post_timestep`).
 
-YAML configuration (`input/millennium.yaml`):
+## Constraints
 
-```yaml
-phase_2:
-  - sage_handle_mergers_immediate: process_full_halo
-  - sage_quasar_mode: process_per_event
-  - sage_collisional_starburst: process_per_event
-```
+- The design must align with `docs/VISION.md`, especially Principles 1, 3, 4, 5, and 8.
+- The design should follow KISS and DRY.
+- The input YAML parser should remain unchanged if possible.
+- Event dispatch should remain phase-local and synchronous.
+- Existing SAGE merger behavior must be preserved after migration.
+- Output metadata should remain self-describing and reproducible.
 
----
+## Method
 
-## 2. Identified Limitations
+This plan is based on review of:
 
-### 2.1 No Event Routing (All Consumers Receive All Events)
+- current event dispatch and phase execution code
+- current module metadata / generator patterns
+- current SAGE merger event users
+- current HDF5 run metadata design
+- the approved architectural direction in `docs/EVENT-SYSTEM-RECOMMENDATION.md`
 
-**Problem**: `dispatch_events_range()` iterates all `process_per_event` modules
-in the phase and calls every one of them for every event, regardless of
-`event_code`. Consumers must internally check and silently ignore irrelevant
-events.
+## Evidence
 
-**Current dispatch logic** (`module_registry.c:406-446`):
+- Current broadcast dispatch: `src/core/module_registry.c:486-515`
+- Current event payload shape: `src/core/module_interface.h:158-165`
+- Current phase parser shape: `src/core/read_parameter_file.c:440-493`
+- Current metadata-driven module architecture:
+  - `docs/VISION.md:51-62`
+  - `docs/DEVELOPER-GUIDE.md:1233-1258`
+  - `scripts/generate_module_registry.py:274-316`
+- Current run metadata dataset:
+  - `src/io/output/hdf5.c:654-763`
+  - `docs/USER-GUIDE.md:348-357`
 
-```c
-for (int event_index = start_index; event_index < end_index; event_index++) {
-  const struct ModuleEvent *event = &phase_event_state.events[event_index];
-  struct Halo *target_halo = &phase_event_state.halos[event->target_index];
+## Options Considered
 
-  for (int i = 0; i < phase_event_state.num_modules; i++) {
-    if (phase_config[i].processing_mode != PROCESSING_MODE_PER_EVENT)
-      continue;
-    // ^^^ No event_code filter — ALL per-event modules called for ALL events
-    struct Module *mod = find_module_by_name(phase_config[i].module_name);
-    mod->process(ctx, target_halo, 1);
-  }
-}
-```
+### Option A: YAML routing plus pointer payloads
 
-**Consequences as Mimic scales**:
+Rejected as the target design.
 
-- **Wasted work**: If a phase has 5 event types and 10 consumers, each event
-  triggers 10 function calls even if only 2 consumers care about that type.
-- **Error-prone**: A consumer that forgets the `event_code` check silently
-  processes the wrong event type. This is a latent physics bug with no compile-time
-  or runtime guard.
-- **Unclear dependencies**: Reading the YAML, you cannot tell which consumer
-  responds to which event type. The relationship is buried in C code.
+Why rejected:
 
-### 2.2 Fixed Payload Shape (Two Doubles Only)
+- moves too much module behavior into runtime YAML
+- duplicates event contracts across metadata and YAML
+- introduces fragile payload lifetime rules too early
 
-**Problem**: `struct ModuleEvent` provides exactly `value0` and `value1`. This
-is sufficient for SAGE mergers (mass ratio + dt) but constrains future models.
+### Option B: YAML routing only
 
-**Examples of payloads that don't fit two doubles**:
+Rejected as the target design.
 
-| Hypothetical Event | Required Payload |
-|-------------------|-----------------|
-| Ram-pressure stripping | 3D velocity vector (3 doubles), gas density |
-| Multi-species feedback | yields per element (N doubles) |
-| Tidal interaction | orbital parameters (eccentricity, pericenter, inclination) |
-| Environmental quenching | local density, distance to cluster centre, temperature |
+Why rejected:
 
-A model author's only workaround today is to stash extra data in galaxy
-properties as temporary transport fields — the same pattern that
-`sage_disk_instability` uses for `UnstableDiskGasFraction`. This works but
-defeats the purpose of the event system by scattering payload data across two
-mechanisms.
+- fixes routing, but leaves too much implicit event behavior in C
+- does not make event contracts a metadata-level concern
+- is weaker on DRY and long-term transparency
 
----
+### Option C: Metadata-owned contracts, producer-scoped routing, conservative payloads
 
-## 3. Proposed Improvements
+Selected.
 
-### 3.1 Event Subscription via YAML (Event Routing)
+Why selected:
 
-#### 3.1.1 Design
+- best fit to Mimic's metadata-driven architecture
+- cleanest separation between pipeline structure and module behavior
+- easiest model-builder story
+- strongest DRY outcome
+- avoids over-designing payloads before needed
 
-Allow `process_per_event` consumers to declare which event codes they subscribe
-to, directly in the pipeline YAML. The core routes events only to matching
-consumers.
+## Recommended Approach
 
-**New YAML syntax**:
+### 1. Keep the current execution model
+
+Retain:
+
+- `process_full_halo` as the only event producer mode in v1
+- `process_per_event` as the event consumer mode
+- phase-local event buffering
+- immediate synchronous dispatch
+- target-halo delivery
+
+This preserves Mimic's unified processing model and avoids unnecessary
+architectural churn.
+
+### 2. Make authored event contracts metadata-driven
+
+Add optional event sections to `module_info.yaml`.
+
+Producer metadata:
 
 ```yaml
-phase_2:
-  - sage_handle_mergers_immediate: process_full_halo
-  - sage_quasar_mode:
-      mode: process_per_event
-      events: [1]                    # SAGE_EVENT_MERGER = 1
-  - sage_collisional_starburst:
-      mode: process_per_event
-      events: [1]                    # SAGE_EVENT_MERGER = 1
+module:
+  name: sage_resolve_mergers_and_disruption
+  supported_processing_modes: [process_full_halo]
+  events:
+    emits:
+      - name: merger
+        description: "Emitted after live-target merger transfer completes"
 ```
 
-**Rules**:
-
-- `events` is an optional list of integer event codes.
-- If `events` is **omitted**, the consumer receives **all** events (preserves
-  current broadcast behaviour for backward compatibility).
-- If `events` is **present**, the consumer is only called for events whose
-  `event_code` matches one of the listed integers.
-- Event codes are opaque integers to the core — their meaning is defined by
-  physics modules (Principle 1).
-
-The shorthand form remains valid for broadcast consumers:
+Consumer metadata:
 
 ```yaml
-  - my_catch_all_consumer: process_per_event   # receives everything
+module:
+  name: sage_quasar_mode
+  supported_processing_modes: [process_by_galaxy, process_per_event]
+  events:
+    consumes:
+      - producer: sage_resolve_mergers_and_disruption
+        event: merger
 ```
 
-#### 3.1.2 Data Structure Changes
+Author-facing rule:
 
-Extend `PhaseModuleConfig` in `module_registry.h`:
+- humans write event names in metadata
+- humans do not hand-author numeric event IDs in v1
+
+### 3. Generate numeric IDs for runtime and C code
+
+Numeric IDs are still useful internally, but they should be generated rather
+than manually duplicated.
+
+Generated artifacts should provide:
+
+- per-producer event ID enums for module C code
+- lookup tables for emitted events
+- lookup tables for consumer subscriptions
+
+Recommended generated interface:
 
 ```c
-struct PhaseModuleConfig {
-  char *module_name;
-  enum ProcessingMode processing_mode;
-
-  /* Event subscription filter (only for PROCESSING_MODE_PER_EVENT) */
-  int *subscribed_event_codes;    /* NULL = subscribe to all (broadcast) */
-  int num_subscribed_event_codes; /* 0 when subscribed_event_codes is NULL */
+enum SageResolveMergersAndDisruptionEventId {
+  SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER = 1
 };
 ```
 
-#### 3.1.3 Dispatch Logic Change
-
-In `dispatch_events_range()`, add a filter check before calling each consumer:
-
-```c
-for (int i = 0; i < phase_event_state.num_modules; i++) {
-  if (phase_config[i].processing_mode != PROCESSING_MODE_PER_EVENT)
-    continue;
-
-  /* NEW: event code filter */
-  if (!event_matches_subscription(&phase_config[i], event->event_code))
-    continue;
-
-  /* ... existing dispatch ... */
-}
-```
-
-Where `event_matches_subscription()` is:
+Producer code then emits by generated constant rather than by handwritten raw
+integer:
 
 ```c
-static bool event_matches_subscription(const struct PhaseModuleConfig *config,
-                                       int event_code) {
-  if (config->subscribed_event_codes == NULL)
-    return true;  /* broadcast: no filter */
-
-  for (int j = 0; j < config->num_subscribed_event_codes; j++) {
-    if (config->subscribed_event_codes[j] == event_code)
-      return true;
-  }
-  return false;
-}
+module_emit_event(ctx, SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER,
+                  source_index, target_index, value0, value1);
 ```
 
-#### 3.1.4 YAML Parsing Changes
+This gives the runtime compact numeric identifiers without making model builders
+manage those IDs manually.
 
-The YAML parser for phase configuration (`config.c` or equivalent) must handle
-the extended map form alongside the existing string shorthand. Pseudocode:
+### 4. Make event identity producer-scoped
 
-```
-for each entry in phase list:
-  if entry is "module_name: mode_string":
-    parse as before (subscribed_event_codes = NULL)
-  else if entry is "module_name: {mode: ..., events: [...]}":
-    parse mode from "mode" key
-    parse subscribed_event_codes from "events" list
-    validate: events list only valid when mode == process_per_event
-```
+The core should treat event identity as:
 
-#### 3.1.5 Validation
+- producer module
+- event ID within that producer
 
-At pipeline init time (`module_system_init()`), add:
-
-- **Warning**: If a `process_per_event` module has no `events` filter and the
-  phase has multiple event-emitting producers, log a warning that the consumer
-  will receive all event types. This catches accidental broadcast subscriptions.
-- **Error**: If `events` is specified on a non-`process_per_event` module, fail
-  with a clear message.
-
-#### 3.1.6 Impact on Existing Modules
-
-**None.** The shorthand YAML syntax is unchanged. Existing consumers with no
-`events` field get `subscribed_event_codes = NULL`, which means broadcast —
-identical to current behaviour. No module C code changes are required.
-
----
-
-### 3.2 Extended Event Payloads
-
-#### 3.2.1 Design
-
-Add an optional opaque payload pointer to `ModuleEvent` so producers can attach
-arbitrary data. The core transports the pointer without inspecting it. Producers
-and consumers share the payload type definition via module-level headers.
-
-#### 3.2.2 Data Structure Changes
-
-In `module_interface.h`, extend `ModuleEvent`:
+Recommended runtime shape:
 
 ```c
 struct ModuleEvent {
-  enum ModuleEventType type;
-  int event_code;
+  int producer_module_id;
+  int event_id;
   int source_index;
   int target_index;
-  double value0;              /* Keep for simple payloads */
-  double value1;              /* Keep for simple payloads */
-  const void *payload;        /* NEW: optional opaque extended payload */
-  size_t payload_size;        /* NEW: payload size in bytes (0 = unused) */
+  double value0;
+  double value1;
 };
 ```
 
-#### 3.2.3 API Changes
+Equivalent representations are acceptable if they preserve these semantics and
+keep hot-path dispatch numeric rather than string-based.
 
-Extend `module_emit_event()` with a new variant for extended payloads:
+### 5. Route from resolved subscriptions, not consumer-side filtering
 
-```c
-/* Existing API — unchanged, sets payload=NULL, payload_size=0 */
-int module_emit_event(struct ModuleContext *ctx, int event_code,
-                      int source_index, int target_index,
-                      double value0, double value1);
+At startup:
 
-/* NEW: emit with extended payload */
-int module_emit_event_ex(struct ModuleContext *ctx, int event_code,
-                         int source_index, int target_index,
-                         double value0, double value1,
-                         const void *payload, size_t payload_size);
-```
+- resolve each configured `process_per_event` module's subscriptions from its
+  metadata declarations
+- validate that the referenced producer is enabled in the same phase
+- validate that the referenced event exists on that producer
+- validate that the consumer is configured in `process_per_event`
 
-The original `module_emit_event()` is implemented as a thin wrapper:
+At dispatch:
 
-```c
-int module_emit_event(struct ModuleContext *ctx, int event_code,
-                      int source_index, int target_index,
-                      double value0, double value1) {
-  return module_emit_event_ex(ctx, event_code, source_index, target_index,
-                              value0, value1, NULL, 0);
-}
-```
+- only call consumer modules whose resolved `(producer_module_id, event_id)`
+  subscription matches the emitted event
 
-#### 3.2.4 Payload Lifetime and Ownership
+Design rule:
 
-**Critical constraint**: Events are dispatched **immediately** when emitted
-(inside `module_emit_event()`). This means the producer's stack frame is still
-active when consumers run. Therefore:
+- no implicit broadcast delivery in v1
+- if a module is configured as `process_per_event`, it must declare
+  `events.consumes`
 
-- Producers can pass a pointer to a **stack-allocated** struct. The pointer is
-  valid for the duration of consumer dispatch.
-- No heap allocation or deep copy is needed.
-- After `module_emit_event_ex()` returns, the payload pointer is no longer
-  stored — it is safe to let the stack variable go out of scope.
+This is stricter than the current system and is intentional. It improves
+scientific safety and transparency.
 
-This is the same lifetime model as `ctx->active_event` itself (valid only during
-the consumer's `process()` call).
+### 6. Keep the first payload model conservative
 
-#### 3.2.5 Consumer Access Pattern
+For v1, retain the existing two-scalar payload shape:
 
-```c
-/* In a consumer module */
-#include "my_model_events.h"   /* defines struct MyStrippingPayload */
+- `value0`
+- `value1`
 
-static int my_consumer_process(struct ModuleContext *ctx,
-                               struct Halo *halos, int ngal) {
-  if (ctx->active_event == NULL) return 0;
-  if (ctx->active_event->event_code != MY_EVENT_STRIPPING) return 0;
+Do not add:
 
-  /* Type-safe payload access */
-  const struct MyStrippingPayload *p =
-      (const struct MyStrippingPayload *)ctx->active_event->payload;
+- `void *payload`
+- borrowed payload ownership rules
+- deep-copy payload infrastructure
 
-  apply_stripping(halos[0].galaxy, p->velocity, p->gas_density);
-  return 0;
-}
-```
+If a future use case needs more numeric context, the first expansion path should
+be a small fixed numeric payload, not a pointer payload.
 
-#### 3.2.6 Safety Considerations
+### 7. Preserve reproducibility explicitly
 
-- The core never dereferences `payload`. It stores and forwards the pointer
-  only (Principle 1).
-- `payload_size` is informational — it enables defensive checks in consumers
-  (`assert(event->payload_size == sizeof(MyPayload))`) but the core does not
-  use it.
-- Producers that use the original `module_emit_event()` automatically get
-  `payload = NULL, payload_size = 0`. Consumers checking `payload != NULL`
-  before casting are safe.
+Add an `EventContracts` dataset to HDF5 run metadata under `RunProperties`.
 
-#### 3.2.7 Impact on Existing Modules
+Recommended fields:
 
-**Minimal.** The original `module_emit_event()` signature is unchanged. The
-`struct ModuleEvent` gains two new fields at the end, initialized to zero/NULL
-by the original API. Existing consumers never read `payload` and are unaffected.
+- `phase`
+- `consumer_module`
+- `producer_module`
+- `event_name`
+- `event_id`
 
----
+This keeps the run self-describing even when event contracts live in metadata
+and are resolved at startup.
 
-## 4. Implementation Plan
+## Implementation Phases
 
-### Phase A: Event Routing (Higher Priority)
+### Phase 0: Finalise representation choices
 
-This is the higher-priority change because it affects correctness and
-maintainability. Without routing, adding a second event type creates a class of
-silent bugs.
+Deliverables:
 
-| Step | File(s) | Change |
-|------|---------|--------|
-| A1 | `src/core/module_registry.h` | Add `subscribed_event_codes` and `num_subscribed_event_codes` to `PhaseModuleConfig` |
-| A2 | `src/core/module_registry.c` | Add `event_matches_subscription()` helper; insert filter in `dispatch_events_range()` |
-| A3 | YAML parser (likely `src/core/config.c`) | Support extended map form `{mode: ..., events: [...]}` alongside string shorthand |
-| A4 | `src/core/module_registry.c` | Add validation in `module_system_init()`: warn on broadcast consumers when multiple producers exist; error on `events` with non-per-event mode |
-| A5 | Memory cleanup | Free `subscribed_event_codes` arrays during `module_system_cleanup()` or config teardown |
-| A6 | Tests | Unit tests for `event_matches_subscription()`: broadcast (NULL), single match, multi-match, no match. Integration test with two event types in one phase verifying correct routing. |
-| A7 | `docs/DEVELOPER-GUIDE.md` | Update `process_per_event` examples to show new YAML syntax |
-| A8 | `input/millennium.yaml` | Optionally update SAGE consumers to use explicit `events: [1]` (not required — backward compatible) |
+- approve metadata schema
+- approve generated-ID approach
+- approve `EventContracts` output metadata
 
-### Phase B: Extended Payloads (Lower Priority)
+Decisions for this plan:
 
-This can wait until a concrete use case arrives. It is a smaller change with no
-backward-compatibility risk.
+- event names are the authored source of truth
+- numeric event IDs are generated
+- no parser-level event filters in input YAML
+- no pointer payloads in v1
 
-| Step | File(s) | Change |
-|------|---------|--------|
-| B1 | `src/core/module_interface.h` | Add `payload` and `payload_size` fields to `struct ModuleEvent` |
-| B2 | `src/core/module_interface.h` | Declare `module_emit_event_ex()` |
-| B3 | `src/core/module_registry.c` | Implement `module_emit_event_ex()`; refactor `module_emit_event()` as wrapper |
-| B4 | `src/core/module_registry.c` | Initialize `payload = NULL, payload_size = 0` in the `_ex` function |
-| B5 | Tests | Unit test: emit with payload, verify consumer receives correct pointer and size. Unit test: emit without payload (original API), verify NULL. |
-| B6 | `docs/DEVELOPER-GUIDE.md` | Add extended payload example |
+### Phase 1: Extend module metadata schema and generator
 
-### Phase C: Optional Enhancements (Future)
+Files:
 
-These are not required now but are natural extensions once A and B land.
+- `scripts/generate_module_registry.py`
+- `src/modules/_system/template/template_module_info.yaml`
+- `docs/DEVELOPER-GUIDE.md`
 
-- **Named event codes in YAML**: Allow `events: [merger]` instead of
-  `events: [1]` by having modules declare event code names in
-  `module_info.yaml`. The generator would produce a mapping table. This improves
-  readability but adds generator complexity.
-- **Event code registry**: A runtime registry where producers register their
-  event codes during `init()`. This enables validation that consumers subscribe
-  to event codes that actually exist in the pipeline. Lightweight but adds a new
-  core concept.
-- **Event statistics**: Count events emitted/dispatched/filtered per phase for
-  diagnostic logging. Trivial to add in `dispatch_events_range()`.
+Work:
 
----
+1. Extend module metadata parsing to support optional:
+   - `events.emits`
+   - `events.consumes`
+2. Add generator validation rules:
+   - emitted event names must be unique within a producer
+   - consumed `(producer, event)` pairs must be unique within a consumer
+   - `events.emits` only valid for modules that support `process_full_halo`
+   - `events.consumes` only valid for modules that support `process_per_event`
+3. Generate:
+   - public event ID enums for module C code
+   - emitted-event lookup tables
+   - consumer subscription tables
+4. Update the module metadata template and schema docs.
 
-## 5. Risks and Mitigations
+Recommended output artifacts:
 
-| Risk | Mitigation |
-|------|-----------|
-| YAML parser complexity increases | Keep the string shorthand as primary form; map form is opt-in. Test both forms thoroughly. |
-| Payload pointer misuse (wrong type cast) | Document that `payload_size` should be checked. Core cannot enforce type safety across the physics boundary — this is inherent to C's type system and consistent with how `event_code` works today. |
-| Broadcast consumers silently miss new event types | The validation warning in A4 catches this. Recommend explicit `events` subscriptions in documentation. |
-| Performance regression from filter check | `event_matches_subscription()` is O(N) where N is the subscription list length (typically 1-3). Negligible compared to the physics computation in each consumer. |
+- public generated header for event IDs
+- generated C tables for runtime resolution
 
----
+### Phase 2: Extend core runtime contracts
 
-## 6. Vision Principle Compliance
+Files:
 
-| Principle | How This Design Complies |
-|-----------|------------------------|
-| 1. Physics-Agnostic Core | Core routes by integer event codes without knowing their meaning. Payload is an opaque `void *`. No physics-specific types in core. |
-| 2. Runtime Modularity | Event subscriptions are configured in YAML at runtime. No recompilation needed to change routing. |
-| 3. Metadata-Driven Architecture | Subscriptions live in the pipeline YAML (the single specification for a run). Future named event codes would be declared in `module_info.yaml`. |
-| 4. Single Source of Truth | The YAML file is the complete specification of which modules receive which events. No implicit broadcast surprises. |
-| 5. Unified Processing Model | No changes to the three-pass execution model. Routing is a filter within the existing dispatch loop. |
-| 6. Memory Efficiency | Payload uses stack pointers with zero-copy semantics. No heap allocation. Event buffer size is unchanged. |
-| 7. Format-Agnostic I/O | No impact. |
-| 8. Type Safety | `payload_size` enables runtime assertions. Subscription validation catches misconfiguration at init time. |
+- `src/core/module_interface.h`
+- `src/core/module_registry.h`
+- `src/core/module_registry.c`
 
----
+Work:
 
-## 7. Files to Modify (Complete List)
+1. Update `struct ModuleEvent` to carry producer-scoped identity.
+2. Add runtime-resolved subscription storage to `PhaseModuleConfig` or an
+   equivalent phase-local runtime structure.
+3. During `module_system_init()`:
+   - resolve subscriptions for configured per-event consumers
+   - validate producer presence and phase matching
+   - validate event existence
+4. Update dispatch to match only resolved subscriptions.
+5. Keep `module_emit_event()` as the producer API, but document that the event
+   argument is now a generated per-producer event ID.
+6. Update cleanup to free any resolved subscription arrays.
 
-| File | Phases | Nature of Change |
-|------|--------|-----------------|
-| `src/core/module_registry.h` | A | Add fields to `PhaseModuleConfig` |
-| `src/core/module_registry.c` | A, B | Filter in dispatch; new emit function; validation |
-| `src/core/module_interface.h` | B | Extend `ModuleEvent`; declare `module_emit_event_ex()` |
-| YAML parser (`src/core/config.c` or equivalent) | A | Parse extended map form |
-| `docs/DEVELOPER-GUIDE.md` | A, B | Update examples |
-| `input/millennium.yaml` | A (optional) | Add explicit event subscriptions |
-| Test files | A, B | New unit and integration tests |
+Important design note:
+
+- `src/core/read_parameter_file.c` should remain unchanged in v1 because phase
+  YAML structure is intentionally unchanged.
+
+### Phase 3: Migrate the SAGE merger chain onto the generic contracts
+
+Files:
+
+- `src/modules/sage_resolve_mergers_and_disruption/module_info.yaml`
+- `src/modules/sage_quasar_mode/module_info.yaml`
+- `src/modules/sage_starburst_feedback/module_info.yaml`
+- producer/consumer C files as needed
+
+Work:
+
+1. Declare the merger event in producer metadata.
+2. Declare consumer subscriptions in quasar and starburst metadata.
+3. Replace hand-maintained shared event-code headers with generated event IDs if
+   possible.
+4. Keep consumer-side defensive checks temporarily if useful during migration,
+   but treat routing as the primary filter.
+5. Confirm the resulting behavior matches the current merger pathway.
+
+### Phase 4: Add explicit run metadata for event contracts
+
+Files:
+
+- `src/io/output/hdf5.c`
+- `docs/USER-GUIDE.md`
+
+Work:
+
+1. Add `RunProperties/EventContracts`.
+2. Populate it from the resolved startup contracts.
+3. Update the user guide's HDF5 structure documentation.
+4. Keep `EnabledModules` unchanged; `EventContracts` is additive.
+
+### Phase 5: Strengthen tests with dedicated synthetic event modules
+
+Recommendation:
+
+- do not overload `src/modules/_system/test_fixture/`
+- keep `test_fixture` focused on generic pipeline execution behavior
+- add dedicated sibling test-only modules under `src/modules/_system/`
+
+Recommended modules:
+
+- `src/modules/_system/test_event_producer/`
+- `src/modules/_system/test_event_consumer_alpha/`
+- `src/modules/_system/test_event_consumer_beta/`
+
+Why sibling modules rather than folding into `test_fixture`:
+
+- clearer single responsibility
+- cleaner metadata contracts
+- easier targeted integration tests
+- avoids making `test_fixture` harder to reason about
+
+Required tests:
+
+1. Generator/schema validation tests
+   - duplicate emitted names fail
+   - invalid consumed producer/event fail
+   - invalid mode/event combinations fail
+2. Core unit tests
+   - resolved subscription matching
+   - no delivery to unsubscribed consumers
+   - phase-local validation failures
+   - cleanup frees new allocations
+3. Synthetic integration tests
+   - one producer, two consumers, different subscriptions
+   - multiple events from one producer
+   - multiple producers in one phase
+   - invalid configuration fails fast with clear errors
+4. SAGE regression tests
+   - current merger event integration tests still pass
+5. Metadata tests
+   - `EventContracts` appears in HDF5 output and matches configuration
+
+### Phase 6: Documentation deliverables
+
+Files:
+
+- `docs/DEVELOPER-GUIDE.md`
+- `docs/USER-GUIDE.md`
+- `src/modules/_system/template/template_module_info.yaml`
+
+Work:
+
+1. Update developer docs to explain:
+   - how producers declare emitted events
+   - how consumers declare subscriptions
+   - how generated event IDs are used in C
+   - that input YAML does not carry event filters
+2. Update user docs with:
+   - event-capable module examples
+   - HDF5 `EventContracts` metadata
+3. Update the module template so new modules see the pattern immediately.
+
+Required developer-doc note:
+
+Add a short section describing the approved future payload-expansion path so a
+future developer does not have to guess. That section should say:
+
+- the default event payload in v1 is two scalar values
+- if more payload is needed, first widen to a small fixed numeric payload
+- do not introduce pointer payloads without a separate design review
+- any payload expansion must update:
+  - `struct ModuleEvent`
+  - emit helpers
+  - zero-initialization / cleanup assumptions
+  - tests
+  - output metadata if affected
+  - documentation examples
+
+That note should be brief in the guide, but explicit enough to implement without
+guessing.
+
+## Validation Plan
+
+Success criteria:
+
+1. No phase YAML syntax changes are required for normal use.
+2. The SAGE merger chain uses the new generalised contracts successfully.
+3. A synthetic non-SAGE event test passes.
+4. Unsubscribed consumers are never called.
+5. Invalid event contracts fail at startup with clear errors.
+6. HDF5 output records resolved event contracts.
+7. Developer docs explain both normal usage and the approved payload-expansion
+   path.
+
+Suggested verification order:
+
+1. generator validation tests
+2. core unit tests
+3. synthetic integration tests
+4. SAGE regression tests
+5. output metadata checks
+6. docs consistency checks
+
+## Risks / Unknowns
+
+- Generator changes touch a core architectural seam and should be reviewed
+  carefully.
+- The team must decide exactly where the generated event-ID header and runtime
+  tables should live.
+- Temporary coexistence of generated IDs and old hand-written event-code headers
+  during migration may create short-lived duplication.
+- If a real future use case exceeds a small numeric payload, a second design pass
+  will still be needed.
+
+## Open Questions
+
+Non-blocking:
+
+- Exact filenames and directories for generated event-ID headers and runtime
+  contract tables.
+- Whether consumer C modules should keep optional defensive event assertions
+  after routing is in place, or remove them entirely once coverage is strong.
+
+Blocking:
+
+- None, if the approved direction in this plan is accepted.
+
+## Recommended Next Actions
+
+1. Treat this file as the implementation plan of record.
+2. Start with Phase 1 and Phase 2 before touching SAGE modules.
+3. Add dedicated synthetic event test modules under `src/modules/_system/`.
+4. Add `EventContracts` metadata in the same implementation cycle as routing so
+   reproducibility does not lag behind behavior.
+5. Update `docs/DEVELOPER-GUIDE.md` only as part of the implementation cycle so
+   the guide reflects shipped behavior, not speculative behavior.
+
+## Completion Status
+
+Complete for the requested scope.
+
+This file now provides the approved design direction and a concrete staged plan
+that a fresh team can use to implement the new event system.
