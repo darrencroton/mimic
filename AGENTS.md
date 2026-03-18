@@ -95,11 +95,11 @@ make tidy
 Long-running tests should be captured to a log file; check the exit code explicitly:
 
 ```bash
-mkdir -p ignore/test-logs
-make test-unit > ignore/test-logs/test-unit.log 2>&1
+mkdir -p archive/test-logs
+make test-unit > archive/test-logs/test-unit.log 2>&1
 test_rc=$?
-tail -n 60 ignore/test-logs/test-unit.log
-rg -n -i "failed|error|traceback" ignore/test-logs/test-unit.log
+tail -n 60 archive/test-logs/test-unit.log
+rg -n -i "failed|error|traceback" archive/test-logs/test-unit.log
 echo "exit_code=${test_rc}"
 # Treat any non-zero exit code as failure, regardless of log text
 ```
