@@ -1305,6 +1305,7 @@ make clean && make
 | `output_function_arg` | string | Argument to output function |
 | `range` | array `[min, max]` | Valid range for validation |
 | `sentinels` | array | Special values exempt from range checks |
+| `role` | string | Semantic role: `transport` marks inter-module scratch fields (not persistent output). Use alongside a comment naming the producer and consumer modules. |
 
 **Complete examples**:
 
@@ -1321,11 +1322,12 @@ make clean && make
   range: [0.0, 100000.0]
   sentinels: [0.0]
 
-# Internal property (no output_source needed)
+# Transport property (inter-module scratch field, not persistent output)
 - name: CoolingGas
   type: float
   units: "1e10 Msun/h"
-  description: "Gas mass cooling this substep (working variable)"
+  description: "Gas mass cooling this substep"
+  role: transport  # Written by sage_calculate_cooling_budget; read/modified by sage_radio_mode_heating; consumed by sage_apply_cooling
   output: false
   init_source: default
   init_value: 0.0

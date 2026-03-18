@@ -464,7 +464,7 @@ These should be fixed regardless of any larger reorganisation. All are correctne
 
 1. ~~**Implement `sage_finalise_outputs`** in `post_timestep` (§11.3).~~ **Redundant** — normalization is already handled inline in each module with the same mathematical result; see §11.3.
 2. ~~**Verify `sage_reionization` satellite parity** against SAGE output (§11.1).~~ **Fixed 2026-03-18** — confirmed parity loss; per-satellite suppression now computed using each satellite's own Mvir.
-3. **Reclassify transient transport fields** with `role: transport` annotations in `model_properties.yaml` (§11.4).
+3. ~~**Reclassify transient transport fields** with `role: transport` annotations in `model_properties.yaml` (§11.4).~~ **Done 2026-03-18** — all 8 transport fields already carried `role: transport` annotations; `DEVELOPER-GUIDE.md §A2` updated to document `role` as a formal optional schema field with a `CoolingGas` example.
 4. **Add a SAGE pipeline index** to `src/modules/README.md`.
 5. **Organise `_shared/`** with subdirectories or naming conventions per §8.
 
