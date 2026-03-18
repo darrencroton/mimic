@@ -36,24 +36,31 @@ make test-scientific    # Physics validation (<5min)
 
 ## Running Individual Tests
 
+Run commands from the repository root so relative paths match the test fixtures.
+
 **Unit tests**:
 ```bash
-cd tests/unit
-./run_tests.sh
+tests/unit/run_tests.sh test_memory_system
+tests/unit/run_tests.sh test_unit_sage_apply_cooling
 ```
+
+Unit tests are compiled on demand through the runner. Use the test name without `.c`; the runner refreshes generated module/test registries before building.
 
 **Integration tests**:
 ```bash
-cd tests/integration
-python test_full_pipeline.py
-python test_output_formats.py
+python3 tests/integration/test_full_pipeline.py
+python3 tests/integration/test_output_formats.py
+python3 src/modules/sage_apply_cooling/_tests/test_integration_sage_apply_cooling.py
 ```
+
+Integration tests are plain Python scripts. You can run either the core tests under `tests/integration/` or a module-specific script under `src/modules/<module>/_tests/`.
 
 **Scientific tests**:
 ```bash
-cd tests/scientific
-python test_scientific.py
+python3 tests/scientific/test_scientific.py
 ```
+
+Scientific validation currently has one repository-level script in `tests/scientific/`. Future module scientific tests can be run the same way with `python3 path/to/test.py`.
 
 ## Directory Structure
 
@@ -88,6 +95,8 @@ See [docs/DEVELOPER-GUIDE.md](../docs/DEVELOPER-GUIDE.md#testing) for:
 
 **Missing test data**: Run `./scripts/first_run.sh` to download
 
-**Integration tests fail**: Ensure Python environment activated (`source mimic_venv/bin/activate`)
+**Integration or scientific tests fail**: Ensure Python environment activated (`source mimic_venv/bin/activate`)
+
+**Unit test command not found**: Do not run `./test_memory_system.test` directly from `tests/unit/`; use `tests/unit/run_tests.sh <test_name>` so the binary is rebuilt with current generated sources.
 
 **Need more detail**: See [docs/DEVELOPER-GUIDE.md](../docs/DEVELOPER-GUIDE.md#testing)

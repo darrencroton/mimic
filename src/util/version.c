@@ -23,6 +23,7 @@
 #include "globals.h"
 #include "types.h"
 #include "error.h"
+#include "io.h"
 #include "version.h"
 
 /* No version number is defined for Mimic */
@@ -406,7 +407,10 @@ int create_version_metadata(const char *output_dir,
 
   /* Make sure metadata directory exists */
   snprintf(metadata_dir, sizeof(metadata_dir), "%s/metadata", output_dir);
-  mkdir(metadata_dir, 0777);
+  if (ensure_directory_exists(metadata_dir) != 0) {
+    ERROR_LOG("Failed to create metadata directory: %s", metadata_dir);
+    return 1;
+  }
 
   /* Create metadata JSON file */
   snprintf(metadata_path, sizeof(metadata_path), "%s/version_info.json",

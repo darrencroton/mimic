@@ -16,4 +16,12 @@
  */
 int copy_file(const char *source, const char *dest);
 
+/**
+ * @brief   Ensure a directory path exists, creating parent directories as needed
+ *
+ * @param   path        Directory path to create
+ * @return  0 on success, non-zero on error
+ */
+int ensure_directory_exists(const char *path);
+
 #endif  // UTIL_IO_H

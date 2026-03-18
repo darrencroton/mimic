@@ -20,6 +20,9 @@
 # Phase: Phase 2 (Testing Framework)
 ###############################################################################
 
+# Detect compiler failures even when piping to tee for logs
+set -o pipefail
+
 # Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -36,6 +39,17 @@ COMPILE_ERRORS=0
 # Get repository root (two levels up from tests/unit/)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 1
+
+# Refresh generated metadata so direct single-test runs use current modules/tests
+if ! python3 scripts/generate_module_registry.py > /dev/null; then
+    echo -e "${RED}ERROR: Failed to refresh module registry. Run 'make generate'${NC}"
+    exit 2
+fi
+
+if ! python3 scripts/generate_test_registry.py --strict > /dev/null; then
+    echo -e "${RED}ERROR: Failed to refresh test registry. Run 'make generate'${NC}"
+    exit 2
+fi
 
 # Source directories
 SRC_DIR="src"

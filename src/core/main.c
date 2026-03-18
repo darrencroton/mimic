@@ -300,6 +300,11 @@ int main(int argc, char **argv) {
 #endif
   INFO_LOG("Snapshots requested  : %d", MimicConfig.NOUT);
 
+  if (ensure_directory_exists(MimicConfig.OutputDir) != 0) {
+    FATAL_ERROR("Failed to create output directory '%s'",
+                MimicConfig.OutputDir);
+  }
+
   /* Register and initialize galaxy physics modules */
   log_phase_banner(PHASE_MODULE_PIPELINE);
   INFO_LOG("Initializing galaxy physics module system");
@@ -487,7 +492,9 @@ int main(int argc, char **argv) {
   // Create metadata directory if it doesn't exist
   snprintf(metadata_dir, sizeof(metadata_dir), "%s/metadata",
            MimicConfig.OutputDir);
-  mkdir(metadata_dir, 0777);
+  if (ensure_directory_exists(metadata_dir) != 0) {
+    WARNING_LOG("Failed to create metadata directory '%s'", metadata_dir);
+  }
 
   // Copy parameter file
   snprintf(source_path, sizeof(source_path), "%s", argv[1]);

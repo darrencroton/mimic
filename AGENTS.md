@@ -114,10 +114,7 @@ make test-unit          # C unit tests (fast, <10s)
 make test-integration   # Python integration tests (medium, <1min)
 make test-scientific    # Python scientific validation (slow, <5min)
 
-# Run individual tests
-cd tests/unit && ./test_memory_system.test
-cd tests/integration && python test_full_pipeline.py
-cd tests/scientific && python test_scientific.py
+Individual tests: use `tests/unit/run_tests.sh <test_name>` for C unit tests and `python3 path/to/test.py` for integration/scientific scripts.
 
 # Test data loader
 cd tests && python -c "from framework import load_binary_halos; print(load_binary_halos.__doc__)"

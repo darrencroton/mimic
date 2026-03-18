@@ -24,7 +24,9 @@ Date: 2025-11-08
 """
 
 import sys
+import tempfile
 from pathlib import Path
+import yaml
 
 # Add framework to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -103,6 +105,57 @@ def test_output_files_created():
     assert file_size > 0, f"{RED}Output file is empty{NC}"
     print(f"  ✓ Output file created: {output_file}")
     print(f"  File size: {file_size:,} bytes")
+
+
+def test_output_directory_created_if_missing():
+    """
+    Test that Mimic creates missing output directories from the parameter file
+
+    Expected: Nested output directory and output file are created automatically
+    Validates: Runtime output directory creation
+    """
+    print("Testing automatic output directory creation...")
+
+    source_param_file = TEST_DATA_DIR / "test_binary.yaml"
+    assert source_param_file.exists(), (
+        f"{RED}Test parameter file not found: {source_param_file}{NC}"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="mimic_output_dir_") as temp_root:
+        temp_root_path = Path(temp_root)
+        output_dir = temp_root_path / "nested" / "results"
+        param_file = temp_root_path / "test_output_dir.yaml"
+
+        with open(source_param_file, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+
+        config['output']['output_directory'] = str(output_dir)
+
+        with open(param_file, 'w', encoding='utf-8') as f:
+            yaml.safe_dump(config, f, sort_keys=False)
+
+        returncode, stdout, stderr = run_mimic(param_file)
+        if returncode != 0:
+            print(f"STDOUT:\n{stdout}")
+            print(f"STDERR:\n{stderr}")
+            assert False, (
+                f"{RED}Mimic failed to create missing output directory{NC}"
+            )
+
+        output_file = output_dir / "model_z0.000_0"
+        metadata_dir = output_dir / "metadata"
+
+        assert output_dir.exists(), (
+            f"{RED}Output directory not created: {output_dir}{NC}"
+        )
+        assert output_file.exists(), (
+            f"{RED}Output file not created in new directory: {output_file}{NC}"
+        )
+        assert metadata_dir.exists(), (
+            f"{RED}Metadata directory not created: {metadata_dir}{NC}"
+        )
+
+    print("  ✓ Mimic created missing output and metadata directories")
 
 
 def test_no_memory_leaks():
@@ -208,6 +261,7 @@ def main():
     tests = [
         test_basic_execution,
         test_output_files_created,
+        test_output_directory_created_if_missing,
         test_no_memory_leaks,
         test_output_loadable,
         test_stdout_content,

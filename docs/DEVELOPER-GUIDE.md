@@ -905,9 +905,22 @@ make test-unit
 make test-integration
 make test-scientific
 
-# Individual test
-cd tests/unit && ./test_memory_system.test
+# Individual unit test (runner compiles the named test)
+tests/unit/run_tests.sh test_memory_system
+tests/unit/run_tests.sh test_unit_sage_apply_cooling
+
+# Individual integration test
+python3 tests/integration/test_full_pipeline.py
+python3 src/modules/sage_apply_cooling/_tests/test_integration_sage_apply_cooling.py
+
+# Individual scientific test
+python3 tests/scientific/test_scientific.py
 ```
+
+Run these commands from the repository root. Unit tests go through
+`tests/unit/run_tests.sh` because they are compiled on demand and rely on the
+generated module/test registries. Integration and scientific tests are regular
+Python scripts and can be executed directly by path.
 
 ### Writing Unit Tests
 

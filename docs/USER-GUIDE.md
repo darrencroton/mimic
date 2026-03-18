@@ -50,7 +50,7 @@ If automated setup fails:
 
 ```bash
 # Create directories
-mkdir -p input/data/millennium output/results/millennium
+mkdir -p input/data/millennium
 
 # Download data
 cd input/data/millennium
@@ -70,7 +70,7 @@ make
 ./mimic input/millennium.yaml  # Should exit with code 0
 ```
 
-Edit `input/millennium.yaml` to set absolute paths for `output.output_directory` and `input.simulation_dir`.
+Edit `input/millennium.yaml` to set absolute paths for `output.output_directory` and `input.simulation_dir`. Mimic creates `output.output_directory` automatically if it does not already exist.
 
 ---
 
@@ -444,7 +444,7 @@ make clean && make
 ./mimic --debug input/millennium.yaml 2>&1 | tee debug.log
 ```
 
-**"Cannot open file" errors**: Check that paths in your YAML configuration are correct. Both `output.output_directory` and `input.simulation_dir` must exist. Use absolute paths if relative paths cause issues.
+**"Cannot open file" errors**: Check that paths in your YAML configuration are correct. Mimic creates `output.output_directory` automatically, but `input.simulation_dir` and the files it references must already exist. Use absolute paths if relative paths cause issues.
 
 **Missing test data**: Run the setup script to download mini-Millennium data:
 ```bash
