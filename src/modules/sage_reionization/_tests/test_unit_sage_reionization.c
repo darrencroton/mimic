@@ -416,18 +416,20 @@ int test_physics_calculation_type0(void)
  * @test    test_physics_calculation_type1_satellite
  * @brief   Test physics calculation for Type 1 satellite halos
  *
- * Expected: HaloBaryonFraction initialized to GlobalBaryonFraction (first time only)
- * Validates: Correct initialization for satellites
+ * Expected: HaloBaryonFraction = GlobalBaryonFraction × f_reion(satellite_Mvir, z)
+ * Validates: Per-satellite reionization suppression (SAGE parity fix)
+ * SAGE parity: strip_from_satellite() calls do_reionization(gal,...) per satellite
+ * using the satellite's own Mvir (model_infall.c:97), so each satellite must
+ * receive its own suppression modifier, not the central's.
  */
 int test_physics_calculation_type1_satellite(void)
 {
     /* ===== SETUP ===== */
     setup_module_for_physics_test(0.17);
 
-    /* Create Type 1 satellite (sentinel = -1.0 indicates first time) */
+    /* Create Type 1 satellite with moderate mass */
     struct Halo test_halo = create_test_halo(1, 50.0);  /* 5e11 Msun/h */
 
-    /* Create module context */
     struct ModuleContext ctx;
     memset(&ctx, 0, sizeof(ctx));
     ctx.redshift = 0.0;
@@ -440,17 +442,37 @@ int test_physics_calculation_type1_satellite(void)
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Process should succeed");
-    TEST_ASSERT(fabs(test_halo.galaxy->HaloBaryonFraction - 0.17f) < 1e-6,
-                "Type 1 satellite should have HaloBaryonFraction = GlobalBaryonFraction");
+    TEST_ASSERT(test_halo.galaxy->HaloBaryonFraction > 0.0f,
+                "Type 1 satellite should have HaloBaryonFraction > 0");
+    TEST_ASSERT(test_halo.galaxy->HaloBaryonFraction <= 0.17f,
+                "Type 1 satellite HaloBaryonFraction should be <= GlobalBaryonFraction");
 
-    /* Test that second call doesn't change value (already initialized) */
-    test_halo.galaxy->HaloBaryonFraction = 0.10f;  /* Simulate different value from stripping */
+    /* Verify that repeated calls update the value (not preserve it) */
+    float first_value = test_halo.galaxy->HaloBaryonFraction;
+    test_halo.galaxy->HaloBaryonFraction = 0.10f;  /* Manually set to a different value */
     result = sage_reionization_process(&ctx, &test_halo, 1);
-    TEST_ASSERT(fabs(test_halo.galaxy->HaloBaryonFraction - 0.10f) < 1e-6,
-                "Type 1 satellite should preserve HaloBaryonFraction on subsequent calls");
+    TEST_ASSERT(fabs(test_halo.galaxy->HaloBaryonFraction - first_value) < 1e-5f,
+                "Type 1 satellite HaloBaryonFraction should be recomputed each call");
+
+    /* Verify low-mass satellite gets stronger suppression than high-mass at z=2 */
+    struct Halo low_mass_sat = create_test_halo(1, 0.5);   /* 5e9 Msun/h */
+    struct Halo high_mass_sat = create_test_halo(1, 50.0); /* 5e11 Msun/h */
+
+    ctx.redshift = 2.0;
+
+    ctx.central_galaxy = &low_mass_sat;
+    sage_reionization_process(&ctx, &low_mass_sat, 1);
+
+    ctx.central_galaxy = &high_mass_sat;
+    sage_reionization_process(&ctx, &high_mass_sat, 1);
+
+    TEST_ASSERT(low_mass_sat.galaxy->HaloBaryonFraction < high_mass_sat.galaxy->HaloBaryonFraction,
+                "Low-mass satellite should be more suppressed than high-mass satellite");
 
     /* ===== CLEANUP ===== */
     free_test_halo(&test_halo);
+    free_test_halo(&low_mass_sat);
+    free_test_halo(&high_mass_sat);
     module_system_cleanup();
     check_memory_leaks();
 

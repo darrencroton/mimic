@@ -389,21 +389,29 @@ Consolidation would reduce to one YAML entry and privatise three transport field
 
 ## 11. Open Questions and Architectural Gaps
 
-### 11.1 `sage_reionization` satellite parity
+### 11.1 `sage_reionization` satellite parity — **Resolved 2026-03-18**
 
-In original SAGE, `do_reionization()` is called in two places: inside `infall_recipe()` for the central (`model_infall.c:43`) and inside `strip_from_satellite()` for each Type 1 satellite (`model_infall.c:95`). In Mimic, `sage_reionization` runs in `pre_timestep` and computes `HaloBaryonFraction` only for the Type 0 central (`sage_reionization.c:117,126`). `sage_satellite_stripping` then reads that stored value (`sage_satellite_stripping.c:79`).
+In original SAGE, `do_reionization()` is called in two places: inside `infall_recipe()` for the central (`model_infall.c:43`) and inside `strip_from_satellite()` for each Type 1 satellite (`model_infall.c:95`). The function uses `galaxies[gal].Mvir` — the specific galaxy's own subhalo mass — as the only per-galaxy input (`model_infall.c:170`). The reionization scale mass (`mass_to_use`) is purely cosmological and identical for all galaxies at the same redshift.
 
-**Open question:** Does `do_reionization()` in SAGE use FOF-level properties (same for all members of the group) or galaxy-local properties? If FOF-level, the Mimic split is parity-safe. If satellite-local, the stored central value is incorrect for stripping, and reionization logic should either run `process_by_galaxy` or move back into the consuming modules.
+**Finding:** The original Mimic implementation computed `HaloBaryonFraction` only for Type 0 centrals and defaulted satellites to `GLOBAL_BARYON_FRAC` with no suppression. This was a confirmed SAGE parity loss: SAGE satellites received `f_reion(satellite_Mvir, z) × BaryonFrac × satellite_Mvir` as their stripping threshold, while Mimic gave them `GLOBAL_BARYON_FRAC × satellite_Mvir` (modifier = 1.0, no suppression). Low-mass satellites were systematically under-stripped.
 
-**Risk:** Scientific — output galaxy properties could diverge from SAGE under certain reionization-affected conditions. Verify against SAGE output before relying on the current split.
+**Fix applied:** `sage_reionization_process()` now computes `HaloBaryonFraction = GLOBAL_BARYON_FRAC × calculate_reionization_modifier(satellite_Mvir, z)` for Type 1 satellites, exactly mirroring SAGE's per-call `do_reionization(gal, ...)`. Unit test `test_physics_calculation_type1_satellite` updated to assert the corrected per-satellite suppression behaviour (`sage_reionization.c:124-134`).
 
 ### 11.2 `sage_starburst_feedback` pipeline coupling contract
 
 The hidden coupling described in §4 and §6 means removing `sage_quasar_mode` from phase_2 silently skips post-merger quasar wind physics (`sage_collisional_starburst.c:138`). Unit tests codify this behaviour (`test_unit_sage_collisional_starburst.c:929, 972`) but it is invisible from the YAML. Addressed by the dependency framework (§7) — update tests to assert the `WARNING_LOG` is emitted.
 
-### 11.3 `post_timestep` not yet implemented
+### 11.3 `post_timestep` normalization — already handled inline
 
-SAGE normalizes `Cooling`, `Heating`, and `OutflowRate` after the substep loop and accumulates `TotalSatelliteBaryons` (`core_build_model.c:410,422,427`). Mimic's `post_timestep` phase is currently empty. These are output-field correctness issues, not galaxy-physics correctness issues, but output fields will disagree with SAGE until `sage_finalise_outputs` (or equivalent) is implemented.
+**Resolution: No action needed.** SAGE normalizes `Cooling`, `Heating`, and `OutflowRate` by dividing by `deltaT` after the substep loop (`core_build_model.c:410,422,427`). Mimic achieves mathematically identical results by dividing by `halo->dT` (the full snapshot interval) inside each substep accumulation:
+
+- `sage_apply_cooling.c:47`: `Cooling += (0.5 * coolingGas * vvir²) / halo->dT`
+- `sage_radio_mode_heating.c:198`: `Heating += (0.5 * AGNheating * vvir²) / halo->dT`
+- `sage_apply_star_formation_supernova.c:175`: `SupernovaOutflowRate += reheated_mass / halo->dT`
+
+`halo->dT` is confirmed as the full snapshot interval (`Age[progenitor_snap] - Age[current_snap]`, `build_model.c:249`; or `Age[current_snap - 1] - Age[current_snap]`, `virial.c:59`) — the same quantity as SAGE's `deltaT`. Dividing 10 per-substep contributions by the full interval inline produces the same final value as SAGE's accumulate-then-divide-once approach. No `sage_finalise_outputs` module is needed.
+
+**`TotalSatelliteBaryons`** is the only SAGE post-loop computation absent from Mimic — a sum of satellite stellar, BH, cold, and hot gas on the central galaxy (`core_build_model.c:427-428`). This property was deliberately omitted from Mimic's schema. The `post_timestep` phase being empty is not a correctness issue.
 
 ### 11.4 Transient transport fields as global model properties
 
@@ -454,8 +462,8 @@ These should be fixed regardless of any larger reorganisation. All are correctne
 
 ### Nice-to-have
 
-1. **Implement `sage_finalise_outputs`** in `post_timestep` (§11.3).
-2. **Verify `sage_reionization` satellite parity** against SAGE output (§11.1).
+1. ~~**Implement `sage_finalise_outputs`** in `post_timestep` (§11.3).~~ **Redundant** — normalization is already handled inline in each module with the same mathematical result; see §11.3.
+2. ~~**Verify `sage_reionization` satellite parity** against SAGE output (§11.1).~~ **Fixed 2026-03-18** — confirmed parity loss; per-satellite suppression now computed using each satellite's own Mvir.
 3. **Reclassify transient transport fields** with `role: transport` annotations in `model_properties.yaml` (§11.4).
 4. **Add a SAGE pipeline index** to `src/modules/README.md`.
 5. **Organise `_shared/`** with subdirectories or naming conventions per §8.
