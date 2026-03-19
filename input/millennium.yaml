@@ -51,10 +51,6 @@ modules:
     - sage_apply_cooling:             process_by_galaxy
 
     # Star formation and supernova feedback
-    # sage_star_formation and sage_supernova_feedback are each independently optional.
-    # Removing either leaves its transport fields at 0.0; sage_apply_star_formation_supernova
-    # commits zeros, which is correct. sage_apply_star_formation_supernova is required
-    # whenever either prescription is active.
     - sage_star_formation:            process_by_galaxy   # prescription: SF rate law
     - sage_supernova_feedback:        process_by_galaxy   # prescription: SN feedback model (optional)
     - sage_apply_star_formation_supernova: process_by_galaxy   # infrastructure: commit SF/SN results
