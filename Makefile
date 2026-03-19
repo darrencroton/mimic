@@ -295,7 +295,7 @@ help:
 	@echo "  make tidy         - Remove build directory only"
 	@echo "  make generate     - Generate all code from metadata (properties + modules)"
 	@echo "  make check-generated - Verify generated code is up-to-date (CI)"
-	@echo "  make check-docs   - Validate docs links and USER-GUIDE module phase consistency"
+	@echo "  make check-docs   - Validate documentation links and anchors"
 	@echo ""
 	@echo "Module targets:"
 	@echo "  make generate-modules  - Generate module registration code"

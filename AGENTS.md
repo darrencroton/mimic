@@ -36,7 +36,7 @@ make generate
 # Verify generated code is up-to-date (CI check)
 make check-generated
 
-# Validate documentation links and USER-GUIDE module phase consistency
+# Validate documentation links and anchors
 make check-docs
 
 # Validate module metadata (checks dependencies, properties, files)

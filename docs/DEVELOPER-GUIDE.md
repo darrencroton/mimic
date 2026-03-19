@@ -984,7 +984,7 @@ make -j$(nproc)  # Parallel build
 **4. Test**:
 ```bash
 ./mimic --debug input/millennium.yaml
-make check-docs  # Docs links + USER-GUIDE module phase consistency
+make check-docs  # Docs links + anchors
 make tests  # Full test suite
 ```
 
@@ -1040,7 +1040,7 @@ module_info.yaml (each module) ──► generate_module_registry.py ──► m
 
 **Runtime flow**: At startup, `register_all_modules()` (generated) calls `module_registry_add()` for each module. The core then uses the registered `struct Module` entries — containing function pointers to `init()`, `process()`, `cleanup()` plus supported processing modes and event subscriptions — to dispatch the pipeline.
 
-**Staleness detection**: Each generated file embeds an MD5 hash of its source YAML. `make check-generated` validates property-generated files only (comparing the embedded hash in `src/include/generated/` and `output/mimic-plot/generated/` against the current property YAML). Module-generated files (`module_init.c`, `event_contracts.h`) also embed hashes but are not yet covered by `check-generated`. The `make` build rules track YAML dependencies for both systems, so a normal `make` will regenerate automatically when any YAML file changes.
+**Staleness detection**: Property-generated files and the tracked `event_contracts.h` header embed an MD5 hash of their source metadata. `make check-generated` recomputes those hashes and compares them — any mismatch means `make generate` is needed. Other module-generated build products (`module_init.c`, `module_sources.mk`) are regenerated automatically by `make` when module YAML changes, but are not audited by `check-generated` because they are local generated files.
 
 ### Debugging
 

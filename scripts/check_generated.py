@@ -2,8 +2,12 @@
 """
 Check Generated Code Validator for Mimic
 
-Verifies that generated files are up-to-date with property metadata.
-Used in CI to catch when YAML is modified but `make generate` wasn't run.
+Verifies that tracked generated files are up-to-date with their source metadata.
+Used in CI to catch when metadata is modified but `make generate` wasn't run.
+
+Current scope:
+- Property metadata outputs generated from halo/model property YAML
+- The tracked module-generated event contract header
 
 Usage:
     python3 scripts/check_generated.py
@@ -19,7 +23,7 @@ Date: 2025-11-07
 import hashlib
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 # ==============================================================================
 # PATHS
@@ -28,14 +32,14 @@ from typing import List
 # Repository root (parent of scripts/)
 REPO_ROOT = Path(__file__).parent.parent
 
-# Input YAML files
-YAML_FILES = [
+# Property YAML inputs
+PROPERTY_YAML_FILES = [
     REPO_ROOT / "src" / "core" / "halo_properties.yaml",
     REPO_ROOT / "src" / "modules" / "model_properties.yaml",
 ]
 
-# Generated files to check
-GENERATED_FILES = [
+# Property-generated files to check
+PROPERTY_GENERATED_FILES = [
     REPO_ROOT / "src" / "include" / "generated" / "property_defs.h",
     REPO_ROOT / "src" / "include" / "generated" / "init_halo_properties.inc",
     REPO_ROOT / "src" / "include" / "generated" / "init_galaxy_properties.inc",
@@ -46,20 +50,80 @@ GENERATED_FILES = [
     REPO_ROOT / "output" / "mimic-plot" / "generated" / "__init__.py",
 ]
 
+# Module metadata inputs / tracked generated outputs
+MODULES_DIR = REPO_ROOT / "src" / "modules"
+MODULE_EVENT_CONTRACTS_H = (
+    REPO_ROOT / "src" / "modules" / "_system" / "generated" / "event_contracts.h"
+)
+MODULE_GENERATED_FILES = [MODULE_EVENT_CONTRACTS_H]
+
 # ==============================================================================
 # UTILITIES
 # ==============================================================================
 
 
-def compute_yaml_hash() -> str:
-    """Compute MD5 hash of YAML input files (same logic as generator)."""
+def compute_property_yaml_hash() -> str:
+    """Compute MD5 hash of property YAML input files (same logic as generator)."""
     md5 = hashlib.md5()
 
     # Hash both YAML files in order (halo, then galaxy)
-    for yaml_file in YAML_FILES:
+    for yaml_file in PROPERTY_YAML_FILES:
         if not yaml_file.exists():
             return ""
         with open(yaml_file, "rb") as f:
+            md5.update(f.read())
+
+    return md5.hexdigest()
+
+
+def discover_module_metadata_entries() -> List[Tuple[str, str, Path]]:
+    """Discover module metadata inputs using the same file-selection rules as the generator.
+
+    Returns:
+        Tuples of (kind, module_name, path), where kind is "yaml" or "standalone".
+    """
+    entries: List[Tuple[str, str, Path]] = []
+
+    if not MODULES_DIR.exists():
+        return entries
+
+    for item in sorted(MODULES_DIR.iterdir()):
+        if item.name.startswith("_") and item.name != "_system":
+            continue
+
+        if item.is_dir():
+            if item.name == "_system":
+                for sub in sorted(item.iterdir()):
+                    yaml_path = sub / "module_info.yaml"
+                    if sub.is_dir() and yaml_path.exists():
+                        entries.append(("yaml", sub.name, yaml_path))
+                continue
+
+            yaml_path = item / "module_info.yaml"
+            if yaml_path.exists():
+                entries.append(("yaml", item.name, yaml_path))
+
+        elif item.is_file() and item.suffix == ".c":
+            entries.append(("standalone", item.stem, item))
+
+    entries.sort(key=lambda entry: entry[1])
+    return entries
+
+
+def compute_module_metadata_hash() -> str:
+    """Compute MD5 hash of module metadata plus standalone module identities."""
+    entries = discover_module_metadata_entries()
+    if not entries:
+        return ""
+
+    md5 = hashlib.md5()
+    for kind, module_name, path in entries:
+        if kind == "standalone":
+            relative_path = str(path.relative_to(REPO_ROOT))
+            md5.update(f"standalone:{module_name}:{relative_path}".encode("utf-8"))
+            continue
+
+        with open(path, "rb") as f:
             md5.update(f.read())
 
     return md5.hexdigest()
@@ -105,38 +169,44 @@ def check_file_exists(path: Path, description: str) -> bool:
 # ==============================================================================
 
 
-def validate_yaml_files() -> bool:
-    """Check that YAML metadata files exist."""
+def validate_property_yaml_files() -> bool:
+    """Check that property YAML metadata files exist."""
     all_exist = True
-    for yaml_file in YAML_FILES:
+    for yaml_file in PROPERTY_YAML_FILES:
         if not check_file_exists(yaml_file, f"Property metadata: {yaml_file.name}"):
             all_exist = False
     return all_exist
 
 
-def validate_generated_files() -> bool:
-    """Check that all generated files exist."""
+def validate_module_metadata_inputs() -> bool:
+    """Check that module metadata inputs can be discovered."""
+    entries = discover_module_metadata_entries()
+    if not entries:
+        print("✗ MISSING: No module metadata inputs discovered")
+        print(f"  Expected under: {MODULES_DIR.relative_to(REPO_ROOT)}")
+        return False
+    return True
+
+
+def validate_generated_files(files: List[Path], description: str) -> bool:
+    """Check that all generated files in a set exist."""
     all_exist = True
-    for gen_file in GENERATED_FILES:
-        if not check_file_exists(gen_file, f"Generated file: {gen_file.name}"):
+    for gen_file in files:
+        if not check_file_exists(gen_file, f"{description}: {gen_file.name}"):
             all_exist = False
     return all_exist
 
 
-def check_yaml_hashes() -> bool:
-    """Check if generated files match current YAML content (via MD5 hash)."""
-
-    # Compute current YAML hash
-    current_yaml_hash = compute_yaml_hash()
-    if not current_yaml_hash:
-        print("✗ ERROR: Cannot compute YAML hash (files missing or unreadable)")
+def check_hashes(files: List[Path], current_hash: str, scope_label: str) -> bool:
+    """Check if generated files match current metadata via embedded MD5 hash."""
+    if not current_hash:
+        print(f"✗ ERROR: Cannot compute {scope_label} hash (inputs missing or unreadable)")
         return False
 
-    # Check each generated file's embedded hash
     mismatches = []
     missing_hash = []
 
-    for gen_file in GENERATED_FILES:
+    for gen_file in files:
         if not gen_file.exists():
             mismatches.append(gen_file.name)
             continue
@@ -146,19 +216,19 @@ def check_yaml_hashes() -> bool:
             missing_hash.append(gen_file.name)
             continue
 
-        if embedded_hash != current_yaml_hash:
+        if embedded_hash != current_hash:
             mismatches.append(gen_file.name)
 
     if missing_hash:
-        print("✗ WARNING: Some files missing embedded hash (may be old format)")
+        print(f"✗ WARNING: Some {scope_label} files are missing embedded hash")
         for filename in missing_hash:
             print(f"    - {filename}")
         print()
 
     if mismatches:
-        print("✗ OUT OF DATE: YAML metadata changed, generated files need updating")
+        print(f"✗ OUT OF DATE: {scope_label} changed, generated files need updating")
         print()
-        print(f"  Current YAML hash:  {current_yaml_hash}")
+        print(f"  Current {scope_label} hash:  {current_hash}")
         print(
             f"  Embedded hash:      {embedded_hash if embedded_hash else '(missing)'}"
         )
@@ -171,13 +241,13 @@ def check_yaml_hashes() -> bool:
     return True
 
 
-def check_file_marker() -> bool:
+def check_file_markers(files: List[Path], scope_label: str) -> bool:
     """Check that generated files have the AUTO-GENERATED marker."""
 
     marker = b"AUTO-GENERATED"
     missing_marker = []
 
-    for gen_file in GENERATED_FILES:
+    for gen_file in files:
         if not gen_file.exists():
             continue
 
@@ -187,7 +257,7 @@ def check_file_marker() -> bool:
                 missing_marker.append(gen_file.name)
 
     if missing_marker:
-        print("✗ WARNING: Files missing AUTO-GENERATED marker")
+        print(f"✗ WARNING: {scope_label} files missing AUTO-GENERATED marker")
         print("  (May be hand-written files, not generated)")
         print()
         for filename in missing_marker:
@@ -211,32 +281,62 @@ def main():
     print()
 
     checks_passed = 0
-    checks_total = 4
+    checks_total = 6
 
-    # Check 1: YAML files exist
-    print("[1/4] Checking YAML metadata files...")
-    if validate_yaml_files():
-        print("✓ All YAML metadata files present")
+    # Check 1: Property YAML files exist
+    print("[1/6] Checking property YAML metadata files...")
+    if validate_property_yaml_files():
+        print("✓ All property YAML metadata files present")
         checks_passed += 1
     print()
 
-    # Check 2: Generated files exist
-    print("[2/4] Checking generated files...")
-    if validate_generated_files():
-        print(f"✓ All {len(GENERATED_FILES)} generated files present")
+    # Check 2: Module metadata inputs exist
+    print("[2/6] Checking module metadata inputs...")
+    if validate_module_metadata_inputs():
+        print("✓ Module metadata inputs discovered successfully")
         checks_passed += 1
     print()
 
-    # Check 3: YAML hash consistency
-    print("[3/4] Checking YAML hash consistency...")
-    if check_yaml_hashes():
-        print("✓ Generated files match current YAML metadata (hash verified)")
+    # Check 3: Generated files exist
+    print("[3/6] Checking generated files...")
+    property_files_ok = validate_generated_files(
+        PROPERTY_GENERATED_FILES, "Property-generated file"
+    )
+    module_files_ok = validate_generated_files(
+        MODULE_GENERATED_FILES, "Module-generated tracked file"
+    )
+    if property_files_ok and module_files_ok:
+        total_files = len(PROPERTY_GENERATED_FILES) + len(MODULE_GENERATED_FILES)
+        print(f"✓ All {total_files} tracked generated files present")
         checks_passed += 1
     print()
 
-    # Check 4: AUTO-GENERATED marker
-    print("[4/4] Checking AUTO-GENERATED markers...")
-    if check_file_marker():
+    # Check 4: Property hash consistency
+    print("[4/6] Checking property metadata hash consistency...")
+    if check_hashes(
+        PROPERTY_GENERATED_FILES,
+        compute_property_yaml_hash(),
+        "property metadata",
+    ):
+        print("✓ Property-generated files match current property metadata")
+        checks_passed += 1
+    print()
+
+    # Check 5: Module hash consistency
+    print("[5/6] Checking module metadata hash consistency...")
+    if check_hashes(
+        MODULE_GENERATED_FILES,
+        compute_module_metadata_hash(),
+        "module metadata",
+    ):
+        print("✓ Tracked module-generated files match current module metadata")
+        checks_passed += 1
+    print()
+
+    # Check 6: AUTO-GENERATED marker
+    print("[6/6] Checking AUTO-GENERATED markers...")
+    all_generated_files = PROPERTY_GENERATED_FILES + MODULE_GENERATED_FILES
+    if check_file_markers(all_generated_files, "Generated"):
         print("✓ All generated files have proper markers")
         checks_passed += 1
     print()
@@ -247,7 +347,7 @@ def main():
         print("✓ PASS: All checks passed")
         print("=" * 70)
         print()
-        print("Generated code is up-to-date with property metadata.")
+        print("Tracked generated code is up-to-date with property and module metadata.")
         return 0
     else:
         print(f"✗ FAIL: {checks_total - checks_passed} check(s) failed")
@@ -256,7 +356,7 @@ def main():
         print("ACTION REQUIRED:")
         print("  Run: make generate")
         print()
-        print("This will regenerate all code from property metadata.")
+        print("This will regenerate tracked code from property and module metadata.")
         print("Then commit the updated generated files to git.")
         print()
         return 1
