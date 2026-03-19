@@ -105,7 +105,7 @@ For the design principles behind these decisions, see [VISION.md](VISION.md).
 ├───────────────────────────────────────────────────────┤
 │                   Physics Modules                     │
 │  ┌──────────────┬───────────────┬─────────────────┐   │
-│  │ SAGE Modules │ Custom Modules│ Test Fixtures   │   │
+│  │  Standalone  │   Directory   │ Test Fixtures   │   │
 │  └──────────────┴───────────────┴─────────────────┘   │
 └───────────────────────────────────────────────────────┘
 ```
@@ -664,18 +664,6 @@ FATAL_ERROR("Fatal errors");                 /* Always shown, exits program */
 ```c
 #include "../_shared/metallicity.h"  /* Use in your module */
 ```
-
-Available utilities (header-only, `static inline`):
-
-| Header | Purpose | Used By |
-|--------|---------|---------|
-| `metallicity.h` | Safe metallicity calculation (metal mass fraction with zero-division guard) | Cooling, disk instability, starburst |
-| `central_link.h` | Find FOF central (Type 0) index in halo array | Infall, stripping |
-| `time_parity.h` | Object-local timestep validation (skip boundary objects, fail on invalid state) | Multiple SAGE modules |
-| `sage_disk_instability_physics.h` | Disk stability check and stellar transfer to bulge | Disk instability, starburst |
-| `sage_agn_physics.h` | BH growth and quasar-mode wind calculations | Quasar mode |
-| `sage_starburst_physics.h` | Collisional starburst recipe for mergers and disk instabilities | Starburst feedback |
-| `sage_merger_event_contract.h` | **Deprecated** — use `_system/generated/event_contracts.h` instead | Legacy reference only |
 
 See `src/modules/_shared/README.md` for guidelines on creating new shared utilities.
 
@@ -1474,7 +1462,7 @@ For the complete configuration reference (all sections, fields, and a worked exa
 | `output` | Output filename, directory, format (`binary`/`hdf5`), snapshot list |
 | `input` | Tree files: type, directory, file range, snapshot list file |
 | `simulation` | Cosmology (Omega, h), box size, particle mass, unit conversions |
-| `SubSteps` | Time sub-stepping (1=none, 10=moderate, 20=SAGE-like) |
+| `SubSteps` | Time sub-stepping |
 | `modules` | Multi-phase pipeline: `pre_timestep`, `phase_1`, `phase_2`, `post_timestep`, `parameters` |
 
 **Module phase format**:
@@ -1601,11 +1589,11 @@ static int my_module_process(struct ModuleContext *ctx,
 
 **When to use**:
 
-| Mode | Best For | Cache | Vectorization | SAGE Compatibility |
-|------|----------|-------|---------------|-------------------|
-| `process_full_halo` | Snapshot-level operations, array calculations | Lower | Better | No |
-| `process_per_event` | Event-triggered physics linked to full-halo producers | Event-local | Low | Yes |
-| `process_by_galaxy` | Per-galaxy physics, time integration | Better | Lower | Yes |
+| Mode | Best For | Cache | Vectorization |
+|------|----------|-------|---------------|
+| `process_full_halo` | Snapshot-level operations, array calculations | Lower | Better |
+| `process_per_event` | Event-triggered physics linked to full-halo producers | Event-local | Low |
+| `process_by_galaxy` | Per-galaxy physics, time integration | Better | Lower |
 
 ### A7. Pipeline Phases
 

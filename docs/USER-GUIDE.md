@@ -115,7 +115,7 @@ output:
 
 # Input
 input:
-  tree_type: lhalo_binary             # 'lhalo_binary' or 'genesis_lhalo_hdf5'
+  tree_type: lhalo_binary
   simulation_dir: ./input/data/
   first_file: 0
   last_file: 7
@@ -133,7 +133,7 @@ simulation:
   particle_mass: 0.0860657            # 10^10 Msun/h
 
 # Sub-stepping (optional)
-SubSteps: 1                           # 1=no substeps, 10=moderate, 20=SAGE-like
+SubSteps: 10                          # Per snapshot
 
 # Multi-phase pipeline
 modules:
@@ -181,7 +181,6 @@ modules:
     - sage_apply_cooling:             process_by_galaxy
 
     # Star formation and supernova feedback
-    # sage_star_formation and sage_supernova_feedback are independently optional.
     - sage_star_formation:            process_by_galaxy   # prescription: SF rate law
     - sage_supernova_feedback:        process_by_galaxy   # prescription: SN feedback model
     - sage_apply_star_formation_supernova: process_by_galaxy  # infrastructure: commit SF/SN results
@@ -233,30 +232,6 @@ modules:
 - `process_by_galaxy`: Core loops over galaxies one at a time
 - `process_per_event`: Module runs only when triggered by an upstream event (e.g., a merger)
 
-**Available SAGE modules**:
-
-| Module | Phase | Description |
-|--------|-------|-------------|
-| `sage_reionization` | pre_timestep | Reionization suppression |
-| `sage_prepare_infall_budget` | pre_timestep | Cosmological infall budget; consolidates satellite reservoirs |
-| `sage_set_disk_scale_radius` | pre_timestep | Disk scale radius from halo spin |
-| `sage_initialise_merger_clock` | pre_timestep | Merger timescales, Type 0/2 state management |
-| `sage_apply_infall` | phase_1 | Distribute infall budget to hot reservoir over substeps |
-| `sage_reincorporation` | phase_1 | Reincorporation of ejected gas |
-| `sage_satellite_stripping` | phase_1 | Environmental stripping of satellite hot gas |
-| `sage_calculate_cooling_budget` | phase_1 | Compute cooling rate and budget |
-| `sage_radio_mode_heating` | phase_1 | AGN radio-mode suppression of cooling |
-| `sage_apply_cooling` | phase_1 | Transfer cooled gas (hot → cold) |
-| `sage_star_formation` | phase_1 | Star formation rate prescription (swappable) |
-| `sage_supernova_feedback` | phase_1 | Supernova feedback prescription (swappable, optional) |
-| `sage_apply_star_formation_supernova` | phase_1 | Infrastructure: commit SF/SN results to galaxy reservoirs |
-| `sage_disk_instability` | phase_1 | Disk stability check; stellar transfer to bulge |
-| `sage_quasar_mode` | phase_1, phase_2 | Disk-instability BH growth (phase_1); merger-event quasar winds (phase_2) |
-| `sage_starburst_feedback` | phase_1, phase_2 | Disk-instability starbursts (phase_1); merger-event starbursts (phase_2) |
-| `sage_resolve_mergers_and_disruption` | phase_2 | Merger coalescence and satellite disruption; emits merger events |
-
-> **Optional infrastructure module:** `sage_clear_disk_instability_triggers` (phase_1) — resets the disk-instability trigger field after consumer modules have acted on it. Not part of the default pipeline; add it when extending the disk-instability event chain.
-
 **Physics-free mode** (halo tracking only):
 ```yaml
 modules:
@@ -306,7 +281,7 @@ Each MPI rank processes a subset of tree files. Ensure `last_file - first_file +
 
 ### Output Formats
 
-**Binary**: Fast (3.5× faster than HDF5), compact, requires matching reader
+**Binary**: Fast (~3× faster than HDF5), compact, requires matching reader
 
 **HDF5**: Self-documenting, portable, standard format
 
