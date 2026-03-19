@@ -156,7 +156,7 @@ For each snapshot interval:
   3. post_timestep (once)
 ```
 
-**Example configuration** (SAGE physics):
+**Example configuration** (SAGE physics — illustrative values; see `input/millennium.yaml` for shipped defaults):
 
 ```yaml
 SubSteps: 10
@@ -228,10 +228,10 @@ modules:
     StarFormingDiskFactor: 3.0
 ```
 
-**Processing modes**:
-- `process_full_halo`: Module processes entire galaxy array
-- `process_per_event`: Core dispatches each emitted event target with `ctx->active_event` set
-- `process_by_galaxy`: Core loops over galaxies (better cache locality)
+**Processing modes** (use the mode listed for each module in the table below):
+- `process_full_halo`: Module processes entire galaxy array at once
+- `process_by_galaxy`: Core loops over galaxies one at a time
+- `process_per_event`: Module runs only when triggered by an upstream event (e.g., a merger)
 
 **Available SAGE modules**:
 
@@ -255,6 +255,8 @@ modules:
 | `sage_starburst_feedback` | phase_1, phase_2 | Disk-instability starbursts (phase_1); merger-event starbursts (phase_2) |
 | `sage_resolve_mergers_and_disruption` | phase_2 | Merger coalescence and satellite disruption; emits merger events |
 
+> **Optional infrastructure module:** `sage_clear_disk_instability_triggers` (phase_1) — resets the disk-instability trigger field after consumer modules have acted on it. Not part of the default pipeline; add it when extending the disk-instability event chain.
+
 **Physics-free mode** (halo tracking only):
 ```yaml
 modules:
@@ -263,6 +265,39 @@ modules:
   phase_2: []
   post_timestep: []
   parameters: {}
+```
+
+### Common Recipes
+
+**Disable a specific module** — remove or comment out its line in the YAML:
+```yaml
+  phase_1:
+    # - sage_supernova_feedback:  process_by_galaxy   # disabled
+    - sage_apply_star_formation_supernova: process_by_galaxy
+```
+
+**Write all snapshots** — set `snapshot_count: -1`:
+```yaml
+output:
+  snapshot_count: -1   # overrides snapshot_list, writes every snapshot
+```
+
+**Add a snapshot to output** — append to the list:
+```yaml
+output:
+  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16, 12]
+```
+
+**Run with MPI** (parallel over tree files):
+```bash
+make USE-MPI=yes
+mpirun -np 4 ./mimic input/millennium.yaml
+```
+Each MPI rank processes a subset of tree files. Ensure `last_file - first_file + 1` is divisible by the number of ranks for even load balancing.
+
+**Resume an interrupted run** — use `--skip` to avoid reprocessing files that already have output:
+```bash
+./mimic --skip input/millennium.yaml
 ```
 
 ---
@@ -291,14 +326,17 @@ To convert to physical units: divide by `h` (from `hubble_h` parameter).
 ### Output Properties
 
 **Always included** (halo properties):
-- Mvir, Rvir, Vmax, Spin, Position, Velocity
-- TreeID, DescID, HaloIndex, UniqueGalaxyID
+- Identity: SnapNum, Type, MostBoundID, UniqueGalaxyID, UniqueCentralGalaxyID
+- Structure: Mvir, deltaMvir, CentralMvir, Rvir, Vvir, Vmax, VelDisp, Len
+- Kinematics: Pos, Vel, Spin, dT
+- Infall: infallMvir, infallVvir, infallVmax
 
-**Conditionally included** (galaxy properties, if physics enabled):
-- Baryonic: ColdGas, HotGas, StellarMass, BulgeMass, EjectedGas
-- Metals: MetalsColdGas, MetalsHotGas, MetalsStellarMass, MetalsBulgeMass
-- Star formation: Sfr, NewStellarMass
+**Always included** (galaxy properties — fields are always present in the output schema, but remain zero or at their initial/sentinel value when no physics modules populate them):
+- Baryonic: ColdGas, HotGas, StellarMass, BulgeMass, EjectedGas, ICS, HaloBaryonFraction
+- Metals: MetalsStellarMass, MetalsBulgeMass, MetalsColdGas, MetalsHotGas, MetalsICS, MetalsEjectedGas
+- Star formation: StarFormationRate
 - Black holes: BlackHoleMass, QuasarModeBHaccretionMass
+- Energetics: Cooling, Heating, SupernovaOutflowRate
 - Structure: DiskScaleRadius
 - Mergers: TimeOfLastMajorMerger, TimeOfLastMinorMerger
 

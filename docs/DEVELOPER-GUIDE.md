@@ -15,6 +15,15 @@
 7. [Complete Example: Multi-File Module](#complete-example-multi-file-module)
 8. [Appendix: Reference Tables](#appendix-reference-tables)
 
+**Common tasks**:
+- Adding a module? [Creating Physics Modules](#creating-physics-modules) | [Quick Start](#quick-start)
+- Adding a property? [Property System](#property-system) | [A2. Property Metadata Schema](#a2-property-metadata-schema)
+- Using events? [process_per_event example](#processing-modes) (under Processing Modes)
+- Debugging a module? [Debugging a broken module](#debugging-a-broken-module)
+- How does code generation work? [Code generation internals](#how-code-generation-works)
+- API lookup? [A4. ModuleContext](#a4-modulecontext-structure) | [A5. Parameters](#a5-parameter-loading-macros) | [A6. Processing Modes](#a6-processing-modes)
+- Configuration reference? [USER-GUIDE.md Configuration](USER-GUIDE.md#configuration)
+
 ---
 
 ## Quick Start
@@ -114,11 +123,28 @@ For the design principles behind these decisions, see [VISION.md](VISION.md).
 - `src/util/`: Memory, logging, numerical utilities
 - `src/include/generated/`: Auto-generated code from metadata
 
-### Halo Data Structures
+### Key Concepts
 
-- **InputTreeHalos**: Raw merger tree (immutable, from file)
-- **FoFWorkspace**: Temporary processing (modules modify this)
-- **ProcessedHalos**: Final output (written to file)
+**Galaxy types**:
+- **Type 0** — FOF central galaxy (has a resolved halo, is the main subhalo of the FOF group)
+- **Type 1** — Satellite galaxy with a resolved subhalo (still tracked by the N-body simulation)
+- **Type 2** — Orphan satellite (subhalo no longer resolved; galaxy properties are preserved from last resolved snapshot)
+
+Infall properties (`infallMvir`, `infallVvir`, `infallVmax`) are recorded when a galaxy transitions from Type 0 to Type 1 or Type 2.
+
+**Halo data structures**:
+- **InputTreeHalos** (`struct RawHalo`): Raw merger tree (immutable, read from file)
+- **FoFWorkspace** (`struct Halo`): Temporary processing workspace (modules modify galaxies here)
+- **ProcessedHalos** (`struct Halo`): Permanent storage (written to output after processing)
+
+**Galaxy inheritance**: When processing a new snapshot, each galaxy is deep-copied from `ProcessedHalos` (previous snapshot) into `FoFWorkspace` (current snapshot). This preserves all galaxy properties across time. Snapshot-scoped accumulator properties (those with `init_repeat: true`) are reset to their initial value after the copy. Halo properties (Mvir, Rvir, etc.) are updated from the current tree data.
+
+**Module error handling**:
+- `init()` returns non-zero: startup aborts immediately with an error message
+- `process()` returns non-zero: program exits with `EXIT_FAILURE` (fatal — the pipeline does not continue)
+- `cleanup()` returns non-zero: error is logged but cleanup continues for remaining modules (best-effort)
+
+Modules should return `-1` on error after logging a descriptive message with `ERROR_LOG()`.
 
 ### Module Communication
 
@@ -444,12 +470,6 @@ The event payload is two `double` scalars (`value0`, `value1`). By convention:
 - `value0`: primary physics quantity (e.g., mass ratio, efficiency fraction)
 - `value1`: time-like quantity (e.g., source object's substep `dt`)
 
-If more payload is needed in the future, the approved expansion path is:
-1. First widen to a small fixed numeric payload (e.g., add `value2`, `value3`).
-2. Do not introduce pointer payloads without a separate design review.
-3. Any payload expansion must update: `struct ModuleEvent`, emit helpers,
-   zero-init/cleanup assumptions, tests, HDF5 output metadata, and documentation.
-
 **Standalone modules and mode inheritance**
 
 A bare `.c` file placed directly in `src/modules/` (no `module_info.yaml`) is a
@@ -616,7 +636,7 @@ gal->ColdGas -= consumed_gas;
 #include "util/memory.h"
 
 /* Allocate with category tracking */
-float *data = mymalloc_cat(size * sizeof(float), MEM_PHYSICS);
+float *data = mymalloc_cat(size * sizeof(float), MEM_UTILITY);
 
 /* Free in cleanup() */
 static int my_module_cleanup(void) {
@@ -640,17 +660,24 @@ WARNING_LOG("Non-fatal issues");             /* Always shown */
 FATAL_ERROR("Fatal errors");                 /* Always shown, exits program */
 ```
 
-**Shared utilities**:
+**Shared utilities** (`src/modules/_shared/`):
 ```c
-/* Place in src/modules/_shared/ for reuse across modules */
-#include "../_shared/my_utility.h"
-
-/* Example: src/modules/_shared/ejection_physics.h */
-static inline double compute_ejection_velocity(double vvir,
-                                                double efficiency) {
-  return efficiency * vvir;
-}
+#include "../_shared/metallicity.h"  /* Use in your module */
 ```
+
+Available utilities (header-only, `static inline`):
+
+| Header | Purpose | Used By |
+|--------|---------|---------|
+| `metallicity.h` | Safe metallicity calculation (metal mass fraction with zero-division guard) | Cooling, disk instability, starburst |
+| `central_link.h` | Find FOF central (Type 0) index in halo array | Infall, stripping |
+| `time_parity.h` | Object-local timestep validation (skip boundary objects, fail on invalid state) | Multiple SAGE modules |
+| `sage_disk_instability_physics.h` | Disk stability check and stellar transfer to bulge | Disk instability, starburst |
+| `sage_agn_physics.h` | BH growth and quasar-mode wind calculations | Quasar mode |
+| `sage_starburst_physics.h` | Collisional starburst recipe for mergers and disk instabilities | Starburst feedback |
+| `sage_merger_event_contract.h` | **Deprecated** — use `_system/generated/event_contracts.h` instead | Legacy reference only |
+
+See `src/modules/_shared/README.md` for guidelines on creating new shared utilities.
 
 ---
 
@@ -755,12 +782,7 @@ For complete schema specification with all fields and options, see [Appendix A2]
 
 ### Output Modifier Functions
 
-**When to use**: Properties that need conditional or calculated values at output time.
-
-**Common use cases**:
-- Type-dependent output (centrals vs satellites vs orphans)
-- Properties recalculated from current state (virial quantities for Type 0/1)
-- Conditional logic too complex for property metadata alone
+**When to use**: Properties that need conditional or calculated values at output time (e.g., type-dependent output, recalculated virial quantities).
 
 **How it works**:
 1. Set `output_source: recalculate` in property metadata
@@ -768,22 +790,10 @@ For complete schema specification with all fields and options, see [Appendix A2]
 3. Specify `output_function_arg: "args"` (arguments passed to function)
 4. Code generation creates: `o->PropertyName = function_name(args);`
 
-**Example 1: Type-dependent output** (satellites only):
-
-**Problem**: `infallMvir` should output actual value for satellites, but 0.0 for centrals (which never experienced infall).
-
-**Solution**:
-
-**1. Define helper function** in `src/modules/_system/output_helpers.h`:
+**Example** — output infall property for satellites, 0.0 for centrals:
 
 ```c
-/**
- * Output infall property for satellites, 0.0 for centrals
- *
- * @param g Halo pointer
- * @param value The infall property value
- * @return value if satellite (Type != 0), 0.0 if central (Type == 0)
- */
+/* In src/modules/_system/output_helpers.h */
 static inline float output_infall_property_or_zero(const struct Halo *g,
                                                      float value)
 {
@@ -791,9 +801,8 @@ static inline float output_infall_property_or_zero(const struct Halo *g,
 }
 ```
 
-**2. Reference in property metadata** (`halo_properties.yaml`):
-
 ```yaml
+# In halo_properties.yaml
 - name: infallMvir
   type: float
   units: "1e10 Msun/h"
@@ -803,73 +812,21 @@ static inline float output_infall_property_or_zero(const struct Halo *g,
   init_value: -1.0
   output_source: recalculate
   output_function: output_infall_property_or_zero
-  output_function_arg: "g, g->infallMvir"  # Pass halo pointer and value
+  output_function_arg: "g, g->infallMvir"
   range: [0.000001, 1000000.0]
   sentinels: [0.0, -1.0]
 ```
 
-**3. Auto-generated code** (in `copy_to_output.inc`):
-
-```c
-o->infallMvir = output_infall_property_or_zero(g, g->infallMvir);
-```
-
-**Example 2: Recalculate from current state**:
-
-**Problem**: `Rvir` should recalculate current virial radius for Type 0/1, but preserve the stored value for Type 2 orphans (which no longer have a resolved halo).
-
-**1. Define helper function** in `src/modules/_system/output_helpers.h`:
-
-```c
-/**
- * Output Rvir: recalculate current for Type 0/1, preserve for Type 2
- */
-static inline float output_rvir_conditional(const struct Halo *g)
-{
-    // Type 2 orphans: return preserved value (no current halo)
-    // Type 0/1: recalculate current value
-    return (g->Type == 2) ? g->Rvir : (float)get_virial_radius(g->HaloNr);
-}
-```
-
-**2. Reference in property metadata**:
-
-```yaml
-- name: Rvir
-  type: float
-  units: "Mpc/h"
-  description: "Virial radius"
-  output: true
-  init_source: calculate
-  init_function: get_virial_radius
-  output_source: recalculate
-  output_function: output_rvir_conditional
-  output_function_arg: "g"  # Only need halo pointer
-  range: [0.001, 10.0]
-```
-
 **Guidelines**:
-
-**Where to place functions**:
-- `src/modules/_system/output_helpers.h` (for general-purpose helpers)
-- Make functions `static inline` for performance
-- Use `const struct Halo *g` when function doesn't modify halo
-
-**Function signature**:
+- Place functions in `src/modules/_system/output_helpers.h`, make them `static inline`
 - Return type must match property type (`float`, `double`, `int`, `long`)
 - Common arguments: `g` (halo pointer), `g->PropertyName` (property value)
-- Access global arrays if needed: `InputTreeHalos[g->HaloNr]`
-
-**Testing**:
-- After adding function, run `make generate && make`
-- Verify output with small test run
-- Check both centrals and satellites if type-dependent
+- After adding, run `make generate && make` and verify with a small test run
 
 **Existing helper functions** (see `src/modules/_system/output_helpers.h`):
 - `output_infall_property_or_zero(g, value)`: Satellites only (0.0 for centrals)
 - `output_rvir_conditional(g)`: Recalculate Type 0/1, preserve Type 2
 - `output_vvir_conditional(g)`: Recalculate Type 0/1, preserve Type 2
-- `output_veldisp_conditional(g)`: Copy from tree Type 0/1, preserve Type 2
 
 ---
 
@@ -1060,6 +1017,43 @@ make generate
 make check-generated
 ```
 
+#### How code generation works
+
+Two generator scripts produce all auto-generated code from YAML metadata:
+
+```
+halo_properties.yaml ──┐
+                       ├──► generate_properties.py ──► property_defs.h, *.inc files, dtype.py
+model_properties.yaml ─┘
+
+module_info.yaml (each module) ──► generate_module_registry.py ──► module_init.c, event_contracts.h
+```
+
+**Property generation** (`scripts/generate_properties.py`) reads the two property YAML files and produces:
+
+| Generated file | Location | Purpose |
+|----------------|----------|---------|
+| `property_defs.h` | `src/include/generated/` | C struct definitions (`Halo`, `GalaxyData`, `HaloOutput`) |
+| `init_halo_properties.inc` | `src/include/generated/` | Copy tree fields into `FoFWorkspace` |
+| `init_galaxy_properties.inc` | `src/include/generated/` | Zero/default galaxy fields |
+| `reset_galaxy_properties.inc` | `src/include/generated/` | Reset snapshot-scoped accumulators (`init_repeat: true`) |
+| `copy_to_output.inc` | `src/include/generated/` | Copy `Halo` → `HaloOutput` with unit conversions |
+| `hdf5_field_*.inc` | `src/include/generated/` | HDF5 output metadata (field count, definitions, units) |
+| `dtype.py` | `output/mimic-plot/generated/` | NumPy dtype and `get_units()` for reading output |
+| `property_ranges.json` | `tests/generated/` | Validation ranges for scientific tests |
+
+**Module generation** (`scripts/generate_module_registry.py`) scans all `module_info.yaml` files and produces:
+
+| Generated file | Location | Purpose |
+|----------------|----------|---------|
+| `module_init.c` | `src/modules/_system/generated/` | Forward declarations, `struct Module` definitions, `register_all_modules()` |
+| `event_contracts.h` | `src/modules/_system/generated/` | `#define MODULE_ID_*` macros and per-producer event enums |
+| `module_sources.mk` | `tests/generated/` | Makefile fragment listing module sources for test compilation |
+
+**Runtime flow**: At startup, `register_all_modules()` (generated) calls `module_registry_add()` for each module. The core then uses the registered `struct Module` entries — containing function pointers to `init()`, `process()`, `cleanup()` plus supported processing modes and event subscriptions — to dispatch the pipeline.
+
+**Staleness detection**: Each generated file embeds an MD5 hash of its source YAML. `make check-generated` validates property-generated files only (comparing the embedded hash in `src/include/generated/` and `output/mimic-plot/generated/` against the current property YAML). Module-generated files (`module_init.c`, `event_contracts.h`) also embed hashes but are not yet covered by `check-generated`. The `make` build rules track YAML dependencies for both systems, so a normal `make` will regenerate automatically when any YAML file changes.
+
 ### Debugging
 
 **Debug build with verbose output**:
@@ -1084,6 +1078,55 @@ gdb ./mimic
 (gdb) run input/millennium.yaml
 (gdb) bt  # Backtrace on crash
 ```
+
+#### Debugging a broken module
+
+When a module misbehaves, work through these stages in order:
+
+**1. Validate metadata first** — catches most wiring errors before compilation:
+```bash
+make validate-modules
+```
+Common errors caught here:
+- `Missing required fields: supported_processing_modes` — add to `module_info.yaml`
+- `Module name 'X' doesn't match directory name 'Y'` — rename to match
+- `Property 'X' not found in property metadata` — check spelling in `model_properties.yaml`
+- `Invalid processing mode(s): process_invalid` — use one of `process_by_galaxy`, `process_full_halo`, `process_per_event`
+
+**2. Regenerate and rebuild** — if the module was recently added or metadata changed:
+```bash
+make generate && make clean && make
+```
+If you skip this step, you'll see at runtime:
+```
+ERROR: Module 'my_module' configured but not registered
+ERROR: Available modules:
+ERROR:   - sage_apply_cooling
+ERROR:   - ...
+```
+
+**3. Run with `--debug`** — shows module lifecycle with full context:
+```bash
+./mimic --debug input/millennium.yaml 2>&1 | tee debug.log
+```
+Debug output traces each stage:
+```
+DEBUG - Initializing module: my_module
+DEBUG - Executing module: my_module (full array, ngal=256, substep 3/10, z=1.234)
+```
+
+**4. Interpret failure messages** by stage:
+
+| Stage | Error message | Behaviour |
+|-------|---------------|-----------|
+| `init()` returns non-zero | `Module 'X' initialization failed with code -1` | Program exits immediately — no trees processed |
+| `process()` returns non-zero | `Module 'X' failed (substep N)` or `failed on galaxy N` | Program exits immediately — `exit(EXIT_FAILURE)` |
+| `cleanup()` returns non-zero | Error logged | Cleanup continues for remaining modules (best-effort) |
+| Missing parameter | `Required model parameter 'X' not found in input file` | Triggered during `init()` — add to YAML `parameters:` |
+| Wrong processing mode | `Module 'X' does not support processing mode 'Y'` | Program exits at startup — fix mode in YAML |
+| Event wiring error | `Module 'X' is configured as process_per_event but declares no event subscriptions` | Program exits at startup — add `events.consumes` to metadata |
+
+**5. If process() fails silently** (exits with no descriptive error), add `ERROR_LOG()` before the `return -1` in your module. The core reports which module and substep failed, but only the module itself knows the physics reason.
 
 ---
 
@@ -1151,8 +1194,8 @@ int init_cooling_tables(const char *table_dir) {
   fscanf(f, "%d", &table_size);
 
   /* Allocate memory */
-  table_temp = mymalloc_cat(table_size * sizeof(double), MEM_PHYSICS);
-  table_rate = mymalloc_cat(table_size * sizeof(double), MEM_PHYSICS);
+  table_temp = mymalloc_cat(table_size * sizeof(double), MEM_UTILITY);
+  table_rate = mymalloc_cat(table_size * sizeof(double), MEM_UTILITY);
 
   /* Read data */
   for (int i = 0; i < table_size; i++) {
@@ -1422,70 +1465,17 @@ make clean && make
 
 ### A3. Input Configuration YAML
 
-For a complete working configuration example with all SAGE modules, see the [Configuration section in USER-GUIDE.md](USER-GUIDE.md#configuration).
+For the complete configuration reference (all sections, fields, and a worked example with SAGE modules), see the [Configuration section in USER-GUIDE.md](USER-GUIDE.md#configuration).
 
-**Top-level sections**:
+**Quick reference** — top-level YAML sections:
 
 | Section | Description |
 |---------|-------------|
-| `output` | Output configuration |
-| `input` | Input tree files |
-| `simulation` | Cosmology and simulation parameters |
-| `SubSteps` | Time sub-stepping |
-| `modules` | Multi-phase pipeline configuration |
-
-**Output section**:
-
-| Field | Type | Description | Example |
-|-------|------|-------------|---------|
-| `output_filename` | string | Base filename (no extension) | `"model"` |
-| `output_directory` | string | Output directory path | `"./output/results/"` |
-| `output_format` | enum | `"binary"` or `"hdf5"` | `"hdf5"` |
-| `snapshot_count` | int | Override snapshot_list (-1 = all) | `8` |
-| `snapshot_list` | array | Snapshot numbers to process | `[63, 37, 32, 27]` |
-
-**Input section**:
-
-| Field | Type | Description | Example |
-|-------|------|-------------|---------|
-| `first_file` | int | First tree file to process | `0` |
-| `last_file` | int | Last tree file (inclusive) | `7` |
-| `tree_name` | string | Tree file base name | `"trees_063"` |
-| `tree_type` | enum | `"lhalo_binary"` or `"genesis_lhalo_hdf5"` | `"lhalo_binary"` |
-| `simulation_dir` | string | Directory containing trees | `"./input/data/"` |
-| `snapshot_list_file` | string | Path to `.a_list` file | `"./input/data/millennium.a_list"` |
-| `last_snapshot` | int | Last snapshot number | `63` |
-
-**Simulation section**:
-
-| Field | Type | Description | Example |
-|-------|------|-------------|---------|
-| `cosmology.omega_matter` | float | Ωm | `0.25` |
-| `cosmology.omega_lambda` | float | ΩΛ | `0.75` |
-| `cosmology.hubble_h` | float | h (H0 = 100h km/s/Mpc) | `0.73` |
-| `box_size` | float | Simulation box size (Mpc/h) | `62.5` |
-| `particle_mass` | float | Dark matter particle mass (1e10 Msun/h) | `0.0860657` |
-| `units.length_in_cm` | float | Length unit conversion | `3.08568e24` |
-| `units.mass_in_g` | float | Mass unit conversion | `1.989e43` |
-| `units.velocity_in_cm_per_s` | float | Velocity unit conversion | `100000.0` |
-
-**SubSteps**:
-
-| Value | Description |
-|-------|-------------|
-| `1` | No sub-stepping (default, fastest) |
-| `10` | 10 substeps (moderate stability) |
-| `20` | 20 substeps (SAGE-like, most stable) |
-
-**Modules section**:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `pre_timestep` | array | Modules for setup phase (runs once before substeps) |
-| `phase_1` | array | Modules for main physics (runs each substep) |
-| `phase_2` | array | Modules for secondary physics (runs each substep) |
-| `post_timestep` | array | Modules for finalization (runs once after substeps) |
-| `parameters` | object | Key-value pairs for physics parameters |
+| `output` | Output filename, directory, format (`binary`/`hdf5`), snapshot list |
+| `input` | Tree files: type, directory, file range, snapshot list file |
+| `simulation` | Cosmology (Omega, h), box size, particle mass, unit conversions |
+| `SubSteps` | Time sub-stepping (1=none, 10=moderate, 20=SAGE-like) |
+| `modules` | Multi-phase pipeline: `pre_timestep`, `phase_1`, `phase_2`, `post_timestep`, `parameters` |
 
 **Module phase format**:
 
@@ -1493,6 +1483,8 @@ For a complete working configuration example with all SAGE modules, see the [Con
 modules:
   phase_name:
     - module_name: processing_mode
+  parameters:
+    ParamName: value
 ```
 
 ### A4. ModuleContext Structure
@@ -1525,6 +1517,12 @@ modules:
 |-------|------|-------------|
 | `central_index` | int | Index of Type 0 central in FoFWorkspace array |
 | `central_galaxy` | struct Halo* | **Pointer to FOF central galaxy** (always non-NULL) |
+
+**Event information** (only relevant for `process_per_event` modules):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `active_event` | const struct ModuleEvent* | Active event (non-NULL in `process_per_event`; NULL otherwise). Fields: `value0`, `value1` (double payload) |
 
 **Configuration access**:
 
@@ -1628,11 +1626,11 @@ For the detailed execution diagram and phase-selection guidance, see [Pipeline P
 
 | Constant | Description |
 |----------|-------------|
-| `MEM_HALOS` | Halo and galaxy data structures |
+| `MEM_GALAXIES` | Galaxy data structures |
+| `MEM_HALOS` | Halo data structures |
 | `MEM_TREES` | Merger tree structures |
 | `MEM_IO` | I/O buffers |
-| `MEM_UTILITY` | Utility allocations |
-| `MEM_PHYSICS` | Physics module allocations |
+| `MEM_UTILITY` | Utility and physics module allocations |
 
 **Functions**:
 
@@ -1662,17 +1660,35 @@ For the detailed execution diagram and phase-selection guidance, see [Pipeline P
 
 **Definition**: `src/modules/_system/physical_constants.h`
 
-**Common constants**:
+**CGS fundamental constants** (`#define` macros):
 
 | Constant | Value | Units | Description |
 |----------|-------|-------|-------------|
-| `G` | 43007.1 | (km/s)^2 Mpc/Msun | Gravitational constant |
-| `c` | 2.99792458e5 | km/s | Speed of light |
+| `GRAVITY` | 6.672e-8 | cm^3/(g s^2) | Gravitational constant (CGS) |
+| `SOLAR_MASS` | 1.989e33 | g | Solar mass |
+| `CM_PER_MPC` | 3.085678e24 | cm | Megaparsec in cm |
+| `HUBBLE` | 3.2407789e-18 | h/s | Hubble constant H_0 |
+| `SEC_PER_MEGAYEAR` | 3.155e13 | s | Seconds per Myr |
+| `SEC_PER_YEAR` | 3.155e7 | s | Seconds per year |
 | `PROTONMASS` | 1.6726e-24 | g | Proton mass |
 | `BOLTZMANN` | 1.3806e-16 | erg/K | Boltzmann constant |
-| `SEC_PER_MEGAYEAR` | 3.1536e13 | s | Seconds per Myr |
-| `SOLAR_MASS` | 1.989e33 | g | Solar mass |
-| `MPC_IN_CM` | 3.0857e24 | cm | Megaparsec in cm |
+| `ENERGY_SN` | 1.0e51 | erg | Canonical supernova energy |
+| `ETA_SN` | 5.0e-3 | - | Supernova mass loading efficiency |
+
+**Speed of light** (`static const double`):
+
+| Constant | Value | Units |
+|----------|-------|-------|
+| `C_CGS` | 2.9979e10 | cm/s |
+| `C_SQUARED_CGS` | 8.9875e20 | cm^2/s^2 |
+| `C_KM_S` | 2.99792458e5 | km/s |
+| `C_SQUARED_KM_S` | 8.9875e10 | (km/s)^2 |
+
+**Derived constants** (computed at runtime, stored in `MimicConfig`):
+
+| Field | Typical Value | Units | Description |
+|-------|---------------|-------|-------------|
+| `MimicConfig.G` | 43007.1 | (km/s)^2 Mpc / (1e10 Msun/h) | G in code units (computed from CGS + simulation unit system) |
 
 ---
 

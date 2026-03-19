@@ -204,7 +204,6 @@ src/
 build/generated/     Build-time generated files (git_version.h, test lists)
 tests/               Unit, integration, and scientific tests
   └── generated/     Auto-generated test metadata
-docs/generated/      Auto-generated documentation
 output/mimic-plot/   Plotting system (22 plots: 18 snapshot, 4 evolution)
   ├── tests/         Plotting system tests (unit and integration)
   └── generated/     Auto-generated Python dtypes
@@ -227,7 +226,7 @@ output/mimic-plot/   Plotting system (22 plots: 18 snapshot, 4 evolution)
 4. `save_halos()` — Write to binary or HDF5 output
 5. `free_halos_and_tree()` — Cleanup memory
 
-**Memory:** Custom allocator with leak detection and categorised tracking (`MEM_HALOS`, `MEM_TREES`, `MEM_IO`, `MEM_UTILITY`, `MEM_PHYSICS`).
+**Memory:** Custom allocator with leak detection and categorised tracking (`MEM_GALAXIES`, `MEM_HALOS`, `MEM_TREES`, `MEM_IO`, `MEM_UTILITY`).
 
 **Output:** Binary/HDF5 structure documented in `docs/USER-GUIDE.md#output`.
 
