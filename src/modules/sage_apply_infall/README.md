@@ -10,7 +10,7 @@ Distributes the prepared infall budget into the central hot reservoir during sub
 
 ## Properties
 
-- Reads: `Type`, `Mvir`, `InfallingGas`, `EjectedGas`, `MetalsEjectedGas`
+- Reads: `Type`, `InfallingGas`, `HotGas`, `MetalsHotGas`, `EjectedGas`, `MetalsEjectedGas`
 - Writes: `HotGas`, `MetalsHotGas`, `EjectedGas`, `MetalsEjectedGas`
 
 ## Parameters

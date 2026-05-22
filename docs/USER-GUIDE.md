@@ -186,7 +186,7 @@ modules:
 
 ### Physics Modules
 
-The module pipeline is configured under `modules`. The following abbreviated SAGE example shows the phase structure; use `input/millennium.yaml` as the authoritative shipped configuration and parameter values.
+The module pipeline is configured under `modules`. The following abbreviated example shows the phase structure only — the full set of SAGE modules and their parameter values live in `input/millennium.yaml`, which is the authoritative shipped configuration.
 
 ```yaml
 SubSteps: 10
@@ -195,25 +195,14 @@ modules:
   pre_timestep:
     - sage_reionization:              process_full_halo
     - sage_prepare_infall_budget:     process_full_halo
-    - sage_set_disk_scale_radius:     process_full_halo
-    - sage_initialise_merger_clock:   process_full_halo
+    # ... see input/millennium.yaml for the full pre_timestep block
 
   phase_1:
     - sage_apply_infall:              process_full_halo
-    - sage_reincorporation:           process_full_halo
-    - sage_satellite_stripping:       process_full_halo
-
     - sage_calculate_cooling_budget:  process_by_galaxy
     - sage_radio_mode_heating:        process_by_galaxy
     - sage_apply_cooling:             process_by_galaxy
-
-    - sage_star_formation:            process_by_galaxy
-    - sage_supernova_feedback:        process_by_galaxy
-    - sage_apply_star_formation_supernova: process_by_galaxy
-
-    - sage_disk_instability:          process_by_galaxy
-    - sage_quasar_mode:               process_by_galaxy
-    - sage_starburst_feedback:        process_by_galaxy
+    # ... star formation, supernova, disk instability, quasar, starburst ...
 
   phase_2:
     - sage_resolve_mergers_and_disruption: process_full_halo
@@ -223,21 +212,10 @@ modules:
   post_timestep: []
 
   parameters:
+    # Illustrative values only. See input/millennium.yaml for the calibrated set.
     GlobalBaryonFraction: 0.17
     SfrEfficiency: 0.05
-    StarFormingDiskFactor: 3.0
-    FeedbackReheatingEpsilon: 3.0
-    FeedbackEjectionEfficiency: 0.3
-    ReIncorporationFactor: 0.15
-    AGNrecipe: 2
-    RadioModeEfficiency: 0.08
-    BlackHoleGrowthRate: 0.015
-    QuasarModeEfficiency: 0.005
-    RecycleFraction: 0.43
-    Yield: 0.025
-    FracZleaveDisk: 0.0
-    ThresholdMajorMerger: 0.3
-    ThresholdSatDisruption: 1.0
+    # ... cooling, AGN, BH, metals, mergers ...
 ```
 
 Module parameters have no global defaults in the core. A module loads and validates the parameters it needs during its `init()` function. If a required parameter is missing, startup fails before trees are processed.

@@ -11,7 +11,7 @@ Calculates supernova reheating and ejection budgets from newly formed stellar ma
 ## Properties
 
 - Reads: `Vvir`, `ColdGas`, `NewStellarMass`
-- Writes: `SupernovaReheatedMass`, `SupernovaEjectedMass`
+- Writes: `NewStellarMass`, `SupernovaReheatedMass`, `SupernovaEjectedMass`
 
 ## Parameters
 
@@ -20,4 +20,4 @@ Calculates supernova reheating and ejection budgets from newly formed stellar ma
 
 ## Notes
 
-This module only calculates transport budgets. Reservoir changes are committed by `sage_apply_star_formation_supernova`.
+This module only calculates transport budgets. Reservoir changes are committed by `sage_apply_star_formation_supernova`. `NewStellarMass` can be lowered here when the combined SF + reheating budget would exceed the available `ColdGas`; the apply step consumes the capped value.

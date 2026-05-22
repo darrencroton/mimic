@@ -10,7 +10,7 @@ Initialises or updates merger clocks for satellites and handles reset behavior f
 
 ## Properties
 
-- Reads: `HaloNr`, `Type`, `CentralHalo`, `Len`, `Mvir`, `Rvir`, `Vvir`, `StellarMass`, `ColdGas`
+- Reads: `Type`, `CentralHalo`, `Len`, `Mvir`, `Rvir`, `Vvir`, `StellarMass`, `ColdGas`
 - Writes: `MergTime`
 
 ## Parameters

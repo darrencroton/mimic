@@ -10,7 +10,7 @@ Applies star-formation and supernova transport fields to the persistent galaxy r
 
 ## Properties
 
-- Reads: `dT`, `Mvir`, `ColdGas`, `MetalsColdGas`, `NewStellarMass`, `SupernovaReheatedMass`, `SupernovaEjectedMass`
+- Reads: `dT`, `Mvir`, `ColdGas`, `MetalsColdGas`, `HotGas`, `MetalsHotGas`, `NewStellarMass`, `SupernovaReheatedMass`, `SupernovaEjectedMass` (`HotGas`/`MetalsHotGas` are read on the FoF central for reheat/eject reservoir transfers)
 - Writes: `ColdGas`, `MetalsColdGas`, `StellarMass`, `MetalsStellarMass`, `HotGas`, `MetalsHotGas`, `EjectedGas`, `MetalsEjectedGas`, `StarFormationRate`, `SupernovaOutflowRate`
 
 ## Parameters

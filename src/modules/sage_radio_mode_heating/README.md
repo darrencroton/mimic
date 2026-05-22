@@ -11,7 +11,7 @@ Suppresses cooling through AGN radio-mode heating. The selected accretion/heatin
 ## Properties
 
 - Reads: `Type`, `HaloNr`, `SnapNum`, `dT`, `Mvir`, `Vvir`, `Rvir`, `CoolingGas`, `BlackHoleMass`, `HotGas`, `MetalsHotGas`, `CoolingLambda`, `Rcool`
-- Writes: `CoolingGas`, `BlackHoleMass`, `Rheat`, `Heating`
+- Writes: `CoolingGas`, `BlackHoleMass`, `HotGas`, `MetalsHotGas`, `Rheat`, `Heating`
 
 ## Parameters
 

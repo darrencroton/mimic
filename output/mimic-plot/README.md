@@ -118,6 +118,9 @@ All Mimic output properties include unit metadata for reproducible science. Unit
 
 **From the generated Python helper** (binary dtype plus shared unit metadata):
 ```python
+# The plotting tools run from output/mimic-plot/, so this import works directly.
+# From any other working directory, add the plotting directory to sys.path first:
+#   import sys; sys.path.insert(0, "/path/to/mimic/output/mimic-plot")
 from generated.dtype import get_binary_dtype, get_units
 
 # Get units dictionary

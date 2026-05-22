@@ -28,7 +28,7 @@ Common tasks:
 - Loading parameters: [Parameters](#parameters)
 - Using events: [Events](#events)
 - Running tests: [Testing](#testing)
-- Understanding generated code: [Code Generation](#code-generation)
+- Day-to-day development (including regenerating code): [Development Workflow](#development-workflow)
 
 ---
 

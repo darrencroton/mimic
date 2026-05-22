@@ -140,7 +140,7 @@ int main(void) {
 ```yaml
 tests:
   unit:
-    - _tests/test_unit_reionization.c
+    - _tests/test_unit_metallicity.c
     - _tests/test_unit_my_utility.c  # Add here
 ```
 

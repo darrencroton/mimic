@@ -10,8 +10,8 @@ Applies a disk stability criterion, transfers unstable stellar mass to the bulge
 
 ## Properties
 
-- Reads: `Type`, `Vmax`, `ColdGas`, `StellarMass`, `BulgeMass`, `DiskScaleRadius`
-- Writes: `StellarMass`, `BulgeMass`, `MetalsStellarMass`, `MetalsBulgeMass`, `UnstableDiskGasFraction`
+- Reads: `Vmax`, `ColdGas`, `StellarMass`, `MetalsStellarMass`, `BulgeMass`, `MetalsBulgeMass`, `DiskScaleRadius`
+- Writes: `BulgeMass`, `MetalsBulgeMass`, `UnstableDiskGasFraction`
 
 ## Parameters
 

@@ -3,7 +3,7 @@
  * @brief   Clear disk-instability trigger channel after phase_1 consumers
  *
  * This module clears only the disk-instability trigger field used by
- * sage_quasar_mode and sage_collisional_starburst in phase_1.
+ * sage_quasar_mode and sage_starburst_feedback in phase_1.
  */
 
 #include "error.h"

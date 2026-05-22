@@ -26,9 +26,9 @@ SKIP_DIRS = {
     "sage-code",
 }
 
-SKIP_PATH_PREFIXES = {
+SKIP_PATH_PREFIXES = [
     ("tests", "data", "output"),
-}
+]
 
 
 def discover_markdown_files() -> List[Path]:
@@ -40,10 +40,16 @@ def discover_markdown_files() -> List[Path]:
             continue
         if any(rel_parts[: len(prefix)] == prefix for prefix in SKIP_PATH_PREFIXES):
             continue
-        if not path.exists() or not path.is_file():
+        if not path.is_file():
             continue
         files.append(path)
     return sorted(files)
+
+
+def load_text(path: Path, cache: Dict[Path, str]) -> str:
+    if path not in cache:
+        cache[path] = path.read_text(encoding="utf-8")
+    return cache[path]
 
 
 def slugify_heading(heading: str) -> str:
@@ -102,9 +108,10 @@ def parse_markdown_target(raw_target: str) -> Tuple[str, str]:
     return path_part.strip(), anchor_part.strip()
 
 
-def validate_internal_links() -> List[str]:
+def validate_internal_links(
+    doc_files: List[Path], markdown_cache: Dict[Path, str]
+) -> List[str]:
     errors: List[str] = []
-    markdown_cache: Dict[Path, str] = {}
     anchor_cache: Dict[Path, Set[str]] = {}
 
     def format_path(path: Path) -> str:
@@ -113,14 +120,13 @@ def validate_internal_links() -> List[str]:
         except ValueError:
             return str(path)
 
-    def load_markdown(path: Path) -> str:
-        if path not in markdown_cache:
-            markdown_cache[path] = path.read_text(encoding="utf-8")
-            anchor_cache[path] = extract_anchors(markdown_cache[path])
-        return markdown_cache[path]
+    def anchors_for(path: Path) -> Set[str]:
+        if path not in anchor_cache:
+            anchor_cache[path] = extract_anchors(load_text(path, markdown_cache))
+        return anchor_cache[path]
 
-    for doc_file in discover_markdown_files():
-        content = load_markdown(doc_file)
+    for doc_file in doc_files:
+        content = load_text(doc_file, markdown_cache)
         for raw_target in extract_links(content):
             path_part, anchor_part = parse_markdown_target(raw_target)
             if not path_part and not anchor_part:
@@ -146,10 +152,8 @@ def validate_internal_links() -> List[str]:
             if target_path.suffix.lower() != ".md":
                 continue
 
-            target_content = load_markdown(target_path)
-            _ = target_content  # cached side effect
             anchor = slugify_heading(anchor_part)
-            if anchor not in anchor_cache[target_path]:
+            if anchor not in anchors_for(target_path):
                 errors.append(
                     f"{doc_file.relative_to(REPO_ROOT)}: broken anchor '{raw_target}' "
                     f"(missing '#{anchor}' in {target_path.relative_to(REPO_ROOT)})"
@@ -158,12 +162,14 @@ def validate_internal_links() -> List[str]:
     return errors
 
 
-def validate_no_ponder_markers() -> List[str]:
+def validate_no_ponder_markers(
+    doc_files: List[Path], markdown_cache: Dict[Path, str]
+) -> List[str]:
     """Reject unresolved inline review markers in Markdown documentation."""
     errors: List[str] = []
     pattern = re.compile(r"\[ponder\s*:", re.IGNORECASE)
-    for doc_file in discover_markdown_files():
-        content = doc_file.read_text(encoding="utf-8")
+    for doc_file in doc_files:
+        content = load_text(doc_file, markdown_cache)
         for lineno, line in enumerate(content.splitlines(), start=1):
             if pattern.search(line):
                 errors.append(
@@ -173,9 +179,12 @@ def validate_no_ponder_markers() -> List[str]:
 
 
 def main() -> int:
+    doc_files = discover_markdown_files()
+    markdown_cache: Dict[Path, str] = {}
+
     errors = []
-    errors.extend(validate_internal_links())
-    errors.extend(validate_no_ponder_markers())
+    errors.extend(validate_internal_links(doc_files, markdown_cache))
+    errors.extend(validate_no_ponder_markers(doc_files, markdown_cache))
 
     if errors:
         print("Documentation checks failed:")
