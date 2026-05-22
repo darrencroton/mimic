@@ -1,136 +1,117 @@
 # Mimic Architectural Vision
 
-**Purpose**: Define the architectural principles and design philosophy for Mimic, a physics-agnostic galaxy evolution framework.
+**Purpose**: Define the architectural principles and design boundaries for Mimic, a physics-agnostic galaxy evolution framework.
 
 ---
 
 ## Vision Statement
 
-Mimic is a **physics-agnostic core with runtime-configurable physics modules**, enabling scientific flexibility, maintainability, and extensibility.
+Mimic is a **physics-agnostic core with runtime-configurable physics modules**. The core owns execution, memory, I/O, metadata, and validation. Physics modules own astrophysical prescriptions and may be combined at runtime through configuration files.
 
-This architecture enables researchers to easily experiment with different physics combinations, developers to work independently on core infrastructure and physics modules, and the system to evolve gracefully as new scientific understanding emerges.
+This architecture lets researchers compare physics models without recompiling, lets developers work on infrastructure and physics independently, and keeps scientific behavior reproducible through explicit metadata and output provenance.
 
-The key insight is that **scientific accuracy and architectural elegance are not mutually exclusive**. By applying proven software engineering principles to scientific computing, Mimic accelerates scientific discovery through improved flexibility, reliability, and maintainability.
+The key design claim is that scientific flexibility and engineering discipline support each other. Mimic should make experiments easier to run while making hidden assumptions, stale duplicated state, and silent configuration errors harder to introduce.
 
 ---
 
-## 8 Core Architectural Principles
+## Core Architectural Principles
 
-These principles guide all design decisions and implementation choices in Mimic:
+These principles guide design decisions and implementation choices in Mimic.
 
 ### 1. Physics-Agnostic Core Infrastructure
 
-**Principle**: The core Mimic infrastructure has zero knowledge of specific physics implementations.
+**Principle**: Core infrastructure must not depend on a specific physics implementation.
 
 **Requirements**:
-- Core systems (memory management, I/O, tree processing, configuration) operate independently of physics.
-- Physics modules interact with the core only through well-defined interfaces.
-- The core can execute successfully with no physics modules loaded (physics-free mode).
-- Physics modules are pure add-ons that extend core functionality.
+- Core systems for memory management, tree processing, configuration, logging, and I/O operate independently of SAGE or any other model.
+- Physics modules interact with the core only through documented interfaces.
+- An empty module pipeline is valid and performs halo tracking without galaxy physics.
+- Infrastructure tests use framework fixtures rather than production physics modules.
 
-**Benefits**: Enables independent development of physics and infrastructure, simplifies testing, allows for physics module hot-swapping, and reduces complexity in core systems.
-
-**In Practice**: The core evolution loop does not contain `#include "physics_module.h"` or direct calls to specific physics functions. Instead, it iterates through registered physics modules and calls a generic `execute()` function on each.
+**In practice**: The core evolution loop iterates over registered modules and calls generic function pointers. It does not include SAGE headers or call SAGE functions directly.
 
 ### 2. Runtime Modularity
 
-**Principle**: Physics module combinations are configurable at runtime without recompilation.
+**Principle**: Physics combinations are selected at runtime from configuration, not fixed at compile time.
 
 **Requirements**:
-- Module selection is done via configuration files, not compile-time flags.
-- Modules self-register and declare their capabilities and dependencies.
-- The execution pipeline adapts dynamically to the loaded module set.
-- An empty pipeline (core-only execution) is a valid configuration.
+- Module selection and processing mode are declared in the input YAML file.
+- Modules declare supported processing modes and event contracts in metadata when using the directory-module pattern.
+- The pipeline can run with any valid combination of configured modules, including no modules.
+- Scientific ordering remains explicit in configuration. Metadata validation catches wiring errors but does not replace scientific judgement.
 
-**Benefits**: Provides scientific flexibility for different research questions, makes it easy to experiment with physics combinations, offers deployment flexibility, and simplifies testing of different physics scenarios.
+**In practice**: Users can disable supernova feedback, switch an AGN mode, or run halo tracking only by editing the YAML configuration and rerunning the executable.
 
-**In Practice**: Users can switch from one physics model to another, or disable specific physics modules entirely, by changing a configuration file and re-running the executable.
+### 3. Metadata as the Source of Structural Truth
 
-### 3. Metadata-Driven Architecture
-
-**Principle**: The system's structure is defined by metadata rather than hardcoded implementations.
+**Principle**: Repeated structural definitions should be generated from metadata rather than hand-maintained in multiple files.
 
 **Requirements**:
-- Galaxy properties (e.g., `StellarMass`, `ColdGas`) are defined in metadata files (YAML), not hardcoded in C structs.
-- Physics modules are defined in metadata with automatic registration generation.
-- Parameters are defined in metadata with automatic validation generation.
-- The build system generates type-safe C code (headers, accessors, registration) from metadata.
-- Output formats adapt automatically to properties defined in metadata.
+- Halo and galaxy properties are defined in YAML metadata.
+- Directory modules define registration metadata in `module_info.yaml`.
+- Generated code provides C struct fields, output schema, HDF5 field metadata, Python dtypes, module registration, and event identifiers.
+- Documentation should explain generated systems, but should avoid duplicating exhaustive generated lists unless the copy is small and stable.
 
-**Benefits**: Reduces code duplication, eliminates manual synchronization between different representations, enables build-time optimization, and simplifies maintenance by creating a single source of truth.
+**In practice**: Adding a galaxy property requires editing `src/modules/model_properties.yaml`, then running `make generate`. Adding a production runtime module normally requires a module directory containing the C implementation and `module_info.yaml`; standalone `.c` modules directly under `src/modules/` are also supported for quick prototypes, but they inherit all processing modes and should be converted to directory modules when constraints, tests, events, or module-local documentation matter.
 
-**In Practice**: Adding a new galaxy property requires editing a single YAML file and running `make generate`. Adding a new physics module requires creating `module_info.yaml` and running `make generate`. All C code, documentation, and build configuration is automatically generated. The `make generate` command is smart - it only regenerates files when their source metadata has changed.
+### 4. One Coherent Processing Model
 
-### 4. Single Source of Truth
-
-**Principle**: Galaxy data has one authoritative representation with consistent access patterns.
+**Principle**: Mimic should expose one clear model for processing merger trees.
 
 **Requirements**:
-- No dual property systems or synchronization code.
-- All access to galaxy data goes through a unified property system.
-- The property system is type-safe and allows for compile-time optimization.
-- Property lifecycle (creation, modification, destruction) is managed consistently.
+- Each snapshot interval is processed through a single traversal model.
+- Physics modules operate on FoF workspaces containing the central galaxy and any satellites for that FoF system.
+- `process_full_halo`, `process_by_galaxy`, and `process_per_event` are dispatch modes within this model, not separate tree-processing algorithms.
+- Galaxy inheritance, orphan handling, and property reset rules are centralized and documented.
 
-**Benefits**: Eliminates synchronization bugs, simplifies debugging by having a single data path, reduces memory overhead, and improves performance through unified access patterns.
+**In practice**: A full-halo module receives the whole FoF workspace. A by-galaxy module receives one galaxy at a time from that same workspace. Event consumers receive one event target after a full-halo producer emits a subscribed event.
 
-### 5. Unified Processing Model
+### 5. Bounded Memory and Explicit Ownership
 
-**Principle**: Mimic has one consistent, well-understood method for processing merger trees.
-
-**Requirements**:
-- A single tree traversal algorithm handles all scientific requirements.
-- Consistent galaxy inheritance and property calculation methods.
-- Robust orphan galaxy handling that prevents data loss.
-- Clear separation between tree traversal logic and physics calculations.
-
-**Benefits**: Eliminates complexity from maintaining multiple processing modes, simplifies validation, reduces bug surface area, and makes the system easier to understand and modify.
-
-### 6. Memory Efficiency and Safety
-
-**Principle**: Memory usage is bounded, predictable, and safe.
+**Principle**: Memory use should be predictable, bounded by the current processing scope, and visible during debugging.
 
 **Requirements**:
-- Memory usage is bounded and does not grow with the total number of forests processed.
-- Memory management for galaxy arrays and properties is automatic where possible.
-- Memory is allocated on a per-forest scope with guaranteed cleanup after processing.
-- Tools for memory leak detection and prevention are built-in.
+- Processing allocates halo, galaxy, tree, I/O, and utility memory with explicit categories.
+- Per-tree or per-forest working memory is cleaned up after processing.
+- Long runs should not accumulate memory with the number of forests processed.
+- Module-owned allocations must be released by module cleanup.
 
-**Benefits**: Allows reliable processing of large simulations, reduces debugging overhead by preventing memory-related bugs, improves performance predictability, and enables processing of datasets larger than available RAM.
+**In practice**: The allocator tracks memory categories and can report leaks during debug runs.
 
-**In Practice**: Memory for a merger tree (halos, galaxies, module-specific data) is allocated at the start of processing and guaranteed to be freed upon completion.
+### 6. Format-Agnostic I/O and Reproducible Output
 
-### 7. Format-Agnostic I/O
-
-**Principle**: Mimic supports multiple input/output formats through unified interfaces.
+**Principle**: Input and output formats should be handled through common interfaces, and outputs should carry enough metadata to interpret a run.
 
 **Requirements**:
-- A common, abstract interface for all tree reading operations.
-- A property-based output system that adapts to data available at runtime.
-- Proper handling of cross-platform issues like endianness.
-- Graceful fallback mechanisms for unsupported features in certain formats.
+- Tree readers and output writers are isolated behind format-specific implementations.
+- Output schema follows property metadata rather than hand-written duplicate structs.
+- HDF5 output records field metadata, enabled modules, model parameters, redshift mapping, version information, and event contracts when present.
+- Binary output remains compact but requires the generated dtype that matches the current property metadata.
 
-**Benefits**: Ensures scientific compatibility with different simulation codes and analysis tools, future-proofs against format changes, simplifies validation across formats, and eases integration with external tools.
+**In practice**: Users should be able to inspect an HDF5 file and recover the active module pipeline and field units without reading the input YAML separately.
 
-### 8. Type Safety and Validation
+### 7. Validation, Type Safety, and Fast Failure
 
-**Principle**: Data access is type-safe with automatic validation.
+**Principle**: Invalid configuration or metadata should fail early with useful errors.
 
 **Requirements**:
-- Type-safe property accessors (macros or functions) are generated from metadata.
-- Automatic bounds checking and validation where appropriate.
-- Fast failure with clear error messages upon invalid data access.
+- Generated code gives modules typed access to declared properties.
+- Module metadata validation catches missing files, invalid processing modes, unknown property dependencies, and event wiring mistakes.
+- Module parameter validation happens in module `init()` because only the module knows its physical constraints.
+- Failing tests are treated as real problems, not documentation or test-suite noise.
 
-**Benefits**: Reduces runtime errors by catching problems at compile-time, improves debugging with clear messages, catches problems early, and increases confidence in scientific accuracy.
+**In practice**: `make validate-modules`, `make check-generated`, and startup validation provide fast feedback before a long scientific run begins.
 
 ---
 
 ## Data Flow
 
-1. **Configuration Loading**: Configuration files are loaded and validated.
-2. **Module Registration**: Physics modules auto-register from metadata in dependency-resolved order.
-3. **Pipeline Creation**: An execution pipeline is built from registered modules based on configuration.
-4. **Tree Processing**: The core loads and processes merger trees using a unified algorithm.
-5. **Module Execution**: Physics modules execute in dependency-resolved order.
-6. **Output Generation**: A property-based output system adapts to available properties.
+1. **Configuration loading**: The input YAML is parsed into runtime configuration, including output settings, input tree settings, simulation units, cosmology, module phases, and model parameters.
+2. **Metadata generation**: Property and module metadata generate C structs, output metadata, Python dtype helpers, module registration, and event identifiers.
+3. **Module registration**: The generated registry registers available runtime modules and their supported modes.
+4. **Pipeline validation**: The configured phases are checked against registered modules, supported modes, and event contracts.
+5. **Tree processing**: The core loads merger trees and builds FoF workspaces for each snapshot interval.
+6. **Module execution**: For each FoF workspace, configured modules run in phase order and dispatch mode order.
+7. **Output generation**: The generated output schema writes binary or HDF5 output with metadata appropriate to the selected format.
 
-For the system architecture diagram and detailed execution flow, see [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md#architecture-overview).
+For implementation details, see [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md#architecture-overview). For run and configuration guidance, see [USER-GUIDE.md](USER-GUIDE.md).

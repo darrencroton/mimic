@@ -90,7 +90,7 @@ void test_my_physics_calculation(void) {
 
     // Verify
     assert(fabs(result - expected) < 1e-6);
-    printf("✓ test_my_physics_calculation passed\n");
+    printf("test_my_physics_calculation passed\n");
 }
 
 int main(void) {
@@ -132,7 +132,7 @@ def test_my_module_integration():
         assert 'MyProperty' in halos.dtype.names
         assert np.all(halos['MyProperty'] >= 0.0)
 
-    print("✓ Integration test passed")
+    print("Integration test passed")
 
 if __name__ == '__main__':
     test_my_module_integration()
@@ -186,10 +186,10 @@ src/modules/
 - **Document test purpose** - Explain what physics is being validated
 
 ### When to Test Here vs. Module Directory
-- **Module-specific runtime behavior** → `src/modules/<module>/_tests/`
-- **Cross-module contracts and shared regressions** → `src/modules/_tests/`
-- **Shared utilities** → `src/modules/_shared/_tests/`
-- **Retired code/tests** → `src/modules/_archive/`
+- **Module-specific runtime behavior**: `src/modules/<module>/_tests/`
+- **Cross-module contracts and shared regressions**: `src/modules/_tests/`
+- **Shared utilities**: `src/modules/_shared/_tests/`
+- **Retired code/tests**: `src/modules/_archive/`
 
 ---
 
@@ -204,7 +204,7 @@ This directory follows Mimic's standardized test directory naming:
 
 ## See Also
 
-- `docs/DEVELOPER-GUIDE.md` - Complete testing guide
-- `tests/README.md` - Test suite overview
+- [docs/DEVELOPER-GUIDE.md](../../../docs/DEVELOPER-GUIDE.md) - Complete testing guide
+- [tests/README.md](../../../tests/README.md) - Test suite overview
 - `src/modules/_shared/_tests/` - Shared utility tests
 - `tests/unit/` - Core infrastructure tests

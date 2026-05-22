@@ -23,3 +23,6 @@ module:
     unit: _tests/test_unit_sage_calculate_cooling_budget.c
     integration: _tests/test_integration_sage_calculate_cooling_budget.py
     scientific: []
+
+  docs:
+    physics: src/modules/sage_calculate_cooling_budget/README.md

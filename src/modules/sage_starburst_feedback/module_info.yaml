@@ -47,3 +47,6 @@ module:
     unit: _tests/test_unit_sage_starburst_feedback.c
     integration: _tests/test_integration_sage_starburst_feedback.py
     scientific: []
+
+  docs:
+    physics: src/modules/sage_starburst_feedback/README.md

@@ -43,14 +43,14 @@ Changes to shared utilities automatically propagate to all modules that use them
 ### When to Create a Shared Utility
 
 **Create a shared utility when**:
-- ✅ Multiple modules need the same physics calculation
-- ✅ The calculation is self-contained (no complex state)
-- ✅ You want a single source of truth
+- Multiple modules need the same physics calculation
+- The calculation is self-contained and has no complex state
+- You want a single source of truth
 
 **Don't create a shared utility when**:
-- ❌ Only one module uses it (keep it in the module)
-- ❌ It's a universal constant (use `_system/physical_constants.h`)
-- ❌ It's a model parameter (read from input YAML via `model_get_*()` functions)
+- Only one module uses it; keep it in that module
+- It is a universal constant; use `_system/physical_constants.h`
+- It is a model parameter; read it from input YAML with parameter helpers
 
 ### Steps
 
@@ -82,9 +82,10 @@ static inline double mimic_my_function(double x) {
 #include "../_shared/my_utility.h"
 ```
 
-4. **Write tests** (optional but recommended):
+4. **Write tests**:
    - Create `src/modules/_shared/_tests/test_unit_my_utility.c`
-   - Follow testing guide in `docs/DEVELOPER-GUIDE.md`
+   - Register it in `src/modules/_shared/module_info.yaml`
+   - Follow the testing guide in [docs/DEVELOPER-GUIDE.md](../../../docs/DEVELOPER-GUIDE.md#testing)
 
 ---
 
@@ -97,17 +98,18 @@ Some utilities are actually **physics models** that can be swapped entirely. Des
 If you have a utility header that implements a physics model (e.g., a specific prescription for a process):
 
 ```bash
-# Archive current implementation
-mv src/modules/_shared/my_model.h src/modules/_shared/my_model_v1.h
+# Preserve the current implementation as an archived copy
+mkdir -p archive/shared-physics
+cp src/modules/_shared/my_model.h archive/shared-physics/my_model_v1.h
 
-# Install alternative implementation
+# Install the alternative implementation intentionally
 cp alternative_implementation.h src/modules/_shared/my_model.h
 
 # Rebuild
 make clean && make
 ```
 
-**No code changes needed** - all modules automatically use the new implementation!
+All modules that include `my_model.h` will use the new implementation after rebuild. Treat this as a source change: update tests, documentation, and review notes so the physics swap is explicit.
 
 ---
 
@@ -134,7 +136,7 @@ int main(void) {
 }
 ```
 
-2. **Add to test registry** in `module_info.yaml`:
+2. **Add to test registry** in `src/modules/_shared/module_info.yaml`:
 ```yaml
 tests:
   unit:
@@ -142,12 +144,13 @@ tests:
     - _tests/test_unit_my_utility.c  # Add here
 ```
 
-3. **Run tests**:
+3. **Regenerate and run tests**:
 ```bash
+make generate
 make test-unit
 ```
 
-See `docs/DEVELOPER-GUIDE.md` for comprehensive testing guide.
+See [docs/DEVELOPER-GUIDE.md](../../../docs/DEVELOPER-GUIDE.md#testing) for the comprehensive testing guide.
 
 ---
 
@@ -194,6 +197,6 @@ This maintains Mimic's architectural vision:
 
 ## See Also
 
-- `src/modules/_system/` - Framework infrastructure (constants, templates)
-- `docs/DEVELOPER-GUIDE.md` - How to create modules and comprehensive testing
-- `docs/VISION.md` - Framework architecture principles
+- [src/modules/_system/](../_system/README.md) - Framework infrastructure (constants, templates)
+- [docs/DEVELOPER-GUIDE.md](../../../docs/DEVELOPER-GUIDE.md) - How to create modules and comprehensive testing
+- [docs/VISION.md](../../../docs/VISION.md) - Framework architecture principles

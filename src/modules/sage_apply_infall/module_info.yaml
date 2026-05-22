@@ -19,3 +19,6 @@ module:
     unit: _tests/test_unit_sage_apply_infall.c
     integration: _tests/test_integration_sage_apply_infall.py
     scientific: []
+
+  docs:
+    physics: src/modules/sage_apply_infall/README.md

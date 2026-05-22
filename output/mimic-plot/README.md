@@ -74,7 +74,7 @@ The tool supports three verbosity levels:
 
 ## Available Plots
 
-The plotting system includes 18 snapshot plots and 4 evolution plots. Check the `figures/` directory for the complete current list.
+The plotting system currently includes 18 snapshot plots and 4 evolution plots. The source of truth for registered plot names is `figures/__init__.py`; use the lists below as a human-readable summary.
 
 ### Snapshot Plots (Single Redshift)
 
@@ -112,18 +112,18 @@ The plotting system includes 18 snapshot plots and 4 evolution plots. Check the 
 
 ## Working with Units
 
-All Mimic output properties include unit metadata for reproducible science. Units are stored in code units internally (see `docs/DEVELOPER-GUIDE.md` Advanced Topics section), with metadata available for proper interpretation.
+All Mimic output properties include unit metadata for reproducible science. Units are stored in code units internally, with output unit labels generated from property metadata and exposed through HDF5 `FieldMetadata` or the generated Python dtype helper.
 
 ### Accessing Unit Information
 
-**From Python** (works with both binary and HDF5 outputs):
+**From the generated Python helper** (binary dtype plus shared unit metadata):
 ```python
-from generated.dtype import get_units
+from generated.dtype import get_binary_dtype, get_units
 
 # Get units dictionary
 units = get_units()
 print(f"Mvir is in: {units['Mvir']}")  # "1e10 Msun/h"
-print(f"dT is in: {units['dT']}")      # "Myr"
+print(f"dT is in: {units['dT']}")      # "Myr/h"
 print(f"Rvir is in: {units['Rvir']}")  # "Mpc/h"
 
 # Use in your analysis
@@ -174,7 +174,7 @@ h = 0.73  # From parameter file
 mass_physical_msun = halos['Mvir'] * 1e10 / h  # Convert to physical solar masses
 ```
 
-For detailed information on unit conversions and the internal unit system, see `docs/DEVELOPER-GUIDE.md` Advanced Topics section.
+For run-level unit configuration, see the `simulation.units` section described in [docs/USER-GUIDE.md](../../docs/USER-GUIDE.md).
 
 ## Adding New Plot Types
 
@@ -484,7 +484,7 @@ The plotting system is organized around these key components:
 
 ### Quick Setup
 
-If you used the main Mimic setup script (`../../first_run.sh`), the Python environment is already configured. Simply activate it:
+If you used the main Mimic setup script (`../../scripts/first_run.sh`), the Python environment is already configured. Simply activate it:
 
 ```bash
 # From the main Mimic directory

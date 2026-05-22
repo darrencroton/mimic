@@ -38,6 +38,19 @@ make test-scientific    # Physics validation (<5min)
 
 Run commands from the repository root so relative paths match the test fixtures.
 
+For full or long-running test sessions, capture a log and check the exit code explicitly:
+
+```bash
+mkdir -p archive/test-logs
+make tests > archive/test-logs/tests.log 2>&1
+test_rc=$?
+tail -n 80 archive/test-logs/tests.log
+rg -n -i "failed|error|traceback" archive/test-logs/tests.log
+echo "exit_code=${test_rc}"
+```
+
+Treat any non-zero exit code as a failure.
+
 **Unit tests**:
 ```bash
 tests/unit/run_tests.sh test_memory_system

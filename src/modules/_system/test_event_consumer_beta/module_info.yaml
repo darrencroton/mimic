@@ -26,3 +26,6 @@ module:
   tests:
     unit: null
     integration: null
+
+  docs:
+    physics: src/modules/_system/test_event_consumer_beta/README.md

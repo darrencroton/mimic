@@ -3,8 +3,8 @@
 Quick start template for creating new Mimic physics modules.
 
 **For complete documentation, see:**
-- **[docs/DEVELOPER-GUIDE.md](../../../docs/DEVELOPER-GUIDE.md)** - Complete module development guide
-- **[docs/VISION.md](../../../docs/VISION.md)** - Architecture principles
+- **[docs/DEVELOPER-GUIDE.md](../../../../docs/DEVELOPER-GUIDE.md)** - Complete module development guide
+- **[docs/VISION.md](../../../../docs/VISION.md)** - Architecture principles
 
 ---
 
@@ -12,21 +12,21 @@ Quick start template for creating new Mimic physics modules.
 
 ### Option 1: Standalone Module (simplest)
 
-For simple single-file modules:
+For simple single-file prototypes:
 
 ```bash
 # Just copy the .c file
 cp src/modules/_system/template/template_module.c src/modules/my_module.c
 
 # Edit my_module.c:
-# 1. Change function names: template_module_* → my_module_*
+# 1. Change function names: template_module_* to my_module_*
 # 2. Implement your physics
 # 3. Build and run
 make generate
 make
 ```
 
-**No `module_info.yaml` needed!** Standalone modules are auto-discovered.
+Standalone modules are auto-discovered without `module_info.yaml`. They inherit all processing modes, so convert them to directory modules when you need production constraints, tests, event contracts, or documentation metadata.
 
 ### Option 2: Directory Module (recommended)
 
@@ -40,12 +40,13 @@ cd src/modules/my_module
 # Rename files
 mv template_module.c my_module.c
 mv template_module_info.yaml module_info.yaml
-rm README.md  # Delete this template README
+# Replace this template README with module-specific documentation
 
 # Edit files:
 # 1. Update module_info.yaml (change name, uncomment needed fields)
 # 2. Edit my_module.c (change function names, implement physics)
-# 3. Build and run
+# 3. Update README.md with this module's contract
+# 4. Build and run
 make generate
 make
 ```
@@ -132,4 +133,4 @@ float delta = rate * dt;
    ./mimic input/your_config.yaml
    ```
 
-**That's it!** For detailed examples and advanced topics, see the docs linked at the top.
+For detailed examples and the full module workflow, see the docs linked at the top.

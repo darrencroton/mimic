@@ -29,3 +29,6 @@ module:
     unit: _tests/test_unit_sage_radio_mode_heating.c
     integration: _tests/test_integration_sage_radio_mode_heating.py
     scientific: []
+
+  docs:
+    physics: src/modules/sage_radio_mode_heating/README.md

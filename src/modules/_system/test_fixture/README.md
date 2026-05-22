@@ -1,6 +1,6 @@
 # Test Fixture Module
 
-⚠️ **WARNING: This module is for TESTING INFRASTRUCTURE ONLY** ⚠️
+**WARNING: This module is for TESTING INFRASTRUCTURE ONLY.**
 
 **DO NOT USE IN PRODUCTION RUNS**
 
@@ -14,16 +14,16 @@ This maintains **Vision Principle #1: Physics-Agnostic Core Infrastructure**.
 
 Infrastructure tests in `tests/unit/` and `tests/integration/` previously hardcoded production module names (`simple_cooling`, `simple_sfr`), creating an architectural violation:
 
-- ❌ **Violated**: Physics-Agnostic Core principle
-- ❌ **Problem**: Production module changes broke infrastructure tests
-- ❌ **Problem**: Archiving production modules required updating core tests
+- **Violated**: Physics-Agnostic Core principle
+- **Problem**: Production module changes broke infrastructure tests
+- **Problem**: Archiving production modules required updating core tests
 
 The `test_fixture` module fixes this by providing a stable, minimal test module that:
 
-- ✅ Never changes (stable test interface)
-- ✅ Has no real physics (agnostic to production science)
-- ✅ Provides minimal functionality for testing infrastructure
-- ✅ Allows production modules to be archived with zero infrastructure test changes
+- Provides a stable test interface
+- Has no real physics, so it remains agnostic to production science
+- Provides minimal functionality for testing infrastructure
+- Allows production modules to be archived without infrastructure test changes
 
 ## Usage
 
@@ -93,8 +93,8 @@ Total implementation: ~150 lines of well-documented code
 
 ## Related Documentation
 
-- **Testing Conventions**: `docs/DEVELOPER-GUIDE.md` (Testing section)
-- **Vision Principles**: `docs/VISION.md` (Principle #1)
+- **Testing Conventions**: [docs/DEVELOPER-GUIDE.md](../../../../docs/DEVELOPER-GUIDE.md#testing)
+- **Vision Principles**: [docs/VISION.md](../../../../docs/VISION.md)
 
 ## History
 

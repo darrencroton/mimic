@@ -22,3 +22,6 @@ module:
     unit: _tests/test_unit_sage_star_formation.c
     integration: _tests/test_integration_sage_star_formation.py
     scientific: []
+
+  docs:
+    physics: src/modules/sage_star_formation/README.md

@@ -8,7 +8,7 @@
  * Include as: #include "_system/generated/event_contracts.h"
  *   (or ../_ system/generated/event_contracts.h for relative includes)
  *
- * Source MD5: e8bc3c1af839306c11a658c44948bf36
+ * Source MD5: 7e24f991a8ce6e0eef3ee05f44fdbad9
  * To regenerate: make generate
  */
 

@@ -20,7 +20,7 @@ src/modules/
 
 ## What Goes Where
 
-**Physics Modules** (e.g., `my_physics_module/`, `my_different_module_.c`):
+**Physics Modules** (e.g., `my_physics_module/`, `my_different_module.c`):
 - Module directories containing code, tests, and `module_info.yaml`
 - Standalone module `.c` files
 - Each module is self-contained with its own physics implementation
@@ -43,12 +43,12 @@ src/modules/
 
 **Quick start**:
 1. Copy template `cp -r _system/template/ my_module/` or create standalone `my_module.c`
-2. Follow step-by-step instructions in `_system/template/README.md`
-3. See comprehensive guide in `docs/DEVELOPER-GUIDE.md`
+2. Follow step-by-step instructions in [_system/template/README.md](_system/template/README.md)
+3. See the comprehensive guide in [docs/DEVELOPER-GUIDE.md](../../docs/DEVELOPER-GUIDE.md)
 
 ## Module Development Resources
 
-- **Template**: `_system/template/` with step-by-step README
-- **Shared Utilities**: `_shared/` for reusable physics code (see `_shared/README.md`)
-- **Developer Guide**: `docs/DEVELOPER-GUIDE.md` - complete module development guide
-- **Vision**: `docs/VISION.md` - architectural principles
+- **Template**: [_system/template/](_system/template/README.md) with step-by-step README
+- **Shared Utilities**: [_shared/](_shared/README.md) for reusable physics code
+- **Developer Guide**: [docs/DEVELOPER-GUIDE.md](../../docs/DEVELOPER-GUIDE.md) - complete module development guide
+- **Vision**: [docs/VISION.md](../../docs/VISION.md) - architectural principles

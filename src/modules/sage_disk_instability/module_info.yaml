@@ -22,3 +22,6 @@ module:
     unit: _tests/test_unit_sage_disk_instability.c
     integration: _tests/test_integration_sage_disk_instability.py
     scientific: []
+
+  docs:
+    physics: src/modules/sage_disk_instability/README.md

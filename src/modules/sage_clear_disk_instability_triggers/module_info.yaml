@@ -17,3 +17,6 @@ module:
     unit: []
     integration: []
     scientific: []
+
+  docs:
+    physics: src/modules/sage_clear_disk_instability_triggers/README.md

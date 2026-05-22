@@ -4,6 +4,7 @@ Documentation quality checks for Mimic.
 
 Checks:
 1. Internal Markdown links and anchors resolve.
+2. Review-only PONDER markers are absent from committed documentation.
 """
 
 from __future__ import annotations
@@ -11,15 +12,38 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DOC_FILES = [
-    REPO_ROOT / "docs" / "VISION.md",
-    REPO_ROOT / "docs" / "DEVELOPER-GUIDE.md",
-    REPO_ROOT / "docs" / "USER-GUIDE.md",
-]
+SKIP_DIRS = {
+    ".git",
+    ".github",
+    ".claude",
+    "archive",
+    "build",
+    "mimic_venv",
+    "sage-code",
+}
+
+SKIP_PATH_PREFIXES = {
+    ("tests", "data", "output"),
+}
+
+
+def discover_markdown_files() -> List[Path]:
+    """Return repository Markdown files that should be checked."""
+    files: List[Path] = []
+    for path in REPO_ROOT.rglob("*.md"):
+        rel_parts = path.relative_to(REPO_ROOT).parts
+        if any(part in SKIP_DIRS for part in rel_parts):
+            continue
+        if any(rel_parts[: len(prefix)] == prefix for prefix in SKIP_PATH_PREFIXES):
+            continue
+        if not path.exists() or not path.is_file():
+            continue
+        files.append(path)
+    return sorted(files)
 
 
 def slugify_heading(heading: str) -> str:
@@ -95,7 +119,7 @@ def validate_internal_links() -> List[str]:
             anchor_cache[path] = extract_anchors(markdown_cache[path])
         return markdown_cache[path]
 
-    for doc_file in DOC_FILES:
+    for doc_file in discover_markdown_files():
         content = load_markdown(doc_file)
         for raw_target in extract_links(content):
             path_part, anchor_part = parse_markdown_target(raw_target)
@@ -134,9 +158,24 @@ def validate_internal_links() -> List[str]:
     return errors
 
 
+def validate_no_ponder_markers() -> List[str]:
+    """Reject unresolved inline review markers in Markdown documentation."""
+    errors: List[str] = []
+    pattern = re.compile(r"\[ponder\s*:", re.IGNORECASE)
+    for doc_file in discover_markdown_files():
+        content = doc_file.read_text(encoding="utf-8")
+        for lineno, line in enumerate(content.splitlines(), start=1):
+            if pattern.search(line):
+                errors.append(
+                    f"{doc_file.relative_to(REPO_ROOT)}:{lineno}: unresolved PONDER marker"
+                )
+    return errors
+
+
 def main() -> int:
     errors = []
     errors.extend(validate_internal_links())
+    errors.extend(validate_no_ponder_markers())
 
     if errors:
         print("Documentation checks failed:")
@@ -146,6 +185,7 @@ def main() -> int:
 
     print("Documentation checks passed:")
     print("  - Internal Markdown links/anchors resolve")
+    print("  - No unresolved PONDER markers")
     return 0
 
 

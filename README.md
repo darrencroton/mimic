@@ -8,18 +8,18 @@
 /_/  /_/ /___/ /_/  /_/ /___/  \____/
 ```
 
-**Mimic** is a physics-agnostic galaxy evolution framework with runtime-configurable physics modules. Built on robust metadata-driven architecture, it enables flexible experimentation with different physics combinations without recompilation—making it ideal for exploring galaxy formation models and testing alternative physics implementations.
+**Mimic** is a physics-agnostic galaxy evolution framework with runtime-configurable physics modules. Built on metadata-driven architecture, it enables flexible experimentation with different physics combinations without recompilation, making it useful for exploring galaxy formation models and testing alternative physics implementations.
 
 ## What Makes Mimic Different
 
-- **Runtime Physics Configuration**: Select and configure physics modules via YAML files—no recompilation needed
+- **Runtime Physics Configuration**: Select and configure physics modules via YAML files without recompilation
 - **Physics-Agnostic Core**: Infrastructure completely independent of specific physics implementations
 - **Metadata-Driven Architecture**: Properties and modules defined once in YAML, auto-generated into type-safe C code
 - **Robust Testing Framework**: Three-tier testing (unit, integration, scientific) ensures reliability
 - **Multi-Format I/O**: Binary and HDF5 output with self-documenting metadata
-- **Production-Ready**: Complete SAGE physics implementation with comprehensive validation
+- **SAGE Example Pathway**: Shipped mini-Millennium + SAGE configuration for first runs, validation, and plotting examples
 
-**Scientific Heritage**: Mimic builds upon the SAGE (Semi-Analytic Galaxy Evolution) model ([Croton et al. 2016](http://arxiv.org/abs/1601.04709), [2006](http://arxiv.org/abs/astro-ph/0508046)) while providing a modern, extensible foundation for galaxy evolution modeling.
+**Scientific Heritage**: Mimic builds upon the SAGE (Semi-Analytic Galaxy Evolution) model ([Croton et al. 2016](http://arxiv.org/abs/1601.04709), [2006](http://arxiv.org/abs/astro-ph/0508046)) while providing an extensible foundation for galaxy evolution modeling.
 
 ## Quick Start
 
@@ -42,7 +42,7 @@ make
 ./mimic input/millennium.yaml
 ```
 
-**That's it!** You've just run Mimic on the mini-Millennium simulation.
+This runs the shipped mini-Millennium + SAGE example. Other simulations and physics combinations are configured through YAML and module metadata.
 
 ### Generate Plots
 
@@ -72,7 +72,7 @@ make tests             # Run comprehensive test suite
 
 ### For Users (Running Simulations)
 
-→ **[docs/USER-GUIDE.md](docs/USER-GUIDE.md)** - Complete guide to installation, configuration, running simulations, and analyzing output
+**[docs/USER-GUIDE.md](docs/USER-GUIDE.md)** - Complete guide to installation, configuration, running simulations, and analyzing output
 
 **Key Topics**:
 - Detailed installation instructions
@@ -82,30 +82,30 @@ make tests             # Run comprehensive test suite
 - Plotting and visualization
 - Troubleshooting
 
+For detailed plotting options and plot names, see **[output/mimic-plot/README.md](output/mimic-plot/README.md)**.
+
 ### For Developers (Extending Mimic)
 
-→ **[docs/DEVELOPER-GUIDE.md](docs/DEVELOPER-GUIDE.md)** - Complete guide to architecture, module development, and testing
+**[docs/DEVELOPER-GUIDE.md](docs/DEVELOPER-GUIDE.md)** - Complete guide to architecture, module development, and testing
 
 **Key Topics**:
-- Architecture overview and core principles
+- FoF workspace and module lifecycle
 - Creating new physics modules
 - Property system and metadata schemas
+- Processing modes, phases, parameters, and events
 - Testing framework and standards
 - Development workflow
-- Output format specifications
-- Configuration file reference
-- API reference
-- Code standards
+- Debugging and generated-code workflow
 
 ### For Understanding Design Philosophy
 
-→ **[docs/VISION.md](docs/VISION.md)** - Architectural principles and design philosophy
+**[docs/VISION.md](docs/VISION.md)** - Architectural principles and design philosophy
 
 **Key Topics**:
-- 8 core architectural principles
+- Core architectural principles
 - Implementation philosophy
-- Design decisions and rationale
-- Future direction
+- Design boundaries and rationale
+- Data-flow overview
 
 ## Testing
 

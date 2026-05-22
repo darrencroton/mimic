@@ -1,6 +1,6 @@
 # SAGE Calculate Cooling Module
 
-Calculates gas cooling budget from hot halo to cold disk based on metallicity-dependent cooling functions.
+Calculates the gas cooling budget from the hot halo to the cold disk using metallicity-dependent cooling functions. The result is stored in transport fields for downstream cooling modifiers and the apply step.
 
 ## Physics
 
@@ -8,12 +8,12 @@ Implements two cooling regimes based on the cooling radius (Rcool):
 
 **Cold Accretion Regime (Rcool > Rvir)**
 - Rapid cooling throughout the entire halo
-- Cooling rate: `CoolingGas = HotGas × (Vvir / Rvir) × dt`
+- Cooling rate: `CoolingGas = HotGas * (Vvir / Rvir) * dt`
 - Dominant in low-mass halos and high-redshift systems
 
 **Hot Halo Cooling Regime (Rcool < Rvir)**
 - Cooling occurs only within the cooling radius
-- Cooling rate: `CoolingGas = (HotGas / Rvir) × (Rcool / (2 × tcool)) × dt`
+- Cooling rate: `CoolingGas = (HotGas / Rvir) * (Rcool / (2 * tcool)) * dt`
 - Dominant in massive halos with hot atmospheres
 
 ## Cooling Functions
@@ -23,14 +23,22 @@ Uses Sutherland & Dopita (1993) cooling function tables covering:
 - **Metallicity range**: Primordial (Z=0) to super-solar (Z=2 Z_sun)
 - **8 metallicity bins**: Z/Z_sun = [0, 10^-3, 10^-2, 10^-1.5, 10^-1, 10^-0.5, 10^0, 10^0.5]
 
-Cooling tables are located in `CoolFunctions/` directory and loaded at module initialization.
+Cooling tables are located in this module's `CoolFunctions/` directory and are loaded during module initialization.
 
-## Dependencies
+## Processing Contract
 
-**Properties**:
-- HotGas (read) - Hot gas reservoir mass
-- MetalsHotGas (read) - Metal content in hot gas
-- CoolingGas (write) - Calculated cooling for this substep
+- Supported mode: `process_by_galaxy`
+- Expected phase: `phase_1`, before `sage_radio_mode_heating` and `sage_apply_cooling`
+- Receives one galaxy at a time
+
+## Properties
+
+- Reads: `HotGas`, `MetalsHotGas`, `Vvir`, `Rvir`
+- Writes: `CoolingGas`, `CoolingLambda`, `Rcool`
+
+## Parameters
+
+None.
 
 ## Pipeline Position
 
@@ -45,7 +53,7 @@ Runs in `phase_1` each substep to calculate cooling budget.
 
 Virial temperature calculated from virial velocity:
 ```
-T_vir = 35.9 × Vvir^2  (K, km/s)
+T_vir = 35.9 * Vvir^2  (K, km/s)
 ```
 
 ## References

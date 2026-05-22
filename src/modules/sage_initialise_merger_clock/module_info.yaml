@@ -22,3 +22,6 @@ module:
     unit: _tests/test_unit_sage_initialise_merger_clock.c
     integration: _tests/test_integration_sage_initialise_merger_clock.py
     scientific: []
+
+  docs:
+    physics: src/modules/sage_initialise_merger_clock/README.md
