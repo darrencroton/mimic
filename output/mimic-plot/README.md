@@ -59,8 +59,31 @@ deactivate
 --use-tex              Use LaTeX for text rendering (not recommended)
 --verbose, -v          Show detailed output including skipped plots
 --quiet, -q            Show minimal output (only summary)
+--input-format=<fmt>   Input data format: 'mimic' (default) or 'sage-hdf5'.
+                       See "Plotting native SAGE output" below.
 --help                 Show this help message
 ```
+
+### Plotting native SAGE output
+
+For debugging the Mimic SAGE module port it is useful to run the same
+plots over native [sage-model](https://github.com/sage-home/sage-model)
+HDF5 output. Pass `--input-format=sage-hdf5` and point `output_directory`
+in your Mimic YAML parameter file at the SAGE output directory:
+
+```bash
+python mimic-plot.py --param-file=sage.yaml --input-format=sage-hdf5
+```
+
+The SAGE-native reader (`sage_native_hdf5.py`) is an isolated add-on. It
+maps SAGE field names to Mimic field names (e.g. `IntraClusterStars` →
+`ICS`, `EjectedMass` → `EjectedGas`), reconstructs `Pos`/`Vel`/`Spin`
+from the per-component datasets SAGE writes, and combines
+`SfrDisk + SfrBulge` into Mimic's `StarFormationRate`. Mimic-only fields
+that SAGE does not export remain zero-filled and the standard validation
+helpers automatically skip plots that need them. To remove SAGE-native
+support, delete `sage_native_hdf5.py` and the `>>> SAGE-NATIVE-HDF5 >>>`
+... `<<< SAGE-NATIVE-HDF5 <<<` blocks in `mimic-plot.py`.
 
 **Note:** By default, both snapshot and evolution plots are generated if neither `--evolution-plots` nor `--snapshot-plots` is specified.
 
