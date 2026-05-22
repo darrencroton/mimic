@@ -58,7 +58,6 @@ PHASE_1_MODULES = [
     ("sage_disk_instability", "process_by_galaxy"),
     ("sage_quasar_mode", "process_by_galaxy"),
     ("sage_starburst_feedback", "process_by_galaxy"),
-    ("sage_clear_disk_instability_triggers", "process_by_galaxy"),
 ]
 
 
