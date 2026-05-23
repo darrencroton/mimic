@@ -36,6 +36,7 @@ later:
 ==============================================================================
 """
 
+import glob
 import os
 import sys
 
@@ -264,6 +265,7 @@ def read_data_sage_native(model_path, first_file, last_file, params,
     chunks = []
     total = 0
     good_files = 0
+    used_master = False
 
     # SAGE produces per-rank files <base>_<N>.hdf5 with Snap_<n> groups at the
     # root (what allresults-*.py and sage-plot.py read). Optionally task 0
@@ -278,6 +280,7 @@ def read_data_sage_native(model_path, first_file, last_file, params,
             chunks = master_chunks
             total = sum(len(c) for c in chunks)
             good_files = len(chunks)
+            used_master = True
             if verbose:
                 print(f"  Master file {master_path}: aggregated {good_files} cores, "
                       f"{total} galaxies")
@@ -305,14 +308,29 @@ def read_data_sage_native(model_path, first_file, last_file, params,
 
     galaxies = np.concatenate(chunks).view(np.recarray)
 
-    # Volume convention matches read_data() in mimic-plot.py.
+    # Determine total output files from the data itself — not from
+    # NumSimulationTreeFiles, which in a SAGE .par file counts input merger
+    # tree files and is unrelated to how many output rank files SAGE wrote.
+    if used_master:
+        # Master file is self-describing: count Core_ groups directly.
+        try:
+            with h5py.File(master_path, "r") as _f:
+                total_output_files = len([k for k in _f.keys()
+                                          if k.startswith("Core_")])
+        except (OSError, KeyError):
+            total_output_files = good_files
+    else:
+        # Per-rank files: count all rank files that exist on disk.
+        total_output_files = len(glob.glob(
+            os.path.join(output_dir, f"{file_base}_*.hdf5")
+        ))
+
     volume = box_size ** 3.0
-    total_files = params.get("NumSimulationTreeFiles", good_files)
-    if total_files and good_files:
-        volume = volume * good_files / total_files
+    if total_output_files > 0 and good_files > 0:
+        volume = volume * good_files / total_output_files
         if verbose:
-            print(f"  Volume fraction: {good_files}/{total_files} = "
-                  f"{good_files / total_files:.4f}")
+            print(f"  Volume fraction: {good_files}/{total_output_files} = "
+                  f"{good_files / total_output_files:.4f}")
 
     metadata = {
         "hubble_h": hubble_h,

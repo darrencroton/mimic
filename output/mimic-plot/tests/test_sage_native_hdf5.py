@@ -110,13 +110,15 @@ class TestSagePerRankRead(unittest.TestCase):
 
         snapshot = 63
         with tempfile.TemporaryDirectory() as tmp:
-            # 2 per-rank SAGE files
+            # 2 per-rank SAGE files (all files on disk are read)
             for fnr in (0, 1):
                 with h5py.File(os.path.join(tmp, f"model_{fnr}.hdf5"), "w") as f:
                     _populate_snap_group(f.create_group(f"Snap_{snapshot}"),
                                          n=4, snap=snapshot, fnr=fnr,
                                          include_snapnum=False)
 
+            # NumSimulationTreeFiles is intentionally wrong (input-tree count in
+            # a real SAGE .par file) — volume must come from disk, not this param.
             params = _build_params(tmp, num_simulation_tree_files=8)
             model_path = os.path.join(tmp, "model_z0.000")  # z=0 -> snap 63
 
@@ -143,9 +145,33 @@ class TestSagePerRankRead(unittest.TestCase):
             self.assertTrue(np.all(galaxies.Len == 0))
             self.assertTrue(np.all(galaxies.deltaMvir == 0.0))
             self.assertTrue(np.all(galaxies.HaloBaryonFraction == 0.0))
-            # Volume scaled by good_files / NumSimulationTreeFiles
-            self.assertAlmostEqual(volume, 62.5 ** 3 * 2 / 8, places=2)
+            # All 2 files on disk were read -> full volume (disk discovery,
+            # NOT NumSimulationTreeFiles which is 8 here but means input trees)
+            self.assertAlmostEqual(volume, 62.5 ** 3, places=2)
             self.assertEqual(metadata["snapshot"], snapshot)
+            self.assertEqual(metadata["good_files"], 2)
+
+    def test_partial_read_volume_fraction(self):
+        """Reading a subset of per-rank files gives the correct volume fraction."""
+        import sage_native_hdf5
+
+        snapshot = 63
+        with tempfile.TemporaryDirectory() as tmp:
+            # 4 per-rank files on disk, but only read the first 2
+            for fnr in range(4):
+                with h5py.File(os.path.join(tmp, f"model_{fnr}.hdf5"), "w") as f:
+                    _populate_snap_group(f.create_group(f"Snap_{snapshot}"),
+                                         n=3, snap=snapshot, fnr=fnr)
+
+            params = _build_params(tmp, num_simulation_tree_files=99)
+            model_path = os.path.join(tmp, "model_z0.000")
+
+            _, volume, metadata = sage_native_hdf5.read_data_sage_native(
+                model_path, first_file=0, last_file=1, params=params
+            )
+
+            # 2 of 4 files read -> half the volume
+            self.assertAlmostEqual(volume, 62.5 ** 3 * 2 / 4, places=2)
             self.assertEqual(metadata["good_files"], 2)
 
 
@@ -179,6 +205,10 @@ class TestSageMasterFileRead(unittest.TestCase):
             self.assertEqual(galaxies.dtype, get_hdf5_dtype())
             self.assertTrue(np.all(galaxies.SnapNum == snapshot))
             self.assertEqual(metadata["good_files"], 3)
+            # Master file has 3 Core_ groups, all 3 read -> full volume
+            # (NumSimulationTreeFiles=3 here but that is coincidental; the
+            # count comes from the file itself, not from params)
+            self.assertAlmostEqual(volume, 62.5 ** 3, places=2)
 
 
 if __name__ == "__main__":
