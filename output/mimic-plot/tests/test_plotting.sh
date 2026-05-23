@@ -79,6 +79,9 @@ python3 "$MIMIC_PLOT_DIR/mimic-plot.py" \
     --plots=hmf_evolution \
     --quiet
 
+echo "Test 6: SAGE-native HDF5 reader unit tests"
+python3 "$SCRIPT_DIR/test_sage_native_hdf5.py"
+
 echo ""
 echo "=========================================="
 echo "All tests passed successfully!"

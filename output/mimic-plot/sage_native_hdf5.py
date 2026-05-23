@@ -93,55 +93,96 @@ def _mimic_to_sage_lookup(mimic_dtype):
     return lookup
 
 
+def _read_sage_snapshot_group(snap, snapshot_num, mimic_dtype):
+    """Convert an open Snap_<N> h5py group into a Mimic-shaped ndarray.
+
+    Returns None when the group has no usable datasets.
+    """
+    present = set(snap.keys())
+
+    # Determine galaxy count from any scalar dataset
+    num_gals = 0
+    for k in snap.keys():
+        obj = snap[k]
+        if isinstance(obj, h5py.Dataset) and obj.ndim >= 1:
+            num_gals = int(obj.shape[0])
+            break
+    if num_gals == 0:
+        return None
+
+    galaxies = np.zeros(num_gals, dtype=mimic_dtype)
+    lookup = _mimic_to_sage_lookup(mimic_dtype)
+
+    for mimic_name in mimic_dtype.names:
+        src = lookup[mimic_name]
+        if isinstance(src, tuple):
+            cx, cy, cz = src
+            if cx in present and cy in present and cz in present:
+                galaxies[mimic_name][:, 0] = np.asarray(snap[cx][:])
+                galaxies[mimic_name][:, 1] = np.asarray(snap[cy][:])
+                galaxies[mimic_name][:, 2] = np.asarray(snap[cz][:])
+        elif src in present:
+            galaxies[mimic_name] = np.asarray(snap[src][:])
+        # Unmatched fields stay zero-filled (e.g. Mimic-only fields).
+
+    # SAGE stores SFR split between disc and bulge; Mimic uses a single
+    # combined StarFormationRate. Aggregate here so SFR-dependent plots
+    # see SAGE data the same way they would see Mimic data.
+    if "StarFormationRate" in mimic_dtype.names and "SfrDisk" in present:
+        disk = np.asarray(snap["SfrDisk"][:])
+        bulge = (np.asarray(snap["SfrBulge"][:])
+                 if "SfrBulge" in present else 0.0)
+        galaxies["StarFormationRate"] = disk + bulge
+
+    # Stamp the snapshot number on every row regardless of whether the SAGE
+    # file exported a per-galaxy SnapNum dataset (it sometimes does not).
+    if "SnapNum" in mimic_dtype.names:
+        galaxies["SnapNum"] = snapshot_num
+
+    return galaxies
+
+
 def _read_sage_snapshot_file(filename, snapshot_num, mimic_dtype, verbose=False):
-    """Read one SAGE per-core file's snapshot into a Mimic-shaped ndarray."""
+    """Read one SAGE per-rank file's snapshot into a Mimic-shaped ndarray."""
     snap_key = f"Snap_{snapshot_num}"
 
     try:
         with h5py.File(filename, "r") as f:
             if snap_key not in f:
                 return None
-            snap = f[snap_key]
-            present = set(snap.keys())
-
-            # Determine galaxy count from any scalar dataset
-            num_gals = 0
-            for k in snap.keys():
-                obj = snap[k]
-                if isinstance(obj, h5py.Dataset) and obj.ndim >= 1:
-                    num_gals = int(obj.shape[0])
-                    break
-            if num_gals == 0:
-                return None
-
-            galaxies = np.zeros(num_gals, dtype=mimic_dtype)
-            lookup = _mimic_to_sage_lookup(mimic_dtype)
-
-            for mimic_name in mimic_dtype.names:
-                src = lookup[mimic_name]
-                if isinstance(src, tuple):
-                    cx, cy, cz = src
-                    if cx in present and cy in present and cz in present:
-                        galaxies[mimic_name][:, 0] = np.asarray(snap[cx][:])
-                        galaxies[mimic_name][:, 1] = np.asarray(snap[cy][:])
-                        galaxies[mimic_name][:, 2] = np.asarray(snap[cz][:])
-                elif src in present:
-                    galaxies[mimic_name] = np.asarray(snap[src][:])
-                # Unmatched fields stay zero-filled (e.g. Mimic-only fields).
-
-            # SAGE stores SFR split between disc and bulge; Mimic uses a single
-            # combined StarFormationRate. Aggregate here so SFR-dependent plots
-            # see SAGE data the same way they would see Mimic data.
-            if "StarFormationRate" in mimic_dtype.names and "SfrDisk" in present:
-                disk = np.asarray(snap["SfrDisk"][:])
-                bulge = (np.asarray(snap["SfrBulge"][:])
-                         if "SfrBulge" in present else 0.0)
-                galaxies["StarFormationRate"] = disk + bulge
-
-            return galaxies
+            return _read_sage_snapshot_group(f[snap_key], snapshot_num, mimic_dtype)
     except (OSError, KeyError, ValueError) as e:
         if verbose:
             print(f"Warning: could not read SAGE file {filename} ({snap_key}): {e}")
+        return None
+
+
+def _read_sage_master_file(filename, snapshot_num, mimic_dtype, verbose=False):
+    """Read SAGE's optional master file with ``Core_<N>/Snap_<M>/...`` layout.
+
+    Returns a list of per-core arrays, or None if the file does not look
+    like a master file (no Core_* groups).
+    """
+    snap_key = f"Snap_{snapshot_num}"
+    try:
+        with h5py.File(filename, "r") as f:
+            core_keys = sorted(k for k in f.keys() if k.startswith("Core_"))
+            if not core_keys:
+                return None
+            chunks = []
+            for ck in core_keys:
+                core = f[ck]
+                if snap_key not in core:
+                    continue
+                chunk = _read_sage_snapshot_group(core[snap_key], snapshot_num, mimic_dtype)
+                if chunk is not None and len(chunk) > 0:
+                    chunks.append(chunk)
+                    if verbose:
+                        print(f"  Read {len(chunk)} galaxies from {filename}:{ck}/{snap_key}")
+            return chunks
+    except (OSError, KeyError, ValueError) as e:
+        if verbose:
+            print(f"Warning: could not read SAGE master file {filename}: {e}")
         return None
 
 
@@ -223,22 +264,43 @@ def read_data_sage_native(model_path, first_file, last_file, params,
     chunks = []
     total = 0
     good_files = 0
-    for fnr in range(first_file, last_file + 1):
-        fname = os.path.join(output_dir, f"{file_base}_{fnr}.hdf5")
-        if not os.path.isfile(fname):
-            continue
-        chunk = _read_sage_snapshot_file(fname, snapshot_num, mimic_dtype, verbose)
-        if chunk is None or len(chunk) == 0:
-            continue
-        chunks.append(chunk)
-        total += len(chunk)
-        good_files += 1
-        if verbose:
-            print(f"  Read {len(chunk)} galaxies from {fname} (Snap_{snapshot_num})")
+
+    # SAGE produces per-rank files <base>_<N>.hdf5 with Snap_<n> groups at the
+    # root (what allresults-*.py and sage-plot.py read). Optionally task 0
+    # also writes a master file <base>.hdf5 with Core_<N>/Snap_<n>/... links.
+    # Prefer the master file when present; fall back to per-rank files.
+    master_path = os.path.join(output_dir, f"{file_base}.hdf5")
+    if os.path.isfile(master_path):
+        master_chunks = _read_sage_master_file(
+            master_path, snapshot_num, mimic_dtype, verbose
+        )
+        if master_chunks:
+            chunks = master_chunks
+            total = sum(len(c) for c in chunks)
+            good_files = len(chunks)
+            if verbose:
+                print(f"  Master file {master_path}: aggregated {good_files} cores, "
+                      f"{total} galaxies")
+
+    if not chunks:
+        for fnr in range(first_file, last_file + 1):
+            fname = os.path.join(output_dir, f"{file_base}_{fnr}.hdf5")
+            if not os.path.isfile(fname):
+                continue
+            chunk = _read_sage_snapshot_file(fname, snapshot_num, mimic_dtype, verbose)
+            if chunk is None or len(chunk) == 0:
+                continue
+            chunks.append(chunk)
+            total += len(chunk)
+            good_files += 1
+            if verbose:
+                print(f"  Read {len(chunk)} galaxies from {fname} (Snap_{snapshot_num})")
 
     if not chunks:
         raise FileNotFoundError(
-            f"No SAGE HDF5 data found for snapshot {snapshot_num} in {output_dir}"
+            f"No SAGE HDF5 data found for snapshot {snapshot_num} in {output_dir} "
+            f"(tried master file {file_base}.hdf5 and per-rank "
+            f"{file_base}_<{first_file}..{last_file}>.hdf5)"
         )
 
     galaxies = np.concatenate(chunks).view(np.recarray)
