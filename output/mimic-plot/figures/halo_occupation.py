@@ -193,7 +193,7 @@ def plot(
     ax.set_yscale("log")
 
     # Customize the plot
-    ax.set_xlabel(r"log$_{10}$ M$_{\rm halo}$ (M$_{\odot}$)", fontsize=AXIS_LABEL_SIZE)
+    ax.set_xlabel(r"log$_{10}$ M$_{\rm halo}$ [M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel(
         r"Mean occupation number $\langle N \rangle$", fontsize=AXIS_LABEL_SIZE
     )

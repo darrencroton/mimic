@@ -274,7 +274,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Customize the plot
     ax.set_ylabel(
-        r"log$_{10}$ $\rho_{*}$ (M$_{\odot}$ Mpc$^{-3}$)", fontsize=AXIS_LABEL_SIZE
+        r"log$_{10}$ $\rho_{*}$ [M$_{\odot}$ Mpc$^{-3}$]", fontsize=AXIS_LABEL_SIZE
     )
     ax.set_xlabel(get_redshift_label(), fontsize=AXIS_LABEL_SIZE)
 

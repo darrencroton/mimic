@@ -109,8 +109,7 @@ def plot(
     # Line-of-sight velocity
     vel_los = (pos_x * vel_x + pos_y * vel_y + pos_z * vel_z) / dist_los
 
-    # Distance including redshift: r + v/(H*100)
-    # (standard approach for mock catalogs)
+    # Distance including redshift: r + v/(H*100) (not used)
     dist_redshift = dist_los + vel_los / (hubble_h * 100.0)
 
     # Total number of galaxies for normalizing
@@ -167,7 +166,7 @@ def plot(
     ax.set_yscale("log")
 
     # Customize the plot
-    ax.set_xlabel(r"Velocity / H$_0$", fontsize=AXIS_LABEL_SIZE)
+    ax.set_xlabel(r"Velocity / H$_0$ [Mpc]", fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel(r"Box Normalised Count", fontsize=AXIS_LABEL_SIZE)
 
     # Set the x and y axis minor ticks

@@ -117,22 +117,22 @@ def plot(
 
     # Plot X-Y projection
     axes[0].scatter(xx, yy, marker="o", s=0.3, c="k", alpha=0.5)
-    axes[0].set_xlabel(r"X (h$^{-1}$ Mpc)", fontsize=AXIS_LABEL_SIZE)
-    axes[0].set_ylabel(r"Y (h$^{-1}$ Mpc)", fontsize=AXIS_LABEL_SIZE)
+    axes[0].set_xlabel(r"X [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
+    axes[0].set_ylabel(r"Y [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
     axes[0].set_xlim(0.0 - buffer, box_size + buffer)
     axes[0].set_ylim(0.0 - buffer, box_size + buffer)
 
     # Plot X-Z projection
     axes[1].scatter(xx, zz, marker="o", s=0.3, c="k", alpha=0.5)
-    axes[1].set_xlabel(r"X (h$^{-1}$ Mpc)", fontsize=AXIS_LABEL_SIZE)
-    axes[1].set_ylabel(r"Z (h$^{-1}$ Mpc)", fontsize=AXIS_LABEL_SIZE)
+    axes[1].set_xlabel(r"X [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
+    axes[1].set_ylabel(r"Z [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
     axes[1].set_xlim(0.0 - buffer, box_size + buffer)
     axes[1].set_ylim(0.0 - buffer, box_size + buffer)
 
     # Plot Y-Z projection
     axes[2].scatter(yy, zz, marker="o", s=0.3, c="k", alpha=0.5)
-    axes[2].set_xlabel(r"Y (h$^{-1}$ Mpc)", fontsize=AXIS_LABEL_SIZE)
-    axes[2].set_ylabel(r"Z (h$^{-1}$ Mpc)", fontsize=AXIS_LABEL_SIZE)
+    axes[2].set_xlabel(r"Y [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
+    axes[2].set_ylabel(r"Z [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
     axes[2].set_xlim(0.0 - buffer, box_size + buffer)
     axes[2].set_ylim(0.0 - buffer, box_size + buffer)
 

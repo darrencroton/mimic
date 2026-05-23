@@ -303,7 +303,7 @@ def plot(
 
     # Customize the plot
     ax.set_xlabel(
-        r"Central log$_{10}$ M$_{\rm vir}$ (M$_{\odot}$)", fontsize=AXIS_LABEL_SIZE
+        r"Central log$_{10}$ M$_{\rm vir}$ [M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE
     )
     ax.set_ylabel(r"Baryon Fraction", fontsize=AXIS_LABEL_SIZE)
 

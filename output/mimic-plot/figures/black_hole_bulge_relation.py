@@ -114,8 +114,8 @@ def plot(
     ax.plot(np.log10(x_hr), np.log10(y_hr), "b-", label="Häring & Rix 2004", lw=2)
 
     # Customize the plot
-    ax.set_xlabel(r"log$_{10}$ M$_{\rm bulge}$ (M$_{\odot}$)", fontsize=AXIS_LABEL_SIZE)
-    ax.set_ylabel(r"log$_{10}$ M$_{\rm BH}$ (M$_{\odot}$)", fontsize=AXIS_LABEL_SIZE)
+    ax.set_xlabel(r"log$_{10}$ M$_{\rm bulge}$ [M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
+    ax.set_ylabel(r"log$_{10}$ M$_{\rm BH}$ [M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
 
     # Set the x and y axis minor ticks
     ax.xaxis.set_minor_locator(MultipleLocator(0.5))

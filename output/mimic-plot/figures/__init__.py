@@ -48,14 +48,14 @@ def setup_legend(ax, loc="best", frameon=False):
 # Utility functions for consistent LaTeX-free labels
 def get_mass_function_labels():
     """Return consistent axis labels for mass function plots."""
-    y_label = r"$\phi$ (Mpc$^{-3}$ dex$^{-1}$)"
+    y_label = r"$\phi$ [Mpc$^{-3}$ dex$^{-1}$]"
     return y_label
 
 
 # Halo property utility functions
 def get_halo_mass_label():
     """Return consistent x-axis label for halo mass plots."""
-    x_label = r"log$_{10}$ M$_{\rm halo}$ (M$_{\odot}$)"
+    x_label = r"log$_{10}$ M$_{\rm halo}$ [M$_{\odot}$]"
     return x_label
 
 
@@ -73,7 +73,7 @@ def get_redshift_label():
 
 def get_vmax_label():
     """Return consistent x-axis label for Vmax plots."""
-    x_label = r"log$_{10}$ V$_{\rm max}$ (km/s)"
+    x_label = r"log$_{10}$ V$_{\rm max}$ [km/s]"
     return x_label
 
 
@@ -92,37 +92,37 @@ def get_cold_gas_label():
 
 def get_baryonic_mass_label():
     """Return consistent x-axis label for baryonic mass plots."""
-    x_label = r"log$_{10}$ M$_{\rm bar}$ (M$_{\odot}$)"
+    x_label = r"log$_{10}$ M$_{\rm bar}$ [M$_{\odot}$]"
     return x_label
 
 
 def get_gas_mass_label():
     """Return consistent x-axis label for gas mass plots."""
-    x_label = r"log$_{10}$ M$_{\rm X}$ (M$_{\odot}$)"
+    x_label = r"log$_{10}$ M$_{\rm X}$ [M$_{\odot}$]"
     return x_label
 
 
 def get_sfr_density_label():
     """Return consistent y-axis label for SFR density plots."""
-    y_label = r"log$_{10}$ SFR density (M$_{\odot}$ yr$^{-1}$ Mpc$^{-3}$)"
+    y_label = r"log$_{10}$ SFR density [M$_{\odot}$ yr$^{-1}$ Mpc$^{-3}$]"
     return y_label
 
 
 def get_ssfr_label():
     """Return consistent y-axis label for specific SFR plots."""
-    y_label = r"log$_{10}$ sSFR (yr$^{-1}$)"
+    y_label = r"log$_{10}$ sSFR [yr$^{-1}$]"
     return y_label
 
 
 def get_black_hole_mass_label():
     """Return consistent x-axis label for black hole mass plots."""
-    x_label = r"log$_{10}$ M$_{\rm BH}$ (M$_{\odot}$)"
+    x_label = r"log$_{10}$ M$_{\rm BH}$ [M$_{\odot}$]"
     return x_label
 
 
 def get_bulge_mass_label():
     """Return consistent x-axis label for bulge mass plots."""
-    x_label = r"log$_{10}$ M$_{\rm bulge}$ (M$_{\odot}$)"
+    x_label = r"log$_{10}$ M$_{\rm bulge}$ [M$_{\odot}$]"
     return x_label
 
 

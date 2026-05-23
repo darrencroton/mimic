@@ -122,7 +122,7 @@ def plot(
     )
 
     # Customize the plot
-    ax.set_xlabel(r"log M$_{\rm vir}$ (h$^{-1}$ M$_{\odot}$)", fontsize=AXIS_LABEL_SIZE)
+    ax.set_xlabel(r"log M$_{\rm vir}$ [h$^{-1}$ M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel(r"Stellar, cold, hot, ejected, ICS mass", fontsize=AXIS_LABEL_SIZE)
 
     # Set the x and y axis minor ticks
