@@ -47,6 +47,17 @@ except ImportError:
     HDF5_AVAILABLE = False
     print("Warning: h5py not available. HDF5 format reading will not be supported.")
 
+# >>> SAGE-NATIVE-HDF5 (isolated add-on) >>>
+# Optional reader for native sage-model HDF5 output (different on-disk layout
+# from Mimic HDF5). Enabled by `--input-format=sage-hdf5`. Remove this block
+# and the matching markers below to drop SAGE-native support.
+try:
+    import sage_native_hdf5
+    SAGE_NATIVE_AVAILABLE = sage_native_hdf5.H5PY_AVAILABLE
+except ImportError:
+    SAGE_NATIVE_AVAILABLE = False
+# <<< SAGE-NATIVE-HDF5 <<<
+
 random.seed(42)  # For reproducibility with sample data
 
 # Import shared output utilities
@@ -400,6 +411,19 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
 
     hubble_h = params["Hubble_h"]
     box_size = params["BoxSize"]
+
+    # >>> SAGE-NATIVE-HDF5 (isolated add-on) >>>
+    # Route to the SAGE-native reader before any Mimic-format checks so the
+    # OutputFormat value in the parameter file does not interfere.
+    if params.get("_input_format") == "sage-hdf5":
+        if not SAGE_NATIVE_AVAILABLE:
+            print("ERROR: --input-format=sage-hdf5 requires h5py. "
+                  "Install with: pip install h5py")
+            sys.exit(1)
+        return sage_native_hdf5.read_data_sage_native(
+            model_path, first_file, last_file, params, verbose, quiet
+        )
+    # <<< SAGE-NATIVE-HDF5 <<<
 
     # Detect output format from parameter file
     output_format = params.get("OutputFormat", "binary")
@@ -789,6 +813,19 @@ def parse_arguments():
     parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed output")
     parser.add_argument("--quiet", "-q", action="store_true", help="Show minimal output")
 
+    # >>> SAGE-NATIVE-HDF5 (isolated add-on) >>>
+    parser.add_argument(
+        "--input-format",
+        choices=["mimic", "sage-hdf5"],
+        default="mimic",
+        help="Input data format. 'mimic' (default) reads Mimic binary or "
+             "HDF5 output. 'sage-hdf5' reads native sage-model HDF5 output "
+             "from the OutputDir set in the parameter file, applying the "
+             "SAGE-to-Mimic field mapping so the same plotting code works "
+             "on both.",
+    )
+    # <<< SAGE-NATIVE-HDF5 <<<
+
     args = parser.parse_args()
 
     # Quiet and verbose are mutually exclusive
@@ -854,6 +891,14 @@ def main():
         print_phase("CONFIGURATION")
     try:
         params = MimicParameters(args.param_file)
+
+        # >>> SAGE-NATIVE-HDF5 (isolated add-on) >>>
+        # Stash the input-format choice so read_data() can dispatch to the
+        # SAGE-native reader without changing its function signature.
+        params.params["_input_format"] = args.input_format
+        if args.input_format == "sage-hdf5" and not args.quiet:
+            print("Input format    : sage-hdf5 (native sage-model HDF5)")
+        # <<< SAGE-NATIVE-HDF5 <<<
 
         # Show a concise summary unless in quiet mode
         if not args.quiet:
