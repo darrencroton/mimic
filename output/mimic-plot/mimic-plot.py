@@ -896,8 +896,14 @@ def main():
         # Stash the input-format choice so read_data() can dispatch to the
         # SAGE-native reader without changing its function signature.
         params.params["_input_format"] = args.input_format
-        if args.input_format == "sage-hdf5" and not args.quiet:
-            print("Input format    : sage-hdf5 (native sage-model HDF5)")
+        if args.input_format == "sage-hdf5":
+            # SAGE .par files use different key names for two params Mimic expects.
+            if "FileNameGalaxies" in params.params and "OutputFileBaseName" not in params.params:
+                params.params["OutputFileBaseName"] = params.params["FileNameGalaxies"]
+            if "LastSnapShotNr" in params.params and "LastSnapshotNr" not in params.params:
+                params.params["LastSnapshotNr"] = params.params["LastSnapShotNr"]
+            if not args.quiet:
+                print("Input format    : sage-hdf5 (native sage-model HDF5)")
         # <<< SAGE-NATIVE-HDF5 <<<
 
         # Show a concise summary unless in quiet mode
