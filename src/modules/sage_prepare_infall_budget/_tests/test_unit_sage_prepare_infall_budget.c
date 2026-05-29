@@ -22,7 +22,7 @@
  *   - test_physics_calculation_basic: Basic infall calculation
  *   - test_satellite_ejected_consolidation: Central gets satellite ejected gas
  *   - test_satellite_ics_consolidation: Central gets satellite ICS
- *   - test_orphan_hot_gas_consolidation: Type 2 orphan hot gas → central
+ *   - test_orphan_hot_gas_retained: Type 2 orphan keeps its hot gas (SAGE parity)
  *   - test_zero_mass_halo: Mvir=0 handled correctly
  *   - test_no_satellites: Single central works
  *   - test_multiple_satellites: Multiple satellites consolidated
@@ -534,13 +534,14 @@ int test_satellite_ics_consolidation(void)
 }
 
 /**
- * @test    test_orphan_hot_gas_consolidation
- * @brief   Test that Type 2 orphan hot gas is consolidated to central
+ * @test    test_orphan_hot_gas_retained
+ * @brief   SAGE parity: Type 2 orphan hot gas is NOT consolidated to the
+ *          central. SAGE infall_recipe consolidates only ejected gas + ICS;
+ *          orphans keep their hot gas and cool it themselves until merging.
  *
- * Expected: Central gets orphan hot gas, Type 2 has zero
- * Validates: Orphan hot gas consolidation
+ * Expected: Central keeps only its own hot gas; orphan retains its hot gas.
  */
-int test_orphan_hot_gas_consolidation(void)
+int test_orphan_hot_gas_retained(void)
 {
     /* ===== SETUP ===== */
     setup_module_for_physics_test(0.17);
@@ -571,18 +572,21 @@ int test_orphan_hot_gas_consolidation(void)
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Process should succeed");
 
-    /* Central should have orphan hot gas (5.0 + 3.0 = 8.0) */
-    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->HotGas, 8.0, 0.01,
-                             "Central should have orphan hot gas");
-    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->MetalsHotGas, 0.16, 0.01,
-                             "Central should have orphan hot gas metals");
+    /* SAGE parity: hot gas is NOT consolidated. The central keeps only its own
+     * hot gas, and the Type 2 orphan retains its hot gas (it cools it itself
+     * until it merges). SAGE infall_recipe consolidates only ejected gas + ICS. */
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->HotGas, 5.0, 0.01,
+                             "Central keeps only its own hot gas");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[0].galaxy->MetalsHotGas, 0.1, 0.01,
+                             "Central keeps only its own hot gas metals");
 
-    /* Type 2 should have zero hot gas */
-    TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->HotGas, 0.0, 0.01,
-                             "Type 2 should have zero hot gas");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->HotGas, 3.0, 0.01,
+                             "Type 2 orphan retains its hot gas");
+    TEST_ASSERT_DOUBLE_EQUAL(halos[1].galaxy->MetalsHotGas, 0.06, 0.01,
+                             "Type 2 orphan retains its hot gas metals");
 
-    printf("  ✓ Orphan hot gas consolidated: Central HotGas=%.2f (expected 8.0)\n",
-           halos[0].galaxy->HotGas);
+    printf("  ✓ Orphan hot gas retained: Central HotGas=%.2f, Orphan HotGas=%.2f\n",
+           halos[0].galaxy->HotGas, halos[1].galaxy->HotGas);
 
     /* ===== CLEANUP ===== */
     free_test_halo(&halos[0]);
@@ -784,7 +788,7 @@ int main(void)
     TEST_RUN(test_physics_calculation_basic);
     TEST_RUN(test_satellite_ejected_consolidation);
     TEST_RUN(test_satellite_ics_consolidation);
-    TEST_RUN(test_orphan_hot_gas_consolidation);
+    TEST_RUN(test_orphan_hot_gas_retained);
     TEST_RUN(test_zero_mass_halo);
     TEST_RUN(test_no_satellites);
     TEST_RUN(test_multiple_satellites);

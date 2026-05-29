@@ -2,10 +2,11 @@
  * @file    sage_set_disk_scale_radius.c
  * @brief   SAGE disk scale radius - sets disk scale radius from halo spin parameters
  *
- * Computes disk scale radius for Type 0 and Type 1 galaxies based on Mo, Mao & White (1998)
- * model (Type >= 2 are skipped). The disk radius is proportional to the spin parameter
- * and virial radius. Runs in pre_timestep phase to set DiskScaleRadius for all active
- * galaxies before physics modules execute.
+ * Computes disk scale radius for the FOF central (Type 0) only, based on Mo, Mao
+ * & White (1998). The disk radius is proportional to the spin parameter and
+ * virial radius. SAGE parity: SAGE recomputes this only for the FOF central in
+ * join_galaxies_of_progenitors; Type 1 satellites freeze the value they last had
+ * as a central. Runs in pre_timestep phase before physics modules execute.
  *
  * Reference: Mo, Mao & White (1998), Bullock et al. (2001)
  */
@@ -88,7 +89,11 @@ int sage_set_disk_scale_radius_process(struct ModuleContext *ctx __attribute__((
     }
 
     for (int i = 0; i < ngal; i++) {
-        if (halos[i].galaxy == NULL || halos[i].Type >= 2) {
+        // SAGE parity: the disk scale radius is recomputed ONLY for the FOF
+        // central (Type 0), inside join_galaxies_of_progenitors. Type 1
+        // satellites freeze the value they had as a central; recomputing it
+        // here would change their star formation (reff -> tdyn -> cold_crit).
+        if (halos[i].galaxy == NULL || halos[i].Type != 0) {
             continue;
         }
         // Calculate disk scale radius from halo spin and virial properties

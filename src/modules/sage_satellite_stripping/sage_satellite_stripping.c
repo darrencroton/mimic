@@ -42,66 +42,59 @@ int sage_satellite_stripping_init(void)
 
 int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
 {
-    if (halos == NULL || ngal <= 0) {
-        return 0;
-    }
-
-    // Find central galaxy (Type 0)
-    int central_idx = -1;
-    for (int i = 0; i < ngal; i++) {
-        if (halos[i].Type == 0) {
-            central_idx = i;
-            break;
-        }
-    }
-
-    if (central_idx == -1) {
-        DEBUG_LOG("No central galaxy in FOF group (ngal=%d)", ngal);
-        return 0;
-    }
-
-    if (halos[central_idx].galaxy == NULL) {
-        ERROR_LOG("Central galaxy (index %d) has NULL galaxy data", central_idx);
+    // SAGE parity: stripping runs process_by_galaxy so it interleaves with
+    // cooling in the galaxy-major loop, exactly as SAGE strips a Type 1
+    // satellite just before that satellite cools (model_infall.c
+    // strip_from_satellite, called inside evolve_galaxies). Because the FOF
+    // central is normally processed earlier in the galaxy loop, it has already
+    // cooled before satellites strip, so stripped gas reaches the central's hot
+    // reservoir and cools on the next substep (not the current one).
+    if (ngal != 1) {
+        ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
         return -1;
     }
 
-    // Strip hot gas from satellites and transfer to central
-    for (int i = 0; i < ngal; i++) {
-        // Skip: central, NULL galaxy, orphans (Type 2), ejected (Type 3), or zero hot gas
-        if (i == central_idx || halos[i].galaxy == NULL || halos[i].Type >= 2 || halos[i].galaxy->HotGas <= 0.0f) {
-            continue;
-        }
+    struct Halo *halo = &halos[0];
 
-        struct GalaxyData *sat_gal = halos[i].galaxy;
-        struct GalaxyData *cen_gal = halos[central_idx].galaxy;
+    // Only Type 1 satellites with hot gas are stripped (SAGE: Type == 1 && HotGas > 0).
+    if (halo->galaxy == NULL || halo->Type != 1 || halo->galaxy->HotGas <= 0.0f) {
+        return 0;
+    }
 
-        // Use HaloBaryonFraction (set by sage_reionization), fallback to global if unset
-        const double halo_baryon_frac = (sat_gal->HaloBaryonFraction > 0.0f)
-                                             ? sat_gal->HaloBaryonFraction
-                                             : GLOBAL_BARYON_FRAC;
+    if (ctx == NULL || ctx->central_galaxy == NULL || ctx->central_galaxy->galaxy == NULL) {
+        DEBUG_LOG("No FOF central available for stripping target");
+        return 0;
+    }
 
-        // Calculate total baryons in satellite
-        const double total_baryons = sat_gal->StellarMass + sat_gal->ColdGas + sat_gal->HotGas +
-                                      sat_gal->EjectedGas + sat_gal->BlackHoleMass + sat_gal->ICS;
+    struct GalaxyData *sat_gal = halo->galaxy;
+    struct GalaxyData *cen_gal = ctx->central_galaxy->galaxy;
 
-        // Calculate amount to strip (distributed over substeps for stability)
-        double strippedGas = -1.0 * (halo_baryon_frac * halos[i].Mvir - total_baryons) /
-                              (double)ctx->num_substeps;
+    // Use HaloBaryonFraction (set by sage_reionization), fallback to global if unset
+    const double halo_baryon_frac = (sat_gal->HaloBaryonFraction > 0.0f)
+                                         ? sat_gal->HaloBaryonFraction
+                                         : GLOBAL_BARYON_FRAC;
 
-        if (strippedGas > 0.0) {
-            const float metallicity = mimic_get_metallicity(sat_gal->HotGas, sat_gal->MetalsHotGas);
-            double strippedMetals = strippedGas * metallicity;
+    // Calculate total baryons in satellite
+    const double total_baryons = sat_gal->StellarMass + sat_gal->ColdGas + sat_gal->HotGas +
+                                  sat_gal->EjectedGas + sat_gal->BlackHoleMass + sat_gal->ICS;
 
-            // Limit to available hot gas and metals
-            if (strippedGas > sat_gal->HotGas) strippedGas = sat_gal->HotGas;
-            if (strippedMetals > sat_gal->MetalsHotGas) strippedMetals = sat_gal->MetalsHotGas;
+    // Calculate amount to strip (distributed over substeps for stability)
+    double strippedGas = -1.0 * (halo_baryon_frac * halo->Mvir - total_baryons) /
+                          (double)ctx->num_substeps;
 
-            // Transfer gas and metals from satellite to central
-            sat_gal->HotGas -= (float)strippedGas;
-            sat_gal->MetalsHotGas -= (float)strippedMetals;
-            cen_gal->HotGas += (float)strippedGas;
-            cen_gal->MetalsHotGas += (float)strippedMetals;
-        }
+    if (strippedGas > 0.0) {
+        const float metallicity = mimic_get_metallicity(sat_gal->HotGas, sat_gal->MetalsHotGas);
+        double strippedMetals = strippedGas * metallicity;
+
+        // Limit to available hot gas and metals
+        if (strippedGas > sat_gal->HotGas) strippedGas = sat_gal->HotGas;
+        if (strippedMetals > sat_gal->MetalsHotGas) strippedMetals = sat_gal->MetalsHotGas;
+
+        // Transfer gas and metals from satellite to central
+        sat_gal->HotGas -= (float)strippedGas;
+        sat_gal->MetalsHotGas -= (float)strippedMetals;
+        cen_gal->HotGas += (float)strippedGas;
+        cen_gal->MetalsHotGas += (float)strippedMetals;
     }
 
     return 0;

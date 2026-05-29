@@ -2,7 +2,7 @@ module:
   name: sage_satellite_stripping
   description: "Strips hot gas from Type 1 satellites when baryon content exceeds HaloBaryonFraction × Mvir; transfers stripped gas to central hot reservoir"
 
-  supported_processing_modes: [process_full_halo]
+  supported_processing_modes: [process_by_galaxy]
 
   dependencies:
     properties:

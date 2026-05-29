@@ -262,7 +262,7 @@ def test_with_satellite_stripping():
         output_name="sage_prepare_infall_budget_stripping",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_satellite_stripping', 'process_full_halo')],
+            'phase_1': [('sage_satellite_stripping', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },

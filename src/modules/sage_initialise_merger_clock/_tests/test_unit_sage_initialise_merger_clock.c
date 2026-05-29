@@ -472,12 +472,15 @@ int test_coulomb_logarithm(void)
 }
 
 /**
- * @test    test_small_satellite_floor
- * @brief   Satellites with Len < 10 use floor of MinNumPartSatHalo=10
+ * @test    test_small_satellite_immediate_merge
+ * @brief   SAGE parity: satellites with Len < MinNumPartSatHalo (10) get
+ *          mergtime = -1.0 (immediate merge), not a finite dynamical-friction
+ *          clock. Satellites with Len >= 10 get a finite positive time.
+ *          (SAGE model_mergers.c estimate_merging_time: the Len >= 10 condition.)
  */
-int test_small_satellite_floor(void)
+int test_small_satellite_immediate_merge(void)
 {
-    printf("  Testing: Small satellite particle floor...\n");
+    printf("  Testing: Small satellite (Len<10) immediate merge...\n");
 
     /* Setup */
     init_memory_system(0);
@@ -487,30 +490,33 @@ int test_small_satellite_floor(void)
     struct GalaxyData cen_gal = create_test_galaxy(999.9f, 0.0, 0.0);
     struct Halo central = create_test_halo(0, 100.0, 0.5, 200.0, 1000, 0.0, &cen_gal);
 
-    // Satellite with 0 particles (Type 2 orphan case)
+    // Satellite below the particle threshold (Len = 5 < 10)
     struct GalaxyData sat_gal1 = create_test_galaxy(999.9f, 0.0, 0.0);
-    struct Halo satellite1 = create_test_halo(1, 10.0, 0.1, 100.0, 0, 15.0, &sat_gal1);
+    struct Halo satellite1 = create_test_halo(1, 10.0, 0.1, 100.0, 5, 15.0, &sat_gal1);
 
-    // Satellite with 10 particles (at floor)
+    // Satellite at the threshold (Len = 10)
     struct GalaxyData sat_gal2 = create_test_galaxy(999.9f, 0.0, 0.0);
     struct Halo satellite2 = create_test_halo(1, 10.0, 0.1, 100.0, 10, 15.0, &sat_gal2);
 
     ctx.central_galaxy = &central;
 
-    /* Execute for Len=0 satellite */
+    /* Execute for Len=5 satellite (below threshold) */
     struct Halo halos1[2] = {central, satellite1};
     sage_initialise_merger_clock_process(&ctx, halos1, 2);
-    float mergtime_len0 = halos1[1].galaxy->MergTime;
+    float mergtime_below = halos1[1].galaxy->MergTime;
 
-    /* Execute for Len=10 satellite */
+    /* Execute for Len=10 satellite (at threshold) */
     struct Halo halos2[2] = {central, satellite2};
     sage_initialise_merger_clock_process(&ctx, halos2, 2);
-    float mergtime_len10 = halos2[1].galaxy->MergTime;
+    float mergtime_at = halos2[1].galaxy->MergTime;
 
-    /* Validate */
-    // Both should use floor of 10, so MergTime should be identical
-    TEST_ASSERT(FLOAT_EQ(mergtime_len0, mergtime_len10, 0.01),
-                "Len=0 and Len=10 should give same MergTime (both use floor=10)");
+    /* Validate SAGE parity */
+    // Below threshold: immediate-merge sentinel.
+    TEST_ASSERT(FLOAT_EQ(mergtime_below, -1.0f, 0.01),
+                "Len<10 satellite should get mergtime=-1 (immediate merge)");
+    // At threshold: finite positive dynamical-friction time.
+    TEST_ASSERT(mergtime_at > 0.0f,
+                "Len>=10 satellite should get a finite positive merger time");
 
     TEST_PASS;
 }
@@ -848,7 +854,7 @@ int main(void)
     /* Run physics calculation tests */
     test_dynamical_friction_formula();
     test_coulomb_logarithm();
-    test_small_satellite_floor();
+    test_small_satellite_immediate_merge();
     test_baryonic_mass_included();
 
     /* Run edge case tests */

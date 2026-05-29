@@ -79,11 +79,9 @@ static void maybe_apply_post_merger_disk_instability_followup(
             event_halo, unstable_gas_fraction,
             POST_MERGER_BLACK_HOLE_GROWTH_RATE);
         if (bh_accrete > 0.0) {
-            /* Note: SAGE's check_disk_instability() only calls grow_black_hole()
-             * here; it does not apply a quasar wind in this context. This wind
-             * step is a deliberate Mimic extension that mirrors the same-step
-             * consequences sage_quasar_mode would produce as a phase_2 event
-             * consumer, applied inline when that consumer is configured. */
+            /* SAGE parity: grow_black_hole() itself applies quasar_mode_wind(),
+             * so the post-merger disk-instability recheck must include the wind
+             * before the collisional starburst. */
             mimic_apply_quasar_mode_wind(
                 event_halo, bh_accrete,
                 POST_MERGER_QUASAR_MODE_EFFICIENCY, ctx);
@@ -251,11 +249,16 @@ int sage_starburst_feedback_process(struct ModuleContext *ctx,
             return -1;
         }
 
+        /* SAGE parity: burst SFR/outflow are snapshot-averaged rates, so the
+         * rate denominator is the full interval (event_halo->dT), matching the
+         * disk SF convention (StarFormationRate += stars / halo->dT). Passing the
+         * substep dt (event->value1) here would inflate the burst SFR by STEPS.
+         * Masses are unaffected — rate_dt only scales the rate diagnostics. */
         mimic_apply_collisional_starburst(event->value0, gal, central_gal,
-                                          central_halo, 0, event->value1,
+                                          central_halo, 0, event_halo->dT,
                                           &params);
         maybe_apply_post_merger_disk_instability_followup(
-            ctx, event_halo, central_halo, event->value0, event->value1,
+            ctx, event_halo, central_halo, event->value0, event_halo->dT,
             &params);
         DEBUG_LOG("Starburst from merger event (ratio=%.3f, source=%d, target=%d)",
                   event->value0, event->source_index, event->target_index);
@@ -301,8 +304,11 @@ int sage_starburst_feedback_process(struct ModuleContext *ctx,
             return -1;
         }
 
+        /* SAGE parity: snapshot-averaged burst rate uses the full interval
+         * (halo->dT), like disk SF. disk_dt (substep) is still computed above to
+         * validate timing and skip the initial snapshot. */
         mimic_apply_collisional_starburst(gal->UnstableDiskGasFraction, gal,
-                                          central_gal, central_halo, 1, disk_dt,
+                                          central_gal, central_halo, 1, halo->dT,
                                           &params);
         DEBUG_LOG("Starburst from disk instability (eff=%.3f)",
                   gal->UnstableDiskGasFraction);

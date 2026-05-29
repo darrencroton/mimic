@@ -24,7 +24,7 @@
  *   - test_physics_metallicity_preservation: Metallicity preserved during transfer
  *   - test_physics_cooling_energy_tracking: Cooling energy calculated correctly
  *   - test_zero_cooling: Edge case with zero CoolingGas
- *   - test_type2_orphan_skip: Type 2 orphans are skipped
+ *   - test_type2_orphan_cools: Type 2 orphans cool their own hot gas (SAGE parity)
  *   - test_null_galaxy: NULL galaxy handled gracefully
  *   - test_invalid_ngal: Error when ngal != 1
  *
@@ -531,13 +531,14 @@ int test_zero_cooling(void)
 }
 
 /**
- * @test    test_type2_orphan_skip
- * @brief   Test that Type 2 orphans are skipped
+ * @test    test_type2_orphan_cools
+ * @brief   SAGE parity: Type 2 orphans cool their own hot gas (NOT skipped).
+ *          SAGE evolve_galaxies cools every non-merged galaxy; the apply step
+ *          just commits the budget's CoolingGas.
  *
- * Expected: Module returns 0, no changes to galaxy
- * Validates: Type 2 orphan handling
+ * Expected: CoolingGas (2.0) moves from HotGas to ColdGas.
  */
-int test_type2_orphan_skip(void)
+int test_type2_orphan_cools(void)
 {
     /* ===== SETUP ===== */
     init_memory_system(0);
@@ -555,13 +556,13 @@ int test_type2_orphan_skip(void)
     int result = sage_apply_cooling_process(&ctx, &orphan, 1);
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == 0, "Module should handle Type 2 orphan gracefully");
+    TEST_ASSERT(result == 0, "Module should process Type 2 orphan");
 
-    /* Gas reservoirs should be unchanged */
-    TEST_ASSERT_DOUBLE_EQUAL(orphan.galaxy->HotGas, 5.0, 0.001,
-                             "Type 2 HotGas should be unchanged");
-    TEST_ASSERT_DOUBLE_EQUAL(orphan.galaxy->ColdGas, 3.0, 0.001,
-                             "Type 2 ColdGas should be unchanged");
+    /* The orphan cools its own gas: CoolingGas (2.0) HotGas -> ColdGas. */
+    TEST_ASSERT_DOUBLE_EQUAL(orphan.galaxy->HotGas, 3.0, 0.001,
+                             "Type 2 HotGas should drop by CoolingGas");
+    TEST_ASSERT_DOUBLE_EQUAL(orphan.galaxy->ColdGas, 5.0, 0.001,
+                             "Type 2 ColdGas should gain CoolingGas");
 
     /* ===== CLEANUP ===== */
     free_test_halo(&orphan);
@@ -666,7 +667,7 @@ int main(void)
     TEST_RUN(test_physics_metallicity_preservation);
     TEST_RUN(test_physics_cooling_energy_tracking);
     TEST_RUN(test_zero_cooling);
-    TEST_RUN(test_type2_orphan_skip);
+    TEST_RUN(test_type2_orphan_cools);
     TEST_RUN(test_null_galaxy);
     TEST_RUN(test_invalid_ngal);
 

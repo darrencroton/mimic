@@ -379,13 +379,17 @@ int test_disk_instability_starburst(void)
 }
 
 /**
- * @test    test_disk_instability_uses_per_object_substep_dt_for_rates
- * @brief   Disk-instability channel normalizes rates with halo->dT/num_substeps
+ * @test    test_disk_instability_uses_full_interval_for_rates
+ * @brief   SAGE parity: disk-instability burst rates normalize by the full
+ *          snapshot interval (halo->dT), like the normal disk-SF channel, so the
+ *          reported rate is the snapshot-mean and is INVARIANT to num_substeps.
+ *          SAGE output averages per-substep SfrBulge[step] by STEPS, giving the
+ *          same snapshot mean regardless of substep count.
  *
  * Expected: With identical physics and num_substeps changing from 1 to 2,
- * StarFormationRate and SupernovaOutflowRate double (inverse-dt scaling).
+ * StarFormationRate and SupernovaOutflowRate are unchanged (ratio = 1.0).
  */
-int test_disk_instability_uses_per_object_substep_dt_for_rates(void)
+int test_disk_instability_uses_full_interval_for_rates(void)
 {
     /* ===== SETUP ===== */
     init_memory_system(0);
@@ -429,10 +433,10 @@ int test_disk_instability_uses_per_object_substep_dt_for_rates(void)
                 "Both runs should produce positive star formation rate");
     TEST_ASSERT(outflow1 > 0.0 && outflow2 > 0.0,
                 "Both runs should produce positive outflow rate");
-    TEST_ASSERT_DOUBLE_EQUAL(sfr2 / sfr1, 2.0, 1e-4,
-                             "Disk-instability SFR must scale with per-object substep dt");
-    TEST_ASSERT_DOUBLE_EQUAL(outflow2 / outflow1, 2.0, 1e-4,
-                             "Disk-instability outflow must scale with per-object substep dt");
+    TEST_ASSERT_DOUBLE_EQUAL(sfr2 / sfr1, 1.0, 1e-4,
+                             "Disk-instability SFR uses full interval — invariant to num_substeps");
+    TEST_ASSERT_DOUBLE_EQUAL(outflow2 / outflow1, 1.0, 1e-4,
+                             "Disk-instability outflow uses full interval — invariant to num_substeps");
     TEST_ASSERT_DOUBLE_EQUAL(gal2.StellarMass, gal1.StellarMass, 1e-6,
                              "Mass transfer should be timestep-invariant");
     TEST_ASSERT_DOUBLE_EQUAL(gal2.ColdGas, gal1.ColdGas, 1e-6,
@@ -651,13 +655,17 @@ int test_per_event_merger_uses_fof_central_feedback_destination(void)
 }
 
 /**
- * @test    test_per_event_merger_uses_event_dt_for_rates
- * @brief   Per-event merger channel normalizes rates with event payload dt
+ * @test    test_per_event_merger_uses_target_full_interval_for_rates
+ * @brief   SAGE parity: the per-event merger burst normalizes rates by the
+ *          target galaxy's FULL snapshot interval (event_halo->dT), like the
+ *          normal SF channel — NOT the per-substep event payload dt
+ *          (event->value1). So the reported rate scales as 1/dT_target and is
+ *          independent of event->value1. (SAGE output averages SfrBulge[step]
+ *          by STEPS, giving the snapshot mean total_burst_stars/dT.)
  *
- * Expected: With identical physics and different event dt values,
- * StarFormationRate and SupernovaOutflowRate scale as 1/dt.
+ * Expected: rate ratio follows the inverse of the target full interval.
  */
-int test_per_event_merger_uses_event_dt_for_rates(void)
+int test_per_event_merger_uses_target_full_interval_for_rates(void)
 {
     /* ===== SETUP ===== */
     init_memory_system(0);
@@ -729,10 +737,13 @@ int test_per_event_merger_uses_event_dt_for_rates(void)
                 "Both runs should produce positive star formation rate");
     TEST_ASSERT(outflow1 > 0.0 && outflow2 > 0.0,
                 "Both runs should produce positive outflow rate");
-    TEST_ASSERT_DOUBLE_EQUAL(sfr1 / sfr2, 2.0, 1e-4,
-                             "StarFormationRate ratio should follow inverse event dt");
-    TEST_ASSERT_DOUBLE_EQUAL(outflow1 / outflow2, 2.0, 1e-4,
-                             "SupernovaOutflowRate ratio should follow inverse event dt");
+    /* Rate scales as 1/dT_target (uses event_halo->dT), independent of the
+     * event payload dt. target1.dT=0.9, target2.dT=0.2 -> sfr1/sfr2 = 0.2/0.9. */
+    const double expected_ratio = (double)target2.dT / (double)target1.dT;
+    TEST_ASSERT_DOUBLE_EQUAL(sfr1 / sfr2, expected_ratio, 1e-4,
+                             "Merger-burst SFR scales with inverse target full interval (halo->dT)");
+    TEST_ASSERT_DOUBLE_EQUAL(outflow1 / outflow2, expected_ratio, 1e-4,
+                             "Merger-burst outflow scales with inverse target full interval (halo->dT)");
 
     /* ===== CLEANUP ===== */
     sage_starburst_feedback_cleanup();
@@ -745,8 +756,15 @@ int test_per_event_merger_uses_event_dt_for_rates(void)
  * @test    test_per_event_minor_merger_rechecks_disk_instability
  * @brief   Minor merger event applies same-step disk-instability follow-up
  *
- * Expected: Enabling the phase_1 disk-instability module adds extra bulge and
- * stellar growth and, when the quasar event consumer is present, BH growth too.
+ * SAGE parity (model_disk_instability.c check_disk_instability): the follow-up
+ * (a) transfers unstable disk stars to the bulge (BulgeMass grows; this is a
+ * disk->bulge redistribution that does NOT change total StellarMass), and
+ * (b) for the unstable gas, calls grow_black_hole — which itself drives a
+ * quasar_mode_wind (grow_black_hole -> quasar_mode_wind, model_mergers.c:118) —
+ * and then collisional_starburst. Because the (now correctly scaled) quasar wind
+ * can eject the cold gas before that burst, additional NEW stars are not
+ * guaranteed; the robust observables of the recheck are bulge growth, BH growth,
+ * and cold-gas consumption/ejection.
  */
 int test_per_event_minor_merger_rechecks_disk_instability(void)
 {
@@ -858,11 +876,14 @@ int test_per_event_minor_merger_rechecks_disk_instability(void)
                              "Total baryons (target+central) must be conserved across post-merger follow-up");
 
     TEST_ASSERT(follow_target.galaxy->BulgeMass > baseline_bulge,
-                "Disk-instability follow-up should add extra bulge growth");
-    TEST_ASSERT(follow_target.galaxy->StellarMass > baseline_stellar,
-                "Disk-instability follow-up should form additional stars");
+                "Disk-instability follow-up should add extra bulge growth (disk->bulge transfer)");
+    /* SAGE parity: total StellarMass need not increase — the quasar wind from the
+     * disk-instability BH growth can eject the cold gas before the burst, so no
+     * new stars form. It must not DECREASE. */
+    TEST_ASSERT(follow_target.galaxy->StellarMass >= baseline_stellar,
+                "Disk-instability follow-up must not reduce stellar mass");
     TEST_ASSERT(follow_target.galaxy->ColdGas < baseline_cold_gas,
-                "Disk-instability follow-up should consume more cold gas");
+                "Disk-instability follow-up should consume/eject more cold gas");
     TEST_ASSERT(follow_target.galaxy->BlackHoleMass > baseline_bh,
                 "Disk-instability follow-up should grow the black hole when quasar consumer is enabled");
     TEST_ASSERT(follow_target.galaxy->QuasarModeBHaccretionMass >
@@ -2090,12 +2111,12 @@ int main(void)
 
     /* Run physics calculation tests */
     TEST_RUN(test_disk_instability_starburst);
-    TEST_RUN(test_disk_instability_uses_per_object_substep_dt_for_rates);
+    TEST_RUN(test_disk_instability_uses_full_interval_for_rates);
     TEST_RUN(test_merger_starburst);
     TEST_RUN(test_both_triggers);
     TEST_RUN(test_per_event_merger_starburst);
     TEST_RUN(test_per_event_merger_uses_fof_central_feedback_destination);
-    TEST_RUN(test_per_event_merger_uses_event_dt_for_rates);
+    TEST_RUN(test_per_event_merger_uses_target_full_interval_for_rates);
     TEST_RUN(test_per_event_minor_merger_rechecks_disk_instability);
     TEST_RUN(test_per_event_recheck_respects_phase2_quasar_configuration);
     TEST_RUN(test_per_event_unknown_code_noop);

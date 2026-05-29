@@ -7,13 +7,13 @@ Validates: Module pipeline integration, physics correctness, type filtering
 This test validates the sage_set_disk_scale_radius module integration:
 - Module loads and executes correctly in full pipeline
 - DiskScaleRadius output is physically reasonable
-- Type filtering (Type 0/1 processed, Type 2 skipped)
+- Type filtering (Type 0 processed, Type 1 satellites preserve inherited radii)
 - Memory safety and performance
 
 Test cases:
   - test_module_pipeline_integration: Full pipeline execution and output validation
   - test_disk_radius_physics: Physics correctness and reasonableness checks
-  - test_disk_radius_type_filtering: Type 0/1 vs Type 2 filtering
+  - test_disk_radius_type_filtering: Type 0 vs satellite/orphan filtering
   - test_memory_and_performance: Memory leaks and performance baseline
 
 Author: Mimic Development Team
@@ -93,7 +93,7 @@ def test_disk_radius_physics():
     - DiskScaleRadius values are within expected range (0.001-1.0 Mpc/h)
     - Disk radius scales with virial radius for halos with positive Rvir
     - Disk radius is smaller than virial radius when Rvir > 0
-    - Type 0/1 galaxies have non-zero disk radii (if they exist)
+    - Type 0 galaxies have non-zero disk radii (if they exist)
     """
     print(f"\n{BLUE}TEST: Disk radius physics correctness{NC}")
 
@@ -168,12 +168,12 @@ def test_disk_radius_physics():
 
 
 def test_disk_radius_type_filtering():
-    """Test that Type 0/1 galaxies are processed, Type 2+ are skipped
+    """Test that Type 0 galaxies are processed and satellites are preserved
 
     Validates:
     - Type 0 (central) galaxies have disk radii calculated
-    - Type 1 (satellite) galaxies have disk radii calculated
-    - Type 2+ (orphan) galaxies are skipped or have zero disk radii
+    - Type 1 (satellite) galaxies have finite inherited/preserved disk radii
+    - Type 2+ (orphan) galaxies are skipped or keep inherited disk radii
     """
     print(f"\n{BLUE}TEST: Type filtering{NC}")
 
@@ -207,31 +207,32 @@ def test_disk_radius_type_filtering():
     print(f"  Type 1 (satellite) halos: {type1_count}")
     print(f"  Type 2+ (orphan) halos: {type2_count}")
 
-    # Type 0/1 galaxies: Should have non-zero disk radii (if they have valid virial properties)
-    type01_halos = (halo_type == 0) | (halo_type == 1)
-    if np.sum(type01_halos) > 0:
-        type01_disk_radii = disk_radius[type01_halos]
-        type01_rvir = halos['Rvir'][type01_halos]
+    # Type 0 galaxies: should have non-zero disk radii when virial properties are valid.
+    type0_halos = (halo_type == 0)
+    if np.sum(type0_halos) > 0:
+        type0_disk_radii = disk_radius[type0_halos]
 
-        # Most Type 0/1 galaxies should have non-zero disk radii
-        # (unless they have zero spin or invalid virial properties)
-        nonzero_type01 = np.sum(type01_disk_radii > 0)
-        fraction_nonzero = nonzero_type01 / np.sum(type01_halos)
-        print(f"  Type 0/1 with non-zero DiskScaleRadius: {nonzero_type01}/{np.sum(type01_halos)} ({fraction_nonzero:.1%})")
+        nonzero_type0 = np.sum(type0_disk_radii > 0)
+        fraction_nonzero = nonzero_type0 / np.sum(type0_halos)
+        print(f"  Type 0 with non-zero DiskScaleRadius: {nonzero_type0}/{np.sum(type0_halos)} ({fraction_nonzero:.1%})")
 
-        # Expect most to have non-zero radii (allow for some zero spin cases)
         assert fraction_nonzero > 0.5, \
-            "Most Type 0/1 galaxies should have non-zero disk radii"
+            "Most Type 0 galaxies should have non-zero disk radii"
 
-    # Type 2+ galaxies: Should be skipped (may have zero or unmodified values)
-    # Note: The module skips Type >= 2, so their DiskScaleRadius may be:
-    # - Zero (if initialized to zero)
-    # - Unchanged from previous value
-    # We can't test much here without knowing initialization, but we can check
-    # that Type 2+ don't have obviously invalid values
+    # Type 1/2+ galaxies are not recomputed by this module. Depending on
+    # inheritance they may carry a previous central value or remain zero; the
+    # integration contract here is that they remain finite and non-negative.
+    if type1_count > 0:
+        type1_disk_radii = disk_radius[halo_type == 1]
+        assert not np.any(np.isnan(type1_disk_radii)), \
+            "Type 1 DiskScaleRadius should not have NaN values"
+        assert not np.any(np.isinf(type1_disk_radii)), \
+            "Type 1 DiskScaleRadius should not have Inf values"
+        assert np.all(type1_disk_radii >= 0.0), \
+            "Type 1 DiskScaleRadius should remain non-negative"
+
     if type2_count > 0:
         type2_disk_radii = disk_radius[halo_type >= 2]
-        # Should not have NaN or Inf values
         assert not np.any(np.isnan(type2_disk_radii)), \
             "Type 2+ should not have NaN disk radii"
         assert not np.any(np.isinf(type2_disk_radii)), \

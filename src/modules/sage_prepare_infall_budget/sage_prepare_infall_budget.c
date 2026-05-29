@@ -56,8 +56,6 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx)
     double tot_ejected = 0.0;
     double tot_ICSMetals = 0.0;
     double tot_ejectedMetals = 0.0;
-    double orphan_hotMass = 0.0;
-    double orphan_hotMassMetals = 0.0;
 
     // Sum baryonic components across all galaxies and transfer satellite reservoirs
     for (int i = 0; i < ngal; i++) {
@@ -76,25 +74,16 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx)
         tot_ICSMetals += gal->MetalsICS;
         tot_ejectedMetals += gal->MetalsEjectedGas;
 
-        if (halos[i].Type == 2) {
-            orphan_hotMass += gal->HotGas;
-            orphan_hotMassMetals += gal->MetalsHotGas;
-        }
-
         if (i != central_idx) {
-            // Satellite ejected gas goes to central ejected reservoir
+            // SAGE parity (model_infall.c infall_recipe): satellites surrender
+            // only their ejected gas and ICS to the central. Hot gas is NOT
+            // consolidated — Type 2 orphans keep their hot reservoir and cool it
+            // independently until they merge.
             gal->EjectedGas = 0.0f;
             gal->MetalsEjectedGas = 0.0f;
 
-            // Satellite ICS goes to central ICS
             gal->ICS = 0.0f;
             gal->MetalsICS = 0.0f;
-
-            // Type 2 orphan hot gas goes to central hot gas
-            if (halos[i].Type == 2) {
-                gal->HotGas = 0.0f;
-                gal->MetalsHotGas = 0.0f;
-            }
         }
     }
 
@@ -109,11 +98,6 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx)
     central->ICS = (float)tot_ICS;
     central->MetalsICS = (float)tot_ICSMetals;
     validate_mass_metals(&central->ICS, &central->MetalsICS);
-
-    // Consolidate type 2 orphan hot mass to central
-    central->HotGas += (float)orphan_hotMass;
-    central->MetalsHotGas += (float)orphan_hotMassMetals;
-    validate_mass_metals(&central->HotGas, &central->MetalsHotGas);
 
     // Calculate infalling gas from HaloBaryonFraction
     const double infallingMass = central->HaloBaryonFraction * halos[central_idx].Mvir -

@@ -26,7 +26,7 @@
  *   - test_zero_cooling_gas: No AGN when no cooling
  *   - test_zero_hot_gas: No accretion without hot gas
  *   - test_zero_black_hole_mass: Edge case handling
- *   - test_orphan_galaxy_skipped: Type 2 galaxies unaffected
+ *   - test_orphan_galaxy_processed: Type 2 galaxies processed like centrals (SAGE parity)
  *   - test_parameter_sensitivity_efficiency: RadioModeEfficiency affects results
  *   - test_module_initialization: Module lifecycle
  *   - test_memory_safety: No memory leaks
@@ -780,13 +780,15 @@ int test_zero_black_hole_mass(void)
 }
 
 /**
- * @test    test_orphan_galaxy_skipped
- * @brief   Test that orphan galaxies (Type 2) are not processed
+ * @test    test_orphan_galaxy_processed
+ * @brief   SAGE parity: orphan galaxies (Type 2) are processed like any other
+ *          galaxy — SAGE calls do_AGN_heating from cooling_recipe for every
+ *          non-merged galaxy. With AGN on, hot gas, and a black hole present,
+ *          the orphan's BH accretes (grows) and its hot gas is consumed.
  *
- * Expected: No changes to orphan galaxy properties
- * Validates: Type 2 galaxy handling
+ * Validates: Type 2 galaxies are no longer skipped.
  */
-int test_orphan_galaxy_skipped(void)
+int test_orphan_galaxy_processed(void)
 {
     /* ===== SETUP ===== */
     init_memory_system(0);
@@ -808,18 +810,18 @@ int test_orphan_galaxy_skipped(void)
 
     const double initial_bh_mass = gal.BlackHoleMass;
     const double initial_hot_gas = gal.HotGas;
-    const double initial_cooling = gal.CoolingGas;
 
     /* ===== EXECUTE ===== */
-    sage_radio_mode_heating_process(&ctx, &halo, 1);
+    int result = sage_radio_mode_heating_process(&ctx, &halo, 1);
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT_DOUBLE_EQUAL(gal.BlackHoleMass, initial_bh_mass, 1e-10,
-                             "Orphan BH mass should not change");
-    TEST_ASSERT_DOUBLE_EQUAL(gal.HotGas, initial_hot_gas, 1e-10,
-                             "Orphan hot gas should not change");
-    TEST_ASSERT_DOUBLE_EQUAL(gal.CoolingGas, initial_cooling, 1e-10,
-                             "Orphan cooling gas should not change");
+    TEST_ASSERT(result == 0, "Module should process the Type 2 orphan");
+    TEST_ASSERT(gal.BlackHoleMass > initial_bh_mass,
+                "Orphan BH should accrete (grow) — orphan is processed");
+    TEST_ASSERT(gal.HotGas < initial_hot_gas,
+                "Orphan hot gas should be consumed by BH accretion");
+    TEST_ASSERT(gal.BlackHoleMass >= 0.0 && gal.HotGas >= 0.0,
+                "Orphan reservoirs remain physical");
 
     /* ===== CLEANUP ===== */
     sage_radio_mode_heating_cleanup();
@@ -1000,7 +1002,7 @@ int main(void)
     TEST_RUN(test_zero_cooling_gas);
     TEST_RUN(test_zero_hot_gas);
     TEST_RUN(test_zero_black_hole_mass);
-    TEST_RUN(test_orphan_galaxy_skipped);
+    TEST_RUN(test_orphan_galaxy_processed);
 
     /* Run parameter sensitivity tests */
     TEST_RUN(test_parameter_sensitivity_efficiency);

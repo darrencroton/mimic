@@ -80,8 +80,10 @@ int sage_apply_cooling_process(struct ModuleContext *ctx, struct Halo *halos, in
 
     struct Halo *halo = &halos[0];
 
-    // Skip orphan galaxies (type 2)
-    if (halo->Type == 2 || halo->galaxy == NULL) {
+    // SAGE parity: cooling is applied for every non-merged galaxy, including
+    // Type 2 orphans (they cool their own hot gas until merging). CoolingGas is
+    // 0 for galaxies the budget module found could not cool.
+    if (halo->galaxy == NULL) {
         return 0;
     }
 

@@ -94,9 +94,11 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx,
         const int MinNumPartSatHalo = 10;
 
         // Coulomb logarithm from particle number ratio, log1p(x) is better than log(1 + x)
-        // Guard against Type 2 orphans (Len=0) by setting floor at MinNumPartSatHalo
-        const int sat_len = (halos[i].Len < MinNumPartSatHalo) ? MinNumPartSatHalo : halos[i].Len;
-        const double coulomb = log1p((double)central->Len / (double)sat_len);
+        // SAGE parity: use the satellite's actual Len (no floor); the Len >= 10
+        // requirement is enforced in the merger-time condition below.
+        const int sat_len = halos[i].Len;
+        const double coulomb =
+            (sat_len > 0) ? log1p((double)central->Len / (double)sat_len) : 0.0;
 
         // Total satellite mass: dark matter + stars + cold gas
         const double SatelliteMass = halos[i].Mvir + halos[i].galaxy->StellarMass + halos[i].galaxy->ColdGas;
@@ -105,13 +107,15 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx,
         const double SatelliteRadius = central->Rvir;  // Orbital radius ~ central's Rvir
         const double Vvir = central->Vvir;
 
-        // Merger timescale from Binney & Tremaine dynamical friction (SAGE lines 30-35)
+        // Merger timescale from Binney & Tremaine dynamical friction (SAGE lines 30-35).
+        // SAGE parity: satellites with fewer than MinNumPartSatHalo particles get
+        // mergtime = -1.0 (immediate merge), not a finite dynamical-friction clock.
         double mergtime;
-        if (SatelliteMass > 0.0 && coulomb > 0.0) {
+        if (SatelliteMass > 0.0 && coulomb > 0.0 && halos[i].Len >= MinNumPartSatHalo) {
             mergtime = 2.0 * 1.17 * SatelliteRadius * SatelliteRadius * Vvir /
                        (coulomb * ctx->params->G * SatelliteMass);
         } else {
-            mergtime = -1.0;  // Invalid: zero mass
+            mergtime = -1.0;  // Invalid: zero mass, or below the SAGE particle threshold
         }
 
         // Apply ceiling for very long merger times

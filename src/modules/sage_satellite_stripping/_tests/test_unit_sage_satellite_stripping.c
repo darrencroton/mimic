@@ -3,6 +3,12 @@
  * @brief   Unit tests for sage_satellite_stripping module physics
  *
  * Tests the satellite stripping physics calculation in isolation using minimal mocks.
+ *
+ * SAGE parity: the module runs process_by_galaxy (one satellite at a time, ngal=1),
+ * stripping a Type 1 satellite and depositing into the FOF central via
+ * ctx->central_galaxy. Tests therefore call process with the single satellite halo
+ * (&halos[1], 1) and the central supplied through ctx->central_galaxy.
+ *
  * Validates:
  *   - Stripping calculation logic
  *   - Mass and metal conservation
@@ -147,7 +153,7 @@ int test_no_stripping_when_below_threshold(void)
     float initial_cen_hot = cen_gal.HotGas;
 
     /* Execute */
-    int result = sage_satellite_stripping_process(&ctx, halos, 2);
+    int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
 
     /* Validate */
     TEST_ASSERT(result == 0, "Process should succeed");
@@ -190,7 +196,7 @@ int test_stripping_when_above_threshold(void)
     float initial_cen_hot = cen_gal.HotGas;
 
     /* Execute */
-    int result = sage_satellite_stripping_process(&ctx, halos, 2);
+    int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
 
     /* Validate */
     TEST_ASSERT(result == 0, "Process should succeed");
@@ -238,7 +244,7 @@ int test_mass_conservation(void)
     float initial_total = initial_sat_hot + initial_cen_hot;
 
     /* Execute */
-    sage_satellite_stripping_process(&ctx, halos, 2);
+    sage_satellite_stripping_process(&ctx, &halos[1], 1);
 
     /* Validate */
     float final_total = halos[1].galaxy->HotGas + halos[0].galaxy->HotGas;
@@ -280,7 +286,7 @@ int test_metal_conservation(void)
     float initial_total_metals = initial_sat_metals + initial_cen_metals;
 
     /* Execute */
-    sage_satellite_stripping_process(&ctx, halos, 2);
+    sage_satellite_stripping_process(&ctx, &halos[1], 1);
 
     /* Validate */
     float final_total_metals = halos[1].galaxy->MetalsHotGas + halos[0].galaxy->MetalsHotGas;
@@ -320,7 +326,7 @@ int test_metallicity_preservation(void)
     struct Halo halos[2] = {central, satellite};
 
     /* Execute */
-    sage_satellite_stripping_process(&ctx, halos, 2);
+    sage_satellite_stripping_process(&ctx, &halos[1], 1);
 
     /* Validate */
     // Satellite metallicity should be unchanged (same Z, less mass)
@@ -358,7 +364,7 @@ int test_zero_hot_gas_no_stripping(void)
     float initial_cen_hot = cen_gal.HotGas;
 
     /* Execute */
-    sage_satellite_stripping_process(&ctx, halos, 2);
+    sage_satellite_stripping_process(&ctx, &halos[1], 1);
 
     /* Validate */
     TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, 0.0, 1e-6),
@@ -397,7 +403,7 @@ int test_clamping_to_available_gas(void)
     float initial_cen_hot = cen_gal.HotGas;
 
     /* Execute */
-    sage_satellite_stripping_process(&ctx, halos, 2);
+    sage_satellite_stripping_process(&ctx, &halos[1], 1);
 
     /* Validate */
     TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, 0.0, 1e-6),
@@ -434,7 +440,7 @@ int test_type_2_orphans_skipped(void)
     float initial_cen_hot = cen_gal.HotGas;
 
     /* Execute */
-    sage_satellite_stripping_process(&ctx, halos, 2);
+    sage_satellite_stripping_process(&ctx, &halos[1], 1);
 
     /* Validate */
     TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, initial_orphan_hot, 1e-6),
@@ -471,7 +477,7 @@ int test_type_3_ejected_skipped(void)
     float initial_cen_hot = cen_gal.HotGas;
 
     /* Execute */
-    sage_satellite_stripping_process(&ctx, halos, 2);
+    sage_satellite_stripping_process(&ctx, &halos[1], 1);
 
     /* Validate */
     TEST_ASSERT(FLOAT_EQ(halos[1].galaxy->HotGas, initial_ejected_hot, 1e-6),
@@ -506,7 +512,7 @@ int test_null_galaxy_handling(void)
     float initial_cen_hot = cen_gal.HotGas;
 
     /* Execute */
-    int result = sage_satellite_stripping_process(&ctx, halos, 2);
+    int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
 
     /* Validate */
     TEST_ASSERT(result == 0, "Should handle NULL galaxy gracefully");
@@ -544,8 +550,10 @@ int test_multiple_satellites(void)
     float initial_sat1_hot = sat1_gal.HotGas;
     float initial_sat2_hot = sat2_gal.HotGas;
 
-    /* Execute */
-    sage_satellite_stripping_process(&ctx, halos, 3);
+    /* Execute: by-galaxy contract — the galaxy-major loop calls the module once
+     * per satellite, each depositing into the FOF central (ctx->central_galaxy). */
+    sage_satellite_stripping_process(&ctx, &halos[1], 1);
+    sage_satellite_stripping_process(&ctx, &halos[2], 1);
 
     /* Validate */
     TEST_ASSERT(halos[0].galaxy->HotGas > initial_cen_hot,

@@ -48,7 +48,7 @@ PRE_TIMESTEP_PHASE = [
 PHASE_1_MODULES = [
     ("sage_apply_infall", "process_full_halo"),
     ("sage_reincorporation", "process_full_halo"),
-    ("sage_satellite_stripping", "process_full_halo"),
+    ("sage_satellite_stripping", "process_by_galaxy"),
     ("sage_calculate_cooling_budget", "process_by_galaxy"),
     ("sage_radio_mode_heating", "process_by_galaxy"),
     ("sage_apply_cooling", "process_by_galaxy"),
@@ -237,17 +237,22 @@ def test_starburst_consumer_receives_merger_events():
         stellar_delta = float(np.sum(base_stellar - no_starburst_stellar))
         cold_gas_delta = float(np.sum(base_cold_gas - no_starburst_cold_gas))
 
-        # ~5 M_sun/h total bulge mass added across merger remnants in the test snapshot
+        # ~9 M_sun/h total bulge mass added across merger remnants in the test snapshot
         assert bulge_delta > 5.0, (
             "Phase_2 starburst consumer should increase merger-remnant bulge mass"
         )
-        # ~5 M_sun/h net stellar mass increase from burst star formation
+        # ~6.5 M_sun/h net stellar mass increase from burst star formation
         assert stellar_delta > 5.0, (
             "Phase_2 starburst consumer should form additional stars in merger remnants"
         )
-        # ~5 M_sun/h cold gas consumed by burst star formation
-        assert cold_gas_delta < -5.0, (
-            "Phase_2 starburst consumer should consume cold gas in merger remnants"
+        # The burst net-consumes a few M_sun/h of cold gas. SAGE parity note: the
+        # merger quasar wind (grow_black_hole -> quasar_mode_wind, which fires
+        # BEFORE the starburst in SAGE deal_with_galaxy_merger) ejects some cold
+        # gas first, so the net cold-gas reduction attributable to the burst is a
+        # few M_sun/h (~-4.7 here), not the larger value seen before the quasar
+        # wind energy was unit-corrected.
+        assert cold_gas_delta < -3.0, (
+            "Phase_2 starburst consumer should net-consume cold gas in merger remnants"
         )
     finally:
         shutil.rmtree(base_temp_dir)

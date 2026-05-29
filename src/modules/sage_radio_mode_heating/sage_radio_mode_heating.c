@@ -234,8 +234,10 @@ int sage_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *halo
 
     struct Halo *halo = &halos[0];
 
-    // Skip orphan galaxies (type 2)
-    if (halo->Type == 2 || halo->galaxy == NULL) {
+    // SAGE parity: radio-mode AGN heating suppresses a galaxy's own cooling via
+    // its own black hole, for every non-merged galaxy including Type 2 orphans
+    // (SAGE calls do_AGN_heating from cooling_recipe for all galaxies).
+    if (halo->galaxy == NULL) {
         return 0;
     }
 

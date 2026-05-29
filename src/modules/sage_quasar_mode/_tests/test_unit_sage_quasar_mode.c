@@ -632,10 +632,14 @@ int test_quasar_wind_cold_ejection(void)
     sage_quasar_mode_process(&ctx, &halo, 1);
 
     /* ===== VALIDATE ===== */
-    /* Either cold gas reduced or ejected gas increased (wind occurred) */
-    const int wind_occurred = (gal.ColdGas < cold_gas) || (gal.EjectedGas > initial_ejected);
-    TEST_ASSERT(wind_occurred || gal.ColdGas == 0.0,
-                "Quasar wind should eject cold gas or deplete it");
+    /* Regression for the C_CGS / UnitVelocity_in_cm_per_s unit contract: with
+     * C_KM_S this fixture only accretes a small amount onto the BH and leaves
+     * EjectedGas unchanged. The corrected SAGE-energy wind ejects the remaining
+     * cold reservoir. */
+    TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, 0.0, 1e-6,
+                             "Sufficient quasar energy should eject all remaining cold gas");
+    TEST_ASSERT(gal.EjectedGas > initial_ejected + 0.9,
+                "Quasar wind should transfer cold gas to EjectedGas");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();
@@ -672,15 +676,18 @@ int test_quasar_wind_hot_ejection(void)
     struct ModuleContext ctx;
     setup_test_context(&ctx);
 
-    const double initial_hot = gal.HotGas;
+    const double initial_ejected = gal.EjectedGas;
 
     /* ===== EXECUTE ===== */
     sage_quasar_mode_process(&ctx, &halo, 1);
 
     /* ===== VALIDATE ===== */
-    /* Strong wind may eject both (or at least cold gas should be affected) */
-    TEST_ASSERT(gal.ColdGas <= cold_gas, "Cold gas should not increase");
-    TEST_ASSERT(gal.HotGas <= initial_hot, "Hot gas should not increase");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.ColdGas, 0.0, 1e-6,
+                             "Strong quasar wind should eject all cold gas");
+    TEST_ASSERT_DOUBLE_EQUAL(gal.HotGas, 0.0, 1e-6,
+                             "Strong quasar wind should eject all hot gas");
+    TEST_ASSERT(gal.EjectedGas > initial_ejected + cold_gas + 0.9 * hot_gas,
+                "Strong quasar wind should transfer cold and hot gas to EjectedGas");
 
     /* ===== CLEANUP ===== */
     sage_quasar_mode_cleanup();

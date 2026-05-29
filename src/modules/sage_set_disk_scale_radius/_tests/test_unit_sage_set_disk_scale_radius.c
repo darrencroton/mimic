@@ -9,7 +9,7 @@
  * - Spin parameter calculation (Bullock-style λ)
  * - Edge cases (zero spin, zero velocity, zero radius)
  * - Fallback logic (invalid virial properties)
- * - Type filtering (Type 0/1 processed, Type 2+ skipped)
+ * - Type filtering (Type 0 processed, Type 1+ skipped/frozen for SAGE parity)
  * - Module lifecycle and memory safety
  *
  * Test cases:
@@ -20,6 +20,7 @@
  *   - test_disk_radius_zero_vvir: Zero virial velocity fallback
  *   - test_disk_radius_zero_rvir: Zero virial radius fallback
  *   - test_disk_radius_small_vvir_rvir: Small virial properties fallback
+ *   - test_disk_radius_type1_satellite_frozen: Type 1 satellite radius preserved
  *   - test_disk_radius_type2_skipped: Type 2 galaxy filtering
  *   - test_disk_radius_null_galaxy: Null pointer safety
  *   - test_disk_radius_multiple_galaxies: Array processing
@@ -474,6 +475,48 @@ int test_disk_radius_small_vvir_rvir(void)
 }
 
 /**
+ * @test    test_disk_radius_type1_satellite_frozen
+ * @brief   SAGE parity: Type 1 satellites keep their inherited disk radius
+ *
+ * Expected: DiskScaleRadius unchanged (sentinel value)
+ * Validates: Type 1 satellite freeze contract
+ */
+int test_disk_radius_type1_satellite_frozen(void)
+{
+    /* ===== SETUP ===== */
+    init_memory_system(0);
+    reset_config();
+
+    sage_set_disk_scale_radius_init();
+
+    /* Create Type 1 satellite. SAGE updates only the FOF Type 0 central; a
+     * satellite keeps the radius it had when it last was central. */
+    struct Halo halo;
+    struct GalaxyData gal;
+    setup_test_galaxy(&halo, &gal, 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, 1);
+
+    struct ModuleContext ctx;
+    setup_test_context(&ctx, 0.01);
+
+    const float initial_rd = gal.DiskScaleRadius;  /* Should be -1.0 (sentinel) */
+
+    /* ===== EXECUTE ===== */
+    int result = sage_set_disk_scale_radius_process(&ctx, &halo, 1);
+
+    /* ===== VALIDATE ===== */
+    TEST_ASSERT(result == 0, "Process should succeed");
+    TEST_ASSERT(halo.Type == 1, "Type is 1");
+    TEST_ASSERT(gal.DiskScaleRadius == initial_rd,
+                "Type 1 satellite should keep its inherited DiskScaleRadius");
+
+    /* ===== CLEANUP ===== */
+    sage_set_disk_scale_radius_cleanup();
+    check_memory_leaks();
+
+    return TEST_PASS;
+}
+
+/**
  * @test    test_disk_radius_type2_skipped
  * @brief   Test that Type 2 (orphan) galaxies are skipped
  *
@@ -561,7 +604,7 @@ int test_disk_radius_null_galaxy(void)
  * @test    test_disk_radius_multiple_galaxies
  * @brief   Test processing array of multiple galaxies
  *
- * Expected: All galaxies processed correctly
+ * Expected: Type 0 galaxy processed; Type 1/2 galaxies left unchanged
  * Validates: Array loop logic
  */
 int test_disk_radius_multiple_galaxies(void)
@@ -580,8 +623,8 @@ int test_disk_radius_multiple_galaxies(void)
     /* Galaxy 0: Normal */
     setup_test_galaxy(&halos[0], &gals[0], 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, 0);
 
-    /* Galaxy 1: High spin */
-    setup_test_galaxy(&halos[1], &gals[1], 300.0f, 400.0f, 0.0f, 200.0f, 0.2f, 0);
+    /* Galaxy 1: Type 1 satellite (should be skipped/frozen) */
+    setup_test_galaxy(&halos[1], &gals[1], 300.0f, 400.0f, 0.0f, 200.0f, 0.2f, 1);
 
     /* Galaxy 2: Type 2 (should be skipped) */
     setup_test_galaxy(&halos[2], &gals[2], 100.0f, 100.0f, 100.0f, 200.0f, 0.2f, 2);
@@ -592,9 +635,6 @@ int test_disk_radius_multiple_galaxies(void)
     /* Calculate expected values */
     const float expected_rd0 = calculate_expected_disk_radius(100.0f, 100.0f, 100.0f,
                                                                 200.0f, 0.2f);
-    const float expected_rd1 = calculate_expected_disk_radius(300.0f, 400.0f, 0.0f,
-                                                                200.0f, 0.2f);
-
     /* ===== EXECUTE ===== */
     int result = sage_set_disk_scale_radius_process(&ctx, halos, ngal);
 
@@ -605,9 +645,9 @@ int test_disk_radius_multiple_galaxies(void)
     TEST_ASSERT_DOUBLE_EQUAL((double)gals[0].DiskScaleRadius, (double)expected_rd0, 1e-6,
                              "Galaxy 0 should have correct disk radius");
 
-    /* Galaxy 1: Should be processed */
-    TEST_ASSERT_DOUBLE_EQUAL((double)gals[1].DiskScaleRadius, (double)expected_rd1, 1e-6,
-                             "Galaxy 1 should have correct disk radius");
+    /* Galaxy 1: Should be skipped/frozen (Type 1) */
+    TEST_ASSERT(gals[1].DiskScaleRadius == -1.0f,
+                "Galaxy 1 (Type 1) should keep inherited disk radius");
 
     /* Galaxy 2: Should be skipped (Type 2) */
     TEST_ASSERT(gals[2].DiskScaleRadius == -1.0f,
@@ -728,6 +768,7 @@ int main(void)
     TEST_RUN(test_disk_radius_zero_vvir);
     TEST_RUN(test_disk_radius_zero_rvir);
     TEST_RUN(test_disk_radius_small_vvir_rvir);
+    TEST_RUN(test_disk_radius_type1_satellite_frozen);
     TEST_RUN(test_disk_radius_type2_skipped);
     TEST_RUN(test_disk_radius_null_galaxy);
     TEST_RUN(test_disk_radius_multiple_galaxies);

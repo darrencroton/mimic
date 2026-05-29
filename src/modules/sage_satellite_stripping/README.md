@@ -4,9 +4,9 @@ Strips excess hot gas from Type 1 satellites and transfers stripped material to 
 
 ## Processing Contract
 
-- Supported mode: `process_full_halo`
-- Expected phase: `phase_1`, before cooling and star formation
-- Receives the full FoF workspace because gas is moved between satellites and the central
+- Supported mode: `process_by_galaxy`
+- Expected phase: `phase_1`, before cooling and star formation in the by-galaxy order
+- Receives one galaxy at a time and transfers stripped gas to the FOF central through `ctx->central_galaxy`
 
 ## Properties
 
@@ -19,4 +19,4 @@ Strips excess hot gas from Type 1 satellites and transfers stripped material to 
 
 ## Notes
 
-This module depends on reionization/infall context through `HaloBaryonFraction`.
+This module depends on reionization/infall context through `HaloBaryonFraction`. It runs as `process_by_galaxy` even though it mutates the FOF central, because SAGE strips each Type 1 satellite immediately before that satellite cools; the FOF central has usually already cooled in the same galaxy-major pass.

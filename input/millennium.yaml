@@ -40,10 +40,12 @@ modules:
     - sage_initialise_merger_clock:   process_full_halo
 
   phase_1:
-    # Baryon supply
+    # Baryon supply (central-only, full-halo)
     - sage_apply_infall:              process_full_halo
     - sage_reincorporation:           process_full_halo
-    - sage_satellite_stripping:       process_full_halo
+
+    # Satellite stripping is by-galaxy
+    - sage_satellite_stripping:       process_by_galaxy
 
     # Cooling and AGN suppression
     - sage_calculate_cooling_budget:  process_by_galaxy

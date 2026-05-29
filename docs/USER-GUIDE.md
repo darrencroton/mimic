@@ -129,9 +129,11 @@ post_timestep runs once
 
 Inside each phase, Mimic groups modules by processing mode:
 
-- `process_full_halo`: the module receives the whole FoF workspace at once. Use this for calculations that need the central and satellites together, such as infall budgets, stripping, merger clocks, and event producers.
+- `process_full_halo`: the module receives the whole FoF workspace at once. Use this for calculations that need the central and satellites together, such as infall budgets, merger clocks, and event producers.
 - `process_per_event`: the module runs only when a subscribed full-halo producer emits an event. The module receives the event target galaxy with `ctx->active_event` set.
 - `process_by_galaxy`: Mimic loops through the FoF workspace and calls the module once per galaxy. Use this for local galaxy physics such as cooling, star formation, and feedback.
+
+`sage_satellite_stripping` also runs as `process_by_galaxy`: it mutates the FOF central through `ctx->central_galaxy`, but the by-galaxy placement is required to match SAGE's strip-then-cool timing for each satellite.
 
 Full-halo modules always run before by-galaxy modules within a phase. Events emitted by full-halo producers are dispatched immediately to subscribed per-event consumers, preserving producer-side event ordering. YAML order is preserved within the same processing mode; it does not make a by-galaxy module run before a full-halo module in the same phase.
 

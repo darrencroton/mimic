@@ -219,8 +219,9 @@ double time_to_present(double z) {
   F.function = &integrand_time_to_present;
   F.params = NULL;
 
-  // Use adaptive integration with GAUSS21 method
-  integration_qag(&F, safe_div(1.0, z + 1, 1.0), 1.0, safe_div(1.0, MimicConfig.Hubble, 0.0), 1.0e-8,
+  // Use adaptive integration with GAUSS21 method.
+  // SAGE parity: relative tolerance is 1.0e-9 (sage-code core_init.c).
+  integration_qag(&F, safe_div(1.0, z + 1, 1.0), 1.0, safe_div(1.0, MimicConfig.Hubble, 0.0), 1.0e-9,
                   WORKSIZE, INTEG_GAUSS21, workspace, &result, &abserr);
 
   time = safe_div(1.0, MimicConfig.Hubble, 0.0) * result;

@@ -77,7 +77,11 @@ static inline void mimic_apply_quasar_mode_wind(
     return;
   }
 
-  c_over_unit_vel = C_KM_S / ctx->params->UnitVelocity_in_cm_per_s;
+  /* SAGE parity: c and UnitVelocity must share units. SAGE uses c in cm/s
+   * (macros.h: C = 2.9979e10) divided by UnitVelocity_in_cm_per_s. Using c in
+   * km/s (C_KM_S) here makes the quasar wind energy ~1e10x too small, so the
+   * wind would essentially never eject gas. */
+  c_over_unit_vel = C_CGS / ctx->params->UnitVelocity_in_cm_per_s;
   quasar_energy = quasar_mode_efficiency * 0.1 * bh_accrete * c_over_unit_vel *
                   c_over_unit_vel;
 

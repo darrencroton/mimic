@@ -109,8 +109,12 @@ int sage_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Halo
 
     struct Halo *halo = &halos[0];
 
-    // Skip orphan galaxies (type 2)
-    if (halo->Type == 2 || halo->galaxy == NULL) {
+    // SAGE parity: cooling runs for every non-merged galaxy, including Type 2
+    // orphans, which retain and cool their own hot gas until they merge.
+    // Safe for orphans because Type 2 creation zeros Mvir/Len but preserves the
+    // prior Rvir/Vvir (build_model.c), and cooling_recipe() needs only HotGas>0
+    // && Vvir>0 (not Mvir), so an orphan with Mvir=0 still cools correctly.
+    if (halo->galaxy == NULL) {
         return 0;
     }
 
