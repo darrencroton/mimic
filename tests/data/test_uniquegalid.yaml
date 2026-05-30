@@ -26,7 +26,7 @@ simulation:
   halo_properties: simulations/millennium/halo_properties.yaml
 
 plotting:
-  profile: models/sage/plots/profiles/millennium.yaml
+  profile: models/sage/plots/profiles/millennium_plot_profile.yaml
 
 #-----------------------------------------------------------------------------
 # Output Configuration

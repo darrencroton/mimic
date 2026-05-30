@@ -24,7 +24,7 @@ echo ""
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 RUN_FILE="input/runs/sage_millennium.yaml"
-SIM_CONFIG_FILE="simulations/millennium/simulation.yaml"
+SIM_CONFIG_FILE="simulations/millennium/simulation_info.yaml"
 cd "$REPO_ROOT"
 
 if [[ ! -f "README.md" ]] || [[ ! -f "Makefile" ]] || [[ ! -d "src" ]]; then

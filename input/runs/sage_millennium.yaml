@@ -8,11 +8,11 @@ model:
 simulation:
   name: millennium
   path: simulations/millennium
-  config: simulations/millennium/simulation.yaml
+  config: simulations/millennium/simulation_info.yaml
   halo_properties: simulations/millennium/halo_properties.yaml
 
 plotting:
-  profile: models/sage/plots/profiles/millennium.yaml
+  profile: models/sage/plots/profiles/millennium_plot_profile.yaml
 
 output:
   output_filename: model

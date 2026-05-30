@@ -85,9 +85,27 @@ void read_parameter_file(const char *fname) {
     FATAL_ERROR("Invalid YAML structure");
   }
 
-  /* Parse each top-level section */
   yaml_node_t *section;
   yaml_node_t *node;
+  const char *str;
+
+  /*
+   * Load order: simulation config file first (provides defaults), then all
+   * sections from the run file (may override those defaults). This means any
+   * field present in both files takes the value from the run file.
+   *
+   * The simulation config path lives inside the run file's simulation section,
+   * so we extract just that key before anything else, load the sim config, then
+   * parse the full run file on top.
+   */
+  section = get_mapping_value(&document, root, "simulation");
+  if (section) {
+    node = get_mapping_value(&document, section, "config");
+    if (node && (str = get_scalar_value(node))) {
+      strncpy(MimicConfig.SimulationConfigPath, str, MAX_STRING_LEN - 1);
+      parse_simulation_config_file(str);
+    }
+  }
 
   section = get_mapping_value(&document, root, "output");
   if (section) parse_output_section(&document, section);
@@ -362,7 +380,8 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
   node = get_mapping_value(doc, section, "config");
   if (node && (str = get_scalar_value(node))) {
     strncpy(MimicConfig.SimulationConfigPath, str, MAX_STRING_LEN - 1);
-    parse_simulation_config_file(str);
+    /* Simulation config is pre-loaded before run-file sections so that run-file
+     * values override simulation defaults. No second load here. */
   }
 
   /* Parse cosmology subsection */
@@ -757,10 +776,8 @@ static void validate_and_postprocess(void) {
     ERROR_LOG("Required parameter 'simulation.halo_properties' missing");
     errors++;
   }
-  if (strlen(MimicConfig.PlottingProfilePath) == 0) {
-    ERROR_LOG("Required parameter 'plotting.profile' missing");
-    errors++;
-  } else if (MimicConfig.PlottingProfilePath[0] == '/') {
+  if (strlen(MimicConfig.PlottingProfilePath) > 0 &&
+      MimicConfig.PlottingProfilePath[0] == '/') {
     ERROR_LOG("plotting.profile must be package-relative, not absolute");
     errors++;
   }

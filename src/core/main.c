@@ -512,8 +512,12 @@ int main(int argc, char **argv) {
    * directory so it is a self-contained, reproducible snapshot of the run. The
    * run YAML only references the model and simulation packages by path, so the
    * referenced files (simulation config, model/simulation properties, plot
-   * profile) must be captured here too. HDF5 also records resolved values in
-   * RunProperties, but binary output relies solely on these copies. */
+   * profile) must be captured here too. core_properties.yaml is a fixed
+   * framework path — not referenced in the run file — but it defines the core
+   * half of the output schema alongside model_properties.yaml.
+   * HDF5 also records resolved values in RunProperties, but binary output
+   * relies solely on these copies. */
+#define CORE_PROPERTIES_PATH "src/core/core_properties.yaml"
   char metadata_dir[MAX_STRING_LEN +
                     15]; // +15 for "/metadata" and null terminator
 
@@ -527,9 +531,11 @@ int main(int argc, char **argv) {
   copy_to_metadata(metadata_dir, argv[1]);
   copy_to_metadata(metadata_dir, MimicConfig.FileWithSnapList);
   copy_to_metadata(metadata_dir, MimicConfig.SimulationConfigPath);
+  copy_to_metadata(metadata_dir, CORE_PROPERTIES_PATH);
   copy_to_metadata(metadata_dir, MimicConfig.ModelPropertiesPath);
   copy_to_metadata(metadata_dir, MimicConfig.SimulationHaloPropertiesPath);
-  copy_to_metadata(metadata_dir, MimicConfig.PlottingProfilePath);
+  /* PlottingProfilePath is intentionally not copied: the profile is only
+   * needed by mimic-plot.py, which reads it from the run YAML directly. */
   INFO_LOG("Run configuration and referenced package files copied to %s",
            metadata_dir);
 
