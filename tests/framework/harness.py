@@ -50,7 +50,7 @@ def run_mimic(param_file, cwd=None):
         FileNotFoundError: If Mimic executable not found
 
     Usage:
-        returncode, stdout, stderr = run_mimic("input/millennium.yaml")
+        returncode, stdout, stderr = run_mimic("input/runs/sage_millennium.yaml")
         assert returncode == 0, f"Mimic failed: {stderr}"
     """
     if cwd is None:
@@ -85,7 +85,7 @@ def read_param_file(param_file):
         dict: Parameter name -> value mapping
 
     Usage:
-        params = read_param_file("input/millennium.yaml")
+        params = read_param_file("input/runs/sage_millennium.yaml")
         output_dir = params['OutputDir']
         hubble_h = float(params['Hubble_h'])
     """
@@ -96,37 +96,53 @@ def read_param_file(param_file):
     with open(param_file, 'r') as f:
         config = yaml.safe_load(f)
 
+    sim_config = {}
+    sim_config_path = config.get('simulation', {}).get('config')
+    if sim_config_path:
+        sim_config_path = Path(sim_config_path)
+        if not sim_config_path.is_absolute():
+            resolved = REPO_ROOT / sim_config_path
+            if not resolved.exists():
+                resolved = param_file.parent / sim_config_path
+            sim_config_path = resolved
+        with open(sim_config_path, 'r') as f:
+            sim_config = yaml.safe_load(f) or {}
+
     # Flatten hierarchical structure
     params = {}
     if 'output' in config:
         params['OutputDir'] = config['output'].get('output_directory', './')
         params['OutputFileBaseName'] = config['output'].get('output_filename', 'model')
         params['OutputFormat'] = config['output'].get('output_format', 'binary')
-    if 'input' in config:
-        params['FirstFile'] = str(config['input'].get('first_file', 0))
-        params['LastFile'] = str(config['input'].get('last_file', 0))
-        params['TreeName'] = config['input'].get('tree_name', '')
-        params['TreeType'] = config['input'].get('tree_type', 'lhalo_binary')
-        params['SimulationDir'] = config['input'].get('simulation_dir', './')
-        params['FileWithSnapList'] = config['input'].get('snapshot_list_file', '')
-        params['LastSnapshotNr'] = str(config['input'].get('last_snapshot', 0))
-    if 'simulation' in config:
-        params['BoxSize'] = str(config['simulation'].get('box_size', 0.0))
-        params['PartMass'] = str(config['simulation'].get('particle_mass', 0.0))
-        if 'cosmology' in config['simulation']:
-            params['Omega'] = str(config['simulation']['cosmology'].get('omega_matter', 0.0))
-            params['OmegaLambda'] = str(config['simulation']['cosmology'].get('omega_lambda', 0.0))
-            params['Hubble_h'] = str(config['simulation']['cosmology'].get('hubble_h', 0.0))
-        if 'units' in config['simulation']:
-            params['UnitLength_in_cm'] = str(config['simulation']['units'].get('length_in_cm', 0.0))
-            params['UnitMass_in_g'] = str(config['simulation']['units'].get('mass_in_g', 0.0))
-            params['UnitVelocity_in_cm_per_s'] = str(config['simulation']['units'].get('velocity_in_cm_per_s', 0.0))
+
+    input_config = sim_config.get('input', config.get('input', {}))
+    if input_config:
+        params['FirstFile'] = str(input_config.get('first_file', 0))
+        params['LastFile'] = str(input_config.get('last_file', 0))
+        params['TreeName'] = input_config.get('tree_name', '')
+        params['TreeType'] = input_config.get('tree_type', 'lhalo_binary')
+        params['SimulationDir'] = input_config.get('simulation_dir', './')
+        params['FileWithSnapList'] = input_config.get('snapshot_list_file', '')
+        params['LastSnapshotNr'] = str(input_config.get('last_snapshot', 0))
+
+    simulation_config = sim_config.get('simulation', config.get('simulation', {}))
+    if simulation_config:
+        params['BoxSize'] = str(simulation_config.get('box_size', 0.0))
+        params['PartMass'] = str(simulation_config.get('particle_mass', 0.0))
+        if 'cosmology' in simulation_config:
+            params['Omega'] = str(simulation_config['cosmology'].get('omega_matter', 0.0))
+            params['OmegaLambda'] = str(simulation_config['cosmology'].get('omega_lambda', 0.0))
+            params['Hubble_h'] = str(simulation_config['cosmology'].get('hubble_h', 0.0))
+        if 'units' in simulation_config:
+            params['UnitLength_in_cm'] = str(simulation_config['units'].get('length_in_cm', 0.0))
+            params['UnitMass_in_g'] = str(simulation_config['units'].get('mass_in_g', 0.0))
+            params['UnitVelocity_in_cm_per_s'] = str(simulation_config['units'].get('velocity_in_cm_per_s', 0.0))
 
     return params
 
 
-def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
-                            module_params=None, model_params=None, first_file=0, last_file=0,
+def create_test_param_file(output_name, phase_config=None,
+                            model_params=None, first_file=0, last_file=0,
                             ref_param_file=None, temp_dir=None, output_format=None):
     """
     Create a test YAML parameter file with multi-phase module configuration
@@ -136,8 +152,6 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
 
     Args:
         output_name (str): Name for output directory (created in temp_dir)
-        enabled_modules (list): DEPRECATED - Use phase_config instead.
-                               For backward compatibility, puts all modules in phase_1 with processing_mode=all
         phase_config (dict): Multi-phase pipeline configuration.
                             Format: {
                                 'pre_timestep': [('module1', 'process_full_halo'), ('module2', 'process_full_halo')],
@@ -147,7 +161,6 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
                             }
                             Each tuple is (module_name, processing_mode) where processing_mode is
                             'process_full_halo', 'process_per_event', or 'process_by_galaxy'
-        module_params (dict): DEPRECATED - use model_params instead
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
         first_file (int): First file to process (default: 0)
         last_file (int): Last file to process (default: 0)
@@ -181,13 +194,6 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
             last_file=0
         )
 
-        # Legacy format (backward compatible - puts all in phase_1)
-        param_file, output_dir, temp_dir = create_test_param_file(
-            output_name="legacy_test",
-            enabled_modules=["test_fixture"],
-            model_params={"TestFixtureDummyParameter": 2.5}
-        )
-
         # Cleanup when done
         import shutil
         shutil.rmtree(temp_dir)
@@ -210,12 +216,21 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
     output_dir = Path(temp_dir) / output_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Update configuration
+    # Update run configuration
     config['output']['output_directory'] = str(output_dir)
     if output_format is not None:
         config['output']['output_format'] = output_format  # Override format if specified
-    config['input']['first_file'] = first_file
-    config['input']['last_file'] = last_file
+
+    sim_config_path = Path(config['simulation']['config'])
+    with open(REPO_ROOT / sim_config_path, 'r') as f:
+        sim_config = yaml.safe_load(f)
+    sim_config['input']['first_file'] = first_file
+    sim_config['input']['last_file'] = last_file
+
+    generated_sim_config = Path(temp_dir) / f"{output_name}_simulation.yaml"
+    with open(generated_sim_config, 'w') as f:
+        yaml.dump(sim_config, f, default_flow_style=False, sort_keys=False)
+    config['simulation']['config'] = str(generated_sim_config)
 
     # Set SubSteps (default to 1 if not in reference file)
     if 'SubSteps' not in config:
@@ -241,25 +256,6 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
                 ]
             else:
                 config['modules'][phase_name] = []
-
-    # Handle legacy enabled_modules format (backward compatibility)
-    elif enabled_modules is not None:
-        import warnings
-        warnings.warn(
-            "enabled_modules parameter is deprecated. Use phase_config instead for multi-phase pipeline.",
-            DeprecationWarning
-        )
-        # Clear old format if present
-        if 'enabled' in config['modules']:
-            del config['modules']['enabled']
-
-        # Put all modules in phase_1 with processing_mode=all (sensible default)
-        config['modules']['pre_timestep'] = []
-        config['modules']['phase_1'] = [
-            {module_name: 'process_by_galaxy'} for module_name in enabled_modules
-        ]
-        config['modules']['phase_2'] = []
-        config['modules']['post_timestep'] = []
 
     # Physics-free mode (no modules)
     else:
@@ -288,15 +284,6 @@ def create_test_param_file(output_name, enabled_modules=None, phase_config=None,
             except (ValueError, TypeError):
                 pass  # Keep as string
             config['modules']['parameters'][param_name] = value
-
-    # Handle deprecated module_params (for backward compatibility during transition)
-    if module_params:
-        import warnings
-        warnings.warn(
-            "module_params is deprecated. test_fixture no longer reads from config. "
-            "For production modules, use model_params instead.",
-            DeprecationWarning
-        )
 
     # Write test parameter file as YAML
     param_path = Path(temp_dir) / f"{output_name}.yaml"

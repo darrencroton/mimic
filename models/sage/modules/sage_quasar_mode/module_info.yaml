@@ -1,0 +1,34 @@
+module:
+  name: sage_quasar_mode
+  description: "Implements Kauffmann & Haehnelt (2000) BH growth and energy-driven quasar winds; triggered by disk instability (process_by_galaxy) and merger events (process_per_event)"
+
+  supported_processing_modes: [process_by_galaxy, process_per_event]
+
+  dependencies:
+    properties:
+      - BlackHoleMass
+      - QuasarModeBHaccretionMass
+      - ColdGas
+      - MetalsColdGas
+      - HotGas
+      - MetalsHotGas
+      - EjectedGas
+      - MetalsEjectedGas
+      - UnstableDiskGasFraction
+      - Vvir
+    parameters:
+      - BlackHoleGrowthRate
+      - QuasarModeEfficiency
+
+  events:
+    consumes:
+      - producer: sage_resolve_mergers_and_disruption
+        event: merger
+
+  tests:
+    unit: _tests/test_unit_sage_quasar_mode.c
+    integration: _tests/test_integration_sage_quasar_mode.py
+    scientific: []
+
+  docs:
+    physics: models/sage/modules/sage_quasar_mode/README.md

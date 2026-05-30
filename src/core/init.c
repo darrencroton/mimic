@@ -30,7 +30,7 @@
 #include "error.h"
 #include "integration.h"
 #include "numeric.h"
-#include "../modules/_system/physical_constants.h"
+#include "module_system/physical_constants.h"
 
 /**
  * @brief   Main initialization function for the Mimic framework

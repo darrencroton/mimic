@@ -29,9 +29,12 @@ static int get_int_value(yaml_node_t *node);
 static double get_double_value(yaml_node_t *node);
 static void parse_output_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_input_section(yaml_document_t *doc, yaml_node_t *section);
+static void parse_model_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section);
+static void parse_plotting_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section);
 static void validate_and_postprocess(void);
+static void parse_simulation_config_file(const char *fname);
 
 /**
  * @brief   Read and parse YAML parameter file
@@ -92,8 +95,14 @@ void read_parameter_file(const char *fname) {
   section = get_mapping_value(&document, root, "input");
   if (section) parse_input_section(&document, section);
 
+  section = get_mapping_value(&document, root, "model");
+  if (section) parse_model_section(&document, section);
+
   section = get_mapping_value(&document, root, "simulation");
   if (section) parse_simulation_section(&document, section);
+
+  section = get_mapping_value(&document, root, "plotting");
+  if (section) parse_plotting_section(&document, section);
 
   /* Parse SubSteps (top-level parameter) */
   node = get_mapping_value(&document, root, "SubSteps");
@@ -300,14 +309,61 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
 }
 
 /**
+ * @brief   Parse model package metadata.
+ */
+static void parse_model_section(yaml_document_t *doc, yaml_node_t *section) {
+  yaml_node_t *node;
+  const char *str;
+
+  DEBUG_LOG("Parsing model section");
+
+  node = get_mapping_value(doc, section, "name");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.ModelName, str, MAX_STRING_LEN - 1);
+  }
+
+  node = get_mapping_value(doc, section, "path");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.ModelPath, str, MAX_STRING_LEN - 1);
+  }
+
+  node = get_mapping_value(doc, section, "properties");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.ModelPropertiesPath, str, MAX_STRING_LEN - 1);
+  }
+}
+
+/**
  * @brief   Parse simulation section
  *
  * Parses simulation properties including cosmology and units subsections.
  */
 static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node, *cosmology, *units;
+  const char *str;
 
   DEBUG_LOG("Parsing simulation section");
+
+  node = get_mapping_value(doc, section, "name");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.SimulationName, str, MAX_STRING_LEN - 1);
+  }
+
+  node = get_mapping_value(doc, section, "path");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.SimulationPath, str, MAX_STRING_LEN - 1);
+  }
+
+  node = get_mapping_value(doc, section, "halo_properties");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.SimulationHaloPropertiesPath, str, MAX_STRING_LEN - 1);
+  }
+
+  node = get_mapping_value(doc, section, "config");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.SimulationConfigPath, str, MAX_STRING_LEN - 1);
+    parse_simulation_config_file(str);
+  }
 
   /* Parse cosmology subsection */
   cosmology = get_mapping_value(doc, section, "cosmology");
@@ -366,6 +422,71 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
       DEBUG_LOG("UnitVelocity_in_cm_per_s = %g", MimicConfig.UnitVelocity_in_cm_per_s);
     }
   }
+}
+
+/**
+ * @brief   Parse plotting package metadata.
+ */
+static void parse_plotting_section(yaml_document_t *doc, yaml_node_t *section) {
+  yaml_node_t *node;
+  const char *str;
+
+  DEBUG_LOG("Parsing plotting section");
+
+  node = get_mapping_value(doc, section, "profile");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.PlottingProfilePath, str, MAX_STRING_LEN - 1);
+  }
+}
+
+/**
+ * @brief   Load simulation-owned input and physical metadata from YAML.
+ */
+static void parse_simulation_config_file(const char *fname) {
+  FILE *fh;
+  yaml_parser_t parser;
+  yaml_document_t document;
+
+  INFO_LOG("Reading simulation config file: %s", fname);
+
+  fh = fopen(fname, "r");
+  if (!fh) {
+    ERROR_LOG("Cannot open simulation config file '%s'", fname);
+    FATAL_ERROR("Failed to open simulation config file");
+  }
+
+  if (!yaml_parser_initialize(&parser)) {
+    fclose(fh);
+    FATAL_ERROR("Failed to initialize YAML parser");
+  }
+
+  yaml_parser_set_input_file(&parser, fh);
+  if (!yaml_parser_load(&parser, &document)) {
+    ERROR_LOG("YAML parse error in simulation config at line %zu: %s",
+              parser.problem_mark.line + 1, parser.problem);
+    yaml_parser_delete(&parser);
+    fclose(fh);
+    FATAL_ERROR("Failed to parse simulation config file");
+  }
+
+  yaml_node_t *root = yaml_document_get_root_node(&document);
+  if (!root || root->type != YAML_MAPPING_NODE) {
+    ERROR_LOG("Simulation config root must be a mapping");
+    yaml_document_delete(&document);
+    yaml_parser_delete(&parser);
+    fclose(fh);
+    FATAL_ERROR("Invalid simulation config structure");
+  }
+
+  yaml_node_t *section = get_mapping_value(&document, root, "input");
+  if (section) parse_input_section(&document, section);
+
+  section = get_mapping_value(&document, root, "simulation");
+  if (section) parse_simulation_section(&document, section);
+
+  yaml_document_delete(&document);
+  yaml_parser_delete(&parser);
+  fclose(fh);
 }
 
 /**
@@ -606,6 +727,41 @@ static void validate_and_postprocess(void) {
   }
   if (strlen(MimicConfig.OutputFileBaseName) == 0) {
     ERROR_LOG("Required parameter 'output.output_filename' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.ModelName) == 0) {
+    ERROR_LOG("Required parameter 'model.name' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.ModelPath) == 0) {
+    ERROR_LOG("Required parameter 'model.path' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.ModelPropertiesPath) == 0) {
+    ERROR_LOG("Required parameter 'model.properties' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.SimulationName) == 0) {
+    ERROR_LOG("Required parameter 'simulation.name' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.SimulationPath) == 0) {
+    ERROR_LOG("Required parameter 'simulation.path' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.SimulationConfigPath) == 0) {
+    ERROR_LOG("Required parameter 'simulation.config' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.SimulationHaloPropertiesPath) == 0) {
+    ERROR_LOG("Required parameter 'simulation.halo_properties' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.PlottingProfilePath) == 0) {
+    ERROR_LOG("Required parameter 'plotting.profile' missing");
+    errors++;
+  } else if (MimicConfig.PlottingProfilePath[0] == '/') {
+    ERROR_LOG("plotting.profile must be package-relative, not absolute");
     errors++;
   }
   if (strlen(MimicConfig.SimulationDir) == 0) {

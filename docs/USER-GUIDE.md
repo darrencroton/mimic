@@ -27,7 +27,7 @@ git clone [repository-url]
 cd mimic
 ./scripts/first_run.sh
 make
-./mimic input/millennium.yaml
+./mimic input/runs/sage_millennium.yaml
 ```
 
 `first_run.sh` prepares the standard local environment: it creates required directories, downloads the mini-Millennium test data, and creates the Python virtual environment used by plotting tools.
@@ -78,7 +78,7 @@ pip install -r requirements.txt
 deactivate
 
 make
-./mimic input/millennium.yaml
+./mimic input/runs/sage_millennium.yaml
 ```
 
 Relative paths in the parameter file are resolved from the directory where you run `./mimic`. If path confusion occurs, use absolute paths for `output.output_directory`, `input.simulation_dir`, and `input.snapshot_list_file`. Mimic creates `output.output_directory` automatically, but input data paths must already exist.
@@ -104,7 +104,7 @@ Command-line options:
 Example:
 
 ```bash
-./mimic --debug input/millennium.yaml 2>&1 | tee debug.log
+./mimic --debug input/runs/sage_millennium.yaml 2>&1 | tee debug.log
 ```
 
 Mimic returns exit code 0 on success. Any non-zero exit code should be treated as a failed run.
@@ -143,36 +143,29 @@ Full-halo modules always run before by-galaxy modules within a phase. Events emi
 
 ### YAML Structure
 
-The shipped configuration is `input/millennium.yaml`. Its top-level sections are:
+The shipped configuration is `input/runs/sage_millennium.yaml`. Its top-level sections are:
 
 ```yaml
+model:
+  name: sage
+  path: models/sage
+  properties: models/sage/model_properties.yaml
+
+simulation:
+  name: millennium
+  path: simulations/millennium
+  config: simulations/millennium/simulation.yaml
+  halo_properties: simulations/millennium/halo_properties.yaml
+
+plotting:
+  profile: models/sage/plots/profiles/millennium.yaml
+
 output:
   output_filename: model
   output_directory: ./output/results/millennium/
   output_format: hdf5                 # binary or hdf5
   snapshot_count: 8                   # -1 writes every snapshot
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
-
-input:
-  tree_type: lhalo_binary
-  simulation_dir: ./input/data/millennium/
-  first_file: 0
-  last_file: 7
-  tree_name: trees_063
-  snapshot_list_file: ./input/data/millennium/millennium.a_list
-  last_snapshot: 63
-
-simulation:
-  cosmology:
-    omega_matter: 0.25
-    omega_lambda: 0.75
-    hubble_h: 0.73
-  box_size: 62.5
-  particle_mass: 0.0860657
-  units:
-    length_in_cm: 3.08568e+24
-    mass_in_g: 1.989e+43
-    velocity_in_cm_per_s: 100000.0
 
 SubSteps: 10
 
@@ -184,11 +177,11 @@ modules:
   parameters: {}
 ```
 
-`simulation.units` defines the base code units used to derive time, density, pressure, energy, `G`, and related runtime quantities. The shipped Millennium/SAGE example uses `Mpc/h`, `1e10 Msun/h`, and `km/s` conventions.
+The referenced simulation config, `simulations/millennium/simulation.yaml`, owns tree input paths, cosmology, box size, particle mass, and units. `simulation.units` in that file defines the base code units used to derive time, density, pressure, energy, `G`, and related runtime quantities. The shipped Millennium/SAGE example uses `Mpc/h`, `1e10 Msun/h`, and `km/s` conventions.
 
 ### Physics Modules
 
-The module pipeline is configured under `modules`. The following abbreviated example shows the phase structure only — the full set of SAGE modules and their parameter values live in `input/millennium.yaml`, which is the authoritative shipped configuration.
+The module pipeline is configured under `modules`. The following abbreviated example shows the phase structure only — the full set of SAGE modules and their parameter values live in `input/runs/sage_millennium.yaml`, which is the authoritative shipped configuration.
 
 ```yaml
 SubSteps: 10
@@ -197,7 +190,7 @@ modules:
   pre_timestep:
     - sage_reionization:              process_full_halo
     - sage_prepare_infall_budget:     process_full_halo
-    # ... see input/millennium.yaml for the full pre_timestep block
+    # ... see input/runs/sage_millennium.yaml for the full pre_timestep block
 
   phase_1:
     - sage_apply_infall:              process_full_halo
@@ -214,7 +207,7 @@ modules:
   post_timestep: []
 
   parameters:
-    # Illustrative values only. See input/millennium.yaml for the calibrated set.
+    # Illustrative values only. See input/runs/sage_millennium.yaml for the calibrated set.
     GlobalBaryonFraction: 0.17
     SfrEfficiency: 0.05
     # ... cooling, AGN, BH, metals, mergers ...
@@ -263,7 +256,7 @@ output:
 
 ```bash
 make USE-MPI=yes
-mpirun -np 4 ./mimic input/millennium.yaml
+mpirun -np 4 ./mimic input/runs/sage_millennium.yaml
 ```
 
 MPI parallelizes over tree files. For balanced work, choose a rank count that divides `last_file - first_file + 1`.
@@ -271,7 +264,7 @@ MPI parallelizes over tree files. For balanced work, choose a rank count that di
 **Resume an interrupted run** with `--skip`:
 
 ```bash
-./mimic --skip input/millennium.yaml
+./mimic --skip input/runs/sage_millennium.yaml
 ```
 
 ---
@@ -293,8 +286,8 @@ HDF5 is self-documenting and portable. Binary is compact and fast, but it must b
 
 The current output schema is generated from:
 
-- `src/core/halo_properties.yaml` for halo-tracking properties
-- `src/modules/model_properties.yaml` for galaxy/model properties
+- `src/core/core_properties.yaml` for halo-tracking properties
+- `models/sage/model_properties.yaml` for galaxy/model properties
 
 Each property metadata entry declares its output unit label, initialization behavior, output conversion, and whether it is written to output. HDF5 output also writes `FieldMetadata` so analysis code can inspect field names, units, and descriptions directly from the file.
 
@@ -398,21 +391,21 @@ Activate the virtual environment before running plotting commands:
 ```bash
 source mimic_venv/bin/activate
 
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml
+python output/mimic-plot/mimic-plot.py --param-file=input/runs/sage_millennium.yaml
 
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml \
+python output/mimic-plot/mimic-plot.py --param-file=input/runs/sage_millennium.yaml \
     --plots=halo_mass_function,stellar_mass_function
 
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml \
+python output/mimic-plot/mimic-plot.py --param-file=input/runs/sage_millennium.yaml \
     --snapshot-plots
 
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml \
+python output/mimic-plot/mimic-plot.py --param-file=input/runs/sage_millennium.yaml \
     --evolution-plots
 
 deactivate
 ```
 
-The plotting README is the detailed plotting manual: [output/mimic-plot/README.md](../output/mimic-plot/README.md). It covers command-line options, available plot names, skipped-plot diagnostics, testing, and adding new plot types. The current plot registry lives in `output/mimic-plot/figures/__init__.py`.
+The plotting README is the detailed plotting manual: [output/mimic-plot/README.md](../output/mimic-plot/README.md). It covers command-line options, available plot names, skipped-plot diagnostics, testing, and adding new plot types. The current plot registry lives in `models/sage/plots/figures/__init__.py`.
 
 Plots are written under the configured output directory, normally `output/results/millennium/plots/` for the shipped example.
 
@@ -448,7 +441,7 @@ make clean && make
 **Non-zero exit code**: Treat the run as failed. Check the last error messages and rerun with debug logging:
 
 ```bash
-./mimic --debug input/millennium.yaml 2>&1 | tee debug.log
+./mimic --debug input/runs/sage_millennium.yaml 2>&1 | tee debug.log
 ```
 
 **Cannot open input files**: Check `input.simulation_dir`, `input.tree_name`, `input.first_file`, `input.last_file`, and `input.snapshot_list_file`. Mimic creates output directories but does not create or download missing input data during a normal run.
@@ -480,7 +473,7 @@ source mimic_venv/bin/activate
 **No plots generated or many skipped plots**: Some plots require populated galaxy-physics fields. A physics-free run can still produce halo-property plots, but galaxy plots will be skipped. Run with `--verbose` to see skip reasons:
 
 ```bash
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml --verbose
+python output/mimic-plot/mimic-plot.py --param-file=input/runs/sage_millennium.yaml --verbose
 ```
 
 **Virtual environment missing**:

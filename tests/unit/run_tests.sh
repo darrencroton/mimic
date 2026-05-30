@@ -93,7 +93,7 @@ fi
 CC="${CC:-gcc}"
 YAML_CFLAGS="$(pkg-config --cflags yaml-0.1 2>/dev/null || echo '')"
 YAML_LDFLAGS="$(pkg-config --libs yaml-0.1 2>/dev/null || echo '-lyaml')"
-CFLAGS="-Wall -Wextra -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -I${SRC_DIR}/modules -Ibuild/generated -Itests -g -O0 ${YAML_CFLAGS}"
+CFLAGS="-Wall -Wextra -I. -I${SRC_DIR} -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -I${SRC_DIR}/module_system -Imodels -Ibuild/generated -Itests -g -O0 ${YAML_CFLAGS}"
 LDFLAGS="-lm ${YAML_LDFLAGS}"
 
 # Source files needed for tests (non-main files)
@@ -109,9 +109,9 @@ MODULE_SOURCES_MK="tests/generated/module_sources.mk"
 if [ -f "$MODULE_SOURCES_MK" ]; then
     # Source the generated makefile fragment to get MODULE_SRCS
     # Extract and evaluate the MODULE_SRCS variable
-    MODULE_SRCS=$(grep -E '^\s+\$\(SRC_DIR\)' "$MODULE_SOURCES_MK" | \
-                  sed "s|\$(SRC_DIR)|${SRC_DIR}|g" | \
+    MODULE_SRCS=$(grep -E '^\s+[^#]' "$MODULE_SOURCES_MK" | \
                   sed 's/\\$//' | \
+                  sed 's/^[[:space:]]*//' | \
                   tr '\n' ' ')
 else
     echo -e "${RED}ERROR: Module sources not generated. Run 'make generate-modules'${NC}"
@@ -149,7 +149,7 @@ else
             [[ "$test_path" =~ ^#.*$ ]] && continue
             [[ -z "$test_path" ]] && continue
 
-            # Extract test name from path (e.g., src/modules/sage_calculate_infall/test_sage_calculate_infall.c -> test_sage_calculate_infall)
+            # Extract test name from path (e.g., models/sage/modules/sage_calculate_infall/test_sage_calculate_infall.c -> test_sage_calculate_infall)
             test_name=$(basename "$test_path" .c)
             MODULE_TESTS="$MODULE_TESTS $test_name"
         done < "$MODULE_TEST_REGISTRY"

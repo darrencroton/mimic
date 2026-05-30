@@ -52,7 +52,7 @@ These principles guide design decisions and implementation choices in Mimic.
 - Generated code provides C struct fields, output schema, HDF5 field metadata, Python dtypes, module registration, and event identifiers.
 - Documentation should explain generated systems, but should avoid duplicating exhaustive generated lists unless the copy is small and stable.
 
-**In practice**: Adding a galaxy property requires editing `src/modules/model_properties.yaml`, then running `make generate`. Adding a production runtime module normally requires a module directory containing the C implementation and `module_info.yaml`; standalone `.c` modules directly under `src/modules/` are also supported for quick prototypes, but they inherit all processing modes and should be converted to directory modules when constraints, tests, events, or module-local documentation matter.
+**In practice**: Adding a galaxy property requires editing the model package property file, such as `models/sage/model_properties.yaml`, then running `make generate`. Production runtime modules should use a module directory under `models/<model>/modules/` containing the C implementation and `module_info.yaml`. Package-local standalone source modules under `models/<model>/modules/*.c` are supported for simple prototypes, but should be converted to directory modules once metadata, tests, dependencies, or event contracts matter.
 
 ### 4. One Coherent Processing Model
 

@@ -65,6 +65,16 @@ struct MimicConfig {
   char SimulationDir[MAX_STRING_LEN];
   char FileWithSnapList[MAX_STRING_LEN];
 
+  /* package provenance */
+  char ModelName[MAX_STRING_LEN];
+  char ModelPath[MAX_STRING_LEN];
+  char ModelPropertiesPath[MAX_STRING_LEN];
+  char SimulationName[MAX_STRING_LEN];
+  char SimulationPath[MAX_STRING_LEN];
+  char SimulationConfigPath[MAX_STRING_LEN];
+  char SimulationHaloPropertiesPath[MAX_STRING_LEN];
+  char PlottingProfilePath[MAX_STRING_LEN];
+
   /* cosmological parameters */
   double Omega;
   double OmegaLambda;

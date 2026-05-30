@@ -1,0 +1,28 @@
+module:
+  name: sage_satellite_stripping
+  description: "Strips hot gas from Type 1 satellites when baryon content exceeds HaloBaryonFraction × Mvir; transfers stripped gas to central hot reservoir"
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - Type
+      - Mvir
+      - HaloBaryonFraction
+      - HotGas
+      - MetalsHotGas
+      - StellarMass
+      - ColdGas
+      - EjectedGas
+      - BlackHoleMass
+      - ICS
+    parameters:
+      - GlobalBaryonFraction
+
+  tests:
+    unit: _tests/test_unit_sage_satellite_stripping.c
+    integration: _tests/test_integration_sage_satellite_stripping.py
+    scientific: []
+
+  docs:
+    physics: models/sage/modules/sage_satellite_stripping/README.md

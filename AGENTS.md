@@ -79,13 +79,13 @@ make tidy
 
 ```bash
 # Basic execution
-./mimic input/millennium.yaml
+./mimic input/runs/sage_millennium.yaml
 
 # Verbosity options
-./mimic --debug input/millennium.yaml    # Most verbose (debug output + context)
-./mimic --verbose input/millennium.yaml  # Add context (timestamp, file:line)
-./mimic --quiet input/millennium.yaml    # Warnings/errors only
-./mimic --skip input/millennium.yaml     # Skip existing output files
+./mimic --debug input/runs/sage_millennium.yaml    # Most verbose (debug output + context)
+./mimic --verbose input/runs/sage_millennium.yaml  # Add context (timestamp, file:line)
+./mimic --quiet input/runs/sage_millennium.yaml    # Warnings/errors only
+./mimic --skip input/runs/sage_millennium.yaml     # Skip existing output files
 ```
 
 ---
@@ -135,18 +135,18 @@ python3 test_validation_helpers.py
 
 # Generate all plots (18 snapshot + 4 evolution)
 cd ..
-python mimic-plot.py --param-file=../../input/millennium.yaml
+python mimic-plot.py --param-file=../../input/runs/sage_millennium.yaml
 
 # Generate specific plots
-python mimic-plot.py --param-file=../../input/millennium.yaml --plots=halo_mass_function,spin_distribution
+python mimic-plot.py --param-file=../../input/runs/sage_millennium.yaml --plots=halo_mass_function,spin_distribution
 
 # Snapshot-only or evolution-only
-python mimic-plot.py --param-file=../../input/millennium.yaml --snapshot-plots
-python mimic-plot.py --param-file=../../input/millennium.yaml --evolution-plots
+python mimic-plot.py --param-file=../../input/runs/sage_millennium.yaml --snapshot-plots
+python mimic-plot.py --param-file=../../input/runs/sage_millennium.yaml --evolution-plots
 
 # Works from any directory
 cd ../..
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml --plots=halo_mass_function
+python output/mimic-plot/mimic-plot.py --param-file=input/runs/sage_millennium.yaml --plots=halo_mass_function
 
 deactivate
 ```
@@ -156,7 +156,7 @@ deactivate
 ## Benchmarking
 
 ```bash
-# Run performance benchmark (default uses input/millennium.yaml)
+# Run performance benchmark (default uses input/runs/sage_millennium.yaml)
 cd scripts
 ./benchmark_mimic.sh
 
@@ -181,25 +181,29 @@ For comprehensive details see `docs/DEVELOPER-GUIDE.md` (architecture, module de
 ```
 src/
 ├── core/          Core execution (main, init, build_model, parameter reading)
-│   └── halo_properties.yaml    Halo property metadata (auto-generates C code)
+│   └── core_properties.yaml    Core halo property metadata (auto-generates C code)
 ├── io/
 │   ├── tree/      Tree readers (binary, HDF5 formats)
 │   └── output/    Output writers (binary, HDF5)
 ├── util/          Utilities (memory, error, numeric, version, I/O)
-├── modules/       Physics modules
-│   ├── model_properties.yaml   Model property metadata (auto-generates C code)
-│   ├── _archive/               Archived modules (historical reference)
-│   ├── _system/                Framework infrastructure (do not modify)
-│   │   ├── physical_constants.h  Universal physical constants (G, c, Z_sun, etc.)
-│   │   ├── output_helpers.h      Output formatting utilities
-│   │   ├── generated/            Auto-generated module registration
-│   │   ├── template/             Template for creating new modules
-│   │   └── test_fixture/         Infrastructure testing module
-│   ├── _shared/                User physics utilities (can modify/add)
-│   │   └── *.h                   Reusable physics calculations and swappable models
-│   └── <module_name>/          Individual physics modules
+├── module_system/ Framework infrastructure (do not modify)
+│   ├── physical_constants.h  Universal physical constants (G, c, Z_sun, etc.)
+│   ├── output_helpers.h      Output formatting utilities
+│   ├── generated/            Auto-generated module registration
+│   ├── template/             Template for creating new modules
+│   └── test_fixture/         Infrastructure testing module
 └── include/       Headers (types, globals, constants)
     └── generated/ Auto-generated property code and model parameter validation
+
+models/
+├── shared/        Reusable physics utilities
+└── sage/
+    ├── model_properties.yaml
+    ├── modules/  SAGE physics modules and module-local tests
+    └── plots/    SAGE plotting figures and profiles
+
+simulations/
+└── millennium/    Millennium metadata, halo properties, and snapshot lists
 
 build/generated/     Build-time generated files (git_version.h, test lists)
 tests/               Unit, integration, and scientific tests
@@ -213,7 +217,7 @@ output/mimic-plot/   Plotting system (22 plots: 18 snapshot, 4 evolution)
 
 **Halo Data Structures:** `InputTreeHalos` (immutable tree input) → `FoFWorkspace` (processing workspace) → `ProcessedHalos` (written to output). Structs: `struct Halo`, `struct GalaxyData`, `struct HaloOutput`.
 
-**Property System:** Properties are defined in YAML (`src/core/halo_properties.yaml`, `src/modules/model_properties.yaml`) and generated via `make generate` into C structs, init/output logic, and Python dtypes.
+**Property System:** Properties are defined in YAML (`src/core/core_properties.yaml`, `simulations/<simulation>/halo_properties.yaml`, `models/sage/model_properties.yaml`) and generated via `make generate` into C structs, init/output logic, and Python dtypes.
 
 **Module System:** Runtime-configurable physics modules execute through a 4-phase pipeline (`pre_timestep` → `phase_1` → `phase_2` → `post_timestep`) with two processing modes: `PROCESSING_MODE_FULL_HALO` and `PROCESSING_MODE_BY_GALAXY`. Module lifecycle: `init()` → `process()` → `cleanup()`.
 

@@ -38,7 +38,7 @@ These are the tasks an agentic system is well-suited to *if and only if* its sen
 
 Mimic was engineered around machine-checkable contracts, and that is precisely what a long-horizon agent loop needs:
 
-- **YAML-driven code generation** (`src/core/halo_properties.yaml`, `src/modules/model_properties.yaml` → C structs, init/output logic, Python dtypes). `make check-generated` proves the generated code matches the metadata — a hard contract an agent cannot fake.
+- **YAML-driven code generation** (`src/core/core_properties.yaml`, `models/sage/model_properties.yaml` → C structs, init/output logic, Python dtypes). `make check-generated` proves the generated code matches the metadata — a hard contract an agent cannot fake.
 - **Module metadata validation** (`make validate-modules`) checks dependencies, properties, and file consistency.
 - **Three test tiers** — unit (C, fast), integration (Python, medium), scientific (Python, slow) — plus plotting unit/integration tests.
 - **A reference baseline** — the existing SAGE parity infrastructure gives a trusted model to diff against and to validate the science gate on before trusting it on anything new.
@@ -74,7 +74,7 @@ Autonomy here means **the loop runs without you**, not **the loop is unaccountab
 **Repository policy (inherited, non-negotiable)**
 
 - Never edit `main` directly; branch first; never commit without explicit human approval; never use `--no-verify`.
-- Archive, do not delete (old modules → `src/modules/_archive/`).
+- Archive, do not delete (old modules → `archive/src-modules/_archive/`).
 - Capture long-running test output under `archive/test-logs/`; check exit codes explicitly and treat any non-zero as failure.
 - Generated code changes only through generation commands, never by hand-editing `src/include/generated/`.
 
@@ -319,9 +319,9 @@ Three committed ledgers per run give traceability (Q1) and crash recovery.
     - runs/henriques15/01-evidence-ledger.md
     - workspace/mimic/docs/DEVELOPER-GUIDE.md
   expected_outputs:
-    - workspace/mimic/src/modules/cooling/
+    - workspace/mimic/models/sage/modules/cooling/
   file_scope:                # the lease — workers write only here
-    - workspace/mimic/src/modules/cooling/**
+    - workspace/mimic/models/sage/modules/cooling/**
   acceptance:
     code_gates:    [compile, check-generated, validate-modules, test-unit]
     science_gates: [conservation, figure-parity:SMF, reference-parity]

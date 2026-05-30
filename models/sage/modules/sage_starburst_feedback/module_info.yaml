@@ -1,0 +1,52 @@
+module:
+  name: sage_starburst_feedback
+  description: "Implements collisional starburst recipe (Somerville et al. 2001) from disk instability (process_by_galaxy) and merger events (process_per_event); includes optional post-minor-merger disk-instability follow-up"
+
+  supported_processing_modes: [process_by_galaxy, process_per_event]
+
+  dependencies:
+    properties:
+      - Type
+      - HaloNr
+      - SnapNum
+      - dT
+      - Mvir
+      - Vvir
+      - ColdGas
+      - MetalsColdGas
+      - StellarMass
+      - MetalsStellarMass
+      - BulgeMass
+      - MetalsBulgeMass
+      - HotGas
+      - MetalsHotGas
+      - EjectedGas
+      - MetalsEjectedGas
+      - BlackHoleMass
+      - DiskScaleRadius
+      - UnstableDiskGasFraction
+      - StarFormationRate
+      - SupernovaOutflowRate
+    parameters:
+      - FeedbackReheatingEpsilon
+      - FeedbackEjectionEfficiency
+      - RecycleFraction
+      - Yield
+      - FracZleaveDisk
+      - StarFormingDiskFactor
+      - BlackHoleGrowthRate
+      - QuasarModeEfficiency
+      - ThresholdMajorMerger
+
+  events:
+    consumes:
+      - producer: sage_resolve_mergers_and_disruption
+        event: merger
+
+  tests:
+    unit: _tests/test_unit_sage_starburst_feedback.c
+    integration: _tests/test_integration_sage_starburst_feedback.py
+    scientific: []
+
+  docs:
+    physics: models/sage/modules/sage_starburst_feedback/README.md

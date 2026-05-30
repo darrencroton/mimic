@@ -131,7 +131,7 @@ mimic/
 - validation machinery
 - minimum core properties needed for Mimic to process trees
 
-The current `src/modules/_system/` contents should eventually become `src/module_system/` or equivalent. These are generic framework components, not SAGE physics.
+`src/module_system/` contains generic framework components, not SAGE physics.
 
 ### `models/`
 
@@ -189,7 +189,7 @@ It should not own model-specific figure implementations. Those should move to th
 
 ### Core Properties
 
-The current `src/core/halo_properties.yaml` name is too specific. It can be confused with simulation-specific halo catalog metadata. The proposed name is:
+The current `src/core/core_properties.yaml` name is too specific. It can be confused with simulation-specific halo catalog metadata. The proposed name is:
 
 ```text
 src/core/core_properties.yaml
@@ -347,7 +347,7 @@ In the end state, a typical run follows this path:
    - `src/core/core_properties.yaml`
    - `models/sage/model_properties.yaml`
    - `simulations/millennium/halo_properties.yaml`, if present
-4. The module generator discovers available modules from the configured model root, such as `models/sage/modules/`, plus any compatibility roots during migration.
+4. The module generator discovers available modules from package roots such as `models/sage/modules/`.
 5. `make validate-modules` validates module metadata against the merged property set, declared parameters, event contracts, files, processing modes, and docs.
 6. At runtime, Mimic loads the simulation metadata, reads the requested tree files, builds FoF workspaces using the core processing model, and dispatches the configured model modules.
 7. Output files record enough provenance to recover the active model, simulation, modules, parameters, properties, redshift mapping, units, and version information.
@@ -372,14 +372,13 @@ The implementation should continue to fail fast if two property packages define 
 
 ### Module Discovery
 
-Module discovery should be driven by configured roots rather than hard-coded `src/modules/` assumptions.
+Module discovery should be driven by configured roots rather than hard-coded `models/sage/modules/` assumptions.
 
-Example discovery roots during migration:
+Example discovery roots:
 
 ```text
 models/sage/modules/
-src/modules/                 # compatibility root only
-src/module_system/test_*/     # framework test fixtures, if still needed
+src/module_system/test_*/     # framework-owned test fixtures
 ```
 
 Long term, production physics should live in `models/<model>/modules/`. Framework fixtures should live under framework-owned test locations, not beside production models.
@@ -432,16 +431,16 @@ This gives two useful modes:
 
 | Current path | Proposed path | Notes |
 | --- | --- | --- |
-| `src/core/halo_properties.yaml` | `src/core/core_properties.yaml` plus simulation/model property roots | Rename and reduce to core-required properties over time. |
-| `src/modules/model_properties.yaml` | `models/sage/model_properties.yaml` | SAGE galaxy/model state belongs with the SAGE model package. |
-| `src/modules/sage_*` | `models/sage/modules/sage_*` | Production SAGE physics modules move out of core source. |
-| `src/modules/_shared/` | `models/shared/` and `models/sage/shared/` | Split genuinely reusable physics from SAGE-specific helpers. |
-| `src/modules/_system/` | `src/module_system/` | Framework module infrastructure, not physics. |
-| `src/modules/_system/template/` | `src/module_system/template/` | Generic module template. |
-| `src/modules/_system/generated/` | `src/module_system/generated/` | Generated module registry code. |
+| `src/core/core_properties.yaml` | `src/core/core_properties.yaml` plus simulation/model property roots | Rename and reduce to core-required properties over time. |
+| `models/sage/model_properties.yaml` | `models/sage/model_properties.yaml` | SAGE galaxy/model state belongs with the SAGE model package. |
+| `models/sage/modules/sage_*` | `models/sage/modules/sage_*` | Production SAGE physics modules move out of core source. |
+| `models/shared/` | `models/shared/` and `models/sage/shared/` | Split genuinely reusable physics from SAGE-specific helpers. |
+| `src/module_system/` | `src/module_system/` | Framework module infrastructure, not physics. |
+| `src/module_system/template/` | `src/module_system/template/` | Generic module template. |
+| `src/module_system/generated/` | `src/module_system/generated/` | Generated module registry code. |
 | `input/millennium.yaml` | `input/runs/sage_millennium.yaml` plus `simulations/millennium/simulation.yaml` | Run file composes model and simulation packages. |
 | `input/data/millennium/millennium.a_list` | `simulations/millennium/snapshots/millennium.a_list` | Snapshot list is simulation-specific metadata. |
-| `output/mimic-plot/figures/*.py` | `models/sage/plots/figures/*.py` | Existing figures are largely SAGE/SAGE+Millennium science figures. |
+| `models/sage/plots/figures/*.py` | `models/sage/plots/figures/*.py` | Existing figures are largely SAGE/SAGE+Millennium science figures. |
 | hard-coded plot ranges | `models/sage/plots/profiles/*.yaml` and `simulations/*/plot_profile.yaml` | Fixed validation ranges become profile data. |
 | `output/mimic-plot/hdf5_reader.py` | unchanged | Generic plotting infrastructure remains in `mimic-plot`. |
 | `output/mimic-plot/output_utils.py` | unchanged, with cleanup as needed | Generic plotting utilities remain in `mimic-plot`. |
@@ -456,15 +455,15 @@ Recommended phases:
    - Add configurable model root and simulation root.
    - Teach generators to read core, model, and simulation property files.
    - Teach module discovery to accept one or more module roots.
-   - Keep `src/modules/` working as a compatibility root.
+   - Use `models/<model>/modules/` as the only production module root.
 
 2. **Rename core property metadata**
-   - Rename `src/core/halo_properties.yaml` to `src/core/core_properties.yaml`.
+   - Rename `src/core/core_properties.yaml` to `src/core/core_properties.yaml`.
    - Update generator inputs, Makefile dependencies, docs, and tests.
    - Do not reduce the property set in the same step unless the generator can already merge property packages safely.
 
 3. **Move SAGE model metadata and modules**
-   - Move `src/modules/model_properties.yaml` to `models/sage/model_properties.yaml`.
+   - Move `models/sage/model_properties.yaml` to `models/sage/model_properties.yaml`.
    - Move SAGE production modules to `models/sage/modules/`.
    - Move SAGE-specific helpers to `models/sage/shared/`.
    - Move genuinely reusable helpers to `models/shared/`.
@@ -491,11 +490,11 @@ Recommended phases:
 
 The implementation plan should resolve these explicitly:
 
-1. Should a run choose exactly one model package, or should multiple model packages be composable in one run?
-2. Should simulation halo properties be selected by simulation package, tree type, or both?
-3. Should model packages be compiled into the executable at build time, or should they eventually become dynamically loadable?
-4. Which currently core-maintained satellite/orphan fields are genuinely core, and which should become model-requested halo extensions?
-5. Should plotting profiles live only under model/simulation packages, or should users be able to provide arbitrary external profile paths?
+1. Should a run choose exactly one model package, or should multiple model packages be composable in one run? ANSWER: they can choose any modules across all packages in the models/ dir in their input yaml file to define the unique galaxy model they want to build. This is the modular power of mimic.
+2. Should simulation halo properties be selected by simulation package, tree type, or both? ANSWER: simulation package. The simulation properties will always be fixed for each simulation.
+3. Should model packages be compiled into the executable at build time, or should they eventually become dynamically loadable? ANSWER: compiled like now. Any model package the user doesn’t want compiled and available to their input yaml file should be moved to an archive dir like now (for later availability if/when desired).
+4. Which currently core-maintained satellite/orphan fields are genuinely core, and which should become model-requested halo extensions? ANSWER: core simulation properties are those where the core code won’t run without. Everything else goes into simulation/model.
+5. Should plotting profiles live only under model/simulation packages, or should users be able to provide arbitrary external profile paths? ANSWER: only under model/simulation packages. They don’t have meaning outside of this.
 
 ## Summary
 

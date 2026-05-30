@@ -1,0 +1,37 @@
+# Module Metadata: test_event_producer_b
+#
+# WARNING: This module is for TESTING INFRASTRUCTURE ONLY
+#
+# Purpose: Second independent event producer for testing multiple-producers-
+# in-one-phase routing. Emits test_event_b so that test_event_consumer_gamma
+# can verify events from two distinct producers are dispatched independently
+# in the same pipeline phase.
+#
+# Used together with test_event_producer (which emits test_event / test_event_alt)
+# and test_event_consumer_alpha/beta to prove independent dispatch when two
+# process_full_halo producers co-exist in the same phase.
+
+module:
+  name: test_event_producer_b
+  description: "Second synthetic event producer for multi-producer routing tests. NOT FOR PRODUCTION."
+  version: "1.0.0"
+  author: "Mimic Development Team"
+
+  supported_processing_modes: [process_full_halo]
+
+  events:
+    emits:
+      - name: test_event_b
+        description: "Synthetic event from the second producer, for multi-producer dispatch tests"
+
+  dependencies:
+    properties: []
+    parameters:
+      - TestEventProducerBEmitCount
+
+  tests:
+    unit: null
+    integration: null
+
+  docs:
+    physics: src/module_system/test_event_producer_b/README.md

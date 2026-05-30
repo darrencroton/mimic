@@ -39,7 +39,7 @@ cd mimic
 
 # Build and run test simulation
 make
-./mimic input/millennium.yaml
+./mimic input/runs/sage_millennium.yaml
 ```
 
 This runs the shipped mini-Millennium + SAGE example. Other simulations and physics combinations are configured through YAML and module metadata.
@@ -51,7 +51,7 @@ This runs the shipped mini-Millennium + SAGE example. Other simulations and phys
 source mimic_venv/bin/activate
 
 # Generate all plots
-python output/mimic-plot/mimic-plot.py --param-file=input/millennium.yaml
+python output/mimic-plot/mimic-plot.py --param-file=input/runs/sage_millennium.yaml
 
 # Deactivate when done
 deactivate

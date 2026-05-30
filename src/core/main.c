@@ -152,6 +152,31 @@ const char *get_filename_from_path(const char *path) {
 }
 
 /**
+ * @brief   Copy a referenced config file into the run metadata directory.
+ *
+ * Empty paths are skipped silently. A copy failure is logged as a warning
+ * rather than aborting the run, so a provenance gap is visible without losing
+ * the (already written) output.
+ *
+ * @param   metadata_dir  Destination metadata directory
+ * @param   src_path      Source file path (may be empty)
+ */
+static void copy_to_metadata(const char *metadata_dir, const char *src_path) {
+  char dest_path[MAX_STRING_LEN + 50]; // Extra space for "/" and filename
+
+  if (src_path == NULL || src_path[0] == '\0') {
+    return;
+  }
+
+  snprintf(dest_path, sizeof(dest_path), "%s/%s", metadata_dir,
+           get_filename_from_path(src_path));
+  if (copy_file(src_path, dest_path) != 0) {
+    WARNING_LOG("Failed to copy '%s' to metadata directory '%s'", src_path,
+                metadata_dir);
+  }
+}
+
+/**
  * @brief   Main program entry point
  *
  * @param   argc      Number of command-line arguments
@@ -483,11 +508,14 @@ int main(int argc, char **argv) {
   check_memory_leaks();
   cleanup_memory_system();
 
-  /* Copy parameter file and snapshot list file to output metadata directory */
+  /* Copy the run file and every referenced package file to the output metadata
+   * directory so it is a self-contained, reproducible snapshot of the run. The
+   * run YAML only references the model and simulation packages by path, so the
+   * referenced files (simulation config, model/simulation properties, plot
+   * profile) must be captured here too. HDF5 also records resolved values in
+   * RunProperties, but binary output relies solely on these copies. */
   char metadata_dir[MAX_STRING_LEN +
                     15]; // +15 for "/metadata" and null terminator
-  char source_path[MAX_STRING_LEN];
-  char dest_path[MAX_STRING_LEN + 50]; // Extra space for filenames
 
   // Create metadata directory if it doesn't exist
   snprintf(metadata_dir, sizeof(metadata_dir), "%s/metadata",
@@ -496,20 +524,14 @@ int main(int argc, char **argv) {
     WARNING_LOG("Failed to create metadata directory '%s'", metadata_dir);
   }
 
-  // Copy parameter file
-  snprintf(source_path, sizeof(source_path), "%s", argv[1]);
-  snprintf(dest_path, sizeof(dest_path), "%s/%s", metadata_dir,
-           get_filename_from_path(argv[1]));
-  if (copy_file(source_path, dest_path) == 0) {
-    // Copy snapshot list file
-    snprintf(source_path, sizeof(source_path), "%s",
-             MimicConfig.FileWithSnapList);
-    snprintf(dest_path, sizeof(dest_path), "%s/%s", metadata_dir,
-             get_filename_from_path(MimicConfig.FileWithSnapList));
-    if (copy_file(source_path, dest_path) == 0) {
-      INFO_LOG("Parameter file and snapshot list copied to %s", metadata_dir);
-    }
-  }
+  copy_to_metadata(metadata_dir, argv[1]);
+  copy_to_metadata(metadata_dir, MimicConfig.FileWithSnapList);
+  copy_to_metadata(metadata_dir, MimicConfig.SimulationConfigPath);
+  copy_to_metadata(metadata_dir, MimicConfig.ModelPropertiesPath);
+  copy_to_metadata(metadata_dir, MimicConfig.SimulationHaloPropertiesPath);
+  copy_to_metadata(metadata_dir, MimicConfig.PlottingProfilePath);
+  INFO_LOG("Run configuration and referenced package files copied to %s",
+           metadata_dir);
 
   // Create version metadata file
   if (create_version_metadata(MimicConfig.OutputDir, argv[1]) != 0) {

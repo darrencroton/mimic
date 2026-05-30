@@ -8,6 +8,7 @@ EXEC = mimic
 # Directory Configuration
 # -----------------------------------------------------------------------------
 SRC_DIR = src
+MODEL_DIR = models
 BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
 DEP_DIR = $(BUILD_DIR)/deps
@@ -15,20 +16,21 @@ DEP_DIR = $(BUILD_DIR)/deps
 # -----------------------------------------------------------------------------
 # Source Files Discovery
 # -----------------------------------------------------------------------------
-# Recursive find excluding templates, archives, and test files
-SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/modules/_system/template/*' ! -path '*/modules/_archive/*' ! -path '*/modules/_system/generated/*' ! -name 'test_*.c')
+# Recursive find excluding templates, archives, generated code, and tests.
+SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/module_system/template/*' ! -path '*/module_system/generated/*' ! -name 'test_*.c')
+SOURCES += $(shell find $(MODEL_DIR) -name '*.c' ! -path '*/_tests/*' ! -path '*/archive/*' ! -name 'test_*.c')
 
-# Explicitly add system modules (may not exist or be excluded by pattern above)
-SOURCES += $(SRC_DIR)/modules/_system/generated/module_init.c
-SOURCES += $(SRC_DIR)/modules/_system/test_fixture/test_fixture.c
-SOURCES += $(SRC_DIR)/modules/_system/test_event_producer/test_event_producer.c
-SOURCES += $(SRC_DIR)/modules/_system/test_event_consumer_alpha/test_event_consumer_alpha.c
-SOURCES += $(SRC_DIR)/modules/_system/test_event_consumer_beta/test_event_consumer_beta.c
-SOURCES += $(SRC_DIR)/modules/_system/test_event_producer_b/test_event_producer_b.c
-SOURCES += $(SRC_DIR)/modules/_system/test_event_consumer_gamma/test_event_consumer_gamma.c
+# Explicitly add generated registry and framework test modules.
+SOURCES += $(SRC_DIR)/module_system/generated/module_init.c
+SOURCES += $(SRC_DIR)/module_system/test_fixture/test_fixture.c
+SOURCES += $(SRC_DIR)/module_system/test_event_producer/test_event_producer.c
+SOURCES += $(SRC_DIR)/module_system/test_event_consumer_alpha/test_event_consumer_alpha.c
+SOURCES += $(SRC_DIR)/module_system/test_event_consumer_beta/test_event_consumer_beta.c
+SOURCES += $(SRC_DIR)/module_system/test_event_producer_b/test_event_producer_b.c
+SOURCES += $(SRC_DIR)/module_system/test_event_consumer_gamma/test_event_consumer_gamma.c
 
-OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES))
-DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
+OBJECTS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(SOURCES))
+DEPS := $(patsubst %.c,$(DEP_DIR)/%.d,$(SOURCES))
 
 # -----------------------------------------------------------------------------
 # Compiler Configuration
@@ -37,11 +39,14 @@ CC ?= cc
 
 # Include directories
 INCLUDE_DIRS := \
+    . \
+    $(SRC_DIR) \
     $(SRC_DIR)/include \
     $(SRC_DIR)/core \
     $(SRC_DIR)/io \
     $(SRC_DIR)/util \
-    $(SRC_DIR)/modules \
+    $(SRC_DIR)/module_system \
+    $(MODEL_DIR) \
     $(BUILD_DIR)/generated
 
 # Compiler flags
@@ -153,8 +158,8 @@ ifeq ($(USE-HDF5),yes)
 else
     # If HDF5 is not enabled, exclude HDF5-specific source files
     SOURCES := $(filter-out %hdf5.c,$(SOURCES))
-    OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SOURCES))
-    DEPS := $(patsubst $(SRC_DIR)/%.c,$(DEP_DIR)/%.d,$(SOURCES))
+    OBJECTS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(SOURCES))
+    DEPS := $(patsubst %.c,$(DEP_DIR)/%.d,$(SOURCES))
 endif
 
 # -----------------------------------------------------------------------------
@@ -213,7 +218,7 @@ $(EXEC): $(OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 	@echo "Build complete"
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(GIT_VERSION_H)
+$(OBJ_DIR)/%.o: %.c $(GIT_VERSION_H)
 	@mkdir -p $(dir $@) $(dir $(DEP_DIR)/$*.d)
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -MF $(DEP_DIR)/$*.d -c $< -o $@
@@ -225,8 +230,9 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(GIT_VERSION_H)
 # -----------------------------------------------------------------------------
 
 # YAML metadata inputs for property generation
-PROP_YAML := src/core/halo_properties.yaml \
-             src/modules/model_properties.yaml
+PROP_YAML := src/core/core_properties.yaml \
+             $(wildcard models/*/model_properties.yaml) \
+             $(wildcard simulations/*/halo_properties.yaml)
 
 # Generated headers and include fragments required by the C build
 GEN_DIR := $(SRC_DIR)/include/generated
@@ -251,16 +257,20 @@ $(OBJECTS): | $(GENERATED_HEADERS) $(MODULE_INIT_C)
 # -----------------------------------------------------------------------------
 
 # YAML metadata inputs for module generation
-MODULE_YAML := $(wildcard $(SRC_DIR)/modules/*/module_info.yaml)
+MODULE_YAML := $(wildcard models/shared/module_info.yaml) \
+               $(wildcard models/*/module_info.yaml) \
+               $(wildcard models/*/shared/module_info.yaml) \
+               $(wildcard models/*/modules/*/module_info.yaml) \
+               $(wildcard $(SRC_DIR)/module_system/test_*/module_info.yaml)
 
 # Generated module registration files
-MODULE_INIT_C := $(SRC_DIR)/modules/_system/generated/module_init.c
+MODULE_INIT_C := $(SRC_DIR)/module_system/generated/module_init.c
 MODULE_SOURCES_MK := tests/generated/module_sources.mk
 # Module validation script
 MODULE_VALIDATOR := scripts/validate_modules.py
 
 # Ensure module_init.o waits for generated module registration code
-$(OBJ_DIR)/modules/_system/generated/module_init.o: $(MODULE_INIT_C)
+$(OBJ_DIR)/src/module_system/generated/module_init.o: $(MODULE_INIT_C)
 
 # Rule to (re)generate module registration code whenever YAML or generator changes
 $(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py
@@ -330,8 +340,8 @@ help:
 	@echo "    - src/include/generated/hdf5_field_*.inc"
 	@echo "    - output/mimic-plot/generated/dtype.py"
 	@echo ""
-	@echo "  Module metadata (src/modules/*/module_info.yaml):"
-	@echo "    - src/modules/_system/generated/module_init.c"
+	@echo "  Module metadata (models/*/modules/*/module_info.yaml):"
+	@echo "    - src/module_system/generated/module_init.c"
 	@echo "    - tests/generated/module_sources.mk"
 
 # Show build configuration and detected libraries

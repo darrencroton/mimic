@@ -14,7 +14,7 @@ Options:
   --all-snapshots        Process all available snapshots
   --evolution-plots      Generate evolution plots only
   --snapshot-plots       Generate snapshot plots only
-  --output-dir=<dir>     Output directory for plots [default: ./plots]
+  --output-dir=<dir>     Output directory for plots [default: <OutputDir>/plots]
   --format=<format>      Output format (.png, .pdf) [default: .png]
   --plots=<list>         Comma-separated list of plots to generate
                          [default: all available plots]
@@ -33,6 +33,7 @@ import importlib
 import os
 import random
 import sys
+from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -63,11 +64,17 @@ random.seed(42)  # For reproducibility with sample data
 # Import shared output utilities
 from output_utils import colour_enabled, warn, error
 
-# Import figure modules
-from figures import *
-
 # Import the SnapshotRedshiftMapper
 from snapshot_redshift_mapper import SnapshotRedshiftMapper
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SNAPSHOT_PLOTS = []
+EVOLUTION_PLOTS = []
+PLOT_REQUIREMENTS = {}
+PLOT_FUNCS = {}
+PLOT_PROFILE = {}
+PROFILE_PLOTS = {"snapshot": None, "evolution": None}
+check_required_properties = None
 
 
 def print_banner(param_file, quiet=False):
@@ -146,19 +153,8 @@ def resolve_relative_path(path, param_file_path):
     if os.path.isabs(path):
         return path
 
-    # Get the directory containing the parameter file, then go up one level to get Mimic root
-    param_file_abs = os.path.abspath(param_file_path)
-    param_dir = os.path.dirname(param_file_abs)
-    mimic_root_dir = os.path.dirname(param_dir)  # Go up one level from input/ to mimic root/
-
-    # For paths starting with './', resolve relative to Mimic root directory
-    if path.startswith('./'):
-        # Remove the './' prefix and join with Mimic root directory
-        relative_part = path[2:]
-        resolved_path = os.path.join(mimic_root_dir, relative_part)
-    else:
-        # For other relative paths, also resolve relative to Mimic root directory
-        resolved_path = os.path.join(mimic_root_dir, path)
+    relative_part = path[2:] if path.startswith("./") else path
+    resolved_path = REPO_ROOT / relative_part
 
     return os.path.abspath(resolved_path)
 
@@ -180,6 +176,121 @@ def validate_required_params(params, required_params, context=""):
         context_str = f" for {context}" if context else ""
         print(f"Error: Required parameters missing from parameter file{context_str}: {', '.join(missing)}")
     return missing
+
+
+def configure_figure_package(params, param_file, verbose=False):
+    """Load the active model's figure package and registry."""
+    global SNAPSHOT_PLOTS, EVOLUTION_PLOTS, PLOT_REQUIREMENTS, PLOT_FUNCS
+    global check_required_properties
+
+    model_path = params.get("ModelPath")
+    if not model_path:
+        raise RuntimeError("model.path is required for figure discovery")
+
+    plots_dir = Path(resolve_relative_path(model_path, param_file)) / "plots"
+    if not plots_dir.exists():
+        raise RuntimeError(f"Model plots directory not found: {plots_dir}")
+
+    sys.path.insert(0, str(plots_dir))
+    figures = importlib.import_module("figures")
+
+    SNAPSHOT_PLOTS = list(getattr(figures, "SNAPSHOT_PLOTS", []))
+    EVOLUTION_PLOTS = list(getattr(figures, "EVOLUTION_PLOTS", []))
+    PLOT_REQUIREMENTS = dict(getattr(figures, "PLOT_REQUIREMENTS", {}))
+    PLOT_FUNCS = dict(getattr(figures, "PLOT_FUNCS", {}))
+    check_required_properties = getattr(figures, "check_required_properties")
+
+    if verbose:
+        print(f"Loaded figure package from {plots_dir}")
+
+
+def merge_profile(base, override):
+    """Recursively merge plot profile dictionaries."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_profile(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def read_profile_file(path, chain=None):
+    """Read one profile file and resolve its inherited profiles.
+
+    ``chain`` is the ordered list of ancestor profile paths on the current
+    inheritance branch. Each inherited entry is resolved on its own branch, so
+    a diamond (two parents sharing a common grandparent) is not mistaken for a
+    cycle; only a genuine ancestor repeat raises an error.
+    """
+    import yaml
+
+    profile_path = Path(path).resolve()
+    chain = chain or []
+    if profile_path in chain:
+        cycle = " -> ".join(str(p) for p in chain + [profile_path])
+        raise RuntimeError(f"Plot profile inheritance cycle: {cycle}")
+    branch = chain + [profile_path]
+
+    with open(profile_path, "r") as f:
+        profile = yaml.safe_load(f) or {}
+
+    merged = {}
+    for inherited in profile.get("inherits", []) or []:
+        inherited_path = Path(inherited)
+        if not inherited_path.is_absolute():
+            inherited_path = REPO_ROOT / inherited
+        merged = merge_profile(merged, read_profile_file(inherited_path, branch))
+
+    profile.pop("inherits", None)
+    return merge_profile(merged, profile)
+
+
+def configure_plot_profile(params, param_file, verbose=False):
+    """Load and apply the active plot profile stack."""
+    global PLOT_PROFILE, PROFILE_PLOTS
+
+    profile_paths = [REPO_ROOT / "output/mimic-plot/profiles/default.yaml"]
+
+    model_path = params.get("ModelPath")
+    if model_path:
+        model_default = Path(resolve_relative_path(model_path, param_file)) / "plots/profiles/default.yaml"
+        if model_default.exists():
+            profile_paths.append(model_default)
+
+    simulation_path = params.get("SimulationPath")
+    if simulation_path:
+        simulation_profile = Path(resolve_relative_path(simulation_path, param_file)) / "plot_profile.yaml"
+        if simulation_profile.exists():
+            profile_paths.append(simulation_profile)
+
+    configured_profile = params.get("PlottingProfilePath")
+    if configured_profile:
+        profile_paths.append(Path(resolve_relative_path(configured_profile, param_file)))
+
+    profile = {}
+    for profile_path in profile_paths:
+        if not profile_path.exists():
+            raise RuntimeError(f"Plot profile not found: {profile_path}")
+        profile = merge_profile(profile, read_profile_file(profile_path))
+
+    # Run-YAML plotting overrides are the most specific layer and win over every
+    # profile file (output -> model default -> simulation -> configured profile).
+    run_overrides = params.get("PlottingOverrides") or {}
+    if run_overrides:
+        profile = merge_profile(profile, run_overrides)
+
+    plots = profile.get("plots", {})
+    PROFILE_PLOTS = {
+        "snapshot": plots.get("snapshot"),
+        "evolution": plots.get("evolution"),
+    }
+    PLOT_PROFILE = profile
+    params["PlotProfile"] = profile
+
+    if verbose:
+        loaded = ", ".join(str(path) for path in profile_paths)
+        print(f"Loaded plot profiles: {loaded}")
 
 
 class MimicParameters:
@@ -289,7 +400,36 @@ class MimicParameters:
         with open(self.param_file, 'r') as f:
             config = yaml.safe_load(f)
 
-        # Flatten hierarchical YAML structure for compatibility
+        sim_config = {}
+        if "simulation" in config and "config" in config["simulation"]:
+            sim_config_path = resolve_relative_path(
+                config["simulation"]["config"], self.param_file
+            )
+            with open(sim_config_path, "r") as f:
+                sim_config = yaml.safe_load(f) or {}
+
+        if "model" in config:
+            self.params["ModelName"] = config["model"].get("name", "")
+            self.params["ModelPath"] = config["model"].get("path", "")
+            self.params["ModelPropertiesPath"] = config["model"].get("properties", "")
+
+        if "simulation" in config:
+            self.params["SimulationName"] = config["simulation"].get("name", "")
+            self.params["SimulationPath"] = config["simulation"].get("path", "")
+            self.params["SimulationConfigPath"] = config["simulation"].get("config", "")
+            self.params["SimulationHaloPropertiesPath"] = config["simulation"].get("halo_properties", "")
+
+        if "plotting" in config:
+            self.params["PlottingProfilePath"] = config["plotting"].get("profile", "")
+            # Any other keys under `plotting` are inline run overrides applied as
+            # the most specific profile layer (see configure_plot_profile).
+            self.params["PlottingOverrides"] = {
+                key: value
+                for key, value in (config["plotting"] or {}).items()
+                if key != "profile"
+            }
+
+        # Flatten hierarchical YAML structure
         # Output section
         if 'output' in config:
             self.params['OutputFileBaseName'] = config['output'].get('output_filename', 'model')
@@ -298,37 +438,37 @@ class MimicParameters:
             self.params['NumOutputs'] = config['output'].get('snapshot_count', -1)
             self.params['OutputSnapshots'] = config['output'].get('snapshot_list', [])
 
-        # Input section
-        if 'input' in config:
-            self.params['FirstFile'] = config['input'].get('first_file', 0)
-            self.params['LastFile'] = config['input'].get('last_file', 0)
-            self.params['TreeName'] = config['input'].get('tree_name', '')
-            self.params['TreeType'] = config['input'].get('tree_type', 'lhalo_binary')
-            self.params['SimulationDir'] = config['input'].get('simulation_dir', './')
-            self.params['FileWithSnapList'] = config['input'].get('snapshot_list_file', '')
-            self.params['LastSnapshotNr'] = config['input'].get('last_snapshot', 63)
+        # Input section from simulation package
+        input_config = sim_config.get("input", {})
+        if input_config:
+            self.params['FirstFile'] = input_config.get('first_file', 0)
+            self.params['LastFile'] = input_config.get('last_file', 0)
+            self.params['TreeName'] = input_config.get('tree_name', '')
+            self.params['TreeType'] = input_config.get('tree_type', 'lhalo_binary')
+            self.params['SimulationDir'] = input_config.get('simulation_dir', './')
+            self.params['FileWithSnapList'] = input_config.get('snapshot_list_file', '')
+            self.params['LastSnapshotNr'] = input_config.get('last_snapshot', 63)
             
             # Calculate NumSimulationTreeFiles from FirstFile and LastFile
             self.params['NumSimulationTreeFiles'] = self.params['LastFile'] - self.params['FirstFile'] + 1
 
-        # Simulation section
-        if 'simulation' in config:
-            self.params['BoxSize'] = config['simulation'].get('box_size', 0.0)
-            self.params['PartMass'] = config['simulation'].get('particle_mass', 0.0)
-            if 'cosmology' in config['simulation']:
-                self.params['Omega'] = config['simulation']['cosmology'].get('omega_matter', 0.0)
-                self.params['OmegaLambda'] = config['simulation']['cosmology'].get('omega_lambda', 0.0)
-                self.params['Hubble_h'] = config['simulation']['cosmology'].get('hubble_h', 0.0)
-
-        # Units section
-        if 'units' in config:
-            self.params['UnitLength_in_cm'] = config['units'].get('length_in_cm', 0.0)
-            self.params['UnitMass_in_g'] = config['units'].get('mass_in_g', 0.0)
-            self.params['UnitVelocity_in_cm_per_s'] = config['units'].get('velocity_in_cm_per_s', 0.0)
+        # Simulation section from simulation package
+        simulation_config = sim_config.get("simulation", {})
+        if simulation_config:
+            self.params['BoxSize'] = simulation_config.get('box_size', 0.0)
+            self.params['PartMass'] = simulation_config.get('particle_mass', 0.0)
+            if 'cosmology' in simulation_config:
+                self.params['Omega'] = simulation_config['cosmology'].get('omega_matter', 0.0)
+                self.params['OmegaLambda'] = simulation_config['cosmology'].get('omega_lambda', 0.0)
+                self.params['Hubble_h'] = simulation_config['cosmology'].get('hubble_h', 0.0)
+            if 'units' in simulation_config:
+                self.params['UnitLength_in_cm'] = simulation_config['units'].get('length_in_cm', 0.0)
+                self.params['UnitMass_in_g'] = simulation_config['units'].get('mass_in_g', 0.0)
+                self.params['UnitVelocity_in_cm_per_s'] = simulation_config['units'].get('velocity_in_cm_per_s', 0.0)
 
         # Modules section (for reference, though not used in plotting currently)
         if 'modules' in config:
-            self.params['EnabledModules'] = config['modules'].get('enabled', [])
+            self.params['EnabledModules'] = config['modules']
 
     def _is_float(self, value):
         """Check if a string can be converted to float."""
@@ -799,7 +939,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--output-dir",
-        help="DEPRECATED - Output directory is always <OutputDir>/plots",
+        help="Output directory for plots (default: <OutputDir>/plots)",
     )
     parser.add_argument("--format", default=".png", help="Output format (.png, .pdf)")
     parser.add_argument(
@@ -862,6 +1002,14 @@ def get_available_plot_modules(plot_type, verbose=False):
         module_patterns = SNAPSHOT_PLOTS
     else:  # 'evolution'
         module_patterns = EVOLUTION_PLOTS
+
+    profile_plots = PROFILE_PLOTS.get(plot_type)
+    if profile_plots is not None:
+        known = set(module_patterns)
+        missing = [name for name in profile_plots if name not in known]
+        if missing and verbose:
+            print(f"Warning: Plot profile references unknown {plot_type} plot(s): {', '.join(missing)}")
+        module_patterns = [name for name in profile_plots if name in known]
 
     # Import modules
     for pattern in module_patterns:
@@ -952,6 +1100,16 @@ def main():
             print("ERROR: Missing required parameters.")
         sys.exit(1)
 
+    try:
+        configure_figure_package(params.params, args.param_file, args.verbose)
+        configure_plot_profile(params.params, args.param_file, args.verbose)
+    except Exception as e:
+        if colour_enabled():
+            print(f"\x1b[31mERROR loading model plotting package: {e}\x1b[0m")
+        else:
+            print(f"ERROR loading model plotting package: {e}")
+        sys.exit(1)
+
     # Resolve and update paths from parameter file
     output_dir = resolve_relative_path(params["OutputDir"], args.param_file)
     params.params["OutputDir"] = output_dir  # Update the params dictionary
@@ -1029,8 +1187,11 @@ def main():
             print(f"ERROR: OutputDir '{model_output_dir}' specified in parameter file is not writable.")
         sys.exit(1)
     
-    # Set the plots directory as a subdirectory of the output directory
-    output_dir = os.path.join(model_output_dir, "plots")
+    # Set the plots directory independently from the model output directory.
+    if args.output_dir:
+        output_dir = resolve_relative_path(args.output_dir, args.param_file)
+    else:
+        output_dir = os.path.join(model_output_dir, "plots")
     
     if args.verbose:
         print(f"  Using output directory: '{output_dir}'")
@@ -1047,10 +1208,6 @@ def main():
             print(f"ERROR: Could not create output directory {output_dir}: {e}")
         sys.exit(1)
     
-    # If output_dir argument was provided, inform user we're ignoring it
-    if args.output_dir:
-        print(f"Note: Ignoring --output-dir argument. Using directory from parameter file: {output_dir}")
-
     # Determine which plots to generate
     if args.plots == "all":
         selected_plots = None  # All available
@@ -1225,8 +1382,6 @@ def main():
                 }
 
             # Filter plots based on available properties
-            from figures import check_required_properties, PLOT_REQUIREMENTS
-
             available_plots = {}
             skipped_plots = {}
 
@@ -1465,8 +1620,6 @@ def main():
         else:
             # Filter evolution plots based on available properties
             # Check properties in first available snapshot as representative sample
-            from figures import check_required_properties, PLOT_REQUIREMENTS
-
             available_plots = {}
             skipped_plots = {}
 

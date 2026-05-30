@@ -10,7 +10,7 @@
  * and data type identifiers.
  *
  * For physical constants (G, c, M_sun, etc.), see:
- *   src/modules/_system/physical_constants.h
+ *   src/module_system/physical_constants.h
  */
 
 /* Floating-point comparison epsilon values */

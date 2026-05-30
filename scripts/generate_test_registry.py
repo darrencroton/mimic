@@ -27,6 +27,8 @@ from pathlib import Path
 
 import yaml
 
+from discovery import REPO_ROOT, module_metadata_files
+
 # ==============================================================================
 # COLOR OUTPUT
 # ==============================================================================
@@ -60,9 +62,7 @@ def process_test_entries(test_value, module_path, repo_root, test_type, module_n
     """
     Process test entries from module_info.yaml.
 
-    Handles both formats:
-    - String: single test file (legacy format for physics modules)
-    - List: multiple test files (for shared utilities)
+    Handles either one test file string or a list of test files.
 
     Returns list of relative test paths.
     """
@@ -101,8 +101,7 @@ def generate_test_registry(strict: bool = False):
     print("=" * 70)
 
     # Paths
-    repo_root = Path(__file__).parent.parent
-    module_dir = repo_root / "src" / "modules"
+    repo_root = REPO_ROOT
     output_dir = repo_root / "build" / "generated"
 
     # Create output directory
@@ -117,16 +116,8 @@ def generate_test_registry(strict: bool = False):
     modules_found = []
     modules_with_tests = []
 
-    # Scan for module metadata (including nested _system/test_fixture)
-    module_info_files = []
-
-    # Get top-level modules
-    for item in sorted(module_dir.glob("*/module_info.yaml")):
-        module_info_files.append(item)
-
-    # Also include all _system/test_* modules (test infrastructure modules)
-    for item in sorted((module_dir / "_system").glob("test_*/module_info.yaml")):
-        module_info_files.append(item)
+    # Scan for module metadata from configured roots.
+    module_info_files = module_metadata_files()
 
     for module_info_file in sorted(module_info_files):
         module_path = module_info_file.parent

@@ -3,10 +3,11 @@
     "auto_generated": true,
     "generated_by": "scripts/generate_properties.py",
     "source_files": [
-      "src/core/halo_properties.yaml",
-      "src/modules/model_properties.yaml"
+      "src/core/core_properties.yaml",
+      "simulations/millennium/halo_properties.yaml",
+      "models/sage/model_properties.yaml"
     ],
-    "source_md5": "f476c551d5cc3ff9e70890de69691e17",
+    "source_md5": "fc70a98f4c12546a6e2cdd9852e49089",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -31,12 +32,6 @@
         2
       ]
     },
-    "MostBoundID": {
-      "name": "MostBoundID",
-      "type": "long long",
-      "units": "dimensionless",
-      "is_vector": false
-    },
     "UniqueGalaxyID": {
       "name": "UniqueGalaxyID",
       "type": "long long",
@@ -60,36 +55,6 @@
       ],
       "sentinels": [
         -1.0
-      ]
-    },
-    "Pos": {
-      "name": "Pos",
-      "type": "vec3_float",
-      "units": "Mpc/h",
-      "is_vector": true,
-      "range": [
-        0.0,
-        10000.0
-      ]
-    },
-    "Vel": {
-      "name": "Vel",
-      "type": "vec3_float",
-      "units": "km/s",
-      "is_vector": true,
-      "range": [
-        -5000.0,
-        5000.0
-      ]
-    },
-    "Spin": {
-      "name": "Spin",
-      "type": "vec3_float",
-      "units": "dimensionless",
-      "is_vector": true,
-      "range": [
-        -20.0,
-        20.0
       ]
     },
     "Len": {
@@ -164,26 +129,6 @@
         0.0
       ]
     },
-    "Vmax": {
-      "name": "Vmax",
-      "type": "float",
-      "units": "km/s",
-      "is_vector": false,
-      "range": [
-        10.0,
-        5000.0
-      ]
-    },
-    "VelDisp": {
-      "name": "VelDisp",
-      "type": "float",
-      "units": "km/s",
-      "is_vector": false,
-      "range": [
-        0.0,
-        5000.0
-      ]
-    },
     "infallMvir": {
       "name": "infallMvir",
       "type": "float",
@@ -224,6 +169,62 @@
       "sentinels": [
         0.0,
         -1.0
+      ]
+    },
+    "MostBoundID": {
+      "name": "MostBoundID",
+      "type": "long long",
+      "units": "dimensionless",
+      "is_vector": false
+    },
+    "Pos": {
+      "name": "Pos",
+      "type": "vec3_float",
+      "units": "Mpc/h",
+      "is_vector": true,
+      "range": [
+        0.0,
+        10000.0
+      ]
+    },
+    "Vel": {
+      "name": "Vel",
+      "type": "vec3_float",
+      "units": "km/s",
+      "is_vector": true,
+      "range": [
+        -5000.0,
+        5000.0
+      ]
+    },
+    "Spin": {
+      "name": "Spin",
+      "type": "vec3_float",
+      "units": "dimensionless",
+      "is_vector": true,
+      "range": [
+        -20.0,
+        20.0
+      ]
+    },
+    "Vmax": {
+      "name": "Vmax",
+      "type": "float",
+      "units": "km/s",
+      "is_vector": false,
+      "range": [
+        10.0,
+        5000.0
+      ]
+    },
+    "VelDisp": {
+      "name": "VelDisp",
+      "type": "float",
+      "units": "km/s",
+      "is_vector": false,
+      "range": [
+        0.0,
+        5000.0
       ]
     },
     "HaloBaryonFraction": {
@@ -513,5 +514,5 @@
       ]
     }
   },
-  "notes": "Auto-generated from src/core/halo_properties.yaml and src/modules/model_properties.yaml. Range is inclusive; sentinels are exempt."
+  "notes": "Auto-generated from package property metadata. Range is inclusive; sentinels are exempt."
 }

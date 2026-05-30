@@ -1,0 +1,60 @@
+# Millennium Halo Catalog Properties
+#
+# These fields come from the Millennium/LHaloTree catalog format or are
+# catalog-oriented output fields. They are not required for the generic Mimic
+# core processing model.
+
+halo_properties:
+  - name: MostBoundID
+    type: long long
+    units: dimensionless
+    description: ID of most bound particle (original simulation halo ID)
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+
+  - name: Pos
+    type: vec3_float
+    units: Mpc/h
+    description: 3D position vector (comoving coordinates)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [0.0, 10000.0]
+
+  - name: Vel
+    type: vec3_float
+    units: km/s
+    description: 3D velocity vector (peculiar velocity)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [-5000.0, 5000.0]
+
+  - name: Spin
+    type: vec3_float
+    units: dimensionless
+    description: Dimensionless spin parameter (Bullock definition)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    output_tree_field: Spin
+    range: [-20.0, 20.0]
+
+  - name: Vmax
+    type: float
+    units: km/s
+    description: Maximum circular velocity
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+    range: [10.0, 5000.0]
+
+  - name: VelDisp
+    type: float
+    units: km/s
+    description: Velocity dispersion
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+    range: [0.0, 5000.0]

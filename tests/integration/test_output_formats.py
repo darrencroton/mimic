@@ -42,8 +42,10 @@ from framework import (
 )
 
 # Core halo properties (physics-agnostic, always present)
-# These 20 properties are defined in src/core/halo_properties.yaml
-# and should be present in all Mimic output, regardless of enabled physics modules
+# These properties are defined across src/core/core_properties.yaml (framework
+# identity/tracking fields) and simulations/<simulation>/halo_properties.yaml
+# (catalog fields such as MostBoundID, Pos, Vel, Spin, Vmax, VelDisp). They
+# should be present in all Mimic output, regardless of enabled physics modules.
 CORE_HALO_PROPERTIES = {
     'SnapNum', 'Type', 'MostBoundID', 'UniqueGalaxyID', 'UniqueCentralGalaxyID',
     'dT', 'Pos', 'Vel', 'Spin', 'Len', 'Mvir', 'deltaMvir', 'CentralMvir',

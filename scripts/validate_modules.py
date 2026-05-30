@@ -35,6 +35,15 @@ except ImportError:
     print("ERROR: PyYAML not installed. Run: pip install PyYAML", file=sys.stderr)
     sys.exit(1)
 
+from discovery import (
+    REPO_ROOT,
+    halo_property_files,
+    model_property_files,
+    module_metadata_files,
+    standalone_module_files,
+    rel,
+)
+
 # ANSI color codes (module-level constants)
 BLUE = "\033[1;34m"
 GREEN = "\033[0;32m"
@@ -46,15 +55,7 @@ NC = "\033[0m"
 # PATHS
 # ==============================================================================
 
-# Repository root (parent of scripts/)
-REPO_ROOT = Path(__file__).parent.parent
-
-# Module directory
-MODULES_DIR = REPO_ROOT / "src" / "modules"
-
-# Property metadata files (for dependency validation)
-MODEL_PROPERTIES_YAML = REPO_ROOT / "src" / "modules" / "model_properties.yaml"
-HALO_PROPERTIES_YAML = REPO_ROOT / "src" / "core" / "halo_properties.yaml"
+# Module and property roots are discovered from model/simulation packages.
 
 # ==============================================================================
 # SCHEMA DEFINITIONS
@@ -155,40 +156,32 @@ def load_module_metadata(module_dir: Path) -> Optional[Dict[str, Any]]:
 
 
 def discover_modules() -> List[Tuple[Path, Optional[Dict[str, Any]]]]:
-    """Discover all modules in src/modules/ directory (both directory and standalone)."""
+    """Discover all modules in configured package roots."""
     modules = []
 
-    if not MODULES_DIR.exists():
-        print(f"ERROR: Module directory not found: {MODULES_DIR}", file=sys.stderr)
-        return []
+    for yaml_path in module_metadata_files():
+        modules.append((yaml_path.parent, load_module_metadata(yaml_path.parent)))
 
-    for item in sorted(MODULES_DIR.iterdir()):
-        # Pattern 1: Directory with module_info.yaml
-        if item.is_dir():
-            # Skip infrastructure directories — but include _system/test_* modules,
-            # which are compiled and registered as runtime modules (same rule as
-            # generate_module_registry.py and generate_test_registry.py).
-            if item.name.startswith("_"):
-                if item.name == "_system":
-                    # Include test_* subdirectories only
-                    for sub in sorted(item.glob("test_*/module_info.yaml")):
-                        modules.append((sub.parent, load_module_metadata(sub.parent)))
-                continue
-
-            metadata = load_module_metadata(item)
-            modules.append((item, metadata))
-
-        # Pattern 2: Standalone .c file
-        elif item.is_file() and item.suffix == ".c":
-            # Create minimal synthetic metadata for validation
-            module_name = item.stem
-            synthetic_metadata = {
-                "name": module_name,
-                "_standalone": True,  # Flag for lightweight validation
-                "_file": item,
-            }
-            # Use parent dir as module_dir (src/modules/)
-            modules.append((item.parent, synthetic_metadata))
+    for c_file in standalone_module_files():
+        module_name = c_file.stem
+        modules.append(
+            (
+                c_file.parent,
+                {
+                    "name": module_name,
+                    "display_name": module_name.replace("_", " ").title(),
+                    "version": "1.0.0",
+                    "supported_processing_modes": [
+                        "process_full_halo",
+                        "process_per_event",
+                        "process_by_galaxy",
+                    ],
+                    "dependencies": {"properties": [], "parameters": []},
+                    "_pattern": "standalone",
+                    "_standalone_file": c_file,
+                },
+            )
+        )
 
     return modules
 
@@ -205,14 +198,14 @@ def load_property_metadata() -> Dict[str, Dict[str, Any]]:
                 "type": "float",
                 "units": "1e10 Msun/h",
                 "description": "...",
-                "source": "model_properties.yaml"
+                "source": "models/<model>/model_properties.yaml"
             },
             "Mvir": {
                 "name": "Mvir",
                 "type": "float",
                 "units": "1e10 Msun/h",
                 "description": "...",
-                "source": "halo_properties.yaml"
+                "source": "src/core/core_properties.yaml or simulations/<simulation>/halo_properties.yaml"
             },
             ...
         }
@@ -220,34 +213,34 @@ def load_property_metadata() -> Dict[str, Dict[str, Any]]:
     properties = {}
 
     # Load galaxy properties
-    if MODEL_PROPERTIES_YAML.exists():
+    for path in model_property_files():
         try:
-            with open(MODEL_PROPERTIES_YAML, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 if data and "galaxy_properties" in data:
                     for prop in data["galaxy_properties"]:
                         if "name" in prop:
                             properties[prop["name"]] = {
                                 **prop,
-                                "source": "model_properties.yaml",
+                                "source": rel(path),
                             }
         except Exception as e:
-            print(f"WARNING: Failed to load galaxy properties: {e}", file=sys.stderr)
+            print(f"WARNING: Failed to load galaxy properties from {rel(path)}: {e}", file=sys.stderr)
 
     # Load halo properties
-    if HALO_PROPERTIES_YAML.exists():
+    for path in halo_property_files():
         try:
-            with open(HALO_PROPERTIES_YAML, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 if data and "halo_properties" in data:
                     for prop in data["halo_properties"]:
                         if "name" in prop:
                             properties[prop["name"]] = {
                                 **prop,
-                                "source": "halo_properties.yaml",
+                                "source": rel(path),
                             }
         except Exception as e:
-            print(f"WARNING: Failed to load halo properties: {e}", file=sys.stderr)
+            print(f"WARNING: Failed to load halo properties from {rel(path)}: {e}", file=sys.stderr)
 
     return properties
 
@@ -453,6 +446,17 @@ def validate_name(
             module_name, f"Module name '{name}' should be lowercase_with_underscores"
         )
 
+    if module.get("_pattern") == "standalone":
+        c_file = module.get("_standalone_file")
+        if not c_file or name != Path(c_file).stem:
+            results.add_error(
+                module_name,
+                4,
+                f"Standalone module name '{name}' doesn't match source file stem",
+            )
+            return False
+        return True
+
     # Check matches directory name
     if name != module_dir.name:
         results.add_error(
@@ -553,8 +557,11 @@ def validate_source_files(
 
     valid = True
 
-    # Check main module file (always required)
-    main_file = module_dir / f"{module_name}.c"
+    main_file = (
+        Path(module["_standalone_file"])
+        if module.get("_pattern") == "standalone"
+        else module_dir / f"{module_name}.c"
+    )
     if not main_file.exists():
         results.add_error(
             module_name, 2, f"Main module file not found: {module_name}.c"
@@ -826,6 +833,11 @@ def validate_module(
     if not validate_source_files(module, module_name, module_dir, results):
         return False
 
+    if module.get("_pattern") == "standalone":
+        if verbose:
+            print(f"  ✓ {module_name} validated (standalone module)")
+        return True
+
     validate_test_files(module, module_name, module_dir, results)
     validate_doc_files(module, module_name, results)
 
@@ -860,15 +872,13 @@ def main():
     # Load property metadata (both galaxy and halo) for dependency validation
     property_metadata = load_property_metadata()
     if property_metadata:
+        galaxy_sources = {rel(path) for path in model_property_files()}
+        halo_sources = {rel(path) for path in halo_property_files()}
         galaxy_count = sum(
-            1
-            for p in property_metadata.values()
-            if p.get("source") == "model_properties.yaml"
+            1 for p in property_metadata.values() if p.get("source") in galaxy_sources
         )
         halo_count = sum(
-            1
-            for p in property_metadata.values()
-            if p.get("source") == "halo_properties.yaml"
+            1 for p in property_metadata.values() if p.get("source") in halo_sources
         )
         print(
             f"Loaded {len(property_metadata)} properties "
@@ -902,6 +912,20 @@ def main():
     print(f"Found {len(modules)} module(s) to validate")
     print()
 
+    seen_names = {}
+    for module_dir, metadata in modules:
+        if metadata is None:
+            continue
+        name = metadata.get("name", module_dir.name)
+        if name in seen_names:
+            results.add_error(
+                name,
+                4,
+                f"Duplicate module name discovered in {seen_names[name]} and {module_dir}",
+            )
+        else:
+            seen_names[name] = module_dir
+
     # Validate each module
     valid_modules = []
     for module_dir, metadata in modules:
@@ -911,46 +935,6 @@ def main():
             )
             continue
 
-        # Lightweight validation for standalone modules
-        if metadata.get("_standalone", False):
-            module_name = metadata["name"]
-
-            if args.verbose:
-                print(f"Validating standalone module: {module_name}")
-
-            # Verify file exists
-            c_file = metadata.get("_file")
-            if not c_file or not c_file.exists():
-                results.add_error(
-                    module_name, 2, f"Standalone module file not found: {module_name}.c"
-                )
-                continue
-
-            # Verify name is valid C identifier
-            if not C_IDENTIFIER_PATTERN.match(module_name):
-                results.add_error(
-                    module_name,
-                    4,
-                    f"Module name '{module_name}' is not a valid C identifier",
-                )
-                continue
-
-            # Check lowercase convention (warning only)
-            if not module_name.islower() or not all(
-                c.isalnum() or c == "_" for c in module_name
-            ):
-                results.add_warning(
-                    module_name,
-                    f"Module name '{module_name}' should be lowercase_with_underscores",
-                )
-
-            if args.verbose:
-                print(f"  ✓ {module_name} validated (standalone module)")
-
-            valid_modules.append((module_dir, metadata))
-            continue
-
-        # Full validation for directory modules
         validate_module(module_dir, metadata, property_metadata, results, args.verbose)
         valid_modules.append((module_dir, metadata))
 

@@ -10,17 +10,17 @@ MIMIC_PLOT_DIR="$(dirname "$SCRIPT_DIR")"
 MIMIC_ROOT="$(dirname "$(dirname "$MIMIC_PLOT_DIR")")"
 
 # Default parameter file
-PARAM_FILE="${PARAM_FILE:-$MIMIC_ROOT/input/millennium.yaml}"
+PARAM_FILE="${PARAM_FILE:-$MIMIC_ROOT/input/runs/sage_millennium.yaml}"
 
 # Check parameter file exists
 if [ ! -f "$PARAM_FILE" ]; then
     echo "Error: Parameter file not found: $PARAM_FILE"
-    echo "Set PARAM_FILE environment variable or ensure millennium.yaml exists"
+    echo "Set PARAM_FILE environment variable or ensure input/runs/sage_millennium.yaml exists"
     exit 1
 fi
 
 # Check Python environment
-if ! python3 -c "import numpy, matplotlib" 2>/dev/null; then
+if ! python3 -c "import numpy, matplotlib, h5py" 2>/dev/null; then
     echo "Error: Required Python packages not available"
     echo "Activate virtual environment: source $MIMIC_ROOT/mimic_venv/bin/activate"
     exit 1

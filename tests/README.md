@@ -63,10 +63,10 @@ Unit tests are compiled on demand through the runner. Use the test name without 
 ```bash
 python3 tests/integration/test_full_pipeline.py
 python3 tests/integration/test_output_formats.py
-python3 src/modules/sage_apply_cooling/_tests/test_integration_sage_apply_cooling.py
+python3 models/sage/modules/sage_apply_cooling/_tests/test_integration_sage_apply_cooling.py
 ```
 
-Integration tests are plain Python scripts. You can run either the core tests under `tests/integration/` or a module-specific script under `src/modules/<module>/_tests/`.
+Integration tests are plain Python scripts. You can run either the core tests under `tests/integration/` or a module-specific script under `models/<model>/modules/<module>/_tests/`.
 
 **Scientific tests**:
 ```bash

@@ -21,40 +21,45 @@ Date: 2025-11-07
 """
 
 import hashlib
+import json
 import sys
 from pathlib import Path
 from typing import List, Tuple
+
+from discovery import (
+    REPO_ROOT,
+    generated_module_dir,
+    halo_property_files,
+    model_property_files,
+    module_metadata_files,
+    standalone_module_files,
+    rel,
+)
 
 # ==============================================================================
 # PATHS
 # ==============================================================================
 
-# Repository root (parent of scripts/)
-REPO_ROOT = Path(__file__).parent.parent
-
 # Property YAML inputs
-PROPERTY_YAML_FILES = [
-    REPO_ROOT / "src" / "core" / "halo_properties.yaml",
-    REPO_ROOT / "src" / "modules" / "model_properties.yaml",
-]
+PROPERTY_YAML_FILES = halo_property_files() + model_property_files()
 
 # Property-generated files to check
 PROPERTY_GENERATED_FILES = [
     REPO_ROOT / "src" / "include" / "generated" / "property_defs.h",
     REPO_ROOT / "src" / "include" / "generated" / "init_halo_properties.inc",
     REPO_ROOT / "src" / "include" / "generated" / "init_galaxy_properties.inc",
+    REPO_ROOT / "src" / "include" / "generated" / "reset_galaxy_properties.inc",
     REPO_ROOT / "src" / "include" / "generated" / "copy_to_output.inc",
     REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_count.inc",
     REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_definitions.inc",
+    REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_metadata.inc",
     REPO_ROOT / "output" / "mimic-plot" / "generated" / "dtype.py",
     REPO_ROOT / "output" / "mimic-plot" / "generated" / "__init__.py",
+    REPO_ROOT / "tests" / "generated" / "property_ranges.json",
 ]
 
 # Module metadata inputs / tracked generated outputs
-MODULES_DIR = REPO_ROOT / "src" / "modules"
-MODULE_EVENT_CONTRACTS_H = (
-    REPO_ROOT / "src" / "modules" / "_system" / "generated" / "event_contracts.h"
-)
+MODULE_EVENT_CONTRACTS_H = generated_module_dir() / "event_contracts.h"
 MODULE_GENERATED_FILES = [MODULE_EVENT_CONTRACTS_H]
 
 # ==============================================================================
@@ -66,11 +71,12 @@ def compute_property_yaml_hash() -> str:
     """Compute MD5 hash of property YAML input files (same logic as generator)."""
     md5 = hashlib.md5()
 
-    # Hash both YAML files in order (halo, then galaxy)
+    # Hash every property package in the same order as the generator.
     for yaml_file in PROPERTY_YAML_FILES:
         if not yaml_file.exists():
             return ""
         with open(yaml_file, "rb") as f:
+            md5.update(rel(yaml_file).encode("utf-8"))
             md5.update(f.read())
 
     return md5.hexdigest()
@@ -80,49 +86,30 @@ def discover_module_metadata_entries() -> List[Tuple[str, str, Path]]:
     """Discover module metadata inputs using the same file-selection rules as the generator.
 
     Returns:
-        Tuples of (kind, module_name, path), where kind is "yaml" or "standalone".
+        Tuples of (kind, module_name, path).
     """
     entries: List[Tuple[str, str, Path]] = []
 
-    if not MODULES_DIR.exists():
-        return entries
+    for yaml_path in module_metadata_files():
+        entries.append(("yaml", yaml_path.parent.name, yaml_path))
 
-    for item in sorted(MODULES_DIR.iterdir()):
-        if item.name.startswith("_") and item.name != "_system":
-            continue
-
-        if item.is_dir():
-            if item.name == "_system":
-                for sub in sorted(item.iterdir()):
-                    yaml_path = sub / "module_info.yaml"
-                    if sub.is_dir() and yaml_path.exists():
-                        entries.append(("yaml", sub.name, yaml_path))
-                continue
-
-            yaml_path = item / "module_info.yaml"
-            if yaml_path.exists():
-                entries.append(("yaml", item.name, yaml_path))
-
-        elif item.is_file() and item.suffix == ".c":
-            entries.append(("standalone", item.stem, item))
+    for c_file in standalone_module_files():
+        entries.append(("standalone", c_file.stem, c_file))
 
     entries.sort(key=lambda entry: entry[1])
     return entries
 
 
 def compute_module_metadata_hash() -> str:
-    """Compute MD5 hash of module metadata plus standalone module identities."""
+    """Compute MD5 hash of module metadata."""
     entries = discover_module_metadata_entries()
     if not entries:
         return ""
 
     md5 = hashlib.md5()
-    for kind, module_name, path in entries:
+    for kind, _module_name, path in entries:
         if kind == "standalone":
-            relative_path = str(path.relative_to(REPO_ROOT))
-            md5.update(f"standalone:{module_name}:{relative_path}".encode("utf-8"))
-            continue
-
+            md5.update(f"standalone:{rel(path)}".encode("utf-8"))
         with open(path, "rb") as f:
             md5.update(f.read())
 
@@ -135,6 +122,11 @@ def extract_yaml_hash_from_file(path: Path) -> str:
         return ""
 
     try:
+        if path.suffix == ".json":
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("_metadata", {}).get("source_md5", "")
+
         with open(path, "r", encoding="utf-8") as f:
             # Read first 20 lines (hash should be in header)
             for _ in range(20):
@@ -183,7 +175,7 @@ def validate_module_metadata_inputs() -> bool:
     entries = discover_module_metadata_entries()
     if not entries:
         print("✗ MISSING: No module metadata inputs discovered")
-        print(f"  Expected under: {MODULES_DIR.relative_to(REPO_ROOT)}")
+        print("  Expected under configured model/module roots")
         return False
     return True
 
@@ -249,6 +241,14 @@ def check_file_markers(files: List[Path], scope_label: str) -> bool:
 
     for gen_file in files:
         if not gen_file.exists():
+            continue
+
+        if gen_file.suffix == ".json":
+            with open(gen_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("_metadata", {}).get("auto_generated") is True:
+                continue
+            missing_marker.append(gen_file.name)
             continue
 
         with open(gen_file, "rb") as f:

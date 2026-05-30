@@ -1,0 +1,11 @@
+simulation:
+  name: millennium
+  box_size: 62.5
+  particle_mass: 0.0860657
+
+axes:
+  spatial_distribution:
+    xlim: [0.0, 62.5]
+    ylim: [0.0, 62.5]
+  halo_mass_function:
+    xmin: 9.0

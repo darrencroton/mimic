@@ -1,0 +1,31 @@
+# Module Metadata: test_event_consumer_beta
+#
+# WARNING: This module is for TESTING INFRASTRUCTURE ONLY
+#
+# Purpose: Second consumer subscribing to test_event_producer's test_event_alt.
+# Together with test_event_consumer_alpha (which subscribes to test_event),
+# validates that selective routing delivers events only to subscribed consumers.
+
+module:
+  name: test_event_consumer_beta
+  description: "Second consumer in event routing integration tests. NOT FOR PRODUCTION."
+  version: "1.0.0"
+  author: "Mimic Development Team"
+
+  supported_processing_modes: [process_per_event]
+
+  events:
+    consumes:
+      - producer: test_event_producer
+        event: test_event_alt
+
+  dependencies:
+    properties: []
+    parameters: []
+
+  tests:
+    unit: null
+    integration: null
+
+  docs:
+    physics: src/module_system/test_event_consumer_beta/README.md

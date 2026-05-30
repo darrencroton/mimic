@@ -22,6 +22,8 @@ from pathlib import Path
 
 import yaml
 
+from discovery import REPO_ROOT, module_metadata_files
+
 
 def validate_module_tests():
     """Validate that declared module tests exist."""
@@ -30,8 +32,7 @@ def validate_module_tests():
     print("=" * 70)
 
     # Paths
-    repo_root = Path(__file__).parent.parent
-    module_dir = repo_root / "src" / "modules"
+    repo_root = REPO_ROOT
 
     # Track validation results
     all_valid = True
@@ -40,7 +41,7 @@ def validate_module_tests():
     missing_tests = []
 
     # Scan for module metadata
-    for module_info_file in sorted(module_dir.glob("*/module_info.yaml")):
+    for module_info_file in sorted(module_metadata_files()):
         module_path = module_info_file.parent
         module_name = module_path.name
 
@@ -65,25 +66,30 @@ def validate_module_tests():
         # Validate each test type
         for test_type in ["unit", "integration", "scientific"]:
             if test_type in tests:
-                test_file = tests[test_type]
-                test_path = module_path / test_file
+                declared = tests[test_type]
+                test_files = declared if isinstance(declared, list) else [declared]
 
-                if test_path.exists():
-                    print(f"✓ {module_name:20s} {test_type:12s} test: {test_file}")
-                    tests_validated += 1
-                else:
-                    print(
-                        f"✗ {module_name:20s} {test_type:12s} test: {test_file} NOT FOUND"
-                    )
-                    missing_tests.append(
-                        {
-                            "module": module_name,
-                            "type": test_type,
-                            "file": test_file,
-                            "expected_path": test_path,
-                        }
-                    )
-                    all_valid = False
+                for test_file in test_files:
+                    if not test_file:
+                        continue
+                    test_path = module_path / test_file
+
+                    if test_path.exists():
+                        print(f"✓ {module_name:20s} {test_type:12s} test: {test_file}")
+                        tests_validated += 1
+                    else:
+                        print(
+                            f"✗ {module_name:20s} {test_type:12s} test: {test_file} NOT FOUND"
+                        )
+                        missing_tests.append(
+                            {
+                                "module": module_name,
+                                "type": test_type,
+                                "file": test_file,
+                                "expected_path": test_path,
+                            }
+                        )
+                        all_valid = False
 
     # Print summary
     print()

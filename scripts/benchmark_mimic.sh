@@ -11,12 +11,12 @@
 #   ./benchmark_mimic.sh --verbose                 # Run with detailed output
 #   ./benchmark_mimic.sh --help                    # Show help information
 #   ./benchmark_mimic.sh --param-file custom.yaml   # Use custom parameter file
-#   ./benchmark_mimic.sh input/millennium.yaml      # Positional parameter file argument
+#   ./benchmark_mimic.sh input/runs/sage_millennium.yaml  # Positional parameter file argument
 #
 # REQUIREMENTS:
 #   - Must be run from the scripts/ directory
 #   - GNU Make must be available
-#   - Parameter file must exist (default: input/millennium.yaml)
+#   - Parameter file must exist (default: input/runs/sage_millennium.yaml)
 #
 # OUTPUT:
 #   Results are stored in JSON format in the benchmarks/ directory
@@ -28,7 +28,7 @@
 #   MAKE_FLAGS        - Additional make flags (e.g., "USE-HDF5=no USE-MPI=yes")
 #
 # EXAMPLES:
-#   # Basic benchmark (uses default input/millennium.yaml)
+#   # Basic benchmark (uses default input/runs/sage_millennium.yaml)
 #   ./benchmark_mimic.sh
 #
 #   # Benchmark with custom parameter file
@@ -108,7 +108,7 @@ verbose_log() {
 
 # Set default parameter file if not specified
 if [[ -z "$PARAM_FILE" ]]; then
-    PARAM_FILE="${ROOT_DIR}/input/millennium.yaml"
+    PARAM_FILE="${ROOT_DIR}/input/runs/sage_millennium.yaml"
 fi
 
 # Show help if requested
@@ -122,7 +122,7 @@ OPTIONS:
   --param-file FILE     Parameter file to use for benchmarking
 
 ARGUMENTS:
-  PARAM_FILE            Parameter file to benchmark (default: input/millennium.yaml)
+  PARAM_FILE            Parameter file to benchmark (default: input/runs/sage_millennium.yaml)
                         Can be specified as positional argument or with --param-file
                         Supports both absolute and relative paths
 
@@ -150,7 +150,7 @@ OUTPUT:
   - configuration: Build and runtime configuration
 
 EXAMPLES:
-  # Basic benchmark (uses default input/millennium.yaml)
+  # Basic benchmark (uses default input/runs/sage_millennium.yaml)
   # Can run from anywhere:
   ./scripts/benchmark_mimic.sh
   cd scripts && ./benchmark_mimic.sh
@@ -218,8 +218,10 @@ verbose_log "Using parameter file: ${PARAM_FILE}"
 read -r OUTPUT_DIR OUTPUT_FORMAT OUTPUT_BASENAME TREE_TYPE <<< $(python3 -c "
 import sys
 import yaml
+from pathlib import Path
 
-param_file = '${PARAM_FILE}'
+param_file = Path('${PARAM_FILE}')
+repo_root = Path('${ROOT_DIR}')
 
 try:
     with open(param_file, 'r') as f:
@@ -228,7 +230,18 @@ try:
     output_dir = config.get('output', {}).get('output_directory', './output/')
     output_format = config.get('output', {}).get('output_format', 'binary')
     output_basename = config.get('output', {}).get('output_filename', 'model')
-    tree_type = config.get('input', {}).get('tree_type', 'lhalo_binary')
+    input_config = config.get('input', {})
+
+    simulation_config_path = config.get('simulation', {}).get('config')
+    if simulation_config_path:
+        simulation_config_path = Path(simulation_config_path)
+        if not simulation_config_path.is_absolute():
+            simulation_config_path = repo_root / simulation_config_path
+        with open(simulation_config_path, 'r') as f:
+            simulation_config = yaml.safe_load(f) or {}
+        input_config = simulation_config.get('input', input_config)
+
+    tree_type = input_config.get('tree_type', 'lhalo_binary')
 
     # Remove trailing slash from output_dir
     output_dir = output_dir.rstrip('/')

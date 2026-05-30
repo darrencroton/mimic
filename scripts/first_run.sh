@@ -5,7 +5,7 @@
 # 1. Creating necessary directories
 # 2. Downloading mini-Millennium simulation trees
 # 3. Setting up Python plotting environment
-# 4. Configuring parameter files with correct paths
+# 4. Validating shipped run and simulation configuration
 
 set -e  # Exit on any error
 
@@ -23,6 +23,8 @@ echo ""
 # Script is in scripts/ subdirectory, so get parent directory (repo root)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+RUN_FILE="input/runs/sage_millennium.yaml"
+SIM_CONFIG_FILE="simulations/millennium/simulation.yaml"
 cd "$REPO_ROOT"
 
 if [[ ! -f "README.md" ]] || [[ ! -f "Makefile" ]] || [[ ! -d "src" ]]; then
@@ -255,42 +257,24 @@ deactivate
 
 echo ""
 
-# Step 4: Configure parameter file with correct paths
-echo "Step 4: Configuring parameter file..."
+# Step 4: Validate run and simulation configuration
+echo "Step 4: Validating run configuration..."
 echo "--------------------------------------"
 
 cd "$REPO_ROOT"
 
-if [[ ! -f "input/millennium.yaml" ]]; then
-    echo "ERROR: Parameter file input/millennium.yaml not found."
+if [[ ! -f "$RUN_FILE" ]]; then
+    echo "ERROR: Run configuration $RUN_FILE not found."
     exit 1
 fi
 
-echo "Updating paths in millennium.yaml..."
-
-# Create backup
-cp input/millennium.yaml input/millennium.yaml.backup
-echo "✓ Created backup: input/millennium.yaml.backup"
-
-# Update paths to absolute paths
-NEW_OUTPUT_DIR="OutputDir              $REPO_ROOT/output/results/millennium/"
-NEW_SIMULATION_DIR="SimulationDir               $REPO_ROOT/input/data/millennium/"
-NEW_SNAP_LIST="FileWithSnapList            $REPO_ROOT/input/data/millennium/millennium.a_list"
-
-# Use sed to update the paths (compatible with both macOS and Linux)
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS
-    sed -i "" "s|^OutputDir.*|$NEW_OUTPUT_DIR|g" input/millennium.yaml
-    sed -i "" "s|^SimulationDir.*|$NEW_SIMULATION_DIR|g" input/millennium.yaml
-    sed -i "" "s|^FileWithSnapList.*|$NEW_SNAP_LIST|g" input/millennium.yaml
-else
-    # Linux
-    sed -i "s|^OutputDir.*|$NEW_OUTPUT_DIR|g" input/millennium.yaml
-    sed -i "s|^SimulationDir.*|$NEW_SIMULATION_DIR|g" input/millennium.yaml
-    sed -i "s|^FileWithSnapList.*|$NEW_SNAP_LIST|g" input/millennium.yaml
+if [[ ! -f "$SIM_CONFIG_FILE" ]]; then
+    echo "ERROR: Simulation configuration $SIM_CONFIG_FILE not found."
+    exit 1
 fi
 
-echo "✓ Updated parameter file with absolute paths"
+echo "✓ Run configuration found: $RUN_FILE"
+echo "✓ Simulation configuration found: $SIM_CONFIG_FILE"
 echo ""
 
 # Step 5: Final validation
@@ -305,8 +289,8 @@ if [[ ! -f "input/data/millennium/trees_063.0" ]]; then
 fi
 
 # Check if a_list file exists
-if [[ ! -f "input/data/millennium/millennium.a_list" ]]; then
-    VALIDATION_ERRORS+=("millennium.a_list file not found")
+if [[ ! -f "simulations/millennium/snapshots/millennium.a_list" ]]; then
+    VALIDATION_ERRORS+=("simulation snapshot list not found")
 fi
 
 # Check if output directory exists
@@ -340,12 +324,12 @@ echo "1. Compile Mimic:"
 echo "   make"
 echo ""
 echo "2. Run Mimic:"
-echo "   ./mimic input/millennium.yaml"
+echo "   ./mimic $RUN_FILE"
 echo ""
 echo "3. Generate plots (using the virtual environment):"
 echo "   source mimic_venv/bin/activate"
 echo "   cd output/mimic-plot"
-echo "   python mimic-plot.py --param-file=../../input/millennium.yaml"
+echo "   python mimic-plot.py --param-file=../../$RUN_FILE"
 echo "   deactivate  # when done with plotting"
 echo ""
 echo "Virtual Environment Info:"

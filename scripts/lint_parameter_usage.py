@@ -35,17 +35,14 @@ except ImportError:
     print("ERROR: PyYAML not installed. Run: pip install PyYAML", file=sys.stderr)
     sys.exit(1)
 
+from discovery import REPO_ROOT, module_metadata_files
+
 # ANSI color codes
 RED = "\033[0;31m"
 YELLOW = "\033[1;33m"
 GREEN = "\033[0;32m"
 BLUE = "\033[1;34m"
 NC = "\033[0m"  # No Color
-
-# Repository root
-REPO_ROOT = Path(__file__).parent.parent
-MODULES_DIR = REPO_ROOT / "src" / "modules"
-
 
 def find_parameter_calls(c_file: Path) -> Dict[str, str]:
     """
@@ -161,8 +158,6 @@ def check_module(
     # Find all .c files in module
     used_params = {}
     for c_file in module_dir.glob("*.c"):
-        if c_file.name.startswith("test_"):
-            continue  # Skip test files
         used_params.update(find_parameter_calls(c_file))
 
     # Check for issues
@@ -208,18 +203,14 @@ def main():
     all_warnings = []
 
     # Determine which modules to check
+    discovered_dirs = [path.parent for path in module_metadata_files()]
     if args.module:
-        module_dirs = [MODULES_DIR / args.module]
-        if not module_dirs[0].exists():
-            print(f"{RED}ERROR: Module directory not found: {module_dirs[0]}{NC}")
+        module_dirs = [path for path in discovered_dirs if path.name == args.module]
+        if not module_dirs:
+            print(f"{RED}ERROR: Module directory not found: {args.module}{NC}")
             return 1
     else:
-        # Check all modules except _system and _archive
-        module_dirs = [
-            d
-            for d in MODULES_DIR.iterdir()
-            if d.is_dir() and not d.name.startswith("_")
-        ]
+        module_dirs = discovered_dirs
 
     # Check each module
     print(f"Checking {len(module_dirs)} module(s) for parameter usage consistency...")

@@ -34,16 +34,16 @@ Common tasks:
 
 ## Quick Start
 
-This minimal example creates a directory module. Directory modules are the recommended production pattern because they declare supported processing modes, dependencies, tests, event contracts, and documentation in `module_info.yaml`.
+This minimal example creates a directory module. Directory modules are the recommended production pattern because they declare supported processing modes, dependencies, tests, event contracts, and documentation in `module_info.yaml`. For simple prototypes, model packages also support standalone source modules; see [Standalone Modules](#standalone-modules).
 
 ```bash
-mkdir -p src/modules/my_module/_tests
+mkdir -p models/sage/modules/my_module/_tests
 ```
 
-Create `src/modules/my_module/my_module.c`:
+Create `models/sage/modules/my_module/my_module.c`:
 
 ```c
-#include "_system/parameter_helpers.h"
+#include "module_system/parameter_helpers.h"
 
 static double my_efficiency;
 
@@ -77,7 +77,7 @@ int my_module_cleanup(void)
 }
 ```
 
-Create `src/modules/my_module/module_info.yaml`:
+Create `models/sage/modules/my_module/module_info.yaml`:
 
 ```yaml
 module:
@@ -97,7 +97,7 @@ module:
     scientific: []
 
   docs:
-    physics: src/modules/my_module/README.md
+    physics: models/sage/modules/my_module/README.md
 ```
 
 Add the module to an input YAML file:
@@ -116,7 +116,7 @@ Then regenerate, build, and run:
 make validate-modules
 make generate
 make
-./mimic input/millennium.yaml
+./mimic input/runs/sage_millennium.yaml
 ```
 
 ---
@@ -143,11 +143,11 @@ Key directories:
 | --- | --- |
 | `src/core/` | Main execution, configuration parsing, unit setup, tree processing, module dispatch |
 | `src/io/` | Tree readers and binary/HDF5 output writers |
-| `src/modules/` | Runtime physics modules and module-owned tests |
-| `src/modules/_system/` | Framework helpers, templates, generated module code, constants |
-| `src/modules/_shared/` | Shared physics utilities used by modules |
-| `src/modules/_tests/` | Cross-module tests that do not belong to one module |
-| `src/modules/_archive/` | Retired module code/tests preserved outside the live runtime tree |
+| `models/sage/modules/` | Runtime physics modules and module-owned tests |
+| `src/module_system/` | Framework helpers, templates, generated module code, constants |
+| `models/shared/` | Shared physics utilities used by modules |
+| `models/sage/modules/_tests/` | Cross-module tests that do not belong to one module |
+| `archive/src-modules/_archive/` | Retired module code/tests preserved outside the live runtime tree |
 | `src/include/generated/` | Generated property structs and output helpers |
 | `tests/` | Core unit, integration, scientific, framework, and generated test support |
 | `output/mimic-plot/` | Plotting and generated Python dtype helpers |
@@ -205,7 +205,7 @@ Modules should not call each other directly. They communicate through:
 
 - generated properties in `struct Halo` and `struct GalaxyData`
 - explicit event contracts for `process_per_event` consumers
-- shared utility functions in `src/modules/_shared/` when multiple modules need the same calculation
+- shared utility functions in `models/shared/` when multiple modules need the same calculation
 
 Module metadata dependencies are validation aids. They document properties and parameters a module uses, but they do not automatically sort modules into a scientifically valid order. The YAML phase configuration remains the source of execution ordering.
 
@@ -218,7 +218,7 @@ Module metadata dependencies are validation aids. They document properties and p
 Directory modules are the production pattern:
 
 ```text
-src/modules/my_module/
+models/sage/modules/my_module/
   my_module.c
   module_info.yaml
   README.md
@@ -236,24 +236,35 @@ Key rules:
 - `{module_name}.c` is implicit; do not list it in `additional_files`.
 - List only helper `.c` files in `additional_files`; headers may be listed for documentation but only `.c` files are compiled from that field.
 - Declare every supported processing mode explicitly.
-- Add module-specific tests under `src/modules/<module>/_tests/`.
-- Put cross-module tests under `src/modules/_tests/`.
+- Add module-specific tests under `models/<model>/modules/<module>/_tests/`.
+- Put cross-module tests under `models/sage/modules/_tests/`.
 
 ### Standalone Modules
 
-A bare `.c` file placed directly under `src/modules/` is also a valid runtime module. The generator auto-discovers it and gives it all three processing modes:
+A single `.c` file placed directly under a model package module root is also a valid runtime module:
 
 ```text
-src/modules/my_prototype.c
+models/<model>/modules/my_prototype.c
 ```
 
-Standalone modules are useful for quick experiments or truly mode-agnostic single-file utilities. They should not be the long-term home for production physics because the generator cannot enforce mode constraints, event contracts, dependencies, or docs metadata. Convert a standalone module to a directory module once it becomes part of a maintained model.
+Standalone modules are package-local. The old `src/modules/` root is not searched.
 
-When a standalone module is discovered, `make generate` prints an informational warning:
+The generator derives minimal metadata from the file name:
 
-```text
-WARNING: Standalone module 'my_prototype' inherits all three processing modes (no module_info.yaml).
+- module name: `my_prototype`
+- source file: `my_prototype.c`
+- supported modes: `process_full_halo`, `process_per_event`, and `process_by_galaxy`
+- no declared dependencies, parameters, tests, docs, or events
+
+The C file must still implement the normal lifecycle symbols:
+
+```c
+int my_prototype_init(void);
+int my_prototype_process(struct ModuleContext *ctx, struct Halo *halos, int ngal);
+int my_prototype_cleanup(void);
 ```
+
+Use standalone modules for small experiments and model-builder prototypes. Convert to a directory module when the module needs explicit mode constraints, dependency validation, parameters, tests, event contracts, additional source files, or module-local documentation.
 
 ### Module Metadata
 
@@ -289,7 +300,7 @@ module:
     scientific: []
 
   docs:
-    physics: src/modules/my_module/README.md
+    physics: models/sage/modules/my_module/README.md
 ```
 
 Use `docs.physics` for production modules. If documentation is intentionally centralised elsewhere, make that explicit in the module metadata or validator policy rather than leaving unexplained warnings.
@@ -307,7 +318,7 @@ Module READMEs should be short, local contracts rather than full papers. Include
 - implementation notes that affect configuration
 - key references
 
-The concise README in `src/modules/sage_resolve_mergers_and_disruption/README.md` is a good model.
+The concise README in `models/sage/modules/sage_resolve_mergers_and_disruption/README.md` is a good model.
 
 ---
 
@@ -386,7 +397,7 @@ A module should:
 4. Store validated values in module-private static variables.
 
 ```c
-#include "_system/parameter_helpers.h"
+#include "module_system/parameter_helpers.h"
 
 static double my_efficiency;
 static int my_mode;
@@ -404,7 +415,7 @@ int my_module_init(void)
 
 There are no core defaults for module parameters. Missing required parameters fail during module initialization.
 
-Parameter helper definitions live in `src/modules/_system/parameter_helpers.h`. The reference table is in [Parameter Loading Macros](#parameter-loading-macros).
+Parameter helper definitions live in `src/module_system/parameter_helpers.h`. The reference table is in [Parameter Loading Macros](#parameter-loading-macros).
 
 ---
 
@@ -414,12 +425,12 @@ Properties are generated from YAML metadata and then accessed as normal C struct
 
 | Property type | Metadata file | Typical owner |
 | --- | --- | --- |
-| Halo properties | `src/core/halo_properties.yaml` | Core tree tracking and output |
-| Galaxy/model properties | `src/modules/model_properties.yaml` | Physics modules |
+| Halo properties | `src/core/core_properties.yaml` | Core tree tracking and output |
+| Galaxy/model properties | `models/sage/model_properties.yaml` | Physics modules |
 
 Workflow for adding a galaxy property:
 
-1. Add a metadata entry to `src/modules/model_properties.yaml`.
+1. Add a metadata entry to `models/sage/model_properties.yaml`.
 2. Run `make generate`.
 3. Rebuild.
 4. Use the generated field in modules.
@@ -481,7 +492,7 @@ For simple halo properties:
 output_source: copy_direct
 ```
 
-For conditional or recalculated output, use an output helper in `src/modules/_system/output_helpers.h`:
+For conditional or recalculated output, use an output helper in `src/module_system/output_helpers.h`:
 
 ```yaml
 output_source: recalculate
@@ -518,7 +529,7 @@ events:
 Producer code:
 
 ```c
-#include "_system/generated/event_contracts.h"
+#include "module_system/generated/event_contracts.h"
 
 if (module_emit_event(ctx, MY_MERGE_PRODUCER_EVENT_MERGER,
                       satellite_idx, central_idx,
@@ -593,7 +604,7 @@ A non-zero exit code is a failure even if the log text looks harmless.
 
 ### Unit Tests
 
-Module unit tests live in `src/modules/<module>/_tests/` and are registered in `module_info.yaml`:
+Module unit tests live in `models/<model>/modules/<module>/_tests/` and are registered in `module_info.yaml`:
 
 ```yaml
 tests:
@@ -614,7 +625,7 @@ Run Python tests by path:
 
 ```bash
 python3 tests/integration/test_full_pipeline.py
-python3 src/modules/my_module/_tests/test_integration_my_module.py
+python3 models/sage/modules/my_module/_tests/test_integration_my_module.py
 python3 tests/scientific/test_scientific.py
 ```
 
@@ -634,7 +645,7 @@ Daily loop:
 make validate-modules
 make generate
 make
-./mimic --debug input/millennium.yaml
+./mimic --debug input/runs/sage_millennium.yaml
 make check-docs
 make tests
 ```
@@ -657,7 +668,7 @@ Keep documentation close to the decision it supports:
 | `docs/VISION.md` | Stable architecture principles and boundaries |
 | `docs/USER-GUIDE.md` | User workflows, configuration, output, plotting, and troubleshooting |
 | `docs/DEVELOPER-GUIDE.md` | Extension workflows, APIs, metadata, tests, and development practices |
-| `src/modules/<module>/README.md` | Module-local physics contract, dependencies, parameters, events, and tests |
+| `models/sage/modules/<module>/README.md` | Module-local physics contract, dependencies, parameters, events, and tests |
 | Metadata and generated output | Exhaustive field lists, unit labels, module registries, and event IDs |
 
 Prefer prose in guides when it explains decisions and tradeoffs. Prefer links to metadata or code when a list is mechanical, generated, or likely to drift.
@@ -666,8 +677,8 @@ Prefer prose in guides when it explains decisions and tradeoffs. Prefer links to
 
 Run `make generate` after editing:
 
-- `src/core/halo_properties.yaml`
-- `src/modules/model_properties.yaml`
+- `src/core/core_properties.yaml`
+- `models/sage/model_properties.yaml`
 - any `module_info.yaml`
 - module layout that affects discovery
 
@@ -719,7 +730,7 @@ make clean && make
 Run with debug logs:
 
 ```bash
-./mimic --debug input/millennium.yaml 2>&1 | tee debug.log
+./mimic --debug input/runs/sage_millennium.yaml 2>&1 | tee debug.log
 ```
 
 If `process()` fails without a useful reason, add `ERROR_LOG()` immediately before the failing `return -1` in the module. The core can identify the module and substep, but only the module knows the physics reason.
@@ -738,8 +749,8 @@ myfree(table);
 For deeper checks:
 
 ```bash
-./mimic --debug input/millennium.yaml
-valgrind --leak-check=full ./mimic input/millennium.yaml
+./mimic --debug input/runs/sage_millennium.yaml
+valgrind --leak-check=full ./mimic input/runs/sage_millennium.yaml
 ```
 
 ---
@@ -833,7 +844,7 @@ Common fields:
 
 ### Parameter Loading Macros
 
-Definitions live in `src/modules/_system/parameter_helpers.h`.
+Definitions live in `src/module_system/parameter_helpers.h`.
 
 | Macro | Use |
 | --- | --- |
@@ -874,4 +885,4 @@ Definitions live in `src/util/error.h`.
 
 ### Physical Constants
 
-Do not duplicate the physical constants table in documentation. The source of truth is `src/modules/_system/physical_constants.h`. Runtime-derived unit quantities are computed in `src/core/init.c` from `simulation.units` in the input YAML.
+Do not duplicate the physical constants table in documentation. The source of truth is `src/module_system/physical_constants.h`. Runtime-derived unit quantities are computed in `src/core/init.c` from `simulation.units` in the input YAML.

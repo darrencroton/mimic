@@ -32,7 +32,7 @@
 #include "output/hdf5.h"
 #include "output/util.h"
 #include "error.h"
-#include "_system/output_helpers.h"  /* -Isrc/modules makes this work */
+#include "module_system/output_helpers.h"
 #include "module_registry.h"         /* For PhaseModuleConfig */
 
 #define TRUE 1
@@ -1010,6 +1010,14 @@ static void store_run_properties(hid_t master_file_id) {
     {"TreeName", STRING, &MimicConfig.TreeName},
     {"SimulationDir", STRING, &MimicConfig.SimulationDir},
     {"FileWithSnapList", STRING, &MimicConfig.FileWithSnapList},
+    {"ModelName", STRING, &MimicConfig.ModelName},
+    {"ModelPath", STRING, &MimicConfig.ModelPath},
+    {"ModelPropertiesPath", STRING, &MimicConfig.ModelPropertiesPath},
+    {"SimulationName", STRING, &MimicConfig.SimulationName},
+    {"SimulationPath", STRING, &MimicConfig.SimulationPath},
+    {"SimulationConfigPath", STRING, &MimicConfig.SimulationConfigPath},
+    {"SimulationHaloPropertiesPath", STRING, &MimicConfig.SimulationHaloPropertiesPath},
+    {"PlottingProfilePath", STRING, &MimicConfig.PlottingProfilePath},
 
     /* Simulation parameters */
     {"LastSnapshotNr", INT, &MimicConfig.LastSnapshotNr},

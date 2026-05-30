@@ -19,8 +19,8 @@
 #include "allvars.h"
 #include "proto.h"
 #include "output/util.h"
-#include "_system/output_helpers.h"  /* -Isrc/modules makes this work */
-#include "../modules/_system/physical_constants.h"  /* For SEC_PER_MEGAYEAR */
+#include "module_system/output_helpers.h"
+#include "module_system/physical_constants.h"  /* For SEC_PER_MEGAYEAR */
 
 /**
  * @brief Prepares halo output ordering and updates merger pointers for a tree.

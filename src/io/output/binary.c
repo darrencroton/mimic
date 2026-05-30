@@ -31,8 +31,8 @@
 #include "output/util.h"
 #include "proto.h"
 #include "util.h"
-#include "_system/output_helpers.h"  /* -Isrc/modules makes this work */
-#include "../modules/_system/physical_constants.h"  /* For SEC_PER_MEGAYEAR */
+#include "module_system/output_helpers.h"
+#include "module_system/physical_constants.h"  /* For SEC_PER_MEGAYEAR */
 
 // keep a static file handle to remove the need to do constant seeking.
 FILE *save_fd[ABSOLUTEMAXSNAPS] = {0};
