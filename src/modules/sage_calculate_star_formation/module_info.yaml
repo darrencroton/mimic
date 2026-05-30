@@ -1,5 +1,5 @@
 module:
-  name: sage_star_formation
+  name: sage_calculate_star_formation
   description: "Swappable SF rate prescription: computes stellar mass formed this substep via Kennicutt-Schmidt efficiency with critical threshold; stores result in NewStellarMass transport field"
 
   supported_processing_modes: [process_by_galaxy]
@@ -19,9 +19,9 @@ module:
       - StarFormingDiskFactor
 
   tests:
-    unit: _tests/test_unit_sage_star_formation.c
-    integration: _tests/test_integration_sage_star_formation.py
+    unit: _tests/test_unit_sage_calculate_star_formation.c
+    integration: _tests/test_integration_sage_calculate_star_formation.py
     scientific: []
 
   docs:
-    physics: src/modules/sage_star_formation/README.md
+    physics: src/modules/sage_calculate_star_formation/README.md

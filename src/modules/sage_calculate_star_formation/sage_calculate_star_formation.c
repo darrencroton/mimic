@@ -1,5 +1,5 @@
 /**
- * @file    sage_star_formation.c
+ * @file    sage_calculate_star_formation.c
  * @brief   SAGE star formation - computes stellar mass formed this substep (swappable SF rate prescription)
  *
  * Calculates star formation via Kennicutt-Schmidt efficiency-based model with
@@ -31,7 +31,7 @@ static double STAR_FORMING_DISK_FACTOR;
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
-int sage_star_formation_init(void)
+int sage_calculate_star_formation_init(void)
 {
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("SfrEfficiency", SFR_EFFICIENCY, 0.0, 1.0,
                                       "star formation efficiency");
@@ -41,7 +41,7 @@ int sage_star_formation_init(void)
     /* Dependency check: apply step is required to commit NewStellarMass to galaxy
      * reservoirs.  Without it, every substep's SF results are silently discarded. */
     if (!module_configured_anywhere("sage_apply_star_formation_supernova")) {
-        ERROR_LOG("sage_star_formation requires sage_apply_star_formation_supernova "
+        ERROR_LOG("sage_calculate_star_formation requires sage_apply_star_formation_supernova "
                   "in the pipeline — without it, NewStellarMass is computed each "
                   "substep but never committed to galaxy reservoirs (silent output loss)");
         return -1;
@@ -54,7 +54,7 @@ int sage_star_formation_init(void)
     return 0;
 }
 
-int sage_star_formation_process(struct ModuleContext *ctx,
+int sage_calculate_star_formation_process(struct ModuleContext *ctx,
                                           struct Halo *halos, int ngal)
 {
     double dt = 0.0;
@@ -112,7 +112,7 @@ int sage_star_formation_process(struct ModuleContext *ctx,
     return 0;
 }
 
-int sage_star_formation_cleanup(void)
+int sage_calculate_star_formation_cleanup(void)
 {
     INFO_LOG("SAGE star formation module cleaned up");
     return 0;

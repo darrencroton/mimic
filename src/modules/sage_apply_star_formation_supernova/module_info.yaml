@@ -1,6 +1,6 @@
 module:
   name: sage_apply_star_formation_supernova
-  description: "Infrastructure apply step: commits NewStellarMass and SN transport fields to galaxy reservoirs with recycling, metallicity refresh, and gas-phase transfers. Not a swappable prescription; must follow sage_star_formation and/or sage_supernova_feedback in the same phase."
+  description: "Infrastructure apply step: commits NewStellarMass and SN transport fields to galaxy reservoirs with recycling, metallicity refresh, and gas-phase transfers. Not a swappable prescription; must follow sage_calculate_star_formation and/or sage_calculate_supernova_feedback in the same phase."
 
   supported_processing_modes: [process_by_galaxy]
 

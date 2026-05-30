@@ -10,7 +10,7 @@ This test validates both software quality and physics correctness:
 - Module loads and initializes correctly
 - Parameters can be configured via YAML files
 - Module executes without errors or memory leaks
-- Module works in pipeline with sage_star_formation
+- Module works in pipeline with sage_calculate_star_formation
 
 **Physics Validation Tests**:
 - Feedback properties have physically reasonable values
@@ -49,7 +49,7 @@ NC = '\033[0m'
 # ============================================================================
 
 def test_module_loads():
-    """Test that sage_supernova_feedback module loads and initializes"""
+    """Test that sage_calculate_supernova_feedback module loads and initializes"""
     print(f"\n{BLUE}TEST: Module loads and initializes{NC}")
 
     # Need star formation first to provide NewStellarMass
@@ -58,8 +58,8 @@ def test_module_loads():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -95,8 +95,8 @@ def test_output_properties_exist():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -135,8 +135,8 @@ def test_parameters_configurable():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -169,8 +169,8 @@ def test_memory_safety():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -205,8 +205,8 @@ def test_execution_completes():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -246,8 +246,8 @@ def test_pipeline_with_star_formation():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -291,8 +291,8 @@ def test_feedback_values_nonnegative():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -336,8 +336,8 @@ def test_feedback_proportional_to_sf():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -393,8 +393,8 @@ def test_feedback_reasonable_magnitude():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -450,8 +450,8 @@ def test_edge_case_zero_efficiency():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -499,8 +499,8 @@ def test_edge_case_very_high_efficiency():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -542,8 +542,8 @@ def test_parameter_variation_effect():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -573,8 +573,8 @@ def test_parameter_variation_effect():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -633,7 +633,7 @@ def test_parameter_variation_effect():
 def main():
     """Main test runner"""
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: sage_supernova_feedback Integration Tests{NC}")
+    print(f"{BLUE}Test Suite: sage_calculate_supernova_feedback Integration Tests{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
 
     try:

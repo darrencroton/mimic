@@ -1,11 +1,11 @@
-# `sage_supernova_feedback`
+# `sage_calculate_supernova_feedback`
 
 Calculates supernova reheating and ejection budgets from newly formed stellar mass.
 
 ## Processing Contract
 
 - Supported mode: `process_by_galaxy`
-- Expected phase: `phase_1`, after `sage_star_formation` and before `sage_apply_star_formation_supernova`
+- Expected phase: `phase_1`, after `sage_calculate_star_formation` and before `sage_apply_star_formation_supernova`
 - Receives one galaxy at a time
 
 ## Properties

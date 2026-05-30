@@ -1,5 +1,5 @@
 module:
-  name: sage_supernova_feedback
+  name: sage_calculate_supernova_feedback
   description: "Calculates supernova reheated and ejected gas masses from NewStellarMass with renormalization; stores results in SupernovaReheatedMass and SupernovaEjectedMass"
 
   supported_processing_modes: [process_by_galaxy]
@@ -16,9 +16,9 @@ module:
       - FeedbackEjectionEfficiency
 
   tests:
-    unit: _tests/test_unit_sage_supernova_feedback.c
-    integration: _tests/test_integration_sage_supernova_feedback.py
+    unit: _tests/test_unit_sage_calculate_supernova_feedback.c
+    integration: _tests/test_integration_sage_calculate_supernova_feedback.py
     scientific: []
 
   docs:
-    physics: src/modules/sage_supernova_feedback/README.md
+    physics: src/modules/sage_calculate_supernova_feedback/README.md

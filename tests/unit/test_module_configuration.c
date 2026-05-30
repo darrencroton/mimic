@@ -326,7 +326,7 @@ int test_dep_apply_cooling_wrong_order_error(void)
 
 /**
  * @test    test_dep_supernova_wrong_order_error
- * @brief   sage_supernova_feedback requires sage_star_formation to precede it (ERROR)
+ * @brief   sage_calculate_supernova_feedback requires sage_calculate_star_formation to precede it (ERROR)
  *
  * Triggers when both are configured but in wrong order (SN before SF).
  */
@@ -338,9 +338,9 @@ int test_dep_supernova_wrong_order_error(void)
 
     /* SN before SF — wrong order; apply step also present after both */
     MimicConfig.phase_1 = mymalloc_cat(3 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_supernova_feedback");
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_supernova_feedback");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1[1].module_name = strdup("sage_star_formation");
+    MimicConfig.phase_1[1].module_name = strdup("sage_calculate_star_formation");
     MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.phase_1[2].module_name = strdup("sage_apply_star_formation_supernova");
     MimicConfig.phase_1[2].processing_mode = PROCESSING_MODE_BY_GALAXY;
@@ -350,7 +350,7 @@ int test_dep_supernova_wrong_order_error(void)
 
     int result = module_system_init();
     TEST_ASSERT(result != 0,
-                "sage_supernova_feedback before sage_star_formation must fail init");
+                "sage_calculate_supernova_feedback before sage_calculate_star_formation must fail init");
 
     if (result == 0) { module_system_cleanup(); }
     check_memory_leaks();
@@ -373,7 +373,7 @@ int test_dep_apply_sfn_wrong_order_error(void)
     MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.phase_1[0].module_name = strdup("sage_apply_star_formation_supernova");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1[1].module_name = strdup("sage_star_formation");
+    MimicConfig.phase_1[1].module_name = strdup("sage_calculate_star_formation");
     MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.num_phase_1 = 2;
     MimicConfig.SubSteps = 1;
@@ -381,7 +381,7 @@ int test_dep_apply_sfn_wrong_order_error(void)
 
     int result = module_system_init();
     TEST_ASSERT(result != 0,
-                "sage_apply_sfn before sage_star_formation must fail init");
+                "sage_apply_sfn before sage_calculate_star_formation must fail init");
 
     if (result == 0) { module_system_cleanup(); }
     check_memory_leaks();
@@ -444,7 +444,7 @@ int test_dep_starburst_per_event_missing_producer_error(void)
 
 /**
  * @test    test_dep_sf_missing_apply_error
- * @brief   sage_star_formation without sage_apply_star_formation_supernova must fail (ERROR)
+ * @brief   sage_calculate_star_formation without sage_apply_star_formation_supernova must fail (ERROR)
  *
  * NewStellarMass would be computed each substep but never committed.
  */
@@ -456,7 +456,7 @@ int test_dep_sf_missing_apply_error(void)
 
     /* SF alone — no apply step anywhere */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_star_formation");
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_star_formation");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
@@ -464,7 +464,7 @@ int test_dep_sf_missing_apply_error(void)
 
     int result = module_system_init();
     TEST_ASSERT(result != 0,
-                "sage_star_formation without apply step must fail init");
+                "sage_calculate_star_formation without apply step must fail init");
 
     if (result == 0) { module_system_cleanup(); }
     check_memory_leaks();
@@ -473,7 +473,7 @@ int test_dep_sf_missing_apply_error(void)
 
 /**
  * @test    test_dep_sn_missing_apply_error
- * @brief   sage_supernova_feedback without sage_apply_star_formation_supernova must fail (ERROR)
+ * @brief   sage_calculate_supernova_feedback without sage_apply_star_formation_supernova must fail (ERROR)
  *
  * SupernovaReheatedMass and SupernovaEjectedMass would be computed but never committed.
  */
@@ -485,7 +485,7 @@ int test_dep_sn_missing_apply_error(void)
 
     /* SN alone — no apply step anywhere */
     MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_supernova_feedback");
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_supernova_feedback");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.num_phase_1 = 1;
     MimicConfig.SubSteps = 1;
@@ -493,7 +493,7 @@ int test_dep_sn_missing_apply_error(void)
 
     int result = module_system_init();
     TEST_ASSERT(result != 0,
-                "sage_supernova_feedback without apply step must fail init");
+                "sage_calculate_supernova_feedback without apply step must fail init");
 
     if (result == 0) { module_system_cleanup(); }
     check_memory_leaks();

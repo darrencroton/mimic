@@ -239,8 +239,8 @@ modules:
 
 ```yaml
 phase_1:
-  - sage_star_formation: process_by_galaxy
-  # - sage_supernova_feedback: process_by_galaxy
+  - sage_calculate_star_formation: process_by_galaxy
+  # - sage_calculate_supernova_feedback: process_by_galaxy
   - sage_apply_star_formation_supernova: process_by_galaxy
 ```
 

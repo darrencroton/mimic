@@ -46,33 +46,33 @@ int sage_apply_star_formation_supernova_init(void)
     /* Dependency checks: this is an infrastructure apply step that must follow
      * its SF/SN prescription modules. §7 of SAGE-MODULE-REVIEW.md. */
 
-    const bool sf_present  = module_configured_anywhere("sage_star_formation");
-    const bool sn_present  = module_configured_anywhere("sage_supernova_feedback");
+    const bool sf_present  = module_configured_anywhere("sage_calculate_star_formation");
+    const bool sn_present  = module_configured_anywhere("sage_calculate_supernova_feedback");
 
     /* WARNING: apply step configured with no prescriptions — all fields will be zero */
     if (!sf_present && !sn_present) {
         WARNING_LOG("sage_apply_star_formation_supernova: neither "
-                    "sage_star_formation nor sage_supernova_feedback is "
+                    "sage_calculate_star_formation nor sage_calculate_supernova_feedback is "
                     "configured — all SF/SN transport fields will be zero; "
                     "likely a configuration mistake");
     }
 
     /* ERROR: any SF/SN module must precede this apply step in the same phase */
     if (sf_present &&
-        !module_precedes_in_phase("sage_star_formation",
+        !module_precedes_in_phase("sage_calculate_star_formation",
                                   "sage_apply_star_formation_supernova",
                                   MimicConfig.phase_1, MimicConfig.num_phase_1)) {
         ERROR_LOG("sage_apply_star_formation_supernova requires "
-                  "sage_star_formation to precede it in phase_1 — apply step "
+                  "sage_calculate_star_formation to precede it in phase_1 — apply step "
                   "would commit stale values from the previous substep");
         return -1;
     }
     if (sn_present &&
-        !module_precedes_in_phase("sage_supernova_feedback",
+        !module_precedes_in_phase("sage_calculate_supernova_feedback",
                                   "sage_apply_star_formation_supernova",
                                   MimicConfig.phase_1, MimicConfig.num_phase_1)) {
         ERROR_LOG("sage_apply_star_formation_supernova requires "
-                  "sage_supernova_feedback to precede it in phase_1 — apply "
+                  "sage_calculate_supernova_feedback to precede it in phase_1 — apply "
                   "step would commit stale values from the previous substep");
         return -1;
     }

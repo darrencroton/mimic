@@ -4,7 +4,7 @@ SAGE Calculate Star Formation Module - Integration Test
 
 Validates: Module pipeline integration, physics correctness, parameter sensitivity
 
-This test validates the sage_star_formation module integration:
+This test validates the sage_calculate_star_formation module integration:
 - Module loads and executes correctly in full pipeline
 - StarFormationRate output is physically reasonable
 - Parameter sensitivity (changing efficiency changes results)
@@ -53,7 +53,7 @@ def test_module_pipeline_integration():
         output_name="sf_integration",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
+            'phase_1': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -107,7 +107,7 @@ def test_star_formation_physics():
         output_name="sf_physics",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
+            'phase_1': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -176,7 +176,7 @@ def test_parameter_sensitivity():
         output_name="sf_low_eff",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
+            'phase_1': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -202,7 +202,7 @@ def test_parameter_sensitivity():
         output_name="sf_high_eff",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
+            'phase_1': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -267,7 +267,7 @@ def test_memory_and_performance():
         output_name="sf_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
+            'phase_1': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
             'phase_2': [],
             'post_timestep': []
         },
@@ -302,7 +302,7 @@ def test_memory_and_performance():
 def main():
     """Main test runner"""
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: sage_star_formation Integration Tests{NC}")
+    print(f"{BLUE}Test Suite: sage_calculate_star_formation Integration Tests{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
 
     try:

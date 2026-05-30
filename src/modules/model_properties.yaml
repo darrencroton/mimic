@@ -124,7 +124,7 @@ galaxy_properties:
     type: float
     units: 1e10 Msun/h
     description: New stars formed this timestep
-    role: transport  # Written by sage_star_formation; read by sage_supernova_feedback and sage_apply_star_formation_supernova
+    role: transport  # Written by sage_calculate_star_formation; read by sage_calculate_supernova_feedback and sage_apply_star_formation_supernova
     output: false
     init_source: default
     init_value: 0.0
@@ -250,7 +250,7 @@ galaxy_properties:
     type: float
     units: 1e10 Msun/h
     description: Gas mass to be reheated by supernova feedback this timestep
-    role: transport  # Written by sage_supernova_feedback; consumed by sage_apply_star_formation_supernova
+    role: transport  # Written by sage_calculate_supernova_feedback; consumed by sage_apply_star_formation_supernova
     output: false
     init_source: default
     init_value: 0.0
@@ -262,7 +262,7 @@ galaxy_properties:
     type: float
     units: 1e10 Msun/h
     description: Gas mass to be ejected by supernova feedback this timestep
-    role: transport  # Written by sage_supernova_feedback; consumed by sage_apply_star_formation_supernova
+    role: transport  # Written by sage_calculate_supernova_feedback; consumed by sage_apply_star_formation_supernova
     output: false
     init_source: default
     init_value: 0.0

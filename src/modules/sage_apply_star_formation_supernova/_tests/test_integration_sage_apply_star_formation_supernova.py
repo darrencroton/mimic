@@ -59,8 +59,8 @@ def test_full_pipeline_conservation():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -133,8 +133,8 @@ def test_gas_transfer_physics():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -222,8 +222,8 @@ def test_metal_enrichment():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -292,8 +292,8 @@ def test_parameter_sensitivity():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -322,8 +322,8 @@ def test_parameter_sensitivity():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -400,8 +400,8 @@ def test_edge_cases():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],
@@ -475,8 +475,8 @@ def test_memory_and_performance():
         phase_config={
             'pre_timestep': [],
             'phase_1': [
-                ('sage_star_formation', 'process_by_galaxy'),
-                ('sage_supernova_feedback', 'process_by_galaxy'),
+                ('sage_calculate_star_formation', 'process_by_galaxy'),
+                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
             'phase_2': [],

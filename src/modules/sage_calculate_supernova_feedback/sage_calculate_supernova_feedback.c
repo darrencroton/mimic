@@ -1,5 +1,5 @@
 /**
- * @file    sage_supernova_feedback.c
+ * @file    sage_calculate_supernova_feedback.c
  * @brief   SAGE supernova feedback - computes SN reheating and ejection (swappable SN feedback prescription)
  *
  * Calculates reheated and ejected gas masses from supernova feedback based on
@@ -37,7 +37,7 @@ static double EtaSNcode;
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
-int sage_supernova_feedback_init(void)
+int sage_calculate_supernova_feedback_init(void)
 {
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackReheatingEpsilon", FEEDBACK_REHEATING_EPSILON, 0.0, 100.0,
                                       "reheating efficiency");
@@ -48,7 +48,7 @@ int sage_supernova_feedback_init(void)
 
     /* ERROR: apply step is required to commit SN transport fields to galaxy reservoirs */
     if (!module_configured_anywhere("sage_apply_star_formation_supernova")) {
-        ERROR_LOG("sage_supernova_feedback requires sage_apply_star_formation_supernova "
+        ERROR_LOG("sage_calculate_supernova_feedback requires sage_apply_star_formation_supernova "
                   "in the pipeline — without it, SupernovaReheatedMass and "
                   "SupernovaEjectedMass are computed each substep but never "
                   "committed to galaxy reservoirs (silent output loss)");
@@ -56,10 +56,10 @@ int sage_supernova_feedback_init(void)
     }
 
     /* ERROR: if both SF and SN are configured, SF must precede SN */
-    if (module_configured_anywhere("sage_star_formation") &&
-        !module_precedes_in_phase("sage_star_formation", "sage_supernova_feedback",
+    if (module_configured_anywhere("sage_calculate_star_formation") &&
+        !module_precedes_in_phase("sage_calculate_star_formation", "sage_calculate_supernova_feedback",
                                   MimicConfig.phase_1, MimicConfig.num_phase_1)) {
-        ERROR_LOG("sage_supernova_feedback requires sage_star_formation to "
+        ERROR_LOG("sage_calculate_supernova_feedback requires sage_calculate_star_formation to "
                   "precede it in phase_1 — SN reads NewStellarMass written by "
                   "SF; wrong order applies stale values from previous substep");
         return -1;
@@ -78,7 +78,7 @@ int sage_supernova_feedback_init(void)
     return 0;
 }
 
-int sage_supernova_feedback_process(struct ModuleContext *ctx,
+int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx,
                                                struct Halo *halos, int ngal)
 {
     if (ngal != 1) {
@@ -134,7 +134,7 @@ int sage_supernova_feedback_process(struct ModuleContext *ctx,
     return 0;
 }
 
-int sage_supernova_feedback_cleanup(void)
+int sage_calculate_supernova_feedback_cleanup(void)
 {
     INFO_LOG("SAGE supernova feedback module cleaned up");
     return 0;

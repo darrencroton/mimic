@@ -1,6 +1,6 @@
 /**
- * @file    test_unit_sage_supernova_feedback.c
- * @brief   Unit tests for sage_supernova_feedback module
+ * @file    test_unit_sage_calculate_supernova_feedback.c
+ * @brief   Unit tests for sage_calculate_supernova_feedback module
  *
  * Validates: Physics calculations, renormalization, edge cases, parameter handling
  *
@@ -49,10 +49,10 @@ static int modules_registered = 0;
 static double test_epsilon = 3.0;   /* FeedbackReheatingEpsilon */
 static double test_eta = 0.3;       /* FeedbackEjectionEfficiency */
 
-/* Minimal pipeline config for physics tests that call sage_supernova_feedback_init()
+/* Minimal pipeline config for physics tests that call sage_calculate_supernova_feedback_init()
  * directly.  The dependency check requires the apply step to be visible in
  * MimicConfig; we use static storage to avoid needing the memory system. */
-static char sn_pipeline_name0[] = "sage_supernova_feedback";
+static char sn_pipeline_name0[] = "sage_calculate_supernova_feedback";
 static char sn_pipeline_name1[] = "sage_apply_star_formation_supernova";
 static struct PhaseModuleConfig sn_physics_pipeline[2];
 
@@ -179,7 +179,7 @@ static void init_test_constants(void)
  *
  * @return  0 on success, non-zero on failure
  */
-extern int sage_supernova_feedback_init(void);
+extern int sage_calculate_supernova_feedback_init(void);
 
 /**
  * @brief   Call module process function directly (bypassing module system)
@@ -189,7 +189,7 @@ extern int sage_supernova_feedback_init(void);
  * @param   ngal            Number of galaxies (must be 1)
  * @return  0 on success, non-zero on failure
  */
-extern int sage_supernova_feedback_process(struct ModuleContext *ctx,
+extern int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx,
                                                        struct Halo *halos, int ngal);
 
 // ============================================================================
@@ -198,10 +198,10 @@ extern int sage_supernova_feedback_process(struct ModuleContext *ctx,
 
 /**
  * @test    test_module_registration
- * @brief   Test that sage_supernova_feedback module registers correctly
+ * @brief   Test that sage_calculate_supernova_feedback module registers correctly
  *
  * Expected: Module registration succeeds without errors
- * Validates: sage_supernova_feedback_register() works
+ * Validates: generated registry includes sage_calculate_supernova_feedback
  */
 int test_module_registration(void)
 {
@@ -236,10 +236,10 @@ int test_module_initialization(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_supernova_feedback module in phase_1 */
+    /* Configure sage_calculate_supernova_feedback module in phase_1 */
     /* SN requires sage_apply_star_formation_supernova in the pipeline */
     MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_supernova_feedback");
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_supernova_feedback");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
     MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
@@ -280,7 +280,7 @@ int test_parameter_reading(void)
 
     /* SN requires sage_apply_star_formation_supernova in the pipeline */
     MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_supernova_feedback");
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_supernova_feedback");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
     MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
@@ -321,7 +321,7 @@ int test_memory_safety(void)
 
     /* SN requires sage_apply_star_formation_supernova in the pipeline */
     MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_supernova_feedback");
+    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_supernova_feedback");
     MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
     MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
@@ -363,7 +363,7 @@ int test_basic_reheating_calculation(void)
     set_test_model_parameters();  /* Set model parameters for module init */
 
     /* Initialize module to set up physics constants */
-    int init_result = sage_supernova_feedback_init();
+    int init_result = sage_calculate_supernova_feedback_init();
     TEST_ASSERT(init_result == 0, "Module initialization should succeed");
 
     struct Halo test_halo;
@@ -383,7 +383,7 @@ int test_basic_reheating_calculation(void)
     setup_module_context(&ctx, &central_halo, 0.01);
 
     /* ===== EXECUTE ===== */
-    int result = sage_supernova_feedback_process(&ctx, &test_halo, 1);
+    int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Module process should succeed");
@@ -419,7 +419,7 @@ int test_renormalization_triggered(void)
     init_test_constants();
     set_test_model_parameters();
 
-    int init_result = sage_supernova_feedback_init();
+    int init_result = sage_calculate_supernova_feedback_init();
     TEST_ASSERT(init_result == 0, "Module initialization should succeed");
 
     struct Halo test_halo;
@@ -439,7 +439,7 @@ int test_renormalization_triggered(void)
     setup_module_context(&ctx, &central_halo, 0.01);
 
     /* ===== EXECUTE ===== */
-    int result = sage_supernova_feedback_process(&ctx, &test_halo, 1);
+    int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Module process should succeed");
@@ -479,7 +479,7 @@ int test_renormalization_boundary(void)
     init_test_constants();
     set_test_model_parameters();
 
-    int init_result = sage_supernova_feedback_init();
+    int init_result = sage_calculate_supernova_feedback_init();
     TEST_ASSERT(init_result == 0, "Module initialization should succeed");
 
     struct Halo test_halo;
@@ -499,7 +499,7 @@ int test_renormalization_boundary(void)
     setup_module_context(&ctx, &central_halo, 0.01);
 
     /* ===== EXECUTE ===== */
-    int result = sage_supernova_feedback_process(&ctx, &test_halo, 1);
+    int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Module process should succeed");
@@ -528,7 +528,7 @@ int test_ejection_calculation(void)
     init_test_constants();
     set_test_model_parameters();
 
-    int init_result = sage_supernova_feedback_init();
+    int init_result = sage_calculate_supernova_feedback_init();
     TEST_ASSERT(init_result == 0, "Module initialization should succeed");
 
     struct Halo test_halo;
@@ -548,7 +548,7 @@ int test_ejection_calculation(void)
     setup_module_context(&ctx, &central_halo, 0.01);
 
     /* ===== EXECUTE ===== */
-    int result = sage_supernova_feedback_process(&ctx, &test_halo, 1);
+    int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Module process should succeed");
@@ -583,7 +583,7 @@ int test_negative_ejection_clamped(void)
     init_test_constants();
     set_test_model_parameters();
 
-    int init_result = sage_supernova_feedback_init();
+    int init_result = sage_calculate_supernova_feedback_init();
     TEST_ASSERT(init_result == 0, "Module initialization should succeed");
 
     struct Halo test_halo;
@@ -603,7 +603,7 @@ int test_negative_ejection_clamped(void)
     setup_module_context(&ctx, &central_halo, 0.01);
 
     /* ===== EXECUTE ===== */
-    int result = sage_supernova_feedback_process(&ctx, &test_halo, 1);
+    int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Module process should succeed");
@@ -633,7 +633,7 @@ int test_zero_stellar_mass(void)
     init_test_constants();
     set_test_model_parameters();
 
-    int init_result = sage_supernova_feedback_init();
+    int init_result = sage_calculate_supernova_feedback_init();
     TEST_ASSERT(init_result == 0, "Module initialization should succeed");
 
     struct Halo test_halo;
@@ -650,7 +650,7 @@ int test_zero_stellar_mass(void)
     setup_module_context(&ctx, &central_halo, 0.01);
 
     /* ===== EXECUTE ===== */
-    int result = sage_supernova_feedback_process(&ctx, &test_halo, 1);
+    int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Module process should succeed");
@@ -677,7 +677,7 @@ int test_zero_vvir(void)
     init_test_constants();
     set_test_model_parameters();
 
-    int init_result = sage_supernova_feedback_init();
+    int init_result = sage_calculate_supernova_feedback_init();
     TEST_ASSERT(init_result == 0, "Module initialization should succeed");
 
     struct Halo test_halo;
@@ -695,7 +695,7 @@ int test_zero_vvir(void)
     setup_module_context(&ctx, &central_halo, 0.01);
 
     /* ===== EXECUTE ===== */
-    int result = sage_supernova_feedback_process(&ctx, &test_halo, 1);
+    int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Module should handle zero Vvir gracefully");
@@ -737,7 +737,7 @@ int test_null_galaxy_pointer(void)
     setup_module_context(&ctx, &central_halo, 0.01);
 
     /* ===== EXECUTE ===== */
-    int result = sage_supernova_feedback_process(&ctx, &test_halo, 1);
+    int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Module should handle NULL galaxy gracefully");
@@ -758,7 +758,7 @@ int test_very_low_cold_gas(void)
     init_test_constants();
     set_test_model_parameters();
 
-    int init_result = sage_supernova_feedback_init();
+    int init_result = sage_calculate_supernova_feedback_init();
     TEST_ASSERT(init_result == 0, "Module initialization should succeed");
 
     struct Halo test_halo;
@@ -777,7 +777,7 @@ int test_very_low_cold_gas(void)
     setup_module_context(&ctx, &central_halo, 0.01);
 
     /* ===== EXECUTE ===== */
-    int result = sage_supernova_feedback_process(&ctx, &test_halo, 1);
+    int result = sage_calculate_supernova_feedback_process(&ctx, &test_halo, 1);
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(result == 0, "Module should handle very low cold gas");
@@ -797,13 +797,13 @@ int test_very_low_cold_gas(void)
 /**
  * @brief   Main test runner
  *
- * Executes all sage_supernova_feedback tests and reports results.
+ * Executes all sage_calculate_supernova_feedback tests and reports results.
  */
 int main(void)
 {
     printf("%s", BLUE);
     printf("============================================================\n");
-    printf("Test Suite: sage_supernova_feedback Module\n");
+    printf("Test Suite: sage_calculate_supernova_feedback Module\n");
     printf("============================================================\n");
     printf("%s", NC);
 

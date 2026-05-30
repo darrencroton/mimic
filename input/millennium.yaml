@@ -53,9 +53,9 @@ modules:
     - sage_apply_cooling:             process_by_galaxy
 
     # Star formation and supernova feedback
-    - sage_star_formation:            process_by_galaxy   # prescription: SF rate law
-    - sage_supernova_feedback:        process_by_galaxy   # prescription: SN feedback model (optional)
-    - sage_apply_star_formation_supernova: process_by_galaxy   # infrastructure: commit SF/SN results
+    - sage_calculate_star_formation:          process_by_galaxy
+    - sage_calculate_supernova_feedback:      process_by_galaxy
+    - sage_apply_star_formation_supernova:    process_by_galaxy
 
     # Disk instability
     - sage_disk_instability:          process_by_galaxy
