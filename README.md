@@ -51,7 +51,7 @@ This runs the shipped mini-Millennium + SAGE example. Other simulations and phys
 source mimic_venv/bin/activate
 
 # Generate all plots
-python output/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml
+python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml
 
 # Deactivate when done
 deactivate
@@ -82,7 +82,7 @@ make tests             # Run comprehensive test suite
 - Plotting and visualization
 - Troubleshooting
 
-For detailed plotting options and plot names, see **[output/mimic-plot/README.md](output/mimic-plot/README.md)**.
+For detailed plotting options and plot names, see **[plot/mimic-plot/README.md](plot/mimic-plot/README.md)**.
 
 ### For Developers (Extending Mimic)
 

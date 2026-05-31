@@ -243,7 +243,7 @@ def configure_plot_profile(params, param_file, verbose=False):
     """Load and apply the active plot profile stack."""
     global PLOT_PROFILE, PROFILE_PLOTS
 
-    profile_paths = [REPO_ROOT / "output/mimic-plot/profiles/default.yaml"]
+    profile_paths = [REPO_ROOT / "plot/mimic-plot/profiles/default.yaml"]
 
     model_path = params.get("ModelPath")
     if model_path:

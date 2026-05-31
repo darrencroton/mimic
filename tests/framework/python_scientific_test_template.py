@@ -22,8 +22,8 @@ import sys
 from pathlib import Path
 import numpy as np
 
-# Add output/mimic-plot to path for data loading utilities
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "output" / "mimic-plot"))
+# Add plot/mimic-plot to path for data loading utilities
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "plot" / "mimic-plot"))
 
 # You may need to import plotting utilities for data loading
 # from mimic_plot import load_binary_data, load_hdf5_data
@@ -47,7 +47,7 @@ def load_halos(snapshot_file):
         np.ndarray: Structured array with halo properties
 
     TODO: Implement using existing plotting infrastructure
-    See output/mimic-plot/ for reference implementations
+    See plot/mimic-plot/ for reference implementations
     """
     # Use existing data loading utilities
     raise NotImplementedError("Implement using mimic-plot utilities")

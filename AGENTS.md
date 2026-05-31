@@ -143,7 +143,7 @@ cd tests && python -c "from framework import load_binary_halos; print(load_binar
 source mimic_venv/bin/activate
 
 # Plotting unit tests
-cd output/mimic-plot/tests
+cd plot/mimic-plot/tests
 python3 test_validation_helpers.py
 
 # Plotting integration tests
@@ -162,7 +162,7 @@ python mimic-plot.py --param-file=../../input/sage_millennium.yaml --evolution-p
 
 # Works from any directory
 cd ../..
-python output/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml --plots=halo_mass_function
+python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml --plots=halo_mass_function
 
 deactivate
 ```
@@ -228,7 +228,7 @@ simulations/
 build/generated/     Build-time generated files (git_version.h, test lists)
 tests/               Unit, integration, and scientific tests
   └── generated/     Auto-generated test metadata
-output/mimic-plot/   Plotting system (22 plots: 18 snapshot, 4 evolution)
+plot/mimic-plot/     Plotting system (22 plots: 18 snapshot, 4 evolution)
   ├── tests/         Plotting system tests (unit and integration)
   └── output_schema.py  Run-local schema reader for binary outputs
 ```

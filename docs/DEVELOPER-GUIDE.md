@@ -152,7 +152,7 @@ Key directories:
 | `archive/src-modules/_archive/` | Retired module code/tests preserved outside the live runtime tree |
 | `src/include/generated/` | Generated property structs and output helpers |
 | `tests/` | Core unit, integration, scientific, framework, and generated test support |
-| `output/mimic-plot/` | Plotting, schema readers, and model-local plot discovery |
+| `plot/mimic-plot/` | Plotting, schema readers, and model-local plot discovery |
 
 ### FoF Workspaces
 

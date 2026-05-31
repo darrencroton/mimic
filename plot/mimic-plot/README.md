@@ -153,7 +153,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, "/path/to/mimic/output/mimic-plot")
+sys.path.insert(0, "/path/to/mimic/plot/mimic-plot")
 from output_schema import dtype_from_schema, units_from_schema
 
 output_file = Path("model_z0.000_0")
@@ -493,8 +493,8 @@ python3 test_validation_helpers.py
 
 # Both from mimic root
 cd ../..
-python3 output/mimic-plot/tests/test_validation_helpers.py
-output/mimic-plot/tests/test_plotting.sh
+python3 plot/mimic-plot/tests/test_validation_helpers.py
+plot/mimic-plot/tests/test_plotting.sh
 ```
 
 ### Test Suite
@@ -528,7 +528,7 @@ If you used the main Mimic setup script (`../../scripts/first_run.sh`), the Pyth
 ```bash
 # From the main Mimic directory
 source mimic_venv/bin/activate
-cd output/mimic-plot
+cd plot/mimic-plot
 python mimic-plot.py --param-file=../../input/sage_millennium.yaml
 ```
 
@@ -552,7 +552,7 @@ cd ../..
 python3 -m venv mimic_venv
 source mimic_venv/bin/activate
 pip install -r requirements.txt
-cd output/mimic-plot
+cd plot/mimic-plot
 ```
 
 **Option 2: Install packages directly:**

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Unit tests for the SAGE-native HDF5 reader (output/mimic-plot/sage_native_hdf5.py).
+Unit tests for the SAGE-native HDF5 reader (plot/mimic-plot/sage_native_hdf5.py).
 
 Covers:
   - SAGE -> Mimic field renames (IntraClusterStars -> ICS, etc.)

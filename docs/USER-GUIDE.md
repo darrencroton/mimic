@@ -167,7 +167,7 @@ plotting:
 
 output:
   output_filename: model
-  output_directory: ./output/results/sage-millennium/
+  output_directory: ./output/sage-millennium/
   output_format: hdf5                 # binary or hdf5
   snapshot_count: 8                   # -1 writes every snapshot
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
@@ -328,7 +328,7 @@ Do not assume these lists are universal for every future model. Treat the proper
 ```python
 import h5py
 
-with h5py.File("output/results/millennium/model_000.hdf5", "r") as f:
+with h5py.File("output/sage-millennium/model_000.hdf5", "r") as f:
     galaxies = f["Snap063/Galaxies"][:]
     metadata = f["Snap063/FieldMetadata"][:]
 
@@ -413,23 +413,23 @@ Activate the virtual environment before running plotting commands:
 ```bash
 source mimic_venv/bin/activate
 
-python output/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml
+python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml
 
-python output/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml \
+python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml \
     --plots=halo_mass_function,stellar_mass_function
 
-python output/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml \
+python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml \
     --snapshot-plots
 
-python output/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml \
+python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml \
     --evolution-plots
 
 deactivate
 ```
 
-The plotting README is the detailed plotting manual: [output/mimic-plot/README.md](../output/mimic-plot/README.md). It covers command-line options, available plot names, skipped-plot diagnostics, testing, and adding new plot types. The active plot registry lives in `models/<MODEL>/plots/figures/__init__.py`; plotting should be self-contained inside the selected model package.
+The plotting README is the detailed plotting manual: [plot/mimic-plot/README.md](../plot/mimic-plot/README.md). It covers command-line options, available plot names, skipped-plot diagnostics, testing, and adding new plot types. The active plot registry lives in `models/<MODEL>/plots/figures/__init__.py`; plotting should be self-contained inside the selected model package.
 
-Plots are written under the configured output directory, normally `output/results/sage-millennium/plots/` for the shipped example.
+Plots are written under the configured output directory, normally `output/sage-millennium/plots/` for the shipped example.
 
 ---
 
@@ -495,7 +495,7 @@ source mimic_venv/bin/activate
 **No plots generated or many skipped plots**: Some plots require populated galaxy-physics fields. A physics-free run can still produce halo-property plots, but galaxy plots will be skipped. Run with `--verbose` to see skip reasons:
 
 ```bash
-python output/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml --verbose
+python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml --verbose
 ```
 
 **Virtual environment missing**:
@@ -513,7 +513,7 @@ pip install -r requirements.txt
 - [README.md](../README.md): project overview and quick start
 - [VISION.md](VISION.md): architecture principles
 - [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md): module development, metadata, and testing
-- [output/mimic-plot/README.md](../output/mimic-plot/README.md): plotting manual
+- [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): plotting manual
 
 ## Citations
 
