@@ -297,7 +297,7 @@ output:
   output_format: hdf5   # or binary
 ```
 
-HDF5 is self-documenting and portable. Binary is compact and fast, but it must be read with a dtype generated from the same property metadata as the executable.
+HDF5 is self-documenting and portable. Binary is compact and fast, and Mimic writes `metadata/output_schema.json` beside every run so binary readers can reconstruct the exact dtype used by that executable.
 
 ### Units and Schema
 
@@ -307,9 +307,9 @@ The current output schema is generated at build time from:
 - `simulations/<simulation>/halo_properties.yaml` for catalog halo properties
 - `models/<MODEL>/model_properties.yaml` for galaxy/model properties
 
-The generated executable, `struct HaloOutput`, HDF5 field metadata, Python dtype, and validation ranges are therefore model-set specific. Re-run `make MODEL=<name> generate` or `make MODEL=<name>` after changing the selected model package metadata.
+The generated executable, `struct HaloOutput`, HDF5 field metadata, output schema writer, and validation ranges are therefore model-set specific. Re-run `make MODEL=<name> generate` or `make MODEL=<name>` after changing the selected model package metadata.
 
-Each property metadata entry declares its output unit label, initialization behavior, output conversion, and whether it is written to output. HDF5 output also writes `FieldMetadata` so analysis code can inspect field names, units, and descriptions directly from the file.
+Each property metadata entry declares its output unit label, initialization behavior, output conversion, and whether it is written to output. HDF5 output also writes `FieldMetadata` so analysis code can inspect field names, units, and descriptions directly from the file. Binary output relies on `metadata/output_schema.json`; keep the `metadata/` directory with any binary files you move or sync elsewhere.
 
 For the shipped Millennium/SAGE configuration, common output conventions include:
 
@@ -375,23 +375,25 @@ The master HDF5 file, `model.hdf5`, contains run metadata plus external links to
 
 ### Reading Binary Output
 
-Binary output has a small integer header followed by `HaloOutput` records. Use the generated dtype from `output/mimic-plot/generated/dtype.py` that matches the current build.
+Binary output has a small integer header followed by `HaloOutput` records. Use the run-local schema in `metadata/output_schema.json`, not the current checkout's model metadata, to construct the dtype.
 
 ```python
 from pathlib import Path
 import sys
 
+import json
 import numpy as np
 
 repo = Path("/path/to/mimic")
 sys.path.insert(0, str(repo / "output" / "mimic-plot"))
 
-from generated.dtype import get_binary_dtype, get_units
-
-dtype = get_binary_dtype()
-units = get_units()
+from output_schema import dtype_from_schema, units_from_schema
 
 path = repo / "output" / "results" / "millennium" / "model_z0.000_0"
+schema = json.loads((path.parent / "metadata" / "output_schema.json").read_text())
+dtype = dtype_from_schema(schema, binary=True)
+units = units_from_schema(schema)
+
 with path.open("rb") as f:
     ntrees = np.fromfile(f, dtype=np.int32, count=1)[0]
     ngalaxies = np.fromfile(f, dtype=np.int32, count=1)[0]

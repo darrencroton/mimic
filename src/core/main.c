@@ -21,6 +21,7 @@
 #include <assert.h>
 #include <math.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +41,7 @@
 #include "output/hdf5.h"
 #include "version.h"
 #include "io.h"
+#include "generated/property_defs.h"
 
 /* Module system (physics-agnostic) */
 #include "module_registry.h"
@@ -174,6 +176,32 @@ static void copy_to_metadata(const char *metadata_dir, const char *src_path) {
     WARNING_LOG("Failed to copy '%s' to metadata directory '%s'", src_path,
                 metadata_dir);
   }
+}
+
+/**
+ * @brief   Write the exact output schema used by this executable.
+ *
+ * Binary output stores raw HaloOutput records, so downstream readers need the
+ * field offsets and total record size from the compiler that built this run.
+ * HDF5 output is self-describing, but the same schema file keeps run metadata
+ * consistent across output formats.
+ */
+static void write_output_schema_metadata(const char *metadata_dir) {
+  char schema_path[MAX_STRING_LEN + 64];
+  snprintf(schema_path, sizeof(schema_path), "%s/output_schema.json",
+           metadata_dir);
+
+  FILE *schema_file = fopen(schema_path, "w");
+  if (schema_file == NULL) {
+    WARNING_LOG("Failed to create output schema metadata file: %s",
+                schema_path);
+    return;
+  }
+
+  #include "../include/generated/output_schema_writer.inc"
+
+  fclose(schema_file);
+  INFO_LOG("Output schema metadata saved to %s", schema_path);
 }
 
 /**
@@ -536,6 +564,7 @@ int main(int argc, char **argv) {
   copy_to_metadata(metadata_dir, MimicConfig.SimulationHaloPropertiesPath);
   /* PlottingProfilePath is intentionally not copied: the profile is only
    * needed by mimic-plot.py, which reads it from the run YAML directly. */
+  write_output_schema_metadata(metadata_dir);
   INFO_LOG("Run configuration and referenced package files copied to %s",
            metadata_dir);
 

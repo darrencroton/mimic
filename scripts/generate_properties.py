@@ -2,7 +2,7 @@
 """
 Property Code Generator for Mimic
 
-Generates C structures, initialization code, output code, and Python dtypes from
+Generates C structures, initialization code, output code, and schema writers from
 YAML property metadata definitions. This eliminates manual synchronization across
 8+ files and enables rapid property addition (<2 minutes vs 30 minutes).
 
@@ -16,14 +16,12 @@ Reads:
 
 Generates:
     src/include/generated/property_defs.h
-    src/include/generated/property_metadata.c
     src/include/generated/init_halo_properties.inc
     src/include/generated/init_galaxy_properties.inc
     src/include/generated/copy_to_output.inc
     src/include/generated/hdf5_field_count.inc
     src/include/generated/hdf5_field_definitions.inc
-    output/mimic-plot/generated/dtype.py
-    output/mimic-plot/generated/__init__.py
+    src/include/generated/output_schema_writer.inc
 
 Author: Property Metadata System (Phase 1)
 Date: 2025-11-07
@@ -127,12 +125,11 @@ VALID_OUTPUT_TRANSFORMS = [
 
 # Output directories
 GENERATED_DIR = REPO_ROOT / "src" / "include" / "generated"
-PLOT_GENERATED_DIR = REPO_ROOT / "output" / "mimic-plot" / "generated"
 TESTS_GENERATED_DIR = REPO_ROOT / "tests" / "generated"
-BUILD_DIR = REPO_ROOT / "build"
+BUILD_GENERATED_DIR = REPO_ROOT / "build" / "generated"
 
 # Hash tracking file
-PROPERTY_HASH_FILE = BUILD_DIR / "property_hash.txt"
+PROPERTY_HASH_FILE = BUILD_GENERATED_DIR / "property_hash.txt"
 
 # ==============================================================================
 # VALIDATION
@@ -269,8 +266,12 @@ def validate_properties(halo_props: List[Dict], galaxy_props: List[Dict]) -> Non
 
 
 def compute_yaml_hash() -> str:
-    """Compute MD5 hash of YAML input files for validation."""
+    """Compute MD5 hash of property-generation inputs for validation."""
     md5 = hashlib.md5()
+
+    generator_path = Path(__file__)
+    md5.update(rel(generator_path).encode("utf-8"))
+    md5.update(generator_path.read_bytes())
 
     # Hash all YAML files in stable generation order.
     for yaml_file in halo_property_files() + model_property_files():
@@ -298,7 +299,7 @@ def save_hash(yaml_hash: str) -> None:
     Args:
         yaml_hash: The MD5 hash to save.
     """
-    ensure_dir(BUILD_DIR)
+    ensure_dir(BUILD_GENERATED_DIR)
     PROPERTY_HASH_FILE.write_text(yaml_hash + "\n")
 
 
@@ -831,100 +832,122 @@ def generate_hdf5_field_metadata(
 
 
 # ==============================================================================
-# PYTHON CODE GENERATION
+# OUTPUT SCHEMA CODE GENERATION
 # ==============================================================================
 
 
-def _generate_dtype_fields(halo_props: List[Dict], galaxy_props: List[Dict]) -> str:
-    """Helper: Generate dtype field tuples for output properties."""
-    fields = ""
-
-    # Add all output properties (halo then galaxy)
-    for prop in halo_props:
-        if prop["output"]:
-            numpy_type = TYPE_MAP[prop["type"]]["numpy_type"]
-            fields += f'        ("{prop["name"]}", {numpy_type}),\n'
-
-    for prop in galaxy_props:
-        if prop["output"]:
-            numpy_type = TYPE_MAP[prop["type"]]["numpy_type"]
-            fields += f'        ("{prop["name"]}", {numpy_type}),\n'
-
-    return fields
+NUMPY_TYPE_NAMES = {
+    "int": "int32",
+    "float": "float32",
+    "double": "float64",
+    "long long": "int64",
+    "vec3_float": "float32",
+    "vec3_int": "int32",
+}
 
 
-def generate_python_dtype(
+def _json_string(value: Any) -> str:
+    """Return a JSON string literal suitable for embedding in generated C."""
+    json_literal = json.dumps("" if value is None else str(value))
+    return json.dumps(json_literal)[1:-1]
+
+
+def _schema_shape(prop: Dict[str, Any]) -> str:
+    type_info = TYPE_MAP[prop["type"]]
+    if type_info.get("is_array"):
+        return f"[{type_info['array_size']}]"
+    return "[]"
+
+
+def generate_output_schema_writer(
     halo_props: List[Dict], galaxy_props: List[Dict], yaml_hash: str
 ) -> str:
-    """Generate generated_dtype.py for Python plotting tools."""
+    """Generate C statements that write the run-local output schema JSON."""
 
-    selected_model = os.environ.get("MODEL") or "<MODEL>"
-    source_lines = "\n".join(
-        f"  - {rel(path)}" for path in halo_property_files() + model_property_files()
+    code = generate_header(yaml_hash)
+    code += "/* Writes metadata/output_schema.json for binary readers and plotting. */\n"
+    code += "fprintf(schema_file, \"{\\n\");\n"
+    code += "fprintf(schema_file, \"  \\\"schema_version\\\": 1,\\n\");\n"
+    code += (
+        "fprintf(schema_file, \"  \\\"generated_by\\\": "
+        "\\\"scripts/generate_properties.py\\\",\\n\");\n"
     )
-    code = f'''"""AUTO-GENERATED CODE - DO NOT EDIT
+    code += (
+        f"fprintf(schema_file, \"  \\\"source_md5\\\": "
+        f"\\\"{yaml_hash}\\\",\\n\");\n"
+    )
+    code += (
+        "fprintf(schema_file, \"  \\\"model\\\": \\\"%s\\\",\\n\", "
+        "MIMIC_COMPILED_MODEL);\n"
+    )
+    code += (
+        "fprintf(schema_file, \"  \\\"model_path\\\": \\\"%s\\\",\\n\", "
+        "MIMIC_COMPILED_MODEL_PATH);\n"
+    )
+    code += "fprintf(schema_file, \"  \\\"record\\\": {\\n\");\n"
+    code += "fprintf(schema_file, \"    \\\"c_struct\\\": \\\"HaloOutput\\\",\\n\");\n"
+    code += (
+        "fprintf(schema_file, \"    \\\"binary_record_size\\\": %zu,\\n\", "
+        "sizeof(struct HaloOutput));\n"
+    )
+    code += "fprintf(schema_file, \"    \\\"byte_order\\\": \\\"native\\\",\\n\");\n"
+    code += (
+        "fprintf(schema_file, \"    \\\"alignment\\\": "
+        "\\\"native_c_compiler\\\"\\n\");\n"
+    )
+    code += "fprintf(schema_file, \"  },\\n\");\n"
+    code += "fprintf(schema_file, \"  \\\"fields\\\": [\\n\");\n"
 
-Generated by: scripts/generate_properties.py
+    fields = [("halo", prop) for prop in halo_props if prop["output"]]
+    fields += [("galaxy", prop) for prop in galaxy_props if prop["output"]]
 
-Source files:
-{source_lines}
+    for idx, (category, prop) in enumerate(fields):
+        comma = "," if idx < len(fields) - 1 else ""
+        name = prop["name"]
+        code += "fprintf(schema_file, \"    {\\n\");\n"
+        code += (
+            f"fprintf(schema_file, \"      \\\"name\\\": "
+            f"{_json_string(name)},\\n\");\n"
+        )
+        code += (
+            f"fprintf(schema_file, \"      \\\"category\\\": "
+            f"{_json_string(category)},\\n\");\n"
+        )
+        code += (
+            f"fprintf(schema_file, \"      \\\"c_type\\\": "
+            f"{_json_string(TYPE_MAP[prop['type']]['c_type'])},\\n\");\n"
+        )
+        code += (
+            f"fprintf(schema_file, \"      \\\"metadata_type\\\": "
+            f"{_json_string(prop['type'])},\\n\");\n"
+        )
+        code += (
+            f"fprintf(schema_file, \"      \\\"numpy_type\\\": "
+            f"{_json_string(NUMPY_TYPE_NAMES[prop['type']])},\\n\");\n"
+        )
+        code += (
+            f"fprintf(schema_file, \"      \\\"shape\\\": {_schema_shape(prop)},\\n\");\n"
+        )
+        code += (
+            "fprintf(schema_file, \"      \\\"offset\\\": %zu,\\n\", "
+            f"offsetof(struct HaloOutput, {name}));\n"
+        )
+        code += (
+            "fprintf(schema_file, \"      \\\"size\\\": %zu,\\n\", "
+            f"sizeof(((struct HaloOutput *)0)->{name}));\n"
+        )
+        code += (
+            f"fprintf(schema_file, \"      \\\"units\\\": "
+            f"{_json_string(prop.get('units', ''))},\\n\");\n"
+        )
+        code += (
+            f"fprintf(schema_file, \"      \\\"description\\\": "
+            f"{_json_string(prop.get('description', ''))}\\n\");\n"
+        )
+        code += f"fprintf(schema_file, \"    }}{comma}\\n\");\n"
 
-Source MD5: {yaml_hash}
-To regenerate: make MODEL={selected_model} generate
-"""
-
-import numpy as np
-
-def get_binary_dtype():
-    """Return NumPy dtype for binary output format (with struct alignment)."""
-    return np.dtype([
-'''
-
-    # Add dtype fields using helper
-    code += _generate_dtype_fields(halo_props, galaxy_props)
-
-    code += '''    ], align=True)
-
-def get_hdf5_dtype():
-    """Return NumPy dtype for HDF5 output format (no alignment)."""
-    return np.dtype([
-'''
-
-    # Add dtype fields using helper (same fields as binary)
-    code += _generate_dtype_fields(halo_props, galaxy_props)
-
-    code += "    ])\n\n"
-
-    # Add get_units() function for self-documenting output
-    code += "def get_units():\n"
-    code += '    """Return dictionary mapping property names to unit strings.\n'
-    code += "    \n"
-    code += "    Returns:\n"
-    code += "        dict: Dictionary with property names as keys and unit strings as values.\n"
-    code += "              Empty string indicates dimensionless quantities.\n"
-    code += "    \n"
-    code += "    Example:\n"
-    code += "        >>> units = get_units()\n"
-    code += "        >>> print(f\"Mvir units: {units['Mvir']}\")\n"
-    code += "        Mvir units: 1e10 Msun/h\n"
-    code += '    """\n'
-    code += "    return {\n"
-
-    # Add all output properties with their units
-    for prop in halo_props:
-        if prop["output"]:
-            name = prop["name"]
-            units = prop.get("units", "")
-            code += f"        '{name}': '{units}',\n"
-
-    for prop in galaxy_props:
-        if prop["output"]:
-            name = prop["name"]
-            units = prop.get("units", "")
-            code += f"        '{name}': '{units}',\n"
-
-    code += "    }\n"
-
+    code += "fprintf(schema_file, \"  ]\\n\");\n"
+    code += "fprintf(schema_file, \"}\\n\");\n"
     return code
 
 
@@ -1167,8 +1190,8 @@ def main():
 
     # Ensure output directories exist
     ensure_dir(GENERATED_DIR)
-    ensure_dir(PLOT_GENERATED_DIR)
     ensure_dir(TESTS_GENERATED_DIR)
+    ensure_dir(BUILD_GENERATED_DIR)
 
     # C header files
     write_file(
@@ -1207,28 +1230,10 @@ def main():
         GENERATED_DIR / "hdf5_field_metadata.inc",
         generate_hdf5_field_metadata(halo_props, galaxy_props, yaml_hash),
     )
-
-    # Python dtype
     write_file(
-        PLOT_GENERATED_DIR / "dtype.py",
-        generate_python_dtype(halo_props, galaxy_props, yaml_hash),
+        GENERATED_DIR / "output_schema_writer.inc",
+        generate_output_schema_writer(halo_props, galaxy_props, yaml_hash),
     )
-
-    # Python package init file
-    init_py_content = f'''"""AUTO-GENERATED CODE - DO NOT EDIT
-
-Generated by: scripts/generate_properties.py
-
-Source files:
-{chr(10).join(f"  - {rel(path)}" for path in halo_yaml_files + galaxy_yaml_files)}
-
-Source MD5: {yaml_hash}
-
-This package provides generated data types for reading Mimic output files.
-To regenerate: make MODEL={os.environ.get("MODEL") or "<MODEL>"} generate
-"""
-'''
-    write_file(PLOT_GENERATED_DIR / "__init__.py", init_py_content)
 
     # Validation manifest for tests
     write_file(
@@ -1249,7 +1254,7 @@ To regenerate: make MODEL={os.environ.get("MODEL") or "<MODEL>"} generate
     print("  C init code:     src/include/generated/init_*_properties.inc")
     print("  C output code:   src/include/generated/copy_to_output.inc")
     print("  HDF5 code:       src/include/generated/hdf5_*.inc")
-    print("  Python dtype:    output/mimic-plot/generated/dtype.py")
+    print("  Schema writer:   src/include/generated/output_schema_writer.inc")
     print()
     print("Next steps:")
     print("  1. Review generated files")

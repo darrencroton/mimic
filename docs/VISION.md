@@ -51,7 +51,7 @@ These principles guide design decisions and implementation choices in Mimic.
 **Requirements**:
 - Halo and galaxy properties are defined in YAML metadata.
 - Directory modules define registration metadata in `module_info.yaml`.
-- Generated code provides C struct fields, output schema, HDF5 field metadata, Python dtypes, module registration, and event identifiers.
+- Generated code provides C struct fields, output schema writers, HDF5 field metadata, module registration, and event identifiers.
 - Documentation should explain generated systems, but should avoid duplicating exhaustive generated lists unless the copy is small and stable.
 
 **In practice**: Adding a galaxy property requires editing the selected model package property file, such as `models/sage/model_properties.yaml`, then running `make MODEL=sage generate`. Production runtime modules should use a module directory under `models/<model>/modules/` containing the C implementation and `module_info.yaml`. Package-local standalone source modules under `models/<model>/modules/*.c` are supported for simple prototypes, but should be converted to directory modules once metadata, tests, dependencies, or event contracts matter.
@@ -88,7 +88,7 @@ These principles guide design decisions and implementation choices in Mimic.
 - Tree readers and output writers are isolated behind format-specific implementations.
 - Output schema follows property metadata rather than hand-written duplicate structs.
 - HDF5 output records field metadata, enabled modules, model parameters, redshift mapping, version information, and event contracts when present.
-- Binary output remains compact but requires the generated dtype that matches the current property metadata.
+- Binary output remains compact and is interpreted through the run-local `metadata/output_schema.json` written by the executable that produced it.
 
 **In practice**: Users should be able to inspect an HDF5 file and recover the active module pipeline and field units without reading the input YAML separately.
 
@@ -109,7 +109,7 @@ These principles guide design decisions and implementation choices in Mimic.
 ## Data Flow
 
 1. **Configuration loading**: The input YAML is parsed into runtime configuration, including output settings, input tree settings, simulation units, cosmology, module phases, and model parameters.
-2. **Metadata generation**: Property and module metadata generate C structs, output metadata, Python dtype helpers, module registration, and event identifiers.
+2. **Metadata generation**: Property and module metadata generate C structs, output metadata writers, module registration, and event identifiers.
 3. **Module registration**: The generated registry registers available runtime modules and their supported modes.
 4. **Pipeline validation**: The configured phases are checked against registered modules, supported modes, and event contracts.
 5. **Tree processing**: The core loads merger trees and builds FoF workspaces for each snapshot interval.

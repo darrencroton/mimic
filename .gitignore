@@ -19,10 +19,11 @@ build/
 *.d
 
 # Generated files
-src/module_system/generated/module_init.c
-tests/generated/module_sources.mk
+src/include/generated/
+src/module_system/generated/
+tests/generated/
+output/mimic-plot/generated/
 docs/generated/module-reference.md
-build/module_registry_hash.txt
 
 # Test artifacts
 tests/unit/build/

@@ -386,20 +386,30 @@ def test_binary_format_loading():
 
 def test_binary_baseline_comparison():
     """
-    CURRENTLY DISABLED - Binary baseline comparison
+    Test that current binary output matches committed baseline (core properties only)
 
-    Status: This test is disabled because binary format cannot handle schema evolution.
-            The binary format is not self-describing, so the loader uses the current
-            dtype (from generated code) which may differ from the baseline's dtype.
+    What: Compares tests/data/output/binary/model_z0.000_0 (current test run)
+          against tests/data/output/baseline/binary/model_z0.000_0 (committed baseline)
 
-    Alternative validation:
-            - test_hdf5_baseline_comparison validates core property determinism
-            - test_format_equivalence validates binary matches HDF5 output
-            Together, these provide complete binary output validation.
+    Comparison: All core halo properties for ALL halos
+                (Physics-agnostic properties only: Mvir, Rvir, Pos, Vel, etc.)
+                Module properties (ColdGas, StellarMass) are NOT compared
 
-    Original purpose: Compare current binary output against committed baseline (core only)
+    Tolerance: 1e-6 relative for floats, exact for integers
 
-    Kept for: Potential future use if binary format versioning is implemented
+    Expected: All core properties match exactly (within tolerance)
+
+    Validates: Core halo tracking is deterministic and hasn't regressed
+
+    Schema: Each binary output carries metadata/output_schema.json written by the
+            Mimic run that produced it, so the loader always uses the correct dtype
+            regardless of whether the property set has evolved since the baseline was
+            committed.
+
+    Note: If this test fails after a deliberate core change, regenerate baseline:
+          cp tests/data/output/binary/model_z0.000_0 tests/data/output/baseline/binary/
+          cp tests/data/output/binary/metadata/output_schema.json \\
+             tests/data/output/baseline/binary/metadata/
     """
     print("Testing binary baseline comparison...")
 
@@ -876,18 +886,19 @@ def main():
         return 1
 
     # Testing Strategy:
-    # - HDF5 baseline test validates core property determinism
+    # - Binary baseline test validates binary core property determinism
+    # - HDF5 baseline test validates HDF5 core property determinism
     # - Format equivalence test validates binary matches HDF5 output
-    # - Binary baseline test is DISABLED: binary format cannot handle schema evolution
-    #   (not self-describing, loader uses current dtype which may differ from baseline)
+    # Both baseline tests are enabled: each output carries metadata/output_schema.json
+    # so the loader always uses the dtype that matches the file, not a generated fallback.
 
     tests = [
         test_binary_format_execution,
         test_binary_format_loading,
-        # test_binary_baseline_comparison,  # DISABLED: See note above
+        test_binary_baseline_comparison,  # Validates binary core property determinism
         test_hdf5_format_execution,
         test_hdf5_format_loading,
-        test_hdf5_baseline_comparison,  # Validates core property determinism
+        test_hdf5_baseline_comparison,  # Validates HDF5 core property determinism
         test_unique_id_contract,  # Validates UniqueGalaxyID/UniqueCentralGalaxyID invariants
         test_format_equivalence,  # Validates binary matches HDF5 (all properties)
     ]

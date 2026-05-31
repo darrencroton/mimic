@@ -26,6 +26,7 @@ MIMIC_PLOT_DIR = os.path.dirname(HERE)
 sys.path.insert(0, MIMIC_PLOT_DIR)
 
 import numpy as np
+from output_schema import dtype_from_schema, load_schema
 
 try:
     import h5py
@@ -102,14 +103,74 @@ def _build_params(tmpdir, num_simulation_tree_files=4):
     }
 
 
+def _write_output_schema(tmpdir):
+    """Write the Mimic schema required by the SAGE-native adapter tests."""
+    fields = [
+        ("SnapNum", "int32", []),
+        ("Type", "int32", []),
+        ("UniqueGalaxyID", "int64", []),
+        ("UniqueCentralGalaxyID", "int64", []),
+        ("Len", "int32", []),
+        ("Mvir", "float32", []),
+        ("deltaMvir", "float32", []),
+        ("CentralMvir", "float32", []),
+        ("Rvir", "float32", []),
+        ("Vvir", "float32", []),
+        ("Vmax", "float32", []),
+        ("Pos", "float32", [3]),
+        ("Vel", "float32", [3]),
+        ("Spin", "float32", [3]),
+        ("HaloBaryonFraction", "float32", []),
+        ("ColdGas", "float32", []),
+        ("HotGas", "float32", []),
+        ("EjectedGas", "float32", []),
+        ("StellarMass", "float32", []),
+        ("BulgeMass", "float32", []),
+        ("ICS", "float32", []),
+        ("StarFormationRate", "float32", []),
+        ("MetalsICS", "float32", []),
+        ("MetalsEjectedGas", "float32", []),
+        ("BlackHoleMass", "float32", []),
+        ("SupernovaOutflowRate", "float32", []),
+        ("DiskScaleRadius", "float32", []),
+        ("MostBoundID", "int64", []),
+    ]
+    # Offsets are intentionally fake (stride-8). All callers pass binary=False
+    # (HDF5 mode), where dtype_from_schema ignores offset and itemsize entirely.
+    schema_fields = [
+        {
+            "name": name,
+            "numpy_type": dtype,
+            "shape": shape,
+            "offset": idx * 8,
+            "units": "",
+            "description": "",
+        }
+        for idx, (name, dtype, shape) in enumerate(fields)
+    ]
+    metadata_dir = os.path.join(tmpdir, "metadata")
+    os.makedirs(metadata_dir, exist_ok=True)
+    with open(os.path.join(metadata_dir, "output_schema.json"), "w") as f:
+        import json
+
+        json.dump(
+            {
+                "schema_version": 1,
+                "record": {"binary_record_size": len(fields) * 8},
+                "fields": schema_fields,
+            },
+            f,
+        )
+
+
 @unittest.skipUnless(HAVE_H5PY, "h5py not installed")
 class TestSagePerRankRead(unittest.TestCase):
     def test_rename_vector_sfr_snapnum_and_defaults(self):
         import sage_native_hdf5
-        from generated.dtype import get_hdf5_dtype
 
         snapshot = 63
         with tempfile.TemporaryDirectory() as tmp:
+            _write_output_schema(tmp)
             # 2 per-rank SAGE files (all files on disk are read)
             for fnr in (0, 1):
                 with h5py.File(os.path.join(tmp, f"model_{fnr}.hdf5"), "w") as f:
@@ -126,7 +187,10 @@ class TestSagePerRankRead(unittest.TestCase):
                 model_path, first_file=0, last_file=1, params=params
             )
 
-            self.assertEqual(galaxies.dtype, get_hdf5_dtype())
+            self.assertEqual(
+                galaxies.dtype,
+                dtype_from_schema(load_schema(tmp), binary=False),
+            )
             self.assertEqual(len(galaxies), 8)
             # Renamed fields are populated (non-zero)
             self.assertTrue(np.all(galaxies.ICS > 0.0))
@@ -157,6 +221,7 @@ class TestSagePerRankRead(unittest.TestCase):
 
         snapshot = 63
         with tempfile.TemporaryDirectory() as tmp:
+            _write_output_schema(tmp)
             # 4 per-rank files on disk, but only read the first 2
             for fnr in range(4):
                 with h5py.File(os.path.join(tmp, f"model_{fnr}.hdf5"), "w") as f:
@@ -179,10 +244,10 @@ class TestSagePerRankRead(unittest.TestCase):
 class TestSageMasterFileRead(unittest.TestCase):
     def test_master_file_with_core_subgroups(self):
         import sage_native_hdf5
-        from generated.dtype import get_hdf5_dtype
 
         snapshot = 63
         with tempfile.TemporaryDirectory() as tmp:
+            _write_output_schema(tmp)
             # Build a master file with two Core_<N>/Snap_<snapshot> subgroups.
             # SAGE's real master file uses external links; for testing the
             # consumer logic the equivalent direct subgroup layout suffices.
@@ -202,7 +267,10 @@ class TestSageMasterFileRead(unittest.TestCase):
 
             # 3 cores * 5 galaxies = 15
             self.assertEqual(len(galaxies), 15)
-            self.assertEqual(galaxies.dtype, get_hdf5_dtype())
+            self.assertEqual(
+                galaxies.dtype,
+                dtype_from_schema(load_schema(tmp), binary=False),
+            )
             self.assertTrue(np.all(galaxies.SnapNum == snapshot))
             self.assertEqual(metadata["good_files"], 3)
             # Master file has 3 Core_ groups, all 3 read -> full volume

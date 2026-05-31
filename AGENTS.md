@@ -87,6 +87,7 @@ make tidy
 ```bash
 # Basic execution
 ./mimic input/runs/sage_millennium.yaml
+./mimic input/runs/sham_millennium.yaml    # SHAM model
 
 # Verbosity options
 ./mimic --debug input/runs/sage_millennium.yaml    # Most verbose (debug output + context)
@@ -111,6 +112,12 @@ echo "exit_code=${test_rc}"
 # Treat any non-zero exit code as failure, regardless of log text
 ```
 
+### Testing Strategy
+
+Full test suites (`make MODEL=sage tests`, `make MODEL=sage test-scientific`) can take 5+ minutes
+and produce large output. **Delegate these to a subagent**: have it capture and summarise the
+results, then act on the report in the main context rather than filling it with raw test output.
+
 ```bash
 # Run all tests (validates metadata first, then all tiers)
 make MODEL=sage tests
@@ -120,9 +127,11 @@ make MODEL=sage validate-modules   # Validate module metadata only
 make MODEL=sage test-unit          # C unit tests (fast, <10s)
 make MODEL=sage test-integration   # Python integration tests (medium, <1min)
 make MODEL=sage test-scientific    # Python scientific validation (slow, <5min)
+```
 
 Individual tests: use `tests/unit/run_tests.sh <test_name>` for C unit tests and `python3 path/to/test.py` for integration/scientific scripts.
 
+```bash
 # Test data loader
 cd tests && python -c "from framework import load_binary_halos; print(load_binary_halos.__doc__)"
 ```
@@ -221,14 +230,14 @@ tests/               Unit, integration, and scientific tests
   └── generated/     Auto-generated test metadata
 output/mimic-plot/   Plotting system (22 plots: 18 snapshot, 4 evolution)
   ├── tests/         Plotting system tests (unit and integration)
-  └── generated/     Auto-generated Python dtypes
+  └── output_schema.py  Run-local schema reader for binary outputs
 ```
 
 ### Key Concepts
 
 **Halo Data Structures:** `InputTreeHalos` (immutable tree input) → `FoFWorkspace` (processing workspace) → `ProcessedHalos` (written to output). Structs: `struct Halo`, `struct GalaxyData`, `struct HaloOutput`.
 
-**Property System:** Properties are defined in YAML (`src/core/core_properties.yaml`, `simulations/<simulation>/halo_properties.yaml`, `models/<MODEL>/model_properties.yaml`) and generated via `make MODEL=<name> generate` into C structs, init/output logic, and Python dtypes.
+**Property System:** Properties are defined in YAML (`src/core/core_properties.yaml`, `simulations/<simulation>/halo_properties.yaml`, `models/<MODEL>/model_properties.yaml`) and generated via `make MODEL=<name> generate` into C structs, init/output logic, HDF5 metadata writers, and run-local binary output schemas.
 
 **Model Set Boundary:** Mimic compiles one model set at a time via `MODEL=<name>`. A model package must be self-contained for running and plotting: properties, modules, model-local `shared/` helpers, tests, and plot figures should live under `models/<model>/`. To mix modules from different model families, create a new model package and reconcile property names, parameter names, units, dependencies, tests, and plots there.
 

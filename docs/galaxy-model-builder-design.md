@@ -38,7 +38,7 @@ These are the tasks an agentic system is well-suited to *if and only if* its sen
 
 Mimic was engineered around machine-checkable contracts, and that is precisely what a long-horizon agent loop needs:
 
-- **YAML-driven code generation** (`src/core/core_properties.yaml`, `models/<MODEL>/model_properties.yaml` → C structs, init/output logic, Python dtypes). `make MODEL=<name> check-generated` proves the generated code matches the selected model-set metadata — a hard contract an agent cannot fake.
+- **YAML-driven code generation** (`src/core/core_properties.yaml`, `models/<MODEL>/model_properties.yaml` → C structs, init/output logic, output schema writers). `make MODEL=<name> check-generated` proves the generated code matches the selected model-set metadata — a hard contract an agent cannot fake.
 - **Module metadata validation** (`make MODEL=<name> validate-modules`) checks dependencies, properties, and file consistency.
 - **Three test tiers** — unit (C, fast), integration (Python, medium), scientific (Python, slow) — plus plotting unit/integration tests.
 - **A reference baseline** — the existing SAGE parity infrastructure gives a trusted model to diff against and to validate the science gate on before trusting it on anything new.

@@ -48,9 +48,9 @@ try:
 except ImportError:
     H5PY_AVAILABLE = False
 
-# Use the auto-generated HDF5 dtype so the recarray returned here is
-# byte-compatible with everything mimic-plot's figure modules expect.
-from generated.dtype import get_hdf5_dtype
+# Use the run-local Mimic output schema so the recarray returned here is shaped
+# like the Mimic output being compared against.
+from output_schema import dtype_from_schema, load_schema
 
 
 # Renamed-only properties. Field names that are identical in SAGE and Mimic
@@ -248,9 +248,9 @@ def read_data_sage_native(model_path, first_file, last_file, params,
 
     hubble_h = params["Hubble_h"]
     box_size = params["BoxSize"]
-    mimic_dtype = get_hdf5_dtype()
-
     output_dir = os.path.dirname(model_path)
+    mimic_dtype = dtype_from_schema(load_schema(output_dir), binary=False)
+
     base_name = os.path.basename(model_path)
     # Strip mimic-plot's redshift suffix (the SAGE files do not carry one).
     file_base = base_name.split("_z", 1)[0] if "_z" in base_name else base_name

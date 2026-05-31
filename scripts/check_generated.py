@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Check Generated Code Validator for Mimic
+Generated Code Validator for Mimic
 
-Verifies that tracked generated files are up-to-date with their source metadata.
-Used in CI to catch when metadata is modified but `make generate` wasn't run.
+Verifies that generated files in the working tree are up-to-date with their
+source metadata. Generated files are build artifacts and are not committed.
 
 Current scope:
 - Property metadata outputs generated from halo/model property YAML
-- The tracked module-generated event contract header
+- Module-generated event contract header
 
 Usage:
     MODEL=sage python3 scripts/check_generated.py
@@ -54,12 +54,11 @@ PROPERTY_GENERATED_FILES = [
     REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_count.inc",
     REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_definitions.inc",
     REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_metadata.inc",
-    REPO_ROOT / "output" / "mimic-plot" / "generated" / "dtype.py",
-    REPO_ROOT / "output" / "mimic-plot" / "generated" / "__init__.py",
+    REPO_ROOT / "src" / "include" / "generated" / "output_schema_writer.inc",
     REPO_ROOT / "tests" / "generated" / "property_ranges.json",
 ]
 
-# Module metadata inputs / tracked generated outputs
+# Module metadata inputs / generated outputs
 MODULE_EVENT_CONTRACTS_H = generated_module_dir() / "event_contracts.h"
 MODULE_GENERATED_FILES = [MODULE_EVENT_CONTRACTS_H]
 
@@ -69,8 +68,14 @@ MODULE_GENERATED_FILES = [MODULE_EVENT_CONTRACTS_H]
 
 
 def compute_property_yaml_hash() -> str:
-    """Compute MD5 hash of property YAML input files (same logic as generator)."""
+    """Compute MD5 hash of property-generation inputs (same logic as generator)."""
     md5 = hashlib.md5()
+
+    generator_path = REPO_ROOT / "scripts" / "generate_properties.py"
+    if not generator_path.exists():
+        return ""
+    md5.update(rel(generator_path).encode("utf-8"))
+    md5.update(generator_path.read_bytes())
 
     # Hash every property package in the same order as the generator.
     for yaml_file in PROPERTY_YAML_FILES:
@@ -108,6 +113,12 @@ def compute_module_metadata_hash() -> str:
         return ""
 
     md5 = hashlib.md5()
+    generator_path = REPO_ROOT / "scripts" / "generate_module_registry.py"
+    if not generator_path.exists():
+        return ""
+    md5.update(rel(generator_path).encode("utf-8"))
+    md5.update(generator_path.read_bytes())
+
     for kind, _module_name, path in entries:
         if kind == "standalone":
             md5.update(f"standalone:{rel(path)}".encode("utf-8"))
@@ -304,11 +315,11 @@ def main():
         PROPERTY_GENERATED_FILES, "Property-generated file"
     )
     module_files_ok = validate_generated_files(
-        MODULE_GENERATED_FILES, "Module-generated tracked file"
+        MODULE_GENERATED_FILES, "Module-generated file"
     )
     if property_files_ok and module_files_ok:
         total_files = len(PROPERTY_GENERATED_FILES) + len(MODULE_GENERATED_FILES)
-        print(f"✓ All {total_files} tracked generated files present")
+        print(f"✓ All {total_files} generated files present")
         checks_passed += 1
     print()
 
@@ -330,7 +341,7 @@ def main():
         compute_module_metadata_hash(),
         "module metadata",
     ):
-        print("✓ Tracked module-generated files match current module metadata")
+        print("✓ Module-generated files match current module metadata")
         checks_passed += 1
     print()
 
@@ -348,7 +359,7 @@ def main():
         print("✓ PASS: All checks passed")
         print("=" * 70)
         print()
-        print("Tracked generated code is up-to-date with property and module metadata.")
+        print("Generated code is up-to-date with property and module metadata.")
         return 0
     else:
         print(f"✗ FAIL: {checks_total - checks_passed} check(s) failed")
@@ -357,8 +368,7 @@ def main():
         print("ACTION REQUIRED:")
         print(f"  Run: make MODEL={os.environ.get('MODEL') or '<MODEL>'} generate")
         print()
-        print("This will regenerate tracked code from property and module metadata.")
-        print("Then commit the updated generated files to git.")
+        print("This will refresh ignored build artifacts from property and module metadata.")
         print()
         return 1
 

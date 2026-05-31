@@ -18,7 +18,7 @@ Generates:
     src/module_system/generated/module_init.c      - Module registration code
     src/module_system/generated/event_contracts.h  - Event ID enums and module IDs
     tests/generated/module_sources.mk                - Test build configuration
-    build/module_registry_hash.txt                   - Validation hash
+    build/generated/module_registry_hash.txt         - Validation hash
 
 Exit codes:
     0 - Success
@@ -83,7 +83,7 @@ def print_warning(msg: str) -> None:
 MODULE_INIT_C = generated_module_dir() / "module_init.c"
 EVENT_CONTRACTS_H = generated_module_dir() / "event_contracts.h"
 MODULE_SOURCES_MK = REPO_ROOT / "tests" / "generated" / "module_sources.mk"
-MODULE_HASH_FILE = REPO_ROOT / "build" / "module_registry_hash.txt"
+MODULE_HASH_FILE = REPO_ROOT / "build" / "generated" / "module_registry_hash.txt"
 
 # ==============================================================================
 # HEADER GENERATION (consistent across all generators)
@@ -695,8 +695,12 @@ def generate_event_contracts_h(
 
 
 def compute_metadata_hash(modules: List[Dict[str, Any]]) -> str:
-    """Compute MD5 hash of module metadata and standalone module sources."""
+    """Compute MD5 hash of module-generation inputs."""
     md5 = hashlib.md5()
+
+    generator_path = Path(__file__)
+    md5.update(rel(generator_path).encode("utf-8"))
+    md5.update(generator_path.read_bytes())
 
     # Sort by module name for consistent ordering
     sorted_modules = sorted(modules, key=lambda m: m["name"])

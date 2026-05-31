@@ -277,16 +277,18 @@ GENERATED_HEADERS := \
     $(GEN_DIR)/init_galaxy_properties.inc \
     $(GEN_DIR)/copy_to_output.inc \
     $(GEN_DIR)/hdf5_field_count.inc \
-    $(GEN_DIR)/hdf5_field_definitions.inc
+    $(GEN_DIR)/hdf5_field_definitions.inc \
+    $(GEN_DIR)/hdf5_field_metadata.inc \
+    $(GEN_DIR)/output_schema_writer.inc
 
-PROP_STAMP := $(BUILD_DIR)/property_generation.stamp
+PROP_STAMP := $(BUILD_DIR)/generated/property_generation.stamp
 
 # Run the smart property generator once per make invocation so MODEL switches
 # cannot reuse a stale generated schema.
 $(PROP_STAMP): $(PROP_YAML) scripts/generate_properties.py FORCE
 	@echo "Generating property code from metadata..."
 	@python3 scripts/generate_properties.py
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/generated
 	@touch $@
 
 # Generated headers depend on property YAML - kept for explicit dependency tracking
@@ -383,7 +385,7 @@ help:
 	@echo "    - src/include/generated/init_*_properties.inc"
 	@echo "    - src/include/generated/copy_to_output.inc"
 	@echo "    - src/include/generated/hdf5_field_*.inc"
-	@echo "    - output/mimic-plot/generated/dtype.py"
+	@echo "    - src/include/generated/output_schema_writer.inc"
 	@echo ""
 	@echo "  Module metadata (models/<name>/modules/*/module_info.yaml):"
 	@echo "    - src/module_system/generated/module_init.c"

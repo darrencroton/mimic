@@ -150,7 +150,7 @@ Key directories:
 | `archive/src-modules/_archive/` | Retired module code/tests preserved outside the live runtime tree |
 | `src/include/generated/` | Generated property structs and output helpers |
 | `tests/` | Core unit, integration, scientific, framework, and generated test support |
-| `output/mimic-plot/` | Plotting and generated Python dtype helpers |
+| `output/mimic-plot/` | Plotting, schema readers, and model-local plot discovery |
 
 ### FoF Workspaces
 
@@ -690,7 +690,7 @@ Generated files include:
 
 | Generator | Inputs | Outputs |
 | --- | --- | --- |
-| `scripts/generate_properties.py` | halo and galaxy property metadata | C property structs/includes, HDF5 field metadata, Python dtype, validation ranges |
+| `scripts/generate_properties.py` | halo and galaxy property metadata | C property structs/includes, HDF5 field metadata, output schema writer, validation ranges |
 | `scripts/generate_module_registry.py` | module metadata | runtime module registration, event contracts, module source fragments |
 
 Use:
@@ -699,7 +699,7 @@ Use:
 make MODEL=sage check-generated
 ```
 
-to verify tracked generated files are current.
+to verify ignored generated files are current after generation.
 
 ---
 

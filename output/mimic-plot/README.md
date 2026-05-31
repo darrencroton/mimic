@@ -21,9 +21,10 @@ This tool provides a single, comprehensive entry point for generating plots from
 **Important**: Always activate the Python environment before running plots:
 
 Build Mimic with the same model set as the parameter file before plotting. The
-generated dtype and available plot registry are model-specific, so a SHAM run
-should be built with `make MODEL=sham`, while the shipped SAGE run should be
-built with `make MODEL=sage`.
+available plot registry is model-specific, so a SHAM run should be built with
+`make MODEL=sham`, while the shipped SAGE run should be built with
+`make MODEL=sage`. Binary outputs must be kept with their run `metadata/`
+directory because `mimic-plot` reads `metadata/output_schema.json`.
 
 ```bash
 # Activate virtual environment (if using one)
@@ -140,26 +141,33 @@ The plotting system currently includes 18 snapshot plots and 4 evolution plots. 
 
 ## Working with Units
 
-All Mimic output properties include unit metadata for reproducible science. Units are stored in code units internally, with output unit labels generated from property metadata and exposed through HDF5 `FieldMetadata` or the generated Python dtype helper.
+All Mimic output properties include unit metadata for reproducible science. Units are stored in code units internally, with output unit labels generated from property metadata and exposed through HDF5 `FieldMetadata` or the run-local `metadata/output_schema.json`.
 
 ### Accessing Unit Information
 
-**From the generated Python helper** (binary dtype plus shared unit metadata):
+**From binary output schema**:
 ```python
-# The plotting tools run from output/mimic-plot/, so this import works directly.
-# From any other working directory, add the plotting directory to sys.path first:
-#   import sys; sys.path.insert(0, "/path/to/mimic/output/mimic-plot")
-from generated.dtype import get_binary_dtype, get_units
+import json
+import sys
+from pathlib import Path
 
-# Get units dictionary
-units = get_units()
+import numpy as np
+
+sys.path.insert(0, "/path/to/mimic/output/mimic-plot")
+from output_schema import dtype_from_schema, units_from_schema
+
+output_file = Path("model_z0.000_0")
+schema = json.loads((output_file.parent / "metadata" / "output_schema.json").read_text())
+units = units_from_schema(schema)
 print(f"Mvir is in: {units['Mvir']}")  # "1e10 Msun/h"
 print(f"dT is in: {units['dT']}")      # "Myr/h"
 print(f"Rvir is in: {units['Rvir']}")  # "Mpc/h"
 
-# Use in your analysis
-import numpy as np
-halos = np.fromfile('model_z0.000_0', dtype=get_binary_dtype())
+with output_file.open("rb") as handle:
+    ntrees = np.fromfile(handle, dtype=np.int32, count=1)[0]
+    ngalaxies = np.fromfile(handle, dtype=np.int32, count=1)[0]
+    np.fromfile(handle, dtype=np.int32, count=ntrees)  # halos per tree
+    halos = np.fromfile(handle, dtype=dtype_from_schema(schema, binary=True), count=ngalaxies)
 masses_code_units = halos['Mvir']  # In 10^10 Msun/h
 print(f"Mvir range: {masses_code_units.min():.2e} to {masses_code_units.max():.2e} {units['Mvir']}")
 ```
