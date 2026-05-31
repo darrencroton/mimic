@@ -25,6 +25,7 @@ pseudo-SHAM until Mimic has a volume/snapshot-wide ranking stage.
 Run with:
 
 ```bash
+make MODEL=sham
 ./mimic input/runs/sham_millennium.yaml
 ```
 
@@ -32,5 +33,6 @@ The model currently provides:
 
 - `sham_assign_stellar_mass`: peak-proxy tracking, stellar-mass assignment,
   deterministic scatter, and optional orphan ageing.
-- SHAM-specific output properties in `model_properties.yaml`.
-- SHAM plotting diagnostics in `plots/figures/`.
+- A standalone `model_properties.yaml` containing every galaxy property required
+  by this model set.
+- Self-contained plotting diagnostics in `plots/figures/`.

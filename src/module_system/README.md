@@ -28,10 +28,10 @@ See [docs/DEVELOPER-GUIDE.md](../../docs/DEVELOPER-GUIDE.md) for usage examples 
 - Solar values (M_sun, L_sun, Z_sun)
 - Not model parameters; read those from input YAML
 - Not module-specific code; keep that in your module directory
-- Not reusable physics utilities; use the `models/shared/` directory
+- Not model-specific reusable physics utilities; use `models/<model>/shared/`
 
 ## See Also
 
-- [models/shared/](../../models/shared/README.md) - Reusable physics utilities
+- [docs/DEVELOPER-GUIDE.md](../../docs/DEVELOPER-GUIDE.md#module-communication) - Model-local shared utility guidance
 - [docs/DEVELOPER-GUIDE.md](../../docs/DEVELOPER-GUIDE.md) - Module development guide
 - [docs/VISION.md](../../docs/VISION.md) - Architectural principles

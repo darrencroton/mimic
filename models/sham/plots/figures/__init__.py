@@ -1,17 +1,4 @@
-"""
-Mimic SHAM figure modules.
-
-The SHAM package reuses model-neutral halo and stellar-mass diagnostics from the
-SAGE figure package and adds SHAM-specific relation and satellite-fraction plots.
-"""
-
-import importlib.util
-import sys
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+"""Mimic SHAM figure modules."""
 
 # Standard figure settings for consistent appearance across all plots.
 AXIS_LABEL_SIZE = 16
@@ -93,31 +80,19 @@ def check_required_properties(galaxies, required_properties):
     return len(missing) == 0, missing
 
 
-SAGE_FIGURE_DIR = REPO_ROOT / "models/sage/plots/figures"
-
-
-def _load_common_figure(name):
-    """Load one SAGE figure module without importing the whole SAGE registry."""
-    path = SAGE_FIGURE_DIR / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(f"_sham_common_{name}", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    sys.modules[f"figures.{name}"] = module
-    return module
-
-
-halo_mass_function = _load_common_figure("halo_mass_function")
-halo_occupation = _load_common_figure("halo_occupation")
-hmf_evolution = _load_common_figure("hmf_evolution")
-smf_evolution = _load_common_figure("smf_evolution")
-spatial_distribution = _load_common_figure("spatial_distribution")
-spin_distribution = _load_common_figure("spin_distribution")
-stellar_mass_density_evolution = _load_common_figure("stellar_mass_density_evolution")
-stellar_mass_function = _load_common_figure("stellar_mass_function")
-velocity_distribution = _load_common_figure("velocity_distribution")
-
-from . import sham_satellite_fraction, sham_stellar_halo_relation  # noqa: E402
+from . import (
+    halo_mass_function,
+    halo_occupation,
+    hmf_evolution,
+    sham_satellite_fraction,
+    sham_stellar_halo_relation,
+    smf_evolution,
+    spatial_distribution,
+    spin_distribution,
+    stellar_mass_density_evolution,
+    stellar_mass_function,
+    velocity_distribution,
+)
 
 SNAPSHOT_PLOTS = [
     "halo_mass_function",

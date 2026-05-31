@@ -14,7 +14,7 @@
 #include "constants.h"
 #include "module_interface.h"
 #include "types.h"
-#include "shared/metallicity.h"
+#include "sage/shared/metallicity.h"
 #include "module_system/physical_constants.h"
 
 /**

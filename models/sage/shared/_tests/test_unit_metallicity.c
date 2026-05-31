@@ -10,8 +10,8 @@
  * @date 2025-11-23
  */
 
-#include "../../../tests/framework/test_framework.h"
-#include "shared/metallicity.h"
+#include "../../../../tests/framework/test_framework.h"
+#include "sage/shared/metallicity.h"
 #include <math.h>
 #include <stdio.h>
 

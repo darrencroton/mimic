@@ -7,11 +7,12 @@ YAML property metadata definitions. This eliminates manual synchronization acros
 8+ files and enables rapid property addition (<2 minutes vs 30 minutes).
 
 Usage:
-    python3 scripts/generate_properties.py
+    MODEL=sage python3 scripts/generate_properties.py
 
 Reads:
     src/core/core_properties.yaml
-    models/sage/model_properties.yaml
+    simulations/*/halo_properties.yaml
+    models/<MODEL>/model_properties.yaml
 
 Generates:
     src/include/generated/property_defs.h
@@ -303,6 +304,7 @@ def save_hash(yaml_hash: str) -> None:
 
 def generate_header(yaml_hash: str):
     """Generate common header for all generated files."""
+    selected_model = os.environ.get("MODEL") or "<MODEL>"
     source_lines = "\n".join(
         f" *   - {rel(path)}" for path in halo_property_files() + model_property_files()
     )
@@ -314,7 +316,7 @@ def generate_header(yaml_hash: str):
 {source_lines}
  *
  * Source MD5: {yaml_hash}
- * To regenerate: make generate
+ * To regenerate: make MODEL={selected_model} generate
  */
 
 """
@@ -856,6 +858,7 @@ def generate_python_dtype(
 ) -> str:
     """Generate generated_dtype.py for Python plotting tools."""
 
+    selected_model = os.environ.get("MODEL") or "<MODEL>"
     source_lines = "\n".join(
         f"  - {rel(path)}" for path in halo_property_files() + model_property_files()
     )
@@ -867,7 +870,7 @@ Source files:
 {source_lines}
 
 Source MD5: {yaml_hash}
-To regenerate: make generate
+To regenerate: make MODEL={selected_model} generate
 """
 
 import numpy as np
@@ -1042,7 +1045,7 @@ def generate_validation_manifest(
                 rel(path) for path in halo_property_files() + model_property_files()
             ],
             "source_md5": yaml_hash,
-            "regenerate": "make generate",
+            "regenerate": f"make MODEL={os.environ.get('MODEL', 'sage')} generate",
         },
         "schema_version": 1,
         "properties": props,
@@ -1222,7 +1225,7 @@ Source files:
 Source MD5: {yaml_hash}
 
 This package provides generated data types for reading Mimic output files.
-To regenerate: make generate
+To regenerate: make MODEL={os.environ.get("MODEL") or "<MODEL>"} generate
 """
 '''
     write_file(PLOT_GENERATED_DIR / "__init__.py", init_py_content)
@@ -1252,7 +1255,7 @@ To regenerate: make generate
     print("  1. Review generated files")
     print("  2. Update source files to include generated code")
     print("  3. Test compilation: make")
-    print("  4. Run validation: make check-generated")
+    print(f"  4. Run validation: make MODEL={os.environ.get('MODEL', 'sage')} check-generated")
     print()
 
 

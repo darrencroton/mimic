@@ -12,7 +12,7 @@
 #include "constants.h"
 #include "error.h"
 #include "globals.h"
-#include "shared/metallicity.h"
+#include "sage/shared/metallicity.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"

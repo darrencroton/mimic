@@ -10,7 +10,7 @@ Current scope:
 - The tracked module-generated event contract header
 
 Usage:
-    python3 scripts/check_generated.py
+    MODEL=sage python3 scripts/check_generated.py
 
 Exit codes:
     0 - All generated files are up-to-date
@@ -22,6 +22,7 @@ Date: 2025-11-07
 
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import List, Tuple
@@ -354,7 +355,7 @@ def main():
         print("=" * 70)
         print()
         print("ACTION REQUIRED:")
-        print("  Run: make generate")
+        print(f"  Run: make MODEL={os.environ.get('MODEL') or '<MODEL>'} generate")
         print()
         print("This will regenerate tracked code from property and module metadata.")
         print("Then commit the updated generated files to git.")

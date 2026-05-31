@@ -22,34 +22,39 @@ For new repository clones, use the automated setup script:
 
 ```bash
 # Basic compilation
-make
+make MODEL=sage
 
 # Note: Property code auto-regenerates during `make` when YAML changes
+# MODEL is required — make fails fast without it (no default; model sets are
+# switched, added, and removed over time so make must not assume any model exists).
+# Mimic builds one model set at a time. Use MODEL=<name> to select
+# models/<name>/ for properties, modules, model-local shared helpers, tests,
+# and plotting.
 
 # Show build configuration (library detection, compiler, enabled features)
-make info
+make MODEL=sage info
 
 # Regenerate all code from metadata (smart — only regenerates what changed)
 # Run after editing property YAML files or module metadata
-make generate
+make MODEL=sage generate
 
 # Verify generated code is up-to-date (CI check)
-make check-generated
+make MODEL=sage check-generated
 
 # Validate documentation links and anchors
 make check-docs
 
 # Validate module metadata (checks dependencies, properties, files)
-make validate-modules
+make MODEL=sage validate-modules
 
 # HDF5 is enabled by default; disable with:
-make USE-HDF5=no
+make MODEL=sage USE-HDF5=no
 
 # With MPI support for parallel processing
-make USE-MPI=yes
+make MODEL=sage USE-MPI=yes
 
 # Parallel build (faster — uses all cores)
-make -j$(nproc)
+make MODEL=sage -j$(nproc)
 
 # Clean build artifacts
 make clean
@@ -96,7 +101,7 @@ Long-running tests should be captured to a log file; check the exit code explici
 
 ```bash
 mkdir -p archive/test-logs
-make test-unit > archive/test-logs/test-unit.log 2>&1
+make MODEL=sage test-unit > archive/test-logs/test-unit.log 2>&1
 test_rc=$?
 tail -n 60 archive/test-logs/test-unit.log
 rg -n -i "failed|error|traceback" archive/test-logs/test-unit.log
@@ -106,13 +111,13 @@ echo "exit_code=${test_rc}"
 
 ```bash
 # Run all tests (validates metadata first, then all tiers)
-make tests
+make MODEL=sage tests
 
 # Run specific tiers
-make validate-modules   # Validate module metadata only
-make test-unit          # C unit tests (fast, <10s)
-make test-integration   # Python integration tests (medium, <1min)
-make test-scientific    # Python scientific validation (slow, <5min)
+make MODEL=sage validate-modules   # Validate module metadata only
+make MODEL=sage test-unit          # C unit tests (fast, <10s)
+make MODEL=sage test-integration   # Python integration tests (medium, <1min)
+make MODEL=sage test-scientific    # Python scientific validation (slow, <5min)
 
 Individual tests: use `tests/unit/run_tests.sh <test_name>` for C unit tests and `python3 path/to/test.py` for integration/scientific scripts.
 
@@ -196,11 +201,15 @@ src/
     └── generated/ Auto-generated property code and model parameter validation
 
 models/
-├── shared/        Reusable physics utilities
-└── sage/
+├── sage/
+│   ├── model_properties.yaml
+│   ├── modules/  SAGE physics modules and module-local tests
+│   ├── shared/   SAGE-local helper APIs
+│   └── plots/    SAGE plotting figures and profiles
+└── sham/
     ├── model_properties.yaml
-    ├── modules/  SAGE physics modules and module-local tests
-    └── plots/    SAGE plotting figures and profiles
+    ├── modules/  SHAM physics modules and module-local tests
+    └── plots/    SHAM plotting figures and profiles
 
 simulations/
 └── millennium/    Millennium metadata, halo properties, and snapshot lists
@@ -217,7 +226,9 @@ output/mimic-plot/   Plotting system (22 plots: 18 snapshot, 4 evolution)
 
 **Halo Data Structures:** `InputTreeHalos` (immutable tree input) → `FoFWorkspace` (processing workspace) → `ProcessedHalos` (written to output). Structs: `struct Halo`, `struct GalaxyData`, `struct HaloOutput`.
 
-**Property System:** Properties are defined in YAML (`src/core/core_properties.yaml`, `simulations/<simulation>/halo_properties.yaml`, `models/sage/model_properties.yaml`) and generated via `make generate` into C structs, init/output logic, and Python dtypes.
+**Property System:** Properties are defined in YAML (`src/core/core_properties.yaml`, `simulations/<simulation>/halo_properties.yaml`, `models/<MODEL>/model_properties.yaml`) and generated via `make MODEL=<name> generate` into C structs, init/output logic, and Python dtypes.
+
+**Model Set Boundary:** Mimic compiles one model set at a time via `MODEL=<name>`. A model package must be self-contained for running and plotting: properties, modules, model-local `shared/` helpers, tests, and plot figures should live under `models/<model>/`. To mix modules from different model families, create a new model package and reconcile property names, parameter names, units, dependencies, tests, and plots there.
 
 **Module System:** Runtime-configurable physics modules execute through a 4-phase pipeline (`pre_timestep` → `phase_1` → `phase_2` → `post_timestep`) with two processing modes: `PROCESSING_MODE_FULL_HALO` and `PROCESSING_MODE_BY_GALAXY`. Module lifecycle: `init()` → `process()` → `cleanup()`.
 

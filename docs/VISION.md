@@ -32,15 +32,17 @@ These principles guide design decisions and implementation choices in Mimic.
 
 ### 2. Runtime Modularity
 
-**Principle**: Physics combinations are selected at runtime from configuration, not fixed at compile time.
+**Principle**: Physics combinations are selected at runtime from the compiled model set.
 
 **Requirements**:
+- Mimic is compiled against one internally consistent model set, selected with `make MODEL=<name>`.
 - Module selection and processing mode are declared in the input YAML file.
+- Runtime selection is limited to modules in the selected `models/<model>/` package; cross-model experiments should be made explicit by creating a new model package.
 - Modules declare supported processing modes and event contracts in metadata when using the directory-module pattern.
 - The pipeline can run with any valid combination of configured modules, including no modules.
 - Scientific ordering remains explicit in configuration. Metadata validation catches wiring errors but does not replace scientific judgement.
 
-**In practice**: Users can disable supernova feedback, switch an AGN mode, or run halo tracking only by editing the YAML configuration and rerunning the executable.
+**In practice**: Users can disable supernova feedback, switch an AGN mode, or run halo tracking only by editing the YAML configuration and rerunning the executable built for that model set. Users who want to mix modules from different model families copy them into a new `models/<model>/` package and reconcile properties, parameters, units, tests, and plots there.
 
 ### 3. Metadata as the Source of Structural Truth
 
@@ -52,7 +54,7 @@ These principles guide design decisions and implementation choices in Mimic.
 - Generated code provides C struct fields, output schema, HDF5 field metadata, Python dtypes, module registration, and event identifiers.
 - Documentation should explain generated systems, but should avoid duplicating exhaustive generated lists unless the copy is small and stable.
 
-**In practice**: Adding a galaxy property requires editing the model package property file, such as `models/sage/model_properties.yaml`, then running `make generate`. Production runtime modules should use a module directory under `models/<model>/modules/` containing the C implementation and `module_info.yaml`. Package-local standalone source modules under `models/<model>/modules/*.c` are supported for simple prototypes, but should be converted to directory modules once metadata, tests, dependencies, or event contracts matter.
+**In practice**: Adding a galaxy property requires editing the selected model package property file, such as `models/sage/model_properties.yaml`, then running `make MODEL=sage generate`. Production runtime modules should use a module directory under `models/<model>/modules/` containing the C implementation and `module_info.yaml`. Package-local standalone source modules under `models/<model>/modules/*.c` are supported for simple prototypes, but should be converted to directory modules once metadata, tests, dependencies, or event contracts matter.
 
 ### 4. One Coherent Processing Model
 
@@ -100,7 +102,7 @@ These principles guide design decisions and implementation choices in Mimic.
 - Module parameter validation happens in module `init()` because only the module knows its physical constraints.
 - Failing tests are treated as real problems, not documentation or test-suite noise.
 
-**In practice**: `make validate-modules`, `make check-generated`, and startup validation provide fast feedback before a long scientific run begins.
+**In practice**: `make MODEL=<name> validate-modules`, `make MODEL=<name> check-generated`, and startup validation provide fast feedback before a long scientific run begins.
 
 ---
 

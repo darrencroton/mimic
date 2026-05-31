@@ -258,6 +258,11 @@ if [[ "$OUTPUT_DIR" != /* ]]; then
     OUTPUT_DIR="${ROOT_DIR}/${OUTPUT_DIR}"
 fi
 
+# MODEL is required; there is no default
+if [[ -z "${MODEL}" ]]; then
+    error_exit "MODEL is required. Run as: MODEL=sage ./benchmark_mimic.sh"
+fi
+
 # CRITICAL SAFETY CHECK: Ensure variables are not empty
 if [[ -z "${OUTPUT_DIR}" ]] || [[ -z "${OUTPUT_BASENAME}" ]]; then
     error_exit "CRITICAL: Failed to parse parameter file. OUTPUT_DIR='${OUTPUT_DIR}' OUTPUT_BASENAME='${OUTPUT_BASENAME}'. Aborting to prevent accidental deletion."
@@ -294,6 +299,7 @@ echo "=== Mimic Performance Benchmark ==="
 echo "Timestamp: $(date)"
 echo "Parameter file: ${PARAM_FILE}"
 echo "Output format: ${OUTPUT_FORMAT}"
+echo "Model set: ${MODEL}"
 echo "Saving results to: ${ROOT_DIR}/benchmarks/$(basename "$BENCHMARK_RESULTS")"
 echo
 
@@ -307,10 +313,10 @@ make clean > /dev/null 2>&1 || true
 
 # Generate module registration code
 verbose_log "Generating module registration code..."
-make generate > /dev/null 2>&1 || error_exit "Code generation failed"
+make MODEL="${MODEL}" generate > /dev/null 2>&1 || error_exit "Code generation failed"
 
 verbose_log "Building Mimic with flags: ${MAKE_FLAGS}"
-make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} || error_exit "Build failed"
+make MODEL="${MODEL}" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} || error_exit "Build failed"
 
 echo "Build successful."
 echo

@@ -1,10 +1,77 @@
 # Mimic SHAM Galaxy Properties Metadata
 #
-# This file defines SHAM-specific galaxy properties. Shared galaxy properties
-# such as StellarMass and BulgeMass are currently supplied by the global Mimic
-# generated schema while the architecture supports all live models side by side.
+# This file defines all galaxy properties required by the SHAM model package.
 
 galaxy_properties:
+
+  # =============================================================================
+  # STELLAR COMPONENTS
+  # =============================================================================
+
+  - name: StellarMass
+    type: float
+    units: 1e10 Msun/h
+    description: Total stellar mass
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h (generous upper bound)
+    sentinels: [0.0]  # Legitimate to have no stars yet
+
+  - name: BulgeMass
+    type: float
+    units: 1e10 Msun/h
+    description: Stellar mass in bulge component
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= StellarMass
+    sentinels: [0.0]  # Can be zero for pure disk galaxies
+
+  - name: StarFormationRate
+    type: float
+    units: Msun/yr
+    description: Average star formation rate over snapshot (total stars formed / dT)
+    output: true
+    init_source: default
+    init_value: 0.0
+    init_repeat: true  # Reset each snapshot
+    output_source: galaxy_property
+    output_convert: UnitMass_in_g / UnitTime_in_s * SEC_PER_YEAR / SOLAR_MASS
+    range: [0.0, 10000.0]  # Up to 10^4 Msun/yr (extreme starbursts)
+    sentinels: [0.0]  # Zero when no star formation
+
+  # =============================================================================
+  # CHEMICAL COMPOSITION
+  # =============================================================================
+
+  - name: MetalsStellarMass
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in stellar component
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= StellarMass
+    sentinels: [0.0]  # Primordial stars (Pop III) would have zero metals
+
+  - name: MetalsBulgeMass
+    type: float
+    units: 1e10 Msun/h
+    description: Metal mass in bulge component
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # Must be <= BulgeMass
+    sentinels: [0.0]  # Can be zero
+
+  # =============================================================================
+  # SHAM PROXIES AND DIAGNOSTICS
+  # =============================================================================
 
   - name: ShamMpeak
     type: float
@@ -61,3 +128,17 @@ galaxy_properties:
     range: [0.0, 20000.0]
     sentinels: [0.0]
 
+  # =============================================================================
+  # TESTING INFRASTRUCTURE (DO NOT USE IN PRODUCTION)
+  # =============================================================================
+
+  - name: TestDummyProperty
+    type: float
+    units: dimensionless
+    description: Test property for infrastructure testing only (NOT FOR PRODUCTION)
+    output: false  # Don't clutter production output
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 1.0]  # Simple range for testing
+    sentinels: []  # No special sentinels

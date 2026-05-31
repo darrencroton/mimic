@@ -22,6 +22,14 @@
 #include "memory.h"             /* For mymalloc_cat, myfree */
 #include "module_registry.h"    /* For PhaseModuleConfig and LoopMode */
 
+#ifndef MIMIC_COMPILED_MODEL
+#error "MIMIC_COMPILED_MODEL must be set at compile time via -DMIMIC_COMPILED_MODEL=<name>. Use make MODEL=<name>."
+#endif
+
+#ifndef MIMIC_COMPILED_MODEL_PATH
+#error "MIMIC_COMPILED_MODEL_PATH must be set at compile time via -DMIMIC_COMPILED_MODEL_PATH=<path>. Use make MODEL=<name>."
+#endif
+
 /* Helper functions for DOM navigation */
 static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key);
 static const char *get_scalar_value(yaml_node_t *node);
@@ -758,6 +766,21 @@ static void validate_and_postprocess(void) {
   }
   if (strlen(MimicConfig.ModelPropertiesPath) == 0) {
     ERROR_LOG("Required parameter 'model.properties' missing");
+    errors++;
+  }
+  if (strlen(MimicConfig.ModelName) > 0 &&
+      strcmp(MimicConfig.ModelName, MIMIC_COMPILED_MODEL) != 0) {
+    ERROR_LOG("Run file selects model.name='%s' but this executable was built "
+              "with MODEL=%s",
+              MimicConfig.ModelName, MIMIC_COMPILED_MODEL);
+    errors++;
+  }
+  if (strlen(MimicConfig.ModelPath) > 0 &&
+      strcmp(MimicConfig.ModelPath, MIMIC_COMPILED_MODEL_PATH) != 0) {
+    ERROR_LOG("Run file selects model.path='%s' but this executable was built "
+              "with MODEL=%s (%s)",
+              MimicConfig.ModelPath, MIMIC_COMPILED_MODEL,
+              MIMIC_COMPILED_MODEL_PATH);
     errors++;
   }
   if (strlen(MimicConfig.SimulationName) == 0) {

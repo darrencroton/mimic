@@ -113,9 +113,9 @@ modules:
 Then regenerate, build, and run:
 
 ```bash
-make validate-modules
-make generate
-make
+make MODEL=sage validate-modules
+make MODEL=sage generate
+make MODEL=sage
 ./mimic input/runs/sage_millennium.yaml
 ```
 
@@ -143,10 +143,10 @@ Key directories:
 | --- | --- |
 | `src/core/` | Main execution, configuration parsing, unit setup, tree processing, module dispatch |
 | `src/io/` | Tree readers and binary/HDF5 output writers |
-| `models/sage/modules/` | Runtime physics modules and module-owned tests |
+| `models/<model>/modules/` | Runtime physics modules and module-owned tests for one model set |
 | `src/module_system/` | Framework helpers, templates, generated module code, constants |
-| `models/shared/` | Shared physics utilities used by modules |
-| `models/sage/modules/_tests/` | Cross-module tests that do not belong to one module |
+| `models/<model>/shared/` | Model-local helper APIs used by modules in that model set |
+| `models/<model>/modules/_tests/` | Cross-module tests that do not belong to one module |
 | `archive/src-modules/_archive/` | Retired module code/tests preserved outside the live runtime tree |
 | `src/include/generated/` | Generated property structs and output helpers |
 | `tests/` | Core unit, integration, scientific, framework, and generated test support |
@@ -201,11 +201,13 @@ Return conventions:
 
 ### Module Communication
 
+Mimic is compiled against one model set at a time with `make MODEL=<name>`. Discovery, property generation, module registration, model-local shared helpers, tests, and plotting all come from that selected `models/<model>/` package. If a researcher wants to mix modules from different model families, they should create a new model package and copy the desired modules/helpers/plots into it, then reconcile property names, parameter names, units, dependencies, and tests there.
+
 Modules should not call each other directly. They communicate through:
 
 - generated properties in `struct Halo` and `struct GalaxyData`
 - explicit event contracts for `process_per_event` consumers
-- shared utility functions in `models/shared/` when multiple modules need the same calculation
+- model-local utility functions in `models/<model>/shared/` when multiple modules in the selected model set need the same calculation
 
 Module metadata dependencies are validation aids. They document properties and parameters a module uses, but they do not automatically sort modules into a scientifically valid order. The YAML phase configuration remains the source of execution ordering.
 
@@ -426,12 +428,12 @@ Properties are generated from YAML metadata and then accessed as normal C struct
 | Property type | Metadata file | Typical owner |
 | --- | --- | --- |
 | Halo properties | `src/core/core_properties.yaml` | Core tree tracking and output |
-| Galaxy/model properties | `models/sage/model_properties.yaml` | Physics modules |
+| Galaxy/model properties | `models/<MODEL>/model_properties.yaml` | Selected model-set physics modules |
 
 Workflow for adding a galaxy property:
 
-1. Add a metadata entry to `models/sage/model_properties.yaml`.
-2. Run `make generate`.
+1. Add a metadata entry to `models/<MODEL>/model_properties.yaml`.
+2. Run `make MODEL=<name> generate`.
 3. Rebuild.
 4. Use the generated field in modules.
 5. Add or update tests that validate initialization, reset behavior, output behavior, and physics use.
@@ -579,21 +581,21 @@ Mimic uses three test tiers:
 
 | Tier | Command | Scope |
 | --- | --- | --- |
-| Unit | `make test-unit` | C unit tests for functions, modules, and infrastructure |
-| Integration | `make test-integration` | End-to-end Python tests for full pipeline and output formats |
-| Scientific | `make test-scientific` | Physics validation and scientific regression tests |
+| Unit | `make MODEL=sage test-unit` | C unit tests for functions, modules, and infrastructure |
+| Integration | `make MODEL=sage test-integration` | End-to-end Python tests for full pipeline and output formats |
+| Scientific | `make MODEL=sage test-scientific` | Physics validation and scientific regression tests |
 
 Run everything:
 
 ```bash
-make tests
+make MODEL=sage tests
 ```
 
 For long-running test sessions, capture logs and check the exit code:
 
 ```bash
 mkdir -p archive/test-logs
-make tests > archive/test-logs/tests.log 2>&1
+make MODEL=sage tests > archive/test-logs/tests.log 2>&1
 test_rc=$?
 tail -n 80 archive/test-logs/tests.log
 rg -n -i "failed|error|traceback" archive/test-logs/tests.log
@@ -642,12 +644,12 @@ source mimic_venv/bin/activate
 Daily loop:
 
 ```bash
-make validate-modules
-make generate
-make
+make MODEL=sage validate-modules
+make MODEL=sage generate
+make MODEL=sage
 ./mimic --debug input/runs/sage_millennium.yaml
 make check-docs
-make tests
+make MODEL=sage tests
 ```
 
 Format code before requesting review or committing:
@@ -675,12 +677,14 @@ Prefer prose in guides when it explains decisions and tradeoffs. Prefer links to
 
 ### Code Generation
 
-Run `make generate` after editing:
+Run `make MODEL=<name> generate` after editing:
 
 - `src/core/core_properties.yaml`
-- `models/sage/model_properties.yaml`
+- `models/<MODEL>/model_properties.yaml`
 - any `module_info.yaml`
 - module layout that affects discovery
+
+Use the same model selector for generation, validation, tests, and build, for example `make MODEL=sage generate` followed by `make MODEL=sage`.
 
 Generated files include:
 
@@ -692,7 +696,7 @@ Generated files include:
 Use:
 
 ```bash
-make check-generated
+make MODEL=sage check-generated
 ```
 
 to verify tracked generated files are current.
@@ -706,7 +710,7 @@ to verify tracked generated files are current.
 Start with metadata validation:
 
 ```bash
-make validate-modules
+make MODEL=sage validate-modules
 ```
 
 Common failures:
@@ -721,8 +725,8 @@ Common failures:
 Then regenerate and rebuild:
 
 ```bash
-make generate
-make clean && make
+make MODEL=sage generate
+make MODEL=sage clean && make MODEL=sage
 ```
 
 ### Runtime Failures

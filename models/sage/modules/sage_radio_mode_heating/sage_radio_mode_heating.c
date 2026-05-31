@@ -14,7 +14,7 @@
 
 #include "constants.h"
 #include "error.h"
-#include "shared/metallicity.h"
+#include "sage/shared/metallicity.h"
 #include "sage/shared/time_parity.h"
 #include "module_system/parameter_helpers.h"
 #include "module_system/physical_constants.h"

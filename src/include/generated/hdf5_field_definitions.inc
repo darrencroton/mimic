@@ -6,10 +6,9 @@
  *   - src/core/core_properties.yaml
  *   - simulations/millennium/halo_properties.yaml
  *   - models/sage/model_properties.yaml
- *   - models/sham/model_properties.yaml
  *
- * Source MD5: 32d03c733ad30bfb735194a5f28ba423
- * To regenerate: make generate
+ * Source MD5: fc70a98f4c12546a6e2cdd9852e49089
+ * To regenerate: make MODEL=sage generate
  */
 
 /* HDF5 field definitions for calc_hdf5_props() */
@@ -265,35 +264,5 @@ HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, TimeOfLastMinorMerger);
 HDF5_dst_sizes[i] = sizeof(galout.TimeOfLastMinorMerger);
 HDF5_field_names[i] = "TimeOfLastMinorMerger";
-HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-/* ShamMpeak */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, ShamMpeak);
-HDF5_dst_sizes[i] = sizeof(galout.ShamMpeak);
-HDF5_field_names[i] = "ShamMpeak";
-HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-/* ShamVpeak */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, ShamVpeak);
-HDF5_dst_sizes[i] = sizeof(galout.ShamVpeak);
-HDF5_field_names[i] = "ShamVpeak";
-HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-/* ShamStellarMassNoScatter */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, ShamStellarMassNoScatter);
-HDF5_dst_sizes[i] = sizeof(galout.ShamStellarMassNoScatter);
-HDF5_field_names[i] = "ShamStellarMassNoScatter";
-HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-/* ShamScatterDex */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, ShamScatterDex);
-HDF5_dst_sizes[i] = sizeof(galout.ShamScatterDex);
-HDF5_field_names[i] = "ShamScatterDex";
-HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
-
-/* ShamOrphanAge */
-HDF5_dst_offsets[i] = HOFFSET(struct HaloOutput, ShamOrphanAge);
-HDF5_dst_sizes[i] = sizeof(galout.ShamOrphanAge);
-HDF5_field_names[i] = "ShamOrphanAge";
 HDF5_field_types[i++] = H5T_NATIVE_FLOAT;
 

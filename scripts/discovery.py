@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Iterable, List
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_MODEL = ""
 
 
 def rel(path: Path) -> str:
@@ -29,15 +31,22 @@ def existing(paths: Iterable[Path]) -> List[Path]:
 
 
 def live_model_roots() -> List[Path]:
-    """Return live model package roots under models/."""
+    """Return the selected model package root under models/.
+
+    Mimic is built against one model set at a time. Select it with
+    ``make MODEL=<name>`` or by setting the ``MODEL`` environment variable when
+    invoking helper scripts directly.
+    """
+    selected_model = os.environ.get("MODEL", DEFAULT_MODEL)
+    if not selected_model:
+        return []
     models_dir = REPO_ROOT / "models"
     if not models_dir.exists():
         return []
-    return [
-        path
-        for path in sorted(models_dir.iterdir())
-        if path.is_dir() and not path.name.startswith("_") and path.name != "archive"
-    ]
+    path = models_dir / selected_model
+    if not path.is_dir() or path.name.startswith("_") or path.name == "archive":
+        return []
+    return [path]
 
 
 def live_simulation_roots() -> List[Path]:
@@ -58,7 +67,7 @@ def core_property_files() -> List[Path]:
 
 
 def model_property_files() -> List[Path]:
-    """Galaxy/model property metadata from all live model packages."""
+    """Galaxy/model property metadata from the selected model package."""
     model_files = [root / "model_properties.yaml" for root in live_model_roots()]
     return existing(model_files)
 
@@ -83,7 +92,7 @@ def generated_module_dir() -> Path:
 
 
 def module_roots() -> List[Path]:
-    """Module discovery roots for production model modules."""
+    """Module discovery roots for the selected production model package."""
     roots: List[Path] = []
     roots.extend(root / "modules" for root in live_model_roots())
     return existing(roots)
@@ -122,8 +131,7 @@ def module_metadata_files() -> List[Path]:
     files: List[Path] = []
     seen = set()
 
-    utility_candidates = [REPO_ROOT / "models" / "shared" / "module_info.yaml"]
-    utility_candidates.extend(root / "shared" / "module_info.yaml" for root in live_model_roots())
+    utility_candidates = [root / "shared" / "module_info.yaml" for root in live_model_roots()]
     for yaml_file in existing(utility_candidates):
         resolved = yaml_file.resolve()
         if resolved not in seen:

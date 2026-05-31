@@ -7,8 +7,8 @@
  * Public event contract definitions for module C code.
  * Include as: #include "module_system/generated/event_contracts.h"
  *
- * Source MD5: 7fa432f70f0676025c3a70caa840b52d
- * To regenerate: make generate
+ * Source MD5: 13a26c7f14779bbfcdd4a51374f83589
+ * To regenerate: make MODEL=sage generate
  */
 
 #ifndef MIMIC_EVENT_CONTRACTS_H

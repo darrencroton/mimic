@@ -4,7 +4,7 @@
 #include "error.h"
 #include "module_interface.h"
 #include "types.h"
-#include "shared/metallicity.h"
+#include "sage/shared/metallicity.h"
 
 /*
  * Apply SAGE's disk-instability structural response to a live remnant and

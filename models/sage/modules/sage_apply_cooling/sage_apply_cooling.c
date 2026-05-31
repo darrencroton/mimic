@@ -10,7 +10,7 @@
 
 #include "constants.h"
 #include "error.h"
-#include "shared/metallicity.h"
+#include "sage/shared/metallicity.h"
 #include "module_system/physical_constants.h"
 #include "module_interface.h"
 #include "module_registry.h"

@@ -66,7 +66,7 @@ int my_module_cleanup(void);        // Free memory
 **Directory module source** (`models/sage/modules/my_module/my_module.c`) or standalone source (`models/sage/modules/my_module.c`):
 ```c
 #include "module_system/parameter_helpers.h"
-#include "models/shared/my_utility.h"
+#include "sage/shared/my_utility.h"
 ```
 
 ### Loading Parameters

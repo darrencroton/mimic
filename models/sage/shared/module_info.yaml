@@ -1,4 +1,4 @@
-# Shared Physics Utilities Test Registry
+# SAGE Shared Physics Utilities Test Registry
 #
 # This file enables automatic test discovery for shared physics utilities.
 # Shared utilities are header-only functions used by multiple physics modules.
@@ -6,8 +6,8 @@
 # To add a new utility test:
 # 1. Create test file: e.g. test_unit_UTILITY_NAME.c, test_integration_UTILITY_NAME.py, test_scientific_UTILITY_NAME.py
 # 2. Add filename to tests list below
-# 3. Run: make generate-test-registry
-# 4. Tests auto-run with: make test-unit, make test-integration, make test-scientific
+# 3. Run: make MODEL=sage generate-test-registry
+# 4. Tests auto-run with: make MODEL=sage test-unit, make MODEL=sage test-integration, make MODEL=sage test-scientific
 #
 # Tests can be listed in block format or inline:
 #   E.g. inline:
@@ -17,12 +17,12 @@
 #       - test_integration_foo.py
 #       - test_integration_bar.py
 #
-# See: models/shared/README.md for shared utility development guide
+# See: models/sage/shared/README.md for model-local shared utility guidance
 
 module:
   name: shared
-  display_name: "Shared Physics Utilities"
-  description: "Collection of shared physics utilities used by multiple modules"
+  display_name: "SAGE Shared Physics Utilities"
+  description: "Collection of SAGE-local physics utilities used by multiple SAGE modules"
 
   # Mark as utility collection (not a runtime physics module)
   is_utility: true

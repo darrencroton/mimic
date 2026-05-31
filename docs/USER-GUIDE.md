@@ -26,7 +26,7 @@ This guide uses the shipped **mini-Millennium + SAGE** configuration as its work
 git clone [repository-url]
 cd mimic
 ./scripts/first_run.sh
-make
+make MODEL=sage
 ./mimic input/runs/sage_millennium.yaml
 ```
 
@@ -49,14 +49,17 @@ Optional:
 ### Build Options
 
 ```bash
-make                  # Standard build; HDF5 enabled by default
-make -j$(nproc)       # Parallel build on Linux
-make USE-HDF5=no      # Disable HDF5 support
-make USE-MPI=yes      # Enable MPI support
-make info             # Show detected compiler/libraries/features
+make MODEL=sage       # Standard SAGE build; HDF5 enabled by default
+make MODEL=sham       # Build the SHAM model set instead
+make MODEL=sage -j$(nproc)
+make MODEL=sage USE-HDF5=no
+make MODEL=sage USE-MPI=yes
+make MODEL=sage info
 ```
 
-On macOS, replace `$(nproc)` with the number of build jobs you want, for example `make -j8`.
+On macOS, replace `$(nproc)` with the number of build jobs you want, for example `make MODEL=sage -j8`.
+
+Mimic is compiled against one model set at a time. The selected `MODEL` controls which `models/<model>/` package contributes properties, modules, model-local shared helpers, tests, and plotting figures. A run file whose `model.name` or `model.path` does not match the compiled model fails at startup. If you want to mix modules from multiple model families, create a new `models/<model>/` package and copy the modules/helpers/plots you need into it, then reconcile property names, parameter names, units, dependencies, and tests inside that package.
 
 ### Manual Setup
 
@@ -77,7 +80,7 @@ source mimic_venv/bin/activate
 pip install -r requirements.txt
 deactivate
 
-make
+make MODEL=sage
 ./mimic input/runs/sage_millennium.yaml
 ```
 
@@ -162,7 +165,7 @@ plotting:
 
 output:
   output_filename: model
-  output_directory: ./output/results/millennium/
+  output_directory: ./output/results/sage-millennium/
   output_format: hdf5                 # binary or hdf5
   snapshot_count: 8                   # -1 writes every snapshot
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
@@ -267,7 +270,7 @@ input:
 **Run with MPI** after building with MPI support:
 
 ```bash
-make USE-MPI=yes
+make MODEL=sage USE-MPI=yes
 mpirun -np 4 ./mimic input/runs/sage_millennium.yaml
 ```
 
@@ -296,10 +299,13 @@ HDF5 is self-documenting and portable. Binary is compact and fast, but it must b
 
 ### Units and Schema
 
-The current output schema is generated from:
+The current output schema is generated at build time from:
 
 - `src/core/core_properties.yaml` for halo-tracking properties
-- `models/sage/model_properties.yaml` for galaxy/model properties
+- `simulations/<simulation>/halo_properties.yaml` for catalog halo properties
+- `models/<MODEL>/model_properties.yaml` for galaxy/model properties
+
+The generated executable, `struct HaloOutput`, HDF5 field metadata, Python dtype, and validation ranges are therefore model-set specific. Re-run `make MODEL=<name> generate` or `make MODEL=<name>` after changing the selected model package metadata.
 
 Each property metadata entry declares its output unit label, initialization behavior, output conversion, and whether it is written to output. HDF5 output also writes `FieldMetadata` so analysis code can inspect field names, units, and descriptions directly from the file.
 
@@ -417,9 +423,9 @@ python output/mimic-plot/mimic-plot.py --param-file=input/runs/sage_millennium.y
 deactivate
 ```
 
-The plotting README is the detailed plotting manual: [output/mimic-plot/README.md](../output/mimic-plot/README.md). It covers command-line options, available plot names, skipped-plot diagnostics, testing, and adding new plot types. The current plot registry lives in `models/sage/plots/figures/__init__.py`.
+The plotting README is the detailed plotting manual: [output/mimic-plot/README.md](../output/mimic-plot/README.md). It covers command-line options, available plot names, skipped-plot diagnostics, testing, and adding new plot types. The active plot registry lives in `models/<MODEL>/plots/figures/__init__.py`; plotting should be self-contained inside the selected model package.
 
-Plots are written under the configured output directory, normally `output/results/millennium/plots/` for the shipped example.
+Plots are written under the configured output directory, normally `output/results/sage-millennium/plots/` for the shipped example.
 
 ---
 
@@ -430,7 +436,7 @@ Plots are written under the configured output directory, normally `output/result
 **HDF5 not found**: Install HDF5 development libraries or build without HDF5:
 
 ```bash
-make USE-HDF5=no
+make MODEL=sage USE-HDF5=no
 ```
 
 On macOS, Homebrew users usually need:
@@ -442,11 +448,11 @@ brew install hdf5
 **Generated code is stale**: Regenerate after editing property YAML, module metadata, or module files:
 
 ```bash
-make generate
-make clean && make
+make MODEL=sage generate
+make MODEL=sage clean && make MODEL=sage
 ```
 
-**Unexpected build configuration**: Use `make info` to inspect detected compiler, HDF5, MPI, and feature flags.
+**Unexpected build configuration**: Use `make MODEL=sage info` to inspect detected compiler, HDF5, MPI, model set, and feature flags.
 
 ### Runtime Issues
 
@@ -467,9 +473,9 @@ make clean && make
 **Module not registered**: Run:
 
 ```bash
-make validate-modules
-make generate
-make clean && make
+make MODEL=sage validate-modules
+make MODEL=sage generate
+make MODEL=sage clean && make MODEL=sage
 ```
 
 This usually indicates a new module or metadata change was not regenerated, or a YAML configuration references the wrong module name.

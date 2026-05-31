@@ -6,10 +6,9 @@
  *   - src/core/core_properties.yaml
  *   - simulations/millennium/halo_properties.yaml
  *   - models/sage/model_properties.yaml
- *   - models/sham/model_properties.yaml
  *
- * Source MD5: 32d03c733ad30bfb735194a5f28ba423
- * To regenerate: make generate
+ * Source MD5: fc70a98f4c12546a6e2cdd9852e49089
+ * To regenerate: make MODEL=sage generate
  */
 
 /* Copy properties from struct Halo to struct HaloOutput
@@ -94,8 +93,3 @@ o->TimeOfLastMinorMerger = g->galaxy->TimeOfLastMinorMerger;
 if (o->TimeOfLastMinorMerger != 0.0f) {
   o->TimeOfLastMinorMerger *= UnitTime_in_s / SEC_PER_MEGAYEAR / 1000.0;
 }
-o->ShamMpeak = g->galaxy->ShamMpeak;
-o->ShamVpeak = g->galaxy->ShamVpeak;
-o->ShamStellarMassNoScatter = g->galaxy->ShamStellarMassNoScatter;
-o->ShamScatterDex = g->galaxy->ShamScatterDex;
-o->ShamOrphanAge = g->galaxy->ShamOrphanAge;

@@ -6,10 +6,9 @@ Source files:
   - src/core/core_properties.yaml
   - simulations/millennium/halo_properties.yaml
   - models/sage/model_properties.yaml
-  - models/sham/model_properties.yaml
 
-Source MD5: 32d03c733ad30bfb735194a5f28ba423
-To regenerate: make generate
+Source MD5: fc70a98f4c12546a6e2cdd9852e49089
+To regenerate: make MODEL=sage generate
 """
 
 import numpy as np
@@ -59,11 +58,6 @@ def get_binary_dtype():
         ("DiskScaleRadius", np.float32),
         ("TimeOfLastMajorMerger", np.float32),
         ("TimeOfLastMinorMerger", np.float32),
-        ("ShamMpeak", np.float32),
-        ("ShamVpeak", np.float32),
-        ("ShamStellarMassNoScatter", np.float32),
-        ("ShamScatterDex", np.float32),
-        ("ShamOrphanAge", np.float32),
     ], align=True)
 
 def get_hdf5_dtype():
@@ -111,11 +105,6 @@ def get_hdf5_dtype():
         ("DiskScaleRadius", np.float32),
         ("TimeOfLastMajorMerger", np.float32),
         ("TimeOfLastMinorMerger", np.float32),
-        ("ShamMpeak", np.float32),
-        ("ShamVpeak", np.float32),
-        ("ShamStellarMassNoScatter", np.float32),
-        ("ShamScatterDex", np.float32),
-        ("ShamOrphanAge", np.float32),
     ])
 
 def get_units():
@@ -173,9 +162,4 @@ def get_units():
         'DiskScaleRadius': 'Mpc/h',
         'TimeOfLastMajorMerger': 'Gyr/h',
         'TimeOfLastMinorMerger': 'Gyr/h',
-        'ShamMpeak': '1e10 Msun/h',
-        'ShamVpeak': 'km/s',
-        'ShamStellarMassNoScatter': '1e10 Msun/h',
-        'ShamScatterDex': 'dex',
-        'ShamOrphanAge': 'Myr/h',
     }

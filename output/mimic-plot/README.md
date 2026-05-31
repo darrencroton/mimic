@@ -7,7 +7,7 @@ A centralized plotting tool for the Mimic physics-agnostic galaxy evolution fram
 This tool provides a single, comprehensive entry point for generating plots from Mimic halo tracking outputs. It features:
 
 - A centralized `mimic-plot.py` script that handles command-line arguments, parameter parsing, and plot management
-- Self-contained figure modules in the active model package, such as `models/sage/plots/figures/`, each implementing a specific plot type
+- Self-contained figure modules in the active model package, such as `models/<MODEL>/plots/figures/`, each implementing a specific plot type
 - Support for both snapshot plots (single snapshots) and evolution plots (across multiple snapshots)
 - Integration with Mimic parameter files for consistent configuration
 - Customizable output formatting and figure selection
@@ -19,6 +19,11 @@ This tool provides a single, comprehensive entry point for generating plots from
 ### Basic Usage
 
 **Important**: Always activate the Python environment before running plots:
+
+Build Mimic with the same model set as the parameter file before plotting. The
+generated dtype and available plot registry are model-specific, so a SHAM run
+should be built with `make MODEL=sham`, while the shipped SAGE run should be
+built with `make MODEL=sage`.
 
 ```bash
 # Activate virtual environment (if using one)

@@ -9,8 +9,8 @@
 # To add a new shared module-system test:
 # 1. Create test file in this _tests/ directory
 # 2. Add filename to the tests list below
-# 3. Run: make generate
-# 4. Tests auto-run with: make test-unit, make test-integration, make test-scientific
+# 3. Run: make MODEL=sage generate
+# 4. Tests auto-run with: make MODEL=sage test-unit, make MODEL=sage test-integration, make MODEL=sage test-scientific
 #
 # Tests can be listed in block format or inline:
 #   E.g. inline:

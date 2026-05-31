@@ -7,3 +7,9 @@ This package contains the SAGE physics implementation for Mimic:
 - `shared/`: SAGE-specific helper APIs
 - `plots/`: SAGE figure implementations and plot profiles
 - `validation/`: reference outputs, tolerances, and validation assets
+
+Build this model set with:
+
+```bash
+make MODEL=sage
+```

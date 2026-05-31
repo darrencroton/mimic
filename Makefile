@@ -3,6 +3,7 @@
 # =============================================================================
 
 EXEC = mimic
+.DEFAULT_GOAL := all
 
 # -----------------------------------------------------------------------------
 # Directory Configuration
@@ -13,12 +14,48 @@ BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
 DEP_DIR = $(BUILD_DIR)/deps
 
+# Targets that work without a model set selected.
+MODEL_FREE_TARGETS := clean tidy help check-docs test-clean
+
+# _needs_model is non-empty when the invocation requires a model:
+#   - no explicit goal (default goal = all)
+#   - at least one goal is not in MODEL_FREE_TARGETS
+_needs_model := $(if $(MAKECMDGOALS),$(filter-out $(MODEL_FREE_TARGETS),$(MAKECMDGOALS)),yes)
+
+# Catch the common 'model=' (lowercase) typo — Make variable names are case-sensitive.
+# This fires unconditionally because lowercase 'model=' is never correct.
+ifdef model
+$(error Make variables are case-sensitive. Did you mean: make MODEL=$(model) ?)
+endif
+
+# MODEL is required for any target that builds or generates code.
+# There is no default: model sets are switched, added, and removed over time,
+# so make must not silently assume any particular model exists.
+ifneq ($(_needs_model),)
+  ifndef MODEL
+    $(error MODEL is required. Specify a model set, for example: make MODEL=sage)
+  endif
+endif
+
+MODEL_ROOT = $(MODEL_DIR)/$(MODEL)
+
+export MODEL
+
+ifneq ($(_needs_model),)
+  ifeq ($(wildcard $(MODEL_ROOT)/.),)
+    $(error Unknown MODEL '$(MODEL)'. Expected a package directory at $(MODEL_ROOT))
+  endif
+endif
+
+.PHONY: FORCE
+FORCE:
+
 # -----------------------------------------------------------------------------
 # Source Files Discovery
 # -----------------------------------------------------------------------------
 # Recursive find excluding templates, archives, generated code, and tests.
 SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/module_system/template/*' ! -path '*/module_system/generated/*' ! -name 'test_*.c')
-SOURCES += $(shell find $(MODEL_DIR) -name '*.c' ! -path '*/_tests/*' ! -path '*/archive/*' ! -name 'test_*.c')
+SOURCES += $(if $(MODEL),$(shell find $(MODEL_ROOT) -name '*.c' ! -path '*/_tests/*' ! -path '*/archive/*' ! -name 'test_*.c' 2>/dev/null))
 
 # Explicitly add generated registry and framework test modules.
 SOURCES += $(SRC_DIR)/module_system/generated/module_init.c
@@ -52,6 +89,8 @@ INCLUDE_DIRS := \
 # Compiler flags
 CFLAGS = -g -O2 -Wall -Wextra
 CFLAGS += $(addprefix -I,$(INCLUDE_DIRS))
+CFLAGS += -DMIMIC_COMPILED_MODEL=\"$(MODEL)\"
+CFLAGS += -DMIMIC_COMPILED_MODEL_PATH=\"$(MODEL_ROOT)\"
 CFLAGS += -MMD -MP
 
 # Linker configuration
@@ -153,7 +192,7 @@ ifeq ($(USE-HDF5),yes)
 			Ubuntu/Debian: sudo apt-get install libhdf5-dev | \
 			macOS: brew install hdf5 | \
 			Fedora/RHEL: sudo dnf install hdf5-devel | \
-			Or build without HDF5: make USE-HDF5=no)
+			Or build without HDF5: make MODEL=$(MODEL) USE-HDF5=no)
 	endif
 else
     # If HDF5 is not enabled, exclude HDF5-specific source files
@@ -175,7 +214,7 @@ ifdef USE-MPI
             Ubuntu/Debian: sudo apt-get install libopenmpi-dev | \
             macOS: brew install open-mpi | \
             Fedora/RHEL: sudo dnf install openmpi-devel | \
-            Or specify compiler: make USE-MPI=yes CC=your-mpi-wrapper)
+            Or specify compiler: make MODEL=$(MODEL) USE-MPI=yes CC=your-mpi-wrapper)
     endif
 endif
 
@@ -199,7 +238,7 @@ all: generate validate-build $(EXEC)
 # Pre-build validation - runs on every make
 validate-build:
 	@echo "Running pre-build validation..."
-	@$(MAKE) --no-print-directory lint-parameters
+	@$(MAKE) MODEL=$(MODEL) --no-print-directory lint-parameters
 	@echo "Pre-build validation passed"
 
 $(GIT_VERSION_H): .git/HEAD .git/index
@@ -218,7 +257,7 @@ $(EXEC): $(OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 	@echo "Build complete"
 
-$(OBJ_DIR)/%.o: %.c $(GIT_VERSION_H)
+$(OBJ_DIR)/%.o: %.c $(GIT_VERSION_H) Makefile
 	@mkdir -p $(dir $@) $(dir $(DEP_DIR)/$*.d)
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -MF $(DEP_DIR)/$*.d -c $< -o $@
@@ -231,7 +270,7 @@ $(OBJ_DIR)/%.o: %.c $(GIT_VERSION_H)
 
 # YAML metadata inputs for property generation
 PROP_YAML := src/core/core_properties.yaml \
-             $(wildcard models/*/model_properties.yaml) \
+             $(wildcard $(MODEL_ROOT)/model_properties.yaml) \
              $(wildcard simulations/*/halo_properties.yaml)
 
 # Generated headers and include fragments required by the C build
@@ -244,10 +283,19 @@ GENERATED_HEADERS := \
     $(GEN_DIR)/hdf5_field_count.inc \
     $(GEN_DIR)/hdf5_field_definitions.inc
 
-# Generated headers depend on property YAML - kept for explicit dependency tracking
-$(GENERATED_HEADERS): $(PROP_YAML) scripts/generate_properties.py
+PROP_STAMP := $(BUILD_DIR)/property_generation.stamp
+
+# Run the smart property generator once per make invocation so MODEL switches
+# cannot reuse a stale generated schema.
+$(PROP_STAMP): $(PROP_YAML) scripts/generate_properties.py FORCE
 	@echo "Generating property code from metadata..."
 	@python3 scripts/generate_properties.py
+	@mkdir -p $(BUILD_DIR)
+	@touch $@
+
+# Generated headers depend on property YAML - kept for explicit dependency tracking
+$(GENERATED_HEADERS): $(PROP_STAMP)
+	@true
 
 # Ensure object compilation waits for generated property and module registration outputs
 $(OBJECTS): | $(GENERATED_HEADERS) $(MODULE_INIT_C)
@@ -257,10 +305,9 @@ $(OBJECTS): | $(GENERATED_HEADERS) $(MODULE_INIT_C)
 # -----------------------------------------------------------------------------
 
 # YAML metadata inputs for module generation
-MODULE_YAML := $(wildcard models/shared/module_info.yaml) \
-               $(wildcard models/*/module_info.yaml) \
-               $(wildcard models/*/shared/module_info.yaml) \
-               $(wildcard models/*/modules/*/module_info.yaml) \
+MODULE_YAML := $(wildcard $(MODEL_ROOT)/module_info.yaml) \
+               $(wildcard $(MODEL_ROOT)/shared/module_info.yaml) \
+               $(wildcard $(MODEL_ROOT)/modules/*/module_info.yaml) \
                $(wildcard $(SRC_DIR)/module_system/test_*/module_info.yaml)
 
 # Generated module registration files
@@ -273,7 +320,7 @@ MODULE_VALIDATOR := scripts/validate_modules.py
 $(OBJ_DIR)/src/module_system/generated/module_init.o: $(MODULE_INIT_C)
 
 # Rule to (re)generate module registration code whenever YAML or generator changes
-$(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py
+$(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py FORCE
 	@echo ""
 	@echo "Generating module registration code from metadata (auto)..."
 	@python3 scripts/generate_module_registry.py
@@ -300,20 +347,20 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  make              - Build executable"
-	@echo "  make info         - Show build configuration and library detection"
+	@echo "  make MODEL=sage info - Show build configuration and library detection"
 	@echo "  make clean        - Remove all build artifacts"
 	@echo "  make tidy         - Remove build directory only"
-	@echo "  make generate     - Generate all code from metadata (properties + modules)"
-	@echo "  make check-generated - Verify generated code is up-to-date (CI)"
+	@echo "  make MODEL=sage generate - Generate all code from metadata (properties + modules)"
+	@echo "  make MODEL=sage check-generated - Verify generated code is up-to-date (CI)"
 	@echo "  make check-docs   - Validate documentation links and anchors"
 	@echo ""
 	@echo "Module targets:"
-	@echo "  make generate-modules  - Generate module registration code"
-	@echo "  make validate-modules  - Validate module metadata"
+	@echo "  make MODEL=sage generate-modules  - Generate module registration code"
+	@echo "  make MODEL=sage validate-modules  - Validate module metadata"
 	@echo "  make lint-parameters   - Verify parameter usage matches declarations"
 	@echo ""
 	@echo "Test targets:"
-	@echo "  make tests        - Run all tests (unit + integration + scientific)"
+	@echo "  make MODEL=sage tests - Run all tests (unit + integration + scientific)"
 	@echo "  make test-unit    - Run unit tests only"
 	@echo "  make test-integration - Run integration tests only"
 	@echo "  make test-scientific  - Run scientific tests only"
@@ -322,25 +369,27 @@ help:
 	@echo "  make validate-test-registry - Validate test declarations"
 	@echo ""
 	@echo "Options:"
-	@echo "  make USE-HDF5=no  - Disable HDF5 support (binary-only build)"
-	@echo "  make USE-MPI=yes  - Enable MPI support"
-	@echo "  make -j4          - Parallel build (4 jobs, adjust as needed)"
+	@echo "  make MODEL=sage  - Build against a single model set (default: sage)"
+	@echo "  make MODEL=sham   - Build the SHAM model set instead"
+	@echo "  make MODEL=sage USE-HDF5=no  - Disable HDF5 support (binary-only build)"
+	@echo "  make MODEL=sage USE-MPI=yes  - Enable MPI support"
+	@echo "  make MODEL=sage -j4          - Parallel build (4 jobs, adjust as needed)"
 	@echo ""
 	@echo "Tips:"
-	@echo "  - Use 'make info' to see detected libraries and configuration"
-	@echo "  - Parallel builds significantly speed up compilation: make -j$$(nproc)"
+	@echo "  - Use 'make MODEL=sage info' to see detected libraries and configuration"
+	@echo "  - Parallel builds significantly speed up compilation: make MODEL=sage -j$$(nproc)"
 	@echo ""
 	@echo "Notes:"
 	@echo "  Code is auto-regenerated when YAML metadata changes:"
 	@echo ""
-	@echo "  Property metadata (metadata/*.yaml):"
+	@echo "  Property metadata for MODEL=$(MODEL):"
 	@echo "    - src/include/generated/property_defs.h"
 	@echo "    - src/include/generated/init_*_properties.inc"
 	@echo "    - src/include/generated/copy_to_output.inc"
 	@echo "    - src/include/generated/hdf5_field_*.inc"
 	@echo "    - output/mimic-plot/generated/dtype.py"
 	@echo ""
-	@echo "  Module metadata (models/*/modules/*/module_info.yaml):"
+	@echo "  Module metadata for MODEL=$(MODEL):"
 	@echo "    - src/module_system/generated/module_init.c"
 	@echo "    - tests/generated/module_sources.mk"
 
@@ -350,6 +399,7 @@ info:
 	@echo "========================="
 	@echo ""
 	@echo "Compiler: $(CC)"
+	@echo "Model set: $(MODEL) ($(MODEL_ROOT))"
 	@echo "Build flags: $(CFLAGS)"
 	@echo ""
 	@echo "Library Detection:"
@@ -430,19 +480,19 @@ validate-test-registry:
 
 tests:
 	@echo "Cleaning and building once for all tests..."
-	@$(MAKE) clean > /dev/null 2>&1
-	@$(MAKE) generate-test-registry > /dev/null 2>&1
-	@$(MAKE) USE-HDF5=yes
+	@$(MAKE) MODEL=$(MODEL) clean > /dev/null 2>&1
+	@$(MAKE) MODEL=$(MODEL) generate-test-registry > /dev/null 2>&1
+	@$(MAKE) MODEL=$(MODEL) USE-HDF5=yes
 	@mkdir -p build
 	@rm -f build/.test_failures
 	@echo ""
-	@$(MAKE) check-docs || echo "docs" >> build/.test_failures || true
+	@$(MAKE) MODEL=$(MODEL) check-docs || echo "docs" >> build/.test_failures || true
 	@echo ""
-	@$(MAKE) validate-modules || echo "validate-modules" >> build/.test_failures || true
+	@$(MAKE) MODEL=$(MODEL) validate-modules || echo "validate-modules" >> build/.test_failures || true
 	@echo ""
-	@$(MAKE) test-unit || echo "unit" >> build/.test_failures || true
-	@$(MAKE) test-integration || true
-	@$(MAKE) test-scientific || true
+	@$(MAKE) MODEL=$(MODEL) test-unit || echo "unit" >> build/.test_failures || true
+	@$(MAKE) MODEL=$(MODEL) test-integration || true
+	@$(MAKE) MODEL=$(MODEL) test-scientific || true
 	@echo ""
 	@echo ""
 	@if [ -f build/.test_failures ]; then \

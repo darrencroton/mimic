@@ -54,19 +54,19 @@ tests:
 ### 3. Regenerate Test Registry
 
 ```bash
-make generate
+make MODEL=sage generate
 ```
 
 ### 4. Run Tests
 
 ```bash
 # Run all tests
-make tests
+make MODEL=sage tests
 
 # Run specific tier
-make test-unit
-make test-integration
-make test-scientific
+make MODEL=sage test-unit
+make MODEL=sage test-integration
+make MODEL=sage test-scientific
 ```
 
 ---
@@ -142,13 +142,13 @@ if __name__ == '__main__':
 
 ## Test Discovery
 
-Tests are auto-discovered via `make generate`, which:
+Tests are auto-discovered via `make MODEL=sage generate`, which:
 
 1. Scans `module_info.yaml` for test declarations
 2. Generates test registries in `build/generated/`
 3. Test runners use these registries to find and execute tests
 
-**No manual registration needed** - just add to `module_info.yaml` and run `make generate`.
+**No manual registration needed** - just add to `module_info.yaml` and run `make MODEL=sage generate`.
 
 ---
 
@@ -188,7 +188,7 @@ models/sage/modules/
 ### When to Test Here vs. Module Directory
 - **Module-specific runtime behavior**: `models/<model>/modules/<module>/_tests/`
 - **Cross-module contracts and shared regressions**: `models/sage/modules/_tests/`
-- **Shared utilities**: `models/shared/_tests/`
+- **Shared utilities**: `models/sage/shared/_tests/`
 - **Retired code/tests**: `archive/src-modules/_archive/`
 
 ---
@@ -198,7 +198,7 @@ models/sage/modules/
 This directory follows Mimic's standardized test directory naming:
 - `_tests/` (with underscore) indicates a fixed infrastructure directory
 - Distinguishes test directories from user code
-- Consistent with `module_system/`, `models/shared/`, `_archive/` naming
+- Consistent with `module_system/`, `models/sage/shared/`, `_archive/` naming
 
 ---
 
@@ -206,5 +206,5 @@ This directory follows Mimic's standardized test directory naming:
 
 - [docs/DEVELOPER-GUIDE.md](../../../../docs/DEVELOPER-GUIDE.md) - Complete testing guide
 - [tests/README.md](../../../../tests/README.md) - Test suite overview
-- `models/shared/_tests/` - Shared utility tests
+- `models/sage/shared/_tests/` - Shared utility tests
 - `tests/unit/` - Core infrastructure tests
