@@ -59,6 +59,8 @@ make MODEL=sage info
 
 On macOS, replace `$(nproc)` with the number of build jobs you want, for example `make MODEL=sage -j8`.
 
+`MODEL` defaults to `DEFAULT_MODEL` (set to `sage`) near the top of the `Makefile`, so plain `make` builds the default model. Override it per-invocation with `make MODEL=<name>`, or change the `DEFAULT_MODEL` line if your primary model is not sage. If the selected package does not exist (for example after a model is renamed or removed), the build stops with an `Unknown MODEL` error rather than silently mis-building.
+
 Mimic is compiled against one model set at a time. The selected `MODEL` controls which `models/<model>/` package contributes properties, modules, model-local shared helpers, tests, and plotting figures. A run file whose `model.name` or `model.path` does not match the compiled model fails at startup. If you want to mix modules from multiple model families, create a new `models/<model>/` package and copy the modules/helpers/plots you need into it, then reconcile property names, parameter names, units, dependencies, and tests inside that package.
 
 ### Manual Setup

@@ -17,10 +17,12 @@ DEP_DIR = $(BUILD_DIR)/deps
 # Targets that work without a model set selected.
 MODEL_FREE_TARGETS := clean tidy help check-docs test-clean
 
-# _needs_model is non-empty when the invocation requires a model:
-#   - no explicit goal (default goal = all)
-#   - at least one goal is not in MODEL_FREE_TARGETS
-_needs_model := $(if $(MAKECMDGOALS),$(filter-out $(MODEL_FREE_TARGETS),$(MAKECMDGOALS)),yes)
+# Default model set used when MODEL is not given on the command line.
+# Most users work in a single model: leave this as your primary model and run
+# plain `make`. Override per-invocation with `make MODEL=<name>`, or change this
+# line if your primary model is not sage.
+DEFAULT_MODEL := sage
+MODEL ?= $(DEFAULT_MODEL)
 
 # Catch the common 'model=' (lowercase) typo — Make variable names are case-sensitive.
 # This fires unconditionally because lowercase 'model=' is never correct.
@@ -28,20 +30,14 @@ ifdef model
 $(error Make variables are case-sensitive. Did you mean: make MODEL=$(model) ?)
 endif
 
-# MODEL is required for any target that builds or generates code.
-# There is no default: model sets are switched, added, and removed over time,
-# so make must not silently assume any particular model exists.
-ifneq ($(_needs_model),)
-  ifndef MODEL
-    $(error MODEL is required. Specify a model set, for example: make MODEL=sage)
-  endif
-endif
-
 MODEL_ROOT = $(MODEL_DIR)/$(MODEL)
-
 export MODEL
 
-ifneq ($(_needs_model),)
+# Verify the selected model package exists for any target that builds or
+# generates code. MODEL always has a value (DEFAULT_MODEL when unset), but the
+# default — or an explicit MODEL=<name> — may name a package that has been
+# renamed or removed, so fail loudly rather than silently mis-building.
+ifneq ($(filter-out $(MODEL_FREE_TARGETS),$(or $(MAKECMDGOALS),all)),)
   ifeq ($(wildcard $(MODEL_ROOT)/.),)
     $(error Unknown MODEL '$(MODEL)'. Expected a package directory at $(MODEL_ROOT))
   endif
@@ -231,7 +227,7 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate check-generated check-docs tests test-unit test-integration test-scientific test-clean generate-modules validate-modules check-modules lint-parameters validate-build
+.PHONY: all clean tidy help info generate generate-modules check-generated check-docs tests test-unit test-integration test-scientific test-clean validate-modules lint-parameters validate-build
 
 all: generate validate-build $(EXEC)
 
@@ -355,18 +351,18 @@ help:
 	@echo "  make check-docs   - Validate documentation links and anchors"
 	@echo ""
 	@echo "Module targets:"
-	@echo "  make MODEL=sage generate-modules  - Generate module registration code"
-	@echo "  make MODEL=sage validate-modules  - Validate module metadata"
-	@echo "  make lint-parameters   - Verify parameter usage matches declarations"
+	@echo "  make MODEL=sage generate-modules   - Generate module registration code only"
+	@echo "  make MODEL=sage validate-modules   - Validate module metadata"
+	@echo "  make MODEL=sage lint-parameters    - Verify parameter usage matches declarations"
 	@echo ""
 	@echo "Test targets:"
-	@echo "  make MODEL=sage tests - Run all tests (unit + integration + scientific)"
-	@echo "  make test-unit    - Run unit tests only"
-	@echo "  make test-integration - Run integration tests only"
-	@echo "  make test-scientific  - Run scientific tests only"
-	@echo "  make test-clean   - Clean test artifacts"
-	@echo "  make generate-test-registry - Auto-discover module tests"
-	@echo "  make validate-test-registry - Validate test declarations"
+	@echo "  make MODEL=sage tests             - Run all tests (unit + integration + scientific)"
+	@echo "  make MODEL=sage test-unit         - Run unit tests only"
+	@echo "  make MODEL=sage test-integration  - Run integration tests only"
+	@echo "  make MODEL=sage test-scientific   - Run scientific tests only"
+	@echo "  make test-clean                   - Clean test artifacts"
+	@echo "  make MODEL=sage generate-test-registry - Auto-discover module tests"
+	@echo "  make MODEL=sage validate-test-registry - Validate test declarations"
 	@echo ""
 	@echo "Options:"
 	@echo "  make MODEL=sage  - Build against a single model set (default: sage)"
@@ -382,14 +378,14 @@ help:
 	@echo "Notes:"
 	@echo "  Code is auto-regenerated when YAML metadata changes:"
 	@echo ""
-	@echo "  Property metadata for MODEL=$(MODEL):"
+	@echo "  Property metadata (models/<name>/model_properties.yaml):"
 	@echo "    - src/include/generated/property_defs.h"
 	@echo "    - src/include/generated/init_*_properties.inc"
 	@echo "    - src/include/generated/copy_to_output.inc"
 	@echo "    - src/include/generated/hdf5_field_*.inc"
 	@echo "    - output/mimic-plot/generated/dtype.py"
 	@echo ""
-	@echo "  Module metadata for MODEL=$(MODEL):"
+	@echo "  Module metadata (models/<name>/modules/*/module_info.yaml):"
 	@echo "    - src/module_system/generated/module_init.c"
 	@echo "    - tests/generated/module_sources.mk"
 
@@ -452,6 +448,9 @@ generate:
 	@python3 scripts/generate_properties.py
 	@python3 scripts/generate_module_registry.py
 
+generate-modules:
+	@python3 scripts/generate_module_registry.py
+
 validate-modules:
 	@echo "Validating module metadata..."
 	@python3 scripts/validate_modules.py
@@ -480,7 +479,7 @@ validate-test-registry:
 
 tests:
 	@echo "Cleaning and building once for all tests..."
-	@$(MAKE) MODEL=$(MODEL) clean > /dev/null 2>&1
+	@$(MAKE) clean > /dev/null 2>&1
 	@$(MAKE) MODEL=$(MODEL) generate-test-registry > /dev/null 2>&1
 	@$(MAKE) MODEL=$(MODEL) USE-HDF5=yes
 	@mkdir -p build

@@ -25,11 +25,13 @@ For new repository clones, use the automated setup script:
 make MODEL=sage
 
 # Note: Property code auto-regenerates during `make` when YAML changes
-# MODEL is required — make fails fast without it (no default; model sets are
-# switched, added, and removed over time so make must not assume any model exists).
-# Mimic builds one model set at a time. Use MODEL=<name> to select
-# models/<name>/ for properties, modules, model-local shared helpers, tests,
-# and plotting.
+# MODEL selects the model set. It defaults to DEFAULT_MODEL (sage) in the
+# Makefile, so plain `make` builds the default; override per-invocation with
+# MODEL=<name>, or change DEFAULT_MODEL if your primary model is not sage. If the
+# selected package is missing (renamed/removed), make fails loudly with
+# "Unknown MODEL" rather than mis-building. Mimic builds one model set at a time:
+# MODEL=<name> selects models/<name>/ for properties, modules, model-local shared
+# helpers, tests, and plotting.
 
 # Show build configuration (library detection, compiler, enabled features)
 make MODEL=sage info
