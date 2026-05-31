@@ -14,11 +14,12 @@ This guide explains the development workflow. For user-facing run and configurat
 4. [Processing Modes and Phases](#processing-modes-and-phases)
 5. [Parameters](#parameters)
 6. [Property System](#property-system)
-7. [Events](#events)
-8. [Testing](#testing)
-9. [Development Workflow](#development-workflow)
-10. [Debugging](#debugging)
-11. [Reference](#reference)
+7. [Adding a New Simulation](#adding-a-new-simulation)
+8. [Events](#events)
+9. [Testing](#testing)
+10. [Development Workflow](#development-workflow)
+11. [Debugging](#debugging)
+12. [Reference](#reference)
 
 Common tasks:
 
@@ -26,6 +27,7 @@ Common tasks:
 - Choosing a processing mode: [Processing Modes and Phases](#processing-modes-and-phases)
 - Adding a property: [Property System](#property-system)
 - Loading parameters: [Parameters](#parameters)
+- Adding a simulation: [Adding a New Simulation](#adding-a-new-simulation)
 - Using events: [Events](#events)
 - Running tests: [Testing](#testing)
 - Day-to-day development (including regenerating code): [Development Workflow](#development-workflow)
@@ -503,6 +505,165 @@ output_function_arg: "g, g->infallMvir"
 ```
 
 Property metadata is the source of truth for output fields and unit labels. Do not maintain manual exhaustive property tables in prose documentation unless they are generated or deliberately illustrative.
+
+---
+
+## Adding a New Simulation
+
+A simulation package lives under `simulations/<name>/` and provides the merger tree catalog, cosmology, units, snapshot list, and any catalog-specific halo properties for a particular N-body simulation run. The shipped `simulations/millennium/` package is the reference example.
+
+### Directory Structure
+
+```text
+simulations/my_sim/
+  simulation_info.yaml      required — catalog paths, cosmology, units, box size
+  my_sim.a_list             required — one scale factor per line per snapshot
+  halo_properties.yaml      required — catalog halo fields beyond the core set
+  snapshots/                required — tree data directory or symlink to local data
+  plot_profile.yaml         optional — simulation-specific plotting defaults
+  input_data_manifest.yaml  optional — lists required data files for setup scripts
+  README.md                 optional — human description of this simulation package
+```
+
+### simulation_info.yaml
+
+This file is the authoritative source for catalog paths, cosmology, and units. Its values become defaults for any run that references this simulation package; `input:` keys in the run YAML override them per-run.
+
+```yaml
+input:
+  first_file: 0             # index of the first tree file to process
+  last_file: 7              # index of the last tree file (inclusive)
+  tree_name: trees_063      # base filename prefix (without file-number suffix)
+  tree_type: lhalo_binary   # format; see Supported Tree Formats below
+  simulation_dir: ./simulations/my_sim/snapshots/
+  snapshot_list_file: simulations/my_sim/my_sim.a_list
+  last_snapshot: 63         # snapshot index corresponding to z=0
+
+simulation:
+  cosmology:
+    omega_matter: 0.25
+    omega_lambda: 0.75
+    hubble_h: 0.73
+  box_size: 62.5            # comoving side length in code length units (Mpc/h)
+  particle_mass: 0.0860657  # dark matter particle mass in code mass units (1e10 Msun/h)
+  units:
+    length_in_cm: 3.08568e+24    # 1 code length unit expressed in cm (1 Mpc/h here)
+    mass_in_g:    1.989e+43      # 1 code mass unit expressed in g (1e10 Msun/h here)
+    velocity_in_cm_per_s: 100000.0  # 1 code velocity unit in cm/s (1 km/s here)
+```
+
+The `simulation.units` block is not labeling — `init.c` derives all runtime unit conversions (time, density, pressure, energy, G) from these three values. Getting them wrong produces physically incorrect output with no error at runtime. The Millennium example uses the standard `Mpc/h`, `1e10 Msun/h`, `km/s` convention.
+
+**Supported tree formats:**
+
+| `tree_type` value | Format |
+| --- | --- |
+| `lhalo_binary` | Standard LHaloTree binary format (Springel et al.) |
+| `genesis_lhalo_hdf5` | Genesis L-Galaxies HDF5 format |
+
+To add support for a different catalog format, implement `load_tree_table_*()` and `load_tree_*()` in `src/io/tree/`, register the new format in the `Valid_TreeTypes` enum in `src/include/types.h`, and add dispatch cases to `src/io/tree/interface.c`.
+
+### Snapshot Scale Factor List
+
+The `.a_list` file contains one scale factor per line, ordered from earliest to latest snapshot (increasing `a`, decreasing redshift). There must be exactly `last_snapshot + 1` entries:
+
+```
+0.0078125
+0.012346
+0.019608
+...
+1.0
+```
+
+These values drive all redshift and timestep calculations. Mimic counts snapshots by position in this file, so the ordering is critical. Snapshot index `last_snapshot` (the last line) corresponds to `a = 1.0` (z = 0).
+
+### halo_properties.yaml
+
+This file declares halo properties that come from the catalog and are specific to this simulation: positions, velocities, spin parameters, particle IDs, and similar catalog fields. It does not duplicate properties already in `src/core/core_properties.yaml`.
+
+The generator (`make MODEL=<name> generate`) automatically discovers all `halo_properties.yaml` files under `simulations/` and merges them into the generated C structs. Adding a new simulation package is enough — no generator configuration is needed. However, two constraints apply:
+
+- Property names must be unique across all simulation packages and `core_properties.yaml`. Identical definitions may be shared (the merger allows exact duplicates), but incompatible definitions with the same name fail at generation time.
+- After adding a new simulation package, run `make MODEL=<name> generate` followed by `make MODEL=<name>` to rebuild with the new properties.
+
+Property metadata schema is the same as for core halo properties:
+
+```yaml
+halo_properties:
+  - name: MostBoundID
+    type: long long
+    units: dimensionless
+    description: ID of most bound particle
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+
+  - name: Pos
+    type: vec3_float
+    units: Mpc/h
+    description: 3D position vector (comoving)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [0.0, 10000.0]
+```
+
+See [Property Metadata Schema](#property-metadata-schema) in the Reference section for the full field list.
+
+### Wiring Up the Run YAML
+
+Reference the simulation package from a run file under `input/`:
+
+```yaml
+simulation:
+  name: my_sim
+  path: simulations/my_sim
+  config: simulations/my_sim/simulation_info.yaml
+  halo_properties: simulations/my_sim/halo_properties.yaml
+```
+
+To override simulation defaults for a specific run without changing the shared config:
+
+```yaml
+input:
+  first_file: 0
+  last_file: 0  # process only the first file
+```
+
+Any `input:` key in the run file takes precedence over the same key in `simulation_info.yaml`.
+
+### Optional: plot_profile.yaml
+
+If users will generate plots with `mimic-plot.py`, provide a `plot_profile.yaml` with simulation-specific axis limits and display parameters. Reference it from the run file:
+
+```yaml
+plotting:
+  profile: simulations/my_sim/my_sim_plot_profile.yaml
+```
+
+The run file `plotting.profile` must be present for `mimic-plot.py` to locate it; the binary itself ignores the plotting section. See `simulations/millennium/plot_profile.yaml` for the format.
+
+### Workflow Summary
+
+```bash
+# 1. Create the simulation package directory
+mkdir -p simulations/my_sim/snapshots
+
+# 2. Create simulation_info.yaml, my_sim.a_list, and halo_properties.yaml
+
+# 3. Place or symlink tree data under simulations/my_sim/snapshots/
+
+# 4. Create the run file
+cp input/sage_millennium.yaml input/sage_my_sim.yaml
+# Edit to point at simulations/my_sim/simulation_info.yaml and halo_properties.yaml
+
+# 5. Regenerate property code (picks up the new halo_properties.yaml automatically)
+make MODEL=sage generate
+
+# 6. Build and run
+make MODEL=sage
+./mimic input/sage_my_sim.yaml
+```
 
 ---
 
