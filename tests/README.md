@@ -92,7 +92,7 @@ tests/
 
 Test suite uses mini-Millennium simulation data, automatically downloaded by `./scripts/first_run.sh`.
 
-Location: `input/data/millennium/`
+Location: `simulations/millennium/snapshots/`
 
 ## Writing Tests
 

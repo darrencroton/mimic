@@ -50,7 +50,7 @@ def run_mimic(param_file, cwd=None):
         FileNotFoundError: If Mimic executable not found
 
     Usage:
-        returncode, stdout, stderr = run_mimic("input/runs/sage_millennium.yaml")
+        returncode, stdout, stderr = run_mimic("input/sage_millennium.yaml")
         assert returncode == 0, f"Mimic failed: {stderr}"
     """
     if cwd is None:
@@ -85,7 +85,7 @@ def read_param_file(param_file):
         dict: Parameter name -> value mapping
 
     Usage:
-        params = read_param_file("input/runs/sage_millennium.yaml")
+        params = read_param_file("input/sage_millennium.yaml")
         output_dir = params['OutputDir']
         hubble_h = float(params['Hubble_h'])
     """

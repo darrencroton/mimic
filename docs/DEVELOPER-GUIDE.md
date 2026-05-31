@@ -116,7 +116,7 @@ Then regenerate, build, and run:
 make MODEL=sage validate-modules
 make MODEL=sage generate
 make MODEL=sage
-./mimic input/runs/sage_millennium.yaml
+./mimic input/sage_millennium.yaml
 ```
 
 ---
@@ -647,7 +647,7 @@ Daily loop:
 make MODEL=sage validate-modules
 make MODEL=sage generate
 make MODEL=sage
-./mimic --debug input/runs/sage_millennium.yaml
+./mimic --debug input/sage_millennium.yaml
 make check-docs
 make MODEL=sage tests
 ```
@@ -734,7 +734,7 @@ make MODEL=sage clean && make MODEL=sage
 Run with debug logs:
 
 ```bash
-./mimic --debug input/runs/sage_millennium.yaml 2>&1 | tee debug.log
+./mimic --debug input/sage_millennium.yaml 2>&1 | tee debug.log
 ```
 
 If `process()` fails without a useful reason, add `ERROR_LOG()` immediately before the failing `return -1` in the module. The core can identify the module and substep, but only the module knows the physics reason.
@@ -753,8 +753,8 @@ myfree(table);
 For deeper checks:
 
 ```bash
-./mimic --debug input/runs/sage_millennium.yaml
-valgrind --leak-check=full ./mimic input/runs/sage_millennium.yaml
+./mimic --debug input/sage_millennium.yaml
+valgrind --leak-check=full ./mimic input/sage_millennium.yaml
 ```
 
 ---

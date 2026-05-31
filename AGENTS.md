@@ -86,14 +86,14 @@ make tidy
 
 ```bash
 # Basic execution
-./mimic input/runs/sage_millennium.yaml
-./mimic input/runs/sham_millennium.yaml    # SHAM model
+./mimic input/sage_millennium.yaml
+./mimic input/sham_millennium.yaml    # SHAM model
 
 # Verbosity options
-./mimic --debug input/runs/sage_millennium.yaml    # Most verbose (debug output + context)
-./mimic --verbose input/runs/sage_millennium.yaml  # Add context (timestamp, file:line)
-./mimic --quiet input/runs/sage_millennium.yaml    # Warnings/errors only
-./mimic --skip input/runs/sage_millennium.yaml     # Skip existing output files
+./mimic --debug input/sage_millennium.yaml    # Most verbose (debug output + context)
+./mimic --verbose input/sage_millennium.yaml  # Add context (timestamp, file:line)
+./mimic --quiet input/sage_millennium.yaml    # Warnings/errors only
+./mimic --skip input/sage_millennium.yaml     # Skip existing output files
 ```
 
 ---
@@ -151,18 +151,18 @@ python3 test_validation_helpers.py
 
 # Generate all plots (18 snapshot + 4 evolution)
 cd ..
-python mimic-plot.py --param-file=../../input/runs/sage_millennium.yaml
+python mimic-plot.py --param-file=../../input/sage_millennium.yaml
 
 # Generate specific plots
-python mimic-plot.py --param-file=../../input/runs/sage_millennium.yaml --plots=halo_mass_function,spin_distribution
+python mimic-plot.py --param-file=../../input/sage_millennium.yaml --plots=halo_mass_function,spin_distribution
 
 # Snapshot-only or evolution-only
-python mimic-plot.py --param-file=../../input/runs/sage_millennium.yaml --snapshot-plots
-python mimic-plot.py --param-file=../../input/runs/sage_millennium.yaml --evolution-plots
+python mimic-plot.py --param-file=../../input/sage_millennium.yaml --snapshot-plots
+python mimic-plot.py --param-file=../../input/sage_millennium.yaml --evolution-plots
 
 # Works from any directory
 cd ../..
-python output/mimic-plot/mimic-plot.py --param-file=input/runs/sage_millennium.yaml --plots=halo_mass_function
+python output/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml --plots=halo_mass_function
 
 deactivate
 ```
@@ -172,7 +172,7 @@ deactivate
 ## Benchmarking
 
 ```bash
-# Run performance benchmark (default uses input/runs/sage_millennium.yaml)
+# Run performance benchmark (default uses input/sage_millennium.yaml)
 cd scripts
 ./benchmark_mimic.sh
 

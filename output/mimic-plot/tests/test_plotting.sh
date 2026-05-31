@@ -10,12 +10,12 @@ MIMIC_PLOT_DIR="$(dirname "$SCRIPT_DIR")"
 MIMIC_ROOT="$(dirname "$(dirname "$MIMIC_PLOT_DIR")")"
 
 # Default parameter file
-PARAM_FILE="${PARAM_FILE:-$MIMIC_ROOT/input/runs/sage_millennium.yaml}"
+PARAM_FILE="${PARAM_FILE:-$MIMIC_ROOT/input/sage_millennium.yaml}"
 
 # Check parameter file exists
 if [ ! -f "$PARAM_FILE" ]; then
     echo "Error: Parameter file not found: $PARAM_FILE"
-    echo "Set PARAM_FILE environment variable or ensure input/runs/sage_millennium.yaml exists"
+    echo "Set PARAM_FILE environment variable or ensure input/sage_millennium.yaml exists"
     exit 1
 fi
 

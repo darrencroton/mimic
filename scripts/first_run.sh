@@ -23,7 +23,7 @@ echo ""
 # Script is in scripts/ subdirectory, so get parent directory (repo root)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-RUN_FILE="input/runs/sage_millennium.yaml"
+RUN_FILE="input/sage_millennium.yaml"
 SIM_CONFIG_FILE="simulations/millennium/simulation_info.yaml"
 cd "$REPO_ROOT"
 
@@ -41,22 +41,19 @@ echo ""
 echo "Step 1: Creating directory structure..."
 echo "----------------------------------------"
 
-echo "Creating ./input/data/millennium directory..."
-mkdir -p input/data/millennium
-echo "✓ Created input/data/millennium"
+echo "Creating ./simulations/millennium/snapshots directory..."
+mkdir -p simulations/millennium/snapshots
+echo "✓ Created simulations/millennium/snapshots"
 
-echo "Creating ./output/results/millennium directory..."
-mkdir -p output/results/millennium
-echo "✓ Created output/results/millennium"
 echo ""
 
 # Step 2: Download mini-Millennium simulation trees
 echo "Step 2: Downloading mini-Millennium simulation trees..."
 echo "--------------------------------------------------------"
 
-cd input/data/millennium
+cd simulations/millennium/snapshots
 
-if [[ -f "trees_063.7" ]] && [[ -f "millennium.a_list" ]]; then
+if [[ -f "trees_063.7" ]]; then
     echo "✓ Mini-Millennium trees already present. Skipping download."
 else
     echo "Checking for download tools (wget or curl)..."
@@ -284,18 +281,13 @@ echo "---------------------------"
 VALIDATION_ERRORS=()
 
 # Check if tree files exist
-if [[ ! -f "input/data/millennium/trees_063.0" ]]; then
-    VALIDATION_ERRORS+=("Tree files not found in input/data/millennium/")
+if [[ ! -f "simulations/millennium/snapshots/trees_063.0" ]]; then
+    VALIDATION_ERRORS+=("Tree files not found in simulations/millennium/snapshots/")
 fi
 
 # Check if a_list file exists
-if [[ ! -f "simulations/millennium/snapshots/millennium.a_list" ]]; then
+if [[ ! -f "simulations/millennium/millennium.a_list" ]]; then
     VALIDATION_ERRORS+=("simulation snapshot list not found")
-fi
-
-# Check if output directory exists
-if [[ ! -d "output/results/millennium" ]]; then
-    VALIDATION_ERRORS+=("Output directory not created")
 fi
 
 # Check if Mimic binary exists (optional)

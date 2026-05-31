@@ -26,7 +26,7 @@ Run with:
 
 ```bash
 make MODEL=sham
-./mimic input/runs/sham_millennium.yaml
+./mimic input/sham_millennium.yaml
 ```
 
 The model currently provides:
