@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 
 _mimic_root = Path(__file__).resolve().parent.parent.parent
-_plot_path = _mimic_root / "output" / "mimic-plot"
+_plot_path = _mimic_root / "plot" / "mimic-plot"
 if str(_plot_path) not in sys.path:
     sys.path.insert(0, str(_plot_path))
 
