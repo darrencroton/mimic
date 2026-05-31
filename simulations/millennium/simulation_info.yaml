@@ -5,7 +5,7 @@ input:
   last_file: 7
   tree_name: trees_063
   tree_type: lhalo_binary
-  simulation_dir: ./simulations/millennium/snapshots/
+  simulation_dir: simulations/millennium/snapshots
   snapshot_list_file: simulations/millennium/millennium.a_list
   last_snapshot: 63
 
