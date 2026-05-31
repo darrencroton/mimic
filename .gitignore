@@ -4,7 +4,7 @@ mimic
 # Data and results
 input/data
 output/results
-simulations/*/snapshots/
+simulations/*/snapshots
 
 # Benchmark results
 benchmarks
