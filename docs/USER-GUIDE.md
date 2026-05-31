@@ -167,7 +167,7 @@ plotting:
 
 output:
   output_filename: model
-  output_directory: ./output/sage-millennium/
+  output_directory: output/sage-millennium
   output_format: hdf5                 # binary or hdf5
   snapshot_count: 8                   # -1 writes every snapshot
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]

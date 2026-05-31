@@ -3,9 +3,7 @@ mimic
 
 # Data and results
 input/data
-output/results
-output/sage-millennium
-output/sham-millennium
+output
 simulations/*/snapshots
 
 # Benchmark results
