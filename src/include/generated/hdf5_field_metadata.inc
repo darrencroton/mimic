@@ -6,8 +6,9 @@
  *   - src/core/core_properties.yaml
  *   - simulations/millennium/halo_properties.yaml
  *   - models/sage/model_properties.yaml
+ *   - models/sham/model_properties.yaml
  *
- * Source MD5: fc70a98f4c12546a6e2cdd9852e49089
+ * Source MD5: 32d03c733ad30bfb735194a5f28ba423
  * To regenerate: make generate
  */
 
@@ -15,7 +16,7 @@
 /* Provides discoverable, queryable metadata for all output fields */
 
 /* Total number of output fields */
-#define NUM_FIELDS 42
+#define NUM_FIELDS 47
 
 /* Define metadata structure */
 struct FieldMetadata {
@@ -68,6 +69,11 @@ struct FieldMetadata field_metadata[NUM_FIELDS] = {
   {"DiskScaleRadius", "Mpc/h", "Disk scale radius (exponential disk scale length)"},
   {"TimeOfLastMajorMerger", "Gyr/h", "Cosmic time of last major merger (mass ratio > threshold)"},
   {"TimeOfLastMinorMerger", "Gyr/h", "Cosmic time of last minor merger (mass ratio > 0.1)"},
+  {"ShamMpeak", "1e10 Msun/h", "Peak virial mass along the tracked galaxy branch used by SHAM"},
+  {"ShamVpeak", "km/s", "Peak maximum circular velocity along the tracked galaxy branch used by SHAM"},
+  {"ShamStellarMassNoScatter", "1e10 Msun/h", "SHAM stellar mass before deterministic log-normal scatter is applied"},
+  {"ShamScatterDex", "dex", "Deterministic stellar-mass scatter applied by the SHAM assignment"},
+  {"ShamOrphanAge", "Myr/h", "Time since a SHAM galaxy became an unresolved Type 2 orphan"},
 };
 
 /* Create HDF5 compound datatype for metadata */

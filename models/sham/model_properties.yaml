@@ -1,0 +1,63 @@
+# Mimic SHAM Galaxy Properties Metadata
+#
+# This file defines SHAM-specific galaxy properties. Shared galaxy properties
+# such as StellarMass and BulgeMass are currently supplied by the global Mimic
+# generated schema while the architecture supports all live models side by side.
+
+galaxy_properties:
+
+  - name: ShamMpeak
+    type: float
+    units: 1e10 Msun/h
+    description: Peak virial mass along the tracked galaxy branch used by SHAM
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 1000000.0]
+    sentinels: [0.0]
+
+  - name: ShamVpeak
+    type: float
+    units: km/s
+    description: Peak maximum circular velocity along the tracked galaxy branch used by SHAM
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 5000.0]
+    sentinels: [0.0]
+
+  - name: ShamStellarMassNoScatter
+    type: float
+    units: 1e10 Msun/h
+    description: SHAM stellar mass before deterministic log-normal scatter is applied
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]
+    sentinels: [0.0]
+
+  - name: ShamScatterDex
+    type: float
+    units: dex
+    description: Deterministic stellar-mass scatter applied by the SHAM assignment
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [-5.0, 5.0]
+    sentinels: [0.0]
+
+  - name: ShamOrphanAge
+    type: float
+    units: Myr/h
+    description: Time since a SHAM galaxy became an unresolved Type 2 orphan
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 20000.0]
+    sentinels: [0.0]
+

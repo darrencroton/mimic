@@ -5,9 +5,10 @@
     "source_files": [
       "src/core/core_properties.yaml",
       "simulations/millennium/halo_properties.yaml",
-      "models/sage/model_properties.yaml"
+      "models/sage/model_properties.yaml",
+      "models/sham/model_properties.yaml"
     ],
-    "source_md5": "fc70a98f4c12546a6e2cdd9852e49089",
+    "source_md5": "32d03c733ad30bfb735194a5f28ba423",
     "regenerate": "make generate"
   },
   "schema_version": 1,
@@ -508,6 +509,71 @@
       "range": [
         0.0,
         14.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "ShamMpeak": {
+      "name": "ShamMpeak",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        1000000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "ShamVpeak": {
+      "name": "ShamVpeak",
+      "type": "float",
+      "units": "km/s",
+      "is_vector": false,
+      "range": [
+        0.0,
+        5000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "ShamStellarMassNoScatter": {
+      "name": "ShamStellarMassNoScatter",
+      "type": "float",
+      "units": "1e10 Msun/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        100000.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "ShamScatterDex": {
+      "name": "ShamScatterDex",
+      "type": "float",
+      "units": "dex",
+      "is_vector": false,
+      "range": [
+        -5.0,
+        5.0
+      ],
+      "sentinels": [
+        0.0
+      ]
+    },
+    "ShamOrphanAge": {
+      "name": "ShamOrphanAge",
+      "type": "float",
+      "units": "Myr/h",
+      "is_vector": false,
+      "range": [
+        0.0,
+        20000.0
       ],
       "sentinels": [
         0.0

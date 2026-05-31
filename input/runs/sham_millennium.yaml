@@ -1,0 +1,52 @@
+# Mimic SHAM on Millennium Run Configuration
+
+model:
+  name: sham
+  path: models/sham
+  properties: models/sham/model_properties.yaml
+
+simulation:
+  name: millennium
+  path: simulations/millennium
+  config: simulations/millennium/simulation_info.yaml
+  halo_properties: simulations/millennium/halo_properties.yaml
+
+plotting:
+  profile: models/sham/plots/profiles/millennium_plot_profile.yaml
+
+output:
+  output_filename: sham
+  output_directory: ./output/results/sham-millennium/
+  output_format: hdf5
+  snapshot_count: 8
+  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
+
+SubSteps: 1
+
+modules:
+
+  pre_timestep:
+
+  phase_1:
+
+  phase_2:
+
+  post_timestep:
+    - sham_assign_stellar_mass: process_full_halo
+
+  parameters:
+    # Moster et al. (2013) z=0 double-power-law SMHM parameters.
+    ShamLogM1: 11.590
+    ShamN: 0.0351
+    ShamBeta: 1.376
+    ShamGamma: 0.608
+
+    # Reddick et al.-style SHAM scatter scale; deterministic per galaxy ID.
+    ShamUseScatter: 1
+    ShamScatterDex: 0.20
+
+    # Millennium tree resolution and conservative orphan treatment.
+    ShamMinMpeak: 0.10
+    ShamMinVpeak: 80.0
+    ShamMaxStellarBaryonFraction: 0.17
+    ShamOrphanMaxAgeMyr: 3000.0

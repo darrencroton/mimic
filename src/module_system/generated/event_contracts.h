@@ -7,7 +7,7 @@
  * Public event contract definitions for module C code.
  * Include as: #include "module_system/generated/event_contracts.h"
  *
- * Source MD5: 384f4ec85d4c82924d0db44b803149dc
+ * Source MD5: 7fa432f70f0676025c3a70caa840b52d
  * To regenerate: make generate
  */
 

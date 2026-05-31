@@ -6,12 +6,13 @@
  *   - src/core/core_properties.yaml
  *   - simulations/millennium/halo_properties.yaml
  *   - models/sage/model_properties.yaml
+ *   - models/sham/model_properties.yaml
  *
- * Source MD5: fc70a98f4c12546a6e2cdd9852e49089
+ * Source MD5: 32d03c733ad30bfb735194a5f28ba423
  * To regenerate: make generate
  */
 
 /* HDF5 field count and counter initialization */
 
-HDF5_n_props = 42;
+HDF5_n_props = 47;
 int i = 0;

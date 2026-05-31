@@ -6,8 +6,9 @@
  *   - src/core/core_properties.yaml
  *   - simulations/millennium/halo_properties.yaml
  *   - models/sage/model_properties.yaml
+ *   - models/sham/model_properties.yaml
  *
- * Source MD5: fc70a98f4c12546a6e2cdd9852e49089
+ * Source MD5: 32d03c733ad30bfb735194a5f28ba423
  * To regenerate: make generate
  */
 
@@ -46,3 +47,8 @@ FoFWorkspace[p].galaxy->TimeOfLastMajorMerger = 0.0;
 FoFWorkspace[p].galaxy->TimeOfLastMinorMerger = 0.0;
 FoFWorkspace[p].galaxy->UnstableDiskGasFraction = 0.0;
 FoFWorkspace[p].galaxy->TestDummyProperty = 0.0;
+FoFWorkspace[p].galaxy->ShamMpeak = 0.0;
+FoFWorkspace[p].galaxy->ShamVpeak = 0.0;
+FoFWorkspace[p].galaxy->ShamStellarMassNoScatter = 0.0;
+FoFWorkspace[p].galaxy->ShamScatterDex = 0.0;
+FoFWorkspace[p].galaxy->ShamOrphanAge = 0.0;

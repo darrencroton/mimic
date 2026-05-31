@@ -1,0 +1,17 @@
+plots:
+  snapshot:
+    - halo_mass_function
+    - halo_occupation
+    - spin_distribution
+    - velocity_distribution
+    - spatial_distribution
+    - stellar_mass_function
+    - sham_stellar_halo_relation
+    - sham_satellite_fraction
+  evolution:
+    - hmf_evolution
+    - smf_evolution
+    - stellar_mass_density_evolution
+
+mode: exploration
+
