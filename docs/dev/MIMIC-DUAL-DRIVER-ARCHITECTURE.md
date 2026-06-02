@@ -22,13 +22,13 @@ embeddable engine are new front-ends onto the same shared core.
 
 ## 2. Motivation
 
-The single architectural fact that gates Mimic's method coverage (see
-`docs/dev/MIMIC-THEORETICAL-METHODS-REVIEW.md`) is that the core processes **one FoF
-workspace at a time** in depth-first tree order, with per-tree bounded memory. That
-is ideal for per-history physics but structurally cannot express operations that
-need a whole snapshot's population co-resident: global abundance matching (true
-SHAM), HOD-style statistical population, a synchronous reionization radiation
-field, environment-dependent physics, and on-the-fly lightcone assembly.
+The single architectural fact that gates Mimic's method coverage is that the
+core processes **one FoF workspace at a time** in depth-first tree order, with
+per-tree bounded memory. That is ideal for per-history physics but structurally
+cannot express operations that need a whole snapshot's population co-resident:
+global abundance matching (true SHAM), HOD-style statistical population, a
+synchronous reionization radiation field, environment-dependent physics, and 
+on-the-fly lightcone assembly.
 
 A **snapshot-ordered** processing model — where all halos at a redshift are
 processed together — is the established way those methods are implemented
