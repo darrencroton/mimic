@@ -2,7 +2,35 @@
 
 **Author:** Claude Opus 4.8
 **Date:** 2026-05-30
-**Status:** Design proposal — input to the implementation plan
+**Status:** **Aspirational design proposal — NOT yet the source of truth.** This document describes a longer-term vision that intentionally runs ahead of the codebase. It will be reviewed and revised against the actual state of Mimic *after* the dual-driver work (`MIMIC-DUAL-DRIVER-ARCHITECTURE.md` /`-CHANGE-MAP.md`) is implemented. Until that revision, treat specific commands, phase durations, and "exists today" claims as **intent to validate**, not verified fact. §0 records what is locked, what is open, and what the future updater must decide.
+
+---
+
+## 0. Status, scope, and guidance for the future updater
+
+This section is written *to the person (or agent) who finalises this design*. It exists because the rest of the document is deliberately ambitious and must be pinned to reality before any of it is built.
+
+### 0.1 What is confirmed against the codebase (safe to rely on)
+
+- **The code gates are real and strong.** `make MODEL=<name> check-generated`, `validate-modules`, and the three test tiers (`test-unit`/`test-integration`/`test-scientific`) all exist as Makefile targets. The YAML→C generation contract is genuine and uncheatable. The 22-plot system exists (18 snapshot, 4 evolution).
+- **A byte-exact trusted reference model exists.** `tests/data/output/baseline/` (binary + HDF5) is Mimic output that has been verified **byte-identical to sage-model**. This is a genuinely strong reference: it means "reference-parity" (science gate 7, §5.2) is reusable today for the *existing SAGE model*, and a perturbation/injected-bug test against it is extremely sensitive. The earlier worry that "no trusted baseline exists" was wrong — corrected here.
+
+### 0.2 What does NOT yet exist and must be built (do not describe as present)
+
+- **There is no `make science-gate` target and no figure-parity machinery.** The scientific test tier (`tests/scientific/test_scientific.py`) is *sanity/invariant* checks (`test_numerical_validity`, `test_zero_values`, `test_physical_ranges`, `test_unit_consistency`) — **not** relation-level comparison against digitised paper figures. Wherever this document says "reuse the existing SAGE parity machinery" for *figure* parity, read it as **build it**.
+- **The hard distinction the future updater must hold onto:** byte-identity to sage validates the *existing reimplementation* and powers **regression** and **gate-validation** (does the gate catch a known bug?). It says nothing about a *novel* model built from a new paper, which by construction will **not** be byte-identical to the SAGE baseline. A new model's correctness therefore rests on (a) physical/conservation invariants, (b) figure-parity against the paper within tolerance, and (c) non-regression of the trusted model where shared — and (b) is the weak link (§0.3).
+
+### 0.3 Open problems the finalised version must resolve (lock these in)
+
+1. **Figure-parity tolerance is unsolved and may be unsolvable per-relation.** Published relations disagree by 0.2–0.5 dex from sample variance, IMF, and binning; digitised curves carry their own extraction error. A tolerance loose enough to pass a correct reimplementation can be loose enough to pass a subtly wrong one. **Rule to lock in:** a relation may be an *auto-cleared mechanical* gate only if a realistic injected error is demonstrably caught at the chosen tolerance (the §10.1.4 test, run *per relation*). Any relation that fails that demonstration is a **Review-class** gate (frontier/human judgement), not auto-clear. Do not let figure-parity sit in the "Mechanical / None unless broken" row by default.
+2. **Calibration is not autonomous, and the doc must stop implying it is.** The honest end state for Stage 4 on a *novel* coupled model is: the system produces a **best-effort calibration within the paper's stated priors, with named deviations, then defers to the user**, who has the expertise to judge, finish, or re-guide. Multi-relation weighting is a scientific decision and an escalation trigger, never auto-invented. The "overnight convergence" framing applies to *reproducing an already-trusted module* (the Phase-2 pilot), not to first-time calibration. Capture this uncertainty explicitly when finalising — it is a feature (correct humility), not a gap.
+3. **Determinism / RNG contract.** This design anticipates stochastic physics with "deterministic seeds" (§10.3). That must mean **per-halo / per-FoF seeding from a stable key**, never a global RNG stream — otherwise it breaks the cross-format identity invariant the dual-driver work depends on (`MIMIC-DUAL-DRIVER-ARCHITECTURE.md` §7.1). Lock this constraint in.
+4. **Effort/scope honesty.** "Weekend-buildable MVP" applies to the Phase-2 single-process pilot *given* Phase 0 (fleet) and Phase 1 (gate) already done, and *given* the dual-driver v1 baseline exists. The full system is weeks, and establishing the figure-parity gate is itself non-trivial. State the dependency chain; do not let the headline collapse it.
+5. **Unsubstantiated enabling claims to verify before trusting.** The MLX "~30–40% faster than llama.cpp" figure and the `robmost/sage_tree_converter` pattern are cited as fact; treat both as assumptions to validate, consistent with this doc's own "benchmark before trusting" discipline (§7.3).
+
+### 0.4 When to review `VISION.md`
+
+`VISION.md` is the guiding source of truth and is **not** edited now. This design *extends* the vision's scope (framework → substrate for automated model-building) rather than violating any principle. The vision should be reviewed for a scope amendment **only when this document is itself finalised** (post dual-driver, post a working Phase-1 science gate) — i.e. after the dual-driver vision review (`MIMIC-DUAL-DRIVER-ARCHITECTURE.md` §6.1), not before. Do not amend the vision on the strength of an aspirational design.
 
 ---
 
@@ -41,8 +69,8 @@ Mimic was engineered around machine-checkable contracts, and that is precisely w
 - **YAML-driven code generation** (`src/core/core_properties.yaml`, `models/<MODEL>/model_properties.yaml` → C structs, init/output logic, output schema writers). `make MODEL=<name> check-generated` proves the generated code matches the selected model-set metadata — a hard contract an agent cannot fake.
 - **Module metadata validation** (`make MODEL=<name> validate-modules`) checks dependencies, properties, and file consistency.
 - **Three test tiers** — unit (C, fast), integration (Python, medium), scientific (Python, slow) — plus plotting unit/integration tests.
-- **A reference baseline** — the existing SAGE parity infrastructure gives a trusted model to diff against and to validate the science gate on before trusting it on anything new.
-- **A 22-plot validation system** that regenerates standard relations (stellar mass function, Tully–Fisher, mass–metallicity, cosmic SFRD, …) — the raw material for figure-parity scoring.
+- **A reference baseline** — the `tests/data/output/baseline/` output is verified **byte-identical to sage-model**, giving a genuinely trusted model to diff against (regression) and to validate the science gate on (does it catch an injected bug?) before trusting it on anything new. *Caveat (§0.2): this validates the existing reimplementation and powers regression/gate-validation; a novel model from a new paper will not be byte-identical, so its correctness rests on invariants + figure-parity + non-regression, not on this baseline.*
+- **A 22-plot validation system** that regenerates standard relations (stellar mass function, Tully–Fisher, mass–metallicity, cosmic SFRD, …) — the raw material for figure-parity scoring. *Note: the plots exist; the numeric figure-parity-against-paper gate that consumes them does **not** yet exist and must be built (§0.2).*
 
 The architecture is also naturally decomposable: physics runs as runtime-configurable modules through a 4-phase pipeline (`pre_timestep` → `phase_1` → `phase_2` → `post_timestep`) in two modes (`PROCESSING_MODE_FULL_HALO`, `PROCESSING_MODE_BY_GALAXY`), each with `init()` → `process()` → `cleanup()`. One physical process maps cleanly to one module worked in one isolated worktree.
 
@@ -108,8 +136,8 @@ The single design decision that makes everything else work is defining **"done"*
 ### 5.2 Science gates (the new part — the heart of the system)
 
 5. **Conservation & sanity invariants.** Mass / metal / baryon budgets conserved; no negative masses; monotonicity where physics demands it; values within physical ranges. Encoded as scientific tests with unit-explicit assertions.
-6. **Figure parity vs the paper.** The plotting system regenerates the relevant relation (SMF, Tully–Fisher, mass–metallicity, SFRD, …); the result is compared numerically against the **digitised paper figure** within a stated tolerance (e.g. ≤ X dex over the calibrated range). Pass/fail is a number, not a vibe.
-7. **Reference-model parity.** Diff against a trusted baseline (reuse the existing SAGE parity machinery) to flag regressions and unphysical drift relative to a model we already trust.
+6. **Figure parity vs the paper.** The plotting system regenerates the relevant relation (SMF, Tully–Fisher, mass–metallicity, SFRD, …); the result is compared numerically against the **digitised paper figure** within a stated tolerance (e.g. ≤ X dex over the calibrated range). Pass/fail is a number — *but the tolerance is the whole ballgame, and for some relations a tolerance that passes a correct model may also pass a subtly wrong one. This gate is auto-clearable only where a realistic injected error is provably caught at the chosen tolerance; otherwise it is Review-class. See §0.3.1 — this must be resolved per-relation when the design is finalised.*
+7. **Reference-model parity.** Diff against the trusted baseline — the `tests/data/output/baseline/` output, verified byte-identical to sage-model — to flag regressions and unphysical drift relative to a model we already trust. *This half is reusable today (§0.1); for a novel model it checks non-regression where physics is shared, not equivalence (§0.2).*
 8. **Vision cross-check.** A frontier vision model views the generated plot beside the paper figure and reports agreement/deviations in words — a qualitative backstop to the numeric test and a good escalation trigger.
 
 ### 5.3 The loop this enables
@@ -209,8 +237,8 @@ The published `sage_tree_converter` pauses for a human at *every* gate — corre
 
 | Gate class | Owner | Examples | Human involvement |
 |---|---|---|---|
-| **Mechanical** | Orchestrator/runner | `make MODEL=<name>`, `make MODEL=<name> generate`, `check-generated`, `validate-modules`, test exit codes, conservation invariants, figure-parity-within-tolerance, reference parity | None unless infrastructure is broken |
-| **Review** | Frontier models | design review, patch review, paper-to-code traceability, plot review, cross-model consensus | None by default; summarised in the periodic digest |
+| **Mechanical** | Orchestrator/runner | `make MODEL=<name>`, `make MODEL=<name> generate`, `check-generated`, `validate-modules`, test exit codes, conservation invariants, reference parity, *and figure-parity only for relations that pass the per-relation injected-error test (§0.3.1)* | None unless infrastructure is broken |
+| **Review** | Frontier models | design review, patch review, paper-to-code traceability, plot review, cross-model consensus, *figure-parity for any relation whose tolerance cannot separate correct from subtly-wrong (§0.3.1)* | None by default; summarised in the periodic digest |
 | **Scientific decision** | Human (or delegated expert) | ambiguous formula the paper doesn't determine, calibration target weighting, unsupported approximation, replacing active model behaviour | **Stop and ask** |
 
 The human is a *fallback*, not a per-stage toll: routine interruptions are **G1 (spec approval)** and **explicit escalations** only. This inversion is sound *only because* the mechanical science gate is trustworthy — which is why it is built first.
@@ -390,6 +418,8 @@ This is the hard part a naive design under-weights. A SAGE-scale model has sever
 - **Run cheaply, validate fully.** Calibrate on a small test volume / subset of trees; only run the representative Millennium configuration for the final acceptance pass, to keep frontier and compute cost bounded.
 
 Calibration convergence (or a documented "best achievable within priors, with named deviations") is itself part of G-final.
+
+**Honest framing for the finalised version (§0.3.2).** For a *novel* coupled model, do not expect autonomous convergence. The realistic, correct end state is a **best-effort calibration within the paper's priors, with named deviations, handed to the user** — who has the expertise to judge whether it is acceptable, finish the calibration, or re-guide the system. This deferral is not a shortcoming of the design; it is the appropriate division of labour between machine (exhaustive gating, bookkeeping, first-pass optimisation) and scientist (judgement on trade-offs the paper underdetermines). The "overnight, converges because done is machine-checkable" language elsewhere in this document describes *reproducing an already-trusted model* (the Phase-2 pilot), where the byte-exact SAGE reference makes "done" genuinely exact; it does **not** describe first-time calibration of a new model.
 
 ---
 
