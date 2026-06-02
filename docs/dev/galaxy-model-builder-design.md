@@ -2,7 +2,8 @@
 
 **Author:** Claude Opus 4.8
 **Date:** 2026-05-30
-**Status:** **Aspirational design proposal — NOT yet the source of truth.** This document describes a longer-term vision that intentionally runs ahead of the codebase. It will be reviewed and revised against the actual state of Mimic *after* the dual-driver work (`MIMIC-DUAL-DRIVER-ARCHITECTURE.md` /`-CHANGE-MAP.md`) is implemented. Until that revision, treat specific commands, phase durations, and "exists today" claims as **intent to validate**, not verified fact. §0 records what is locked, what is open, and what the future updater must decide.
+**Status:** **Aspirational design proposal — NOT yet the source of truth.** This document describes a longer-term vision that intentionally runs ahead of the codebase. It will be reviewed and revised against the actual state of Mimic *after* v1.0 is tagged and the dual-driver work (`MIMIC-DUAL-DRIVER-ARCHITECTURE.md` /`-CHANGE-MAP.md`) is implemented and working correctly. Until that revision, treat specific commands, phase durations, and "exists today" claims as **intent to validate**, not verified fact. §0 records what is locked, what is open, and what the future updater must decide.
+**Context:** Read `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` first. This proposal is intentionally downstream of the v1.0 baseline and the completed dual-driver migration.
 
 ---
 
@@ -13,34 +14,34 @@ This section is written *to the person (or agent) who finalises this design*. It
 ### 0.1 What is confirmed against the codebase (safe to rely on)
 
 - **The code gates are real and strong.** `make MODEL=<name> check-generated`, `validate-modules`, and the three test tiers (`test-unit`/`test-integration`/`test-scientific`) all exist as Makefile targets. The YAML→C generation contract is genuine and uncheatable. The 22-plot system exists (18 snapshot, 4 evolution).
-- **A byte-exact trusted reference model exists.** `tests/data/output/baseline/` (binary + HDF5) is Mimic output that has been verified **byte-identical to sage-model**. This is a genuinely strong reference: it means "reference-parity" (science gate 7, §5.2) is reusable today for the *existing SAGE model*, and a perturbation/injected-bug test against it is extremely sensitive. The earlier worry that "no trusted baseline exists" was wrong — corrected here.
+- **The baseline mechanism is real and will become the v1.0 trusted reference.** `tests/data/output/baseline/` (binary + HDF5) is the existing Mimic regression-baseline mechanism. The intended path is to finish v1.0 optimisation work, tag v1.0, then refresh or extend the SAGE baseline so it supports byte-identical regression coverage for the relevant core and baryonic output. That v1.0 baseline is the reference-parity foundation this document depends on. Do not read the current pre-v1 baseline as the final science-gate reference without that refresh.
 
 ### 0.2 What does NOT yet exist and must be built (do not describe as present)
 
 - **There is no `make science-gate` target and no figure-parity machinery.** The scientific test tier (`tests/scientific/test_scientific.py`) is *sanity/invariant* checks (`test_numerical_validity`, `test_zero_values`, `test_physical_ranges`, `test_unit_consistency`) — **not** relation-level comparison against digitised paper figures. Wherever this document says "reuse the existing SAGE parity machinery" for *figure* parity, read it as **build it**.
-- **The hard distinction the future updater must hold onto:** byte-identity to sage validates the *existing reimplementation* and powers **regression** and **gate-validation** (does the gate catch a known bug?). It says nothing about a *novel* model built from a new paper, which by construction will **not** be byte-identical to the SAGE baseline. A new model's correctness therefore rests on (a) physical/conservation invariants, (b) figure-parity against the paper within tolerance, and (c) non-regression of the trusted model where shared — and (b) is the weak link (§0.3).
+- **The hard distinction the future updater must hold onto:** byte-identity to the v1.0 SAGE baseline validates the *existing reimplementation* and powers **regression** and **gate-validation** (does the gate catch a known bug?). It says nothing about a *novel* model built from a new paper, which by construction will **not** be byte-identical to the SAGE baseline. A new model's correctness therefore rests on (a) physical/conservation invariants, (b) figure-parity against the paper within tolerance, and (c) non-regression of the trusted model where shared — and (b) is the weak link (§0.3).
 
 ### 0.3 Open problems the finalised version must resolve (lock these in)
 
 1. **Figure-parity tolerance is unsolved and may be unsolvable per-relation.** Published relations disagree by 0.2–0.5 dex from sample variance, IMF, and binning; digitised curves carry their own extraction error. A tolerance loose enough to pass a correct reimplementation can be loose enough to pass a subtly wrong one. **Rule to lock in:** a relation may be an *auto-cleared mechanical* gate only if a realistic injected error is demonstrably caught at the chosen tolerance (the §10.1.4 test, run *per relation*). Any relation that fails that demonstration is a **Review-class** gate (frontier/human judgement), not auto-clear. Do not let figure-parity sit in the "Mechanical / None unless broken" row by default.
 2. **Calibration is not autonomous, and the doc must stop implying it is.** The honest end state for Stage 4 on a *novel* coupled model is: the system produces a **best-effort calibration within the paper's stated priors, with named deviations, then defers to the user**, who has the expertise to judge, finish, or re-guide. Multi-relation weighting is a scientific decision and an escalation trigger, never auto-invented. The "overnight convergence" framing applies to *reproducing an already-trusted module* (the Phase-2 pilot), not to first-time calibration. Capture this uncertainty explicitly when finalising — it is a feature (correct humility), not a gap.
 3. **Determinism / RNG contract.** This design anticipates stochastic physics with "deterministic seeds" (§10.3). That must mean **per-halo / per-FoF seeding from a stable key**, never a global RNG stream — otherwise it breaks the cross-format identity invariant the dual-driver work depends on (`MIMIC-DUAL-DRIVER-ARCHITECTURE.md` §7.1). Lock this constraint in.
-4. **Effort/scope honesty.** "Weekend-buildable MVP" applies to the Phase-2 single-process pilot *given* Phase 0 (fleet) and Phase 1 (gate) already done, and *given* the dual-driver v1 baseline exists. The full system is weeks, and establishing the figure-parity gate is itself non-trivial. State the dependency chain; do not let the headline collapse it.
+4. **Effort/scope honesty.** Any "weekend-buildable MVP" framing applies only to a narrow Phase-2 single-process pilot *given* Phase 0 (fleet) and Phase 1 (gate) already done, *given* the v1.0 SAGE baseline exists, and *given* the dual-driver work is complete enough that this document has been revised against the real code. The full system is weeks or longer, and establishing the figure-parity gate is itself non-trivial. State the dependency chain; do not let the headline collapse it.
 5. **Unsubstantiated enabling claims to verify before trusting.** The MLX "~30–40% faster than llama.cpp" figure and the `robmost/sage_tree_converter` pattern are cited as fact; treat both as assumptions to validate, consistent with this doc's own "benchmark before trusting" discipline (§7.3).
 
 ### 0.4 When to review `VISION.md`
 
-`VISION.md` is the guiding source of truth and is **not** edited now. This design *extends* the vision's scope (framework → substrate for automated model-building) rather than violating any principle. The vision should be reviewed for a scope amendment **only when this document is itself finalised** (post dual-driver, post a working Phase-1 science gate) — i.e. after the dual-driver vision review (`MIMIC-DUAL-DRIVER-ARCHITECTURE.md` §6.1), not before. Do not amend the vision on the strength of an aspirational design.
+`VISION.md` is the guiding source of truth and is **not** edited now. This design *extends* the vision's scope (framework → substrate for assisted, gate-driven model-building) rather than violating any principle. The vision should be reviewed for a scope amendment **only when this document is itself finalised** (post v1.0, post dual-driver, post a working Phase-1 science gate) — i.e. after the dual-driver vision review (`MIMIC-DUAL-DRIVER-ARCHITECTURE.md` §6.1), not before. Do not amend the vision on the strength of an aspirational design.
 
 ---
 
 ## 1. Executive Summary
 
-We want a system that takes a scientific paper describing a SAGE-scale galaxy formation model and, largely on its own, turns it into a tested, scientifically-validated set of Mimic physics modules. It should run for hours to a day, self-correct through ordinary failures, report in periodically, accept mid-run steering, and stop only when both **code quality** and **scientific accuracy** clear a high, *machine-checkable* bar — escalating to a human only for genuine scientific judgement calls.
+We want a system that takes a scientific paper describing a SAGE-scale galaxy formation model and helps turn it into a tested, scientifically-audited set of Mimic physics modules through a disciplined, gate-driven workflow. The long-term aim is that it can run for hours to a day, self-correct through ordinary engineering failures, report in periodically, accept mid-run steering, and stop only when both **code quality** and the available **scientific validation gates** clear a high bar — escalating to a human for scientific judgement calls and for any validation frontier the gates cannot honestly settle.
 
 The design rests on one core insight and three structural commitments.
 
-**The core insight — Mimic already supplies the verification signal that makes long-horizon autonomy converge.** Most autonomous coding systems fail because "the agent thinks it's done" is unverifiable, so they drift into confident nonsense over long runs. Mimic is unusual: model-selected YAML-driven code generation (`make MODEL=<name> check-generated`), module metadata validation (`make MODEL=<name> validate-modules`), three test tiers (`make MODEL=<name> test-unit/integration/scientific`), a SAGE parity baseline, and a 22-plot validation system are exactly the machine-checkable gates a long-running agent loop needs as its reward function. The job of the multi-agent layer is to **drive those gates relentlessly**, plus add the one gate Mimic lacks today: an automated **science gate** that asks *do the output relations match the paper's figures and a trusted reference model, within tolerance?* If that gate is trustworthy, autonomy is safe; if it isn't, no amount of orchestration will help. **Everything in this design is downstream of building and validating the science gate first.**
+**The core insight — Mimic can supply unusually strong verification signals for long-running assisted model construction.** Most autonomous coding systems fail because "the agent thinks it's done" is unverifiable, so they drift into confident nonsense over long runs. Mimic is unusual: model-selected YAML-driven code generation (`make MODEL=<name> check-generated`), module metadata validation (`make MODEL=<name> validate-modules`), three test tiers (`make MODEL=<name> test-unit/integration/scientific`), a v1.0 SAGE parity baseline to be established before this work becomes active, and a 22-plot validation system are the raw material for a much stronger gate stack than a general software project can offer. The job of the multi-agent layer is to **drive those gates relentlessly**, plus add the one gate Mimic lacks today: an automated **science gate** that asks *do the output relations match the paper's figures and a trusted reference model, within tolerance?* If that gate is trustworthy for a relation, automation can clear that relation; if it is not, no amount of orchestration will make the conclusion safe. **Everything in this design is downstream of v1.0, the dual-driver work, and building and validating the science gate first.**
 
 **Three structural commitments:**
 
@@ -50,7 +51,7 @@ The design rests on one core insight and three structural commitments.
 
 3. **Dual acceptance, with inverted gates.** Nothing advances until it compiles, `check-generated` and `validate-modules` are clean, the relevant tests pass, *and* the science gate passes (figure parity + conservation invariants + reference parity + a vision cross-check). Quantitative gates are **auto-cleared by the orchestrator**; the human is invoked only at **G1 (spec approval, before any production code)** and at **explicit escalations**. Every implemented equation traces to a line in the paper; every paper claim traces to a source location and a test.
 
-**What this delivers:** a weekend-buildable MVP that proves the gates on a model we already trust, growing over a few weeks into a durable system that runs overnight, reports to Slack, and hands back a traceable scientific quality report — converging because "done" is something the machine can check.
+**What this could deliver after the prerequisites are real:** a narrow pilot that proves the gates on a model or module we already trust, growing into a durable system that runs unattended for substantial engineering work, reports status, and hands back a traceable scientific quality report. For novel coupled models, the realistic outcome is not guaranteed autonomous convergence; it is best-effort implementation and calibration inside explicit priors, with named deviations and human judgement where the paper or the gates underdetermine the answer.
 
 ---
 
@@ -69,7 +70,7 @@ Mimic was engineered around machine-checkable contracts, and that is precisely w
 - **YAML-driven code generation** (`src/core/core_properties.yaml`, `models/<MODEL>/model_properties.yaml` → C structs, init/output logic, output schema writers). `make MODEL=<name> check-generated` proves the generated code matches the selected model-set metadata — a hard contract an agent cannot fake.
 - **Module metadata validation** (`make MODEL=<name> validate-modules`) checks dependencies, properties, and file consistency.
 - **Three test tiers** — unit (C, fast), integration (Python, medium), scientific (Python, slow) — plus plotting unit/integration tests.
-- **A reference baseline** — the `tests/data/output/baseline/` output is verified **byte-identical to sage-model**, giving a genuinely trusted model to diff against (regression) and to validate the science gate on (does it catch an injected bug?) before trusting it on anything new. *Caveat (§0.2): this validates the existing reimplementation and powers regression/gate-validation; a novel model from a new paper will not be byte-identical, so its correctness rests on invariants + figure-parity + non-regression, not on this baseline.*
+- **A reference baseline** — the v1.0 `tests/data/output/baseline/` output should become the genuinely trusted SAGE reference to diff against (regression) and to validate the science gate on (does it catch an injected bug?) before trusting it on anything new. *Caveat (§0.2): this validates the existing reimplementation and powers regression/gate-validation; a novel model from a new paper will not be byte-identical, so its correctness rests on invariants + figure-parity + non-regression, not on this baseline.*
 - **A 22-plot validation system** that regenerates standard relations (stellar mass function, Tully–Fisher, mass–metallicity, cosmic SFRD, …) — the raw material for figure-parity scoring. *Note: the plots exist; the numeric figure-parity-against-paper gate that consumes them does **not** yet exist and must be built (§0.2).*
 
 The architecture is also naturally decomposable: physics runs as runtime-configurable modules through a 4-phase pipeline (`pre_timestep` → `phase_1` → `phase_2` → `post_timestep`) in two modes (`PROCESSING_MODE_FULL_HALO`, `PROCESSING_MODE_BY_GALAXY`), each with `init()` → `process()` → `cleanup()`. One physical process maps cleanly to one module worked in one isolated worktree.
@@ -137,7 +138,7 @@ The single design decision that makes everything else work is defining **"done"*
 
 5. **Conservation & sanity invariants.** Mass / metal / baryon budgets conserved; no negative masses; monotonicity where physics demands it; values within physical ranges. Encoded as scientific tests with unit-explicit assertions.
 6. **Figure parity vs the paper.** The plotting system regenerates the relevant relation (SMF, Tully–Fisher, mass–metallicity, SFRD, …); the result is compared numerically against the **digitised paper figure** within a stated tolerance (e.g. ≤ X dex over the calibrated range). Pass/fail is a number — *but the tolerance is the whole ballgame, and for some relations a tolerance that passes a correct model may also pass a subtly wrong one. This gate is auto-clearable only where a realistic injected error is provably caught at the chosen tolerance; otherwise it is Review-class. See §0.3.1 — this must be resolved per-relation when the design is finalised.*
-7. **Reference-model parity.** Diff against the trusted baseline — the `tests/data/output/baseline/` output, verified byte-identical to sage-model — to flag regressions and unphysical drift relative to a model we already trust. *This half is reusable today (§0.1); for a novel model it checks non-regression where physics is shared, not equivalence (§0.2).*
+7. **Reference-model parity.** Diff against the trusted v1.0 SAGE baseline to flag regressions and unphysical drift relative to a model we already trust. *This half becomes reusable once the v1.0 baseline is established (§0.1); for a novel model it checks non-regression where physics is shared, not equivalence (§0.2).*
 8. **Vision cross-check.** A frontier vision model views the generated plot beside the paper figure and reports agreement/deviations in words — a qualitative backstop to the numeric test and a good escalation trigger.
 
 ### 5.3 The loop this enables
@@ -158,7 +159,7 @@ for each task in the DAG:
 
 *Advance a task iff its code gates AND science gates pass; otherwise diagnose and retry; escalate after N failed cycles.* That is the whole control philosophy. It is trivial to reason about, and it is why the run can be left alone.
 
-**Precondition (non-negotiable):** auto-clearing a gate is only as safe as the gate is trustworthy. An over-loose tolerance turns "autonomous" into "confidently wrong, fast." Therefore the science gate is **built and validated first**, on a model we already trust (SAGE parity), before any autonomy is switched on (§12, Phase 1).
+**Precondition (non-negotiable):** auto-clearing a gate is only as safe as the gate is trustworthy. An over-loose tolerance turns "autonomous" into "confidently wrong, fast." Therefore the science gate is **built and validated first**, on a model we already trust (the v1.0 SAGE baseline), before any relation is allowed to auto-clear (§12, Phase 1).
 
 ---
 
@@ -395,14 +396,14 @@ A watched `runs/<model-name>/steering.md` (and/or the durable orchestrator polli
 
 This section gets first-class treatment because it is both the system's center of gravity *and* the part neither prior analysis fully resolved.
 
-### 10.1 Building the gate (Phase 1 work, before any autonomy)
+### 10.1 Building the gate (Phase 1 work, before any autonomous clearing)
 
 For a chosen reference model already in Mimic:
 
 1. **Digitise 2–3 key figures** with WebPlotDigitizer into reference curves under `reference/digitised-figures/`, with explicit x/y units and the calibrated range.
 2. **Encode conservation invariants** as scientific tests: mass/metal/baryon budgets, non-negativity, monotonicity where physics requires it — all unit-explicit (the defence against the class of bug that bit us in `sage_agn_physics.h`).
 3. **Wire a `make science-gate`** target that regenerates the relevant plots, computes a numeric parity score against the digitised curves (e.g. max |Δ| in dex over the calibrated range), diffs against the SAGE reference baseline, and emits structured pass/fail plus the vision cross-check.
-4. **Validate the gate on the known-good model:** confirm it *passes* the model we trust and *fails* when we deliberately perturb a parameter or inject the historical unit bug. A gate that can't catch a known bug is not trustworthy, and until it is, autonomy stays off. Tolerances live in `reference/` under version control and are reviewed like code.
+4. **Validate the gate on the known-good model:** confirm it *passes* the v1.0 model we trust and *fails* when we deliberately perturb a parameter or inject the historical unit bug. A gate that can't catch a known bug is not trustworthy, and until it is, autonomous clearing for that relation stays off. Tolerances live in `reference/` under version control and are reviewed like code.
 
 ### 10.2 Per-process vs coupled evaluation
 
@@ -445,13 +446,13 @@ A concrete walk-through of the staged path, with each stage's workers, outputs, 
 
 ## 12. Phased Implementation Roadmap
 
-Deliberately ordered so the science gate exists before any autonomy, and value lands in a weekend.
+Deliberately ordered so the science gate exists before any autonomous clearing. The timings below are provisional placeholders for the future updater, not commitments; they must be revised after v1.0 and the dual-driver work.
 
 **Phase 0 — Foundations (½ day).** Stand up the MLX gateway + LiteLLM with a hard spend cap; wire `ANTHROPIC_BASE_URL` worker functions (subshell-isolated) for at least one big local coder; set the KV-cache env vars; install Zen MCP into Claude Code; verify a local-backed Claude Code instance can edit a file and run `make`. Benchmark candidate local models on the five Mimic-specific tasks (§7.3).
 
-**Phase 1 — Gates first, agents second (1–2 days). *The gate before the loop.*** Build the **science gate** on a model already in Mimic: digitise 2–3 reference figures, encode conservation invariants, write `make science-gate`, and *validate it* — it must pass the trusted model and fail an injected bug/perturbation. No orchestration until this is trustworthy.
+**Phase 1 — Gates first, agents second (timing to be re-estimated). *The gate before the loop.*** Build the **science gate** on a model already in Mimic: digitise reference figures, encode conservation invariants, write `make science-gate`, and *validate it* relation by relation — it must pass the trusted model and fail an injected bug/perturbation where it claims mechanical authority. No autonomous clearing until this is trustworthy. A narrow first pass may use 2-3 figures, but production use requires per-relation tolerance validation.
 
-**Phase 2 — MVP orchestration (2–4 days).** Opus-in-Claude-Code as lead, driving a `tmux-cli` worker pool (local-backed Claude Code, Codex), running the gates, writing the ledgers into the builder repo. Use built-in `Workflow`/`Task` for fan-out and `schedule`/Slack MCP for reporting. Pilot on a *single, well-understood process* — reproduce one existing module from its paper, end-to-end: intake → spec → worktree → implement (local) → review (Codex/Zen) → gates → report. Tune prompts, ledgers, escalation thresholds, and steering here. *This already satisfies US-1…US-4 on shorter runs.*
+**Phase 2 — MVP orchestration (timing to be re-estimated).** Opus-in-Claude-Code as lead, driving a `tmux-cli` worker pool (local-backed Claude Code, Codex), running the gates, writing the ledgers into the builder repo. Use built-in `Workflow`/`Task` for fan-out and `schedule`/Slack MCP for reporting. Pilot on a *single, well-understood process* — reproduce one existing module from its paper, end-to-end: intake → spec → worktree → implement (local) → review (Codex/Zen) → gates → report. Tune prompts, ledgers, escalation thresholds, and steering here. This is the first place to test US-1 through US-4 on a narrow run; it does not prove the full system.
 
 **Phase 3 — Durable orchestrator (1–2 weeks).** Port the proven prompts/gates into a thin **Claude Agent SDK** control loop: persisted state, worktree-per-process parallelism, the steering channel, and Hermes (or built-in `schedule` + Slack MCP) for day-long running and reporting. Point it at the real SAGE-scale paper. *This is the end state — design #1 below.*
 
@@ -481,15 +482,15 @@ Deliberately ordered so the science gate exists before any autonomy, and value l
 
 | Story | Where it's satisfied | Strength |
 |---|---|---|
-| **US-1** paper→plan, approve before code | Stage 1 + **G1**, the one retained mandatory human gate; evidence ledger gives the traceability table | Strong |
-| **US-2** overnight autonomous build | Gate inversion (§6.4) + fan-out Stage 3 + durable orchestrator + Slack digests | Strong |
-| **US-3** self-correction without me | The diagnose→hypothesise→patch→re-gate loop (§5.3); "never skip a validation failure — N cycles then flag" | Strong |
-| **US-4** morning review | Per-run audit bundle + science-gate table + figure thumbnails + per-worktree diffs (§9.4, §11 Stage 5) | Strong |
-| **US-5** mid-run steering | First-class `steering.md` watched channel + orchestrator polling (§9.6) | Strong (was the prior gap) |
-| **US-6** cost/privacy control | Local-first fleet + LiteLLM/OpenRouter hard caps + per-skill tier declarations + live tally (§7, §9.4) | Strong |
-| **US-7** traceable handoff | Evidence ledger + acceptance ledger + final scientific report + archived audit + KDB recipe (§9.1, §11) | Strong |
+| **US-1** paper→plan, approve before code | Stage 1 + **G1**, the one retained mandatory human gate; evidence ledger gives the traceability table | Strong target |
+| **US-2** overnight autonomous build | Gate inversion (§6.4) + fan-out Stage 3 + durable orchestrator + Slack digests | Strong for engineering work once gates exist; provisional for novel science |
+| **US-3** self-correction without me | The diagnose→hypothesise→patch→re-gate loop (§5.3); "never skip a validation failure — N cycles then flag" | Strong for ordinary failures; scientific ambiguity still escalates |
+| **US-4** morning review | Per-run audit bundle + science-gate table + figure thumbnails + per-worktree diffs (§9.4, §11 Stage 5) | Strong target |
+| **US-5** mid-run steering | First-class `steering.md` watched channel + orchestrator polling (§9.6) | Strong target |
+| **US-6** cost/privacy control | Local-first fleet + LiteLLM/OpenRouter hard caps + per-skill tier declarations + live tally (§7, §9.4) | Strong target, pending tool validation |
+| **US-7** traceable handoff | Evidence ledger + acceptance ledger + final scientific report + archived audit + KDB recipe (§9.1, §11) | Strong target |
 
-All seven strong — the steering gap the prior pattern left open is closed by making the steering channel a core component rather than an add-on.
+All seven are design targets. They should not be marked achieved until the post-dual-driver revision proves the gate stack, orchestration, and reporting against working code.
 
 ---
 
@@ -513,6 +514,6 @@ These are real options the team may prefer; recording them sharpens the recommen
 
 ## 16. Bottom Line
 
-Build the **science gate first** and prove it on a model we already trust. Then give the system a **spine**: a `mimic-model-builder` repo in the `sage_tree_converter` mould — an `AGENTS.md` constitution, per-step skills, filesystem artifact handoff, per-stage write boundaries, a compounding Model KDB, and Mimic as a pinned submodule — but with the gates **inverted** so it runs autonomously, with the human only at G1 (spec approval) and at genuine escalations. Wrap it in the smallest orchestration that drives it: Opus + `tmux-cli` to start, a durable **Claude Agent SDK** loop for day-long runs. Staff it with **local MLX models as the workforce**, **Codex + Zen MCP as the adversarial QC brain**, **Opus as the lead and final scientific arbiter**, and **git worktrees + on-disk ledgers** for safe, parallel, traceable, resumable work. Treat coupled calibration as the multi-objective optimisation it really is, with weighting kept in human hands.
+After v1.0 and the dual-driver migration, build the **science gate first** and prove it on a model we already trust. Then give the system a **spine**: a `mimic-model-builder` repo in the `sage_tree_converter` mould — an `AGENTS.md` constitution, per-step skills, filesystem artifact handoff, per-stage write boundaries, a compounding Model KDB, and Mimic as a pinned submodule — but with gates classified carefully so only validated mechanical checks are auto-cleared. Wrap it in the smallest orchestration that drives it: Opus + `tmux-cli` to start, then a durable control loop if the pilot proves the value. Staff it with local models for bulk work, independent model review for adversarial checking, and git worktrees plus on-disk ledgers for safe, parallel, traceable, resumable work. Treat coupled calibration as the multi-objective optimisation it really is, with weighting kept in human hands.
 
-That stack makes every one of US-1…US-7 true — and, crucially, it *converges*, because "done" is something the machine can check.
+That stack is plausible only if the gates earn trust relation by relation. For already-trusted reproductions, "done" can become machine-checkable. For novel coupled models, the honest target is a traceable best-effort implementation and calibration report with explicit unresolved scientific decisions.

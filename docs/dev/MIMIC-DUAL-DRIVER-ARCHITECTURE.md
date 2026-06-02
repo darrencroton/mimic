@@ -2,6 +2,7 @@
 
 **Status:** Design vision (proposed). Extends `docs/VISION.md`.
 **Companion:** `docs/dev/MIMIC-DUAL-DRIVER-CHANGE-MAP.md` (phased migration plan).
+**Context:** Read `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` first for sequencing and baseline assumptions.
 **Date:** 2026-06-02
 
 ---
@@ -23,7 +24,7 @@ A **snapshot-ordered** processing model — where all halos at a redshift are pr
 - A **tree-ordered** file feeds the **tree driver** with **per-forest** memory.
 - A **snapshot-ordered** file feeds the **snapshot driver** with **per-snapshot** memory, making a snapshot's population co-resident and global operations natural.
 
-Producing the two file orderings is the job of an **external, standalone tree converter** — not Mimic. Mimic reads exactly one ordering per run, declared in the input YAML, and fails fast on mismatch.
+Producing the two file orderings is the job of an **external, standalone tree converter** — not Mimic. Mimic reads exactly one ordering per run, declared in the input YAML, and fails fast on mismatch. For snapshot-ordered inputs, the converter also owns any required phantom/bridge halo insertion so the snapshot driver receives a temporally complete adjacent-snapshot representation.
 
 ---
 
@@ -71,7 +72,7 @@ Three layers. The middle and bottom layers are shared by every front-end; only t
 Each driver owns, and may implement however suits its format:
 
 - **Reader** — tree-ordered (`src/io/tree/*`, today) vs. a new snapshot-ordered reader. Both sit behind the existing format-reader interface (`src/io/tree/interface.h`), widened to admit a snapshot-grouped data model.
-- **Traversal** — depth-first recursion (`build_halo_tree`, `build_model.c:55`) vs. a snapshot loop that, at snapshot *N*, looks up each halo's progenitor galaxies produced at *N−1*.
+- **Traversal** — depth-first recursion (`build_halo_tree`, `build_model.c:55`) vs. a snapshot loop that, at snapshot *N*, looks up each halo's progenitor galaxies produced at *N−1*. This adjacent-snapshot assumption is an input contract: skipped links must have been filled by converter-produced phantom/bridge halos before Mimic reads the snapshot-ordered file.
 - **Input bookkeeping** — `RawHalo`/`HaloAux` and the `FirstProgenitor`/`NextProgenitor`/`FirstHaloInFOFgroup` links (tree) vs. snapshot slabs plus a descendant/progenitor index (snapshot).
 - **Memory + output lifecycle** — per-forest load/process/free/save (`main.c:432–471`) vs. per-snapshot.
 
@@ -101,6 +102,10 @@ TreeFormat: tree_ordered      # or: snapshot_ordered
 ```
 
 Mimic validates the declared format against the reader and the requested driver at startup and **fails fast** on any mismatch (Vision Principle 7). There is no runtime auto-detection and no internal conversion: a standalone external converter produces whichever ordering is needed.
+
+### 4.1 Snapshot input contract
+
+The snapshot driver does not repair vertical-tree skips. A snapshot-ordered input must already be a temporally complete sequence after conversion, with phantom or bridge halos inserted where required by the converter. This follows the standard approach used by snapshot-consistent tree products: the converter owns temporal completion; Mimic owns execution on a valid declared ordering. Startup validation should check declared ordering, reader compatibility, snapshot/link consistency, and enough metadata to catch obvious mismatches, but ordinary driver logic may assume adjacent-snapshot progenitor state.
 
 ---
 
@@ -181,8 +186,10 @@ If exact identity ever becomes genuinely unreachable (e.g. a legitimate, science
 
 **Out of scope (explicitly):**
 - Tree-format conversion inside Mimic (external converter owns it).
+- Phantom/bridge halo insertion inside Mimic (external converter owns temporal completion for snapshot-ordered inputs).
 - Exposing the inheritance service externally (internal-only by decision).
 - Full de-globalisation / thread-safety now (designed-for, not built now).
+- A production per-snapshot collective module ABI for global SHAM/HOD/radiation-field/lightcone operations. The snapshot driver makes those operations expressible, but the cross-format identity driver must land first with ordinary FoF-scoped physics; the collective contract needs its own design and validation once the driver exists.
 - MPI-distributed global operations in the snapshot driver (a later phase; the single-node snapshot driver is globally correct over the whole box first, with cross-domain communication for distributed global ranking added afterwards).
 - New physics. This is an execution-architecture change; module science is untouched.
 
