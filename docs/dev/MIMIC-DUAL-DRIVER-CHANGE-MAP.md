@@ -2,7 +2,7 @@
 
 **Status:** Implementation plan (proposed).
 **Companion:** `docs/dev/MIMIC-DUAL-DRIVER-ARCHITECTURE.md` (the vision this realises).
-**Context:** Read `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` first for sequencing, v1.0 baseline assumptions, and how this plan relates to the longer-term model-builder proposal.
+**Context:** Read `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` first for sequencing, v1.0 baseline assumptions, named substep phase work, and how this plan relates to the longer-term model-builder proposal.
 **Date:** 2026-06-02
 
 ---
@@ -32,6 +32,7 @@ Phases 0–3 below assert outputs are **byte-identical** to a pre-change baselin
 ## Preconditions (baseline before Phase 0)
 
 - **A finalised, released v1 is the golden baseline.** This plan's safety rests on *byte-identity* checks against the v1 tree-driver output, including the relevant SAGE baryonic properties. That baseline should be the finalised v1 — after the routine pre-release work (core testing, code simplification/linting, large-simulation memory optimisation, and the HDF5-writer optimisation). Tag it; every "outputs byte-identical" gate below diffs against that tag. Doing the refactor against an un-finalised, still-being-optimised base means chasing two moving targets and a noisy parity diff.
+- **Named substep phases should be resolved before this plan starts, or deliberately folded into Phase 1.** `MIMIC-NAMED-SUBSTEP-PHASES.md` proposes replacing fixed `phase_1`/`phase_2` middle slots with an ordered set of user-named substep phases while preserving current dispatch semantics. The cleanest sequence is to land that behaviour-preserving configuration refactor after v1.0 and before this dual-driver migration. If it has not landed, refresh Phase 1 so `run_fof_phases` is extracted around the named-phase contract rather than baking the two numbered middle phases deeper into the new engine API.
 - **The module ABI is frozen** (`MIMIC-DUAL-DRIVER-ARCHITECTURE.md` §5.2). No phase here changes `process(ctx, halos, ngal)`, the `Module` struct, or the property/metadata generation — existing models and the planned model-builder (`docs/galaxy-model-builder-design.md`) depend on it.
 - **Line references below are current-tree as of 2026-06-02.** The v1 finalisation will touch `main.c` (memory), the output/HDF5 path, and core code; refresh the `file:line` anchors in the file inventory after v1 is tagged.
 
@@ -70,8 +71,8 @@ Phases 0–3 below assert outputs are **byte-identical** to a pre-change baselin
 
 **Goal:** make the physics-execution boundary explicit by removing output bookkeeping from the evolution path.
 
-- `build_model.c`: `process_halo_evolution()` (`:552`) currently runs the four phases **and** calls `update_halo_properties()` (`:445`), which writes into the global `ProcessedHalos`/`HaloAux` (tree-shaped output marshalling). Split them:
-  - `run_fof_phases(ctx, halos, ngal)` — central selection, context setup, the four `execute_phase` calls. Pure engine; no output side effects.
+- `build_model.c`: `process_halo_evolution()` (`:552`) currently runs the configured phase lifecycle **and** calls `update_halo_properties()` (`:445`), which writes into the global `ProcessedHalos`/`HaloAux` (tree-shaped output marshalling). Split them:
+  - `run_fof_phases(ctx, halos, ngal)` — central selection, context setup, `pre_timestep`, the configured named substep phase sequence, and `post_timestep`. Pure engine; no output side effects.
   - `marshal_processed_fof(...)` — the `update_halo_properties` body, owned by the driver's output buffering.
 - Tree driver calls both in sequence exactly as today.
 
@@ -177,7 +178,7 @@ Phases 0–3 ship value on their own (cleaner separation, no behaviour change) a
 - **Invalid snapshot-ordered inputs (Phases 4-5).** The driver assumes the external converter has inserted phantom/bridge halos for skipped links. Mitigation: state this as an input contract; add reader validation and converter-produced fixtures that prove adjacent-snapshot continuity.
 - **Persistent cross-snapshot state bugs (Phase 5).** Descendant-keyed carry-over is new bookkeeping. Mitigation: cross-format identity test is a direct check on inheritance carry-over correctness.
 - **Output preparation remains tree-indexed (Phase 3).** Generated output currently has paths that can reach `InputTreeHalos` through `HaloNr`. Mitigation: make driver-neutral output context/precomputed output fields a Phase 3 deliverable, then prove tree-driver byte identity against the v1 baseline.
-- **Global reads from modules (Phase 6).** Modules read globals directly, and this is **the standard, ubiquitous dependency-check idiom**, not a few stragglers: `module_precedes_in_phase(..., MimicConfig.phase_1, ...)` runs at `init()` time in `sage_apply_cooling.c`, `sage_quasar_mode.c`, and `sage_resolve_mergers_and_disruption.c`, among others. Crucially these reads happen in `init(void)`/`cleanup(void)`, which take no `ModuleContext` — so threading engine state through `ModuleContext` does **not** cover them (see `MIMIC-DUAL-DRIVER-ARCHITECTURE.md` §5.1 caveat). Mitigation: treat init-time config access as a first-class part of the reentrancy work — either an init-time "current engine" mechanism or a documented decision that init-time config stays process-global; harmless while the default global instance is used.
+- **Global reads from modules (Phase 6).** Modules read globals directly, and this is **the standard, ubiquitous dependency-check idiom**, not a few stragglers: current SAGE modules call helpers such as `module_precedes_in_phase(...)` and `module_configured_in_phase(...)` against `MimicConfig.phase_1`/`MimicConfig.phase_2` at `init()` time. The named substep phase work should replace those numbered-phase reads with phase-aware pipeline helpers before this plan reaches Phase 6. The reentrancy caveat still remains: `init(void)`/`cleanup(void)` take no `ModuleContext`, so threading engine state through `ModuleContext` does **not** cover init-time configuration access (see `MIMIC-DUAL-DRIVER-ARCHITECTURE.md` §5.1 caveat). Mitigation: treat init-time config access as a first-class part of the reentrancy work — either an init-time "current engine" mechanism or a documented decision that init-time config stays process-global; harmless while the default global instance is used.
 - **Reader/interface widening churn (Phase 4).** Mitigation: keep the tree model path untouched; add the snapshot model alongside rather than reshaping the existing one.
 
 ---

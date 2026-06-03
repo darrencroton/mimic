@@ -2,7 +2,7 @@
 
 **Status:** Design vision (proposed). Extends `docs/VISION.md`.
 **Companion:** `docs/dev/MIMIC-DUAL-DRIVER-CHANGE-MAP.md` (phased migration plan).
-**Context:** Read `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` first for sequencing and baseline assumptions.
+**Context:** Read `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` first for sequencing, baseline assumptions, and the named substep phase prerequisite.
 **Date:** 2026-06-02
 
 ---
@@ -54,7 +54,7 @@ Three layers. The middle and bottom layers are shared by every front-end; only t
 │         snapshot-accumulator reset, central selection                  │
 │                                                                        │
 │   • Physics execution engine  (internal AND external entry point)      │
-│       run_phases(ctx, halos, ngal)  ← today's execute_phase()          │
+│       run_phases(ctx, halos, ngal)  ← configured phase sequence        │
 └───────────────────────────────────────┬──────────────────────────────┘
                                          │
                                          ▼
@@ -79,7 +79,7 @@ Each driver owns, and may implement however suits its format:
 ### 3.2 What is shared
 
 - **Inheritance / tracking service.** The *science* of how a galaxy is inherited from its progenitors — Type 0/1/2/3 transitions, orphan creation, infall-property capture, merger-clock handling, snapshot-scoped accumulator reset (`build_model.c:238`), subhalo-local central selection (`set_halo_centrals`, `build_model.c:359`) — **must be identical regardless of input ordering**. It is extracted from the current tree-index-coupled inheritance (`copy_progenitor_halos`/`join_progenitor_halos`/`find_most_massive_progenitor`, `build_model.c:128–435`) into a format-neutral function that takes *already-processed progenitor galaxies + the descendant halo's properties* and returns the inherited workspace. Both drivers gather progenitors their own way and call the same service. This is internal only — it is **not** part of the external API.
-- **Physics execution engine.** `execute_phase()` (`module_registry.c:769`) is already format-neutral: it runs configured modules over a `(ctx, halos, ngal)` triple and knows nothing of trees. Both drivers call it identically; it is also the external entry point (§5).
+- **Physics execution engine.** `execute_phase()` (`module_registry.c:769`) is already format-neutral: it runs one configured phase over a `(ctx, halos, ngal)` triple and knows nothing of trees. The engine surface should run the configured lifecycle: fixed optional `pre_timestep`, the ordered set of named substep phases, and fixed optional `post_timestep`. Both drivers call that lifecycle identically; it is also the external entry point (§5). See `MIMIC-NAMED-SUBSTEP-PHASES.md` for the phase-configuration contract that should land before, or be folded into, this engine extraction.
 - **Core services.** Init/config/units/cosmology/time tables; the galaxy and output structs; the output schema, provenance, and binary/HDF5 writers; memory, error handling, module registry. Both drivers write the **same** output schema; only the *buffer that feeds the writer* is per-driver.
 
 ---
@@ -113,14 +113,14 @@ The snapshot driver does not repair vertical-tree skips. A snapshot-ordered inpu
 
 **Scope decision:** the external API exposes **physics execution only**. A host hands Mimic halos (with galaxy state) and asks it to run the configured physics modules on them for a timestep. The host keeps its own halo finding, progenitor tracking, ordering, and I/O. Mimic's inheritance service is **not** exposed externally — it remains an internal detail shared by the two drivers.
 
-The seam already exists. `execute_phase(phase_config, num_modules, ctx, halos, ngal)` is the same call both internal drivers make, and the module unit-test harnesses already drive modules with a hand-built `ModuleContext` + `Halo[]` + pipeline config and **no merger tree** — an existing proof of concept for external invocation.
+The seam already exists. `execute_phase(phase_config, num_modules, ctx, halos, ngal)` is the core per-phase call both internal drivers ultimately need, and the module unit-test harnesses already drive modules with a hand-built `ModuleContext` + `Halo[]` + pipeline config and **no merger tree** — an existing proof of concept for external invocation. The public engine should sit one level above this per-phase helper so external hosts run the same configured phase lifecycle as internal drivers.
 
 The host contract:
 
 1. Initialise the shared core: config (cosmology, units, model parameters), unit globals, time tables (`Age`/`ZZ`), memory system, and the module registry (`register_all_modules()` + `module_system_init()`).
 2. Present `struct Halo` objects with `.galaxy` populated and a `ModuleContext` (redshift, time, dt, central).
 3. Map host fields ↔ Mimic property schema (units, names) — the same Model-Set Boundary reconciliation that applies to any model package.
-4. Call the engine to run the configured phases over the supplied halos.
+4. Call the engine to run the configured phase lifecycle over the supplied halos.
 
 ### 5.1 Engine state: serve both single-instance and reentrant hosts
 
@@ -131,7 +131,7 @@ The engine entry points are designed to take **explicit engine state, with a def
 
 Achieving true reentrancy requires moving the remaining global singletons (`MimicConfig`, the unit globals, `Age`/`ZZ`, the module registry — see `src/include/globals.h`) into that handle. The architecture **does not foreclose** this, but the cost is paid only when a reentrant host actually needs it. Until then, the default global instance keeps the change surface small.
 
-**Caveat — reentrancy is not purely a `ModuleContext` change.** Threading state through `ModuleContext` covers the `process()` path, but the module ABI also includes `init(void)` (`module_interface.h:367`) and `cleanup(void)` (`module_interface.h:407`), which take **no arguments** and read globals directly. The standard module-dependency idiom does exactly this at init time — e.g. `module_precedes_in_phase(..., MimicConfig.phase_1, ...)` in `sage_apply_cooling.c`, `sage_quasar_mode.c`, and `sage_resolve_mergers_and_disruption.c`. This is a deliberate, ubiquitous pattern, not a handful of stragglers. Because `init`/`cleanup` signatures are part of the frozen ABI (§5.2), a truly reentrant host cannot reach instance config through them via a signature change. Reaching it would require either an init-time "current engine instance" mechanism (e.g. a thread-local set around init) or accepting that **init-time configuration remains process-global** while only per-timestep state is instanced. Either is acceptable; the point is that "carry engine state in `ModuleContext`" alone does **not** close the reentrancy gap, and this doc should not imply otherwise. This is explicitly deferred (§8, Phase 6) and called out here only so the future implementer does not under-scope it.
+**Caveat — reentrancy is not purely a `ModuleContext` change.** Threading state through `ModuleContext` covers the `process()` path, but the module ABI also includes `init(void)` (`module_interface.h:367`) and `cleanup(void)` (`module_interface.h:407`), which take **no arguments** and read globals directly. The standard module-dependency idiom does exactly this at init time: current SAGE modules inspect `MimicConfig.phase_1`/`MimicConfig.phase_2` through helpers such as `module_precedes_in_phase(...)` and `module_configured_in_phase(...)`. The named substep phase work should replace those numbered-phase reads with phase-aware pipeline helpers, but the reentrancy issue remains. Because `init`/`cleanup` signatures are part of the frozen ABI (§5.2), a truly reentrant host cannot reach instance config through them via a signature change. Reaching it would require either an init-time "current engine instance" mechanism (e.g. a thread-local set around init) or accepting that **init-time configuration remains process-global** while only per-timestep state is instanced. Either is acceptable; the point is that "carry engine state in `ModuleContext`" alone does **not** close the reentrancy gap, and this doc should not imply otherwise. This is explicitly deferred (§8, Phase 6) and called out here only so the future implementer does not under-scope it.
 
 ### 5.2 The module interface is a frozen contract
 
