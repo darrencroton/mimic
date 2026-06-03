@@ -80,6 +80,7 @@ INCLUDE_DIRS := \
     $(SRC_DIR)/util \
     $(SRC_DIR)/module_system \
     $(MODEL_DIR) \
+    $(MODEL_ROOT) \
     $(BUILD_DIR)/generated
 
 # Compiler flags

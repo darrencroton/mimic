@@ -20,7 +20,7 @@
 #include "error.h"
 #include "module_interface.h"
 #include "types.h"
-#include "sage/shared/central_link.h"
+#include "shared/central_link.h"
 
 int sage_initialise_merger_clock_init(void)
 {

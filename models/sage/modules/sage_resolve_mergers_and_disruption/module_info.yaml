@@ -44,4 +44,4 @@ module:
     scientific: []
 
   docs:
-    physics: models/sage/modules/sage_resolve_mergers_and_disruption/README.md
+    physics: README.md

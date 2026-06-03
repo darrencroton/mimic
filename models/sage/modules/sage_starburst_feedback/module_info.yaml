@@ -49,4 +49,4 @@ module:
     scientific: []
 
   docs:
-    physics: models/sage/modules/sage_starburst_feedback/README.md
+    physics: README.md

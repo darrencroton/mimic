@@ -48,7 +48,7 @@
 #include "include/globals.h"
 #include "util/error.h"
 #include "util/memory.h"
-#include "sage/shared/metallicity.h"
+#include "shared/metallicity.h"
 
 #include <stdio.h>
 #include <stdlib.h>

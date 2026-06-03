@@ -2,12 +2,12 @@
  * Output Helper Functions
  *
  * Purpose: Shared helper functions for property output logic
- * Location: models/sage/modules/shared/output_helpers.h
+ * Location: src/module_system/output_helpers.h
  *
  * These functions provide reusable output logic patterns that would otherwise
  * require complex conditional expressions in property metadata. They maintain
  * core-physics separation by:
- * - Living in models/sage/modules/shared/ (physics layer, not core)
+ * - Being shared infrastructure for metadata-driven output conversion
  * - Being referenced by name in property metadata (no hardcoded physics in core)
  * - Being auto-generated into output code via metadata
  *
@@ -17,7 +17,7 @@
  *   output_function_arg: "arguments"
  *
  * Architecture Notes:
- * - These functions access galaxy properties (allowed in modules/)
+ * - These functions access generated property metadata and galaxy state
  * - Auto-generated code in copy_to_output.inc calls these functions
  * - Core remains physics-agnostic; all domain logic lives here
  */

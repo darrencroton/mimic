@@ -8,4 +8,4 @@ If another model needs similar behavior, copy or reimplement the helper in that
 model package and reconcile the property names, units, parameters, and tests
 there.
 
-Utility tests are registered in `models/sage/shared/module_info.yaml`.
+Utility tests are registered in `shared/module_info.yaml`.

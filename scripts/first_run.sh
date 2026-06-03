@@ -23,7 +23,7 @@ echo ""
 # Script is in scripts/ subdirectory, so get parent directory (repo root)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-RUN_FILE="input/sage_millennium.yaml"
+RUN_FILE="models/sage/input/sage_millennium.yaml"
 SIM_CONFIG_FILE="simulations/millennium/simulation_info.yaml"
 cd "$REPO_ROOT"
 

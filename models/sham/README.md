@@ -20,13 +20,14 @@ References:
 ## Package Contents
 
 - `model_properties.yaml`: All SHAM-owned galaxy properties, including `ShamMpeak`, `ShamVpeak`, `ShamStellarMassNoScatter`, `ShamScatterDex`, and `ShamOrphanAge`.
+- `input/`: SHAM run parameter YAML files, including the shipped Millennium configuration.
 - `modules/sham_assign_stellar_mass/`: The only runtime module. It tracks peak proxies, assigns `StellarMass`, mirrors that mass into `BulgeMass` for simple diagnostics, and handles Type 2 orphan ageing.
 - `plots/figures/`: SHAM-specific and shared diagnostic figures for `mimic-plot.py`.
 - `plots/profiles/`: Plot profile YAML files, including Millennium defaults used by the shipped SHAM run.
 
 ## Runtime Pipeline
 
-The shipped SHAM run configuration currently lives at `input/sham_millennium.yaml`. It runs `sham_assign_stellar_mass` as `process_full_halo` in `post_timestep`, after Mimic has advanced halo inheritance for the snapshot. `SubSteps` is set to `1` because this proxy model has no substep baryonic reservoir cycle.
+The shipped SHAM run configuration lives at `models/sham/input/sham_millennium.yaml`. It runs `sham_assign_stellar_mass` as `process_full_halo` in `post_timestep`, after Mimic has advanced halo inheritance for the snapshot. `SubSteps` is set to `1` because this proxy model has no substep baryonic reservoir cycle.
 
 The module reads `Type`, `dT`, `Mvir`, and `Vmax`; writes stellar diagnostics and SHAM proxy properties; and uses parameters prefixed with `Sham`. Type 0 and Type 1 galaxies update their peak proxies from resolved halos. Type 2 galaxies retain their last resolved peaks and accumulate orphan age until the configured maximum age is exceeded.
 
@@ -34,8 +35,8 @@ The module reads `Type`, `dT`, `Mvir`, and `Vmax`; writes stellar diagnostics an
 
 ```bash
 make MODEL=sham
-./mimic input/sham_millennium.yaml
-python plot/mimic-plot/mimic-plot.py --param-file=input/sham_millennium.yaml
+./mimic models/sham/input/sham_millennium.yaml
+python plot/mimic-plot/mimic-plot.py --param-file=models/sham/input/sham_millennium.yaml
 ```
 
 Useful checks:

@@ -115,7 +115,7 @@ int test_module_registration(void)
 int test_cooling_tables_loading(void)
 {
     /* Test loading from module directory */
-    const char *cool_dir = "models/sage/modules/sage_calculate_cooling_budget/CoolFunctions";
+    const char *cool_dir = MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
 
@@ -136,7 +136,7 @@ int test_cooling_tables_loading(void)
  */
 int test_temperature_interpolation(void)
 {
-    const char *cool_dir = "models/sage/modules/sage_calculate_cooling_budget/CoolFunctions";
+    const char *cool_dir = MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
     TEST_ASSERT(result == 0, "Tables must load for interpolation test");
@@ -166,7 +166,7 @@ int test_temperature_interpolation(void)
  */
 int test_metallicity_interpolation(void)
 {
-    const char *cool_dir = "models/sage/modules/sage_calculate_cooling_budget/CoolFunctions";
+    const char *cool_dir = MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
     TEST_ASSERT(result == 0, "Tables must load for interpolation test");
@@ -203,7 +203,7 @@ int test_metallicity_interpolation(void)
  */
 int test_primordial_gas_cooling(void)
 {
-    const char *cool_dir = "models/sage/modules/sage_calculate_cooling_budget/CoolFunctions";
+    const char *cool_dir = MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
     TEST_ASSERT(result == 0, "Tables must load for primordial test");
@@ -231,7 +231,7 @@ int test_primordial_gas_cooling(void)
  */
 int test_super_solar_metallicity(void)
 {
-    const char *cool_dir = "models/sage/modules/sage_calculate_cooling_budget/CoolFunctions";
+    const char *cool_dir = MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
     TEST_ASSERT(result == 0, "Tables must load for super-solar test");
@@ -264,7 +264,7 @@ int test_super_solar_metallicity(void)
  */
 int test_extreme_temperatures(void)
 {
-    const char *cool_dir = "models/sage/modules/sage_calculate_cooling_budget/CoolFunctions";
+    const char *cool_dir = MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions";
 
     int result = cooling_tables_init(cool_dir);
     TEST_ASSERT(result == 0, "Tables must load for temperature test");

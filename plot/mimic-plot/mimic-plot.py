@@ -232,7 +232,7 @@ def read_profile_file(path, chain=None):
     for inherited in profile.get("inherits", []) or []:
         inherited_path = Path(inherited)
         if not inherited_path.is_absolute():
-            inherited_path = REPO_ROOT / inherited
+            inherited_path = profile_path.parent / inherited
         merged = merge_profile(merged, read_profile_file(inherited_path, branch))
 
     profile.pop("inherits", None)

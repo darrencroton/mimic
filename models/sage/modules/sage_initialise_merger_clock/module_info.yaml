@@ -24,4 +24,4 @@ module:
     scientific: []
 
   docs:
-    physics: models/sage/modules/sage_initialise_merger_clock/README.md
+    physics: README.md

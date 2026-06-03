@@ -36,4 +36,4 @@ module:
     integration: null
 
   docs:
-    physics: src/module_system/test_event_producer/README.md
+    physics: README.md

@@ -102,7 +102,7 @@ def standalone_module_files() -> List[Path]:
     """Package-local standalone module source files.
 
     Standalone modules are supported only inside model package module roots,
-    for example ``models/sage/modules/my_module.c``. The old ``src/modules``
+    for example ``models/<model>/modules/my_module.c``. The old ``src/modules``
     root is intentionally not searched.
     """
     files: List[Path] = []

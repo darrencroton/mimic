@@ -40,5 +40,5 @@ module:
     scientific: []
 
   docs:
-    physics: models/sham/modules/sham_assign_stellar_mass/README.md
+    physics: README.md
 

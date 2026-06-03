@@ -15,8 +15,8 @@
 
 #include "constants.h"
 #include "error.h"
-#include "sage/shared/metallicity.h"
-#include "sage/shared/time_parity.h"
+#include "shared/metallicity.h"
+#include "shared/time_parity.h"
 #include "module_system/physical_constants.h"
 #include "module_interface.h"
 #include "module_registry.h"
@@ -87,8 +87,8 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx, const
 
 int sage_calculate_cooling_budget_init(void)
 {
-    // Initialize cooling function tables (path relative to module directory)
-    if (cooling_tables_init("models/sage/modules/sage_calculate_cooling_budget/CoolFunctions") != 0) {
+    // Initialize cooling function tables from the active model package.
+    if (cooling_tables_init(MIMIC_COMPILED_MODEL_PATH "/modules/sage_calculate_cooling_budget/CoolFunctions") != 0) {
         ERROR_LOG("Failed to initialize cooling function tables");
         return -1;
     }

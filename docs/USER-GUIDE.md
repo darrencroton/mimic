@@ -27,7 +27,7 @@ git clone [repository-url]
 cd mimic
 ./scripts/first_run.sh
 make MODEL=sage
-./mimic input/sage_millennium.yaml
+./mimic models/sage/input/sage_millennium.yaml
 ```
 
 `first_run.sh` prepares the standard local environment: it creates required directories, downloads the mini-Millennium test data, and creates the Python virtual environment used by plotting tools.
@@ -61,7 +61,7 @@ On macOS, replace `$(nproc)` with the number of build jobs you want, for example
 
 `MODEL` defaults to `DEFAULT_MODEL` (set to `sage`) near the top of the `Makefile`, so plain `make` builds the default model. Override it per-invocation with `make MODEL=<name>`, or change the `DEFAULT_MODEL` line if your primary model is not sage. If the selected package does not exist (for example after a model is renamed or removed), the build stops with an `Unknown MODEL` error rather than silently mis-building.
 
-Mimic is compiled against one model set at a time. The selected `MODEL` controls which `models/<model>/` package contributes properties, modules, model-local shared helpers, tests, and plotting figures. A run file whose `model.name` or `model.path` does not match the compiled model fails at startup. If you want to mix modules from multiple model families, create a new `models/<model>/` package and copy the modules/helpers/plots you need into it, then reconcile property names, parameter names, units, dependencies, and tests inside that package.
+Mimic is compiled against one model set at a time. The selected `MODEL` controls which `models/<model>/` package contributes run files, properties, modules, model-local shared helpers, tests, and plotting figures. A run file whose `model.name` or `model.path` does not match the compiled model fails at startup. If you want to mix modules from multiple model families, create a new `models/<model>/` package and copy the run files, modules, helpers, and plots you need into it, then reconcile property names, parameter names, units, dependencies, and tests inside that package.
 
 ### Manual Setup
 
@@ -83,7 +83,7 @@ pip install -r requirements.txt
 deactivate
 
 make MODEL=sage
-./mimic input/sage_millennium.yaml
+./mimic models/sage/input/sage_millennium.yaml
 ```
 
 Relative paths in the parameter file are resolved from the directory where you run `./mimic`. If path confusion occurs, use absolute paths for `output.output_directory`, `input.simulation_dir`, and `input.snapshot_list_file`. Mimic creates `output.output_directory` automatically, but input data paths must already exist.
@@ -109,7 +109,7 @@ Command-line options:
 Example:
 
 ```bash
-./mimic --debug input/sage_millennium.yaml 2>&1 | tee debug.log
+./mimic --debug models/sage/input/sage_millennium.yaml 2>&1 | tee debug.log
 ```
 
 Mimic returns exit code 0 on success. Any non-zero exit code should be treated as a failed run.
@@ -148,7 +148,7 @@ Full-halo modules always run before by-galaxy modules within a phase. Events emi
 
 ### YAML Structure
 
-The shipped configuration is `input/sage_millennium.yaml`. Its top-level sections are:
+The shipped configuration is `models/sage/input/sage_millennium.yaml`. Its top-level sections are:
 
 ```yaml
 model:
@@ -188,7 +188,7 @@ The referenced simulation config, `simulations/millennium/simulation_info.yaml`,
 
 ### Physics Modules
 
-The module pipeline is configured under `modules`. The following abbreviated example shows the phase structure only — the full set of SAGE modules and their parameter values live in `input/sage_millennium.yaml`, which is the authoritative shipped configuration.
+The module pipeline is configured under `modules`. The following abbreviated example shows the phase structure only — the full set of SAGE modules and their parameter values live in `models/sage/input/sage_millennium.yaml`, which is the authoritative shipped configuration.
 
 ```yaml
 SubSteps: 10
@@ -197,7 +197,7 @@ modules:
   pre_timestep:
     - sage_reionization:              process_full_halo
     - sage_prepare_infall_budget:     process_full_halo
-    # ... see input/sage_millennium.yaml for the full pre_timestep block
+    # ... see models/sage/input/sage_millennium.yaml for the full pre_timestep block
 
   phase_1:
     - sage_apply_infall:              process_full_halo
@@ -214,7 +214,7 @@ modules:
   post_timestep: []
 
   parameters:
-    # Illustrative values only. See input/sage_millennium.yaml for the calibrated set.
+    # Illustrative values only. See models/sage/input/sage_millennium.yaml for the calibrated set.
     GlobalBaryonFraction: 0.17
     SfrEfficiency: 0.05
     # ... cooling, AGN, BH, metals, mergers ...
@@ -262,7 +262,7 @@ output:
 **Override simulation input defaults** by adding an `input` section to your run file. `simulation_info.yaml` defines the defaults for a simulation (e.g. which tree files to process); any `input` keys present in the run file take precedence. This lets you control a run entirely from one file without touching the shared simulation config:
 
 ```yaml
-# In your run file (e.g. sage_millennium.yaml)
+# In your model-local run file (e.g. models/sage/input/sage_millennium.yaml)
 # Processes only file 0 regardless of what simulation_info.yaml sets for last_file
 input:
   first_file: 0
@@ -273,7 +273,7 @@ input:
 
 ```bash
 make MODEL=sage USE-MPI=yes
-mpirun -np 4 ./mimic input/sage_millennium.yaml
+mpirun -np 4 ./mimic models/sage/input/sage_millennium.yaml
 ```
 
 MPI parallelizes over tree files. For balanced work, choose a rank count that divides `last_file - first_file + 1`.
@@ -281,7 +281,7 @@ MPI parallelizes over tree files. For balanced work, choose a rank count that di
 **Resume an interrupted run** with `--skip`:
 
 ```bash
-./mimic --skip input/sage_millennium.yaml
+./mimic --skip models/sage/input/sage_millennium.yaml
 ```
 
 ---
@@ -413,15 +413,15 @@ Activate the virtual environment before running plotting commands:
 ```bash
 source mimic_venv/bin/activate
 
-python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_millennium.yaml
 
-python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml \
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_millennium.yaml \
     --plots=halo_mass_function,stellar_mass_function
 
-python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml \
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_millennium.yaml \
     --snapshot-plots
 
-python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml \
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_millennium.yaml \
     --evolution-plots
 
 deactivate
@@ -463,7 +463,7 @@ make MODEL=sage clean && make MODEL=sage
 **Non-zero exit code**: Treat the run as failed. Check the last error messages and rerun with debug logging:
 
 ```bash
-./mimic --debug input/sage_millennium.yaml 2>&1 | tee debug.log
+./mimic --debug models/sage/input/sage_millennium.yaml 2>&1 | tee debug.log
 ```
 
 **Cannot open input files**: Check `input.simulation_dir`, `input.tree_name`, `input.first_file`, `input.last_file`, and `input.snapshot_list_file`. Mimic creates output directories but does not create or download missing input data during a normal run.
@@ -495,7 +495,7 @@ source mimic_venv/bin/activate
 **No plots generated or many skipped plots**: Some plots require populated galaxy-physics fields. A physics-free run can still produce halo-property plots, but galaxy plots will be skipped. Run with `--verbose` to see skip reasons:
 
 ```bash
-python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml --verbose
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_millennium.yaml --verbose
 ```
 
 **Virtual environment missing**:

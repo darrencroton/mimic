@@ -14,8 +14,8 @@
 #include "module_interface.h"
 #include "module_registry.h"
 #include "types.h"
-#include "sage/shared/metallicity.h"
-#include "sage/shared/time_parity.h"
+#include "shared/metallicity.h"
+#include "shared/time_parity.h"
 #include "module_system/parameter_helpers.h"
 
 // ============================================================================

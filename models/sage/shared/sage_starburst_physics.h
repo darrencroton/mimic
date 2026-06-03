@@ -9,7 +9,7 @@
  * For BH growth and quasar-mode wind see sage_agn_physics.h.
  *
  * Single-consumer note: sage_starburst_feedback is the sole consumer, but this
- * header lives in models/sage/shared/ as the architectural counterpart to sage_agn_physics.h.
+ * header lives in the model-local shared directory as the architectural counterpart to sage_agn_physics.h.
  * Both halves of the split belong here; consolidating one into the module would
  * leave an asymmetric split and complicate a future second consumer.
  */
@@ -18,7 +18,7 @@
 
 #include "constants.h"
 #include "types.h"
-#include "sage/shared/metallicity.h"
+#include "shared/metallicity.h"
 
 /**
  * @brief Parameter bundle for merger/disk-instability starburst physics

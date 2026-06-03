@@ -16,8 +16,8 @@ For modules with metadata, tests, and documentation:
 
 ```bash
 # Copy the entire template directory
-cp -r src/module_system/template models/sage/modules/my_module
-cd models/sage/modules/my_module
+cp -r src/module_system/template models/<model>/modules/my_module
+cd models/<model>/modules/my_module
 
 # Rename files
 mv template_module.c my_module.c
@@ -38,7 +38,7 @@ make
 For a small package-local prototype, copy only the C file:
 
 ```bash
-cp src/module_system/template/template_module.c models/sage/modules/my_module.c
+cp src/module_system/template/template_module.c models/<model>/modules/my_module.c
 ```
 
 Then rename the lifecycle functions from `template_module_*` to `my_module_*`. Standalone modules are discovered only from `models/<model>/modules/*.c`; the old `src/modules/` root is not searched. They inherit all processing modes and have no metadata-driven dependency, test, docs, or event validation, so convert them to directory modules once the module becomes maintained model code.
@@ -63,10 +63,10 @@ int my_module_cleanup(void);        // Free memory
 
 ### Include Paths
 
-**Directory module source** (`models/sage/modules/my_module/my_module.c`) or standalone source (`models/sage/modules/my_module.c`):
+**Directory module source** (`models/<model>/modules/my_module/my_module.c`) or standalone source (`models/<model>/modules/my_module.c`):
 ```c
 #include "module_system/parameter_helpers.h"
-#include "sage/shared/my_utility.h"
+#include "shared/my_utility.h"
 ```
 
 ### Loading Parameters
@@ -89,7 +89,7 @@ float cold_gas = gal->ColdGas;
 gal->StellarMass += delta_mass;
 ```
 
-Properties defined in `models/sage/model_properties.yaml`.
+Properties defined in `models/<model>/model_properties.yaml`.
 
 ### Time Integration
 
@@ -116,7 +116,7 @@ float delta = rate * dt;
    ```bash
    make generate
    make
-   ./mimic input/your_config.yaml
+   ./mimic models/<model>/input/your_config.yaml
    ```
 
 For detailed examples and the full module workflow, see the docs linked at the top.

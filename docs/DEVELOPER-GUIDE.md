@@ -39,10 +39,10 @@ Common tasks:
 This minimal example creates a directory module. Directory modules are the recommended production pattern because they declare supported processing modes, dependencies, tests, event contracts, and documentation in `module_info.yaml`. For simple prototypes, model packages also support standalone source modules; see [Standalone Modules](#standalone-modules).
 
 ```bash
-mkdir -p models/sage/modules/my_module/_tests
+mkdir -p models/<model>/modules/my_module/_tests
 ```
 
-Create `models/sage/modules/my_module/my_module.c`:
+Create `models/<model>/modules/my_module/my_module.c`:
 
 ```c
 #include "module_system/parameter_helpers.h"
@@ -79,7 +79,7 @@ int my_module_cleanup(void)
 }
 ```
 
-Create `models/sage/modules/my_module/module_info.yaml`:
+Create `models/<model>/modules/my_module/module_info.yaml`:
 
 ```yaml
 module:
@@ -99,7 +99,7 @@ module:
     scientific: []
 
   docs:
-    physics: models/sage/modules/my_module/README.md
+    physics: README.md
 ```
 
 Add the module to an input YAML file:
@@ -118,7 +118,7 @@ Then regenerate, build, and run:
 make MODEL=sage validate-modules
 make MODEL=sage generate
 make MODEL=sage
-./mimic input/sage_millennium.yaml
+./mimic models/sage/input/sage_millennium.yaml
 ```
 
 ---
@@ -222,7 +222,7 @@ Module metadata dependencies are validation aids. They document properties and p
 Directory modules are the production pattern:
 
 ```text
-models/sage/modules/my_module/
+models/<model>/modules/my_module/
   my_module.c
   module_info.yaml
   README.md
@@ -304,7 +304,7 @@ module:
     scientific: []
 
   docs:
-    physics: models/sage/modules/my_module/README.md
+    physics: README.md
 ```
 
 Use `docs.physics` for production modules. If documentation is intentionally centralised elsewhere, make that explicit in the module metadata or validator policy rather than leaving unexplained warnings.
@@ -612,7 +612,7 @@ See [Property Metadata Schema](#property-metadata-schema) in the Reference secti
 
 ### Wiring Up the Run YAML
 
-Reference the simulation package from a run file under `input/`:
+Reference the simulation package from a model-local run file under `models/<model>/input/`:
 
 ```yaml
 simulation:
@@ -654,7 +654,7 @@ mkdir -p simulations/my_sim/snapshots
 # 3. Place or symlink tree data under simulations/my_sim/snapshots/
 
 # 4. Create the run file
-cp input/sage_millennium.yaml input/sage_my_sim.yaml
+cp models/sage/input/sage_millennium.yaml models/sage/input/my_sim.yaml
 # Edit to point at simulations/my_sim/simulation_info.yaml and halo_properties.yaml
 
 # 5. Regenerate property code (picks up the new halo_properties.yaml automatically)
@@ -662,7 +662,7 @@ make MODEL=sage generate
 
 # 6. Build and run
 make MODEL=sage
-./mimic input/sage_my_sim.yaml
+./mimic models/sage/input/my_sim.yaml
 ```
 
 ---
@@ -788,7 +788,7 @@ Run Python tests by path:
 
 ```bash
 python3 tests/integration/test_full_pipeline.py
-python3 models/sage/modules/my_module/_tests/test_integration_my_module.py
+python3 models/<model>/modules/my_module/_tests/test_integration_my_module.py
 python3 tests/scientific/test_scientific.py
 ```
 
@@ -808,7 +808,7 @@ Daily loop:
 make MODEL=sage validate-modules
 make MODEL=sage generate
 make MODEL=sage
-./mimic --debug input/sage_millennium.yaml
+./mimic --debug models/sage/input/sage_millennium.yaml
 make check-docs
 make MODEL=sage tests
 ```
@@ -831,7 +831,7 @@ Keep documentation close to the decision it supports:
 | `docs/VISION.md` | Stable architecture principles and boundaries |
 | `docs/USER-GUIDE.md` | User workflows, configuration, output, plotting, and troubleshooting |
 | `docs/DEVELOPER-GUIDE.md` | Extension workflows, APIs, metadata, tests, and development practices |
-| `models/sage/modules/<module>/README.md` | Module-local physics contract, dependencies, parameters, events, and tests |
+| `models/<model>/modules/<module>/README.md` | Module-local physics contract, dependencies, parameters, events, and tests |
 | Metadata and generated output | Exhaustive field lists, unit labels, module registries, and event IDs |
 
 Prefer prose in guides when it explains decisions and tradeoffs. Prefer links to metadata or code when a list is mechanical, generated, or likely to drift.
@@ -895,7 +895,7 @@ make MODEL=sage clean && make MODEL=sage
 Run with debug logs:
 
 ```bash
-./mimic --debug input/sage_millennium.yaml 2>&1 | tee debug.log
+./mimic --debug models/sage/input/sage_millennium.yaml 2>&1 | tee debug.log
 ```
 
 If `process()` fails without a useful reason, add `ERROR_LOG()` immediately before the failing `return -1` in the module. The core can identify the module and substep, but only the module knows the physics reason.
@@ -914,8 +914,8 @@ myfree(table);
 For deeper checks:
 
 ```bash
-./mimic --debug input/sage_millennium.yaml
-valgrind --leak-check=full ./mimic input/sage_millennium.yaml
+./mimic --debug models/sage/input/sage_millennium.yaml
+valgrind --leak-check=full ./mimic models/sage/input/sage_millennium.yaml
 ```
 
 ---

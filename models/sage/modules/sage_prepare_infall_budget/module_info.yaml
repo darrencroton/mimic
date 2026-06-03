@@ -28,4 +28,4 @@ module:
     scientific: []
 
   docs:
-    physics: models/sage/modules/sage_prepare_infall_budget/README.md
+    physics: README.md

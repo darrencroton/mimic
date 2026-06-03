@@ -25,4 +25,4 @@ module:
     scientific: []
 
   docs:
-    physics: models/sage/modules/sage_calculate_cooling_budget/README.md
+    physics: README.md

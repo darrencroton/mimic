@@ -86,14 +86,14 @@ make tidy
 
 ```bash
 # Basic execution
-./mimic input/sage_millennium.yaml
-./mimic input/sham_millennium.yaml    # SHAM model
+./mimic models/sage/input/sage_millennium.yaml
+./mimic models/sham/input/sham_millennium.yaml    # SHAM model
 
 # Verbosity options
-./mimic --debug input/sage_millennium.yaml    # Most verbose (debug output + context)
-./mimic --verbose input/sage_millennium.yaml  # Add context (timestamp, file:line)
-./mimic --quiet input/sage_millennium.yaml    # Warnings/errors only
-./mimic --skip input/sage_millennium.yaml     # Skip existing output files
+./mimic --debug models/sage/input/sage_millennium.yaml    # Most verbose (debug output + context)
+./mimic --verbose models/sage/input/sage_millennium.yaml  # Add context (timestamp, file:line)
+./mimic --quiet models/sage/input/sage_millennium.yaml    # Warnings/errors only
+./mimic --skip models/sage/input/sage_millennium.yaml     # Skip existing output files
 ```
 
 ---
@@ -151,18 +151,18 @@ python3 test_validation_helpers.py
 
 # Generate all plots (18 snapshot + 4 evolution)
 cd ..
-python mimic-plot.py --param-file=../../input/sage_millennium.yaml
+python mimic-plot.py --param-file=../../models/sage/input/sage_millennium.yaml
 
 # Generate specific plots
-python mimic-plot.py --param-file=../../input/sage_millennium.yaml --plots=halo_mass_function,spin_distribution
+python mimic-plot.py --param-file=../../models/sage/input/sage_millennium.yaml --plots=halo_mass_function,spin_distribution
 
 # Snapshot-only or evolution-only
-python mimic-plot.py --param-file=../../input/sage_millennium.yaml --snapshot-plots
-python mimic-plot.py --param-file=../../input/sage_millennium.yaml --evolution-plots
+python mimic-plot.py --param-file=../../models/sage/input/sage_millennium.yaml --snapshot-plots
+python mimic-plot.py --param-file=../../models/sage/input/sage_millennium.yaml --evolution-plots
 
 # Works from any directory
 cd ../..
-python plot/mimic-plot/mimic-plot.py --param-file=input/sage_millennium.yaml --plots=halo_mass_function
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_millennium.yaml --plots=halo_mass_function
 
 deactivate
 ```
@@ -172,7 +172,7 @@ deactivate
 ## Benchmarking
 
 ```bash
-# Run performance benchmark (default uses input/sage_millennium.yaml)
+# Run performance benchmark (default uses models/sage/input/sage_millennium.yaml)
 cd scripts
 ./benchmark_mimic.sh
 
@@ -213,11 +213,13 @@ src/
 
 models/
 ├── sage/
+│   ├── input/    SAGE run parameter YAML files
 │   ├── model_properties.yaml
 │   ├── modules/  SAGE physics modules and module-local tests
 │   ├── shared/   SAGE-local helper APIs
 │   └── plots/    SAGE plotting figures and profiles
 └── sham/
+    ├── input/    SHAM run parameter YAML files
     ├── model_properties.yaml
     ├── modules/  SHAM physics modules and module-local tests
     └── plots/    SHAM plotting figures and profiles
@@ -239,7 +241,7 @@ plot/mimic-plot/     Plotting system (22 plots: 18 snapshot, 4 evolution)
 
 **Property System:** Properties are defined in YAML (`src/core/core_properties.yaml`, `simulations/<simulation>/halo_properties.yaml`, `models/<MODEL>/model_properties.yaml`) and generated via `make MODEL=<name> generate` into C structs, init/output logic, HDF5 metadata writers, and run-local binary output schemas.
 
-**Model Set Boundary:** Mimic compiles one model set at a time via `MODEL=<name>`. A model package must be self-contained for running and plotting: properties, modules, model-local `shared/` helpers, tests, and plot figures should live under `models/<model>/`. To mix modules from different model families, create a new model package and reconcile property names, parameter names, units, dependencies, tests, and plots there.
+**Model Set Boundary:** Mimic compiles one model set at a time via `MODEL=<name>`. A model package must be self-contained for running and plotting: run parameter YAML files, properties, modules, model-local `shared/` helpers, tests, and plot figures should live under `models/<model>/`. To mix modules from different model families, create a new model package and reconcile property names, parameter names, units, dependencies, tests, and plots there.
 
 **Module System:** Runtime-configurable physics modules execute through a 4-phase pipeline (`pre_timestep` → `phase_1` → `phase_2` → `post_timestep`) with two processing modes: `PROCESSING_MODE_FULL_HALO` and `PROCESSING_MODE_BY_GALAXY`. Module lifecycle: `init()` → `process()` → `cleanup()`.
 

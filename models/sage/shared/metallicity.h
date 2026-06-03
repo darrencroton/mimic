@@ -5,8 +5,8 @@
  * This shared utility provides robust metallicity calculations used by
  * multiple physics modules (sage_calculate_infall, sage_calculate_cooling, sage_radio_mode_heating, etc.).
  *
- * @note This file is part of the SAGE shared utilities system in models/sage/shared/.
- *       Modules include it using relative paths: #include "sage/shared/metallicity.h"
+ * @note This file is part of the model-local shared utilities system.
+ *       Modules include it using relative paths: #include "shared/metallicity.h"
  */
 
 #ifndef MIMIC_SHARED_METALLICITY_H

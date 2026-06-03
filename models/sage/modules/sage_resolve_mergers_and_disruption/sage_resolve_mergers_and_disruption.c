@@ -12,10 +12,10 @@
 
 #include <math.h>
 
-#include "sage/shared/central_link.h"
+#include "shared/central_link.h"
 #include "module_system/generated/event_contracts.h"
 #include "sage_merger_ops.h"
-#include "sage/shared/time_parity.h"
+#include "shared/time_parity.h"
 #include "module_system/parameter_helpers.h"
 #include "error.h"
 #include "globals.h"

@@ -29,4 +29,4 @@ module:
     integration: null
 
   docs:
-    physics: src/module_system/test_event_consumer_gamma/README.md
+    physics: README.md

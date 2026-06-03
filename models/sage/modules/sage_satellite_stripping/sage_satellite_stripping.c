@@ -14,7 +14,7 @@
 
 #include "error.h"
 #include "module_system/parameter_helpers.h"
-#include "sage/shared/metallicity.h"
+#include "shared/metallicity.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "types.h"

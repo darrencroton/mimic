@@ -23,7 +23,7 @@
  */
 
 #include "error.h"
-#include "sage/shared/sage_disk_instability_physics.h"
+#include "shared/sage_disk_instability_physics.h"
 #include "module_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "types.h"

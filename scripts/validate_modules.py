@@ -666,7 +666,7 @@ def validate_test_files(
 
 
 def validate_doc_files(
-    module: Dict[str, Any], module_name: str, results: ValidationResults
+    module_dir: Path, module: Dict[str, Any], module_name: str, results: ValidationResults
 ) -> bool:
     """Validate that documentation files exist (warnings only)."""
 
@@ -680,7 +680,7 @@ def validate_doc_files(
         physics_doc = docs["physics"]
         # null means "no physics doc" — treat as absent
         if physics_doc is not None:
-            physics_doc_path = REPO_ROOT / physics_doc
+            physics_doc_path = module_dir / physics_doc
             if not physics_doc_path.exists():
                 results.add_warning(
                     module_name, f"Physics documentation not found: {physics_doc}"
@@ -839,7 +839,7 @@ def validate_module(
         return True
 
     validate_test_files(module, module_name, module_dir, results)
-    validate_doc_files(module, module_name, results)
+    validate_doc_files(module_dir, module, module_name, results)
 
     if verbose:
         print(f"  ✓ {module_name} validated")

@@ -18,7 +18,7 @@
 
 #include "constants.h"
 #include "error.h"
-#include "sage/shared/sage_agn_physics.h"
+#include "shared/sage_agn_physics.h"
 #include "module_system/generated/event_contracts.h"
 #include "module_system/parameter_helpers.h"
 #include "module_interface.h"

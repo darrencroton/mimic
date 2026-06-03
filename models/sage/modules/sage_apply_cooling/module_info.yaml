@@ -23,4 +23,4 @@ module:
     scientific: []
 
   docs:
-    physics: models/sage/modules/sage_apply_cooling/README.md
+    physics: README.md

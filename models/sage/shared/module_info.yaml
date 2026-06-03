@@ -17,7 +17,7 @@
 #       - test_integration_foo.py
 #       - test_integration_bar.py
 #
-# See: models/sage/shared/README.md for model-local shared utility guidance
+# See: shared/README.md for model-local shared utility guidance
 
 module:
   name: shared

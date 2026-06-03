@@ -71,7 +71,7 @@ def test_module_loads():
             'phase_2': [],
             'post_timestep': []
         },
-        model_params={'GlobalBaryonFraction': 0.17, 'CoolFunctionsDir': './input/data/cooling_functions/'}
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====
@@ -113,7 +113,7 @@ def test_output_properties_exist():
             'phase_2': [],
             'post_timestep': []
         },
-        model_params={'GlobalBaryonFraction': 0.17, 'CoolFunctionsDir': './input/data/cooling_functions/'}
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====
@@ -165,7 +165,7 @@ def test_with_sage_calculate_cooling_budget():
             'phase_2': [],
             'post_timestep': []
         },
-        model_params={'GlobalBaryonFraction': 0.17, 'CoolFunctionsDir': './input/data/cooling_functions/'}
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====
@@ -211,7 +211,7 @@ def test_memory_safety():
             'phase_2': [],
             'post_timestep': []
         },
-        model_params={'GlobalBaryonFraction': 0.17, 'CoolFunctionsDir': './input/data/cooling_functions/'}
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====
@@ -248,7 +248,7 @@ def test_execution_completes():
             'phase_2': [],
             'post_timestep': []
         },
-        model_params={'GlobalBaryonFraction': 0.17, 'CoolFunctionsDir': './input/data/cooling_functions/'},
+        model_params={'GlobalBaryonFraction': 0.17},
         first_file=0,
         last_file=0
     )
@@ -287,7 +287,7 @@ def test_gas_transfer_physics():
             'phase_2': [],
             'post_timestep': []
         },
-        model_params={'GlobalBaryonFraction': 0.17, 'CoolFunctionsDir': './input/data/cooling_functions/'}
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====
@@ -343,7 +343,7 @@ def test_metallicity_preservation():
             'phase_2': [],
             'post_timestep': []
         },
-        model_params={'GlobalBaryonFraction': 0.17, 'CoolFunctionsDir': './input/data/cooling_functions/'}
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====
@@ -405,7 +405,7 @@ def test_cooling_energy_tracking():
             'phase_2': [],
             'post_timestep': []
         },
-        model_params={'GlobalBaryonFraction': 0.17, 'CoolFunctionsDir': './input/data/cooling_functions/'}
+        model_params={'GlobalBaryonFraction': 0.17}
     )
 
     # ===== EXECUTE =====

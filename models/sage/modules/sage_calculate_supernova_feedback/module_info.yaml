@@ -21,4 +21,4 @@ module:
     scientific: []
 
   docs:
-    physics: models/sage/modules/sage_calculate_supernova_feedback/README.md
+    physics: README.md
