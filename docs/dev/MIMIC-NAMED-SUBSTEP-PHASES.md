@@ -48,23 +48,23 @@ modules:
     - sage_prepare_infall_budget: process_full_halo
 
   phases:
-    infall_and_cooling:
+    galaxy_physics:
       - sage_apply_infall: process_full_halo
       - sage_reincorporation: process_full_halo
       - sage_satellite_stripping: process_by_galaxy
       - sage_calculate_cooling_budget: process_by_galaxy
       - sage_radio_mode_heating: process_by_galaxy
       - sage_apply_cooling: process_by_galaxy
-
-    star_formation_feedback:
       - sage_calculate_star_formation: process_by_galaxy
       - sage_calculate_supernova_feedback: process_by_galaxy
       - sage_apply_star_formation_supernova: process_by_galaxy
-
-    instabilities_and_mergers:
       - sage_disk_instability: process_by_galaxy
       - sage_quasar_mode: process_by_galaxy
       - sage_starburst_feedback: process_by_galaxy
+
+    environmental_physics: []
+
+    satellite_mergers:
       - sage_resolve_mergers_and_disruption: process_full_halo
       - sage_quasar_mode: process_per_event
       - sage_starburst_feedback: process_per_event
@@ -76,7 +76,7 @@ modules:
     RecycleFraction: 0.43
 ```
 
-The exact SAGE split above is illustrative, not a required migration. The implementer should preserve current SAGE behaviour unless an explicit scientific review approves a changed split.
+The SAGE-style split above is illustrative, but the physical intent is important: the ordinary SAGE galaxy physics stays together in the first repeated phase, matching the current `phase_1` role, and merger/disruption work follows in a later repeated phase, matching the current `phase_2` role. Additional named phases such as `environmental_physics` should be added only when a model has a real physical stage to put there. The implementer should preserve current SAGE behaviour unless an explicit scientific review approves a changed split.
 
 ---
 
