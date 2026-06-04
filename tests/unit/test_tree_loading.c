@@ -43,6 +43,12 @@ extern struct RawHalo *InputTreeHalos;
 extern int *InputTreeNHalos;
 extern int Ntrees;
 
+static const char *test_binary_param_file(void) {
+    static char path[MAX_STRING_LEN];
+    snprintf(path, sizeof(path), "%s/input/test_binary.yaml", MIMIC_COMPILED_MODEL_PATH);
+    return path;
+}
+
 /**
  * @brief   Setup function for test initialization
  *
@@ -51,7 +57,7 @@ extern int Ntrees;
 static void setup_test(void) {
     init_memory_system(0);
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
     init();
 }
 
@@ -227,7 +233,7 @@ int test_invalid_file_handling(void) {
     initialize_error_handling(LOG_LEVEL_ERROR, NULL);
 
     /* Create a parameter file pointing to non-existent data */
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
 
     /* ===== EXECUTE ===== */
     /* Modify config to point to non-existent file */

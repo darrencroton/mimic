@@ -1,0 +1,56 @@
+#=============================================================================
+# Mimic Test Parameter File
+#=============================================================================
+# This is a minimal configuration for fast automated testing.
+# It processes only a single tree file (trees_063.0) and outputs
+# only snapshot 63 to keep test runtime under 10 seconds.
+#
+# Used by: tests/unit/, tests/integration/, tests/scientific/ when MODEL=sham
+#
+# To run manually:
+#   ./mimic models/sham/input/test_binary.yaml
+#
+# Output location:
+#   tests/data/output/binary/  (test output, compared against baseline/)
+#
+# Directory structure:
+#   baseline/ - Static reference data (NEVER regenerated, committed to git)
+#   binary/   - Test output from binary format runs (gitignored)
+#   hdf5/     - Test output from HDF5 format runs (gitignored)
+#=============================================================================
+
+#-----------------------------------------------------------------------------
+# Package Configuration
+#-----------------------------------------------------------------------------
+model:
+  name: sham
+  path: models/sham
+  properties: models/sham/model_properties.yaml
+
+simulation:
+  name: test_millennium
+  path: tests/data
+  config: tests/data/test_simulation.yaml
+  halo_properties: simulations/millennium/halo_properties.yaml
+
+plotting:
+  profile: models/sham/plots/profiles/millennium_plot_profile.yaml
+
+#-----------------------------------------------------------------------------
+# Output Configuration
+#-----------------------------------------------------------------------------
+output:
+  output_filename: model
+  output_directory: ./tests/data/output/binary/
+  snapshot_count: 1  # Single snapshot for fast testing
+  output_format: binary
+  snapshot_list:
+  - 63
+
+# Physics Modules
+#-----------------------------------------------------------------------------
+# Physics modules currently disabled for baseline testing
+# Mimic operates as a physics-agnostic framework for halo tracking
+modules:
+  enabled: []
+  parameters: {}

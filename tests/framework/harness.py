@@ -21,6 +21,22 @@ TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
 MIMIC_EXE = REPO_ROOT / "mimic"
 
 
+def compiled_model():
+    """Return the model selected for this test run."""
+    return os.environ.get("MODEL", "sage")
+
+
+def model_input_file(filename):
+    """Return a test input file from the selected model package."""
+    path = REPO_ROOT / "models" / compiled_model() / "input" / filename
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Model-local test input not found: {path}. "
+            f"Create models/{compiled_model()}/input/{filename}."
+        )
+    return path
+
+
 def ensure_output_dirs():
     """
     Create output directories if they don't exist
@@ -50,7 +66,7 @@ def run_mimic(param_file, cwd=None):
         FileNotFoundError: If Mimic executable not found
 
     Usage:
-        returncode, stdout, stderr = run_mimic("models/sage/input/sage_millennium.yaml")
+        returncode, stdout, stderr = run_mimic(model_input_file("test_binary.yaml"))
         assert returncode == 0, f"Mimic failed: {stderr}"
     """
     if cwd is None:
@@ -85,7 +101,7 @@ def read_param_file(param_file):
         dict: Parameter name -> value mapping
 
     Usage:
-        params = read_param_file("models/sage/input/sage_millennium.yaml")
+        params = read_param_file(model_input_file("test_binary.yaml"))
         output_dir = params['OutputDir']
         hubble_h = float(params['Hubble_h'])
     """
@@ -164,7 +180,8 @@ def create_test_param_file(output_name, phase_config=None,
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
         first_file (int): First file to process (default: 0)
         last_file (int): Last file to process (default: 0)
-        ref_param_file (str or Path): Reference YAML parameter file (default: test_binary.yaml)
+        ref_param_file (str or Path): Reference YAML parameter file
+                                      (default: models/<MODEL>/input/test_binary.yaml)
         temp_dir (str or Path): Temporary directory for outputs (default: create new)
         output_format (str): Output format override ('binary' or 'hdf5', default: from ref file)
 
@@ -178,12 +195,12 @@ def create_test_param_file(output_name, phase_config=None,
         # Physics-free mode
         param_file, output_dir, temp_dir = create_test_param_file("test_run")
 
-        # Multi-phase configuration (preferred)
+        # Multi-phase configuration (preferred; use modules from the selected model)
         param_file, output_dir, temp_dir = create_test_param_file(
             output_name="infall_test",
             phase_config={
-                'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
+                'pre_timestep': [('my_prepare_module', 'process_full_halo')],
+                'phase_1': [('my_process_module', 'process_by_galaxy')],
                 'phase_2': [],
                 'post_timestep': []
             },
@@ -202,7 +219,7 @@ def create_test_param_file(output_name, phase_config=None,
 
     # Set defaults
     if ref_param_file is None:
-        ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
+        ref_param_file = model_input_file("test_binary.yaml")
     if temp_dir is None:
         temp_dir = tempfile.mkdtemp(prefix="mimic_test_")
     else:

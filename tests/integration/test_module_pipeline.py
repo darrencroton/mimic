@@ -219,8 +219,7 @@ class TestModulePipeline(unittest.TestCase):
         """Test that modules execute in the order specified in configured module phases.
 
         Note: This test validates basic execution ordering infrastructure.
-        Dependency-based ordering will be tested when modules with actual
-        dependencies are implemented (e.g., sage_calculate_cooling_budget depends on sage_prepare_infall_budget).
+        Model-specific dependency contracts live under models/<model>/modules/_tests/.
         """
         # Create parameter file with test_fixture
         param_file, output_dir, _ = create_test_param_file(

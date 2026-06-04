@@ -19,20 +19,20 @@ make test-scientific    # Physics validation (<5min)
 **Unit Tests** (`tests/unit/`)
 - C-based tests for individual functions and modules
 - Fast (<10 seconds total)
-- Test infrastructure: memory management, I/O, core functionality
-- Test modules: individual module unit tests
+- Core tests cover memory management, I/O, generated properties, and infrastructure
+- Selected-model tests come from `models/<MODEL>/modules/**/_tests/` and `models/<MODEL>/modules/_tests/`
 
 **Integration Tests** (`tests/integration/`)
 - Python-based end-to-end workflow tests
 - Medium speed (<1 minute total)
-- Test full pipeline execution, output format compatibility
-- Use test data from `tests/data/`
+- Core tests cover pipeline execution, output formats, and model-neutral contracts
+- Selected-model integration tests come from `models/<MODEL>/modules/**/_tests/`
 
 **Scientific Tests** (`tests/scientific/`)
 - Python-based physics validation
 - Slower (<5 minutes total)
-- Validate physics accuracy against published SAGE results
-- Test mass/metal conservation, scientific correctness
+- Core scientific tests validate model-neutral scientific contracts
+- Selected-model scientific tests come from `models/<MODEL>/modules/**/_tests/`
 
 ## Running Individual Tests
 
@@ -75,18 +75,22 @@ python3 tests/scientific/test_scientific.py
 
 Scientific validation currently has one repository-level script in `tests/scientific/`. Future module scientific tests can be run the same way with `python3 path/to/test.py`.
 
+The `make MODEL=<name> test-unit`, `test-integration`, `test-scientific`, and `tests` targets always run the core tests plus tests declared by the selected model package. If a model has no tests in a tier, that tier runs the core tests and exits successfully.
+
 ## Directory Structure
 
 ```
 tests/
 ├── unit/               # C unit tests
 ├── integration/        # Python integration tests
-├── scientific/         # Physics validation tests
+├── scientific/         # Core scientific validation tests
 ├── framework/          # Shared test utilities
 │   └── data_loader.py  # Binary/HDF5 data loading
-├── data/               # Test input files
+├── data/               # Shared mini simulation data, output fixtures, baselines
 └── generated/          # Auto-generated test metadata
 ```
+
+Model-local run files and module tests live under `models/<model>/input/` and `models/<model>/modules/`.
 
 ## Test Data
 

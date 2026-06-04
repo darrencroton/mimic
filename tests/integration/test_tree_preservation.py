@@ -53,6 +53,7 @@ from framework import (
     TEST_DATA_DIR,
     MIMIC_EXE,
     ensure_output_dirs,
+    model_input_file,
     run_mimic,
 )
 
@@ -538,7 +539,7 @@ def test_tree_preservation_coverage():
     # Run Mimic if needed
     if not output_file.exists():
         print(f"  Running Mimic to generate output...")
-        param_file = TEST_DATA_DIR / "test_binary.yaml"
+        param_file = model_input_file("test_binary.yaml")
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"Mimic execution failed: {stderr}"
 
@@ -635,7 +636,7 @@ def test_tree_preservation_properties():
 
     output_file = TEST_DATA_DIR / "output" / "binary" / "model_z0.000_0"
     if not output_file.exists():
-        param_file = TEST_DATA_DIR / "test_binary.yaml"
+        param_file = model_input_file("test_binary.yaml")
         returncode, _, stderr = run_mimic(param_file)
         assert returncode == 0, f"Mimic execution failed: {stderr}"
 

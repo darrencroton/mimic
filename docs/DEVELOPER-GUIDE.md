@@ -241,7 +241,7 @@ Key rules:
 - List only helper `.c` files in `additional_files`; headers may be listed for documentation but only `.c` files are compiled from that field.
 - Declare every supported processing mode explicitly.
 - Add module-specific tests under `models/<model>/modules/<module>/_tests/`.
-- Put cross-module tests under `models/sage/modules/_tests/`.
+- Put model-level cross-module tests under `models/<model>/modules/_tests/`.
 
 ### Standalone Modules
 
@@ -738,13 +738,13 @@ Rules:
 
 ## Testing
 
-Mimic uses three test tiers:
+Mimic uses three test tiers. Every tier runs the core tests plus tests declared by the selected model package. If a model has no tests in a tier, the target runs the core tests and exits successfully.
 
 | Tier | Command | Scope |
 | --- | --- | --- |
-| Unit | `make MODEL=sage test-unit` | C unit tests for functions, modules, and infrastructure |
-| Integration | `make MODEL=sage test-integration` | End-to-end Python tests for full pipeline and output formats |
-| Scientific | `make MODEL=sage test-scientific` | Physics validation and scientific regression tests |
+| Unit | `make MODEL=sage test-unit` | C unit tests for core functions, selected-model modules, and infrastructure |
+| Integration | `make MODEL=sage test-integration` | End-to-end Python tests for core workflows and selected-model modules |
+| Scientific | `make MODEL=sage test-scientific` | Core scientific contracts and selected-model scientific regressions |
 
 Run everything:
 
@@ -781,6 +781,8 @@ tests/unit/run_tests.sh test_unit_my_module
 ```
 
 The runner compiles tests on demand and uses generated module/test registries.
+
+Model-level tests that span multiple modules live in `models/<model>/modules/_tests/` and are registered by `models/<model>/modules/_tests/module_info.yaml`.
 
 ### Integration and Scientific Tests
 

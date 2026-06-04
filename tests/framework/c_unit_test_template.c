@@ -450,7 +450,8 @@ int main(void)
  * TEMPLATE USAGE INSTRUCTIONS:
  * ============================
  *
- * 1. Copy this template to models/sage/modules/_tests/test_unit_[module_name].c
+ * 1. Copy this template to models/<model>/modules/<module_name>/_tests/test_unit_[module_name].c
+ *    or models/<model>/modules/_tests/test_unit_[contract_name].c
  *
  * 2. Replace all [module_name] placeholders with your actual module name
  *

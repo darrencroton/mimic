@@ -375,7 +375,7 @@ if __name__ == '__main__':
 TEMPLATE USAGE INSTRUCTIONS:
 ============================
 
-1. Copy this template to models/sage/modules/_tests/test_integration_[module_name].py
+1. Copy this template to models/<model>/modules/<module_name>/_tests/test_integration_[module_name].py or models/<model>/modules/_tests/test_integration_[contract_name].py
 
 2. Replace all [module_name] placeholders with your actual module name
 

@@ -1,0 +1,49 @@
+#=============================================================================
+# Mimic Test Parameter File - UniqueGalaxyID Validation
+#=============================================================================
+# This configuration outputs snapshots 62 and 63 for UniqueGalaxyID persistence testing.
+# Used specifically by: tests/integration/test_unique_galaxy_id.py when MODEL=sham
+#
+# To run manually:
+#   ./mimic models/sham/input/test_uniquegalid.yaml
+#
+# Output location:
+#   tests/data/output/binary/
+#=============================================================================
+
+#-----------------------------------------------------------------------------
+# Package Configuration
+#-----------------------------------------------------------------------------
+model:
+  name: sham
+  path: models/sham
+  properties: models/sham/model_properties.yaml
+
+simulation:
+  name: test_millennium
+  path: tests/data
+  config: tests/data/test_simulation.yaml
+  halo_properties: simulations/millennium/halo_properties.yaml
+
+plotting:
+  profile: models/sham/plots/profiles/millennium_plot_profile.yaml
+
+#-----------------------------------------------------------------------------
+# Output Configuration
+#-----------------------------------------------------------------------------
+output:
+  output_filename: model_uniquegalid
+  output_directory: ./tests/data/output/binary/
+  snapshot_count: 2  # Two snapshots for persistence testing
+  output_format: binary
+  snapshot_list:
+  - 62
+  - 63
+
+# Physics Modules
+#-----------------------------------------------------------------------------
+# Physics modules disabled for UniqueGalaxyID validation testing
+# Tests operate in physics-free mode to validate core property tracking
+modules:
+  enabled: []
+  parameters: {}

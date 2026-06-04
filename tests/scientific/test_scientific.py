@@ -36,7 +36,7 @@ import json
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import load_binary_halos
+from framework import load_binary_halos, model_input_file
 
 # Repository paths
 TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
@@ -80,7 +80,7 @@ def run_mimic_if_needed():
 
     if not output_file.exists():
         print("  Running Mimic to generate output...")
-        param_file = TEST_DATA_DIR / "test_binary.yaml"
+        param_file = model_input_file("test_binary.yaml")
         result = subprocess.run(
             [str(MIMIC_EXE), str(param_file)],
             cwd=str(REPO_ROOT),

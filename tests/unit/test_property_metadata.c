@@ -14,7 +14,7 @@
  *
  * Test cases:
  *   - test_halo_structure: Halo struct contains expected fields
- *   - test_galaxy_structure: GalaxyData struct contains expected fields
+ *   - test_galaxy_structure: GalaxyData struct contains model-owned fields
  *   - test_output_structure: HaloOutput struct contains expected fields
  *   - test_structure_sizes: Struct sizes are reasonable
  *   - test_galaxy_separation: Galaxy pointer properly separates physics
@@ -94,7 +94,7 @@ int test_halo_structure(void) {
  * @test    test_galaxy_structure
  * @brief   Test that GalaxyData structure contains expected properties
  *
- * Expected: GalaxyData struct has physics properties
+ * Expected: GalaxyData struct has model-owned properties
  * Validates: Property metadata generated GalaxyData correctly
  */
 int test_galaxy_structure(void) {
@@ -106,13 +106,13 @@ int test_galaxy_structure(void) {
 
     /* Initialize galaxy properties */
     galaxy.StellarMass = 1.0e10;
-    galaxy.ColdGas = 5.0e9;
+    galaxy.BulgeMass = 5.0e9;
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT_DOUBLE_EQUAL(galaxy.StellarMass, 1.0e10, 1.0,
                             "StellarMass field should be accessible");
-    TEST_ASSERT_DOUBLE_EQUAL(galaxy.ColdGas, 5.0e9, 1.0,
-                            "ColdGas field should be accessible");
+    TEST_ASSERT_DOUBLE_EQUAL(galaxy.BulgeMass, 5.0e9, 1.0,
+                            "BulgeMass field should be accessible");
 
     printf("  struct GalaxyData size: %zu bytes\n", sizeof(struct GalaxyData));
 
@@ -220,7 +220,7 @@ int test_galaxy_separation(void) {
 
     /* Initialize galaxy */
     galaxy->StellarMass = 1.0e10;
-    galaxy->ColdGas = 5.0e9;
+    galaxy->BulgeMass = 5.0e9;
 
     /* Link galaxy to halo */
     halo->galaxy = galaxy;
@@ -230,7 +230,7 @@ int test_galaxy_separation(void) {
     /* Access galaxy properties through halo */
     TEST_ASSERT_DOUBLE_EQUAL(halo->galaxy->StellarMass, 1.0e10, 1.0,
                             "Galaxy properties accessible through halo");
-    TEST_ASSERT_DOUBLE_EQUAL(halo->galaxy->ColdGas, 5.0e9, 1.0,
+    TEST_ASSERT_DOUBLE_EQUAL(halo->galaxy->BulgeMass, 5.0e9, 1.0,
                             "Galaxy properties accessible through halo");
 
     /* Verify separation: changing galaxy doesn't affect halo */
@@ -274,7 +274,7 @@ int test_field_offsets(void) {
                 "SnapNum should be first field");
 
     printf("  Field offsets in struct GalaxyData:\n");
-    printf("    ColdGas offset:     %zu\n", offsetof(struct GalaxyData, ColdGas));
+    printf("    BulgeMass offset:   %zu\n", offsetof(struct GalaxyData, BulgeMass));
     printf("    StellarMass offset: %zu\n", offsetof(struct GalaxyData, StellarMass));
 
     /* ===== CLEANUP ===== */

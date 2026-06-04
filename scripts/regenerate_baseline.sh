@@ -12,6 +12,7 @@
 #
 # Usage:
 #   ./scripts/regenerate_baseline.sh
+#   MODEL=sham ./scripts/regenerate_baseline.sh
 #
 # What this script does:
 #   1. Verifies mimic is compiled with HDF5 support
@@ -39,7 +40,9 @@ cd "$REPO_ROOT" || exit 1
 
 # Paths
 MIMIC_EXE="$REPO_ROOT/mimic"
-PARAM_FILE="$REPO_ROOT/tests/data/test_hdf5.yaml"
+MODEL="${MODEL:-sage}"
+export MODEL
+PARAM_FILE="$REPO_ROOT/models/$MODEL/input/test_hdf5.yaml"
 OUTPUT_DIR="$REPO_ROOT/tests/data/output/hdf5"
 BASELINE_DIR="$REPO_ROOT/tests/data/output/baseline/hdf5"
 OUTPUT_FILE="$OUTPUT_DIR/model_000.hdf5"
@@ -49,6 +52,7 @@ echo "============================================================"
 echo "Mimic Baseline Regeneration Script"
 echo "============================================================"
 echo "Repository: $REPO_ROOT"
+echo "Model: $MODEL"
 echo "Parameter file: $PARAM_FILE"
 echo ""
 
@@ -76,20 +80,39 @@ echo ""
 echo -e "${BLUE}Step 3: Validating parameter file...${NC}"
 if [ ! -f "$PARAM_FILE" ]; then
     echo -e "${RED}ERROR: Parameter file not found: $PARAM_FILE${NC}"
-    echo "Expected parameter file: tests/data/test_hdf5.yaml"
+    echo "Expected parameter file: models/$MODEL/input/test_hdf5.yaml"
     exit 1
 fi
 
-# Check that EnabledModules is empty (physics-free mode)
-if grep -E "^EnabledModules\s+\S" "$PARAM_FILE" > /dev/null; then
+# Check that module lists are empty (physics-free mode).
+if ! python3 - "$PARAM_FILE" <<'PY'
+import sys
+import yaml
+from pathlib import Path
+
+param_file = Path(sys.argv[1])
+with open(param_file, "r") as handle:
+    config = yaml.safe_load(handle) or {}
+
+modules = config.get("modules", {}) or {}
+module_sections = ["enabled", "pre_timestep", "phase_1", "phase_2", "post_timestep"]
+active = {
+    section: modules.get(section)
+    for section in module_sections
+    if modules.get(section)
+}
+
+if active:
+    print(f"Active module configuration found: {active}")
+    sys.exit(1)
+PY
+then
     echo -e "${RED}ERROR: Parameter file has modules enabled${NC}"
     echo ""
     echo "Baseline MUST be generated in physics-free mode"
-    echo "(EnabledModules line should be blank or commented)"
+    echo "All modules.enabled/pre_timestep/phase_1/phase_2/post_timestep lists must be empty."
     echo ""
-    echo "Edit $PARAM_FILE and ensure:"
-    echo "  EnabledModules"
-    echo "  (no module names after the parameter)"
+    echo "Edit $PARAM_FILE and remove enabled modules before regenerating."
     echo ""
     exit 1
 fi

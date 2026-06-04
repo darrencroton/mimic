@@ -40,7 +40,12 @@ COMPILE_ERRORS=0
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
-# Refresh generated metadata so direct single-test runs use current modules/tests
+# Refresh generated metadata so direct single-test runs use current model properties/modules/tests
+if ! python3 scripts/generate_properties.py > /dev/null; then
+    echo -e "${RED}ERROR: Failed to refresh property code. Run 'make MODEL=<name> generate'${NC}"
+    exit 2
+fi
+
 if ! python3 scripts/generate_module_registry.py > /dev/null; then
     echo -e "${RED}ERROR: Failed to refresh module registry. Run 'make generate'${NC}"
     exit 2
@@ -133,37 +138,23 @@ if [ $# -gt 0 ]; then
     # Specific test requested
     TESTS="$@"
 else
-    # Auto-discover core infrastructure tests
-    # Find all test_*.c files in tests/unit/, excluding test_stubs.c
-    CORE_TESTS=""
-    for test_file in "${TEST_DIR}"/test_*.c; do
-        if [ -f "$test_file" ]; then
-            test_name=$(basename "$test_file" .c)
-            # Exclude test_stubs.c (not a test)
-            if [ "$test_name" != "test_stubs" ]; then
-                CORE_TESTS="$CORE_TESTS $test_name"
-            fi
-        fi
-    done
-
-    # Auto-discover module tests from registry
-    MODULE_TESTS=""
+    # Auto-discover core, framework, and selected-model unit tests from registry.
+    REGISTRY_TESTS=""
     MODULE_TEST_REGISTRY="${REPO_ROOT}/build/generated/unit_tests.txt"
     if [ -f "$MODULE_TEST_REGISTRY" ]; then
-        # Read module test paths and extract test names
+        # Read test paths and extract test names
         while IFS= read -r test_path; do
             # Skip comments and empty lines
             [[ "$test_path" =~ ^#.*$ ]] && continue
             [[ -z "$test_path" ]] && continue
 
-            # Extract test name from path (e.g., models/sage/modules/sage_calculate_infall/test_sage_calculate_infall.c -> test_sage_calculate_infall)
+            # Extract test name from path.
             test_name=$(basename "$test_path" .c)
-            MODULE_TESTS="$MODULE_TESTS $test_name"
+            REGISTRY_TESTS="$REGISTRY_TESTS $test_name"
         done < "$MODULE_TEST_REGISTRY"
     fi
 
-    # Combine core and module tests
-    TESTS="$CORE_TESTS $MODULE_TESTS"
+    TESTS="$REGISTRY_TESTS"
 fi
 
 echo "Repository: $REPO_ROOT"

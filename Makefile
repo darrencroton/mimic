@@ -364,7 +364,7 @@ help:
 	@echo "  make MODEL=sage test-integration  - Run integration tests only"
 	@echo "  make MODEL=sage test-scientific   - Run scientific tests only"
 	@echo "  make test-clean                   - Clean test artifacts"
-	@echo "  make MODEL=sage generate-test-registry - Auto-discover module tests"
+	@echo "  make MODEL=sage generate-test-registry - Auto-discover core and selected-model tests"
 	@echo "  make MODEL=sage validate-test-registry - Validate test declarations"
 	@echo ""
 	@echo "Options:"
@@ -469,7 +469,7 @@ check-generated:
 check-docs:
 	@python3 scripts/check_docs.py
 
-# Test registry generation (auto-discovers module tests)
+# Test registry generation (auto-discovers core and selected-model tests)
 generate-test-registry:
 	@python3 scripts/generate_test_registry.py
 
@@ -528,32 +528,7 @@ test-integration: generate validate-build $(EXEC)
 	@python3 scripts/generate_test_registry.py --strict
 	@echo ""
 	@FAILED=0; \
-	echo "Running core integration tests..."; \
-	$(PYTHON) tests/integration/test_output_formats.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_tree_preservation.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_unique_galaxy_id.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_satellite_spatial_distribution.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_full_pipeline.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_module_pipeline.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_phase_execution.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_substeps.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_processing_modes.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_galaxy_major_loop.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_event_routing.py || FAILED=1; \
-	echo ""; \
-	$(PYTHON) tests/integration/test_event_schema_validation.py || FAILED=1; \
-	echo ""; \
-	echo "Running module integration tests from registry..."; \
+	echo "Running integration tests from registry..."; \
 	for test in $$(grep -v '^#' build/generated/integration_tests.txt | grep -v '^$$'); do \
 		echo "\033[0;34mRunning: $$test\033[0m"; \
 		$(PYTHON) $$test || FAILED=1; \
@@ -577,10 +552,7 @@ test-scientific: generate validate-build $(EXEC)
 	@python3 scripts/generate_test_registry.py --strict
 	@echo ""
 	@FAILED=0; \
-	echo "Running core scientific tests..."; \
-	$(PYTHON) tests/scientific/test_scientific.py || FAILED=1; \
-	echo ""; \
-	echo "Running module scientific tests from registry..."; \
+	echo "Running scientific tests from registry..."; \
 	for test in $$(grep -v '^#' build/generated/scientific_tests.txt | grep -v '^$$'); do \
 		echo "\033[0;34mRunning: $$test\033[0m"; \
 		$(PYTHON) $$test || FAILED=1; \

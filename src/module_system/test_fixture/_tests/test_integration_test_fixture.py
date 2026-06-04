@@ -37,7 +37,7 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 
 # Add tests directory to path to import framework
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import load_binary_halos
+from framework import load_binary_halos, model_input_file
 
 # Test state
 temp_dir = None
@@ -92,8 +92,8 @@ def create_test_param_file(output_name, phase_config=None,
     if model_params is None:
         model_params = {}
 
-    # Use test data parameter file instead of millennium.yaml
-    test_ref_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
+    # Use the compiled model's local test parameter file instead of a production run file.
+    test_ref_file = model_input_file("test_binary.yaml")
     with open(test_ref_file, 'r') as f:
         config = yaml.safe_load(f)
 
@@ -164,8 +164,7 @@ def setup_module():
     global temp_dir, ref_param_file
     temp_dir = tempfile.mkdtemp(prefix="mimic_test_fixture_")
     os.makedirs(f"{temp_dir}/output", exist_ok=True)
-    # Use test data parameter file which has correct test paths
-    ref_param_file = REPO_ROOT / "tests" / "data" / "test_binary.yaml"
+    ref_param_file = model_input_file("test_binary.yaml")
 
     print("⚠️  These tests validate the test_fixture module itself")
     print("    The test_fixture exists for testing infrastructure only")

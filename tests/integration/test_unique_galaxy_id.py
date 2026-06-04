@@ -40,6 +40,7 @@ from framework import (
     TEST_DATA_DIR,
     MIMIC_EXE,
     ensure_output_dirs,
+    model_input_file,
     run_mimic,
 )
 
@@ -65,7 +66,7 @@ def load_uniquegalid_test_data():
         np.ndarray: Combined halos array from all snapshot output files
     """
     output_dir = TEST_DATA_DIR / "output" / "binary"
-    param_file = TEST_DATA_DIR / "test_uniquegalid.yaml"
+    param_file = model_input_file("test_uniquegalid.yaml")
 
     # Run Mimic if needed (generates both snapshot files)
     # Check for any model_uniquegalid files

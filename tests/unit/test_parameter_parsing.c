@@ -40,6 +40,12 @@ static int failed = 0;
 /* External config structure */
 extern struct MimicConfig MimicConfig;
 
+static const char *test_binary_param_file(void) {
+    static char path[MAX_STRING_LEN];
+    snprintf(path, sizeof(path), "%s/input/test_binary.yaml", MIMIC_COMPILED_MODEL_PATH);
+    return path;
+}
+
 /**
  * @brief   Setup function for test initialization
  *
@@ -71,7 +77,7 @@ int test_basic_parsing(void) {
     setup_test();
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
 
     /* ===== VALIDATE ===== */
     printf("  ✓ Parameter file parsed successfully\n");
@@ -94,7 +100,7 @@ int test_integer_parameters(void) {
     setup_test();
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(MimicConfig.FirstFile == 0, "FirstFile should be 0");
@@ -125,7 +131,7 @@ int test_float_parameters(void) {
     setup_test();
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.BoxSize, 62.5, 0.01,
@@ -154,7 +160,7 @@ int test_string_parameters(void) {
     setup_test();
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT_STRING_EQUAL(MimicConfig.OutputFileBaseName, "model",
@@ -189,7 +195,7 @@ int test_cosmology_parameters(void) {
     setup_test();
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.Omega, 0.25, 0.001,
@@ -226,7 +232,7 @@ int test_snapshot_list(void) {
     setup_test();
 
     /* ===== EXECUTE ===== */
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
 
     /* ===== VALIDATE ===== */
     TEST_ASSERT(MimicConfig.NOUT == 1, "Should have 1 output snapshot");

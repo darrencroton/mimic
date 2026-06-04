@@ -44,6 +44,12 @@ extern struct MimicConfig MimicConfig;
 extern struct RawHalo *InputTreeHalos;
 extern double *Age_base;  /* For cleanup of init() allocation */
 
+static const char *test_binary_param_file(void) {
+    static char path[MAX_STRING_LEN];
+    snprintf(path, sizeof(path), "%s/input/test_binary.yaml", MIMIC_COMPILED_MODEL_PATH);
+    return path;
+}
+
 /**
  * @test    test_virial_mass_from_mvir
  * @brief   Test virial mass calculation when Mvir is available
@@ -176,7 +182,7 @@ int test_virial_radius_calculation(void) {
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
     /* Load parameter file to get cosmology */
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
     init();  /* Initializes cosmology and ZZ[] array */
 
     /* Create test halo at z=0 (snapshot 63) */
@@ -231,7 +237,7 @@ int test_virial_velocity_calculation(void) {
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
     /* Load parameter file to get cosmology and G */
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
     init();
 
     /* Create test halo */
@@ -282,7 +288,7 @@ int test_virial_consistency_relations(void) {
     init_memory_system(0);
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
     init();
 
     InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
@@ -336,7 +342,7 @@ int test_virial_edge_cases(void) {
     init_memory_system(0);
     initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-    read_parameter_file("tests/data/test_binary.yaml");
+    read_parameter_file(test_binary_param_file());
     init();
 
     InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);

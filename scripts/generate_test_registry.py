@@ -58,6 +58,28 @@ def print_warning(msg: str) -> None:
 missing_tests = []
 
 
+def core_unit_tests(repo_root):
+    """Return model-neutral C unit tests under tests/unit."""
+    test_dir = repo_root / "tests" / "unit"
+    return [
+        str(path.relative_to(repo_root))
+        for path in sorted(test_dir.glob("test_*.c"))
+        if path.name != "test_stubs.c"
+    ]
+
+
+def core_integration_tests(repo_root):
+    """Return model-neutral Python integration tests under tests/integration."""
+    test_dir = repo_root / "tests" / "integration"
+    return [str(path.relative_to(repo_root)) for path in sorted(test_dir.glob("test_*.py"))]
+
+
+def core_scientific_tests(repo_root):
+    """Return model-neutral Python scientific tests under tests/scientific."""
+    test_dir = repo_root / "tests" / "scientific"
+    return [str(path.relative_to(repo_root)) for path in sorted(test_dir.glob("test_*.py"))]
+
+
 def process_test_entries(test_value, module_path, repo_root, test_type, module_name):
     """
     Process test entries from module_info.yaml.
@@ -107,10 +129,11 @@ def generate_test_registry(strict: bool = False):
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Collect tests from all modules
-    unit_tests = []
-    integration_tests = []
-    scientific_tests = []
+    # Collect model-neutral core tests first, then append tests from the
+    # selected model package and framework test modules.
+    unit_tests = core_unit_tests(repo_root)
+    integration_tests = core_integration_tests(repo_root)
+    scientific_tests = core_scientific_tests(repo_root)
 
     # Track modules for summary
     modules_found = []

@@ -110,13 +110,20 @@ int main(void) {
 import subprocess
 import h5py
 import numpy as np
+from pathlib import Path
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+from framework import model_input_file
 
 def test_my_module_integration():
     """Test my_module in full pipeline"""
 
     # Run Mimic
     result = subprocess.run(
-        ['./mimic', 'tests/data/test_config.yaml'],
+        ['./mimic', str(model_input_file('test_hdf5.yaml'))],
+        cwd=str(REPO_ROOT),
         capture_output=True,
         text=True
     )
