@@ -177,7 +177,8 @@ cd scripts
 ./benchmark_mimic.sh
 
 # With options
-./benchmark_mimic.sh --param-file ../models/sage/input/_tests/test_binary.yaml
+make -C .. MODEL=sage generate-test-inputs
+./benchmark_mimic.sh --param-file ../build/generated/test_inputs/sage/millennium/core/test_binary.yaml
 ./benchmark_mimic.sh --verbose
 MAKE_FLAGS="USE-HDF5=no" ./benchmark_mimic.sh
 MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh

@@ -31,9 +31,10 @@
 #   # Basic benchmark (uses default models/sage/input/sage_millennium.yaml)
 #   ./benchmark_mimic.sh
 #
-#   # Benchmark with custom parameter file
-#   ./benchmark_mimic.sh --param-file ../models/sage/input/_tests/test_binary.yaml
-#   ./benchmark_mimic.sh ../models/sage/input/_tests/test_binary.yaml
+#   # Benchmark with custom parameter file from scripts/
+#   make -C .. MODEL=sage generate-test-inputs
+#   ./benchmark_mimic.sh --param-file ../build/generated/test_inputs/sage/millennium/core/test_binary.yaml
+#   ./benchmark_mimic.sh ../build/generated/test_inputs/sage/millennium/core/test_binary.yaml
 #
 #   # Benchmark with MPI
 #   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh
@@ -155,9 +156,10 @@ EXAMPLES:
   ./scripts/benchmark_mimic.sh
   cd scripts && ./benchmark_mimic.sh
 
-  # Benchmark with custom parameter file
-  ./scripts/benchmark_mimic.sh --param-file models/sage/input/_tests/test_binary.yaml
-  ./scripts/benchmark_mimic.sh models/sage/input/_tests/test_binary.yaml
+  # Benchmark with custom parameter file from the repository root
+  MODEL=sage make generate-test-inputs
+  ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/millennium/core/test_binary.yaml
+  ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage/millennium/core/test_binary.yaml
 
   # Verbose output
   ./scripts/benchmark_mimic.sh --verbose

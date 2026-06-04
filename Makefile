@@ -295,7 +295,7 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules check-generated check-docs tests test-unit test-integration test-scientific test-clean validate-modules lint-parameters validate-build
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs tests test-unit test-integration test-scientific test-clean validate-modules lint-parameters validate-build
 
 all: generate validate-build $(EXEC)
 
@@ -537,9 +537,13 @@ endif
 generate:
 	@python3 scripts/generate_properties.py
 	@python3 scripts/generate_module_registry.py
+	@python3 scripts/generate_test_inputs.py
 
 generate-modules:
 	@python3 scripts/generate_module_registry.py
+
+generate-test-inputs:
+	@python3 scripts/generate_test_inputs.py
 
 validate-modules:
 	@echo "Validating module metadata..."
@@ -559,6 +563,7 @@ check-docs:
 # Test registry generation (auto-discovers core, selected-simulation, and selected-model tests)
 generate-test-registry:
 	@python3 scripts/generate_test_registry.py
+	@python3 scripts/generate_test_inputs.py
 
 validate-test-registry:
 	@python3 scripts/validate_module_tests.py
@@ -641,6 +646,7 @@ test-unit:
 	@echo "\033[0;34mRUNNING UNIT TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
 	@python3 scripts/generate_test_registry.py --strict
+	@python3 scripts/generate_test_inputs.py
 	@cd tests/unit && MIMIC_RECORD_TEST_FAILURES=1 ./run_tests.sh
 
 test-integration:
@@ -650,6 +656,7 @@ test-integration:
 	@echo "\033[0;34mRUNNING INTEGRATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
 	@python3 scripts/generate_test_registry.py --strict
+	@python3 scripts/generate_test_inputs.py
 	@echo ""
 	$(call RUN_PYTHON_TEST_REGISTRY,integration,integration,INTEGRATION)
 
@@ -660,6 +667,7 @@ test-scientific:
 	@echo "\033[0;34mRUNNING SCIENTIFIC VALIDATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
 	@python3 scripts/generate_test_registry.py --strict
+	@python3 scripts/generate_test_inputs.py
 	@echo ""
 	$(call RUN_PYTHON_TEST_REGISTRY,scientific,scientific,SCIENTIFIC)
 

@@ -39,7 +39,7 @@ from framework import (
     TEST_DATA_DIR,
     MIMIC_EXE,
     ensure_output_dirs,
-    model_input_file,
+    core_input_file,
     run_mimic,
     run_mimic_fresh,
 )
@@ -66,7 +66,7 @@ def check_hdf5_support():
     """
     # Run mimic with --version or similar to check for HDF5
     # For now, we'll check if HDF5 output succeeds
-    param_file = model_input_file("test_hdf5.yaml")
+    param_file = core_input_file("test_hdf5.yaml")
     if not param_file.exists():
         return False
 
@@ -342,7 +342,7 @@ def test_binary_format_execution():
         print(f"  Skipping (Mimic not built)")
         return
 
-    param_file = model_input_file("test_binary.yaml")
+    param_file = core_input_file("test_binary.yaml")
     assert param_file.exists(), f"Parameter file not found: {param_file}"
 
     # Run Mimic
@@ -374,7 +374,7 @@ def test_binary_format_loading():
 
     # Always regenerate output for the selected model so a stale file cannot
     # satisfy this assertion.
-    param_file = model_input_file("test_binary.yaml")
+    param_file = core_input_file("test_binary.yaml")
     run_mimic_fresh(param_file, output_file)
 
     assert output_file.exists(), f"Binary output file not created: {output_file}"
@@ -433,7 +433,7 @@ def test_binary_baseline_comparison():
     # Always regenerate output for the selected model so a stale file -- possibly
     # from a different MODEL writing the same path -- cannot be compared against
     # the baseline as if it were this run.
-    param_file = model_input_file("test_binary.yaml")
+    param_file = core_input_file("test_binary.yaml")
     run_mimic_fresh(param_file, output_file)
 
     print(f"  Loading CURRENT: {output_file.relative_to(REPO_ROOT)}")
@@ -514,7 +514,7 @@ def test_hdf5_format_execution():
         return
 
     # Check if HDF5 parameter file exists
-    param_file = model_input_file("test_hdf5.yaml")
+    param_file = core_input_file("test_hdf5.yaml")
     # Run Mimic
     returncode, stdout, stderr = run_mimic(param_file)
 
@@ -558,7 +558,7 @@ def test_hdf5_format_loading():
 
     # Always regenerate output for the selected model so a stale file cannot
     # satisfy this assertion.
-    param_file = model_input_file("test_hdf5.yaml")
+    param_file = core_input_file("test_hdf5.yaml")
     run_mimic_fresh(param_file, output_file)
 
     assert output_file.exists(), f"HDF5 output file not created: {output_file}"
@@ -630,7 +630,7 @@ def test_hdf5_baseline_comparison():
     # Always regenerate output for the selected model so a stale file -- possibly
     # from a different MODEL writing the same path -- cannot be compared against
     # the baseline as if it were this run.
-    param_file = model_input_file("test_hdf5.yaml")
+    param_file = core_input_file("test_hdf5.yaml")
     run_mimic_fresh(param_file, output_file)
 
     print(f"  Loading CURRENT: {output_file.relative_to(REPO_ROOT)}")
@@ -716,7 +716,7 @@ def test_unique_id_contract():
 
     # Always regenerate output for the selected model so a stale file cannot
     # satisfy this assertion.
-    param_file = model_input_file("test_hdf5.yaml")
+    param_file = core_input_file("test_hdf5.yaml")
     run_mimic_fresh(param_file, output_file)
 
     halos, metadata = load_hdf5_halos(output_file)
@@ -806,7 +806,7 @@ def test_format_equivalence():
 
     # Always regenerate output for the selected model so stale files cannot
     # satisfy this comparison.
-    binary_param_file = model_input_file("test_binary.yaml")
+    binary_param_file = core_input_file("test_binary.yaml")
     run_mimic_fresh(binary_param_file, binary_file)
 
     print(f"  Loading BINARY: {binary_file.relative_to(REPO_ROOT)}")
@@ -819,7 +819,7 @@ def test_format_equivalence():
 
     # Always regenerate output for the selected model so stale files cannot
     # satisfy this comparison.
-    hdf5_param_file = model_input_file("test_hdf5.yaml")
+    hdf5_param_file = core_input_file("test_hdf5.yaml")
     run_mimic_fresh(hdf5_param_file, hdf5_file)
 
     # ANSI color codes

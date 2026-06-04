@@ -36,7 +36,7 @@ from framework import (
     TEST_DATA_DIR,
     MIMIC_EXE,
     ensure_output_dirs,
-    model_input_file,
+    core_input_file,
     run_mimic,
     run_mimic_fresh,
     check_no_memory_leaks,
@@ -63,7 +63,7 @@ def test_basic_execution():
     print("Testing basic Mimic execution...")
 
     # Run Mimic on test parameter file
-    param_file = model_input_file("test_binary.yaml")
+    param_file = core_input_file("test_binary.yaml")
     assert param_file.exists(), f"{RED}Test parameter file not found: {param_file}{NC}"
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -95,7 +95,7 @@ def test_output_files_created():
     # Always regenerate output for the selected model so a stale file from a
     # previous run (possibly a different MODEL writing the same path) cannot
     # satisfy this assertion.
-    param_file = model_input_file("test_binary.yaml")
+    param_file = core_input_file("test_binary.yaml")
     run_mimic_fresh(param_file, output_file)
 
     # Check output file exists
@@ -117,7 +117,7 @@ def test_output_directory_created_if_missing():
     """
     print("Testing automatic output directory creation...")
 
-    source_param_file = model_input_file("test_binary.yaml")
+    source_param_file = core_input_file("test_binary.yaml")
     assert source_param_file.exists(), (
         f"{RED}Test parameter file not found: {source_param_file}{NC}"
     )
@@ -169,7 +169,7 @@ def test_no_memory_leaks():
     print("Testing for memory leaks...")
 
     # Run Mimic
-    param_file = model_input_file("test_binary.yaml")
+    param_file = core_input_file("test_binary.yaml")
     returncode, stdout, stderr = run_mimic(param_file)
     assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
@@ -198,7 +198,7 @@ def test_output_loadable():
 
     # Always regenerate output for the selected model so a stale file from a
     # previous run cannot satisfy this assertion.
-    param_file = model_input_file("test_binary.yaml")
+    param_file = core_input_file("test_binary.yaml")
     run_mimic_fresh(param_file, output_file)
 
     # Try to load output file
@@ -221,7 +221,7 @@ def test_stdout_content():
     """
     print("Testing stdout content...")
 
-    param_file = model_input_file("test_binary.yaml")
+    param_file = core_input_file("test_binary.yaml")
     returncode, stdout, stderr = run_mimic(param_file)
     assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 

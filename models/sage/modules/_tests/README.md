@@ -17,7 +17,9 @@ This directory contains **shared tests only**:
 
 Module-specific tests belong in the owning module directory:
 `models/<model>/modules/<module>/_tests/`.
-Broad model-level fixtures belong in `models/<model>/input/_tests/`.
+Broad model-level fixtures belong beside the owning model tests, typically in
+`models/<model>/modules/_tests/input/`. Shared core and simulation fixtures are
+generated under `build/generated/test_inputs/`.
 Retired tests belong in `archive/src-modules/_archive/`.
 
 ---
@@ -117,14 +119,14 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import model_input_file
+from framework import core_input_file
 
 def test_my_module_integration():
     """Test my_module in full pipeline"""
 
     # Run Mimic
     result = subprocess.run(
-        ['./mimic', str(model_input_file('test_hdf5.yaml'))],
+        ['./mimic', str(core_input_file('test_hdf5.yaml'))],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True

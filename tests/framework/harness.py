@@ -10,6 +10,7 @@ Date: 2025-12-09 (Updated for multi-phase pipeline)
 """
 
 import os
+import json
 import subprocess
 import tempfile
 from pathlib import Path
@@ -26,13 +27,101 @@ def compiled_model():
     return os.environ.get("MODEL", "sage")
 
 
-def model_input_file(filename):
-    """Return a general test input file from the selected model package."""
-    path = REPO_ROOT / "models" / compiled_model() / "input" / "_tests" / filename
+def compiled_simulation():
+    """Return the simulation property package selected for this test run."""
+    return os.environ.get("SIMULATION") or os.environ.get("SIM") or "millennium"
+
+
+def _generated_input_root():
+    return (
+        REPO_ROOT
+        / "build"
+        / "generated"
+        / "test_inputs"
+        / compiled_model()
+        / compiled_simulation()
+    )
+
+
+def _run_test_input_generator():
+    env = os.environ.copy()
+    env.setdefault("MODEL", compiled_model())
+    env.setdefault("SIMULATION", compiled_simulation())
+    result = subprocess.run(
+        ["python3", str(REPO_ROOT / "scripts" / "generate_test_inputs.py")],
+        cwd=str(REPO_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "Failed to generate test input files\n"
+            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+
+
+def _generated_inputs_match_selection(root):
+    manifest_path = root / "manifest.json"
+    if not manifest_path.exists():
+        return False
+    try:
+        with manifest_path.open(encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return (
+        manifest.get("model") == compiled_model()
+        and manifest.get("simulation") == compiled_simulation()
+    )
+
+
+def _ensure_generated_test_inputs():
+    """
+    Materialize generated run files for the selected MODEL/SIMULATION.
+
+    Tests can be run directly by path, outside Make. In that case the generated
+    input files may not exist yet, so the harness regenerates them on demand.
+    """
+    root = _generated_input_root()
+    required = [
+        root / "core" / "test_binary.yaml",
+        root / "core" / "test_hdf5.yaml",
+        root / "simulations" / compiled_simulation() / "test_binary.yaml",
+        root / "simulations" / compiled_simulation() / "test_hdf5.yaml",
+    ]
+    if compiled_simulation() == "millennium":
+        required.append(
+            root / "simulations" / compiled_simulation() / "test_uniquegalid.yaml"
+        )
+
+    if _generated_inputs_match_selection(root) and all(path.exists() for path in required):
+        return
+
+    _run_test_input_generator()
+
+
+def core_input_file(filename):
+    """Return a generated core-owned test input file."""
+    _ensure_generated_test_inputs()
+    path = _generated_input_root() / "core" / filename
+    if not path.exists():
+        _run_test_input_generator()
+    if not path.exists():
+        raise FileNotFoundError(f"Generated core test input not found: {path}")
+    return path
+
+
+def simulation_input_file(filename):
+    """Return a generated input file owned by the selected simulation tests."""
+    _ensure_generated_test_inputs()
+    path = _generated_input_root() / "simulations" / compiled_simulation() / filename
+    if not path.exists():
+        _run_test_input_generator()
     if not path.exists():
         raise FileNotFoundError(
-            f"Model-local test input not found: {path}. "
-            f"Create models/{compiled_model()}/input/_tests/{filename}."
+            f"Generated simulation test input not found: {path}. "
+            f"Selected SIMULATION={compiled_simulation()}."
         )
     return path
 
@@ -66,7 +155,7 @@ def run_mimic(param_file, cwd=None):
         FileNotFoundError: If Mimic executable not found
 
     Usage:
-        returncode, stdout, stderr = run_mimic(model_input_file("test_binary.yaml"))
+        returncode, stdout, stderr = run_mimic(core_input_file("test_binary.yaml"))
         assert returncode == 0, f"Mimic failed: {stderr}"
     """
     if cwd is None:
@@ -109,7 +198,7 @@ def run_mimic_fresh(param_file, expected_output=None, cwd=None):
         tuple: (returncode, stdout, stderr) from the Mimic run.
 
     Usage:
-        run_mimic_fresh(model_input_file("test_binary.yaml"), output_file)
+        run_mimic_fresh(core_input_file("test_binary.yaml"), output_file)
     """
     if expected_output is not None:
         expected_output = Path(expected_output)
@@ -162,7 +251,7 @@ def read_param_file(param_file):
         dict: Parameter name -> value mapping
 
     Usage:
-        params = read_param_file(model_input_file("test_binary.yaml"))
+        params = read_param_file(core_input_file("test_binary.yaml"))
         output_dir = params['OutputDir']
         hubble_h = float(params['Hubble_h'])
     """
@@ -240,7 +329,7 @@ def create_test_param_file(output_name, phase_config=None,
         first_file (int): First file to process (default: 0)
         last_file (int): Last file to process (default: 0)
         ref_param_file (str or Path): Reference YAML parameter file
-                                      (default: models/<MODEL>/input/_tests/test_binary.yaml)
+                                      (default: generated core test_binary.yaml)
         temp_dir (str or Path): Temporary directory for outputs (default: create new)
         output_format (str): Output format override ('binary' or 'hdf5', default: from ref file)
 
@@ -278,7 +367,7 @@ def create_test_param_file(output_name, phase_config=None,
 
     # Set defaults
     if ref_param_file is None:
-        ref_param_file = model_input_file("test_binary.yaml")
+        ref_param_file = core_input_file("test_binary.yaml")
     if temp_dir is None:
         temp_dir = tempfile.mkdtemp(prefix="mimic_test_")
     else:
@@ -422,6 +511,10 @@ __all__ = [
     'REPO_ROOT',
     'TEST_DATA_DIR',
     'MIMIC_EXE',
+    'compiled_model',
+    'compiled_simulation',
+    'core_input_file',
+    'simulation_input_file',
     'ensure_output_dirs',
     'run_mimic',
     'run_mimic_fresh',

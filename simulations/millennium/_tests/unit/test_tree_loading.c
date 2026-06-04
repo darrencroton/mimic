@@ -45,7 +45,10 @@ extern int Ntrees;
 
 static const char *test_binary_param_file(void) {
     static char path[MAX_STRING_LEN];
-    snprintf(path, sizeof(path), "%s/input/_tests/test_binary.yaml", MIMIC_COMPILED_MODEL_PATH);
+    snprintf(path, sizeof(path),
+             "build/generated/test_inputs/%s/%s/simulations/%s/test_binary.yaml",
+             MIMIC_COMPILED_MODEL, MIMIC_COMPILED_SIMULATION,
+             MIMIC_COMPILED_SIMULATION);
     return path;
 }
 

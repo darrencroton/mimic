@@ -59,7 +59,7 @@ from framework import (
     TEST_DATA_DIR,
     MIMIC_EXE,
     ensure_output_dirs,
-    model_input_file,
+    simulation_input_file,
     run_mimic,
     read_param_file,
 )
@@ -210,7 +210,7 @@ def test_satellite_spatial_distribution():
         return
 
     # Check if HDF5 is supported
-    param_file = model_input_file("test_hdf5.yaml")
+    param_file = simulation_input_file("test_hdf5.yaml")
 
     # Try running Mimic to check HDF5 support
     output_dir = TEST_DATA_DIR / "output" / "hdf5"

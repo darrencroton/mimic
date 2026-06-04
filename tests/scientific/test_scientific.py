@@ -35,7 +35,7 @@ import json
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import load_binary_halos, model_input_file, run_mimic_fresh
+from framework import load_binary_halos, core_input_file, run_mimic_fresh
 
 # Repository paths
 TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
@@ -81,7 +81,7 @@ def regenerate_output():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
-    param_file = model_input_file("test_binary.yaml")
+    param_file = core_input_file("test_binary.yaml")
     run_mimic_fresh(param_file, output_file)
 
     return output_file

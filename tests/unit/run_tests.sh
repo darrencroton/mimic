@@ -75,6 +75,11 @@ if ! python3 scripts/generate_test_registry.py --strict > /dev/null; then
     exit 2
 fi
 
+if ! python3 scripts/generate_test_inputs.py > /dev/null; then
+    echo -e "${RED}ERROR: Failed to refresh generated test inputs. Run 'make generate-test-inputs'${NC}"
+    exit 2
+fi
+
 # Source directories
 SRC_DIR="src"
 TEST_DIR="tests/unit"

@@ -61,7 +61,7 @@ from framework import (
     TEST_DATA_DIR,
     MIMIC_EXE,
     ensure_output_dirs,
-    model_input_file,
+    simulation_input_file,
     run_mimic_fresh,
 )
 
@@ -546,7 +546,7 @@ def test_tree_preservation_coverage():
 
     # Always regenerate output for the selected model so a stale file cannot
     # satisfy this assertion.
-    param_file = model_input_file("test_binary.yaml")
+    param_file = simulation_input_file("test_binary.yaml")
     run_mimic_fresh(param_file, output_file)
 
     print(f"  Loading output: {output_file.relative_to(REPO_ROOT)}")
@@ -643,7 +643,7 @@ def test_tree_preservation_properties():
     output_file = TEST_DATA_DIR / "output" / "binary" / "model_z0.000_0"
     # Always regenerate output for the selected model so a stale file cannot
     # satisfy this assertion.
-    param_file = model_input_file("test_binary.yaml")
+    param_file = simulation_input_file("test_binary.yaml")
     run_mimic_fresh(param_file, output_file)
 
     output_halos, _ = load_binary_halos(output_file)

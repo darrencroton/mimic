@@ -71,7 +71,7 @@ python3 tests/integration/test_output_formats.py
 python3 models/sage/modules/sage_apply_cooling/_tests/test_integration_sage_apply_cooling.py
 ```
 
-Integration tests are plain Python scripts. You can run core tests under `tests/integration/`, simulation-owned tests under `simulations/<simulation>/_tests/integration/`, or module-specific scripts under `models/<model>/modules/<module>/_tests/`. Python tests use `MODEL` to locate model-local test run files under `models/<model>/input/_tests/`; set `MODEL` and `SIMULATION` explicitly when the built executable is not the default SAGE/Millennium build.
+Integration tests are plain Python scripts. You can run core tests under `tests/integration/`, simulation-owned tests under `simulations/<simulation>/_tests/integration/`, or module-specific scripts under `models/<model>/modules/<module>/_tests/`. Shared core and simulation test run files are generated under `build/generated/test_inputs/<MODEL>/<SIMULATION>/`; set both explicitly when the built executable is not the default SAGE/Millennium build.
 
 **Scientific tests**:
 ```bash
@@ -95,8 +95,9 @@ tests/
 └── generated/          # Auto-generated test metadata
 ```
 
-User-facing model run files live under `models/<model>/input/`. Developer-only model test run files live under `models/<model>/input/_tests/`, while module tests live under `models/<model>/modules/`.
+User-facing model run files live under `models/<model>/input/`. Model-owned test inputs live beside the owning model tests, for example under `models/<model>/modules/_tests/input/`.
 Simulation-owned tests live under `simulations/<simulation>/_tests/`.
+Generated shared test run files live under `build/generated/test_inputs/<MODEL>/<SIMULATION>/`. Run `make MODEL=<name> SIMULATION=<name> generate-test-inputs` to materialize them manually; direct Python harness usage also generates missing files on demand.
 
 ## Test Data
 

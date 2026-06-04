@@ -42,7 +42,9 @@ cd "$REPO_ROOT" || exit 1
 MIMIC_EXE="$REPO_ROOT/mimic"
 MODEL="${MODEL:-sage}"
 export MODEL
-PARAM_FILE="$REPO_ROOT/models/$MODEL/input/_tests/test_hdf5.yaml"
+SIMULATION="${SIMULATION:-millennium}"
+export SIMULATION
+PARAM_FILE="$REPO_ROOT/build/generated/test_inputs/$MODEL/$SIMULATION/core/test_hdf5.yaml"
 OUTPUT_DIR="$REPO_ROOT/tests/data/output/hdf5"
 BASELINE_DIR="$REPO_ROOT/tests/data/output/baseline/hdf5"
 OUTPUT_FILE="$OUTPUT_DIR/model_000.hdf5"
@@ -53,6 +55,7 @@ echo "Mimic Baseline Regeneration Script"
 echo "============================================================"
 echo "Repository: $REPO_ROOT"
 echo "Model: $MODEL"
+echo "Simulation: $SIMULATION"
 echo "Parameter file: $PARAM_FILE"
 echo ""
 
@@ -78,9 +81,13 @@ echo ""
 
 # Step 3: Validate parameter file exists
 echo -e "${BLUE}Step 3: Validating parameter file...${NC}"
+python3 scripts/generate_test_inputs.py >/dev/null || {
+    echo -e "${RED}ERROR: Failed to generate test input files${NC}"
+    exit 1
+}
 if [ ! -f "$PARAM_FILE" ]; then
     echo -e "${RED}ERROR: Parameter file not found: $PARAM_FILE${NC}"
-    echo "Expected parameter file: models/$MODEL/input/_tests/test_hdf5.yaml"
+    echo "Expected generated parameter file: build/generated/test_inputs/$MODEL/$SIMULATION/core/test_hdf5.yaml"
     exit 1
 fi
 
