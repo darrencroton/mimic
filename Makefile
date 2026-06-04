@@ -567,6 +567,39 @@ validate-test-registry:
 # Test Targets
 # -----------------------------------------------------------------------------
 
+define RUN_PYTHON_TEST_REGISTRY
+	@FAILED=0; \
+	FAILED_TESTS=""; \
+	echo "Running $(1) tests from registry..."; \
+	for test in $$(grep -v '^#' build/generated/$(2)_tests.txt | grep -v '^$$'); do \
+		echo ""; \
+		echo "\033[0;34mRunning: $$test\033[0m"; \
+		if ! $(PYTHON) $$test; then \
+			FAILED=1; \
+			FAILED_TESTS="$$FAILED_TESTS $$test"; \
+		fi; \
+	done; \
+	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate >/dev/null 2>&1 || true; \
+	echo ""; \
+	if [ $$FAILED -eq 1 ]; then \
+		mkdir -p build; \
+		for test in $$FAILED_TESTS; do \
+			failure="$(2): $$test"; \
+			grep -qxF "$$failure" build/.test_failures 2>/dev/null || echo "$$failure" >> build/.test_failures; \
+		done; \
+		echo "\033[0;31m=== $(3) TESTS FAILED ===\033[0m"; \
+		echo "\033[0;31mFailed tests:\033[0m"; \
+		for test in $$FAILED_TESTS; do \
+			echo "  - $$test"; \
+		done; \
+		echo ""; \
+		exit 1; \
+	else \
+		echo "\033[0;32m=== ALL $(3) TESTS PASSED ===\033[0m"; \
+		echo ""; \
+	fi
+endef
+
 tests:
 	@echo "Cleaning and building once for all tests..."
 	@$(MAKE) clean > /dev/null 2>&1
@@ -579,14 +612,17 @@ tests:
 	@echo ""
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules || { grep -qx validate-modules build/.test_failures 2>/dev/null || echo "validate-modules" >> build/.test_failures; true; }
 	@echo ""
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-unit || { grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-integration || { grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-scientific || { grep -qx scientific build/.test_failures 2>/dev/null || echo "scientific" >> build/.test_failures; true; }
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-unit || { grep -q '^unit:' build/.test_failures 2>/dev/null || grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-integration || { grep -q '^integration:' build/.test_failures 2>/dev/null || grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-scientific || { grep -q '^scientific:' build/.test_failures 2>/dev/null || grep -qx scientific build/.test_failures 2>/dev/null || echo "scientific" >> build/.test_failures; true; }
 	@echo ""
 	@echo ""
 	@if [ -f build/.test_failures ]; then \
 		echo "\033[0;31m############################################################\033[0m"; \
-		echo "\033[0;31mFAILED TEST SUITES: $$(cat build/.test_failures | tr '\n' ' ')\033[0m"; \
+		echo "\033[0;31mFAILED TESTS/SUITES:\033[0m"; \
+		while IFS= read -r failure; do \
+			echo "  - $$failure"; \
+		done < build/.test_failures; \
 		echo "\033[0;31m############################################################\033[0m"; \
 	else \
 		echo "\033[0;32m############################################################\033[0m"; \
@@ -605,7 +641,7 @@ test-unit:
 	@echo "\033[0;34mRUNNING UNIT TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
 	@python3 scripts/generate_test_registry.py --strict
-	@cd tests/unit && ./run_tests.sh
+	@cd tests/unit && MIMIC_RECORD_TEST_FAILURES=1 ./run_tests.sh
 
 test-integration:
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC)
@@ -615,23 +651,7 @@ test-integration:
 	@echo "\033[0;34m============================================================\033[0m"
 	@python3 scripts/generate_test_registry.py --strict
 	@echo ""
-	@FAILED=0; \
-	echo "Running integration tests from registry..."; \
-	for test in $$(grep -v '^#' build/generated/integration_tests.txt | grep -v '^$$'); do \
-		echo "\033[0;34mRunning: $$test\033[0m"; \
-		$(PYTHON) $$test || FAILED=1; \
-	done; \
-	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate >/dev/null 2>&1 || true; \
-	if [ $$FAILED -eq 1 ]; then \
-		mkdir -p build; \
-		echo "integration" >> build/.test_failures; \
-		echo "\033[0;31m=== INTEGRATION TESTS FAILED ===\033[0m"; \
-		echo ""; \
-		exit 1; \
-	else \
-		echo "\033[0;32m=== ALL INTEGRATION TESTS PASSED ===\033[0m"; \
-		echo ""; \
-	fi
+	$(call RUN_PYTHON_TEST_REGISTRY,integration,integration,INTEGRATION)
 
 test-scientific:
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC)
@@ -641,24 +661,7 @@ test-scientific:
 	@echo "\033[0;34m============================================================\033[0m"
 	@python3 scripts/generate_test_registry.py --strict
 	@echo ""
-	@FAILED=0; \
-	echo "Running scientific tests from registry..."; \
-	for test in $$(grep -v '^#' build/generated/scientific_tests.txt | grep -v '^$$'); do \
-		echo "\033[0;34mRunning: $$test\033[0m"; \
-		$(PYTHON) $$test || FAILED=1; \
-	done; \
-	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate >/dev/null 2>&1 || true; \
-	echo ""; \
-	if [ $$FAILED -eq 1 ]; then \
-		mkdir -p build; \
-		echo "scientific" >> build/.test_failures; \
-		echo "\033[0;31m=== SCIENTIFIC TESTS FAILED ===\033[0m"; \
-		echo ""; \
-		exit 1; \
-	else \
-		echo "\033[0;32m=== ALL SCIENTIFIC TESTS PASSED ===\033[0m"; \
-		echo ""; \
-	fi
+	$(call RUN_PYTHON_TEST_REGISTRY,scientific,scientific,SCIENTIFIC)
 
 test-clean:
 	@echo "Cleaning test artifacts..."

@@ -35,10 +35,24 @@ TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
 COMPILE_ERRORS=0
+FAILED_TEST_NAMES=""
 
 # Get repository root (two levels up from tests/unit/)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 1
+TEST_FAILURES_FILE="${REPO_ROOT}/build/.test_failures"
+
+record_failed_test() {
+    local test_name=$1
+
+    FAILED_TEST_NAMES="${FAILED_TEST_NAMES} ${test_name}"
+
+    if [ "${MIMIC_RECORD_TEST_FAILURES:-0}" = "1" ]; then
+        mkdir -p "$(dirname "$TEST_FAILURES_FILE")"
+        local failure="unit: ${test_name}"
+        grep -qxF "$failure" "$TEST_FAILURES_FILE" 2>/dev/null || echo "$failure" >> "$TEST_FAILURES_FILE"
+    fi
+}
 
 # Unit tests are always a test build: include the framework test fixture modules
 # and their test-only properties (e.g. TestDummyProperty) in the generated code
@@ -159,9 +173,7 @@ else
             [[ "$test_path" =~ ^#.*$ ]] && continue
             [[ -z "$test_path" ]] && continue
 
-            # Extract test name from path.
-            test_name=$(basename "$test_path" .c)
-            REGISTRY_TESTS="$REGISTRY_TESTS $test_name"
+            REGISTRY_TESTS="$REGISTRY_TESTS $test_path"
         done < "$MODULE_TEST_REGISTRY"
     fi
 
@@ -177,8 +189,22 @@ echo "Build directory: $BUILD_DIR"
 # Compiles a test file and runs it, tracking results
 ###############################################################################
 compile_and_run_test() {
-    local test_name=$1
-    local test_file="${TEST_DIR}/${test_name}.c"
+    local test_arg=$1
+    local test_name
+    local test_file
+    local test_display
+
+    if [[ "$test_arg" == */* ]] || [[ "$test_arg" == *.c ]]; then
+        test_display="$test_arg"
+        test_file="$test_arg"
+        [[ "$test_file" != /* ]] && test_file="${REPO_ROOT}/${test_file}"
+        test_name=$(basename "$test_arg" .c)
+    else
+        test_name=$test_arg
+        test_file="${TEST_DIR}/${test_name}.c"
+        test_display="${test_name}.c"
+    fi
+
     local test_exe="${BUILD_DIR}/${test_name}.test"
 
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
@@ -197,8 +223,10 @@ compile_and_run_test() {
     if [ ! -f "$test_file" ]; then
         echo -e "${RED}✗ Test file not found: ${test_name}.c${NC}"
         FAILED_TESTS=$((FAILED_TESTS + 1))
+        record_failed_test "$test_display"
         return 1
     fi
+    test_display="${test_file#${REPO_ROOT}/}"
 
     # Add module directory to include path if this is a module test
     local module_include=""
@@ -215,6 +243,7 @@ compile_and_run_test() {
         echo "  See ${BUILD_DIR}/${test_name}.compile.log for details"
         COMPILE_ERRORS=$((COMPILE_ERRORS + 1))
         FAILED_TESTS=$((FAILED_TESTS + 1))
+        record_failed_test "$test_display"
         return 2
     fi
 
@@ -228,6 +257,7 @@ compile_and_run_test() {
     else
         echo -e "${RED}✗ ${test_name} FAILED${NC}"
         FAILED_TESTS=$((FAILED_TESTS + 1))
+        record_failed_test "$test_display"
         return 1
     fi
 }
@@ -264,6 +294,12 @@ else
 fi
 if [ $COMPILE_ERRORS -gt 0 ]; then
     echo -e "Compile errors: ${YELLOW}$COMPILE_ERRORS${NC}"
+fi
+if [ $FAILED_TESTS -gt 0 ]; then
+    echo -e "${RED}Failed tests:${NC}"
+    for test_name in $FAILED_TEST_NAMES; do
+        echo "  - $test_name"
+    done
 fi
 echo -e "${BLUE}============================================================${NC}"
 echo ""
