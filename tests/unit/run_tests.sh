@@ -101,11 +101,17 @@ if [ -z "${MODEL}" ]; then
 fi
 MODEL_ROOT="models/${MODEL}"
 
+# SIMULATION selects the compiled simulation property package, required for the
+# MIMIC_COMPILED_SIMULATION macro in read_parameter_file.c. The Makefile exports
+# SIMULATION when invoking test-unit; default to millennium for standalone runs,
+# mirroring DEFAULT_SIMULATION in the Makefile.
+SIMULATION="${SIMULATION:-millennium}"
+
 # Common compiler flags
 CC="${CC:-gcc}"
 YAML_CFLAGS="$(pkg-config --cflags yaml-0.1 2>/dev/null || echo '')"
 YAML_LDFLAGS="$(pkg-config --libs yaml-0.1 2>/dev/null || echo '-lyaml')"
-CFLAGS="-Wall -Wextra -I. -I${SRC_DIR} -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -I${SRC_DIR}/module_system -Imodels -I${MODEL_ROOT} -Ibuild/generated -Itests -g -O0 -DMIMIC_COMPILED_MODEL=\"${MODEL}\" -DMIMIC_COMPILED_MODEL_PATH=\"${MODEL_ROOT}\" ${YAML_CFLAGS}"
+CFLAGS="-Wall -Wextra -I. -I${SRC_DIR} -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -I${SRC_DIR}/module_system -Imodels -I${MODEL_ROOT} -Ibuild/generated -Itests -g -O0 -DMIMIC_COMPILED_MODEL=\"${MODEL}\" -DMIMIC_COMPILED_MODEL_PATH=\"${MODEL_ROOT}\" -DMIMIC_COMPILED_SIMULATION=\"${SIMULATION}\" ${YAML_CFLAGS}"
 LDFLAGS="-lm ${YAML_LDFLAGS}"
 
 # Source files needed for tests (non-main files)

@@ -43,6 +43,40 @@ ifneq ($(filter-out $(MODEL_FREE_TARGETS),$(or $(MAKECMDGOALS),all)),)
   endif
 endif
 
+# Default simulation package used when SIMULATION is not given on the command
+# line. Mimic compiles one model set against one simulation/catalog property
+# package at a time. Leave this as your primary simulation and run plain `make`;
+# override per-invocation with `make SIMULATION=<name>` (or the `SIM=<name>`
+# shorthand), or change this line if your primary simulation is not millennium.
+DEFAULT_SIMULATION := millennium
+
+# Catch the common 'simulation='/'sim=' (lowercase) typos — Make variable names
+# are case-sensitive, so these would otherwise be silently ignored.
+ifdef simulation
+$(error Make variables are case-sensitive. Did you mean: make SIMULATION=$(simulation) ?)
+endif
+ifdef sim
+$(error Make variables are case-sensitive. Did you mean: make SIM=$(sim) ?)
+endif
+
+# Accept SIM as a shorthand for SIMULATION. An explicit SIMULATION=<name> on the
+# command line takes precedence; SIM only fills in when SIMULATION is unset.
+ifdef SIM
+  SIMULATION ?= $(SIM)
+endif
+SIMULATION ?= $(DEFAULT_SIMULATION)
+
+SIMULATION_ROOT = simulations/$(SIMULATION)
+export SIMULATION
+
+# Verify the selected simulation package exists for any target that builds or
+# generates code, mirroring the MODEL guard above.
+ifneq ($(filter-out $(MODEL_FREE_TARGETS),$(or $(MAKECMDGOALS),all)),)
+  ifeq ($(wildcard $(SIMULATION_ROOT)/.),)
+    $(error Unknown SIMULATION '$(SIMULATION)'. Expected a package directory at $(SIMULATION_ROOT))
+  endif
+endif
+
 .PHONY: FORCE
 FORCE:
 
@@ -88,6 +122,7 @@ CFLAGS = -g -O2 -Wall -Wextra
 CFLAGS += $(addprefix -I,$(INCLUDE_DIRS))
 CFLAGS += -DMIMIC_COMPILED_MODEL=\"$(MODEL)\"
 CFLAGS += -DMIMIC_COMPILED_MODEL_PATH=\"$(MODEL_ROOT)\"
+CFLAGS += -DMIMIC_COMPILED_SIMULATION=\"$(SIMULATION)\"
 CFLAGS += -MMD -MP
 
 # Linker configuration
@@ -268,7 +303,7 @@ $(OBJ_DIR)/%.o: %.c $(GIT_VERSION_H) Makefile
 # YAML metadata inputs for property generation
 PROP_YAML := src/core/core_properties.yaml \
              $(wildcard $(MODEL_ROOT)/model_properties.yaml) \
-             $(wildcard simulations/*/halo_properties.yaml)
+             $(wildcard $(SIMULATION_ROOT)/halo_properties.yaml)
 
 # Generated headers and include fragments required by the C build
 GEN_DIR := $(SRC_DIR)/include/generated
@@ -370,6 +405,8 @@ help:
 	@echo "Options:"
 	@echo "  make MODEL=sage  - Build against a single model set (default: sage)"
 	@echo "  make MODEL=sham   - Build the SHAM model set instead"
+	@echo "  make SIMULATION=millennium - Select the simulation package (default: millennium)"
+	@echo "  make SIM=millennium        - Shorthand for SIMULATION=<name>"
 	@echo "  make MODEL=sage USE-HDF5=no  - Disable HDF5 support (binary-only build)"
 	@echo "  make MODEL=sage USE-MPI=yes  - Enable MPI support"
 	@echo "  make MODEL=sage -j4          - Parallel build (4 jobs, adjust as needed)"
@@ -399,6 +436,7 @@ info:
 	@echo ""
 	@echo "Compiler: $(CC)"
 	@echo "Model set: $(MODEL) ($(MODEL_ROOT))"
+	@echo "Simulation: $(SIMULATION) ($(SIMULATION_ROOT))"
 	@echo "Build flags: $(CFLAGS)"
 	@echo ""
 	@echo "Library Detection:"

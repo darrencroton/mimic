@@ -30,6 +30,10 @@
 #error "MIMIC_COMPILED_MODEL_PATH must be set at compile time via -DMIMIC_COMPILED_MODEL_PATH=<path>. Use make MODEL=<name>."
 #endif
 
+#ifndef MIMIC_COMPILED_SIMULATION
+#error "MIMIC_COMPILED_SIMULATION must be set at compile time via -DMIMIC_COMPILED_SIMULATION=<name>. Use make SIMULATION=<name>."
+#endif
+
 /* Helper functions for DOM navigation */
 static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key);
 static const char *get_scalar_value(yaml_node_t *node);
@@ -786,6 +790,39 @@ static void validate_and_postprocess(void) {
   if (strlen(MimicConfig.SimulationName) == 0) {
     ERROR_LOG("Required parameter 'simulation.name' missing");
     errors++;
+  }
+  /* The compiled property schema is generated from one simulation's
+   * halo_properties.yaml (selected with make SIMULATION=<name>). The run file's
+   * simulation.name is a free-form label and may legitimately differ (for
+   * example a test fixture reusing the millennium catalog as 'test_millennium').
+   * What must match is the property package: the parent directory of the
+   * declared simulation.halo_properties path must equal MIMIC_COMPILED_SIMULATION,
+   * otherwise the run would be interpreted with a schema it was not built for. */
+  if (strlen(MimicConfig.SimulationHaloPropertiesPath) > 0) {
+    const char *path = MimicConfig.SimulationHaloPropertiesPath;
+    const char *file_slash = strrchr(path, '/');
+    const char *pkg = NULL;
+    size_t pkg_len = 0;
+    if (file_slash != NULL && file_slash != path) {
+      const char *dir_start = file_slash - 1;
+      while (dir_start > path && *dir_start != '/') {
+        dir_start--;
+      }
+      if (*dir_start == '/') {
+        dir_start++;
+      }
+      pkg = dir_start;
+      pkg_len = (size_t)(file_slash - dir_start);
+    }
+    const char *compiled = MIMIC_COMPILED_SIMULATION;
+    if (pkg == NULL || pkg_len != strlen(compiled) ||
+        strncmp(pkg, compiled, pkg_len) != 0) {
+      ERROR_LOG("Run file's simulation.halo_properties='%s' belongs to a "
+                "different simulation package than this executable, which was "
+                "built with SIMULATION=%s (expected path under simulations/%s/)",
+                path, compiled, compiled);
+      errors++;
+    }
   }
   if (strlen(MimicConfig.SimulationPath) == 0) {
     ERROR_LOG("Required parameter 'simulation.path' missing");

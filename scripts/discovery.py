@@ -10,6 +10,11 @@ from typing import Iterable, List
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = ""
+# Simulation selected when neither SIMULATION nor SIM is set in the environment.
+# Mirrors DEFAULT_SIMULATION in the Makefile. The Makefile always exports
+# SIMULATION when it invokes these helpers, so this default only applies to
+# standalone script runs.
+DEFAULT_SIMULATION = "millennium"
 
 
 def rel(path: Path) -> str:
@@ -50,15 +55,27 @@ def live_model_roots() -> List[Path]:
 
 
 def live_simulation_roots() -> List[Path]:
-    """Return live simulation package roots under simulations/."""
+    """Return the selected simulation package root under simulations/.
+
+    Mimic is built against one simulation/catalog property package at a time.
+    Select it with ``make SIMULATION=<name>`` (or the ``SIM=<name>`` shorthand),
+    or by setting the ``SIMULATION``/``SIM`` environment variable when invoking
+    helper scripts directly. Defaults to :data:`DEFAULT_SIMULATION`.
+    """
+    selected = (
+        os.environ.get("SIMULATION")
+        or os.environ.get("SIM")
+        or DEFAULT_SIMULATION
+    )
+    if not selected:
+        return []
     simulations_dir = REPO_ROOT / "simulations"
     if not simulations_dir.exists():
         return []
-    return [
-        path
-        for path in sorted(simulations_dir.iterdir())
-        if path.is_dir() and not path.name.startswith("_") and path.name != "archive"
-    ]
+    path = simulations_dir / selected
+    if not path.is_dir() or path.name.startswith("_") or path.name == "archive":
+        return []
+    return [path]
 
 
 def core_property_files() -> List[Path]:
