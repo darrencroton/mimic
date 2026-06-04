@@ -23,11 +23,11 @@
  * @date    2025-11-08
  */
 
-#include "../framework/test_framework.h"
-#include "../../src/include/types.h"
-#include "../../src/include/proto.h"
-#include "../../src/util/memory.h"
-#include "../../src/util/error.h"
+#include "../../../../tests/framework/test_framework.h"
+#include "../../../../src/include/types.h"
+#include "../../../../src/include/proto.h"
+#include "../../../../src/util/memory.h"
+#include "../../../../src/util/error.h"
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -492,6 +492,74 @@ def generate_reset_galaxy_properties(galaxy_props: List[Dict], yaml_hash: str) -
     return code
 
 
+def _test_seed_value(prop: Dict[str, Any]) -> str:
+    """Return a non-init value for generated property reset tests."""
+    init_value = prop.get("init_value", "0")
+    prop_type = prop["type"]
+    if prop_type in {"float", "double"}:
+        return f"(({init_value}) + 123.25)"
+    if prop_type == "long long":
+        return f"(({init_value}) + 123LL)"
+    return f"(({init_value}) + 123)"
+
+
+def _test_init_compare_expr(accessor: str, prop: Dict[str, Any]) -> str:
+    """Return a C expression comparing a generated field with its init value."""
+    init_value = prop.get("init_value", "0")
+    prop_type = prop["type"]
+    if prop_type == "float":
+        return f"fabsf({accessor} - ({init_value})) <= 1.0e-6f"
+    if prop_type == "double":
+        return f"fabs({accessor} - ({init_value})) <= 1.0e-12"
+    return f"{accessor} == ({init_value})"
+
+
+def generate_property_test_helpers(galaxy_props: List[Dict], yaml_hash: str) -> str:
+    """Generate generic helpers for hand-written property unit tests."""
+    reset_props = [
+        prop for prop in galaxy_props if prop.get("init_repeat", False) is True
+    ]
+
+    code = generate_header(yaml_hash)
+    code += "#ifndef GENERATED_PROPERTY_TEST_HELPERS_H\n"
+    code += "#define GENERATED_PROPERTY_TEST_HELPERS_H\n\n"
+    code += "#include <math.h>\n"
+    code += '#include "property_defs.h"\n\n'
+    code += f"#define GENERATED_GALAXY_PROPERTY_COUNT {len(galaxy_props)}\n"
+    code += f"#define GENERATED_INIT_REPEAT_PROPERTY_COUNT {len(reset_props)}\n\n"
+
+    code += "static inline void generated_test_seed_init_repeat_properties(struct GalaxyData *galaxy) {\n"
+    code += "  (void)galaxy;\n"
+    for prop in reset_props:
+        name = prop["name"]
+        type_info = TYPE_MAP[prop["type"]]
+        seed = _test_seed_value(prop)
+        if type_info["is_array"]:
+            code += f"  for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
+            code += f"    galaxy->{name}[j] = {seed};\n"
+            code += "  }\n"
+        else:
+            code += f"  galaxy->{name} = {seed};\n"
+    code += "}\n\n"
+
+    code += "static inline int generated_test_init_repeat_properties_equal_init(const struct GalaxyData *galaxy) {\n"
+    code += "  (void)galaxy;\n"
+    code += "  int ok = 1;\n"
+    for prop in reset_props:
+        name = prop["name"]
+        type_info = TYPE_MAP[prop["type"]]
+        if type_info["is_array"]:
+            code += f"  for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
+            code += f"    ok = ok && ({_test_init_compare_expr(f'galaxy->{name}[j]', prop)});\n"
+            code += "  }\n"
+        else:
+            code += f"  ok = ok && ({_test_init_compare_expr(f'galaxy->{name}', prop)});\n"
+    code += "  return ok;\n"
+    code += "}\n\n"
+    code += "#endif /* GENERATED_PROPERTY_TEST_HELPERS_H */\n"
+    return code
+
+
 def generate_copy_to_output(
     halo_props: List[Dict], galaxy_props: List[Dict], yaml_hash: str
 ) -> str:
@@ -974,7 +1042,7 @@ def write_file(path: Path, content: str) -> None:
 # ==============================================================================
 
 
-def _prop_to_validation_entry(prop: Dict[str, Any]) -> Dict[str, Any]:
+def _prop_to_validation_entry(prop: Dict[str, Any], category: str) -> Dict[str, Any]:
     """Convert a YAML property dict to a validation manifest entry.
 
     Supported optional fields in YAML:
@@ -986,6 +1054,7 @@ def _prop_to_validation_entry(prop: Dict[str, Any]) -> Dict[str, Any]:
 
     entry: Dict[str, Any] = {
         "name": prop_name,
+        "category": category,
         "type": prop_type,
         "units": prop.get("units", ""),
         "is_vector": TYPE_MAP[prop_type].get("is_array", False),
@@ -1054,12 +1123,12 @@ def generate_validation_manifest(
     # Halo output properties
     for prop in halo_props:
         if prop.get("output", False):
-            props[prop["name"]] = _prop_to_validation_entry(prop)
+            props[prop["name"]] = _prop_to_validation_entry(prop, "halo")
 
     # Galaxy output properties
     for prop in galaxy_props:
         if prop.get("output", False):
-            props[prop["name"]] = _prop_to_validation_entry(prop)
+            props[prop["name"]] = _prop_to_validation_entry(prop, "galaxy")
 
     manifest = {
         "_metadata": {
@@ -1214,6 +1283,10 @@ def main():
     write_file(
         GENERATED_DIR / "reset_galaxy_properties.inc",
         generate_reset_galaxy_properties(galaxy_props, yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "property_test_helpers.h",
+        generate_property_test_helpers(galaxy_props, yaml_hash),
     )
 
     # C output files

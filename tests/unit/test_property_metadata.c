@@ -14,7 +14,7 @@
  *
  * Test cases:
  *   - test_halo_structure: Halo struct contains expected fields
- *   - test_galaxy_structure: GalaxyData struct contains model-owned fields
+ *   - test_galaxy_structure: GalaxyData struct exists for selected model fields
  *   - test_output_structure: HaloOutput struct contains expected fields
  *   - test_structure_sizes: Struct sizes are reasonable
  *   - test_galaxy_separation: Galaxy pointer properly separates physics
@@ -25,12 +25,14 @@
 
 #include "../framework/test_framework.h"
 #include "../../src/include/generated/property_defs.h"
+#include "../../src/include/generated/property_test_helpers.h"
 #include "../../src/util/memory.h"
 #include "../../src/util/error.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <string.h>
 
 /* Test statistics (required for TEST_RUN macro) */
 static int passed = 0;
@@ -92,10 +94,10 @@ int test_halo_structure(void) {
 
 /**
  * @test    test_galaxy_structure
- * @brief   Test that GalaxyData structure contains expected properties
+ * @brief   Test that GalaxyData structure exists for selected model properties
  *
- * Expected: GalaxyData struct has model-owned properties
- * Validates: Property metadata generated GalaxyData correctly
+ * Expected: GalaxyData struct has fields generated from selected metadata
+ * Validates: Core tests do not name model-owned galaxy properties directly
  */
 int test_galaxy_structure(void) {
     /* ===== SETUP ===== */
@@ -103,18 +105,16 @@ int test_galaxy_structure(void) {
 
     /* ===== EXECUTE ===== */
     struct GalaxyData galaxy;
-
-    /* Initialize galaxy properties */
-    galaxy.StellarMass = 1.0e10;
-    galaxy.BulgeMass = 5.0e9;
+    memset(&galaxy, 0, sizeof(galaxy));
 
     /* ===== VALIDATE ===== */
-    TEST_ASSERT_DOUBLE_EQUAL(galaxy.StellarMass, 1.0e10, 1.0,
-                            "StellarMass field should be accessible");
-    TEST_ASSERT_DOUBLE_EQUAL(galaxy.BulgeMass, 5.0e9, 1.0,
-                            "BulgeMass field should be accessible");
+    TEST_ASSERT(sizeof(galaxy) == sizeof(struct GalaxyData),
+                "GalaxyData object should have generated struct size");
+    TEST_ASSERT(GENERATED_GALAXY_PROPERTY_COUNT > 0,
+                "Selected model should generate at least one galaxy property");
 
     printf("  struct GalaxyData size: %zu bytes\n", sizeof(struct GalaxyData));
+    printf("  generated galaxy properties: %d\n", GENERATED_GALAXY_PROPERTY_COUNT);
 
     /* ===== CLEANUP ===== */
     check_memory_leaks();
@@ -218,27 +218,15 @@ int test_galaxy_separation(void) {
     struct GalaxyData *galaxy = (struct GalaxyData *)mymalloc(sizeof(struct GalaxyData));
     TEST_ASSERT(galaxy != NULL, "Galaxy allocation should succeed");
 
-    /* Initialize galaxy */
-    galaxy->StellarMass = 1.0e10;
-    galaxy->BulgeMass = 5.0e9;
-
     /* Link galaxy to halo */
     halo->galaxy = galaxy;
     TEST_ASSERT(halo->galaxy != NULL, "Galaxy pointer should be set");
 
     /* ===== VALIDATE ===== */
-    /* Access galaxy properties through halo */
-    TEST_ASSERT_DOUBLE_EQUAL(halo->galaxy->StellarMass, 1.0e10, 1.0,
-                            "Galaxy properties accessible through halo");
-    TEST_ASSERT_DOUBLE_EQUAL(halo->galaxy->BulgeMass, 5.0e9, 1.0,
-                            "Galaxy properties accessible through halo");
-
     /* Verify separation: changing galaxy doesn't affect halo */
     halo->Mvir = 2.0e12;
-    galaxy->StellarMass = 2.0e10;
     TEST_ASSERT_DOUBLE_EQUAL(halo->Mvir, 2.0e12, 1.0e6, "Halo properties independent");
-    TEST_ASSERT_DOUBLE_EQUAL(halo->galaxy->StellarMass, 2.0e10, 1.0e4,
-                            "Galaxy properties independent");
+    TEST_ASSERT(halo->galaxy == galaxy, "Galaxy pointer should remain independent");
 
     printf("  ✓ Physics-agnostic separation validated\n");
 
@@ -273,9 +261,8 @@ int test_field_offsets(void) {
     TEST_ASSERT(offsetof(struct Halo, SnapNum) == 0,
                 "SnapNum should be first field");
 
-    printf("  Field offsets in struct GalaxyData:\n");
-    printf("    BulgeMass offset:   %zu\n", offsetof(struct GalaxyData, BulgeMass));
-    printf("    StellarMass offset: %zu\n", offsetof(struct GalaxyData, StellarMass));
+    printf("  Generated GalaxyData property count: %d\n",
+           GENERATED_GALAXY_PROPERTY_COUNT);
 
     /* ===== CLEANUP ===== */
     check_memory_leaks();

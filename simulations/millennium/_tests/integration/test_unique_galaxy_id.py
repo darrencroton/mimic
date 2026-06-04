@@ -31,8 +31,15 @@ from pathlib import Path
 import numpy as np
 from collections import defaultdict
 
-# Add framework to path
-REPO_ROOT = Path(__file__).parent.parent.parent
+def find_repo_root(start):
+    """Find the repository root from this simulation-owned test path."""
+    for parent in [start, *start.parents]:
+        if (parent / "tests").is_dir() and (parent / "src").is_dir():
+            return parent
+    raise RuntimeError(f"Could not find repository root from {start}")
+
+
+REPO_ROOT = find_repo_root(Path(__file__).resolve())
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (

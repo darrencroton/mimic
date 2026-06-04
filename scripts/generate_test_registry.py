@@ -27,7 +27,7 @@ from pathlib import Path
 
 import yaml
 
-from discovery import REPO_ROOT, module_metadata_files
+from discovery import REPO_ROOT, live_simulation_roots, module_metadata_files
 
 # ==============================================================================
 # COLOR OUTPUT
@@ -80,6 +80,20 @@ def core_scientific_tests(repo_root):
     return [str(path.relative_to(repo_root)) for path in sorted(test_dir.glob("test_*.py"))]
 
 
+def simulation_tests(repo_root, test_type, pattern):
+    """Return tests owned by the selected simulation package."""
+    tests = []
+    for simulation_root in live_simulation_roots():
+        test_dir = simulation_root / "_tests" / test_type
+        if not test_dir.exists():
+            continue
+        tests.extend(
+            str(path.relative_to(repo_root))
+            for path in sorted(test_dir.glob(pattern))
+        )
+    return tests
+
+
 def process_test_entries(test_value, module_path, repo_root, test_type, module_name):
     """
     Process test entries from module_info.yaml.
@@ -130,10 +144,14 @@ def generate_test_registry(strict: bool = False):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Collect model-neutral core tests first, then append tests from the
-    # selected model package and framework test modules.
+    # selected simulation, model package, and framework test modules.
     unit_tests = core_unit_tests(repo_root)
     integration_tests = core_integration_tests(repo_root)
     scientific_tests = core_scientific_tests(repo_root)
+
+    unit_tests.extend(simulation_tests(repo_root, "unit", "test_*.c"))
+    integration_tests.extend(simulation_tests(repo_root, "integration", "test_*.py"))
+    scientific_tests.extend(simulation_tests(repo_root, "scientific", "test_*.py"))
 
     # Track modules for summary
     modules_found = []

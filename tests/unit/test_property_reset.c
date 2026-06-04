@@ -5,19 +5,14 @@
  * Validates: Properties with init_repeat: true reset each snapshot
  * Phase: Property Reset Implementation
  *
- * This test validates that Mimic correctly implements snapshot-scoped
- * accumulator properties via the init_repeat metadata field:
- * - Accumulator properties (init_repeat: true) reset to init_value
- * - Cumulative properties (init_repeat: false) preserve values
- * - Reset only occurs for central halos (prog == first_occupied)
- * - Generated reset code is correctly included and executed
+ * This test validates that Mimic generates and compiles snapshot-scoped
+ * property reset code from the selected model metadata. Hand-written core
+ * tests must not name model-owned galaxy fields directly.
  *
  * Test cases:
- *   - test_accumulator_properties_reset: Verify snapshot-scoped fields reset
- *   - test_cumulative_properties_preserved: Verify masses, metals preserved
- *   - test_mixed_property_behavior: Both reset and preserve in one test
- *   - test_reset_code_generation: Verify generated code is correct
- *   - test_new_halo_initialization: Verify new halos initialize correctly
+ *   - test_generated_metadata_available: Verify generated helper metadata exists
+ *   - test_generated_init_code_executes: Verify generated init code compiles/runs
+ *   - test_generated_reset_code_executes: Verify init_repeat fields reset to init_value
  *
  * @author  Mimic Testing Team
  * @date    2025-12-03
@@ -25,245 +20,80 @@
 
 #include "../framework/test_framework.h"
 #include "../../src/include/allvars.h"
-#include "../../src/include/proto.h"
+#include "../../src/include/generated/property_test_helpers.h"
 #include "../../src/util/memory.h"
 #include "../../src/util/error.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 /* Test statistics (required for TEST_RUN macro) */
 static int passed = 0;
 static int failed = 0;
 
-/**
- * @test    test_accumulator_properties_reset
- * @brief   Test that accumulator properties reset to init_value
- *
- * Expected: Properties with init_repeat: true reset to 0.0
- * Validates: StarFormationRate
- */
-int test_accumulator_properties_reset(void) {
-    /* ===== SETUP ===== */
+static void setup_workspace(struct Halo *workspace, struct GalaxyData *galaxy) {
+    memset(workspace, 0, sizeof(struct Halo));
+    memset(galaxy, 0, sizeof(struct GalaxyData));
+    FoFWorkspace = workspace;
+    FoFWorkspace[0].galaxy = galaxy;
+}
+
+int test_generated_metadata_available(void) {
     init_memory_system(0);
 
-    /* Create a mock galaxy with non-zero accumulator values */
-    struct GalaxyData *galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
+    TEST_ASSERT(GENERATED_GALAXY_PROPERTY_COUNT > 0,
+                "Selected model should have generated galaxy properties");
+    TEST_ASSERT(GENERATED_INIT_REPEAT_PROPERTY_COUNT >= 0,
+                "Generated init_repeat property count should be available");
 
-    /* Set accumulator properties to non-zero (simulating accumulated values) */
-    galaxy->StarFormationRate = 10.25;
+    printf("  generated galaxy properties: %d\n", GENERATED_GALAXY_PROPERTY_COUNT);
+    printf("  generated init_repeat properties: %d\n", GENERATED_INIT_REPEAT_PROPERTY_COUNT);
 
-    /* Set some cumulative properties to verify they're NOT reset */
-    galaxy->StellarMass = 50.0;
-    galaxy->BulgeMass = 30.0;
-
-    /* ===== EXECUTE ===== */
-    /* Simulate the reset that happens in build_model.c for central halos
-     * This is exactly what happens in copy_halos_from_progenitors() */
-
-    /* Create a mock FoFWorkspace entry (we'll use index 0) */
-    /* Note: In real code, FoFWorkspace is allocated in build_halo_tree()
-     * For this test, we'll directly manipulate the galaxy pointer */
-
-    /* Before reset: accumulator properties have accumulated values */
-    TEST_ASSERT(fabs(galaxy->StarFormationRate - 10.25) < 1e-6,
-                "Before reset: StarFormationRate should be 10.25");
-
-    /* Apply the reset (simulating what happens in build_model.c) */
-    /* This mimics the generated code from reset_galaxy_properties.inc */
-    galaxy->StarFormationRate = 0.0;
-
-    /* ===== VALIDATE ===== */
-    /* After reset: accumulator properties should be 0.0 */
-    TEST_ASSERT(fabs(galaxy->StarFormationRate) < 1e-10,
-                "After reset: StarFormationRate should be 0.0");
-
-    /* Cumulative properties should be UNCHANGED */
-    TEST_ASSERT(fabs(galaxy->StellarMass - 50.0) < 1e-6,
-                "After reset: StellarMass should be unchanged (50.0)");
-    TEST_ASSERT(fabs(galaxy->BulgeMass - 30.0) < 1e-6,
-                "After reset: BulgeMass should be unchanged (30.0)");
-
-    /* ===== CLEANUP ===== */
-    myfree(galaxy);
     check_memory_leaks();
-
     return TEST_PASS;
 }
 
-/**
- * @test    test_cumulative_properties_preserved
- * @brief   Test that cumulative properties are NOT reset
- *
- * Expected: Properties without init_repeat (default false) preserve values
- * Validates: Mass components, metals, history properties
- */
-int test_cumulative_properties_preserved(void) {
-    /* ===== SETUP ===== */
+int test_generated_init_code_executes(void) {
     init_memory_system(0);
 
-    /* Create galaxy with various cumulative properties set */
-    struct GalaxyData *galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
+    struct Halo workspace[1];
+    struct GalaxyData galaxy;
+    int p = 0;
+    setup_workspace(workspace, &galaxy);
 
-    /* Set various cumulative properties */
-    galaxy->StellarMass = 100.0;
-    galaxy->BulgeMass = 30.0;
-    galaxy->MetalsStellarMass = 5.0;
-    galaxy->MetalsBulgeMass = 1.5;
+    #include "../../src/include/generated/init_galaxy_properties.inc"
 
-    /* ===== EXECUTE ===== */
-    /* Simulate memcpy from progenitor (which preserves all properties)
-     * followed by reset of accumulator properties only */
+    TEST_ASSERT(generated_test_init_repeat_properties_equal_init(&galaxy),
+                "init_galaxy_properties.inc should initialize init_repeat properties");
 
-    /* Reset ONLY the accumulator properties (init_repeat: true) */
-    galaxy->StarFormationRate = 0.0;
-
-    /* ===== VALIDATE ===== */
-    /* All cumulative properties should be UNCHANGED */
-    TEST_ASSERT(fabs(galaxy->StellarMass - 100.0) < 1e-6, "StellarMass preserved");
-    TEST_ASSERT(fabs(galaxy->BulgeMass - 30.0) < 1e-6, "BulgeMass preserved");
-    TEST_ASSERT(fabs(galaxy->MetalsStellarMass - 5.0) < 1e-6, "MetalsStellarMass preserved");
-    TEST_ASSERT(fabs(galaxy->MetalsBulgeMass - 1.5) < 1e-6, "MetalsBulgeMass preserved");
-
-    /* ===== CLEANUP ===== */
-    myfree(galaxy);
     check_memory_leaks();
-
     return TEST_PASS;
 }
 
-/**
- * @test    test_mixed_property_behavior
- * @brief   Test reset and preserve in single realistic scenario
- *
- * Expected: Accumulator properties reset, cumulative properties preserved
- * Validates: Cumulative values survive while snapshot-scoped values reset
- */
-int test_mixed_property_behavior(void) {
-    /* ===== SETUP ===== */
+int test_generated_reset_code_executes(void) {
     init_memory_system(0);
 
-    /* Create a "progenitor" galaxy with realistic values */
-    struct GalaxyData *progenitor = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
+    struct Halo workspace[1];
+    struct GalaxyData galaxy;
+    int p = 0;
+    int ngal = 0;
+    setup_workspace(workspace, &galaxy);
 
-    /* Set realistic progenitor values (from previous snapshot) */
-    /* Cumulative properties - should carry forward */
-    progenitor->StellarMass = 75.5;
-    progenitor->MetalsStellarMass = 3.8;
-    progenitor->BulgeMass = 25.3;
+    #include "../../src/include/generated/init_galaxy_properties.inc"
 
-    /* Accumulator properties - accumulated during previous snapshot */
-    progenitor->StarFormationRate = 5.7;
+    generated_test_seed_init_repeat_properties(&galaxy);
+    if (GENERATED_INIT_REPEAT_PROPERTY_COUNT > 0) {
+        TEST_ASSERT(!generated_test_init_repeat_properties_equal_init(&galaxy),
+                    "Generated seed helper should move init_repeat properties away from init values");
+    }
 
-    /* Create a "descendant" galaxy (simulating memcpy in copy_halos_from_progenitors) */
-    struct GalaxyData *descendant = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
-    memcpy(descendant, progenitor, sizeof(struct GalaxyData));
+    #include "../../src/include/generated/reset_galaxy_properties.inc"
 
-    /* ===== EXECUTE ===== */
-    /* Verify memcpy worked - all properties should be identical */
-    TEST_ASSERT(fabs(descendant->StellarMass - progenitor->StellarMass) < 1e-10,
-                "After memcpy: StellarMass copied");
-    TEST_ASSERT(fabs(descendant->StarFormationRate - progenitor->StarFormationRate) < 1e-10,
-                "After memcpy: StarFormationRate copied");
+    TEST_ASSERT(generated_test_init_repeat_properties_equal_init(&galaxy),
+                "reset_galaxy_properties.inc should restore init_repeat properties to init values");
 
-    /* Now apply the reset (this is what happens in build_model.c for central halos) */
-    descendant->StarFormationRate = 0.0;
-
-    /* ===== VALIDATE ===== */
-    /* Accumulator properties: RESET to 0.0 */
-    TEST_ASSERT(fabs(descendant->StarFormationRate) < 1e-10,
-                "Descendant: StarFormationRate reset to 0.0");
-
-    /* Cumulative properties: PRESERVED from progenitor */
-    TEST_ASSERT(fabs(descendant->StellarMass - progenitor->StellarMass) < 1e-6,
-                "Descendant: StellarMass preserved from progenitor");
-    TEST_ASSERT(fabs(descendant->MetalsStellarMass - progenitor->MetalsStellarMass) < 1e-6,
-                "Descendant: MetalsStellarMass preserved from progenitor");
-    TEST_ASSERT(fabs(descendant->BulgeMass - progenitor->BulgeMass) < 1e-6,
-                "Descendant: BulgeMass preserved from progenitor");
-
-    /* ===== CLEANUP ===== */
-    myfree(progenitor);
-    myfree(descendant);
     check_memory_leaks();
-
-    return TEST_PASS;
-}
-
-/**
- * @test    test_reset_to_correct_init_value
- * @brief   Test that properties reset to their defined init_value
- *
- * Expected: Snapshot-scoped properties reset to 0.0 (their init_value)
- * Validates: Reset uses correct init_value from metadata
- */
-int test_reset_to_correct_init_value(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
-
-    struct GalaxyData *galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
-
-    /* Set accumulator properties to arbitrary non-zero values */
-    galaxy->StarFormationRate = 66.6;
-
-    /* ===== EXECUTE ===== */
-    /* Apply reset to init_value. */
-    galaxy->StarFormationRate = 0.0;
-
-    /* ===== VALIDATE ===== */
-    /* Verify exact reset to init_value (0.0) */
-    TEST_ASSERT(galaxy->StarFormationRate == 0.0,
-                "StarFormationRate reset to init_value (0.0)");
-
-    /* ===== CLEANUP ===== */
-    myfree(galaxy);
-    check_memory_leaks();
-
-    return TEST_PASS;
-}
-
-/**
- * @test    test_new_halo_initialization
- * @brief   Test that new halos (without progenitors) initialize correctly
- *
- * Expected: All properties initialize to their init_value
- * Validates: init_galaxy_properties.inc sets correct values
- */
-int test_new_halo_initialization(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
-
-    /* Allocate a fresh galaxy (simulating init_halo for a new halo) */
-    struct GalaxyData *galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
-
-    /* ===== EXECUTE ===== */
-    /* Initialize all properties (simulating what init_galaxy_properties.inc does) */
-    /* For this test, we'll manually set to init_values to verify they're correct */
-
-    /* Snapshot-scoped properties (init_repeat: true, init_value: 0.0) */
-    galaxy->StarFormationRate = 0.0;
-
-    /* Sample of cumulative properties (init_value: 0.0 for most) */
-    galaxy->StellarMass = 0.0;
-    galaxy->BulgeMass = 0.0;
-    galaxy->MetalsStellarMass = 0.0;
-
-    /* ===== VALIDATE ===== */
-    /* Verify accumulators initialize to 0.0 */
-    TEST_ASSERT(galaxy->StarFormationRate == 0.0, "New halo: StarFormationRate = 0.0");
-
-    /* Verify cumulative properties initialize to 0.0 */
-    TEST_ASSERT(galaxy->StellarMass == 0.0, "New halo: StellarMass = 0.0");
-    TEST_ASSERT(galaxy->BulgeMass == 0.0, "New halo: BulgeMass = 0.0");
-    TEST_ASSERT(galaxy->MetalsStellarMass == 0.0,
-                "New halo: MetalsStellarMass = 0.0");
-
-    /* ===== CLEANUP ===== */
-    myfree(galaxy);
-    check_memory_leaks();
-
     return TEST_PASS;
 }
 
@@ -287,11 +117,9 @@ int main(void) {
     initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
 
     /* Run all tests */
-    TEST_RUN(test_accumulator_properties_reset);
-    TEST_RUN(test_cumulative_properties_preserved);
-    TEST_RUN(test_mixed_property_behavior);
-    TEST_RUN(test_reset_to_correct_init_value);
-    TEST_RUN(test_new_halo_initialization);
+    TEST_RUN(test_generated_metadata_available);
+    TEST_RUN(test_generated_init_code_executes);
+    TEST_RUN(test_generated_reset_code_executes);
 
     /* Print summary and return result */
     TEST_SUMMARY();

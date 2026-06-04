@@ -2,7 +2,7 @@
 # Mimic Test Parameter File - UniqueGalaxyID Validation
 #=============================================================================
 # This configuration outputs snapshots 62 and 63 for UniqueGalaxyID persistence testing.
-# Used specifically by: tests/integration/test_unique_galaxy_id.py when MODEL=sham
+# Used specifically by: simulations/millennium/_tests/integration/test_unique_galaxy_id.py when MODEL=sham
 #
 # To run manually:
 #   ./mimic models/sham/input/test_uniquegalid.yaml

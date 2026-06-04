@@ -27,6 +27,7 @@ Date: 2025-11-10
 import sys
 from io import StringIO
 from pathlib import Path
+import json
 import numpy as np
 
 # Add framework to path
@@ -43,16 +44,7 @@ from framework import (
     run_mimic_fresh,
 )
 
-# Core halo properties (physics-agnostic, always present)
-# These properties are defined across src/core/core_properties.yaml (framework
-# identity/tracking fields) and simulations/<simulation>/halo_properties.yaml
-# (catalog fields such as MostBoundID, Pos, Vel, Spin, Vmax, VelDisp). They
-# should be present in all Mimic output, regardless of enabled physics modules.
-CORE_HALO_PROPERTIES = {
-    'SnapNum', 'Type', 'MostBoundID', 'UniqueGalaxyID', 'UniqueCentralGalaxyID',
-    'dT', 'Pos', 'Vel', 'Spin', 'Len', 'Mvir', 'deltaMvir', 'CentralMvir',
-    'Rvir', 'Vvir', 'Vmax', 'VelDisp', 'infallMvir', 'infallVvir', 'infallVmax'
-}
+VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.json"
 
 # Ensure output directories exist before any tests run
 ensure_output_dirs()
@@ -87,6 +79,23 @@ def check_hdf5_support():
             return False
 
     return returncode == 0
+
+
+def baseline_halo_properties():
+    """
+    Return current run halo-output fields for baseline comparison.
+
+    The committed baseline intentionally covers deterministic halo tracking and
+    selected simulation/catalog fields. Model-owned galaxy physics fields are
+    excluded so SAGE and SHAM can share the same physics-free baseline.
+    """
+    with open(VALIDATION_MANIFEST_PATH) as f:
+        manifest = json.load(f)
+    return {
+        name
+        for name, spec in manifest.get("properties", {}).items()
+        if spec.get("category") == "halo"
+    }
 
 
 def load_hdf5_halos(output_file):
@@ -386,14 +395,14 @@ def test_binary_format_loading():
 
 def test_binary_baseline_comparison():
     """
-    Test that current binary output matches committed baseline (core properties only)
+    Test that current binary output matches committed halo-property baseline
 
     What: Compares tests/data/output/binary/model_z0.000_0 (current test run)
           against tests/data/output/baseline/binary/model_z0.000_0 (committed baseline)
 
-    Comparison: All core halo properties for ALL halos
-                (Physics-agnostic properties only: Mvir, Rvir, Pos, Vel, etc.)
-                Module properties (ColdGas, StellarMass) are NOT compared
+    Comparison: All generated halo-output properties for ALL halos
+                (core tracking plus selected simulation/catalog properties).
+                Model galaxy properties (ColdGas, StellarMass, etc.) are NOT compared.
 
     Tolerance: 1e-6 relative for floats, exact for integers
 
@@ -461,15 +470,16 @@ def test_binary_baseline_comparison():
             f"baseline={metadata_baseline['Ntrees']}{NC}"
         )
 
-    # Comprehensive comparison of core properties for all halos
-    # Only compare core (physics-agnostic) properties since baseline may have
-    # been generated with different physics modules enabled
-    print(f"  Comparing all core properties for all halos...")
+    compare_properties = baseline_halo_properties()
+
+    # Comprehensive comparison of generated halo properties for all halos.
+    # Model-owned galaxy properties are deliberately excluded.
+    print(f"  Comparing {len(compare_properties)} generated halo properties for all halos...")
     passed, report = compare_halos_comprehensive(
         halos_test, halos_baseline,
         label1="test", label2="baseline",
         rtol=1e-6,
-        properties_to_compare=CORE_HALO_PROPERTIES
+        properties_to_compare=compare_properties
     )
 
     # ANSI color codes
@@ -482,7 +492,7 @@ def test_binary_baseline_comparison():
     # Assert that comparison passed
     assert passed, (
         f"{RED}Binary output does not match baseline.\n"
-        f"In physics-free mode, all core halo properties should be identical.\n"
+        f"In physics-free mode, all generated halo properties should be identical.\n"
         f"See detailed comparison report above.{NC}"
     )
 
@@ -575,14 +585,14 @@ def test_hdf5_format_loading():
 
 def test_hdf5_baseline_comparison():
     """
-    Test that current HDF5 output matches committed baseline (core properties only)
+    Test that current HDF5 output matches committed halo-property baseline
 
     What: Compares tests/data/output/hdf5/model_000.hdf5 (current test run)
           against tests/data/output/baseline/hdf5/model_000.hdf5 (committed baseline)
 
-    Comparison: All 24 CORE halo properties for ALL halos
-                (Physics-agnostic properties only: Mvir, Rvir, Pos, Vel, etc.)
-                Module properties (ColdGas, StellarMass) are NOT compared
+    Comparison: All generated halo-output properties for ALL halos
+                (core tracking plus selected simulation/catalog properties).
+                Model galaxy properties (ColdGas, StellarMass, etc.) are NOT compared.
 
     Tolerance: 1e-6 relative for floats, exact for integers
 
@@ -651,15 +661,16 @@ def test_hdf5_baseline_comparison():
         f"baseline={metadata_baseline['TotHalos']}{NC}"
     )
 
-    # Comprehensive comparison of core properties for all halos
-    # Only compare core (physics-agnostic) properties since baseline may have
-    # been generated with different physics modules enabled
-    print(f"  Comparing all core properties for all halos...")
+    compare_properties = baseline_halo_properties()
+
+    # Comprehensive comparison of generated halo properties for all halos.
+    # Model-owned galaxy properties are deliberately excluded.
+    print(f"  Comparing {len(compare_properties)} generated halo properties for all halos...")
     passed, report = compare_halos_comprehensive(
         halos_test, halos_baseline,
         label1="test", label2="baseline",
         rtol=1e-6,
-        properties_to_compare=CORE_HALO_PROPERTIES
+        properties_to_compare=compare_properties
     )
 
     # Print report
@@ -668,7 +679,7 @@ def test_hdf5_baseline_comparison():
     # Assert that comparison passed
     assert passed, (
         f"{RED}HDF5 output does not match baseline.\n"
-        f"In physics-free mode, all core halo properties should be identical.\n"
+        f"In physics-free mode, all generated halo properties should be identical.\n"
         f"See detailed comparison report above.{NC}"
     )
 

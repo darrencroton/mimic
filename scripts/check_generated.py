@@ -50,6 +50,7 @@ PROPERTY_GENERATED_FILES = [
     REPO_ROOT / "src" / "include" / "generated" / "init_halo_properties.inc",
     REPO_ROOT / "src" / "include" / "generated" / "init_galaxy_properties.inc",
     REPO_ROOT / "src" / "include" / "generated" / "reset_galaxy_properties.inc",
+    REPO_ROOT / "src" / "include" / "generated" / "property_test_helpers.h",
     REPO_ROOT / "src" / "include" / "generated" / "copy_to_output.inc",
     REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_count.inc",
     REPO_ROOT / "src" / "include" / "generated" / "hdf5_field_definitions.inc",

@@ -44,9 +44,17 @@ from io import StringIO
 from collections import defaultdict
 from datetime import datetime
 
-# Add framework to path
-REPO_ROOT = Path(__file__).parent.parent.parent
+def find_repo_root(start):
+    """Find the repository root from this simulation-owned test path."""
+    for parent in [start, *start.parents]:
+        if (parent / "tests").is_dir() and (parent / "src").is_dir():
+            return parent
+    raise RuntimeError(f"Could not find repository root from {start}")
+
+
+REPO_ROOT = find_repo_root(Path(__file__).resolve())
 sys.path.insert(0, str(REPO_ROOT / "tests"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from framework import (
     load_binary_halos,
@@ -57,8 +65,8 @@ from framework import (
     run_mimic_fresh,
 )
 
-# Import tree loader
-from framework.tree_loader import load_binary_tree, get_halos_by_snapshot
+# Import the Millennium/lhalo-specific tree loader owned by this test package.
+from tree_loader import load_binary_tree, get_halos_by_snapshot
 
 # Ensure output directories exist
 ensure_output_dirs()

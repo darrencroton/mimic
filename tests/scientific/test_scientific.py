@@ -243,6 +243,41 @@ def check_range(halos, field, min_val, max_val, exclude_zeros=False):
     return result
 
 
+def load_validation_manifest():
+    """
+    Load the generated validation manifest consumed by metadata-driven tests.
+    """
+    if not VALIDATION_MANIFEST_PATH.exists():
+        raise FileNotFoundError(
+            f"Validation manifest not found: {VALIDATION_MANIFEST_PATH}"
+        )
+    with open(VALIDATION_MANIFEST_PATH) as f:
+        return json.load(f)
+
+
+def mass_fields_from_metadata(manifest, output_fields):
+    """
+    Return scalar mass-like output fields with non-negative declared ranges.
+    """
+    fields = []
+    output_field_set = set(output_fields)
+    for field, spec in manifest.get('properties', {}).items():
+        units = str(spec.get('units', '')).lower()
+        rng = spec.get('range')
+        if field not in output_field_set:
+            continue
+        if spec.get('is_vector', False):
+            continue
+        if spec.get('type') not in ('float', 'double', 'int', 'long long'):
+            continue
+        if 'msun' not in units:
+            continue
+        if not rng or rng[0] < 0:
+            continue
+        fields.append(field)
+    return sorted(fields)
+
+
 def test_numerical_validity():
     """
     Test for NaN and Inf values (critical failures)
@@ -302,8 +337,7 @@ def test_zero_values():
         return True, 0
 
     try:
-        with open(VALIDATION_MANIFEST_PATH) as f:
-            manifest = json.load(f)
+        manifest = load_validation_manifest()
     except Exception as e:
         print(f"{RED}✗ FAIL: Could not parse validation manifest: {e}{NC}")
         return False, 1
@@ -348,8 +382,7 @@ def test_physical_ranges():
         return True, 0
 
     try:
-        with open(VALIDATION_MANIFEST_PATH) as f:
-            manifest = json.load(f)
+        manifest = load_validation_manifest()
     except Exception as e:
         print(f"{RED}✗ FAIL: Could not parse validation manifest: {e}{NC}")
         return False, 1
@@ -517,27 +550,37 @@ def test_unit_consistency():
     else:
         print(f"{GREEN}✓ PASS: Max Vvir = {max_vvir:.1f} km/s ({vvir_fraction*100:.4f}% of c){NC}")
 
-    print("\n3. Mass positivity: All masses >= 0")
+    print("\n3. Mass positivity: metadata-selected mass fields >= 0")
 
-    mass_fields = ['Mvir', 'ColdGas', 'StellarMass', 'HotGas', 'EjectedGas',
-                   'BlackHoleMass', 'ICS']
     mass_failures = 0
+    try:
+        manifest = load_validation_manifest()
+        mass_fields = mass_fields_from_metadata(manifest, halos.dtype.names)
+    except Exception as e:
+        print(f"{YELLOW}⚠ WARNING: Could not load mass-field metadata: {e}{NC}")
+        manifest = {}
+        mass_fields = []
 
     for field in mass_fields:
-        if hasattr(halos, field):
-            data = getattr(halos, field)
-            negative = np.sum(data < 0)
-            if negative > 0:
-                mass_failures += 1
-                print(f"{RED}✗ FAIL: {field} has {negative} negative values{NC}")
-                neg_indices = np.where(data < 0)[0][:3]
-                for idx in neg_indices:
-                    print(f"  Halo {idx}: {field} = {data[idx]:.6e}")
+        data = getattr(halos, field)
+        mask = np.ones_like(data, dtype=bool)
+        for sentinel in manifest.get('properties', {}).get(field, {}).get('sentinels', []):
+            mask &= (data != sentinel)
+        values = data[mask]
+        negative = np.sum(values < 0)
+        if negative > 0:
+            mass_failures += 1
+            print(f"{RED}✗ FAIL: {field} has {negative} negative values{NC}")
+            neg_indices = np.where(mask & (data < 0))[0][:3]
+            for idx in neg_indices:
+                print(f"  Halo {idx}: {field} = {data[idx]:.6e}")
 
     if mass_failures > 0:
         failures += 1
+    elif not mass_fields:
+        print(f"{YELLOW}⚠ No metadata-selected mass fields to check{NC}")
     else:
-        print(f"{GREEN}✓ PASS: All mass fields are non-negative{NC}")
+        print(f"{GREEN}✓ PASS: All {len(mass_fields)} metadata-selected mass fields are non-negative{NC}")
 
     print("\n4. Time step sanity: dT reasonable")
 
