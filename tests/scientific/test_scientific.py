@@ -26,7 +26,6 @@ Author: Mimic Testing Team
 Date: 2025-11-11 (Updated for metadata-driven validation)
 """
 
-import subprocess
 import sys
 from pathlib import Path
 import numpy as np
@@ -36,7 +35,7 @@ import json
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import load_binary_halos, model_input_file
+from framework import load_binary_halos, model_input_file, run_mimic_fresh
 
 # Repository paths
 TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
@@ -68,9 +67,13 @@ YELLOW = '\033[1;33m'
 NC = '\033[0m'
 
 
-def run_mimic_if_needed():
+def regenerate_output():
     """
-    Run Mimic if output doesn't exist
+    Regenerate Mimic output for the selected model and return its path.
+
+    Always re-runs Mimic (removing any pre-existing output first) so a stale
+    file from a previous run -- possibly produced by a different MODEL writing
+    the same shared path -- cannot be validated as if it were this run.
 
     Returns:
         Path: Path to output file
@@ -78,19 +81,8 @@ def run_mimic_if_needed():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
-    if not output_file.exists():
-        print("  Running Mimic to generate output...")
-        param_file = model_input_file("test_binary.yaml")
-        result = subprocess.run(
-            [str(MIMIC_EXE), str(param_file)],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True
-        )
-        if result.returncode != 0:
-            print(f"STDOUT:\n{result.stdout}")
-            print(f"STDERR:\n{result.stderr}")
-            raise RuntimeError(f"Mimic execution failed with code {result.returncode}")
+    param_file = model_input_file("test_binary.yaml")
+    run_mimic_fresh(param_file, output_file)
 
     return output_file
 
@@ -264,7 +256,7 @@ def test_numerical_validity():
         print(f"  Skipping (Mimic not built)")
         return True, 0
 
-    output_file = run_mimic_if_needed()
+    output_file = regenerate_output()
     halos, metadata = load_binary_halos(output_file)
     print(f"Loaded {metadata['TotHalos']} halos from {metadata['Ntrees']} trees\n")
 
@@ -320,7 +312,7 @@ def test_zero_values():
         print(f"  Skipping (Mimic not built)")
         return True, 0
 
-    output_file = run_mimic_if_needed()
+    output_file = regenerate_output()
     halos, metadata = load_binary_halos(output_file)
     total_halos = metadata['TotHalos']
 
@@ -366,7 +358,7 @@ def test_physical_ranges():
         print(f"  Skipping (Mimic not built)")
         return True, 0
 
-    output_file = run_mimic_if_needed()
+    output_file = regenerate_output()
     halos, metadata = load_binary_halos(output_file)
 
     failures = 0
@@ -465,7 +457,7 @@ def test_unit_consistency():
         print(f"  Skipping (Mimic not built)")
         return True, 0
 
-    output_file = run_mimic_if_needed()
+    output_file = regenerate_output()
     halos, metadata = load_binary_halos(output_file)
 
     failures = 0

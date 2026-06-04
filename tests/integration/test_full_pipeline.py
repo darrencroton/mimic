@@ -38,6 +38,7 @@ from framework import (
     ensure_output_dirs,
     model_input_file,
     run_mimic,
+    run_mimic_fresh,
     check_no_memory_leaks,
 )
 
@@ -91,12 +92,11 @@ def test_output_files_created():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
-    # Run Mimic if output doesn't exist
-    if not output_file.exists():
-        print("  Running Mimic to generate output...")
-        param_file = model_input_file("test_binary.yaml")
-        returncode, stdout, stderr = run_mimic(param_file)
-        assert returncode == 0, f"{RED}Mimic execution failed{NC}"
+    # Always regenerate output for the selected model so a stale file from a
+    # previous run (possibly a different MODEL writing the same path) cannot
+    # satisfy this assertion.
+    param_file = model_input_file("test_binary.yaml")
+    run_mimic_fresh(param_file, output_file)
 
     # Check output file exists
     assert output_file.exists(), f"{RED}Output file not created: {output_file}{NC}"
@@ -196,11 +196,10 @@ def test_output_loadable():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
-    # Ensure output exists
-    if not output_file.exists():
-        param_file = model_input_file("test_binary.yaml")
-        returncode, stdout, stderr = run_mimic(param_file)
-        assert returncode == 0, f"{RED}Mimic execution failed{NC}"
+    # Always regenerate output for the selected model so a stale file from a
+    # previous run cannot satisfy this assertion.
+    param_file = model_input_file("test_binary.yaml")
+    run_mimic_fresh(param_file, output_file)
 
     # Try to load output file
     # Note: This is a basic check - just verify we can read binary data

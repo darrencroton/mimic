@@ -54,7 +54,7 @@ from framework import (
     MIMIC_EXE,
     ensure_output_dirs,
     model_input_file,
-    run_mimic,
+    run_mimic_fresh,
 )
 
 # Import tree loader
@@ -536,12 +536,10 @@ def test_tree_preservation_coverage():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"
 
-    # Run Mimic if needed
-    if not output_file.exists():
-        print(f"  Running Mimic to generate output...")
-        param_file = model_input_file("test_binary.yaml")
-        returncode, _, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic execution failed: {stderr}"
+    # Always regenerate output for the selected model so a stale file cannot
+    # satisfy this assertion.
+    param_file = model_input_file("test_binary.yaml")
+    run_mimic_fresh(param_file, output_file)
 
     print(f"  Loading output: {output_file.relative_to(REPO_ROOT)}")
     output_halos, output_meta = load_binary_halos(output_file)
@@ -635,10 +633,10 @@ def test_tree_preservation_properties():
     input_halos, _ = load_binary_tree(tree_file)
 
     output_file = TEST_DATA_DIR / "output" / "binary" / "model_z0.000_0"
-    if not output_file.exists():
-        param_file = model_input_file("test_binary.yaml")
-        returncode, _, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic execution failed: {stderr}"
+    # Always regenerate output for the selected model so a stale file cannot
+    # satisfy this assertion.
+    param_file = model_input_file("test_binary.yaml")
+    run_mimic_fresh(param_file, output_file)
 
     output_halos, _ = load_binary_halos(output_file)
 

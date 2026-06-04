@@ -40,6 +40,7 @@ from framework import (
     ensure_output_dirs,
     model_input_file,
     run_mimic,
+    run_mimic_fresh,
 )
 
 # Core halo properties (physics-agnostic, always present)
@@ -362,12 +363,10 @@ def test_binary_format_loading():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
-    # Run Mimic if needed
-    if not output_file.exists():
-        print(f"  Running Mimic to generate output...")
-        param_file = model_input_file("test_binary.yaml")
-        returncode, _, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic execution failed: {stderr}"
+    # Always regenerate output for the selected model so a stale file cannot
+    # satisfy this assertion.
+    param_file = model_input_file("test_binary.yaml")
+    run_mimic_fresh(param_file, output_file)
 
     assert output_file.exists(), f"Binary output file not created: {output_file}"
 
@@ -422,11 +421,11 @@ def test_binary_baseline_comparison():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     output_file = output_dir / "model_z0.000_0"
 
-    # Run Mimic if needed
-    if not output_file.exists():
-        param_file = model_input_file("test_binary.yaml")
-        returncode, _, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic execution failed: {stderr}"
+    # Always regenerate output for the selected model so a stale file -- possibly
+    # from a different MODEL writing the same path -- cannot be compared against
+    # the baseline as if it were this run.
+    param_file = model_input_file("test_binary.yaml")
+    run_mimic_fresh(param_file, output_file)
 
     print(f"  Loading CURRENT: {output_file.relative_to(REPO_ROOT)}")
     halos_test, metadata_test = load_binary_halos(output_file)
@@ -547,12 +546,10 @@ def test_hdf5_format_loading():
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     output_file = output_dir / "model_000.hdf5"  # filenr 0
 
-    # Run Mimic if needed
-    if not output_file.exists():
-        print(f"  Running Mimic to generate HDF5 output...")
-        param_file = model_input_file("test_hdf5.yaml")
-        returncode, _, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic execution failed: {stderr}"
+    # Always regenerate output for the selected model so a stale file cannot
+    # satisfy this assertion.
+    param_file = model_input_file("test_hdf5.yaml")
+    run_mimic_fresh(param_file, output_file)
 
     assert output_file.exists(), f"HDF5 output file not created: {output_file}"
 
@@ -620,11 +617,11 @@ def test_hdf5_baseline_comparison():
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     output_file = output_dir / "model_000.hdf5"
 
-    # Run Mimic if needed
-    if not output_file.exists():
-        param_file = model_input_file("test_hdf5.yaml")
-        returncode, _, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic execution failed: {stderr}"
+    # Always regenerate output for the selected model so a stale file -- possibly
+    # from a different MODEL writing the same path -- cannot be compared against
+    # the baseline as if it were this run.
+    param_file = model_input_file("test_hdf5.yaml")
+    run_mimic_fresh(param_file, output_file)
 
     print(f"  Loading CURRENT: {output_file.relative_to(REPO_ROOT)}")
     halos_test, metadata_test = load_hdf5_halos(output_file)
@@ -706,10 +703,10 @@ def test_unique_id_contract():
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     output_file = output_dir / "model_000.hdf5"
 
-    if not output_file.exists():
-        param_file = model_input_file("test_hdf5.yaml")
-        returncode, _, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic execution failed: {stderr}"
+    # Always regenerate output for the selected model so a stale file cannot
+    # satisfy this assertion.
+    param_file = model_input_file("test_hdf5.yaml")
+    run_mimic_fresh(param_file, output_file)
 
     halos, metadata = load_hdf5_halos(output_file)
     print(f"  Loaded {metadata['TotHalos']} halos")
@@ -796,12 +793,10 @@ def test_format_equivalence():
     binary_dir = TEST_DATA_DIR / "output" / "binary"
     binary_file = binary_dir / "model_z0.000_0"
 
-    # Run Mimic if needed
-    if not binary_file.exists():
-        print(f"  Running Mimic to generate binary output...")
-        param_file = model_input_file("test_binary.yaml")
-        returncode, _, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Binary Mimic execution failed: {stderr}"
+    # Always regenerate output for the selected model so stale files cannot
+    # satisfy this comparison.
+    binary_param_file = model_input_file("test_binary.yaml")
+    run_mimic_fresh(binary_param_file, binary_file)
 
     print(f"  Loading BINARY: {binary_file.relative_to(REPO_ROOT)}")
     halos_binary, metadata_binary = load_binary_halos(binary_file)
@@ -811,12 +806,10 @@ def test_format_equivalence():
     hdf5_dir = TEST_DATA_DIR / "output" / "hdf5"
     hdf5_file = hdf5_dir / "model_000.hdf5"
 
-    # Run Mimic if needed
-    if not hdf5_file.exists():
-        print(f"  Running Mimic to generate HDF5 output...")
-        param_file = model_input_file("test_hdf5.yaml")
-        returncode, _, stderr = run_mimic(param_file)
-        assert returncode == 0, f"HDF5 Mimic execution failed: {stderr}"
+    # Always regenerate output for the selected model so stale files cannot
+    # satisfy this comparison.
+    hdf5_param_file = model_input_file("test_hdf5.yaml")
+    run_mimic_fresh(hdf5_param_file, hdf5_file)
 
     # ANSI color codes
     RED = '\033[0;31m'

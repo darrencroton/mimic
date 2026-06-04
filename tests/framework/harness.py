@@ -88,6 +88,67 @@ def run_mimic(param_file, cwd=None):
     return result.returncode, result.stdout, result.stderr
 
 
+def run_mimic_fresh(param_file, expected_output=None, cwd=None):
+    """
+    Run Mimic, always (re)generating output for the selected model.
+
+    Unlike a bare ``run_mimic`` call guarded by ``if not output.exists()``, this
+    helper removes any pre-existing ``expected_output`` first, then runs Mimic
+    and asserts a clean exit. This prevents a stale output file from a previous
+    run -- possibly produced by a different ``MODEL`` writing to the same shared
+    output path -- from silently satisfying a later assertion (a false positive).
+
+    Args:
+        param_file (str or Path): Run/input YAML for the selected model.
+        expected_output (str or Path, optional): The output file this test will
+            validate. Removed before the run so a stale file cannot survive a
+            failed or skipped regeneration.
+        cwd (str or Path): Working directory for execution (default: repo root).
+
+    Returns:
+        tuple: (returncode, stdout, stderr) from the Mimic run.
+
+    Usage:
+        run_mimic_fresh(model_input_file("test_binary.yaml"), output_file)
+    """
+    if expected_output is not None:
+        expected_output = Path(expected_output)
+        if expected_output.exists():
+            expected_output.unlink()
+
+    returncode, stdout, stderr = run_mimic(param_file, cwd=cwd)
+    assert returncode == 0, (
+        f"Mimic execution failed (rc={returncode})\n"
+        f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    )
+    return returncode, stdout, stderr
+
+
+def resolve_sim_config_path(sim_config_path, param_file):
+    """
+    Resolve a ``simulation.config`` path identically across harness code paths.
+
+    Absolute paths are used as-is. Relative paths are tried against the repo
+    root first, then against the parameter file's parent directory. This matches
+    runtime behaviour and lets model-local input YAMLs reference their
+    simulation config relative to either location.
+
+    Args:
+        sim_config_path (str or Path): The ``simulation.config`` value from a run file.
+        param_file (str or Path): The run file the config path was read from.
+
+    Returns:
+        Path: Resolved simulation config path.
+    """
+    sim_config_path = Path(sim_config_path)
+    if sim_config_path.is_absolute():
+        return sim_config_path
+    resolved = REPO_ROOT / sim_config_path
+    if not resolved.exists():
+        resolved = Path(param_file).parent / sim_config_path
+    return resolved
+
+
 def read_param_file(param_file):
     """
     Read YAML parameter file and return as dictionary
@@ -115,12 +176,7 @@ def read_param_file(param_file):
     sim_config = {}
     sim_config_path = config.get('simulation', {}).get('config')
     if sim_config_path:
-        sim_config_path = Path(sim_config_path)
-        if not sim_config_path.is_absolute():
-            resolved = REPO_ROOT / sim_config_path
-            if not resolved.exists():
-                resolved = param_file.parent / sim_config_path
-            sim_config_path = resolved
+        sim_config_path = resolve_sim_config_path(sim_config_path, param_file)
         with open(sim_config_path, 'r') as f:
             sim_config = yaml.safe_load(f) or {}
 
@@ -238,8 +294,8 @@ def create_test_param_file(output_name, phase_config=None,
     if output_format is not None:
         config['output']['output_format'] = output_format  # Override format if specified
 
-    sim_config_path = Path(config['simulation']['config'])
-    with open(REPO_ROOT / sim_config_path, 'r') as f:
+    sim_config_path = resolve_sim_config_path(config['simulation']['config'], ref_param_file)
+    with open(sim_config_path, 'r') as f:
         sim_config = yaml.safe_load(f)
     sim_config['input']['first_file'] = first_file
     sim_config['input']['last_file'] = last_file
@@ -368,6 +424,8 @@ __all__ = [
     'MIMIC_EXE',
     'ensure_output_dirs',
     'run_mimic',
+    'run_mimic_fresh',
+    'resolve_sim_config_path',
     'read_param_file',
     'create_test_param_file',
     'check_no_memory_leaks',

@@ -41,7 +41,7 @@ from framework import (
     MIMIC_EXE,
     ensure_output_dirs,
     model_input_file,
-    run_mimic,
+    run_mimic_fresh,
 )
 
 # Ensure output directories exist
@@ -68,14 +68,22 @@ def load_uniquegalid_test_data():
     output_dir = TEST_DATA_DIR / "output" / "binary"
     param_file = model_input_file("test_uniquegalid.yaml")
 
-    # Run Mimic if needed (generates both snapshot files)
-    # Check for any model_uniquegalid files
+    # Always regenerate output for the selected model so stale files from a
+    # previous run (possibly a different MODEL writing the same shared path)
+    # cannot satisfy this test. Clear any existing matches first.
+    for stale in output_dir.glob("model_uniquegalid_*"):
+        stale.unlink()
+    print(f"  Running Mimic to generate output...")
+    run_mimic_fresh(param_file)
     uniquegalid_files = list(output_dir.glob("model_uniquegalid_*"))
-    if len(uniquegalid_files) < 2:
-        print(f"  Running Mimic to generate output...")
-        returncode, _, stderr = run_mimic(param_file)
-        assert returncode == 0, f"Mimic execution failed: {stderr}"
-        uniquegalid_files = list(output_dir.glob("model_uniquegalid_*"))
+
+    # The run is expected to emit one output file per snapshot (62 and 63).
+    # Fail loudly if it produced fewer, otherwise the per-snapshot uniqueness
+    # and persistence checks below could pass vacuously on missing snapshots.
+    assert len(uniquegalid_files) >= 2, (
+        f"Expected at least 2 snapshot output files (snapshots 62 and 63), "
+        f"found {len(uniquegalid_files)}: {[f.name for f in sorted(uniquegalid_files)]}"
+    )
 
     # Load both snapshot files and combine
     print(f"  Loading output files:")
@@ -89,6 +97,23 @@ def load_uniquegalid_test_data():
     import numpy as np
     output_halos = np.concatenate(all_halos)
     output_halos = output_halos.view(np.recarray)
+
+    # Guard against vacuous success: both expected snapshots must be present and
+    # non-empty before any per-snapshot uniqueness/persistence check runs.
+    expected_snapshots = {62, 63}
+    present_snapshots = {int(s) for s in np.unique(output_halos.SnapNum)}
+    missing = expected_snapshots - present_snapshots
+    assert not missing, (
+        f"Expected galaxies for snapshots {sorted(expected_snapshots)} but "
+        f"snapshot(s) {sorted(missing)} are absent (present: {sorted(present_snapshots)}). "
+        f"Files: {[f.name for f in sorted(uniquegalid_files)]}"
+    )
+    for snap in sorted(expected_snapshots):
+        n_snap = int(np.sum(output_halos.SnapNum == snap))
+        assert n_snap > 0, (
+            f"Snapshot {snap} produced no galaxies; uniqueness and persistence "
+            f"checks for it would be vacuous"
+        )
 
     return output_halos
 

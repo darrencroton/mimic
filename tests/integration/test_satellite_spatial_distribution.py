@@ -209,16 +209,21 @@ def test_satellite_spatial_distribution():
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     output_file = output_dir / "model_000.hdf5"
 
-    if not output_file.exists():
-        print(f"  Running Mimic to generate HDF5 output...")
-        returncode, stdout, stderr = run_mimic(param_file)
-        if returncode != 0:
-            output = (stdout + stderr)
-            if "requires HDF5" in output or "HDF5 support" in output or "Recompile with" in output:
-                print(f"  Skipping (Mimic not compiled with HDF5 support)")
-                return
-            else:
-                assert False, f"Mimic failed with code {returncode}\nSTDERR: {stderr}"
+    # Always regenerate output for the selected model so a stale file -- possibly
+    # from a different MODEL writing the same path -- cannot satisfy this test.
+    # This run also detects whether the executable was built with HDF5 support,
+    # so it inspects the return code itself rather than asserting a clean exit.
+    if output_file.exists():
+        output_file.unlink()
+    print(f"  Running Mimic to generate HDF5 output...")
+    returncode, stdout, stderr = run_mimic(param_file)
+    if returncode != 0:
+        output = (stdout + stderr)
+        if "requires HDF5" in output or "HDF5 support" in output or "Recompile with" in output:
+            print(f"  Skipping (Mimic not compiled with HDF5 support)")
+            return
+        else:
+            assert False, f"Mimic failed with code {returncode}\nSTDERR: {stderr}"
 
     # Check if h5py is available
     try:
