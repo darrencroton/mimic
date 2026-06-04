@@ -42,7 +42,7 @@ extern struct MimicConfig MimicConfig;
 
 static const char *test_binary_param_file(void) {
     static char path[MAX_STRING_LEN];
-    snprintf(path, sizeof(path), "%s/input/test_binary.yaml", MIMIC_COMPILED_MODEL_PATH);
+    snprintf(path, sizeof(path), "%s/input/_tests/test_binary.yaml", MIMIC_COMPILED_MODEL_PATH);
     return path;
 }
 

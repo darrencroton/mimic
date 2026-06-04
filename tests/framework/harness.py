@@ -27,12 +27,12 @@ def compiled_model():
 
 
 def model_input_file(filename):
-    """Return a test input file from the selected model package."""
-    path = REPO_ROOT / "models" / compiled_model() / "input" / filename
+    """Return a general test input file from the selected model package."""
+    path = REPO_ROOT / "models" / compiled_model() / "input" / "_tests" / filename
     if not path.exists():
         raise FileNotFoundError(
             f"Model-local test input not found: {path}. "
-            f"Create models/{compiled_model()}/input/{filename}."
+            f"Create models/{compiled_model()}/input/_tests/{filename}."
         )
     return path
 
@@ -240,7 +240,7 @@ def create_test_param_file(output_name, phase_config=None,
         first_file (int): First file to process (default: 0)
         last_file (int): Last file to process (default: 0)
         ref_param_file (str or Path): Reference YAML parameter file
-                                      (default: models/<MODEL>/input/test_binary.yaml)
+                                      (default: models/<MODEL>/input/_tests/test_binary.yaml)
         temp_dir (str or Path): Temporary directory for outputs (default: create new)
         output_format (str): Output format override ('binary' or 'hdf5', default: from ref file)
 

@@ -1,17 +1,17 @@
 #=============================================================================
-# Mimic Test Parameter File
+# Mimic Test Parameter File (HDF5 Output)
 #=============================================================================
 # This is a minimal configuration for fast automated testing.
 # It processes only a single tree file (trees_063.0) and outputs
 # only snapshot 63 to keep test runtime under 10 seconds.
 #
-# Used by: tests/unit/, tests/integration/, tests/scientific/ when MODEL=sage
+# Used by: tests/unit/, tests/integration/, tests/scientific/ when MODEL=sham
 #
 # To run manually:
-#   ./mimic models/sage/input/test_binary.yaml
+#   ./mimic models/sham/input/_tests/test_hdf5.yaml
 #
 # Output location:
-#   tests/data/output/binary/  (test output, compared against baseline/)
+#   tests/data/output/hdf5/  (test output, compared against baseline/)
 #
 # Directory structure:
 #   baseline/ - Static reference data (NEVER regenerated, committed to git)
@@ -23,9 +23,9 @@
 # Package Configuration
 #-----------------------------------------------------------------------------
 model:
-  name: sage
-  path: models/sage
-  properties: models/sage/model_properties.yaml
+  name: sham
+  path: models/sham
+  properties: models/sham/model_properties.yaml
 
 simulation:
   name: test_millennium
@@ -34,16 +34,16 @@ simulation:
   halo_properties: simulations/millennium/halo_properties.yaml
 
 plotting:
-  profile: models/sage/plots/profiles/millennium_plot_profile.yaml
+  profile: models/sham/plots/profiles/millennium_plot_profile.yaml
 
 #-----------------------------------------------------------------------------
 # Output Configuration
 #-----------------------------------------------------------------------------
 output:
   output_filename: model
-  output_directory: ./tests/data/output/binary/
+  output_directory: ./tests/data/output/hdf5/
   snapshot_count: 1  # Single snapshot for fast testing
-  output_format: binary
+  output_format: hdf5
   snapshot_list:
   - 63
 

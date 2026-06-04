@@ -32,8 +32,8 @@
 #   ./benchmark_mimic.sh
 #
 #   # Benchmark with custom parameter file
-#   ./benchmark_mimic.sh --param-file ../models/sage/input/test_binary.yaml
-#   ./benchmark_mimic.sh ../models/sage/input/test_binary.yaml
+#   ./benchmark_mimic.sh --param-file ../models/sage/input/_tests/test_binary.yaml
+#   ./benchmark_mimic.sh ../models/sage/input/_tests/test_binary.yaml
 #
 #   # Benchmark with MPI
 #   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh
@@ -156,8 +156,8 @@ EXAMPLES:
   cd scripts && ./benchmark_mimic.sh
 
   # Benchmark with custom parameter file
-  ./scripts/benchmark_mimic.sh --param-file models/sage/input/test_binary.yaml
-  ./scripts/benchmark_mimic.sh models/sage/input/test_binary.yaml
+  ./scripts/benchmark_mimic.sh --param-file models/sage/input/_tests/test_binary.yaml
+  ./scripts/benchmark_mimic.sh models/sage/input/_tests/test_binary.yaml
 
   # Verbose output
   ./scripts/benchmark_mimic.sh --verbose

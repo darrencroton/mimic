@@ -19,7 +19,7 @@ References:
 ## Package Contents
 
 - `model_properties.yaml`: SAGE galaxy/model property metadata. Edit this when adding, removing, or changing SAGE-owned galaxy properties, then run `make MODEL=sage generate`.
-- `input/`: SAGE run parameter YAML files, including the shipped Millennium configuration.
+- `input/`: SAGE run parameter YAML files, including the shipped Millennium configuration. Developer-only model test fixtures live under `input/_tests/`.
 - `modules/`: Runtime SAGE physics modules. Each production module has its own directory containing C source, `module_info.yaml`, README, and `_tests/` where applicable.
 - `modules/_tests/`: Shared cross-module tests for processing contracts and parity checks.
 - `shared/`: SAGE-local helper headers and event contracts. These are not framework APIs; copy or reimplement them in another model package if needed.

@@ -2,10 +2,10 @@
 # Mimic Test Parameter File - UniqueGalaxyID Validation
 #=============================================================================
 # This configuration outputs snapshots 62 and 63 for UniqueGalaxyID persistence testing.
-# Used specifically by: simulations/millennium/_tests/integration/test_unique_galaxy_id.py when MODEL=sage
+# Used specifically by: simulations/millennium/_tests/integration/test_unique_galaxy_id.py when MODEL=sham
 #
 # To run manually:
-#   ./mimic models/sage/input/test_uniquegalid.yaml
+#   ./mimic models/sham/input/_tests/test_uniquegalid.yaml
 #
 # Output location:
 #   tests/data/output/binary/
@@ -15,9 +15,9 @@
 # Package Configuration
 #-----------------------------------------------------------------------------
 model:
-  name: sage
-  path: models/sage
-  properties: models/sage/model_properties.yaml
+  name: sham
+  path: models/sham
+  properties: models/sham/model_properties.yaml
 
 simulation:
   name: test_millennium
@@ -26,7 +26,7 @@ simulation:
   halo_properties: simulations/millennium/halo_properties.yaml
 
 plotting:
-  profile: models/sage/plots/profiles/millennium_plot_profile.yaml
+  profile: models/sham/plots/profiles/millennium_plot_profile.yaml
 
 #-----------------------------------------------------------------------------
 # Output Configuration

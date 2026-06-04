@@ -42,7 +42,7 @@ cd "$REPO_ROOT" || exit 1
 MIMIC_EXE="$REPO_ROOT/mimic"
 MODEL="${MODEL:-sage}"
 export MODEL
-PARAM_FILE="$REPO_ROOT/models/$MODEL/input/test_hdf5.yaml"
+PARAM_FILE="$REPO_ROOT/models/$MODEL/input/_tests/test_hdf5.yaml"
 OUTPUT_DIR="$REPO_ROOT/tests/data/output/hdf5"
 BASELINE_DIR="$REPO_ROOT/tests/data/output/baseline/hdf5"
 OUTPUT_FILE="$OUTPUT_DIR/model_000.hdf5"
@@ -80,7 +80,7 @@ echo ""
 echo -e "${BLUE}Step 3: Validating parameter file...${NC}"
 if [ ! -f "$PARAM_FILE" ]; then
     echo -e "${RED}ERROR: Parameter file not found: $PARAM_FILE${NC}"
-    echo "Expected parameter file: models/$MODEL/input/test_hdf5.yaml"
+    echo "Expected parameter file: models/$MODEL/input/_tests/test_hdf5.yaml"
     exit 1
 fi
 

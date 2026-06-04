@@ -71,7 +71,7 @@ python3 tests/integration/test_output_formats.py
 python3 models/sage/modules/sage_apply_cooling/_tests/test_integration_sage_apply_cooling.py
 ```
 
-Integration tests are plain Python scripts. You can run core tests under `tests/integration/`, simulation-owned tests under `simulations/<simulation>/_tests/integration/`, or module-specific scripts under `models/<model>/modules/<module>/_tests/`. Python tests use `MODEL` to locate model-local run files; set `MODEL` and `SIMULATION` explicitly when the built executable is not the default SAGE/Millennium build.
+Integration tests are plain Python scripts. You can run core tests under `tests/integration/`, simulation-owned tests under `simulations/<simulation>/_tests/integration/`, or module-specific scripts under `models/<model>/modules/<module>/_tests/`. Python tests use `MODEL` to locate model-local test run files under `models/<model>/input/_tests/`; set `MODEL` and `SIMULATION` explicitly when the built executable is not the default SAGE/Millennium build.
 
 **Scientific tests**:
 ```bash
@@ -95,7 +95,7 @@ tests/
 └── generated/          # Auto-generated test metadata
 ```
 
-Model-local run files and module tests live under `models/<model>/input/` and `models/<model>/modules/`.
+User-facing model run files live under `models/<model>/input/`. Developer-only model test run files live under `models/<model>/input/_tests/`, while module tests live under `models/<model>/modules/`.
 Simulation-owned tests live under `simulations/<simulation>/_tests/`.
 
 ## Test Data

@@ -1,14 +1,22 @@
 #=============================================================================
-# Mimic Test Parameter File - UniqueGalaxyID Validation
+# Mimic Test Parameter File
 #=============================================================================
-# This configuration outputs snapshots 62 and 63 for UniqueGalaxyID persistence testing.
-# Used specifically by: simulations/millennium/_tests/integration/test_unique_galaxy_id.py when MODEL=sham
+# This is a minimal configuration for fast automated testing.
+# It processes only a single tree file (trees_063.0) and outputs
+# only snapshot 63 to keep test runtime under 10 seconds.
+#
+# Used by: tests/unit/, tests/integration/, tests/scientific/ when MODEL=sham
 #
 # To run manually:
-#   ./mimic models/sham/input/test_uniquegalid.yaml
+#   ./mimic models/sham/input/_tests/test_binary.yaml
 #
 # Output location:
-#   tests/data/output/binary/
+#   tests/data/output/binary/  (test output, compared against baseline/)
+#
+# Directory structure:
+#   baseline/ - Static reference data (NEVER regenerated, committed to git)
+#   binary/   - Test output from binary format runs (gitignored)
+#   hdf5/     - Test output from HDF5 format runs (gitignored)
 #=============================================================================
 
 #-----------------------------------------------------------------------------
@@ -32,17 +40,16 @@ plotting:
 # Output Configuration
 #-----------------------------------------------------------------------------
 output:
-  output_filename: model_uniquegalid
+  output_filename: model
   output_directory: ./tests/data/output/binary/
-  snapshot_count: 2  # Two snapshots for persistence testing
+  snapshot_count: 1  # Single snapshot for fast testing
   output_format: binary
   snapshot_list:
-  - 62
   - 63
 
 # Physics Modules
 #-----------------------------------------------------------------------------
-# Physics modules disabled for UniqueGalaxyID validation testing
-# Tests operate in physics-free mode to validate core property tracking
+# Physics modules currently disabled for baseline testing
+# Mimic operates as a physics-agnostic framework for halo tracking
 modules:
   parameters: {}

@@ -13,9 +13,11 @@ This directory contains **shared tests only**:
 - **Unit Tests** (`test_unit_*.c`): Cross-module or framework-facing regressions
 - **Integration Tests** (`test_integration_*.py`): Startup/dispatch/pipeline contract tests spanning multiple modules
 - **Scientific Tests** (`test_scientific_*.py`): Shared scientific validations, if needed
+- **Input Fixtures** (`input/*.yaml`): Module-pipeline-specific run files, such as the full SAGE physics baseline input
 
 Module-specific tests belong in the owning module directory:
 `models/<model>/modules/<module>/_tests/`.
+Broad model-level fixtures belong in `models/<model>/input/_tests/`.
 Retired tests belong in `archive/src-modules/_archive/`.
 
 ---
@@ -166,6 +168,7 @@ models/sage/modules/
 ├── _tests/                          # This directory
 │   ├── README.md                    # This file
 │   ├── module_info.yaml             # Shared test registry
+│   ├── input/                       # Shared module-pipeline input fixtures
 │   ├── test_unit_*.c                # Shared unit tests
 │   ├── test_integration_*.py        # Shared integration tests
 │   └── test_scientific_*.py         # Shared scientific tests
