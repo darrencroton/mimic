@@ -511,7 +511,8 @@ The plotting system is organized around these key components:
    - Parameter file reading
    - Data loading
    - Figure generation coordination
-   
+   - Plot profile loading, with inherited profiles resolved relative to the profile file that declares them
+
 2. **Snapshot-Redshift Mapper**: Handles mapping between snapshot numbers and redshifts
 
 3. **Figure Modules**: Self-contained modules in the `figures/` directory:

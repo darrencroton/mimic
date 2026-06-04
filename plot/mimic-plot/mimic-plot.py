@@ -134,11 +134,11 @@ def get_dtype(output_path):
 
 def resolve_relative_path(path, param_file_path):
     """
-    Resolve a path relative to the Mimic root directory (parent of parameter file directory).
+    Resolve a run-configuration path relative to the Mimic repository root.
 
     Args:
         path: Path to resolve (can be relative or absolute)
-        param_file_path: Path to the parameter file
+        param_file_path: Active run file path, retained for the caller API
 
     Returns:
         Resolved absolute path
@@ -210,6 +210,9 @@ def merge_profile(base, override):
 
 def read_profile_file(path, chain=None):
     """Read one profile file and resolve its inherited profiles.
+
+    Relative ``inherits`` entries are resolved from the directory containing the
+    profile file that declares them.
 
     ``chain`` is the ordered list of ancestor profile paths on the current
     inheritance branch. Each inherited entry is resolved on its own branch, so

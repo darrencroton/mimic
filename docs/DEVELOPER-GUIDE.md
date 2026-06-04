@@ -641,7 +641,7 @@ plotting:
   profile: simulations/my_sim/my_sim_plot_profile.yaml
 ```
 
-The run file `plotting.profile` must be present for `mimic-plot.py` to locate it; the binary itself ignores the plotting section. See `simulations/millennium/plot_profile.yaml` for the format.
+The run file `plotting.profile` must be present for `mimic-plot.py` to locate it; the binary itself ignores the plotting section. Profile `inherits` entries are resolved relative to the profile file that declares them, so package-local profiles should inherit neighbouring defaults with local paths such as `default.yaml`. See `simulations/millennium/plot_profile.yaml` for the format.
 
 ### Workflow Summary
 

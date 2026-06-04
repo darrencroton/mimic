@@ -182,7 +182,7 @@ modules:
   parameters: {}
 ```
 
-The `plotting.profile` section is optional. Omit it entirely if you do not intend to use `mimic-plot.py` — the binary will run without it. If you do want to generate plots, the profile must be present in the run YAML so `mimic-plot.py` can locate it; the path must be repo-relative, not absolute.
+The `plotting.profile` section is optional. Omit it entirely if you do not intend to use `mimic-plot.py` — the binary will run without it. If you do want to generate plots, the profile must be present in the run YAML so `mimic-plot.py` can locate it; the path must be repo-relative, not absolute. Inside a plot profile, `inherits` entries are resolved from the directory containing that profile, so model-local profiles should inherit neighbouring defaults by local filename, for example `inherits: [default.yaml]`.
 
 The referenced simulation config, `simulations/millennium/simulation_info.yaml`, owns tree input paths, cosmology, box size, particle mass, and units. `simulation.units` in that file defines the base code units used to derive time, density, pressure, energy, `G`, and related runtime quantities. The shipped Millennium/SAGE example uses `Mpc/h`, `1e10 Msun/h`, and `km/s` conventions.
 
