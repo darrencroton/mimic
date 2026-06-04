@@ -14,10 +14,10 @@ A file-by-file map of what **stays**, what is **extracted**, what is **added**, 
 Validation gate used throughout — **"green"** means:
 
 ```bash
-make MODEL=sage check-generated && make MODEL=sage validate-modules
-make MODEL=sage test-unit          # fast
-make MODEL=sage test-integration   # medium
-make MODEL=sage test-scientific    # slow — delegate to a subagent, act on summary
+make check-generated && make validate-modules
+make test-unit          # fast
+make test-integration   # medium
+make test-scientific    # slow — delegate to a subagent, act on summary
 ```
 
 Treat any non-zero exit code as failure regardless of log text.

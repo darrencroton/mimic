@@ -47,6 +47,9 @@ static void parse_plotting_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section);
 static void validate_and_postprocess(void);
 static void parse_simulation_config_file(const char *fname);
+static void resolve_config_path(const char *path, const char *param_file,
+                                char *resolved, size_t resolved_size);
+static int file_exists_readable(const char *path);
 
 /**
  * @brief   Read and parse YAML parameter file
@@ -114,8 +117,9 @@ void read_parameter_file(const char *fname) {
   if (section) {
     node = get_mapping_value(&document, section, "config");
     if (node && (str = get_scalar_value(node))) {
-      strncpy(MimicConfig.SimulationConfigPath, str, MAX_STRING_LEN - 1);
-      parse_simulation_config_file(str);
+      resolve_config_path(str, fname, MimicConfig.SimulationConfigPath,
+                          sizeof(MimicConfig.SimulationConfigPath));
+      parse_simulation_config_file(MimicConfig.SimulationConfigPath);
     }
   }
 
@@ -191,6 +195,73 @@ static const char *get_scalar_value(yaml_node_t *node) {
     return NULL;
   }
   return (const char *)node->data.scalar.value;
+}
+
+/**
+ * @brief   Check whether a file can be opened for reading.
+ */
+static int file_exists_readable(const char *path) {
+  FILE *fh = fopen(path, "r");
+  if (!fh) {
+    return 0;
+  }
+  fclose(fh);
+  return 1;
+}
+
+/**
+ * @brief   Resolve a run-file path with param-file-relative fallback.
+ *
+ * Absolute paths are used as-is. Relative paths are first tried exactly as
+ * provided (normally repository-root-relative because runs are launched from the
+ * repo root), then relative to the parameter file's parent directory. The
+ * returned path is stored for metadata copying and later diagnostics.
+ */
+static void resolve_config_path(const char *path, const char *param_file,
+                                char *resolved, size_t resolved_size) {
+  const char *last_slash;
+  int written;
+  char param_dir[MAX_STRING_LEN];
+  char candidate[MAX_STRING_LEN];
+
+  if (path == NULL || path[0] == '\0') {
+    resolved[0] = '\0';
+    return;
+  }
+
+  if (path[0] == '/' || file_exists_readable(path)) {
+    written = snprintf(resolved, resolved_size, "%s", path);
+    if (written < 0 || (size_t)written >= resolved_size) {
+      FATAL_ERROR("Simulation config path too long: %s", path);
+    }
+    return;
+  }
+
+  last_slash = strrchr(param_file, '/');
+  if (last_slash == NULL) {
+    written = snprintf(resolved, resolved_size, "%s", path);
+    if (written < 0 || (size_t)written >= resolved_size) {
+      FATAL_ERROR("Simulation config path too long: %s", path);
+    }
+    return;
+  }
+
+  written = snprintf(param_dir, sizeof(param_dir), "%.*s",
+                     (int)(last_slash - param_file), param_file);
+  if (written < 0 || (size_t)written >= sizeof(param_dir)) {
+    FATAL_ERROR("Parameter file path too long while resolving '%s'", path);
+  }
+
+  written = snprintf(candidate, sizeof(candidate), "%s/%s", param_dir, path);
+  if (written < 0 || (size_t)written >= sizeof(candidate)) {
+    FATAL_ERROR("Resolved simulation config path too long: %s/%s", param_dir,
+                path);
+  }
+
+  written = snprintf(resolved, resolved_size, "%s", candidate);
+  if (written < 0 || (size_t)written >= resolved_size) {
+    FATAL_ERROR("Resolved simulation config path too long: %s", candidate);
+  }
 }
 
 /**
@@ -391,7 +462,10 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
 
   node = get_mapping_value(doc, section, "config");
   if (node && (str = get_scalar_value(node))) {
-    strncpy(MimicConfig.SimulationConfigPath, str, MAX_STRING_LEN - 1);
+    if (strlen(MimicConfig.SimulationConfigPath) == 0) {
+      strncpy(MimicConfig.SimulationConfigPath, str, MAX_STRING_LEN - 1);
+      MimicConfig.SimulationConfigPath[MAX_STRING_LEN - 1] = '\0';
+    }
     /* Simulation config is pre-loaded before run-file sections so that run-file
      * values override simulation defaults. No second load here. */
   }

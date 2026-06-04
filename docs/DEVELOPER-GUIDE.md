@@ -115,9 +115,9 @@ modules:
 Then regenerate, build, and run:
 
 ```bash
-make MODEL=sage validate-modules
-make MODEL=sage generate
-make MODEL=sage
+make validate-modules
+make generate
+make
 ./mimic models/sage/input/sage_millennium.yaml
 ```
 
@@ -203,7 +203,7 @@ Return conventions:
 
 ### Module Communication
 
-Mimic is compiled against one model set at a time with `make MODEL=<name>`. Discovery, property generation, module registration, model-local shared helpers, tests, and plotting all come from that selected `models/<model>/` package. If a researcher wants to mix modules from different model families, they should create a new model package and copy the desired modules/helpers/plots into it, then reconcile property names, parameter names, units, dependencies, and tests there.
+Mimic is compiled against one model set and one simulation/catalog property package at a time with `make MODEL=<name> SIMULATION=<name>`. Discovery, property generation, module registration, model-local shared helpers, selected-simulation tests, selected-model tests, and plotting all come from those selected packages. If a researcher wants to mix modules from different model families, they should create a new model package and copy the desired modules/helpers/plots into it, then reconcile property names, parameter names, units, dependencies, and tests there.
 
 Modules should not call each other directly. They communicate through:
 
@@ -435,7 +435,7 @@ Properties are generated from YAML metadata and then accessed as normal C struct
 Workflow for adding a galaxy property:
 
 1. Add a metadata entry to `models/<MODEL>/model_properties.yaml`.
-2. Run `make MODEL=<name> generate`.
+2. Run `make generate` for the default package pair, or add `MODEL=<name> SIMULATION=<name>` for a non-default pair.
 3. Rebuild.
 4. Use the generated field in modules.
 5. Add or update tests that validate initialization, reset behavior, output behavior, and physics use.
@@ -581,10 +581,10 @@ These values drive all redshift and timestep calculations. Mimic counts snapshot
 
 This file declares halo properties that come from the catalog and are specific to this simulation: positions, velocities, spin parameters, particle IDs, and similar catalog fields. It does not duplicate properties already in `src/core/core_properties.yaml`.
 
-The generator (`make MODEL=<name> generate`) automatically discovers all `halo_properties.yaml` files under `simulations/` and merges them into the generated C structs. Adding a new simulation package is enough — no generator configuration is needed. However, two constraints apply:
+The generator includes exactly one simulation package at a time, selected with `SIMULATION=<name>`. Adding a new simulation package is not enough by itself; regenerate and rebuild with that selector so the executable, `struct Halo`, output schema, validation ranges, and module dependency checks all use the intended catalog properties.
 
-- Property names must be unique across all simulation packages and `core_properties.yaml`. Identical definitions may be shared (the merger allows exact duplicates), but incompatible definitions with the same name fail at generation time.
-- After adding a new simulation package, run `make MODEL=<name> generate` followed by `make MODEL=<name>` to rebuild with the new properties.
+- Property names must be unique within the selected `src/core/core_properties.yaml` + `simulations/<SIMULATION>/halo_properties.yaml` + `models/<MODEL>/model_properties.yaml` set. Incompatible duplicate names fail at generation time.
+- After adding or editing the default simulation package, run `make generate` followed by `make`. For another simulation, run `make SIMULATION=<name> generate` followed by `make SIMULATION=<name>`; add `MODEL=<name>` too when pairing it with a non-default model.
 
 Property metadata schema is the same as for core halo properties:
 
@@ -657,11 +657,11 @@ mkdir -p simulations/my_sim/snapshots
 cp models/sage/input/sage_millennium.yaml models/sage/input/my_sim.yaml
 # Edit to point at simulations/my_sim/simulation_info.yaml and halo_properties.yaml
 
-# 5. Regenerate property code (picks up the new halo_properties.yaml automatically)
-make MODEL=sage generate
+# 5. Regenerate property code for the selected model + simulation package
+make MODEL=sage SIMULATION=my_sim generate
 
 # 6. Build and run
-make MODEL=sage
+make MODEL=sage SIMULATION=my_sim
 ./mimic models/sage/input/my_sim.yaml
 ```
 
@@ -738,25 +738,25 @@ Rules:
 
 ## Testing
 
-Mimic uses three test tiers. Every tier runs the core tests plus tests declared by the selected model package. If a model has no tests in a tier, the target runs the core tests and exits successfully.
+Mimic uses three test tiers. Every tier runs the core tests, selected-simulation tests under `simulations/<SIMULATION>/_tests/`, and tests declared by the selected model package. Empty generated lists are valid; if a simulation or model has no tests in a tier, that tier still runs the core tests and exits successfully.
 
 | Tier | Command | Scope |
 | --- | --- | --- |
-| Unit | `make MODEL=sage test-unit` | C unit tests for core functions, selected-model modules, and infrastructure |
-| Integration | `make MODEL=sage test-integration` | End-to-end Python tests for core workflows and selected-model modules |
-| Scientific | `make MODEL=sage test-scientific` | Core scientific contracts and selected-model scientific regressions |
+| Unit | `make test-unit` | C unit tests for core functions, selected-simulation fixtures, selected-model modules, and infrastructure |
+| Integration | `make test-integration` | End-to-end Python tests for core workflows, selected-simulation fixtures, and selected-model modules |
+| Scientific | `make test-scientific` | Core scientific contracts plus selected-simulation and selected-model scientific regressions |
 
 Run everything:
 
 ```bash
-make MODEL=sage tests
+make tests
 ```
 
 For long-running test sessions, capture logs and check the exit code:
 
 ```bash
 mkdir -p archive/test-logs
-make MODEL=sage tests > archive/test-logs/tests.log 2>&1
+make tests > archive/test-logs/tests.log 2>&1
 test_rc=$?
 tail -n 80 archive/test-logs/tests.log
 rg -n -i "failed|error|traceback" archive/test-logs/tests.log
@@ -807,12 +807,12 @@ source mimic_venv/bin/activate
 Daily loop:
 
 ```bash
-make MODEL=sage validate-modules
-make MODEL=sage generate
-make MODEL=sage
+make validate-modules
+make generate
+make
 ./mimic --debug models/sage/input/sage_millennium.yaml
 make check-docs
-make MODEL=sage tests
+make tests
 ```
 
 Format code before requesting review or committing:
@@ -840,14 +840,15 @@ Prefer prose in guides when it explains decisions and tradeoffs. Prefer links to
 
 ### Code Generation
 
-Run `make MODEL=<name> generate` after editing:
+Run `make generate` after editing the default package pair, or add `MODEL=<name> SIMULATION=<name>` when working on another pair:
 
 - `src/core/core_properties.yaml`
+- `simulations/<SIMULATION>/halo_properties.yaml`
 - `models/<MODEL>/model_properties.yaml`
 - any `module_info.yaml`
 - module layout that affects discovery
 
-Use the same model selector for generation, validation, tests, and build, for example `make MODEL=sage generate` followed by `make MODEL=sage`.
+Use the same model and simulation selectors for generation, validation, tests, and build. For the default packages, plain `make generate` and `make` are enough; for a non-default pair, add the same `MODEL=<name> SIMULATION=<name>` values to each command.
 
 Generated files include:
 
@@ -859,7 +860,7 @@ Generated files include:
 Use:
 
 ```bash
-make MODEL=sage check-generated
+make check-generated
 ```
 
 to verify ignored generated files are current after generation.
@@ -873,7 +874,7 @@ to verify ignored generated files are current after generation.
 Start with metadata validation:
 
 ```bash
-make MODEL=sage validate-modules
+make validate-modules
 ```
 
 Common failures:
@@ -888,8 +889,8 @@ Common failures:
 Then regenerate and rebuild:
 
 ```bash
-make MODEL=sage generate
-make MODEL=sage clean && make MODEL=sage
+make generate
+make clean && make
 ```
 
 ### Runtime Failures

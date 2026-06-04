@@ -35,14 +35,16 @@
 # Clone and setup
 git clone https://github.com/darrencroton/mimic.git
 cd mimic
-./scripts/first_run.sh        # Creates directories, downloads test data, sets up Python environment
+./scripts/first_run.sh        # Creates directories, downloads mini-Millennium data, sets up Python environment
 
-# Build and run test simulation
+# Build and run the default SAGE + mini-Millennium simulation
 make
 ./mimic models/sage/input/sage_millennium.yaml
 ```
 
 This runs the shipped mini-Millennium + SAGE example. Other simulations and physics combinations are configured through YAML and module metadata.
+
+NOTE: `MODEL` and `SIMULATION` default to `sage` and `millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
 
 ### Generate Plots
 
@@ -118,7 +120,7 @@ make test-integration   # Python integration tests
 make test-scientific    # Physics validation tests
 ```
 
-Test data uses a single tree file from the mini-Millennium simulation ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)), already part of the `tests/` directory.
+Test data uses mini-Millennium simulation files ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)) prepared by `./scripts/first_run.sh`.
 
 ## Contributing
 

@@ -26,7 +26,7 @@ This guide uses the shipped **mini-Millennium + SAGE** configuration as its work
 git clone [repository-url]
 cd mimic
 ./scripts/first_run.sh
-make MODEL=sage
+make
 ./mimic models/sage/input/sage_millennium.yaml
 ```
 
@@ -49,19 +49,19 @@ Optional:
 ### Build Options
 
 ```bash
-make MODEL=sage       # Standard SAGE build; HDF5 enabled by default
-make MODEL=sham       # Build the SHAM model set instead
-make MODEL=sage -j$(nproc)
-make MODEL=sage USE-HDF5=no
-make MODEL=sage USE-MPI=yes
-make MODEL=sage info
+make                                   # Standard SAGE + Millennium build; HDF5 enabled by default
+make MODEL=sham SIMULATION=millennium  # Build the SHAM model set against Millennium
+make -j$(nproc)
+make USE-HDF5=no
+make USE-MPI=yes
+make info
 ```
 
-On macOS, replace `$(nproc)` with the number of build jobs you want, for example `make MODEL=sage -j8`.
+On macOS, replace `$(nproc)` with the number of build jobs you want, for example `make -j8`.
 
-`MODEL` defaults to `DEFAULT_MODEL` (set to `sage`) near the top of the `Makefile`, so plain `make` builds the default model. Override it per-invocation with `make MODEL=<name>`, or change the `DEFAULT_MODEL` line if your primary model is not sage. If the selected package does not exist (for example after a model is renamed or removed), the build stops with an `Unknown MODEL` error rather than silently mis-building.
+`MODEL` defaults to `DEFAULT_MODEL` (set to `sage`) and `SIMULATION` defaults to `DEFAULT_SIMULATION` (set to `millennium`) near the top of the `Makefile`, so plain `make` builds the default pair. Override them per-invocation with `make MODEL=<name> SIMULATION=<name>` (or `SIM=<name>`), or change the default lines if your primary packages are different. If either selected package does not exist, the build stops with an `Unknown MODEL` or `Unknown SIMULATION` error rather than silently mis-building.
 
-Mimic is compiled against one model set at a time. The selected `MODEL` controls which `models/<model>/` package contributes run files, properties, modules, model-local shared helpers, tests, and plotting figures. A run file whose `model.name` or `model.path` does not match the compiled model fails at startup. If you want to mix modules from multiple model families, create a new `models/<model>/` package and copy the run files, modules, helpers, and plots you need into it, then reconcile property names, parameter names, units, dependencies, and tests inside that package.
+Mimic is compiled against one model set and one simulation/catalog property package at a time. The selected `MODEL` controls which `models/<model>/` package contributes run files, galaxy properties, modules, model-local shared helpers, tests, and plotting figures. The selected `SIMULATION` controls which `simulations/<simulation>/halo_properties.yaml` contributes catalog halo properties and which simulation-owned tests are discovered. A run file whose `model.name`, `model.path`, or `simulation.halo_properties` package does not match the executable fails at startup. If you want to mix modules from multiple model families, create a new `models/<model>/` package and copy the run files, modules, helpers, and plots you need into it, then reconcile property names, parameter names, units, dependencies, and tests inside that package.
 
 ### Manual Setup
 
@@ -82,7 +82,7 @@ source mimic_venv/bin/activate
 pip install -r requirements.txt
 deactivate
 
-make MODEL=sage
+make
 ./mimic models/sage/input/sage_millennium.yaml
 ```
 
@@ -272,7 +272,7 @@ input:
 **Run with MPI** after building with MPI support:
 
 ```bash
-make MODEL=sage USE-MPI=yes
+make USE-MPI=yes
 mpirun -np 4 ./mimic models/sage/input/sage_millennium.yaml
 ```
 
@@ -307,7 +307,7 @@ The current output schema is generated at build time from:
 - `simulations/<simulation>/halo_properties.yaml` for catalog halo properties
 - `models/<MODEL>/model_properties.yaml` for galaxy/model properties
 
-The generated executable, `struct HaloOutput`, HDF5 field metadata, output schema writer, and validation ranges are therefore model-set specific. Re-run `make MODEL=<name> generate` or `make MODEL=<name>` after changing the selected model package metadata.
+The generated executable, `struct HaloOutput`, HDF5 field metadata, output schema writer, and validation ranges are therefore model-and-simulation specific. Re-run `make generate` or `make` after changing metadata for the default packages; add `MODEL=<name> SIMULATION=<name>` when regenerating a non-default package pair.
 
 Each property metadata entry declares its output unit label, initialization behavior, output conversion, and whether it is written to output. HDF5 output also writes `FieldMetadata` so analysis code can inspect field names, units, and descriptions directly from the file. Binary output relies on `metadata/output_schema.json`; keep the `metadata/` directory with any binary files you move or sync elsewhere.
 
@@ -440,7 +440,7 @@ Plots are written under the configured output directory, normally `output/sage-m
 **HDF5 not found**: Install HDF5 development libraries or build without HDF5:
 
 ```bash
-make MODEL=sage USE-HDF5=no
+make USE-HDF5=no
 ```
 
 On macOS, Homebrew users usually need:
@@ -452,11 +452,11 @@ brew install hdf5
 **Generated code is stale**: Regenerate after editing property YAML, module metadata, or module files:
 
 ```bash
-make MODEL=sage generate
-make MODEL=sage clean && make MODEL=sage
+make generate
+make clean && make
 ```
 
-**Unexpected build configuration**: Use `make MODEL=sage info` to inspect detected compiler, HDF5, MPI, model set, and feature flags.
+**Unexpected build configuration**: Use `make info` to inspect detected compiler, HDF5, MPI, model set, simulation package, and feature flags.
 
 ### Runtime Issues
 
@@ -477,9 +477,9 @@ make MODEL=sage clean && make MODEL=sage
 **Module not registered**: Run:
 
 ```bash
-make MODEL=sage validate-modules
-make MODEL=sage generate
-make MODEL=sage clean && make MODEL=sage
+make validate-modules
+make generate
+make clean && make
 ```
 
 This usually indicates a new module or metadata change was not regenerated, or a YAML configuration references the wrong module name.

@@ -9,10 +9,12 @@ Quick reference for running tests. See [docs/DEVELOPER-GUIDE.md](../docs/DEVELOP
 make tests
 
 # Run specific test tiers
-make test-unit          # C unit tests (<10s)
-make test-integration   # Python integration tests (<1min)
-make test-scientific    # Physics validation (<5min)
+make test-unit          # C unit tests
+make test-integration   # Python integration tests
+make test-scientific    # Physics validation
 ```
+
+NOTE: `MODEL` and `SIMULATION` default to `sage` and `millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
 
 ## Test Tiers
 
@@ -20,18 +22,21 @@ make test-scientific    # Physics validation (<5min)
 - C-based tests for individual functions and modules
 - Fast (<10 seconds total)
 - Core tests cover memory management, I/O, generated properties, and infrastructure
+- Selected-simulation tests come from `simulations/<SIMULATION>/_tests/unit/`
 - Selected-model tests come from `models/<MODEL>/modules/**/_tests/` and `models/<MODEL>/modules/_tests/`
 
 **Integration Tests** (`tests/integration/`)
 - Python-based end-to-end workflow tests
 - Medium speed (<1 minute total)
 - Core tests cover pipeline execution, output formats, and model-neutral contracts
+- Selected-simulation tests come from `simulations/<SIMULATION>/_tests/integration/`
 - Selected-model integration tests come from `models/<MODEL>/modules/**/_tests/`
 
 **Scientific Tests** (`tests/scientific/`)
 - Python-based physics validation
 - Slower (<5 minutes total)
 - Core scientific tests validate model-neutral scientific contracts
+- Selected-simulation tests come from `simulations/<SIMULATION>/_tests/scientific/`
 - Selected-model scientific tests come from `models/<MODEL>/modules/**/_tests/`
 
 ## Running Individual Tests
@@ -57,7 +62,7 @@ tests/unit/run_tests.sh test_memory_system
 tests/unit/run_tests.sh test_unit_sage_apply_cooling
 ```
 
-Unit tests are compiled on demand through the runner. Use the test name without `.c`; the runner refreshes generated module/test registries before building.
+Unit tests are compiled on demand through the runner. Use the test name without `.c`; the runner refreshes generated module/test registries before building. Add `MODEL=<name> SIMULATION=<name>` when testing a non-default package pair.
 
 **Integration tests**:
 ```bash
@@ -66,16 +71,16 @@ python3 tests/integration/test_output_formats.py
 python3 models/sage/modules/sage_apply_cooling/_tests/test_integration_sage_apply_cooling.py
 ```
 
-Integration tests are plain Python scripts. You can run either the core tests under `tests/integration/` or a module-specific script under `models/<model>/modules/<module>/_tests/`.
+Integration tests are plain Python scripts. You can run core tests under `tests/integration/`, simulation-owned tests under `simulations/<simulation>/_tests/integration/`, or module-specific scripts under `models/<model>/modules/<module>/_tests/`. Python tests use `MODEL` to locate model-local run files; set `MODEL` and `SIMULATION` explicitly when the built executable is not the default SAGE/Millennium build.
 
 **Scientific tests**:
 ```bash
 python3 tests/scientific/test_scientific.py
 ```
 
-Scientific validation currently has one repository-level script in `tests/scientific/`. Future module scientific tests can be run the same way with `python3 path/to/test.py`.
+Scientific validation currently has one repository-level script in `tests/scientific/`. Future simulation or module scientific tests can be run the same way with `python3 path/to/test.py`.
 
-The `make MODEL=<name> test-unit`, `test-integration`, `test-scientific`, and `tests` targets always run the core tests plus tests declared by the selected model package. If a model has no tests in a tier, that tier runs the core tests and exits successfully.
+The `make MODEL=<name> SIMULATION=<name> test-unit`, `test-integration`, `test-scientific`, and `tests` targets run core tests, selected-simulation tests, and tests declared by the selected model package. Empty generated lists are valid; a tier with no model or simulation tests still runs the core tests and exits successfully.
 
 ## Directory Structure
 
@@ -91,6 +96,7 @@ tests/
 ```
 
 Model-local run files and module tests live under `models/<model>/input/` and `models/<model>/modules/`.
+Simulation-owned tests live under `simulations/<simulation>/_tests/`.
 
 ## Test Data
 
@@ -114,6 +120,8 @@ See [docs/DEVELOPER-GUIDE.md](../docs/DEVELOPER-GUIDE.md#testing) for:
 
 **Integration or scientific tests fail**: Ensure Python environment activated (`source mimic_venv/bin/activate`)
 
-**Unit test command not found**: Do not run `./test_memory_system.test` directly from `tests/unit/`; use `tests/unit/run_tests.sh <test_name>` so the binary is rebuilt with current generated sources.
+**Wrong model or simulation at runtime**: Rebuild with the same selectors as the run file, for example `make MODEL=sham SIMULATION=millennium` for the SHAM/Millennium package pair. Mimic fails fast if a run file selects a model or simulation property package that does not match the executable.
+
+**Unit test command not found**: Do not run `./test_memory_system.test` directly from `tests/unit/`; use `MODEL=<name> SIMULATION=<name> tests/unit/run_tests.sh <test_name>` so the binary is rebuilt with current generated sources.
 
 **Need more detail**: See [docs/DEVELOPER-GUIDE.md](../docs/DEVELOPER-GUIDE.md#testing)

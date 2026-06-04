@@ -14,13 +14,14 @@ BUILD_DIR = build
 OBJ_DIR = $(BUILD_DIR)/obj
 DEP_DIR = $(BUILD_DIR)/deps
 
-# Targets that work without a model set selected.
+# Targets that work without selected model/simulation packages.
 MODEL_FREE_TARGETS := clean tidy help check-docs test-clean
 
-# Default model set used when MODEL is not given on the command line.
-# Most users work in a single model: leave this as your primary model and run
-# plain `make`. Override per-invocation with `make MODEL=<name>`, or change this
-# line if your primary model is not sage.
+# Default model package used when MODEL is not given on the command line.
+# Most users work with one model/simulation pair: leave these defaults as your
+# primary pair and run plain `make`. Override per-invocation with
+# `make MODEL=<name> SIMULATION=<name>`, or change these lines if your primary
+# packages are not sage/Millennium.
 DEFAULT_MODEL := sage
 MODEL ?= $(DEFAULT_MODEL)
 
@@ -44,7 +45,7 @@ ifneq ($(filter-out $(MODEL_FREE_TARGETS),$(or $(MAKECMDGOALS),all)),)
 endif
 
 # Default simulation package used when SIMULATION is not given on the command
-# line. Mimic compiles one model set against one simulation/catalog property
+# line. Mimic compiles one model package against one simulation/catalog property
 # package at a time. Leave this as your primary simulation and run plain `make`;
 # override per-invocation with `make SIMULATION=<name>` (or the `SIM=<name>`
 # shorthand), or change this line if your primary simulation is not millennium.
@@ -301,7 +302,7 @@ all: generate validate-build $(EXEC)
 # Pre-build validation - runs on every make
 validate-build:
 	@echo "Running pre-build validation..."
-	@$(MAKE) MODEL=$(MODEL) --no-print-directory lint-parameters
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) --no-print-directory lint-parameters
 	@echo "Pre-build validation passed"
 
 $(GIT_VERSION_H): .git/HEAD .git/index
@@ -430,51 +431,50 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  make              - Build executable"
-	@echo "  make MODEL=sage info - Show build configuration and library detection"
+	@echo "  make info         - Show build configuration and library detection"
 	@echo "  make clean        - Remove all build artifacts"
 	@echo "  make tidy         - Remove build directory only"
-	@echo "  make MODEL=sage generate - Generate all code from metadata (properties + modules)"
-	@echo "  make MODEL=sage check-generated - Verify generated code is up-to-date (CI)"
+	@echo "  make generate     - Generate all code from metadata"
+	@echo "  make check-generated - Verify generated code is up-to-date"
 	@echo "  make check-docs   - Validate documentation links and anchors"
 	@echo ""
 	@echo "Module targets:"
-	@echo "  make MODEL=sage generate-modules   - Generate module registration code only"
-	@echo "  make MODEL=sage validate-modules   - Validate module metadata"
-	@echo "  make MODEL=sage lint-parameters    - Verify parameter usage matches declarations"
+	@echo "  make generate-modules   - Generate module registration code only"
+	@echo "  make validate-modules   - Validate module metadata"
+	@echo "  make lint-parameters    - Verify parameter usage matches declarations"
 	@echo ""
 	@echo "Test targets:"
-	@echo "  make MODEL=sage tests             - Run all tests (unit + integration + scientific)"
-	@echo "  make MODEL=sage test-unit         - Run unit tests only"
-	@echo "  make MODEL=sage test-integration  - Run integration tests only"
-	@echo "  make MODEL=sage test-scientific   - Run scientific tests only"
+	@echo "  make tests             - Run all tests"
+	@echo "  make test-unit         - Run unit tests only"
+	@echo "  make test-integration  - Run integration tests only"
+	@echo "  make test-scientific   - Run scientific tests only"
 	@echo "  make test-clean                   - Clean test artifacts"
-	@echo "  make MODEL=sage generate-test-registry - Auto-discover core and selected-model tests"
-	@echo "  make MODEL=sage validate-test-registry - Validate test declarations"
+	@echo "  make generate-test-registry - Discover selected tests"
+	@echo "  make validate-test-registry - Validate test declarations"
 	@echo ""
 	@echo "Options:"
-	@echo "  make MODEL=sage  - Build against a single model set (default: sage)"
-	@echo "  make MODEL=sham   - Build the SHAM model set instead"
-	@echo "  make SIMULATION=millennium - Select the simulation package (default: millennium)"
-	@echo "  make SIM=millennium        - Shorthand for SIMULATION=<name>"
-	@echo "  make MODEL=sage USE-HDF5=no  - Disable HDF5 support (binary-only build)"
-	@echo "  make MODEL=sage USE-MPI=yes  - Enable MPI support"
-	@echo "  make MODEL=sage -j4          - Parallel build (4 jobs, adjust as needed)"
+	@echo "  Defaults: MODEL=sage SIMULATION=millennium"
+	@echo "  make MODEL=sham SIMULATION=millennium  - Build SHAM against Millennium"
+	@echo "  make SIM=millennium                    - Shorthand for SIMULATION=<name>"
+	@echo "  make USE-HDF5=no                       - Disable HDF5 support"
+	@echo "  make USE-MPI=yes                       - Enable MPI support"
+	@echo "  make -j4                               - Parallel build"
 	@echo ""
 	@echo "Tips:"
-	@echo "  - Use 'make MODEL=sage info' to see detected libraries and configuration"
-	@echo "  - Parallel builds significantly speed up compilation: make MODEL=sage -j$$(nproc)"
+	@echo "  - Use 'make info' to see detected libraries and configuration"
+	@echo "  - Parallel builds significantly speed up compilation: make -j$$(nproc)"
 	@echo ""
 	@echo "Notes:"
 	@echo "  Code is auto-regenerated when YAML metadata changes:"
 	@echo ""
-	@echo "  Property metadata (models/<name>/model_properties.yaml):"
+	@echo "  Property metadata (simulations/<simulation>/halo_properties.yaml and models/<model>/model_properties.yaml):"
 	@echo "    - src/include/generated/property_defs.h"
 	@echo "    - src/include/generated/init_*_properties.inc"
 	@echo "    - src/include/generated/copy_to_output.inc"
 	@echo "    - src/include/generated/hdf5_field_*.inc"
 	@echo "    - src/include/generated/output_schema_writer.inc"
 	@echo ""
-	@echo "  Module metadata (models/<name>/modules/*/module_info.yaml):"
+	@echo "  Module metadata (models/<model>/modules/*/module_info.yaml):"
 	@echo "    - src/module_system/generated/module_init.c"
 	@echo "    - tests/generated/module_sources.mk"
 
@@ -556,7 +556,7 @@ check-generated:
 check-docs:
 	@python3 scripts/check_docs.py
 
-# Test registry generation (auto-discovers core and selected-model tests)
+# Test registry generation (auto-discovers core, selected-simulation, and selected-model tests)
 generate-test-registry:
 	@python3 scripts/generate_test_registry.py
 
@@ -570,18 +570,18 @@ validate-test-registry:
 tests:
 	@echo "Cleaning and building once for all tests..."
 	@$(MAKE) clean > /dev/null 2>&1
-	@$(MAKE) MODEL=$(MODEL) generate-test-registry > /dev/null 2>&1
-	@$(MAKE) MODEL=$(MODEL) USE-HDF5=yes
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate-test-registry > /dev/null 2>&1
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) USE-HDF5=yes
 	@mkdir -p build
 	@rm -f build/.test_failures
 	@echo ""
-	@$(MAKE) MODEL=$(MODEL) check-docs || echo "docs" >> build/.test_failures || true
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) check-docs || { grep -qx docs build/.test_failures 2>/dev/null || echo "docs" >> build/.test_failures; true; }
 	@echo ""
-	@$(MAKE) MODEL=$(MODEL) validate-modules || echo "validate-modules" >> build/.test_failures || true
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules || { grep -qx validate-modules build/.test_failures 2>/dev/null || echo "validate-modules" >> build/.test_failures; true; }
 	@echo ""
-	@$(MAKE) MODEL=$(MODEL) test-unit || echo "unit" >> build/.test_failures || true
-	@$(MAKE) MODEL=$(MODEL) test-integration || true
-	@$(MAKE) MODEL=$(MODEL) test-scientific || true
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-unit || { grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-integration || { grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-scientific || { grep -qx scientific build/.test_failures 2>/dev/null || echo "scientific" >> build/.test_failures; true; }
 	@echo ""
 	@echo ""
 	@if [ -f build/.test_failures ]; then \
