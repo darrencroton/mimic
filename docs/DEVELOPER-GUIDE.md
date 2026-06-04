@@ -106,8 +106,9 @@ Add the module to an input YAML file:
 
 ```yaml
 modules:
-  phase_1:
-    - my_module: process_by_galaxy
+  phases:
+    galaxy_physics:
+      - my_module: process_by_galaxy
   parameters:
     MyEfficiency: 0.5
 ```
@@ -345,8 +346,7 @@ For each snapshot interval:
 ```text
 pre_timestep
 for each substep:
-  phase_1
-  phase_2
+  each modules.phases entry in declared order
 post_timestep
 ```
 
@@ -363,9 +363,10 @@ Phase selection guide:
 | Phase | Runs | Typical use |
 | --- | --- | --- |
 | `pre_timestep` | Once before substeps | Setup, reionization, infall budgets, disk radii, merger clock setup |
-| `phase_1` | Each substep | Main baryonic physics such as cooling, star formation, feedback |
-| `phase_2` | Each substep | Secondary physics that depends on phase 1, such as mergers and event consumers |
+| `modules.phases.<name>` | Each substep, in YAML order | Named physical stages such as `galaxy_physics` or `satellite_mergers` |
 | `post_timestep` | Once after substeps | Finalization and accumulator conversion |
+
+Only `pre_timestep`, `phases`, `post_timestep`, and `parameters` are valid under `modules`. Legacy top-level `phase_1`, `phase_2`, and `enabled` keys are rejected at startup.
 
 ### Accessing the Central Galaxy
 
@@ -720,9 +721,11 @@ int my_consumer_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
 Configuration:
 
 ```yaml
-phase_2:
-  - my_merge_producer: process_full_halo
-  - my_consumer: process_per_event
+modules:
+  phases:
+    satellite_mergers:
+      - my_merge_producer: process_full_halo
+      - my_consumer: process_per_event
 ```
 
 Rules:

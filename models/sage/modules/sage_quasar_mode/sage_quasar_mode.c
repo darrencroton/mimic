@@ -6,8 +6,8 @@
  * energy-driven gas ejection.
  *
  * Trigger channels:
- * - process_by_galaxy: disk instability trigger (phase_1)
- * - process_per_event: merger event trigger (phase_2)
+ * - process_by_galaxy: disk instability trigger (galaxy_physics)
+ * - process_per_event: merger event trigger (satellite_mergers)
  *
  * References:
  *   - SAGE: model_mergers.c (grow_black_hole, quasar_mode_wind)
@@ -41,16 +41,15 @@ int sage_quasar_mode_init(void)
     LOAD_AND_VALIDATE_RANGE_INCLUSIVE("QuasarModeEfficiency", QUASAR_MODE_EFFICIENCY,
                                         0.0, 1.0, "quasar mode efficiency");
 
-    /* Dependency check: process_per_event requires a merger event producer */
-    if (module_configured_in_phase("sage_quasar_mode",
-                                   MimicConfig.phase_2, MimicConfig.num_phase_2,
-                                   PROCESSING_MODE_PER_EVENT) &&
-        !module_configured_in_phase("sage_resolve_mergers_and_disruption",
-                                    MimicConfig.phase_2, MimicConfig.num_phase_2,
-                                    PROCESSING_MODE_FULL_HALO)) {
+    /* Dependency check: process_per_event requires a merger event producer in
+     * the same substep phase */
+    if (module_in_substep_phase("sage_quasar_mode", PROCESSING_MODE_PER_EVENT) &&
+        !modules_in_same_substep_phase(
+            "sage_quasar_mode", PROCESSING_MODE_PER_EVENT,
+            "sage_resolve_mergers_and_disruption", PROCESSING_MODE_FULL_HALO)) {
         ERROR_LOG("sage_quasar_mode (process_per_event) requires "
-                  "sage_resolve_mergers_and_disruption in phase_2 as "
-                  "process_full_halo — no merger events will be emitted without it");
+                  "sage_resolve_mergers_and_disruption as process_full_halo in the "
+                  "same substep phase — no merger events will be emitted without it");
         return -1;
     }
 

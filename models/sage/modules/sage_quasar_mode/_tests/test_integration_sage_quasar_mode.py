@@ -57,13 +57,13 @@ def test_module_pipeline_integration():
         output_name="quasar_integration",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 # Disk instability sets UnstableDiskGasFraction trigger
                 ('sage_disk_instability', 'process_by_galaxy'),
                 # Quasar mode processes the trigger
                 ('sage_quasar_mode', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -137,11 +137,11 @@ def test_quasar_physics_correctness():
         output_name="quasar_physics",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_quasar_mode', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -213,11 +213,11 @@ def test_disk_instability_trigger():
         output_name="quasar_disk_trigger",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_quasar_mode', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -265,10 +265,10 @@ def test_merger_trigger():
         output_name="quasar_merger_trigger",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_quasar_mode', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -311,11 +311,11 @@ def test_parameter_sensitivity():
         output_name="quasar_low_growth",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_quasar_mode', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -340,11 +340,11 @@ def test_parameter_sensitivity():
         output_name="quasar_high_growth",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_quasar_mode', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -369,11 +369,11 @@ def test_parameter_sensitivity():
         output_name="quasar_low_eff",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_quasar_mode', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -398,11 +398,11 @@ def test_parameter_sensitivity():
         output_name="quasar_high_eff",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_quasar_mode', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -453,11 +453,11 @@ def test_memory_and_performance():
         output_name="quasar_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_quasar_mode', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={

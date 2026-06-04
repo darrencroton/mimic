@@ -71,7 +71,9 @@ def get_available_modules():
                 config = yaml.safe_load(f)
 
             # Trigger error by requesting nonexistent module
-            config['modules']['phase_1'] = [{'__nonexistent_module__': 'process_by_galaxy'}]
+            config['modules']['phases'] = {
+                'galaxy_physics': [{'__nonexistent_module__': 'process_by_galaxy'}]
+            }
             config['output']['output_format'] = 'binary'
             config['output']['output_directory'] = temp_dir
 
@@ -120,8 +122,8 @@ def test_module_loads():
         output_name="sage_prepare_infall_budget_load",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -162,8 +164,8 @@ def test_output_properties_exist():
         output_name="sage_prepare_infall_budget_output",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -215,8 +217,8 @@ def test_parameters_configurable():
         output_name="sage_prepare_infall_budget_params",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.20}
@@ -262,8 +264,8 @@ def test_with_satellite_stripping():
         output_name="sage_prepare_infall_budget_stripping",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -304,8 +306,8 @@ def test_memory_safety():
         output_name="sage_prepare_infall_budget_memory",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -341,8 +343,8 @@ def test_execution_completes():
         output_name="sage_prepare_infall_budget_complete",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17},
@@ -380,8 +382,8 @@ def test_infalling_gas_calculation():
         output_name="sage_prepare_infall_budget_physics",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -493,8 +495,8 @@ def test_multiple_module_pipeline():
         output_name="sage_prepare_infall_budget_multi",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}

@@ -53,6 +53,7 @@
 
 #include "../../../../tests/framework/test_framework.h"
 #include "core/module_registry.h"
+#include "../../../../tests/framework/test_phase_config.h"
 #include "core/module_interface.h"
 #include "include/types.h"
 #include "include/proto.h"
@@ -237,53 +238,23 @@ static void setup_post_merger_recheck_parameters(int include_quasar)
     }
 }
 
-static char *alloc_module_name(const char *name)
-{
-    const size_t len = strlen(name) + 1;
-    char *buf = mymalloc_cat(len, MEM_UTILITY);
-    snprintf(buf, len, "%s", name);
-    return buf;
-}
-
 static void setup_runtime_phase_config(int enable_disk_instability,
                                        int enable_phase2_quasar)
 {
     if (enable_disk_instability) {
-        MimicConfig.phase_1 =
-            mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-        MimicConfig.phase_1[0].module_name = alloc_module_name("sage_disk_instability");
-        MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-        MimicConfig.num_phase_1 = 1;
+        test_phase_add("galaxy_physics", "sage_disk_instability",
+                       PROCESSING_MODE_BY_GALAXY);
     }
 
     if (enable_phase2_quasar) {
-        MimicConfig.phase_2 =
-            mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-        MimicConfig.phase_2[0].module_name = alloc_module_name("sage_quasar_mode");
-        MimicConfig.phase_2[0].processing_mode = PROCESSING_MODE_PER_EVENT;
-        MimicConfig.num_phase_2 = 1;
+        test_phase_add("satellite_mergers", "sage_quasar_mode",
+                       PROCESSING_MODE_PER_EVENT);
     }
 }
 
 static void teardown_runtime_phase_config(void)
 {
-    if (MimicConfig.phase_1 != NULL) {
-        for (int i = 0; i < MimicConfig.num_phase_1; i++) {
-            myfree(MimicConfig.phase_1[i].module_name);
-        }
-        myfree(MimicConfig.phase_1);
-        MimicConfig.phase_1 = NULL;
-        MimicConfig.num_phase_1 = 0;
-    }
-
-    if (MimicConfig.phase_2 != NULL) {
-        for (int i = 0; i < MimicConfig.num_phase_2; i++) {
-            myfree(MimicConfig.phase_2[i].module_name);
-        }
-        myfree(MimicConfig.phase_2);
-        MimicConfig.phase_2 = NULL;
-        MimicConfig.num_phase_2 = 0;
-    }
+    test_free_substep_phases();
 }
 
 /**
@@ -454,7 +425,7 @@ int test_disk_instability_uses_full_interval_for_rates(void)
  * @brief   Test merger-only trigger is ignored in collisional_starburst
  *
  * Expected: No star formation change (merger channel handled in merge module)
- * Validates: Channel separation between phase_1 and phase_2
+ * Validates: Channel separation between galaxy_physics and satellite_mergers
  */
 int test_merger_starburst(void)
 {
@@ -497,7 +468,7 @@ int test_merger_starburst(void)
  * @brief   Test disk trigger processed while merger trigger is ignored
  *
  * Expected: Disk-instability starburst occurs; merger trigger remains unchanged
- * Validates: Disk-only behavior in phase_1 module
+ * Validates: Disk-only behavior in galaxy_physics module
  */
 int test_both_triggers(void)
 {
@@ -902,7 +873,7 @@ int test_per_event_minor_merger_rechecks_disk_instability(void)
  * @brief   Post-merger recheck skips BH growth if quasar event consumer is absent
  *
  * Expected: The disk-instability starburst still runs, but BH growth is gated
- * by whether sage_quasar_mode is configured for phase_2 process_per_event.
+ * by whether sage_quasar_mode is configured for satellite_mergers process_per_event.
  */
 int test_per_event_recheck_respects_phase2_quasar_configuration(void)
 {
@@ -914,7 +885,7 @@ int test_per_event_recheck_respects_phase2_quasar_configuration(void)
     setup_runtime_phase_config(1, 0);
     MimicConfig.G = 43007.1;
     int result = sage_starburst_feedback_init();
-    TEST_ASSERT(result == 0, "Init without phase_2 quasar should succeed");
+    TEST_ASSERT(result == 0, "Init without satellite_mergers quasar should succeed");
 
     struct Halo no_quasar_central;
     struct GalaxyData no_quasar_central_gal;
@@ -948,9 +919,9 @@ int test_per_event_recheck_respects_phase2_quasar_configuration(void)
     const double no_quasar_bh_accretion =
         no_quasar_target.galaxy->QuasarModeBHaccretionMass;
     TEST_ASSERT_DOUBLE_EQUAL(no_quasar_bh, 0.05, 1e-6,
-                             "BH mass should remain unchanged when the phase_2 quasar consumer is disabled");
+                             "BH mass should remain unchanged when the satellite_mergers quasar consumer is disabled");
     TEST_ASSERT_DOUBLE_EQUAL(no_quasar_bh_accretion, 0.0, 1e-6,
-                             "BH accretion should remain zero without the phase_2 quasar consumer");
+                             "BH accretion should remain zero without the satellite_mergers quasar consumer");
 
     sage_starburst_feedback_cleanup();
     teardown_runtime_phase_config();
@@ -961,7 +932,7 @@ int test_per_event_recheck_respects_phase2_quasar_configuration(void)
     setup_runtime_phase_config(1, 1);
     MimicConfig.G = 43007.1;
     result = sage_starburst_feedback_init();
-    TEST_ASSERT(result == 0, "Init with phase_2 quasar should succeed");
+    TEST_ASSERT(result == 0, "Init with satellite_mergers quasar should succeed");
 
     struct Halo with_quasar_central;
     struct GalaxyData with_quasar_central_gal;
@@ -991,7 +962,7 @@ int test_per_event_recheck_respects_phase2_quasar_configuration(void)
     result = sage_starburst_feedback_process(&with_quasar_ctx, &with_quasar_target, 1);
     TEST_ASSERT(result == 0, "Quasar-enabled follow-up should succeed");
     TEST_ASSERT(with_quasar_target.galaxy->BlackHoleMass > no_quasar_bh,
-                "BH growth should only occur when the phase_2 quasar consumer is configured");
+                "BH growth should only occur when the satellite_mergers quasar consumer is configured");
     TEST_ASSERT(with_quasar_target.galaxy->QuasarModeBHaccretionMass >
                     no_quasar_bh_accretion,
                 "BH accretion tracking should only increase with the quasar event consumer");
@@ -1159,7 +1130,7 @@ int test_disk_instability_boundary_sentinel_dt_noop(void)
  * @brief   Test merger-only major/minor triggers are both ignored
  *
  * Expected: No stellar mass growth from merger-only triggers
- * Validates: Merger channel is not consumed in phase_1 starburst module
+ * Validates: Merger channel is not consumed in galaxy_physics starburst module
  */
 int test_major_vs_minor_merger(void)
 {
@@ -2017,10 +1988,7 @@ int test_module_initialization(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_starburst_feedback");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "sage_starburst_feedback", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
 
     /* Set required parameters */

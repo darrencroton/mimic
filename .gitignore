@@ -57,3 +57,4 @@ HANDOFF.md
 
 # Python virtual environment
 mimic_venv/
+tests/data/output/physics-binary/

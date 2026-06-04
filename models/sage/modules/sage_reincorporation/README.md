@@ -5,7 +5,7 @@ Returns gas from the ejected reservoir to the hot reservoir in systems where rei
 ## Processing Contract
 
 - Supported mode: `process_full_halo`
-- Expected phase: `phase_1`, before cooling and star formation
+- Expected phase: `galaxy_physics`, before cooling and star formation
 - Receives the full FoF workspace and acts on the FoF central
 
 ## Properties

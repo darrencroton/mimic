@@ -53,8 +53,8 @@ def test_module_pipeline_integration():
         output_name="disk_radius_integration",
         phase_config={
             'pre_timestep': [('sage_set_disk_scale_radius', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={}
@@ -101,8 +101,8 @@ def test_disk_radius_physics():
         output_name="disk_radius_physics",
         phase_config={
             'pre_timestep': [('sage_set_disk_scale_radius', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={}
@@ -181,8 +181,8 @@ def test_disk_radius_type_filtering():
         output_name="disk_radius_types",
         phase_config={
             'pre_timestep': [('sage_set_disk_scale_radius', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={}
@@ -255,8 +255,8 @@ def test_memory_and_performance():
         output_name="disk_radius_memory",
         phase_config={
             'pre_timestep': [('sage_set_disk_scale_radius', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={}

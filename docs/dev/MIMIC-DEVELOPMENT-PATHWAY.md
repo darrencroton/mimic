@@ -16,12 +16,46 @@ The larger direction is deliberate: Mimic remains a physics-agnostic galaxy evol
 
 ## Intended Sequence
 
-1. **Finish Mimic v1.0 preparation.** Complete the remaining core optimisation work, especially memory behaviour and HDF5 writer performance. This work is outside the dual-driver plan and should not be mixed with it.
-2. **Tag v1.0 and establish the golden SAGE baseline.** The existing baseline mechanism under `tests/data/output/baseline/` is the starting point. At v1.0, refresh or extend the baseline so it supports the dual-driver migration gates, including byte-identical regression coverage for the relevant baryonic properties as well as core halo properties.
-3. **Generalise substep phase configuration.** Before the dual-driver migration starts in earnest, replace the hard-coded `phase_1`/`phase_2` middle slots with fixed optional `pre_timestep`/`post_timestep` phases plus an arbitrary ordered set of user-named substep phases. This is a behaviour-preserving configuration refactor, not a science change: full-halo/event work should continue to precede galaxy-local work within each named phase. See `MIMIC-NAMED-SUBSTEP-PHASES.md`.
-4. **Implement the dual-driver architecture and change map.** The dual-driver documents become the actionable implementation plan only after v1.0 is tagged, the golden baseline exists, and the named substep phase contract has either landed or been explicitly folded into the early dual-driver engine work. Their migration phases are intentionally behaviour-preserving until the snapshot driver is introduced.
+NOTE: `MIMIC-NAMED-SUBSTEP-PHASES.md` has now be archived in `archive/` (2026-06-04).
+
+This sequence was reordered so that named substep phases land
+**before** the final optimisation/HDF5/benchmark-freeze, not after v1.0. The
+substep refactor changes the output provenance schema and the per-substep
+execution structure; doing it first means the optimisation, benchmark baseline,
+and frozen output format are produced against the structure v1.0 actually ships,
+avoiding a second pass. See the decision rationale folded into this section and
+`MIMIC-NAMED-SUBSTEP-PHASES.md`.
+
+1. **Establish the golden SAGE baseline. (DONE — 2026-06-04)** The shared
+   `tests/data/output/baseline/` mechanism remains the physics-free core/catalog
+   reference. It was extended for SAGE with a model-owned full-physics baseline
+   (`models/sage/modules/_tests/test_scientific_sage_physics_baseline.py` against
+   `models/sage/modules/_tests/baseline/physics-binary/`) that compares all core
+   **and** baryonic properties, plus a local byte-identity gate over the full
+   8-file run. This is the safety net for the substep refactor and a down payment
+   on the stronger v1.0 baseline.
+2. **Generalise substep phase configuration. (DONE — 2026-06-04)** The fixed
+   `phase_1`/`phase_2` middle slots are replaced by fixed optional
+   `pre_timestep`/`post_timestep` phases plus an arbitrary ordered set of
+   user-named substep phases declared under `modules.phases:`. Within each phase,
+   full-halo/event work precedes galaxy-local work. The change is byte-identical
+   for SAGE (proven by the gate and baseline above). **No backwards
+   compatibility was kept:** the legacy `phase_1`/`phase_2`/`enabled` keys were
+   removed entirely and the parser now rejects unknown `modules.*` keys. See
+   `MIMIC-NAMED-SUBSTEP-PHASES.md`.
+3. **Finish Mimic v1.0 preparation.** Complete the remaining core optimisation
+   work — memory behaviour, HDF5 writer performance, benchmarking, and a
+   clean/lint pass — now against the final named-phase execution structure and
+   the final output provenance schema. Then tag v1.0 and refresh/extend the
+   golden baseline as the dual-driver acceptance reference. This work is outside
+   the dual-driver plan and should not be mixed with it.
+4. **Implement the dual-driver architecture and change map.** The dual-driver
+   documents become the actionable implementation plan only after v1.0 is tagged
+   and the golden baseline exists. The named substep phase contract is now the
+   engine's phase-sequence contract. Their migration phases are intentionally
+   behaviour-preserving until the snapshot driver is introduced.
 5. **Prove the snapshot driver.** The snapshot driver is accepted only when it passes the cross-format identity gate on equivalent converted inputs, with global-only snapshot physics disabled for that comparison.
-6. **Review and amend `docs/VISION.md`.** Once the snapshot driver works and passes identity tests, update the vision narrowly: per-driver memory bounds, determinism as an invariant, and a pointer to the dual-driver architecture.
+6. **Review and amend `docs/VISION.md`.** Once the snapshot driver works and passes identity tests, update the vision narrowly: per-driver memory bounds, determinism as an invariant, and a pointer to the dual-driver architecture. (A small, accurate VISION update for named substep phases can also be made now that the behaviour exists.)
 7. **Rework the galaxy model builder proposal.** The model builder design is currently aspirational. It should be reviewed and rewritten against the post-v1.0, post-dual-driver codebase before it becomes an exact work plan or source of truth.
 
 ---
@@ -32,7 +66,7 @@ The larger direction is deliberate: Mimic remains a physics-agnostic galaxy evol
 
 `MIMIC-DUAL-DRIVER-CHANGE-MAP.md` is the phased migration plan for the dual-driver work. Its gates assume a tagged v1.0 baseline. Where it discusses byte identity, read that as a v1.0 migration requirement, not a claim that the current pre-v1 integration baseline already provides every needed comparison.
 
-`MIMIC-NAMED-SUBSTEP-PHASES.md` is a design context note for replacing numbered middle phases with user-named substep phases while preserving the current dispatch rule that full-halo/event work precedes galaxy-local work. It should be turned into a complete implementation plan after v1.0 is baselined and before the dual-driver change map is executed, unless the team deliberately folds it into the first dual-driver engine-extraction phase.
+`MIMIC-NAMED-SUBSTEP-PHASES.md` documents the user-named substep phase pipeline, which **is now implemented** (2026-06-04). It records the design and the as-built decisions, including that the legacy `phase_1`/`phase_2` form was removed outright rather than kept as a compatibility shim. The within-phase dispatch rule — full-halo/event work precedes galaxy-local work — is preserved. The named phase sequence is the engine's phase contract for the later dual-driver work.
 
 `galaxy-model-builder-design.md` is a longer-term design proposal for a gate-driven system that helps build new Mimic model packages from papers. It is useful now because it clarifies the future pressure on the module ABI, generated-code contracts, science gates, deterministic stochastic physics, and validation reports. It is not yet an implementation plan. It must be revised after the dual-driver work is complete and after the science-gate problem has been grounded in working code.
 
@@ -48,7 +82,7 @@ This keeps the driver coherent: the tree driver owns vertical tree traversal; th
 
 ## Baseline Contract
 
-The current repository already contains a useful baseline mechanism in `tests/data/output/baseline/`. For dual-driver migration, the v1.0 baseline must be strong enough to catch behaviour drift in both core tracking and SAGE baryonic output. The existing mechanism can serve this role if refreshed and extended at v1.0, but the migration plan should not rely on the narrower pre-v1 comparison as the final acceptance gate.
+The repository contains a shared, physics-free baseline mechanism in `tests/data/output/baseline/` (core tracking and catalog fields, model-agnostic). For dual-driver migration, the v1.0 baseline must also catch behaviour drift in SAGE baryonic output. As of 2026-06-04 that baryonic coverage exists for SAGE as a model-owned full-physics regression (`models/sage/modules/_tests/test_scientific_sage_physics_baseline.py` comparing all core and galaxy properties), with a local full-run byte-identity gate alongside it. At v1.0 these should be refreshed against the optimised build and treated as the acceptance reference; the migration plan should not rely on the narrower physics-free comparison alone.
 
 When a phase claims byte-identical output, the default expectation is exact identity against the v1.0 baseline. If a phase genuinely requires a numeric tolerance because of a science-neutral floating-point reordering, the tolerance must be documented with a specific justification and reviewed explicitly.
 
@@ -64,4 +98,4 @@ Generated metadata remains the structural source of truth. Any driver-neutral ou
 
 The model builder must inherit these constraints. In particular, stochastic modules must use deterministic per-halo or per-FoF seeds, not traversal-order RNG streams, or they will break cross-format identity.
 
-The model builder should also inherit the named substep phase contract once implemented. It should map paper processes onto physically named middle phases, not onto generic `phase_1`/`phase_2` buckets, and it should treat the within-phase dispatch rule as part of the Mimic module contract.
+The model builder should also inherit the named substep phase contract (now implemented). It should map paper processes onto physically named middle phases under `modules.phases:`, and it should treat the within-phase dispatch rule (full-halo/event work precedes galaxy-local work) as part of the Mimic module contract. The legacy `phase_1`/`phase_2` form no longer exists.

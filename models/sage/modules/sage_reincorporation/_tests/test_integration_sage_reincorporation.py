@@ -63,8 +63,8 @@ def test_module_loads():
         output_name="reinc_load",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_reincorporation', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -90,8 +90,8 @@ def test_parameters_configurable():
         output_name="reinc_params",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_reincorporation', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -114,8 +114,8 @@ def test_memory_safety():
         output_name="reinc_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_reincorporation', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -140,8 +140,8 @@ def test_execution_completes():
         output_name="reinc_complete",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_reincorporation', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -172,8 +172,8 @@ def test_multi_module_pipeline():
         output_name="reinc_pipeline",
         phase_config={
             'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_reincorporation', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -212,11 +212,11 @@ def test_physics_mass_conservation():
                 ('sage_reionization', 'process_full_halo'),
                 ('sage_prepare_infall_budget', 'process_full_halo')
             ],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_apply_infall', 'process_full_halo'),
                 ('sage_reincorporation', 'process_full_halo')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -260,11 +260,11 @@ def test_physics_metallicity_conservation():
                 ('sage_reionization', 'process_full_halo'),
                 ('sage_prepare_infall_budget', 'process_full_halo')
             ],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_apply_infall', 'process_full_halo'),
                 ('sage_reincorporation', 'process_full_halo')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -311,11 +311,11 @@ def test_physics_central_only():
                 ('sage_reionization', 'process_full_halo'),
                 ('sage_prepare_infall_budget', 'process_full_halo')
             ],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_apply_infall', 'process_full_halo'),
                 ('sage_reincorporation', 'process_full_halo')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -363,11 +363,11 @@ def test_physics_velocity_threshold():
                 ('sage_reionization', 'process_full_halo'),
                 ('sage_prepare_infall_budget', 'process_full_halo')
             ],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_apply_infall', 'process_full_halo'),
                 ('sage_reincorporation', 'process_full_halo')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -416,8 +416,8 @@ def test_physics_output_properties():
         output_name="reinc_properties",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_reincorporation', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={

@@ -224,11 +224,14 @@ def create_test_param_file(output_name, phase_config=None,
 
     Args:
         output_name (str): Name for output directory (created in temp_dir)
-        phase_config (dict): Multi-phase pipeline configuration.
+        phase_config (dict): Pipeline configuration. 'pre_timestep' and
+                            'post_timestep' are the fixed lifecycle phases; every
+                            other key is a user-named substep phase emitted under
+                            'phases:' in declaration order.
                             Format: {
-                                'pre_timestep': [('module1', 'process_full_halo'), ('module2', 'process_full_halo')],
-                                'phase_1': [('module3', 'process_by_galaxy'), ('module4', 'process_by_galaxy')],
-                                'phase_2': [('module5', 'process_by_galaxy')],
+                                'pre_timestep': [('module1', 'process_full_halo')],
+                                'galaxy_physics': [('module3', 'process_by_galaxy')],
+                                'satellite_mergers': [('module5', 'process_full_halo')],
                                 'post_timestep': [('module6', 'process_full_halo')]
                             }
                             Each tuple is (module_name, processing_mode) where processing_mode is
@@ -256,8 +259,8 @@ def create_test_param_file(output_name, phase_config=None,
             output_name="infall_test",
             phase_config={
                 'pre_timestep': [('my_prepare_module', 'process_full_halo')],
-                'phase_1': [('my_process_module', 'process_by_galaxy')],
-                'phase_2': [],
+                'galaxy_physics': [('my_process_module', 'process_by_galaxy')],
+                'satellite_mergers': [],
                 'post_timestep': []
             },
             model_params={
@@ -309,38 +312,35 @@ def create_test_param_file(output_name, phase_config=None,
     if 'SubSteps' not in config:
         config['SubSteps'] = 1
 
-    # Update module configuration to multi-phase structure
-    if not isinstance(config.get('modules'), dict):
-        config['modules'] = {}
+    # Rebuild the modules section in the current named-substep-phase form:
+    #   pre_timestep (lifecycle) -> phases: { <name>: [...] } -> post_timestep.
+    # Any phase_config key other than pre_timestep/post_timestep is a user-named
+    # substep phase and is emitted under 'phases:' in declaration order.
+    def _entries(items):
+        return [{module_name: processing_mode}
+                for module_name, processing_mode in items]
 
-    # Handle multi-phase configuration (preferred)
+    modules_section = {}
     if phase_config is not None:
-        # Clear old format if present
-        if 'enabled' in config['modules']:
-            del config['modules']['enabled']
+        pre = phase_config.get('pre_timestep', [])
+        post = phase_config.get('post_timestep', [])
+        if pre:
+            modules_section['pre_timestep'] = _entries(pre)
 
-        # Set each phase
-        for phase_name in ['pre_timestep', 'phase_1', 'phase_2', 'post_timestep']:
-            phase_modules = phase_config.get(phase_name, [])
+        phases = {}
+        for phase_name, phase_modules in phase_config.items():
+            if phase_name in ('pre_timestep', 'post_timestep'):
+                continue
             if phase_modules:
-                # Convert list of tuples to YAML dict format
-                config['modules'][phase_name] = [
-                    {module_name: processing_mode} for module_name, processing_mode in phase_modules
-                ]
-            else:
-                config['modules'][phase_name] = []
+                phases[phase_name] = _entries(phase_modules)
+        if phases:
+            modules_section['phases'] = phases
 
-    # Physics-free mode (no modules)
-    else:
-        # Clear old format if present
-        if 'enabled' in config['modules']:
-            del config['modules']['enabled']
+        if post:
+            modules_section['post_timestep'] = _entries(post)
+    # else: physics-free mode — leave modules with no phases
 
-        # Empty all phases
-        config['modules']['pre_timestep'] = []
-        config['modules']['phase_1'] = []
-        config['modules']['phase_2'] = []
-        config['modules']['post_timestep'] = []
+    config['modules'] = modules_section
 
     # Initialize modules.parameters section if model_params provided
     if model_params:
@@ -365,7 +365,7 @@ def create_test_param_file(output_name, phase_config=None,
         f.write("# Mimic Test Configuration\n")
         f.write("#" + "="*77 + "\n")
         f.write("# Auto-generated test parameter file\n")
-        f.write("# Multi-phase pipeline: pre_timestep, phase_1, phase_2, post_timestep\n")
+        f.write("# Pipeline: pre_timestep, named substep phases, post_timestep\n")
         f.write("#" + "="*77 + "\n\n")
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 

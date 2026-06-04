@@ -34,6 +34,7 @@
 
 #include "../../../../tests/framework/test_framework.h"
 #include "core/module_registry.h"
+#include "../../../../tests/framework/test_phase_config.h"
 #include "core/module_interface.h"
 #include "../cooling_tables.h"
 #include "include/types.h"
@@ -86,10 +87,7 @@ int test_module_registration(void)
 
     /* Check module is registered by trying to enable it */
     reset_config();
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_cooling_budget");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -304,10 +302,7 @@ int test_memory_safety(void)
 
     /* Initialize module */
     reset_config();
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_cooling_budget");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 

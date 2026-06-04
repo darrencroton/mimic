@@ -45,7 +45,7 @@ PRE_TIMESTEP_PHASE = [
     ("sage_initialise_merger_clock", "process_full_halo"),
 ]
 
-PHASE_1_MODULES = [
+GALAXY_PHYSICS_MODULES = [
     ("sage_apply_infall", "process_full_halo"),
     ("sage_reincorporation", "process_full_halo"),
     ("sage_satellite_stripping", "process_by_galaxy"),
@@ -65,16 +65,16 @@ def build_phase_config(merger_mode="process_full_halo",
                        enable_phase2_quasar=True,
                        enable_phase2_starburst=True):
     """Build the smallest deterministic pipeline that exercises merger events."""
-    phase_2 = [("sage_resolve_mergers_and_disruption", merger_mode)]
+    satellite_mergers = [("sage_resolve_mergers_and_disruption", merger_mode)]
     if enable_phase2_quasar:
-        phase_2.append(("sage_quasar_mode", "process_per_event"))
+        satellite_mergers.append(("sage_quasar_mode", "process_per_event"))
     if enable_phase2_starburst:
-        phase_2.append(("sage_starburst_feedback", "process_per_event"))
+        satellite_mergers.append(("sage_starburst_feedback", "process_per_event"))
 
     return {
         "pre_timestep": PRE_TIMESTEP_PHASE,
-        "phase_1": PHASE_1_MODULES,
-        "phase_2": phase_2,
+        "galaxy_physics": GALAXY_PHYSICS_MODULES,
+        "satellite_mergers": satellite_mergers,
         "post_timestep": [],
     }
 
@@ -147,7 +147,7 @@ def test_invalid_processing_mode_rejected():
 
 
 def test_quasar_consumer_receives_merger_events():
-    """Disabling the phase_2 quasar consumer must remove merger-driven BH growth."""
+    """Disabling the satellite_mergers quasar consumer must remove merger-driven BH growth."""
     base_param_file, base_output_dir, base_temp_dir = run_merger_pipeline(
         output_name="merger_event_quasar_base"
     )
@@ -164,7 +164,7 @@ def test_quasar_consumer_receives_merger_events():
 
         returncode, stdout, stderr = run_mimic(no_quasar_param_file)
         assert returncode == 0, (
-            "Comparison pipeline without phase_2 quasar consumer should succeed\n"
+            "Comparison pipeline without satellite_mergers quasar consumer should succeed\n"
             f"STDERR: {stderr}"
         )
 
@@ -185,11 +185,11 @@ def test_quasar_consumer_receives_merger_events():
 
         # ~0.05 M_sun/h total BH mass added across merger remnants in the test snapshot
         assert bh_delta > 0.05, (
-            "Phase_2 quasar consumer should increase remnant BH mass via merger events"
+            "satellite_mergers quasar consumer should increase remnant BH mass via merger events"
         )
         # ~0.002 M_sun/h total accretion recorded across merger remnants
         assert accretion_delta > 0.002, (
-            "Phase_2 quasar consumer should record merger-driven BH accretion"
+            "satellite_mergers quasar consumer should record merger-driven BH accretion"
         )
     finally:
         shutil.rmtree(base_temp_dir)
@@ -197,7 +197,7 @@ def test_quasar_consumer_receives_merger_events():
 
 
 def test_starburst_consumer_receives_merger_events():
-    """Disabling the phase_2 starburst consumer must remove merger-driven bulge growth."""
+    """Disabling the satellite_mergers starburst consumer must remove merger-driven bulge growth."""
     base_param_file, base_output_dir, base_temp_dir = run_merger_pipeline(
         output_name="merger_event_starburst_base"
     )
@@ -214,7 +214,7 @@ def test_starburst_consumer_receives_merger_events():
 
         returncode, stdout, stderr = run_mimic(no_starburst_param_file)
         assert returncode == 0, (
-            "Comparison pipeline without phase_2 starburst consumer should succeed\n"
+            "Comparison pipeline without satellite_mergers starburst consumer should succeed\n"
             f"STDERR: {stderr}"
         )
 
@@ -239,11 +239,11 @@ def test_starburst_consumer_receives_merger_events():
 
         # ~9 M_sun/h total bulge mass added across merger remnants in the test snapshot
         assert bulge_delta > 5.0, (
-            "Phase_2 starburst consumer should increase merger-remnant bulge mass"
+            "satellite_mergers starburst consumer should increase merger-remnant bulge mass"
         )
         # ~6.5 M_sun/h net stellar mass increase from burst star formation
         assert stellar_delta > 5.0, (
-            "Phase_2 starburst consumer should form additional stars in merger remnants"
+            "satellite_mergers starburst consumer should form additional stars in merger remnants"
         )
         # The burst net-consumes a few M_sun/h of cold gas. SAGE parity note: the
         # merger quasar wind (grow_black_hole -> quasar_mode_wind, which fires
@@ -252,7 +252,7 @@ def test_starburst_consumer_receives_merger_events():
         # few M_sun/h (~-4.7 here), not the larger value seen before the quasar
         # wind energy was unit-corrected.
         assert cold_gas_delta < -3.0, (
-            "Phase_2 starburst consumer should net-consume cold gas in merger remnants"
+            "satellite_mergers starburst consumer should net-consume cold gas in merger remnants"
         )
     finally:
         shutil.rmtree(base_temp_dir)

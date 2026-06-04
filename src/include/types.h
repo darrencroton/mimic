@@ -46,8 +46,10 @@ enum Valid_OutputFormats {
   num_output_formats
 };
 
-/* Forward declaration for PhaseModuleConfig (uses enum ProcessingMode from module_interface.h) */
+/* Forward declarations for phase config structs (defined in module_registry.h,
+ * which uses enum ProcessingMode from module_interface.h) */
 struct PhaseModuleConfig;
+struct ModulePhaseConfig;
 
 /* Configuration structure to hold global parameters */
 struct MimicConfig {
@@ -121,24 +123,27 @@ struct MimicConfig {
   /* ===== Multi-Phase Pipeline Configuration =====
    * Pipeline structure defined in input YAML file, not in module metadata.
    * This provides maximum flexibility - users control execution structure.
+   *
+   * Lifecycle per snapshot interval:
+   *   pre_timestep (once) -> [ substep_phases[0..N) ] x SubSteps -> post_timestep (once)
+   *
+   * The middle phases are user-named and arbitrary in number (see
+   * struct ModulePhaseConfig). Legacy top-level phase_1/phase_2 inputs are
+   * rejected by the parser rather than translated.
    */
 
   /* Time sub-stepping */
   int SubSteps; /* Number of substeps per snapshot interval (0 = no substeps) */
 
-  /* Phase 1: Pre-timestep (runs once before substeps) */
+  /* Pre-timestep: runs once before substeps */
   struct PhaseModuleConfig *pre_timestep; /* Array of modules for this phase */
   int num_pre_timestep;                   /* Number of modules in this phase */
 
-  /* Phase 2: Phase 1 within substep loop (runs each substep) */
-  struct PhaseModuleConfig *phase_1;  /* Array of modules for this phase */
-  int num_phase_1;                    /* Number of modules in this phase */
+  /* Ordered user-named middle phases, each run once per substep in input order */
+  struct ModulePhaseConfig *substep_phases; /* Array of named phases */
+  int num_substep_phases;                   /* Number of substep phases */
 
-  /* Phase 3: Phase 2 within substep loop (runs each substep) */
-  struct PhaseModuleConfig *phase_2;  /* Array of modules for this phase */
-  int num_phase_2;                    /* Number of modules in this phase */
-
-  /* Phase 4: Post-timestep (runs once after substeps) */
+  /* Post-timestep: runs once after substeps */
   struct PhaseModuleConfig *post_timestep; /* Array of modules for this phase */
   int num_post_timestep;                   /* Number of modules in this phase */
 

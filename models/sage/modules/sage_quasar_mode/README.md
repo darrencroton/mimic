@@ -5,8 +5,8 @@ Models black-hole growth and quasar-mode feedback from disk-instability triggers
 ## Processing Contract
 
 - Supported modes: `process_by_galaxy`, `process_per_event`
-- `process_by_galaxy` path consumes disk-instability triggers in `phase_1`
-- `process_per_event` path consumes merger events in `phase_2`
+- `process_by_galaxy` path consumes disk-instability triggers in `galaxy_physics`
+- `process_per_event` path consumes merger events in `satellite_mergers`
 
 ## Properties
 

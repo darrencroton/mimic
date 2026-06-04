@@ -541,8 +541,7 @@ static void update_context_for_substep(struct ModuleContext *ctx, int step) {
  * sub-stepping:
  * 1. PRE_TIMESTEP: Setup phase (runs once before substeps)
  * 2. SUBSTEP LOOP: Iterates over time substeps
- *    - PHASE_1: First physics phase (each substep)
- *    - PHASE_2: Second physics phase (each substep)
+ *    - Each user-named substep phase runs in input order (each substep)
  * 3. POST_TIMESTEP: Finalization phase (runs once after substeps)
  * 4. Update output structures
  *
@@ -582,17 +581,15 @@ void process_halo_evolution(int halonr, int ngal) {
   execute_phase(MimicConfig.pre_timestep, MimicConfig.num_pre_timestep, &ctx,
                 FoFWorkspace, ngal);
 
-  /* PHASE 2-3: Substep loop (phase_1 and phase_2 run each substep) */
+  /* SUBSTEP LOOP: each user-named middle phase runs once per substep, in order */
   for (int step = 0; step < ctx.num_substeps; step++) {
     update_context_for_substep(&ctx, step);
 
-    /* PHASE 2A: Phase 1 within substep loop */
-    execute_phase(MimicConfig.phase_1, MimicConfig.num_phase_1, &ctx,
-                  FoFWorkspace, ngal);
-
-    /* PHASE 2B: Phase 2 within substep loop */
-    execute_phase(MimicConfig.phase_2, MimicConfig.num_phase_2, &ctx,
-                  FoFWorkspace, ngal);
+    for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+      execute_phase(MimicConfig.substep_phases[p].modules,
+                    MimicConfig.substep_phases[p].num_modules, &ctx,
+                    FoFWorkspace, ngal);
+    }
   }
 
   /* PHASE 4: Post-timestep (runs once after substeps) */

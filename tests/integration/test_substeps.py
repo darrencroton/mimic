@@ -77,7 +77,7 @@ def test_substeps_creates_loop():
     """
     Test that SubSteps > 1 creates substep loop
 
-    Expected: With SubSteps=5, module should execute 5 times per FOF group in phase_1
+    Expected: With SubSteps=5, module should execute 5 times per FOF group in galaxy_physics
     Validates: SubSteps parameter controls loop iteration count
     """
     print("Testing SubSteps creates substep loop...")
@@ -87,8 +87,8 @@ def test_substeps_creates_loop():
         output_name="substeps_loop",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('test_fixture', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -157,8 +157,8 @@ def test_substep_dt_calculation():
         output_name="substep_dt",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('test_fixture', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -229,8 +229,8 @@ def test_module_context_fields():
         output_name="context_fields",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('test_fixture', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -314,8 +314,8 @@ def test_substeps_one_no_loop():
         output_name="substeps_one",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('test_fixture', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={

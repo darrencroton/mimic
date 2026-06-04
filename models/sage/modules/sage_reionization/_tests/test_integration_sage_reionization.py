@@ -64,8 +64,8 @@ def test_module_loads():
         output_name="sage_reionization_load",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -102,8 +102,8 @@ def test_output_properties_exist():
         output_name="sage_reionization_output",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -146,8 +146,8 @@ def test_parameters_configurable():
         output_name="sage_reionization_params",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.20}
@@ -189,8 +189,8 @@ def test_property_values_physical():
         output_name="sage_reionization_physical",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -237,8 +237,8 @@ def test_mass_dependence():
         output_name="sage_reionization_mass_dep",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -309,8 +309,8 @@ def test_memory_safety():
         output_name="sage_reionization_memory",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -346,8 +346,8 @@ def test_execution_completes():
         output_name="sage_reionization_complete",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17},

@@ -39,6 +39,7 @@
 
 #include "../../tests/framework/test_framework.h"
 #include "core/module_registry.h"
+#include "../../../../tests/framework/test_phase_config.h"
 #include "core/module_interface.h"
 #include "include/types.h"
 #include "include/proto.h"
@@ -103,11 +104,8 @@ static void setup_module_for_physics_test(double disk_factor)
     MimicConfig.Hubble_h = 0.73;
     MimicConfig.G = 43007.1;  /* G in code units: (km/s)² Mpc / (1e10 Msun/h) */
 
-    /* Configure sage_disk_instability module in phase_1 */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_disk_instability");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    /* Configure sage_disk_instability module in galaxy_physics */
+    test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
 
     /* Set test parameters */
@@ -197,10 +195,7 @@ int test_module_initialization(void)
     MimicConfig.G = 43007.1;
 
     /* Configure sage_disk_instability module */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_disk_instability");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
 
     setup_test_parameters(3.0);
@@ -237,10 +232,7 @@ int test_parameter_reading(void)
     MimicConfig.Hubble_h = 0.73;
     MimicConfig.G = 43007.1;
 
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_disk_instability");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
 
     setup_test_parameters(5.0);  /* Custom value */
@@ -282,10 +274,7 @@ int test_invalid_parameter_fails(void)
         MimicConfig.Hubble_h = 0.73;
         MimicConfig.G = 43007.1;
 
-        MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-        MimicConfig.phase_1[0].module_name = strdup("sage_disk_instability");
-        MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-        MimicConfig.num_phase_1 = 1;
+        test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
         MimicConfig.SubSteps = 1;
 
         setup_test_parameters(invalid_values[i]);

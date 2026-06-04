@@ -15,8 +15,7 @@
  *
  * Multi-Phase Pipeline Architecture:
  * - pre_timestep: Setup phase (once before substeps)
- * - phase_1: First substep phase (configurable processing mode)
- * - phase_2: Second substep phase (configurable processing mode)
+ * - modules.phases: Ordered user-named substep phases
  * - post_timestep: Finalization phase (once after substeps)
  *
  * Phase assignments and processing modes are specified in the input YAML configuration,
@@ -84,35 +83,20 @@
 
 #include "types.h"
 
-/**
- * @brief   Execution phases for module pipeline
+/*
+ * Pipeline shape (configured in the input YAML, not in module metadata):
  *
- * Generic phase names allow flexible configuration. Users decide which physics
- * goes in which phase via input YAML configuration.
+ *   pre_timestep (once)
+ *     -> [ user-named substep phases, in input order ] x SubSteps
+ *     -> post_timestep (once)
  *
- * Typical usage (but not enforced):
- * - pre_timestep: Setup calculations that run once before substeps
- *   (e.g., reionization, infall budget calculation)
- * - phase_1: Baryonic physics during substeps
- *   (e.g., cooling, star formation, feedback)
- * - phase_2: Merger/disruption physics during substeps
- *   (e.g., mergers, satellite tracking)
- * - post_timestep: Finalization that runs once after substeps
- *   (e.g., converting accumulators to rates, summary statistics)
- *
- * Extensibility: Adding phase_3, phase_4, etc. requires:
- * 1. Add enum value here
- * 2. Add fields to MimicConfig struct
- * 3. Add execution call in process_halo_evolution()
- * 4. Update YAML parsing
+ * pre_timestep and post_timestep are fixed optional lifecycle phases. The
+ * middle phases are arbitrary in number and named by the user for their
+ * physical meaning (e.g. "galaxy_physics", "satellite_mergers"); see
+ * struct ModulePhaseConfig in module_registry.h. Within each phase, full-halo
+ * and event work precedes galaxy-local work. Adding a phase is purely a YAML
+ * change — no enum or struct edits are required.
  */
-enum ModulePhase {
-  MODULE_PHASE_PRE_TIMESTEP,   /**< Before substeps (once) */
-  MODULE_PHASE_1,               /**< First phase within substep loop */
-  MODULE_PHASE_2,               /**< Second phase within substep loop */
-  MODULE_PHASE_POST_TIMESTEP,  /**< After substeps (once) */
-  MODULE_PHASE_COUNT           /**< Number of phases */
-};
 
 /**
  * @brief   Processing modes for module execution

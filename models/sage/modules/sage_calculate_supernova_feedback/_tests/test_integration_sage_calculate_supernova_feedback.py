@@ -57,12 +57,12 @@ def test_module_loads():
         output_name="snfb_load",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -94,12 +94,12 @@ def test_output_properties_exist():
         output_name="snfb_properties",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -134,12 +134,12 @@ def test_parameters_configurable():
         output_name="snfb_params",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -168,12 +168,12 @@ def test_memory_safety():
         output_name="snfb_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -204,12 +204,12 @@ def test_execution_completes():
         output_name="snfb_complete",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -245,12 +245,12 @@ def test_pipeline_with_star_formation():
         output_name="snfb_pipeline",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -290,12 +290,12 @@ def test_feedback_values_nonnegative():
         output_name="snfb_nonnegative",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -335,12 +335,12 @@ def test_feedback_proportional_to_sf():
         output_name="snfb_proportional",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -392,12 +392,12 @@ def test_feedback_reasonable_magnitude():
         output_name="snfb_magnitude",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -449,12 +449,12 @@ def test_edge_case_zero_efficiency():
         output_name="snfb_zero_efficiency",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -498,12 +498,12 @@ def test_edge_case_very_high_efficiency():
         output_name="snfb_high_efficiency",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -541,12 +541,12 @@ def test_parameter_variation_effect():
         output_name="snfb_low_eff",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -572,12 +572,12 @@ def test_parameter_variation_effect():
         output_name="snfb_high_eff",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={

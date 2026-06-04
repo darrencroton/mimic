@@ -88,8 +88,8 @@ def test_processing_mode_once_array_processing():
         output_name="loop_once",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'process_full_halo')],  # PROCESSING_MODE_ONCE
-            'phase_2': [],
+            'galaxy_physics': [('test_fixture', 'process_full_halo')],  # PROCESSING_MODE_ONCE
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -162,8 +162,8 @@ def test_processing_mode_all_per_galaxy():
         output_name="loop_all",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'process_by_galaxy')],  # PROCESSING_MODE_ALL
-            'phase_2': [],
+            'galaxy_physics': [('test_fixture', 'process_by_galaxy')],  # PROCESSING_MODE_ALL
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -234,8 +234,8 @@ def test_processing_mode_all_ngal_is_one():
         output_name="loop_all_ngal",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'process_by_galaxy')],  # PROCESSING_MODE_ALL
-            'phase_2': [],
+            'galaxy_physics': [('test_fixture', 'process_by_galaxy')],  # PROCESSING_MODE_ALL
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -307,8 +307,8 @@ def test_processing_mode_per_event_no_emissions():
         output_name="loop_per_event_no_subscriptions",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'process_per_event')],
-            'phase_2': [],
+            'galaxy_physics': [('test_fixture', 'process_per_event')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -354,8 +354,8 @@ def test_processing_mode_per_event_mode_mismatch_fails():
         output_name="loop_per_event_invalid_module",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_event_producer', 'process_per_event')],
-            'phase_2': [],
+            'galaxy_physics': [('test_event_producer', 'process_per_event')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={},

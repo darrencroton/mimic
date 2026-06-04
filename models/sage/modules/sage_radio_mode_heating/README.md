@@ -5,7 +5,7 @@ Suppresses cooling through AGN radio-mode heating. The selected accretion/heatin
 ## Processing Contract
 
 - Supported mode: `process_by_galaxy`
-- Expected phase: `phase_1`, after `sage_calculate_cooling_budget` and before `sage_apply_cooling`
+- Expected phase: `galaxy_physics`, after `sage_calculate_cooling_budget` and before `sage_apply_cooling`
 - Receives one galaxy at a time
 
 ## Properties

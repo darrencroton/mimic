@@ -46,6 +46,7 @@
 
 #include "../../../../tests/framework/test_framework.h"
 #include "core/module_registry.h"
+#include "../../../../tests/framework/test_phase_config.h"
 #include "core/module_interface.h"
 #include "include/types.h"
 #include "include/proto.h"
@@ -267,7 +268,7 @@ int test_bh_growth_disk_instability(void)
  * @brief   Test merger trigger is ignored in quasar mode module
  *
  * Expected: BH mass unchanged (merger channel handled inline in merge module)
- * Validates: Channel separation between phase_1 and phase_2 trigger paths
+ * Validates: Channel separation between galaxy_physics and satellite_mergers trigger paths
  */
 int test_bh_growth_merger(void)
 {
@@ -1204,10 +1205,7 @@ int test_module_initialization(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_quasar_mode");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "sage_quasar_mode", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
 
     /* Set required parameters */

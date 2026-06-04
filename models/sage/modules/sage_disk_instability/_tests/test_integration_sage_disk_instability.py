@@ -60,7 +60,7 @@ def test_module_loads():
 
     Expected: Module initialization succeeds without errors
     Validates: Module registration, initialization, and cleanup lifecycle
-    Note: sage_disk_instability runs in phase_1 (process_by_galaxy mode)
+    Note: sage_disk_instability runs in galaxy_physics (process_by_galaxy mode)
     """
     print("Testing module load and initialization...")
 
@@ -69,8 +69,8 @@ def test_module_loads():
         output_name="sage_disk_instability_load",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_disk_instability', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'StarFormingDiskFactor': 3.0}
@@ -108,8 +108,8 @@ def test_output_properties_exist():
         output_name="sage_disk_instability_output",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_disk_instability', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'StarFormingDiskFactor': 3.0}
@@ -157,8 +157,8 @@ def test_parameters_configurable():
         output_name="sage_disk_instability_params",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_disk_instability', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'StarFormingDiskFactor': 5.0}  # Custom value
@@ -194,8 +194,8 @@ def test_property_values_physical():
         output_name="sage_disk_instability_physical",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_disk_instability', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'StarFormingDiskFactor': 3.0}
@@ -242,8 +242,8 @@ def test_handles_zero_mass_galaxies():
         output_name="sage_disk_instability_zeromass",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_disk_instability', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'StarFormingDiskFactor': 3.0}
@@ -284,8 +284,8 @@ def test_parameter_sensitivity():
         output_name="sage_disk_instability_low",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_disk_instability', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'StarFormingDiskFactor': 1.0}
@@ -303,8 +303,8 @@ def test_parameter_sensitivity():
         output_name="sage_disk_instability_high",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_disk_instability', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'StarFormingDiskFactor': 10.0}
@@ -334,8 +334,8 @@ def test_memory_safety():
         output_name="sage_disk_instability_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_disk_instability', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'StarFormingDiskFactor': 3.0}
@@ -371,8 +371,8 @@ def test_execution_completes():
         output_name="sage_disk_instability_complete",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_disk_instability', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'StarFormingDiskFactor': 3.0},

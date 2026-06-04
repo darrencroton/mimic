@@ -13,7 +13,7 @@ This test validates software quality aspects of the sage_apply_cooling module:
 - Metallicity preservation during transfer
 - Cooling energy tracking
 
-NOTE: sage_apply_cooling requires sage_calculate_cooling_budget (phase_1) to calculate CoolingGas
+NOTE: sage_apply_cooling requires sage_calculate_cooling_budget (galaxy_physics) to calculate CoolingGas
 
 Test cases:
   - test_module_loads: Module registration and initialization
@@ -58,7 +58,7 @@ def test_module_loads():
 
     Expected: Module initialization succeeds without errors
     Validates: Module registration, initialization, and cleanup lifecycle
-    Note: Requires sage_calculate_cooling_budget in phase_1 to set CoolingGas property
+    Note: Requires sage_calculate_cooling_budget in galaxy_physics to set CoolingGas property
     """
     print("Testing module load and initialization...")
 
@@ -67,8 +67,8 @@ def test_module_loads():
         output_name="sage_apply_cooling_load",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -109,8 +109,8 @@ def test_output_properties_exist():
         output_name="sage_apply_cooling_output",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -161,8 +161,8 @@ def test_with_sage_calculate_cooling_budget():
         output_name="sage_apply_cooling_with_calc",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -207,8 +207,8 @@ def test_memory_safety():
         output_name="sage_apply_cooling_memory",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -244,8 +244,8 @@ def test_execution_completes():
         output_name="sage_apply_cooling_complete",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17},
@@ -283,8 +283,8 @@ def test_gas_transfer_physics():
         output_name="sage_apply_cooling_transfer",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -339,8 +339,8 @@ def test_metallicity_preservation():
         output_name="sage_apply_cooling_metallicity",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -401,8 +401,8 @@ def test_cooling_energy_tracking():
         output_name="sage_apply_cooling_energy",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}

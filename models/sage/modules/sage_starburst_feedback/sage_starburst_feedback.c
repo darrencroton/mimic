@@ -114,43 +114,41 @@ int sage_starburst_feedback_init(void)
     /* Dependency checks — §7 of SAGE-MODULE-REVIEW.md */
 
     /* ERROR: process_per_event requires a merger event producer in the same phase */
-    if (module_configured_in_phase("sage_starburst_feedback",
-                                   MimicConfig.phase_2, MimicConfig.num_phase_2,
-                                   PROCESSING_MODE_PER_EVENT) &&
-        !module_configured_in_phase("sage_resolve_mergers_and_disruption",
-                                    MimicConfig.phase_2, MimicConfig.num_phase_2,
-                                    PROCESSING_MODE_FULL_HALO)) {
+    if (module_in_substep_phase("sage_starburst_feedback",
+                                PROCESSING_MODE_PER_EVENT) &&
+        !modules_in_same_substep_phase(
+            "sage_starburst_feedback", PROCESSING_MODE_PER_EVENT,
+            "sage_resolve_mergers_and_disruption", PROCESSING_MODE_FULL_HALO)) {
         ERROR_LOG("sage_starburst_feedback (process_per_event) requires "
-                  "sage_resolve_mergers_and_disruption in phase_2 as "
-                  "process_full_halo — no merger events will be emitted without it");
+                  "sage_resolve_mergers_and_disruption as process_full_halo in the "
+                  "same substep phase — no merger events will be emitted without it");
         return -1;
     }
 
     /* WARNING: disk-instability channel requires the trigger writer */
-    if (module_configured_in_phase("sage_starburst_feedback",
-                                   MimicConfig.phase_1, MimicConfig.num_phase_1,
-                                   PROCESSING_MODE_BY_GALAXY) &&
-        !module_precedes_in_phase("sage_disk_instability", "sage_starburst_feedback",
-                                  MimicConfig.phase_1, MimicConfig.num_phase_1)) {
+    if (module_in_substep_phase("sage_starburst_feedback",
+                                PROCESSING_MODE_BY_GALAXY) &&
+        !module_precedes_in_substep_phase("sage_disk_instability",
+                                          PROCESSING_MODE_BY_GALAXY,
+                                          "sage_starburst_feedback",
+                                          PROCESSING_MODE_BY_GALAXY)) {
         WARNING_LOG("sage_starburst_feedback: sage_disk_instability does not "
-                    "precede it in phase_1 — disk-instability channel will be "
-                    "silently inactive (UnstableDiskGasFraction always 0)");
+                    "precede it in the same substep phase — disk-instability channel "
+                    "will be silently inactive (UnstableDiskGasFraction always 0)");
     }
 
-    POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED = module_configured_in_phase(
-        "sage_disk_instability", MimicConfig.phase_1, MimicConfig.num_phase_1,
-        PROCESSING_MODE_BY_GALAXY);
-    POST_MERGER_QUASAR_FOLLOWUP_ENABLED = module_configured_in_phase(
-        "sage_quasar_mode", MimicConfig.phase_2, MimicConfig.num_phase_2,
-        PROCESSING_MODE_PER_EVENT);
+    POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED =
+        module_in_substep_phase("sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
+    POST_MERGER_QUASAR_FOLLOWUP_ENABLED =
+        module_in_substep_phase("sage_quasar_mode", PROCESSING_MODE_PER_EVENT);
 
     /* WARNING: post-merger disk instability path loses quasar wind (SAGE parity) */
     if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED &&
         !POST_MERGER_QUASAR_FOLLOWUP_ENABLED) {
-        WARNING_LOG("sage_starburst_feedback: sage_disk_instability is in "
-                    "phase_1 but sage_quasar_mode is absent from phase_2 as "
-                    "process_per_event — post-merger disk instability quasar "
-                    "wind is silently skipped (SAGE parity loss)");
+        WARNING_LOG("sage_starburst_feedback: sage_disk_instability is configured "
+                    "but sage_quasar_mode is absent as process_per_event — "
+                    "post-merger disk instability quasar wind is silently skipped "
+                    "(SAGE parity loss)");
     }
 
     if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED) {
@@ -159,7 +157,7 @@ int sage_starburst_feedback_init(void)
                                           0.0, 10.0, "star forming disk factor");
     } else {
         VERBOSE_LOG("  (StarFormingDiskFactor not loaded: sage_disk_instability"
-                    " not present in phase_1 as process_by_galaxy)");
+                    " not present as process_by_galaxy)");
     }
 
     if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED &&
@@ -172,7 +170,7 @@ int sage_starburst_feedback_init(void)
             0.0, 1.0, "quasar mode efficiency");
     } else if (POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED) {
         VERBOSE_LOG("  (BlackHoleGrowthRate, QuasarModeEfficiency not loaded:"
-                    " sage_quasar_mode not present in phase_2 as process_per_event)");
+                    " sage_quasar_mode not present as process_per_event)");
     }
 
     // Convert physical constants to code units (same as sage_calculate_supernova_feedback)

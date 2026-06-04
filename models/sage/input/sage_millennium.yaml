@@ -32,35 +32,39 @@ modules:
     - sage_set_disk_scale_radius:     process_full_halo
     - sage_initialise_merger_clock:   process_full_halo
 
-  phase_1:
-    # Baryon supply (central-only, full-halo)
-    - sage_apply_infall:              process_full_halo
-    - sage_reincorporation:           process_full_halo
+  # Ordered, user-named substep middle phases. Each runs once per substep, in the
+  # order listed. Within a phase, full-halo/event work precedes galaxy-local work.
+  phases:
 
-    # Satellite stripping
-    - sage_satellite_stripping:       process_by_galaxy
+    galaxy_physics:
+      # Baryon supply (central-only, full-halo)
+      - sage_apply_infall:              process_full_halo
+      - sage_reincorporation:           process_full_halo
 
-    # Cooling and AGN suppression
-    - sage_calculate_cooling_budget:  process_by_galaxy
-    - sage_radio_mode_heating:        process_by_galaxy
-    - sage_apply_cooling:             process_by_galaxy
+      # Satellite stripping
+      - sage_satellite_stripping:       process_by_galaxy
 
-    # Star formation and supernova feedback
-    - sage_calculate_star_formation:          process_by_galaxy
-    - sage_calculate_supernova_feedback:      process_by_galaxy
-    - sage_apply_star_formation_supernova:    process_by_galaxy
+      # Cooling and AGN suppression
+      - sage_calculate_cooling_budget:  process_by_galaxy
+      - sage_radio_mode_heating:        process_by_galaxy
+      - sage_apply_cooling:             process_by_galaxy
 
-    # Disk instability
-    - sage_disk_instability:          process_by_galaxy
-    - sage_quasar_mode:               process_by_galaxy
-    - sage_starburst_feedback:        process_by_galaxy
+      # Star formation and supernova feedback
+      - sage_calculate_star_formation:          process_by_galaxy
+      - sage_calculate_supernova_feedback:      process_by_galaxy
+      - sage_apply_star_formation_supernova:    process_by_galaxy
 
-  phase_2:
-    # Mergers and disruption — runs after all galaxy physics for the current substep
-    # sage_resolve_mergers_and_disruption emits SAGE_EVENT_MERGER for downstream consumers
-    - sage_resolve_mergers_and_disruption: process_full_halo
-    - sage_quasar_mode:               process_per_event   # merger event consumer
-    - sage_starburst_feedback:        process_per_event   # merger event consumer
+      # Disk instability
+      - sage_disk_instability:          process_by_galaxy
+      - sage_quasar_mode:               process_by_galaxy
+      - sage_starburst_feedback:        process_by_galaxy
+
+    satellite_mergers:
+      # Mergers and disruption — runs after all galaxy physics for the current substep
+      # sage_resolve_mergers_and_disruption emits SAGE_EVENT_MERGER for downstream consumers
+      - sage_resolve_mergers_and_disruption: process_full_halo
+      - sage_quasar_mode:               process_per_event   # merger event consumer
+      - sage_starburst_feedback:        process_per_event   # merger event consumer
 
   post_timestep:
 

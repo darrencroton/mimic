@@ -25,6 +25,7 @@
 
 #include "../../../../tests/framework/test_framework.h"
 #include "core/module_registry.h"
+#include "../../../../tests/framework/test_phase_config.h"
 #include "core/module_interface.h"
 #include "include/types.h"
 #include "include/proto.h"
@@ -54,7 +55,9 @@ static double test_eta = 0.3;       /* FeedbackEjectionEfficiency */
  * MimicConfig; we use static storage to avoid needing the memory system. */
 static char sn_pipeline_name0[] = "sage_calculate_supernova_feedback";
 static char sn_pipeline_name1[] = "sage_apply_star_formation_supernova";
+static char sn_phase_name[] = "galaxy_physics";
 static struct PhaseModuleConfig sn_physics_pipeline[2];
+static struct ModulePhaseConfig sn_substep_phase;
 
 /* Physics constants (computed during init) */
 static double EnergySNcode_test;
@@ -170,8 +173,11 @@ static void init_test_constants(void)
     sn_physics_pipeline[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     sn_physics_pipeline[1].module_name = sn_pipeline_name1;
     sn_physics_pipeline[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1 = sn_physics_pipeline;
-    MimicConfig.num_phase_1 = 2;
+    sn_substep_phase.name = sn_phase_name;
+    sn_substep_phase.modules = sn_physics_pipeline;
+    sn_substep_phase.num_modules = 2;
+    MimicConfig.substep_phases = &sn_substep_phase;
+    MimicConfig.num_substep_phases = 1;
 }
 
 /**
@@ -236,14 +242,10 @@ int test_module_initialization(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    /* Configure sage_calculate_supernova_feedback module in phase_1 */
+    /* Configure sage_calculate_supernova_feedback module in galaxy_physics */
     /* SN requires sage_apply_star_formation_supernova in the pipeline */
-    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_supernova_feedback");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
-    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 2;
+    test_phase_add("galaxy_physics", "sage_calculate_supernova_feedback", PROCESSING_MODE_BY_GALAXY);
+    test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -279,12 +281,8 @@ int test_parameter_reading(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* SN requires sage_apply_star_formation_supernova in the pipeline */
-    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_supernova_feedback");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
-    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 2;
+    test_phase_add("galaxy_physics", "sage_calculate_supernova_feedback", PROCESSING_MODE_BY_GALAXY);
+    test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -320,12 +318,8 @@ int test_memory_safety(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* SN requires sage_apply_star_formation_supernova in the pipeline */
-    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_supernova_feedback");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
-    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 2;
+    test_phase_add("galaxy_physics", "sage_calculate_supernova_feedback", PROCESSING_MODE_BY_GALAXY);
+    test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 

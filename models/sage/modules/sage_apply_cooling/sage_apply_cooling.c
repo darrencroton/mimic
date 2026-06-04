@@ -55,13 +55,14 @@ static void cool_gas_onto_galaxy(struct Halo *halo, const double coolingGas, con
 
 int sage_apply_cooling_init(void)
 {
-    /* Dependency check: sage_calculate_cooling_budget must precede this module in phase_1 */
-    if (!module_precedes_in_phase("sage_calculate_cooling_budget",
-                                  "sage_apply_cooling",
-                                  MimicConfig.phase_1,
-                                  MimicConfig.num_phase_1)) {
+    /* Dependency check: sage_calculate_cooling_budget must precede this module
+     * in the same substep phase */
+    if (!module_precedes_in_substep_phase("sage_calculate_cooling_budget",
+                                          PROCESSING_MODE_BY_GALAXY,
+                                          "sage_apply_cooling",
+                                          PROCESSING_MODE_BY_GALAXY)) {
         ERROR_LOG("sage_apply_cooling requires sage_calculate_cooling_budget to "
-                  "precede it in phase_1 — CoolingGas will be 0 without it");
+                  "precede it in the same substep phase — CoolingGas will be 0 without it");
         return -1;
     }
 

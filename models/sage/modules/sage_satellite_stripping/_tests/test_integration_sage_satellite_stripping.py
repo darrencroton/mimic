@@ -76,8 +76,8 @@ def test_module_loads():
         output_name="sage_satellite_stripping_load",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={"GlobalBaryonFraction": 0.17}
@@ -114,8 +114,8 @@ def test_parameter_configuration():
         output_name="sage_satellite_stripping_params",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={"GlobalBaryonFraction": 0.20}
@@ -151,8 +151,8 @@ def test_memory_safety():
         output_name="sage_satellite_stripping_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={"GlobalBaryonFraction": 0.17}
@@ -189,8 +189,8 @@ def test_output_properties_exist():
         output_format="binary",  # Test binary format
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={"GlobalBaryonFraction": 0.17},
@@ -234,8 +234,8 @@ def test_output_property_types():
         output_format="binary",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={"GlobalBaryonFraction": 0.17},
@@ -278,8 +278,8 @@ def test_output_sanity_checks():
         output_format="binary",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={"GlobalBaryonFraction": 0.17},
@@ -325,8 +325,8 @@ def test_data_flow_validation():
         output_format="binary",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={"GlobalBaryonFraction": 0.17},
@@ -379,8 +379,8 @@ def test_standalone_execution():
         output_name="sage_satellite_stripping_standalone",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={"GlobalBaryonFraction": 0.17},

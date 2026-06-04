@@ -31,8 +31,8 @@ References:
 The shipped SAGE run configuration lives at `models/sage/input/sage_millennium.yaml`. It builds the pipeline as:
 
 - `pre_timestep`: reionization, infall budget preparation, disk scale setup, merger-clock initialization.
-- `phase_1`: gas supply, reincorporation, satellite stripping, cooling, AGN radio-mode heating, star formation, supernova feedback, disk instability, quasar mode, and starburst feedback.
-- `phase_2`: merger/disruption resolution plus event-driven quasar and starburst consumers.
+- `galaxy_physics`: gas supply, reincorporation, satellite stripping, cooling, AGN radio-mode heating, star formation, supernova feedback, disk instability, quasar mode, and starburst feedback.
+- `satellite_mergers`: merger/disruption resolution plus event-driven quasar and starburst consumers.
 - `post_timestep`: empty in the default SAGE configuration.
 
 SAGE uses transport properties such as `InfallingGas`, `CoolingGas`, `NewStellarMass`, `SupernovaReheatedMass`, and `SupernovaEjectedMass` to separate calculation modules from apply/commit modules. Preserve this ordering when changing the pipeline.

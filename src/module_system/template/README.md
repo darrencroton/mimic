@@ -109,8 +109,9 @@ float delta = rate * dt;
 4. **Add to input YAML**:
    ```yaml
    modules:
-     phase_1:
-       - my_module: process_by_galaxy
+     phases:
+       galaxy_physics:
+         - my_module: process_by_galaxy
    ```
 5. **Build and test**:
    ```bash

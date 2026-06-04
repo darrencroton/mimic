@@ -1,0 +1,89 @@
+#=============================================================================
+# Mimic Full-Physics Test Parameter File (SAGE)
+#=============================================================================
+# Runs the COMPLETE SAGE physics pipeline on the single-file test data and
+# writes binary output. Unlike test_binary.yaml (physics-free, halo tracking
+# only), this exercises galaxy physics so the committed baryonic baseline can
+# catch drift in galaxy-formation output, not just core halo tracking.
+#
+# Used by: models/sage/modules/_tests/test_scientific_sage_physics_baseline.py
+#
+# To run manually:
+#   ./mimic models/sage/input/test_physics_binary.yaml
+#
+# Output location:
+#   tests/data/output/physics-binary/  (gitignored test output)
+# Committed reference:
+#   models/sage/modules/_tests/baseline/physics-binary/  (galaxy-physics baseline)
+#=============================================================================
+
+model:
+  name: sage
+  path: models/sage
+  properties: models/sage/model_properties.yaml
+
+simulation:
+  name: test_millennium
+  path: tests/data
+  config: tests/data/test_simulation.yaml
+  halo_properties: simulations/millennium/halo_properties.yaml
+
+plotting:
+  profile: models/sage/plots/profiles/millennium_plot_profile.yaml
+
+output:
+  output_filename: model
+  output_directory: ./tests/data/output/physics-binary/
+  output_format: binary
+  snapshot_count: 1                   # Single output snapshot for fast testing
+  snapshot_list:
+  - 63
+
+SubSteps: 10
+
+modules:
+
+  pre_timestep:
+    - sage_reionization:              process_full_halo
+    - sage_prepare_infall_budget:     process_full_halo
+    - sage_set_disk_scale_radius:     process_full_halo
+    - sage_initialise_merger_clock:   process_full_halo
+
+  phases:
+    galaxy_physics:
+      - sage_apply_infall:              process_full_halo
+      - sage_reincorporation:           process_full_halo
+      - sage_satellite_stripping:       process_by_galaxy
+      - sage_calculate_cooling_budget:  process_by_galaxy
+      - sage_radio_mode_heating:        process_by_galaxy
+      - sage_apply_cooling:             process_by_galaxy
+      - sage_calculate_star_formation:          process_by_galaxy
+      - sage_calculate_supernova_feedback:      process_by_galaxy
+      - sage_apply_star_formation_supernova:    process_by_galaxy
+      - sage_disk_instability:          process_by_galaxy
+      - sage_quasar_mode:               process_by_galaxy
+      - sage_starburst_feedback:        process_by_galaxy
+
+    satellite_mergers:
+      - sage_resolve_mergers_and_disruption: process_full_halo
+      - sage_quasar_mode:               process_per_event
+      - sage_starburst_feedback:        process_per_event
+
+  post_timestep:
+
+  parameters:
+    GlobalBaryonFraction: 0.17
+    SfrEfficiency: 0.05
+    StarFormingDiskFactor: 3.0
+    FeedbackReheatingEpsilon: 3.0
+    FeedbackEjectionEfficiency: 0.3
+    ReIncorporationFactor: 0.15
+    AGNrecipe: 2
+    RadioModeEfficiency: 0.08
+    BlackHoleGrowthRate: 0.015
+    QuasarModeEfficiency: 0.005
+    RecycleFraction: 0.43
+    Yield: 0.025
+    FracZleaveDisk: 0.0
+    ThresholdMajorMerger: 0.3
+    ThresholdSatDisruption: 1.0

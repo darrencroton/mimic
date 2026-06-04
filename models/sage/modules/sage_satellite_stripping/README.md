@@ -5,7 +5,7 @@ Strips excess hot gas from Type 1 satellites and transfers stripped material to 
 ## Processing Contract
 
 - Supported mode: `process_by_galaxy`
-- Expected phase: `phase_1`, before cooling and star formation in the by-galaxy order
+- Expected phase: `galaxy_physics`, before cooling and star formation in the by-galaxy order
 - Receives one galaxy at a time and transfers stripped gas to the FOF central through `ctx->central_galaxy`
 
 ## Properties

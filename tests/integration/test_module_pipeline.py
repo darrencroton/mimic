@@ -106,7 +106,7 @@ class TestModulePipeline(unittest.TestCase):
         # Create parameter file with only test_fixture
         param_file, output_dir, _ = create_test_param_file(
             output_name="single_module",
-            phase_config={"phase_1": [("test_fixture", "process_by_galaxy")]},
+            phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
             model_params={
                 "TestFixtureDummyParameter": 2.5,
                 "TestFixtureEnableLogging": 0
@@ -136,7 +136,7 @@ class TestModulePipeline(unittest.TestCase):
         # Create parameter file with test_fixture enabled twice (tests module list handling)
         param_file, output_dir, _ = create_test_param_file(
             output_name="multiple_modules",
-            phase_config={"phase_1": [("test_fixture", "process_by_galaxy"), ("test_fixture", "process_by_galaxy")]},
+            phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy"), ("test_fixture", "process_by_galaxy")]},
             model_params={
                 "TestFixtureDummyParameter": 1.5,
                 "TestFixtureEnableLogging": 0
@@ -167,7 +167,7 @@ class TestModulePipeline(unittest.TestCase):
         # Run with non-default dummy parameter
         param_file, output_dir, _ = create_test_param_file(
             output_name="custom_params",
-            phase_config={"phase_1": [("test_fixture", "process_by_galaxy")]},
+            phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
             model_params={
                 "TestFixtureDummyParameter": 3.14,  # Non-default
                 "TestFixtureEnableLogging": 0
@@ -193,7 +193,7 @@ class TestModulePipeline(unittest.TestCase):
         # Create parameter file with invalid module
         param_file, output_dir, _ = create_test_param_file(
             output_name="unknown_module",
-            phase_config={"phase_1": [("nonexistent_module", "process_by_galaxy")]},
+            phase_config={"galaxy_physics": [("nonexistent_module", "process_by_galaxy")]},
             first_file=0,
             last_file=0,
             temp_dir=self.temp_dir
@@ -224,7 +224,7 @@ class TestModulePipeline(unittest.TestCase):
         # Create parameter file with test_fixture
         param_file, output_dir, _ = create_test_param_file(
             output_name="execution_order",
-            phase_config={"phase_1": [("test_fixture", "process_by_galaxy")]},
+            phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
             model_params={
                 "TestFixtureDummyParameter": 1.0,
                 "TestFixtureEnableLogging": 0
@@ -258,7 +258,7 @@ class TestModulePipeline(unittest.TestCase):
         # This will cause init() to fail when it tries to read TestFixtureDummyParameter
         param_file, output_dir, _ = create_test_param_file(
             output_name="init_failure",
-            phase_config={"phase_1": [("test_fixture", "process_by_galaxy")]},
+            phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
             model_params={
                 # Intentionally omit TestFixtureDummyParameter to trigger init failure
                 "TestFixtureEnableLogging": 0

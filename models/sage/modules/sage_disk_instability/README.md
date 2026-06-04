@@ -5,7 +5,7 @@ Applies a disk stability criterion, transfers unstable stellar mass to the bulge
 ## Processing Contract
 
 - Supported mode: `process_by_galaxy`
-- Expected phase: `phase_1`, after disk radii and star-formation reservoir updates are available
+- Expected phase: `galaxy_physics`, after disk radii and star-formation reservoir updates are available
 - Receives one galaxy at a time
 
 ## Properties

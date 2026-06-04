@@ -95,10 +95,9 @@ with open(param_file, "r") as handle:
     config = yaml.safe_load(handle) or {}
 
 modules = config.get("modules", {}) or {}
-module_sections = ["enabled", "pre_timestep", "phase_1", "phase_2", "post_timestep"]
 active = {
     section: modules.get(section)
-    for section in module_sections
+    for section in ("pre_timestep", "phases", "post_timestep")
     if modules.get(section)
 }
 
@@ -110,7 +109,7 @@ then
     echo -e "${RED}ERROR: Parameter file has modules enabled${NC}"
     echo ""
     echo "Baseline MUST be generated in physics-free mode"
-    echo "All modules.enabled/pre_timestep/phase_1/phase_2/post_timestep lists must be empty."
+    echo "The modules.pre_timestep, modules.phases, and modules.post_timestep lists must be empty."
     echo ""
     echo "Edit $PARAM_FILE and remove enabled modules before regenerating."
     echo ""

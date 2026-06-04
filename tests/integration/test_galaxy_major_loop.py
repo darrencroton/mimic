@@ -85,11 +85,11 @@ def test_multiple_modules_galaxy_major():
         output_name="galaxy_major",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('test_fixture', 'process_by_galaxy'),  # Module instance 1
                 ('test_fixture', 'process_by_galaxy'),  # Module instance 2
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -148,7 +148,7 @@ def test_two_phase_modules_ordering():
     """
     Test execution order with modules in multiple phases
 
-    Expected: With modules in phase_1 and phase_2, phase_1 completes before phase_2
+    Expected: With modules in galaxy_physics and satellite_mergers, galaxy_physics completes before satellite_mergers
     Validates: Galaxy-major within each phase, but phases execute in order
     """
     print("Testing multi-phase galaxy-major execution...")
@@ -158,11 +158,11 @@ def test_two_phase_modules_ordering():
         output_name="multi_phase_galaxy",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('test_fixture', 'process_by_galaxy'),
                 ('test_fixture', 'process_by_galaxy'),
             ],
-            'phase_2': [
+            'satellite_mergers': [
                 ('test_fixture', 'process_by_galaxy'),
             ],
             'post_timestep': []
@@ -193,10 +193,10 @@ def test_two_phase_modules_ordering():
         # Parse executions
         all_executions = parse_test_fixture_executions(stdout)
 
-        # With 2 modules in phase_1, 1 in phase_2, and SubSteps=2:
+        # With 2 modules in galaxy_physics, 1 in satellite_mergers, and SubSteps=2:
         # Per FOF group with N galaxies:
-        # - Substep 0: phase_1 (2N calls), phase_2 (N calls)
-        # - Substep 1: phase_1 (2N calls), phase_2 (N calls)
+        # - Substep 0: galaxy_physics (2N calls), satellite_mergers (N calls)
+        # - Substep 1: galaxy_physics (2N calls), satellite_mergers (N calls)
         # Total: 6N calls per FOF group
 
         # All executions should have ngal=1
@@ -211,7 +211,7 @@ def test_two_phase_modules_ordering():
         substep_0 = [e for e in first_fof if e['substep_number'] == 0]
         substep_1 = [e for e in first_fof if e['substep_number'] == 1]
 
-        # Each substep should have executions (2N from phase_1 + N from phase_2)
+        # Each substep should have executions (2N from galaxy_physics + N from satellite_mergers)
         # Verify we have both substeps represented
         assert len(substep_0) > 0, "Should have executions in substep 0"
         assert len(substep_1) > 0, "Should have executions in substep 1"
@@ -227,8 +227,8 @@ def test_two_phase_modules_ordering():
         print(f"    - {total_galaxies} total galaxies processed")
         print(f"    - {total_executions} total executions")
         print(f"    - Pattern: For each substep:")
-        print(f"      - phase_1: 2 modules × all galaxies (galaxy-major)")
-        print(f"      - phase_2: 1 module × all galaxies (galaxy-major)")
+        print(f"      - galaxy_physics: 2 modules × all galaxies (galaxy-major)")
+        print(f"      - satellite_mergers: 1 module × all galaxies (galaxy-major)")
 
     finally:
         # ===== CLEANUP =====

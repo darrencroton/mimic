@@ -649,6 +649,15 @@ static const char* processing_mode_to_string(enum ProcessingMode mode) {
   }
 }
 
+static void copy_hdf5_string(char dest[MAX_STRING_LEN], const char *src) {
+  if (src == NULL) {
+    dest[0] = '\0';
+    return;
+  }
+  strncpy(dest, src, MAX_STRING_LEN - 1);
+  dest[MAX_STRING_LEN - 1] = '\0';
+}
+
 /**
  * @brief   Writes enabled modules configuration to HDF5 file
  *
@@ -658,7 +667,8 @@ static const char* processing_mode_to_string(enum ProcessingMode mode) {
  * configuration. Each row represents one module instance in the execution pipeline
  * with three fields:
  * - module_name: Name of the physics module
- * - phase: Execution phase (pre_timestep, phase_1, phase_2, post_timestep)
+ * - phase: Execution phase (pre_timestep, the user-named substep phases, or
+ *   post_timestep)
  * - processing_mode: How the module processes data (process_full_halo,
  *   process_per_event, process_by_galaxy)
  *
@@ -679,8 +689,10 @@ static void write_enabled_modules(hid_t parent_group_id) {
   int total_entries = 0;
 
   /* Count total module entries across all phases */
-  total_entries = MimicConfig.num_pre_timestep + MimicConfig.num_phase_1 +
-                  MimicConfig.num_phase_2 + MimicConfig.num_post_timestep;
+  total_entries = MimicConfig.num_pre_timestep + MimicConfig.num_post_timestep;
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    total_entries += MimicConfig.substep_phases[p].num_modules;
+  }
 
   /* Check if there are any enabled modules */
   if (total_entries == 0) {
@@ -708,42 +720,34 @@ static void write_enabled_modules(hid_t parent_group_id) {
 
   /* Pre-timestep phase */
   for (int i = 0; i < MimicConfig.num_pre_timestep; i++, idx++) {
-    strncpy(entries[idx].module_name, MimicConfig.pre_timestep[i].module_name,
-            MAX_STRING_LEN - 1);
-    strncpy(entries[idx].phase, "pre_timestep", MAX_STRING_LEN - 1);
-    strncpy(entries[idx].processing_mode,
-            processing_mode_to_string(MimicConfig.pre_timestep[i].processing_mode),
-            MAX_STRING_LEN - 1);
+    copy_hdf5_string(entries[idx].module_name,
+                     MimicConfig.pre_timestep[i].module_name);
+    copy_hdf5_string(entries[idx].phase, "pre_timestep");
+    copy_hdf5_string(entries[idx].processing_mode,
+                     processing_mode_to_string(
+                         MimicConfig.pre_timestep[i].processing_mode));
   }
 
-  /* Phase 1 */
-  for (int i = 0; i < MimicConfig.num_phase_1; i++, idx++) {
-    strncpy(entries[idx].module_name, MimicConfig.phase_1[i].module_name,
-            MAX_STRING_LEN - 1);
-    strncpy(entries[idx].phase, "phase_1", MAX_STRING_LEN - 1);
-    strncpy(entries[idx].processing_mode,
-            processing_mode_to_string(MimicConfig.phase_1[i].processing_mode),
-            MAX_STRING_LEN - 1);
-  }
-
-  /* Phase 2 */
-  for (int i = 0; i < MimicConfig.num_phase_2; i++, idx++) {
-    strncpy(entries[idx].module_name, MimicConfig.phase_2[i].module_name,
-            MAX_STRING_LEN - 1);
-    strncpy(entries[idx].phase, "phase_2", MAX_STRING_LEN - 1);
-    strncpy(entries[idx].processing_mode,
-            processing_mode_to_string(MimicConfig.phase_2[i].processing_mode),
-            MAX_STRING_LEN - 1);
+  /* User-named substep middle phases, in input order */
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    for (int i = 0; i < phase->num_modules; i++, idx++) {
+      copy_hdf5_string(entries[idx].module_name, phase->modules[i].module_name);
+      copy_hdf5_string(entries[idx].phase, phase->name);
+      copy_hdf5_string(entries[idx].processing_mode,
+                       processing_mode_to_string(
+                           phase->modules[i].processing_mode));
+    }
   }
 
   /* Post-timestep phase */
   for (int i = 0; i < MimicConfig.num_post_timestep; i++, idx++) {
-    strncpy(entries[idx].module_name, MimicConfig.post_timestep[i].module_name,
-            MAX_STRING_LEN - 1);
-    strncpy(entries[idx].phase, "post_timestep", MAX_STRING_LEN - 1);
-    strncpy(entries[idx].processing_mode,
-            processing_mode_to_string(MimicConfig.post_timestep[i].processing_mode),
-            MAX_STRING_LEN - 1);
+    copy_hdf5_string(entries[idx].module_name,
+                     MimicConfig.post_timestep[i].module_name);
+    copy_hdf5_string(entries[idx].phase, "post_timestep");
+    copy_hdf5_string(entries[idx].processing_mode,
+                     processing_mode_to_string(
+                         MimicConfig.post_timestep[i].processing_mode));
   }
 
   /* Create string datatype for fields */

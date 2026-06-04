@@ -116,10 +116,10 @@ def create_test_param_file(output_name, phase_config=None,
     config['simulation']['config'] = str(generated_sim_config)
 
     # Update module configuration - multi-phase pipeline format
-    # Put all modules in phase_1 with processing_mode=BY_GALAXY (test_fixture is a simple test module)
+    # Put all modules in galaxy_physics with processing_mode=BY_GALAXY (test_fixture is a simple test module)
     config['modules']['pre_timestep'] = []
-    config['modules']['phase_1'] = []
-    config['modules']['phase_2'] = []
+    config['modules']['galaxy_physics'] = []
+    config['modules']['satellite_mergers'] = []
     config['modules']['post_timestep'] = []
 
     for phase_name, modules in phase_config.items():
@@ -192,7 +192,7 @@ def test_module_loads():
     # Create minimal parameter file with test_fixture
     param_file = create_test_param_file(
         "test_fixture_load",
-        phase_config={"phase_1": [("test_fixture", "process_by_galaxy")]},
+        phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
         model_params={"TestFixtureDummyParameter": "1.0"},
         first_file=0,
         last_file=0
@@ -225,7 +225,7 @@ def test_parameter_configuration():
     # Create parameter file with custom DummyParameter
     param_file = create_test_param_file(
         "test_fixture_param",
-        phase_config={"phase_1": [("test_fixture", "process_by_galaxy")]},
+        phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
         model_params={"TestFixtureDummyParameter": "3.14"},
         first_file=0,
         last_file=0
@@ -253,7 +253,7 @@ def test_execution_completes():
     # Create parameter file for full execution
     param_file = create_test_param_file(
         "test_fixture_exec",
-        phase_config={"phase_1": [("test_fixture", "process_by_galaxy")]},
+        phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
         model_params={"TestFixtureDummyParameter": "1.0"},
         first_file=0,
         last_file=0
@@ -288,7 +288,7 @@ def test_memory_safety():
     # Create parameter file
     param_file = create_test_param_file(
         "test_fixture_memory",
-        phase_config={"phase_1": [("test_fixture", "process_by_galaxy")]},
+        phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
         model_params={"TestFixtureDummyParameter": "1.0"},
         first_file=0,
         last_file=0

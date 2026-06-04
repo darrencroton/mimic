@@ -27,6 +27,7 @@
 
 #include "../../../../tests/framework/test_framework.h"
 #include "core/module_registry.h"
+#include "../../../../tests/framework/test_phase_config.h"
 #include "core/module_interface.h"
 #include "include/types.h"
 #include "include/proto.h"
@@ -56,7 +57,9 @@ extern double STAR_FORMING_DISK_FACTOR;
  * system requirement. */
 static char sf_pipeline_name0[] = "sage_calculate_star_formation";
 static char sf_pipeline_name1[] = "sage_apply_star_formation_supernova";
+static char sf_phase_name[] = "galaxy_physics";
 static struct PhaseModuleConfig sf_physics_pipeline[2];
+static struct ModulePhaseConfig sf_substep_phase;
 
 /* External stubs */
 extern void set_test_model_parameters(void);
@@ -142,8 +145,11 @@ static void setup_test_parameters(double efficiency, double disk_factor)
     sf_physics_pipeline[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
     sf_physics_pipeline[1].module_name = sf_pipeline_name1;
     sf_physics_pipeline[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1 = sf_physics_pipeline;
-    MimicConfig.num_phase_1 = 2;
+    sf_substep_phase.name = sf_phase_name;
+    sf_substep_phase.modules = sf_physics_pipeline;
+    sf_substep_phase.num_modules = 2;
+    MimicConfig.substep_phases = &sf_substep_phase;
+    MimicConfig.num_substep_phases = 1;
 }
 
 /**
@@ -486,12 +492,8 @@ int test_module_initialization(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* SF requires sage_apply_star_formation_supernova in the pipeline */
-    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_star_formation");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1[1].module_name = strdup("sage_apply_star_formation_supernova");
-    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 2;
+    test_phase_add("galaxy_physics", "sage_calculate_star_formation", PROCESSING_MODE_BY_GALAXY);
+    test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
 
     /* Set required parameters — use full set since apply step is also initialized */

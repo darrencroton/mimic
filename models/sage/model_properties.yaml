@@ -30,7 +30,7 @@ galaxy_properties:
     type: float
     units: 1e10 Msun/h
     description: Cosmological gas infalling onto galaxy this snapshot
-    role: transport  # Written by sage_prepare_infall_budget (pre_timestep); read by sage_apply_infall (phase_1)
+    role: transport  # Written by sage_prepare_infall_budget (pre_timestep); read by sage_apply_infall (galaxy_physics)
     output: false
     init_source: default
     init_value: 0.0

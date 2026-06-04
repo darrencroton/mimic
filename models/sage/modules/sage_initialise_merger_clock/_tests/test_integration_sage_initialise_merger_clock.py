@@ -74,8 +74,8 @@ def test_module_loads():
         output_name="sage_initialise_merger_clock_load",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={}
@@ -112,8 +112,8 @@ def test_memory_safety():
         output_name="sage_initialise_merger_clock_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={}
@@ -150,8 +150,8 @@ def test_output_properties_exist():
         output_format="binary",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={},
@@ -197,8 +197,8 @@ def test_output_property_types():
         output_format="binary",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={},
@@ -243,8 +243,8 @@ def test_output_sanity_checks():
         output_format="binary",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={},
@@ -293,8 +293,8 @@ def test_data_flow_validation():
         output_format="binary",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={},
@@ -347,8 +347,8 @@ def test_standalone_execution():
         output_name="sage_initialise_merger_clock_standalone",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={},
@@ -389,8 +389,8 @@ def test_with_infall_module():
         output_format="binary",
         phase_config={
             'pre_timestep': [('sage_set_infall_properties', 'process_full_halo')],
-            'phase_1': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={},

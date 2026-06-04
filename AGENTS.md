@@ -243,7 +243,7 @@ plot/mimic-plot/     Plotting system (22 plots: 18 snapshot, 4 evolution)
 
 **Model/Simulation Boundary:** Mimic compiles one model set and one simulation property package at a time via `MODEL=<name>` and `SIMULATION=<name>`. A model package must be self-contained for running and plotting: run parameter YAML files, properties, modules, model-local `shared/` helpers, tests, and plot figures should live under `models/<model>/`. A simulation package owns catalog halo properties and tree-format fixtures under `simulations/<simulation>/`. To mix modules from different model families, create a new model package and reconcile property names, parameter names, units, dependencies, tests, and plots there.
 
-**Module System:** Runtime-configurable physics modules execute through a 4-phase pipeline (`pre_timestep` → `phase_1` → `phase_2` → `post_timestep`) with two processing modes: `PROCESSING_MODE_FULL_HALO` and `PROCESSING_MODE_BY_GALAXY`. Module lifecycle: `init()` → `process()` → `cleanup()`.
+**Module System:** Runtime-configurable physics modules execute through fixed optional `pre_timestep`/`post_timestep` lifecycle phases plus ordered user-named substep phases under `modules.phases:`. Supported processing modes are `PROCESSING_MODE_FULL_HALO`, `PROCESSING_MODE_PER_EVENT`, and `PROCESSING_MODE_BY_GALAXY`. Module lifecycle: `init()` → `process()` → `cleanup()`.
 
 **Parameters:** Model parameters come from the input YAML and are accessed via typed getters (`model_get_double()`, `model_get_int()`, `model_get_string()`), with module-local validation in each module `init()`.
 

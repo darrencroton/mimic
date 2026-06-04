@@ -28,7 +28,7 @@ Cooling tables are located in this module's `CoolFunctions/` directory and are l
 ## Processing Contract
 
 - Supported mode: `process_by_galaxy`
-- Expected phase: `phase_1`, before `sage_radio_mode_heating` and `sage_apply_cooling`
+- Expected phase: `galaxy_physics`, before `sage_radio_mode_heating` and `sage_apply_cooling`
 - Receives one galaxy at a time
 
 ## Properties
@@ -42,9 +42,9 @@ None.
 
 ## Pipeline Position
 
-Runs in `phase_1` each substep to calculate cooling budget.
+Runs in `galaxy_physics` each substep to calculate cooling budget.
 
-**Execution order** (phase_1):
+**Execution order** (galaxy_physics):
 1. sage_calculate_cooling_budget - Calculates cooling
 2. sage_radio_mode_heating - AGN suppresses cooling
 3. sage_apply_cooling - Transfers cooling to cold gas

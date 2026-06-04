@@ -53,8 +53,8 @@ def test_module_pipeline_integration():
         output_name="sf_integration",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -107,8 +107,8 @@ def test_star_formation_physics():
         output_name="sf_physics",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -176,8 +176,8 @@ def test_parameter_sensitivity():
         output_name="sf_low_eff",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -202,8 +202,8 @@ def test_parameter_sensitivity():
         output_name="sf_high_eff",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -267,8 +267,8 @@ def test_memory_and_performance():
         output_name="sf_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={

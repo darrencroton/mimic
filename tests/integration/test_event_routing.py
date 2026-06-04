@@ -91,11 +91,11 @@ def test_routing_single_consumer_receives_events():
         output_name="routing_single_consumer",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('test_event_producer', 'process_full_halo'),
                 ('test_event_consumer_alpha', 'process_per_event'),
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': [],
         },
         model_params={
@@ -142,12 +142,12 @@ def test_routing_unsubscribed_consumer_receives_no_events():
         output_name="routing_unsubscribed",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('test_event_producer', 'process_full_halo'),
                 ('test_event_consumer_alpha', 'process_per_event'),
                 ('test_event_consumer_beta', 'process_per_event'),
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': [],
         },
         model_params={
@@ -203,12 +203,12 @@ def test_routing_two_consumers_different_subscriptions():
         output_name="routing_two_consumers",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('test_event_producer', 'process_full_halo'),
                 ('test_event_consumer_alpha', 'process_per_event'),
                 ('test_event_consumer_beta', 'process_per_event'),
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': [],
         },
         model_params={
@@ -253,7 +253,7 @@ def test_routing_multiple_producers_in_one_phase():
     Configuration:
         producer_a: test_event (EmitCount=1)  → alpha subscribes
         producer_b: test_event_b (EmitBCount=1) → gamma subscribes
-        Both producers and both consumers run in phase_1.
+        Both producers and both consumers run in galaxy_physics.
 
     Expected: alpha > 0 events from producer_a, gamma > 0 events from producer_b.
     Validates: multiple process_full_halo producers co-exist; each consumer
@@ -265,13 +265,13 @@ def test_routing_multiple_producers_in_one_phase():
         output_name="routing_multi_producer",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('test_event_producer',   'process_full_halo'),
                 ('test_event_producer_b', 'process_full_halo'),
                 ('test_event_consumer_alpha', 'process_per_event'),
                 ('test_event_consumer_gamma', 'process_per_event'),
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': [],
         },
         model_params={

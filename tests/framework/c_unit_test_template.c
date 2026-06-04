@@ -28,6 +28,7 @@
 
 #include "../../../tests/framework/test_framework.h"
 #include "../core/module_registry.h"
+#include "../../../tests/framework/test_phase_config.h"
 #include "../core/module_interface.h"
 #include "../include/types.h"
 #include "../include/proto.h"
@@ -176,10 +177,7 @@ int test_module_initialization(void)
     MimicConfig.Hubble_h = 0.73;
 
     /* Configure module in appropriate phase */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("[module_name]");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "[module_name]", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -214,10 +212,7 @@ int test_memory_safety(void)
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
 
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("[module_name]");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "[module_name]", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 

@@ -39,16 +39,37 @@
  * lists of these for each phase, defining the complete execution pipeline.
  *
  * Example YAML:
- *   phase_1:
- *     - sage_calculate_cooling: process_by_galaxy
- *     - sage_radio_mode_heating: process_by_galaxy
- *     - sage_add_cooling: process_by_galaxy
+ *   modules:
+ *     phases:
+ *       galaxy_physics:
+ *         - sage_calculate_cooling: process_by_galaxy
+ *         - sage_radio_mode_heating: process_by_galaxy
+ *         - sage_add_cooling: process_by_galaxy
  *
- * This creates three PhaseModuleConfig entries for phase_1.
+ * This creates three PhaseModuleConfig entries for the named substep phase.
  */
 struct PhaseModuleConfig {
   char *module_name;                  /**< Module name (must match registered module) */
   enum ProcessingMode processing_mode; /**< How to call module */
+};
+
+/** Maximum number of user-named substep middle phases per run */
+#define MAX_SUBSTEP_PHASES 32
+
+/**
+ * @brief   One user-named substep middle phase
+ *
+ * The fixed lifecycle phases (pre_timestep, post_timestep) bracket an ordered
+ * list of these middle phases. Each runs once per substep, in input order. The
+ * name is user-facing configuration (e.g. "galaxy_physics", "satellite_mergers")
+ * and is recorded in run provenance so the physical pipeline is recoverable
+ * from outputs. Legacy top-level phase_1/phase_2 inputs are rejected by the
+ * parser rather than translated.
+ */
+struct ModulePhaseConfig {
+  char *name;                        /**< User-facing phase name (heap-owned) */
+  struct PhaseModuleConfig *modules; /**< Modules configured in this phase */
+  int num_modules;                   /**< Number of modules in this phase */
 };
 
 /**
@@ -180,11 +201,13 @@ int model_get_string(const char *param_name, char *out_value, size_t max_len);
 /**
  * @brief   Check if a module is configured in a given phase with a specific mode
  *
- * Intended for use in module init() functions to enforce dependency contracts.
+ * Intended for use in module init() functions to enforce dependency contracts
+ * against the fixed lifecycle phases. For the substep middle phases use the
+ * phase-name-agnostic helpers below (module_in_substep_phase, etc.).
  *
  * @param   name         Module name to search for
- * @param   phase        Phase config array (e.g., MimicConfig.phase_1)
- * @param   num_modules  Number of entries in the phase array
+ * @param   phase        Phase config array (e.g., MimicConfig.pre_timestep)
+ * @param   num_modules  Number of entries in the phase array (e.g. num_pre_timestep)
  * @param   mode         Processing mode to match
  * @return  true if the module is present in the phase with the given mode
  */
@@ -212,7 +235,7 @@ bool module_configured_anywhere(const char *name);
 /**
  * @brief   Callback invoked for each resolved event subscription contract
  *
- * @param   phase             Phase name (e.g., "phase_2")
+ * @param   phase             Phase name (e.g., "satellite_mergers")
  * @param   consumer_module   Consumer module name
  * @param   producer_module   Producer module name
  * @param   event_name        Event name (e.g., "merger")
@@ -256,5 +279,50 @@ void module_system_enumerate_event_contracts(EventContractCallback cb,
 bool module_precedes_in_phase(const char *first, const char *second,
                               const struct PhaseModuleConfig *phase,
                               int num_modules);
+
+/* ==============================================================================
+ * SUBSTEP-PHASE DEPENDENCY API (phase-name-agnostic)
+ * ==============================================================================
+ *
+ * The substep middle phases are user-named and arbitrary in number, so module
+ * init() code must not reference a fixed numbered phase array. These helpers ask
+ * dependency questions in terms of "the substep phase containing this module"
+ * without naming it. Checks against the fixed pre_timestep/post_timestep phases
+ * still use module_configured_in_phase() with MimicConfig.pre_timestep/post_timestep.
+ */
+
+/**
+ * @brief   Is (name, mode) configured in any substep middle phase?
+ *
+ * @param   name  Module name to search for
+ * @param   mode  Processing mode to match
+ * @return  true if the (module, mode) pair appears in some substep phase
+ */
+bool module_in_substep_phase(const char *name, enum ProcessingMode mode);
+
+/**
+ * @brief   Do (a, mode_a) and (b, mode_b) appear together in one substep phase?
+ *
+ * Used to enforce same-phase co-occurrence contracts (e.g. a per-event consumer
+ * needs its full-halo producer in the same phase).
+ *
+ * @return  true if some single substep phase contains both pairings
+ */
+bool modules_in_same_substep_phase(const char *a, enum ProcessingMode mode_a,
+                                   const char *b, enum ProcessingMode mode_b);
+
+/**
+ * @brief   Does (first, first_mode) precede (second, second_mode) within the
+ *          same substep phase?
+ *
+ * Returns true only if some substep phase contains both module/mode pairs with
+ * 'first' earlier in YAML order. Returns false if they never share a phase.
+ *
+ * @return  true if first precedes second within a shared substep phase
+ */
+bool module_precedes_in_substep_phase(const char *first,
+                                      enum ProcessingMode first_mode,
+                                      const char *second,
+                                      enum ProcessingMode second_mode);
 
 #endif // MODULE_REGISTRY_H

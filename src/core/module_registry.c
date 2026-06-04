@@ -42,7 +42,7 @@ static struct Module *registered_modules[MAX_MODULES];
 /** Number of currently registered modules */
 static int num_registered_modules = 0;
 
-/** Array of enabled modules in execution order (runtime configuration) */
+/** Array of configured modules in execution order (runtime configuration) */
 static struct Module *execution_pipeline[MAX_MODULES];
 
 /** Number of modules in execution pipeline */
@@ -161,7 +161,7 @@ void module_registry_add(struct Module *module) {
  *
  * Validates multi-phase pipeline configuration and initializes all referenced
  * modules. Modules are initialized in the order they appear across all phases
- * (pre_timestep → phase_1 → phase_2 → post_timestep), with duplicates
+ * (pre_timestep → named substep phases → post_timestep), with duplicates
  * initialized only once.
  *
  * @return  0 on success, non-zero if initialization fails
@@ -270,25 +270,117 @@ bool module_configured_in_phase(const char *name,
   return false;
 }
 
+/**
+ * @brief   Does a phase array contain a module by name (any mode)?
+ */
+static bool phase_contains_module(const struct PhaseModuleConfig *phase,
+                                  int num_modules, const char *name) {
+  if (phase == NULL) {
+    return false;
+  }
+  for (int i = 0; i < num_modules; i++) {
+    if (phase[i].module_name != NULL &&
+        strcmp(phase[i].module_name, name) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool module_configured_anywhere(const char *name) {
   if (name == NULL) {
     return false;
   }
-  const struct PhaseModuleConfig *phases[4] = {
-      MimicConfig.pre_timestep, MimicConfig.phase_1,
-      MimicConfig.phase_2,      MimicConfig.post_timestep};
-  const int counts[4] = {MimicConfig.num_pre_timestep, MimicConfig.num_phase_1,
-                         MimicConfig.num_phase_2, MimicConfig.num_post_timestep};
+  if (phase_contains_module(MimicConfig.pre_timestep,
+                            MimicConfig.num_pre_timestep, name)) {
+    return true;
+  }
+  if (phase_contains_module(MimicConfig.post_timestep,
+                            MimicConfig.num_post_timestep, name)) {
+    return true;
+  }
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    if (phase_contains_module(MimicConfig.substep_phases[p].modules,
+                              MimicConfig.substep_phases[p].num_modules, name)) {
+      return true;
+    }
+  }
+  return false;
+}
 
-  for (int p = 0; p < 4; p++) {
-    if (phases[p] == NULL) {
+bool module_in_substep_phase(const char *name, enum ProcessingMode mode) {
+  if (name == NULL) {
+    return false;
+  }
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    if (module_configured_in_phase(name, phase->modules, phase->num_modules,
+                                   mode)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool modules_in_same_substep_phase(const char *a, enum ProcessingMode mode_a,
+                                   const char *b, enum ProcessingMode mode_b) {
+  if (a == NULL || b == NULL) {
+    return false;
+  }
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    if (module_configured_in_phase(a, phase->modules, phase->num_modules,
+                                   mode_a) &&
+        module_configured_in_phase(b, phase->modules, phase->num_modules,
+                                   mode_b)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool module_mode_precedes_in_phase(const char *first,
+                                          enum ProcessingMode first_mode,
+                                          const char *second,
+                                          enum ProcessingMode second_mode,
+                                          const struct PhaseModuleConfig *phase,
+                                          int num_modules) {
+  if (first == NULL || second == NULL || phase == NULL || num_modules <= 0) {
+    return false;
+  }
+  int first_idx = -1;
+  int second_idx = -1;
+  for (int i = 0; i < num_modules; i++) {
+    if (phase[i].module_name == NULL) {
       continue;
     }
-    for (int i = 0; i < counts[p]; i++) {
-      if (phases[p][i].module_name != NULL &&
-          strcmp(phases[p][i].module_name, name) == 0) {
-        return true;
-      }
+    if (first_idx < 0 && phase[i].processing_mode == first_mode &&
+        strcmp(phase[i].module_name, first) == 0) {
+      first_idx = i;
+    }
+    if (second_idx < 0 && phase[i].processing_mode == second_mode &&
+        strcmp(phase[i].module_name, second) == 0) {
+      second_idx = i;
+    }
+  }
+  if (first_idx < 0 || second_idx < 0) {
+    return false;
+  }
+  return first_idx < second_idx;
+}
+
+bool module_precedes_in_substep_phase(const char *first,
+                                      enum ProcessingMode first_mode,
+                                      const char *second,
+                                      enum ProcessingMode second_mode) {
+  if (first == NULL || second == NULL) {
+    return false;
+  }
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    if (module_mode_precedes_in_phase(first, first_mode, second, second_mode,
+                                      phase->modules, phase->num_modules)) {
+      return true;
     }
   }
   return false;
@@ -438,11 +530,11 @@ int module_system_init(void) {
   for (int i = 0; i < MimicConfig.num_pre_timestep; i++) {
     add_module_to_pipeline(MimicConfig.pre_timestep[i].module_name);
   }
-  for (int i = 0; i < MimicConfig.num_phase_1; i++) {
-    add_module_to_pipeline(MimicConfig.phase_1[i].module_name);
-  }
-  for (int i = 0; i < MimicConfig.num_phase_2; i++) {
-    add_module_to_pipeline(MimicConfig.phase_2[i].module_name);
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    for (int i = 0; i < phase->num_modules; i++) {
+      add_module_to_pipeline(phase->modules[i].module_name);
+    }
   }
   for (int i = 0; i < MimicConfig.num_post_timestep; i++) {
     add_module_to_pipeline(MimicConfig.post_timestep[i].module_name);
@@ -457,8 +549,10 @@ int module_system_init(void) {
   INFO_LOG("Pipeline configuration:");
   INFO_LOG("  SubSteps: %d", MimicConfig.SubSteps);
   INFO_LOG("  Pre-timestep: %d module(s)", MimicConfig.num_pre_timestep);
-  INFO_LOG("  Phase 1: %d module(s)", MimicConfig.num_phase_1);
-  INFO_LOG("  Phase 2: %d module(s)", MimicConfig.num_phase_2);
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    INFO_LOG("  %s: %d module(s)", MimicConfig.substep_phases[p].name,
+             MimicConfig.substep_phases[p].num_modules);
+  }
   INFO_LOG("  Post-timestep: %d module(s)", MimicConfig.num_post_timestep);
   INFO_LOG("  Total unique modules: %d", num_pipeline_modules);
 
@@ -471,14 +565,12 @@ int module_system_init(void) {
     return -1;
   }
 
-  if (validate_phase_processing_modes(MimicConfig.phase_1, MimicConfig.num_phase_1,
-                                      "phase_1") != 0) {
-    return -1;
-  }
-
-  if (validate_phase_processing_modes(MimicConfig.phase_2, MimicConfig.num_phase_2,
-                                      "phase_2") != 0) {
-    return -1;
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    if (validate_phase_processing_modes(phase->modules, phase->num_modules,
+                                        phase->name) != 0) {
+      return -1;
+    }
   }
 
   if (validate_phase_processing_modes(MimicConfig.post_timestep,
@@ -498,14 +590,12 @@ int module_system_init(void) {
     return -1;
   }
 
-  if (validate_event_subscriptions(MimicConfig.phase_1, MimicConfig.num_phase_1,
-                                   "phase_1") != 0) {
-    return -1;
-  }
-
-  if (validate_event_subscriptions(MimicConfig.phase_2, MimicConfig.num_phase_2,
-                                   "phase_2") != 0) {
-    return -1;
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    if (validate_event_subscriptions(phase->modules, phase->num_modules,
+                                     phase->name) != 0) {
+      return -1;
+    }
   }
 
   if (validate_event_subscriptions(MimicConfig.post_timestep,
@@ -850,15 +940,60 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
  *
  * @return  0 on success, non-zero if any module cleanup fails
  */
+static void free_phase_configuration(void) {
+  if (MimicConfig.pre_timestep) {
+    for (int i = 0; i < MimicConfig.num_pre_timestep; i++) {
+      if (MimicConfig.pre_timestep[i].module_name) {
+        free((void *)MimicConfig.pre_timestep[i].module_name);
+      }
+    }
+    myfree(MimicConfig.pre_timestep);
+    MimicConfig.pre_timestep = NULL;
+  }
+  MimicConfig.num_pre_timestep = 0;
+
+  if (MimicConfig.substep_phases) {
+    for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+      struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+      if (phase->modules) {
+        for (int i = 0; i < phase->num_modules; i++) {
+          if (phase->modules[i].module_name) {
+            free((void *)phase->modules[i].module_name);
+          }
+        }
+        myfree(phase->modules);
+      }
+      if (phase->name) {
+        free(phase->name);
+      }
+    }
+    myfree(MimicConfig.substep_phases);
+    MimicConfig.substep_phases = NULL;
+  }
+  MimicConfig.num_substep_phases = 0;
+
+  if (MimicConfig.post_timestep) {
+    for (int i = 0; i < MimicConfig.num_post_timestep; i++) {
+      if (MimicConfig.post_timestep[i].module_name) {
+        free((void *)MimicConfig.post_timestep[i].module_name);
+      }
+    }
+    myfree(MimicConfig.post_timestep);
+    MimicConfig.post_timestep = NULL;
+  }
+  MimicConfig.num_post_timestep = 0;
+}
+
 int module_system_cleanup(void) {
+  int result = 0;
+
   if (num_pipeline_modules == 0) {
+    free_phase_configuration();
     INFO_LOG("Module system cleanup complete (no modules were enabled)");
     return 0;
   }
 
   INFO_LOG("Cleaning up %d module(s)", num_pipeline_modules);
-
-  int result = 0;
 
   // Cleanup in reverse order
   for (int i = num_pipeline_modules - 1; i >= 0; i--) {
@@ -871,48 +1006,11 @@ int module_system_cleanup(void) {
                 cleanup_result);
       result = cleanup_result; // Continue cleanup but record failure
     }
+    execution_pipeline[i] = NULL;
   }
 
-  // Free phase configuration arrays and their module name strings
-  if (MimicConfig.pre_timestep) {
-    for (int i = 0; i < MimicConfig.num_pre_timestep; i++) {
-      if (MimicConfig.pre_timestep[i].module_name) {
-        free((void *)MimicConfig.pre_timestep[i].module_name);
-      }
-    }
-    myfree(MimicConfig.pre_timestep);
-    MimicConfig.pre_timestep = NULL;
-  }
-
-  if (MimicConfig.phase_1) {
-    for (int i = 0; i < MimicConfig.num_phase_1; i++) {
-      if (MimicConfig.phase_1[i].module_name) {
-        free((void *)MimicConfig.phase_1[i].module_name);
-      }
-    }
-    myfree(MimicConfig.phase_1);
-    MimicConfig.phase_1 = NULL;
-  }
-
-  if (MimicConfig.phase_2) {
-    for (int i = 0; i < MimicConfig.num_phase_2; i++) {
-      if (MimicConfig.phase_2[i].module_name) {
-        free((void *)MimicConfig.phase_2[i].module_name);
-      }
-    }
-    myfree(MimicConfig.phase_2);
-    MimicConfig.phase_2 = NULL;
-  }
-
-  if (MimicConfig.post_timestep) {
-    for (int i = 0; i < MimicConfig.num_post_timestep; i++) {
-      if (MimicConfig.post_timestep[i].module_name) {
-        free((void *)MimicConfig.post_timestep[i].module_name);
-      }
-    }
-    myfree(MimicConfig.post_timestep);
-    MimicConfig.post_timestep = NULL;
-  }
+  free_phase_configuration();
+  num_pipeline_modules = 0;
 
   INFO_LOG("Module system cleanup complete");
   return result;
@@ -922,43 +1020,49 @@ int module_system_cleanup(void) {
  * EVENT CONTRACT ENUMERATION
  * ============================================================================== */
 
+/**
+ * @brief   Emit event contracts for one phase's per-event consumers.
+ */
+static void enumerate_phase_event_contracts(const char *phase_name,
+                                            const struct PhaseModuleConfig *phase,
+                                            int num_modules,
+                                            EventContractCallback cb,
+                                            void *userdata) {
+  if (phase == NULL) {
+    return;
+  }
+  for (int i = 0; i < num_modules; i++) {
+    if (phase[i].processing_mode != PROCESSING_MODE_PER_EVENT) {
+      continue;
+    }
+    const char *consumer_name = phase[i].module_name;
+    struct Module *consumer = find_module_by_name(consumer_name);
+    if (consumer == NULL || consumer->num_subscriptions == 0) {
+      continue;
+    }
+    for (int s = 0; s < consumer->num_subscriptions; s++) {
+      const struct EventSubscription *sub = &consumer->subscriptions[s];
+      cb(phase_name, consumer_name, sub->producer_name, sub->event_name,
+         sub->event_id, userdata);
+    }
+  }
+}
+
 void module_system_enumerate_event_contracts(EventContractCallback cb,
                                              void *userdata) {
   if (cb == NULL) {
     return;
   }
 
-  static const char *phase_names[MODULE_PHASE_COUNT] = {
-      "pre_timestep", "phase_1", "phase_2", "post_timestep"};
-
-  const struct PhaseModuleConfig *phases[MODULE_PHASE_COUNT] = {
-      MimicConfig.pre_timestep, MimicConfig.phase_1,
-      MimicConfig.phase_2,      MimicConfig.post_timestep};
-
-  const int counts[MODULE_PHASE_COUNT] = {
-      MimicConfig.num_pre_timestep, MimicConfig.num_phase_1,
-      MimicConfig.num_phase_2,      MimicConfig.num_post_timestep};
-
-  for (int p = 0; p < MODULE_PHASE_COUNT; p++) {
-    if (phases[p] == NULL) {
-      continue;
-    }
-    for (int i = 0; i < counts[p]; i++) {
-      if (phases[p][i].processing_mode != PROCESSING_MODE_PER_EVENT) {
-        continue;
-      }
-      const char *consumer_name = phases[p][i].module_name;
-      struct Module *consumer = find_module_by_name(consumer_name);
-      if (consumer == NULL || consumer->num_subscriptions == 0) {
-        continue;
-      }
-      for (int s = 0; s < consumer->num_subscriptions; s++) {
-        const struct EventSubscription *sub = &consumer->subscriptions[s];
-        cb(phase_names[p], consumer_name, sub->producer_name,
-           sub->event_name, sub->event_id, userdata);
-      }
-    }
+  enumerate_phase_event_contracts("pre_timestep", MimicConfig.pre_timestep,
+                                  MimicConfig.num_pre_timestep, cb, userdata);
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    enumerate_phase_event_contracts(phase->name, phase->modules,
+                                    phase->num_modules, cb, userdata);
   }
+  enumerate_phase_event_contracts("post_timestep", MimicConfig.post_timestep,
+                                  MimicConfig.num_post_timestep, cb, userdata);
 }
 
 /* ==============================================================================

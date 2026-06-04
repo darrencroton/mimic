@@ -58,12 +58,12 @@ def test_full_pipeline_conservation():
         output_name="update_sf_conservation",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -132,12 +132,12 @@ def test_gas_transfer_physics():
         output_name="update_sf_gas_transfers",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -221,12 +221,12 @@ def test_metal_enrichment():
         output_name="update_sf_metals",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -291,12 +291,12 @@ def test_parameter_sensitivity():
         output_name="update_sf_params_low",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -321,12 +321,12 @@ def test_parameter_sensitivity():
         output_name="update_sf_params_high",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -399,12 +399,12 @@ def test_edge_cases():
         output_name="update_sf_edge_cases",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -474,12 +474,12 @@ def test_memory_and_performance():
         output_name="update_sf_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_star_formation', 'process_by_galaxy'),
                 ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
                 ('sage_apply_star_formation_supernova', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={

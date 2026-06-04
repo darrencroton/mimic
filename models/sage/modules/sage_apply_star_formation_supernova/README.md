@@ -5,7 +5,7 @@ Applies star-formation and supernova transport fields to the persistent galaxy r
 ## Processing Contract
 
 - Supported mode: `process_by_galaxy`
-- Expected phase: `phase_1`, after `sage_calculate_star_formation` and usually after `sage_calculate_supernova_feedback`
+- Expected phase: `galaxy_physics`, after `sage_calculate_star_formation` and usually after `sage_calculate_supernova_feedback`
 - Receives one galaxy at a time and uses the FoF central for feedback reservoir transfers
 
 ## Properties

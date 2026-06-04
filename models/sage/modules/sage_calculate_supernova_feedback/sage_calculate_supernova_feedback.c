@@ -55,12 +55,14 @@ int sage_calculate_supernova_feedback_init(void)
         return -1;
     }
 
-    /* ERROR: if both SF and SN are configured, SF must precede SN */
+    /* ERROR: if both SF and SN are configured, SF must precede SN in the same phase */
     if (module_configured_anywhere("sage_calculate_star_formation") &&
-        !module_precedes_in_phase("sage_calculate_star_formation", "sage_calculate_supernova_feedback",
-                                  MimicConfig.phase_1, MimicConfig.num_phase_1)) {
+        !module_precedes_in_substep_phase("sage_calculate_star_formation",
+                                          PROCESSING_MODE_BY_GALAXY,
+                                          "sage_calculate_supernova_feedback",
+                                          PROCESSING_MODE_BY_GALAXY)) {
         ERROR_LOG("sage_calculate_supernova_feedback requires sage_calculate_star_formation to "
-                  "precede it in phase_1 — SN reads NewStellarMass written by "
+                  "precede it in the same substep phase — SN reads NewStellarMass written by "
                   "SF; wrong order applies stale values from previous substep");
         return -1;
     }

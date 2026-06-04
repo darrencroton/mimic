@@ -21,6 +21,7 @@
 
 #include "../framework/test_framework.h"
 #include "../../src/core/module_registry.h"
+#include "../framework/test_phase_config.h"
 #include "../../src/core/module_interface.h"
 #include "../../src/include/types.h"
 #include "../../src/include/proto.h"
@@ -109,26 +110,25 @@ int test_phase_configuration(void) {
     MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_pre_timestep = 1;
 
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
 
     MimicConfig.SubSteps = 1;
 
     /* ===== VERIFY ===== */
     TEST_ASSERT_EQUAL(MimicConfig.num_pre_timestep, 1,
                       "Should have 1 module in pre_timestep");
-    TEST_ASSERT_EQUAL(MimicConfig.num_phase_1, 1,
-                      "Should have 1 module in phase_1");
+    TEST_ASSERT_EQUAL(MimicConfig.num_substep_phases, 1,
+                      "Should have 1 substep phase");
+    TEST_ASSERT_EQUAL(MimicConfig.substep_phases[0].num_modules, 1,
+                      "Should have 1 module in the substep phase");
     TEST_ASSERT_STRING_EQUAL(MimicConfig.pre_timestep[0].module_name, "test_fixture",
                              "pre_timestep module should be test_fixture");
     TEST_ASSERT_EQUAL(MimicConfig.pre_timestep[0].processing_mode, PROCESSING_MODE_FULL_HALO,
                       "pre_timestep loop mode should be PROCESSING_MODE_FULL_HALO");
-    TEST_ASSERT_STRING_EQUAL(MimicConfig.phase_1[0].module_name, "test_fixture",
-                             "phase_1 module should be test_fixture");
-    TEST_ASSERT_EQUAL(MimicConfig.phase_1[0].processing_mode, PROCESSING_MODE_BY_GALAXY,
-                      "phase_1 loop mode should be PROCESSING_MODE_BY_GALAXY");
+    TEST_ASSERT_STRING_EQUAL(MimicConfig.substep_phases[0].modules[0].module_name, "test_fixture",
+                             "substep phase module should be test_fixture");
+    TEST_ASSERT_EQUAL(MimicConfig.substep_phases[0].modules[0].processing_mode, PROCESSING_MODE_BY_GALAXY,
+                      "substep phase module mode should be PROCESSING_MODE_BY_GALAXY");
 
     return TEST_PASS;
 }
@@ -149,10 +149,8 @@ int test_physics_free_mode(void) {
     /* No modules in any phase (all NULL, counts = 0) */
     MimicConfig.pre_timestep = NULL;
     MimicConfig.num_pre_timestep = 0;
-    MimicConfig.phase_1 = NULL;
-    MimicConfig.num_phase_1 = 0;
-    MimicConfig.phase_2 = NULL;
-    MimicConfig.num_phase_2 = 0;
+    MimicConfig.substep_phases = NULL;
+    MimicConfig.num_substep_phases = 0;
     MimicConfig.post_timestep = NULL;
     MimicConfig.num_post_timestep = 0;
     MimicConfig.SubSteps = 1;
@@ -167,6 +165,44 @@ int test_physics_free_mode(void) {
     /* ===== CLEANUP ===== */
     module_system_cleanup();
 
+    return TEST_PASS;
+}
+
+/**
+ * @test    test_empty_named_phase_cleanup
+ * @brief   Test cleanup releases empty named substep phases in physics-free mode
+ *
+ * Expected: module_system_cleanup() frees named phase config even when no modules
+ * are initialized.
+ * Validates: Empty named phases do not leak when the pipeline is physics-free
+ */
+int test_empty_named_phase_cleanup(void) {
+    /* ===== SETUP ===== */
+    reset_config();
+    init_memory_system(0);
+    ensure_modules_registered();
+
+    MimicConfig.substep_phases =
+        mymalloc_cat(MAX_SUBSTEP_PHASES * sizeof(struct ModulePhaseConfig), MEM_UTILITY);
+    MimicConfig.substep_phases[0].name = strdup("galaxy_physics");
+    MimicConfig.substep_phases[0].modules = NULL;
+    MimicConfig.substep_phases[0].num_modules = 0;
+    MimicConfig.num_substep_phases = 1;
+    MimicConfig.SubSteps = 1;
+
+    /* ===== EXECUTE ===== */
+    int result = module_system_init();
+    module_system_cleanup();
+
+    /* ===== VERIFY ===== */
+    TEST_ASSERT_EQUAL(result, 0,
+                      "module_system_init should succeed with an empty named phase");
+    TEST_ASSERT(MimicConfig.substep_phases == NULL,
+                "cleanup should release empty named phase arrays");
+    TEST_ASSERT_EQUAL(MimicConfig.num_substep_phases, 0,
+                      "cleanup should reset named phase count");
+
+    check_memory_leaks();
     return TEST_PASS;
 }
 
@@ -192,10 +228,7 @@ int test_valid_module_initialization(void) {
     MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
     MimicConfig.num_pre_timestep = 1;
 
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
 
     MimicConfig.SubSteps = 1;
 
@@ -253,11 +286,8 @@ int test_single_phase_configuration(void) {
     /* Set test_fixture parameters */
     set_test_fixture_params(1.0, 0);
 
-    /* Enable module only in phase_1 */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    /* Enable module only in galaxy_physics */
+    test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
 
     MimicConfig.SubSteps = 1;
 
@@ -291,6 +321,7 @@ int main(void) {
     TEST_RUN(test_module_registry_init);
     TEST_RUN(test_phase_configuration);
     TEST_RUN(test_physics_free_mode);
+    TEST_RUN(test_empty_named_phase_cleanup);
     TEST_RUN(test_valid_module_initialization);
     TEST_RUN(test_unknown_module_error);
     TEST_RUN(test_single_phase_configuration);

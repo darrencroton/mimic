@@ -5,7 +5,7 @@ Distributes the prepared infall budget into the central hot reservoir during sub
 ## Processing Contract
 
 - Supported mode: `process_full_halo`
-- Expected phase: `phase_1`, after `sage_prepare_infall_budget`
+- Expected phase: `galaxy_physics`, after `sage_prepare_infall_budget`
 - Receives the full FoF workspace and acts on the FoF central
 
 ## Properties

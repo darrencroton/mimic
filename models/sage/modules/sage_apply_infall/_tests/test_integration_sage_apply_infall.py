@@ -64,8 +64,8 @@ def test_module_loads():
         output_name="sage_apply_infall_load",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -106,8 +106,8 @@ def test_output_properties_exist():
         output_name="sage_apply_infall_output",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -152,8 +152,8 @@ def test_with_sage_prepare_infall_budget():
         output_name="sage_apply_infall_with_infall",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -194,8 +194,8 @@ def test_memory_safety():
         output_name="sage_apply_infall_memory",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
@@ -231,8 +231,8 @@ def test_execution_completes():
         output_name="sage_apply_infall_complete",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17},
@@ -272,18 +272,18 @@ def test_substep_distribution():
         output_name="sage_apply_infall_substeps",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}
     )
 
-    # Update substeps in the parameter file
+    # Update substeps in the parameter file (SubSteps is a top-level key)
     with open(param_file, 'r') as f:
         config = yaml.safe_load(f)
 
-    config['modules']['substeps'] = 4
+    config['SubSteps'] = 4
 
     with open(param_file, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -323,8 +323,8 @@ def test_negative_infall_physics():
         output_name="sage_apply_infall_negative",
         phase_config={
             'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'phase_1': [('sage_apply_infall', 'process_full_halo')],
-            'phase_2': [],
+            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={'GlobalBaryonFraction': 0.17}

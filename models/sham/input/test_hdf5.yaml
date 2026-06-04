@@ -52,5 +52,4 @@ output:
 # Physics modules currently disabled for baseline testing
 # Mimic operates as a physics-agnostic framework for halo tracking
 modules:
-  enabled: []
   parameters: {}

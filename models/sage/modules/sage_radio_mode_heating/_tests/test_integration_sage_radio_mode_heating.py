@@ -55,11 +55,11 @@ def test_module_pipeline_integration():
         output_name="agn_integration",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -127,11 +127,11 @@ def test_agn_physics_correctness():
         output_name="agn_physics",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -203,11 +203,11 @@ def test_parameter_sensitivity():
         output_name="agn_off",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -233,11 +233,11 @@ def test_parameter_sensitivity():
         output_name="agn_low_eff",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -266,11 +266,11 @@ def test_parameter_sensitivity():
         output_name="agn_high_eff",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -299,11 +299,11 @@ def test_parameter_sensitivity():
         output_name="agn_cold_cloud",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -359,11 +359,11 @@ def test_memory_and_performance():
         output_name="agn_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_calculate_cooling_budget', 'process_by_galaxy'),
                 ('sage_radio_mode_heating', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={

@@ -59,20 +59,22 @@ int sage_apply_star_formation_supernova_init(void)
 
     /* ERROR: any SF/SN module must precede this apply step in the same phase */
     if (sf_present &&
-        !module_precedes_in_phase("sage_calculate_star_formation",
-                                  "sage_apply_star_formation_supernova",
-                                  MimicConfig.phase_1, MimicConfig.num_phase_1)) {
+        !module_precedes_in_substep_phase("sage_calculate_star_formation",
+                                          PROCESSING_MODE_BY_GALAXY,
+                                          "sage_apply_star_formation_supernova",
+                                          PROCESSING_MODE_BY_GALAXY)) {
         ERROR_LOG("sage_apply_star_formation_supernova requires "
-                  "sage_calculate_star_formation to precede it in phase_1 — apply step "
+                  "sage_calculate_star_formation to precede it in the same substep phase — apply step "
                   "would commit stale values from the previous substep");
         return -1;
     }
     if (sn_present &&
-        !module_precedes_in_phase("sage_calculate_supernova_feedback",
-                                  "sage_apply_star_formation_supernova",
-                                  MimicConfig.phase_1, MimicConfig.num_phase_1)) {
+        !module_precedes_in_substep_phase("sage_calculate_supernova_feedback",
+                                          PROCESSING_MODE_BY_GALAXY,
+                                          "sage_apply_star_formation_supernova",
+                                          PROCESSING_MODE_BY_GALAXY)) {
         ERROR_LOG("sage_apply_star_formation_supernova requires "
-                  "sage_calculate_supernova_feedback to precede it in phase_1 — apply "
+                  "sage_calculate_supernova_feedback to precede it in the same substep phase — apply "
                   "step would commit stale values from the previous substep");
         return -1;
     }

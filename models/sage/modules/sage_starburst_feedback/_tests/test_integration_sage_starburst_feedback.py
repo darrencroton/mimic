@@ -58,13 +58,13 @@ def test_module_pipeline_integration():
         output_name="starburst_integration",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 # Disk instability sets UnstableDiskGasFraction trigger
                 ('sage_disk_instability', 'process_by_galaxy'),
                 # Collisional starburst processes the trigger
                 ('sage_starburst_feedback', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -153,11 +153,11 @@ def test_starburst_physics_correctness():
         output_name="starburst_physics",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_starburst_feedback', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -240,11 +240,11 @@ def test_disk_instability_trigger():
         output_name="starburst_disk_trigger",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_starburst_feedback', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -302,10 +302,10 @@ def test_merger_trigger():
         output_name="starburst_no_triggers",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_starburst_feedback', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -349,11 +349,11 @@ def test_parameter_sensitivity():
         output_name="starburst_low_reheating",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_starburst_feedback', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -381,11 +381,11 @@ def test_parameter_sensitivity():
         output_name="starburst_high_reheating",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_starburst_feedback', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -413,11 +413,11 @@ def test_parameter_sensitivity():
         output_name="starburst_low_ejection",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_starburst_feedback', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -445,11 +445,11 @@ def test_parameter_sensitivity():
         output_name="starburst_high_ejection",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_starburst_feedback', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -503,11 +503,11 @@ def test_memory_and_performance():
         output_name="starburst_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_starburst_feedback', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -562,7 +562,7 @@ def test_full_pipeline_star_formation():
                 ('sage_prepare_infall_budget', 'process_full_halo'),
                 ('sage_set_disk_scale_radius', 'process_full_halo')
             ],
-            'phase_1': [
+            'galaxy_physics': [
                 # Gas accretion chain
                 ('sage_apply_infall', 'process_full_halo'),
                 ('sage_reincorporation', 'process_full_halo'),
@@ -573,7 +573,7 @@ def test_full_pipeline_star_formation():
                 ('sage_disk_instability', 'process_by_galaxy'),
                 ('sage_starburst_feedback', 'process_by_galaxy')
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={

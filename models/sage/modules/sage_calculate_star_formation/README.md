@@ -5,7 +5,7 @@ Calculates the stellar mass formed during the current substep and stores it in a
 ## Processing Contract
 
 - Supported mode: `process_by_galaxy`
-- Expected phase: `phase_1`, before `sage_calculate_supernova_feedback` and `sage_apply_star_formation_supernova`
+- Expected phase: `galaxy_physics`, before `sage_calculate_supernova_feedback` and `sage_apply_star_formation_supernova`
 - Receives one galaxy at a time
 
 ## Properties

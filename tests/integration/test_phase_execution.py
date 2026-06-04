@@ -8,14 +8,14 @@ Phase: Phase 3+ (Multi-Phase Pipeline)
 This test validates that the multi-phase pipeline executes phases in the
 correct order and with the correct frequency:
   - pre_timestep: Runs exactly once BEFORE substep loop
-  - phase_1: Runs SubSteps times DURING substep loop (once per substep)
-  - phase_2: Runs SubSteps times DURING substep loop (once per substep)
+  - galaxy_physics: Runs SubSteps times DURING substep loop (once per substep)
+  - satellite_mergers: Runs SubSteps times DURING substep loop (once per substep)
   - post_timestep: Runs exactly once AFTER substep loop
 
 Test cases:
   - test_pre_timestep_frequency: Pre-timestep runs exactly once
-  - test_phase_1_frequency: Phase_1 runs SubSteps times
-  - test_phase_2_frequency: Phase_2 runs SubSteps times
+  - test_galaxy_physics_frequency: galaxy_physics runs SubSteps times
+  - test_satellite_mergers_frequency: satellite_mergers runs SubSteps times
   - test_post_timestep_frequency: Post-timestep runs exactly once
   - test_all_phases_execution_order: All phases execute in correct order
 
@@ -90,8 +90,8 @@ def test_pre_timestep_frequency():
         output_name="pre_timestep_freq",
         phase_config={
             'pre_timestep': [('test_fixture', 'process_full_halo')],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -142,22 +142,22 @@ def test_pre_timestep_frequency():
         shutil.rmtree(temp_dir)
 
 
-def test_phase_1_frequency():
+def test_galaxy_physics_frequency():
     """
-    Test that phase_1 runs SubSteps times
+    Test that galaxy_physics runs SubSteps times
 
-    Expected: With SubSteps=3, phase_1 should execute 3 times per FOF group
-    Validates: Phase_1 runs once per substep during substep loop
+    Expected: With SubSteps=3, galaxy_physics should execute 3 times per FOF group
+    Validates: galaxy_physics runs once per substep during substep loop
     """
-    print("Testing phase_1 frequency...")
+    print("Testing galaxy_physics frequency...")
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="phase_1_freq",
+        output_name="galaxy_physics_freq",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer counting
-            'phase_2': [],
+            'galaxy_physics': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer counting
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -204,29 +204,29 @@ def test_phase_1_frequency():
         assert len(all_executions) == num_fof_groups * 3, \
             f"Expected {num_fof_groups * 3} total executions (3 per FOF group)"
 
-        print(f"  ✓ phase_1 executes SubSteps times (3) per FOF group with correct substep numbers")
+        print(f"  ✓ galaxy_physics executes SubSteps times (3) per FOF group with correct substep numbers")
 
     finally:
         # ===== CLEANUP =====
         shutil.rmtree(temp_dir)
 
 
-def test_phase_2_frequency():
+def test_satellite_mergers_frequency():
     """
-    Test that phase_2 runs SubSteps times
+    Test that satellite_mergers runs SubSteps times
 
-    Expected: With SubSteps=3, phase_2 should execute 3 times per FOF group
-    Validates: Phase_2 runs once per substep during substep loop
+    Expected: With SubSteps=3, satellite_mergers should execute 3 times per FOF group
+    Validates: satellite_mergers runs once per substep during substep loop
     """
-    print("Testing phase_2 frequency...")
+    print("Testing satellite_mergers frequency...")
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
-        output_name="phase_2_freq",
+        output_name="satellite_mergers_freq",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [],
-            'phase_2': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer counting
+            'galaxy_physics': [],
+            'satellite_mergers': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer counting
             'post_timestep': []
         },
         model_params={
@@ -267,7 +267,7 @@ def test_phase_2_frequency():
         # Total executions should be 3 times number of FOF groups
         num_fof_groups = len(all_executions) // 3
 
-        print(f"  ✓ phase_2 executes SubSteps times (3) per FOF group with correct substep numbers")
+        print(f"  ✓ satellite_mergers executes SubSteps times (3) per FOF group with correct substep numbers")
 
     finally:
         # ===== CLEANUP =====
@@ -288,8 +288,8 @@ def test_post_timestep_frequency():
         output_name="post_timestep_freq",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [],
-            'phase_2': [],
+            'galaxy_physics': [],
+            'satellite_mergers': [],
             'post_timestep': [('test_fixture', 'process_full_halo')]
         },
         model_params={
@@ -344,8 +344,8 @@ def test_all_phases_execution_order():
     Test complete multi-phase execution order and frequency
 
     Expected: With all phases configured and SubSteps=3, per FOF group:
-      - Total executions: 1 (pre) + 3 (phase_1) + 3 (phase_2) + 1 (post) = 8
-      - Order: pre → (phase_1 → phase_2) × 3 → post
+      - Total executions: 1 (pre) + 3 (galaxy_physics) + 3 (satellite_mergers) + 1 (post) = 8
+      - Order: pre → (galaxy_physics → satellite_mergers) × 3 → post
       - Substep pattern: 0, 0, 0, 1, 1, 2, 2, 2
 
     Validates: Complete pipeline executes all phases in correct order
@@ -357,8 +357,8 @@ def test_all_phases_execution_order():
         output_name="all_phases",
         phase_config={
             'pre_timestep': [('test_fixture', 'process_full_halo')],
-            'phase_1': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer pattern
-            'phase_2': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer pattern
+            'galaxy_physics': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer pattern
+            'satellite_mergers': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer pattern
             'post_timestep': [('test_fixture', 'process_full_halo')]
         },
         model_params={
@@ -393,9 +393,9 @@ def test_all_phases_execution_order():
 
         # Verify substep pattern for first FOF group
         # pre: substep=0
-        # substep 0: phase_1 substep=0, phase_2 substep=0
-        # substep 1: phase_1 substep=1, phase_2 substep=1
-        # substep 2: phase_1 substep=2, phase_2 substep=2
+        # substep 0: galaxy_physics substep=0, satellite_mergers substep=0
+        # substep 1: galaxy_physics substep=1, satellite_mergers substep=1
+        # substep 2: galaxy_physics substep=2, satellite_mergers substep=2
         # post: substep=2
         expected_substeps = [0, 0, 0, 1, 1, 2, 2, 2]
         actual_substeps = [e['substep_number'] for e in first_fof_executions]
@@ -419,8 +419,8 @@ def test_all_phases_execution_order():
 
         print("  ✓ All phases execute in correct order (verified on first FOF group):")
         print("    - pre_timestep: 1 execution at substep 0")
-        print("    - phase_1: 3 executions at substeps 0, 1, 2")
-        print("    - phase_2: 3 executions at substeps 0, 1, 2")
+        print("    - galaxy_physics: 3 executions at substeps 0, 1, 2")
+        print("    - satellite_mergers: 3 executions at substeps 0, 1, 2")
         print("    - post_timestep: 1 execution at substep 2")
         print(f"    - Pattern repeats for all {num_fof_groups} FOF groups")
 
@@ -443,8 +443,8 @@ def main():
 
     tests = [
         test_pre_timestep_frequency,
-        test_phase_1_frequency,
-        test_phase_2_frequency,
+        test_galaxy_physics_frequency,
+        test_satellite_mergers_frequency,
         test_post_timestep_frequency,
         test_all_phases_execution_order,
     ]

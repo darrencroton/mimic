@@ -57,11 +57,11 @@ def test_full_pipeline_execution():
         output_name="[module_name]_pipeline",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('[module_name]', 'process_by_galaxy'),
                 # Add dependencies if needed
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -104,10 +104,10 @@ def test_physics_validation():
         output_name="[module_name]_physics",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('[module_name]', 'process_by_galaxy'),
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -148,10 +148,10 @@ def test_conservation_laws():
         output_name="[module_name]_conservation",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('[module_name]', 'process_by_galaxy'),
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -191,10 +191,10 @@ def test_parameter_sensitivity():
         output_name="[module_name]_params_default",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('[module_name]', 'process_by_galaxy'),
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -214,10 +214,10 @@ def test_parameter_sensitivity():
         output_name="[module_name]_params_modified",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('[module_name]', 'process_by_galaxy'),
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -259,10 +259,10 @@ def test_edge_cases():
         output_name="[module_name]_edge_cases",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('[module_name]', 'process_by_galaxy'),
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={
@@ -305,10 +305,10 @@ def test_memory_and_performance():
         output_name="[module_name]_memory",
         phase_config={
             'pre_timestep': [],
-            'phase_1': [
+            'galaxy_physics': [
                 ('[module_name]', 'process_by_galaxy'),
             ],
-            'phase_2': [],
+            'satellite_mergers': [],
             'post_timestep': []
         },
         model_params={

@@ -39,8 +39,8 @@ def test_full_halo_only_module_rejects_process_by_galaxy():
         output_name="mode_contract_full_halo_rejects_by_galaxy",
         phase_config={
             "pre_timestep": [],
-            "phase_1": [("sage_apply_infall", "process_by_galaxy")],
-            "phase_2": [],
+            "galaxy_physics": [("sage_apply_infall", "process_by_galaxy")],
+            "satellite_mergers": [],
             "post_timestep": [],
         },
         expected_mode="process_by_galaxy",
@@ -53,8 +53,8 @@ def test_by_galaxy_only_module_rejects_process_full_halo():
         output_name="mode_contract_by_galaxy_rejects_full_halo",
         phase_config={
             "pre_timestep": [],
-            "phase_1": [("sage_apply_cooling", "process_full_halo")],
-            "phase_2": [],
+            "galaxy_physics": [("sage_apply_cooling", "process_full_halo")],
+            "satellite_mergers": [],
             "post_timestep": [],
         },
         expected_mode="process_full_halo",
@@ -67,8 +67,8 @@ def test_dual_mode_module_rejects_process_full_halo():
         output_name="mode_contract_dual_rejects_full_halo",
         phase_config={
             "pre_timestep": [],
-            "phase_1": [("sage_quasar_mode", "process_full_halo")],
-            "phase_2": [],
+            "galaxy_physics": [("sage_quasar_mode", "process_full_halo")],
+            "satellite_mergers": [],
             "post_timestep": [],
         },
         expected_mode="process_full_halo",
@@ -84,8 +84,8 @@ def test_full_halo_only_module_rejects_process_per_event():
         output_name="mode_contract_full_halo_rejects_per_event",
         phase_config={
             "pre_timestep": [],
-            "phase_1": [("sage_apply_infall", "process_per_event")],
-            "phase_2": [],
+            "galaxy_physics": [("sage_apply_infall", "process_per_event")],
+            "satellite_mergers": [],
             "post_timestep": [],
         },
         expected_mode="process_per_event",

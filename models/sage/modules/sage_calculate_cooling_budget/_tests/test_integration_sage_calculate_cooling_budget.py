@@ -55,8 +55,8 @@ class TestSageCoolingIntegration:
             output_name="sage_calculate_cooling_budget_load",
             phase_config={
                 'pre_timestep': [],
-                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
-                'phase_2': [],
+                'galaxy_physics': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
+                'satellite_mergers': [],
                 'post_timestep': []
             }
             # No model_params - this module has NO runtime parameters
@@ -72,8 +72,8 @@ class TestSageCoolingIntegration:
             output_name="infall_cooling_pipeline",
             phase_config={
                 'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
-                'phase_2': [],
+                'galaxy_physics': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
+                'satellite_mergers': [],
                 'post_timestep': []
             },
             model_params={
@@ -93,8 +93,8 @@ class TestSageCoolingIntegration:
             output_name="cooling_memory",
             phase_config={
                 'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
-                'phase_2': [],
+                'galaxy_physics': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
+                'satellite_mergers': [],
                 'post_timestep': []
             },
             model_params={
@@ -112,8 +112,8 @@ class TestSageCoolingIntegration:
             output_name="cooling_complete",
             phase_config={
                 'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
-                'phase_2': [],
+                'galaxy_physics': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
+                'satellite_mergers': [],
                 'post_timestep': []
             },
             model_params={
@@ -129,8 +129,8 @@ class TestSageCoolingIntegration:
     def test_module_ordering_dependency(self):
         """Test that module system handles ordering correctly
 
-        Correct order: infall (pre_timestep) → cooling (phase_1)
-        Wrong order: cooling (pre_timestep) → infall (phase_1)
+        Correct order: infall (pre_timestep) → cooling (galaxy_physics)
+        Wrong order: cooling (pre_timestep) → infall (galaxy_physics)
         Both should run without errors (though wrong order is ineffective)
         """
         # Correct order: infall then cooling
@@ -138,8 +138,8 @@ class TestSageCoolingIntegration:
             output_name="cooling_order_correct",
             phase_config={
                 'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
-                'phase_2': [],
+                'galaxy_physics': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
+                'satellite_mergers': [],
                 'post_timestep': []
             },
             model_params={
@@ -155,8 +155,8 @@ class TestSageCoolingIntegration:
             output_name="cooling_order_wrong",
             phase_config={
                 'pre_timestep': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
-                'phase_1': [('sage_prepare_infall_budget', 'process_full_halo')],  # Wrong order
-                'phase_2': [],
+                'galaxy_physics': [('sage_prepare_infall_budget', 'process_full_halo')],  # Wrong order
+                'satellite_mergers': [],
                 'post_timestep': []
             },
             model_params={
@@ -180,8 +180,8 @@ class TestSageCoolingIntegration:
             output_name="cooling_output_check",
             phase_config={
                 'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
-                'phase_2': [],
+                'galaxy_physics': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
+                'satellite_mergers': [],
                 'post_timestep': []
             },
             model_params={
@@ -228,8 +228,8 @@ class TestSageCoolingIntegration:
             output_name="cooling_downstream_check",
             phase_config={
                 'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
-                'phase_1': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
-                'phase_2': [],
+                'galaxy_physics': [('sage_calculate_cooling_budget', 'process_by_galaxy')],
+                'satellite_mergers': [],
                 'post_timestep': []
             },
             model_params={

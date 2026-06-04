@@ -45,5 +45,4 @@ output:
 # Physics modules disabled for UniqueGalaxyID validation testing
 # Tests operate in physics-free mode to validate core property tracking
 modules:
-  enabled: []
   parameters: {}

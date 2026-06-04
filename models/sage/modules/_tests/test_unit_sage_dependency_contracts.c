@@ -9,6 +9,7 @@
 
 #include "framework/test_framework.h"
 #include "core/module_registry.h"
+#include "../../../../tests/framework/test_phase_config.h"
 #include "core/module_interface.h"
 #include "include/types.h"
 #include "include/proto.h"
@@ -78,11 +79,8 @@ int test_dep_apply_infall_missing_prepare_error(void)
     init_memory_system(0);
     ensure_modules_registered();
 
-    /* Only sage_apply_infall in phase_1; pre_timestep is empty */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_apply_infall");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-    MimicConfig.num_phase_1 = 1;
+    /* Only sage_apply_infall in galaxy_physics; pre_timestep is empty */
+    test_phase_add("galaxy_physics", "sage_apply_infall", PROCESSING_MODE_FULL_HALO);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -91,6 +89,7 @@ int test_dep_apply_infall_missing_prepare_error(void)
                 "sage_apply_infall without sage_prepare_infall_budget must fail init");
 
     if (result == 0) { module_system_cleanup(); }
+    test_free_substep_phases();
     check_memory_leaks();
     return TEST_PASS;
 }
@@ -106,12 +105,8 @@ int test_dep_apply_cooling_wrong_order_error(void)
     ensure_modules_registered();
 
     /* sage_apply_cooling before sage_calculate_cooling_budget — wrong order */
-    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_apply_cooling");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1[1].module_name = strdup("sage_calculate_cooling_budget");
-    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 2;
+    test_phase_add("galaxy_physics", "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY);
+    test_phase_add("galaxy_physics", "sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -120,6 +115,7 @@ int test_dep_apply_cooling_wrong_order_error(void)
                 "sage_apply_cooling before sage_calculate_cooling_budget must fail init");
 
     if (result == 0) { module_system_cleanup(); }
+    test_free_substep_phases();
     check_memory_leaks();
     return TEST_PASS;
 }
@@ -137,14 +133,9 @@ int test_dep_supernova_wrong_order_error(void)
     ensure_modules_registered();
 
     /* SN before SF — wrong order; apply step also present after both */
-    MimicConfig.phase_1 = mymalloc_cat(3 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_supernova_feedback");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1[1].module_name = strdup("sage_calculate_star_formation");
-    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1[2].module_name = strdup("sage_apply_star_formation_supernova");
-    MimicConfig.phase_1[2].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 3;
+    test_phase_add("galaxy_physics", "sage_calculate_supernova_feedback", PROCESSING_MODE_BY_GALAXY);
+    test_phase_add("galaxy_physics", "sage_calculate_star_formation", PROCESSING_MODE_BY_GALAXY);
+    test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -153,6 +144,7 @@ int test_dep_supernova_wrong_order_error(void)
                 "sage_calculate_supernova_feedback before sage_calculate_star_formation must fail init");
 
     if (result == 0) { module_system_cleanup(); }
+    test_free_substep_phases();
     check_memory_leaks();
     return TEST_PASS;
 }
@@ -170,12 +162,8 @@ int test_dep_apply_sfn_wrong_order_error(void)
     ensure_modules_registered();
 
     /* apply step before SF — wrong order */
-    MimicConfig.phase_1 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_apply_star_formation_supernova");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.phase_1[1].module_name = strdup("sage_calculate_star_formation");
-    MimicConfig.phase_1[1].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 2;
+    test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova", PROCESSING_MODE_BY_GALAXY);
+    test_phase_add("galaxy_physics", "sage_calculate_star_formation", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -184,6 +172,7 @@ int test_dep_apply_sfn_wrong_order_error(void)
                 "sage_apply_sfn before sage_calculate_star_formation must fail init");
 
     if (result == 0) { module_system_cleanup(); }
+    test_free_substep_phases();
     check_memory_leaks();
     return TEST_PASS;
 }
@@ -198,11 +187,8 @@ int test_dep_quasar_per_event_missing_producer_error(void)
     init_memory_system(0);
     ensure_modules_registered();
 
-    /* quasar_mode as per_event with no merger event producer in phase_2 */
-    MimicConfig.phase_2 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_2[0].module_name = strdup("sage_quasar_mode");
-    MimicConfig.phase_2[0].processing_mode = PROCESSING_MODE_PER_EVENT;
-    MimicConfig.num_phase_2 = 1;
+    /* quasar_mode as per_event with no merger event producer in satellite_mergers */
+    test_phase_add("satellite_mergers", "sage_quasar_mode", PROCESSING_MODE_PER_EVENT);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -211,6 +197,7 @@ int test_dep_quasar_per_event_missing_producer_error(void)
                 "sage_quasar_mode per_event without merger producer must fail init");
 
     if (result == 0) { module_system_cleanup(); }
+    test_free_substep_phases();
     check_memory_leaks();
     return TEST_PASS;
 }
@@ -225,11 +212,8 @@ int test_dep_starburst_per_event_missing_producer_error(void)
     init_memory_system(0);
     ensure_modules_registered();
 
-    /* starburst_feedback as per_event with no merger event producer in phase_2 */
-    MimicConfig.phase_2 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_2[0].module_name = strdup("sage_starburst_feedback");
-    MimicConfig.phase_2[0].processing_mode = PROCESSING_MODE_PER_EVENT;
-    MimicConfig.num_phase_2 = 1;
+    /* starburst_feedback as per_event with no merger event producer in satellite_mergers */
+    test_phase_add("satellite_mergers", "sage_starburst_feedback", PROCESSING_MODE_PER_EVENT);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -238,6 +222,7 @@ int test_dep_starburst_per_event_missing_producer_error(void)
                 "sage_starburst_feedback per_event without merger producer must fail init");
 
     if (result == 0) { module_system_cleanup(); }
+    test_free_substep_phases();
     check_memory_leaks();
     return TEST_PASS;
 }
@@ -255,10 +240,7 @@ int test_dep_sf_missing_apply_error(void)
     ensure_modules_registered();
 
     /* SF alone — no apply step anywhere */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_star_formation");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "sage_calculate_star_formation", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -267,6 +249,7 @@ int test_dep_sf_missing_apply_error(void)
                 "sage_calculate_star_formation without apply step must fail init");
 
     if (result == 0) { module_system_cleanup(); }
+    test_free_substep_phases();
     check_memory_leaks();
     return TEST_PASS;
 }
@@ -284,10 +267,7 @@ int test_dep_sn_missing_apply_error(void)
     ensure_modules_registered();
 
     /* SN alone — no apply step anywhere */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_calculate_supernova_feedback");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "sage_calculate_supernova_feedback", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -296,6 +276,7 @@ int test_dep_sn_missing_apply_error(void)
                 "sage_calculate_supernova_feedback without apply step must fail init");
 
     if (result == 0) { module_system_cleanup(); }
+    test_free_substep_phases();
     check_memory_leaks();
     return TEST_PASS;
 }
@@ -311,10 +292,7 @@ int test_dep_apply_sfn_warns_no_prescriptions(void)
     ensure_modules_registered();
 
     /* apply step alone — no SF or SN configured anywhere */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_apply_star_formation_supernova");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "sage_apply_star_formation_supernova", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -345,11 +323,8 @@ int test_dep_resolve_mergers_warns_no_clock(void)
     init_memory_system(0);
     ensure_modules_registered();
 
-    /* sage_resolve_mergers_and_disruption in phase_2 with no sage_initialise_merger_clock */
-    MimicConfig.phase_2 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_2[0].module_name = strdup("sage_resolve_mergers_and_disruption");
-    MimicConfig.phase_2[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-    MimicConfig.num_phase_2 = 1;
+    /* sage_resolve_mergers_and_disruption in satellite_mergers with no sage_initialise_merger_clock */
+    test_phase_add("satellite_mergers", "sage_resolve_mergers_and_disruption", PROCESSING_MODE_FULL_HALO);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -381,10 +356,7 @@ int test_dep_starburst_warns_no_disk_instability(void)
     ensure_modules_registered();
 
     /* starburst_feedback as by_galaxy without sage_disk_instability before it */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_starburst_feedback");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    test_phase_add("galaxy_physics", "sage_starburst_feedback", PROCESSING_MODE_BY_GALAXY);
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
 
@@ -407,12 +379,12 @@ int test_dep_starburst_warns_no_disk_instability(void)
 
 /**
  * @test    test_dep_starburst_warns_no_quasar_mode
- * @brief   sage_starburst_feedback: disk_instability in phase_1 but quasar_mode absent
- *          from phase_2 emits WARNING (WARNING) — §7 table, last row
+ * @brief   sage_starburst_feedback: disk_instability in galaxy_physics but quasar_mode absent
+ *          from satellite_mergers emits WARNING (WARNING) — §7 table, last row
  *
  * Scenario: starburst_feedback as process_per_event (valid merger consumer),
- * sage_disk_instability present in phase_1 (enables post-merger disk instability
- * recheck), but sage_quasar_mode absent from phase_2 (quasar wind silently skipped).
+ * sage_disk_instability present in galaxy_physics (enables post-merger disk instability
+ * recheck), but sage_quasar_mode absent from satellite_mergers (quasar wind silently skipped).
  */
 int test_dep_starburst_warns_no_quasar_mode(void)
 {
@@ -420,19 +392,12 @@ int test_dep_starburst_warns_no_quasar_mode(void)
     init_memory_system(0);
     ensure_modules_registered();
 
-    /* phase_1: disk instability trigger writer */
-    MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_1[0].module_name = strdup("sage_disk_instability");
-    MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-    MimicConfig.num_phase_1 = 1;
+    /* galaxy_physics: disk instability trigger writer */
+    test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
 
-    /* phase_2: merger producer + starburst consumer; no quasar_mode */
-    MimicConfig.phase_2 = mymalloc_cat(2 * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.phase_2[0].module_name = strdup("sage_resolve_mergers_and_disruption");
-    MimicConfig.phase_2[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-    MimicConfig.phase_2[1].module_name = strdup("sage_starburst_feedback");
-    MimicConfig.phase_2[1].processing_mode = PROCESSING_MODE_PER_EVENT;
-    MimicConfig.num_phase_2 = 2;
+    /* satellite_mergers: merger producer + starburst consumer; no quasar_mode */
+    test_phase_add("satellite_mergers", "sage_resolve_mergers_and_disruption", PROCESSING_MODE_FULL_HALO);
+    test_phase_add("satellite_mergers", "sage_starburst_feedback", PROCESSING_MODE_PER_EVENT);
 
     MimicConfig.SubSteps = 1;
     set_test_model_parameters();
@@ -446,7 +411,7 @@ int test_dep_starburst_warns_no_quasar_mode(void)
     TEST_ASSERT(result == 0,
                 "starburst with disk instability but no quasar_mode should warn but not fail");
     TEST_ASSERT(strstr(log, "sage_quasar_mode") != NULL,
-                "WARNING about missing quasar_mode in phase_2 must be logged");
+                "WARNING about missing quasar_mode in satellite_mergers must be logged");
 
     fclose(capture);
     module_system_cleanup();

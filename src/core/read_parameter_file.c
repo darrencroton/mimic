@@ -599,8 +599,8 @@ static void parse_simulation_config_file(const char *fname) {
  *
  * Parses YAML like:
  *   phase_name:
- *     - module_a: once
- *     - module_b: all
+ *     - module_a: process_full_halo
+ *     - module_b: process_by_galaxy
  *
  * @param   doc         YAML document
  * @param   phase_node  Node for this phase (sequence of module:loop pairs)
@@ -733,6 +733,62 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
  * Vision Principle 2 (Runtime Modularity): Pipeline structure configured at runtime.
  * Vision Principle 4 (Single Source of Truth): Input file defines complete model.
  */
+/**
+ * @brief   Reject substep phase names that collide with reserved keys.
+ *
+ * @return  1 if the name is reserved, 0 otherwise
+ */
+static int phase_name_is_reserved(const char *name) {
+  static const char *reserved[] = {"pre_timestep", "post_timestep", "parameters",
+                                   "phases"};
+  for (size_t i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
+    if (strcmp(name, reserved[i]) == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * @brief   Append one parsed middle phase to MimicConfig.substep_phases.
+ *
+ * Validates the phase name (non-empty, not reserved, unique) before parsing the
+ * module sequence. Fatal on any violation so misconfiguration fails at startup.
+ */
+static void add_substep_phase(yaml_document_t *doc, const char *name,
+                              yaml_node_t *phase_node) {
+  if (name == NULL || name[0] == '\0') {
+    FATAL_ERROR("Substep phase name must be a non-empty string");
+  }
+  if (strlen(name) >= MAX_STRING_LEN) {
+    FATAL_ERROR("Substep phase name '%s' is too long (max %d characters)", name,
+                MAX_STRING_LEN - 1);
+  }
+  if (phase_name_is_reserved(name)) {
+    FATAL_ERROR("Substep phase name '%s' is reserved", name);
+  }
+  for (int i = 0; i < MimicConfig.num_substep_phases; i++) {
+    if (strcmp(MimicConfig.substep_phases[i].name, name) == 0) {
+      FATAL_ERROR("Duplicate substep phase name '%s'", name);
+    }
+  }
+  if (MimicConfig.num_substep_phases >= MAX_SUBSTEP_PHASES) {
+    FATAL_ERROR("Too many substep phases (max %d)", MAX_SUBSTEP_PHASES);
+  }
+
+  struct ModulePhaseConfig *phase =
+      &MimicConfig.substep_phases[MimicConfig.num_substep_phases];
+  phase->name = strdup(name);
+  if (phase->name == NULL) {
+    FATAL_ERROR("Failed to allocate substep phase name '%s'", name);
+  }
+  if (parse_phase_config(doc, phase_node, &phase->modules, &phase->num_modules,
+                         name) != 0) {
+    FATAL_ERROR("Failed to parse substep phase '%s'", name);
+  }
+  MimicConfig.num_substep_phases++;
+}
+
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node, *parameters;
 
@@ -741,30 +797,16 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
   /* Initialize phase configurations to NULL/0 */
   MimicConfig.pre_timestep = NULL;
   MimicConfig.num_pre_timestep = 0;
-  MimicConfig.phase_1 = NULL;
-  MimicConfig.num_phase_1 = 0;
-  MimicConfig.phase_2 = NULL;
-  MimicConfig.num_phase_2 = 0;
+  MimicConfig.substep_phases = NULL;
+  MimicConfig.num_substep_phases = 0;
   MimicConfig.post_timestep = NULL;
   MimicConfig.num_post_timestep = 0;
 
-  /* Parse each phase */
+  /* Fixed lifecycle phases */
   node = get_mapping_value(doc, section, "pre_timestep");
   if (parse_phase_config(doc, node, &MimicConfig.pre_timestep,
                          &MimicConfig.num_pre_timestep, "pre_timestep") != 0) {
     FATAL_ERROR("Failed to parse pre_timestep phase");
-  }
-
-  node = get_mapping_value(doc, section, "phase_1");
-  if (parse_phase_config(doc, node, &MimicConfig.phase_1,
-                         &MimicConfig.num_phase_1, "phase_1") != 0) {
-    FATAL_ERROR("Failed to parse phase_1");
-  }
-
-  node = get_mapping_value(doc, section, "phase_2");
-  if (parse_phase_config(doc, node, &MimicConfig.phase_2,
-                         &MimicConfig.num_phase_2, "phase_2") != 0) {
-    FATAL_ERROR("Failed to parse phase_2");
   }
 
   node = get_mapping_value(doc, section, "post_timestep");
@@ -773,10 +815,63 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
     FATAL_ERROR("Failed to parse post_timestep phase");
   }
 
+  /* Reject any unrecognised key under modules: so stale or mistyped pipelines
+   * (e.g. the removed phase_1/phase_2/enabled forms) fail loudly at startup
+   * rather than silently dropping physics. */
+  for (yaml_node_pair_t *pair = section->data.mapping.pairs.start;
+       pair < section->data.mapping.pairs.top; pair++) {
+    yaml_node_t *key = yaml_document_get_node(doc, pair->key);
+    const char *key_name = get_scalar_value(key);
+    if (key_name == NULL) {
+      continue;
+    }
+    if (strcmp(key_name, "pre_timestep") != 0 &&
+        strcmp(key_name, "post_timestep") != 0 &&
+        strcmp(key_name, "phases") != 0 &&
+        strcmp(key_name, "parameters") != 0) {
+      FATAL_ERROR("Unknown key 'modules.%s'; supported keys are pre_timestep, "
+                  "phases, post_timestep, parameters",
+                  key_name);
+    }
+  }
+
+  /* Middle phases: an ordered mapping of user-named phases under 'phases:'.
+   * Absent 'phases:' simply means no per-substep middle phases. */
+  yaml_node_t *phases_node = get_mapping_value(doc, section, "phases");
+
+  MimicConfig.substep_phases =
+      mymalloc_cat(MAX_SUBSTEP_PHASES * sizeof(struct ModulePhaseConfig),
+                   MEM_UTILITY);
+  if (MimicConfig.substep_phases == NULL) {
+    FATAL_ERROR("Failed to allocate substep phase array");
+  }
+
+  if (phases_node != NULL) {
+    if (phases_node->type != YAML_MAPPING_NODE) {
+      FATAL_ERROR("modules.phases must be a mapping of phase_name -> module list");
+    }
+    /* libyaml preserves mapping order, so phases run in declared order. */
+    for (yaml_node_pair_t *pair = phases_node->data.mapping.pairs.start;
+         pair < phases_node->data.mapping.pairs.top; pair++) {
+      yaml_node_t *key = yaml_document_get_node(doc, pair->key);
+      yaml_node_t *value = yaml_document_get_node(doc, pair->value);
+      add_substep_phase(doc, get_scalar_value(key), value);
+    }
+  }
+
+  /* Release the unused array in physics-free / no-middle-phase runs so cleanup
+   * (which short-circuits when no modules are configured) cannot leak it. */
+  if (MimicConfig.num_substep_phases == 0) {
+    myfree(MimicConfig.substep_phases);
+    MimicConfig.substep_phases = NULL;
+  }
+
   INFO_LOG("Multi-phase pipeline configured:");
   INFO_LOG("  pre_timestep: %d module(s)", MimicConfig.num_pre_timestep);
-  INFO_LOG("  phase_1: %d module(s)", MimicConfig.num_phase_1);
-  INFO_LOG("  phase_2: %d module(s)", MimicConfig.num_phase_2);
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    INFO_LOG("  %s: %d module(s)", MimicConfig.substep_phases[p].name,
+             MimicConfig.substep_phases[p].num_modules);
+  }
   INFO_LOG("  post_timestep: %d module(s)", MimicConfig.num_post_timestep);
 
   /* Parse parameters subsection */
@@ -984,9 +1079,12 @@ static void validate_and_postprocess(void) {
   SYNC_CONFIG_INT(NOUT);
 
   /* Log summary */
-  int total_modules = MimicConfig.num_pre_timestep + MimicConfig.num_phase_1 +
-                      MimicConfig.num_phase_2 + MimicConfig.num_post_timestep;
+  int total_modules = MimicConfig.num_pre_timestep + MimicConfig.num_post_timestep;
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    total_modules += MimicConfig.substep_phases[p].num_modules;
+  }
+  int total_phases = MimicConfig.num_substep_phases + 2; /* pre + post */
   INFO_LOG("Configuration: %d output snapshots, %d module instances across %d phases",
-           MimicConfig.NOUT, total_modules, 4);
+           MimicConfig.NOUT, total_modules, total_phases);
   INFO_LOG("SubSteps: %d", MimicConfig.SubSteps);
 }

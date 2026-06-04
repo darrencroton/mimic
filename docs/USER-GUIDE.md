@@ -126,8 +126,7 @@ For each snapshot interval:
 pre_timestep runs once
 
 for each substep:
-  phase_1 runs
-  phase_2 runs
+  each modules.phases entry runs in declared order
 
 post_timestep runs once
 ```
@@ -176,8 +175,7 @@ SubSteps: 10
 
 modules:
   pre_timestep: []
-  phase_1: []
-  phase_2: []
+  phases: {}
   post_timestep: []
   parameters: {}
 ```
@@ -199,17 +197,18 @@ modules:
     - sage_prepare_infall_budget:     process_full_halo
     # ... see models/sage/input/sage_millennium.yaml for the full pre_timestep block
 
-  phase_1:
-    - sage_apply_infall:              process_full_halo
-    - sage_calculate_cooling_budget:  process_by_galaxy
-    - sage_radio_mode_heating:        process_by_galaxy
-    - sage_apply_cooling:             process_by_galaxy
-    # ... star formation, supernova, disk instability, quasar, starburst ...
+  phases:
+    galaxy_physics:
+      - sage_apply_infall:              process_full_halo
+      - sage_calculate_cooling_budget:  process_by_galaxy
+      - sage_radio_mode_heating:        process_by_galaxy
+      - sage_apply_cooling:             process_by_galaxy
+      # ... star formation, supernova, disk instability, quasar, starburst ...
 
-  phase_2:
-    - sage_resolve_mergers_and_disruption: process_full_halo
-    - sage_quasar_mode:               process_per_event
-    - sage_starburst_feedback:        process_per_event
+    satellite_mergers:
+      - sage_resolve_mergers_and_disruption: process_full_halo
+      - sage_quasar_mode:               process_per_event
+      - sage_starburst_feedback:        process_per_event
 
   post_timestep: []
 
@@ -222,26 +221,27 @@ modules:
 
 Module parameters have no global defaults in the core. A module loads and validates the parameters it needs during its `init()` function. If a required parameter is missing, startup fails before trees are processed.
 
+Only `pre_timestep`, `phases`, `post_timestep`, and `parameters` are valid keys under `modules`. The old top-level `phase_1`, `phase_2`, and `enabled` keys are not supported.
+
 ### Configuration Recipes
 
 **Physics-free mode** writes halo-tracking output without galaxy physics:
 
 ```yaml
 modules:
-  pre_timestep: []
-  phase_1: []
-  phase_2: []
-  post_timestep: []
+  phases: {}
   parameters: {}
 ```
 
 **Disable a module** by removing or commenting its line. Check the surrounding modules before doing this: many SAGE modules pass transport properties to later modules in the same phase.
 
 ```yaml
-phase_1:
-  - sage_calculate_star_formation: process_by_galaxy
-  # - sage_calculate_supernova_feedback: process_by_galaxy
-  - sage_apply_star_formation_supernova: process_by_galaxy
+modules:
+  phases:
+    galaxy_physics:
+      - sage_calculate_star_formation: process_by_galaxy
+      # - sage_calculate_supernova_feedback: process_by_galaxy
+      - sage_apply_star_formation_supernova: process_by_galaxy
 ```
 
 **Write every snapshot** with `snapshot_count: -1`:
