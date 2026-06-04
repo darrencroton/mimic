@@ -242,6 +242,17 @@ galaxy_properties:
     range: [0.0, 1.0]  # Typically << galaxy mass
     sentinels: [0.0]  # Zero if no quasar-mode accretion
 
+  - name: AGNTriggeredStellarMass
+    type: float
+    units: 1e10 Msun/h
+    description: Cumulative stellar mass formed via positive AGN feedback (Silk et al. 2024); diagnostic written by sage_positive_agn_feedback
+    output: true
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 100000.0]  # 0 to 10^15 Msun/h, same generous bound as StellarMass
+    sentinels: [0.0]  # Zero when no AGN-triggered star formation has occurred
+
   # =============================================================================
   # ENERGY & FEEDBACK
   # =============================================================================

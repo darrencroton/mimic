@@ -165,6 +165,7 @@ from . import (
     hmf_evolution,
     mass_reservoir_scatter,
     metallicity,
+    positive_agn_feedback,
     quiescent_fraction,
     sfr_density_evolution,
     smf_evolution,
@@ -209,6 +210,7 @@ EVOLUTION_PLOTS = [
     "smf_evolution",
     "sfr_density_evolution",
     "stellar_mass_density_evolution",
+    "positive_agn_feedback",
 ]
 
 # Define property requirements for each plot
@@ -238,6 +240,7 @@ PLOT_REQUIREMENTS = {
     "mass_reservoir_scatter": ["StellarMass", "ColdGas", "HotGas"],
     "sfr_density_evolution": [],  # SfrDisk, SfrBulge checked internally
     "stellar_mass_density_evolution": ["StellarMass"],
+    "positive_agn_feedback": ["AGNTriggeredStellarMass", "StellarMass"],
 }
 
 """Mapping of plot names to their corresponding functions."""
@@ -264,4 +267,5 @@ PLOT_FUNCS = {
     "mass_reservoir_scatter": mass_reservoir_scatter.plot,
     "sfr_density_evolution": sfr_density_evolution.plot,
     "stellar_mass_density_evolution": stellar_mass_density_evolution.plot,
+    "positive_agn_feedback": positive_agn_feedback.plot,
 }

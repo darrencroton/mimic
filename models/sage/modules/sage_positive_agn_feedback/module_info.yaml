@@ -1,0 +1,29 @@
+module:
+  name: sage_positive_agn_feedback
+  description: "Positive AGN feedback (Silk et al. 2024): high-redshift, momentum-conserving AGN outflows trigger extra star formation while the gas column N_H(z) exceeds the momentum->energy transition column N_cool"
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - Type
+      - HaloNr
+      - SnapNum
+      - dT
+      - Vvir
+      - ColdGas
+      - DiskScaleRadius
+      - BlackHoleMass
+      - NewStellarMass
+      - AGNTriggeredStellarMass
+    parameters:
+      - PositiveFeedbackEfficiency
+      - PositiveFeedbackColumnThreshold
+
+  tests:
+    unit: _tests/test_unit_sage_positive_agn_feedback.c
+    integration: []
+    scientific: []
+
+  docs:
+    physics: README.md

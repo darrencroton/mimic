@@ -97,5 +97,12 @@ void set_test_model_parameters(void) {
     strcpy(MimicConfig.ModelParams[idx].param_name, "StarFormingDiskFactor");
     strcpy(MimicConfig.ModelParams[idx++].value, "3.0");
 
+    /* Positive AGN Feedback (Silk et al. 2024) */
+    strcpy(MimicConfig.ModelParams[idx].param_name, "PositiveFeedbackEfficiency");
+    strcpy(MimicConfig.ModelParams[idx++].value, "0.05");
+
+    strcpy(MimicConfig.ModelParams[idx].param_name, "PositiveFeedbackColumnThreshold");
+    strcpy(MimicConfig.ModelParams[idx++].value, "6.0e23");
+
     MimicConfig.NumModelParams = idx;
 }

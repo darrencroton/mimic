@@ -16,7 +16,7 @@ plotting:
 
 output:
   output_filename: model
-  output_directory: output/sage-millennium
+  output_directory: output/sage-millennium-no-positive-fb
   output_format: hdf5                 # Select binary or hdf5
   snapshot_count: 8                   # Use -1 to override snapshot_list and write all snapshots
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
@@ -48,10 +48,8 @@ modules:
     # Star formation and supernova feedback
     - sage_calculate_star_formation:          process_by_galaxy
     - sage_calculate_supernova_feedback:      process_by_galaxy
-    # Positive AGN feedback (Silk et al. 2024): high-z AGN-triggered star formation.
-    # Runs after quiescent SF/SN (so its triggered stars are a net high-z boost,
-    # not immediately SN-reheated) and before the apply step that commits them.
-    - sage_positive_agn_feedback:             process_by_galaxy
+    # Positive AGN feedback DISABLED here — this is the control run used to
+    # measure the effect of sage_positive_agn_feedback by comparison.
     - sage_apply_star_formation_supernova:    process_by_galaxy
 
     # Disk instability
