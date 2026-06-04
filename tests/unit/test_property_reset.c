@@ -11,7 +11,7 @@
  *
  * Test cases:
  *   - test_generated_metadata_available: Verify generated helper metadata exists
- *   - test_generated_init_code_executes: Verify generated init code compiles/runs
+ *   - test_generated_init_code_executes: Verify generated init code resets all default properties
  *   - test_generated_reset_code_executes: Verify init_repeat fields reset to init_value
  *
  * @author  Mimic Testing Team
@@ -44,10 +44,14 @@ int test_generated_metadata_available(void) {
 
     TEST_ASSERT(GENERATED_GALAXY_PROPERTY_COUNT > 0,
                 "Selected model should have generated galaxy properties");
+    TEST_ASSERT(GENERATED_DEFAULT_GALAXY_PROPERTY_COUNT > 0,
+                "Selected model should have generated default-initialized galaxy properties");
     TEST_ASSERT(GENERATED_INIT_REPEAT_PROPERTY_COUNT >= 0,
                 "Generated init_repeat property count should be available");
 
     printf("  generated galaxy properties: %d\n", GENERATED_GALAXY_PROPERTY_COUNT);
+    printf("  generated default-initialized galaxy properties: %d\n",
+           GENERATED_DEFAULT_GALAXY_PROPERTY_COUNT);
     printf("  generated init_repeat properties: %d\n", GENERATED_INIT_REPEAT_PROPERTY_COUNT);
 
     check_memory_leaks();
@@ -62,10 +66,14 @@ int test_generated_init_code_executes(void) {
     int p = 0;
     setup_workspace(workspace, &galaxy);
 
+    generated_test_seed_default_galaxy_properties(&galaxy);
+    TEST_ASSERT(!generated_test_default_galaxy_properties_equal_init(&galaxy),
+                "Generated seed helper should move default galaxy properties away from init values");
+
     #include "../../src/include/generated/init_galaxy_properties.inc"
 
-    TEST_ASSERT(generated_test_init_repeat_properties_equal_init(&galaxy),
-                "init_galaxy_properties.inc should initialize init_repeat properties");
+    TEST_ASSERT(generated_test_default_galaxy_properties_equal_init(&galaxy),
+                "init_galaxy_properties.inc should initialize all default galaxy properties");
 
     check_memory_leaks();
     return TEST_PASS;

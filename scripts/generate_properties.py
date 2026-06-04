@@ -493,29 +493,36 @@ def generate_reset_galaxy_properties(galaxy_props: List[Dict], yaml_hash: str) -
 
 
 def _test_seed_value(prop: Dict[str, Any]) -> str:
-    """Return a non-init value for generated property reset tests."""
+    """Return a non-init value for generated property tests."""
     init_value = prop.get("init_value", "0")
     prop_type = prop["type"]
-    if prop_type in {"float", "double"}:
-        return f"(({init_value}) + 123.25)"
+    if prop_type in {"float", "vec3_float"}:
+        return f"((float)({init_value}) + 123.25f)"
+    if prop_type == "double":
+        return f"((double)({init_value}) + 123.25)"
     if prop_type == "long long":
-        return f"(({init_value}) + 123LL)"
-    return f"(({init_value}) + 123)"
+        return f"((long long)({init_value}) + 123LL)"
+    return f"((int)({init_value}) + 123)"
 
 
 def _test_init_compare_expr(accessor: str, prop: Dict[str, Any]) -> str:
     """Return a C expression comparing a generated field with its init value."""
     init_value = prop.get("init_value", "0")
     prop_type = prop["type"]
-    if prop_type == "float":
-        return f"fabsf({accessor} - ({init_value})) <= 1.0e-6f"
+    if prop_type in {"float", "vec3_float"}:
+        return f"fabsf({accessor} - (float)({init_value})) <= 1.0e-6f"
     if prop_type == "double":
-        return f"fabs({accessor} - ({init_value})) <= 1.0e-12"
-    return f"{accessor} == ({init_value})"
+        return f"fabs({accessor} - (double)({init_value})) <= 1.0e-12"
+    if prop_type == "long long":
+        return f"{accessor} == (long long)({init_value})"
+    return f"{accessor} == (int)({init_value})"
 
 
 def generate_property_test_helpers(galaxy_props: List[Dict], yaml_hash: str) -> str:
     """Generate generic helpers for hand-written property unit tests."""
+    default_props = [
+        prop for prop in galaxy_props if prop.get("init_source", "default") == "default"
+    ]
     reset_props = [
         prop for prop in galaxy_props if prop.get("init_repeat", False) is True
     ]
@@ -526,7 +533,37 @@ def generate_property_test_helpers(galaxy_props: List[Dict], yaml_hash: str) -> 
     code += "#include <math.h>\n"
     code += '#include "property_defs.h"\n\n'
     code += f"#define GENERATED_GALAXY_PROPERTY_COUNT {len(galaxy_props)}\n"
+    code += f"#define GENERATED_DEFAULT_GALAXY_PROPERTY_COUNT {len(default_props)}\n"
     code += f"#define GENERATED_INIT_REPEAT_PROPERTY_COUNT {len(reset_props)}\n\n"
+
+    code += "static inline void generated_test_seed_default_galaxy_properties(struct GalaxyData *galaxy) {\n"
+    code += "  (void)galaxy;\n"
+    for prop in default_props:
+        name = prop["name"]
+        type_info = TYPE_MAP[prop["type"]]
+        seed = _test_seed_value(prop)
+        if type_info["is_array"]:
+            code += f"  for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
+            code += f"    galaxy->{name}[j] = {seed};\n"
+            code += "  }\n"
+        else:
+            code += f"  galaxy->{name} = {seed};\n"
+    code += "}\n\n"
+
+    code += "static inline int generated_test_default_galaxy_properties_equal_init(const struct GalaxyData *galaxy) {\n"
+    code += "  (void)galaxy;\n"
+    code += "  int ok = 1;\n"
+    for prop in default_props:
+        name = prop["name"]
+        type_info = TYPE_MAP[prop["type"]]
+        if type_info["is_array"]:
+            code += f"  for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
+            code += f"    ok = ok && ({_test_init_compare_expr(f'galaxy->{name}[j]', prop)});\n"
+            code += "  }\n"
+        else:
+            code += f"  ok = ok && ({_test_init_compare_expr(f'galaxy->{name}', prop)});\n"
+    code += "  return ok;\n"
+    code += "}\n\n"
 
     code += "static inline void generated_test_seed_init_repeat_properties(struct GalaxyData *galaxy) {\n"
     code += "  (void)galaxy;\n"
