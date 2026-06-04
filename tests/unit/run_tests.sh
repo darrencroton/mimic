@@ -40,6 +40,11 @@ COMPILE_ERRORS=0
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
+# Unit tests are always a test build: include the framework test fixture modules
+# and their test-only properties (e.g. TestDummyProperty) in the generated code
+# and module registry. scripts/discovery.py reads MIMIC_TEST_BUILD.
+export MIMIC_TEST_BUILD=1
+
 # Refresh generated metadata so direct single-test runs use current model properties/modules/tests
 if ! python3 scripts/generate_properties.py > /dev/null; then
     echo -e "${RED}ERROR: Failed to refresh property code. Run 'make MODEL=<name> generate'${NC}"
@@ -236,6 +241,14 @@ for test in $TESTS; do
     echo ""
     compile_and_run_test "$test"
 done
+
+# Restore production-mode generated source files. Unit tests build with
+# MIMIC_TEST_BUILD set (fixtures + TestDummyProperty merged in); leaving the
+# shared generated files in that state would make a later production
+# `make check-generated` report a false mismatch. Regenerate without the flag.
+unset MIMIC_TEST_BUILD
+python3 scripts/generate_properties.py > /dev/null 2>&1 || true
+python3 scripts/generate_module_registry.py > /dev/null 2>&1 || true
 
 # Print summary
 echo ""

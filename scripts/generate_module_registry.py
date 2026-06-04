@@ -47,6 +47,7 @@ from discovery import (
     model_property_files,
     module_metadata_files,
     standalone_module_files,
+    test_property_files,
     rel,
 )
 
@@ -248,8 +249,9 @@ def load_valid_properties() -> set:
     """Load all valid property names from halo and galaxy property files."""
     valid_properties = set()
 
-    # Load galaxy properties
-    for galaxy_props_path in model_property_files():
+    # Load galaxy properties (test_property_files() adds fixture-owned
+    # properties for test builds; it is empty for production builds).
+    for galaxy_props_path in model_property_files() + test_property_files():
         try:
             with open(galaxy_props_path, "r", encoding="utf-8") as f:
                 props_yaml = yaml.safe_load(f)

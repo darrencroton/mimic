@@ -1,0 +1,26 @@
+# =============================================================================
+# Test fixture property metadata (TEST BUILDS ONLY — NOT FOR PRODUCTION)
+# =============================================================================
+#
+# This file defines galaxy properties owned by the framework test fixture
+# modules under src/module_system/test_*. It is merged into the generated
+# property schema ONLY for test builds (when MIMIC_TEST_BUILD is set, which the
+# Makefile does for TEST_BUILD=yes and run_tests.sh sets unconditionally).
+#
+# Keeping the property here, rather than in any models/<model>/model_properties.yaml,
+# means production model packages no longer carry test-only metadata and a new
+# model does not have to declare a dummy property just to compile the fixtures.
+# See src/module_system/test_fixture/module_info.yaml (depends on TestDummyProperty).
+
+galaxy_properties:
+
+  - name: TestDummyProperty
+    type: float
+    units: dimensionless
+    description: Test property for infrastructure testing only (NOT FOR PRODUCTION)
+    output: false  # Don't clutter output
+    init_source: default
+    init_value: 0.0
+    output_source: galaxy_property
+    range: [0.0, 1.0]  # Simple range for testing
+    sentinels: []  # No special sentinels

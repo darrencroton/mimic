@@ -46,6 +46,7 @@ from discovery import (
     halo_property_files,
     model_property_files,
     rel,
+    test_property_files,
 )
 
 # ==============================================================================
@@ -274,7 +275,7 @@ def compute_yaml_hash() -> str:
     md5.update(generator_path.read_bytes())
 
     # Hash all YAML files in stable generation order.
-    for yaml_file in halo_property_files() + model_property_files():
+    for yaml_file in halo_property_files() + model_property_files() + test_property_files():
         with open(yaml_file, "rb") as f:
             md5.update(rel(yaml_file).encode("utf-8"))
             md5.update(f.read())
@@ -307,7 +308,7 @@ def generate_header(yaml_hash: str):
     """Generate common header for all generated files."""
     selected_model = os.environ.get("MODEL") or "<MODEL>"
     source_lines = "\n".join(
-        f" *   - {rel(path)}" for path in halo_property_files() + model_property_files()
+        f" *   - {rel(path)}" for path in halo_property_files() + model_property_files() + test_property_files()
     )
     return f"""/* AUTO-GENERATED CODE - DO NOT EDIT
  *
@@ -1065,7 +1066,7 @@ def generate_validation_manifest(
             "auto_generated": True,
             "generated_by": "scripts/generate_properties.py",
             "source_files": [
-                rel(path) for path in halo_property_files() + model_property_files()
+                rel(path) for path in halo_property_files() + model_property_files() + test_property_files()
             ],
             "source_md5": yaml_hash,
             "regenerate": f"make MODEL={os.environ.get('MODEL', 'sage')} generate",
@@ -1127,7 +1128,9 @@ def main():
     print()
 
     halo_yaml_files = halo_property_files()
-    galaxy_yaml_files = model_property_files()
+    # Test builds append fixture-owned galaxy properties (e.g. TestDummyProperty);
+    # test_property_files() is empty for production builds.
+    galaxy_yaml_files = model_property_files() + test_property_files()
     core_yaml_files = core_property_files()
 
     if not core_yaml_files:

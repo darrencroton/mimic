@@ -81,20 +81,51 @@ endif
 FORCE:
 
 # -----------------------------------------------------------------------------
+# Test build toggle
+# -----------------------------------------------------------------------------
+# Production builds (the default) carry no framework test scaffolding. Test
+# builds (TEST_BUILD=yes) additionally compile the framework test fixture/event
+# modules under src/module_system/test_* and merge their test-only property
+# metadata (TestDummyProperty, from src/module_system/test_fixture/
+# test_properties.yaml) into the generated schema. The generation scripts read
+# MIMIC_TEST_BUILD via scripts/discovery.py. The test targets below build with
+# TEST_BUILD=yes; tests/unit/run_tests.sh sets MIMIC_TEST_BUILD directly.
+TEST_BUILD ?= no
+
+# Test builds use a separate object tree (build/test) so they never share
+# compiled objects with a production build. This matters because the two modes
+# generate different code (the test build adds the fixture modules and
+# TestDummyProperty): a shared object tree could otherwise link a stale
+# production module registry into a freshly generated test binary. The
+# executable name is intentionally left as $(EXEC) (mimic) so every test
+# harness, including model-local module tests, finds it without special casing.
+ifeq ($(TEST_BUILD),yes)
+  export MIMIC_TEST_BUILD := 1
+  BUILD_DIR := build/test
+endif
+
+# -----------------------------------------------------------------------------
 # Source Files Discovery
 # -----------------------------------------------------------------------------
 # Recursive find excluding templates, archives, generated code, and tests.
 SOURCES := $(shell find $(SRC_DIR) -name '*.c' ! -path '*/module_system/template/*' ! -path '*/module_system/generated/*' ! -name 'test_*.c')
 SOURCES += $(if $(MODEL),$(shell find $(MODEL_ROOT) -name '*.c' ! -path '*/_tests/*' ! -path '*/archive/*' ! -name 'test_*.c' 2>/dev/null))
 
-# Explicitly add generated registry and framework test modules.
+# Explicitly add the generated module registry (always compiled; it registers
+# the framework test modules only when generated for a test build).
 SOURCES += $(SRC_DIR)/module_system/generated/module_init.c
+
+# Framework test fixture/event modules — test builds only. In production these
+# are excluded from the executable and their registrations are absent from the
+# generated module_init.c, so the two stay consistent.
+ifeq ($(TEST_BUILD),yes)
 SOURCES += $(SRC_DIR)/module_system/test_fixture/test_fixture.c
 SOURCES += $(SRC_DIR)/module_system/test_event_producer/test_event_producer.c
 SOURCES += $(SRC_DIR)/module_system/test_event_consumer_alpha/test_event_consumer_alpha.c
 SOURCES += $(SRC_DIR)/module_system/test_event_consumer_beta/test_event_consumer_beta.c
 SOURCES += $(SRC_DIR)/module_system/test_event_producer_b/test_event_producer_b.c
 SOURCES += $(SRC_DIR)/module_system/test_event_consumer_gamma/test_event_consumer_gamma.c
+endif
 
 OBJECTS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(SOURCES))
 DEPS := $(patsubst %.c,$(DEP_DIR)/%.d,$(SOURCES))
@@ -284,9 +315,21 @@ $(GIT_VERSION_H): .git/HEAD .git/index
 	@echo "#define BUILD_DATE \"$$(date '+%Y-%m-%d')\"" >> $@
 	@echo "#endif" >> $@
 
-$(EXEC): $(OBJECTS)
+# Records the build mode (TEST_BUILD value) of the last link. Production and
+# test builds use separate object trees but share the $(EXEC) (mimic) path, so
+# without this a production build after a test build (or vice versa) might see
+# its own objects as older than the existing binary and skip relinking, leaving
+# a mismatched executable. The marker is shared (always under build/) and only
+# rewritten when the mode changes, forcing a relink exactly on a mode switch.
+EXEC_MODE_MARKER := build/.last_exec_mode
+$(EXEC_MODE_MARKER): FORCE
+	@mkdir -p build
+	@printf '%s' '$(TEST_BUILD)' > $@.tmp
+	@if cmp -s $@.tmp $@ 2>/dev/null; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
+$(EXEC): $(OBJECTS) $(EXEC_MODE_MARKER)
 	@echo "Linking $@..."
-	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CC) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBS)
 	@echo "Build complete"
 
 $(OBJ_DIR)/%.o: %.c $(GIT_VERSION_H) Makefile
@@ -304,6 +347,12 @@ $(OBJ_DIR)/%.o: %.c $(GIT_VERSION_H) Makefile
 PROP_YAML := src/core/core_properties.yaml \
              $(wildcard $(MODEL_ROOT)/model_properties.yaml) \
              $(wildcard $(SIMULATION_ROOT)/halo_properties.yaml)
+
+# Test builds merge fixture-owned test-only properties (TestDummyProperty) so
+# the stamp re-fires if that file changes; production builds omit it entirely.
+ifeq ($(TEST_BUILD),yes)
+PROP_YAML += $(SRC_DIR)/module_system/test_fixture/test_properties.yaml
+endif
 
 # Generated headers and include fragments required by the C build
 GEN_DIR := $(SRC_DIR)/include/generated
@@ -369,7 +418,7 @@ $(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py FORCE
 
 clean: test-clean
 	@echo "Cleaning..."
-	rm -rf $(BUILD_DIR) $(EXEC)
+	rm -rf build $(EXEC)
 	@echo "Clean complete"
 
 tidy:
@@ -558,7 +607,8 @@ test-unit:
 	@python3 scripts/generate_test_registry.py --strict
 	@cd tests/unit && ./run_tests.sh
 
-test-integration: generate validate-build $(EXEC)
+test-integration:
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC)
 	@echo ""
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING INTEGRATION TESTS\033[0m"
@@ -571,6 +621,7 @@ test-integration: generate validate-build $(EXEC)
 		echo "\033[0;34mRunning: $$test\033[0m"; \
 		$(PYTHON) $$test || FAILED=1; \
 	done; \
+	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate >/dev/null 2>&1 || true; \
 	if [ $$FAILED -eq 1 ]; then \
 		mkdir -p build; \
 		echo "integration" >> build/.test_failures; \
@@ -582,7 +633,8 @@ test-integration: generate validate-build $(EXEC)
 		echo ""; \
 	fi
 
-test-scientific: generate validate-build $(EXEC)
+test-scientific:
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC)
 	@echo ""
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING SCIENTIFIC VALIDATION TESTS\033[0m"
@@ -595,6 +647,7 @@ test-scientific: generate validate-build $(EXEC)
 		echo "\033[0;34mRunning: $$test\033[0m"; \
 		$(PYTHON) $$test || FAILED=1; \
 	done; \
+	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate >/dev/null 2>&1 || true; \
 	echo ""; \
 	if [ $$FAILED -eq 1 ]; then \
 		mkdir -p build; \

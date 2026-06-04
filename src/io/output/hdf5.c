@@ -437,8 +437,10 @@ static void write_version_metadata(hid_t parent_group_id) {
   hsize_t dims = 1;
   herr_t status;
 
-  /* Include git version info generated at build time */
-  #include "../../build/generated/git_version.h"
+  /* Include git version info generated at build time. Use the build-dir include
+   * path (-I$(BUILD_DIR)/generated), like version.c/run_log.c, so the location
+   * follows the selected build directory (e.g. build/ or build/test/). */
+  #include "git_version.h"
 
   /* Create Version subgroup */
   version_group_id = H5Gcreate(parent_group_id, "Version", H5P_DEFAULT,

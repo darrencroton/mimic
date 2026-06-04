@@ -78,6 +78,31 @@ def live_simulation_roots() -> List[Path]:
     return [path]
 
 
+def test_build_enabled() -> bool:
+    """Whether this is a test build that includes framework test fixtures.
+
+    Set by the Makefile for ``TEST_BUILD=yes`` (exported as MIMIC_TEST_BUILD)
+    and unconditionally by tests/unit/run_tests.sh. Production builds leave it
+    unset so the executable carries neither the test fixture modules nor their
+    test-only properties.
+    """
+    return bool(os.environ.get("MIMIC_TEST_BUILD"))
+
+
+def test_property_files() -> List[Path]:
+    """Test-only galaxy property metadata, included only in test builds.
+
+    These properties (e.g. TestDummyProperty) are owned by the framework test
+    fixture modules under src/module_system/test_*, not by any production model
+    package, so they must never appear in models/<model>/model_properties.yaml.
+    """
+    if not test_build_enabled():
+        return []
+    return existing(
+        [module_system_dir() / "test_fixture" / "test_properties.yaml"]
+    )
+
+
 def core_property_files() -> List[Path]:
     """Core property metadata."""
     return existing([REPO_ROOT / "src" / "core" / "core_properties.yaml"])
@@ -132,7 +157,13 @@ def standalone_module_files() -> List[Path]:
 
 
 def framework_test_module_roots() -> List[Path]:
-    """Framework test modules that are registered as runtime modules for tests."""
+    """Framework test modules registered as runtime modules for test builds.
+
+    Empty for production builds so the production executable does not carry the
+    test fixture/event modules. Gated on :func:`test_build_enabled`.
+    """
+    if not test_build_enabled():
+        return []
     system = module_system_dir()
     return existing(
         [
