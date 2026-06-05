@@ -58,7 +58,7 @@ halo_properties:
     units: dimensionless
     description: Persistent UniqueGalaxyID of FOF host Type 0 central galaxy (equals UniqueGalaxyID if Type=0)
     output: true
-    init_source: default  # Initialized to 0, then set in update_halo_properties()
+    init_source: default  # Initialized to 0, then set in process_halo_evolution()
     init_value: 0
     output_source: copy_direct
 

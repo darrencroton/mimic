@@ -934,6 +934,56 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
 }
 
 /**
+ * @brief   Update context for a specific substep
+ *
+ * @param   ctx     Module context to update
+ * @param   step    Current substep number (0-indexed)
+ */
+static void update_context_for_substep(struct ModuleContext *ctx, int step) {
+  ctx->substep_number = step;
+  /* Interpolate from progenitor snapshot age toward current snapshot age. */
+  const double progenitor_age = ctx->time + ctx->time_interval;
+  ctx->substep_time = progenitor_age - (step + 0.5) * ctx->substep_dt;
+}
+
+/**
+ * @brief   Run the full configured module lifecycle over a halo workspace
+ *
+ * Implementation of the format-neutral physics-execution engine; see
+ * module_registry.h for the full driver-neutral contract. Executes, in order:
+ * the pre-timestep phase once, then each user-named substep phase per substep,
+ * then the post-timestep phase once. Phase configuration is read from the
+ * caller-supplied context (@p ctx->params), not from a global, so the engine
+ * makes no assumptions about which driver populated it.
+ *
+ * @param   ctx     Module execution context (already populated by the caller)
+ * @param   halos   Array of halos to evolve (e.g. FoFWorkspace)
+ * @param   ngal    Number of halos in the array
+ */
+void execute_module_pipeline(struct ModuleContext *ctx, struct Halo *halos,
+                             int ngal) {
+  const struct MimicConfig *config = ctx->params;
+
+  /* Pre-timestep phase (runs once before substeps) */
+  execute_phase(config->pre_timestep, config->num_pre_timestep, ctx, halos,
+                ngal);
+
+  /* Substep loop: each user-named phase runs once per substep, in order */
+  for (int step = 0; step < ctx->num_substeps; step++) {
+    update_context_for_substep(ctx, step);
+
+    for (int p = 0; p < config->num_substep_phases; p++) {
+      execute_phase(config->substep_phases[p].modules,
+                    config->substep_phases[p].num_modules, ctx, halos, ngal);
+    }
+  }
+
+  /* Post-timestep phase (runs once after substeps) */
+  execute_phase(config->post_timestep, config->num_post_timestep, ctx, halos,
+                ngal);
+}
+
+/**
  * @brief   Cleanup the module system
  *
  * Calls cleanup() on all initialized modules in reverse order.

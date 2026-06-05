@@ -112,7 +112,7 @@ int module_system_init(void);
  *      module1(galaxy g)
  *      module2(galaxy g)
  *
- * Called from process_halo_evolution() for each phase.
+ * Called from execute_module_pipeline() for each phase.
  *
  * @param   phase_config   Array of module configurations for this phase
  * @param   num_modules    Number of modules in this phase (0 = skip phase)
@@ -122,6 +122,28 @@ int module_system_init(void);
  */
 void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
                    struct ModuleContext *ctx, struct Halo *halos, int ngal);
+
+/**
+ * @brief   Run the full configured module lifecycle over a halo workspace
+ *
+ * Format-neutral physics-execution engine: the shared entry point that runs the
+ * configured module lifecycle (pre-timestep phase, the substep loop with its
+ * user-named phases, then the post-timestep phase) over a halo workspace. It
+ * operates purely on (ctx, halos, ngal), reading its phase configuration from
+ * ctx->params rather than any global; it carries no tree-index, output-array,
+ * or traversal-order assumptions, so any driver can call it once its
+ * ModuleContext is populated.
+ *
+ * The caller is responsible for populating @p ctx (snapshot/substep timing,
+ * central selection) and for marshalling the evolved workspace to output
+ * afterwards; this engine only executes physics.
+ *
+ * @param   ctx     Module execution context (already populated by the caller)
+ * @param   halos   Array of halos to evolve (e.g. FoFWorkspace)
+ * @param   ngal    Number of halos in the array
+ */
+void execute_module_pipeline(struct ModuleContext *ctx, struct Halo *halos,
+                             int ngal);
 
 /**
  * @brief   Cleanup the module system

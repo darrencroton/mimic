@@ -7,7 +7,9 @@
  * Key functions:
  * - build_halo_tree(): Recursive function to build halo tracking structures
  * - join_progenitor_halos(): Integrates halos from progenitor structures
- * - process_halo_evolution(): Updates halo properties through time
+ * - process_halo_evolution(): Tree-driver adapter that evolves a FoF workspace
+ *   through the shared physics-execution engine
+ * - marshal_processed_halos(): Copies the evolved workspace into the output array
  *
  * This file implements the core halo tracking infrastructure that forms the
  * foundation for the physics-agnostic framework.
@@ -102,7 +104,9 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
       fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
     }
 
+    /* Tree driver: run physics, then marshal the workspace to output. */
     process_halo_evolution(InputTreeHalos[halonr].FirstHaloInFOFgroup, ngal);
+    marshal_processed_halos(ngal);
   }
 }
 
@@ -435,14 +439,17 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
 }
 
 /**
- * @brief   Attaches halo tracking structures to halos for output
+ * @brief   Marshal the evolved FoF workspace into the output array
  *
  * @param   ngal          Total number of halos in this structure
  *
- * This function attaches halo tracking structures to halos for output.
- * Simply copies halo structures to output array (ProcessedHalos).
+ * Driver-owned output marshalling step: copies the evolved (non-merged) halos
+ * from FoFWorkspace into the permanent ProcessedHalos array and updates the
+ * per-halo HaloAux tracking pointers. Type=3 (merged) halos are skipped and
+ * their galaxy data freed. This runs after the physics-execution engine and is
+ * the seam where evolved state becomes output state.
  */
-void update_halo_properties(int ngal) {
+void marshal_processed_halos(int ngal) {
   int p, currenthalo;
 
   /* Attach final list to halos */
@@ -519,33 +526,18 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr,
 }
 
 /**
- * @brief   Update context for specific substep
- *
- * @param   ctx     Module context to update
- * @param   step    Current substep number (0-indexed)
- */
-static void update_context_for_substep(struct ModuleContext *ctx, int step) {
-  ctx->substep_number = step;
-  /* Interpolate from progenitor snapshot age toward current snapshot age. */
-  const double progenitor_age = ctx->time + ctx->time_interval;
-  ctx->substep_time = progenitor_age - (step + 0.5) * ctx->substep_dt;
-}
-
-/**
- * @brief   Multi-phase halo evolution with time sub-stepping
+ * @brief   Evolve one FoF workspace through the physics-execution engine
  *
  * @param   halonr    Index of the FOF-background subhalo (main halo)
  * @param   ngal      Total number of halos to process
  *
- * This function implements the multi-phase pipeline with optional time
- * sub-stepping:
- * 1. PRE_TIMESTEP: Setup phase (runs once before substeps)
- * 2. SUBSTEP LOOP: Iterates over time substeps
- *    - Each user-named substep phase runs in input order (each substep)
- * 3. POST_TIMESTEP: Finalization phase (runs once after substeps)
- * 4. Update output structures
+ * Tree-driver adapter for physics execution: selects the FOF Type 0 central,
+ * propagates the stable central unique ID, builds the (tree-coupled) module
+ * context, and hands the workspace to the format-neutral physics-execution
+ * engine. Output marshalling is a separate, driver-owned step performed by the
+ * caller (see marshal_processed_halos()).
  *
- * Phase assignments and loop modes are configured in input YAML file.
+ * Phase assignments and loop modes are configured in the input YAML file.
  * SubSteps parameter controls time sub-stepping (0 or 1 = no substeps).
  */
 void process_halo_evolution(int halonr, int ngal) {
@@ -577,25 +569,6 @@ void process_halo_evolution(int halonr, int ngal) {
   /* Setup module execution context */
   setup_module_context(&ctx, halonr, centralgal);
 
-  /* PHASE 1: Pre-timestep (runs once before substeps) */
-  execute_phase(MimicConfig.pre_timestep, MimicConfig.num_pre_timestep, &ctx,
-                FoFWorkspace, ngal);
-
-  /* SUBSTEP LOOP: each user-named middle phase runs once per substep, in order */
-  for (int step = 0; step < ctx.num_substeps; step++) {
-    update_context_for_substep(&ctx, step);
-
-    for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
-      execute_phase(MimicConfig.substep_phases[p].modules,
-                    MimicConfig.substep_phases[p].num_modules, &ctx,
-                    FoFWorkspace, ngal);
-    }
-  }
-
-  /* PHASE 4: Post-timestep (runs once after substeps) */
-  execute_phase(MimicConfig.post_timestep, MimicConfig.num_post_timestep, &ctx,
-                FoFWorkspace, ngal);
-
-  /* Update final halo properties and attach them to output structures */
-  update_halo_properties(ngal);
+  /* Run the configured module lifecycle over this FoF workspace */
+  execute_module_pipeline(&ctx, FoFWorkspace, ngal);
 }
