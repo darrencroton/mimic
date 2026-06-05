@@ -44,6 +44,7 @@ from framework import (
     run_mimic_fresh,
     baseline_rtol,
     BASELINE_RTOL_DEFAULT,
+    BASELINE_ATOL_DEFAULT,
 )
 from test_output_formats import compare_halos_comprehensive
 
@@ -116,6 +117,7 @@ def test_sage_physics_baseline():
     passed, report = compare_halos_comprehensive(
         halos_now, halos_ref, label1="current", label2="baseline",
         rtol=baseline_rtol(), warn_rtol=BASELINE_RTOL_DEFAULT,
+        atol=BASELINE_ATOL_DEFAULT,
     )
     print(report, end="")
 

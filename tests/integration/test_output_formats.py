@@ -44,6 +44,7 @@ from framework import (
     run_mimic_fresh,
     baseline_rtol,
     BASELINE_RTOL_DEFAULT,
+    BASELINE_ATOL_DEFAULT,
 )
 
 VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.json"
@@ -189,7 +190,7 @@ def _write_ranked_mismatches(report, prop_name, ranked, summary,
     report.write(summary + "\n")
 
 
-def _classify_float_diffs(a, b, rtol, warn_rtol):
+def _classify_float_diffs(a, b, rtol, warn_rtol, atol):
     """Split 1-D float arrays into failing and warning index sets.
 
     Returns (fail_idx, warn_idx):
@@ -197,13 +198,17 @@ def _classify_float_diffs(a, b, rtol, warn_rtol):
       warn_idx: close at rtol but NOT at the stricter warn_rtol -> tolerated by
                 the relaxed gate yet still outside the strict baseline tolerance.
     When warn_rtol is None or not stricter than rtol there is no warning band.
+
+    The absolute floor ``atol`` (numpy's |a-b| <= atol + rtol*|b|) keeps
+    near-zero "dust" values -- where |b| is at the floating-point noise floor --
+    from producing meaningless huge ratios in both the fail and warn bands.
     """
-    close_eff = np.isclose(a, b, rtol=rtol, atol=0, equal_nan=False)
+    close_eff = np.isclose(a, b, rtol=rtol, atol=atol, equal_nan=False)
     fail_idx = np.where(~close_eff)[0]
     if warn_rtol is None or warn_rtol >= rtol:
         warn_idx = np.empty(0, dtype=int)
     else:
-        close_strict = np.isclose(a, b, rtol=warn_rtol, atol=0, equal_nan=False)
+        close_strict = np.isclose(a, b, rtol=warn_rtol, atol=atol, equal_nan=False)
         warn_idx = np.where(close_eff & ~close_strict)[0]
     return fail_idx, warn_idx
 
@@ -219,7 +224,7 @@ def _ranked_float_lines(a, b, indices, format_line):
     return ranked
 
 
-def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="dataset2", rtol=1e-6, properties_to_compare=None, warn_rtol=None):
+def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="dataset2", rtol=1e-6, properties_to_compare=None, warn_rtol=None, atol=0.0):
     """
     Comprehensive comparison of all properties for all halos between two datasets.
 
@@ -243,6 +248,10 @@ def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="datas
               relaxed above this value, float diffs that pass rtol but exceed
               warn_rtol are surfaced as yellow warnings (worst-first, top 10)
               without failing the comparison. None disables the warning band.
+        atol: Absolute floor for float comparisons (numpy semantics:
+              |a-b| <= atol + rtol*|b|). Default 0.0 keeps same-run equivalence
+              checks strict; committed-baseline comparisons pass a small floor so
+              near-zero "dust" values are not compared by ratio.
 
     Returns:
         tuple: (passed, report_text) where passed is bool and report_text is str
@@ -322,7 +331,7 @@ def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="datas
                 comp_name = ['x', 'y', 'z'][component]
                 c1 = arr1[:, component]
                 c2 = arr2[:, component]
-                fail_idx, warn_idx = _classify_float_diffs(c1, c2, rtol, warn_rtol)
+                fail_idx, warn_idx = _classify_float_diffs(c1, c2, rtol, warn_rtol, atol)
                 fmt = lambda i, v1, v2, rel, _c=comp_name: (
                     f"Halo {i} [{_c}]: {label1}={v1:.6e}, "
                     f"{label2}={v2:.6e} (rel_diff={rel:.2e})"
@@ -374,7 +383,7 @@ def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="datas
 
         # Handle scalar floating-point properties
         elif np.issubdtype(dtype, np.floating):
-            fail_idx, warn_idx = _classify_float_diffs(arr1, arr2, rtol, warn_rtol)
+            fail_idx, warn_idx = _classify_float_diffs(arr1, arr2, rtol, warn_rtol, atol)
             fmt = lambda i, v1, v2, rel: (
                 f"Halo {i}: {label1}={v1:.6e}, "
                 f"{label2}={v2:.6e} (rel_diff={rel:.2e})"
@@ -569,6 +578,7 @@ def test_binary_baseline_comparison():
         rtol=baseline_rtol(),
         properties_to_compare=compare_properties,
         warn_rtol=BASELINE_RTOL_DEFAULT,
+        atol=BASELINE_ATOL_DEFAULT,
     )
 
     # ANSI color codes
@@ -761,6 +771,7 @@ def test_hdf5_baseline_comparison():
         rtol=baseline_rtol(),
         properties_to_compare=compare_properties,
         warn_rtol=BASELINE_RTOL_DEFAULT,
+        atol=BASELINE_ATOL_DEFAULT,
     )
 
     # Print report

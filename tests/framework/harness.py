@@ -38,6 +38,12 @@ def compiled_simulation():
 # default is deliberately tight.
 BASELINE_RTOL_DEFAULT = 1e-6
 
+# Absolute floor for committed-baseline float comparisons. Sits well above the
+# floating-point noise floor (~1e-13) yet well below the smallest physically
+# meaningful field (~1e-7), so near-zero "dust" values are treated as equal
+# instead of producing meaningless huge ratios.
+BASELINE_ATOL_DEFAULT = 1e-10
+
 
 def baseline_rtol(default=BASELINE_RTOL_DEFAULT):
     """Relative tolerance for comparisons against a committed baseline.
