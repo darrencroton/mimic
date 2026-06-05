@@ -140,7 +140,7 @@ LDFLAGS="-lm ${YAML_LDFLAGS}"
 
 # Source files needed for tests (non-main files)
 UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c"
-CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/virial.c"
+CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/virial.c ${SRC_DIR}/core/inheritance.c"
 IO_SRCS="${SRC_DIR}/io/tree/interface.c ${SRC_DIR}/io/tree/binary.c ${SRC_DIR}/io/output/util.c ${SRC_DIR}/io/util.c"
 GENERATED_SRCS=""
 TEST_STUBS="${TEST_DIR}/test_stubs.c"

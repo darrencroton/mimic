@@ -15,8 +15,7 @@ void process_halo_evolution(int halonr, int ngal);
 void marshal_processed_halos(int ngal);
 int join_progenitor_halos(int halonr, int nstart, int tree, int filenr);
 int find_most_massive_progenitor(int halonr);
-int copy_progenitor_halos(int halonr, int nstart, int first_occupied, int tree, int filenr);
-void set_halo_centrals(int ngalstart, int ngal);
+void free_inheritance_gather_scratch(void);
 void init(void);
 void set_units(void);
 
@@ -49,8 +48,6 @@ void cleanup_memory_system(void);
 void myexit(int signum);
 
 void finalize_halo_file(int filenr);
-
-void init_halo(int p, int halonr, int tree, int filenr);
 
 double get_virial_velocity(int halonr);
 double get_virial_radius(int halonr);

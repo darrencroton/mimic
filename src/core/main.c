@@ -532,6 +532,9 @@ int main(int argc, char **argv) {
   INFO_LOG("Cleaning up galaxy physics module system");
   module_system_cleanup();
 
+  /* Release the run-persistent inheritance gather scratch buffer */
+  free_inheritance_gather_scratch();
+
   /* Check for memory leaks and clean up memory system */
   check_memory_leaks();
   cleanup_memory_system();

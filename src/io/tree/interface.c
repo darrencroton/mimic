@@ -245,7 +245,7 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
    * - InputTreeHalos has been populated by format-specific loader
    * - We now allocate the processing structures:
    *   1. HaloAux: Parallel metadata for each InputTreeHalo
-   *   2. ProcessedHalos: Storage for processed halos (grows dynamically)
+   *   2. ProcessedHalos: Storage for processed halos
    *   3. FoFWorkspace: Temporary workspace for FoF processing (grows
    * dynamically)
    *
@@ -316,18 +316,19 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
  * 4. InputTreeHalos: Raw merger tree input (MEM_TREES)
  *
  * IMPORTANT: The deallocation order (reverse of allocation) is critical for
- * proper memory management. Phase 1-2 transformations must preserve this
- * pattern as additional galaxy properties are added to the Halo struct.
+ * proper memory management. Inheritance deep-copies GalaxyData into
+ * FoFWorkspace, then marshal_processed_halos() transfers surviving pointers
+ * into ProcessedHalos by struct copy.
  *
  * This cleanup is performed after each tree is fully processed, allowing
  * the memory to be reused for the next tree.
  */
 void free_halos_and_tree(void) {
   /* Free all galaxy data structures in ProcessedHalos
-   * Since we now perform deep copies in copy_progenitor_halos(), each halo
-   * has its own independent galaxy data allocation. Note that FoFWorkspace
-   * galaxy pointers are moved to ProcessedHalos (not copied), so we only
-   * free from ProcessedHalos to avoid double-free errors. */
+   * Since inheritance performs deep copies into FoFWorkspace, each surviving
+   * halo has its own independent galaxy data allocation. FoFWorkspace galaxy
+   * pointers are moved to ProcessedHalos by struct copy, so we only free from
+   * ProcessedHalos to avoid double-free errors. */
   for (int i = 0; i < NumProcessedHalos; i++) {
     if (ProcessedHalos[i].galaxy != NULL) {
       myfree(ProcessedHalos[i].galaxy);
@@ -336,8 +337,8 @@ void free_halos_and_tree(void) {
   }
 
   /* Note: FoFWorkspace galaxy pointers are transferred to ProcessedHalos
-   * via struct copy (line 455-456 in build_model.c), so they are freed
-   * above. We do not free them here to avoid double-free errors. */
+   * via struct copy in marshal_processed_halos(), so they are freed above.
+   * We do not free them here to avoid double-free errors. */
 
   /* Free halo arrays in reverse allocation order - see load_tree() */
   myfree(FoFWorkspace);       // Temporary FoF workspace

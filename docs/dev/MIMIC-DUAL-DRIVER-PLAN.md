@@ -1,7 +1,7 @@
 # Mimic Dual-Driver Plan
 
-**Status:** Proposed architecture and migration plan. Phases 1–3 are reclassified as v1.0 work (see below); Phases 4+ follow v1.0. **Phase 1 is DONE** (landed on `main` as commit `56af880`, verified byte-identical); Phase 2 is next and has a dedicated implementation-notes block under its phase heading.
-**Date:** 2026-06-05 (revised ordering 2026-06-05)
+**Status:** Proposed architecture and migration plan. Phases 1–3 are reclassified as v1.0 work (see below); Phases 4+ follow v1.0. **Phases 1 and 2 are DONE** (verified byte-identical against the SAGE physics baseline); see the Status blocks under each phase heading. **Phase 3 (driver-neutral output buffering) is next**, and its scope is now narrow and well-isolated — see the Phase 2 Status block's Phase 3 hand-off note.
+**Date:** 2026-06-05 (revised ordering 2026-06-05; Phase 2 completed 2026-06-06)
 **Context:** Read `MIMIC-DEVELOPMENT-PATHWAY.md` first. **Revised ordering:** the core-modularisation phases (1–3, and optionally 0) now land *as part of v1.0*, before the final review-and-optimisation sweep, validated byte-identical against the existing SAGE physics baseline (`test_scientific_sage_physics_baseline.py`). Only the snapshot reader and driver (Phases 4–7) start after v1.0 is tagged and its baseline refreshed. The reasoning is recorded under "Why core modularisation moves into v1.0" in the pathway document; a short summary is in "Migration Plan" below. The phase definitions, gates, and architecture in this document are otherwise unchanged.
 
 ---
@@ -78,8 +78,9 @@ This maps where today's tree-coupled behaviour lives and what happens to each fi
 | File | Role today | Disposition |
 |---|---|---|
 | `src/core/main.c` | Hardcoded tree lifecycle: file loop → `load_tree_table` → tree loop → `build_halo_tree` → `save_halos` → `free_halos_and_tree` | Generalise → driver dispatcher |
-| `src/core/build_model.c` | Tree traversal, inheritance, physics-evolution call, and output marshalling combined | Split: traversal stays (tree driver); inheritance extracted (shared); evolution/output separated |
-| `src/core/module_registry.c` | `execute_phase()` physics engine | Stays; becomes the named shared engine entry point |
+| `src/core/build_model.c` | Tree traversal + driver-side gather + output marshalling (inheritance science already extracted in Phase 2) | Traversal/gather stay (tree driver); `marshal_processed_halos()` is the remaining tree-index coupling for Phase 3 to make driver-neutral |
+| `src/core/inheritance.{c,h}` | Shared, format-neutral inheritance service (added in Phase 2) | Stays; reused unchanged by the snapshot driver |
+| `src/core/module_registry.c` | `execute_module_pipeline()` physics engine (Phase 1) | Stays; the named shared engine entry point |
 | `src/core/module_interface.h` | `Module`, `ModuleContext` contracts | Stays (frozen ABI); doc updates only |
 | `src/io/tree/interface.{c,h}` | Format-reader abstraction | Widen to admit a snapshot-grouped data model |
 | `src/io/tree/binary.c`, `hdf5.c` | Tree-ordered readers | Stay (tree driver) |
@@ -87,7 +88,7 @@ This maps where today's tree-coupled behaviour lives and what happens to each fi
 | `src/include/globals.h` | Global state (config, units, `Age`/`ZZ`, halo arrays, registry) | Stays as default instance; candidate for handle encapsulation (Phase 6) |
 | `src/core/read_parameter_file.c`, `init.c` | Config + init | Extend: add `TreeFormat`, fail fast on mismatch |
 
-The inheritance science to be extracted in Phase 2 currently lives in `build_model.c` (`find_most_massive_progenitor`, `copy_progenitor_halos`, `set_halo_centrals`, `join_progenitor_halos`); see Phase 2 for the tree-index coupling these carry and the gather/inherit split.
+The inheritance science was extracted in Phase 2 into `src/core/inheritance.c` (see the Phase 2 Status block). `build_model.c` retains only the tree-driver gather (`find_most_massive_progenitor`, `count_progenitor_galaxies`, `gather_progenitor_galaxies`, `make_halo_init_payload`, `join_progenitor_halos`) and the not-yet-driver-neutral `marshal_processed_halos()`.
 
 ---
 
@@ -122,7 +123,7 @@ Split the current evolution path into a pure FoF phase runner and a driver-owned
 
 Phase 1 deliberately did **not** touch the inheritance path (`join_progenitor_halos` and friends); that is entirely Phase 2's scope and is unchanged from pre-Phase-1.
 
-### Phase 2: Extract Format-Neutral Inheritance
+### Phase 2: Extract Format-Neutral Inheritance — DONE
 
 Move inheritance science out of tree-index-coupled code into a shared service. Today this science lives in `build_model.c` (`find_most_massive_progenitor`, `copy_progenitor_halos`, `set_halo_centrals`, `join_progenitor_halos`) and reaches progenitors through `ProcessedHalos[HaloAux[prog].FirstHalo + i]` and descendants through `InputTreeHalos[halonr]`. Split it into two responsibilities:
 
@@ -133,7 +134,26 @@ This is the highest-risk extraction and should happen while the tree driver is s
 
 **Gate:** standard checks and tests pass, with special weight on scientific tests and SAGE parity; full reference output remains byte-identical unless a reviewed tolerance is explicitly accepted.
 
-#### Phase 2 implementation notes (read this before starting — written post-Phase-1)
+**Status: DONE — verified byte-identical** against the SAGE physics baseline (42 properties × 4196 halos) plus the full unit (incl. new `test_inheritance`), integration, and `check-generated`/`validate-modules` tiers, and a clean end-to-end run ("No memory leaks detected"). What it produced (the starting state for Phase 3):
+
+- **`src/core/inheritance.c` is the shared, format-neutral inheritance service.** `inherit_descendant_halos(workspace, start, capacity, descendant, progenitors, nprogenitors)` owns the deep galaxy copy + snapshot-accumulator reset, Type 0/1/2/3 transitions, infall capture, Type-3 skip/free, orphan creation, new-object creation, and subhalo-local central selection. It has **zero** references to `InputTreeHalos`/`HaloAux`/`ProcessedHalos`/`FoFWorkspace`/`MimicConfig`/`Age`/`ZZ` (enforce this invariant in review). Its only includes are `inheritance.h`, `memory.h`, `error.h`.
+- **The gather/inherit contract is three driver-neutral structs** (`src/core/inheritance.h`): `InheritanceDescendant` (identity, time, virial quantities precomputed as doubles, `is_fof_central`, `halo_payload`), `InheritanceProgenitorGalaxy` (source pointer into processed state + `source_time` + `is_main_branch`), and the generated `struct HaloInitPayload` (the descendant's tree-sourced init fields). Inherit consumes plain pointers/structs and never indexes driver arrays.
+- **Gather stays in the tree driver** (`build_model.c`): `count_progenitor_galaxies` → `ensure_fof_workspace_capacity` (FoFWorkspace growth is driver-owned, as required) → `gather_progenitor_galaxies` resolves `ProcessedHalos[HaloAux[prog].FirstHalo + i]` and hands inherit plain pointers. `make_unique_galaxy_id` is the single owner of the `file*FILE_MUL + tree*TREE_MUL + halonr` identity encoding.
+- **New-object init is now metadata-driven and format-neutral.** `init_halo_from_payload`, `init_galaxy_defaults`, and `reset_galaxy_snapshot_accumulators` are generated **inline functions** in `property_defs.h` (no tree coupling). The tree-side payload populator (`populate_halo_payload_from_tree.inc`) is generated from the same property metadata and is the only place tree-index coupling touches halo init; it lives inside `make_halo_init_payload()`. This replaced the former `init_halo()` in `virial.c` and retired the legacy `init_halo_properties.inc` / `init_galaxy_properties.inc` / `reset_galaxy_properties.inc` — one source of truth per concern.
+
+Cleanups and optimisations landed with the extraction (all byte-identical, none deferred to the v1.0 sweep because they arise directly from this work and change no science):
+
+- **No per-subhalo allocation.** The gather progenitor list uses a run-persistent, monotonically-grown scratch buffer (`ProgenitorScratch`, freed by `free_inheritance_gather_scratch()` before the final leak check in `main.c`). This restores the pre-Phase-2 property that the depth-first hot path allocates nothing per subhalo. Safe because the allocator is explicitly non-LIFO (`memory.c`).
+- **Removed dead/duplicated code:** the unused `init_halo()` and its duplicate identity encoding; the three legacy init/reset `.inc` files (consolidated onto the inline functions); `test_property_reset.c` migrated to test the inline functions directly.
+- **Capacity contract documented** on `inherit_descendant_halos` (caller pre-sizes `capacity`; the function asserts and never grows the workspace).
+
+Learnings for the next phases:
+
+- **Phase 3 (driver-neutral output) target is now clearly isolated.** The only remaining tree-index coupling on the output side is `marshal_processed_halos()`: it derives `SnapNum` from `InputTreeHalos[currenthalo].SnapNum` and updates `HaloAux[currenthalo].{FirstHalo,NHalos}` as it copies `FoFWorkspace → ProcessedHalos`. Phase 3 abstracts exactly that into a driver-neutral output buffer contract; inheritance and the physics engine need no further work.
+- **The snapshot driver (Phase 4–5) writes its own gather + payload populator** from snapshot structures and reuses `init_halo_from_payload` (neutral) and `inherit_descendant_halos` unchanged. A generated `populate_halo_payload_from_snapshot.inc` analogous to the tree one is the natural pattern.
+- **Cross-format identity depends on more than RNG.** `UniqueGalaxyID` is encoded from `(file, tree, halonr)` indices. For Phase 5 cross-format identity the snapshot driver must reproduce the *same* per-galaxy identity, which is tree/file-index derived — treat the identity scheme (not just stochastic seeding) as a first-class cross-format-identity contract.
+
+#### Phase 2 implementation notes (historical — written pre-implementation, post-Phase-1; superseded by the Status block above)
 
 This block captures the concrete state of the code as of commit `56af880` so the work can begin in a fresh chat without rediscovery. Anchors below were re-derived against `main` after Phase 1 and are current. Phase 1 did not move any inheritance code, so the high-level anchors elsewhere in this document still hold.
 

@@ -6,13 +6,14 @@
  *
  * Key functions:
  * - build_halo_tree(): Recursive function to build halo tracking structures
- * - join_progenitor_halos(): Integrates halos from progenitor structures
+ * - join_progenitor_halos(): Tree-driver gather step that prepares inheritance
+ *   payloads and calls the shared inheritance service
  * - process_halo_evolution(): Tree-driver adapter that evolves a FoF workspace
  *   through the shared physics-execution engine
  * - marshal_processed_halos(): Copies the evolved workspace into the output array
  *
- * This file implements the core halo tracking infrastructure that forms the
- * foundation for the physics-agnostic framework.
+ * This file owns tree traversal, tree-indexed progenitor lookup, and tree-owned
+ * buffer management. Format-neutral inheritance science lives in inheritance.c.
  *
  * References:
  * - Croton et al. (2006) - Original semi-analytic model framework
@@ -29,6 +30,7 @@
 #include <unistd.h>
 
 #include "config.h"
+#include "inheritance.h"
 #include "proto.h"
 #include "module_registry.h"
 #include "globals.h"
@@ -48,7 +50,8 @@
  *
  * 1. First processes all progenitors of the current halo
  * 2. Then processes all halos in the same FOF group
- * 3. Finally, joins progenitor halos and evolves them forward in time
+ * 3. Finally, gathers progenitor galaxies, applies shared inheritance, and
+ *    evolves them forward in time
  *
  * The recursive approach ensures that halos are built in the correct
  * chronological order, preserving the flow of mass and properties from
@@ -184,218 +187,112 @@ int find_most_massive_progenitor(int halonr) {
  * their properties while updating their status based on the evolving
  * dark matter structures.
  */
-int copy_progenitor_halos(int halonr, int ngalstart, int first_occupied, int tree, int filenr) {
-  int ngal, prog, i, j;
-  double previousMvir, previousVvir, previousVmax;
-
-  ngal = ngalstart;
-  prog = InputTreeHalos[halonr].FirstProgenitor;
+static int count_progenitor_galaxies(int halonr) {
+  int count = 0;
+  int prog = InputTreeHalos[halonr].FirstProgenitor;
 
   while (prog >= 0) {
-    for (i = 0; i < HaloAux[prog].NHalos; i++) {
-      if (ngal == (MaxFoFWorkspace - 1)) {
-        /* Calculate new size using growth factor */
-        int new_size = (int)(MaxFoFWorkspace * HALO_ARRAY_GROWTH_FACTOR);
-
-        /* Ensure minimum growth to prevent too-frequent reallocations */
-        if (new_size - MaxFoFWorkspace < MIN_HALO_ARRAY_GROWTH)
-          new_size = MaxFoFWorkspace + MIN_HALO_ARRAY_GROWTH;
-
-        /* Cap maximum size to prevent excessive memory usage */
-        if (new_size > MAX_HALO_ARRAY_SIZE)
-          new_size = MAX_HALO_ARRAY_SIZE;
-
-        INFO_LOG("Growing halo array from %d to %d elements", MaxFoFWorkspace,
-                 new_size);
-
-        int old_size = MaxFoFWorkspace;
-
-        /* Reallocate with new size */
-        MaxFoFWorkspace = new_size;
-        FoFWorkspace =
-            myrealloc(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
-
-        /* Zero the newly allocated entries to ensure galaxy pointers are NULL */
-        memset(&FoFWorkspace[old_size], 0, (new_size - old_size) * sizeof(struct Halo));
-      }
-      assert(ngal < MaxFoFWorkspace);
-
-      // This is the crucial line in which the properties of the progenitor
-      // halos are copied over (as a whole) to the (temporary) halos
-      // FoFWorkspace[xxx] in the current snapshot After updating their
-      // properties and evolving them they are copied to the end of the list of
-      // permanent halos ProcessedHalos[xxx]
-      FoFWorkspace[ngal] = ProcessedHalos[HaloAux[prog].FirstHalo + i];
-
-      // Deep copy galaxy data to prevent shared memory corruption across snapshots
-      // Without this, multiple halos would share the same galaxy pointer, causing
-      // module updates to corrupt previous snapshots' data
-      if (ProcessedHalos[HaloAux[prog].FirstHalo + i].galaxy != NULL) {
-        FoFWorkspace[ngal].galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
-        memcpy(FoFWorkspace[ngal].galaxy,
-               ProcessedHalos[HaloAux[prog].FirstHalo + i].galaxy,
-               sizeof(struct GalaxyData));
-
-        // Reset snapshot-scoped accumulator properties (auto-generated from metadata)
-        // These properties track values during a single snapshot and must start fresh
-        // This happens for ALL galaxies (including orphans) after deep copy
-        #include "../include/generated/reset_galaxy_properties.inc"
-      }
-
-      FoFWorkspace[ngal].HaloNr = halonr;
-
-      // Calculate time step from progenitor snapshot to current snapshot
-      // FoFWorkspace[ngal] contains progenitor data copied from ProcessedHalos
-      // Note: Age[] is lookback time, so it decreases with snapshot number
-      // Therefore dT = Age[progenitor] - Age[current] gives positive timestep
-      int current_snap = InputTreeHalos[halonr].SnapNum;
-      int progenitor_snap = FoFWorkspace[ngal].SnapNum;  // From copied progenitor
-      FoFWorkspace[ngal].dT = Age[progenitor_snap] - Age[current_snap];
-
-      // Skip halos that have already merged (marked in previous snapshot)
-      if (FoFWorkspace[ngal].Type == 3) {
-        // Free galaxy data to prevent memory leak (allocated above but not needed)
-        if (FoFWorkspace[ngal].galaxy != NULL) {
-          myfree(FoFWorkspace[ngal].galaxy);
-          FoFWorkspace[ngal].galaxy = NULL;
-        }
-        continue;
-      }
-
-      // this deals with the central halos of (sub)halos
-      if (FoFWorkspace[ngal].Type == 0 || FoFWorkspace[ngal].Type == 1) {
-        // remember properties from the last snapshot
-        previousMvir = FoFWorkspace[ngal].Mvir;
-        previousVvir = FoFWorkspace[ngal].Vvir;
-        previousVmax = FoFWorkspace[ngal].Vmax;
-
-        if (prog == first_occupied) {
-          // update properties of this object with physical properties of halo
-          FoFWorkspace[ngal].MostBoundID = InputTreeHalos[halonr].MostBoundID;
-
-          for (j = 0; j < 3; j++) {
-            FoFWorkspace[ngal].Pos[j] = InputTreeHalos[halonr].Pos[j];
-            FoFWorkspace[ngal].Vel[j] = InputTreeHalos[halonr].Vel[j];
-            FoFWorkspace[ngal].Spin[j] = InputTreeHalos[halonr].Spin[j];
-          }
-
-          FoFWorkspace[ngal].Len = InputTreeHalos[halonr].Len;
-          FoFWorkspace[ngal].Vmax = InputTreeHalos[halonr].Vmax;
-          FoFWorkspace[ngal].VelDisp = InputTreeHalos[halonr].VelDisp;
-
-          FoFWorkspace[ngal].deltaMvir =
-              get_virial_mass(halonr) - FoFWorkspace[ngal].Mvir;
-
-          if (get_virial_mass(halonr) > FoFWorkspace[ngal].Mvir) {
-            // Use maximum-ever values during evolution.
-            // Rationale: Galaxies reside deep in the potential well and are somewhat
-            // protected from halo fluctuations. Using maximum values provides stability
-            // for galaxy property evolution calculations.
-            // Note: At output, current tree values are reported for Type 0/1 (scientific
-            // accuracy), while Type 2 orphans preserve their last known values.
-            FoFWorkspace[ngal].Rvir = get_virial_radius(halonr);
-            FoFWorkspace[ngal].Vvir = get_virial_velocity(halonr);
-          }
-          FoFWorkspace[ngal].Mvir = get_virial_mass(halonr);
-
-          if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
-            // a central
-            FoFWorkspace[ngal].Type = 0;
-          } else {
-            // a satellite with subhalo
-            if (FoFWorkspace[ngal].Type ==
-                0) // remember the infall properties before becoming a subhalo
-            {
-              FoFWorkspace[ngal].infallMvir = previousMvir;
-              FoFWorkspace[ngal].infallVvir = previousVvir;
-              FoFWorkspace[ngal].infallVmax = previousVmax;
-            }
-
-            FoFWorkspace[ngal].Type = 1;
-          }
-        } else {
-          // an orphan satellite
-          FoFWorkspace[ngal].deltaMvir = -1.0*FoFWorkspace[ngal].Mvir;
-          FoFWorkspace[ngal].Mvir = 0.0;
-          FoFWorkspace[ngal].Len = 0;
-
-          if (FoFWorkspace[ngal].Type == 0) {
-            // here the halo has gone from type 0 to type 2
-            FoFWorkspace[ngal].infallMvir = previousMvir;
-            FoFWorkspace[ngal].infallVvir = previousVvir;
-            FoFWorkspace[ngal].infallVmax = previousVmax;
-          }
-
-          FoFWorkspace[ngal].Type = 2;
-        }
-      }
-
-      ngal++;
-    }
-
+    count += HaloAux[prog].NHalos;
     prog = InputTreeHalos[prog].NextProgenitor;
   }
 
-  if (ngal == ngalstart) {
-    // We have no progenitors with halos. This means we create a new object.
-    // init_halo requires halonr to be the main subhalo
-    if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
-      init_halo(ngal, halonr, tree, filenr);
-      ngal++;
-    }
-    // If not the main subhalo, we don't create an object
-  }
-
-  return ngal;
+  return count;
 }
 
-/**
- * @brief   Sets subhalo-local central index links for one galaxy slice
- *
- * @param   ngalstart    Starting index of galaxies for this subhalo
- * @param   ngal         Ending index (exclusive) of galaxies for this subhalo
- *
- * SAGE-parity semantics: each subhalo slice points to its local central via
- * CentralHalo. The local central is the Type 0 or Type 1 galaxy in
- * [ngalstart, ngal). This allows Type 2 galaxies in satellite subhalos to
- * reference their Type 1 central, rather than always referencing the FOF Type 0.
- */
-void set_halo_centrals(int ngalstart, int ngal) {
-  int i, centralgal, ncentrals;
+static void ensure_fof_workspace_capacity(int required) {
+  while (required > MaxFoFWorkspace) {
+    int old_size = MaxFoFWorkspace;
+    int new_size = (int)(MaxFoFWorkspace * HALO_ARRAY_GROWTH_FACTOR);
 
-  if (ngal <= ngalstart) {
-    return;
-  }
+    if (new_size - MaxFoFWorkspace < MIN_HALO_ARRAY_GROWTH)
+      new_size = MaxFoFWorkspace + MIN_HALO_ARRAY_GROWTH;
 
-  /* Find subhalo-local central (Type 0 or Type 1) and enforce uniqueness. */
-  centralgal = -1;
-  ncentrals = 0;
-  for (i = ngalstart; i < ngal; i++) {
-    if (FoFWorkspace[i].Type == 0 || FoFWorkspace[i].Type == 1) {
-      ncentrals++;
-      if (ncentrals > 1) {
-        ERROR_LOG("FATAL: Multiple Type 0/1 centrals found in subhalo slice "
-                  "(range %d-%d, first=%d, second=%d)",
-                  ngalstart, ngal, centralgal, i);
-        assert(ncentrals == 1);
-      }
-      centralgal = i;
+    if (new_size > MAX_HALO_ARRAY_SIZE)
+      new_size = MAX_HALO_ARRAY_SIZE;
+
+    if (new_size <= MaxFoFWorkspace) {
+      FATAL_ERROR("FoF workspace requires %d halos but maximum allowed size is %d",
+                  required, MAX_HALO_ARRAY_SIZE);
     }
-  }
 
-  if (centralgal == -1) {
-      ERROR_LOG("FATAL: No Type 0/1 central found in subhalo slice (range %d-%d)",
-                ngalstart, ngal);
-      // Log all galaxies for debugging
-      for (i = ngalstart; i < ngal; i++) {
-          ERROR_LOG("  Galaxy %d: Type=%d, HaloNr=%d", i, FoFWorkspace[i].Type, FoFWorkspace[i].HaloNr);
-      }
-      assert(centralgal != -1);
-  }
+    INFO_LOG("Growing halo array from %d to %d elements", MaxFoFWorkspace,
+             new_size);
 
-  /* Set all galaxies in this slice to point to the subhalo-local central. */
-  for (i = ngalstart; i < ngal; i++) {
-    FoFWorkspace[i].CentralHalo = centralgal;
+    MaxFoFWorkspace = new_size;
+    FoFWorkspace = myrealloc(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
+    memset(&FoFWorkspace[old_size], 0,
+           (new_size - old_size) * sizeof(struct Halo));
+  }
+}
+
+static long long make_unique_galaxy_id(int halonr, int tree, int filenr) {
+  long long file_mul_fac =
+      (MimicConfig.LastFile >= 10000) ? (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
+  long long tree_mul = TREE_MUL_FAC * tree;
+  long long file_mul = file_mul_fac * filenr;
+
+  return (long long)halonr + tree_mul + file_mul;
+}
+
+/*
+ * Build the driver-neutral descendant payload from the tree input. The field
+ * population is generated from property metadata (see the included file), so it
+ * cannot silently desync from struct HaloInitPayload when halo properties are
+ * added. This is the only place tree-index coupling touches halo init; the
+ * consumer (init_halo_from_payload) is format-neutral.
+ */
+static struct HaloInitPayload make_halo_init_payload(int halonr) {
+  struct HaloInitPayload payload;
+
+#include "../include/generated/populate_halo_payload_from_tree.inc"
+
+  return payload;
+}
+
+/*
+ * Reusable scratch for the gather step: the progenitor-galaxy list for one
+ * descendant subhalo. Grown monotonically and kept for the whole run so the
+ * depth-first tree hot path does not allocate per subhalo. Freed at shutdown by
+ * free_inheritance_gather_scratch(). The non-LIFO allocator (see memory.c)
+ * makes whole-run persistence safe alongside the per-tree FoFWorkspace.
+ */
+static struct InheritanceProgenitorGalaxy *ProgenitorScratch = NULL;
+static int ProgenitorScratchCapacity = 0;
+
+static struct InheritanceProgenitorGalaxy *ensure_progenitor_scratch(int required) {
+  if (required > ProgenitorScratchCapacity) {
+    ProgenitorScratch = myrealloc_cat(
+        ProgenitorScratch,
+        required * sizeof(struct InheritanceProgenitorGalaxy), MEM_HALOS);
+    ProgenitorScratchCapacity = required;
+  }
+  return ProgenitorScratch;
+}
+
+void free_inheritance_gather_scratch(void) {
+  if (ProgenitorScratch != NULL) {
+    myfree(ProgenitorScratch);
+    ProgenitorScratch = NULL;
+    ProgenitorScratchCapacity = 0;
+  }
+}
+
+static void gather_progenitor_galaxies(
+    int halonr, int first_occupied,
+    struct InheritanceProgenitorGalaxy *progenitors) {
+  int index = 0;
+  int prog = InputTreeHalos[halonr].FirstProgenitor;
+
+  while (prog >= 0) {
+    for (int i = 0; i < HaloAux[prog].NHalos; i++) {
+      const struct Halo *source = &ProcessedHalos[HaloAux[prog].FirstHalo + i];
+      progenitors[index].source = source;
+      progenitors[index].source_time = Age[source->SnapNum];
+      progenitors[index].is_main_branch = (prog == first_occupied);
+      index++;
+    }
+
+    prog = InputTreeHalos[prog].NextProgenitor;
   }
 }
 
@@ -422,18 +319,46 @@ void set_halo_centrals(int ngalstart, int ngal) {
  * maintaining the hierarchy of central and satellite halos.
  */
 int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
-  int ngal, first_occupied;
+  int current_snap, first_occupied, ngal, nprogenitors, required;
+  double virial_mass, virial_radius, virial_velocity;
+  struct InheritanceDescendant descendant;
+  struct InheritanceProgenitorGalaxy *progenitors = NULL;
 
   /* Find the most massive progenitor with halos */
   first_occupied = find_most_massive_progenitor(halonr);
 
-  /* Copy halos from progenitors to the current snapshot */
-  ngal = copy_progenitor_halos(halonr, ngalstart, first_occupied, tree, filenr);
-
-  /* Set central links for this subhalo slice only (SAGE parity). */
-  if (ngal > ngalstart) {
-    set_halo_centrals(ngalstart, ngal);
+  nprogenitors = count_progenitor_galaxies(halonr);
+  required = ngalstart + nprogenitors;
+  if (nprogenitors == 0 &&
+      halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
+    required++;
   }
+  ensure_fof_workspace_capacity(required);
+
+  if (nprogenitors > 0) {
+    progenitors = ensure_progenitor_scratch(nprogenitors);
+    gather_progenitor_galaxies(halonr, first_occupied, progenitors);
+  }
+
+  current_snap = InputTreeHalos[halonr].SnapNum;
+  virial_mass = get_virial_mass(halonr);
+  virial_radius = get_virial_radius(halonr);
+  virial_velocity = get_virial_velocity(halonr);
+  descendant.halo_nr = halonr;
+  descendant.current_snap = current_snap;
+  descendant.current_time = Age[current_snap];
+  descendant.new_halo_dt =
+      (current_snap > 0) ? Age[current_snap - 1] - Age[current_snap] : -1.0;
+  descendant.virial_mass = virial_mass;
+  descendant.virial_radius = virial_radius;
+  descendant.virial_velocity = virial_velocity;
+  descendant.is_fof_central =
+      (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup);
+  descendant.unique_galaxy_id = make_unique_galaxy_id(halonr, tree, filenr);
+  descendant.halo_payload = make_halo_init_payload(halonr);
+
+  ngal = inherit_descendant_halos(FoFWorkspace, ngalstart, MaxFoFWorkspace,
+                                  &descendant, progenitors, nprogenitors);
 
   return ngal;
 }

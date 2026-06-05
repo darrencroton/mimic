@@ -358,6 +358,18 @@ def generate_property_defs_h(
     code += "  struct GalaxyData *galaxy;\n"
     code += "};\n\n"
 
+    code += "/* Driver-neutral payload for initializing halo properties */\n"
+    code += "struct HaloInitPayload {\n"
+    for prop in halo_props:
+        init_source = prop.get("init_source", "skip")
+        if init_source not in ("copy_from_tree", "copy_from_tree_array", "calculate"):
+            continue
+        type_info = TYPE_MAP[prop["type"]]
+        c_type = type_info["c_type"]
+        array_suffix = type_info.get("c_array", "")
+        code += f"  {c_type} {prop['name']}{array_suffix};\n"
+    code += "};\n\n"
+
     # struct GalaxyData
     code += "/* Galaxy properties (baryonic physics) */\n"
     code += "struct GalaxyData {\n"
@@ -367,6 +379,52 @@ def generate_property_defs_h(
         array_suffix = type_info.get("c_array", "")
         code += f"  {c_type} {prop['name']}{array_suffix};\n"
     code += "};\n\n"
+
+    code += (
+        "static inline void init_halo_from_payload(struct Halo *halo, "
+        "const struct HaloInitPayload *payload) {\n"
+    )
+    for prop in halo_props:
+        init_source = prop.get("init_source", "skip")
+        name = prop["name"]
+        type_info = TYPE_MAP[prop["type"]]
+
+        if init_source == "skip":
+            continue
+        if init_source == "default":
+            init_value = prop["init_value"]
+            code += f"  halo->{name} = {init_value};\n"
+        elif init_source in ("copy_from_tree", "calculate"):
+            code += f"  halo->{name} = payload->{name};\n"
+        elif init_source == "copy_from_tree_array":
+            if not type_info["is_array"]:
+                raise ValueError(
+                    f"Property '{name}' uses copy_from_tree_array but type is not array"
+                )
+            code += f"  for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
+            code += f"    halo->{name}[j] = payload->{name}[j];\n"
+            code += "  }\n"
+    code += "}\n\n"
+
+    code += "static inline void init_galaxy_defaults(struct GalaxyData *galaxy) {\n"
+    for prop in galaxy_props:
+        init_source = prop.get("init_source", "default")
+        name = prop["name"]
+
+        if init_source == "default":
+            init_value = prop.get("init_value", "0.0")
+            code += f"  galaxy->{name} = {init_value};\n"
+    code += "}\n\n"
+
+    repeated_props = [
+        prop for prop in galaxy_props if prop.get("init_repeat", False)
+    ]
+    code += "static inline void reset_galaxy_snapshot_accumulators(struct GalaxyData *galaxy) {\n"
+    for prop in repeated_props:
+        name = prop["name"]
+        init_value = prop.get("init_value", "0.0")
+        code += f"  galaxy->{name} = {init_value};\n"
+    code += "}\n\n"
 
     # struct HaloOutput (all properties with output=true)
     code += "/* Output structure (file writing) */\n"
@@ -391,36 +449,39 @@ def generate_property_defs_h(
     return code
 
 
-def generate_init_halo_properties(halo_props: List[Dict], yaml_hash: str) -> str:
-    """Generate init_halo_properties.inc initialization code."""
+def generate_populate_halo_payload_from_tree(
+    halo_props: List[Dict], yaml_hash: str
+) -> str:
+    """Generate populate_halo_payload_from_tree.inc.
+
+    Fills a local `struct HaloInitPayload payload` for descendant `halonr` from
+    the tree-ordered input catalog. Included inside the tree driver's
+    make_halo_init_payload() (build_model.c).
+
+    This is the tree-driver-specific half of the gather/inherit split: it is the
+    only place where tree-index coupling (InputTreeHalos, virial helpers) touches
+    halo initialization. It is generated so that the payload is populated directly
+    from metadata and can never silently desync from struct HaloInitPayload --
+    both this populator and the struct iterate the identical init_source filter
+    (copy_from_tree / copy_from_tree_array / calculate), so adding a new
+    tree-sourced halo property updates both at once. The format-neutral
+    consumer (init_halo_from_payload in property_defs.h) carries no tree coupling.
+    """
 
     code = generate_header(yaml_hash)
-    code += "/* Initialize halo properties in init_halo(int p, int halonr) */\n\n"
+    code += "/* Populate `payload` for descendant `halonr` from the tree input.\n"
+    code += " *\n"
+    code += " * Mirrors struct HaloInitPayload (init_source in copy_from_tree /\n"
+    code += " * copy_from_tree_array / calculate). Included in a function body that\n"
+    code += " * declares `struct HaloInitPayload payload;`. */\n\n"
 
     for prop in halo_props:
         init_source = prop.get("init_source", "skip")
         name = prop["name"]
         type_info = TYPE_MAP[prop["type"]]
 
-        if init_source == "skip":
-            # Determine if property is in struct Halo or output-only
-            is_internal_only = not prop["output"]
-            is_in_processing = prop.get("init_source") != "skip"
-            is_in_struct = is_internal_only or is_in_processing
-
-            if is_in_struct:
-                # Property is in struct Halo but has custom initialization
-                code += f"/* {name}: skip (custom initialization in init_halo) */\n"
-            else:
-                # Property is output-only, not in struct Halo
-                code += f"/* {name}: skip (output-only, not in struct Halo) */\n"
-
-        elif init_source == "default":
-            init_value = prop["init_value"]
-            code += f"FoFWorkspace[p].{name} = {init_value};\n"
-
-        elif init_source == "copy_from_tree":
-            code += f"FoFWorkspace[p].{name} = InputTreeHalos[halonr].{name};\n"
+        if init_source == "copy_from_tree":
+            code += f"payload.{name} = InputTreeHalos[halonr].{name};\n"
 
         elif init_source == "copy_from_tree_array":
             if not type_info["is_array"]:
@@ -428,66 +489,12 @@ def generate_init_halo_properties(halo_props: List[Dict], yaml_hash: str) -> str
                     f"Property '{name}' uses copy_from_tree_array but type is not array"
                 )
             code += f"for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
-            code += f"  FoFWorkspace[p].{name}[j] = InputTreeHalos[halonr].{name}[j];\n"
+            code += f"  payload.{name}[j] = InputTreeHalos[halonr].{name}[j];\n"
             code += "}\n"
 
         elif init_source == "calculate":
             func = prop["init_function"]
-            code += f"FoFWorkspace[p].{name} = {func}(halonr);\n"
-
-    return code
-
-
-def generate_init_galaxy_properties(galaxy_props: List[Dict], yaml_hash: str) -> str:
-    """Generate init_galaxy_properties.inc initialization code."""
-
-    code = generate_header(yaml_hash)
-    code += (
-        "/* Initialize galaxy properties after allocating FoFWorkspace[p].galaxy */\n\n"
-    )
-
-    for prop in galaxy_props:
-        init_source = prop.get("init_source", "default")
-        name = prop["name"]
-
-        if init_source == "default":
-            init_value = prop.get("init_value", "0.0")
-            code += f"FoFWorkspace[p].galaxy->{name} = {init_value};\n"
-
-    return code
-
-
-def generate_reset_galaxy_properties(galaxy_props: List[Dict], yaml_hash: str) -> str:
-    """Generate reset_galaxy_properties.inc for properties with init_repeat: true.
-
-    This generates code to reset snapshot-scoped accumulator properties to their
-    init_value after copying from progenitors. Used in copy_halos_from_progenitors()
-    for central halos only.
-    """
-
-    code = generate_header(yaml_hash)
-    code += "/* Reset snapshot-scoped properties (init_repeat: true)\n"
-    code += " *\n"
-    code += " * Used in copy_halos_from_progenitors() after memcpy for central halos.\n"
-    code += " * These properties are accumulators that track values during a single\n"
-    code += " * snapshot and should start fresh each timestep.\n"
-    code += " *\n"
-    code += " * Context: FoFWorkspace[ngal].galaxy pointer must be non-NULL\n"
-    code += " */\n\n"
-
-    # Find properties with init_repeat: true
-    reset_props = [
-        prop for prop in galaxy_props if prop.get("init_repeat", False) is True
-    ]
-
-    if not reset_props:
-        code += "/* No properties require reset (none have init_repeat: true) */\n"
-    else:
-        code += f"/* Resetting {len(reset_props)} snapshot-scoped accumulator properties */\n"
-        for prop in reset_props:
-            name = prop["name"]
-            init_value = prop.get("init_value", "0.0")
-            code += f"FoFWorkspace[ngal].galaxy->{name} = {init_value};\n"
+            code += f"payload.{name} = {func}(halonr);\n"
 
     return code
 
@@ -1309,17 +1316,16 @@ def main():
     )
 
     # C initialization files
+    #
+    # Halo/galaxy initialization and snapshot-accumulator reset are emitted as
+    # typed inline functions in property_defs.h (init_halo_from_payload,
+    # init_galaxy_defaults, reset_galaxy_snapshot_accumulators). The only
+    # initialization .inc that remains is the tree-driver payload populator,
+    # which must be tree-coupled and therefore cannot be a driver-neutral header
+    # function.
     write_file(
-        GENERATED_DIR / "init_halo_properties.inc",
-        generate_init_halo_properties(halo_props, yaml_hash),
-    )
-    write_file(
-        GENERATED_DIR / "init_galaxy_properties.inc",
-        generate_init_galaxy_properties(galaxy_props, yaml_hash),
-    )
-    write_file(
-        GENERATED_DIR / "reset_galaxy_properties.inc",
-        generate_reset_galaxy_properties(galaxy_props, yaml_hash),
+        GENERATED_DIR / "populate_halo_payload_from_tree.inc",
+        generate_populate_halo_payload_from_tree(halo_props, yaml_hash),
     )
     write_file(
         GENERATED_DIR / "property_test_helpers.h",

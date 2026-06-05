@@ -63,17 +63,16 @@ int test_generated_init_code_executes(void) {
 
     struct Halo workspace[1];
     struct GalaxyData galaxy;
-    int p = 0;
     setup_workspace(workspace, &galaxy);
 
     generated_test_seed_default_galaxy_properties(&galaxy);
     TEST_ASSERT(!generated_test_default_galaxy_properties_equal_init(&galaxy),
                 "Generated seed helper should move default galaxy properties away from init values");
 
-    #include "../../src/include/generated/init_galaxy_properties.inc"
+    init_galaxy_defaults(&galaxy);
 
     TEST_ASSERT(generated_test_default_galaxy_properties_equal_init(&galaxy),
-                "init_galaxy_properties.inc should initialize all default galaxy properties");
+                "init_galaxy_defaults() should initialize all default galaxy properties");
 
     check_memory_leaks();
     return TEST_PASS;
@@ -84,11 +83,9 @@ int test_generated_reset_code_executes(void) {
 
     struct Halo workspace[1];
     struct GalaxyData galaxy;
-    int p = 0;
-    int ngal = 0;
     setup_workspace(workspace, &galaxy);
 
-    #include "../../src/include/generated/init_galaxy_properties.inc"
+    init_galaxy_defaults(&galaxy);
 
     generated_test_seed_init_repeat_properties(&galaxy);
     if (GENERATED_INIT_REPEAT_PROPERTY_COUNT > 0) {
@@ -96,10 +93,10 @@ int test_generated_reset_code_executes(void) {
                     "Generated seed helper should move init_repeat properties away from init values");
     }
 
-    #include "../../src/include/generated/reset_galaxy_properties.inc"
+    reset_galaxy_snapshot_accumulators(&galaxy);
 
     TEST_ASSERT(generated_test_init_repeat_properties_equal_init(&galaxy),
-                "reset_galaxy_properties.inc should restore init_repeat properties to init values");
+                "reset_galaxy_snapshot_accumulators() should restore init_repeat properties to init values");
 
     check_memory_leaks();
     return TEST_PASS;

@@ -18,7 +18,10 @@ extern char *ThisNode;
  * ============================================
  *
  * Mimic uses a three-tier architecture for halo tracking through merger trees.
- * Understanding this flow is critical for Phase 1-2 transformations.
+ * The tree driver gathers already-processed progenitor galaxies, the shared
+ * inheritance service deep-copies them into FoFWorkspace, physics mutates the
+ * workspace in place, and output marshalling transfers surviving workspace
+ * entries into ProcessedHalos.
  *
  * Data Flow: InputTreeHalos → FoFWorkspace → ProcessedHalos
  *
@@ -44,8 +47,8 @@ extern char *ThisNode;
  *    - Lifetime: Per-tree (allocated in load_tree(), freed in
  * free_halos_and_tree())
  *    - Ownership: Master copy for output, indexed by NumProcessedHalos
- *    - Size: MaxProcessedHalos elements (initial estimate, grows via
- * myrealloc_cat)
+ *    - Size: MaxProcessedHalos elements (initial estimate; marshalling asserts
+ *      that the estimate is large enough)
  *    - Purpose: Stores all processed halos for current tree until output
  *    - Memory: Allocated via mymalloc_cat(..., MEM_HALOS)
  *
@@ -71,9 +74,11 @@ extern char *ThisNode;
  *     myfree(HaloAux)
  *     myfree(InputTreeHalos)
  *
- * IMPORTANT: Phase 1-2 transformations will add galaxy properties to the Halo
- * struct. The lifecycle pattern established here must be preserved to ensure
- * proper memory management as the structure grows.
+ * IMPORTANT: GalaxyData pointers are not shared between FoFWorkspace and
+ * ProcessedHalos across inheritance boundaries. Inheritance allocates deep
+ * copies in FoFWorkspace; marshal_processed_halos() transfers surviving
+ * pointers into ProcessedHalos by struct copy; free_halos_and_tree() frees
+ * galaxy data from ProcessedHalos only.
  */
 
 /* halo data pointers */

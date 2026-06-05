@@ -23,58 +23,15 @@
 #include "proto.h"
 #include "numeric.h"
 
-/**
- * @brief   Initializes a new halo tracking object with default properties
- *
- * @param   p       Index in the FoFWorkspace array
- * @param   halonr  Index of the halo in the InputTreeHalos array
- * @param   tree    Merger tree number within file
- * @param   filenr  File number in multi-file run
- *
- * This function initializes a new halo tracking object with default values.
- * It sets up the object's position, velocity, and halo properties based on
- * the input merger tree halo data. Each object is assigned a persistent
- * unique UniqueGalaxyID for identification and tracking through cosmic time.
- *
- * UniqueGalaxyID encoding: file*10^15 + tree*10^9 + halonr
- * This value persists for the galaxy's entire lifetime and is inherited
- * by descendants through progenitor relationships.
+/*
+ * New halo objects (descendants with no progenitor galaxies) are created by the
+ * shared inheritance service (init_new_halo in src/core/inheritance.c), which
+ * builds them from a driver-supplied HaloInitPayload rather than from tree
+ * indices. The former init_halo() lived here and duplicated that logic plus the
+ * UniqueGalaxyID encoding; it was removed when the inheritance service became
+ * the single owner of object creation. The virial helpers below remain the
+ * source of the descendant virial properties.
  */
-void init_halo(int p, int halonr, int tree, int filenr) {
-  /* Verify this is a central halo (FOF group center) */
-  assert(halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup);
-
-  /* Custom initialization: HaloNr is set directly from parameter */
-  FoFWorkspace[p].HaloNr = halonr;
-
-  /* AUTO-GENERATED: Initialize all halo properties from metadata */
-  #include "../include/generated/init_halo_properties.inc"
-
-  /* Custom override: SnapNum needs -1 adjustment for internal indexing */
-  FoFWorkspace[p].SnapNum = InputTreeHalos[halonr].SnapNum - 1;
-
-  /* Set dT to snapshot interval for newly formed halos (grew from zero mass) */
-  int current_snap = InputTreeHalos[halonr].SnapNum;
-  if (current_snap > 0) {
-    FoFWorkspace[p].dT = Age[current_snap - 1] - Age[current_snap];
-  }
-  /* else: keep sentinel -1.0 from auto-init (first snapshot has no prior) */
-
-  /* Assign persistent UniqueGalaxyID at creation (AFTER auto-init to avoid overwrite) */
-  long long file_mul_fac = (MimicConfig.LastFile >= 10000) ?
-                            (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
-  long long tree_mul = TREE_MUL_FAC * tree;
-  long long file_mul = file_mul_fac * filenr;
-
-  FoFWorkspace[p].UniqueGalaxyID = (long long)halonr + tree_mul + file_mul;
-
-  /* Allocate galaxy data (physics-agnostic core always allocates)
-   * Modules will populate these properties; if no modules run, values stay at zero */
-  FoFWorkspace[p].galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
-
-  /* AUTO-GENERATED: Initialize all galaxy properties from metadata */
-  #include "../include/generated/init_galaxy_properties.inc"
-}
 
 /**
  * @brief   Returns the virial mass of a halo
