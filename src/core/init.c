@@ -2,20 +2,21 @@
  * @file    core_init.c
  * @brief   Initialization functions for the Mimic framework
  *
- * This file contains functions responsible for initializing the Mimic framework.
- * It handles defining physical units, reading snapshot lists, calculating
- * lookback times, and initializing other components like cooling functions.
+ * This file contains functions responsible for initializing the Mimic
+ * framework. It handles defining physical units, calculating lookback times,
+ * and initializing other components like cooling functions.
  *
  * Key functions:
  * - init(): Main initialization function that coordinates all setup tasks
  * - set_units(): Defines and converts physical units for the simulation
- * - read_snap_list(): Loads the list of snapshots from disk
  * - time_to_present(): Calculates lookback time for a given redshift
  *
  * The cosmological calculations use numerical integration to compute
  * lookback times in a ΛCDM universe.
  */
 
+#include <ctype.h>
+#include <errno.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,11 +27,11 @@
 #include <unistd.h>
 
 #include "allvars.h"
-#include "proto.h"
 #include "error.h"
 #include "integration.h"
-#include "numeric.h"
 #include "module_system/physical_constants.h"
+#include "numeric.h"
+#include "proto.h"
 
 /**
  * @brief   Main initialization function for the Mimic framework
@@ -41,7 +42,7 @@
  * 1. Allocates memory for the Age array
  * 2. Initializes the random number generator
  * 3. Sets up physical units and constants
- * 4. Reads the snapshot list and calculates redshifts
+ * 4. Calculates redshifts from the validated snapshot scale-factor list
  * 5. Computes lookback times for each snapshot
  * 6. Initializes reionization parameters
  * 7. Reads cooling function tables
@@ -61,17 +62,17 @@ void init(void) {
   set_units();
   srand((unsigned)time(NULL));
 
-  read_snap_list();
-
   /* Store initial redshift lookback time at index 0, then offset Age pointer
    * by 1 to allow 1-based indexing (Age[-1] accesses original Age[0]) */
-  Age_base[0] = time_to_present(INITIAL_REDSHIFT); // lookback time from z=1000 (recombination era)
+  Age_base[0] = time_to_present(
+      INITIAL_REDSHIFT); // lookback time from z=1000 (recombination era)
   Age = Age_base + 1;
 
   for (i = 0; i < MimicConfig.Snaplistlen; i++) {
     MimicConfig.ZZ[i] = safe_div(1.0, MimicConfig.AA[i], 0.0) - 1;
     Age[i] = time_to_present(MimicConfig.ZZ[i]);
-    // Synchronize array element (Phase 1) - manual assignment required for array elements
+    // Synchronize array element (Phase 1) - manual assignment required for
+    // array elements
     ZZ[i] = MimicConfig.ZZ[i];
   }
 }
@@ -100,17 +101,17 @@ void set_units(void) {
   MimicConfig.UnitTime_in_Megayears =
       MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR;
   MimicConfig.G = GRAVITY / pow(MimicConfig.UnitLength_in_cm, 3) *
-                 MimicConfig.UnitMass_in_g * pow(MimicConfig.UnitTime_in_s, 2);
+                  MimicConfig.UnitMass_in_g * pow(MimicConfig.UnitTime_in_s, 2);
   MimicConfig.UnitDensity_in_cgs =
       MimicConfig.UnitMass_in_g / pow(MimicConfig.UnitLength_in_cm, 3);
   MimicConfig.UnitPressure_in_cgs = MimicConfig.UnitMass_in_g /
-                                   MimicConfig.UnitLength_in_cm /
-                                   pow(MimicConfig.UnitTime_in_s, 2);
+                                    MimicConfig.UnitLength_in_cm /
+                                    pow(MimicConfig.UnitTime_in_s, 2);
   MimicConfig.UnitCoolingRate_in_cgs =
       MimicConfig.UnitPressure_in_cgs / MimicConfig.UnitTime_in_s;
   MimicConfig.UnitEnergy_in_cgs = MimicConfig.UnitMass_in_g *
-                                 pow(MimicConfig.UnitLength_in_cm, 2) /
-                                 pow(MimicConfig.UnitTime_in_s, 2);
+                                  pow(MimicConfig.UnitLength_in_cm, 2) /
+                                  pow(MimicConfig.UnitTime_in_s, 2);
 
   // Convert some physical input parameters to internal units
   MimicConfig.Hubble = HUBBLE * MimicConfig.UnitTime_in_s;
@@ -149,24 +150,11 @@ void set_units(void) {
  *
  * If the file cannot be read, the function terminates with a fatal error.
  */
-/**
- * @brief   Reads the list of snapshot scale factors from a file
- *
- * This function loads the list of snapshot scale factors (a) from the
- * file specified in the configuration. For each snapshot, it:
- *
- * 1. Reads the scale factor value (a = 1/(1+z))
- * 2. Stores it in the MimicConfig.AA array
- * 3. Counts the total number of snapshots
- *
- * The function also synchronizes the snapshot data with global variables
- * for backward compatibility with older code.
- *
- * If the file cannot be read, the function terminates with a fatal error.
- */
 void read_snap_list(void) {
   FILE *fd;
   char fname[MAX_STRING_LEN + 1];
+  char line[1024];
+  int line_number = 0;
 
   snprintf(fname, MAX_STRING_LEN, "%s", MimicConfig.FileWithSnapList);
 
@@ -175,23 +163,75 @@ void read_snap_list(void) {
   }
 
   MimicConfig.Snaplistlen = 0;
-  do {
-    if (fscanf(fd, " %lg ", &MimicConfig.AA[MimicConfig.Snaplistlen]) == 1)
-      MimicConfig.Snaplistlen++;
-    else
-      break;
-  } while (MimicConfig.Snaplistlen < MimicConfig.MAXSNAPS);
+  while (fgets(line, sizeof(line), fd) != NULL) {
+    char *cursor = line;
+    char *endptr;
+    double scale_factor;
+
+    line_number++;
+    while (isspace((unsigned char)*cursor)) {
+      cursor++;
+    }
+    if (*cursor == '\0' || *cursor == '#') {
+      continue;
+    }
+
+    errno = 0;
+    scale_factor = strtod(cursor, &endptr);
+    if (cursor == endptr || errno != 0) {
+      FATAL_ERROR("Invalid scale factor in '%s' at line %d", fname,
+                  line_number);
+    }
+    if (!isfinite(scale_factor)) {
+      FATAL_ERROR("Scale factor in '%s' at line %d must be finite", fname,
+                  line_number);
+    }
+    if (scale_factor <= 0.0) {
+      FATAL_ERROR("Scale factor in '%s' at line %d must be positive", fname,
+                  line_number);
+    }
+    if (MimicConfig.Snaplistlen > 0 &&
+        scale_factor <= MimicConfig.AA[MimicConfig.Snaplistlen - 1]) {
+      FATAL_ERROR("Scale factors in '%s' must be strictly increasing; line %d "
+                  "is not greater than the previous snapshot",
+                  fname, line_number);
+    }
+
+    while (isspace((unsigned char)*endptr)) {
+      endptr++;
+    }
+    if (*endptr != '\0' && *endptr != '#') {
+      FATAL_ERROR("Unexpected text after scale factor in '%s' at line %d",
+                  fname, line_number);
+    }
+    if (MimicConfig.Snaplistlen >= ABSOLUTEMAXSNAPS) {
+      FATAL_ERROR("Snapshot scale-factor list '%s' has more than %d entries",
+                  fname, ABSOLUTEMAXSNAPS);
+    }
+
+    MimicConfig.AA[MimicConfig.Snaplistlen] = scale_factor;
+    MimicConfig.Snaplistlen++;
+  }
 
   fclose(fd);
 
+  if (MimicConfig.Snaplistlen == 0) {
+    FATAL_ERROR("Snapshot scale-factor list '%s' is empty", fname);
+  }
+
+  MimicConfig.LastSnapshotNr = MimicConfig.Snaplistlen - 1;
+  MimicConfig.MAXSNAPS = MimicConfig.Snaplistlen;
+
   // Synchronize with globals using explicit pattern (Phase 1)
+  SYNC_CONFIG_INT(MAXSNAPS);
   SYNC_CONFIG_INT(Snaplistlen);
   memcpy(AA, MimicConfig.AA, sizeof(double) * ABSOLUTEMAXSNAPS);
 
 #ifdef MPI
   if (ThisTask == 0)
 #endif
-    INFO_LOG("Found %d defined times in snaplist", MimicConfig.Snaplistlen);
+    INFO_LOG("Found %d defined times in snaplist (snapshots 0..%d)",
+             MimicConfig.Snaplistlen, MimicConfig.LastSnapshotNr);
 }
 
 /**
@@ -221,8 +261,9 @@ double time_to_present(double z) {
 
   // Use adaptive integration with GAUSS21 method.
   // SAGE parity: relative tolerance is 1.0e-9 (sage-code core_init.c).
-  integration_qag(&F, safe_div(1.0, z + 1, 1.0), 1.0, safe_div(1.0, MimicConfig.Hubble, 0.0), 1.0e-9,
-                  WORKSIZE, INTEG_GAUSS21, workspace, &result, &abserr);
+  integration_qag(&F, safe_div(1.0, z + 1, 1.0), 1.0,
+                  safe_div(1.0, MimicConfig.Hubble, 0.0), 1.0e-9, WORKSIZE,
+                  INTEG_GAUSS21, workspace, &result, &abserr);
 
   time = safe_div(1.0, MimicConfig.Hubble, 0.0) * result;
 
@@ -251,7 +292,9 @@ double integrand_time_to_present(double a, void *param) {
   /* Parameter unused but required by integration function signature */
   (void)param;
 
-  return safe_div(1.0, sqrt(safe_div(MimicConfig.Omega, a, 0.0) +
-                  (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) +
-                  MimicConfig.OmegaLambda * a * a), 0.0);
+  return safe_div(1.0,
+                  sqrt(safe_div(MimicConfig.Omega, a, 0.0) +
+                       (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) +
+                       MimicConfig.OmegaLambda * a * a),
+                  0.0);
 }

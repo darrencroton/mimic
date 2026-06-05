@@ -538,7 +538,6 @@ input:
   tree_type: lhalo_binary   # format; see Supported Tree Formats below
   simulation_dir: ./simulations/my_sim/snapshots/
   snapshot_list_file: simulations/my_sim/my_sim.a_list
-  last_snapshot: 63         # snapshot index corresponding to z=0
 
 simulation:
   cosmology:
@@ -566,7 +565,7 @@ To add support for a different catalog format, implement `load_tree_table_*()` a
 
 ### Snapshot Scale Factor List
 
-The `.a_list` file contains one scale factor per line, ordered from earliest to latest snapshot (increasing `a`, decreasing redshift). There must be exactly `last_snapshot + 1` entries:
+The `.a_list` file contains one scale factor per line, ordered from earliest to latest snapshot (increasing `a`, decreasing redshift). Mimic derives the last valid snapshot index from this file, so a file with 64 entries defines snapshots `0..63`:
 
 ```
 0.0078125
@@ -576,7 +575,7 @@ The `.a_list` file contains one scale factor per line, ordered from earliest to 
 1.0
 ```
 
-These values drive all redshift and timestep calculations. Mimic counts snapshots by position in this file, so the ordering is critical. Snapshot index `last_snapshot` (the last line) corresponds to `a = 1.0` (z = 0).
+These values drive all redshift and timestep calculations. Mimic counts snapshots by position in this file, so the ordering is critical. The last line corresponds to the highest snapshot index, normally `a = 1.0` (z = 0).
 
 ### halo_properties.yaml
 

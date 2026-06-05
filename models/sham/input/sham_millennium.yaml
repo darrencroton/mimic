@@ -3,7 +3,7 @@
 model:
   name: sham
   path: models/sham
-  properties: models/sham/model_properties.yaml
+  model_properties: models/sham/model_properties.yaml
 
 simulation:
   name: millennium
@@ -17,9 +17,8 @@ plotting:
 output:
   output_filename: sham
   output_directory: output/sham-millennium
-  output_format: hdf5
-  snapshot_count: 8
-  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
+  output_format: hdf5                               # Select binary or hdf5
+  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]   # Leave empty for all snapshots
 
 SubSteps: 1
 

@@ -85,6 +85,9 @@ python3 "$SCRIPT_DIR/test_sage_native_hdf5.py"
 echo "Test 7: Plot profile inheritance unit tests"
 python3 "$SCRIPT_DIR/test_profile_inheritance.py"
 
+echo "Test 8: Snapshot redshift mapper unit tests"
+python3 "$SCRIPT_DIR/test_snapshot_redshift_mapper.py"
+
 echo ""
 echo "=========================================="
 echo "All tests passed successfully!"

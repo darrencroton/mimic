@@ -91,7 +91,7 @@ def base_run_config(model: str, simulation: str) -> dict[str, Any]:
         "model": {
             "name": model,
             "path": rel(model_root),
-            "properties": rel(model_properties),
+            "model_properties": rel(model_properties),
         },
         "simulation": {
             "name": sim_name,
@@ -137,7 +137,6 @@ def write_run(
     config["output"] = {
         "output_filename": output_filename,
         "output_directory": output_directory,
-        "snapshot_count": len(snapshot_list),
         "output_format": output_format,
         "snapshot_list": snapshot_list,
     }

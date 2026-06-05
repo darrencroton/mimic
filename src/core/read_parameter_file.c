@@ -8,6 +8,9 @@
  * Structure: YAML file -> Document tree -> Navigate sections -> Extract values
  */
 
+#include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,38 +18,49 @@
 
 #include "config.h"
 #include "constants.h"
-#include "proto.h"
-#include "globals.h"
-#include "types.h"
 #include "error.h"
-#include "memory.h"             /* For mymalloc_cat, myfree */
-#include "module_registry.h"    /* For PhaseModuleConfig and LoopMode */
+#include "globals.h"
+#include "memory.h"          /* For mymalloc_cat, myfree */
+#include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
+#include "proto.h"
+#include "types.h"
 
 #ifndef MIMIC_COMPILED_MODEL
-#error "MIMIC_COMPILED_MODEL must be set at compile time via -DMIMIC_COMPILED_MODEL=<name>. Use make MODEL=<name>."
+#error                                                                         \
+    "MIMIC_COMPILED_MODEL must be set at compile time via -DMIMIC_COMPILED_MODEL=<name>. Use make MODEL=<name>."
 #endif
 
 #ifndef MIMIC_COMPILED_MODEL_PATH
-#error "MIMIC_COMPILED_MODEL_PATH must be set at compile time via -DMIMIC_COMPILED_MODEL_PATH=<path>. Use make MODEL=<name>."
+#error                                                                         \
+    "MIMIC_COMPILED_MODEL_PATH must be set at compile time via -DMIMIC_COMPILED_MODEL_PATH=<path>. Use make MODEL=<name>."
 #endif
 
 #ifndef MIMIC_COMPILED_SIMULATION
-#error "MIMIC_COMPILED_SIMULATION must be set at compile time via -DMIMIC_COMPILED_SIMULATION=<name>. Use make SIMULATION=<name>."
+#error                                                                         \
+    "MIMIC_COMPILED_SIMULATION must be set at compile time via -DMIMIC_COMPILED_SIMULATION=<name>. Use make SIMULATION=<name>."
 #endif
 
 /* Helper functions for DOM navigation */
-static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key);
+static yaml_node_t *get_mapping_value(yaml_document_t *doc,
+                                      yaml_node_t *mapping, const char *key);
 static const char *get_scalar_value(yaml_node_t *node);
+static void reject_unknown_keys(yaml_document_t *doc, yaml_node_t *mapping,
+                                const char *section_name,
+                                const char *const *valid_keys,
+                                size_t num_valid_keys);
 static int get_int_value(yaml_node_t *node);
+static int get_strict_int_value(yaml_node_t *node, const char *field_name);
 static double get_double_value(yaml_node_t *node);
 static void parse_output_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_input_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_model_section(yaml_document_t *doc, yaml_node_t *section);
-static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section);
+static void parse_simulation_section(yaml_document_t *doc,
+                                     yaml_node_t *section);
 static void parse_plotting_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section);
 static void validate_and_postprocess(void);
 static void parse_simulation_config_file(const char *fname);
+static void validate_output_snapshots(void);
 static void resolve_config_path(const char *path, const char *param_file,
                                 char *resolved, size_t resolved_size);
 static int file_exists_readable(const char *path);
@@ -83,8 +97,8 @@ void read_parameter_file(const char *fname) {
 
   /* Load document (builds DOM tree) */
   if (!yaml_parser_load(&parser, &document)) {
-    ERROR_LOG("YAML parse error at line %zu: %s",
-              parser.problem_mark.line + 1, parser.problem);
+    ERROR_LOG("YAML parse error at line %zu: %s", parser.problem_mark.line + 1,
+              parser.problem);
     yaml_parser_delete(&parser);
     fclose(fh);
     FATAL_ERROR("Failed to parse YAML file");
@@ -124,19 +138,24 @@ void read_parameter_file(const char *fname) {
   }
 
   section = get_mapping_value(&document, root, "output");
-  if (section) parse_output_section(&document, section);
+  if (section)
+    parse_output_section(&document, section);
 
   section = get_mapping_value(&document, root, "input");
-  if (section) parse_input_section(&document, section);
+  if (section)
+    parse_input_section(&document, section);
 
   section = get_mapping_value(&document, root, "model");
-  if (section) parse_model_section(&document, section);
+  if (section)
+    parse_model_section(&document, section);
 
   section = get_mapping_value(&document, root, "simulation");
-  if (section) parse_simulation_section(&document, section);
+  if (section)
+    parse_simulation_section(&document, section);
 
   section = get_mapping_value(&document, root, "plotting");
-  if (section) parse_plotting_section(&document, section);
+  if (section)
+    parse_plotting_section(&document, section);
 
   /* Parse SubSteps (top-level parameter) */
   node = get_mapping_value(&document, root, "SubSteps");
@@ -148,7 +167,8 @@ void read_parameter_file(const char *fname) {
   }
 
   section = get_mapping_value(&document, root, "modules");
-  if (section) parse_modules_section(&document, section);
+  if (section)
+    parse_modules_section(&document, section);
 
   /* Cleanup */
   yaml_document_delete(&document);
@@ -169,7 +189,8 @@ void read_parameter_file(const char *fname) {
  * @param   key      Key to find
  * @return  Value node, or NULL if not found
  */
-static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key) {
+static yaml_node_t *get_mapping_value(yaml_document_t *doc,
+                                      yaml_node_t *mapping, const char *key) {
   if (!mapping || mapping->type != YAML_MAPPING_NODE) {
     return NULL;
   }
@@ -198,6 +219,40 @@ static const char *get_scalar_value(yaml_node_t *node) {
 }
 
 /**
+ * @brief   Reject unknown keys in sections whose schema is fixed.
+ */
+static void reject_unknown_keys(yaml_document_t *doc, yaml_node_t *mapping,
+                                const char *section_name,
+                                const char *const *valid_keys,
+                                size_t num_valid_keys) {
+  if (!mapping || mapping->type != YAML_MAPPING_NODE) {
+    return;
+  }
+
+  for (yaml_node_pair_t *pair = mapping->data.mapping.pairs.start;
+       pair < mapping->data.mapping.pairs.top; pair++) {
+    yaml_node_t *key_node = yaml_document_get_node(doc, pair->key);
+    const char *key = get_scalar_value(key_node);
+    int known = 0;
+
+    if (key == NULL) {
+      continue;
+    }
+
+    for (size_t i = 0; i < num_valid_keys; i++) {
+      if (strcmp(key, valid_keys[i]) == 0) {
+        known = 1;
+        break;
+      }
+    }
+
+    if (!known) {
+      FATAL_ERROR("Unknown key '%s.%s'", section_name, key);
+    }
+  }
+}
+
+/**
  * @brief   Check whether a file can be opened for reading.
  */
 static int file_exists_readable(const char *path) {
@@ -213,8 +268,8 @@ static int file_exists_readable(const char *path) {
  * @brief   Resolve a run-file path with param-file-relative fallback.
  *
  * Absolute paths are used as-is. Relative paths are first tried exactly as
- * provided (normally repository-root-relative because runs are launched from the
- * repo root), then relative to the parameter file's parent directory. The
+ * provided (normally repository-root-relative because runs are launched from
+ * the repo root), then relative to the parameter file's parent directory. The
  * returned path is stored for metadata copying and later diagnostics.
  */
 static void resolve_config_path(const char *path, const char *param_file,
@@ -273,6 +328,34 @@ static int get_int_value(yaml_node_t *node) {
 }
 
 /**
+ * @brief   Get scalar value as integer, rejecting malformed input.
+ */
+static int get_strict_int_value(yaml_node_t *node, const char *field_name) {
+  const char *str = get_scalar_value(node);
+  char *endptr;
+  long value;
+
+  if (str == NULL) {
+    FATAL_ERROR("%s must be an integer scalar", field_name);
+  }
+
+  errno = 0;
+  value = strtol(str, &endptr, 10);
+  if (str == endptr || errno != 0 || value < INT_MIN || value > INT_MAX) {
+    FATAL_ERROR("%s must be a valid integer", field_name);
+  }
+
+  while (isspace((unsigned char)*endptr)) {
+    endptr++;
+  }
+  if (*endptr != '\0') {
+    FATAL_ERROR("%s must be a valid integer", field_name);
+  }
+
+  return (int)value;
+}
+
+/**
  * @brief   Get scalar value as double
  */
 static double get_double_value(yaml_node_t *node) {
@@ -286,8 +369,12 @@ static double get_double_value(yaml_node_t *node) {
 static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node;
   const char *str;
+  static const char *const valid_keys[] = {
+      "output_filename", "output_directory", "output_format", "snapshot_list"};
 
   DEBUG_LOG("Parsing output section");
+  reject_unknown_keys(doc, section, "output", valid_keys,
+                      sizeof(valid_keys) / sizeof(valid_keys[0]));
 
   node = get_mapping_value(doc, section, "output_filename");
   if (node && (str = get_scalar_value(node))) {
@@ -301,12 +388,6 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
     DEBUG_LOG("OutputDir = %s", str);
   }
 
-  node = get_mapping_value(doc, section, "snapshot_count");
-  if (node) {
-    MimicConfig.NOUT = get_int_value(node);
-    DEBUG_LOG("NumOutputs = %d", MimicConfig.NOUT);
-  }
-
   node = get_mapping_value(doc, section, "output_format");
   if (node && (str = get_scalar_value(node))) {
     if (strcasecmp(str, "binary") == 0) {
@@ -314,7 +395,8 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
     } else if (strcasecmp(str, "hdf5") == 0) {
 #ifndef HDF5
       ERROR_LOG("OutputFormat 'hdf5' requires HDF5 support");
-  FATAL_ERROR("Recompile with HDF5 enabled (default) or remove USE-HDF5=no");
+      FATAL_ERROR(
+          "Recompile with HDF5 enabled (default) or remove USE-HDF5=no");
 #else
       MimicConfig.OutputFormat = output_hdf5;
 #endif
@@ -324,20 +406,28 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
 
   /* Parse snapshot list array */
   node = get_mapping_value(doc, section, "snapshot_list");
-  if (node && node->type == YAML_SEQUENCE_NODE) {
+  if (node) {
+    if (node->type != YAML_SEQUENCE_NODE) {
+      FATAL_ERROR("output.snapshot_list must be a sequence");
+    }
     yaml_node_item_t *item;
     int idx = 0;
     for (item = node->data.sequence.items.start;
-         item < node->data.sequence.items.top && idx < ABSOLUTEMAXSNAPS; item++) {
+         item < node->data.sequence.items.top; item++) {
       yaml_node_t *value_node = yaml_document_get_node(doc, *item);
       if (value_node) {
-        int snap = get_int_value(value_node);
+        if (idx >= ABSOLUTEMAXSNAPS) {
+          FATAL_ERROR("output.snapshot_list has more than %d entries",
+                      ABSOLUTEMAXSNAPS);
+        }
+        int snap = get_strict_int_value(value_node, "output.snapshot_list[]");
         MimicConfig.ListOutputSnaps[idx] = snap;
-        ListOutputSnaps[idx] = snap;
         DEBUG_LOG("Snapshot[%d] = %d", idx, snap);
         idx++;
       }
     }
+    MimicConfig.NOUT = idx;
+    DEBUG_LOG("NumOutputs inferred from snapshot_list = %d", MimicConfig.NOUT);
   }
 }
 
@@ -347,8 +437,13 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
 static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node;
   const char *str;
+  static const char *const valid_keys[] = {
+      "first_file",     "last_file",          "tree_name",     "tree_type",
+      "simulation_dir", "snapshot_list_file", "max_tree_depth"};
 
   DEBUG_LOG("Parsing input section");
+  reject_unknown_keys(doc, section, "input", valid_keys,
+                      sizeof(valid_keys) / sizeof(valid_keys[0]));
 
   node = get_mapping_value(doc, section, "first_file");
   if (node) {
@@ -375,7 +470,8 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
     } else if (strcasecmp(str, "genesis_lhalo_hdf5") == 0) {
 #ifndef HDF5
       ERROR_LOG("TreeType '%s' requires HDF5 support", str);
-  FATAL_ERROR("Recompile with HDF5 enabled (default) or remove USE-HDF5=no");
+      FATAL_ERROR(
+          "Recompile with HDF5 enabled (default) or remove USE-HDF5=no");
 #else
       MimicConfig.TreeType = genesis_lhalo_hdf5;
       strncpy(MimicConfig.TreeExtension, ".hdf5", MAX_STRING_LEN - 1);
@@ -396,12 +492,6 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
     DEBUG_LOG("FileWithSnapList = %s", str);
   }
 
-  node = get_mapping_value(doc, section, "last_snapshot");
-  if (node) {
-    MimicConfig.LastSnapshotNr = get_int_value(node);
-    DEBUG_LOG("LastSnapshotNr = %d", MimicConfig.LastSnapshotNr);
-  }
-
   node = get_mapping_value(doc, section, "max_tree_depth");
   if (node) {
     MimicConfig.MaxTreeDepth = get_int_value(node);
@@ -415,8 +505,11 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
 static void parse_model_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node;
   const char *str;
+  static const char *const valid_keys[] = {"name", "path", "model_properties"};
 
   DEBUG_LOG("Parsing model section");
+  reject_unknown_keys(doc, section, "model", valid_keys,
+                      sizeof(valid_keys) / sizeof(valid_keys[0]));
 
   node = get_mapping_value(doc, section, "name");
   if (node && (str = get_scalar_value(node))) {
@@ -428,7 +521,7 @@ static void parse_model_section(yaml_document_t *doc, yaml_node_t *section) {
     strncpy(MimicConfig.ModelPath, str, MAX_STRING_LEN - 1);
   }
 
-  node = get_mapping_value(doc, section, "properties");
+  node = get_mapping_value(doc, section, "model_properties");
   if (node && (str = get_scalar_value(node))) {
     strncpy(MimicConfig.ModelPropertiesPath, str, MAX_STRING_LEN - 1);
   }
@@ -439,7 +532,8 @@ static void parse_model_section(yaml_document_t *doc, yaml_node_t *section) {
  *
  * Parses simulation properties including cosmology and units subsections.
  */
-static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section) {
+static void parse_simulation_section(yaml_document_t *doc,
+                                     yaml_node_t *section) {
   yaml_node_t *node, *cosmology, *units;
   const char *str;
 
@@ -524,7 +618,8 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
     node = get_mapping_value(doc, units, "velocity_in_cm_per_s");
     if (node) {
       MimicConfig.UnitVelocity_in_cm_per_s = get_double_value(node);
-      DEBUG_LOG("UnitVelocity_in_cm_per_s = %g", MimicConfig.UnitVelocity_in_cm_per_s);
+      DEBUG_LOG("UnitVelocity_in_cm_per_s = %g",
+                MimicConfig.UnitVelocity_in_cm_per_s);
     }
   }
 }
@@ -584,10 +679,12 @@ static void parse_simulation_config_file(const char *fname) {
   }
 
   yaml_node_t *section = get_mapping_value(&document, root, "input");
-  if (section) parse_input_section(&document, section);
+  if (section)
+    parse_input_section(&document, section);
 
   section = get_mapping_value(&document, root, "simulation");
-  if (section) parse_simulation_section(&document, section);
+  if (section)
+    parse_simulation_section(&document, section);
 
   yaml_document_delete(&document);
   yaml_parser_delete(&parser);
@@ -622,14 +719,16 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
   if (phase_node->type == YAML_SCALAR_NODE) {
     const char *value = (const char *)phase_node->data.scalar.value;
     if (!value || strlen(value) == 0) {
-      /* Empty scalar - treat as empty phase (common when all modules commented out) */
+      /* Empty scalar - treat as empty phase (common when all modules commented
+       * out) */
       DEBUG_LOG("Phase '%s' is empty (all modules commented out)", phase_name);
       *config = NULL;
       *num_modules = 0;
       return 0;
     }
     /* Non-empty scalar is an error */
-    ERROR_LOG("Phase '%s' must be a sequence (found scalar: '%s')", phase_name, value);
+    ERROR_LOG("Phase '%s' must be a sequence (found scalar: '%s')", phase_name,
+              value);
     return -1;
   }
 
@@ -651,7 +750,8 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
   }
 
   /* Allocate config array */
-  *config = mymalloc_cat(*num_modules * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+  *config = mymalloc_cat(*num_modules * sizeof(struct PhaseModuleConfig),
+                         MEM_UTILITY);
   if (!*config) {
     ERROR_LOG("Failed to allocate memory for phase '%s'", phase_name);
     return -1;
@@ -663,7 +763,8 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
        item < phase_node->data.sequence.items.top; item++) {
     yaml_node_t *module_node = yaml_document_get_node(doc, *item);
 
-    /* Each item should be a mapping with one entry: "module_name: processing_mode" */
+    /* Each item should be a mapping with one entry: "module_name:
+     * processing_mode" */
     if (module_node->type != YAML_MAPPING_NODE) {
       ERROR_LOG("Phase '%s': module entry must be 'name: mode'", phase_name);
       myfree(*config);
@@ -730,8 +831,9 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
  * Model parameters are ALL physics parameters required by modules.
  * They must be explicitly specified - NO defaults are used.
  *
- * Vision Principle 2 (Runtime Modularity): Pipeline structure configured at runtime.
- * Vision Principle 4 (Single Source of Truth): Input file defines complete model.
+ * Vision Principle 2 (Runtime Modularity): Pipeline structure configured at
+ * runtime. Vision Principle 4 (Single Source of Truth): Input file defines
+ * complete model.
  */
 /**
  * @brief   Reject substep phase names that collide with reserved keys.
@@ -739,8 +841,8 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
  * @return  1 if the name is reserved, 0 otherwise
  */
 static int phase_name_is_reserved(const char *name) {
-  static const char *reserved[] = {"pre_timestep", "post_timestep", "parameters",
-                                   "phases"};
+  static const char *reserved[] = {"pre_timestep", "post_timestep",
+                                   "parameters", "phases"};
   for (size_t i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
     if (strcmp(name, reserved[i]) == 0) {
       return 1;
@@ -811,7 +913,8 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
 
   node = get_mapping_value(doc, section, "post_timestep");
   if (parse_phase_config(doc, node, &MimicConfig.post_timestep,
-                         &MimicConfig.num_post_timestep, "post_timestep") != 0) {
+                         &MimicConfig.num_post_timestep,
+                         "post_timestep") != 0) {
     FATAL_ERROR("Failed to parse post_timestep phase");
   }
 
@@ -839,16 +942,16 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
    * Absent 'phases:' simply means no per-substep middle phases. */
   yaml_node_t *phases_node = get_mapping_value(doc, section, "phases");
 
-  MimicConfig.substep_phases =
-      mymalloc_cat(MAX_SUBSTEP_PHASES * sizeof(struct ModulePhaseConfig),
-                   MEM_UTILITY);
+  MimicConfig.substep_phases = mymalloc_cat(
+      MAX_SUBSTEP_PHASES * sizeof(struct ModulePhaseConfig), MEM_UTILITY);
   if (MimicConfig.substep_phases == NULL) {
     FATAL_ERROR("Failed to allocate substep phase array");
   }
 
   if (phases_node != NULL) {
     if (phases_node->type != YAML_MAPPING_NODE) {
-      FATAL_ERROR("modules.phases must be a mapping of phase_name -> module list");
+      FATAL_ERROR(
+          "modules.phases must be a mapping of phase_name -> module list");
     }
     /* libyaml preserves mapping order, so phases run in declared order. */
     for (yaml_node_pair_t *pair = phases_node->data.mapping.pairs.start;
@@ -922,7 +1025,7 @@ static void validate_and_postprocess(void) {
 
   /* Check required parameters */
   if (strlen(MimicConfig.OutputDir) == 0) {
-    ERROR_LOG("Required parameter 'output.directory' missing");
+    ERROR_LOG("Required parameter 'output.output_directory' missing");
     errors++;
   }
   if (strlen(MimicConfig.OutputFileBaseName) == 0) {
@@ -938,7 +1041,7 @@ static void validate_and_postprocess(void) {
     errors++;
   }
   if (strlen(MimicConfig.ModelPropertiesPath) == 0) {
-    ERROR_LOG("Required parameter 'model.properties' missing");
+    ERROR_LOG("Required parameter 'model.model_properties' missing");
     errors++;
   }
   if (strlen(MimicConfig.ModelName) > 0 &&
@@ -963,10 +1066,11 @@ static void validate_and_postprocess(void) {
   /* The compiled property schema is generated from one simulation's
    * halo_properties.yaml (selected with make SIMULATION=<name>). The run file's
    * simulation.name is a free-form label and may legitimately differ (for
-   * example a test fixture reusing the millennium catalog as 'test_millennium').
-   * What must match is the property package: the parent directory of the
-   * declared simulation.halo_properties path must equal MIMIC_COMPILED_SIMULATION,
-   * otherwise the run would be interpreted with a schema it was not built for. */
+   * example a test fixture reusing the millennium catalog as
+   * 'test_millennium'). What must match is the property package: the parent
+   * directory of the declared simulation.halo_properties path must equal
+   * MIMIC_COMPILED_SIMULATION, otherwise the run would be interpreted with a
+   * schema it was not built for. */
   if (strlen(MimicConfig.SimulationHaloPropertiesPath) > 0) {
     const char *path = MimicConfig.SimulationHaloPropertiesPath;
     const char *file_slash = strrchr(path, '/');
@@ -986,10 +1090,11 @@ static void validate_and_postprocess(void) {
     const char *compiled = MIMIC_COMPILED_SIMULATION;
     if (pkg == NULL || pkg_len != strlen(compiled) ||
         strncmp(pkg, compiled, pkg_len) != 0) {
-      ERROR_LOG("Run file's simulation.halo_properties='%s' belongs to a "
-                "different simulation package than this executable, which was "
-                "built with SIMULATION=%s (expected path under simulations/%s/)",
-                path, compiled, compiled);
+      ERROR_LOG(
+          "Run file's simulation.halo_properties='%s' belongs to a "
+          "different simulation package than this executable, which was "
+          "built with SIMULATION=%s (expected path under simulations/%s/)",
+          path, compiled, compiled);
       errors++;
     }
   }
@@ -1022,30 +1127,13 @@ static void validate_and_postprocess(void) {
     ERROR_LOG("Required parameter 'input.snapshot_list_file' missing");
     errors++;
   }
-  if (MimicConfig.LastSnapshotNr == 0) {
-    ERROR_LOG("Required parameter 'input.last_snapshot' missing or zero");
-    errors++;
-  }
   if (MimicConfig.BoxSize == 0.0) {
     ERROR_LOG("Required parameter 'simulation.box_size' missing or zero");
     errors++;
   }
   if (MimicConfig.Hubble_h == 0.0) {
-    ERROR_LOG("Required parameter 'simulation.cosmology.hubble_h' missing or zero");
-    errors++;
-  }
-
-  /* Validate ranges */
-  if (MimicConfig.LastSnapshotNr < 0 || MimicConfig.LastSnapshotNr >= ABSOLUTEMAXSNAPS) {
-    ERROR_LOG("LastSnapshotNr = %d outside valid range [0, %d)",
-              MimicConfig.LastSnapshotNr, ABSOLUTEMAXSNAPS);
-    errors++;
-  }
-
-  if (MimicConfig.NOUT != -1 &&
-      (MimicConfig.NOUT <= 0 || MimicConfig.NOUT > ABSOLUTEMAXSNAPS)) {
-    ERROR_LOG("NumOutputs = %d outside valid range (1, %d] or sentinel -1",
-              MimicConfig.NOUT, ABSOLUTEMAXSNAPS);
+    ERROR_LOG(
+        "Required parameter 'simulation.cosmology.hubble_h' missing or zero");
     errors++;
   }
 
@@ -1061,30 +1149,57 @@ static void validate_and_postprocess(void) {
     strcat(MimicConfig.OutputDir, "/");
   }
 
-  /* Set MAXSNAPS */
-  MimicConfig.MAXSNAPS = MimicConfig.LastSnapshotNr + 1;
-  SYNC_CONFIG_INT(MAXSNAPS);
+  read_snap_list();
+  validate_output_snapshots();
 
-  /* When NOUT == -1, select all snapshots and ignore provided list */
-  if (MimicConfig.NOUT == -1) {
-    MimicConfig.NOUT = MimicConfig.MAXSNAPS;
-    for (int i = 0; i < MimicConfig.NOUT && i < ABSOLUTEMAXSNAPS; i++) {
-      MimicConfig.ListOutputSnaps[i] = i;
-      ListOutputSnaps[i] = i;
-    }
-    INFO_LOG("All %d snapshots selected for output (NOUT=-1)", MimicConfig.NOUT);
+  SYNC_CONFIG_INT(NOUT);
+  for (int i = 0; i < MimicConfig.NOUT; i++) {
+    ListOutputSnaps[i] = MimicConfig.ListOutputSnaps[i];
   }
 
-  /* Synchronize NOUT */
-  SYNC_CONFIG_INT(NOUT);
-
   /* Log summary */
-  int total_modules = MimicConfig.num_pre_timestep + MimicConfig.num_post_timestep;
+  int total_modules =
+      MimicConfig.num_pre_timestep + MimicConfig.num_post_timestep;
   for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
     total_modules += MimicConfig.substep_phases[p].num_modules;
   }
   int total_phases = MimicConfig.num_substep_phases + 2; /* pre + post */
-  INFO_LOG("Configuration: %d output snapshots, %d module instances across %d phases",
+  INFO_LOG("Configuration: %d output snapshots, %d module instances across %d "
+           "phases",
            MimicConfig.NOUT, total_modules, total_phases);
   INFO_LOG("SubSteps: %d", MimicConfig.SubSteps);
+}
+
+/**
+ * @brief   Expand and validate output snapshot selection.
+ */
+static void validate_output_snapshots(void) {
+  if (MimicConfig.NOUT == 0) {
+    MimicConfig.NOUT = MimicConfig.MAXSNAPS;
+    for (int i = 0; i < MimicConfig.NOUT; i++) {
+      MimicConfig.ListOutputSnaps[i] = i;
+    }
+    INFO_LOG("All %d snapshots selected for output (empty snapshot_list)",
+             MimicConfig.NOUT);
+    return;
+  }
+
+  if (MimicConfig.NOUT < 0 || MimicConfig.NOUT > ABSOLUTEMAXSNAPS) {
+    FATAL_ERROR("Output snapshot count %d outside valid range [0, %d]",
+                MimicConfig.NOUT, ABSOLUTEMAXSNAPS);
+  }
+
+  for (int i = 0; i < MimicConfig.NOUT; i++) {
+    int snap = MimicConfig.ListOutputSnaps[i];
+    if (snap < 0 || snap > MimicConfig.LastSnapshotNr) {
+      FATAL_ERROR("output.snapshot_list[%d] = %d outside valid range [0, %d]",
+                  i, snap, MimicConfig.LastSnapshotNr);
+    }
+    for (int j = 0; j < i; j++) {
+      if (MimicConfig.ListOutputSnaps[j] == snap) {
+        FATAL_ERROR("output.snapshot_list contains duplicate snapshot %d",
+                    snap);
+      }
+    }
+  }
 }

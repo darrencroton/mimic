@@ -7,7 +7,6 @@ input:
   tree_type: lhalo_binary
   simulation_dir: simulations/millennium/snapshots
   snapshot_list_file: simulations/millennium/millennium.a_list
-  last_snapshot: 63
 
 simulation:
   cosmology:

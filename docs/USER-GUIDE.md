@@ -153,7 +153,7 @@ The shipped configuration is `models/sage/input/sage_millennium.yaml`. Its top-l
 model:
   name: sage
   path: models/sage
-  properties: models/sage/model_properties.yaml
+  model_properties: models/sage/model_properties.yaml
 
 simulation:
   name: millennium
@@ -168,7 +168,6 @@ output:
   output_filename: model
   output_directory: output/sage-millennium
   output_format: hdf5                 # binary or hdf5
-  snapshot_count: 8                   # -1 writes every snapshot
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
 
 SubSteps: 10
@@ -244,18 +243,17 @@ modules:
       - sage_apply_star_formation_supernova: process_by_galaxy
 ```
 
-**Write every snapshot** with `snapshot_count: -1`:
+**Write every snapshot** by omitting `snapshot_list` or leaving it empty:
 
 ```yaml
 output:
-  snapshot_count: -1
+  snapshot_list: []
 ```
 
-**Add a snapshot** by increasing `snapshot_count` and adding the snapshot number:
+**Add a snapshot** by adding the snapshot number to `snapshot_list`:
 
 ```yaml
 output:
-  snapshot_count: 9
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16, 12]
 ```
 

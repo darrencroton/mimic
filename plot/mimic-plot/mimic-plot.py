@@ -66,7 +66,7 @@ from output_utils import colour_enabled, warn, error
 from output_schema import dtype_from_schema, load_schema
 
 # Import the SnapshotRedshiftMapper
-from snapshot_redshift_mapper import SnapshotRedshiftMapper
+from snapshot_redshift_mapper import SnapshotRedshiftMapper, read_expansion_factors
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SNAPSHOT_PLOTS = []
@@ -322,8 +322,8 @@ class MimicParameters:
                 if not stripped_line or any(stripped_line.startswith(marker) for marker in self.COMMENT_MARKERS[:2]):
                     continue
 
-                # Check for arrow notation for snapshots (e.g., "-> 63 37 32 27 23 20 18 16")
-                # Only process arrow notation if line starts with arrow (not in comments)
+                # Legacy SAGE .par files may list snapshots with a leading arrow
+                # (e.g. "-> 63 37 32 27 23 20 18 16").
                 if stripped_line.startswith("->"):
                     snapshot_list = stripped_line.split("->")[1].strip().split()
                     output_snapshots = [int(snap) for snap in snapshot_list]
@@ -407,7 +407,7 @@ class MimicParameters:
         if "model" in config:
             self.params["ModelName"] = config["model"].get("name", "")
             self.params["ModelPath"] = config["model"].get("path", "")
-            self.params["ModelPropertiesPath"] = config["model"].get("properties", "")
+            self.params["ModelPropertiesPath"] = config["model"].get("model_properties", "")
 
         if "simulation" in config:
             self.params["SimulationName"] = config["simulation"].get("name", "")
@@ -428,11 +428,12 @@ class MimicParameters:
         # Flatten hierarchical YAML structure
         # Output section
         if 'output' in config:
+            output_snapshots = config['output'].get('snapshot_list', [])
             self.params['OutputFileBaseName'] = config['output'].get('output_filename', 'model')
             self.params['OutputDir'] = config['output'].get('output_directory', './')
             self.params['OutputFormat'] = config['output'].get('output_format', 'binary')
-            self.params['NumOutputs'] = config['output'].get('snapshot_count', -1)
-            self.params['OutputSnapshots'] = config['output'].get('snapshot_list', [])
+            self.params['NumOutputs'] = len(output_snapshots)
+            self.params['OutputSnapshots'] = output_snapshots
 
         # Input section from simulation package
         input_config = sim_config.get("input", {})
@@ -443,7 +444,16 @@ class MimicParameters:
             self.params['TreeType'] = input_config.get('tree_type', 'lhalo_binary')
             self.params['SimulationDir'] = input_config.get('simulation_dir', './')
             self.params['FileWithSnapList'] = input_config.get('snapshot_list_file', '')
-            self.params['LastSnapshotNr'] = input_config.get('last_snapshot', 63)
+
+            a_list_path = resolve_relative_path(
+                self.params['FileWithSnapList'], self.param_file
+            )
+            if os.path.exists(a_list_path):
+                num_snapshots = len(read_expansion_factors(a_list_path))
+                self.params['LastSnapshotNr'] = num_snapshots - 1
+                if not self.params['OutputSnapshots']:
+                    self.params['OutputSnapshots'] = list(range(num_snapshots))
+                    self.params['NumOutputs'] = num_snapshots
             
             # Calculate NumSimulationTreeFiles from FirstFile and LastFile
             self.params['NumSimulationTreeFiles'] = self.params['LastFile'] - self.params['FirstFile'] + 1
@@ -819,7 +829,7 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
             sys.exit(1)
     else:
         # No redshift suffix in model_path - use first snapshot from OutputSnapshots
-        # Note: OutputSnapshots order is defined by the parameter file (arrow notation)
+        # Note: OutputSnapshots order is defined by the parameter file.
         # Typically listed in descending order (highest first), e.g., "-> 63 37 32..."
         output_snapshots = params.get("OutputSnapshots", [])
         if output_snapshots:
@@ -1235,13 +1245,13 @@ def main():
             
         # Get output model path and snapshot number (already resolved)
         model_path = params["OutputDir"]
-        snapshot = args.snapshot or params.get("LastSnapshotNr")
+        snapshot = args.snapshot if args.snapshot is not None else params.get("LastSnapshotNr")
 
-        if not snapshot:
+        if snapshot is None:
             if colour_enabled():
-                print("\x1b[31mERROR: LastSnapshotNr not found in parameter file and no snapshot specified.\x1b[0m")
+                print("\x1b[31mERROR: Could not derive the last snapshot from FileWithSnapList and no snapshot was specified.\x1b[0m")
             else:
-                print("ERROR: LastSnapshotNr not found in parameter file and no snapshot specified.")
+                print("ERROR: Could not derive the last snapshot from FileWithSnapList and no snapshot was specified.")
             sys.exit(1)
         
         # File name from parameter file
@@ -1718,9 +1728,9 @@ def main():
 
     total_plots = 0
     if args.snapshot_plots and 'snapshot_generated_plots' in locals():
-        snapshot_count = len(snapshot_generated_plots)
-        total_plots += snapshot_count
-        print(f"Snapshot plots  : {snapshot_count}")
+        snapshot_plot_count = len(snapshot_generated_plots)
+        total_plots += snapshot_plot_count
+        print(f"Snapshot plots  : {snapshot_plot_count}")
 
     if args.evolution_plots and 'evolution_generated_plots' in locals():
         evolution_count = len(evolution_generated_plots)

@@ -11,6 +11,7 @@ Date: 2025-12-09 (Updated for multi-phase pipeline)
 
 import os
 import json
+import math
 import subprocess
 import tempfile
 from pathlib import Path
@@ -238,6 +239,44 @@ def resolve_sim_config_path(sim_config_path, param_file):
     return resolved
 
 
+def final_snapshot_index_from_a_list(a_list_path):
+    """Infer the last snapshot index from a Mimic scale-factor list."""
+    expansion_factors = []
+    with Path(a_list_path).open() as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
+            line = raw_line.split('#', 1)[0].strip()
+            if not line:
+                continue
+
+            try:
+                scale_factor = float(line)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid scale factor in '{a_list_path}' at line {line_number}"
+                ) from exc
+
+            if not math.isfinite(scale_factor):
+                raise ValueError(
+                    f"Scale factor in '{a_list_path}' at line {line_number} must be finite"
+                )
+            if scale_factor <= 0:
+                raise ValueError(
+                    f"Scale factor in '{a_list_path}' at line {line_number} must be positive"
+                )
+            if expansion_factors and scale_factor <= expansion_factors[-1]:
+                raise ValueError(
+                    f"Scale factors in '{a_list_path}' must be strictly increasing; "
+                    f"line {line_number} is not greater than the previous snapshot"
+                )
+
+            expansion_factors.append(scale_factor)
+
+    if not expansion_factors:
+        raise ValueError(f"Snapshot scale-factor list '{a_list_path}' is empty")
+
+    return len(expansion_factors) - 1
+
+
 def read_param_file(param_file):
     """
     Read YAML parameter file and return as dictionary
@@ -284,7 +323,10 @@ def read_param_file(param_file):
         params['TreeType'] = input_config.get('tree_type', 'lhalo_binary')
         params['SimulationDir'] = input_config.get('simulation_dir', './')
         params['FileWithSnapList'] = input_config.get('snapshot_list_file', '')
-        params['LastSnapshotNr'] = str(input_config.get('last_snapshot', 0))
+        a_list_path = Path(params['FileWithSnapList'])
+        if not a_list_path.is_absolute():
+            a_list_path = REPO_ROOT / a_list_path
+        params['LastSnapshotNr'] = str(final_snapshot_index_from_a_list(a_list_path))
 
     simulation_config = sim_config.get('simulation', config.get('simulation', {}))
     if simulation_config:

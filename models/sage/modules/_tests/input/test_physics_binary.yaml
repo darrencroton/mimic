@@ -20,7 +20,7 @@
 model:
   name: sage
   path: models/sage
-  properties: models/sage/model_properties.yaml
+  model_properties: models/sage/model_properties.yaml
 
 simulation:
   name: test_millennium
@@ -35,9 +35,7 @@ output:
   output_filename: model
   output_directory: ./tests/data/output/physics-binary/
   output_format: binary
-  snapshot_count: 1                   # Single output snapshot for fast testing
-  snapshot_list:
-  - 63
+  snapshot_list: [63]                 # Single output snapshot for fast testing
 
 SubSteps: 10
 

@@ -58,7 +58,6 @@ int TotHalos;
 int TotHalosPerSnap[ABSOLUTEMAXSNAPS];
 int *InputHalosPerSnap[ABSOLUTEMAXSNAPS];
 
-int LastSnapshotNr;
 double BoxSize;
 
 int *FirstHaloInSnap;

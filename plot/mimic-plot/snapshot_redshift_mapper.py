@@ -7,11 +7,51 @@ This module provides a class to handle mapping between snapshot numbers and reds
 for Mimic galaxy evolution plots.
 """
 
+import math
 import os
 import sys
 from collections import OrderedDict
 
 import numpy as np
+
+
+def read_expansion_factors(a_list_file):
+    """Read and validate Mimic snapshot scale factors."""
+    expansion_factors = []
+
+    with open(a_list_file, "r") as f:
+        for line_number, raw_line in enumerate(f, start=1):
+            line = raw_line.split("#", 1)[0].strip()
+            if not line:
+                continue
+
+            try:
+                scale_factor = float(line)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid scale factor in '{a_list_file}' at line {line_number}"
+                ) from exc
+
+            if not math.isfinite(scale_factor):
+                raise ValueError(
+                    f"Scale factor in '{a_list_file}' at line {line_number} must be finite"
+                )
+            if scale_factor <= 0:
+                raise ValueError(
+                    f"Scale factor in '{a_list_file}' at line {line_number} must be positive"
+                )
+            if expansion_factors and scale_factor <= expansion_factors[-1]:
+                raise ValueError(
+                    f"Scale factors in '{a_list_file}' must be strictly increasing; "
+                    f"line {line_number} is not greater than the previous snapshot"
+                )
+
+            expansion_factors.append(scale_factor)
+
+    if not expansion_factors:
+        raise ValueError(f"Snapshot scale-factor list '{a_list_file}' is empty")
+
+    return expansion_factors
 
 
 class SnapshotRedshiftMapper:
@@ -82,14 +122,13 @@ class SnapshotRedshiftMapper:
             return False
 
         # Check if required parameters exist
-        required_params = ["FileWithSnapList", "LastSnapshotNr"]
+        required_params = ["FileWithSnapList"]
         missing_params = [p for p in required_params if p not in self.params]
         if missing_params:
             print(f"Error: Required parameters missing from parameter file: {', '.join(missing_params)}")
             return False
 
         a_list_file = self.params["FileWithSnapList"]
-        last_snapshot_nr = self.params["LastSnapshotNr"]
 
         # The a_list_file path is already resolved by MimicParameters class
         # No need for additional path manipulation
@@ -105,40 +144,7 @@ class SnapshotRedshiftMapper:
 
         # Try to read the a_list file 
         try:
-            # Read expansion factors from the file
-            expansion_factors = []
-            line_number = 0
-            with open(a_list_file, "r") as f:
-                for line in f:
-                    line_number += 1
-                    # Skip comments and empty lines
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-
-                    # Try to parse as float
-                    try:
-                        a = float(line)
-                        # Check for valid expansion factor (must be positive)
-                        if a <= 0:
-                            print(f"Warning: Invalid expansion factor {a} at line {line_number} (must be positive)")
-                            continue
-                        expansion_factors.append(a)
-                    except ValueError:
-                        print(f"Warning: Non-numeric value '{line}' at line {line_number}")
-                        continue
-
-            # If we didn't find any valid expansion factors, return False
-            if not expansion_factors:
-                print(f"Error: No valid expansion factors found in {a_list_file}")
-                print("File should contain one expansion factor per line (e.g., 0.5, 0.6, 0.7, ...)")
-                return False
-
-            # Expansion factors should be in descending order (earliest time first, latest last)
-            # Check if they need to be reversed
-            if len(expansion_factors) > 1 and expansion_factors[0] > expansion_factors[-1]:
-                expansion_factors.reverse()
-                print("Note: Expansion factors were in descending order, reversing to ascending order")
+            expansion_factors = read_expansion_factors(a_list_file)
 
             # Convert expansion factors to redshifts
             # Formula: z = 1/a - 1
@@ -156,19 +162,7 @@ class SnapshotRedshiftMapper:
 
             # Snapshot numbers are simply sequential indices: 0, 1, 2, ..., N-1
             self.snapshots = list(range(num_snapshots))
-
-            # Verify that LastSnapshotNr matches the expected value
-            # LastSnapshotNr should equal (number of snapshots - 1)
-            expected_last_snap = num_snapshots - 1
-            if last_snapshot_nr != expected_last_snap:
-                print(f"Warning: LastSnapshotNr ({last_snapshot_nr}) does not match expected value ({expected_last_snap})")
-                print(f"  a_list file has {num_snapshots} expansion factors")
-                print(f"  Expected snapshots to be numbered 0 to {expected_last_snap}")
-                print(f"  Using LastSnapshotNr from parameter file anyway")
-                # Still use the parameter file value, but ensure our mapping is correct
-                # The last snapshot in our list should be last_snapshot_nr
-                if num_snapshots > 0:
-                    self.snapshots[-1] = last_snapshot_nr
+            self.params["LastSnapshotNr"] = num_snapshots - 1
 
             # Ensure we have the same number of snapshots and redshifts
             if len(self.snapshots) != len(redshifts):
@@ -334,7 +328,7 @@ class SnapshotRedshiftMapper:
         Get snapshots for evolution plots based on parameter file.
         
         Priority:
-        1. OutputSnapshots list from parameter file (-> arrow notation in param file)
+        1. OutputSnapshots list from parameter file
         2. If no OutputSnapshots or invalid, use a diverse selection of available snapshots
         
         Returns:
@@ -345,12 +339,14 @@ class SnapshotRedshiftMapper:
             print("Error: No snapshots available in redshift mapping")
             sys.exit(1)
             
-        # Check for the OutputSnapshots parameter which is set by the arrow notation in parameter file
+        # Check for the OutputSnapshots parameter from output.snapshot_list.
         if "OutputSnapshots" in self.params:
             output_snapshots = self.params["OutputSnapshots"]
             
             if not output_snapshots:
-                print("Warning: OutputSnapshots parameter is empty")
+                if self.params.get("verbose", False):
+                    print("Using all snapshots from empty OutputSnapshots list")
+                return list(self.snapshots)
             else:
                 # Check which snapshots from OutputSnapshots are valid
                 valid_snapshots = []
