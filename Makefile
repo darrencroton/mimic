@@ -624,14 +624,14 @@ tests:
 	@echo ""
 	@if [ -f build/.test_failures ]; then \
 		echo "\033[0;31m############################################################\033[0m"; \
-		echo "\033[0;31mFAILED TESTS/SUITES:\033[0m"; \
+		echo "\033[0;31mTLDR: FAILED TESTS/SUITES\033[0m"; \
 		while IFS= read -r failure; do \
 			echo "  - $$failure"; \
 		done < build/.test_failures; \
 		echo "\033[0;31m############################################################\033[0m"; \
 	else \
 		echo "\033[0;32m############################################################\033[0m"; \
-		echo "\033[0;32mALL UNIT, INTEGRATION, SCIENTIFIC TESTS PASSED ✓\033[0m"; \
+		echo "\033[0;32mTLDR: ALL UNIT, INTEGRATION, SCIENTIFIC TESTS PASSED ✓\033[0m"; \
 		echo "\033[0;32m############################################################\033[0m"; \
 	fi
 	@echo ""
