@@ -3,9 +3,8 @@
  * @brief   Functions for saving halo data to binary output files
  *
  * This file contains the functionality for writing tracked halos to binary
- * output files. It manages file I/O operations and ensures consistent halo
- * indexing across files. The code supports writing halo data for multiple
- * snapshots and maintains proper cross-references between halos.
+ * output files. It manages file I/O operations for writing halo data across
+ * requested snapshots.
  *
  * Key functions:
  * - save_halos(): Writes halos to binary output files for all requested
@@ -25,7 +24,9 @@
 #include <string.h>
 #include <time.h>
 
-#include "allvars.h"
+#include "config.h"
+#include "globals.h"
+#include "types.h"
 #include "error.h"
 #include "output/binary.h"
 #include "output/util.h"
@@ -58,9 +59,6 @@ FILE *save_fd[ABSOLUTEMAXSNAPS] = {0};
  * 5. Writes objects to the file
  * 6. Updates halo counts for the file and tree
  *
- * The function also handles the indexing system that allows cross-referencing
- * between objects (e.g., for tracking merger destinations) across different
- * trees and files.
  */
 void save_halos(int filenr, int tree) {
   char buf[MAX_BUF_SIZE + 1];
@@ -68,10 +66,7 @@ void save_halos(int filenr, int tree) {
   /* No need for static output structure anymore since we use dynamic allocation
    */
 
-  int OutputGalCount[MAXSNAPS], *OutputGalOrder, nwritten;
-
-  /* Prepare output ordering and update merger pointers using shared utility */
-  OutputGalOrder = prepare_output_for_tree(OutputGalCount);
+  int nwritten;
 
   // now prepare and write
   for (n = 0; n < MimicConfig.NOUT; n++) {
@@ -122,7 +117,7 @@ void save_halos(int filenr, int tree) {
         struct HaloOutput halo_output = {0}; /* Zero-initialize */
 
         /* Convert internal halo to output format */
-        prepare_halo_for_output(filenr, tree, &ProcessedHalos[i], &halo_output);
+        prepare_halo_for_output(&ProcessedHalos[i], &halo_output);
 
         /* Write halo data to output file */
         size_t halo_size = sizeof(struct HaloOutput);
@@ -141,8 +136,6 @@ void save_halos(int filenr, int tree) {
     }
   }
 
-  /* Free the workspace using tracked memory deallocation */
-  myfree(OutputGalOrder);
 }
 
 /**

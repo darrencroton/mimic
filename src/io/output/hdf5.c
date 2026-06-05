@@ -1325,20 +1325,17 @@ void write_master_file(void) {
  * HDF5 output files. It mirrors the functionality of save_halos() in the
  * binary output system but uses HDF5 format. For each output snapshot, it:
  *
- * 1. Determines output ordering for halos
+ * 1. Counts halos per requested snapshot
  * 2. Converts internal halo structures to output format
- * 3. Writes halos to HDF5 files using write_hdf5_halo()
+ * 3. Writes halos to HDF5 files using write_hdf5_halo_batch()
  * 4. Updates halo counts for the file and tree
  *
- * The function handles the indexing system for organizing halos across different
- * trees and files.
  */
 void save_halos_hdf5(int filenr, int tree) {
   int i, n;
-  int OutputGalCount[MAXSNAPS], *OutputGalOrder;
+  int OutputGalCount[MAXSNAPS];
 
-  /* Prepare output ordering and update merger pointers using shared utility */
-  OutputGalOrder = prepare_output_for_tree(OutputGalCount);
+  count_output_halos_by_snapshot(OutputGalCount);
 
   // Now prepare and write halos to HDF5 (BATCH WRITE for performance)
   for (n = 0; n < MimicConfig.NOUT; n++) {
@@ -1359,8 +1356,7 @@ void save_halos_hdf5(int filenr, int tree) {
     int batch_idx = 0;
     for (i = 0; i < NumProcessedHalos; i++) {
       if (ProcessedHalos[i].SnapNum == MimicConfig.ListOutputSnaps[n]) {
-        prepare_halo_for_output(filenr, tree, &ProcessedHalos[i],
-                                &halo_batch[batch_idx]);
+        prepare_halo_for_output(&ProcessedHalos[i], &halo_batch[batch_idx]);
         batch_idx++;
 
         /* Increment halo counters */
@@ -1377,9 +1373,6 @@ void save_halos_hdf5(int filenr, int tree) {
     /* Free batch array using tracked memory deallocation */
     myfree(halo_batch);
   }
-
-  /* Free the workspace using tracked memory deallocation */
-  myfree(OutputGalOrder);
 }
 
 void free_hdf5_ids(void) {

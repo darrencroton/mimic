@@ -112,11 +112,14 @@ halo_properties:
     type: float
     units: 1e10 Msun/h
     description: Virial mass of the central halo in this FoF group
+    # Structural per-FoF-group constant (the input-catalog Mvir of the FOF
+    # central), stamped onto every workspace member by the driver before physics
+    # and copied straight to output. See docs/dev/CENTRALMVIR-SEMANTICS.md for the
+    # option to track the evolved central Mvir instead.
     output: true
-    init_source: skip  # Not in struct Halo
-    output_source: recalculate
-    output_function: get_virial_mass
-    output_function_arg: InputTreeHalos[g->HaloNr].FirstHaloInFOFgroup
+    init_source: default
+    init_value: 0.0
+    output_source: copy_direct
     range: [0.0, 1000000.0]  # 0 for unresolved halos, up to 10^16 Msun/h
     sentinels: [0.0]  # Unresolved or below mass limit
 

@@ -12,10 +12,9 @@ int myfseek(FILE *stream, long offset, int whence);
 
 void build_halo_tree(int halonr, int tree, int filenr, int depth);
 void process_halo_evolution(int halonr, int ngal);
-void marshal_processed_halos(int ngal);
 int join_progenitor_halos(int halonr, int nstart, int tree, int filenr);
 int find_most_massive_progenitor(int halonr);
-void free_inheritance_gather_scratch(void);
+void free_tree_driver_scratch(void);
 void init(void);
 void set_units(void);
 
@@ -23,8 +22,7 @@ void load_tree_table(int filenr, enum Valid_TreeTypes TreeType);
 void load_tree(int treenr, enum Valid_TreeTypes TreeType);
 void save_halos(int filenr, int tree);
 
-void prepare_halo_for_output(int filenr, int tree, const struct Halo *g,
-                             struct HaloOutput *o);
+void prepare_halo_for_output(const struct Halo *g, struct HaloOutput *o);
 
 void free_halos_and_tree(void);
 void free_tree_table(enum Valid_TreeTypes TreeType);

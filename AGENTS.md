@@ -238,7 +238,7 @@ plot/mimic-plot/     Plotting system (22 plots: 18 snapshot, 4 evolution)
 
 ### Key Concepts
 
-**Halo Data Structures:** `InputTreeHalos` (immutable tree input) → `FoFWorkspace` (processing workspace) → `ProcessedHalos` (written to output). Structs: `struct Halo`, `struct GalaxyData`, `struct HaloOutput`.
+**Halo Data Structures:** tree input/gather → `FoFWorkspace` (processing workspace) → shared output buffer → binary/HDF5 writers. The tree driver currently backs the output buffer with `ProcessedHalos`, which also provides already-processed progenitor state. Structs: `struct Halo`, `struct GalaxyData`, `struct HaloOutput`, `struct OutputBufferSegment`.
 
 **Property System:** Properties are defined in YAML (`src/core/core_properties.yaml`, `simulations/<SIMULATION>/halo_properties.yaml`, `models/<MODEL>/model_properties.yaml`) and generated via `make MODEL=<name> SIMULATION=<name> generate` into C structs, init/output logic, HDF5 metadata writers, and run-local binary output schemas.
 
@@ -252,8 +252,9 @@ plot/mimic-plot/     Plotting system (22 plots: 18 snapshot, 4 evolution)
 1. `load_tree_table()` — Load tree metadata
 2. `build_halo_tree()` — Construct halo tracking structures
 3. `process_halo_evolution()` — Execute multi-phase pipeline
-4. `save_halos()` — Write to binary or HDF5 output
-5. `free_halos_and_tree()` — Cleanup memory
+4. `marshal_workspace_to_output_buffer()` — Copy surviving workspace halos into the driver-owned output buffer
+5. `save_halos()` — Write to binary or HDF5 output
+6. `free_halos_and_tree()` — Cleanup memory
 
 **Memory:** Custom allocator with leak detection and categorised tracking (`MEM_GALAXIES`, `MEM_HALOS`, `MEM_TREES`, `MEM_IO`, `MEM_UTILITY`).
 

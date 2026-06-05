@@ -10,7 +10,7 @@
  *   payloads and calls the shared inheritance service
  * - process_halo_evolution(): Tree-driver adapter that evolves a FoF workspace
  *   through the shared physics-execution engine
- * - marshal_processed_halos(): Copies the evolved workspace into the output array
+ * - marshal_workspace_to_output_buffer(): Shared output-buffer marshalling
  *
  * This file owns tree traversal, tree-indexed progenitor lookup, and tree-owned
  * buffer management. Format-neutral inheritance science lives in inheritance.c.
@@ -30,12 +30,16 @@
 #include <unistd.h>
 
 #include "config.h"
-#include "inheritance.h"
-#include "proto.h"
-#include "module_registry.h"
 #include "globals.h"
-#include "types.h"
+#include "inheritance.h"
+#include "module_registry.h"
 #include "numeric.h"
+#include "output_buffer.h"
+#include "proto.h"
+#include "types.h"
+
+static int count_fof_subhalos(int first_fof_halo);
+static struct OutputBufferSegment *ensure_output_segment_scratch(int required);
 
 /**
  * @brief   Recursively constructs halos by traversing the merger tree
@@ -102,14 +106,57 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
     ngal = 0;
     HaloAux[fofhalo].HaloFlag = 2;
 
+    int nsegments = count_fof_subhalos(fofhalo);
+    struct OutputBufferSegment *segments =
+        ensure_output_segment_scratch(nsegments);
+    int segment_index = 0;
+
     while (fofhalo >= 0) {
+      int workspace_start = ngal;
+      int source_halo = fofhalo;
       ngal = join_progenitor_halos(fofhalo, ngal, tree, filenr);
+
+      /*
+       * Stamp the FoF-central catalog virial mass onto every member of this
+       * subhalo slice now, before physics runs, so CentralMvir is physically
+       * correct whenever a module could observe it on the workspace - not only
+       * at output time. CentralMvir is a structural per-FoF-group constant (the
+       * input-catalog Mvir of the FOF central); physics never writes it, so the
+       * value still reaches output unchanged and the shared marshaller no
+       * longer needs to know about this field. See
+       * docs/dev/CENTRALMVIR-SEMANTICS.md.
+       */
+      float central_mvir = (float)get_virial_mass(
+          InputTreeHalos[source_halo].FirstHaloInFOFgroup);
+      for (int p = workspace_start; p < ngal; p++) {
+        FoFWorkspace[p].CentralMvir = central_mvir;
+      }
+
+      segments[segment_index].source_id = source_halo;
+      segments[segment_index].snapshot_number =
+          InputTreeHalos[source_halo].SnapNum;
+      segments[segment_index].workspace_start = workspace_start;
+      segments[segment_index].workspace_count = ngal - workspace_start;
+      segments[segment_index].output_first = -1;
+      segments[segment_index].output_count = 0;
+      segment_index++;
+
       fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
     }
 
     /* Tree driver: run physics, then marshal the workspace to output. */
     process_halo_evolution(InputTreeHalos[halonr].FirstHaloInFOFgroup, ngal);
-    marshal_processed_halos(ngal);
+
+    struct OutputBuffer output_buffer = {ProcessedHalos, NumProcessedHalos,
+                                         MaxProcessedHalos};
+    marshal_workspace_to_output_buffer(FoFWorkspace, &output_buffer, segments,
+                                       segment_index);
+    NumProcessedHalos = output_buffer.count;
+
+    for (int i = 0; i < segment_index; i++) {
+      HaloAux[segments[i].source_id].FirstHalo = segments[i].output_first;
+      HaloAux[segments[i].source_id].NHalos = segments[i].output_count;
+    }
   }
 }
 
@@ -211,15 +258,17 @@ static void ensure_fof_workspace_capacity(int required) {
       new_size = MAX_HALO_ARRAY_SIZE;
 
     if (new_size <= MaxFoFWorkspace) {
-      FATAL_ERROR("FoF workspace requires %d halos but maximum allowed size is %d",
-                  required, MAX_HALO_ARRAY_SIZE);
+      FATAL_ERROR(
+          "FoF workspace requires %d halos but maximum allowed size is %d",
+          required, MAX_HALO_ARRAY_SIZE);
     }
 
     INFO_LOG("Growing halo array from %d to %d elements", MaxFoFWorkspace,
              new_size);
 
     MaxFoFWorkspace = new_size;
-    FoFWorkspace = myrealloc(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
+    FoFWorkspace =
+        myrealloc(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
     memset(&FoFWorkspace[old_size], 0,
            (new_size - old_size) * sizeof(struct Halo));
   }
@@ -253,13 +302,16 @@ static struct HaloInitPayload make_halo_init_payload(int halonr) {
  * Reusable scratch for the gather step: the progenitor-galaxy list for one
  * descendant subhalo. Grown monotonically and kept for the whole run so the
  * depth-first tree hot path does not allocate per subhalo. Freed at shutdown by
- * free_inheritance_gather_scratch(). The non-LIFO allocator (see memory.c)
- * makes whole-run persistence safe alongside the per-tree FoFWorkspace.
+ * free_tree_driver_scratch(). The non-LIFO allocator (see memory.c) makes
+ * whole-run persistence safe alongside the per-tree FoFWorkspace.
  */
 static struct InheritanceProgenitorGalaxy *ProgenitorScratch = NULL;
 static int ProgenitorScratchCapacity = 0;
+static struct OutputBufferSegment *OutputSegmentScratch = NULL;
+static int OutputSegmentScratchCapacity = 0;
 
-static struct InheritanceProgenitorGalaxy *ensure_progenitor_scratch(int required) {
+static struct InheritanceProgenitorGalaxy *
+ensure_progenitor_scratch(int required) {
   if (required > ProgenitorScratchCapacity) {
     ProgenitorScratch = myrealloc_cat(
         ProgenitorScratch,
@@ -269,17 +321,44 @@ static struct InheritanceProgenitorGalaxy *ensure_progenitor_scratch(int require
   return ProgenitorScratch;
 }
 
-void free_inheritance_gather_scratch(void) {
+static int count_fof_subhalos(int first_fof_halo) {
+  int count = 0;
+  int fofhalo = first_fof_halo;
+
+  while (fofhalo >= 0) {
+    count++;
+    fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
+  }
+
+  return count;
+}
+
+static struct OutputBufferSegment *ensure_output_segment_scratch(int required) {
+  if (required > OutputSegmentScratchCapacity) {
+    OutputSegmentScratch =
+        myrealloc_cat(OutputSegmentScratch,
+                      required * sizeof(struct OutputBufferSegment), MEM_HALOS);
+    OutputSegmentScratchCapacity = required;
+  }
+  return OutputSegmentScratch;
+}
+
+void free_tree_driver_scratch(void) {
   if (ProgenitorScratch != NULL) {
     myfree(ProgenitorScratch);
     ProgenitorScratch = NULL;
     ProgenitorScratchCapacity = 0;
   }
+  if (OutputSegmentScratch != NULL) {
+    myfree(OutputSegmentScratch);
+    OutputSegmentScratch = NULL;
+    OutputSegmentScratchCapacity = 0;
+  }
 }
 
-static void gather_progenitor_galaxies(
-    int halonr, int first_occupied,
-    struct InheritanceProgenitorGalaxy *progenitors) {
+static void
+gather_progenitor_galaxies(int halonr, int first_occupied,
+                           struct InheritanceProgenitorGalaxy *progenitors) {
   int index = 0;
   int prog = InputTreeHalos[halonr].FirstProgenitor;
 
@@ -364,51 +443,6 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
 }
 
 /**
- * @brief   Marshal the evolved FoF workspace into the output array
- *
- * @param   ngal          Total number of halos in this structure
- *
- * Driver-owned output marshalling step: copies the evolved (non-merged) halos
- * from FoFWorkspace into the permanent ProcessedHalos array and updates the
- * per-halo HaloAux tracking pointers. Type=3 (merged) halos are skipped and
- * their galaxy data freed. This runs after the physics-execution engine and is
- * the seam where evolved state becomes output state.
- */
-void marshal_processed_halos(int ngal) {
-  int p, currenthalo;
-
-  /* Attach final list to halos */
-  for (p = 0, currenthalo = -1; p < ngal; p++) {
-    /* When processing a new halo, update its pointers */
-    if (FoFWorkspace[p].HaloNr != currenthalo) {
-      currenthalo = FoFWorkspace[p].HaloNr;
-      HaloAux[currenthalo].FirstHalo =
-          NumProcessedHalos;           /* Index of first one in this halo */
-      HaloAux[currenthalo].NHalos = 0; /* Reset counter */
-    }
-
-    /* Copy non-merged halos to the permanent array
-     * Type=3 halos are skipped (marked by physics modules as merged) */
-    if (FoFWorkspace[p].Type != 3) {
-      assert(NumProcessedHalos <
-             MaxProcessedHalos); /* Ensure we don't exceed array bounds */
-
-      FoFWorkspace[p].SnapNum =
-          InputTreeHalos[currenthalo].SnapNum; /* Update snapshot number */
-      ProcessedHalos[NumProcessedHalos++] =
-          FoFWorkspace[p]; /* Copy to permanent array and increment counter */
-      HaloAux[currenthalo].NHalos++; /* Increment count for this halo */
-    } else {
-      /* Free galaxy data for merged halos to prevent memory leak */
-      if (FoFWorkspace[p].galaxy != NULL) {
-        myfree(FoFWorkspace[p].galaxy);
-        FoFWorkspace[p].galaxy = NULL;
-      }
-    }
-  }
-}
-
-/**
  * @brief   Setup module context for current snapshot and FOF group
  *
  * @param   ctx          Module context to populate
@@ -460,7 +494,7 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr,
  * propagates the stable central unique ID, builds the (tree-coupled) module
  * context, and hands the workspace to the format-neutral physics-execution
  * engine. Output marshalling is a separate, driver-owned step performed by the
- * caller (see marshal_processed_halos()).
+ * caller through the shared output-buffer marshaller.
  *
  * Phase assignments and loop modes are configured in the input YAML file.
  * SubSteps parameter controls time sub-stepping (0 or 1 = no substeps).
@@ -479,8 +513,8 @@ void process_halo_evolution(int halonr, int ngal) {
   }
 
   if (centralgal == -1) {
-    ERROR_LOG("FATAL: No Type 0 central found for FOF halo %d (ngal=%d)", halonr,
-              ngal);
+    ERROR_LOG("FATAL: No Type 0 central found for FOF halo %d (ngal=%d)",
+              halonr, ngal);
     assert(centralgal != -1);
   }
 
@@ -488,7 +522,8 @@ void process_halo_evolution(int halonr, int ngal) {
 
   /* Set FOF-host central unique ID for all members (stable output contract). */
   for (i = 0; i < ngal; i++) {
-    FoFWorkspace[i].UniqueCentralGalaxyID = FoFWorkspace[centralgal].UniqueGalaxyID;
+    FoFWorkspace[i].UniqueCentralGalaxyID =
+        FoFWorkspace[centralgal].UniqueGalaxyID;
   }
 
   /* Setup module execution context */

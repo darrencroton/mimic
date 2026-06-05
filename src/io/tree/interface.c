@@ -28,7 +28,9 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "allvars.h"
+#include "config.h"
+#include "globals.h"
+#include "types.h"
 #include "proto.h"
 #include "tree/interface.h"
 #include "util.h"
@@ -317,8 +319,8 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
  *
  * IMPORTANT: The deallocation order (reverse of allocation) is critical for
  * proper memory management. Inheritance deep-copies GalaxyData into
- * FoFWorkspace, then marshal_processed_halos() transfers surviving pointers
- * into ProcessedHalos by struct copy.
+ * FoFWorkspace, then the shared output-buffer marshaller transfers surviving
+ * pointers into ProcessedHalos by struct copy.
  *
  * This cleanup is performed after each tree is fully processed, allowing
  * the memory to be reused for the next tree.
@@ -337,7 +339,7 @@ void free_halos_and_tree(void) {
   }
 
   /* Note: FoFWorkspace galaxy pointers are transferred to ProcessedHalos
-   * via struct copy in marshal_processed_halos(), so they are freed above.
+   * via struct copy by the output-buffer marshaller, so they are freed above.
    * We do not free them here to avoid double-free errors. */
 
   /* Free halo arrays in reverse allocation order - see load_tree() */

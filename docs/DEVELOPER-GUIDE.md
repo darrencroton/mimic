@@ -135,7 +135,9 @@ Mimic application
   physics-agnostic core
     tree loading
     FoF workspace construction
+    shared inheritance
     phase dispatch
+    output buffering
     output writing
   runtime physics modules
 ```
@@ -174,11 +176,12 @@ Core data structures:
 | --- | --- |
 | `InputTreeHalos` / `struct RawHalo` | Immutable input merger tree data |
 | `FoFWorkspace` / `struct Halo` | Temporary processing workspace modified by modules |
-| `ProcessedHalos` / `struct Halo` | Persistent processed state written to output |
+| `ProcessedHalos` / `struct Halo` | Tree-driver output buffer and processed progenitor state |
+| `OutputBufferSegment` | Driver-supplied range/snapshot metadata for shared output marshalling |
 | `struct GalaxyData` | Generated galaxy/model property storage attached to `struct Halo` |
 | `struct HaloOutput` | Generated output record written to binary/HDF5 |
 
-Galaxy inheritance copies previous processed galaxy state into the current workspace, resets snapshot-scoped properties marked `init_repeat: true`, and updates halo properties from the current tree data.
+Galaxy inheritance copies previous processed galaxy state into the current workspace, resets snapshot-scoped properties marked `init_repeat: true`, and updates halo properties from driver-supplied descendant data. After physics execution, the shared output-buffer marshaller copies surviving workspace entries into the driver-owned output buffer and frees Type 3 entries.
 
 ### Module Lifecycle
 

@@ -106,8 +106,6 @@ VALID_INIT_SOURCES = [
 VALID_OUTPUT_SOURCES = [
     "copy_direct",
     "copy_direct_array",
-    "copy_from_tree",
-    "copy_from_tree_array",
     "recalculate",
     "conditional",
     "custom",
@@ -187,14 +185,6 @@ def validate_property(prop: Dict[str, Any], category: str) -> None:
     if prop.get("init_source") == "calculate" and "init_function" not in prop:
         raise ValueError(
             f"Property '{name}' with init_source=calculate must have init_function"
-        )
-
-    if (
-        prop.get("output_source") == "copy_from_tree"
-        and "output_tree_field" not in prop
-    ):
-        raise ValueError(
-            f"Property '{name}' with output_source=copy_from_tree must have output_tree_field"
         )
 
     if prop.get("output_source") == "recalculate":
@@ -611,7 +601,7 @@ def generate_copy_to_output(
 
     code = generate_header(yaml_hash)
     code += "/* Copy properties from struct Halo to struct HaloOutput\n"
-    code += " * Used in prepare_halo_for_output(int filenr, int tree, const struct Halo *g, struct HaloOutput *o)\n"
+    code += " * Used in prepare_halo_for_output(const struct Halo *g, struct HaloOutput *o)\n"
     code += " */\n\n"
 
     code += "/* Halo properties */\n"
@@ -636,20 +626,6 @@ def generate_copy_to_output(
                 )
             code += f"for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
             code += f"  o->{name}[j] = g->{name}[j];\n"
-            code += "}\n"
-
-        elif output_source == "copy_from_tree":
-            tree_field = prop["output_tree_field"]
-            code += f"o->{name} = InputTreeHalos[g->HaloNr].{tree_field};\n"
-
-        elif output_source == "copy_from_tree_array":
-            tree_field = prop["output_tree_field"]
-            if not type_info["is_array"]:
-                raise ValueError(
-                    f"Property '{name}' uses copy_from_tree_array but type is not array"
-                )
-            code += f"for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
-            code += f"  o->{name}[j] = InputTreeHalos[g->HaloNr].{tree_field}[j];\n"
             code += "}\n"
 
         elif output_source == "recalculate":

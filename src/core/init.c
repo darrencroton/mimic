@@ -26,7 +26,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "allvars.h"
+#include "config.h"
+#include "globals.h"
 #include "error.h"
 #include "integration.h"
 #include "module_system/physical_constants.h"

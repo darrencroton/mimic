@@ -533,7 +533,7 @@ int main(int argc, char **argv) {
   module_system_cleanup();
 
   /* Release the run-persistent inheritance gather scratch buffer */
-  free_inheritance_gather_scratch();
+  free_tree_driver_scratch();
 
   /* Check for memory leaks and clean up memory system */
   check_memory_leaks();

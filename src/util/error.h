@@ -52,6 +52,11 @@ void disable_debug_log_rate_limiting(void);
 int is_debug_log_rate_limiting_enabled(void);
 FILE *set_log_output(FILE *output_file);
 
+// Process-exit hook invoked by the FATAL_ERROR/IO_FATAL_ERROR macros below.
+// Declared here so every translation unit that uses those macros has a
+// prototype without depending on proto.h (defined in src/core/main.c).
+void myexit(int signum);
+
 // I/O-specific error handling function prototypes
 const char *get_io_error_name(IOErrorCode code);
 void log_io_error(LogLevel level, IOErrorCode code, const char *file,

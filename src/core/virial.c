@@ -19,7 +19,8 @@
 #include <string.h>
 #include <time.h>
 
-#include "allvars.h"
+#include "config.h"
+#include "globals.h"
 #include "proto.h"
 #include "numeric.h"
 

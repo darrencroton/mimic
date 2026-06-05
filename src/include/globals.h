@@ -21,9 +21,9 @@ extern char *ThisNode;
  * The tree driver gathers already-processed progenitor galaxies, the shared
  * inheritance service deep-copies them into FoFWorkspace, physics mutates the
  * workspace in place, and output marshalling transfers surviving workspace
- * entries into ProcessedHalos.
+ * entries into a driver-owned output buffer.
  *
- * Data Flow: InputTreeHalos → FoFWorkspace → ProcessedHalos
+ * Data Flow: InputTreeHalos → FoFWorkspace → output buffer
  *
  * 1. InputTreeHalos (struct RawHalo*) - IMMUTABLE INPUT
  *    - Source: Read from merger tree files (binary or HDF5)
@@ -42,11 +42,11 @@ extern char *ThisNode;
  *    - Purpose: Accumulates halos during recursive tree building
  *    - Memory: Allocated via mymalloc_cat(..., MEM_HALOS)
  *
- * 3. ProcessedHalos (struct Halo*) - PERMANENT STORAGE
- *    - Source: Final halos copied from FoFWorkspace after tree processing
+ * 3. ProcessedHalos (struct Halo*) - TREE-DRIVER OUTPUT BUFFER
+ *    - Source: Final halos copied from FoFWorkspace after physics execution
  *    - Lifetime: Per-tree (allocated in load_tree(), freed in
  * free_halos_and_tree())
- *    - Ownership: Master copy for output, indexed by NumProcessedHalos
+ *    - Ownership: Tree-driver output buffer, indexed by NumProcessedHalos
  *    - Size: MaxProcessedHalos elements (initial estimate; marshalling asserts
  *      that the estimate is large enough)
  *    - Purpose: Stores all processed halos for current tree until output
@@ -76,9 +76,9 @@ extern char *ThisNode;
  *
  * IMPORTANT: GalaxyData pointers are not shared between FoFWorkspace and
  * ProcessedHalos across inheritance boundaries. Inheritance allocates deep
- * copies in FoFWorkspace; marshal_processed_halos() transfers surviving
- * pointers into ProcessedHalos by struct copy; free_halos_and_tree() frees
- * galaxy data from ProcessedHalos only.
+ * copies in FoFWorkspace; the shared output-buffer marshaller transfers
+ * surviving pointers into ProcessedHalos by struct copy; free_halos_and_tree()
+ * frees galaxy data from ProcessedHalos only.
  */
 
 /* halo data pointers */

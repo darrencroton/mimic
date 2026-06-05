@@ -19,7 +19,8 @@
  */
 
 #include "../framework/test_framework.h"
-#include "../../src/include/allvars.h"
+#include "../../src/include/globals.h"
+#include "../../src/include/types.h"
 #include "../../src/include/generated/property_test_helpers.h"
 #include "../../src/util/memory.h"
 #include "../../src/util/error.h"
