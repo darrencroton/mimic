@@ -40,15 +40,15 @@ jobs:
 
     - name: Run unit tests
       run: |
-        make test-unit
+        make tests-unit
 
     - name: Run integration tests
       run: |
-        make test-integration
+        make tests-integration
 
     - name: Run scientific tests
       run: |
-        make test-scientific
+        make tests-scientific
 
     - name: Check for memory leaks
       run: |
