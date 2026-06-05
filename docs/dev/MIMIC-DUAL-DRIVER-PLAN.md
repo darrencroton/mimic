@@ -1,6 +1,6 @@
 # Mimic Dual-Driver Plan
 
-**Status:** Proposed architecture and migration plan. Phases 1–3 are reclassified as v1.0 work (see below); Phases 4+ follow v1.0.
+**Status:** Proposed architecture and migration plan. Phases 1–3 are reclassified as v1.0 work (see below); Phases 4+ follow v1.0. **Phase 1 is DONE** (landed on `main` as commit `56af880`, verified byte-identical); Phase 2 is next and has a dedicated implementation-notes block under its phase heading.
 **Date:** 2026-06-05 (revised ordering 2026-06-05)
 **Context:** Read `MIMIC-DEVELOPMENT-PATHWAY.md` first. **Revised ordering:** the core-modularisation phases (1–3, and optionally 0) now land *as part of v1.0*, before the final review-and-optimisation sweep, validated byte-identical against the existing SAGE physics baseline (`test_scientific_sage_physics_baseline.py`). Only the snapshot reader and driver (Phases 4–7) start after v1.0 is tagged and its baseline refreshed. The reasoning is recorded under "Why core modularisation moves into v1.0" in the pathway document; a short summary is in "Migration Plan" below. The phase definitions, gates, and architecture in this document are otherwise unchanged.
 
@@ -107,11 +107,20 @@ Add `TreeFormat` configuration and a driver dispatcher with only the tree driver
 
 **Gate:** standard checks and tests pass; binary/HDF5 output is byte-identical to the v1.0 baseline.
 
-### Phase 1: Separate Physics Execution From Output Marshalling
+### Phase 1: Separate Physics Execution From Output Marshalling — DONE
 
 Split the current evolution path into a pure FoF phase runner and a driver-owned output marshalling step. The tree driver calls both in the same order as today.
 
 **Gate:** standard checks and tests pass; output remains byte-identical.
+
+**Status: DONE — landed on `main` as commit `56af880`, verified byte-identical** against the SAGE physics baseline (42 properties × 4196 halos) plus the full unit, integration, and scientific tiers. What it produced (the starting state for Phase 2):
+
+- `execute_module_pipeline(ctx, halos, ngal)` in `src/core/module_registry.c` is the shared, format-neutral physics-execution engine. It runs the pre-timestep phase, the substep loop with its user-named phases, and the post-timestep phase, reading phase configuration from `ctx->params` (not a global), so it carries no tree-index, output-array, or traversal-order assumptions. `update_context_for_substep()` moved here from `build_model.c` because substep timing is now an engine concern.
+- `marshal_processed_halos(int ngal)` in `src/core/build_model.c` is the post-physics output step (renamed from `update_halo_properties`): it copies non-merged `FoFWorkspace` entries into `ProcessedHalos`, updates `HaloAux` tracking pointers, and frees galaxy data for Type 3 (merged) halos.
+- `process_halo_evolution(halonr, ngal)` is now a thin **tree-driver adapter**: it selects the FOF Type 0 central, propagates its `UniqueGalaxyID` into every member's `UniqueCentralGalaxyID`, populates the `ModuleContext` (via `setup_module_context`), then calls the engine. It no longer marshals output.
+- `build_halo_tree()` now calls `process_halo_evolution()` and `marshal_processed_halos()` as two explicit steps, in the same order as before.
+
+Phase 1 deliberately did **not** touch the inheritance path (`join_progenitor_halos` and friends); that is entirely Phase 2's scope and is unchanged from pre-Phase-1.
 
 ### Phase 2: Extract Format-Neutral Inheritance
 
@@ -123,6 +132,32 @@ Move inheritance science out of tree-index-coupled code into a shared service. T
 This is the highest-risk extraction and should happen while the tree driver is still the only driver, so the scientific and SAGE-parity suites validate it against a known-good baseline. The dynamic `FoFWorkspace` growth logic moves with the output-marshalling side, not the inheritance science.
 
 **Gate:** standard checks and tests pass, with special weight on scientific tests and SAGE parity; full reference output remains byte-identical unless a reviewed tolerance is explicitly accepted.
+
+#### Phase 2 implementation notes (read this before starting — written post-Phase-1)
+
+This block captures the concrete state of the code as of commit `56af880` so the work can begin in a fresh chat without rediscovery. Anchors below were re-derived against `main` after Phase 1 and are current. Phase 1 did not move any inheritance code, so the high-level anchors elsewhere in this document still hold.
+
+**The inheritance path today.** All functions are in `src/core/build_model.c` unless noted:
+
+- `build_halo_tree()` (the per-FOF orchestration): for each FOF group it loops subhalos calling `join_progenitor_halos(fofhalo, ngal, tree, filenr)`, then calls `process_halo_evolution()` then `marshal_processed_halos()`. This is the seam where, after Phase 2, the body should read as four explicit steps: **gather (driver) → inherit (shared) → process_halo_evolution (Phase 1 engine adapter) → marshal_processed_halos (Phase 1 output)**.
+- `join_progenitor_halos(halonr, ngalstart, tree, filenr)` — orchestrator: `find_most_massive_progenitor` → `copy_progenitor_halos` → `set_halo_centrals`. Natural host for the gather+inherit split (or replace it with an explicit gather call + inherit call).
+- `find_most_massive_progenitor(halonr)` — **pure gather (tree-index only)**: reads `InputTreeHalos[].FirstProgenitor/Len/NextProgenitor` and `HaloAux[].NHalos`, returns `first_occupied` (the main-branch progenitor). Stays driver-side.
+- `copy_progenitor_halos(halonr, ngalstart, first_occupied, tree, filenr)` — **the mixed function; the heart of the extraction.** It interleaves four concerns that must be separated: (1) **gather** — iterate progenitors via `InputTreeHalos` links and read already-processed progenitor galaxies from `ProcessedHalos[HaloAux[prog].FirstHalo + i]`; (2) **driver buffer management** — the dynamic `FoFWorkspace` realloc/growth block; (3) **inherit (shared science)** — deep galaxy copy plus accumulator reset (`#include reset_galaxy_properties.inc`), `dT` computation, Type 3 merged-skip and galaxy free, Type 0/1/2/3 transitions, infall-property capture (`previousMvir/Vvir/Vmax`), descendant-property application for the main branch, and orphan creation; (4) **new-object creation** — when a descendant has no progenitor galaxies, `init_halo(ngal, halonr, tree, filenr)` (in `src/core/virial.c`).
+- `set_halo_centrals(ngalstart, ngal)` — **already format-neutral**: touches only `FoFWorkspace[].Type` and `.CentralHalo` (subhalo-local central selection, SAGE parity). It can move into the new `src/core/inheritance.c` essentially verbatim. It is inherit-side.
+
+**Tree-index coupling that `inheritance.c` must NOT inherit.** `inheritance.c` must contain zero references to `InputTreeHalos`, `HaloAux`, or `ProcessedHalos`. Inside `copy_progenitor_halos` today the hard couplings are: descendant catalog fields read straight from `InputTreeHalos[halonr]` (`MostBoundID`, `Pos[3]`, `Vel[3]`, `Spin[3]`, `Len`, `Vmax`, `VelDisp`, `SnapNum`, and the `FirstHaloInFOFgroup` central test); descendant virial quantities via `get_virial_mass/radius/velocity(halonr)` (in `virial.c`, which themselves read `InputTreeHalos[halonr]` and `MimicConfig`), called mid-transition with the "use maximum-ever `Rvir`/`Vvir`" rule; progenitor galaxies via `ProcessedHalos[HaloAux[prog].FirstHalo + i]`; and `init_halo` plus the `UniqueGalaxyID` encoding (`file*1e15 + tree*1e9 + halonr`), which is tree/file identity.
+
+**Recommended gather/inherit contract.** Define a driver-neutral descendant payload that gather fills and inherit consumes. Gather produces, for one descendant subhalo: (a) an ordered list of progenitor galaxy records — gather resolves `ProcessedHalos[HaloAux[...]]` and hands inherit plain pointers/structs so inherit never indexes those arrays; (b) a marker for which progenitor is the main branch (`first_occupied`), expressed as a flag/position, not a tree index; and (c) a "descendant halo properties" struct carrying the raw catalog fields above **plus the precomputed virial quantities** (`Mvir`, `Rvir`, `Vvir`) so inherit applies them without calling `get_virial_*(halonr)`. Inherit then produces the `FoFWorkspace` slice: deep galaxy copy + accumulator reset, Type transitions, infall capture, Type 3 skip/free, orphan creation, and local-central selection. New-object creation (no progenitors) becomes inherit-side too, but identity (`UniqueGalaxyID`) and descendant properties are gather-supplied. The generated `init_halo_properties.inc`, `init_galaxy_properties.inc`, and `reset_galaxy_properties.inc` includes are metadata-driven and carry no tree coupling themselves, so they can live wherever the creation/reset logic lands.
+
+**CRITICAL GOTCHA — "FoFWorkspace growth moves with the output-marshalling side" does NOT mean `marshal_processed_halos()`.** Phase 1 created a function literally named the output-marshalling step (`marshal_processed_halos`), which runs *after* physics. The Phase 2 sentence about growth predates that name. `FoFWorkspace` growth happens at **gather time (before physics)** because gather is what fills the workspace — it must stay on the driver/gather buffer-management side. Do **not** push it into `marshal_processed_halos` (wrong side of the physics call) and do **not** put it in `inheritance.c` (which must be free of allocation and array indexing). Read "output-marshalling side" as "the driver-owned buffer-management side", i.e. gather.
+
+**Memory-ownership invariant to preserve** (documented at `free_halos_and_tree()` in `src/io/tree/interface.c`): galaxy data is deep-copied when read from `ProcessedHalos` into `FoFWorkspace` (today inside `copy_progenitor_halos`); physics mutates it in place; `marshal_processed_halos` struct-copies `FoFWorkspace → ProcessedHalos` (the galaxy pointer transfers; Type 3 entries are freed at marshal time); `free_halos_and_tree` frees galaxies from `ProcessedHalos` only. When the deep copy moves into inherit, gather hands inherit the source galaxy pointer (resolved from `ProcessedHalos`) and inherit allocates the new copy. Do not double-free, and do not leave `FoFWorkspace` and `ProcessedHalos` sharing a galaxy pointer across a tree boundary. Update the `interface.c` comment when `copy_progenitor_halos` is split.
+
+**Two distinct "centrals" — keep them separate.** (1) *Subhalo-local central*: `set_halo_centrals` sets `FoFWorkspace[i].CentralHalo` to the single Type 0/1 within each subhalo slice (SAGE parity allows a Type 2 to point to a Type 1). This is inherit-side. (2) *FOF Type-0 central*: `process_halo_evolution` scans the whole workspace for the one Type 0, uses it for the module context, and propagates its `UniqueGalaxyID` to `UniqueCentralGalaxyID`. This stays on the tree-driver adapter (physics context), not in `inheritance.c`.
+
+**Baseline guard and gate.** The pre-sweep SAGE physics baseline (`models/sage/modules/_tests/test_scientific_sage_physics_baseline.py`) exercises the full inheritance path — Type 0/1/2/3 transitions, orphan creation, infall capture — across 4196 halos and 42 properties, and currently passes byte-identical. Phase 2 must keep it byte-identical (this is the linchpin and highest-risk extraction; the gate weights scientific tests and SAGE parity). Run the standard gate (`make check-generated && make validate-modules`, then `tests-unit`, `tests-integration`, `tests-scientific`); any non-zero exit code is a failure regardless of log text.
+
+**No Phase 1 cleanup is owed.** A post-Phase-1 review confirmed there is nothing to refine, complete, or remove before Phase 2: the inheritance functions sit exactly where the anchors say, `set_halo_centrals` is already format-neutral, and there is no dead code or orphaned symbol from the Phase 1 split. The only Phase-1-introduced hazard is the naming clash documented in the CRITICAL GOTCHA above, which is captured here rather than fixed in code.
 
 ### Phase 3: Driver-Neutral Output Buffering
 
