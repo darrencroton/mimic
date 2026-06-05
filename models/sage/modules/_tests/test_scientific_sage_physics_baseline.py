@@ -28,7 +28,9 @@ reference:
 and document why in the commit message.
 """
 
+import io
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -38,8 +40,10 @@ sys.path.insert(0, str(REPO_ROOT / "tests" / "integration"))
 from framework import load_binary_halos, MIMIC_EXE, compiled_model, run_mimic_fresh
 from test_output_formats import compare_halos_comprehensive
 
+BLUE = '\033[1;34m'
 GREEN = "\033[0;32m"
 RED = "\033[0;31m"
+YELLOW = '\033[1;33m'
 NC = "\033[0m"
 
 INPUT = (
@@ -117,13 +121,75 @@ def test_sage_physics_baseline():
 
 
 def main():
-    try:
-        test_sage_physics_baseline()
-    except AssertionError as exc:
-        print(f"{RED}✗ FAIL: {exc}{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: SAGE Full-Physics Baseline Tests (test_scientific_sage_physics_baseline.py){NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+    print(f"Repository root: {REPO_ROOT}")
+    print(f"Mimic executable: {MIMIC_EXE}")
+
+    if not MIMIC_EXE.exists():
+        print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
+        print("Build it first with: make")
         return 1
-    print(f"{GREEN}✓ All tests passed!{NC}")
-    return 0
+
+    tests = [
+        test_sage_physics_baseline,
+    ]
+
+    passed = 0
+    failed = 0
+    skipped = 0
+
+    for test in tests:
+        print()
+        try:
+            output_buffer = io.StringIO()
+            with redirect_stdout(output_buffer):
+                test()
+
+            output = output_buffer.getvalue()
+            print(output, end='')
+
+            if "Skipping" in output:
+                print(f"{YELLOW}⊘ SKIP: {test.__name__}{NC}")
+                skipped += 1
+            else:
+                passed += 1
+        except AssertionError as e:
+            output = output_buffer.getvalue()
+            if output:
+                print(output, end='')
+            print(f"{RED}✗ FAIL: {test.__name__}{NC}")
+            print(f"  {e}")
+            failed += 1
+        except Exception as e:
+            output = output_buffer.getvalue()
+            if output:
+                print(output, end='')
+            print(f"{RED}✗ ERROR: {test.__name__}{NC}")
+            print(f"  {e}")
+            failed += 1
+
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"Passed:  {passed}")
+    print(f"Failed:  {failed}")
+    print(f"Skipped: {skipped}")
+    print(f"Total:   {passed + failed + skipped}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
+    if failed == 0:
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        if skipped > 0:
+            print(f"{YELLOW}⊘ {skipped} test(s) skipped{NC}")
+        return 0
+    else:
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
+        return 1
 
 
 if __name__ == "__main__":
