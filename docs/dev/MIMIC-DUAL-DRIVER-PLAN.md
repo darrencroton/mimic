@@ -1,8 +1,8 @@
 # Mimic Dual-Driver Plan
 
-**Status:** Proposed architecture and migration plan.
-**Date:** 2026-06-05
-**Context:** Read `MIMIC-DEVELOPMENT-PATHWAY.md` first. This plan starts only after Mimic v1.0 is tagged and the v1.0 baseline is refreshed.
+**Status:** Proposed architecture and migration plan. Phases 1–3 are reclassified as v1.0 work (see below); Phases 4+ follow v1.0.
+**Date:** 2026-06-05 (revised ordering 2026-06-05)
+**Context:** Read `MIMIC-DEVELOPMENT-PATHWAY.md` first. **Revised ordering:** the core-modularisation phases (1–3, and optionally 0) now land *as part of v1.0*, before the final review-and-optimisation sweep, validated byte-identical against the existing SAGE physics baseline (`test_scientific_sage_physics_baseline.py`). Only the snapshot reader and driver (Phases 4–7) start after v1.0 is tagged and its baseline refreshed. The reasoning is recorded under "Why core modularisation moves into v1.0" in the pathway document; a short summary is in "Migration Plan" below. The phase definitions, gates, and architecture in this document are otherwise unchanged.
 
 ---
 
@@ -73,7 +73,7 @@ Both drivers emit the same generated output schema and provenance model. The pro
 
 ## Current Coupling (File Inventory)
 
-This maps where today's tree-coupled behaviour lives and what happens to each file during migration. Function names are durable; exact `file:line` anchors are intentionally omitted because v1.0 finalisation (memory and HDF5-writer work) will move them — re-derive anchors against the tagged v1.0 tree before starting Phase 0.
+This maps where today's tree-coupled behaviour lives and what happens to each file during migration. Function names are durable; exact `file:line` anchors are intentionally omitted. Under the revised ordering, Phases 1–3 run *before* the v1.0 memory/HDF5 optimisation sweep, so re-derive anchors against the current `main` tree before starting — not against a tagged build. The optimisation sweep then runs over the already-restructured code and will move these anchors again afterward; that is expected, and is precisely why the sweep follows the extraction rather than preceding it.
 
 | File | Role today | Disposition |
 |---|---|---|
@@ -93,11 +93,17 @@ The inheritance science to be extracted in Phase 2 currently lives in `build_mod
 
 ## Migration Plan
 
-Each phase before the snapshot driver is behaviour-preserving for the existing tree-ordered run and is gated against the v1.0 baseline.
+Each phase before the snapshot driver is behaviour-preserving for the existing tree-ordered run and is gated against the regression baseline.
+
+**Ordering (revised).** Phases 1–3 are v1.0 work and land *before* the final review-and-optimisation sweep, each gated byte-identical against the current SAGE physics baseline (`test_scientific_sage_physics_baseline.py`). Phase 0 is optional at v1.0 — it is the only purely snapshot-driver-anticipatory step — and may be done last or deferred without gating the release. The sweep then hardens the restructured core, v1.0 is tagged, and the baseline is refreshed. Phases 4–7 (snapshot reader and driver) begin after the v1.0 tag, gated against the refreshed tagged-v1.0 baseline. The short version of the rationale: Phases 1–3 are core modularisation shared by every forward direction (snapshot driver and model builder alike), the baseline already exists to prove them behaviour-preserving, and the single high-value sweep is worth far more applied to the final architecture than to code about to be demolished. The full rationale is in `MIMIC-DEVELOPMENT-PATHWAY.md`.
+
+**Reading the gates below.** Where a Phase 1–3 gate says "the v1.0 baseline", read it as the *current pre-sweep* SAGE physics baseline (Phases 1–3 run before the sweep). Where a Phase 4–7 gate says it, read it as the *refreshed tagged-v1.0* baseline. Each behaviour-preserving phase lands as its own gated commit; structural extraction is never blended into the optimisation sweep.
 
 ### Phase 0: Driver Dispatch Seam
 
 Add `TreeFormat` configuration and a driver dispatcher with only the tree driver wired initially. Extract the current file/tree lifecycle into `run_tree_driver()`. The default remains `tree_ordered`.
+
+**Ordering note:** Phase 0 is the only purely snapshot-driver-anticipatory step in the 0–3 group — with a single driver it adds an indirection that nothing in v1.0 exercises. It is therefore optional for v1.0: do it last (after Phases 1–3) and trivially, or defer it until the snapshot-driver work begins, and do not let it gate the v1.0 tag. Phases 1–3, by contrast, are core modularisation that belongs in v1.0 regardless of whether a second driver is ever built.
 
 **Gate:** standard checks and tests pass; binary/HDF5 output is byte-identical to the v1.0 baseline.
 
@@ -152,7 +158,11 @@ Add MPI/domain decomposition and cross-domain communication for snapshot-global 
 
 ### Sequencing Notes
 
-Phases 0–3 ship value on their own — cleaner separation with no behaviour change — and de-risk everything after. Phase 2 is the linchpin; do not start Phase 5 until it is green and proven behaviour-preserving. Phase 6 depends only on the Phase 1–2 engine seam and can proceed in parallel with Phases 4–5 if desired. Phase 7 follows Phase 5.
+Phases 1–3 ship value on their own — cleaner separation with no behaviour change — and de-risk everything after, which is exactly why they are now v1.0 work rather than post-v1.0 work (see the revised ordering above and the pathway rationale). Phase 0 is optional at v1.0 and snapshot-driver-anticipatory; sequence it last or defer it.
+
+Phase 2 is the linchpin and the project's highest-risk refactor; it lands pre-v1.0 under the existing baseline and the v1.0 review sweep, and the snapshot driver (Phase 5) must not start until Phase 2 is green and proven behaviour-preserving.
+
+Phase 6 (the physics-only embedded engine) depends only on the Phase 1–2 engine seam delivered in v1.0, not on the snapshot driver — and that same seam is what a model builder would build on. So after v1.0 the snapshot driver (Phases 4–5, then 7) and the model builder are independent options over a shared foundation: nothing in the model builder requires the snapshot driver, and the next direction should be chosen on scientific priority rather than forced ordering. Phase 7 follows Phase 5.
 
 ---
 
