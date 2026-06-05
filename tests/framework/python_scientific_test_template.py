@@ -276,7 +276,7 @@ TEMPLATE USAGE INSTRUCTIONS:
 6. Verify test works:
    - Run: python test_yourname.py
    - Or: pytest test_yourname.py -v
-   - Or: make test-scientific
+   - Or: make tests-scientific
 
 VALIDATION STRATEGIES:
 =====================

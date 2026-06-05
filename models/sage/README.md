@@ -50,7 +50,7 @@ Useful checks:
 ```bash
 make MODEL=sage validate-modules
 make MODEL=sage check-generated
-make MODEL=sage test-unit
+make MODEL=sage tests-unit
 ```
 
 ## Extending SAGE

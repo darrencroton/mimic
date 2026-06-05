@@ -115,9 +115,9 @@ Mimic includes a comprehensive three-tier testing framework:
 
 ```bash
 make tests              # Run all tests (validates metadata, runs all tiers)
-make test-unit          # C unit tests
-make test-integration   # Python integration tests
-make test-scientific    # Physics validation tests
+make tests-unit          # C unit tests
+make tests-integration   # Python integration tests
+make tests-scientific    # Physics validation tests
 ```
 
 Test data uses mini-Millennium simulation files ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)) prepared by `./scripts/first_run.sh`.

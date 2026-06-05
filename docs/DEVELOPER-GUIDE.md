@@ -745,9 +745,9 @@ Mimic uses three test tiers. Every tier runs the core tests, selected-simulation
 
 | Tier | Command | Scope |
 | --- | --- | --- |
-| Unit | `make test-unit` | C unit tests for core functions, selected-simulation fixtures, selected-model modules, and infrastructure |
-| Integration | `make test-integration` | End-to-end Python tests for core workflows, selected-simulation fixtures, and selected-model modules |
-| Scientific | `make test-scientific` | Core scientific contracts plus selected-simulation and selected-model scientific regressions |
+| Unit | `make tests-unit` | C unit tests for core functions, selected-simulation fixtures, selected-model modules, and infrastructure |
+| Integration | `make tests-integration` | End-to-end Python tests for core workflows, selected-simulation fixtures, and selected-model modules |
+| Scientific | `make tests-scientific` | Core scientific contracts plus selected-simulation and selected-model scientific regressions |
 
 Run everything:
 

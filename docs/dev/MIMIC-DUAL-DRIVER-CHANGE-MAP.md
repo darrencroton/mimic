@@ -15,9 +15,9 @@ Validation gate used throughout — **"green"** means:
 
 ```bash
 make check-generated && make validate-modules
-make test-unit          # fast
-make test-integration   # medium
-make test-scientific    # slow — delegate to a subagent, act on summary
+make tests-unit          # fast
+make tests-integration   # medium
+make tests-scientific    # slow — delegate to a subagent, act on summary
 ```
 
 Treat any non-zero exit code as failure regardless of log text.
@@ -91,7 +91,7 @@ Phases 0–3 below assert outputs are **byte-identical** to a pre-change baselin
 - Tree driver wires gather→inherit to reproduce current control flow precisely.
 - The dynamic `FoFWorkspace` growth logic (`:192–216`) moves with the marshalling side, not the inheritance science.
 
-**Gate:** green, with **special weight on `test-scientific` and SAGE parity** — this must be a pure behaviour-preserving extraction. Recommended: capture full output before and after and assert byte-identity on a reference tree set.
+**Gate:** green, with **special weight on `tests-scientific` and SAGE parity** — this must be a pure behaviour-preserving extraction. Recommended: capture full output before and after and assert byte-identity on a reference tree set.
 
 ---
 

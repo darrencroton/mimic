@@ -9,9 +9,9 @@ Quick reference for running tests. See [docs/DEVELOPER-GUIDE.md](../docs/DEVELOP
 make tests
 
 # Run specific test tiers
-make test-unit          # C unit tests
-make test-integration   # Python integration tests
-make test-scientific    # Physics validation
+make tests-unit          # C unit tests
+make tests-integration   # Python integration tests
+make tests-scientific    # Physics validation
 ```
 
 NOTE: `MODEL` and `SIMULATION` default to `sage` and `millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
@@ -80,7 +80,7 @@ python3 tests/scientific/test_scientific.py
 
 Scientific validation currently has one repository-level script in `tests/scientific/`. Future simulation or module scientific tests can be run the same way with `python3 path/to/test.py`.
 
-The `make MODEL=<name> SIMULATION=<name> test-unit`, `test-integration`, `test-scientific`, and `tests` targets run core tests, selected-simulation tests, and tests declared by the selected model package. Empty generated lists are valid; a tier with no model or simulation tests still runs the core tests and exits successfully.
+The `make MODEL=<name> SIMULATION=<name> tests-unit`, `tests-integration`, `tests-scientific`, and `tests` targets run core tests, selected-simulation tests, and tests declared by the selected model package. Empty generated lists are valid; a tier with no model or simulation tests still runs the core tests and exits successfully.
 
 ## Directory Structure
 

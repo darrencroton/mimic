@@ -68,9 +68,9 @@ make MODEL=sage generate
 make MODEL=sage tests
 
 # Run specific tier
-make MODEL=sage test-unit
-make MODEL=sage test-integration
-make MODEL=sage test-scientific
+make MODEL=sage tests-unit
+make MODEL=sage tests-integration
+make MODEL=sage tests-scientific
 ```
 
 ---

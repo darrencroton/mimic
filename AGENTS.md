@@ -104,17 +104,17 @@ Long-running tests should be captured to a log file; check the exit code explici
 
 ```bash
 mkdir -p archive/test-logs
-make test-unit > archive/test-logs/test-unit.log 2>&1
+make tests-unit > archive/test-logs/tests-unit.log 2>&1
 test_rc=$?
-tail -n 60 archive/test-logs/test-unit.log
-rg -n -i "failed|error|traceback" archive/test-logs/test-unit.log
+tail -n 60 archive/test-logs/tests-unit.log
+rg -n -i "failed|error|traceback" archive/test-logs/tests-unit.log
 echo "exit_code=${test_rc}"
 # Treat any non-zero exit code as failure, regardless of log text
 ```
 
 ### Testing Strategy
 
-Full test suites (`make tests`, `make test-scientific`) can take 5+ minutes
+Full test suites (`make tests`, `make tests-scientific`) can take 5+ minutes
 and produce large output. **Delegate these to a subagent**: have it capture and summarise the
 results, then act on the report in the main context rather than filling it with raw test output.
 
@@ -124,9 +124,9 @@ make tests
 
 # Run specific tiers
 make validate-modules   # Validate module metadata only
-make test-unit          # C unit tests (fast, <10s)
-make test-integration   # Python integration tests (medium, <1min)
-make test-scientific    # Python scientific validation (slow, <5min)
+make tests-unit          # C unit tests (fast, <10s)
+make tests-integration   # Python integration tests (medium, <1min)
+make tests-scientific    # Python scientific validation (slow, <5min)
 ```
 
 Individual tests: use `tests/unit/run_tests.sh <test_name>` for C unit tests and `python3 path/to/test.py` for integration/scientific scripts.

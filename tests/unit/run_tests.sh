@@ -120,14 +120,14 @@ fi
 
 # MODEL is required for compiled-model macros in read_parameter_file.c
 if [ -z "${MODEL}" ]; then
-    echo -e "${RED}ERROR: MODEL environment variable is required. Run via 'make MODEL=<name> test-unit'${NC}"
+    echo -e "${RED}ERROR: MODEL environment variable is required. Run via 'make MODEL=<name> tests-unit'${NC}"
     exit 2
 fi
 MODEL_ROOT="models/${MODEL}"
 
 # SIMULATION selects the compiled simulation property package, required for the
 # MIMIC_COMPILED_SIMULATION macro in read_parameter_file.c. The Makefile exports
-# SIMULATION when invoking test-unit; default to millennium for standalone runs,
+# SIMULATION when invoking tests-unit; default to millennium for standalone runs,
 # mirroring DEFAULT_SIMULATION in the Makefile.
 SIMULATION="${SIMULATION:-millennium}"
 
@@ -311,11 +311,11 @@ echo ""
 
 # Final result
 if [ $FAILED_TESTS -eq 0 ] && [ $COMPILE_ERRORS -eq 0 ]; then
-    echo -e "${GREEN}=== ALL UNIT TESTS PASSED ===${NC}"
+    echo -e "${GREEN}=== TLDR: ALL UNIT TESTS PASSED ===${NC}"
     echo ""
     exit 0
 else
-    echo -e "${RED}=== UNIT TESTS FAILED ===${NC}"
+    echo -e "${RED}=== TLDR: UNIT TESTS FAILED ===${NC}"
     echo ""
     exit 1
 fi

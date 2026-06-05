@@ -466,7 +466,7 @@ int main(void)
  *    - Test parameter sensitivity
  *
  * 6. Build and run:
- *    - make clean && make test-unit
+ *    - make clean && make tests-unit
  *    - All tests should PASS
  *    - No memory leaks
  *

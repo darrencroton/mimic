@@ -295,7 +295,7 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs tests test-unit test-integration test-scientific test-clean validate-modules lint-parameters validate-build
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs tests tests-unit tests-integration tests-scientific test-clean validate-modules lint-parameters validate-build
 
 all: generate validate-build $(EXEC)
 
@@ -445,9 +445,9 @@ help:
 	@echo ""
 	@echo "Test targets:"
 	@echo "  make tests             - Run all tests"
-	@echo "  make test-unit         - Run unit tests only"
-	@echo "  make test-integration  - Run integration tests only"
-	@echo "  make test-scientific   - Run scientific tests only"
+	@echo "  make tests-unit         - Run unit tests only"
+	@echo "  make tests-integration  - Run integration tests only"
+	@echo "  make tests-scientific   - Run scientific tests only"
 	@echo "  make test-clean                   - Clean test artifacts"
 	@echo "  make generate-test-registry - Discover selected tests"
 	@echo "  make validate-test-registry - Validate test declarations"
@@ -592,7 +592,7 @@ define RUN_PYTHON_TEST_REGISTRY
 			failure="$(2): $$test"; \
 			grep -qxF "$$failure" build/.test_failures 2>/dev/null || echo "$$failure" >> build/.test_failures; \
 		done; \
-		echo "\033[0;31m=== $(3) TESTS FAILED ===\033[0m"; \
+		echo "\033[0;31m=== TLDR: $(3) TESTS FAILED ===\033[0m"; \
 		echo "\033[0;31mFailed tests:\033[0m"; \
 		for test in $$FAILED_TESTS; do \
 			echo "  - $$test"; \
@@ -600,7 +600,7 @@ define RUN_PYTHON_TEST_REGISTRY
 		echo ""; \
 		exit 1; \
 	else \
-		echo "\033[0;32m=== ALL $(3) TESTS PASSED ===\033[0m"; \
+		echo "\033[0;32m=== TLDR: ALL $(3) TESTS PASSED ===\033[0m"; \
 		echo ""; \
 	fi
 endef
@@ -617,21 +617,21 @@ tests:
 	@echo ""
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules || { grep -qx validate-modules build/.test_failures 2>/dev/null || echo "validate-modules" >> build/.test_failures; true; }
 	@echo ""
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-unit || { grep -q '^unit:' build/.test_failures 2>/dev/null || grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-integration || { grep -q '^integration:' build/.test_failures 2>/dev/null || grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) test-scientific || { grep -q '^scientific:' build/.test_failures 2>/dev/null || grep -qx scientific build/.test_failures 2>/dev/null || echo "scientific" >> build/.test_failures; true; }
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-unit || { grep -q '^unit:' build/.test_failures 2>/dev/null || grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-integration || { grep -q '^integration:' build/.test_failures 2>/dev/null || grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
+	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-scientific || { grep -q '^scientific:' build/.test_failures 2>/dev/null || grep -qx scientific build/.test_failures 2>/dev/null || echo "scientific" >> build/.test_failures; true; }
 	@echo ""
 	@echo ""
 	@if [ -f build/.test_failures ]; then \
 		echo "\033[0;31m############################################################\033[0m"; \
-		echo "\033[0;31mTLDR: FAILED TESTS/SUITES\033[0m"; \
+		echo "\033[0;31m=== TLDR: FAILED TESTS/SUITES ===\033[0m"; \
 		while IFS= read -r failure; do \
 			echo "  - $$failure"; \
 		done < build/.test_failures; \
 		echo "\033[0;31m############################################################\033[0m"; \
 	else \
 		echo "\033[0;32m############################################################\033[0m"; \
-		echo "\033[0;32mTLDR: ALL UNIT, INTEGRATION, SCIENTIFIC TESTS PASSED ✓\033[0m"; \
+		echo "\033[0;32m=== TLDR: ALL UNIT, INTEGRATION, SCIENTIFIC TESTS PASSED ===\033[0m"; \
 		echo "\033[0;32m############################################################\033[0m"; \
 	fi
 	@echo ""
@@ -640,7 +640,7 @@ tests:
 		exit 1; \
 	fi
 
-test-unit:
+tests-unit:
 	@echo ""
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING UNIT TESTS\033[0m"
@@ -649,7 +649,7 @@ test-unit:
 	@python3 scripts/generate_test_inputs.py
 	@cd tests/unit && MIMIC_RECORD_TEST_FAILURES=1 ./run_tests.sh
 
-test-integration:
+tests-integration:
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC)
 	@echo ""
 	@echo "\033[0;34m============================================================\033[0m"
@@ -660,7 +660,7 @@ test-integration:
 	@echo ""
 	$(call RUN_PYTHON_TEST_REGISTRY,integration,integration,INTEGRATION)
 
-test-scientific:
+tests-scientific:
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC)
 	@echo ""
 	@echo "\033[0;34m============================================================\033[0m"

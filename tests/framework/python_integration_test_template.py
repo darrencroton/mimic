@@ -398,7 +398,7 @@ TEMPLATE USAGE INSTRUCTIONS:
    - Add dependencies if your module requires other modules
 
 6. Build and run:
-   - make clean && make test-integration
+   - make clean && make tests-integration
    - All tests should PASS
    - No memory leaks
 

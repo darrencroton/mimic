@@ -13,7 +13,7 @@ This section is written *to the person (or agent) who finalises this design*. It
 
 ### 0.1 What is confirmed against the codebase (safe to rely on)
 
-- **The code gates are real and strong.** `make MODEL=<name> SIMULATION=<name> check-generated`, `validate-modules`, and the three test tiers (`test-unit`/`test-integration`/`test-scientific`) all exist as Makefile targets. The YAML→C generation contract is genuine and uncheatable. The 22-plot system exists (18 snapshot, 4 evolution).
+- **The code gates are real and strong.** `make MODEL=<name> SIMULATION=<name> check-generated`, `validate-modules`, and the three test tiers (`tests-unit`/`tests-integration`/`tests-scientific`) all exist as Makefile targets. The YAML→C generation contract is genuine and uncheatable. The 22-plot system exists (18 snapshot, 4 evolution).
 - **The baseline mechanism is real and will become the v1.0 trusted reference.** `tests/data/output/baseline/` (binary + HDF5) is the existing Mimic regression-baseline mechanism. The intended path is to finish v1.0 optimisation work, tag v1.0, then refresh or extend the SAGE baseline so it supports byte-identical regression coverage for the relevant core and baryonic output. That v1.0 baseline is the reference-parity foundation this document depends on. Do not read the current pre-v1 baseline as the final science-gate reference without that refresh.
 
 ### 0.2 What does NOT yet exist and must be built (do not describe as present)
@@ -42,7 +42,7 @@ We want a system that takes a scientific paper describing a SAGE-scale galaxy fo
 
 The design rests on one core insight and three structural commitments.
 
-**The core insight — Mimic can supply unusually strong verification signals for long-running assisted model construction.** Most autonomous coding systems fail because "the agent thinks it's done" is unverifiable, so they drift into confident nonsense over long runs. Mimic is unusual: model-and-simulation-selected YAML-driven code generation (`make MODEL=<name> SIMULATION=<name> check-generated`), module metadata validation (`make MODEL=<name> SIMULATION=<name> validate-modules`), three test tiers (`make MODEL=<name> SIMULATION=<name> test-unit/integration/scientific`), a v1.0 SAGE parity baseline to be established before this work becomes active, and a 22-plot validation system are the raw material for a much stronger gate stack than a general software project can offer. The job of the multi-agent layer is to **drive those gates relentlessly**, plus add the one gate Mimic lacks today: an automated **science gate** that asks *do the output relations match the paper's figures and a trusted reference model, within tolerance?* If that gate is trustworthy for a relation, automation can clear that relation; if it is not, no amount of orchestration will make the conclusion safe. **Everything in this design is downstream of v1.0, the dual-driver work, and building and validating the science gate first.**
+**The core insight — Mimic can supply unusually strong verification signals for long-running assisted model construction.** Most autonomous coding systems fail because "the agent thinks it's done" is unverifiable, so they drift into confident nonsense over long runs. Mimic is unusual: model-and-simulation-selected YAML-driven code generation (`make MODEL=<name> SIMULATION=<name> check-generated`), module metadata validation (`make MODEL=<name> SIMULATION=<name> validate-modules`), three test tiers (`make MODEL=<name> SIMULATION=<name> tests-unit`, `tests-integration`, and `tests-scientific`), a v1.0 SAGE parity baseline to be established before this work becomes active, and a 22-plot validation system are the raw material for a much stronger gate stack than a general software project can offer. The job of the multi-agent layer is to **drive those gates relentlessly**, plus add the one gate Mimic lacks today: an automated **science gate** that asks *do the output relations match the paper's figures and a trusted reference model, within tolerance?* If that gate is trustworthy for a relation, automation can clear that relation; if it is not, no amount of orchestration will make the conclusion safe. **Everything in this design is downstream of v1.0, the dual-driver work, and building and validating the science gate first.**
 
 **Three structural commitments:**
 
@@ -133,7 +133,7 @@ The single design decision that makes everything else work is defining **"done"*
 1. **Compile clean** — `make MODEL=<name> SIMULATION=<name>` succeeds, including the relevant variants (`USE-MPI=yes`, `USE-HDF5=no`) where the change touches them.
 2. **Generated-code contract** — `make MODEL=<name> SIMULATION=<name> check-generated`: generated C/Python matches the YAML. Catches broken property contracts.
 3. **Module metadata** — `make MODEL=<name> SIMULATION=<name> validate-modules`: dependencies, properties, files consistent.
-4. **Tests** — `make MODEL=<name> SIMULATION=<name> test-unit` → `test-integration` → `test-scientific`, plus plotting unit/integration tests. Long output captured to `archive/test-logs/`; non-zero exit = failure.
+4. **Tests** — `make MODEL=<name> SIMULATION=<name> tests-unit` → `tests-integration` → `tests-scientific`, plus plotting unit/integration tests. Long output captured to `archive/test-logs/`; non-zero exit = failure.
 
 ### 5.2 Science gates (the new part — the heart of the system)
 
@@ -222,7 +222,7 @@ The orchestrator must follow this path and may not skip stages, regardless of wh
 |---|---|---|---|---|
 | **0** | Bootstrap | Clone/pin `workspace/mimic/`; record remote URL + branch + SHA; verify env (MLX gateway up, all gates runnable); run baseline Mimic gates on the clean checkout; refuse if Mimic has uncommitted changes | env + baseline green | no |
 | **1** | Understand | paper-intake → evidence-extraction → model-spec → module-architecture | evidence complete + reviewed | **G1: approve spec before code** |
-| **2** | Scaffold | properties YAML, module registration, parameter stubs, README placeholders | unit-gate (`make MODEL=<name> SIMULATION=<name> generate`/`check-generated`/`validate-modules`/`test-unit`) | no |
+| **2** | Scaffold | properties YAML, module registration, parameter stubs, README placeholders | unit-gate (`make MODEL=<name> SIMULATION=<name> generate`/`check-generated`/`validate-modules`/`tests-unit`) | no |
 | **3** | Implement (fan-out) | for each process, in its own worktree: implement → unit-gate → *isolated* science-gate → independent review → integrate | per-process code + science gates | no (escalation only) |
 | **4** | Couple & calibrate | assemble all processes; run the **full** science-gate on the coupled model; calibrate against published targets | full code + science gates | no (escalation only) |
 | **5** | Audit & report | cross-model adversarial auditor + final scientific quality report | high automated bar (G-final) | no (escalation only) |
@@ -353,7 +353,7 @@ Three committed ledgers per run give traceability (Q1) and crash recovery.
   file_scope:                # the lease — workers write only here
     - workspace/mimic/models/sage/modules/cooling/**
   acceptance:
-    code_gates:    [compile, check-generated, validate-modules, test-unit]
+    code_gates:    [compile, check-generated, validate-modules, tests-unit]
     science_gates: [conservation, figure-parity:SMF, reference-parity]
   logs:
     - archive/test-logs/henriques15/cooling-001.log
@@ -433,7 +433,7 @@ A concrete walk-through of the staged path, with each stage's workers, outputs, 
 
 **Stage 1 — Understand.** *Workers:* local long-context readers + frontier scientific reviewer. Extract equations, parameter defaults, units, algorithm order, calibration targets, required state variables, validation figures, and ambiguities into `01-evidence-ledger.md`. Map processes to Mimic phases, using physically named substep phases if that contract has landed; define module boundaries, shared helper APIs, new `model_properties.yaml` properties, input-YAML parameters, generated-code updates, tests, plots, and any archive/migration. Produce `02-design-spec.md`, `03-implementation-plan.md`, `04-validation-plan.md`. **Gate G1: human approves the spec before any production code** (the one mandatory human gate, US-1). Frontier reviewer checks source traceability first.
 
-**Stage 2 — Scaffold.** Add module directories + metadata, README placeholders, parameter schema, property definitions, generated-code updates, basic compile tests. *Gate:* `make MODEL=<name> SIMULATION=<name> generate` → `check-generated` → `validate-modules` → `test-unit`. Auto.
+**Stage 2 — Scaffold.** Add module directories + metadata, README placeholders, parameter schema, property definitions, generated-code updates, basic compile tests. *Gate:* `make MODEL=<name> SIMULATION=<name> generate` → `check-generated` → `validate-modules` → `tests-unit`. Auto.
 
 **Stage 3 — Implement (fan-out loop).** For each process (initialisation, cooling, star formation, stellar feedback, reincorporation, metal enrichment, black-hole growth, AGN feedback, mergers, disk instabilities, environment, luminosities as needed), in its own worktree, the mini-cycle: evidence reviewed → interface/state defined → implementation patch (local draft → frontier review) → unit tests → integration check → isolated science-gate (conservation/sanity) → independent review → lead merges. *Gate:* per-process code + science gates; evidence ledger updated with implemented locations; no out-of-scope changes. Auto, with escalation.
 
