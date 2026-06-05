@@ -37,7 +37,14 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 sys.path.insert(0, str(REPO_ROOT / "tests" / "integration"))
 
-from framework import load_binary_halos, MIMIC_EXE, compiled_model, run_mimic_fresh
+from framework import (
+    load_binary_halos,
+    MIMIC_EXE,
+    compiled_model,
+    run_mimic_fresh,
+    baseline_rtol,
+    BASELINE_RTOL_DEFAULT,
+)
 from test_output_formats import compare_halos_comprehensive
 
 BLUE = '\033[1;34m'
@@ -107,7 +114,8 @@ def test_sage_physics_baseline():
 
     # Compare every property (core + baryonic) for every halo.
     passed, report = compare_halos_comprehensive(
-        halos_now, halos_ref, label1="current", label2="baseline", rtol=1e-6
+        halos_now, halos_ref, label1="current", label2="baseline",
+        rtol=baseline_rtol(), warn_rtol=BASELINE_RTOL_DEFAULT,
     )
     print(report, end="")
 

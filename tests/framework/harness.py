@@ -33,6 +33,37 @@ def compiled_simulation():
     return os.environ.get("SIMULATION") or os.environ.get("SIM") or "millennium"
 
 
+# Strict default tolerance for comparisons against a committed baseline. The
+# baseline reproduces bit-for-bit on the platform that generated it, so the
+# default is deliberately tight.
+BASELINE_RTOL_DEFAULT = 1e-6
+
+
+def baseline_rtol(default=BASELINE_RTOL_DEFAULT):
+    """Relative tolerance for comparisons against a committed baseline.
+
+    Returns the strict ``default`` unless the ``MIMIC_BASELINE_RTOL`` environment
+    variable overrides it. Use this only where a committed reference may not
+    reproduce bit-for-bit across platforms (e.g. CI on a different compiler or
+    libm); keep same-run equivalence checks (such as binary vs HDF5 from one run)
+    at the strict default so they cannot be masked.
+    """
+    override = os.environ.get("MIMIC_BASELINE_RTOL")
+    if override is None or override.strip() == "":
+        return default
+    try:
+        value = float(override)
+    except ValueError:
+        raise ValueError(
+            f"MIMIC_BASELINE_RTOL must be a number, got {override!r}"
+        )
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(
+            f"MIMIC_BASELINE_RTOL must be a finite, non-negative number, got {value!r}"
+        )
+    return value
+
+
 def _generated_input_root():
     return (
         REPO_ROOT
