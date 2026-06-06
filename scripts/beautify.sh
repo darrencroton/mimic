@@ -62,6 +62,13 @@ set +e
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
+# Prefer venv-installed clang-format (version-pinned via requirements.txt)
+if [ -f "${ROOT_DIR}/mimic_venv/bin/clang-format" ]; then
+    CLANG_FORMAT="${ROOT_DIR}/mimic_venv/bin/clang-format"
+else
+    CLANG_FORMAT="clang-format"
+fi
+
 # ANSI color codes
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -74,11 +81,11 @@ echo -e "${YELLOW}=== Mimic Code Beautifier ===${NC}"
 # Format C code
 if $FORMAT_C; then
     echo -n "Formatting C code... "
-    if check_tool clang-format "brew install clang-format"; then
+    if check_tool "${CLANG_FORMAT}" "pip install 'clang-format>=20,<21'"; then
         if (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
                 -o -name "generated" \) -prune \
                 -o \( -name "*.c" -o -name "*.h" \) -print \
-                | xargs clang-format -i) > /dev/null 2>&1; then
+                | xargs "${CLANG_FORMAT}" -i) > /dev/null 2>&1; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${RED}✗${NC}"
@@ -86,7 +93,7 @@ if $FORMAT_C; then
             (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
                 -o -name "generated" \) -prune \
                 -o \( -name "*.c" -o -name "*.h" \) -print \
-                | xargs clang-format -i)
+                | xargs "${CLANG_FORMAT}" -i)
         fi
     else
         echo -e "${RED}✗ (tool not found)${NC}"

@@ -286,6 +286,7 @@ endif
 # Python Configuration (for tests and code generation)
 # -----------------------------------------------------------------------------
 PYTHON := $(shell if [ -f mimic_venv/bin/python3 ]; then echo mimic_venv/bin/python3; else echo python3; fi)
+CLANG_FORMAT := $(shell if [ -f mimic_venv/bin/clang-format ]; then echo mimic_venv/bin/clang-format; else echo clang-format; fi)
 
 # -----------------------------------------------------------------------------
 # Git Version Tracking
@@ -565,7 +566,7 @@ check-format:
 	@echo "Checking C formatting..."
 	@find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code -o -name "generated" \) -prune \
 	    -o \( -name "*.c" -o -name "*.h" \) -print \
-	    | xargs clang-format --dry-run --Werror
+	    | xargs $(CLANG_FORMAT) --dry-run --Werror
 	@echo "Checking Python formatting..."
 	@$(PYTHON) -m black --check .
 	@$(PYTHON) -m isort --check-only .

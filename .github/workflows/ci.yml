@@ -23,7 +23,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libhdf5-dev libyaml-dev pkg-config clang-format
+        sudo apt-get install -y libhdf5-dev libyaml-dev pkg-config
 
     - name: Install Python dependencies
       run: |
