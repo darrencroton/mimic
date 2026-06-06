@@ -82,6 +82,30 @@ make tidy
 
 ---
 
+## Code Style
+
+### C
+- 2-space indent, LLVM base style, 100-character line limit — enforced by `.clang-format` in the repo root; editors discover it automatically
+- Format before committing: `./scripts/beautify.sh --c-only`
+- **Never hand-edit files under `*/generated/`** — they are produced by `make generate` and will be overwritten; the formatter excludes them automatically
+- Code must compile clean under `-Wall -Wextra -Wshadow -Wformat-security -Wundef`; do not introduce new warnings
+- Comments explain **why**, not what — one short line maximum; `@file`/`@brief` Doxygen headers are fine on public API files
+
+### Python
+- black (line-length 100) + isort (profile black) — configuration in `pyproject.toml`
+- Format before committing: `./scripts/beautify.sh --py-only`
+- Scripts must run under Python 3.9+
+
+### Line length
+C and Python both use **100 characters**. Let the formatter decide when a line is borderline.
+
+### Checking without modifying (what CI runs)
+```bash
+make check-format
+```
+
+---
+
 ## Running Mimic
 
 ```bash
@@ -114,9 +138,7 @@ echo "exit_code=${test_rc}"
 
 ### Testing Strategy
 
-Full test suites (`make tests`, `make tests-scientific`) can take 5+ minutes
-and produce large output. **Delegate these to a subagent**: have it capture and summarise the
-results, then act on the report in the main context rather than filling it with raw test output.
+Unit and integration tests each take up to 3 minutes and produce large output. Scientific tests are faster (~30s). **Delegate unit and integration to a subagent**: have it capture and summarise the results, then act on the report in the main context rather than filling it with raw test output.
 
 ```bash
 # Run all tests (validates metadata first, then all tiers)
@@ -124,9 +146,9 @@ make tests
 
 # Run specific tiers
 make validate-modules   # Validate module metadata only
-make tests-unit          # C unit tests (fast, <10s)
-make tests-integration   # Python integration tests (medium, <1min)
-make tests-scientific    # Python scientific validation (slow, <5min)
+make tests-unit          # C unit tests (up to 3min, large output — delegate)
+make tests-integration   # Python integration tests (up to 3min, large output — delegate)
+make tests-scientific    # Python scientific validation (fast, ~30s)
 ```
 
 Individual tests: use `tests/unit/run_tests.sh <test_name>` for C unit tests and `python3 path/to/test.py` for integration/scientific scripts.

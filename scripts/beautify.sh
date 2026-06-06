@@ -60,7 +60,7 @@ check_tool() {
 # Don't exit on error as we want to try all formatting stages
 set +e
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
 # ANSI color codes
 GREEN='\033[0;32m'
@@ -75,12 +75,18 @@ echo -e "${YELLOW}=== Mimic Code Beautifier ===${NC}"
 if $FORMAT_C; then
     echo -n "Formatting C code... "
     if check_tool clang-format "brew install clang-format"; then
-        if cd "${ROOT_DIR}" && find . \( -name "*.c" -o -name "*.h" \) | xargs clang-format -i -style=LLVM > /dev/null 2>&1; then
+        if (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
+                -o -name "generated" \) -prune \
+                -o \( -name "*.c" -o -name "*.h" \) -print \
+                | xargs clang-format -i) > /dev/null 2>&1; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${RED}✗${NC}"
             echo -e "${RED}Error formatting C code. See details below:${NC}"
-            cd "${ROOT_DIR}" && find . \( -name "*.c" -o -name "*.h" \) | xargs clang-format -i -style=LLVM
+            (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
+                -o -name "generated" \) -prune \
+                -o \( -name "*.c" -o -name "*.h" \) -print \
+                | xargs clang-format -i)
         fi
     else
         echo -e "${RED}✗ (tool not found)${NC}"

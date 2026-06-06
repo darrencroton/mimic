@@ -15,7 +15,7 @@ OBJ_DIR = $(BUILD_DIR)/obj
 DEP_DIR = $(BUILD_DIR)/deps
 
 # Targets that work without selected model/simulation packages.
-MODEL_FREE_TARGETS := clean tidy help check-docs test-clean
+MODEL_FREE_TARGETS := clean tidy help check-docs check-format test-clean
 
 # Default model package used when MODEL is not given on the command line.
 # Most users work with one model/simulation pair: leave these defaults as your
@@ -150,7 +150,7 @@ INCLUDE_DIRS := \
     $(BUILD_DIR)/generated
 
 # Compiler flags
-CFLAGS = -g -O2 -Wall -Wextra
+CFLAGS = -g -O2 -Wall -Wextra -Wshadow -Wformat-security -Wundef
 CFLAGS += $(addprefix -I,$(INCLUDE_DIRS))
 CFLAGS += -DMIMIC_COMPILED_MODEL=\"$(MODEL)\"
 CFLAGS += -DMIMIC_COMPILED_MODEL_PATH=\"$(MODEL_ROOT)\"
@@ -295,7 +295,7 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs tests tests-unit tests-integration tests-scientific test-clean validate-modules lint-parameters validate-build
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific test-clean validate-modules lint-parameters validate-build
 
 all: generate validate-build $(EXEC)
 
@@ -437,6 +437,7 @@ help:
 	@echo "  make generate     - Generate all code from metadata"
 	@echo "  make check-generated - Verify generated code is up-to-date"
 	@echo "  make check-docs   - Validate documentation links and anchors"
+	@echo "  make check-format - Check C and Python code formatting (no-modify)"
 	@echo ""
 	@echo "Module targets:"
 	@echo "  make generate-modules   - Generate module registration code only"
@@ -559,6 +560,16 @@ check-generated:
 
 check-docs:
 	@python3 scripts/check_docs.py
+
+check-format:
+	@echo "Checking C formatting..."
+	@find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code -o -name "generated" \) -prune \
+	    -o \( -name "*.c" -o -name "*.h" \) -print \
+	    | xargs clang-format --dry-run --Werror
+	@echo "Checking Python formatting..."
+	@$(PYTHON) -m black --check .
+	@$(PYTHON) -m isort --check-only .
+	@echo "Format checks passed"
 
 # Test registry generation (auto-discovers core, selected-simulation, and selected-model tests)
 generate-test-registry:

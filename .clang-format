@@ -1,0 +1,4 @@
+# Mimic C code style — based on LLVM with project-specific overrides.
+BasedOnStyle: LLVM
+ColumnLimit: 100
+SortIncludes: Never
