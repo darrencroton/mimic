@@ -32,11 +32,12 @@ Date: 2025-12-18
 """
 
 import os
-import sys
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
 import numpy as np
 
 # Repository root and paths
@@ -47,19 +48,19 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
     create_test_param_file,
-    run_mimic,
     load_binary_halos,
-    validate_no_nans,
+    run_mimic,
     validate_no_infs,
-    validate_range
+    validate_no_nans,
+    validate_range,
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def test_module_loads():
@@ -75,24 +76,24 @@ def test_module_loads():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_load",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_satellite_stripping", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Mimic should execute successfully\nStderr: {stderr}"
+    assert returncode == 0, f"Mimic should execute successfully\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE satellite stripping module initialized" in stdout, \
-        "sage_satellite_stripping should log initialization message"
+    assert (
+        "SAGE satellite stripping module initialized" in stdout
+    ), "sage_satellite_stripping should log initialization message"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -113,12 +114,12 @@ def test_parameter_configuration():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_params",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_satellite_stripping", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.20}
+        model_params={"GlobalBaryonFraction": 0.20},
     )
 
     # ===== EXECUTE =====
@@ -128,8 +129,9 @@ def test_parameter_configuration():
     assert returncode == 0, "Execution with custom parameters should succeed"
 
     # Verify parameter was read and logged
-    assert "GlobalBaryonFraction = 0.2000" in stdout, \
-        f"Custom GlobalBaryonFraction should be logged\nStdout:\n{stdout}"
+    assert (
+        "GlobalBaryonFraction = 0.2000" in stdout
+    ), f"Custom GlobalBaryonFraction should be logged\nStdout:\n{stdout}"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -150,12 +152,12 @@ def test_memory_safety():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_satellite_stripping", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={"GlobalBaryonFraction": 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -163,10 +165,8 @@ def test_memory_safety():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Execution should succeed"
-    assert "Memory leak detected" not in stdout, \
-        "Should not have memory leaks"
-    assert "Memory leak detected" not in stderr, \
-        "Should not have memory leaks in stderr"
+    assert "Memory leak detected" not in stdout, "Should not have memory leaks"
+    assert "Memory leak detected" not in stderr, "Should not have memory leaks in stderr"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -188,14 +188,14 @@ def test_output_properties_exist():
         output_name="sage_satellite_stripping_properties",
         output_format="binary",  # Test binary format
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_satellite_stripping", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={"GlobalBaryonFraction": 0.17},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -208,10 +208,11 @@ def test_output_properties_exist():
     halos, metadata = load_binary_halos(str(output_file))
 
     # Check required properties exist (C-Python binding validation)
-    required_props = ['HotGas', 'MetalsHotGas', 'Type', 'Mvir']
+    required_props = ["HotGas", "MetalsHotGas", "Type", "Mvir"]
     for prop in required_props:
-        assert prop in halos.dtype.names, \
-            f"Property '{prop}' should exist in output (C-Python binding)"
+        assert (
+            prop in halos.dtype.names
+        ), f"Property '{prop}' should exist in output (C-Python binding)"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -233,14 +234,14 @@ def test_output_property_types():
         output_name="sage_satellite_stripping_types",
         output_format="binary",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_satellite_stripping", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={"GlobalBaryonFraction": 0.17},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -252,10 +253,12 @@ def test_output_property_types():
     halos, metadata = load_binary_halos(str(output_file))
 
     # Check data types
-    assert halos['HotGas'].dtype == np.float32, \
-        f"HotGas should be float32, got {halos['HotGas'].dtype}"
-    assert halos['MetalsHotGas'].dtype == np.float32, \
-        f"MetalsHotGas should be float32, got {halos['MetalsHotGas'].dtype}"
+    assert (
+        halos["HotGas"].dtype == np.float32
+    ), f"HotGas should be float32, got {halos['HotGas'].dtype}"
+    assert (
+        halos["MetalsHotGas"].dtype == np.float32
+    ), f"MetalsHotGas should be float32, got {halos['MetalsHotGas'].dtype}"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -277,14 +280,14 @@ def test_output_sanity_checks():
         output_name="sage_satellite_stripping_sanity",
         output_format="binary",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_satellite_stripping", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={"GlobalBaryonFraction": 0.17},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -300,8 +303,8 @@ def test_output_sanity_checks():
     validate_no_infs(halos)
 
     # Check non-negativity (masses can't be negative)
-    validate_range(halos, 'HotGas', 0.0, 1e10)
-    validate_range(halos, 'MetalsHotGas', 0.0, 1e10)
+    validate_range(halos, "HotGas", 0.0, 1e10)
+    validate_range(halos, "MetalsHotGas", 0.0, 1e10)
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -324,14 +327,14 @@ def test_data_flow_validation():
         output_name="sage_satellite_stripping_dataflow",
         output_format="binary",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_satellite_stripping", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={"GlobalBaryonFraction": 0.17},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -346,18 +349,19 @@ def test_data_flow_validation():
     assert len(halos) > 0, "Output should contain halos"
 
     # Verify satellites exist (Type 1)
-    satellites = halos[halos['Type'] == 1]
+    satellites = halos[halos["Type"] == 1]
     assert len(satellites) > 0, "Output should contain satellites for stripping test"
 
     # Verify centrals exist (Type 0)
-    centrals = halos[halos['Type'] == 0]
+    centrals = halos[halos["Type"] == 0]
     assert len(centrals) > 0, "Output should contain centrals"
 
     # Basic data flow check: Data is valid (not all NaN)
     # Note: HotGas will be zero in standalone mode since no modules add gas
     # This is correct behavior - stripping only removes gas that's already there
-    assert not np.all(np.isnan(halos['HotGas'])), \
-        "HotGas values should not all be NaN (data should flow through)"
+    assert not np.all(
+        np.isnan(halos["HotGas"])
+    ), "HotGas values should not all be NaN (data should flow through)"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -378,22 +382,23 @@ def test_standalone_execution():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_satellite_stripping_standalone",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_satellite_stripping', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_satellite_stripping", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={"GlobalBaryonFraction": 0.17},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Module should run standalone without sage_reionization\nStderr: {stderr}"
+    assert (
+        returncode == 0
+    ), f"Module should run standalone without sage_reionization\nStderr: {stderr}"
 
     # Verify module initialized and cleaned up
     assert "SAGE satellite stripping module initialized" in stdout

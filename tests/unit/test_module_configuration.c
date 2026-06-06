@@ -41,31 +41,29 @@ static int failed = 0;
 static int modules_registered = 0;
 
 /* Test fixture: reset configuration state */
-static void reset_config(void) {
-    memset(&MimicConfig, 0, sizeof(MimicConfig));
-}
+static void reset_config(void) { memset(&MimicConfig, 0, sizeof(MimicConfig)); }
 
 /* Test fixture: ensure modules are registered (only once) */
 static void ensure_modules_registered(void) {
-    if (!modules_registered) {
-        register_all_modules();
-        modules_registered = 1;
-    }
+  if (!modules_registered) {
+    register_all_modules();
+    modules_registered = 1;
+  }
 }
 
 /* Test fixture: Set test_fixture parameters in centralized model_parameters */
 static void set_test_fixture_params(double dummy_val, int logging_val) {
-    int idx = 0;
+  int idx = 0;
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureDummyParameter");
-    snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%.10g", dummy_val);
-    idx++;
+  strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureDummyParameter");
+  snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%.10g", dummy_val);
+  idx++;
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureEnableLogging");
-    snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%d", logging_val);
-    idx++;
+  strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureEnableLogging");
+  snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%d", logging_val);
+  idx++;
 
-    MimicConfig.NumModelParams = idx;
+  MimicConfig.NumModelParams = idx;
 }
 
 /**
@@ -76,19 +74,19 @@ static void set_test_fixture_params(double dummy_val, int logging_val) {
  * Validates: Basic module registration system works
  */
 int test_module_registry_init(void) {
-    /* ===== SETUP ===== */
-    reset_config();
+  /* ===== SETUP ===== */
+  reset_config();
 
-    /* ===== EXECUTE ===== */
-    /* Registry should initialize without explicit init call (static storage) */
-    /* Register test modules via register_all_modules() */
-    ensure_modules_registered();
+  /* ===== EXECUTE ===== */
+  /* Registry should initialize without explicit init call (static storage) */
+  /* Register test modules via register_all_modules() */
+  ensure_modules_registered();
 
-    /* ===== VERIFY ===== */
-    /* If we got here without crashing, registration succeeded */
-    /* (Module registry is internal, so we can't directly inspect it) */
+  /* ===== VERIFY ===== */
+  /* If we got here without crashing, registration succeeded */
+  /* (Module registry is internal, so we can't directly inspect it) */
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -99,38 +97,37 @@ int test_module_registry_init(void) {
  * Validates: Multi-phase configuration structure works
  */
 int test_phase_configuration(void) {
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  reset_config();
+  init_memory_system(0);
 
-    /* ===== EXECUTE ===== */
-    /* Configure modules across multiple phases */
-    MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.pre_timestep[0].module_name = strdup("test_fixture");
-    MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-    MimicConfig.num_pre_timestep = 1;
+  /* ===== EXECUTE ===== */
+  /* Configure modules across multiple phases */
+  MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+  MimicConfig.pre_timestep[0].module_name = strdup("test_fixture");
+  MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+  MimicConfig.num_pre_timestep = 1;
 
-    test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
 
-    MimicConfig.SubSteps = 1;
+  MimicConfig.SubSteps = 1;
 
-    /* ===== VERIFY ===== */
-    TEST_ASSERT_EQUAL(MimicConfig.num_pre_timestep, 1,
-                      "Should have 1 module in pre_timestep");
-    TEST_ASSERT_EQUAL(MimicConfig.num_substep_phases, 1,
-                      "Should have 1 substep phase");
-    TEST_ASSERT_EQUAL(MimicConfig.substep_phases[0].num_modules, 1,
-                      "Should have 1 module in the substep phase");
-    TEST_ASSERT_STRING_EQUAL(MimicConfig.pre_timestep[0].module_name, "test_fixture",
-                             "pre_timestep module should be test_fixture");
-    TEST_ASSERT_EQUAL(MimicConfig.pre_timestep[0].processing_mode, PROCESSING_MODE_FULL_HALO,
-                      "pre_timestep loop mode should be PROCESSING_MODE_FULL_HALO");
-    TEST_ASSERT_STRING_EQUAL(MimicConfig.substep_phases[0].modules[0].module_name, "test_fixture",
-                             "substep phase module should be test_fixture");
-    TEST_ASSERT_EQUAL(MimicConfig.substep_phases[0].modules[0].processing_mode, PROCESSING_MODE_BY_GALAXY,
-                      "substep phase module mode should be PROCESSING_MODE_BY_GALAXY");
+  /* ===== VERIFY ===== */
+  TEST_ASSERT_EQUAL(MimicConfig.num_pre_timestep, 1, "Should have 1 module in pre_timestep");
+  TEST_ASSERT_EQUAL(MimicConfig.num_substep_phases, 1, "Should have 1 substep phase");
+  TEST_ASSERT_EQUAL(MimicConfig.substep_phases[0].num_modules, 1,
+                    "Should have 1 module in the substep phase");
+  TEST_ASSERT_STRING_EQUAL(MimicConfig.pre_timestep[0].module_name, "test_fixture",
+                           "pre_timestep module should be test_fixture");
+  TEST_ASSERT_EQUAL(MimicConfig.pre_timestep[0].processing_mode, PROCESSING_MODE_FULL_HALO,
+                    "pre_timestep loop mode should be PROCESSING_MODE_FULL_HALO");
+  TEST_ASSERT_STRING_EQUAL(MimicConfig.substep_phases[0].modules[0].module_name, "test_fixture",
+                           "substep phase module should be test_fixture");
+  TEST_ASSERT_EQUAL(MimicConfig.substep_phases[0].modules[0].processing_mode,
+                    PROCESSING_MODE_BY_GALAXY,
+                    "substep phase module mode should be PROCESSING_MODE_BY_GALAXY");
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -141,31 +138,30 @@ int test_phase_configuration(void) {
  * Validates: Core can run without any physics modules
  */
 int test_physics_free_mode(void) {
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
+  /* ===== SETUP ===== */
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
 
-    /* No modules in any phase (all NULL, counts = 0) */
-    MimicConfig.pre_timestep = NULL;
-    MimicConfig.num_pre_timestep = 0;
-    MimicConfig.substep_phases = NULL;
-    MimicConfig.num_substep_phases = 0;
-    MimicConfig.post_timestep = NULL;
-    MimicConfig.num_post_timestep = 0;
-    MimicConfig.SubSteps = 1;
+  /* No modules in any phase (all NULL, counts = 0) */
+  MimicConfig.pre_timestep = NULL;
+  MimicConfig.num_pre_timestep = 0;
+  MimicConfig.substep_phases = NULL;
+  MimicConfig.num_substep_phases = 0;
+  MimicConfig.post_timestep = NULL;
+  MimicConfig.num_post_timestep = 0;
+  MimicConfig.SubSteps = 1;
 
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
+  /* ===== EXECUTE ===== */
+  int result = module_system_init();
 
-    /* ===== VERIFY ===== */
-    TEST_ASSERT_EQUAL(result, 0,
-                      "module_system_init should succeed in physics-free mode");
+  /* ===== VERIFY ===== */
+  TEST_ASSERT_EQUAL(result, 0, "module_system_init should succeed in physics-free mode");
 
-    /* ===== CLEANUP ===== */
-    module_system_cleanup();
+  /* ===== CLEANUP ===== */
+  module_system_cleanup();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -177,33 +173,31 @@ int test_physics_free_mode(void) {
  * Validates: Empty named phases do not leak when the pipeline is physics-free
  */
 int test_empty_named_phase_cleanup(void) {
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
+  /* ===== SETUP ===== */
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
 
-    MimicConfig.substep_phases =
-        mymalloc_cat(MAX_SUBSTEP_PHASES * sizeof(struct ModulePhaseConfig), MEM_UTILITY);
-    MimicConfig.substep_phases[0].name = strdup("galaxy_physics");
-    MimicConfig.substep_phases[0].modules = NULL;
-    MimicConfig.substep_phases[0].num_modules = 0;
-    MimicConfig.num_substep_phases = 1;
-    MimicConfig.SubSteps = 1;
+  MimicConfig.substep_phases =
+      mymalloc_cat(MAX_SUBSTEP_PHASES * sizeof(struct ModulePhaseConfig), MEM_UTILITY);
+  MimicConfig.substep_phases[0].name = strdup("galaxy_physics");
+  MimicConfig.substep_phases[0].modules = NULL;
+  MimicConfig.substep_phases[0].num_modules = 0;
+  MimicConfig.num_substep_phases = 1;
+  MimicConfig.SubSteps = 1;
 
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
-    module_system_cleanup();
+  /* ===== EXECUTE ===== */
+  int result = module_system_init();
+  module_system_cleanup();
 
-    /* ===== VERIFY ===== */
-    TEST_ASSERT_EQUAL(result, 0,
-                      "module_system_init should succeed with an empty named phase");
-    TEST_ASSERT(MimicConfig.substep_phases == NULL,
-                "cleanup should release empty named phase arrays");
-    TEST_ASSERT_EQUAL(MimicConfig.num_substep_phases, 0,
-                      "cleanup should reset named phase count");
+  /* ===== VERIFY ===== */
+  TEST_ASSERT_EQUAL(result, 0, "module_system_init should succeed with an empty named phase");
+  TEST_ASSERT(MimicConfig.substep_phases == NULL,
+              "cleanup should release empty named phase arrays");
+  TEST_ASSERT_EQUAL(MimicConfig.num_substep_phases, 0, "cleanup should reset named phase count");
 
-    check_memory_leaks();
-    return TEST_PASS;
+  check_memory_leaks();
+  return TEST_PASS;
 }
 
 /**
@@ -214,35 +208,34 @@ int test_empty_named_phase_cleanup(void) {
  * Validates: Multi-phase pipeline builds correctly
  */
 int test_valid_module_initialization(void) {
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
+  /* ===== SETUP ===== */
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
 
-    /* Set test_fixture parameters */
-    set_test_fixture_params(1.0, 0);
+  /* Set test_fixture parameters */
+  set_test_fixture_params(1.0, 0);
 
-    /* Configure modules in multiple phases */
-    MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-    MimicConfig.pre_timestep[0].module_name = strdup("test_fixture");
-    MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
-    MimicConfig.num_pre_timestep = 1;
+  /* Configure modules in multiple phases */
+  MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+  MimicConfig.pre_timestep[0].module_name = strdup("test_fixture");
+  MimicConfig.pre_timestep[0].processing_mode = PROCESSING_MODE_FULL_HALO;
+  MimicConfig.num_pre_timestep = 1;
 
-    test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
+  test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
 
-    MimicConfig.SubSteps = 1;
+  MimicConfig.SubSteps = 1;
 
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
+  /* ===== EXECUTE ===== */
+  int result = module_system_init();
 
-    /* ===== VERIFY ===== */
-    TEST_ASSERT_EQUAL(result, 0,
-                      "module_system_init should succeed with valid modules");
+  /* ===== VERIFY ===== */
+  TEST_ASSERT_EQUAL(result, 0, "module_system_init should succeed with valid modules");
 
-    /* ===== CLEANUP ===== */
-    module_system_cleanup();
+  /* ===== CLEANUP ===== */
+  module_system_cleanup();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -257,17 +250,17 @@ int test_valid_module_initialization(void) {
  *       require process isolation or refactoring to return error codes.
  */
 int test_unknown_module_error(void) {
-    /* ===== SKIP TEST ===== */
-    /* This test cannot be implemented without process isolation because
-     * module_system_init() calls exit() on invalid module names.
-     * This is intentional (fail-fast) but makes unit testing difficult.
-     *
-     * Proper validation requires integration testing with separate processes
-     * or refactoring to return error codes instead of calling exit().
-     */
+  /* ===== SKIP TEST ===== */
+  /* This test cannot be implemented without process isolation because
+   * module_system_init() calls exit() on invalid module names.
+   * This is intentional (fail-fast) but makes unit testing difficult.
+   *
+   * Proper validation requires integration testing with separate processes
+   * or refactoring to return error codes instead of calling exit().
+   */
 
-    printf("  SKIPPED (requires process isolation)\n");
-    return TEST_PASS;
+  printf("  SKIPPED (requires process isolation)\n");
+  return TEST_PASS;
 }
 
 /**
@@ -278,61 +271,60 @@ int test_unknown_module_error(void) {
  * Validates: Partial phase configurations are supported
  */
 int test_single_phase_configuration(void) {
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
+  /* ===== SETUP ===== */
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
 
-    /* Set test_fixture parameters */
-    set_test_fixture_params(1.0, 0);
+  /* Set test_fixture parameters */
+  set_test_fixture_params(1.0, 0);
 
-    /* Enable module only in galaxy_physics */
-    test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
+  /* Enable module only in galaxy_physics */
+  test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
 
-    MimicConfig.SubSteps = 1;
+  MimicConfig.SubSteps = 1;
 
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
+  /* ===== EXECUTE ===== */
+  int result = module_system_init();
 
-    /* ===== VERIFY ===== */
-    TEST_ASSERT_EQUAL(result, 0,
-                      "module_system_init should succeed with single phase configured");
+  /* ===== VERIFY ===== */
+  TEST_ASSERT_EQUAL(result, 0, "module_system_init should succeed with single phase configured");
 
-    /* ===== CLEANUP ===== */
-    module_system_cleanup();
+  /* ===== CLEANUP ===== */
+  module_system_cleanup();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
  * Main test runner
  */
 int main(void) {
-    printf("%s", BLUE);
-    printf("============================================================\n");
-    printf("Test Suite: Multi-Phase Module Configuration System\n");
-    printf("============================================================\n");
-    printf("%s\n", NC);
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: Multi-Phase Module Configuration System\n");
+  printf("============================================================\n");
+  printf("%s\n", NC);
 
-    /* Initialize memory system for tests */
-    init_memory_system(0);
+  /* Initialize memory system for tests */
+  init_memory_system(0);
 
-    /* Run tests */
-    TEST_RUN(test_module_registry_init);
-    TEST_RUN(test_phase_configuration);
-    TEST_RUN(test_physics_free_mode);
-    TEST_RUN(test_empty_named_phase_cleanup);
-    TEST_RUN(test_valid_module_initialization);
-    TEST_RUN(test_unknown_module_error);
-    TEST_RUN(test_single_phase_configuration);
+  /* Run tests */
+  TEST_RUN(test_module_registry_init);
+  TEST_RUN(test_phase_configuration);
+  TEST_RUN(test_physics_free_mode);
+  TEST_RUN(test_empty_named_phase_cleanup);
+  TEST_RUN(test_valid_module_initialization);
+  TEST_RUN(test_unknown_module_error);
+  TEST_RUN(test_single_phase_configuration);
 
-    /* Print summary */
-    TEST_SUMMARY();
+  /* Print summary */
+  TEST_SUMMARY();
 
-    /* Memory leak check */
-    printf("\n");
-    printf("Memory leak check:\n");
-    print_allocated();
+  /* Memory leak check */
+  printf("\n");
+  printf("Memory leak check:\n");
+  print_allocated();
 
-    return TEST_RESULT();
+  return TEST_RESULT();
 }

@@ -39,11 +39,11 @@ from framework import (
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def parse_test_fixture_executions(stdout):
@@ -59,17 +59,19 @@ def parse_test_fixture_executions(stdout):
         list: List of dicts with execution information
     """
     executions = []
-    pattern = r'TEST_FIXTURE_EXEC: count=(\d+) ngal=(\d+) substep=(\d+)/(\d+) substep_dt=([\d.e+-]+) z=([\d.]+)'
+    pattern = r"TEST_FIXTURE_EXEC: count=(\d+) ngal=(\d+) substep=(\d+)/(\d+) substep_dt=([\d.e+-]+) z=([\d.]+)"
 
     for match in re.finditer(pattern, stdout):
-        executions.append({
-            'count': int(match.group(1)),
-            'ngal': int(match.group(2)),
-            'substep_number': int(match.group(3)),
-            'num_substeps': int(match.group(4)),
-            'substep_dt': float(match.group(5)),
-            'redshift': float(match.group(6))
-        })
+        executions.append(
+            {
+                "count": int(match.group(1)),
+                "ngal": int(match.group(2)),
+                "substep_number": int(match.group(3)),
+                "num_substeps": int(match.group(4)),
+                "substep_dt": float(match.group(5)),
+                "redshift": float(match.group(6)),
+            }
+        )
 
     return executions
 
@@ -87,26 +89,24 @@ def test_processing_mode_once_array_processing():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="loop_once",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('test_fixture', 'process_full_halo')],  # PROCESSING_MODE_ONCE
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("test_fixture", "process_full_halo")],  # PROCESSING_MODE_ONCE
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Use SubSteps=1 for simpler analysis
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 1
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 1
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -123,15 +123,15 @@ def test_processing_mode_once_array_processing():
         num_fof_groups = len(all_executions)
 
         # Each execution should have ngal > 0
-        ngal_values = [e['ngal'] for e in all_executions]
-        assert all(ngal > 0 for ngal in ngal_values), \
-            "All FOF groups should have at least one galaxy"
+        ngal_values = [e["ngal"] for e in all_executions]
+        assert all(
+            ngal > 0 for ngal in ngal_values
+        ), "All FOF groups should have at least one galaxy"
 
         # Most FOF groups should have ngal > 1 (some may have just 1 galaxy)
         # Check that at least some have ngal > 1
         multi_galaxy_groups = [ngal for ngal in ngal_values if ngal > 1]
-        assert len(multi_galaxy_groups) > 0, \
-            "Should have some FOF groups with multiple galaxies"
+        assert len(multi_galaxy_groups) > 0, "Should have some FOF groups with multiple galaxies"
 
         # Calculate statistics
         avg_ngal = sum(ngal_values) / len(ngal_values)
@@ -161,26 +161,24 @@ def test_processing_mode_all_per_galaxy():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="loop_all",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('test_fixture', 'process_by_galaxy')],  # PROCESSING_MODE_ALL
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("test_fixture", "process_by_galaxy")],  # PROCESSING_MODE_ALL
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Use SubSteps=1 for simpler analysis
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 1
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 1
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -197,7 +195,7 @@ def test_processing_mode_all_per_galaxy():
         total_executions = len(all_executions)
 
         # Most executions should have ngal=1 (but some FOF groups may have only 1 galaxy)
-        ngal_values = [e['ngal'] for e in all_executions]
+        ngal_values = [e["ngal"] for e in all_executions]
 
         # Count ngal=1 executions
         ngal_one_count = sum(1 for ngal in ngal_values if ngal == 1)
@@ -207,8 +205,9 @@ def test_processing_mode_all_per_galaxy():
         percent_ngal_one = (ngal_one_count / total_executions) * 100
 
         # We expect nearly all (>95%) to be ngal=1 with PROCESSING_MODE_ALL
-        assert percent_ngal_one > 95, \
-            f"Expected >95% of executions with ngal=1, got {percent_ngal_one:.1f}%"
+        assert (
+            percent_ngal_one > 95
+        ), f"Expected >95% of executions with ngal=1, got {percent_ngal_one:.1f}%"
 
         print(f"  ✓ PROCESSING_MODE_ALL calls module once per galaxy:")
         print(f"    - {total_executions} total module calls")
@@ -233,26 +232,24 @@ def test_processing_mode_all_ngal_is_one():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="loop_all_ngal",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('test_fixture', 'process_by_galaxy')],  # PROCESSING_MODE_ALL
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("test_fixture", "process_by_galaxy")],  # PROCESSING_MODE_ALL
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Use SubSteps=1
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 1
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 1
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -269,11 +266,12 @@ def test_processing_mode_all_ngal_is_one():
         sample_executions = all_executions[:sample_size]
 
         # ALL should have ngal=1 with PROCESSING_MODE_ALL
-        ngal_values = [e['ngal'] for e in sample_executions]
+        ngal_values = [e["ngal"] for e in sample_executions]
 
         # Verify all are ngal=1
-        assert all(ngal == 1 for ngal in ngal_values), \
-            f"Expected all ngal=1 with PROCESSING_MODE_ALL, got {set(ngal_values)}"
+        assert all(
+            ngal == 1 for ngal in ngal_values
+        ), f"Expected all ngal=1 with PROCESSING_MODE_ALL, got {set(ngal_values)}"
 
         print(f"  ✓ PROCESSING_MODE_ALL invariant verified:")
         print(f"    - Checked {sample_size} module calls")
@@ -306,17 +304,14 @@ def test_processing_mode_per_event_no_emissions():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="loop_per_event_no_subscriptions",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('test_fixture', 'process_per_event')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("test_fixture", "process_per_event")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
@@ -324,12 +319,14 @@ def test_processing_mode_per_event_no_emissions():
         returncode, stdout, stderr = run_mimic(param_file)
 
         # ===== VALIDATE =====
-        assert returncode != 0, \
-            "Expected startup failure: process_per_event without subscriptions should be rejected"
+        assert (
+            returncode != 0
+        ), "Expected startup failure: process_per_event without subscriptions should be rejected"
 
         combined = stdout + stderr
-        assert "declares no event subscriptions" in combined, \
-            f"Expected subscription-missing error in output, got:\n{combined}"
+        assert (
+            "declares no event subscriptions" in combined
+        ), f"Expected subscription-missing error in output, got:\n{combined}"
 
         print("  ✓ PROCESSING_MODE_PER_EVENT subscription requirement validated")
         print("    - Run correctly rejected at startup")
@@ -353,14 +350,14 @@ def test_processing_mode_per_event_mode_mismatch_fails():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="loop_per_event_invalid_module",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('test_event_producer', 'process_per_event')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("test_event_producer", "process_per_event")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
@@ -370,8 +367,9 @@ def test_processing_mode_per_event_mode_mismatch_fails():
         # ===== VALIDATE =====
         combined_output = f"{stdout}\n{stderr}"
         assert returncode != 0, "Expected non-zero exit for unsupported process_per_event module"
-        assert "does not support processing mode 'process_per_event'" in combined_output, \
-            "Expected clear processing mode mismatch message"
+        assert (
+            "does not support processing mode 'process_per_event'" in combined_output
+        ), "Expected clear processing mode mismatch message"
 
         print("  ✓ PROCESSING_MODE_PER_EVENT mismatch rejected as expected")
         print("    - Run failed fast during mode validation")
@@ -389,7 +387,9 @@ def main():
     """
     # Print test suite header
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: Processing Mode Behavior (ONCE vs ALL) (test_processing_modes.py){NC}")
+    print(
+        f"{BLUE}Test Suite: Processing Mode Behavior (ONCE vs ALL) (test_processing_modes.py){NC}"
+    )
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 

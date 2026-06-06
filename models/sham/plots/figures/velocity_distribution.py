@@ -17,12 +17,12 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_filtered_data,
     save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -56,9 +56,7 @@ def plot(
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
-        galaxies,
-        required_fields=['Pos', 'Vel'],
-        plot_name='Velocity Distribution'
+        galaxies, required_fields=["Pos", "Vel"], plot_name="Velocity Distribution"
     )
 
     if not success:
@@ -119,9 +117,7 @@ def plot(
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"  Number of galaxies: {tot_gals}")
-        print(
-            f"  Line-of-sight velocity range: {min(vel_los):.2f} to {max(vel_los):.2f} km/s"
-        )
+        print(f"  Line-of-sight velocity range: {min(vel_los):.2f} to {max(vel_los):.2f} km/s")
         print(f"  X velocity range: {min(vel_x):.2f} to {max(vel_x):.2f} km/s")
 
     # Create histograms for each velocity component
@@ -139,28 +135,16 @@ def plot(
     )
 
     # X velocity component
-    counts_x, _ = np.histogram(
-        vel_x / (hubble_h * 100.0), range=(bin_min, bin_max), bins=nbins
-    )
-    ax.plot(
-        bin_centers, counts_x / bin_width / tot_gals, "r-", lw=1.5, label="x-velocity"
-    )
+    counts_x, _ = np.histogram(vel_x / (hubble_h * 100.0), range=(bin_min, bin_max), bins=nbins)
+    ax.plot(bin_centers, counts_x / bin_width / tot_gals, "r-", lw=1.5, label="x-velocity")
 
     # Y velocity component
-    counts_y, _ = np.histogram(
-        vel_y / (hubble_h * 100.0), range=(bin_min, bin_max), bins=nbins
-    )
-    ax.plot(
-        bin_centers, counts_y / bin_width / tot_gals, "g-", lw=1.5, label="y-velocity"
-    )
+    counts_y, _ = np.histogram(vel_y / (hubble_h * 100.0), range=(bin_min, bin_max), bins=nbins)
+    ax.plot(bin_centers, counts_y / bin_width / tot_gals, "g-", lw=1.5, label="y-velocity")
 
     # Z velocity component
-    counts_z, _ = np.histogram(
-        vel_z / (hubble_h * 100.0), range=(bin_min, bin_max), bins=nbins
-    )
-    ax.plot(
-        bin_centers, counts_z / bin_width / tot_gals, "b-", lw=1.5, label="z-velocity"
-    )
+    counts_z, _ = np.histogram(vel_z / (hubble_h * 100.0), range=(bin_min, bin_max), bins=nbins)
+    ax.plot(bin_centers, counts_z / bin_width / tot_gals, "b-", lw=1.5, label="z-velocity")
 
     # Use log scale for y-axis
     ax.set_yscale("log")
@@ -180,5 +164,7 @@ def plot(
     setup_legend(ax, loc="upper left")
 
     # Save and close the figure
-    plot_path = save_and_close_figure(fig, output_dir, "VelocityDistribution", output_format, verbose)
+    plot_path = save_and_close_figure(
+        fig, output_dir, "VelocityDistribution", output_format, verbose
+    )
     return plot_path, None

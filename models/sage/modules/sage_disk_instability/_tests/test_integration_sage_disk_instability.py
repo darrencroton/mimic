@@ -30,10 +30,11 @@ Author: Mimic Development Team
 Date: 2025-12-23
 """
 
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Add tests directory to path to import framework
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
@@ -42,16 +43,16 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
     MIMIC_EXE,
     create_test_param_file,
-    run_mimic,
     load_binary_halos,
+    run_mimic,
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def test_module_loads():
@@ -68,24 +69,26 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_disk_instability_load",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'StarFormingDiskFactor': 3.0}
+        model_params={"StarFormingDiskFactor": 3.0},
     )
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Mimic should execute successfully with sage_disk_instability\nStderr: {stderr}"
+    assert (
+        returncode == 0
+    ), f"Mimic should execute successfully with sage_disk_instability\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE disk instability module initialized" in stdout, \
-        "sage_disk_instability should log initialization message"
+    assert (
+        "SAGE disk instability module initialized" in stdout
+    ), "sage_disk_instability should log initialization message"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -107,12 +110,12 @@ def test_output_properties_exist():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_disk_instability_output",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'StarFormingDiskFactor': 3.0}
+        model_params={"StarFormingDiskFactor": 3.0},
     )
 
     # ===== EXECUTE =====
@@ -128,10 +131,8 @@ def test_output_properties_exist():
     assert len(halos) > 0, "Should have halos in output"
 
     # Check output properties exist
-    assert 'BulgeMass' in halos.dtype.names, \
-        "BulgeMass property should exist in output"
-    assert 'MetalsBulgeMass' in halos.dtype.names, \
-        "MetalsBulgeMass property should exist in output"
+    assert "BulgeMass" in halos.dtype.names, "BulgeMass property should exist in output"
+    assert "MetalsBulgeMass" in halos.dtype.names, "MetalsBulgeMass property should exist in output"
 
     # Trigger flags should NOT be in output (they're internal, output: false)
     # This is correct behavior - they're for inter-module communication only
@@ -156,12 +157,12 @@ def test_parameters_configurable():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_disk_instability_params",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'StarFormingDiskFactor': 5.0}  # Custom value
+        model_params={"StarFormingDiskFactor": 5.0},  # Custom value
     )
 
     # ===== EXECUTE =====
@@ -171,8 +172,7 @@ def test_parameters_configurable():
     assert returncode == 0, "Execution with custom parameters should succeed"
 
     # Verify parameter was read (check log output)
-    assert "StarFormingDiskFactor = 5.00" in stdout, \
-        "Custom StarFormingDiskFactor should be logged"
+    assert "StarFormingDiskFactor = 5.00" in stdout, "Custom StarFormingDiskFactor should be logged"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -193,12 +193,12 @@ def test_property_values_physical():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_disk_instability_physical",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'StarFormingDiskFactor': 3.0}
+        model_params={"StarFormingDiskFactor": 3.0},
     )
 
     # ===== EXECUTE =====
@@ -210,16 +210,16 @@ def test_property_values_physical():
     halos, metadata = load_binary_halos(output_file)
 
     # Check BulgeMass is physical (0 <= BulgeMass <= StellarMass)
-    assert (halos['BulgeMass'] >= 0).all(), \
-        "BulgeMass should be >= 0"
-    assert (halos['BulgeMass'] <= halos['StellarMass'] + 1e-6).all(), \
-        "BulgeMass should be <= StellarMass (with small tolerance for rounding)"
+    assert (halos["BulgeMass"] >= 0).all(), "BulgeMass should be >= 0"
+    assert (
+        halos["BulgeMass"] <= halos["StellarMass"] + 1e-6
+    ).all(), "BulgeMass should be <= StellarMass (with small tolerance for rounding)"
 
     # Check MetalsBulgeMass is physical
-    assert (halos['MetalsBulgeMass'] >= 0).all(), \
-        "MetalsBulgeMass should be >= 0"
-    assert (halos['MetalsBulgeMass'] <= halos['MetalsStellarMass'] + 1e-6).all(), \
-        "MetalsBulgeMass should be <= MetalsStellarMass"
+    assert (halos["MetalsBulgeMass"] >= 0).all(), "MetalsBulgeMass should be >= 0"
+    assert (
+        halos["MetalsBulgeMass"] <= halos["MetalsStellarMass"] + 1e-6
+    ).all(), "MetalsBulgeMass should be <= MetalsStellarMass"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -241,12 +241,12 @@ def test_handles_zero_mass_galaxies():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_disk_instability_zeromass",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'StarFormingDiskFactor': 3.0}
+        model_params={"StarFormingDiskFactor": 3.0},
     )
 
     # ===== EXECUTE =====
@@ -259,8 +259,7 @@ def test_handles_zero_mass_galaxies():
 
     # Module should handle all galaxies without crashing
     # Zero-disk galaxies should have BulgeMass unchanged (or remain valid)
-    assert (halos['BulgeMass'] >= 0).all(), \
-        "BulgeMass should remain non-negative for all galaxies"
+    assert (halos["BulgeMass"] >= 0).all(), "BulgeMass should remain non-negative for all galaxies"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -283,18 +282,17 @@ def test_parameter_sensitivity():
     param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
         output_name="sage_disk_instability_low",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'StarFormingDiskFactor': 1.0}
+        model_params={"StarFormingDiskFactor": 1.0},
     )
 
     returncode_low, stdout_low, stderr_low = run_mimic(param_file_low)
     assert returncode_low == 0, "Low parameter value should work"
-    assert "StarFormingDiskFactor = 1.00" in stdout_low, \
-        "Low parameter value should be logged"
+    assert "StarFormingDiskFactor = 1.00" in stdout_low, "Low parameter value should be logged"
 
     shutil.rmtree(temp_dir_low)
 
@@ -302,18 +300,17 @@ def test_parameter_sensitivity():
     param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
         output_name="sage_disk_instability_high",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'StarFormingDiskFactor': 10.0}
+        model_params={"StarFormingDiskFactor": 10.0},
     )
 
     returncode_high, stdout_high, stderr_high = run_mimic(param_file_high)
     assert returncode_high == 0, "High parameter value should work"
-    assert "StarFormingDiskFactor = 10.00" in stdout_high, \
-        "High parameter value should be logged"
+    assert "StarFormingDiskFactor = 10.00" in stdout_high, "High parameter value should be logged"
 
     shutil.rmtree(temp_dir_high)
 
@@ -333,12 +330,12 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_disk_instability_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'StarFormingDiskFactor': 3.0}
+        model_params={"StarFormingDiskFactor": 3.0},
     )
 
     # ===== EXECUTE =====
@@ -346,10 +343,8 @@ def test_memory_safety():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Execution should succeed"
-    assert "Memory leak detected" not in stdout, \
-        "Should not have memory leaks"
-    assert "Memory leak detected" not in stderr, \
-        "Should not have memory leaks in stderr"
+    assert "Memory leak detected" not in stdout, "Should not have memory leaks"
+    assert "Memory leak detected" not in stderr, "Should not have memory leaks in stderr"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -370,14 +365,14 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_disk_instability_complete",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_disk_instability', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_disk_instability", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'StarFormingDiskFactor': 3.0},
+        model_params={"StarFormingDiskFactor": 3.0},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -385,10 +380,8 @@ def test_execution_completes():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Pipeline should complete successfully"
-    assert "SAGE disk instability module initialized" in stdout, \
-        "Module initialization message"
-    assert "SAGE disk instability module cleaned up" in stdout, \
-        "Module cleanup message"
+    assert "SAGE disk instability module initialized" in stdout, "Module initialization message"
+    assert "SAGE disk instability module cleaned up" in stdout, "Module cleanup message"
 
     # Cleanup
     shutil.rmtree(temp_dir)

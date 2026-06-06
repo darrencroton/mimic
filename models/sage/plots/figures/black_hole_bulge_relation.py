@@ -19,12 +19,12 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_filtered_data,
     save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -59,8 +59,8 @@ def plot(
     # Check required fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['BlackHoleMass', 'BulgeMass'],
-        plot_name='Black Hole-Bulge Relation'
+        required_fields=["BlackHoleMass", "BulgeMass"],
+        plot_name="Black Hole-Bulge Relation",
     )
 
     if not success:
@@ -102,9 +102,7 @@ def plot(
         print(f"  Black hole mass range: {min(bh_mass):.2f} to {max(bh_mass):.2f}")
 
     # Plot the galaxy data
-    ax.scatter(
-        bulge_mass, bh_mass, marker="o", s=1, c="k", alpha=0.5, label="Model galaxies"
-    )
+    ax.scatter(bulge_mass, bh_mass, marker="o", s=1, c="k", alpha=0.5, label="Model galaxies")
 
     # Add Häring & Rix 2004 observational relation
     # M_BH = 10^(8.2) * (M_bulge/10^11)^1.12
@@ -129,5 +127,7 @@ def plot(
     setup_legend(ax, loc="upper left")
 
     # Save and close the figure
-    plot_path = save_and_close_figure(fig, output_dir, "BlackHoleBulgeRelation", output_format, verbose)
+    plot_path = save_and_close_figure(
+        fig, output_dir, "BlackHoleBulgeRelation", output_format, verbose
+    )
     return plot_path, None

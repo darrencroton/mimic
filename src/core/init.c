@@ -65,8 +65,7 @@ void init(void) {
 
   /* Store initial redshift lookback time at index 0, then offset Age pointer
    * by 1 to allow 1-based indexing (Age[-1] accesses original Age[0]) */
-  Age_base[0] = time_to_present(
-      INITIAL_REDSHIFT); // lookback time from z=1000 (recombination era)
+  Age_base[0] = time_to_present(INITIAL_REDSHIFT); // lookback time from z=1000 (recombination era)
   Age = Age_base + 1;
 
   for (i = 0; i < MimicConfig.Snaplistlen; i++) {
@@ -97,29 +96,22 @@ void init(void) {
  */
 void set_units(void) {
   // Calculate derived units and store in MimicConfig
-  MimicConfig.UnitTime_in_s =
-      MimicConfig.UnitLength_in_cm / MimicConfig.UnitVelocity_in_cm_per_s;
-  MimicConfig.UnitTime_in_Megayears =
-      MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR;
-  MimicConfig.G = GRAVITY / pow(MimicConfig.UnitLength_in_cm, 3) *
-                  MimicConfig.UnitMass_in_g * pow(MimicConfig.UnitTime_in_s, 2);
-  MimicConfig.UnitDensity_in_cgs =
-      MimicConfig.UnitMass_in_g / pow(MimicConfig.UnitLength_in_cm, 3);
-  MimicConfig.UnitPressure_in_cgs = MimicConfig.UnitMass_in_g /
-                                    MimicConfig.UnitLength_in_cm /
-                                    pow(MimicConfig.UnitTime_in_s, 2);
-  MimicConfig.UnitCoolingRate_in_cgs =
-      MimicConfig.UnitPressure_in_cgs / MimicConfig.UnitTime_in_s;
-  MimicConfig.UnitEnergy_in_cgs = MimicConfig.UnitMass_in_g *
-                                  pow(MimicConfig.UnitLength_in_cm, 2) /
+  MimicConfig.UnitTime_in_s = MimicConfig.UnitLength_in_cm / MimicConfig.UnitVelocity_in_cm_per_s;
+  MimicConfig.UnitTime_in_Megayears = MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR;
+  MimicConfig.G = GRAVITY / pow(MimicConfig.UnitLength_in_cm, 3) * MimicConfig.UnitMass_in_g *
+                  pow(MimicConfig.UnitTime_in_s, 2);
+  MimicConfig.UnitDensity_in_cgs = MimicConfig.UnitMass_in_g / pow(MimicConfig.UnitLength_in_cm, 3);
+  MimicConfig.UnitPressure_in_cgs =
+      MimicConfig.UnitMass_in_g / MimicConfig.UnitLength_in_cm / pow(MimicConfig.UnitTime_in_s, 2);
+  MimicConfig.UnitCoolingRate_in_cgs = MimicConfig.UnitPressure_in_cgs / MimicConfig.UnitTime_in_s;
+  MimicConfig.UnitEnergy_in_cgs = MimicConfig.UnitMass_in_g * pow(MimicConfig.UnitLength_in_cm, 2) /
                                   pow(MimicConfig.UnitTime_in_s, 2);
 
   // Convert some physical input parameters to internal units
   MimicConfig.Hubble = HUBBLE * MimicConfig.UnitTime_in_s;
 
   // Compute a few quantities
-  MimicConfig.RhoCrit =
-      3 * MimicConfig.Hubble * MimicConfig.Hubble / (8 * M_PI * MimicConfig.G);
+  MimicConfig.RhoCrit = 3 * MimicConfig.Hubble * MimicConfig.Hubble / (8 * M_PI * MimicConfig.G);
 
   // Synchronize with global variables using explicit macros (Phase 1)
   SYNC_CONFIG_DOUBLE(UnitLength_in_cm);
@@ -180,16 +172,13 @@ void read_snap_list(void) {
     errno = 0;
     scale_factor = strtod(cursor, &endptr);
     if (cursor == endptr || errno != 0) {
-      FATAL_ERROR("Invalid scale factor in '%s' at line %d", fname,
-                  line_number);
+      FATAL_ERROR("Invalid scale factor in '%s' at line %d", fname, line_number);
     }
     if (!isfinite(scale_factor)) {
-      FATAL_ERROR("Scale factor in '%s' at line %d must be finite", fname,
-                  line_number);
+      FATAL_ERROR("Scale factor in '%s' at line %d must be finite", fname, line_number);
     }
     if (scale_factor <= 0.0) {
-      FATAL_ERROR("Scale factor in '%s' at line %d must be positive", fname,
-                  line_number);
+      FATAL_ERROR("Scale factor in '%s' at line %d must be positive", fname, line_number);
     }
     if (MimicConfig.Snaplistlen > 0 &&
         scale_factor <= MimicConfig.AA[MimicConfig.Snaplistlen - 1]) {
@@ -202,12 +191,11 @@ void read_snap_list(void) {
       endptr++;
     }
     if (*endptr != '\0' && *endptr != '#') {
-      FATAL_ERROR("Unexpected text after scale factor in '%s' at line %d",
-                  fname, line_number);
+      FATAL_ERROR("Unexpected text after scale factor in '%s' at line %d", fname, line_number);
     }
     if (MimicConfig.Snaplistlen >= ABSOLUTEMAXSNAPS) {
-      FATAL_ERROR("Snapshot scale-factor list '%s' has more than %d entries",
-                  fname, ABSOLUTEMAXSNAPS);
+      FATAL_ERROR("Snapshot scale-factor list '%s' has more than %d entries", fname,
+                  ABSOLUTEMAXSNAPS);
     }
 
     MimicConfig.AA[MimicConfig.Snaplistlen] = scale_factor;
@@ -231,8 +219,8 @@ void read_snap_list(void) {
 #ifdef MPI
   if (ThisTask == 0)
 #endif
-    INFO_LOG("Found %d defined times in snaplist (snapshots 0..%d)",
-             MimicConfig.Snaplistlen, MimicConfig.LastSnapshotNr);
+    INFO_LOG("Found %d defined times in snaplist (snapshots 0..%d)", MimicConfig.Snaplistlen,
+             MimicConfig.LastSnapshotNr);
 }
 
 /**
@@ -262,9 +250,8 @@ double time_to_present(double z) {
 
   // Use adaptive integration with GAUSS21 method.
   // SAGE parity: relative tolerance is 1.0e-9 (sage-code core_init.c).
-  integration_qag(&F, safe_div(1.0, z + 1, 1.0), 1.0,
-                  safe_div(1.0, MimicConfig.Hubble, 0.0), 1.0e-9, WORKSIZE,
-                  INTEG_GAUSS21, workspace, &result, &abserr);
+  integration_qag(&F, safe_div(1.0, z + 1, 1.0), 1.0, safe_div(1.0, MimicConfig.Hubble, 0.0),
+                  1.0e-9, WORKSIZE, INTEG_GAUSS21, workspace, &result, &abserr);
 
   time = safe_div(1.0, MimicConfig.Hubble, 0.0) * result;
 

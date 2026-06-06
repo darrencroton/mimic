@@ -68,19 +68,21 @@ class SnapshotRedshiftMapper:
         """
         self.param_file = param_file
         self.params = params  # Can pass already parsed params
-        
+
         # Check that we have valid parameters
         if not params:
             print("Error: Parameter dictionary is required for SnapshotRedshiftMapper")
             sys.exit(1)
-        
+
         # Check for critical parameters
         required_params = ["OutputFileBaseName"]
         missing_params = [p for p in required_params if p not in params]
         if missing_params:
-            print(f"Error: Required parameters missing from parameter file: {', '.join(missing_params)}")
+            print(
+                f"Error: Required parameters missing from parameter file: {', '.join(missing_params)}"
+            )
             sys.exit(1)
-            
+
         # Set up the mapper
         self.output_dir = output_dir
         self.file_name_base = params["OutputFileBaseName"]
@@ -89,7 +91,7 @@ class SnapshotRedshiftMapper:
         self.redshift_strs = []  # Formatted strings for filenames (e.g., "_z0.000")
         self.redshift_file_patterns = []  # Complete filename patterns
         self.mapping_source = None  # Record where mapping came from for debugging
-        
+
         # Load the mapping between snapshots and redshifts
         self.load_mapping()
 
@@ -105,7 +107,7 @@ class SnapshotRedshiftMapper:
             print("Error: Could not load redshift data from FileWithSnapList")
             print("Please ensure FileWithSnapList parameter points to a valid a_list file")
             sys.exit(1)
-            
+
         self.mapping_source = "a_list_file"
         return True
 
@@ -125,7 +127,9 @@ class SnapshotRedshiftMapper:
         required_params = ["FileWithSnapList"]
         missing_params = [p for p in required_params if p not in self.params]
         if missing_params:
-            print(f"Error: Required parameters missing from parameter file: {', '.join(missing_params)}")
+            print(
+                f"Error: Required parameters missing from parameter file: {', '.join(missing_params)}"
+            )
             return False
 
         a_list_file = self.params["FileWithSnapList"]
@@ -142,7 +146,7 @@ class SnapshotRedshiftMapper:
             print(f"Please check that the file exists and the path is correct")
             return False
 
-        # Try to read the a_list file 
+        # Try to read the a_list file
         try:
             expansion_factors = read_expansion_factors(a_list_file)
 
@@ -151,7 +155,9 @@ class SnapshotRedshiftMapper:
             try:
                 redshifts = [1.0 / a - 1.0 for a in expansion_factors]
             except ZeroDivisionError:
-                print("Error: Encountered division by zero when converting expansion factors to redshifts")
+                print(
+                    "Error: Encountered division by zero when converting expansion factors to redshifts"
+                )
                 print("Ensure all expansion factors are positive non-zero values")
                 return False
 
@@ -166,9 +172,11 @@ class SnapshotRedshiftMapper:
 
             # Ensure we have the same number of snapshots and redshifts
             if len(self.snapshots) != len(redshifts):
-                print(f"Error: Mismatch between number of snapshots ({len(self.snapshots)}) and redshifts ({len(redshifts)})")
+                print(
+                    f"Error: Mismatch between number of snapshots ({len(self.snapshots)}) and redshifts ({len(redshifts)})"
+                )
                 return False
-                
+
             self.redshifts = redshifts
 
             # Create formatted redshift strings for filenames
@@ -176,8 +184,7 @@ class SnapshotRedshiftMapper:
 
             # Create file patterns
             self.redshift_file_patterns = [
-                f"{self.file_name_base}{self.redshift_strs[i]}"
-                for i in range(len(self.snapshots))
+                f"{self.file_name_base}{self.redshift_strs[i]}" for i in range(len(self.snapshots))
             ]
 
             if self.params.get("verbose", False):
@@ -189,7 +196,7 @@ class SnapshotRedshiftMapper:
                     print(f"  Snapshot {self.snapshots[i]}: z = {self.redshifts[i]:.3f}")
                 if len(self.snapshots) > 5:
                     print(f"  ... and {len(self.snapshots) - 5} more snapshots")
-                    
+
             return True
 
         except Exception as e:
@@ -252,9 +259,7 @@ class SnapshotRedshiftMapper:
 
         # Check if we have an output directory
         if self.output_dir:
-            return os.path.join(
-                self.output_dir, f"{self.file_name_base}{redshift_str}_{file_num}"
-            )
+            return os.path.join(self.output_dir, f"{self.file_name_base}{redshift_str}_{file_num}")
         else:
             return f"{self.file_name_base}{redshift_str}_{file_num}"
 
@@ -273,9 +278,7 @@ class SnapshotRedshiftMapper:
         snapshot_redshift_pairs = list(zip(self.snapshots, self.redshifts))
 
         # Filter out snapshots with redshift > redshift_max
-        filtered_pairs = [
-            (snap, z) for snap, z in snapshot_redshift_pairs if z <= redshift_max
-        ]
+        filtered_pairs = [(snap, z) for snap, z in snapshot_redshift_pairs if z <= redshift_max]
 
         # If we have no snapshots left, return an empty list
         if not filtered_pairs:
@@ -326,11 +329,11 @@ class SnapshotRedshiftMapper:
     def get_evolution_snapshots(self):
         """
         Get snapshots for evolution plots based on parameter file.
-        
+
         Priority:
         1. OutputSnapshots list from parameter file
         2. If no OutputSnapshots or invalid, use a diverse selection of available snapshots
-        
+
         Returns:
             List of snapshot indices for evolution plots
         """
@@ -338,11 +341,11 @@ class SnapshotRedshiftMapper:
         if not self.snapshots:
             print("Error: No snapshots available in redshift mapping")
             sys.exit(1)
-            
+
         # Check for the OutputSnapshots parameter from output.snapshot_list.
         if "OutputSnapshots" in self.params:
             output_snapshots = self.params["OutputSnapshots"]
-            
+
             if not output_snapshots:
                 if self.params.get("verbose", False):
                     print("Using all snapshots from empty OutputSnapshots list")
@@ -351,17 +354,19 @@ class SnapshotRedshiftMapper:
                 # Check which snapshots from OutputSnapshots are valid
                 valid_snapshots = []
                 invalid_snapshots = []
-                
+
                 for snap in output_snapshots:
                     if snap in self.snapshots:
                         valid_snapshots.append(snap)
                     else:
                         invalid_snapshots.append(snap)
-                
+
                 # Report on validity
                 if invalid_snapshots:
-                    print(f"Warning: Some snapshots from OutputSnapshots are not in redshift mapping: {invalid_snapshots}")
-                
+                    print(
+                        f"Warning: Some snapshots from OutputSnapshots are not in redshift mapping: {invalid_snapshots}"
+                    )
+
                 if valid_snapshots:
                     # Sort by redshift (from low to high)
                     # This ensures we get a proper evolution sequence
@@ -369,21 +374,21 @@ class SnapshotRedshiftMapper:
                     sorted_pairs = sorted(snap_z_pairs, key=lambda x: x[1])
 
                     if self.params.get("verbose", False):
-                        print(f"Using {len(sorted_pairs)} snapshots from parameter file for evolution plots")
-                    
+                        print(
+                            f"Using {len(sorted_pairs)} snapshots from parameter file for evolution plots"
+                        )
+
                     # Return just the snapshot numbers, sorted by redshift
                     return [snap for snap, _ in sorted_pairs]
                 else:
                     print("Warning: No valid snapshots found in OutputSnapshots list")
-        
+
         # If we don't have OutputSnapshots or none are valid, select a diverse range
         print("Note: Using a diverse selection of snapshots for evolution plots")
-        
+
         # Sort all available snapshots by redshift (low to high)
-        sorted_pairs = sorted(
-            zip(self.snapshots, self.redshifts), key=lambda p: p[1]
-        )
-        
+        sorted_pairs = sorted(zip(self.snapshots, self.redshifts), key=lambda p: p[1])
+
         # Get a diverse selection of snapshots
         if len(sorted_pairs) >= 8:
             # For 8 or more available snapshots, pick a diverse set:
@@ -392,10 +397,10 @@ class SnapshotRedshiftMapper:
             # - 6 evenly spaced in between
             z0_pair = sorted_pairs[0]
             high_z_pair = sorted_pairs[-1]
-            
+
             # Start with lowest redshift
             selected = [z0_pair]
-            
+
             # Add evenly spaced intermediate redshifts
             remaining = sorted_pairs[1:-1]
             if remaining:
@@ -408,13 +413,13 @@ class SnapshotRedshiftMapper:
                     for i in range(0, len(remaining), step):
                         if len(selected) < 7:  # We want 7 total (plus high-z = 8)
                             selected.append(remaining[i])
-            
+
             # Add highest redshift
             selected.append(high_z_pair)
         else:
             # For fewer than 8 snapshots, use all available
             selected = sorted_pairs
-        
+
         # Extract and return just the snapshot numbers
         return [snap for snap, _ in selected]
 

@@ -76,9 +76,9 @@ int ParamID[MAXTAGS];
 void *ParamAddr[MAXTAGS];
 
 /*  more misc - kept for backward compatibility */
-double UnitLength_in_cm, UnitTime_in_s, UnitVelocity_in_cm_per_s, UnitMass_in_g,
-    RhoCrit, UnitPressure_in_cgs, UnitDensity_in_cgs, UnitCoolingRate_in_cgs,
-    UnitEnergy_in_cgs, UnitTime_in_Megayears, G, Hubble;
+double UnitLength_in_cm, UnitTime_in_s, UnitVelocity_in_cm_per_s, UnitMass_in_g, RhoCrit,
+    UnitPressure_in_cgs, UnitDensity_in_cgs, UnitCoolingRate_in_cgs, UnitEnergy_in_cgs,
+    UnitTime_in_Megayears, G, Hubble;
 
 int ListOutputSnaps[ABSOLUTEMAXSNAPS];
 double ZZ[ABSOLUTEMAXSNAPS];

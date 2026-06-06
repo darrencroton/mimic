@@ -42,8 +42,7 @@ extern struct MimicConfig MimicConfig;
 
 static const char *test_binary_param_file(void) {
   static char path[MAX_STRING_LEN];
-  snprintf(path, sizeof(path),
-           "build/generated/test_inputs/%s/%s/core/test_binary.yaml",
+  snprintf(path, sizeof(path), "build/generated/test_inputs/%s/%s/core/test_binary.yaml",
            MIMIC_COMPILED_MODEL, MIMIC_COMPILED_SIMULATION);
   return path;
 }
@@ -106,8 +105,7 @@ int test_integer_parameters(void) {
   TEST_ASSERT(MimicConfig.FirstFile == 0, "FirstFile should be 0");
   TEST_ASSERT(MimicConfig.LastFile == 0, "LastFile should be 0");
   TEST_ASSERT(MimicConfig.NOUT == 1, "NumOutputs should be 1");
-  TEST_ASSERT(MimicConfig.LastSnapshotNr > 0,
-              "LastSnapshotNr should be positive");
+  TEST_ASSERT(MimicConfig.LastSnapshotNr > 0, "LastSnapshotNr should be positive");
 
   printf("  FirstFile: %d\n", MimicConfig.FirstFile);
   printf("  LastFile: %d\n", MimicConfig.LastFile);
@@ -164,12 +162,10 @@ int test_string_parameters(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT_STRING_EQUAL(MimicConfig.OutputFileBaseName, "model",
                            "OutputFileBaseName should be 'model'");
-  TEST_ASSERT_STRING_EQUAL(MimicConfig.TreeName, "trees_063",
-                           "TreeName should be 'trees_063'");
+  TEST_ASSERT_STRING_EQUAL(MimicConfig.TreeName, "trees_063", "TreeName should be 'trees_063'");
 
   /* Check that OutputDir contains expected path */
-  TEST_ASSERT(strstr(MimicConfig.OutputDir, "test") != NULL,
-              "OutputDir should contain 'test'");
+  TEST_ASSERT(strstr(MimicConfig.OutputDir, "test") != NULL, "OutputDir should contain 'test'");
 
   printf("  OutputFileBaseName: %s\n", MimicConfig.OutputFileBaseName);
   printf("  TreeName: %s\n", MimicConfig.TreeName);
@@ -197,12 +193,9 @@ int test_cosmology_parameters(void) {
   read_parameter_file(test_binary_param_file());
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.Omega, 0.25, 0.001,
-                           "Omega should be 0.25");
-  TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.OmegaLambda, 0.75, 0.001,
-                           "OmegaLambda should be 0.75");
-  TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.Hubble_h, 0.73, 0.001,
-                           "Hubble_h should be 0.73");
+  TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.Omega, 0.25, 0.001, "Omega should be 0.25");
+  TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.OmegaLambda, 0.75, 0.001, "OmegaLambda should be 0.75");
+  TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.Hubble_h, 0.73, 0.001, "Hubble_h should be 0.73");
 
   printf("  Omega: %.3f\n", MimicConfig.Omega);
   printf("  OmegaLambda: %.3f\n", MimicConfig.OmegaLambda);
@@ -210,9 +203,8 @@ int test_cosmology_parameters(void) {
 
   /* Sanity check: Omega + OmegaLambda should be ~1.0 for flat universe */
   double omega_total = MimicConfig.Omega + MimicConfig.OmegaLambda;
-  TEST_ASSERT_DOUBLE_EQUAL(
-      omega_total, 1.0, 0.01,
-      "Omega + OmegaLambda should be ~1.0 (flat universe)");
+  TEST_ASSERT_DOUBLE_EQUAL(omega_total, 1.0, 0.01,
+                           "Omega + OmegaLambda should be ~1.0 (flat universe)");
 
   /* ===== CLEANUP ===== */
   teardown_test();
@@ -236,8 +228,7 @@ int test_snapshot_list(void) {
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.NOUT == 1, "Should have 1 output snapshot");
-  TEST_ASSERT(MimicConfig.ListOutputSnaps[0] == 63,
-              "First output snapshot should be 63");
+  TEST_ASSERT(MimicConfig.ListOutputSnaps[0] == 63, "First output snapshot should be 63");
 
   printf("  Number of output snapshots: %d\n", MimicConfig.NOUT);
   printf("  Output snapshot list:");

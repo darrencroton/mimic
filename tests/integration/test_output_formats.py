@@ -24,10 +24,11 @@ Author: Mimic Testing Team
 Date: 2025-11-10
 """
 
+import json
 import sys
 from io import StringIO
 from pathlib import Path
-import json
+
 import numpy as np
 
 # Add framework to path
@@ -35,16 +36,16 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
-    load_binary_halos,
-    TEST_DATA_DIR,
+    BASELINE_ATOL_DEFAULT,
+    BASELINE_RTOL_DEFAULT,
     MIMIC_EXE,
-    ensure_output_dirs,
+    TEST_DATA_DIR,
+    baseline_rtol,
     core_input_file,
+    ensure_output_dirs,
+    load_binary_halos,
     run_mimic,
     run_mimic_fresh,
-    baseline_rtol,
-    BASELINE_RTOL_DEFAULT,
-    BASELINE_ATOL_DEFAULT,
 )
 
 VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.json"
@@ -53,11 +54,11 @@ VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.
 ensure_output_dirs()
 
 # ANSI color codes (module-level constants)
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def check_hdf5_support():
@@ -78,7 +79,9 @@ def check_hdf5_support():
     # If it fails with "unknown output format" or similar, HDF5 not supported
     if returncode != 0:
         output = (stdout + stderr).lower()
-        if "hdf5" in output and ("unknown" in output or "not supported" in output or "not compiled" in output):
+        if "hdf5" in output and (
+            "unknown" in output or "not supported" in output or "not compiled" in output
+        ):
             return False
 
     return returncode == 0
@@ -112,20 +115,20 @@ def load_hdf5_halos(output_file):
         tuple: (halos, metadata) where halos is structured array
     """
     # ANSI color codes
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
+    RED = "\033[0;31m"
+    NC = "\033[0m"  # No Color
 
     try:
         import h5py
     except ImportError:
         raise ImportError(f"{RED}h5py not available - cannot load HDF5 output{NC}")
 
-    with h5py.File(output_file, 'r') as f:
+    with h5py.File(output_file, "r") as f:
         # Mimic HDF5 structure: Root contains snapshot groups (e.g., 'Snap063')
         # Each snapshot group contains 'Galaxies' dataset (structured array)
 
         # Get snapshot groups (e.g., 'Snap063')
-        snap_groups = [key for key in f.keys() if key.startswith('Snap')]
+        snap_groups = [key for key in f.keys() if key.startswith("Snap")]
 
         if not snap_groups:
             raise ValueError(f"{RED}No snapshot groups found in HDF5 file: {output_file}{NC}")
@@ -136,24 +139,24 @@ def load_hdf5_halos(output_file):
         snap_group = f[snap_name]
 
         # Read halo data from 'Galaxies' dataset
-        if 'Galaxies' not in snap_group:
+        if "Galaxies" not in snap_group:
             raise ValueError(f"{RED}No 'Galaxies' dataset found in {snap_name}{NC}")
 
         # Load the structured array directly
-        halos = snap_group['Galaxies'][:]
+        halos = snap_group["Galaxies"][:]
 
         # Get metadata from group attributes
-        attrs = dict(snap_group.attrs) if hasattr(snap_group, 'attrs') else {}
+        attrs = dict(snap_group.attrs) if hasattr(snap_group, "attrs") else {}
 
         # Also check for TreeHalosPerSnap to get tree count
-        ntrees = len(snap_group['TreeHalosPerSnap'][:]) if 'TreeHalosPerSnap' in snap_group else 1
+        ntrees = len(snap_group["TreeHalosPerSnap"][:]) if "TreeHalosPerSnap" in snap_group else 1
 
         # Create metadata
         metadata = {
-            'TotHalos': len(halos),
-            'Ntrees': ntrees,
-            'NoutputSnaps': 1,
-            'SnapshotName': snap_name,
+            "TotHalos": len(halos),
+            "Ntrees": ntrees,
+            "NoutputSnaps": 1,
+            "SnapshotName": snap_name,
         }
         metadata.update(attrs)
 
@@ -163,8 +166,9 @@ def load_hdf5_halos(output_file):
     return halos, metadata
 
 
-def _write_ranked_mismatches(report, prop_name, ranked, summary,
-                             marker="❌", kind="mismatches", color=""):
+def _write_ranked_mismatches(
+    report, prop_name, ranked, summary, marker="❌", kind="mismatches", color=""
+):
     """Write a property's diff block, worst (largest diff) first.
 
     Args:
@@ -224,7 +228,16 @@ def _ranked_float_lines(a, b, indices, format_line):
     return ranked
 
 
-def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="dataset2", rtol=1e-6, properties_to_compare=None, warn_rtol=None, atol=0.0):
+def compare_halos_comprehensive(
+    halos1,
+    halos2,
+    label1="dataset1",
+    label2="dataset2",
+    rtol=1e-6,
+    properties_to_compare=None,
+    warn_rtol=None,
+    atol=0.0,
+):
     """
     Comprehensive comparison of all properties for all halos between two datasets.
 
@@ -285,10 +298,14 @@ def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="datas
         report.write(f"\nComparing {n_halos} halos across {len(common_props)} core properties...\n")
 
         if missing_in_1:
-            report.write(f"⚠️  Core properties missing in {label1}: {', '.join(sorted(missing_in_1))}\n")
+            report.write(
+                f"⚠️  Core properties missing in {label1}: {', '.join(sorted(missing_in_1))}\n"
+            )
             all_passed = False
         if missing_in_2:
-            report.write(f"⚠️  Core properties missing in {label2}: {', '.join(sorted(missing_in_2))}\n")
+            report.write(
+                f"⚠️  Core properties missing in {label2}: {', '.join(sorted(missing_in_2))}\n"
+            )
             all_passed = False
 
         # Report non-core properties (informational only)
@@ -328,7 +345,7 @@ def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="datas
             fail_ranked = []
             warn_ranked = []
             for component in range(3):
-                comp_name = ['x', 'y', 'z'][component]
+                comp_name = ["x", "y", "z"][component]
                 c1 = arr1[:, component]
                 c2 = arr2[:, component]
                 fail_idx, warn_idx = _classify_float_diffs(c1, c2, rtol, warn_rtol, atol)
@@ -354,8 +371,13 @@ def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="datas
                     f"rtol={rtol:.1e} but exceed strict rtol={warn_rtol:.1e}{NC}"
                 )
                 _write_ranked_mismatches(
-                    report, prop_name, warn_ranked, summary,
-                    marker="⚠️", kind="relaxed-tolerance warnings", color=YELLOW,
+                    report,
+                    prop_name,
+                    warn_ranked,
+                    summary,
+                    marker="⚠️",
+                    kind="relaxed-tolerance warnings",
+                    color=YELLOW,
                 )
 
         # Handle scalar integer properties
@@ -371,10 +393,12 @@ def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="datas
                     val1 = arr1[halo_idx]
                     val2 = arr2[halo_idx]
                     abs_diff = abs(int(val1) - int(val2))  # rank by magnitude of the integer gap
-                    ranked.append((
-                        abs_diff,
-                        f"Halo {halo_idx}: {label1}={val1}, {label2}={val2}",
-                    ))
+                    ranked.append(
+                        (
+                            abs_diff,
+                            f"Halo {halo_idx}: {label1}={val1}, {label2}={val2}",
+                        )
+                    )
                 summary = (
                     f"  Summary: {len(diff_indices)} of {n_halos} halos differ "
                     f"({100.0 * len(diff_indices) / n_halos:.2f}%)"
@@ -385,8 +409,7 @@ def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="datas
         elif np.issubdtype(dtype, np.floating):
             fail_idx, warn_idx = _classify_float_diffs(arr1, arr2, rtol, warn_rtol, atol)
             fmt = lambda i, v1, v2, rel: (
-                f"Halo {i}: {label1}={v1:.6e}, "
-                f"{label2}={v2:.6e} (rel_diff={rel:.2e})"
+                f"Halo {i}: {label1}={v1:.6e}, " f"{label2}={v2:.6e} (rel_diff={rel:.2e})"
             )
             if len(fail_idx):
                 all_passed = False
@@ -404,18 +427,27 @@ def compare_halos_comprehensive(halos1, halos2, label1="dataset1", label2="datas
                     f"relaxed rtol={rtol:.1e} but exceed strict rtol={warn_rtol:.1e}{NC}"
                 )
                 _write_ranked_mismatches(
-                    report, prop_name, ranked, summary,
-                    marker="⚠️", kind="relaxed-tolerance warnings", color=YELLOW,
+                    report,
+                    prop_name,
+                    ranked,
+                    summary,
+                    marker="⚠️",
+                    kind="relaxed-tolerance warnings",
+                    color=YELLOW,
                 )
 
         else:
             # Unknown type - try exact comparison
             if not np.array_equal(arr1, arr2):
-                report.write(f"\n⚠️  Property '{prop_name}' (type {dtype}) differs but comparison method unknown\n")
+                report.write(
+                    f"\n⚠️  Property '{prop_name}' (type {dtype}) differs but comparison method unknown\n"
+                )
                 all_passed = False
 
     if all_passed:
-        report.write(f"\n{GREEN}✓ All {len(common_props)} properties match for all {n_halos} halos{NC}\n")
+        report.write(
+            f"\n{GREEN}✓ All {len(common_props)} properties match for all {n_halos} halos{NC}\n"
+        )
         if had_warnings:
             report.write(
                 f"{YELLOW}⚠ Passed at the relaxed tolerance, but some fields exceed the "
@@ -481,13 +513,15 @@ def test_binary_format_loading():
     halos, metadata = load_binary_halos(output_file)
 
     # Validate loaded data
-    assert metadata['TotHalos'] > 0, "No halos loaded from binary file"
-    assert len(halos) == metadata['TotHalos'], "Halo count mismatch"
-    assert hasattr(halos, 'Mvir'), "Binary data missing expected property (Mvir)"
-    assert hasattr(halos, 'Rvir'), "Binary data missing expected property (Rvir)"
+    assert metadata["TotHalos"] > 0, "No halos loaded from binary file"
+    assert len(halos) == metadata["TotHalos"], "Halo count mismatch"
+    assert hasattr(halos, "Mvir"), "Binary data missing expected property (Mvir)"
+    assert hasattr(halos, "Rvir"), "Binary data missing expected property (Rvir)"
 
     print(f"  ✓ Loaded {metadata['TotHalos']} halos from CURRENT binary output")
-    print(f"    Trees: {metadata.get('Ntrees', 'N/A')}, File size: {output_file.stat().st_size:,} bytes")
+    print(
+        f"    Trees: {metadata.get('Ntrees', 'N/A')}, File size: {output_file.stat().st_size:,} bytes"
+    )
 
 
 def test_binary_baseline_comparison():
@@ -542,8 +576,8 @@ def test_binary_baseline_comparison():
     baseline_file = baseline_dir / "model_z0.000_0"
 
     # ANSI color codes
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
+    RED = "\033[0;31m"
+    NC = "\033[0m"  # No Color
 
     assert baseline_file.exists(), (
         f"{RED}Baseline file not found: {baseline_file}\n"
@@ -552,17 +586,19 @@ def test_binary_baseline_comparison():
 
     print(f"  Loading BASELINE: {baseline_file.relative_to(REPO_ROOT)}")
     halos_baseline, metadata_baseline = load_binary_halos(baseline_file)
-    print(f"    → {metadata_baseline['TotHalos']} halos, {metadata_baseline.get('Ntrees', 'N/A')} trees")
+    print(
+        f"    → {metadata_baseline['TotHalos']} halos, {metadata_baseline.get('Ntrees', 'N/A')} trees"
+    )
 
     # Compare halo counts
-    assert metadata_test['TotHalos'] == metadata_baseline['TotHalos'], (
+    assert metadata_test["TotHalos"] == metadata_baseline["TotHalos"], (
         f"{RED}Halo count mismatch: test={metadata_test['TotHalos']}, "
         f"baseline={metadata_baseline['TotHalos']}{NC}"
     )
 
     # Compare tree counts
-    if 'Ntrees' in metadata_test and 'Ntrees' in metadata_baseline:
-        assert metadata_test['Ntrees'] == metadata_baseline['Ntrees'], (
+    if "Ntrees" in metadata_test and "Ntrees" in metadata_baseline:
+        assert metadata_test["Ntrees"] == metadata_baseline["Ntrees"], (
             f"{RED}Tree count mismatch: test={metadata_test['Ntrees']}, "
             f"baseline={metadata_baseline['Ntrees']}{NC}"
         )
@@ -573,8 +609,10 @@ def test_binary_baseline_comparison():
     # Model-owned galaxy properties are deliberately excluded.
     print(f"  Comparing {len(compare_properties)} generated halo properties for all halos...")
     passed, report = compare_halos_comprehensive(
-        halos_test, halos_baseline,
-        label1="test", label2="baseline",
+        halos_test,
+        halos_baseline,
+        label1="test",
+        label2="baseline",
         rtol=baseline_rtol(),
         properties_to_compare=compare_properties,
         warn_rtol=BASELINE_RTOL_DEFAULT,
@@ -582,11 +620,11 @@ def test_binary_baseline_comparison():
     )
 
     # ANSI color codes
-    GREEN = '\033[0;32m'
-    NC = '\033[0m'  # No Color
+    GREEN = "\033[0;32m"
+    NC = "\033[0m"  # No Color
 
     # Print report
-    print(report, end='')  # Remove blank line after report
+    print(report, end="")  # Remove blank line after report
 
     # Assert that comparison passed
     assert passed, (
@@ -619,7 +657,7 @@ def test_hdf5_format_execution():
 
     # Check if HDF5 support is available
     if returncode != 0:
-        output = (stdout + stderr)
+        output = stdout + stderr
         if "requires HDF5" in output or "HDF5 support" in output or "Recompile with" in output:
             print(f"  Skipping (Mimic not compiled with HDF5 support)")
             print(f"  To enable: make clean && make  # HDF5 is enabled by default")
@@ -675,8 +713,8 @@ def test_hdf5_format_loading():
     halos, metadata = load_hdf5_halos(output_file)
 
     # Validate loaded data
-    assert metadata['TotHalos'] > 0, "No halos loaded from HDF5 file"
-    assert len(halos) == metadata['TotHalos'], "Halo count mismatch"
+    assert metadata["TotHalos"] > 0, "No halos loaded from HDF5 file"
+    assert len(halos) == metadata["TotHalos"], "Halo count mismatch"
 
     print(f"  ✓ Loaded {metadata['TotHalos']} halos from CURRENT HDF5 output")
     print(f"    File size: {output_file.stat().st_size:,} bytes")
@@ -737,9 +775,9 @@ def test_hdf5_baseline_comparison():
     print(f"    → {metadata_test['TotHalos']} halos")
 
     # ANSI color codes
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    NC = '\033[0m'  # No Color
+    RED = "\033[0;31m"
+    GREEN = "\033[0;32m"
+    NC = "\033[0m"  # No Color
 
     # Load committed baseline
     baseline_dir = TEST_DATA_DIR / "output" / "baseline" / "hdf5"
@@ -755,7 +793,7 @@ def test_hdf5_baseline_comparison():
     print(f"    → {metadata_baseline['TotHalos']} halos")
 
     # Compare halo counts
-    assert metadata_test['TotHalos'] == metadata_baseline['TotHalos'], (
+    assert metadata_test["TotHalos"] == metadata_baseline["TotHalos"], (
         f"{RED}Halo count mismatch: test={metadata_test['TotHalos']}, "
         f"baseline={metadata_baseline['TotHalos']}{NC}"
     )
@@ -766,8 +804,10 @@ def test_hdf5_baseline_comparison():
     # Model-owned galaxy properties are deliberately excluded.
     print(f"  Comparing {len(compare_properties)} generated halo properties for all halos...")
     passed, report = compare_halos_comprehensive(
-        halos_test, halos_baseline,
-        label1="test", label2="baseline",
+        halos_test,
+        halos_baseline,
+        label1="test",
+        label2="baseline",
         rtol=baseline_rtol(),
         properties_to_compare=compare_properties,
         warn_rtol=BASELINE_RTOL_DEFAULT,
@@ -775,7 +815,7 @@ def test_hdf5_baseline_comparison():
     )
 
     # Print report
-    print(report, end='')  # Remove blank line after report
+    print(report, end="")  # Remove blank line after report
 
     # Assert that comparison passed
     assert passed, (
@@ -829,34 +869,30 @@ def test_unique_id_contract():
 
     # UniqueGalaxyID must be unique within each snapshot.
     n_unique = len(np.unique(unique_ids))
-    assert n_unique == len(halos), (
-        f"UniqueGalaxyID not unique: {n_unique} unique values for {len(halos)} halos"
-    )
+    assert n_unique == len(
+        halos
+    ), f"UniqueGalaxyID not unique: {n_unique} unique values for {len(halos)} halos"
 
     id_to_type = {int(uid): int(t) for uid, t in zip(unique_ids, types)}
 
     type0_mask = types == 0
-    assert np.all(central_ids[type0_mask] == unique_ids[type0_mask]), (
-        "Type 0 halos must satisfy UniqueCentralGalaxyID == UniqueGalaxyID"
-    )
+    assert np.all(
+        central_ids[type0_mask] == unique_ids[type0_mask]
+    ), "Type 0 halos must satisfy UniqueCentralGalaxyID == UniqueGalaxyID"
 
     sat_mask = np.isin(types, [1, 2])
     sat_central_ids = central_ids[sat_mask]
 
     missing = [int(cid) for cid in sat_central_ids if int(cid) not in id_to_type]
-    assert not missing, (
-        f"{len(missing)} satellites reference missing UniqueCentralGalaxyID targets"
-    )
+    assert not missing, f"{len(missing)} satellites reference missing UniqueCentralGalaxyID targets"
 
     bad_type = [int(cid) for cid in sat_central_ids if id_to_type[int(cid)] != 0]
-    assert not bad_type, (
-        f"{len(bad_type)} satellites reference non-Type0 UniqueCentralGalaxyID targets"
-    )
+    assert (
+        not bad_type
+    ), f"{len(bad_type)} satellites reference non-Type0 UniqueCentralGalaxyID targets"
 
     self_refs = np.sum(unique_ids[sat_mask] == sat_central_ids)
-    assert self_refs == 0, (
-        f"{self_refs} satellites self-reference UniqueCentralGalaxyID"
-    )
+    assert self_refs == 0, f"{self_refs} satellites self-reference UniqueCentralGalaxyID"
 
     print("  ✓ UniqueGalaxyID uniqueness and UniqueCentralGalaxyID host-central mapping validated")
 
@@ -924,16 +960,16 @@ def test_format_equivalence():
     run_mimic_fresh(hdf5_param_file, hdf5_file)
 
     # ANSI color codes
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    NC = '\033[0m'  # No Color
+    RED = "\033[0;31m"
+    GREEN = "\033[0;32m"
+    NC = "\033[0m"  # No Color
 
     print(f"  Loading HDF5: {hdf5_file.relative_to(REPO_ROOT)}")
     halos_hdf5, metadata_hdf5 = load_hdf5_halos(hdf5_file)
     print(f"    → {metadata_hdf5['TotHalos']} halos")
 
     # Compare halo counts
-    assert metadata_binary['TotHalos'] == metadata_hdf5['TotHalos'], (
+    assert metadata_binary["TotHalos"] == metadata_hdf5["TotHalos"], (
         f"{RED}Halo count mismatch: binary={metadata_binary['TotHalos']}, "
         f"hdf5={metadata_hdf5['TotHalos']}{NC}"
     )
@@ -943,13 +979,11 @@ def test_format_equivalence():
     # Comprehensive comparison of all properties for all halos
     print(f"  Comparing all properties for all halos between formats...")
     passed, report = compare_halos_comprehensive(
-        halos_binary, halos_hdf5,
-        label1="binary", label2="HDF5",
-        rtol=1e-6
+        halos_binary, halos_hdf5, label1="binary", label2="HDF5", rtol=1e-6
     )
 
     # Print report
-    print(report, end='')  # Remove blank line after report
+    print(report, end="")  # Remove blank line after report
 
     # Assert that comparison passed
     assert passed, (
@@ -958,7 +992,9 @@ def test_format_equivalence():
         f"See detailed comparison report above.{NC}"
     )
 
-    print(f"{GREEN}  ✓ Binary and HDF5 formats produce identical output - all properties validated{NC}")
+    print(
+        f"{GREEN}  ✓ Binary and HDF5 formats produce identical output - all properties validated{NC}"
+    )
 
     # Print file size comparison (informational)
     print(f"  Binary file size: {binary_file.stat().st_size:,} bytes")
@@ -1021,7 +1057,7 @@ def main():
                 test()
 
             output = output_buffer.getvalue()
-            print(output, end='')  # Print the output
+            print(output, end="")  # Print the output
 
             if "Skipping" in output:
                 print(f"{YELLOW}⊘ SKIP: {test.__name__}{NC}")
@@ -1032,7 +1068,7 @@ def main():
             # Print captured output before showing failure
             output = output_buffer.getvalue()
             if output:
-                print(output, end='')
+                print(output, end="")
             print(f"{RED}✗ FAIL: {test.__name__}{NC}")
             print(f"  {e}")
             failed += 1
@@ -1040,7 +1076,7 @@ def main():
             # Print captured output before showing error
             output = output_buffer.getvalue()
             if output:
-                print(output, end='')
+                print(output, end="")
             print(f"{RED}✗ ERROR: {test.__name__}{NC}")
             print(f"  {e}")
             failed += 1

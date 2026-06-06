@@ -34,26 +34,28 @@ Date: 2025-12-18
 """
 
 import os
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import create_test_param_file, run_mimic, load_binary_halos, check_no_memory_leaks
+from framework import check_no_memory_leaks, create_test_param_file, load_binary_halos, run_mimic
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+NC = "\033[0m"
 
 
 # ========================================================================
 # LIFECYCLE TESTS
 # ========================================================================
+
 
 def test_module_loads():
     """Test that sage_reincorporation module loads and initializes"""
@@ -62,14 +64,12 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_load",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_reincorporation", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            'ReIncorporationFactor': 1.0
-        }
+        model_params={"ReIncorporationFactor": 1.0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -89,14 +89,12 @@ def test_parameters_configurable():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_params",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_reincorporation", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            'ReIncorporationFactor': 0.5  # Custom value
-        }
+        model_params={"ReIncorporationFactor": 0.5},  # Custom value
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -113,14 +111,12 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_reincorporation", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            'ReIncorporationFactor': 1.0
-        }
+        model_params={"ReIncorporationFactor": 1.0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -139,14 +135,12 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_complete",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_reincorporation", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            'ReIncorporationFactor': 1.0
-        }
+        model_params={"ReIncorporationFactor": 1.0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -171,15 +165,12 @@ def test_multi_module_pipeline():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_pipeline",
         phase_config={
-            'pre_timestep': [('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_prepare_infall_budget", "process_full_halo")],
+            "galaxy_physics": [("sage_reincorporation", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            'GlobalBaryonFraction': 0.17,
-            'ReIncorporationFactor': 1.0
-        }
+        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -189,8 +180,8 @@ def test_multi_module_pipeline():
     halos, metadata = load_binary_halos(output_file)
 
     # Both modules' properties should exist
-    assert 'HotGas' in halos.dtype.names, "Should have HotGas from reincorporation"
-    assert 'EjectedGas' in halos.dtype.names, "Should have EjectedGas from reincorporation"
+    assert "HotGas" in halos.dtype.names, "Should have HotGas from reincorporation"
+    assert "EjectedGas" in halos.dtype.names, "Should have EjectedGas from reincorporation"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Multi-module pipeline integration works{NC}")
@@ -200,6 +191,7 @@ def test_multi_module_pipeline():
 # PHYSICS VALIDATION TESTS
 # ========================================================================
 
+
 def test_physics_mass_conservation():
     """Test that mass is conserved during reincorporation (EjectedGas → HotGas)"""
     print(f"\n{BLUE}TEST: Mass conservation during reincorporation{NC}")
@@ -208,21 +200,18 @@ def test_physics_mass_conservation():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_mass_conservation",
         phase_config={
-            'pre_timestep': [
-                ('sage_reionization', 'process_full_halo'),
-                ('sage_prepare_infall_budget', 'process_full_halo')
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
             ],
-            'galaxy_physics': [
-                ('sage_apply_infall', 'process_full_halo'),
-                ('sage_reincorporation', 'process_full_halo')
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_reincorporation", "process_full_halo"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            'GlobalBaryonFraction': 0.17,
-            'ReIncorporationFactor': 1.0
-        }
+        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -232,18 +221,18 @@ def test_physics_mass_conservation():
     halos, metadata = load_binary_halos(output_file)
 
     # Filter for centrals with ejected gas
-    centrals = halos[halos['Type'] == 0]
-    has_gas = centrals[(centrals['EjectedGas'] > 0) | (centrals['HotGas'] > 0)]
+    centrals = halos[halos["Type"] == 0]
+    has_gas = centrals[(centrals["EjectedGas"] > 0) | (centrals["HotGas"] > 0)]
 
     assert len(has_gas) > 0, "Should have centrals with gas reservoirs"
 
     # Check that EjectedGas + HotGas values are reasonable (non-negative)
-    assert np.all(has_gas['EjectedGas'] >= 0), "EjectedGas should be non-negative"
-    assert np.all(has_gas['HotGas'] >= 0), "HotGas should be non-negative"
+    assert np.all(has_gas["EjectedGas"] >= 0), "EjectedGas should be non-negative"
+    assert np.all(has_gas["HotGas"] >= 0), "HotGas should be non-negative"
 
     # Check that metals are also non-negative
-    assert np.all(has_gas['MetalsEjectedGas'] >= 0), "MetalsEjectedGas should be non-negative"
-    assert np.all(has_gas['MetalsHotGas'] >= 0), "MetalsHotGas should be non-negative"
+    assert np.all(has_gas["MetalsEjectedGas"] >= 0), "MetalsEjectedGas should be non-negative"
+    assert np.all(has_gas["MetalsHotGas"] >= 0), "MetalsHotGas should be non-negative"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Mass conservation validated{NC}")
@@ -256,21 +245,18 @@ def test_physics_metallicity_conservation():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_metallicity",
         phase_config={
-            'pre_timestep': [
-                ('sage_reionization', 'process_full_halo'),
-                ('sage_prepare_infall_budget', 'process_full_halo')
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
             ],
-            'galaxy_physics': [
-                ('sage_apply_infall', 'process_full_halo'),
-                ('sage_reincorporation', 'process_full_halo')
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_reincorporation", "process_full_halo"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            'GlobalBaryonFraction': 0.17,
-            'ReIncorporationFactor': 1.0
-        }
+        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -280,21 +266,23 @@ def test_physics_metallicity_conservation():
     halos, metadata = load_binary_halos(output_file)
 
     # Filter for centrals with both gas and metals
-    centrals = halos[halos['Type'] == 0]
-    with_metals = centrals[(centrals['EjectedGas'] > 0) & (centrals['MetalsEjectedGas'] > 0)]
+    centrals = halos[halos["Type"] == 0]
+    with_metals = centrals[(centrals["EjectedGas"] > 0) & (centrals["MetalsEjectedGas"] > 0)]
 
     if len(with_metals) > 0:
         # Check that metallicity (Z = Metals/Gas) is physical
-        Z_ejected = with_metals['MetalsEjectedGas'] / with_metals['EjectedGas']
-        assert np.all((Z_ejected >= 0) & (Z_ejected <= 1.0)), \
-            "Ejected metallicity should be in physical range [0,1]"
+        Z_ejected = with_metals["MetalsEjectedGas"] / with_metals["EjectedGas"]
+        assert np.all(
+            (Z_ejected >= 0) & (Z_ejected <= 1.0)
+        ), "Ejected metallicity should be in physical range [0,1]"
 
         # Check hot gas metallicity is also physical
-        with_hot = with_metals[with_metals['HotGas'] > 0]
+        with_hot = with_metals[with_metals["HotGas"] > 0]
         if len(with_hot) > 0:
-            Z_hot = with_hot['MetalsHotGas'] / with_hot['HotGas']
-            assert np.all((Z_hot >= 0) & (Z_hot <= 1.0)), \
-                "Hot gas metallicity should be in physical range [0,1]"
+            Z_hot = with_hot["MetalsHotGas"] / with_hot["HotGas"]
+            assert np.all(
+                (Z_hot >= 0) & (Z_hot <= 1.0)
+            ), "Hot gas metallicity should be in physical range [0,1]"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Metallicity conservation validated{NC}")
@@ -307,21 +295,18 @@ def test_physics_central_only():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_central_only",
         phase_config={
-            'pre_timestep': [
-                ('sage_reionization', 'process_full_halo'),
-                ('sage_prepare_infall_budget', 'process_full_halo')
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
             ],
-            'galaxy_physics': [
-                ('sage_apply_infall', 'process_full_halo'),
-                ('sage_reincorporation', 'process_full_halo')
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_reincorporation", "process_full_halo"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            'GlobalBaryonFraction': 0.17,
-            'ReIncorporationFactor': 1.0
-        }
+        model_params={"GlobalBaryonFraction": 0.17, "ReIncorporationFactor": 1.0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -331,9 +316,9 @@ def test_physics_central_only():
     halos, metadata = load_binary_halos(output_file)
 
     # Get Type statistics
-    centrals = halos[halos['Type'] == 0]
-    satellites = halos[halos['Type'] == 1]
-    orphans = halos[halos['Type'] == 2]
+    centrals = halos[halos["Type"] == 0]
+    satellites = halos[halos["Type"] == 1]
+    orphans = halos[halos["Type"] == 2]
 
     # Satellites and orphans should not have modified their properties via reincorporation
     # (They might have gas from infall, but not from reincorporation)
@@ -341,12 +326,12 @@ def test_physics_central_only():
 
     # Just verify all types exist and have valid properties
     if len(satellites) > 0:
-        assert np.all(satellites['EjectedGas'] >= 0), "Satellite EjectedGas should be valid"
+        assert np.all(satellites["EjectedGas"] >= 0), "Satellite EjectedGas should be valid"
     if len(orphans) > 0:
-        assert np.all(orphans['EjectedGas'] >= 0), "Orphan EjectedGas should be valid"
+        assert np.all(orphans["EjectedGas"] >= 0), "Orphan EjectedGas should be valid"
 
     assert len(centrals) > 0, "Should have central galaxies"
-    assert np.all(centrals['Type'] == 0), "All centrals should have Type 0"
+    assert np.all(centrals["Type"] == 0), "All centrals should have Type 0"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Central-only constraint validated{NC}")
@@ -359,21 +344,21 @@ def test_physics_velocity_threshold():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_velocity_threshold",
         phase_config={
-            'pre_timestep': [
-                ('sage_reionization', 'process_full_halo'),
-                ('sage_prepare_infall_budget', 'process_full_halo')
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
             ],
-            'galaxy_physics': [
-                ('sage_apply_infall', 'process_full_halo'),
-                ('sage_reincorporation', 'process_full_halo')
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_reincorporation", "process_full_halo"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'GlobalBaryonFraction': 0.17,
-            'ReIncorporationFactor': 1.0  # Vcrit = 445.48 km/s
-        }
+            "GlobalBaryonFraction": 0.17,
+            "ReIncorporationFactor": 1.0,  # Vcrit = 445.48 km/s
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -383,22 +368,22 @@ def test_physics_velocity_threshold():
     halos, metadata = load_binary_halos(output_file)
 
     # Filter centrals by velocity
-    centrals = halos[halos['Type'] == 0]
+    centrals = halos[halos["Type"] == 0]
 
     # Vcrit = 445.48 km/s with ReIncorporationFactor = 1.0
     Vcrit = 445.48
 
-    low_vvir = centrals[centrals['Vvir'] < Vcrit]
-    high_vvir = centrals[centrals['Vvir'] > Vcrit]
+    low_vvir = centrals[centrals["Vvir"] < Vcrit]
+    high_vvir = centrals[centrals["Vvir"] > Vcrit]
 
     # Both groups should have valid properties
     if len(low_vvir) > 0:
-        assert np.all(low_vvir['EjectedGas'] >= 0), "Low-Vvir halos should have valid EjectedGas"
-        assert np.all(low_vvir['HotGas'] >= 0), "Low-Vvir halos should have valid HotGas"
+        assert np.all(low_vvir["EjectedGas"] >= 0), "Low-Vvir halos should have valid EjectedGas"
+        assert np.all(low_vvir["HotGas"] >= 0), "Low-Vvir halos should have valid HotGas"
 
     if len(high_vvir) > 0:
-        assert np.all(high_vvir['EjectedGas'] >= 0), "High-Vvir halos should have valid EjectedGas"
-        assert np.all(high_vvir['HotGas'] >= 0), "High-Vvir halos should have valid HotGas"
+        assert np.all(high_vvir["EjectedGas"] >= 0), "High-Vvir halos should have valid EjectedGas"
+        assert np.all(high_vvir["HotGas"] >= 0), "High-Vvir halos should have valid HotGas"
 
     # In a run with both infall and reincorporation, high-Vvir halos should generally
     # have gas moving from ejected to hot. This is a statistical expectation.
@@ -415,14 +400,12 @@ def test_physics_output_properties():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="reinc_properties",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_reincorporation', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_reincorporation", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            'ReIncorporationFactor': 1.0
-        }
+        model_params={"ReIncorporationFactor": 1.0},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -432,15 +415,22 @@ def test_physics_output_properties():
     halos, metadata = load_binary_halos(output_file)
 
     # Check that all required properties exist
-    required_properties = ['EjectedGas', 'HotGas', 'MetalsEjectedGas', 'MetalsHotGas', 'Type', 'Vvir']
+    required_properties = [
+        "EjectedGas",
+        "HotGas",
+        "MetalsEjectedGas",
+        "MetalsHotGas",
+        "Type",
+        "Vvir",
+    ]
     for prop in required_properties:
         assert prop in halos.dtype.names, f"Output should have {prop} field"
 
     # Check that values are valid
-    assert np.all(halos['EjectedGas'] >= 0), "EjectedGas should be non-negative"
-    assert np.all(halos['HotGas'] >= 0), "HotGas should be non-negative"
-    assert np.all(halos['MetalsEjectedGas'] >= 0), "MetalsEjectedGas should be non-negative"
-    assert np.all(halos['MetalsHotGas'] >= 0), "MetalsHotGas should be non-negative"
+    assert np.all(halos["EjectedGas"] >= 0), "EjectedGas should be non-negative"
+    assert np.all(halos["HotGas"] >= 0), "HotGas should be non-negative"
+    assert np.all(halos["MetalsEjectedGas"] >= 0), "MetalsEjectedGas should be non-negative"
+    assert np.all(halos["MetalsHotGas"] >= 0), "MetalsHotGas should be non-negative"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Output properties are correct{NC}")
@@ -449,6 +439,7 @@ def test_physics_output_properties():
 # ========================================================================
 # MAIN TEST RUNNER
 # ========================================================================
+
 
 def main():
     """Main test runner"""
@@ -491,5 +482,5 @@ def main():
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

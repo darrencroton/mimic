@@ -38,31 +38,23 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 sys.path.insert(0, str(REPO_ROOT / "tests" / "integration"))
 
 from framework import (
-    load_binary_halos,
-    MIMIC_EXE,
-    compiled_model,
-    run_mimic_fresh,
-    baseline_rtol,
-    BASELINE_RTOL_DEFAULT,
     BASELINE_ATOL_DEFAULT,
+    BASELINE_RTOL_DEFAULT,
+    MIMIC_EXE,
+    baseline_rtol,
+    compiled_model,
+    load_binary_halos,
+    run_mimic_fresh,
 )
 from test_output_formats import compare_halos_comprehensive
 
-BLUE = '\033[1;34m'
+BLUE = "\033[1;34m"
 GREEN = "\033[0;32m"
 RED = "\033[0;31m"
-YELLOW = '\033[1;33m'
+YELLOW = "\033[1;33m"
 NC = "\033[0m"
 
-INPUT = (
-    REPO_ROOT
-    / "models"
-    / "sage"
-    / "modules"
-    / "_tests"
-    / "input"
-    / "test_physics_binary.yaml"
-)
+INPUT = REPO_ROOT / "models" / "sage" / "modules" / "_tests" / "input" / "test_physics_binary.yaml"
 CURRENT = REPO_ROOT / "tests" / "data" / "output" / "physics-binary" / "model_z0.000_0"
 BASELINE = (
     REPO_ROOT
@@ -115,8 +107,12 @@ def test_sage_physics_baseline():
 
     # Compare every property (core + baryonic) for every halo.
     passed, report = compare_halos_comprehensive(
-        halos_now, halos_ref, label1="current", label2="baseline",
-        rtol=baseline_rtol(), warn_rtol=BASELINE_RTOL_DEFAULT,
+        halos_now,
+        halos_ref,
+        label1="current",
+        label2="baseline",
+        rtol=baseline_rtol(),
+        warn_rtol=BASELINE_RTOL_DEFAULT,
         atol=BASELINE_ATOL_DEFAULT,
     )
     print(report, end="")
@@ -132,7 +128,9 @@ def test_sage_physics_baseline():
 
 def main():
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: SAGE Full-Physics Baseline Tests (test_scientific_sage_physics_baseline.py){NC}")
+    print(
+        f"{BLUE}Test Suite: SAGE Full-Physics Baseline Tests (test_scientific_sage_physics_baseline.py){NC}"
+    )
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
     print(f"Repository root: {REPO_ROOT}")
@@ -159,7 +157,7 @@ def main():
                 test()
 
             output = output_buffer.getvalue()
-            print(output, end='')
+            print(output, end="")
 
             if "Skipping" in output:
                 print(f"{YELLOW}⊘ SKIP: {test.__name__}{NC}")
@@ -169,14 +167,14 @@ def main():
         except AssertionError as e:
             output = output_buffer.getvalue()
             if output:
-                print(output, end='')
+                print(output, end="")
             print(f"{RED}✗ FAIL: {test.__name__}{NC}")
             print(f"  {e}")
             failed += 1
         except Exception as e:
             output = output_buffer.getvalue()
             if output:
-                print(output, end='')
+                print(output, end="")
             print(f"{RED}✗ ERROR: {test.__name__}{NC}")
             print(f"  {e}")
             failed += 1

@@ -30,7 +30,7 @@ typedef double (*integrand_func_t)(double x, void *params);
  */
 typedef struct {
   integrand_func_t function; /**< Pointer to the integrand function */
-  void *params; /**< Parameters to pass to the integrand function */
+  void *params;              /**< Parameters to pass to the integrand function */
 } integration_function_t;
 
 /**
@@ -77,9 +77,8 @@ void integration_workspace_free(integration_workspace_t *workspace);
  * @param abserr   Pointer to store error estimate
  * @return Status code (0 for success)
  */
-int integration_qag(integration_function_t *f, double a, double b,
-                    double epsabs, double epsrel, size_t limit, int key,
-                    integration_workspace_t *workspace, double *result,
+int integration_qag(integration_function_t *f, double a, double b, double epsabs, double epsrel,
+                    size_t limit, int key, integration_workspace_t *workspace, double *result,
                     double *abserr);
 
 #endif /* UTIL_INTEGRATION_H */

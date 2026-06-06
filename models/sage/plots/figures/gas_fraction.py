@@ -20,12 +20,12 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_filtered_data,
     save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -59,9 +59,7 @@ def plot(
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
-        galaxies,
-        required_fields=['StellarMass', 'ColdGas', 'BulgeMass'],
-        plot_name='Gas Fraction'
+        galaxies, required_fields=["StellarMass", "ColdGas", "BulgeMass"], plot_name="Gas Fraction"
     )
 
     if not success:
@@ -85,9 +83,7 @@ def plot(
 
     # Calculate ratio safely for valid galaxies
     bulge_ratio = np.zeros_like(galaxies.StellarMass)
-    bulge_ratio[valid_mass] = (
-        galaxies.BulgeMass[valid_mass] / galaxies.StellarMass[valid_mass]
-    )
+    bulge_ratio[valid_mass] = galaxies.BulgeMass[valid_mass] / galaxies.StellarMass[valid_mass]
 
     # Now apply all filters
     w = np.where(valid_mass & (bulge_ratio > 0.1) & (bulge_ratio < 0.5))[0]
@@ -112,12 +108,8 @@ def plot(
     if verbose:
         print(f"Gas Fraction plot debug:")
         print(f"  Number of galaxies plotted: {len(w)}")
-        print(
-            f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}"
-        )
-        print(
-            f"  Gas fraction range: {min(gas_fraction):.3f} to {max(gas_fraction):.3f}"
-        )
+        print(f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}")
+        print(f"  Gas fraction range: {min(gas_fraction):.3f} to {max(gas_fraction):.3f}")
 
     # Plot the galaxy data
     ax.scatter(

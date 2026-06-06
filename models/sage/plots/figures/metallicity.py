@@ -58,8 +58,8 @@ def plot(
     # Check for required fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['ColdGas', 'MetalsColdGas', 'StellarMass'],
-        plot_name='Metallicity'
+        required_fields=["ColdGas", "MetalsColdGas", "StellarMass"],
+        plot_name="Metallicity",
     )
 
     if not success:
@@ -68,21 +68,19 @@ def plot(
     # Field-level validation: Check if MetalsColdGas has any non-zero values
     # This catches the case where metal enrichment hasn't occurred yet
     has_metals, count, msg = check_field_has_values(
-        galaxies.MetalsColdGas, 'MetalsColdGas', threshold=0.0
+        galaxies.MetalsColdGas, "MetalsColdGas", threshold=0.0
     )
     if not has_metals:
         return None, f"Field validation failed: {msg}"
 
     # Field-level validation: Check if ColdGas has any non-zero values
-    has_gas, count, msg = check_field_has_values(
-        galaxies.ColdGas, 'ColdGas', threshold=0.0
-    )
+    has_gas, count, msg = check_field_has_values(galaxies.ColdGas, "ColdGas", threshold=0.0)
     if not has_gas:
         return None, f"Field validation failed: {msg}"
 
     # Field-level validation: Check if StellarMass has any non-zero values
     has_mass, count, msg = check_field_has_values(
-        galaxies.StellarMass, 'StellarMass', threshold=0.01
+        galaxies.StellarMass, "StellarMass", threshold=0.01
     )
     if not has_mass:
         return None, f"Field validation failed: {msg}"
@@ -133,17 +131,13 @@ def plot(
     # Calculate metallicity (12 + log10[O/H]) and convert stellar mass to log scale
     stellar_mass = np.log10(galaxies.StellarMass[w] * 1.0e10 / hubble_h)
     # Metallicity in units of solar (Z_solar = 0.02)
-    metallicity = (
-        np.log10((galaxies.MetalsColdGas[w] / galaxies.ColdGas[w]) / 0.02) + 9.0
-    )
+    metallicity = np.log10((galaxies.MetalsColdGas[w] / galaxies.ColdGas[w]) / 0.02) + 9.0
 
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"Metallicity plot debug:")
         print(f"  Number of galaxies plotted: {len(w)}")
-        print(
-            f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}"
-        )
+        print(f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}")
         print(f"  Metallicity range: {min(metallicity):.3f} to {max(metallicity):.3f}")
         print(f"  WhichIMF: {whichimf}")
 

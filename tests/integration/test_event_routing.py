@@ -46,11 +46,11 @@ from framework import (
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def parse_consumer_event_count(output, consumer_name):
@@ -67,7 +67,7 @@ def parse_consumer_event_count(output, consumer_name):
     Returns:
         int or None: Event count if found, None if the log line is absent
     """
-    pattern = rf'{re.escape(consumer_name)}: total events received = (\d+)'
+    pattern = rf"{re.escape(consumer_name)}: total events received = (\d+)"
     match = re.search(pattern, output)
     if match:
         return int(match.group(1))
@@ -90,13 +90,13 @@ def test_routing_single_consumer_receives_events():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="routing_single_consumer",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('test_event_producer', 'process_full_halo'),
-                ('test_event_consumer_alpha', 'process_per_event'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("test_event_producer", "process_full_halo"),
+                ("test_event_consumer_alpha", "process_per_event"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
             "TestEventProducerEmitCount": 1,
@@ -113,10 +113,12 @@ def test_routing_single_consumer_receives_events():
         assert returncode == 0, f"Mimic failed:\n{combined}"
 
         alpha_count = parse_consumer_event_count(combined, "test_event_consumer_alpha")
-        assert alpha_count is not None, \
-            "Could not find test_event_consumer_alpha event count in mimic output"
-        assert alpha_count > 0, \
-            f"Expected alpha to receive > 0 events (subscribed to test_event), got {alpha_count}"
+        assert (
+            alpha_count is not None
+        ), "Could not find test_event_consumer_alpha event count in mimic output"
+        assert (
+            alpha_count > 0
+        ), f"Expected alpha to receive > 0 events (subscribed to test_event), got {alpha_count}"
 
         print(f"  ✓ test_event_consumer_alpha received {alpha_count} event(s)")
 
@@ -141,14 +143,14 @@ def test_routing_unsubscribed_consumer_receives_no_events():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="routing_unsubscribed",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('test_event_producer', 'process_full_halo'),
-                ('test_event_consumer_alpha', 'process_per_event'),
-                ('test_event_consumer_beta', 'process_per_event'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("test_event_producer", "process_full_halo"),
+                ("test_event_consumer_alpha", "process_per_event"),
+                ("test_event_consumer_beta", "process_per_event"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
             "TestEventProducerEmitCount": 1,
@@ -167,16 +169,20 @@ def test_routing_unsubscribed_consumer_receives_no_events():
         alpha_count = parse_consumer_event_count(combined, "test_event_consumer_alpha")
         beta_count = parse_consumer_event_count(combined, "test_event_consumer_beta")
 
-        assert alpha_count is not None, \
-            "Could not find test_event_consumer_alpha event count in mimic output"
-        assert beta_count is not None, \
-            "Could not find test_event_consumer_beta event count in mimic output"
+        assert (
+            alpha_count is not None
+        ), "Could not find test_event_consumer_alpha event count in mimic output"
+        assert (
+            beta_count is not None
+        ), "Could not find test_event_consumer_beta event count in mimic output"
 
-        assert alpha_count > 0, \
-            f"Expected alpha to receive > 0 events (subscribed to test_event), got {alpha_count}"
-        assert beta_count == 0, \
-            (f"Expected beta to receive 0 events "
-             f"(subscribed to test_event_alt which was not emitted), got {beta_count}")
+        assert (
+            alpha_count > 0
+        ), f"Expected alpha to receive > 0 events (subscribed to test_event), got {alpha_count}"
+        assert beta_count == 0, (
+            f"Expected beta to receive 0 events "
+            f"(subscribed to test_event_alt which was not emitted), got {beta_count}"
+        )
 
         print(f"  ✓ test_event_consumer_alpha (test_event):           {alpha_count} event(s)")
         print(f"  ✓ test_event_consumer_beta  (test_event_alt, none): {beta_count} event(s)")
@@ -202,14 +208,14 @@ def test_routing_two_consumers_different_subscriptions():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="routing_two_consumers",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('test_event_producer', 'process_full_halo'),
-                ('test_event_consumer_alpha', 'process_per_event'),
-                ('test_event_consumer_beta', 'process_per_event'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("test_event_producer", "process_full_halo"),
+                ("test_event_consumer_alpha", "process_per_event"),
+                ("test_event_consumer_beta", "process_per_event"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
             "TestEventProducerEmitCount": 1,
@@ -228,15 +234,19 @@ def test_routing_two_consumers_different_subscriptions():
         alpha_count = parse_consumer_event_count(combined, "test_event_consumer_alpha")
         beta_count = parse_consumer_event_count(combined, "test_event_consumer_beta")
 
-        assert alpha_count is not None, \
-            "Could not find test_event_consumer_alpha event count in mimic output"
-        assert beta_count is not None, \
-            "Could not find test_event_consumer_beta event count in mimic output"
+        assert (
+            alpha_count is not None
+        ), "Could not find test_event_consumer_alpha event count in mimic output"
+        assert (
+            beta_count is not None
+        ), "Could not find test_event_consumer_beta event count in mimic output"
 
-        assert alpha_count > 0, \
-            f"Expected alpha > 0 events (subscribed to test_event), got {alpha_count}"
-        assert beta_count > 0, \
-            f"Expected beta > 0 events (subscribed to test_event_alt), got {beta_count}"
+        assert (
+            alpha_count > 0
+        ), f"Expected alpha > 0 events (subscribed to test_event), got {alpha_count}"
+        assert (
+            beta_count > 0
+        ), f"Expected beta > 0 events (subscribed to test_event_alt), got {beta_count}"
 
         print(f"  ✓ test_event_consumer_alpha (test_event):     {alpha_count} event(s)")
         print(f"  ✓ test_event_consumer_beta  (test_event_alt): {beta_count} event(s)")
@@ -264,20 +274,20 @@ def test_routing_multiple_producers_in_one_phase():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="routing_multi_producer",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('test_event_producer',   'process_full_halo'),
-                ('test_event_producer_b', 'process_full_halo'),
-                ('test_event_consumer_alpha', 'process_per_event'),
-                ('test_event_consumer_gamma', 'process_per_event'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("test_event_producer", "process_full_halo"),
+                ("test_event_producer_b", "process_full_halo"),
+                ("test_event_consumer_alpha", "process_per_event"),
+                ("test_event_consumer_gamma", "process_per_event"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            "TestEventProducerEmitCount":    1,
+            "TestEventProducerEmitCount": 1,
             "TestEventProducerEmitAltCount": 0,
-            "TestEventProducerBEmitCount":   1,
+            "TestEventProducerBEmitCount": 1,
         },
         first_file=0,
         last_file=0,
@@ -292,15 +302,19 @@ def test_routing_multiple_producers_in_one_phase():
         alpha_count = parse_consumer_event_count(combined, "test_event_consumer_alpha")
         gamma_count = parse_consumer_event_count(combined, "test_event_consumer_gamma")
 
-        assert alpha_count is not None, \
-            "Could not find test_event_consumer_alpha event count in mimic output"
-        assert gamma_count is not None, \
-            "Could not find test_event_consumer_gamma event count in mimic output"
+        assert (
+            alpha_count is not None
+        ), "Could not find test_event_consumer_alpha event count in mimic output"
+        assert (
+            gamma_count is not None
+        ), "Could not find test_event_consumer_gamma event count in mimic output"
 
-        assert alpha_count > 0, \
-            f"Expected alpha > 0 events (subscribed to producer_a/test_event), got {alpha_count}"
-        assert gamma_count > 0, \
-            f"Expected gamma > 0 events (subscribed to producer_b/test_event_b), got {gamma_count}"
+        assert (
+            alpha_count > 0
+        ), f"Expected alpha > 0 events (subscribed to producer_a/test_event), got {alpha_count}"
+        assert (
+            gamma_count > 0
+        ), f"Expected gamma > 0 events (subscribed to producer_b/test_event_b), got {gamma_count}"
 
         print(f"  ✓ test_event_consumer_alpha (producer_a/test_event):   {alpha_count} event(s)")
         print(f"  ✓ test_event_consumer_gamma (producer_b/test_event_b): {gamma_count} event(s)")

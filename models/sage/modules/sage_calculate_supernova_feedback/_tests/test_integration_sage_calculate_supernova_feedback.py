@@ -26,27 +26,29 @@ Date: 2025-12-18 (Refactored for comprehensive physics validation)
 """
 
 import os
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import create_test_param_file, run_mimic, load_binary_halos, check_no_memory_leaks
+from framework import check_no_memory_leaks, create_test_param_file, load_binary_halos, run_mimic
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 # ============================================================================
 # SOFTWARE QUALITY TESTS
 # ============================================================================
+
 
 def test_module_loads():
     """Test that sage_calculate_supernova_feedback module loads and initializes"""
@@ -56,24 +58,24 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_load",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -93,24 +95,24 @@ def test_output_properties_exist():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_properties",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -120,7 +122,9 @@ def test_output_properties_exist():
     halos, metadata = load_binary_halos(output_file)
 
     # Check that feedback field exists (SupernovaOutflowRate is the output property)
-    assert 'SupernovaOutflowRate' in halos.dtype.names, "Output should have SupernovaOutflowRate field"
+    assert (
+        "SupernovaOutflowRate" in halos.dtype.names
+    ), "Output should have SupernovaOutflowRate field"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Feedback properties exist in output{NC}")
@@ -133,24 +137,24 @@ def test_parameters_configurable():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_params",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 5.0,  # Custom value
-            'FeedbackEjectionEfficiency': 0.8,  # Custom value
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 5.0,  # Custom value
+            "FeedbackEjectionEfficiency": 0.8,  # Custom value
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -167,24 +171,24 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -203,24 +207,24 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_complete",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -244,24 +248,24 @@ def test_pipeline_with_star_formation():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_pipeline",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -271,8 +275,10 @@ def test_pipeline_with_star_formation():
     halos, metadata = load_binary_halos(output_file)
 
     # Both SF and feedback properties should exist
-    assert 'StarFormationRate' in halos.dtype.names, "Should have StarFormationRate from SF module"
-    assert 'SupernovaOutflowRate' in halos.dtype.names, "Should have SupernovaOutflowRate from feedback module"
+    assert "StarFormationRate" in halos.dtype.names, "Should have StarFormationRate from SF module"
+    assert (
+        "SupernovaOutflowRate" in halos.dtype.names
+    ), "Should have SupernovaOutflowRate from feedback module"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Integration with star formation module works{NC}")
@@ -282,6 +288,7 @@ def test_pipeline_with_star_formation():
 # PHYSICS VALIDATION TESTS
 # ============================================================================
 
+
 def test_feedback_values_nonnegative():
     """Test that feedback values are non-negative"""
     print(f"\n{BLUE}TEST: Feedback values are non-negative{NC}")
@@ -289,24 +296,24 @@ def test_feedback_values_nonnegative():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_nonnegative",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -316,7 +323,7 @@ def test_feedback_values_nonnegative():
     halos, metadata = load_binary_halos(output_file)
 
     # SupernovaOutflowRate should be non-negative
-    snfb = halos['SupernovaOutflowRate']
+    snfb = halos["SupernovaOutflowRate"]
     assert np.all(snfb >= 0.0), "SupernovaOutflowRate should be non-negative"
 
     # Note: We don't assert that values must be non-zero, as this depends on
@@ -334,24 +341,24 @@ def test_feedback_proportional_to_sf():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_proportional",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -360,15 +367,16 @@ def test_feedback_proportional_to_sf():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    sfr = halos['StarFormationRate']
-    snfb = halos['SupernovaOutflowRate']
+    sfr = halos["StarFormationRate"]
+    snfb = halos["SupernovaOutflowRate"]
 
     # Galaxies with star formation should have feedback
     has_sf = sfr > 0.0
     if np.any(has_sf):
         # All star-forming galaxies should have feedback
-        assert np.all(snfb[has_sf] > 0.0), \
-            "Galaxies with star formation should have supernova feedback"
+        assert np.all(
+            snfb[has_sf] > 0.0
+        ), "Galaxies with star formation should have supernova feedback"
         print(f"  Found {np.sum(has_sf)} star-forming galaxies with feedback")
     else:
         print(f"{YELLOW}  Note: No star-forming galaxies in test dataset (SF = 0 everywhere){NC}")
@@ -376,8 +384,9 @@ def test_feedback_proportional_to_sf():
     # Galaxies without star formation should have zero feedback
     no_sf = sfr == 0.0
     if np.any(no_sf):
-        assert np.all(snfb[no_sf] == 0.0), \
-            "Galaxies without star formation should have zero supernova feedback"
+        assert np.all(
+            snfb[no_sf] == 0.0
+        ), "Galaxies without star formation should have zero supernova feedback"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Feedback is proportional to star formation{NC}")
@@ -391,24 +400,24 @@ def test_feedback_reasonable_magnitude():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_magnitude",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,  # epsilon = 3
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,  # epsilon = 3
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -417,8 +426,8 @@ def test_feedback_reasonable_magnitude():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    sfr = halos['StarFormationRate']
-    snfb = halos['SupernovaOutflowRate']
+    sfr = halos["StarFormationRate"]
+    snfb = halos["SupernovaOutflowRate"]
 
     # For star-forming galaxies, feedback should be of similar order to SFR
     # (epsilon = 3 means reheated mass = 3 * SFR, plus possible ejection)
@@ -431,11 +440,16 @@ def test_feedback_reasonable_magnitude():
         # With epsilon=3, minimum feedback is 3x SFR (reheating only)
         # Maximum depends on ejection, but shouldn't be astronomically high
         assert np.all(feedback_ratio >= 0.0), "Feedback ratio should be non-negative"
-        assert np.all(feedback_ratio <= 100.0), \
-            f"Feedback ratio should be physically reasonable (<100x), got max={np.max(feedback_ratio):.2f}"
-        print(f"  Feedback ratio range: {np.min(feedback_ratio):.2f} - {np.max(feedback_ratio):.2f}")
+        assert np.all(
+            feedback_ratio <= 100.0
+        ), f"Feedback ratio should be physically reasonable (<100x), got max={np.max(feedback_ratio):.2f}"
+        print(
+            f"  Feedback ratio range: {np.min(feedback_ratio):.2f} - {np.max(feedback_ratio):.2f}"
+        )
     else:
-        print(f"{YELLOW}  Note: No star-forming galaxies in test dataset - skipping magnitude check{NC}")
+        print(
+            f"{YELLOW}  Note: No star-forming galaxies in test dataset - skipping magnitude check{NC}"
+        )
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Feedback has reasonable magnitude{NC}")
@@ -448,24 +462,24 @@ def test_edge_case_zero_efficiency():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_zero_efficiency",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 0.0,  # Zero reheating
-            'FeedbackEjectionEfficiency': 0.0,  # Zero ejection
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 0.0,  # Zero reheating
+            "FeedbackEjectionEfficiency": 0.0,  # Zero ejection
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -475,7 +489,7 @@ def test_edge_case_zero_efficiency():
     halos, metadata = load_binary_halos(output_file)
 
     # With zero efficiency, feedback should be zero (or very small due to ejection formula)
-    snfb = halos['SupernovaOutflowRate']
+    snfb = halos["SupernovaOutflowRate"]
     # Ejection formula has epsilon in subtraction, so could produce small positive values
     # but should be much smaller than with normal efficiency
     assert np.all(snfb >= 0.0), "Feedback should still be non-negative"
@@ -483,8 +497,9 @@ def test_edge_case_zero_efficiency():
     # Check that feedback is minimal - use a reasonable threshold
     # (test dataset may not have any SF, so max could legitimately be 0)
     max_feedback = np.max(snfb)
-    assert max_feedback < 10.0, \
-        f"With zero efficiency, feedback should be minimal, got max={max_feedback:.3e}"
+    assert (
+        max_feedback < 10.0
+    ), f"With zero efficiency, feedback should be minimal, got max={max_feedback:.3e}"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Edge case - zero feedback efficiency handled correctly{NC}")
@@ -497,24 +512,24 @@ def test_edge_case_very_high_efficiency():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="snfb_high_efficiency",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 50.0,  # Very high reheating
-            'FeedbackEjectionEfficiency': 10.0,  # Very high ejection
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 50.0,  # Very high reheating
+            "FeedbackEjectionEfficiency": 10.0,  # Very high ejection
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -524,7 +539,7 @@ def test_edge_case_very_high_efficiency():
     halos, metadata = load_binary_halos(output_file)
 
     # Should still produce valid output
-    snfb = halos['SupernovaOutflowRate']
+    snfb = halos["SupernovaOutflowRate"]
     assert np.all(snfb >= 0.0), "Feedback should be non-negative even with high efficiency"
     assert np.all(np.isfinite(snfb)), "Feedback should be finite (no NaN/Inf)"
 
@@ -540,24 +555,24 @@ def test_parameter_variation_effect():
     param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
         output_name="snfb_low_eff",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 1.0,  # Low
-            'FeedbackEjectionEfficiency': 0.1,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 1.0,  # Low
+            "FeedbackEjectionEfficiency": 0.1,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_low)
@@ -565,30 +580,30 @@ def test_parameter_variation_effect():
 
     output_file_low = output_dir_low / "model_z0.000_0"
     halos_low, _ = load_binary_halos(output_file_low)
-    snfb_low = halos_low['SupernovaOutflowRate']
+    snfb_low = halos_low["SupernovaOutflowRate"]
 
     # Run 2: High efficiency
     param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
         output_name="snfb_high_eff",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 5.0,  # High
-            'FeedbackEjectionEfficiency': 0.5,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 5.0,  # High
+            "FeedbackEjectionEfficiency": 0.5,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_high)
@@ -596,12 +611,12 @@ def test_parameter_variation_effect():
 
     output_file_high = output_dir_high / "model_z0.000_0"
     halos_high, _ = load_binary_halos(output_file_high)
-    snfb_high = halos_high['SupernovaOutflowRate']
+    snfb_high = halos_high["SupernovaOutflowRate"]
 
     # Higher efficiency should produce higher feedback (on average)
     # Compare mean feedback for star-forming galaxies
-    sfr_low = halos_low['StarFormationRate']
-    sfr_high = halos_high['StarFormationRate']
+    sfr_low = halos_low["StarFormationRate"]
+    sfr_high = halos_high["StarFormationRate"]
 
     has_sf_low = sfr_low > 0.0
     has_sf_high = sfr_high > 0.0
@@ -612,14 +627,21 @@ def test_parameter_variation_effect():
 
         # High efficiency should produce more feedback (if both are non-zero)
         if mean_snfb_low > 0 and mean_snfb_high > 0:
-            assert mean_snfb_high > mean_snfb_low, \
-                f"Higher efficiency should produce more feedback: " \
+            assert mean_snfb_high > mean_snfb_low, (
+                f"Higher efficiency should produce more feedback: "
                 f"low={mean_snfb_low:.3e}, high={mean_snfb_high:.3e}"
-            print(f"  Low efficiency mean: {mean_snfb_low:.3e}, High efficiency mean: {mean_snfb_high:.3e}")
+            )
+            print(
+                f"  Low efficiency mean: {mean_snfb_low:.3e}, High efficiency mean: {mean_snfb_high:.3e}"
+            )
         else:
-            print(f"{YELLOW}  Note: Insufficient feedback for comparison (one or both means are zero){NC}")
+            print(
+                f"{YELLOW}  Note: Insufficient feedback for comparison (one or both means are zero){NC}"
+            )
     else:
-        print(f"{YELLOW}  Note: No star-forming galaxies in test dataset - skipping parameter variation check{NC}")
+        print(
+            f"{YELLOW}  Note: No star-forming galaxies in test dataset - skipping parameter variation check{NC}"
+        )
 
     shutil.rmtree(temp_dir_low)
     shutil.rmtree(temp_dir_high)
@@ -629,6 +651,7 @@ def test_parameter_variation_effect():
 # ============================================================================
 # MAIN TEST RUNNER
 # ============================================================================
+
 
 def main():
     """Main test runner"""
@@ -673,5 +696,5 @@ def main():
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

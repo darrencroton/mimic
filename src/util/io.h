@@ -24,4 +24,4 @@ int copy_file(const char *source, const char *dest);
  */
 int ensure_directory_exists(const char *path);
 
-#endif  // UTIL_IO_H
+#endif // UTIL_IO_H

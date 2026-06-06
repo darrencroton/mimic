@@ -99,8 +99,7 @@ int test_fixture_init(void) {
  * @param   ngal    Number of halos in the array
  * @return  0 on success, -1 on error
  */
-int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos,
-                                 int ngal) {
+int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
   if (halos == NULL || ngal <= 0) {
     return 0; // Nothing to process
   }
@@ -111,8 +110,8 @@ int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos,
   if (ENABLE_LOGGING) {
     // Log detailed execution information for test validation
     INFO_LOG("TEST_FIXTURE_EXEC: count=%d ngal=%d substep=%d/%d substep_dt=%.6e z=%.4f",
-             execution_count, ngal, ctx->substep_number, ctx->num_substeps,
-             ctx->substep_dt, ctx->redshift);
+             execution_count, ngal, ctx->substep_number, ctx->num_substeps, ctx->substep_dt,
+             ctx->redshift);
     if (ctx->active_event != NULL) {
       INFO_LOG("TEST_FIXTURE_EVENT: producer_module_id=%d event_id=%d "
                "source=%d target=%d value0=%.6e value1=%.6e",

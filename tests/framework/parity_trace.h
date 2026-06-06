@@ -22,8 +22,7 @@ static inline void parity_trace_reset(struct ParityTrace *trace) {
   memset(trace, 0, sizeof(*trace));
 }
 
-static inline int parity_trace_append(struct ParityTrace *trace,
-                                      const char *fmt, ...) {
+static inline int parity_trace_append(struct ParityTrace *trace, const char *fmt, ...) {
   va_list args;
   int written;
 
@@ -32,8 +31,7 @@ static inline int parity_trace_append(struct ParityTrace *trace,
   }
 
   va_start(args, fmt);
-  written =
-      vsnprintf(trace->lines[trace->count], PARITY_TRACE_LINE_LEN, fmt, args);
+  written = vsnprintf(trace->lines[trace->count], PARITY_TRACE_LINE_LEN, fmt, args);
   va_end(args);
 
   if (written < 0 || written >= PARITY_TRACE_LINE_LEN) {
@@ -44,8 +42,7 @@ static inline int parity_trace_append(struct ParityTrace *trace,
   return 0;
 }
 
-static inline int parity_trace_equal(const struct ParityTrace *lhs,
-                                     const struct ParityTrace *rhs) {
+static inline int parity_trace_equal(const struct ParityTrace *lhs, const struct ParityTrace *rhs) {
   if (lhs == NULL || rhs == NULL || lhs->count != rhs->count) {
     return 0;
   }
@@ -59,8 +56,8 @@ static inline int parity_trace_equal(const struct ParityTrace *lhs,
   return 1;
 }
 
-static inline void parity_trace_render(const struct ParityTrace *trace,
-                                       char *buffer, size_t buffer_size) {
+static inline void parity_trace_render(const struct ParityTrace *trace, char *buffer,
+                                       size_t buffer_size) {
   size_t used = 0;
 
   if (buffer == NULL || buffer_size == 0) {
@@ -75,8 +72,7 @@ static inline void parity_trace_render(const struct ParityTrace *trace,
   }
 
   for (int i = 0; i < trace->count && used < buffer_size; i++) {
-    int written = snprintf(buffer + used, buffer_size - used, "%s%s",
-                           trace->lines[i],
+    int written = snprintf(buffer + used, buffer_size - used, "%s%s", trace->lines[i],
                            (i + 1 < trace->count) ? "\n" : "");
     if (written < 0) {
       buffer[0] = '\0';

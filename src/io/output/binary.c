@@ -33,7 +33,7 @@
 #include "proto.h"
 #include "util.h"
 #include "module_system/output_helpers.h"
-#include "module_system/physical_constants.h"  /* For SEC_PER_MEGAYEAR */
+#include "module_system/physical_constants.h" /* For SEC_PER_MEGAYEAR */
 
 // keep a static file handle to remove the need to do constant seeking.
 FILE *save_fd[ABSOLUTEMAXSNAPS] = {0};
@@ -73,8 +73,8 @@ void save_halos(int filenr, int tree) {
     // only open the file if it is not already open.
     if (!save_fd[n]) {
       snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-               MimicConfig.OutputFileBaseName,
-               MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]], filenr);
+               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]],
+               filenr);
 
       /* Open in binary mode with update permissions */
       save_fd[n] = fopen(buf, "wb+");
@@ -89,9 +89,8 @@ void save_halos(int filenr, int tree) {
 
       /* Write out placeholders for the header data */
       size_t size =
-          (Ntrees + 2) *
-          sizeof(int); /* Extra two integers are for saving the total number of
-                          trees and total number of objects in this file */
+          (Ntrees + 2) * sizeof(int); /* Extra two integers are for saving the total number of
+                                         trees and total number of objects in this file */
       int *tmp_buf = (int *)mymalloc_cat(size, MEM_IO);
 
       memset(tmp_buf, 0, size);
@@ -99,10 +98,9 @@ void save_halos(int filenr, int tree) {
       /* Write header data (will be flushed on close) */
       nwritten = fwrite(tmp_buf, sizeof(int), Ntrees + 2, save_fd[n]);
       if (nwritten != Ntrees + 2) {
-        ERROR_LOG(
-            "Failed to write header information to output file %d. Expected %d "
-            "elements, wrote %d elements. Will retry after output is complete",
-            n, Ntrees + 2, nwritten);
+        ERROR_LOG("Failed to write header information to output file %d. Expected %d "
+                  "elements, wrote %d elements. Will retry after output is complete",
+                  n, Ntrees + 2, nwritten);
       }
 
       /* Make sure data is actually written to disk */
@@ -135,7 +133,6 @@ void save_halos(int filenr, int tree) {
       }
     }
   }
-
 }
 
 /**
@@ -175,17 +172,13 @@ void finalize_halo_file(int filenr) {
     // Write the total number of trees (first header field)
     nwritten = fwrite(&Ntrees, sizeof(int), 1, save_fd[n]);
     if (nwritten != 1) {
-      FATAL_ERROR(
-          "Failed to write number of trees to header of file %d (filenr %d)", n,
-          filenr);
+      FATAL_ERROR("Failed to write number of trees to header of file %d (filenr %d)", n, filenr);
     }
 
     // Write the total number of objects (second header field)
     nwritten = fwrite(&TotHalosPerSnap[n], sizeof(int), 1, save_fd[n]);
     if (nwritten != 1) {
-      FATAL_ERROR(
-          "Failed to write total halo count to header of file %d (filenr %d)",
-          n, filenr);
+      FATAL_ERROR("Failed to write total halo count to header of file %d (filenr %d)", n, filenr);
     }
 
     // Write objects per tree (array of integers)

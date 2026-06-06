@@ -34,73 +34,74 @@ static int passed = 0;
 static int failed = 0;
 
 static void setup_workspace(struct Halo *workspace, struct GalaxyData *galaxy) {
-    memset(workspace, 0, sizeof(struct Halo));
-    memset(galaxy, 0, sizeof(struct GalaxyData));
-    FoFWorkspace = workspace;
-    FoFWorkspace[0].galaxy = galaxy;
+  memset(workspace, 0, sizeof(struct Halo));
+  memset(galaxy, 0, sizeof(struct GalaxyData));
+  FoFWorkspace = workspace;
+  FoFWorkspace[0].galaxy = galaxy;
 }
 
 int test_generated_metadata_available(void) {
-    init_memory_system(0);
+  init_memory_system(0);
 
-    TEST_ASSERT(GENERATED_GALAXY_PROPERTY_COUNT > 0,
-                "Selected model should have generated galaxy properties");
-    TEST_ASSERT(GENERATED_DEFAULT_GALAXY_PROPERTY_COUNT > 0,
-                "Selected model should have generated default-initialized galaxy properties");
-    TEST_ASSERT(GENERATED_INIT_REPEAT_PROPERTY_COUNT >= 0,
-                "Generated init_repeat property count should be available");
+  TEST_ASSERT(GENERATED_GALAXY_PROPERTY_COUNT > 0,
+              "Selected model should have generated galaxy properties");
+  TEST_ASSERT(GENERATED_DEFAULT_GALAXY_PROPERTY_COUNT > 0,
+              "Selected model should have generated default-initialized galaxy properties");
+  TEST_ASSERT(GENERATED_INIT_REPEAT_PROPERTY_COUNT >= 0,
+              "Generated init_repeat property count should be available");
 
-    printf("  generated galaxy properties: %d\n", GENERATED_GALAXY_PROPERTY_COUNT);
-    printf("  generated default-initialized galaxy properties: %d\n",
-           GENERATED_DEFAULT_GALAXY_PROPERTY_COUNT);
-    printf("  generated init_repeat properties: %d\n", GENERATED_INIT_REPEAT_PROPERTY_COUNT);
+  printf("  generated galaxy properties: %d\n", GENERATED_GALAXY_PROPERTY_COUNT);
+  printf("  generated default-initialized galaxy properties: %d\n",
+         GENERATED_DEFAULT_GALAXY_PROPERTY_COUNT);
+  printf("  generated init_repeat properties: %d\n", GENERATED_INIT_REPEAT_PROPERTY_COUNT);
 
-    check_memory_leaks();
-    return TEST_PASS;
+  check_memory_leaks();
+  return TEST_PASS;
 }
 
 int test_generated_init_code_executes(void) {
-    init_memory_system(0);
+  init_memory_system(0);
 
-    struct Halo workspace[1];
-    struct GalaxyData galaxy;
-    setup_workspace(workspace, &galaxy);
+  struct Halo workspace[1];
+  struct GalaxyData galaxy;
+  setup_workspace(workspace, &galaxy);
 
-    generated_test_seed_default_galaxy_properties(&galaxy);
-    TEST_ASSERT(!generated_test_default_galaxy_properties_equal_init(&galaxy),
-                "Generated seed helper should move default galaxy properties away from init values");
+  generated_test_seed_default_galaxy_properties(&galaxy);
+  TEST_ASSERT(!generated_test_default_galaxy_properties_equal_init(&galaxy),
+              "Generated seed helper should move default galaxy properties away from init values");
 
-    init_galaxy_defaults(&galaxy);
+  init_galaxy_defaults(&galaxy);
 
-    TEST_ASSERT(generated_test_default_galaxy_properties_equal_init(&galaxy),
-                "init_galaxy_defaults() should initialize all default galaxy properties");
+  TEST_ASSERT(generated_test_default_galaxy_properties_equal_init(&galaxy),
+              "init_galaxy_defaults() should initialize all default galaxy properties");
 
-    check_memory_leaks();
-    return TEST_PASS;
+  check_memory_leaks();
+  return TEST_PASS;
 }
 
 int test_generated_reset_code_executes(void) {
-    init_memory_system(0);
+  init_memory_system(0);
 
-    struct Halo workspace[1];
-    struct GalaxyData galaxy;
-    setup_workspace(workspace, &galaxy);
+  struct Halo workspace[1];
+  struct GalaxyData galaxy;
+  setup_workspace(workspace, &galaxy);
 
-    init_galaxy_defaults(&galaxy);
+  init_galaxy_defaults(&galaxy);
 
-    generated_test_seed_init_repeat_properties(&galaxy);
-    if (GENERATED_INIT_REPEAT_PROPERTY_COUNT > 0) {
-        TEST_ASSERT(!generated_test_init_repeat_properties_equal_init(&galaxy),
-                    "Generated seed helper should move init_repeat properties away from init values");
-    }
+  generated_test_seed_init_repeat_properties(&galaxy);
+  if (GENERATED_INIT_REPEAT_PROPERTY_COUNT > 0) {
+    TEST_ASSERT(!generated_test_init_repeat_properties_equal_init(&galaxy),
+                "Generated seed helper should move init_repeat properties away from init values");
+  }
 
-    reset_galaxy_snapshot_accumulators(&galaxy);
+  reset_galaxy_snapshot_accumulators(&galaxy);
 
-    TEST_ASSERT(generated_test_init_repeat_properties_equal_init(&galaxy),
-                "reset_galaxy_snapshot_accumulators() should restore init_repeat properties to init values");
+  TEST_ASSERT(
+      generated_test_init_repeat_properties_equal_init(&galaxy),
+      "reset_galaxy_snapshot_accumulators() should restore init_repeat properties to init values");
 
-    check_memory_leaks();
-    return TEST_PASS;
+  check_memory_leaks();
+  return TEST_PASS;
 }
 
 /* ========================================================================== */
@@ -113,21 +114,21 @@ int test_generated_reset_code_executes(void) {
  * Executes all test cases and reports results.
  */
 int main(void) {
-    printf("%s", BLUE);
-    printf("============================================================\n");
-    printf("Test Suite: Property Reset System\n");
-    printf("============================================================\n");
-    printf("%s\n", NC);
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: Property Reset System\n");
+  printf("============================================================\n");
+  printf("%s\n", NC);
 
-    /* Initialize error handling for tests */
-    initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
+  /* Initialize error handling for tests */
+  initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
 
-    /* Run all tests */
-    TEST_RUN(test_generated_metadata_available);
-    TEST_RUN(test_generated_init_code_executes);
-    TEST_RUN(test_generated_reset_code_executes);
+  /* Run all tests */
+  TEST_RUN(test_generated_metadata_available);
+  TEST_RUN(test_generated_init_code_executes);
+  TEST_RUN(test_generated_reset_code_executes);
 
-    /* Print summary and return result */
-    TEST_SUMMARY();
-    return TEST_RESULT();
+  /* Print summary and return result */
+  TEST_SUMMARY();
+  return TEST_RESULT();
 }

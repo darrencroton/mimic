@@ -107,8 +107,7 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
     HaloAux[fofhalo].HaloFlag = 2;
 
     int nsegments = count_fof_subhalos(fofhalo);
-    struct OutputBufferSegment *segments =
-        ensure_output_segment_scratch(nsegments);
+    struct OutputBufferSegment *segments = ensure_output_segment_scratch(nsegments);
     int segment_index = 0;
 
     while (fofhalo >= 0) {
@@ -126,15 +125,13 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
        * longer needs to know about this field. See
        * docs/dev/CENTRALMVIR-SEMANTICS.md.
        */
-      float central_mvir = (float)get_virial_mass(
-          InputTreeHalos[source_halo].FirstHaloInFOFgroup);
+      float central_mvir = (float)get_virial_mass(InputTreeHalos[source_halo].FirstHaloInFOFgroup);
       for (int p = workspace_start; p < ngal; p++) {
         FoFWorkspace[p].CentralMvir = central_mvir;
       }
 
       segments[segment_index].source_id = source_halo;
-      segments[segment_index].snapshot_number =
-          InputTreeHalos[source_halo].SnapNum;
+      segments[segment_index].snapshot_number = InputTreeHalos[source_halo].SnapNum;
       segments[segment_index].workspace_start = workspace_start;
       segments[segment_index].workspace_count = ngal - workspace_start;
       segments[segment_index].output_first = -1;
@@ -147,10 +144,8 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
     /* Tree driver: run physics, then marshal the workspace to output. */
     process_halo_evolution(InputTreeHalos[halonr].FirstHaloInFOFgroup, ngal);
 
-    struct OutputBuffer output_buffer = {ProcessedHalos, NumProcessedHalos,
-                                         MaxProcessedHalos};
-    marshal_workspace_to_output_buffer(FoFWorkspace, &output_buffer, segments,
-                                       segment_index);
+    struct OutputBuffer output_buffer = {ProcessedHalos, NumProcessedHalos, MaxProcessedHalos};
+    marshal_workspace_to_output_buffer(FoFWorkspace, &output_buffer, segments, segment_index);
     NumProcessedHalos = output_buffer.count;
 
     for (int i = 0; i < segment_index; i++) {
@@ -198,8 +193,7 @@ int find_most_massive_progenitor(int halonr) {
       lenmax = InputTreeHalos[prog].Len;
       /* mother_halo = prog; */
     }
-    if (lenoccmax != -1 && InputTreeHalos[prog].Len > lenoccmax &&
-        HaloAux[prog].NHalos > 0) {
+    if (lenoccmax != -1 && InputTreeHalos[prog].Len > lenoccmax && HaloAux[prog].NHalos > 0) {
       lenoccmax = InputTreeHalos[prog].Len;
       first_occupied = prog;
     }
@@ -258,25 +252,20 @@ static void ensure_fof_workspace_capacity(int required) {
       new_size = MAX_HALO_ARRAY_SIZE;
 
     if (new_size <= MaxFoFWorkspace) {
-      FATAL_ERROR(
-          "FoF workspace requires %d halos but maximum allowed size is %d",
-          required, MAX_HALO_ARRAY_SIZE);
+      FATAL_ERROR("FoF workspace requires %d halos but maximum allowed size is %d", required,
+                  MAX_HALO_ARRAY_SIZE);
     }
 
-    INFO_LOG("Growing halo array from %d to %d elements", MaxFoFWorkspace,
-             new_size);
+    INFO_LOG("Growing halo array from %d to %d elements", MaxFoFWorkspace, new_size);
 
     MaxFoFWorkspace = new_size;
-    FoFWorkspace =
-        myrealloc(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
-    memset(&FoFWorkspace[old_size], 0,
-           (new_size - old_size) * sizeof(struct Halo));
+    FoFWorkspace = myrealloc(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
+    memset(&FoFWorkspace[old_size], 0, (new_size - old_size) * sizeof(struct Halo));
   }
 }
 
 static long long make_unique_galaxy_id(int halonr, int tree, int filenr) {
-  long long file_mul_fac =
-      (MimicConfig.LastFile >= 10000) ? (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
+  long long file_mul_fac = (MimicConfig.LastFile >= 10000) ? (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
   long long tree_mul = TREE_MUL_FAC * tree;
   long long file_mul = file_mul_fac * filenr;
 
@@ -310,12 +299,10 @@ static int ProgenitorScratchCapacity = 0;
 static struct OutputBufferSegment *OutputSegmentScratch = NULL;
 static int OutputSegmentScratchCapacity = 0;
 
-static struct InheritanceProgenitorGalaxy *
-ensure_progenitor_scratch(int required) {
+static struct InheritanceProgenitorGalaxy *ensure_progenitor_scratch(int required) {
   if (required > ProgenitorScratchCapacity) {
     ProgenitorScratch = myrealloc_cat(
-        ProgenitorScratch,
-        required * sizeof(struct InheritanceProgenitorGalaxy), MEM_HALOS);
+        ProgenitorScratch, required * sizeof(struct InheritanceProgenitorGalaxy), MEM_HALOS);
     ProgenitorScratchCapacity = required;
   }
   return ProgenitorScratch;
@@ -335,9 +322,8 @@ static int count_fof_subhalos(int first_fof_halo) {
 
 static struct OutputBufferSegment *ensure_output_segment_scratch(int required) {
   if (required > OutputSegmentScratchCapacity) {
-    OutputSegmentScratch =
-        myrealloc_cat(OutputSegmentScratch,
-                      required * sizeof(struct OutputBufferSegment), MEM_HALOS);
+    OutputSegmentScratch = myrealloc_cat(OutputSegmentScratch,
+                                         required * sizeof(struct OutputBufferSegment), MEM_HALOS);
     OutputSegmentScratchCapacity = required;
   }
   return OutputSegmentScratch;
@@ -356,9 +342,8 @@ void free_tree_driver_scratch(void) {
   }
 }
 
-static void
-gather_progenitor_galaxies(int halonr, int first_occupied,
-                           struct InheritanceProgenitorGalaxy *progenitors) {
+static void gather_progenitor_galaxies(int halonr, int first_occupied,
+                                       struct InheritanceProgenitorGalaxy *progenitors) {
   int index = 0;
   int prog = InputTreeHalos[halonr].FirstProgenitor;
 
@@ -408,8 +393,7 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
 
   nprogenitors = count_progenitor_galaxies(halonr);
   required = ngalstart + nprogenitors;
-  if (nprogenitors == 0 &&
-      halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
+  if (nprogenitors == 0 && halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
     required++;
   }
   ensure_fof_workspace_capacity(required);
@@ -426,18 +410,16 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
   descendant.halo_nr = halonr;
   descendant.current_snap = current_snap;
   descendant.current_time = Age[current_snap];
-  descendant.new_halo_dt =
-      (current_snap > 0) ? Age[current_snap - 1] - Age[current_snap] : -1.0;
+  descendant.new_halo_dt = (current_snap > 0) ? Age[current_snap - 1] - Age[current_snap] : -1.0;
   descendant.virial_mass = virial_mass;
   descendant.virial_radius = virial_radius;
   descendant.virial_velocity = virial_velocity;
-  descendant.is_fof_central =
-      (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup);
+  descendant.is_fof_central = (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup);
   descendant.unique_galaxy_id = make_unique_galaxy_id(halonr, tree, filenr);
   descendant.halo_payload = make_halo_init_payload(halonr);
 
-  ngal = inherit_descendant_halos(FoFWorkspace, ngalstart, MaxFoFWorkspace,
-                                  &descendant, progenitors, nprogenitors);
+  ngal = inherit_descendant_halos(FoFWorkspace, ngalstart, MaxFoFWorkspace, &descendant,
+                                  progenitors, nprogenitors);
 
   return ngal;
 }
@@ -449,8 +431,7 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
  * @param   halonr       Index of main halo in InputTreeHalos
  * @param   centralgal   Index of central galaxy in FoFWorkspace
  */
-static void setup_module_context(struct ModuleContext *ctx, int halonr,
-                                 int centralgal) {
+static void setup_module_context(struct ModuleContext *ctx, int halonr, int centralgal) {
   int snap = InputTreeHalos[halonr].SnapNum;
 
   /* Snapshot information */
@@ -480,8 +461,7 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr,
   /* Initialize substep information (updated in substep loop) */
   ctx->substep_number = 0;
   ctx->substep_time = ctx->time;
-  ctx->substep_dt =
-      (ctx->num_substeps > 0) ? (ctx->time_interval / ctx->num_substeps) : 0.0;
+  ctx->substep_dt = (ctx->num_substeps > 0) ? (ctx->time_interval / ctx->num_substeps) : 0.0;
 }
 
 /**
@@ -513,8 +493,7 @@ void process_halo_evolution(int halonr, int ngal) {
   }
 
   if (centralgal == -1) {
-    ERROR_LOG("FATAL: No Type 0 central found for FOF halo %d (ngal=%d)",
-              halonr, ngal);
+    ERROR_LOG("FATAL: No Type 0 central found for FOF halo %d (ngal=%d)", halonr, ngal);
     assert(centralgal != -1);
   }
 
@@ -522,8 +501,7 @@ void process_halo_evolution(int halonr, int ngal) {
 
   /* Set FOF-host central unique ID for all members (stable output contract). */
   for (i = 0; i < ngal; i++) {
-    FoFWorkspace[i].UniqueCentralGalaxyID =
-        FoFWorkspace[centralgal].UniqueGalaxyID;
+    FoFWorkspace[i].UniqueCentralGalaxyID = FoFWorkspace[centralgal].UniqueGalaxyID;
   }
 
   /* Setup module execution context */

@@ -25,10 +25,11 @@ Author: Mimic Development Team
 Date: 2025-12-17 (Refactored)
 """
 
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Add tests directory to path to import framework
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
@@ -37,16 +38,16 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
     MIMIC_EXE,
     create_test_param_file,
-    run_mimic,
     load_binary_halos,
+    run_mimic,
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def test_module_loads():
@@ -63,24 +64,26 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_load",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_reionization", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Mimic should execute successfully with sage_reionization\nStderr: {stderr}"
+    assert (
+        returncode == 0
+    ), f"Mimic should execute successfully with sage_reionization\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE reionization module initialized" in stdout, \
-        "sage_reionization should log initialization message"
+    assert (
+        "SAGE reionization module initialized" in stdout
+    ), "sage_reionization should log initialization message"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -101,12 +104,12 @@ def test_output_properties_exist():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_output",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_reionization", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -122,8 +125,9 @@ def test_output_properties_exist():
     assert len(halos) > 0, "Should have halos in output"
 
     # Check output property exists
-    assert 'HaloBaryonFraction' in halos.dtype.names, \
-        "HaloBaryonFraction property should exist in output"
+    assert (
+        "HaloBaryonFraction" in halos.dtype.names
+    ), "HaloBaryonFraction property should exist in output"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -145,12 +149,12 @@ def test_parameters_configurable():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_params",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_reionization", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.20}
+        model_params={"GlobalBaryonFraction": 0.20},
     )
 
     # ===== EXECUTE =====
@@ -165,9 +169,10 @@ def test_parameters_configurable():
 
     # With GlobalBaryonFraction = 0.20, HaloBaryonFraction should be <= 0.20
     # (can be less due to reionization suppression)
-    halos_with_mass = halos[halos['Mvir'] > 0]
-    assert (halos_with_mass['HaloBaryonFraction'] <= 0.20).all(), \
-        "HaloBaryonFraction should be <= custom GlobalBaryonFraction"
+    halos_with_mass = halos[halos["Mvir"] > 0]
+    assert (
+        halos_with_mass["HaloBaryonFraction"] <= 0.20
+    ).all(), "HaloBaryonFraction should be <= custom GlobalBaryonFraction"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -188,12 +193,12 @@ def test_property_values_physical():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_physical",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_reionization", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -205,16 +210,17 @@ def test_property_values_physical():
     halos, metadata = load_binary_halos(output_file)
 
     # Check property is physical (0 <= value <= 0.17 for all halos)
-    assert (halos['HaloBaryonFraction'] >= 0).all(), \
-        "HaloBaryonFraction should be >= 0"
-    assert (halos['HaloBaryonFraction'] <= 0.17).all(), \
-        "HaloBaryonFraction should be <= GlobalBaryonFraction"
+    assert (halos["HaloBaryonFraction"] >= 0).all(), "HaloBaryonFraction should be >= 0"
+    assert (
+        halos["HaloBaryonFraction"] <= 0.17
+    ).all(), "HaloBaryonFraction should be <= GlobalBaryonFraction"
 
     # Check property is set for halos with mass (Mvir > 0)
     # Orphans with Mvir=0 legitimately have HaloBaryonFraction=0
-    halos_with_mass = halos[halos['Mvir'] > 0]
-    assert (halos_with_mass['HaloBaryonFraction'] > 0).all(), \
-        "HaloBaryonFraction should be > 0 for halos with mass"
+    halos_with_mass = halos[halos["Mvir"] > 0]
+    assert (
+        halos_with_mass["HaloBaryonFraction"] > 0
+    ).all(), "HaloBaryonFraction should be > 0 for halos with mass"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -236,12 +242,12 @@ def test_mass_dependence():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_mass_dep",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_reionization", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -253,7 +259,7 @@ def test_mass_dependence():
     halos, metadata = load_binary_halos(output_file)
 
     # Filter halos with mass and Type 0 (centrals only - they have reionization suppression)
-    centrals = halos[(halos['Mvir'] > 0) & (halos['Type'] == 0)]
+    centrals = halos[(halos["Mvir"] > 0) & (halos["Type"] == 0)]
 
     if len(centrals) == 0:
         print(f"{YELLOW}  ⚠ No Type 0 centrals found, skipping mass-dependence test{NC}")
@@ -261,32 +267,38 @@ def test_mass_dependence():
         return
 
     # Bin halos by mass (use quartiles)
-    mvir_sorted = np.sort(centrals['Mvir'])
+    mvir_sorted = np.sort(centrals["Mvir"])
     n = len(mvir_sorted)
 
     # Define mass bins (low, mid, high)
     low_mass_threshold = mvir_sorted[n // 3]
     high_mass_threshold = mvir_sorted[2 * n // 3]
 
-    low_mass = centrals[centrals['Mvir'] <= low_mass_threshold]
-    high_mass = centrals[centrals['Mvir'] >= high_mass_threshold]
+    low_mass = centrals[centrals["Mvir"] <= low_mass_threshold]
+    high_mass = centrals[centrals["Mvir"] >= high_mass_threshold]
 
     # Calculate mean HaloBaryonFraction in each bin
-    mean_low = np.mean(low_mass['HaloBaryonFraction'])
-    mean_high = np.mean(high_mass['HaloBaryonFraction'])
+    mean_low = np.mean(low_mass["HaloBaryonFraction"])
+    mean_high = np.mean(high_mass["HaloBaryonFraction"])
 
-    print(f"  Low-mass halos (Mvir <= {low_mass_threshold:.2e}): mean HaloBaryonFraction = {mean_low:.4f}")
-    print(f"  High-mass halos (Mvir >= {high_mass_threshold:.2e}): mean HaloBaryonFraction = {mean_high:.4f}")
+    print(
+        f"  Low-mass halos (Mvir <= {low_mass_threshold:.2e}): mean HaloBaryonFraction = {mean_low:.4f}"
+    )
+    print(
+        f"  High-mass halos (Mvir >= {high_mass_threshold:.2e}): mean HaloBaryonFraction = {mean_high:.4f}"
+    )
 
     # Low-mass halos should be more suppressed (lower HaloBaryonFraction)
-    assert mean_low < mean_high, \
-        f"Low-mass halos should have lower HaloBaryonFraction than high-mass halos " \
+    assert mean_low < mean_high, (
+        f"Low-mass halos should have lower HaloBaryonFraction than high-mass halos "
         f"(got {mean_low:.4f} vs {mean_high:.4f})"
+    )
 
     # The difference should be non-trivial (at least 5% relative difference)
     relative_diff = (mean_high - mean_low) / mean_high
-    assert relative_diff > 0.05, \
-        f"Mass-dependence should be non-trivial (relative difference = {relative_diff:.3f}, expected > 0.05)"
+    assert (
+        relative_diff > 0.05
+    ), f"Mass-dependence should be non-trivial (relative difference = {relative_diff:.3f}, expected > 0.05)"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -308,12 +320,12 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_memory",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_reionization", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -321,10 +333,8 @@ def test_memory_safety():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Execution should succeed"
-    assert "Memory leak detected" not in stdout, \
-        "Should not have memory leaks"
-    assert "Memory leak detected" not in stderr, \
-        "Should not have memory leaks in stderr"
+    assert "Memory leak detected" not in stdout, "Should not have memory leaks"
+    assert "Memory leak detected" not in stderr, "Should not have memory leaks in stderr"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -345,14 +355,14 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_reionization_complete",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_reionization", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17},
+        model_params={"GlobalBaryonFraction": 0.17},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -360,10 +370,8 @@ def test_execution_completes():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Pipeline should complete successfully"
-    assert "SAGE reionization module initialized" in stdout, \
-        "Module initialization message"
-    assert "SAGE reionization module cleaned up" in stdout, \
-        "Module cleanup message"
+    assert "SAGE reionization module initialized" in stdout, "Module initialization message"
+    assert "SAGE reionization module cleaned up" in stdout, "Module cleanup message"
 
     # Cleanup
     shutil.rmtree(temp_dir)

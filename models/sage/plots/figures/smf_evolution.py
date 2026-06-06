@@ -56,8 +56,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     success, optional, msg = check_required_fields(
         galaxies_sample,
-        required_fields=['StellarMass'],
-        plot_name='Stellar Mass Function Evolution'
+        required_fields=["StellarMass"],
+        plot_name="Stellar Mass Function Evolution",
     )
 
     if not success:
@@ -65,7 +65,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Field-level validation: Check if StellarMass has any non-zero values
     has_mass, count, msg = check_field_has_values(
-        galaxies_sample.StellarMass, 'StellarMass', threshold=0.0
+        galaxies_sample.StellarMass, "StellarMass", threshold=0.0
     )
     if not has_mass:
         return None, f"Field validation failed: {msg}"
@@ -113,7 +113,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             if abs(closest[3]["redshift"] - target_z) <= tolerance:
                 target_snapshots.append(closest)
                 if verbose:
-                    warn(f"Target z={target_z:.1f}: Using snapshot with z={closest[3]['redshift']:.3f}")
+                    warn(
+                        f"Target z={target_z:.1f}: Using snapshot with z={closest[3]['redshift']:.3f}"
+                    )
         elif verbose:
             warn(f"Target z={target_z:.1f}: No suitable snapshot found")
 
@@ -270,9 +272,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         xaxis = binedges[:-1] + 0.5 * binwidth
 
         # Plot the histogram
-        ax.plot(
-            xaxis, counts / volume * hubble_h**3 / binwidth, color=color, linestyle="-", lw=2
-        )
+        ax.plot(xaxis, counts / volume * hubble_h**3 / binwidth, color=color, linestyle="-", lw=2)
 
         # Store redshift values for labels in the top right corner
         if i == 0:
@@ -291,7 +291,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.set_xlabel(get_stellar_mass_label(), fontsize=AXIS_LABEL_SIZE)
 
     # Add redshift labels in the top right corner
-    if 'redshift_labels' in locals():
+    if "redshift_labels" in locals():
         # Sort labels by redshift
         redshift_labels.sort(key=lambda x: x[0])
         # Position for the first label
@@ -304,8 +304,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
                 f"z = {z:.1f}",
                 color=color,
                 fontsize=IN_FIGURE_TEXT_SIZE,
-                ha='right',
-                va='top'
+                ha="right",
+                va="top",
             )
             # Move down for the next label
             y_pos *= 0.6  # Reduces y-position by 40% each time (works well with log scale)
@@ -314,5 +314,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     setup_legend(ax, loc="lower left")
 
     # Save and close the figure
-    plot_path = save_and_close_figure(fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose)
+    plot_path = save_and_close_figure(
+        fig, output_dir, "StellarMassFunction_Evolution", output_format, verbose
+    )
     return plot_path, None

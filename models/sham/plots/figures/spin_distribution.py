@@ -15,14 +15,14 @@ from figures import (
     setup_legend,
     setup_plot_fonts,
 )
-from matplotlib.ticker import MultipleLocator, MaxNLocator
+from matplotlib.ticker import MaxNLocator, MultipleLocator
 from output_utils import (
-    warn,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_filtered_data,
     save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -56,9 +56,7 @@ def plot(
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
-        galaxies,
-        required_fields=['Spin', 'Rvir', 'Vvir'],
-        plot_name='Spin Distribution'
+        galaxies, required_fields=["Spin", "Rvir", "Vvir"], plot_name="Spin Distribution"
     )
 
     if not success:
@@ -68,12 +66,7 @@ def plot(
     valid_galaxies = np.where(
         (galaxies.Vvir > 0.0)
         & (galaxies.Rvir > 0.0)
-        & (
-            galaxies.Spin[:, 0] ** 2
-            + galaxies.Spin[:, 1] ** 2
-            + galaxies.Spin[:, 2] ** 2
-            > 0.0
-        )
+        & (galaxies.Spin[:, 0] ** 2 + galaxies.Spin[:, 1] ** 2 + galaxies.Spin[:, 2] ** 2 > 0.0)
     )[0]
 
     # Validate filtered data
@@ -100,7 +93,9 @@ def plot(
     )[0]
 
     # Second validation: check if we have valid spin parameter values
-    is_valid, skip_msg = validate_filtered_data(valid_spins, "Spin Distribution (valid parameters)", verbose)
+    is_valid, skip_msg = validate_filtered_data(
+        valid_spins, "Spin Distribution (valid parameters)", verbose
+    )
     if not is_valid:
         return None, skip_msg
 
@@ -113,9 +108,7 @@ def plot(
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"  Number of galaxies with valid spin: {len(spin_parameter)}")
-        print(
-            f"  Spin parameter range: {min(spin_parameter):.4f} to {max(spin_parameter):.4f}"
-        )
+        print(f"  Spin parameter range: {min(spin_parameter):.4f} to {max(spin_parameter):.4f}")
         print(f"  Mean spin parameter: {np.mean(spin_parameter):.4f}")
         print(f"  Median spin parameter: {np.median(spin_parameter):.4f}")
 
@@ -125,9 +118,7 @@ def plot(
     bin_width = 0.01
     bins = int((bin_max - bin_min) / bin_width)
 
-    counts, bin_edges = np.histogram(
-        spin_parameter, range=(bin_min, bin_max), bins=bins
-    )
+    counts, bin_edges = np.histogram(spin_parameter, range=(bin_min, bin_max), bins=bins)
     bin_centers = bin_edges[:-1] + bin_width / 2
 
     # Plot the histogram

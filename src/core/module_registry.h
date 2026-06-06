@@ -49,7 +49,7 @@
  * This creates three PhaseModuleConfig entries for the named substep phase.
  */
 struct PhaseModuleConfig {
-  char *module_name;                  /**< Module name (must match registered module) */
+  char *module_name;                   /**< Module name (must match registered module) */
   enum ProcessingMode processing_mode; /**< How to call module */
 };
 
@@ -142,8 +142,7 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
  * @param   halos   Array of halos to evolve (e.g. FoFWorkspace)
  * @param   ngal    Number of halos in the array
  */
-void execute_module_pipeline(struct ModuleContext *ctx, struct Halo *halos,
-                             int ngal);
+void execute_module_pipeline(struct ModuleContext *ctx, struct Halo *halos, int ngal);
 
 /**
  * @brief   Cleanup the module system
@@ -233,8 +232,7 @@ int model_get_string(const char *param_name, char *out_value, size_t max_len);
  * @param   mode         Processing mode to match
  * @return  true if the module is present in the phase with the given mode
  */
-bool module_configured_in_phase(const char *name,
-                                const struct PhaseModuleConfig *phase,
+bool module_configured_in_phase(const char *name, const struct PhaseModuleConfig *phase,
                                 int num_modules, enum ProcessingMode mode);
 
 /**
@@ -264,12 +262,9 @@ bool module_configured_anywhere(const char *name);
  * @param   event_id          Generated numeric event ID
  * @param   userdata          Caller-supplied context pointer
  */
-typedef void (*EventContractCallback)(const char *phase,
-                                      const char *consumer_module,
-                                      const char *producer_module,
-                                      const char *event_name,
-                                      int event_id,
-                                      void *userdata);
+typedef void (*EventContractCallback)(const char *phase, const char *consumer_module,
+                                      const char *producer_module, const char *event_name,
+                                      int event_id, void *userdata);
 
 /**
  * @brief   Enumerate all resolved event contracts
@@ -283,8 +278,7 @@ typedef void (*EventContractCallback)(const char *phase,
  * @param   cb        Callback function called for each contract (may be NULL)
  * @param   userdata  Caller-supplied pointer passed to each callback invocation
  */
-void module_system_enumerate_event_contracts(EventContractCallback cb,
-                                             void *userdata);
+void module_system_enumerate_event_contracts(EventContractCallback cb, void *userdata);
 
 /**
  * @brief   Check if 'first' appears before 'second' in a phase array
@@ -299,8 +293,7 @@ void module_system_enumerate_event_contracts(EventContractCallback cb,
  * @return  true if first precedes second; false if either is absent or order is wrong
  */
 bool module_precedes_in_phase(const char *first, const char *second,
-                              const struct PhaseModuleConfig *phase,
-                              int num_modules);
+                              const struct PhaseModuleConfig *phase, int num_modules);
 
 /* ==============================================================================
  * SUBSTEP-PHASE DEPENDENCY API (phase-name-agnostic)
@@ -330,8 +323,8 @@ bool module_in_substep_phase(const char *name, enum ProcessingMode mode);
  *
  * @return  true if some single substep phase contains both pairings
  */
-bool modules_in_same_substep_phase(const char *a, enum ProcessingMode mode_a,
-                                   const char *b, enum ProcessingMode mode_b);
+bool modules_in_same_substep_phase(const char *a, enum ProcessingMode mode_a, const char *b,
+                                   enum ProcessingMode mode_b);
 
 /**
  * @brief   Does (first, first_mode) precede (second, second_mode) within the
@@ -342,9 +335,7 @@ bool modules_in_same_substep_phase(const char *a, enum ProcessingMode mode_a,
  *
  * @return  true if first precedes second within a shared substep phase
  */
-bool module_precedes_in_substep_phase(const char *first,
-                                      enum ProcessingMode first_mode,
-                                      const char *second,
-                                      enum ProcessingMode second_mode);
+bool module_precedes_in_substep_phase(const char *first, enum ProcessingMode first_mode,
+                                      const char *second, enum ProcessingMode second_mode);
 
 #endif // MODULE_REGISTRY_H

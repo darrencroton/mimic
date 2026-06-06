@@ -12,7 +12,6 @@ from random import sample, seed
 # Third-party packages
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import MultipleLocator
 
 # Local application imports
 from figures import (
@@ -24,10 +23,11 @@ from figures import (
     setup_legend,
     setup_plot_fonts,
 )
+from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_field_has_values,
     check_required_fields,
-        save_and_close_figure,
+    save_and_close_figure,
     setup_figure,
     validate_filtered_data,
     warn,
@@ -67,8 +67,8 @@ def plot(
     # Check required fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['StellarMass', 'ColdGas', 'BulgeMass', 'Vmax'],
-        plot_name='Baryonic Tully-Fisher'
+        required_fields=["StellarMass", "ColdGas", "BulgeMass", "Vmax"],
+        plot_name="Baryonic Tully-Fisher",
     )
 
     if not success:
@@ -90,9 +90,7 @@ def plot(
 
     # Then calculate ratios safely
     bulge_to_stellar = np.zeros_like(galaxies.StellarMass)
-    bulge_to_stellar[valid_mass] = (
-        galaxies.BulgeMass[valid_mass] / galaxies.StellarMass[valid_mass]
-    )
+    bulge_to_stellar[valid_mass] = galaxies.BulgeMass[valid_mass] / galaxies.StellarMass[valid_mass]
 
     # Now apply all filters
     w = np.where(valid_mass & (bulge_to_stellar > 0.1) & (bulge_to_stellar < 0.5))[0]
@@ -114,9 +112,7 @@ def plot(
     vel = np.log10(galaxies.Vmax[w])
 
     # Plot the model galaxies
-    ax.scatter(
-        vel, mass, marker="o", s=1, c="k", alpha=0.5, label="Model Sb/c galaxies"
-    )
+    ax.scatter(vel, mass, marker="o", s=1, c="k", alpha=0.5, label="Model Sb/c galaxies")
 
     # Plot Stark, McGaugh & Swatters 2009 relation
     w_obs = np.arange(0.5, 10.0, 0.5)
@@ -137,5 +133,7 @@ def plot(
     setup_legend(ax, loc="lower right")
 
     # Save and close the figure
-    plot_path = save_and_close_figure(fig, output_dir, "BaryonicTullyFisher", output_format, verbose)
+    plot_path = save_and_close_figure(
+        fig, output_dir, "BaryonicTullyFisher", output_format, verbose
+    )
     return plot_path, None

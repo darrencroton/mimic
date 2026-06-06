@@ -142,9 +142,7 @@ def validate_property(prop: Dict[str, Any], category: str) -> None:
     required = ["name", "type", "units", "description", "output"]
     for field in required:
         if field not in prop:
-            raise ValueError(
-                f"{category} property missing required field '{field}': {prop}"
-            )
+            raise ValueError(f"{category} property missing required field '{field}': {prop}")
 
     # Type validation
     if prop["type"] not in TYPE_MAP:
@@ -156,9 +154,7 @@ def validate_property(prop: Dict[str, Any], category: str) -> None:
     # Name validation (basic C identifier check)
     name = prop["name"]
     if not name.isidentifier():
-        raise ValueError(
-            f"Invalid property name '{name}': must be a valid C identifier"
-        )
+        raise ValueError(f"Invalid property name '{name}': must be a valid C identifier")
 
     # Check init_source for halo properties
     if category == "halo" and "init_source" in prop:
@@ -178,14 +174,10 @@ def validate_property(prop: Dict[str, Any], category: str) -> None:
 
     # Dependency checks
     if prop.get("init_source") == "default" and "init_value" not in prop:
-        raise ValueError(
-            f"Property '{name}' with init_source=default must have init_value"
-        )
+        raise ValueError(f"Property '{name}' with init_source=default must have init_value")
 
     if prop.get("init_source") == "calculate" and "init_function" not in prop:
-        raise ValueError(
-            f"Property '{name}' with init_source=calculate must have init_function"
-        )
+        raise ValueError(f"Property '{name}' with init_source=calculate must have init_function")
 
     if prop.get("output_source") == "recalculate":
         if "output_function" not in prop or "output_function_arg" not in prop:
@@ -298,7 +290,8 @@ def generate_header(yaml_hash: str):
     """Generate common header for all generated files."""
     selected_model = os.environ.get("MODEL") or "<MODEL>"
     source_lines = "\n".join(
-        f" *   - {rel(path)}" for path in halo_property_files() + model_property_files() + test_property_files()
+        f" *   - {rel(path)}"
+        for path in halo_property_files() + model_property_files() + test_property_files()
     )
     return f"""/* AUTO-GENERATED CODE - DO NOT EDIT
  *
@@ -406,9 +399,7 @@ def generate_property_defs_h(
             code += f"  galaxy->{name} = {init_value};\n"
     code += "}\n\n"
 
-    repeated_props = [
-        prop for prop in galaxy_props if prop.get("init_repeat", False)
-    ]
+    repeated_props = [prop for prop in galaxy_props if prop.get("init_repeat", False)]
     code += "static inline void reset_galaxy_snapshot_accumulators(struct GalaxyData *galaxy) {\n"
     for prop in repeated_props:
         name = prop["name"]
@@ -439,9 +430,7 @@ def generate_property_defs_h(
     return code
 
 
-def generate_populate_halo_payload_from_tree(
-    halo_props: List[Dict], yaml_hash: str
-) -> str:
+def generate_populate_halo_payload_from_tree(halo_props: List[Dict], yaml_hash: str) -> str:
     """Generate populate_halo_payload_from_tree.inc.
 
     Fills a local `struct HaloInitPayload payload` for descendant `halonr` from
@@ -520,9 +509,7 @@ def generate_property_test_helpers(galaxy_props: List[Dict], yaml_hash: str) -> 
     default_props = [
         prop for prop in galaxy_props if prop.get("init_source", "default") == "default"
     ]
-    reset_props = [
-        prop for prop in galaxy_props if prop.get("init_repeat", False) is True
-    ]
+    reset_props = [prop for prop in galaxy_props if prop.get("init_repeat", False) is True]
 
     code = generate_header(yaml_hash)
     code += "#ifndef GENERATED_PROPERTY_TEST_HELPERS_H\n"
@@ -621,9 +608,7 @@ def generate_copy_to_output(
 
         elif output_source == "copy_direct_array":
             if not type_info["is_array"]:
-                raise ValueError(
-                    f"Property '{name}' uses copy_direct_array but type is not array"
-                )
+                raise ValueError(f"Property '{name}' uses copy_direct_array but type is not array")
             code += f"for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
             code += f"  o->{name}[j] = g->{name}[j];\n"
             code += "}\n"
@@ -742,9 +727,7 @@ def generate_copy_to_output(
                 if transform == "log10":
                     if sentinels:
                         # Generate conditional transform (skip sentinels like 0.0 to avoid log10(0) = -inf)
-                        conditions = [
-                            f"o->{name} != {s}{type_suffix}" for s in sentinels
-                        ]
+                        conditions = [f"o->{name} != {s}{type_suffix}" for s in sentinels]
                         condition_str = " && ".join(conditions)
                         code += f"if ({condition_str}) {{\n"
                         code += f"  o->{name} = log10(o->{name});\n"
@@ -831,14 +814,10 @@ def generate_hdf5_field_metadata(
     all_props = []
     for prop in halo_props:
         if prop["output"]:
-            all_props.append(
-                (prop["name"], prop.get("units", ""), prop.get("description", ""))
-            )
+            all_props.append((prop["name"], prop.get("units", ""), prop.get("description", "")))
     for prop in galaxy_props:
         if prop["output"]:
-            all_props.append(
-                (prop["name"], prop.get("units", ""), prop.get("description", ""))
-            )
+            all_props.append((prop["name"], prop.get("units", ""), prop.get("description", "")))
 
     num_fields = len(all_props)
 
@@ -871,9 +850,7 @@ def generate_hdf5_field_metadata(
     code += "H5Tset_size(string_type_units, 128);\n"
     code += "hid_t string_type_desc = H5Tcopy(H5T_C_S1);\n"
     code += "H5Tset_size(string_type_desc, 256);\n\n"
-    code += (
-        "hid_t metadata_tid = H5Tcreate(H5T_COMPOUND, sizeof(struct FieldMetadata));\n"
-    )
+    code += "hid_t metadata_tid = H5Tcreate(H5T_COMPOUND, sizeof(struct FieldMetadata));\n"
     code += 'H5Tinsert(metadata_tid, "field_name", HOFFSET(struct FieldMetadata, field_name), string_type_field);\n'
     code += 'H5Tinsert(metadata_tid, "units", HOFFSET(struct FieldMetadata, units), string_type_units);\n'
     code += 'H5Tinsert(metadata_tid, "description", HOFFSET(struct FieldMetadata, description), string_type_desc);\n\n'
@@ -955,37 +932,27 @@ def generate_output_schema_writer(
 
     code = generate_header(yaml_hash)
     code += "/* Writes metadata/output_schema.json for binary readers and plotting. */\n"
-    code += "fprintf(schema_file, \"{\\n\");\n"
-    code += "fprintf(schema_file, \"  \\\"schema_version\\\": 1,\\n\");\n"
+    code += 'fprintf(schema_file, "{\\n");\n'
+    code += 'fprintf(schema_file, "  \\"schema_version\\": 1,\\n");\n'
     code += (
-        "fprintf(schema_file, \"  \\\"generated_by\\\": "
-        "\\\"scripts/generate_properties.py\\\",\\n\");\n"
+        'fprintf(schema_file, "  \\"generated_by\\": '
+        '\\"scripts/generate_properties.py\\",\\n");\n'
     )
+    code += f'fprintf(schema_file, "  \\"source_md5\\": ' f'\\"{yaml_hash}\\",\\n");\n'
+    code += 'fprintf(schema_file, "  \\"model\\": \\"%s\\",\\n", ' "MIMIC_COMPILED_MODEL);\n"
     code += (
-        f"fprintf(schema_file, \"  \\\"source_md5\\\": "
-        f"\\\"{yaml_hash}\\\",\\n\");\n"
+        'fprintf(schema_file, "  \\"model_path\\": \\"%s\\",\\n", ' "MIMIC_COMPILED_MODEL_PATH);\n"
     )
+    code += 'fprintf(schema_file, "  \\"record\\": {\\n");\n'
+    code += 'fprintf(schema_file, "    \\"c_struct\\": \\"HaloOutput\\",\\n");\n'
     code += (
-        "fprintf(schema_file, \"  \\\"model\\\": \\\"%s\\\",\\n\", "
-        "MIMIC_COMPILED_MODEL);\n"
-    )
-    code += (
-        "fprintf(schema_file, \"  \\\"model_path\\\": \\\"%s\\\",\\n\", "
-        "MIMIC_COMPILED_MODEL_PATH);\n"
-    )
-    code += "fprintf(schema_file, \"  \\\"record\\\": {\\n\");\n"
-    code += "fprintf(schema_file, \"    \\\"c_struct\\\": \\\"HaloOutput\\\",\\n\");\n"
-    code += (
-        "fprintf(schema_file, \"    \\\"binary_record_size\\\": %zu,\\n\", "
+        'fprintf(schema_file, "    \\"binary_record_size\\": %zu,\\n", '
         "sizeof(struct HaloOutput));\n"
     )
-    code += "fprintf(schema_file, \"    \\\"byte_order\\\": \\\"native\\\",\\n\");\n"
-    code += (
-        "fprintf(schema_file, \"    \\\"alignment\\\": "
-        "\\\"native_c_compiler\\\"\\n\");\n"
-    )
-    code += "fprintf(schema_file, \"  },\\n\");\n"
-    code += "fprintf(schema_file, \"  \\\"fields\\\": [\\n\");\n"
+    code += 'fprintf(schema_file, "    \\"byte_order\\": \\"native\\",\\n");\n'
+    code += 'fprintf(schema_file, "    \\"alignment\\": ' '\\"native_c_compiler\\"\\n");\n'
+    code += 'fprintf(schema_file, "  },\\n");\n'
+    code += 'fprintf(schema_file, "  \\"fields\\": [\\n");\n'
 
     fields = [("halo", prop) for prop in halo_props if prop["output"]]
     fields += [("galaxy", prop) for prop in galaxy_props if prop["output"]]
@@ -993,50 +960,42 @@ def generate_output_schema_writer(
     for idx, (category, prop) in enumerate(fields):
         comma = "," if idx < len(fields) - 1 else ""
         name = prop["name"]
-        code += "fprintf(schema_file, \"    {\\n\");\n"
+        code += 'fprintf(schema_file, "    {\\n");\n'
+        code += f'fprintf(schema_file, "      \\"name\\": ' f'{_json_string(name)},\\n");\n'
+        code += f'fprintf(schema_file, "      \\"category\\": ' f'{_json_string(category)},\\n");\n'
         code += (
-            f"fprintf(schema_file, \"      \\\"name\\\": "
-            f"{_json_string(name)},\\n\");\n"
-        )
-        code += (
-            f"fprintf(schema_file, \"      \\\"category\\\": "
-            f"{_json_string(category)},\\n\");\n"
-        )
-        code += (
-            f"fprintf(schema_file, \"      \\\"c_type\\\": "
+            f'fprintf(schema_file, "      \\"c_type\\": '
             f"{_json_string(TYPE_MAP[prop['type']]['c_type'])},\\n\");\n"
         )
         code += (
-            f"fprintf(schema_file, \"      \\\"metadata_type\\\": "
+            f'fprintf(schema_file, "      \\"metadata_type\\": '
             f"{_json_string(prop['type'])},\\n\");\n"
         )
         code += (
-            f"fprintf(schema_file, \"      \\\"numpy_type\\\": "
+            f'fprintf(schema_file, "      \\"numpy_type\\": '
             f"{_json_string(NUMPY_TYPE_NAMES[prop['type']])},\\n\");\n"
         )
+        code += f'fprintf(schema_file, "      \\"shape\\": {_schema_shape(prop)},\\n");\n'
         code += (
-            f"fprintf(schema_file, \"      \\\"shape\\\": {_schema_shape(prop)},\\n\");\n"
-        )
-        code += (
-            "fprintf(schema_file, \"      \\\"offset\\\": %zu,\\n\", "
+            'fprintf(schema_file, "      \\"offset\\": %zu,\\n", '
             f"offsetof(struct HaloOutput, {name}));\n"
         )
         code += (
-            "fprintf(schema_file, \"      \\\"size\\\": %zu,\\n\", "
+            'fprintf(schema_file, "      \\"size\\": %zu,\\n", '
             f"sizeof(((struct HaloOutput *)0)->{name}));\n"
         )
         code += (
-            f"fprintf(schema_file, \"      \\\"units\\\": "
+            f'fprintf(schema_file, "      \\"units\\": '
             f"{_json_string(prop.get('units', ''))},\\n\");\n"
         )
         code += (
-            f"fprintf(schema_file, \"      \\\"description\\\": "
+            f'fprintf(schema_file, "      \\"description\\": '
             f"{_json_string(prop.get('description', ''))}\\n\");\n"
         )
-        code += f"fprintf(schema_file, \"    }}{comma}\\n\");\n"
+        code += f'fprintf(schema_file, "    }}{comma}\\n");\n'
 
-    code += "fprintf(schema_file, \"  ]\\n\");\n"
-    code += "fprintf(schema_file, \"}\\n\");\n"
+    code += 'fprintf(schema_file, "  ]\\n");\n'
+    code += 'fprintf(schema_file, "}\\n");\n'
     return code
 
 
@@ -1084,15 +1043,11 @@ def _prop_to_validation_entry(prop: Dict[str, Any], category: str) -> Dict[str, 
     rng = prop.get("range")
     if rng is not None:
         if not isinstance(rng, list) or len(rng) != 2:
-            raise ValueError(
-                f"Property '{prop_name}' has invalid range; expected [min, max]"
-            )
+            raise ValueError(f"Property '{prop_name}' has invalid range; expected [min, max]")
 
         # Validate that range values are numbers
         if not isinstance(rng[0], (int, float)) or not isinstance(rng[1], (int, float)):
-            raise ValueError(
-                f"Property '{prop_name}' range values must be numbers, got {rng}"
-            )
+            raise ValueError(f"Property '{prop_name}' range values must be numbers, got {rng}")
 
         # Validate that min <= max
         if rng[0] > rng[1]:
@@ -1155,7 +1110,8 @@ def generate_validation_manifest(
             "auto_generated": True,
             "generated_by": "scripts/generate_properties.py",
             "source_files": [
-                rel(path) for path in halo_property_files() + model_property_files() + test_property_files()
+                rel(path)
+                for path in halo_property_files() + model_property_files() + test_property_files()
             ],
             "source_md5": yaml_hash,
             "regenerate": f"make MODEL={os.environ.get('MODEL', 'sage')} generate",
@@ -1196,9 +1152,7 @@ def merge_property_packages(paths: List[Path], key: str) -> List[Dict[str, Any]]
                 continue
 
             if existing_prop != prop:
-                raise ValueError(
-                    f"Incompatible duplicate property '{name}' in {rel(path)}"
-                )
+                raise ValueError(f"Incompatible duplicate property '{name}' in {rel(path)}")
 
     return merged
 

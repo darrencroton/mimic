@@ -46,50 +46,50 @@ static int failed = 0;
  * Validates: Property metadata generated Halo correctly
  */
 int test_halo_structure(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE ===== */
-    struct Halo halo;
+  /* ===== EXECUTE ===== */
+  struct Halo halo;
 
-    /* Initialize to known values to test field access */
-    halo.SnapNum = 63;
-    halo.Type = 0;
-    halo.Mvir = 1.0e12;
-    halo.Rvir = 100.0;
-    halo.Vvir = 200.0;
-    halo.Len = 1000;
-    halo.dT = 192.0;
-    halo.galaxy = NULL;
+  /* Initialize to known values to test field access */
+  halo.SnapNum = 63;
+  halo.Type = 0;
+  halo.Mvir = 1.0e12;
+  halo.Rvir = 100.0;
+  halo.Vvir = 200.0;
+  halo.Len = 1000;
+  halo.dT = 192.0;
+  halo.galaxy = NULL;
 
-    /* ===== VALIDATE ===== */
-    /* Check that fields are accessible and values retained */
-    TEST_ASSERT(halo.SnapNum == 63, "SnapNum field should be accessible");
-    TEST_ASSERT(halo.Type == 0, "Type field should be accessible");
-    TEST_ASSERT_DOUBLE_EQUAL(halo.Mvir, 1.0e12, 1.0e6, "Mvir field should be accessible");
-    TEST_ASSERT_DOUBLE_EQUAL(halo.Rvir, 100.0, 0.1, "Rvir field should be accessible");
-    TEST_ASSERT_DOUBLE_EQUAL(halo.Vvir, 200.0, 0.1, "Vvir field should be accessible");
-    TEST_ASSERT(halo.Len == 1000, "Len field should be accessible");
-    TEST_ASSERT_DOUBLE_EQUAL(halo.dT, 192.0, 0.1, "dT field should be accessible");
-    TEST_ASSERT(halo.galaxy == NULL, "Galaxy pointer should be accessible");
+  /* ===== VALIDATE ===== */
+  /* Check that fields are accessible and values retained */
+  TEST_ASSERT(halo.SnapNum == 63, "SnapNum field should be accessible");
+  TEST_ASSERT(halo.Type == 0, "Type field should be accessible");
+  TEST_ASSERT_DOUBLE_EQUAL(halo.Mvir, 1.0e12, 1.0e6, "Mvir field should be accessible");
+  TEST_ASSERT_DOUBLE_EQUAL(halo.Rvir, 100.0, 0.1, "Rvir field should be accessible");
+  TEST_ASSERT_DOUBLE_EQUAL(halo.Vvir, 200.0, 0.1, "Vvir field should be accessible");
+  TEST_ASSERT(halo.Len == 1000, "Len field should be accessible");
+  TEST_ASSERT_DOUBLE_EQUAL(halo.dT, 192.0, 0.1, "dT field should be accessible");
+  TEST_ASSERT(halo.galaxy == NULL, "Galaxy pointer should be accessible");
 
-    /* Check that arrays are accessible */
-    halo.Pos[0] = 1.0;
-    halo.Pos[1] = 2.0;
-    halo.Pos[2] = 3.0;
-    TEST_ASSERT_DOUBLE_EQUAL(halo.Pos[0], 1.0, 0.01, "Pos array should be accessible");
+  /* Check that arrays are accessible */
+  halo.Pos[0] = 1.0;
+  halo.Pos[1] = 2.0;
+  halo.Pos[2] = 3.0;
+  TEST_ASSERT_DOUBLE_EQUAL(halo.Pos[0], 1.0, 0.01, "Pos array should be accessible");
 
-    halo.Vel[0] = 100.0;
-    halo.Vel[1] = 200.0;
-    halo.Vel[2] = 300.0;
-    TEST_ASSERT_DOUBLE_EQUAL(halo.Vel[0], 100.0, 0.1, "Vel array should be accessible");
+  halo.Vel[0] = 100.0;
+  halo.Vel[1] = 200.0;
+  halo.Vel[2] = 300.0;
+  TEST_ASSERT_DOUBLE_EQUAL(halo.Vel[0], 100.0, 0.1, "Vel array should be accessible");
 
-    printf("  struct Halo size: %zu bytes\n", sizeof(struct Halo));
+  printf("  struct Halo size: %zu bytes\n", sizeof(struct Halo));
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -100,26 +100,26 @@ int test_halo_structure(void) {
  * Validates: Core tests do not name model-owned galaxy properties directly
  */
 int test_galaxy_structure(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE ===== */
-    struct GalaxyData galaxy;
-    memset(&galaxy, 0, sizeof(galaxy));
+  /* ===== EXECUTE ===== */
+  struct GalaxyData galaxy;
+  memset(&galaxy, 0, sizeof(galaxy));
 
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(sizeof(galaxy) == sizeof(struct GalaxyData),
-                "GalaxyData object should have generated struct size");
-    TEST_ASSERT(GENERATED_GALAXY_PROPERTY_COUNT > 0,
-                "Selected model should generate at least one galaxy property");
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(sizeof(galaxy) == sizeof(struct GalaxyData),
+              "GalaxyData object should have generated struct size");
+  TEST_ASSERT(GENERATED_GALAXY_PROPERTY_COUNT > 0,
+              "Selected model should generate at least one galaxy property");
 
-    printf("  struct GalaxyData size: %zu bytes\n", sizeof(struct GalaxyData));
-    printf("  generated galaxy properties: %d\n", GENERATED_GALAXY_PROPERTY_COUNT);
+  printf("  struct GalaxyData size: %zu bytes\n", sizeof(struct GalaxyData));
+  printf("  generated galaxy properties: %d\n", GENERATED_GALAXY_PROPERTY_COUNT);
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -130,31 +130,30 @@ int test_galaxy_structure(void) {
  * Validates: Property metadata generated HaloOutput correctly
  */
 int test_output_structure(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE ===== */
-    struct HaloOutput output;
+  /* ===== EXECUTE ===== */
+  struct HaloOutput output;
 
-    /* Initialize some key output fields */
-    output.SnapNum = 63;
-    output.Type = 0;
-    output.Mvir = 1.0e12;
-    output.Rvir = 100.0;
-    output.Vvir = 200.0;
+  /* Initialize some key output fields */
+  output.SnapNum = 63;
+  output.Type = 0;
+  output.Mvir = 1.0e12;
+  output.Rvir = 100.0;
+  output.Vvir = 200.0;
 
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(output.SnapNum == 63, "SnapNum in output should be accessible");
-    TEST_ASSERT(output.Type == 0, "Type in output should be accessible");
-    TEST_ASSERT_DOUBLE_EQUAL(output.Mvir, 1.0e12, 1.0e6,
-                            "Mvir in output should be accessible");
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(output.SnapNum == 63, "SnapNum in output should be accessible");
+  TEST_ASSERT(output.Type == 0, "Type in output should be accessible");
+  TEST_ASSERT_DOUBLE_EQUAL(output.Mvir, 1.0e12, 1.0e6, "Mvir in output should be accessible");
 
-    printf("  struct HaloOutput size: %zu bytes\n", sizeof(struct HaloOutput));
+  printf("  struct HaloOutput size: %zu bytes\n", sizeof(struct HaloOutput));
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -165,33 +164,33 @@ int test_output_structure(void) {
  * Validates: Memory efficiency of generated structures
  */
 int test_structure_sizes(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE & VALIDATE ===== */
-    size_t halo_size = sizeof(struct Halo);
-    size_t galaxy_size = sizeof(struct GalaxyData);
-    size_t output_size = sizeof(struct HaloOutput);
+  /* ===== EXECUTE & VALIDATE ===== */
+  size_t halo_size = sizeof(struct Halo);
+  size_t galaxy_size = sizeof(struct GalaxyData);
+  size_t output_size = sizeof(struct HaloOutput);
 
-    printf("  Structure sizes:\n");
-    printf("    Halo:       %zu bytes\n", halo_size);
-    printf("    GalaxyData: %zu bytes\n", galaxy_size);
-    printf("    HaloOutput: %zu bytes\n", output_size);
+  printf("  Structure sizes:\n");
+  printf("    Halo:       %zu bytes\n", halo_size);
+  printf("    GalaxyData: %zu bytes\n", galaxy_size);
+  printf("    HaloOutput: %zu bytes\n", output_size);
 
-    /* Sanity checks - structures shouldn't be tiny or enormous */
-    TEST_ASSERT(halo_size > 50, "Halo structure should have reasonable minimum size");
-    TEST_ASSERT(halo_size < 10000, "Halo structure should not be excessively large");
+  /* Sanity checks - structures shouldn't be tiny or enormous */
+  TEST_ASSERT(halo_size > 50, "Halo structure should have reasonable minimum size");
+  TEST_ASSERT(halo_size < 10000, "Halo structure should not be excessively large");
 
-    TEST_ASSERT(galaxy_size > 0, "GalaxyData structure should have non-zero size");
-    TEST_ASSERT(galaxy_size < 10000, "GalaxyData structure should not be excessively large");
+  TEST_ASSERT(galaxy_size > 0, "GalaxyData structure should have non-zero size");
+  TEST_ASSERT(galaxy_size < 10000, "GalaxyData structure should not be excessively large");
 
-    TEST_ASSERT(output_size > 50, "HaloOutput structure should have reasonable minimum size");
-    TEST_ASSERT(output_size < 10000, "HaloOutput structure should not be excessively large");
+  TEST_ASSERT(output_size > 50, "HaloOutput structure should have reasonable minimum size");
+  TEST_ASSERT(output_size < 10000, "HaloOutput structure should not be excessively large");
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -202,40 +201,40 @@ int test_structure_sizes(void) {
  * Validates: Physics-agnostic core architecture principle
  */
 int test_galaxy_separation(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE ===== */
-    /* Allocate a halo */
-    struct Halo *halo = (struct Halo *)mymalloc(sizeof(struct Halo));
-    TEST_ASSERT(halo != NULL, "Halo allocation should succeed");
+  /* ===== EXECUTE ===== */
+  /* Allocate a halo */
+  struct Halo *halo = (struct Halo *)mymalloc(sizeof(struct Halo));
+  TEST_ASSERT(halo != NULL, "Halo allocation should succeed");
 
-    /* Initially, galaxy pointer should be settable to NULL */
-    halo->galaxy = NULL;
-    TEST_ASSERT(halo->galaxy == NULL, "Galaxy pointer should be NULL initially");
+  /* Initially, galaxy pointer should be settable to NULL */
+  halo->galaxy = NULL;
+  TEST_ASSERT(halo->galaxy == NULL, "Galaxy pointer should be NULL initially");
 
-    /* Allocate a galaxy */
-    struct GalaxyData *galaxy = (struct GalaxyData *)mymalloc(sizeof(struct GalaxyData));
-    TEST_ASSERT(galaxy != NULL, "Galaxy allocation should succeed");
+  /* Allocate a galaxy */
+  struct GalaxyData *galaxy = (struct GalaxyData *)mymalloc(sizeof(struct GalaxyData));
+  TEST_ASSERT(galaxy != NULL, "Galaxy allocation should succeed");
 
-    /* Link galaxy to halo */
-    halo->galaxy = galaxy;
-    TEST_ASSERT(halo->galaxy != NULL, "Galaxy pointer should be set");
+  /* Link galaxy to halo */
+  halo->galaxy = galaxy;
+  TEST_ASSERT(halo->galaxy != NULL, "Galaxy pointer should be set");
 
-    /* ===== VALIDATE ===== */
-    /* Verify separation: changing galaxy doesn't affect halo */
-    halo->Mvir = 2.0e12;
-    TEST_ASSERT_DOUBLE_EQUAL(halo->Mvir, 2.0e12, 1.0e6, "Halo properties independent");
-    TEST_ASSERT(halo->galaxy == galaxy, "Galaxy pointer should remain independent");
+  /* ===== VALIDATE ===== */
+  /* Verify separation: changing galaxy doesn't affect halo */
+  halo->Mvir = 2.0e12;
+  TEST_ASSERT_DOUBLE_EQUAL(halo->Mvir, 2.0e12, 1.0e6, "Halo properties independent");
+  TEST_ASSERT(halo->galaxy == galaxy, "Galaxy pointer should remain independent");
 
-    printf("  ✓ Physics-agnostic separation validated\n");
+  printf("  ✓ Physics-agnostic separation validated\n");
 
-    /* ===== CLEANUP ===== */
-    myfree(galaxy);
-    myfree(halo);
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  myfree(galaxy);
+  myfree(halo);
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -246,28 +245,26 @@ int test_galaxy_separation(void) {
  * Validates: Structure layout consistency
  */
 int test_field_offsets(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE & VALIDATE ===== */
-    printf("  Field offsets in struct Halo:\n");
-    printf("    SnapNum offset: %zu\n", offsetof(struct Halo, SnapNum));
-    printf("    Type offset:    %zu\n", offsetof(struct Halo, Type));
-    printf("    Mvir offset:    %zu\n", offsetof(struct Halo, Mvir));
-    printf("    Rvir offset:    %zu\n", offsetof(struct Halo, Rvir));
-    printf("    galaxy offset:  %zu\n", offsetof(struct Halo, galaxy));
+  /* ===== EXECUTE & VALIDATE ===== */
+  printf("  Field offsets in struct Halo:\n");
+  printf("    SnapNum offset: %zu\n", offsetof(struct Halo, SnapNum));
+  printf("    Type offset:    %zu\n", offsetof(struct Halo, Type));
+  printf("    Mvir offset:    %zu\n", offsetof(struct Halo, Mvir));
+  printf("    Rvir offset:    %zu\n", offsetof(struct Halo, Rvir));
+  printf("    galaxy offset:  %zu\n", offsetof(struct Halo, galaxy));
 
-    /* Check that SnapNum is first (offset 0) */
-    TEST_ASSERT(offsetof(struct Halo, SnapNum) == 0,
-                "SnapNum should be first field");
+  /* Check that SnapNum is first (offset 0) */
+  TEST_ASSERT(offsetof(struct Halo, SnapNum) == 0, "SnapNum should be first field");
 
-    printf("  Generated GalaxyData property count: %d\n",
-           GENERATED_GALAXY_PROPERTY_COUNT);
+  printf("  Generated GalaxyData property count: %d\n", GENERATED_GALAXY_PROPERTY_COUNT);
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -276,24 +273,24 @@ int test_field_offsets(void) {
  * Executes all test cases and reports results.
  */
 int main(void) {
-    printf("%s", BLUE);
-    printf("============================================================\n");
-    printf("Test Suite: Property Metadata System\n");
-    printf("============================================================\n");
-    printf("%s\n", NC);
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: Property Metadata System\n");
+  printf("============================================================\n");
+  printf("%s\n", NC);
 
-    /* Initialize error handling for tests */
-    initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
+  /* Initialize error handling for tests */
+  initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
 
-    /* Run all test cases */
-    TEST_RUN(test_halo_structure);
-    TEST_RUN(test_galaxy_structure);
-    TEST_RUN(test_output_structure);
-    TEST_RUN(test_structure_sizes);
-    TEST_RUN(test_galaxy_separation);
-    TEST_RUN(test_field_offsets);
+  /* Run all test cases */
+  TEST_RUN(test_halo_structure);
+  TEST_RUN(test_galaxy_structure);
+  TEST_RUN(test_output_structure);
+  TEST_RUN(test_structure_sizes);
+  TEST_RUN(test_galaxy_separation);
+  TEST_RUN(test_field_offsets);
 
-    /* Print summary and return result */
-    TEST_SUMMARY();
-    return TEST_RESULT();
+  /* Print summary and return result */
+  TEST_SUMMARY();
+  return TEST_RESULT();
 }

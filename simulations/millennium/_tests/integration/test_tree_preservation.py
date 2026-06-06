@@ -38,11 +38,13 @@ Date: 2025-11-30
 """
 
 import sys
-from pathlib import Path
-import numpy as np
-from io import StringIO
 from collections import defaultdict
 from datetime import datetime
+from io import StringIO
+from pathlib import Path
+
+import numpy as np
+
 
 def find_repo_root(start):
     """Find the repository root from this simulation-owned test path."""
@@ -57,26 +59,26 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from framework import (
-    load_binary_halos,
-    TEST_DATA_DIR,
     MIMIC_EXE,
+    TEST_DATA_DIR,
     ensure_output_dirs,
-    simulation_input_file,
+    load_binary_halos,
     run_mimic_fresh,
+    simulation_input_file,
 )
 
 # Import the Millennium/lhalo-specific tree loader owned by this test package.
-from tree_loader import load_binary_tree, get_halos_by_snapshot
+from tree_loader import get_halos_by_snapshot, load_binary_tree
 
 # Ensure output directories exist
 ensure_output_dirs()
 
 # ANSI color codes (module-level constants)
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def match_halos_snapshot63(input_halos, output_halos, snapshot=63):
@@ -145,13 +147,13 @@ def match_halos_snapshot63(input_halos, output_halos, snapshot=63):
     unmatched_output = [idx for idx in output_type01_indices if idx not in matched_output_set]
 
     return {
-        'input_snap63': input_snap63_indices,
-        'output_type01': output_type01_indices,
-        'matched_pairs': matched_pairs,
-        'unmatched_input': unmatched_input,
-        'unmatched_output': unmatched_output,
-        'input_count': len(input_snap63_indices),
-        'output_count': len(output_type01_indices),
+        "input_snap63": input_snap63_indices,
+        "output_type01": output_type01_indices,
+        "matched_pairs": matched_pairs,
+        "unmatched_input": unmatched_input,
+        "unmatched_output": unmatched_output,
+        "input_count": len(input_snap63_indices),
+        "output_count": len(output_type01_indices),
     }
 
 
@@ -194,8 +196,8 @@ def validate_copied_properties(input_halo, output_halo, halonr, input_halos, rto
     mismatches = []
 
     # Vector properties - check component-wise
-    for prop in ['Pos', 'Vel', 'Spin']:
-        for i, comp in enumerate(['x', 'y', 'z']):
+    for prop in ["Pos", "Vel", "Spin"]:
+        for i, comp in enumerate(["x", "y", "z"]):
             in_val = input_halo[prop][i]
             out_val = output_halo[prop][i]
             if not np.isclose(in_val, out_val, rtol=rtol, atol=0):
@@ -203,12 +205,12 @@ def validate_copied_properties(input_halo, output_halo, halonr, input_halos, rto
                 mismatches.append((f"{prop}[{comp}]", in_val, out_val, rel_diff))
 
     # Integer properties - exact match required
-    for prop in ['Len', 'SnapNum']:
+    for prop in ["Len", "SnapNum"]:
         if input_halo[prop] != output_halo[prop]:
             mismatches.append((prop, input_halo[prop], output_halo[prop], None))
 
     # Float properties - relative tolerance
-    for prop in ['Vmax', 'VelDisp']:
+    for prop in ["Vmax", "VelDisp"]:
         in_val = input_halo[prop]
         out_val = output_halo[prop]
         if not np.isclose(in_val, out_val, rtol=rtol, atol=0):
@@ -216,32 +218,26 @@ def validate_copied_properties(input_halo, output_halo, halonr, input_halos, rto
             mismatches.append((prop, in_val, out_val, rel_diff))
 
     # MostBoundID
-    if input_halo['MostBoundID'] != output_halo['MostBoundID']:
-        mismatches.append((
-            'MostBoundID',
-            input_halo['MostBoundID'],
-            output_halo['MostBoundID'],
-            None
-        ))
+    if input_halo["MostBoundID"] != output_halo["MostBoundID"]:
+        mismatches.append(
+            ("MostBoundID", input_halo["MostBoundID"], output_halo["MostBoundID"], None)
+        )
 
     # Mvir: Conditional validation for Type=0 centrals
     # From get_virial_mass() in src/core/virial.c:
     # If halonr == FirstHaloInFOFgroup AND Mvir >= 0.0, then Mvir is copied
     if output_halo.Type == 0:  # Central halo
-        is_fof_central = (halonr == input_halos[halonr].FirstHaloInFOFgroup)
-        has_valid_mvir = (input_halo['Mvir'] >= 0.0)
+        is_fof_central = halonr == input_halos[halonr].FirstHaloInFOFgroup
+        has_valid_mvir = input_halo["Mvir"] >= 0.0
 
         if is_fof_central and has_valid_mvir:
-            in_val = input_halo['Mvir']
-            out_val = output_halo['Mvir']
+            in_val = input_halo["Mvir"]
+            out_val = output_halo["Mvir"]
             if not np.isclose(in_val, out_val, rtol=rtol, atol=0):
                 rel_diff = abs(in_val - out_val) / (abs(in_val) + 1e-30)
-                mismatches.append(('Mvir', in_val, out_val, rel_diff))
+                mismatches.append(("Mvir", in_val, out_val, rel_diff))
 
-    return {
-        'passed': len(mismatches) == 0,
-        'mismatches': mismatches
-    }
+    return {"passed": len(mismatches) == 0, "mismatches": mismatches}
 
 
 def format_validation_failures(failures, halo_type):
@@ -279,12 +275,15 @@ def format_validation_failures(failures, halo_type):
         # Show first 5 examples
         for i, (in_idx, out_idx, exp, act, diff) in enumerate(prop_failures[:5]):
             if diff is not None:
-                report.write(f"    Input[{in_idx}] → Output[{out_idx}]: "
-                           f"expected={exp:.6e}, actual={act:.6e}, "
-                           f"rel_diff={diff:.2e}\n")
+                report.write(
+                    f"    Input[{in_idx}] → Output[{out_idx}]: "
+                    f"expected={exp:.6e}, actual={act:.6e}, "
+                    f"rel_diff={diff:.2e}\n"
+                )
             else:
-                report.write(f"    Input[{in_idx}] → Output[{out_idx}]: "
-                           f"expected={exp}, actual={act}\n")
+                report.write(
+                    f"    Input[{in_idx}] → Output[{out_idx}]: " f"expected={exp}, actual={act}\n"
+                )
 
         if len(prop_failures) > 5:
             report.write(f"    ... and {len(prop_failures) - 5} more\n")
@@ -292,9 +291,16 @@ def format_validation_failures(failures, halo_type):
     return report.getvalue()
 
 
-def generate_markdown_report(match_result, input_halos, output_halos,
-                            perfect_matches, imperfect_matches,
-                            tree_file, output_file, snapshot=63):
+def generate_markdown_report(
+    match_result,
+    input_halos,
+    output_halos,
+    perfect_matches,
+    imperfect_matches,
+    tree_file,
+    output_file,
+    snapshot=63,
+):
     """
     Generate comprehensive markdown report of tree preservation validation.
 
@@ -323,36 +329,56 @@ def generate_markdown_report(match_result, input_halos, output_halos,
 
     # Summary Statistics
     md.write("## Summary\n\n")
-    input_count = match_result['input_count']
-    output_count = match_result['output_count']
-    matched_count = len(match_result['matched_pairs'])
-    unmatched_input_count = len(match_result['unmatched_input'])
-    unmatched_output_count = len(match_result['unmatched_output'])
+    input_count = match_result["input_count"]
+    output_count = match_result["output_count"]
+    matched_count = len(match_result["matched_pairs"])
+    unmatched_input_count = len(match_result["unmatched_input"])
+    unmatched_output_count = len(match_result["unmatched_output"])
     perfect_count = len(perfect_matches)
     imperfect_count = len(imperfect_matches)
 
     md.write("| Metric | Count | Percentage |\n")
     md.write("|--------|------:|----------:|\n")
     md.write(f"| Input halos (snapshot {snapshot}) | {input_count} | 100.0% |\n")
-    md.write(f"| Output halos (Type 0+1) | {output_count} | {output_count/input_count*100:.1f}% |\n")
+    md.write(
+        f"| Output halos (Type 0+1) | {output_count} | {output_count/input_count*100:.1f}% |\n"
+    )
     md.write(f"| Matched pairs | {matched_count} | {matched_count/input_count*100:.1f}% |\n")
     md.write(f"| Perfect matches | {perfect_count} | {perfect_count/input_count*100:.1f}% |\n")
-    md.write(f"| Imperfect matches | {imperfect_count} | {imperfect_count/input_count*100:.1f}% |\n")
-    md.write(f"| Unmatched input | {unmatched_input_count} | {unmatched_input_count/input_count*100:.1f}% |\n")
-    md.write(f"| Unmatched output | {unmatched_output_count} | {unmatched_output_count/output_count*100 if output_count > 0 else 0:.1f}% |\n\n")
+    md.write(
+        f"| Imperfect matches | {imperfect_count} | {imperfect_count/input_count*100:.1f}% |\n"
+    )
+    md.write(
+        f"| Unmatched input | {unmatched_input_count} | {unmatched_input_count/input_count*100:.1f}% |\n"
+    )
+    md.write(
+        f"| Unmatched output | {unmatched_output_count} | {unmatched_output_count/output_count*100 if output_count > 0 else 0:.1f}% |\n\n"
+    )
 
     # Breakdown by halo type
     if perfect_matches or imperfect_matches:
-        central_perfect = sum(1 for in_idx, out_idx in perfect_matches if output_halos[out_idx].Type == 0)
-        central_imperfect = sum(1 for in_idx, out_idx, _ in imperfect_matches if output_halos[out_idx].Type == 0)
-        satellite_perfect = sum(1 for in_idx, out_idx in perfect_matches if output_halos[out_idx].Type == 1)
-        satellite_imperfect = sum(1 for in_idx, out_idx, _ in imperfect_matches if output_halos[out_idx].Type == 1)
+        central_perfect = sum(
+            1 for in_idx, out_idx in perfect_matches if output_halos[out_idx].Type == 0
+        )
+        central_imperfect = sum(
+            1 for in_idx, out_idx, _ in imperfect_matches if output_halos[out_idx].Type == 0
+        )
+        satellite_perfect = sum(
+            1 for in_idx, out_idx in perfect_matches if output_halos[out_idx].Type == 1
+        )
+        satellite_imperfect = sum(
+            1 for in_idx, out_idx, _ in imperfect_matches if output_halos[out_idx].Type == 1
+        )
 
         md.write("### By Halo Type\n\n")
         md.write("| Type | Perfect | Imperfect | Total |\n")
         md.write("|------|--------:|----------:|------:|\n")
-        md.write(f"| Centrals (Type=0) | {central_perfect} | {central_imperfect} | {central_perfect + central_imperfect} |\n")
-        md.write(f"| Satellites (Type=1) | {satellite_perfect} | {satellite_imperfect} | {satellite_perfect + satellite_imperfect} |\n\n")
+        md.write(
+            f"| Centrals (Type=0) | {central_perfect} | {central_imperfect} | {central_perfect + central_imperfect} |\n"
+        )
+        md.write(
+            f"| Satellites (Type=1) | {satellite_perfect} | {satellite_imperfect} | {satellite_perfect + satellite_imperfect} |\n\n"
+        )
 
     # Properties validated
     md.write("### Properties Validated\n\n")
@@ -381,7 +407,9 @@ def generate_markdown_report(match_result, input_halos, output_halos,
             md.write("**Metadata:**\n")
             md.write(f"- Input index: {in_idx}\n")
             md.write(f"- Output index: {out_idx}\n")
-            md.write(f"- Type: {out_halo.Type} ({'Central' if out_halo.Type == 0 else 'Satellite'})\n")
+            md.write(
+                f"- Type: {out_halo.Type} ({'Central' if out_halo.Type == 0 else 'Satellite'})\n"
+            )
             md.write(f"- UniqueGalaxyID: {out_halo.UniqueGalaxyID}\n")
             md.write(f"- MostBoundID: {out_halo.MostBoundID}\n\n")
 
@@ -391,37 +419,45 @@ def generate_markdown_report(match_result, input_halos, output_halos,
 
             # Show ALL properties with status
             props_to_check = [
-                ('SnapNum', False, None),
-                ('Len', False, None),
-                ('Pos[x]', True, 0), ('Pos[y]', True, 1), ('Pos[z]', True, 2),
-                ('Vel[x]', True, 0), ('Vel[y]', True, 1), ('Vel[z]', True, 2),
-                ('Spin[x]', True, 0), ('Spin[y]', True, 1), ('Spin[z]', True, 2),
-                ('Vmax', False, None),
-                ('VelDisp', False, None),
-                ('MostBoundID', False, None),
+                ("SnapNum", False, None),
+                ("Len", False, None),
+                ("Pos[x]", True, 0),
+                ("Pos[y]", True, 1),
+                ("Pos[z]", True, 2),
+                ("Vel[x]", True, 0),
+                ("Vel[y]", True, 1),
+                ("Vel[z]", True, 2),
+                ("Spin[x]", True, 0),
+                ("Spin[y]", True, 1),
+                ("Spin[z]", True, 2),
+                ("Vmax", False, None),
+                ("VelDisp", False, None),
+                ("MostBoundID", False, None),
             ]
 
             # Check if Mvir should be validated
             # in_idx IS the halonr (index in InputTreeHalos array)
             halonr = in_idx
             if out_halo.Type == 0 and halonr < len(input_halos):
-                is_fof_central = (halonr == input_halos[halonr].FirstHaloInFOFgroup)
-                has_valid_mvir = (in_halo['Mvir'] >= 0.0)
+                is_fof_central = halonr == input_halos[halonr].FirstHaloInFOFgroup
+                has_valid_mvir = in_halo["Mvir"] >= 0.0
                 if is_fof_central and has_valid_mvir:
-                    props_to_check.append(('Mvir', False, None))
+                    props_to_check.append(("Mvir", False, None))
 
             # Build mismatch lookup
-            mismatch_lookup = {prop: (expected, actual, diff) for prop, expected, actual, diff in mismatches}
+            mismatch_lookup = {
+                prop: (expected, actual, diff) for prop, expected, actual, diff in mismatches
+            }
 
             for prop_name, is_vector, comp_idx in props_to_check:
                 if is_vector:
-                    base_name = prop_name.split('[')[0]
+                    base_name = prop_name.split("[")[0]
                     in_val = in_halo[base_name][comp_idx]
                     out_val = out_halo[base_name][comp_idx]
                 else:
-                    if prop_name == 'MostBoundID':
-                        in_val = in_halo['MostBoundID']
-                        out_val = out_halo['MostBoundID']
+                    if prop_name == "MostBoundID":
+                        in_val = in_halo["MostBoundID"]
+                        out_val = out_halo["MostBoundID"]
                     else:
                         in_val = in_halo[prop_name]
                         out_val = out_halo[prop_name]
@@ -454,56 +490,74 @@ def generate_markdown_report(match_result, input_halos, output_halos,
             md.write("\n")
 
         if len(imperfect_matches) > 100:
-            md.write(f"*... and {len(imperfect_matches) - 100} more imperfect matches (truncated)*\n\n")
+            md.write(
+                f"*... and {len(imperfect_matches) - 100} more imperfect matches (truncated)*\n\n"
+            )
 
     # Unmatched input halos
-    if match_result['unmatched_input']:
+    if match_result["unmatched_input"]:
         md.write("## Unmatched Input Halos\n\n")
-        unmatched_halos = input_halos[match_result['unmatched_input']]
+        unmatched_halos = input_halos[match_result["unmatched_input"]]
         md.write(f"**Total:** {len(unmatched_halos)} input halos not found in output\n\n")
 
         # Statistics
         md.write("**Statistics:**\n")
         md.write(f"- Len range: {np.min(unmatched_halos.Len)} - {np.max(unmatched_halos.Len)}\n")
-        md.write(f"- Mvir range: {np.min(unmatched_halos.Mvir):.3f} - {np.max(unmatched_halos.Mvir):.3f} (1e10 Msun/h)\n")
-        md.write(f"- Vmax range: {np.min(unmatched_halos.Vmax):.2f} - {np.max(unmatched_halos.Vmax):.2f} (km/s)\n\n")
+        md.write(
+            f"- Mvir range: {np.min(unmatched_halos.Mvir):.3f} - {np.max(unmatched_halos.Mvir):.3f} (1e10 Msun/h)\n"
+        )
+        md.write(
+            f"- Vmax range: {np.min(unmatched_halos.Vmax):.2f} - {np.max(unmatched_halos.Vmax):.2f} (km/s)\n\n"
+        )
 
         # Check patterns
         mvir_zero_count = np.sum(unmatched_halos.Mvir == 0.0)
         if mvir_zero_count == len(unmatched_halos):
-            md.write(f"**Pattern detected:** All {mvir_zero_count} unmatched halos have Mvir=0.0\n\n")
+            md.write(
+                f"**Pattern detected:** All {mvir_zero_count} unmatched halos have Mvir=0.0\n\n"
+            )
 
         # Show first 100
         display_count = min(len(unmatched_halos), 100)
         md.write(f"**Displaying:** First {display_count} of {len(unmatched_halos)}\n\n")
         md.write("| Index | MostBoundID | Len | Mvir | Vmax | VelDisp |\n")
         md.write("|------:|------------:|----:|-----:|-----:|--------:|\n")
-        for i, idx in enumerate(match_result['unmatched_input'][:100]):
+        for i, idx in enumerate(match_result["unmatched_input"][:100]):
             halo = input_halos[idx]
-            md.write(f"| {idx} | {halo.MostBoundID} | {halo.Len} | {halo.Mvir:.3f} | {halo.Vmax:.2f} | {halo.VelDisp:.2f} |\n")
+            md.write(
+                f"| {idx} | {halo.MostBoundID} | {halo.Len} | {halo.Mvir:.3f} | {halo.Vmax:.2f} | {halo.VelDisp:.2f} |\n"
+            )
 
         if len(unmatched_halos) > 100:
             md.write(f"\n*... and {len(unmatched_halos) - 100} more (truncated)*\n\n")
 
     # Unmatched output halos (should be empty if correct)
-    if match_result['unmatched_output']:
+    if match_result["unmatched_output"]:
         md.write("## ⚠️ Unmatched Output Halos\n\n")
-        md.write(f"**Total:** {len(match_result['unmatched_output'])} output halos not found in input\n\n")
+        md.write(
+            f"**Total:** {len(match_result['unmatched_output'])} output halos not found in input\n\n"
+        )
         md.write("**WARNING:** This suggests halos are being incorrectly created!\n\n")
 
-        display_count = min(len(match_result['unmatched_output']), 100)
-        md.write(f"**Displaying:** First {display_count} of {len(match_result['unmatched_output'])}\n\n")
+        display_count = min(len(match_result["unmatched_output"]), 100)
+        md.write(
+            f"**Displaying:** First {display_count} of {len(match_result['unmatched_output'])}\n\n"
+        )
         md.write("| Index | Type | MostBoundID | Len | Mvir | Vmax |\n")
         md.write("|------:|-----:|--------------------:|----:|-----:|-----:|\n")
-        for idx in match_result['unmatched_output'][:100]:
+        for idx in match_result["unmatched_output"][:100]:
             halo = output_halos[idx]
-            md.write(f"| {idx} | {halo.Type} | {halo.MostBoundID} | {halo.Len} | {halo.Mvir:.3f} | {halo.Vmax:.2f} |\n")
+            md.write(
+                f"| {idx} | {halo.Type} | {halo.MostBoundID} | {halo.Len} | {halo.Mvir:.3f} | {halo.Vmax:.2f} |\n"
+            )
 
-        if len(match_result['unmatched_output']) > 100:
-            md.write(f"\n*... and {len(match_result['unmatched_output']) - 100} more (truncated)*\n\n")
+        if len(match_result["unmatched_output"]) > 100:
+            md.write(
+                f"\n*... and {len(match_result['unmatched_output']) - 100} more (truncated)*\n\n"
+            )
 
     # Success section
-    if not imperfect_matches and not match_result['unmatched_output']:
+    if not imperfect_matches and not match_result["unmatched_output"]:
         md.write("## ✅ Validation Success\n\n")
         md.write(f"All {perfect_count} matched halos have perfectly preserved properties!\n\n")
         md.write("**Properties validated:**\n")
@@ -557,11 +611,11 @@ def test_tree_preservation_coverage():
     print(f"\n  Matching snapshot 63 halos...")
     match_result = match_halos_snapshot63(input_halos, output_halos, snapshot=63)
 
-    input_count = match_result['input_count']
-    output_count = match_result['output_count']
-    matched_count = len(match_result['matched_pairs'])
-    unmatched_input_count = len(match_result['unmatched_input'])
-    unmatched_output_count = len(match_result['unmatched_output'])
+    input_count = match_result["input_count"]
+    output_count = match_result["output_count"]
+    matched_count = len(match_result["matched_pairs"])
+    unmatched_input_count = len(match_result["unmatched_input"])
+    unmatched_output_count = len(match_result["unmatched_output"])
 
     # Report counts
     print(f"  Input snapshot 63 halos: {input_count}")
@@ -586,18 +640,26 @@ def test_tree_preservation_coverage():
 
     # Diagnostic information about unmatched input halos
     if unmatched_input_count > 0:
-        unmatched_halos = input_halos[match_result['unmatched_input']]
+        unmatched_halos = input_halos[match_result["unmatched_input"]]
         print(f"{YELLOW}\n  Diagnostic: Unmatched input halos ({unmatched_input_count}):{NC}")
-        print(f"{YELLOW}    Len range: {np.min(unmatched_halos.Len)} - {np.max(unmatched_halos.Len)}{NC}")
-        print(f"{YELLOW}    Mvir range: {np.min(unmatched_halos.Mvir):.3f} - {np.max(unmatched_halos.Mvir):.3f} (1e10 Msun/h){NC}")
-        print(f"{YELLOW}    Vmax range: {np.min(unmatched_halos.Vmax):.2f} - {np.max(unmatched_halos.Vmax):.2f} (km/s){NC}")
+        print(
+            f"{YELLOW}    Len range: {np.min(unmatched_halos.Len)} - {np.max(unmatched_halos.Len)}{NC}"
+        )
+        print(
+            f"{YELLOW}    Mvir range: {np.min(unmatched_halos.Mvir):.3f} - {np.max(unmatched_halos.Mvir):.3f} (1e10 Msun/h){NC}"
+        )
+        print(
+            f"{YELLOW}    Vmax range: {np.min(unmatched_halos.Vmax):.2f} - {np.max(unmatched_halos.Vmax):.2f} (km/s){NC}"
+        )
 
         # Check if all have Mvir=0.0
         mvir_zero_count = np.sum(unmatched_halos.Mvir == 0.0)
         if mvir_zero_count == unmatched_input_count:
-            print(f"{YELLOW}    Note: All {mvir_zero_count} unmatched halos have Mvir=0.0 (invalid mass){NC}")
+            print(
+                f"{YELLOW}    Note: All {mvir_zero_count} unmatched halos have Mvir=0.0 (invalid mass){NC}"
+            )
             # Check if matched halos also have Mvir=0.0
-            matched_indices = [idx for idx, _ in match_result['matched_pairs']]
+            matched_indices = [idx for idx, _ in match_result["matched_pairs"]]
             matched_halos = input_halos[matched_indices]
             matched_mvir_zero = np.sum(matched_halos.Mvir == 0.0)
             print(f"{YELLOW}    Note: {matched_mvir_zero} matched halos also have Mvir=0.0{NC}")
@@ -618,7 +680,9 @@ def test_tree_preservation_coverage():
 
     print(f"\n  ✓ Coverage validation passed")
     if unmatched_input_count > 0:
-        print(f"{YELLOW}  Note: {unmatched_input_count} input halos not in output (may be filtered by processing){NC}")
+        print(
+            f"{YELLOW}  Note: {unmatched_input_count} input halos not in output (may be filtered by processing){NC}"
+        )
 
 
 def test_tree_preservation_properties():
@@ -650,7 +714,7 @@ def test_tree_preservation_properties():
 
     # Match halos at snapshot 63
     match_result = match_halos_snapshot63(input_halos, output_halos, snapshot=63)
-    matched_pairs = match_result['matched_pairs']
+    matched_pairs = match_result["matched_pairs"]
 
     print(f"  Validating {len(matched_pairs)} matched halos...")
 
@@ -661,16 +725,12 @@ def test_tree_preservation_properties():
     for in_idx, out_idx in matched_pairs:
         # in_idx IS the halonr (index in InputTreeHalos array)
         result = validate_copied_properties(
-            input_halos[in_idx],
-            output_halos[out_idx],
-            in_idx,  # halonr
-            input_halos,
-            rtol=1e-6
+            input_halos[in_idx], output_halos[out_idx], in_idx, input_halos, rtol=1e-6  # halonr
         )
-        if result['passed']:
+        if result["passed"]:
             perfect_matches.append((in_idx, out_idx))
         else:
-            imperfect_matches.append((in_idx, out_idx, result['mismatches']))
+            imperfect_matches.append((in_idx, out_idx, result["mismatches"]))
 
     # Calculate statistics
     total = len(matched_pairs)
@@ -686,10 +746,18 @@ def test_tree_preservation_properties():
     print(f"    Imperfect matches: {imperfect_count} ({imperfect_pct:.1f}%)")
 
     # Break down by halo type
-    central_perfect = sum(1 for in_idx, out_idx in perfect_matches if output_halos[out_idx].Type == 0)
-    central_imperfect = sum(1 for in_idx, out_idx, _ in imperfect_matches if output_halos[out_idx].Type == 0)
-    satellite_perfect = sum(1 for in_idx, out_idx in perfect_matches if output_halos[out_idx].Type == 1)
-    satellite_imperfect = sum(1 for in_idx, out_idx, _ in imperfect_matches if output_halos[out_idx].Type == 1)
+    central_perfect = sum(
+        1 for in_idx, out_idx in perfect_matches if output_halos[out_idx].Type == 0
+    )
+    central_imperfect = sum(
+        1 for in_idx, out_idx, _ in imperfect_matches if output_halos[out_idx].Type == 0
+    )
+    satellite_perfect = sum(
+        1 for in_idx, out_idx in perfect_matches if output_halos[out_idx].Type == 1
+    )
+    satellite_imperfect = sum(
+        1 for in_idx, out_idx, _ in imperfect_matches if output_halos[out_idx].Type == 1
+    )
 
     print(f"\n  By halo type:")
     print(f"    Centrals (Type=0): {central_perfect} perfect, {central_imperfect} imperfect")
@@ -698,9 +766,14 @@ def test_tree_preservation_properties():
     # Generate detailed markdown report
     print(f"\n  Generating detailed markdown report...")
     report_content = generate_markdown_report(
-        match_result, input_halos, output_halos,
-        perfect_matches, imperfect_matches,
-        tree_file, output_file, snapshot=63
+        match_result,
+        input_halos,
+        output_halos,
+        perfect_matches,
+        imperfect_matches,
+        tree_file,
+        output_file,
+        snapshot=63,
     )
 
     # Save report to tests/data/output/
@@ -708,7 +781,7 @@ def test_tree_preservation_properties():
     report_dir.mkdir(parents=True, exist_ok=True)
     report_file = report_dir / "tree_preservation_report.md"
 
-    with open(report_file, 'w') as f:
+    with open(report_file, "w") as f:
         f.write(report_content)
 
     print(f"    → Report saved: {report_file.relative_to(REPO_ROOT)}")
@@ -718,10 +791,14 @@ def test_tree_preservation_properties():
         report = format_validation_failures(imperfect_matches, "PROPERTY VALIDATION")
         print(f"\n{report}")
         print(f"\n  See detailed report at: {report_file.relative_to(REPO_ROOT)}")
-        assert False, f"Found {imperfect_count} halos with property mismatches (see report for details)"
+        assert (
+            False
+        ), f"Found {imperfect_count} halos with property mismatches (see report for details)"
 
     print(f"  ✓ All {perfect_count} halos have perfectly preserved properties")
-    print(f"    Properties validated: Pos[3], Vel[3], Spin[3], Len, Vmax, VelDisp, SnapNum, MostBoundID")
+    print(
+        f"    Properties validated: Pos[3], Vel[3], Spin[3], Len, Vmax, VelDisp, SnapNum, MostBoundID"
+    )
     print(f"    Mvir validated conditionally for Type=0 centrals (when input Mvir >= 0.0)")
 
 

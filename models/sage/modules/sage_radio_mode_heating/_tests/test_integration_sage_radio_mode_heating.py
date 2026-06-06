@@ -23,21 +23,22 @@ Date: 2025-12-18
 """
 
 import os
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import create_test_param_file, run_mimic, load_binary_halos, check_no_memory_leaks
+from framework import check_no_memory_leaks, create_test_param_file, load_binary_halos, run_mimic
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+NC = "\033[0m"
 
 
 def test_module_pipeline_integration():
@@ -54,22 +55,22 @@ def test_module_pipeline_integration():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="agn_integration",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
-                ('sage_radio_mode_heating', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_radio_mode_heating", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'RadioModeEfficiency': 0.08,
-            'AGNrecipe': 1,
+            "RadioModeEfficiency": 0.08,
+            "AGNrecipe": 1,
             # Cooling module parameters (required dependency)
-            'CoolingRecipe': 1,
-            'CoolingEfficiency': 1.0,
-            'ReincorporationFactor': 1.0
-        }
+            "CoolingRecipe": 1,
+            "CoolingEfficiency": 1.0,
+            "ReincorporationFactor": 1.0,
+        },
     )
 
     # Execute Mimic
@@ -86,14 +87,14 @@ def test_module_pipeline_integration():
     assert len(halos) > 0, "Should have output halos"
 
     # Check AGN-related fields exist
-    assert 'BlackHoleMass' in halos.dtype.names, "Output should have BlackHoleMass field"
-    assert 'HotGas' in halos.dtype.names, "Output should have HotGas field"
-    assert 'Heating' in halos.dtype.names, "Output should have Heating field"
+    assert "BlackHoleMass" in halos.dtype.names, "Output should have BlackHoleMass field"
+    assert "HotGas" in halos.dtype.names, "Output should have HotGas field"
+    assert "Heating" in halos.dtype.names, "Output should have Heating field"
 
     # Basic validation: no NaNs or Infs
-    bh_mass = halos['BlackHoleMass']
-    hot_gas = halos['HotGas']
-    heating = halos['Heating']
+    bh_mass = halos["BlackHoleMass"]
+    hot_gas = halos["HotGas"]
+    heating = halos["Heating"]
 
     assert not np.any(np.isnan(bh_mass)), "BlackHoleMass should not have NaN values"
     assert not np.any(np.isinf(bh_mass)), "BlackHoleMass should not have Inf values"
@@ -126,22 +127,22 @@ def test_agn_physics_correctness():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="agn_physics",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
-                ('sage_radio_mode_heating', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_radio_mode_heating", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'RadioModeEfficiency': 0.08,
-            'AGNrecipe': 1,
+            "RadioModeEfficiency": 0.08,
+            "AGNrecipe": 1,
             # Cooling module parameters
-            'CoolingRecipe': 1,
-            'CoolingEfficiency': 1.0,
-            'ReincorporationFactor': 1.0
-        }
+            "CoolingRecipe": 1,
+            "CoolingEfficiency": 1.0,
+            "ReincorporationFactor": 1.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -151,10 +152,10 @@ def test_agn_physics_correctness():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    bh_mass = halos['BlackHoleMass']
-    hot_gas = halos['HotGas']
-    heating = halos['Heating']
-    mvir = halos['Mvir']
+    bh_mass = halos["BlackHoleMass"]
+    hot_gas = halos["HotGas"]
+    heating = halos["Heating"]
+    mvir = halos["Mvir"]
 
     # Physics validation 1: Some black holes should exist
     # (They might not grow much in one timestep, but should be present)
@@ -167,16 +168,16 @@ def test_agn_physics_correctness():
     bh_in_massive_halos = (mvir > 10.0) & (bh_mass > 0)
     if np.sum(bh_in_massive_halos) > 0:
         bh_fraction = bh_mass[bh_in_massive_halos] / mvir[bh_in_massive_halos]
-        assert np.all(bh_fraction < 0.1), \
-            "BH mass should be < 10% of halo mass (unreasonably high)"
+        assert np.all(bh_fraction < 0.1), "BH mass should be < 10% of halo mass (unreasonably high)"
         print(f"  BH mass fraction in massive halos: {np.mean(bh_fraction):.4e}")
 
     # Physics validation 3: Hot gas should be reasonable fraction of halo mass
     hot_gas_fraction = hot_gas / mvir
     hot_gas_in_halos = mvir > 1.0
     if np.sum(hot_gas_in_halos) > 0:
-        assert np.all(hot_gas_fraction[hot_gas_in_halos] <= 1.0), \
-            "Hot gas cannot exceed total halo mass"
+        assert np.all(
+            hot_gas_fraction[hot_gas_in_halos] <= 1.0
+        ), "Hot gas cannot exceed total halo mass"
         print(f"  Mean hot gas fraction: {np.mean(hot_gas_fraction[hot_gas_in_halos]):.4f}")
 
     # Physics validation 4: Heating should be tracking AGN energy injection
@@ -202,21 +203,21 @@ def test_parameter_sensitivity():
     param_file_off, output_dir_off, temp_dir_off = create_test_param_file(
         output_name="agn_off",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
-                ('sage_radio_mode_heating', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_radio_mode_heating", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'RadioModeEfficiency': 0.08,
-            'AGNrecipe': 0,  # AGN disabled
-            'CoolingRecipe': 1,
-            'CoolingEfficiency': 1.0,
-            'ReincorporationFactor': 1.0
-        }
+            "RadioModeEfficiency": 0.08,
+            "AGNrecipe": 0,  # AGN disabled
+            "CoolingRecipe": 1,
+            "CoolingEfficiency": 1.0,
+            "ReincorporationFactor": 1.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_off)
@@ -224,7 +225,7 @@ def test_parameter_sensitivity():
 
     output_file_off = output_dir_off / "model_z0.000_0"
     halos_off, _ = load_binary_halos(output_file_off)
-    bh_mass_off = halos_off['BlackHoleMass']
+    bh_mass_off = halos_off["BlackHoleMass"]
     total_bh_off = np.sum(bh_mass_off)
     print(f"  Total BH mass (AGN off): {total_bh_off:.2e}")
 
@@ -232,21 +233,21 @@ def test_parameter_sensitivity():
     param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
         output_name="agn_low_eff",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
-                ('sage_radio_mode_heating', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_radio_mode_heating", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'RadioModeEfficiency': 0.02,  # Low efficiency
-            'AGNrecipe': 1,
-            'CoolingRecipe': 1,
-            'CoolingEfficiency': 1.0,
-            'ReincorporationFactor': 1.0
-        }
+            "RadioModeEfficiency": 0.02,  # Low efficiency
+            "AGNrecipe": 1,
+            "CoolingRecipe": 1,
+            "CoolingEfficiency": 1.0,
+            "ReincorporationFactor": 1.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_low)
@@ -254,8 +255,8 @@ def test_parameter_sensitivity():
 
     output_file_low = output_dir_low / "model_z0.000_0"
     halos_low, _ = load_binary_halos(output_file_low)
-    bh_mass_low = halos_low['BlackHoleMass']
-    heating_low = halos_low['Heating']
+    bh_mass_low = halos_low["BlackHoleMass"]
+    heating_low = halos_low["Heating"]
     total_bh_low = np.sum(bh_mass_low)
     total_heating_low = np.sum(heating_low)
     print(f"  Total BH mass (low eff): {total_bh_low:.2e}")
@@ -265,21 +266,21 @@ def test_parameter_sensitivity():
     param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
         output_name="agn_high_eff",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
-                ('sage_radio_mode_heating', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_radio_mode_heating", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'RadioModeEfficiency': 0.20,  # High efficiency (10x low)
-            'AGNrecipe': 1,
-            'CoolingRecipe': 1,
-            'CoolingEfficiency': 1.0,
-            'ReincorporationFactor': 1.0
-        }
+            "RadioModeEfficiency": 0.20,  # High efficiency (10x low)
+            "AGNrecipe": 1,
+            "CoolingRecipe": 1,
+            "CoolingEfficiency": 1.0,
+            "ReincorporationFactor": 1.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_high)
@@ -287,8 +288,8 @@ def test_parameter_sensitivity():
 
     output_file_high = output_dir_high / "model_z0.000_0"
     halos_high, _ = load_binary_halos(output_file_high)
-    bh_mass_high = halos_high['BlackHoleMass']
-    heating_high = halos_high['Heating']
+    bh_mass_high = halos_high["BlackHoleMass"]
+    heating_high = halos_high["Heating"]
     total_bh_high = np.sum(bh_mass_high)
     total_heating_high = np.sum(heating_high)
     print(f"  Total BH mass (high eff): {total_bh_high:.2e}")
@@ -298,21 +299,21 @@ def test_parameter_sensitivity():
     param_file_cloud, output_dir_cloud, temp_dir_cloud = create_test_param_file(
         output_name="agn_cold_cloud",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
-                ('sage_radio_mode_heating', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_radio_mode_heating", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'RadioModeEfficiency': 0.08,
-            'AGNrecipe': 3,  # Cold cloud mode
-            'CoolingRecipe': 1,
-            'CoolingEfficiency': 1.0,
-            'ReincorporationFactor': 1.0
-        }
+            "RadioModeEfficiency": 0.08,
+            "AGNrecipe": 3,  # Cold cloud mode
+            "CoolingRecipe": 1,
+            "CoolingEfficiency": 1.0,
+            "ReincorporationFactor": 1.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_cloud)
@@ -320,22 +321,22 @@ def test_parameter_sensitivity():
 
     output_file_cloud = output_dir_cloud / "model_z0.000_0"
     halos_cloud, _ = load_binary_halos(output_file_cloud)
-    bh_mass_cloud = halos_cloud['BlackHoleMass']
+    bh_mass_cloud = halos_cloud["BlackHoleMass"]
     total_bh_cloud = np.sum(bh_mass_cloud)
     print(f"  Total BH mass (cold cloud): {total_bh_cloud:.2e}")
 
     # Validate parameter sensitivity
     # Test 1: Higher efficiency should produce more BH growth (or equal if Eddington-limited)
-    assert total_bh_high >= total_bh_low, \
-        "Higher efficiency should produce at least as much BH growth"
+    assert (
+        total_bh_high >= total_bh_low
+    ), "Higher efficiency should produce at least as much BH growth"
 
     # Test 2: Different recipes should produce different results (generally)
     # Note: Results may be similar if physics is similar, so we just check they're valid
     assert total_bh_cloud >= 0.0, "Cold cloud mode should produce valid results"
 
     # Test 3: Higher efficiency should produce more heating
-    assert total_heating_high >= total_heating_low, \
-        "Higher efficiency should produce more heating"
+    assert total_heating_high >= total_heating_low, "Higher efficiency should produce more heating"
 
     # Cleanup
     shutil.rmtree(temp_dir_off)
@@ -358,25 +359,26 @@ def test_memory_and_performance():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="agn_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
-                ('sage_radio_mode_heating', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_radio_mode_heating", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'RadioModeEfficiency': 0.08,
-            'AGNrecipe': 1,
-            'CoolingRecipe': 1,
-            'CoolingEfficiency': 1.0,
-            'ReincorporationFactor': 1.0
-        }
+            "RadioModeEfficiency": 0.08,
+            "AGNrecipe": 1,
+            "CoolingRecipe": 1,
+            "CoolingEfficiency": 1.0,
+            "ReincorporationFactor": 1.0,
+        },
     )
 
     # Execute and time
     import time
+
     start_time = time.time()
     returncode, stdout, stderr = run_mimic(param_file)
     elapsed_time = time.time() - start_time
@@ -422,9 +424,10 @@ def main():
         print(f"{RED}Unexpected error: {e}{NC}")
         print(f"{RED}{'=' * 60}{NC}")
         import traceback
+
         traceback.print_exc()
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

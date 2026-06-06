@@ -25,21 +25,22 @@ Date: [DATE]
 """
 
 import os
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import create_test_param_file, run_mimic, load_binary_halos, check_no_memory_leaks
+from framework import check_no_memory_leaks, create_test_param_file, load_binary_halos, run_mimic
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+NC = "\033[0m"
 
 
 def test_full_pipeline_execution():
@@ -56,19 +57,19 @@ def test_full_pipeline_execution():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="[module_name]_pipeline",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('[module_name]', 'process_by_galaxy'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("[module_name]", "process_by_galaxy"),
                 # Add dependencies if needed
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'Param1Name': 1.0,
-            'Param2Name': 0.5,
+            "Param1Name": 1.0,
+            "Param2Name": 0.5,
             # Add all required module parameters
-        }
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -103,17 +104,17 @@ def test_physics_validation():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="[module_name]_physics",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('[module_name]', 'process_by_galaxy'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("[module_name]", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'Param1Name': 1.0,
-            'Param2Name': 0.5,
-        }
+            "Param1Name": 1.0,
+            "Param2Name": 0.5,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -147,17 +148,17 @@ def test_conservation_laws():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="[module_name]_conservation",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('[module_name]', 'process_by_galaxy'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("[module_name]", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'Param1Name': 1.0,
-            'Param2Name': 0.5,
-        }
+            "Param1Name": 1.0,
+            "Param2Name": 0.5,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -190,17 +191,17 @@ def test_parameter_sensitivity():
     param_file1, output_dir1, temp_dir1 = create_test_param_file(
         output_name="[module_name]_params_default",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('[module_name]', 'process_by_galaxy'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("[module_name]", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'Param1Name': 1.0,
-            'Param2Name': 0.5,
-        }
+            "Param1Name": 1.0,
+            "Param2Name": 0.5,
+        },
     )
 
     returncode1, stdout1, stderr1 = run_mimic(param_file1)
@@ -213,17 +214,17 @@ def test_parameter_sensitivity():
     param_file2, output_dir2, temp_dir2 = create_test_param_file(
         output_name="[module_name]_params_modified",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('[module_name]', 'process_by_galaxy'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("[module_name]", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'Param1Name': 2.0,  # Changed value
-            'Param2Name': 0.5,
-        }
+            "Param1Name": 2.0,  # Changed value
+            "Param2Name": 0.5,
+        },
     )
 
     returncode2, stdout2, stderr2 = run_mimic(param_file2)
@@ -258,17 +259,17 @@ def test_edge_cases():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="[module_name]_edge_cases",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('[module_name]', 'process_by_galaxy'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("[module_name]", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'Param1Name': 1.0,
-            'Param2Name': 0.5,
-        }
+            "Param1Name": 1.0,
+            "Param2Name": 0.5,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -304,17 +305,17 @@ def test_memory_and_performance():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="[module_name]_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('[module_name]', 'process_by_galaxy'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("[module_name]", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'Param1Name': 1.0,
-            'Param2Name': 0.5,
-        }
+            "Param1Name": 1.0,
+            "Param2Name": 0.5,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -367,7 +368,7 @@ def main():
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
 
 

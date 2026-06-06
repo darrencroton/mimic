@@ -9,15 +9,13 @@ SIMULATION under build/generated/test_inputs/.
 
 from __future__ import annotations
 
-import os
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
-
 from discovery import REPO_ROOT
-
 
 DEFAULT_MODEL = "sage"
 DEFAULT_SIMULATION = "millennium"
@@ -84,7 +82,9 @@ def base_run_config(model: str, simulation: str) -> dict[str, Any]:
     simulation_root = require_dir(REPO_ROOT / "simulations" / simulation, "simulation package")
 
     model_properties = require_file(model_root / "model_properties.yaml", "model properties")
-    halo_properties = require_file(simulation_root / "halo_properties.yaml", "simulation halo properties")
+    halo_properties = require_file(
+        simulation_root / "halo_properties.yaml", "simulation halo properties"
+    )
     sim_name, sim_path, sim_config = test_simulation_config(simulation_root, simulation)
 
     config: dict[str, Any] = {

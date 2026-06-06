@@ -47,14 +47,11 @@
 #include "module_registry.h"
 
 #define MAX_BUFZ0_SIZE (3 * MAX_STRING_LEN + 25)
-static char
-    bufz0[MAX_BUFZ0_SIZE + 1]; /* 3 strings + max 19 bytes for a number */
-static int exitfail =
-    1; /* Flag indicating whether program exit was due to failure */
+static char bufz0[MAX_BUFZ0_SIZE + 1]; /* 3 strings + max 19 bytes for a number */
+static int exitfail = 1;               /* Flag indicating whether program exit was due to failure */
 
-static struct sigaction saveaction_XCPU; /* Saved signal action for SIGXCPU */
-static volatile sig_atomic_t gotXCPU =
-    0; /* Flag indicating whether SIGXCPU was received */
+static struct sigaction saveaction_XCPU;  /* Saved signal action for SIGXCPU */
+static volatile sig_atomic_t gotXCPU = 0; /* Flag indicating whether SIGXCPU was received */
 
 /**
  * @brief   Signal handler for CPU time limit exceeded (SIGXCPU)
@@ -170,11 +167,9 @@ static void copy_to_metadata(const char *metadata_dir, const char *src_path) {
     return;
   }
 
-  snprintf(dest_path, sizeof(dest_path), "%s/%s", metadata_dir,
-           get_filename_from_path(src_path));
+  snprintf(dest_path, sizeof(dest_path), "%s/%s", metadata_dir, get_filename_from_path(src_path));
   if (copy_file(src_path, dest_path) != 0) {
-    WARNING_LOG("Failed to copy '%s' to metadata directory '%s'", src_path,
-                metadata_dir);
+    WARNING_LOG("Failed to copy '%s' to metadata directory '%s'", src_path, metadata_dir);
   }
 }
 
@@ -188,17 +183,15 @@ static void copy_to_metadata(const char *metadata_dir, const char *src_path) {
  */
 static void write_output_schema_metadata(const char *metadata_dir) {
   char schema_path[MAX_STRING_LEN + 64];
-  snprintf(schema_path, sizeof(schema_path), "%s/output_schema.json",
-           metadata_dir);
+  snprintf(schema_path, sizeof(schema_path), "%s/output_schema.json", metadata_dir);
 
   FILE *schema_file = fopen(schema_path, "w");
   if (schema_file == NULL) {
-    WARNING_LOG("Failed to create output schema metadata file: %s",
-                schema_path);
+    WARNING_LOG("Failed to create output schema metadata file: %s", schema_path);
     return;
   }
 
-  #include "../include/generated/output_schema_writer.inc"
+#include "../include/generated/output_schema_writer.inc"
 
   fclose(schema_file);
   INFO_LOG("Output schema metadata saved to %s", schema_path);
@@ -242,8 +235,7 @@ int main(int argc, char **argv) {
   ThisNode = malloc(MPI_MAX_PROCESSOR_NAME * sizeof(char));
   MPI_Get_processor_name(ThisNode, &nodeNameLen);
   if (nodeNameLen >= MPI_MAX_PROCESSOR_NAME) {
-    FATAL_ERROR("MPI node name string too long (%d >= %d)", nodeNameLen,
-                MPI_MAX_PROCESSOR_NAME);
+    FATAL_ERROR("MPI node name string too long (%d >= %d)", nodeNameLen, MPI_MAX_PROCESSOR_NAME);
   }
 #endif
 
@@ -269,18 +261,15 @@ int main(int argc, char **argv) {
       printf("  -h, --help       Display this help message and exit\n");
       printf("  -v, --verbose    Add context (timestamp, file:line) to messages\n");
       printf("  -d, --debug      Enable debug output with context (most verbose)\n");
-      printf(
-          "  -q, --quiet      Show only warnings and errors (least verbose)\n");
+      printf("  -q, --quiet      Show only warnings and errors (least verbose)\n");
       printf("  --skip           Skip existing output files instead of "
              "overwriting\n\n");
       exit(0);
-    } else if (strcmp(argv[i], "-v") == 0 ||
-               strcmp(argv[i], "--verbose") == 0) {
+    } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
       // Enable verbose formatting (adds timestamp, file:line context)
       set_verbose_format(1);
       i = remove_arg(argv, &argc, i);
-    } else if (strcmp(argv[i], "-d") == 0 ||
-               strcmp(argv[i], "--debug") == 0) {
+    } else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--debug") == 0) {
       // Enable debug level logging with verbose formatting
       log_level = LOG_LEVEL_DEBUG;
       set_verbose_format(1);
@@ -327,8 +316,7 @@ int main(int argc, char **argv) {
   init_memory_system(0); /* Use default block limit */
 
   /* Log startup information */
-  DEBUG_LOG("Starting Mimic with verbosity level: %s",
-            get_log_level_name(log_level));
+  DEBUG_LOG("Starting Mimic with verbosity level: %s", get_log_level_name(log_level));
   INFO_LOG("Mimic physics-agnostic galaxy evolution framework starting up");
 
   /* Log detailed command line arguments at debug level */
@@ -343,8 +331,7 @@ int main(int argc, char **argv) {
   init();
   INFO_LOG("Simulation directory : %s", MimicConfig.SimulationDir);
   INFO_LOG("Output directory     : %s", MimicConfig.OutputDir);
-  INFO_LOG("Tree file range      : %d .. %d", MimicConfig.FirstFile,
-           MimicConfig.LastFile);
+  INFO_LOG("Tree file range      : %d .. %d", MimicConfig.FirstFile, MimicConfig.LastFile);
 #ifdef HDF5
   INFO_LOG("Output format        : %s",
            MimicConfig.OutputFormat == output_hdf5 ? "HDF5" : "Binary");
@@ -354,8 +341,7 @@ int main(int argc, char **argv) {
   INFO_LOG("Snapshots requested  : %d", MimicConfig.NOUT);
 
   if (ensure_directory_exists(MimicConfig.OutputDir) != 0) {
-    FATAL_ERROR("Failed to create output directory '%s'",
-                MimicConfig.OutputDir);
+    FATAL_ERROR("Failed to create output directory '%s'", MimicConfig.OutputDir);
   }
 
   /* Register and initialize galaxy physics modules */
@@ -383,16 +369,15 @@ int main(int argc, char **argv) {
   enable_debug_log_rate_limiting();
 #ifdef MPI
   /* In MPI mode, distribute files across processors using stride of NTask */
-  for (filenr = MimicConfig.FirstFile + ThisTask; filenr <= MimicConfig.LastFile;
-       filenr += NTask)
+  for (filenr = MimicConfig.FirstFile + ThisTask; filenr <= MimicConfig.LastFile; filenr += NTask)
 #else
   /* In serial mode, process all files sequentially */
   for (filenr = MimicConfig.FirstFile; filenr <= MimicConfig.LastFile; filenr++)
 #endif
   {
     /* Construct tree filename and check if it exists */
-    snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
-             MimicConfig.TreeName, filenr, MimicConfig.TreeExtension);
+    snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
+             filenr, MimicConfig.TreeExtension);
     if (!(fd = fopen(bufz0, "r"))) {
       INFO_LOG("Missing tree %s ... skipping", bufz0);
       continue; // tree file does not exist, move along
@@ -409,12 +394,14 @@ int main(int argc, char **argv) {
     } else {
       /* Binary format: one file per snapshot per filenr (e.g., model_z0.000_0) */
       snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[0]], filenr);
+               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[0]],
+               filenr);
     }
 #else
     /* Binary format only (no HDF5 support compiled in) */
     snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-             MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[0]], filenr);
+             MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[0]],
+             filenr);
 #endif
     if (stat(bufz0, &filestatus) == 0 && !MimicConfig.OverwriteOutputFiles) {
       INFO_LOG("Output for tree %s already exists ... skipping", bufz0);
@@ -436,8 +423,8 @@ int main(int argc, char **argv) {
       /* Log progress periodically */
       if (treenr % TREE_PROGRESS_INTERVAL == 0) {
 #ifdef MPI
-        INFO_LOG("Processing task: %d node: %s file: %i tree: %i of %i",
-                 ThisTask, ThisNode, filenr, treenr, Ntrees);
+        INFO_LOG("Processing task: %d node: %s file: %i tree: %i of %i", ThisTask, ThisNode, filenr,
+                 treenr, Ntrees);
 #else
         INFO_LOG("Processing file: %i tree: %i of %i", filenr, treenr, Ntrees);
 #endif
@@ -482,8 +469,8 @@ int main(int argc, char **argv) {
 
       /* Close the HDF5 file */
       if (HDF5_current_file_id >= 0) {
-        DEBUG_LOG("Closing HDF5 file (ID %lld) for filenr %d",
-                  (long long)HDF5_current_file_id, filenr);
+        DEBUG_LOG("Closing HDF5 file (ID %lld) for filenr %d", (long long)HDF5_current_file_id,
+                  filenr);
         H5Fclose(HDF5_current_file_id);
         HDF5_current_file_id = -1;
       }
@@ -549,12 +536,10 @@ int main(int argc, char **argv) {
    * HDF5 also records resolved values in RunProperties, but binary output
    * relies solely on these copies. */
 #define CORE_PROPERTIES_PATH "src/core/core_properties.yaml"
-  char metadata_dir[MAX_STRING_LEN +
-                    15]; // +15 for "/metadata" and null terminator
+  char metadata_dir[MAX_STRING_LEN + 15]; // +15 for "/metadata" and null terminator
 
   // Create metadata directory if it doesn't exist
-  snprintf(metadata_dir, sizeof(metadata_dir), "%s/metadata",
-           MimicConfig.OutputDir);
+  snprintf(metadata_dir, sizeof(metadata_dir), "%s/metadata", MimicConfig.OutputDir);
   if (ensure_directory_exists(metadata_dir) != 0) {
     WARNING_LOG("Failed to create metadata directory '%s'", metadata_dir);
   }
@@ -568,8 +553,7 @@ int main(int argc, char **argv) {
   /* PlottingProfilePath is intentionally not copied: the profile is only
    * needed by mimic-plot.py, which reads it from the run YAML directly. */
   write_output_schema_metadata(metadata_dir);
-  INFO_LOG("Run configuration and referenced package files copied to %s",
-           metadata_dir);
+  INFO_LOG("Run configuration and referenced package files copied to %s", metadata_dir);
 
   // Create version metadata file
   if (create_version_metadata(MimicConfig.OutputDir, argv[1]) != 0) {

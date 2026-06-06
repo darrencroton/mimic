@@ -44,6 +44,7 @@ GREEN = "\033[0;32m"
 BLUE = "\033[1;34m"
 NC = "\033[0m"  # No Color
 
+
 def find_parameter_calls(c_file: Path) -> Dict[str, str]:
     """
     Find all parameter usage in a C file.
@@ -131,9 +132,7 @@ def get_declared_parameters(module_info: Dict) -> Set[str]:
         return {p.get("name", p) if isinstance(p, dict) else p for p in params}
 
 
-def check_module(
-    module_dir: Path, verbose: bool = False
-) -> Tuple[List[str], List[str]]:
+def check_module(module_dir: Path, verbose: bool = False) -> Tuple[List[str], List[str]]:
     """
     Check parameter usage for one module.
 
@@ -188,9 +187,7 @@ def check_module(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Lint parameter usage across Mimic modules"
-    )
+    parser = argparse.ArgumentParser(description="Lint parameter usage across Mimic modules")
     parser.add_argument("--module", help="Check only this specific module")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     args = parser.parse_args()

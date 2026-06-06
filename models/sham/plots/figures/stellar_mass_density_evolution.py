@@ -18,12 +18,12 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_evolution_snapshot,
     save_and_close_figure,
+    setup_figure,
+    validate_evolution_snapshot,
+    warn,
 )
 
 
@@ -53,9 +53,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     galaxies_sample = first_snap[0]
 
     success, optional, msg = check_required_fields(
-        galaxies_sample,
-        required_fields=['StellarMass'],
-        plot_name='Stellar Mass Density Evolution'
+        galaxies_sample, required_fields=["StellarMass"], plot_name="Stellar Mass Density Evolution"
     )
 
     if not success:
@@ -63,7 +61,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Field-level validation: Check if StellarMass has any non-zero values
     has_stellar_mass, count, msg = check_field_has_values(
-        galaxies_sample.StellarMass, 'StellarMass', threshold=0.0
+        galaxies_sample.StellarMass, "StellarMass", threshold=0.0
     )
     if not has_stellar_mass:
         return None, f"Field validation failed: {msg}"
@@ -199,8 +197,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
         # Select galaxies with reasonable stellar masses
         w = np.where(
-            (galaxies.StellarMass / hubble_h > 0.01)
-            & (galaxies.StellarMass / hubble_h < 1000.0)
+            (galaxies.StellarMass / hubble_h > 0.01) & (galaxies.StellarMass / hubble_h < 1000.0)
         )[0]
 
         if len(w) > 0:
@@ -265,17 +262,13 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             )
 
     # Add a line for the legend
-    ax.plot(
-        [], [], color="k", alpha=0.3, marker="o", ls="none", label="Observational data"
-    )
+    ax.plot([], [], color="k", alpha=0.3, marker="o", ls="none", label="Observational data")
 
     # Plot the model results (nonzero was already validated above)
     ax.plot(redshifts[nonzero], smd[nonzero], "k-", lw=3.0, label="Model")
 
     # Customize the plot
-    ax.set_ylabel(
-        r"log$_{10}$ $\rho_{*}$ [M$_{\odot}$ Mpc$^{-3}$]", fontsize=AXIS_LABEL_SIZE
-    )
+    ax.set_ylabel(r"log$_{10}$ $\rho_{*}$ [M$_{\odot}$ Mpc$^{-3}$]", fontsize=AXIS_LABEL_SIZE)
     ax.set_xlabel(get_redshift_label(), fontsize=AXIS_LABEL_SIZE)
 
     ax.xaxis.set_minor_locator(MultipleLocator(0.5))
@@ -288,5 +281,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     setup_legend(ax, loc="upper right")
 
     # Save and close the figure
-    plot_path = save_and_close_figure(fig, output_dir, "Stellar_Mass_Density_Evolution", output_format, verbose)
+    plot_path = save_and_close_figure(
+        fig, output_dir, "Stellar_Mass_Density_Evolution", output_format, verbose
+    )
     return plot_path, None

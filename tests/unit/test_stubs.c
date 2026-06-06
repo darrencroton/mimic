@@ -22,8 +22,8 @@
  * includes MPI cleanup and other teardown logic.
  */
 void myexit(int signum) {
-    printf("Test exiting with code %d\n", signum);
-    exit(signum);
+  printf("Test exiting with code %d\n", signum);
+  exit(signum);
 }
 
 /**
@@ -42,60 +42,60 @@ void myexit(int signum) {
  * @note    Called after reset_config() to populate MimicConfig.ModelParams[]
  */
 void set_test_model_parameters(void) {
-    int idx = 0;
+  int idx = 0;
 
-    /* Cosmological Parameters */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "GlobalBaryonFraction");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.17");
+  /* Cosmological Parameters */
+  strcpy(MimicConfig.ModelParams[idx].param_name, "GlobalBaryonFraction");
+  strcpy(MimicConfig.ModelParams[idx++].value, "0.17");
 
-    /* Cooling & AGN Feedback */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "RadioModeEfficiency");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.01");
+  /* Cooling & AGN Feedback */
+  strcpy(MimicConfig.ModelParams[idx].param_name, "RadioModeEfficiency");
+  strcpy(MimicConfig.ModelParams[idx++].value, "0.01");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "AGNrecipe");
-    strcpy(MimicConfig.ModelParams[idx++].value, "1");
+  strcpy(MimicConfig.ModelParams[idx].param_name, "AGNrecipe");
+  strcpy(MimicConfig.ModelParams[idx++].value, "1");
 
-    /* Star Formation */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "SfrEfficiency");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.02");
+  /* Star Formation */
+  strcpy(MimicConfig.ModelParams[idx].param_name, "SfrEfficiency");
+  strcpy(MimicConfig.ModelParams[idx++].value, "0.02");
 
-    /* Stellar Feedback */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "FeedbackReheatingEpsilon");
-    strcpy(MimicConfig.ModelParams[idx++].value, "3.0");
+  /* Stellar Feedback */
+  strcpy(MimicConfig.ModelParams[idx].param_name, "FeedbackReheatingEpsilon");
+  strcpy(MimicConfig.ModelParams[idx++].value, "3.0");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "FeedbackEjectionEfficiency");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
+  strcpy(MimicConfig.ModelParams[idx].param_name, "FeedbackEjectionEfficiency");
+  strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
 
-    /* Stellar Evolution */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "RecycleFraction");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.43");
+  /* Stellar Evolution */
+  strcpy(MimicConfig.ModelParams[idx].param_name, "RecycleFraction");
+  strcpy(MimicConfig.ModelParams[idx++].value, "0.43");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "Yield");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.03");
+  strcpy(MimicConfig.ModelParams[idx].param_name, "Yield");
+  strcpy(MimicConfig.ModelParams[idx++].value, "0.03");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "FracZleaveDisk");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
+  strcpy(MimicConfig.ModelParams[idx].param_name, "FracZleaveDisk");
+  strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
 
-    /* Reincorporation */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "ReIncorporationFactor");
-    strcpy(MimicConfig.ModelParams[idx++].value, "1.0");
+  /* Reincorporation */
+  strcpy(MimicConfig.ModelParams[idx].param_name, "ReIncorporationFactor");
+  strcpy(MimicConfig.ModelParams[idx++].value, "1.0");
 
-    /* Mergers */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "BlackHoleGrowthRate");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.01");
+  /* Mergers */
+  strcpy(MimicConfig.ModelParams[idx].param_name, "BlackHoleGrowthRate");
+  strcpy(MimicConfig.ModelParams[idx++].value, "0.01");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "QuasarModeEfficiency");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.001");
+  strcpy(MimicConfig.ModelParams[idx].param_name, "QuasarModeEfficiency");
+  strcpy(MimicConfig.ModelParams[idx++].value, "0.001");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "ThresholdMajorMerger");
-    strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
+  strcpy(MimicConfig.ModelParams[idx].param_name, "ThresholdMajorMerger");
+  strcpy(MimicConfig.ModelParams[idx++].value, "0.3");
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "ThresholdSatDisruption");
-    strcpy(MimicConfig.ModelParams[idx++].value, "1.0");
+  strcpy(MimicConfig.ModelParams[idx].param_name, "ThresholdSatDisruption");
+  strcpy(MimicConfig.ModelParams[idx++].value, "1.0");
 
-    /* Disk Instability */
-    strcpy(MimicConfig.ModelParams[idx].param_name, "StarFormingDiskFactor");
-    strcpy(MimicConfig.ModelParams[idx++].value, "3.0");
+  /* Disk Instability */
+  strcpy(MimicConfig.ModelParams[idx].param_name, "StarFormingDiskFactor");
+  strcpy(MimicConfig.ModelParams[idx++].value, "3.0");
 
-    MimicConfig.NumModelParams = idx;
+  MimicConfig.NumModelParams = idx;
 }

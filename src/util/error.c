@@ -66,8 +66,7 @@ static int verbose_format = 0;
 static int debug_log_rate_limiting_enabled = 0;
 
 // Level names for printing
-static const char *level_names[] = {"DEBUG", "INFO", "WARNING", "ERROR",
-                                    "FATAL"};
+static const char *level_names[] = {"DEBUG", "INFO", "WARNING", "ERROR", "FATAL"};
 
 // I/O error code names for printing
 static const char *io_error_names[] = {"NONE",
@@ -104,8 +103,7 @@ void initialize_error_handling(LogLevel min_level, FILE *output_file) {
   set_log_output(output_file);
 
   // Log that the error handling system has been initialized
-  INFO_LOG("Error handling system initialized. Log level set to %s",
-           level_names[min_level]);
+  INFO_LOG("Error handling system initialized. Log level set to %s", level_names[min_level]);
 }
 
 /**
@@ -204,9 +202,7 @@ int get_verbose_format(void) { return verbose_format; }
  *
  * Typically enabled during TREE_PROCESSING phase and disabled for other phases.
  */
-void enable_debug_log_rate_limiting(void) {
-  debug_log_rate_limiting_enabled = 1;
-}
+void enable_debug_log_rate_limiting(void) { debug_log_rate_limiting_enabled = 1; }
 
 /**
  * @brief   Disables rate limiting for DEBUG_LOG output
@@ -215,18 +211,14 @@ void enable_debug_log_rate_limiting(void) {
  * every time they are called. This is appropriate for configuration, module
  * initialization, and other non-loop contexts.
  */
-void disable_debug_log_rate_limiting(void) {
-  debug_log_rate_limiting_enabled = 0;
-}
+void disable_debug_log_rate_limiting(void) { debug_log_rate_limiting_enabled = 0; }
 
 /**
  * @brief   Checks if DEBUG_LOG rate limiting is currently enabled
  *
  * @return  1 if rate limiting is enabled, 0 otherwise
  */
-int is_debug_log_rate_limiting_enabled(void) {
-  return debug_log_rate_limiting_enabled;
-}
+int is_debug_log_rate_limiting_enabled(void) { return debug_log_rate_limiting_enabled; }
 
 /**
  * @brief   Sets the output file for logging
@@ -271,8 +263,8 @@ FILE *set_log_output(FILE *output_file) {
  * the DEBUG_LOG, INFO_LOG, WARNING_LOG, ERROR_LOG, and FATAL_ERROR
  * macros defined in error_handling.h.
  */
-void log_message(LogLevel level, const char *file, const char *func, int line,
-                 const char *format, ...) {
+void log_message(LogLevel level, const char *file, const char *func, int line, const char *format,
+                 ...) {
   // Suppress unused parameter warning (func not used in simplified format)
   (void)func;
 
@@ -299,13 +291,13 @@ void log_message(LogLevel level, const char *file, const char *func, int line,
   // WARNING  -> yellow, ERROR -> red, FATAL -> bold red
   if (isatty(fileno(output))) {
     if (level == LOG_LEVEL_WARNING) {
-      colour_start = "\x1b[33m";      // yellow
+      colour_start = "\x1b[33m"; // yellow
       colour_end = "\x1b[0m";
     } else if (level == LOG_LEVEL_ERROR) {
-      colour_start = "\x1b[31m";      // red
+      colour_start = "\x1b[31m"; // red
       colour_end = "\x1b[0m";
     } else if (level == LOG_LEVEL_FATAL) {
-      colour_start = "\x1b[1;31m";    // bold red
+      colour_start = "\x1b[1;31m"; // bold red
       colour_end = "\x1b[0m";
     }
   }
@@ -318,8 +310,8 @@ void log_message(LogLevel level, const char *file, const char *func, int line,
     // Extract just filename from full path
     const char *filename = strrchr(file, '/');
     filename = filename ? filename + 1 : file;
-    fprintf(output, "%s[%s] %s - %s:%d - ", colour_start, time_str,
-            level_names[level], filename, line);
+    fprintf(output, "%s[%s] %s - %s:%d - ", colour_start, time_str, level_names[level], filename,
+            line);
   }
   // Quiet mode or warnings/errors: Show level prefix
   else if (current_log_level >= LOG_LEVEL_WARNING || level >= LOG_LEVEL_WARNING) {
@@ -377,9 +369,8 @@ void log_message(LogLevel level, const char *file, const char *func, int line,
  * the IO_DEBUG_LOG, IO_INFO_LOG, IO_WARNING_LOG, IO_ERROR_LOG, and
  * IO_FATAL_ERROR macros defined in error_handling.h.
  */
-void log_io_error(LogLevel level, IOErrorCode code, const char *file,
-                  const char *func, int line, const char *operation,
-                  const char *filename, const char *format, ...) {
+void log_io_error(LogLevel level, IOErrorCode code, const char *file, const char *func, int line,
+                  const char *operation, const char *filename, const char *format, ...) {
   // Skip if below current log level
   if (level < current_log_level) {
     return;
@@ -403,24 +394,24 @@ void log_io_error(LogLevel level, IOErrorCode code, const char *file,
 
   if (isatty(fileno(output))) {
     if (level == LOG_LEVEL_WARNING) {
-      colour_start = "\x1b[33m";      // yellow
+      colour_start = "\x1b[33m"; // yellow
       colour_end = "\x1b[0m";
     } else if (level == LOG_LEVEL_ERROR) {
-      colour_start = "\x1b[31m";      // red
+      colour_start = "\x1b[31m"; // red
       colour_end = "\x1b[0m";
     } else if (level == LOG_LEVEL_FATAL) {
-      colour_start = "\x1b[1;31m";    // bold red
+      colour_start = "\x1b[1;31m"; // bold red
       colour_end = "\x1b[0m";
     }
   }
 
   // Print header with time, level, file, function, and line
-  fprintf(output, "%s[%s] %s - %s:%s:%d - ", colour_start, time_str,
-          level_names[level], file, func, line);
+  fprintf(output, "%s[%s] %s - %s:%s:%d - ", colour_start, time_str, level_names[level], file, func,
+          line);
 
   // Print I/O-specific information: operation, filename, and error code
-  fprintf(output, "[I/O %s, file: '%s', error: %s] ", operation,
-          filename ? filename : "?", get_io_error_name(code));
+  fprintf(output, "[I/O %s, file: '%s', error: %s] ", operation, filename ? filename : "?",
+          get_io_error_name(code));
 
   // Print the additional details with variable arguments
   va_list args;

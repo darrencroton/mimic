@@ -9,13 +9,12 @@ Author: Mimic Testing Team
 Date: 2025-12-09 (Updated for multi-phase pipeline)
 """
 
-import os
 import json
 import math
+import os
 import subprocess
 import tempfile
 from pathlib import Path
-
 
 # Repository paths
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -60,9 +59,7 @@ def baseline_rtol(default=BASELINE_RTOL_DEFAULT):
     try:
         value = float(override)
     except ValueError:
-        raise ValueError(
-            f"MIMIC_BASELINE_RTOL must be a number, got {override!r}"
-        )
+        raise ValueError(f"MIMIC_BASELINE_RTOL must be a number, got {override!r}")
     if not math.isfinite(value) or value < 0:
         raise ValueError(
             f"MIMIC_BASELINE_RTOL must be a finite, non-negative number, got {value!r}"
@@ -72,12 +69,7 @@ def baseline_rtol(default=BASELINE_RTOL_DEFAULT):
 
 def _generated_input_root():
     return (
-        REPO_ROOT
-        / "build"
-        / "generated"
-        / "test_inputs"
-        / compiled_model()
-        / compiled_simulation()
+        REPO_ROOT / "build" / "generated" / "test_inputs" / compiled_model() / compiled_simulation()
     )
 
 
@@ -129,9 +121,7 @@ def _ensure_generated_test_inputs():
         root / "simulations" / compiled_simulation() / "test_hdf5.yaml",
     ]
     if compiled_simulation() == "millennium":
-        required.append(
-            root / "simulations" / compiled_simulation() / "test_uniquegalid.yaml"
-        )
+        required.append(root / "simulations" / compiled_simulation() / "test_uniquegalid.yaml")
 
     if _generated_inputs_match_selection(root) and all(path.exists() for path in required):
         return
@@ -201,15 +191,11 @@ def run_mimic(param_file, cwd=None):
 
     if not MIMIC_EXE.exists():
         raise FileNotFoundError(
-            f"Mimic executable not found at {MIMIC_EXE}. "
-            f"Build it first with: make"
+            f"Mimic executable not found at {MIMIC_EXE}. " f"Build it first with: make"
         )
 
     result = subprocess.run(
-        [str(MIMIC_EXE), "--verbose", str(param_file)],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True
+        [str(MIMIC_EXE), "--verbose", str(param_file)], cwd=str(cwd), capture_output=True, text=True
     )
 
     return result.returncode, result.stdout, result.stderr
@@ -245,8 +231,7 @@ def run_mimic_fresh(param_file, expected_output=None, cwd=None):
 
     returncode, stdout, stderr = run_mimic(param_file, cwd=cwd)
     assert returncode == 0, (
-        f"Mimic execution failed (rc={returncode})\n"
-        f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+        f"Mimic execution failed (rc={returncode})\n" f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
     )
     return returncode, stdout, stderr
 
@@ -281,7 +266,7 @@ def final_snapshot_index_from_a_list(a_list_path):
     expansion_factors = []
     with Path(a_list_path).open() as handle:
         for line_number, raw_line in enumerate(handle, start=1):
-            line = raw_line.split('#', 1)[0].strip()
+            line = raw_line.split("#", 1)[0].strip()
             if not line:
                 continue
 
@@ -335,55 +320,64 @@ def read_param_file(param_file):
 
     param_file = Path(param_file)
 
-    with open(param_file, 'r') as f:
+    with open(param_file, "r") as f:
         config = yaml.safe_load(f)
 
     sim_config = {}
-    sim_config_path = config.get('simulation', {}).get('config')
+    sim_config_path = config.get("simulation", {}).get("config")
     if sim_config_path:
         sim_config_path = resolve_sim_config_path(sim_config_path, param_file)
-        with open(sim_config_path, 'r') as f:
+        with open(sim_config_path, "r") as f:
             sim_config = yaml.safe_load(f) or {}
 
     # Flatten hierarchical structure
     params = {}
-    if 'output' in config:
-        params['OutputDir'] = config['output'].get('output_directory', './')
-        params['OutputFileBaseName'] = config['output'].get('output_filename', 'model')
-        params['OutputFormat'] = config['output'].get('output_format', 'binary')
+    if "output" in config:
+        params["OutputDir"] = config["output"].get("output_directory", "./")
+        params["OutputFileBaseName"] = config["output"].get("output_filename", "model")
+        params["OutputFormat"] = config["output"].get("output_format", "binary")
 
-    input_config = sim_config.get('input', config.get('input', {}))
+    input_config = sim_config.get("input", config.get("input", {}))
     if input_config:
-        params['FirstFile'] = str(input_config.get('first_file', 0))
-        params['LastFile'] = str(input_config.get('last_file', 0))
-        params['TreeName'] = input_config.get('tree_name', '')
-        params['TreeType'] = input_config.get('tree_type', 'lhalo_binary')
-        params['SimulationDir'] = input_config.get('simulation_dir', './')
-        params['FileWithSnapList'] = input_config.get('snapshot_list_file', '')
-        a_list_path = Path(params['FileWithSnapList'])
+        params["FirstFile"] = str(input_config.get("first_file", 0))
+        params["LastFile"] = str(input_config.get("last_file", 0))
+        params["TreeName"] = input_config.get("tree_name", "")
+        params["TreeType"] = input_config.get("tree_type", "lhalo_binary")
+        params["SimulationDir"] = input_config.get("simulation_dir", "./")
+        params["FileWithSnapList"] = input_config.get("snapshot_list_file", "")
+        a_list_path = Path(params["FileWithSnapList"])
         if not a_list_path.is_absolute():
             a_list_path = REPO_ROOT / a_list_path
-        params['LastSnapshotNr'] = str(final_snapshot_index_from_a_list(a_list_path))
+        params["LastSnapshotNr"] = str(final_snapshot_index_from_a_list(a_list_path))
 
-    simulation_config = sim_config.get('simulation', config.get('simulation', {}))
+    simulation_config = sim_config.get("simulation", config.get("simulation", {}))
     if simulation_config:
-        params['BoxSize'] = str(simulation_config.get('box_size', 0.0))
-        params['PartMass'] = str(simulation_config.get('particle_mass', 0.0))
-        if 'cosmology' in simulation_config:
-            params['Omega'] = str(simulation_config['cosmology'].get('omega_matter', 0.0))
-            params['OmegaLambda'] = str(simulation_config['cosmology'].get('omega_lambda', 0.0))
-            params['Hubble_h'] = str(simulation_config['cosmology'].get('hubble_h', 0.0))
-        if 'units' in simulation_config:
-            params['UnitLength_in_cm'] = str(simulation_config['units'].get('length_in_cm', 0.0))
-            params['UnitMass_in_g'] = str(simulation_config['units'].get('mass_in_g', 0.0))
-            params['UnitVelocity_in_cm_per_s'] = str(simulation_config['units'].get('velocity_in_cm_per_s', 0.0))
+        params["BoxSize"] = str(simulation_config.get("box_size", 0.0))
+        params["PartMass"] = str(simulation_config.get("particle_mass", 0.0))
+        if "cosmology" in simulation_config:
+            params["Omega"] = str(simulation_config["cosmology"].get("omega_matter", 0.0))
+            params["OmegaLambda"] = str(simulation_config["cosmology"].get("omega_lambda", 0.0))
+            params["Hubble_h"] = str(simulation_config["cosmology"].get("hubble_h", 0.0))
+        if "units" in simulation_config:
+            params["UnitLength_in_cm"] = str(simulation_config["units"].get("length_in_cm", 0.0))
+            params["UnitMass_in_g"] = str(simulation_config["units"].get("mass_in_g", 0.0))
+            params["UnitVelocity_in_cm_per_s"] = str(
+                simulation_config["units"].get("velocity_in_cm_per_s", 0.0)
+            )
 
     return params
 
 
-def create_test_param_file(output_name, phase_config=None,
-                            model_params=None, first_file=0, last_file=0,
-                            ref_param_file=None, temp_dir=None, output_format=None):
+def create_test_param_file(
+    output_name,
+    phase_config=None,
+    model_params=None,
+    first_file=0,
+    last_file=0,
+    ref_param_file=None,
+    temp_dir=None,
+    output_format=None,
+):
     """
     Create a test YAML parameter file with multi-phase module configuration
 
@@ -453,7 +447,7 @@ def create_test_param_file(output_name, phase_config=None,
         temp_dir = Path(temp_dir)
 
     # Read reference parameter file (YAML)
-    with open(ref_param_file, 'r') as f:
+    with open(ref_param_file, "r") as f:
         config = yaml.safe_load(f)
 
     # Create output directory
@@ -461,59 +455,58 @@ def create_test_param_file(output_name, phase_config=None,
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Update run configuration
-    config['output']['output_directory'] = str(output_dir)
+    config["output"]["output_directory"] = str(output_dir)
     if output_format is not None:
-        config['output']['output_format'] = output_format  # Override format if specified
+        config["output"]["output_format"] = output_format  # Override format if specified
 
-    sim_config_path = resolve_sim_config_path(config['simulation']['config'], ref_param_file)
-    with open(sim_config_path, 'r') as f:
+    sim_config_path = resolve_sim_config_path(config["simulation"]["config"], ref_param_file)
+    with open(sim_config_path, "r") as f:
         sim_config = yaml.safe_load(f)
-    sim_config['input']['first_file'] = first_file
-    sim_config['input']['last_file'] = last_file
+    sim_config["input"]["first_file"] = first_file
+    sim_config["input"]["last_file"] = last_file
 
     generated_sim_config = Path(temp_dir) / f"{output_name}_simulation.yaml"
-    with open(generated_sim_config, 'w') as f:
+    with open(generated_sim_config, "w") as f:
         yaml.dump(sim_config, f, default_flow_style=False, sort_keys=False)
-    config['simulation']['config'] = str(generated_sim_config)
+    config["simulation"]["config"] = str(generated_sim_config)
 
     # Set SubSteps (default to 1 if not in reference file)
-    if 'SubSteps' not in config:
-        config['SubSteps'] = 1
+    if "SubSteps" not in config:
+        config["SubSteps"] = 1
 
     # Rebuild the modules section in the current named-substep-phase form:
     #   pre_timestep (lifecycle) -> phases: { <name>: [...] } -> post_timestep.
     # Any phase_config key other than pre_timestep/post_timestep is a user-named
     # substep phase and is emitted under 'phases:' in declaration order.
     def _entries(items):
-        return [{module_name: processing_mode}
-                for module_name, processing_mode in items]
+        return [{module_name: processing_mode} for module_name, processing_mode in items]
 
     modules_section = {}
     if phase_config is not None:
-        pre = phase_config.get('pre_timestep', [])
-        post = phase_config.get('post_timestep', [])
+        pre = phase_config.get("pre_timestep", [])
+        post = phase_config.get("post_timestep", [])
         if pre:
-            modules_section['pre_timestep'] = _entries(pre)
+            modules_section["pre_timestep"] = _entries(pre)
 
         phases = {}
         for phase_name, phase_modules in phase_config.items():
-            if phase_name in ('pre_timestep', 'post_timestep'):
+            if phase_name in ("pre_timestep", "post_timestep"):
                 continue
             if phase_modules:
                 phases[phase_name] = _entries(phase_modules)
         if phases:
-            modules_section['phases'] = phases
+            modules_section["phases"] = phases
 
         if post:
-            modules_section['post_timestep'] = _entries(post)
+            modules_section["post_timestep"] = _entries(post)
     # else: physics-free mode — leave modules with no phases
 
-    config['modules'] = modules_section
+    config["modules"] = modules_section
 
     # Initialize modules.parameters section if model_params provided
     if model_params:
-        if 'parameters' not in config['modules']:
-            config['modules']['parameters'] = {}
+        if "parameters" not in config["modules"]:
+            config["modules"]["parameters"] = {}
         for param_name, value in model_params.items():
             # Try to convert to appropriate type
             try:
@@ -524,17 +517,17 @@ def create_test_param_file(output_name, phase_config=None,
                     value = value_float
             except (ValueError, TypeError):
                 pass  # Keep as string
-            config['modules']['parameters'][param_name] = value
+            config["modules"]["parameters"][param_name] = value
 
     # Write test parameter file as YAML
     param_path = Path(temp_dir) / f"{output_name}.yaml"
-    with open(param_path, 'w') as f:
-        f.write("#" + "="*77 + "\n")
+    with open(param_path, "w") as f:
+        f.write("#" + "=" * 77 + "\n")
         f.write("# Mimic Test Configuration\n")
-        f.write("#" + "="*77 + "\n")
+        f.write("#" + "=" * 77 + "\n")
         f.write("# Auto-generated test parameter file\n")
         f.write("# Pipeline: pre_timestep, named substep phases, post_timestep\n")
-        f.write("#" + "="*77 + "\n\n")
+        f.write("#" + "=" * 77 + "\n\n")
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     return param_path, output_dir, Path(temp_dir)
@@ -558,9 +551,9 @@ def check_no_memory_leaks(output_dir):
         assert not has_leaks, "Memory leaks detected"
     """
     # ANSI color codes
-    YELLOW = '\033[1;33m'
-    RED = '\033[0;31m'
-    NC = '\033[0m'  # No Color
+    YELLOW = "\033[1;33m"
+    RED = "\033[0;31m"
+    NC = "\033[0m"  # No Color
 
     log_dir = output_dir / "metadata"
     if not log_dir.exists():
@@ -577,7 +570,11 @@ def check_no_memory_leaks(output_dir):
                     # Exclude success messages
                     if "no memory leak" not in line_lower:
                         # Check if it's a warning or error (not just INFO)
-                        if "warning" in line_lower or "error" in line_lower or "fatal" in line_lower:
+                        if (
+                            "warning" in line_lower
+                            or "error" in line_lower
+                            or "fatal" in line_lower
+                        ):
                             print(f"{RED}Memory leak detected in {log_file}{NC}")
                             print(f"  {line.strip()}")
                             return False
@@ -587,18 +584,18 @@ def check_no_memory_leaks(output_dir):
 
 # Convenience exports for common paths
 __all__ = [
-    'REPO_ROOT',
-    'TEST_DATA_DIR',
-    'MIMIC_EXE',
-    'compiled_model',
-    'compiled_simulation',
-    'core_input_file',
-    'simulation_input_file',
-    'ensure_output_dirs',
-    'run_mimic',
-    'run_mimic_fresh',
-    'resolve_sim_config_path',
-    'read_param_file',
-    'create_test_param_file',
-    'check_no_memory_leaks',
+    "REPO_ROOT",
+    "TEST_DATA_DIR",
+    "MIMIC_EXE",
+    "compiled_model",
+    "compiled_simulation",
+    "core_input_file",
+    "simulation_input_file",
+    "ensure_output_dirs",
+    "run_mimic",
+    "run_mimic_fresh",
+    "resolve_sim_config_path",
+    "read_param_file",
+    "create_test_param_file",
+    "check_no_memory_leaks",
 ]

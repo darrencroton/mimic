@@ -116,10 +116,10 @@
  * This provides better cache locality and matches SAGE behavior.
  */
 enum ProcessingMode {
-  PROCESSING_MODE_FULL_HALO,  /**< Module called once with full halo array */
-  PROCESSING_MODE_PER_EVENT,  /**< Module called for each emitted event target */
-  PROCESSING_MODE_BY_GALAXY,  /**< Module called per-galaxy (galaxy-major loop) */
-  PROCESSING_MODE_COUNT       /**< Number of processing modes */
+  PROCESSING_MODE_FULL_HALO, /**< Module called once with full halo array */
+  PROCESSING_MODE_PER_EVENT, /**< Module called for each emitted event target */
+  PROCESSING_MODE_BY_GALAXY, /**< Module called per-galaxy (galaxy-major loop) */
+  PROCESSING_MODE_COUNT      /**< Number of processing modes */
 };
 
 /**
@@ -313,8 +313,8 @@ struct ModuleContext {
  * Special case for direct module unit tests: when no phase dispatch context is
  * active, the event is dropped and 0 is returned.
  */
-int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
-                      int target_index, double value0, double value1);
+int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index, int target_index,
+                      double value0, double value1);
 
 /**
  * @brief   Galaxy physics module interface

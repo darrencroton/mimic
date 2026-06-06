@@ -20,7 +20,7 @@
 #include "proto.h"
 #include "output/util.h"
 #include "module_system/output_helpers.h"
-#include "module_system/physical_constants.h"  /* For SEC_PER_MEGAYEAR */
+#include "module_system/physical_constants.h" /* For SEC_PER_MEGAYEAR */
 
 /**
  * @brief Counts processed halos per requested output snapshot.

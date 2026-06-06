@@ -35,7 +35,6 @@ int detect_host_endian(void);
 
 /* Endianness utilities */
 int is_same_endian(int file_endian);
-void *swap_bytes_if_needed(void *data, size_t size, size_t count,
-                           int file_endian);
+void *swap_bytes_if_needed(void *data, size_t size, size_t count, int file_endian);
 
 #endif /* IO_UTIL_H */

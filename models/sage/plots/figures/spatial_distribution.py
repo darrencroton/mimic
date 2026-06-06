@@ -54,18 +54,14 @@ def plot(
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
-        galaxies,
-        required_fields=['Mvir', 'Pos'],
-        plot_name='Spatial Distribution'
+        galaxies, required_fields=["Mvir", "Pos"], plot_name="Spatial Distribution"
     )
 
     if not success:
         return None, f"Required fields missing: {msg}"
 
     # Field-level validation
-    has_mvir, count, msg = check_field_has_values(
-        galaxies.Mvir, 'Mvir', threshold=0.0
-    )
+    has_mvir, count, msg = check_field_has_values(galaxies.Mvir, "Mvir", threshold=0.0)
     if not has_mvir:
         return None, f"Field validation failed: {msg}"
 
@@ -140,5 +136,7 @@ def plot(
     plt.tight_layout()
 
     # Save and close the figure
-    plot_path = save_and_close_figure(fig, output_dir, "SpatialDistribution", output_format, verbose)
+    plot_path = save_and_close_figure(
+        fig, output_dir, "SpatialDistribution", output_format, verbose
+    )
     return plot_path, None

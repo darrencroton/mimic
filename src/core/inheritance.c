@@ -5,8 +5,7 @@
 #include "memory.h"
 #include "error.h"
 
-static void copy_progenitor_galaxy(struct Halo *target,
-                                   const struct Halo *source) {
+static void copy_progenitor_galaxy(struct Halo *target, const struct Halo *source) {
   *target = *source;
 
   if (source->galaxy != NULL) {
@@ -25,8 +24,8 @@ static void free_inherited_galaxy(struct Halo *halo) {
   }
 }
 
-static void apply_descendant_properties(
-    struct Halo *halo, const struct InheritanceDescendant *descendant) {
+static void apply_descendant_properties(struct Halo *halo,
+                                        const struct InheritanceDescendant *descendant) {
   int j;
   double previous_mvir = halo->Mvir;
   double previous_vvir = halo->Vvir;
@@ -82,8 +81,7 @@ static void make_orphan(struct Halo *halo) {
   halo->Type = 2;
 }
 
-static void init_new_halo(struct Halo *halo,
-                          const struct InheritanceDescendant *descendant) {
+static void init_new_halo(struct Halo *halo, const struct InheritanceDescendant *descendant) {
   init_halo_from_payload(halo, &descendant->halo_payload);
 
   halo->HaloNr = descendant->halo_nr;
@@ -117,11 +115,9 @@ static void set_local_centrals(struct Halo *workspace, int start, int end) {
   }
 
   if (centralgal == -1) {
-    ERROR_LOG("FATAL: No Type 0/1 central found in subhalo slice (range %d-%d)",
-              start, end);
+    ERROR_LOG("FATAL: No Type 0/1 central found in subhalo slice (range %d-%d)", start, end);
     for (i = start; i < end; i++) {
-      ERROR_LOG("  Galaxy %d: Type=%d, HaloNr=%d", i, workspace[i].Type,
-                workspace[i].HaloNr);
+      ERROR_LOG("  Galaxy %d: Type=%d, HaloNr=%d", i, workspace[i].Type, workspace[i].HaloNr);
     }
     assert(centralgal != -1);
   }
@@ -131,10 +127,10 @@ static void set_local_centrals(struct Halo *workspace, int start, int end) {
   }
 }
 
-int inherit_descendant_halos(
-    struct Halo *workspace, int start, int capacity,
-    const struct InheritanceDescendant *descendant,
-    const struct InheritanceProgenitorGalaxy *progenitors, int nprogenitors) {
+int inherit_descendant_halos(struct Halo *workspace, int start, int capacity,
+                             const struct InheritanceDescendant *descendant,
+                             const struct InheritanceProgenitorGalaxy *progenitors,
+                             int nprogenitors) {
   int end = start;
 
   assert(workspace != NULL);

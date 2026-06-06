@@ -9,9 +9,10 @@ Author: Mimic Testing Team
 Date: 2025-11-08
 """
 
-import numpy as np
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import numpy as np
 
 _mimic_root = Path(__file__).resolve().parent.parent.parent
 _plot_path = _mimic_root / "plot" / "mimic-plot"
@@ -58,7 +59,7 @@ def load_binary_halos(file_path):
     dtype = get_halo_dtype(file_path)
 
     # Read file
-    with open(file_path, 'rb') as f:
+    with open(file_path, "rb") as f:
         # Read header
         Ntrees = np.fromfile(f, np.int32, 1)[0]
         TotHalos = np.fromfile(f, np.int32, 1)[0]
@@ -85,19 +86,17 @@ def load_binary_halos(file_path):
 
         # Verify we read the expected number
         if len(halos) != TotHalos:
-            raise ValueError(
-                f"Expected {TotHalos} halos, but read {len(halos)}"
-            )
+            raise ValueError(f"Expected {TotHalos} halos, but read {len(halos)}")
 
     # Convert to recarray for attribute access
     halos = halos.view(np.recarray)
 
     # Create metadata dictionary
     metadata = {
-        'Ntrees': Ntrees,
-        'TotHalos': TotHalos,
-        'halos_per_tree': halos_per_tree,
-        'file_path': str(file_path),
+        "Ntrees": Ntrees,
+        "TotHalos": TotHalos,
+        "halos_per_tree": halos_per_tree,
+        "file_path": str(file_path),
     }
 
     return halos, metadata
@@ -212,11 +211,11 @@ def validate_range(halos, field, min_val, max_val):
         examples_above = [(int(i), float(data[i])) for i in indices]
 
     return {
-        'passed': (count_below == 0 and count_above == 0),
-        'count_below': int(count_below),
-        'count_above': int(count_above),
-        'min_value': float(np.min(data)),
-        'max_value': float(np.max(data)),
-        'examples_below': examples_below,
-        'examples_above': examples_above,
+        "passed": (count_below == 0 and count_above == 0),
+        "count_below": int(count_below),
+        "count_above": int(count_above),
+        "min_value": float(np.min(data)),
+        "max_value": float(np.max(data)),
+        "examples_below": examples_below,
+        "examples_above": examples_above,
     }

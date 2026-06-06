@@ -9,6 +9,7 @@ to a TTY, and centralized field checking for adaptive plotting.
 """
 
 import sys
+
 import numpy as np
 
 
@@ -231,6 +232,7 @@ def save_and_close_figure(fig, output_dir, filename, output_format=".png", verbo
         >>> return save_and_close_figure(fig, output_dir, "StellarMassFunction", output_format, verbose)
     """
     import os
+
     import matplotlib.pyplot as plt
 
     # Ensure output directory exists

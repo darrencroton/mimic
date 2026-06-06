@@ -19,13 +19,13 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
+    calculate_mass_function,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_filtered_data,
     save_and_close_figure,
-    calculate_mass_function,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -57,9 +57,7 @@ def plot(
     """
     # Check required fields
     success, optional, msg = check_required_fields(
-        galaxies,
-        required_fields=['ColdGas'],
-        plot_name='Cold Gas Function'
+        galaxies, required_fields=["ColdGas"], plot_name="Cold Gas Function"
     )
 
     if not success:
@@ -86,8 +84,8 @@ def plot(
     mass = np.log10(galaxies.ColdGas[w] * 1.0e10 / hubble_h)
 
     # Force some reasonable limits for gas masses
-    mi = 8.0    # Don't go below 10^8 Msun
-    ma = 12.5   # Don't go above 10^12.5 Msun
+    mi = 8.0  # Don't go below 10^8 Msun
+    ma = 12.5  # Don't go above 10^12.5 Msun
 
     # Calculate cold gas mass function
     xaxis, cgmf = calculate_mass_function(mass, volume, hubble_h, binwidth, mi, ma)

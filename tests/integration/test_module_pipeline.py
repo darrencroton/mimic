@@ -16,9 +16,9 @@ Date: 2025-11-09
 """
 
 import os
-import sys
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,19 +27,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
-    REPO_ROOT,
     MIMIC_EXE,
-    read_param_file,
+    REPO_ROOT,
     create_test_param_file,
+    read_param_file,
     run_mimic,
 )
 
 # ANSI color codes (module-level constants)
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 class TestModulePipeline(unittest.TestCase):
@@ -57,14 +57,11 @@ class TestModulePipeline(unittest.TestCase):
         # Check mimic is compiled
         if not MIMIC_EXE.exists():
             raise RuntimeError(
-                f"Mimic executable not found at {MIMIC_EXE}. "
-                "Run 'make' to compile."
+                f"Mimic executable not found at {MIMIC_EXE}. " "Run 'make' to compile."
             )
 
         # Reference parameter file
-        cls.ref_param_file = os.path.join(
-            cls.repo_root, "input", "millennium.yaml"
-        )
+        cls.ref_param_file = os.path.join(cls.repo_root, "input", "millennium.yaml")
 
         # Create temporary directory for test outputs
         cls.temp_dir = tempfile.mkdtemp(prefix="mimic_module_test_")
@@ -80,26 +77,22 @@ class TestModulePipeline(unittest.TestCase):
         """Test physics-free mode (no modules enabled)."""
         # Create parameter file with no modules
         param_file, output_dir, _ = create_test_param_file(
-            output_name="physics_free",
-            first_file=0,
-            last_file=0,
-            temp_dir=self.temp_dir
+            output_name="physics_free", first_file=0, last_file=0, temp_dir=self.temp_dir
         )
 
         # Run mimic
         returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution succeeded
-        self.assertEqual(returncode, 0,
-                        f"Mimic failed in physics-free mode:\n{stderr}")
+        self.assertEqual(returncode, 0, f"Mimic failed in physics-free mode:\n{stderr}")
 
         # Verify log messages
-        self.assertIn("No modules configured (physics-free mode)", stdout,
-                     "Should log physics-free mode")
+        self.assertIn(
+            "No modules configured (physics-free mode)", stdout, "Should log physics-free mode"
+        )
 
         # Verify output directory was created
-        self.assertTrue(output_dir.exists(),
-                       "Output directory should be created")
+        self.assertTrue(output_dir.exists(), "Output directory should be created")
 
     def test_single_module_execution(self):
         """Test single module execution in isolation."""
@@ -107,51 +100,47 @@ class TestModulePipeline(unittest.TestCase):
         param_file, output_dir, _ = create_test_param_file(
             output_name="single_module",
             phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
-            model_params={
-                "TestFixtureDummyParameter": 2.5,
-                "TestFixtureEnableLogging": 0
-            },
+            model_params={"TestFixtureDummyParameter": 2.5, "TestFixtureEnableLogging": 0},
             first_file=0,
             last_file=0,
-            temp_dir=self.temp_dir
+            temp_dir=self.temp_dir,
         )
 
         # Run mimic
         returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution succeeded
-        self.assertEqual(returncode, 0,
-                        f"Mimic failed with test_fixture:\n{stderr}")
+        self.assertEqual(returncode, 0, f"Mimic failed with test_fixture:\n{stderr}")
 
         # Verify module was initialized with correct parameters
         self.assertIn("Test fixture module initialized", stdout)
         self.assertIn("DummyParameter = 2.500", stdout)
 
         # Verify output directory was created
-        self.assertTrue(output_dir.exists(),
-                       "Output directory should be created")
+        self.assertTrue(output_dir.exists(), "Output directory should be created")
 
     def test_multiple_modules_execution(self):
         """Test multiple module execution together."""
         # Create parameter file with test_fixture enabled twice (tests module list handling)
         param_file, output_dir, _ = create_test_param_file(
             output_name="multiple_modules",
-            phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy"), ("test_fixture", "process_by_galaxy")]},
-            model_params={
-                "TestFixtureDummyParameter": 1.5,
-                "TestFixtureEnableLogging": 0
+            phase_config={
+                "galaxy_physics": [
+                    ("test_fixture", "process_by_galaxy"),
+                    ("test_fixture", "process_by_galaxy"),
+                ]
             },
+            model_params={"TestFixtureDummyParameter": 1.5, "TestFixtureEnableLogging": 0},
             first_file=0,
             last_file=0,
-            temp_dir=self.temp_dir
+            temp_dir=self.temp_dir,
         )
 
         # Run mimic
         returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution succeeded
-        self.assertEqual(returncode, 0,
-                        f"Mimic failed with multiple modules:\n{stderr}")
+        self.assertEqual(returncode, 0, f"Mimic failed with multiple modules:\n{stderr}")
 
         # Verify module was initialized with correct parameters
         self.assertIn("Test fixture module initialized", stdout)
@@ -159,8 +148,7 @@ class TestModulePipeline(unittest.TestCase):
         self.assertIn("EnableLogging = 0", stdout)
 
         # Verify output directory was created
-        self.assertTrue(output_dir.exists(),
-                       "Output directory should be created")
+        self.assertTrue(output_dir.exists(), "Output directory should be created")
 
     def test_custom_parameter_values(self):
         """Test that custom parameter values are actually used."""
@@ -170,23 +158,21 @@ class TestModulePipeline(unittest.TestCase):
             phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
             model_params={
                 "TestFixtureDummyParameter": 3.14,  # Non-default
-                "TestFixtureEnableLogging": 0
+                "TestFixtureEnableLogging": 0,
             },
             first_file=0,
             last_file=0,
-            temp_dir=self.temp_dir
+            temp_dir=self.temp_dir,
         )
 
         # Run mimic
         returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution succeeded
-        self.assertEqual(returncode, 0,
-                        f"Mimic failed with custom parameters:\n{stderr}")
+        self.assertEqual(returncode, 0, f"Mimic failed with custom parameters:\n{stderr}")
 
         # Verify custom parameter was read
-        self.assertIn("DummyParameter = 3.140", stdout,
-                     "Custom parameter value should be logged")
+        self.assertIn("DummyParameter = 3.140", stdout, "Custom parameter value should be logged")
 
     def test_unknown_module_error(self):
         """Test that unknown module names produce clear errors."""
@@ -196,24 +182,20 @@ class TestModulePipeline(unittest.TestCase):
             phase_config={"galaxy_physics": [("nonexistent_module", "process_by_galaxy")]},
             first_file=0,
             last_file=0,
-            temp_dir=self.temp_dir
+            temp_dir=self.temp_dir,
         )
 
         # Run mimic
         returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution failed
-        self.assertNotEqual(returncode, 0,
-                           "Mimic should fail with unknown module")
+        self.assertNotEqual(returncode, 0, "Mimic should fail with unknown module")
 
         # Verify error message lists available modules
         combined_output = stdout + stderr
-        self.assertIn("not registered", combined_output,
-                     "Should report module not registered")
-        self.assertIn("Available modules:", combined_output,
-                     "Should list available modules")
-        self.assertIn("test_fixture", combined_output,
-                     "Should list test_fixture as available")
+        self.assertIn("not registered", combined_output, "Should report module not registered")
+        self.assertIn("Available modules:", combined_output, "Should list available modules")
+        self.assertIn("test_fixture", combined_output, "Should list test_fixture as available")
 
     def test_module_execution_order(self):
         """Test that modules execute in the order specified in configured module phases.
@@ -225,25 +207,22 @@ class TestModulePipeline(unittest.TestCase):
         param_file, output_dir, _ = create_test_param_file(
             output_name="execution_order",
             phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
-            model_params={
-                "TestFixtureDummyParameter": 1.0,
-                "TestFixtureEnableLogging": 0
-            },
+            model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 0},
             first_file=0,
             last_file=0,
-            temp_dir=self.temp_dir
+            temp_dir=self.temp_dir,
         )
 
         # Run mimic
         returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution succeeded
-        self.assertEqual(returncode, 0,
-                        f"Mimic should succeed:\n{stderr}")
+        self.assertEqual(returncode, 0, f"Mimic should succeed:\n{stderr}")
 
         # Verify module was initialized (basic ordering infrastructure works)
-        self.assertIn("Test fixture module initialized", stdout,
-                     "Module should be initialized in pipeline")
+        self.assertIn(
+            "Test fixture module initialized", stdout, "Module should be initialized in pipeline"
+        )
 
     def test_module_init_failure_handling(self):
         """Test that module init() failure stops execution gracefully.
@@ -265,28 +244,33 @@ class TestModulePipeline(unittest.TestCase):
             },
             first_file=0,
             last_file=0,
-            temp_dir=self.temp_dir
+            temp_dir=self.temp_dir,
         )
 
         # Run mimic
         returncode, stdout, stderr = run_mimic(param_file)
 
         # Verify execution failed
-        self.assertNotEqual(returncode, 0,
-                           "Mimic should fail when module init() returns -1")
+        self.assertNotEqual(returncode, 0, "Mimic should fail when module init() returns -1")
 
         # Verify error message is present
         combined_output = stdout + stderr
-        self.assertIn("Failed to read TestFixtureDummyParameter", combined_output,
-                     "Should report parameter read failure")
+        self.assertIn(
+            "Failed to read TestFixtureDummyParameter",
+            combined_output,
+            "Should report parameter read failure",
+        )
 
         # Verify no output files were created (execution stopped early)
         # Output directory may exist but should have no data files
         if output_dir.exists():
             binary_files = list(output_dir.glob("*.bin"))
             hdf5_files = list(output_dir.glob("*.hdf5"))
-            self.assertEqual(len(binary_files) + len(hdf5_files), 0,
-                           "No output files should be created on init failure")
+            self.assertEqual(
+                len(binary_files) + len(hdf5_files),
+                0,
+                "No output files should be created on init failure",
+            )
 
 
 def main():

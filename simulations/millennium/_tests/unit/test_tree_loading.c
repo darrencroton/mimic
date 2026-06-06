@@ -44,12 +44,10 @@ extern int *InputTreeNHalos;
 extern int Ntrees;
 
 static const char *test_binary_param_file(void) {
-    static char path[MAX_STRING_LEN];
-    snprintf(path, sizeof(path),
-             "build/generated/test_inputs/%s/%s/simulations/%s/test_binary.yaml",
-             MIMIC_COMPILED_MODEL, MIMIC_COMPILED_SIMULATION,
-             MIMIC_COMPILED_SIMULATION);
-    return path;
+  static char path[MAX_STRING_LEN];
+  snprintf(path, sizeof(path), "build/generated/test_inputs/%s/%s/simulations/%s/test_binary.yaml",
+           MIMIC_COMPILED_MODEL, MIMIC_COMPILED_SIMULATION, MIMIC_COMPILED_SIMULATION);
+  return path;
 }
 
 /**
@@ -58,10 +56,10 @@ static const char *test_binary_param_file(void) {
  * Initializes memory system, error handling, loads parameter file, and initializes units.
  */
 static void setup_test(void) {
-    init_memory_system(0);
-    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
-    read_parameter_file(test_binary_param_file());
-    init();
+  init_memory_system(0);
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+  read_parameter_file(test_binary_param_file());
+  init();
 }
 
 /**
@@ -69,9 +67,7 @@ static void setup_test(void) {
  *
  * Checks for memory leaks after test execution.
  */
-static void teardown_test(void) {
-    check_memory_leaks();
-}
+static void teardown_test(void) { check_memory_leaks(); }
 
 /**
  * @test    test_tree_table_loading
@@ -81,26 +77,26 @@ static void teardown_test(void) {
  * Validates: Tree table reading functionality
  */
 int test_tree_table_loading(void) {
-    /* ===== SETUP ===== */
-    setup_test();
+  /* ===== SETUP ===== */
+  setup_test();
 
-    /* ===== EXECUTE ===== */
-    int filenr = 0;
-    load_tree_table(filenr, lhalo_binary);
+  /* ===== EXECUTE ===== */
+  int filenr = 0;
+  load_tree_table(filenr, lhalo_binary);
 
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(Ntrees > 0, "Should have at least one tree");
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(Ntrees > 0, "Should have at least one tree");
 
-    printf("  Number of trees in file: %d\n", Ntrees);
-    if (InputTreeNHalos != NULL && Ntrees > 0) {
-        printf("  First tree has %d halos\n", InputTreeNHalos[0]);
-    }
+  printf("  Number of trees in file: %d\n", Ntrees);
+  if (InputTreeNHalos != NULL && Ntrees > 0) {
+    printf("  First tree has %d halos\n", InputTreeNHalos[0]);
+  }
 
-    /* ===== CLEANUP ===== */
-    free_tree_table(lhalo_binary);
-    teardown_test();
+  /* ===== CLEANUP ===== */
+  free_tree_table(lhalo_binary);
+  teardown_test();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -111,27 +107,27 @@ int test_tree_table_loading(void) {
  * Validates: Tree data reading functionality
  */
 int test_tree_data_loading(void) {
-    /* ===== SETUP ===== */
-    setup_test();
-    load_tree_table(0, lhalo_binary);
+  /* ===== SETUP ===== */
+  setup_test();
+  load_tree_table(0, lhalo_binary);
 
-    /* ===== EXECUTE ===== */
-    TEST_ASSERT(Ntrees > 0, "Need at least one tree for this test");
-    load_tree(0, lhalo_binary);
+  /* ===== EXECUTE ===== */
+  TEST_ASSERT(Ntrees > 0, "Need at least one tree for this test");
+  load_tree(0, lhalo_binary);
 
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(InputTreeHalos != NULL, "InputTreeHalos should be allocated");
-    TEST_ASSERT(InputTreeNHalos[0] > 0, "First tree should have halos");
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(InputTreeHalos != NULL, "InputTreeHalos should be allocated");
+  TEST_ASSERT(InputTreeNHalos[0] > 0, "First tree should have halos");
 
-    printf("  Tree 0 loaded successfully\n");
-    printf("  Number of halos: %d\n", InputTreeNHalos[0]);
+  printf("  Tree 0 loaded successfully\n");
+  printf("  Number of halos: %d\n", InputTreeNHalos[0]);
 
-    /* ===== CLEANUP ===== */
-    free_halos_and_tree();
-    free_tree_table(lhalo_binary);
-    teardown_test();
+  /* ===== CLEANUP ===== */
+  free_halos_and_tree();
+  free_tree_table(lhalo_binary);
+  teardown_test();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -142,26 +138,26 @@ int test_tree_data_loading(void) {
  * Validates: Tree data integrity
  */
 int test_tree_halo_count(void) {
-    /* ===== SETUP ===== */
-    setup_test();
-    load_tree_table(0, lhalo_binary);
+  /* ===== SETUP ===== */
+  setup_test();
+  load_tree_table(0, lhalo_binary);
 
-    /* ===== EXECUTE ===== */
-    load_tree(0, lhalo_binary);
+  /* ===== EXECUTE ===== */
+  load_tree(0, lhalo_binary);
 
-    /* ===== VALIDATE ===== */
-    int nhalo = InputTreeNHalos[0];
-    TEST_ASSERT(nhalo > 0, "Tree should have at least one halo");
-    TEST_ASSERT(nhalo < 1000000, "Halo count should be reasonable (< 1M)");
+  /* ===== VALIDATE ===== */
+  int nhalo = InputTreeNHalos[0];
+  TEST_ASSERT(nhalo > 0, "Tree should have at least one halo");
+  TEST_ASSERT(nhalo < 1000000, "Halo count should be reasonable (< 1M)");
 
-    printf("  Halo count: %d (reasonable)\n", nhalo);
+  printf("  Halo count: %d (reasonable)\n", nhalo);
 
-    /* ===== CLEANUP ===== */
-    free_halos_and_tree();
-    free_tree_table(lhalo_binary);
-    teardown_test();
+  /* ===== CLEANUP ===== */
+  free_halos_and_tree();
+  free_tree_table(lhalo_binary);
+  teardown_test();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -172,55 +168,55 @@ int test_tree_halo_count(void) {
  * Validates: Data integrity and format correctness
  */
 int test_tree_data_validity(void) {
-    /* ===== SETUP ===== */
-    setup_test();
-    load_tree_table(0, lhalo_binary);
-    load_tree(0, lhalo_binary);
+  /* ===== SETUP ===== */
+  setup_test();
+  load_tree_table(0, lhalo_binary);
+  load_tree(0, lhalo_binary);
 
-    /* ===== EXECUTE & VALIDATE ===== */
-    int nhalo = InputTreeNHalos[0];
+  /* ===== EXECUTE & VALIDATE ===== */
+  int nhalo = InputTreeNHalos[0];
 
-    /* Check first 10 halos (or all if fewer) */
-    int check_count = nhalo < 10 ? nhalo : 10;
-    printf("  Checking first %d halos for validity...\n", check_count);
+  /* Check first 10 halos (or all if fewer) */
+  int check_count = nhalo < 10 ? nhalo : 10;
+  printf("  Checking first %d halos for validity...\n", check_count);
 
-    for (int i = 0; i < check_count; i++) {
-        struct RawHalo *h = &InputTreeHalos[i];
+  for (int i = 0; i < check_count; i++) {
+    struct RawHalo *h = &InputTreeHalos[i];
 
-        /* Check for NaN/Inf in critical fields */
-        TEST_ASSERT(isfinite(h->Mvir), "Mvir should be finite");
-        TEST_ASSERT(isfinite(h->Vmax), "Vmax should be finite");
-        TEST_ASSERT(isfinite(h->Pos[0]), "Pos[0] should be finite");
-        TEST_ASSERT(isfinite(h->Pos[1]), "Pos[1] should be finite");
-        TEST_ASSERT(isfinite(h->Pos[2]), "Pos[2] should be finite");
+    /* Check for NaN/Inf in critical fields */
+    TEST_ASSERT(isfinite(h->Mvir), "Mvir should be finite");
+    TEST_ASSERT(isfinite(h->Vmax), "Vmax should be finite");
+    TEST_ASSERT(isfinite(h->Pos[0]), "Pos[0] should be finite");
+    TEST_ASSERT(isfinite(h->Pos[1]), "Pos[1] should be finite");
+    TEST_ASSERT(isfinite(h->Pos[2]), "Pos[2] should be finite");
 
-        /* Check that masses are positive */
-        TEST_ASSERT(h->Mvir > 0, "Mvir should be positive");
-        TEST_ASSERT(h->Len > 0, "Len should be positive");
+    /* Check that masses are positive */
+    TEST_ASSERT(h->Mvir > 0, "Mvir should be positive");
+    TEST_ASSERT(h->Len > 0, "Len should be positive");
 
-        /* Check snapshot number is reasonable */
-        TEST_ASSERT(h->SnapNum >= 0, "SnapNum should be non-negative");
-        TEST_ASSERT(h->SnapNum <= 63, "SnapNum should be <= 63 for mini-Millennium");
-    }
+    /* Check snapshot number is reasonable */
+    TEST_ASSERT(h->SnapNum >= 0, "SnapNum should be non-negative");
+    TEST_ASSERT(h->SnapNum <= 63, "SnapNum should be <= 63 for mini-Millennium");
+  }
 
-    printf("  ✓ All checked halos have valid data\n");
+  printf("  ✓ All checked halos have valid data\n");
 
-    /* Print sample halo data */
-    if (nhalo > 0) {
-        struct RawHalo *h = &InputTreeHalos[0];
-        printf("  Sample halo [0]:\n");
-        printf("    SnapNum: %d\n", h->SnapNum);
-        printf("    Mvir: %.2e\n", h->Mvir);
-        printf("    Vmax: %.2f\n", h->Vmax);
-        printf("    Len: %d\n", h->Len);
-    }
+  /* Print sample halo data */
+  if (nhalo > 0) {
+    struct RawHalo *h = &InputTreeHalos[0];
+    printf("  Sample halo [0]:\n");
+    printf("    SnapNum: %d\n", h->SnapNum);
+    printf("    Mvir: %.2e\n", h->Mvir);
+    printf("    Vmax: %.2f\n", h->Vmax);
+    printf("    Len: %d\n", h->Len);
+  }
 
-    /* ===== CLEANUP ===== */
-    free_halos_and_tree();
-    free_tree_table(lhalo_binary);
-    teardown_test();
+  /* ===== CLEANUP ===== */
+  free_halos_and_tree();
+  free_tree_table(lhalo_binary);
+  teardown_test();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -231,37 +227,37 @@ int test_tree_data_validity(void) {
  * Validates: Error handling in tree loading system
  */
 int test_invalid_file_handling(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
-    initialize_error_handling(LOG_LEVEL_ERROR, NULL);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
+  initialize_error_handling(LOG_LEVEL_ERROR, NULL);
 
-    /* Create a parameter file pointing to non-existent data */
-    read_parameter_file(test_binary_param_file());
+  /* Create a parameter file pointing to non-existent data */
+  read_parameter_file(test_binary_param_file());
 
-    /* ===== EXECUTE ===== */
-    /* Modify config to point to non-existent file */
-    strncpy(MimicConfig.SimulationDir, "/nonexistent/path/", sizeof(MimicConfig.SimulationDir) - 1);
-    strncpy(MimicConfig.TreeName, "nonexistent_tree", sizeof(MimicConfig.TreeName) - 1);
+  /* ===== EXECUTE ===== */
+  /* Modify config to point to non-existent file */
+  strncpy(MimicConfig.SimulationDir, "/nonexistent/path/", sizeof(MimicConfig.SimulationDir) - 1);
+  strncpy(MimicConfig.TreeName, "nonexistent_tree", sizeof(MimicConfig.TreeName) - 1);
 
-    init();
+  init();
 
-    /* Note: We test error handling infrastructure by setting up invalid paths.
-     * Actual file loading with invalid data may trigger program exit via error
-     * handling system, so we validate the setup and cleanup mechanisms instead.
-     * This ensures the error handling infrastructure is properly initialized
-     * and that memory cleanup works correctly even with invalid configurations.
-     */
-    printf("  Testing error handling infrastructure...\n");
-    printf("  ✓ Invalid path configuration handled\n");
-    printf("  ✓ Error handling system operational\n");
+  /* Note: We test error handling infrastructure by setting up invalid paths.
+   * Actual file loading with invalid data may trigger program exit via error
+   * handling system, so we validate the setup and cleanup mechanisms instead.
+   * This ensures the error handling infrastructure is properly initialized
+   * and that memory cleanup works correctly even with invalid configurations.
+   */
+  printf("  Testing error handling infrastructure...\n");
+  printf("  ✓ Invalid path configuration handled\n");
+  printf("  ✓ Error handling system operational\n");
 
-    /* ===== VALIDATE ===== */
-    /* Check that we can still clean up properly even after error */
-    check_memory_leaks();
+  /* ===== VALIDATE ===== */
+  /* Check that we can still clean up properly even after error */
+  check_memory_leaks();
 
-    printf("  ✓ Memory cleanup successful after error scenario\n");
+  printf("  ✓ Memory cleanup successful after error scenario\n");
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -272,21 +268,21 @@ int test_invalid_file_handling(void) {
  * Validates: Memory management in tree loading
  */
 int test_tree_cleanup(void) {
-    /* ===== SETUP ===== */
-    setup_test();
-    load_tree_table(0, lhalo_binary);
-    load_tree(0, lhalo_binary);
+  /* ===== SETUP ===== */
+  setup_test();
+  load_tree_table(0, lhalo_binary);
+  load_tree(0, lhalo_binary);
 
-    /* ===== EXECUTE ===== */
-    free_halos_and_tree();
-    free_tree_table(lhalo_binary);
+  /* ===== EXECUTE ===== */
+  free_halos_and_tree();
+  free_tree_table(lhalo_binary);
 
-    /* ===== VALIDATE ===== */
-    teardown_test();
+  /* ===== VALIDATE ===== */
+  teardown_test();
 
-    printf("  ✓ Tree cleanup successful, no memory leaks\n");
+  printf("  ✓ Tree cleanup successful, no memory leaks\n");
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -295,24 +291,24 @@ int test_tree_cleanup(void) {
  * Executes all test cases and reports results.
  */
 int main(void) {
-    printf("%s", BLUE);
-    printf("============================================================\n");
-    printf("Test Suite: Tree Loading\n");
-    printf("============================================================\n");
-    printf("%s", NC);
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: Tree Loading\n");
+  printf("============================================================\n");
+  printf("%s", NC);
 
-    /* Initialize error handling for tests */
-    initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+  /* Initialize error handling for tests */
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-    /* Run all test cases */
-    TEST_RUN(test_tree_table_loading);
-    TEST_RUN(test_tree_data_loading);
-    TEST_RUN(test_tree_halo_count);
-    TEST_RUN(test_tree_data_validity);
-    TEST_RUN(test_invalid_file_handling);
-    TEST_RUN(test_tree_cleanup);
+  /* Run all test cases */
+  TEST_RUN(test_tree_table_loading);
+  TEST_RUN(test_tree_data_loading);
+  TEST_RUN(test_tree_halo_count);
+  TEST_RUN(test_tree_data_validity);
+  TEST_RUN(test_invalid_file_handling);
+  TEST_RUN(test_tree_cleanup);
 
-    /* Print summary and return result */
-    TEST_SUMMARY();
-    return TEST_RESULT();
+  /* Print summary and return result */
+  TEST_SUMMARY();
+  return TEST_RESULT();
 }

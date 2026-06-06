@@ -24,81 +24,76 @@
 /**
  * @brief Transfers cooled gas from hot halo to cold disk
  */
-static void cool_gas_onto_galaxy(struct Halo *halo, const double coolingGas, const float vvir)
-{
-    if (coolingGas > 0.0) {
-        if (coolingGas < halo->galaxy->HotGas) {
-            const double metallicity = mimic_get_metallicity(halo->galaxy->HotGas, halo->galaxy->MetalsHotGas);
-            halo->galaxy->ColdGas += coolingGas;
-            halo->galaxy->MetalsColdGas += metallicity * coolingGas;
-            halo->galaxy->HotGas -= coolingGas;
-            halo->galaxy->MetalsHotGas -= metallicity * coolingGas;
-        } else {
-            halo->galaxy->ColdGas += halo->galaxy->HotGas;
-            halo->galaxy->MetalsColdGas += halo->galaxy->MetalsHotGas;
-            halo->galaxy->HotGas = 0.0;
-            halo->galaxy->MetalsHotGas = 0.0;
-        }
-
-        // Track cooling energy: E_cool = 0.5 * m * V_vir^2
-        // Only calculate cooling rate if dT is valid (> 0)
-        // Newly formed halos (no progenitor) have dT = -1.0 (sentinel value)
-        if (halo->dT > 0.0) {
-            halo->galaxy->Cooling += (0.5 * coolingGas * vvir * vvir) / halo->dT;
-        }
+static void cool_gas_onto_galaxy(struct Halo *halo, const double coolingGas, const float vvir) {
+  if (coolingGas > 0.0) {
+    if (coolingGas < halo->galaxy->HotGas) {
+      const double metallicity =
+          mimic_get_metallicity(halo->galaxy->HotGas, halo->galaxy->MetalsHotGas);
+      halo->galaxy->ColdGas += coolingGas;
+      halo->galaxy->MetalsColdGas += metallicity * coolingGas;
+      halo->galaxy->HotGas -= coolingGas;
+      halo->galaxy->MetalsHotGas -= metallicity * coolingGas;
+    } else {
+      halo->galaxy->ColdGas += halo->galaxy->HotGas;
+      halo->galaxy->MetalsColdGas += halo->galaxy->MetalsHotGas;
+      halo->galaxy->HotGas = 0.0;
+      halo->galaxy->MetalsHotGas = 0.0;
     }
+
+    // Track cooling energy: E_cool = 0.5 * m * V_vir^2
+    // Only calculate cooling rate if dT is valid (> 0)
+    // Newly formed halos (no progenitor) have dT = -1.0 (sentinel value)
+    if (halo->dT > 0.0) {
+      halo->galaxy->Cooling += (0.5 * coolingGas * vvir * vvir) / halo->dT;
+    }
+  }
 }
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
-int sage_apply_cooling_init(void)
-{
-    /* Dependency check: sage_calculate_cooling_budget must precede this module
-     * in the same substep phase */
-    if (!module_precedes_in_substep_phase("sage_calculate_cooling_budget",
-                                          PROCESSING_MODE_BY_GALAXY,
-                                          "sage_apply_cooling",
-                                          PROCESSING_MODE_BY_GALAXY)) {
-        ERROR_LOG("sage_apply_cooling requires sage_calculate_cooling_budget to "
-                  "precede it in the same substep phase — CoolingGas will be 0 without it");
-        return -1;
-    }
+int sage_apply_cooling_init(void) {
+  /* Dependency check: sage_calculate_cooling_budget must precede this module
+   * in the same substep phase */
+  if (!module_precedes_in_substep_phase("sage_calculate_cooling_budget", PROCESSING_MODE_BY_GALAXY,
+                                        "sage_apply_cooling", PROCESSING_MODE_BY_GALAXY)) {
+    ERROR_LOG("sage_apply_cooling requires sage_calculate_cooling_budget to "
+              "precede it in the same substep phase — CoolingGas will be 0 without it");
+    return -1;
+  }
 
-    INFO_LOG("SAGE apply cooling module initialized");
-    return 0;
+  INFO_LOG("SAGE apply cooling module initialized");
+  return 0;
 }
 
-int sage_apply_cooling_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
-{
-    (void)ctx;  // Unused in this module
+int sage_apply_cooling_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  (void)ctx; // Unused in this module
 
-    if (ngal != 1) {
-        ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
-        return -1;
-    }
+  if (ngal != 1) {
+    ERROR_LOG("process_by_galaxy expects ngal=1, got %d", ngal);
+    return -1;
+  }
 
-    struct Halo *halo = &halos[0];
+  struct Halo *halo = &halos[0];
 
-    // SAGE parity: cooling is applied for every non-merged galaxy, including
-    // Type 2 orphans (they cool their own hot gas until merging). CoolingGas is
-    // 0 for galaxies the budget module found could not cool.
-    if (halo->galaxy == NULL) {
-        return 0;
-    }
-
-    const double coolingGas = (double)halo->galaxy->CoolingGas;
-
-    if (coolingGas > EPSILON_SMALL) {
-        cool_gas_onto_galaxy(halo, coolingGas, halo->Vvir);
-    }
-
+  // SAGE parity: cooling is applied for every non-merged galaxy, including
+  // Type 2 orphans (they cool their own hot gas until merging). CoolingGas is
+  // 0 for galaxies the budget module found could not cool.
+  if (halo->galaxy == NULL) {
     return 0;
+  }
+
+  const double coolingGas = (double)halo->galaxy->CoolingGas;
+
+  if (coolingGas > EPSILON_SMALL) {
+    cool_gas_onto_galaxy(halo, coolingGas, halo->Vvir);
+  }
+
+  return 0;
 }
 
-int sage_apply_cooling_cleanup(void)
-{
-    VERBOSE_LOG("SAGE apply cooling module cleaned up");
-    return 0;
+int sage_apply_cooling_cleanup(void) {
+  VERBOSE_LOG("SAGE apply cooling module cleaned up");
+  return 0;
 }

@@ -22,8 +22,8 @@
  *
  * @return BH accretion mass for this event (1e10 Msun/h)
  */
-static inline double mimic_apply_black_hole_growth(
-    struct Halo *halo, double efficiency_factor, double black_hole_growth_rate) {
+static inline double mimic_apply_black_hole_growth(struct Halo *halo, double efficiency_factor,
+                                                   double black_hole_growth_rate) {
   struct GalaxyData *gal;
   double bh_accrete;
   double accrete;
@@ -41,8 +41,7 @@ static inline double mimic_apply_black_hole_growth(
 
   /* Kauffmann & Haehnelt (2000), with low-mass halo suppression at 280 km/s. */
   bh_accrete = black_hole_growth_rate * efficiency_factor /
-               (1.0 + (280.0 / halo->Vvir) * (280.0 / halo->Vvir)) *
-               gal->ColdGas;
+               (1.0 + (280.0 / halo->Vvir) * (280.0 / halo->Vvir)) * gal->ColdGas;
 
   accrete = (bh_accrete > gal->ColdGas) ? gal->ColdGas : bh_accrete;
   metallicity = mimic_get_metallicity(gal->ColdGas, gal->MetalsColdGas);
@@ -58,9 +57,9 @@ static inline double mimic_apply_black_hole_growth(
 /**
  * @brief Apply quasar-mode wind from BH accretion event
  */
-static inline void mimic_apply_quasar_mode_wind(
-    struct Halo *halo, double bh_accrete, double quasar_mode_efficiency,
-    const struct ModuleContext *ctx) {
+static inline void mimic_apply_quasar_mode_wind(struct Halo *halo, double bh_accrete,
+                                                double quasar_mode_efficiency,
+                                                const struct ModuleContext *ctx) {
   struct GalaxyData *gal;
   double c_over_unit_vel;
   double quasar_energy;
@@ -82,8 +81,7 @@ static inline void mimic_apply_quasar_mode_wind(
    * km/s (C_KM_S) here makes the quasar wind energy ~1e10x too small, so the
    * wind would essentially never eject gas. */
   c_over_unit_vel = C_CGS / ctx->params->UnitVelocity_in_cm_per_s;
-  quasar_energy = quasar_mode_efficiency * 0.1 * bh_accrete * c_over_unit_vel *
-                  c_over_unit_vel;
+  quasar_energy = quasar_mode_efficiency * 0.1 * bh_accrete * c_over_unit_vel * c_over_unit_vel;
 
   cold_gas_energy = 0.5 * gal->ColdGas * halo->Vvir * halo->Vvir;
   hot_gas_energy = 0.5 * gal->HotGas * halo->Vvir * halo->Vvir;

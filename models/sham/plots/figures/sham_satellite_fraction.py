@@ -3,7 +3,6 @@
 """SHAM satellite fraction diagnostic."""
 
 import numpy as np
-
 from output_utils import (
     check_required_fields,
     save_and_close_figure,
@@ -75,9 +74,6 @@ def plot(
         print(f"  satellite fraction: {total_sat}/{len(w)} = {total_sat / len(w):.3f}")
 
     return (
-        save_and_close_figure(
-            fig, output_dir, "ShamSatelliteFraction", output_format, verbose
-        ),
+        save_and_close_figure(fig, output_dir, "ShamSatelliteFraction", output_format, verbose),
         None,
     )
-

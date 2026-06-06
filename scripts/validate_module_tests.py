@@ -21,7 +21,6 @@ import sys
 from pathlib import Path
 
 import yaml
-
 from discovery import REPO_ROOT, module_metadata_files
 
 
@@ -78,9 +77,7 @@ def validate_module_tests():
                         print(f"✓ {module_name:20s} {test_type:12s} test: {test_file}")
                         tests_validated += 1
                     else:
-                        print(
-                            f"✗ {module_name:20s} {test_type:12s} test: {test_file} NOT FOUND"
-                        )
+                        print(f"✗ {module_name:20s} {test_type:12s} test: {test_file} NOT FOUND")
                         missing_tests.append(
                             {
                                 "module": module_name,

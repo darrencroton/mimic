@@ -26,31 +26,32 @@ Date: 2025-11-08
 import sys
 import tempfile
 from pathlib import Path
+
 import yaml
 
 # Add framework to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
+    MIMIC_EXE,
     REPO_ROOT,
     TEST_DATA_DIR,
-    MIMIC_EXE,
-    ensure_output_dirs,
+    check_no_memory_leaks,
     core_input_file,
+    ensure_output_dirs,
     run_mimic,
     run_mimic_fresh,
-    check_no_memory_leaks,
 )
 
 # Ensure output directories exist before any tests run
 ensure_output_dirs()
 
 # ANSI color codes (module-level constants)
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def test_basic_execution():
@@ -118,43 +119,37 @@ def test_output_directory_created_if_missing():
     print("Testing automatic output directory creation...")
 
     source_param_file = core_input_file("test_binary.yaml")
-    assert source_param_file.exists(), (
-        f"{RED}Test parameter file not found: {source_param_file}{NC}"
-    )
+    assert (
+        source_param_file.exists()
+    ), f"{RED}Test parameter file not found: {source_param_file}{NC}"
 
     with tempfile.TemporaryDirectory(prefix="mimic_output_dir_") as temp_root:
         temp_root_path = Path(temp_root)
         output_dir = temp_root_path / "nested" / "results"
         param_file = temp_root_path / "test_output_dir.yaml"
 
-        with open(source_param_file, 'r', encoding='utf-8') as f:
+        with open(source_param_file, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
-        config['output']['output_directory'] = str(output_dir)
+        config["output"]["output_directory"] = str(output_dir)
 
-        with open(param_file, 'w', encoding='utf-8') as f:
+        with open(param_file, "w", encoding="utf-8") as f:
             yaml.safe_dump(config, f, sort_keys=False)
 
         returncode, stdout, stderr = run_mimic(param_file)
         if returncode != 0:
             print(f"STDOUT:\n{stdout}")
             print(f"STDERR:\n{stderr}")
-            assert False, (
-                f"{RED}Mimic failed to create missing output directory{NC}"
-            )
+            assert False, f"{RED}Mimic failed to create missing output directory{NC}"
 
         output_file = output_dir / "model_z0.000_0"
         metadata_dir = output_dir / "metadata"
 
-        assert output_dir.exists(), (
-            f"{RED}Output directory not created: {output_dir}{NC}"
-        )
-        assert output_file.exists(), (
-            f"{RED}Output file not created in new directory: {output_file}{NC}"
-        )
-        assert metadata_dir.exists(), (
-            f"{RED}Metadata directory not created: {metadata_dir}{NC}"
-        )
+        assert output_dir.exists(), f"{RED}Output directory not created: {output_dir}{NC}"
+        assert (
+            output_file.exists()
+        ), f"{RED}Output file not created in new directory: {output_file}{NC}"
+        assert metadata_dir.exists(), f"{RED}Metadata directory not created: {metadata_dir}{NC}"
 
     print("  ✓ Mimic created missing output and metadata directories")
 
@@ -203,7 +198,7 @@ def test_output_loadable():
 
     # Try to load output file
     # Note: This is a basic check - just verify we can read binary data
-    with open(output_file, 'rb') as f:
+    with open(output_file, "rb") as f:
         # Read first few bytes
         header = f.read(16)
         assert len(header) == 16, f"{RED}Could not read file header{NC}"
@@ -226,8 +221,7 @@ def test_stdout_content():
     assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
     # Check for key messages
-    assert "Mimic" in stdout or "Mimic" in stderr, \
-        f"{RED}Should mention 'Mimic' in output{NC}"
+    assert "Mimic" in stdout or "Mimic" in stderr, f"{RED}Should mention 'Mimic' in output{NC}"
 
     # Check for processing messages
     # (specific messages may vary, this is a basic check)

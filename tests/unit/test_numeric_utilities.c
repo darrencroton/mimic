@@ -45,37 +45,36 @@ static int failed = 0;
  * Validates: is_zero() function
  */
 int test_is_zero(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE & VALIDATE ===== */
-    /* True zeros */
-    TEST_ASSERT(is_zero(0.0) == true, "Exact zero should be detected");
-    TEST_ASSERT(is_zero(-0.0) == true, "Negative zero should be detected");
+  /* ===== EXECUTE & VALIDATE ===== */
+  /* True zeros */
+  TEST_ASSERT(is_zero(0.0) == true, "Exact zero should be detected");
+  TEST_ASSERT(is_zero(-0.0) == true, "Negative zero should be detected");
 
-    /* Values smaller than EPSILON_SMALL */
-    TEST_ASSERT(is_zero(EPSILON_SMALL / 10.0) == true,
-                "Tiny positive value should be treated as zero");
-    TEST_ASSERT(is_zero(-EPSILON_SMALL / 10.0) == true,
-                "Tiny negative value should be treated as zero");
+  /* Values smaller than EPSILON_SMALL */
+  TEST_ASSERT(is_zero(EPSILON_SMALL / 10.0) == true,
+              "Tiny positive value should be treated as zero");
+  TEST_ASSERT(is_zero(-EPSILON_SMALL / 10.0) == true,
+              "Tiny negative value should be treated as zero");
 
-    /* Values larger than EPSILON_SMALL */
-    TEST_ASSERT(is_zero(EPSILON_SMALL * 10.0) == false,
-                "Value > EPSILON_SMALL should not be zero");
-    TEST_ASSERT(is_zero(-EPSILON_SMALL * 10.0) == false,
-                "Negative value > EPSILON_SMALL should not be zero");
+  /* Values larger than EPSILON_SMALL */
+  TEST_ASSERT(is_zero(EPSILON_SMALL * 10.0) == false, "Value > EPSILON_SMALL should not be zero");
+  TEST_ASSERT(is_zero(-EPSILON_SMALL * 10.0) == false,
+              "Negative value > EPSILON_SMALL should not be zero");
 
-    /* Clearly non-zero values */
-    TEST_ASSERT(is_zero(1.0) == false, "1.0 is not zero");
-    TEST_ASSERT(is_zero(-1.0) == false, "-1.0 is not zero");
-    TEST_ASSERT(is_zero(1.0e10) == false, "Large value is not zero");
+  /* Clearly non-zero values */
+  TEST_ASSERT(is_zero(1.0) == false, "1.0 is not zero");
+  TEST_ASSERT(is_zero(-1.0) == false, "-1.0 is not zero");
+  TEST_ASSERT(is_zero(1.0e10) == false, "Large value is not zero");
 
-    printf("  ✓ is_zero() works correctly\n");
+  printf("  ✓ is_zero() works correctly\n");
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -86,36 +85,34 @@ int test_is_zero(void) {
  * Validates: is_equal() function
  */
 int test_is_equal(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE & VALIDATE ===== */
-    /* Exact equality */
-    TEST_ASSERT(is_equal(1.0, 1.0) == true, "Exact values should be equal");
-    TEST_ASSERT(is_equal(0.0, 0.0) == true, "Exact zeros should be equal");
+  /* ===== EXECUTE & VALIDATE ===== */
+  /* Exact equality */
+  TEST_ASSERT(is_equal(1.0, 1.0) == true, "Exact values should be equal");
+  TEST_ASSERT(is_equal(0.0, 0.0) == true, "Exact zeros should be equal");
 
-    /* Nearly equal values */
-    double x = 1.0;
-    double y = 1.0 + EPSILON_MEDIUM / 10.0;
-    TEST_ASSERT(is_equal(x, y) == true,
-                "Values within EPSILON_MEDIUM should be equal");
+  /* Nearly equal values */
+  double x = 1.0;
+  double y = 1.0 + EPSILON_MEDIUM / 10.0;
+  TEST_ASSERT(is_equal(x, y) == true, "Values within EPSILON_MEDIUM should be equal");
 
-    /* Different values */
-    TEST_ASSERT(is_equal(1.0, 2.0) == false, "Different values should not be equal");
-    TEST_ASSERT(is_equal(0.0, 1.0) == false, "0 and 1 should not be equal");
+  /* Different values */
+  TEST_ASSERT(is_equal(1.0, 2.0) == false, "Different values should not be equal");
+  TEST_ASSERT(is_equal(0.0, 1.0) == false, "0 and 1 should not be equal");
 
-    /* Slightly different values (beyond tolerance) */
-    double a = 1.0;
-    double b = 1.0 + EPSILON_MEDIUM * 10.0;
-    TEST_ASSERT(is_equal(a, b) == false,
-                "Values beyond EPSILON_MEDIUM should not be equal");
+  /* Slightly different values (beyond tolerance) */
+  double a = 1.0;
+  double b = 1.0 + EPSILON_MEDIUM * 10.0;
+  TEST_ASSERT(is_equal(a, b) == false, "Values beyond EPSILON_MEDIUM should not be equal");
 
-    printf("  ✓ is_equal() works correctly\n");
+  printf("  ✓ is_equal() works correctly\n");
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -126,37 +123,37 @@ int test_is_equal(void) {
  * Validates: is_greater(), is_less(), is_greater_or_equal(), is_less_or_equal()
  */
 int test_comparison_operators(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE & VALIDATE ===== */
+  /* ===== EXECUTE & VALIDATE ===== */
 
-    /* is_greater() tests */
-    TEST_ASSERT(is_greater(2.0, 1.0) == true, "2.0 > 1.0");
-    TEST_ASSERT(is_greater(1.0, 1.0) == false, "1.0 not > 1.0");
-    TEST_ASSERT(is_greater(1.0, 2.0) == false, "1.0 not > 2.0");
+  /* is_greater() tests */
+  TEST_ASSERT(is_greater(2.0, 1.0) == true, "2.0 > 1.0");
+  TEST_ASSERT(is_greater(1.0, 1.0) == false, "1.0 not > 1.0");
+  TEST_ASSERT(is_greater(1.0, 2.0) == false, "1.0 not > 2.0");
 
-    /* is_less() tests */
-    TEST_ASSERT(is_less(1.0, 2.0) == true, "1.0 < 2.0");
-    TEST_ASSERT(is_less(1.0, 1.0) == false, "1.0 not < 1.0");
-    TEST_ASSERT(is_less(2.0, 1.0) == false, "2.0 not < 1.0");
+  /* is_less() tests */
+  TEST_ASSERT(is_less(1.0, 2.0) == true, "1.0 < 2.0");
+  TEST_ASSERT(is_less(1.0, 1.0) == false, "1.0 not < 1.0");
+  TEST_ASSERT(is_less(2.0, 1.0) == false, "2.0 not < 1.0");
 
-    /* is_greater_or_equal() tests */
-    TEST_ASSERT(is_greater_or_equal(2.0, 1.0) == true, "2.0 >= 1.0");
-    TEST_ASSERT(is_greater_or_equal(1.0, 1.0) == true, "1.0 >= 1.0");
-    TEST_ASSERT(is_greater_or_equal(1.0, 2.0) == false, "1.0 not >= 2.0");
+  /* is_greater_or_equal() tests */
+  TEST_ASSERT(is_greater_or_equal(2.0, 1.0) == true, "2.0 >= 1.0");
+  TEST_ASSERT(is_greater_or_equal(1.0, 1.0) == true, "1.0 >= 1.0");
+  TEST_ASSERT(is_greater_or_equal(1.0, 2.0) == false, "1.0 not >= 2.0");
 
-    /* is_less_or_equal() tests */
-    TEST_ASSERT(is_less_or_equal(1.0, 2.0) == true, "1.0 <= 2.0");
-    TEST_ASSERT(is_less_or_equal(1.0, 1.0) == true, "1.0 <= 1.0");
-    TEST_ASSERT(is_less_or_equal(2.0, 1.0) == false, "2.0 not <= 1.0");
+  /* is_less_or_equal() tests */
+  TEST_ASSERT(is_less_or_equal(1.0, 2.0) == true, "1.0 <= 2.0");
+  TEST_ASSERT(is_less_or_equal(1.0, 1.0) == true, "1.0 <= 1.0");
+  TEST_ASSERT(is_less_or_equal(2.0, 1.0) == false, "2.0 not <= 1.0");
 
-    printf("  ✓ Comparison operators work correctly\n");
+  printf("  ✓ Comparison operators work correctly\n");
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -167,31 +164,31 @@ int test_comparison_operators(void) {
  * Validates: is_within() function
  */
 int test_range_checking(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE & VALIDATE ===== */
+  /* ===== EXECUTE & VALIDATE ===== */
 
-    /* Values within range */
-    TEST_ASSERT(is_within(5.0, 0.0, 10.0) == true, "5.0 is within [0, 10]");
-    TEST_ASSERT(is_within(0.0, 0.0, 10.0) == true, "0.0 is within [0, 10]");
-    TEST_ASSERT(is_within(10.0, 0.0, 10.0) == true, "10.0 is within [0, 10]");
+  /* Values within range */
+  TEST_ASSERT(is_within(5.0, 0.0, 10.0) == true, "5.0 is within [0, 10]");
+  TEST_ASSERT(is_within(0.0, 0.0, 10.0) == true, "0.0 is within [0, 10]");
+  TEST_ASSERT(is_within(10.0, 0.0, 10.0) == true, "10.0 is within [0, 10]");
 
-    /* Values outside range */
-    TEST_ASSERT(is_within(-1.0, 0.0, 10.0) == false, "-1.0 is not within [0, 10]");
-    TEST_ASSERT(is_within(11.0, 0.0, 10.0) == false, "11.0 is not within [0, 10]");
+  /* Values outside range */
+  TEST_ASSERT(is_within(-1.0, 0.0, 10.0) == false, "-1.0 is not within [0, 10]");
+  TEST_ASSERT(is_within(11.0, 0.0, 10.0) == false, "11.0 is not within [0, 10]");
 
-    /* Edge cases with floating-point tolerance */
-    double val_at_edge = 10.0 + EPSILON_SMALL / 10.0;
-    TEST_ASSERT(is_within(val_at_edge, 0.0, 10.0) == true,
-                "Value barely > max should still be within (tolerance)");
+  /* Edge cases with floating-point tolerance */
+  double val_at_edge = 10.0 + EPSILON_SMALL / 10.0;
+  TEST_ASSERT(is_within(val_at_edge, 0.0, 10.0) == true,
+              "Value barely > max should still be within (tolerance)");
 
-    printf("  ✓ is_within() works correctly\n");
+  printf("  ✓ is_within() works correctly\n");
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -202,51 +199,51 @@ int test_range_checking(void) {
  * Validates: Robustness of numerical utilities
  */
 int test_edge_cases(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE & VALIDATE ===== */
+  /* ===== EXECUTE & VALIDATE ===== */
 
-    /* Test with infinity (infinity DOES equal itself per IEEE 754) */
-    double inf = INFINITY;
-    TEST_ASSERT(is_zero(inf) == false, "Infinity is not zero");
-    TEST_ASSERT(is_equal(inf, inf) == true, "Infinity equals itself (IEEE 754)");
-    TEST_ASSERT(is_equal(inf, -INFINITY) == false, "+Inf does not equal -Inf");
+  /* Test with infinity (infinity DOES equal itself per IEEE 754) */
+  double inf = INFINITY;
+  TEST_ASSERT(is_zero(inf) == false, "Infinity is not zero");
+  TEST_ASSERT(is_equal(inf, inf) == true, "Infinity equals itself (IEEE 754)");
+  TEST_ASSERT(is_equal(inf, -INFINITY) == false, "+Inf does not equal -Inf");
 
-    /* Test with NaN (NaN does NOT equal anything, including itself) */
-    double nan_val = NAN;
-    TEST_ASSERT(is_zero(nan_val) == false, "NaN is not zero");
-    TEST_ASSERT(is_equal(nan_val, nan_val) == false, "NaN does not equal NaN (IEEE 754)");
-    TEST_ASSERT(is_equal(nan_val, 1.0) == false, "NaN does not equal 1.0");
-    TEST_ASSERT(is_greater(nan_val, 1.0) == false, "NaN is not greater than 1.0");
-    TEST_ASSERT(is_less(nan_val, 1.0) == false, "NaN is not less than 1.0");
-    TEST_ASSERT(is_within(nan_val, 0.0, 10.0) == false, "NaN is not within any range");
+  /* Test with NaN (NaN does NOT equal anything, including itself) */
+  double nan_val = NAN;
+  TEST_ASSERT(is_zero(nan_val) == false, "NaN is not zero");
+  TEST_ASSERT(is_equal(nan_val, nan_val) == false, "NaN does not equal NaN (IEEE 754)");
+  TEST_ASSERT(is_equal(nan_val, 1.0) == false, "NaN does not equal 1.0");
+  TEST_ASSERT(is_greater(nan_val, 1.0) == false, "NaN is not greater than 1.0");
+  TEST_ASSERT(is_less(nan_val, 1.0) == false, "NaN is not less than 1.0");
+  TEST_ASSERT(is_within(nan_val, 0.0, 10.0) == false, "NaN is not within any range");
 
-    /* Test safe_div with NaN */
-    double result_nan = safe_div(NAN, 2.0, 99.0);
-    TEST_ASSERT(is_equal(result_nan, 99.0) == true, "safe_div returns default for NaN numerator");
-    result_nan = safe_div(10.0, NAN, 99.0);
-    TEST_ASSERT(is_equal(result_nan, 99.0) == true, "safe_div returns default for NaN denominator");
+  /* Test safe_div with NaN */
+  double result_nan = safe_div(NAN, 2.0, 99.0);
+  TEST_ASSERT(is_equal(result_nan, 99.0) == true, "safe_div returns default for NaN numerator");
+  result_nan = safe_div(10.0, NAN, 99.0);
+  TEST_ASSERT(is_equal(result_nan, 99.0) == true, "safe_div returns default for NaN denominator");
 
-    /* Test with very large values */
-    double large = 1.0e100;
-    TEST_ASSERT(is_zero(large) == false, "Very large value is not zero");
-    TEST_ASSERT(is_equal(large, large) == true, "Large value should equal itself");
+  /* Test with very large values */
+  double large = 1.0e100;
+  TEST_ASSERT(is_zero(large) == false, "Very large value is not zero");
+  TEST_ASSERT(is_equal(large, large) == true, "Large value should equal itself");
 
-    /* Test with very small values (just above EPSILON_SMALL threshold) */
-    double tiny = 1.0e-9;  /* Slightly larger than EPSILON_SMALL (1e-10) */
-    TEST_ASSERT(is_zero(tiny) == false, "Tiny but non-zero value is not zero");
+  /* Test with very small values (just above EPSILON_SMALL threshold) */
+  double tiny = 1.0e-9; /* Slightly larger than EPSILON_SMALL (1e-10) */
+  TEST_ASSERT(is_zero(tiny) == false, "Tiny but non-zero value is not zero");
 
-    /* Test with value below threshold (should be treated as zero) */
-    double ultra_tiny = 1.0e-100;  /* Far below EPSILON_SMALL */
-    TEST_ASSERT(is_zero(ultra_tiny) == true, "Ultra-tiny value treated as zero");
+  /* Test with value below threshold (should be treated as zero) */
+  double ultra_tiny = 1.0e-100; /* Far below EPSILON_SMALL */
+  TEST_ASSERT(is_zero(ultra_tiny) == true, "Ultra-tiny value treated as zero");
 
-    printf("  ✓ Edge cases handled correctly\n");
+  printf("  ✓ Edge cases handled correctly\n");
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -257,47 +254,43 @@ int test_edge_cases(void) {
  * Validates: Internal consistency of comparison functions
  */
 int test_consistency(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE & VALIDATE ===== */
+  /* ===== EXECUTE & VALIDATE ===== */
 
-    double a = 5.0;
-    double b = 10.0;
+  double a = 5.0;
+  double b = 10.0;
 
-    /* If a < b, then NOT (a > b) */
-    if (is_less(a, b)) {
-        TEST_ASSERT(is_greater(a, b) == false,
-                    "If a < b, then NOT (a > b)");
-    }
+  /* If a < b, then NOT (a > b) */
+  if (is_less(a, b)) {
+    TEST_ASSERT(is_greater(a, b) == false, "If a < b, then NOT (a > b)");
+  }
 
-    /* If a > b, then NOT (a < b) */
-    if (is_greater(a, b)) {
-        TEST_ASSERT(is_less(a, b) == false,
-                    "If a > b, then NOT (a < b)");
-    }
+  /* If a > b, then NOT (a < b) */
+  if (is_greater(a, b)) {
+    TEST_ASSERT(is_less(a, b) == false, "If a > b, then NOT (a < b)");
+  }
 
-    /* If a == b, then NOT (a > b) AND NOT (a < b) */
-    double c = 5.0;
-    double d = 5.0;
-    if (is_equal(c, d)) {
-        TEST_ASSERT(is_greater(c, d) == false,
-                    "If a == b, then NOT (a > b)");
-        TEST_ASSERT(is_less(c, d) == false,
-                    "If a == b, then NOT (a < b)");
-    }
+  /* If a == b, then NOT (a > b) AND NOT (a < b) */
+  double c = 5.0;
+  double d = 5.0;
+  if (is_equal(c, d)) {
+    TEST_ASSERT(is_greater(c, d) == false, "If a == b, then NOT (a > b)");
+    TEST_ASSERT(is_less(c, d) == false, "If a == b, then NOT (a < b)");
+  }
 
-    /* a >= b should be equivalent to (a > b OR a == b) */
-    bool ge = is_greater_or_equal(a, b);
-    bool g_or_e = is_greater(a, b) || is_equal(a, b);
-    TEST_ASSERT(ge == g_or_e, "a >= b should equal (a > b OR a == b)");
+  /* a >= b should be equivalent to (a > b OR a == b) */
+  bool ge = is_greater_or_equal(a, b);
+  bool g_or_e = is_greater(a, b) || is_equal(a, b);
+  TEST_ASSERT(ge == g_or_e, "a >= b should equal (a > b OR a == b)");
 
-    printf("  ✓ Comparison functions are internally consistent\n");
+  printf("  ✓ Comparison functions are internally consistent\n");
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -306,24 +299,24 @@ int test_consistency(void) {
  * Executes all test cases and reports results.
  */
 int main(void) {
-    printf("%s", BLUE);
-    printf("============================================================\n");
-    printf("Test Suite: Numeric Utilities\n");
-    printf("============================================================\n");
-    printf("%s\n", NC);
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: Numeric Utilities\n");
+  printf("============================================================\n");
+  printf("%s\n", NC);
 
-    /* Initialize error handling for tests */
-    initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
+  /* Initialize error handling for tests */
+  initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
 
-    /* Run all test cases */
-    TEST_RUN(test_is_zero);
-    TEST_RUN(test_is_equal);
-    TEST_RUN(test_comparison_operators);
-    TEST_RUN(test_range_checking);
-    TEST_RUN(test_edge_cases);
-    TEST_RUN(test_consistency);
+  /* Run all test cases */
+  TEST_RUN(test_is_zero);
+  TEST_RUN(test_is_equal);
+  TEST_RUN(test_comparison_operators);
+  TEST_RUN(test_range_checking);
+  TEST_RUN(test_edge_cases);
+  TEST_RUN(test_consistency);
 
-    /* Print summary and return result */
-    TEST_SUMMARY();
-    return TEST_RESULT();
+  /* Print summary and return result */
+  TEST_SUMMARY();
+  return TEST_RESULT();
 }

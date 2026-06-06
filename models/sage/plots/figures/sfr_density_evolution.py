@@ -20,12 +20,12 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_evolution_snapshot,
     save_and_close_figure,
+    setup_figure,
+    validate_evolution_snapshot,
+    warn,
 )
 
 
@@ -57,8 +57,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     success, optional, msg = check_required_fields(
         galaxies_sample,
-        required_fields=['StarFormationRate', 'StellarMass'],
-        plot_name='SFR Density Evolution'
+        required_fields=["StarFormationRate", "StellarMass"],
+        plot_name="SFR Density Evolution",
     )
 
     if not success:
@@ -67,10 +67,12 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     # Field-level validation: Check if StarFormationRate has any non-zero values
     # Note: We don't fail if SFR is all zeros - just warn and continue
     has_sfr, count, msg = check_field_has_values(
-        galaxies_sample.StarFormationRate, 'StarFormationRate', threshold=0.0
+        galaxies_sample.StarFormationRate, "StarFormationRate", threshold=0.0
     )
     if not has_sfr and verbose:
-        warn(f"StarFormationRate field has no non-zero values in sample snapshot - plot may be empty: {msg}")
+        warn(
+            f"StarFormationRate field has no non-zero values in sample snapshot - plot may be empty: {msg}"
+        )
 
     # Calculate SFR density for each snapshot BEFORE creating figure
     sfr_density = []
@@ -91,8 +93,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
         # Filter galaxies with reasonable stellar masses (like stellar mass density plot)
         w = np.where(
-            (galaxies.StellarMass / hubble_h > 0.01)
-            & (galaxies.StellarMass / hubble_h < 1000.0)
+            (galaxies.StellarMass / hubble_h > 0.01) & (galaxies.StellarMass / hubble_h < 1000.0)
         )[0]
 
         if len(w) > 0:
@@ -213,5 +214,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     setup_legend(ax, loc="upper right")
 
     # Save and close the figure
-    plot_path = save_and_close_figure(fig, output_dir, "SFR_Density_Evolution", output_format, verbose)
+    plot_path = save_and_close_figure(
+        fig, output_dir, "SFR_Density_Evolution", output_format, verbose
+    )
     return plot_path, None

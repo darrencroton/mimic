@@ -18,8 +18,7 @@ enum MimicObjectTimeStatus {
   MIMIC_OBJECT_TIME_INVALID = -1
 };
 
-static inline const char *mimic_object_time_status_str(
-    enum MimicObjectTimeStatus status) {
+static inline const char *mimic_object_time_status_str(enum MimicObjectTimeStatus status) {
   switch (status) {
   case MIMIC_OBJECT_TIME_OK:
     return "OK";
@@ -36,8 +35,8 @@ static inline const char *mimic_object_time_status_str(
  * - SnapNum < 0 and dT <= 0: initial boundary sentinel (skip/no-op).
  * - Non-boundary dT <= 0: invalid state.
  */
-static inline enum MimicObjectTimeStatus mimic_object_substep_dt(
-    const struct Halo *halo, const struct ModuleContext *ctx, double *dt_out) {
+static inline enum MimicObjectTimeStatus
+mimic_object_substep_dt(const struct Halo *halo, const struct ModuleContext *ctx, double *dt_out) {
   if (dt_out != NULL) {
     *dt_out = 0.0;
   }
@@ -63,8 +62,9 @@ static inline enum MimicObjectTimeStatus mimic_object_substep_dt(
  *   Age[obj] - (substep + 0.5) * (dT_obj / num_substeps)
  * with Age[obj] = ctx->time + halo->dT.
  */
-static inline enum MimicObjectTimeStatus mimic_object_substep_time(
-    const struct Halo *halo, const struct ModuleContext *ctx, double *time_out) {
+static inline enum MimicObjectTimeStatus mimic_object_substep_time(const struct Halo *halo,
+                                                                   const struct ModuleContext *ctx,
+                                                                   double *time_out) {
   double dt = 0.0;
   enum MimicObjectTimeStatus dt_status;
 
@@ -82,8 +82,7 @@ static inline enum MimicObjectTimeStatus mimic_object_substep_time(
     return dt_status;
   }
 
-  *time_out = (ctx->time + (double)halo->dT) -
-              ((double)ctx->substep_number + 0.5) * dt;
+  *time_out = (ctx->time + (double)halo->dT) - ((double)ctx->substep_number + 0.5) * dt;
   return MIMIC_OBJECT_TIME_OK;
 }
 

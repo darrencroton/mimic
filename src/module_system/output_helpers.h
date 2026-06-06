@@ -53,11 +53,10 @@ struct Halo;
  *     output_function: output_infall_property_or_zero
  *     output_function_arg: "g, g->infallMvir"
  */
-static inline float output_infall_property_or_zero(const struct Halo *g, float value)
-{
-    // Satellites: output actual infall property value
-    // Centrals: output 0.0 (no infall event)
-    return (g->Type != 0) ? value : 0.0f;
+static inline float output_infall_property_or_zero(const struct Halo *g, float value) {
+  // Satellites: output actual infall property value
+  // Centrals: output 0.0 (no infall event)
+  return (g->Type != 0) ? value : 0.0f;
 }
 
 /*
@@ -84,11 +83,10 @@ static inline float output_infall_property_or_zero(const struct Halo *g, float v
  *
  * Used by: Rvir property
  */
-static inline float output_rvir_conditional(const struct Halo *g)
-{
-    // Type 2 orphans: return preserved value (no current halo to calculate from)
-    // Type 0/1: recalculate current value (stored value is "maximum ever")
-    return (g->Type == 2) ? g->Rvir : (float)get_virial_radius(g->HaloNr);
+static inline float output_rvir_conditional(const struct Halo *g) {
+  // Type 2 orphans: return preserved value (no current halo to calculate from)
+  // Type 0/1: recalculate current value (stored value is "maximum ever")
+  return (g->Type == 2) ? g->Rvir : (float)get_virial_radius(g->HaloNr);
 }
 
 /**
@@ -99,11 +97,10 @@ static inline float output_rvir_conditional(const struct Halo *g)
  *
  * Used by: Vvir property
  */
-static inline float output_vvir_conditional(const struct Halo *g)
-{
-    // Type 2 orphans: return preserved value (no current halo to calculate from)
-    // Type 0/1: recalculate current value (stored value is "maximum ever")
-    return (g->Type == 2) ? g->Vvir : (float)get_virial_velocity(g->HaloNr);
+static inline float output_vvir_conditional(const struct Halo *g) {
+  // Type 2 orphans: return preserved value (no current halo to calculate from)
+  // Type 0/1: recalculate current value (stored value is "maximum ever")
+  return (g->Type == 2) ? g->Vvir : (float)get_virial_velocity(g->HaloNr);
 }
 
 #endif /* OUTPUT_HELPERS_H */

@@ -43,6 +43,7 @@ from tqdm import tqdm
 # Import HDF5 reader module (optional dependency)
 try:
     import hdf5_reader
+
     HDF5_AVAILABLE = True
 except ImportError:
     HDF5_AVAILABLE = False
@@ -54,6 +55,7 @@ except ImportError:
 # and the matching markers below to drop SAGE-native support.
 try:
     import sage_native_hdf5
+
     SAGE_NATIVE_AVAILABLE = sage_native_hdf5.H5PY_AVAILABLE
 except ImportError:
     SAGE_NATIVE_AVAILABLE = False
@@ -61,9 +63,10 @@ except ImportError:
 
 random.seed(42)  # For reproducibility with sample data
 
-# Import shared output utilities
-from output_utils import colour_enabled, warn, error
 from output_schema import dtype_from_schema, load_schema
+
+# Import shared output utilities
+from output_utils import colour_enabled, error, warn
 
 # Import the SnapshotRedshiftMapper
 from snapshot_redshift_mapper import SnapshotRedshiftMapper, read_expansion_factors
@@ -95,11 +98,21 @@ def print_banner(param_file, quiet=False):
 
     # Skip ASCII art in quiet mode, but keep informational lines
     if not quiet:
-        print(f"{bold}{magenta}    __  ___  ____  __  ___  ____  ______       ____    __     ___    ______{reset}")
-        print(f"{blue}   /  |/  / /  _/ /  |/  / /  _/ / ____/      / __ \\  / /    / __ \\ /_  __/{reset}")
-        print(f"{cyan}  / /|_/ /  / /  / /|_/ /  / /  / /          / /_/ / / /    / / / /  / /   {reset}")
-        print(f"{green} / /  / / _/ /  / /  / / _/ /  / /___       / ____/ / /___ / /_/ /  / /    {reset}")
-        print(f"{yellow}/_/  /_/ /___/ /_/  /_/ /___/  \\____/      /_/     /_____/ \\____/  /_/     {bold}{reset}\n")
+        print(
+            f"{bold}{magenta}    __  ___  ____  __  ___  ____  ______       ____    __     ___    ______{reset}"
+        )
+        print(
+            f"{blue}   /  |/  / /  _/ /  |/  / /  _/ / ____/      / __ \\  / /    / __ \\ /_  __/{reset}"
+        )
+        print(
+            f"{cyan}  / /|_/ /  / /  / /|_/ /  / /  / /          / /_/ / / /    / / / /  / /   {reset}"
+        )
+        print(
+            f"{green} / /  / / _/ /  / /  / / _/ /  / /___       / ____/ / /___ / /_/ /  / /    {reset}"
+        )
+        print(
+            f"{yellow}/_/  /_/ /___/ /_/  /_/ /___/  \\____/      /_/     /_____/ \\____/  /_/     {bold}{reset}\n"
+        )
 
     print(f"{bold}MIMIC Galaxy Evolution Plotting Tool{reset}")
     print(f"Parameter file : {param_file}")
@@ -167,7 +180,9 @@ def validate_required_params(params, required_params, context=""):
     missing = [p for p in required_params if p not in params]
     if missing:
         context_str = f" for {context}" if context else ""
-        print(f"Error: Required parameters missing from parameter file{context_str}: {', '.join(missing)}")
+        print(
+            f"Error: Required parameters missing from parameter file{context_str}: {', '.join(missing)}"
+        )
     return missing
 
 
@@ -250,13 +265,17 @@ def configure_plot_profile(params, param_file, verbose=False):
 
     model_path = params.get("ModelPath")
     if model_path:
-        model_default = Path(resolve_relative_path(model_path, param_file)) / "plots/profiles/default.yaml"
+        model_default = (
+            Path(resolve_relative_path(model_path, param_file)) / "plots/profiles/default.yaml"
+        )
         if model_default.exists():
             profile_paths.append(model_default)
 
     simulation_path = params.get("SimulationPath")
     if simulation_path:
-        simulation_profile = Path(resolve_relative_path(simulation_path, param_file)) / "plot_profile.yaml"
+        simulation_profile = (
+            Path(resolve_relative_path(simulation_path, param_file)) / "plot_profile.yaml"
+        )
         if simulation_profile.exists():
             profile_paths.append(simulation_profile)
 
@@ -301,7 +320,7 @@ class MimicParameters:
         self.params = {}
 
         # Detect format by extension
-        if param_file.endswith('.yaml') or param_file.endswith('.yml'):
+        if param_file.endswith(".yaml") or param_file.endswith(".yml"):
             self.parse_yaml_file()
         else:
             self.parse_param_file()
@@ -319,7 +338,9 @@ class MimicParameters:
             for line in f:
                 # Skip empty lines and full comment lines
                 stripped_line = line.strip()
-                if not stripped_line or any(stripped_line.startswith(marker) for marker in self.COMMENT_MARKERS[:2]):
+                if not stripped_line or any(
+                    stripped_line.startswith(marker) for marker in self.COMMENT_MARKERS[:2]
+                ):
                     continue
 
                 # Legacy SAGE .par files may list snapshots with a leading arrow
@@ -348,8 +369,7 @@ class MimicParameters:
                 # Handle inline comments - crucial to remove them before type conversion
                 # Check for comment markers and take the earliest one
                 comment_positions = [
-                    pos for marker in self.COMMENT_MARKERS
-                    if (pos := value_part.find(marker)) != -1
+                    pos for marker in self.COMMENT_MARKERS if (pos := value_part.find(marker)) != -1
                 ]
 
                 if comment_positions:
@@ -363,7 +383,7 @@ class MimicParameters:
                 value = value.strip()
 
                 # Convert to appropriate type
-                if value.lstrip('-').isdigit():
+                if value.lstrip("-").isdigit():
                     value = int(value)
                 elif self._is_float(value):
                     value = float(value)
@@ -380,27 +400,31 @@ class MimicParameters:
 
                 self.params[key] = value
 
-        if 'FirstFile' in self.params and 'LastFile' in self.params:
-            self.params['NumSimulationTreeFiles'] = self.params['LastFile'] - self.params['FirstFile'] + 1
-        elif 'NumSimulationTreeFiles' not in self.params:
+        if "FirstFile" in self.params and "LastFile" in self.params:
+            self.params["NumSimulationTreeFiles"] = (
+                self.params["LastFile"] - self.params["FirstFile"] + 1
+            )
+        elif "NumSimulationTreeFiles" not in self.params:
             if colour_enabled():
-                print("\x1b[31mERROR: Could not determine NumSimulationTreeFiles, check FirstFile and LastFile\x1b[0m")
+                print(
+                    "\x1b[31mERROR: Could not determine NumSimulationTreeFiles, check FirstFile and LastFile\x1b[0m"
+                )
             else:
-                print("ERROR: Could not determine NumSimulationTreeFiles, check FirstFile and LastFile")
+                print(
+                    "ERROR: Could not determine NumSimulationTreeFiles, check FirstFile and LastFile"
+                )
             sys.exit(1)
 
     def parse_yaml_file(self):
         """Parse YAML format parameter file."""
         import yaml
 
-        with open(self.param_file, 'r') as f:
+        with open(self.param_file, "r") as f:
             config = yaml.safe_load(f)
 
         sim_config = {}
         if "simulation" in config and "config" in config["simulation"]:
-            sim_config_path = resolve_relative_path(
-                config["simulation"]["config"], self.param_file
-            )
+            sim_config_path = resolve_relative_path(config["simulation"]["config"], self.param_file)
             with open(sim_config_path, "r") as f:
                 sim_config = yaml.safe_load(f) or {}
 
@@ -413,68 +437,72 @@ class MimicParameters:
             self.params["SimulationName"] = config["simulation"].get("name", "")
             self.params["SimulationPath"] = config["simulation"].get("path", "")
             self.params["SimulationConfigPath"] = config["simulation"].get("config", "")
-            self.params["SimulationHaloPropertiesPath"] = config["simulation"].get("halo_properties", "")
+            self.params["SimulationHaloPropertiesPath"] = config["simulation"].get(
+                "halo_properties", ""
+            )
 
         if "plotting" in config:
             self.params["PlottingProfilePath"] = config["plotting"].get("profile", "")
             # Any other keys under `plotting` are inline run overrides applied as
             # the most specific profile layer (see configure_plot_profile).
             self.params["PlottingOverrides"] = {
-                key: value
-                for key, value in (config["plotting"] or {}).items()
-                if key != "profile"
+                key: value for key, value in (config["plotting"] or {}).items() if key != "profile"
             }
 
         # Flatten hierarchical YAML structure
         # Output section
-        if 'output' in config:
-            output_snapshots = config['output'].get('snapshot_list', [])
-            self.params['OutputFileBaseName'] = config['output'].get('output_filename', 'model')
-            self.params['OutputDir'] = config['output'].get('output_directory', './')
-            self.params['OutputFormat'] = config['output'].get('output_format', 'binary')
-            self.params['NumOutputs'] = len(output_snapshots)
-            self.params['OutputSnapshots'] = output_snapshots
+        if "output" in config:
+            output_snapshots = config["output"].get("snapshot_list", [])
+            self.params["OutputFileBaseName"] = config["output"].get("output_filename", "model")
+            self.params["OutputDir"] = config["output"].get("output_directory", "./")
+            self.params["OutputFormat"] = config["output"].get("output_format", "binary")
+            self.params["NumOutputs"] = len(output_snapshots)
+            self.params["OutputSnapshots"] = output_snapshots
 
         # Input section from simulation package
         input_config = sim_config.get("input", {})
         if input_config:
-            self.params['FirstFile'] = input_config.get('first_file', 0)
-            self.params['LastFile'] = input_config.get('last_file', 0)
-            self.params['TreeName'] = input_config.get('tree_name', '')
-            self.params['TreeType'] = input_config.get('tree_type', 'lhalo_binary')
-            self.params['SimulationDir'] = input_config.get('simulation_dir', './')
-            self.params['FileWithSnapList'] = input_config.get('snapshot_list_file', '')
+            self.params["FirstFile"] = input_config.get("first_file", 0)
+            self.params["LastFile"] = input_config.get("last_file", 0)
+            self.params["TreeName"] = input_config.get("tree_name", "")
+            self.params["TreeType"] = input_config.get("tree_type", "lhalo_binary")
+            self.params["SimulationDir"] = input_config.get("simulation_dir", "./")
+            self.params["FileWithSnapList"] = input_config.get("snapshot_list_file", "")
 
-            a_list_path = resolve_relative_path(
-                self.params['FileWithSnapList'], self.param_file
-            )
+            a_list_path = resolve_relative_path(self.params["FileWithSnapList"], self.param_file)
             if os.path.exists(a_list_path):
                 num_snapshots = len(read_expansion_factors(a_list_path))
-                self.params['LastSnapshotNr'] = num_snapshots - 1
-                if not self.params['OutputSnapshots']:
-                    self.params['OutputSnapshots'] = list(range(num_snapshots))
-                    self.params['NumOutputs'] = num_snapshots
-            
+                self.params["LastSnapshotNr"] = num_snapshots - 1
+                if not self.params["OutputSnapshots"]:
+                    self.params["OutputSnapshots"] = list(range(num_snapshots))
+                    self.params["NumOutputs"] = num_snapshots
+
             # Calculate NumSimulationTreeFiles from FirstFile and LastFile
-            self.params['NumSimulationTreeFiles'] = self.params['LastFile'] - self.params['FirstFile'] + 1
+            self.params["NumSimulationTreeFiles"] = (
+                self.params["LastFile"] - self.params["FirstFile"] + 1
+            )
 
         # Simulation section from simulation package
         simulation_config = sim_config.get("simulation", {})
         if simulation_config:
-            self.params['BoxSize'] = simulation_config.get('box_size', 0.0)
-            self.params['PartMass'] = simulation_config.get('particle_mass', 0.0)
-            if 'cosmology' in simulation_config:
-                self.params['Omega'] = simulation_config['cosmology'].get('omega_matter', 0.0)
-                self.params['OmegaLambda'] = simulation_config['cosmology'].get('omega_lambda', 0.0)
-                self.params['Hubble_h'] = simulation_config['cosmology'].get('hubble_h', 0.0)
-            if 'units' in simulation_config:
-                self.params['UnitLength_in_cm'] = simulation_config['units'].get('length_in_cm', 0.0)
-                self.params['UnitMass_in_g'] = simulation_config['units'].get('mass_in_g', 0.0)
-                self.params['UnitVelocity_in_cm_per_s'] = simulation_config['units'].get('velocity_in_cm_per_s', 0.0)
+            self.params["BoxSize"] = simulation_config.get("box_size", 0.0)
+            self.params["PartMass"] = simulation_config.get("particle_mass", 0.0)
+            if "cosmology" in simulation_config:
+                self.params["Omega"] = simulation_config["cosmology"].get("omega_matter", 0.0)
+                self.params["OmegaLambda"] = simulation_config["cosmology"].get("omega_lambda", 0.0)
+                self.params["Hubble_h"] = simulation_config["cosmology"].get("hubble_h", 0.0)
+            if "units" in simulation_config:
+                self.params["UnitLength_in_cm"] = simulation_config["units"].get(
+                    "length_in_cm", 0.0
+                )
+                self.params["UnitMass_in_g"] = simulation_config["units"].get("mass_in_g", 0.0)
+                self.params["UnitVelocity_in_cm_per_s"] = simulation_config["units"].get(
+                    "velocity_in_cm_per_s", 0.0
+                )
 
         # Modules section (for reference, though not used in plotting currently)
-        if 'modules' in config:
-            self.params['EnabledModules'] = config['modules']
+        if "modules" in config:
+            self.params["EnabledModules"] = config["modules"]
 
     def _is_float(self, value):
         """Check if a string can be converted to float."""
@@ -563,8 +591,9 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     # OutputFormat value in the parameter file does not interfere.
     if params.get("_input_format") == "sage-hdf5":
         if not SAGE_NATIVE_AVAILABLE:
-            print("ERROR: --input-format=sage-hdf5 requires h5py. "
-                  "Install with: pip install h5py")
+            print(
+                "ERROR: --input-format=sage-hdf5 requires h5py. " "Install with: pip install h5py"
+            )
             sys.exit(1)
         return sage_native_hdf5.read_data_sage_native(
             model_path, first_file, last_file, params, verbose, quiet
@@ -580,10 +609,14 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     if output_format == "hdf5":
         if not HDF5_AVAILABLE:
             if colour_enabled():
-                print("\x1b[31mERROR: OutputFormat=hdf5 specified in parameter file, but h5py is not installed.\x1b[0m")
+                print(
+                    "\x1b[31mERROR: OutputFormat=hdf5 specified in parameter file, but h5py is not installed.\x1b[0m"
+                )
                 print("\x1b[33mPlease install h5py: pip install h5py\x1b[0m")
             else:
-                print("ERROR: OutputFormat=hdf5 specified in parameter file, but h5py is not installed.")
+                print(
+                    "ERROR: OutputFormat=hdf5 specified in parameter file, but h5py is not installed."
+                )
                 print("Please install h5py: pip install h5py")
             sys.exit(1)
 
@@ -649,9 +682,7 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     good_files = 0
 
     if verbose:
-        print(
-            f"Determining storage requirements for files {first_file} to {last_file}..."
-        )
+        print(f"Determining storage requirements for files {first_file} to {last_file}...")
 
     # First pass: Determine total number of galaxies
     # Only show progress bar when verbose is enabled
@@ -672,9 +703,7 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
 
         try:
             with open(fname, "rb") as fin:
-                ntrees = np.fromfile(fin, np.dtype(np.int32), 1)[
-                    0
-                ]  # Extract scalar value
+                ntrees = np.fromfile(fin, np.dtype(np.int32), 1)[0]  # Extract scalar value
                 ntotgals = np.fromfile(fin, np.dtype(np.int32), 1)[0]
                 tot_ntrees += ntrees
                 tot_ngals += ntotgals
@@ -690,9 +719,13 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
         error_msg = "No galaxies found in the model files"
         if verbose:
             if colour_enabled():
-                print(f"\x1b[31mERROR: {error_msg}. Please check that the model files exist and are not empty.\x1b[0m")
+                print(
+                    f"\x1b[31mERROR: {error_msg}. Please check that the model files exist and are not empty.\x1b[0m"
+                )
             else:
-                print(f"ERROR: {error_msg}. Please check that the model files exist and are not empty.")
+                print(
+                    f"ERROR: {error_msg}. Please check that the model files exist and are not empty."
+                )
         raise FileNotFoundError(error_msg)
 
     # Initialize the storage array
@@ -714,9 +747,7 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
 
         try:
             with open(fname, "rb") as fin:
-                ntrees = np.fromfile(fin, np.dtype(np.int32), 1)[
-                    0
-                ]  # Extract scalar value
+                ntrees = np.fromfile(fin, np.dtype(np.int32), 1)[0]  # Extract scalar value
                 ntotgals = np.fromfile(fin, np.dtype(np.int32), 1)[0]
                 gals_per_tree = np.fromfile(fin, np.dtype((np.int32, ntrees)), 1)
 
@@ -740,14 +771,16 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     # Volume is the box size cubed, scaled by the fraction of files actually read
     # This assumes files are distributed uniformly across the simulation volume
     volume = box_size**3.0
-    
+
     # If we have information about first/last file and good files, adjust volume
     if "FirstFile" in params and "LastFile" in params:
         total_files = params["NumSimulationTreeFiles"]
         if total_files > 0 and good_files > 0:
             volume = volume * good_files / total_files
             if verbose:
-                print(f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}")
+                print(
+                    f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}"
+                )
                 print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
 
     # Create metadata dictionary
@@ -794,9 +827,9 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
     # Extract redshift string from model_path to determine which snapshot to read
     # Model path format: /path/to/model_z1.386 or /path/to/model
     redshift_str = None
-    if '_z' in base_name:
+    if "_z" in base_name:
         # Extract the redshift string (e.g., "_z1.386")
-        parts = base_name.split('_z')
+        parts = base_name.split("_z")
         redshift_str = f"_z{parts[1]}"
         base_name = parts[0]  # Remove the redshift suffix for HDF5 filename
         if verbose:
@@ -890,9 +923,13 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
         error_msg = "No halos found in HDF5 files"
         if verbose:
             if colour_enabled():
-                print(f"\x1b[31mERROR: {error_msg}. Please check that the HDF5 files exist and contain data.\x1b[0m")
+                print(
+                    f"\x1b[31mERROR: {error_msg}. Please check that the HDF5 files exist and contain data.\x1b[0m"
+                )
             else:
-                print(f"ERROR: {error_msg}. Please check that the HDF5 files exist and contain data.")
+                print(
+                    f"ERROR: {error_msg}. Please check that the HDF5 files exist and contain data."
+                )
         raise FileNotFoundError(error_msg)
 
     # Concatenate all halos
@@ -909,7 +946,9 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
         if total_files > 0 and good_files > 0:
             volume = volume * good_files / total_files
             if verbose:
-                print(f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}")
+                print(
+                    f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}"
+                )
                 print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
 
     # Create metadata dictionary
@@ -929,8 +968,12 @@ def parse_arguments():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Mimic Plotting Tool")
     parser.add_argument("--param-file", required=True, help="Mimic parameter file (required)")
-    parser.add_argument("--first-file", type=int, help="First file to read (overrides parameter file)")
-    parser.add_argument("--last-file", type=int, help="Last file to read (overrides parameter file)")
+    parser.add_argument(
+        "--first-file", type=int, help="First file to read (overrides parameter file)"
+    )
+    parser.add_argument(
+        "--last-file", type=int, help="Last file to read (overrides parameter file)"
+    )
     parser.add_argument(
         "--snapshot", type=int, help="Process only this snapshot number (overrides parameter file)"
     )
@@ -965,10 +1008,10 @@ def parse_arguments():
         choices=["mimic", "sage-hdf5"],
         default="mimic",
         help="Input data format. 'mimic' (default) reads Mimic binary or "
-             "HDF5 output. 'sage-hdf5' reads native sage-model HDF5 output "
-             "from the OutputDir set in the parameter file, applying the "
-             "SAGE-to-Mimic field mapping so the same plotting code works "
-             "on both.",
+        "HDF5 output. 'sage-hdf5' reads native sage-model HDF5 output "
+        "from the OutputDir set in the parameter file, applying the "
+        "SAGE-to-Mimic field mapping so the same plotting code works "
+        "on both.",
     )
     # <<< SAGE-NATIVE-HDF5 <<<
 
@@ -1014,7 +1057,9 @@ def get_available_plot_modules(plot_type, verbose=False):
         known = set(module_patterns)
         missing = [name for name in profile_plots if name not in known]
         if missing and verbose:
-            print(f"Warning: Plot profile references unknown {plot_type} plot(s): {', '.join(missing)}")
+            print(
+                f"Warning: Plot profile references unknown {plot_type} plot(s): {', '.join(missing)}"
+            )
         module_patterns = [name for name in profile_plots if name in known]
 
     # Import modules
@@ -1096,7 +1141,7 @@ def main():
         "LastFile",
         "BoxSize",
         "Hubble_h",
-        "FileWithSnapList"
+        "FileWithSnapList",
     ]
 
     if validate_required_params(params.params, required_params):
@@ -1144,11 +1189,13 @@ def main():
     # Check if OutputDir exists
     if not os.path.exists(output_dir):
         if colour_enabled():
-            print(f"\x1b[31mERROR: OutputDir '{output_dir}' from parameter file does not exist.\x1b[0m")
+            print(
+                f"\x1b[31mERROR: OutputDir '{output_dir}' from parameter file does not exist.\x1b[0m"
+            )
         else:
             print(f"ERROR: OutputDir '{output_dir}' from parameter file does not exist.")
         sys.exit(1)
-        
+
     # Check if FileWithSnapList exists (path already resolved)
     if not os.path.exists(file_with_snap_list):
         if colour_enabled():
@@ -1169,39 +1216,47 @@ def main():
         else:
             print("ERROR: OutputDir parameter is required in the parameter file.")
         sys.exit(1)
-    
+
     # Get the output directory path (already resolved)
     model_output_dir = params["OutputDir"]
-    
+
     if args.verbose:
         print(f"\nOutput directory handling:")
         print(f"  model_output_dir from params: '{model_output_dir}'")
-    
+
     # Check if output directory exists
     if not os.path.exists(model_output_dir):
         if colour_enabled():
-            print(f"\x1b[31mERROR: OutputDir '{model_output_dir}' specified in parameter file does not exist.\x1b[0m")
+            print(
+                f"\x1b[31mERROR: OutputDir '{model_output_dir}' specified in parameter file does not exist.\x1b[0m"
+            )
         else:
-            print(f"ERROR: OutputDir '{model_output_dir}' specified in parameter file does not exist.")
+            print(
+                f"ERROR: OutputDir '{model_output_dir}' specified in parameter file does not exist."
+            )
         sys.exit(1)
-    
+
     # Check if output directory is writable
     if not os.access(model_output_dir, os.W_OK):
         if colour_enabled():
-            print(f"\x1b[31mERROR: OutputDir '{model_output_dir}' specified in parameter file is not writable.\x1b[0m")
+            print(
+                f"\x1b[31mERROR: OutputDir '{model_output_dir}' specified in parameter file is not writable.\x1b[0m"
+            )
         else:
-            print(f"ERROR: OutputDir '{model_output_dir}' specified in parameter file is not writable.")
+            print(
+                f"ERROR: OutputDir '{model_output_dir}' specified in parameter file is not writable."
+            )
         sys.exit(1)
-    
+
     # Set the plots directory independently from the model output directory.
     if args.output_dir:
         output_dir = resolve_relative_path(args.output_dir, args.param_file)
     else:
         output_dir = os.path.join(model_output_dir, "plots")
-    
+
     if args.verbose:
         print(f"  Using output directory: '{output_dir}'")
-    
+
     # Create the plots directory if it doesn't exist
     try:
         os.makedirs(output_dir, exist_ok=True)
@@ -1213,7 +1268,7 @@ def main():
         else:
             print(f"ERROR: Could not create output directory {output_dir}: {e}")
         sys.exit(1)
-    
+
     # Determine which plots to generate
     if args.plots == "all":
         selected_plots = None  # All available
@@ -1231,42 +1286,52 @@ def main():
         # Get required parameters for finding model files
         if "OutputDir" not in params:
             if colour_enabled():
-                print("\x1b[31mERROR: OutputDir parameter is required in the parameter file.\x1b[0m")
+                print(
+                    "\x1b[31mERROR: OutputDir parameter is required in the parameter file.\x1b[0m"
+                )
             else:
                 print("ERROR: OutputDir parameter is required in the parameter file.")
             sys.exit(1)
-            
+
         if "OutputFileBaseName" not in params:
             if colour_enabled():
-                print("\x1b[31mERROR: OutputFileBaseName parameter is required in the parameter file.\x1b[0m")
+                print(
+                    "\x1b[31mERROR: OutputFileBaseName parameter is required in the parameter file.\x1b[0m"
+                )
             else:
                 print("ERROR: OutputFileBaseName parameter is required in the parameter file.")
             sys.exit(1)
-            
+
         # Get output model path and snapshot number (already resolved)
         model_path = params["OutputDir"]
         snapshot = args.snapshot if args.snapshot is not None else params.get("LastSnapshotNr")
 
         if snapshot is None:
             if colour_enabled():
-                print("\x1b[31mERROR: Could not derive the last snapshot from FileWithSnapList and no snapshot was specified.\x1b[0m")
+                print(
+                    "\x1b[31mERROR: Could not derive the last snapshot from FileWithSnapList and no snapshot was specified.\x1b[0m"
+                )
             else:
-                print("ERROR: Could not derive the last snapshot from FileWithSnapList and no snapshot was specified.")
+                print(
+                    "ERROR: Could not derive the last snapshot from FileWithSnapList and no snapshot was specified."
+                )
             sys.exit(1)
-        
+
         # File name from parameter file
         file_name_base = params["OutputFileBaseName"]
-        
+
         if args.verbose:
             print(f"\nModel file discovery:")
             print(f"  model_path from params: '{model_path}'")
             print(f"  file_name_base: '{file_name_base}'")
             print(f"  Using snapshot: {snapshot}")
-        
+
         # Check if model_path exists
         if not os.path.exists(model_path):
             if colour_enabled():
-                print(f"\x1b[31mERROR: OutputDir '{model_path}' from parameter file does not exist.\x1b[0m")
+                print(
+                    f"\x1b[31mERROR: OutputDir '{model_path}' from parameter file does not exist.\x1b[0m"
+                )
             else:
                 print(f"ERROR: OutputDir '{model_path}' from parameter file does not exist.")
             sys.exit(1)
@@ -1278,13 +1343,13 @@ def main():
         mapper_params["verbose"] = args.verbose
         mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, model_path)
         redshift_str = mapper.get_redshift_str(snapshot)
-        
+
         if args.verbose:
             print(f"  Redshift string for snapshot {snapshot}: {redshift_str}")
-        
+
         # Construct the base model file path directly
         base_model_file = os.path.join(model_path, f"{file_name_base}{redshift_str}")
-        
+
         if args.verbose:
             print(f"  Using model file base: {base_model_file}")
 
@@ -1295,7 +1360,7 @@ def main():
             else:
                 print("ERROR: Missing required parameters for snapshot plots.")
             sys.exit(1)
-            
+
         # Get first and last file numbers, prioritizing command-line arguments
         if args.first_file is not None:
             first_file = args.first_file
@@ -1305,7 +1370,7 @@ def main():
             first_file = params["FirstFile"]
             if args.verbose:
                 print(f"Using first_file={first_file} from parameter file")
-                
+
         if args.last_file is not None:
             last_file = args.last_file
             if args.verbose:
@@ -1314,11 +1379,13 @@ def main():
             last_file = params["LastFile"]
             if args.verbose:
                 print(f"Using last_file={last_file} from parameter file")
-                
+
         # Validate file range
         if first_file > last_file:
             if colour_enabled():
-                print(f"\x1b[31mERROR: FirstFile ({first_file}) is greater than LastFile ({last_file})\x1b[0m")
+                print(
+                    f"\x1b[31mERROR: FirstFile ({first_file}) is greater than LastFile ({last_file})\x1b[0m"
+                )
             else:
                 print(f"ERROR: FirstFile ({first_file}) is greater than LastFile ({last_file})")
             sys.exit(1)
@@ -1341,9 +1408,7 @@ def main():
                     print(
                         "This is useful for testing the plotting code but the plots will not reflect real Mimic output."
                     )
-                print(
-                    f"Read {len(galaxies)} galaxies from volume {volume:.2f} (Mpc/h)³"
-                )
+                print(f"Read {len(galaxies)} galaxies from volume {volume:.2f} (Mpc/h)³")
             snapshot_data_available = True
         except Exception as e:
             # Set empty list for snapshot plots
@@ -1383,9 +1448,7 @@ def main():
 
             # Filter to selected plots if specified
             if selected_plots:
-                plot_modules = {
-                    k: v for k, v in plot_modules.items() if k in selected_plots
-                }
+                plot_modules = {k: v for k, v in plot_modules.items() if k in selected_plots}
 
             # Filter plots based on available properties
             available_plots = {}
@@ -1395,7 +1458,9 @@ def main():
                 required_props = PLOT_REQUIREMENTS.get(plot_name, [])
                 if required_props:
                     # Check if required properties are available
-                    props_available, missing_props = check_required_properties(galaxies, required_props)
+                    props_available, missing_props = check_required_properties(
+                        galaxies, required_props
+                    )
                     if not props_available:
                         skipped_plots[plot_name] = missing_props
                         continue
@@ -1461,24 +1526,20 @@ def main():
 
         # Filter to selected plots if specified
         if selected_plots:
-            plot_modules = {
-                k: v for k, v in plot_modules.items() if k in selected_plots
-            }
+            plot_modules = {k: v for k, v in plot_modules.items() if k in selected_plots}
 
         # Create a snapshot-to-redshift mapper
         # Add quiet and verbose flags to params for mapper
         mapper_params = params.params.copy()
         mapper_params["quiet"] = args.quiet
         mapper_params["verbose"] = args.verbose
-        mapper = SnapshotRedshiftMapper(
-            args.param_file, mapper_params, model_output_dir
-        )
+        mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, model_output_dir)
         if args.verbose:
             print(mapper.debug_info())
 
         # Create the mapper from parameter file (paths already resolved)
         mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, params["OutputDir"])
-        
+
         # Determine which snapshots to process
         if args.all_snapshots:
             # Process all available snapshots
@@ -1490,12 +1551,16 @@ def main():
             # Verify this snapshot exists in our mapping
             if args.snapshot not in mapper.snapshots:
                 if colour_enabled():
-                    print(f"\x1b[31mERROR: Specified snapshot {args.snapshot} not found in redshift mapping\x1b[0m")
+                    print(
+                        f"\x1b[31mERROR: Specified snapshot {args.snapshot} not found in redshift mapping\x1b[0m"
+                    )
                 else:
-                    print(f"ERROR: Specified snapshot {args.snapshot} not found in redshift mapping")
+                    print(
+                        f"ERROR: Specified snapshot {args.snapshot} not found in redshift mapping"
+                    )
                 print(f"Available snapshots: {mapper.snapshots}")
                 sys.exit(1)
-            
+
             snapshots = [args.snapshot]
             if args.verbose:
                 print(f"Using single snapshot: {args.snapshot}")
@@ -1503,21 +1568,23 @@ def main():
             # Use the evolution snapshots determined by the mapper
             # This will prioritize OutputSnapshots from parameter file
             snapshots = mapper.get_evolution_snapshots()
-            
+
             # Check that we have at least 2 snapshots for a meaningful evolution plot
             if len(snapshots) < 2:
                 if colour_enabled():
-                    print("\x1b[31mERROR: At least 2 snapshots are required for evolution plots\x1b[0m")
+                    print(
+                        "\x1b[31mERROR: At least 2 snapshots are required for evolution plots\x1b[0m"
+                    )
                 else:
                     print("ERROR: At least 2 snapshots are required for evolution plots")
                 print(f"Available snapshots: {snapshots}")
                 sys.exit(1)
-                
+
             # Check for diverse redshift coverage
             redshifts = [mapper.get_redshift(snap) for snap in snapshots]
             min_z = min(redshifts)
             max_z = max(redshifts)
-            
+
             if args.verbose:
                 print(f"Using {len(snapshots)} snapshots for evolution plots")
                 print(f"Redshift range: z={min_z:.3f} to z={max_z:.3f}")
@@ -1559,13 +1626,17 @@ def main():
                 print(f"Using model file pattern: {model_file_base}")
 
             # Required parameters check
-            if validate_required_params(params.params, ["FirstFile", "LastFile", "NumSimulationTreeFiles"], "evolution plots"):
+            if validate_required_params(
+                params.params,
+                ["FirstFile", "LastFile", "NumSimulationTreeFiles"],
+                "evolution plots",
+            ):
                 if colour_enabled():
                     print("\x1b[31mERROR: Missing required parameters for evolution plots.\x1b[0m")
                 else:
                     print("ERROR: Missing required parameters for evolution plots.")
                 sys.exit(1)
-                
+
             # Get first and last file numbers, prioritizing command-line arguments
             if args.first_file is not None:
                 first_file = args.first_file
@@ -1575,7 +1646,7 @@ def main():
                 first_file = params["FirstFile"]
                 if args.verbose:
                     print(f"Using first_file={first_file} from parameter file")
-                    
+
             if args.last_file is not None:
                 last_file = args.last_file
                 if args.verbose:
@@ -1584,11 +1655,13 @@ def main():
                 last_file = params["LastFile"]
                 if args.verbose:
                     print(f"Using last_file={last_file} from parameter file")
-                    
+
             # Validate file range
             if first_file > last_file:
                 if colour_enabled():
-                    print(f"\x1b[31mERROR: FirstFile ({first_file}) is greater than LastFile ({last_file})\x1b[0m")
+                    print(
+                        f"\x1b[31mERROR: FirstFile ({first_file}) is greater than LastFile ({last_file})\x1b[0m"
+                    )
                 else:
                     print(f"ERROR: FirstFile ({first_file}) is greater than LastFile ({last_file})")
                 sys.exit(1)
@@ -1639,7 +1712,9 @@ def main():
                 required_props = PLOT_REQUIREMENTS.get(plot_name, [])
                 if required_props and sample_galaxies is not None:
                     # Check if required properties are available
-                    props_available, missing_props = check_required_properties(sample_galaxies, required_props)
+                    props_available, missing_props = check_required_properties(
+                        sample_galaxies, required_props
+                    )
                     if not props_available:
                         skipped_plots[plot_name] = missing_props
                         continue
@@ -1647,7 +1722,9 @@ def main():
 
             # Report skipped plots
             if skipped_plots:
-                print(f"\nSkipping {len(skipped_plots)} evolution plot(s) due to missing properties:")
+                print(
+                    f"\nSkipping {len(skipped_plots)} evolution plot(s) due to missing properties:"
+                )
                 for plot_name, missing in skipped_plots.items():
                     print(f"  - {plot_name}: missing {', '.join(missing)}")
                 print(f"  (Enable physics modules to generate these plots)\n")
@@ -1694,9 +1771,9 @@ def main():
     # Report validation-based skips if any (before COMPLETE section)
     # Only show in verbose mode
     total_skipped_validation = 0
-    if args.snapshot_plots and 'snapshot_skipped_validation' in locals():
+    if args.snapshot_plots and "snapshot_skipped_validation" in locals():
         total_skipped_validation += len(snapshot_skipped_validation)
-    if args.evolution_plots and 'evolution_skipped_validation' in locals():
+    if args.evolution_plots and "evolution_skipped_validation" in locals():
         total_skipped_validation += len(evolution_skipped_validation)
 
     if args.verbose and total_skipped_validation > 0:
@@ -1704,14 +1781,22 @@ def main():
         print(f"Skipped {total_skipped_validation} plot(s) due to insufficient data")
         print()
 
-        if args.snapshot_plots and 'snapshot_skipped_validation' in locals() and snapshot_skipped_validation:
+        if (
+            args.snapshot_plots
+            and "snapshot_skipped_validation" in locals()
+            and snapshot_skipped_validation
+        ):
             print("Snapshot plots:")
             for plot_name, reason in snapshot_skipped_validation.items():
                 print(f"  • {plot_name}")
                 print(f"    {reason}")
             print()
 
-        if args.evolution_plots and 'evolution_skipped_validation' in locals() and evolution_skipped_validation:
+        if (
+            args.evolution_plots
+            and "evolution_skipped_validation" in locals()
+            and evolution_skipped_validation
+        ):
             print("Evolution plots:")
             for plot_name, reason in evolution_skipped_validation.items():
                 print(f"  • {plot_name}")
@@ -1727,12 +1812,12 @@ def main():
         print_phase("COMPLETE")
 
     total_plots = 0
-    if args.snapshot_plots and 'snapshot_generated_plots' in locals():
+    if args.snapshot_plots and "snapshot_generated_plots" in locals():
         snapshot_plot_count = len(snapshot_generated_plots)
         total_plots += snapshot_plot_count
         print(f"Snapshot plots  : {snapshot_plot_count}")
 
-    if args.evolution_plots and 'evolution_generated_plots' in locals():
+    if args.evolution_plots and "evolution_generated_plots" in locals():
         evolution_count = len(evolution_generated_plots)
         total_plots += evolution_count
         print(f"Evolution plots : {evolution_count}")

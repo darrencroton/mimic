@@ -92,10 +92,9 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
   for (n = 0; n < MimicConfig.NOUT; n++) {
     InputHalosPerSnap[n] = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
     if (InputHalosPerSnap[n] == NULL) {
-      FATAL_ERROR(
-          "Memory allocation failed for InputHalosPerSnap[%d] array (%d trees, "
-          "%zu bytes)",
-          n, Ntrees, Ntrees * sizeof(int));
+      FATAL_ERROR("Memory allocation failed for InputHalosPerSnap[%d] array (%d trees, "
+                  "%zu bytes)",
+                  n, Ntrees, Ntrees * sizeof(int));
     }
 
     for (i = 0; i < Ntrees; i++)
@@ -117,13 +116,13 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
     if (HDF5_current_file_id < 0) {
       FATAL_ERROR("Failed to open HDF5 file '%s' for writing", buf);
     }
-    DEBUG_LOG("HDF5 file '%s' opened with ID %lld", buf,
-              (long long)HDF5_current_file_id);
+    DEBUG_LOG("HDF5 file '%s' opened with ID %lld", buf, (long long)HDF5_current_file_id);
   } else {
     /* For binary, create one file per snapshot per filenr */
     for (n = 0; n < MimicConfig.NOUT; n++) {
       snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]], filenr);
+               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]],
+               filenr);
 
       if (!(fd = fopen(buf, "w"))) {
         FATAL_ERROR("Failed to create output halo file '%s' for snapshot %d "
@@ -137,7 +136,8 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
   /* Binary format only (no HDF5 support) */
   for (n = 0; n < MimicConfig.NOUT; n++) {
     snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-             MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]], filenr);
+             MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]],
+             filenr);
 
     if (!(fd = fopen(buf, "w"))) {
       FATAL_ERROR("Failed to create output halo file '%s' for snapshot %d "
@@ -269,10 +269,8 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
   /* Allocate auxiliary metadata (parallel to InputTreeHalos) */
   HaloAux = mymalloc_cat(sizeof(struct HaloAuxData) * InputTreeNHalos[treenr], MEM_HALOS);
   if (HaloAux == NULL) {
-    FATAL_ERROR(
-        "Memory allocation failed for HaloAux array (%d halos, %zu bytes)",
-        InputTreeNHalos[treenr],
-        InputTreeNHalos[treenr] * sizeof(struct HaloAuxData));
+    FATAL_ERROR("Memory allocation failed for HaloAux array (%d halos, %zu bytes)",
+                InputTreeNHalos[treenr], InputTreeNHalos[treenr] * sizeof(struct HaloAuxData));
   }
 
   /* Allocate permanent storage for processed halos */
@@ -288,9 +286,8 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
   /* Allocate temporary workspace for FoF processing */
   FoFWorkspace = mymalloc_cat(sizeof(struct Halo) * MaxFoFWorkspace, MEM_HALOS);
   if (FoFWorkspace == NULL) {
-    FATAL_ERROR(
-        "Memory allocation failed for FoFWorkspace array (%d halos, %zu bytes)",
-        MaxFoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
+    FATAL_ERROR("Memory allocation failed for FoFWorkspace array (%d halos, %zu bytes)",
+                MaxFoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
   }
   /* Zero the workspace to ensure uninitialized galaxy pointers are NULL */
   memset(FoFWorkspace, 0, sizeof(struct Halo) * MaxFoFWorkspace);
@@ -343,10 +340,10 @@ void free_halos_and_tree(void) {
    * We do not free them here to avoid double-free errors. */
 
   /* Free halo arrays in reverse allocation order - see load_tree() */
-  myfree(FoFWorkspace);       // Temporary FoF workspace
-  myfree(ProcessedHalos);     // Permanent processed halo storage
-  myfree(HaloAux);            // Auxiliary metadata
-  myfree(InputTreeHalos);     // Raw input from merger tree files
+  myfree(FoFWorkspace);   // Temporary FoF workspace
+  myfree(ProcessedHalos); // Permanent processed halo storage
+  myfree(HaloAux);        // Auxiliary metadata
+  myfree(InputTreeHalos); // Raw input from merger tree files
 }
 
 /**
@@ -362,8 +359,8 @@ void free_halos_and_tree(void) {
  */
 void set_file_endianness(int endianness) {
   if (endianness != MIMIC_LITTLE_ENDIAN && endianness != MIMIC_BIG_ENDIAN) {
-    WARNING_LOG("Invalid endianness value %d. Using host endianness (%d).",
-                endianness, MIMIC_HOST_ENDIAN);
+    WARNING_LOG("Invalid endianness value %d. Using host endianness (%d).", endianness,
+                MIMIC_HOST_ENDIAN);
     file_endianness = MIMIC_HOST_ENDIAN;
   } else {
     file_endianness = endianness;
@@ -396,8 +393,7 @@ size_t myfread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
   size_t items_read;
 
   if (ptr == NULL || stream == NULL) {
-    IO_ERROR_LOG(IO_ERROR_READ_FAILED, "myfread", NULL,
-                 "NULL pointer passed to myfread");
+    IO_ERROR_LOG(IO_ERROR_READ_FAILED, "myfread", NULL, "NULL pointer passed to myfread");
     return 0;
   }
 
@@ -432,8 +428,7 @@ size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream) {
   size_t items_written;
 
   if (ptr == NULL || stream == NULL) {
-    IO_ERROR_LOG(IO_ERROR_WRITE_FAILED, "myfwrite", NULL,
-                 "NULL pointer passed to myfwrite");
+    IO_ERROR_LOG(IO_ERROR_WRITE_FAILED, "myfwrite", NULL, "NULL pointer passed to myfwrite");
     return 0;
   }
 
@@ -447,8 +442,7 @@ size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream) {
   memcpy(tmp_buffer, ptr, size * nmemb);
 
   /* Perform endianness conversion if needed */
-  if (!is_same_endian(file_endianness) &&
-      (size == 2 || size == 4 || size == 8)) {
+  if (!is_same_endian(file_endianness) && (size == 2 || size == 4 || size == 8)) {
     /* Swap bytes in temporary buffer */
     swap_bytes_if_needed(tmp_buffer, size, nmemb, file_endianness);
   }
@@ -477,16 +471,14 @@ int myfseek(FILE *stream, long offset, int whence) {
   int result;
 
   if (stream == NULL) {
-    IO_ERROR_LOG(IO_ERROR_SEEK_FAILED, "myfseek", NULL,
-                 "NULL stream pointer passed to myfseek");
+    IO_ERROR_LOG(IO_ERROR_SEEK_FAILED, "myfseek", NULL, "NULL stream pointer passed to myfseek");
     return -1;
   }
 
   /* Use standard library fseek */
   result = fseek(stream, offset, whence);
   if (result != 0) {
-    IO_ERROR_LOG(IO_ERROR_SEEK_FAILED, "myfseek", NULL,
-                 "fseek failed with error %d", result);
+    IO_ERROR_LOG(IO_ERROR_SEEK_FAILED, "myfseek", NULL, "fseek failed with error %d", result);
   }
   return result;
 }

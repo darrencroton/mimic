@@ -30,6 +30,7 @@ from output_schema import dtype_from_schema, load_schema
 
 try:
     import h5py
+
     HAVE_H5PY = True
 except ImportError:
     HAVE_H5PY = False
@@ -49,22 +50,28 @@ SAGE_FIELDS_TEMPLATE = {
     "BulgeMass": np.float32,
     "BlackHoleMass": np.float32,
     # Renamed fields
-    "IntraClusterStars": np.float32,   # -> ICS
-    "EjectedMass": np.float32,         # -> EjectedGas
+    "IntraClusterStars": np.float32,  # -> ICS
+    "EjectedMass": np.float32,  # -> EjectedGas
     "MetalsIntraClusterStars": np.float32,  # -> MetalsICS
-    "MetalsEjectedMass": np.float32,   # -> MetalsEjectedGas
-    "OutflowRate": np.float32,         # -> SupernovaOutflowRate
-    "DiskRadius": np.float32,          # -> DiskScaleRadius
-    "GalaxyIndex": np.int64,           # -> UniqueGalaxyID
-    "CentralGalaxyIndex": np.int64,    # -> UniqueCentralGalaxyID
-    "SimulationHaloIndex": np.int64,   # -> MostBoundID
+    "MetalsEjectedMass": np.float32,  # -> MetalsEjectedGas
+    "OutflowRate": np.float32,  # -> SupernovaOutflowRate
+    "DiskRadius": np.float32,  # -> DiskScaleRadius
+    "GalaxyIndex": np.int64,  # -> UniqueGalaxyID
+    "CentralGalaxyIndex": np.int64,  # -> UniqueCentralGalaxyID
+    "SimulationHaloIndex": np.int64,  # -> MostBoundID
     # SFR split
     "SfrDisk": np.float32,
     "SfrBulge": np.float32,
     # Vector components
-    "Posx": np.float32, "Posy": np.float32, "Posz": np.float32,
-    "Velx": np.float32, "Vely": np.float32, "Velz": np.float32,
-    "Spinx": np.float32, "Spiny": np.float32, "Spinz": np.float32,
+    "Posx": np.float32,
+    "Posy": np.float32,
+    "Posz": np.float32,
+    "Velx": np.float32,
+    "Vely": np.float32,
+    "Velz": np.float32,
+    "Spinx": np.float32,
+    "Spiny": np.float32,
+    "Spinz": np.float32,
 }
 
 
@@ -174,9 +181,13 @@ class TestSagePerRankRead(unittest.TestCase):
             # 2 per-rank SAGE files (all files on disk are read)
             for fnr in (0, 1):
                 with h5py.File(os.path.join(tmp, f"model_{fnr}.hdf5"), "w") as f:
-                    _populate_snap_group(f.create_group(f"Snap_{snapshot}"),
-                                         n=4, snap=snapshot, fnr=fnr,
-                                         include_snapnum=False)
+                    _populate_snap_group(
+                        f.create_group(f"Snap_{snapshot}"),
+                        n=4,
+                        snap=snapshot,
+                        fnr=fnr,
+                        include_snapnum=False,
+                    )
 
             # NumSimulationTreeFiles is intentionally wrong (input-tree count in
             # a real SAGE .par file) — volume must come from disk, not this param.
@@ -211,7 +222,7 @@ class TestSagePerRankRead(unittest.TestCase):
             self.assertTrue(np.all(galaxies.HaloBaryonFraction == 0.0))
             # All 2 files on disk were read -> full volume (disk discovery,
             # NOT NumSimulationTreeFiles which is 8 here but means input trees)
-            self.assertAlmostEqual(volume, 62.5 ** 3, places=2)
+            self.assertAlmostEqual(volume, 62.5**3, places=2)
             self.assertEqual(metadata["snapshot"], snapshot)
             self.assertEqual(metadata["good_files"], 2)
 
@@ -225,8 +236,9 @@ class TestSagePerRankRead(unittest.TestCase):
             # 4 per-rank files on disk, but only read the first 2
             for fnr in range(4):
                 with h5py.File(os.path.join(tmp, f"model_{fnr}.hdf5"), "w") as f:
-                    _populate_snap_group(f.create_group(f"Snap_{snapshot}"),
-                                         n=3, snap=snapshot, fnr=fnr)
+                    _populate_snap_group(
+                        f.create_group(f"Snap_{snapshot}"), n=3, snap=snapshot, fnr=fnr
+                    )
 
             params = _build_params(tmp, num_simulation_tree_files=99)
             model_path = os.path.join(tmp, "model_z0.000")
@@ -236,7 +248,7 @@ class TestSagePerRankRead(unittest.TestCase):
             )
 
             # 2 of 4 files read -> half the volume
-            self.assertAlmostEqual(volume, 62.5 ** 3 * 2 / 4, places=2)
+            self.assertAlmostEqual(volume, 62.5**3 * 2 / 4, places=2)
             self.assertEqual(metadata["good_files"], 2)
 
 
@@ -276,7 +288,7 @@ class TestSageMasterFileRead(unittest.TestCase):
             # Master file has 3 Core_ groups, all 3 read -> full volume
             # (NumSimulationTreeFiles=3 here but that is coincidental; the
             # count comes from the file itself, not from params)
-            self.assertAlmostEqual(volume, 62.5 ** 3, places=2)
+            self.assertAlmostEqual(volume, 62.5**3, places=2)
 
 
 if __name__ == "__main__":

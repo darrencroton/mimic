@@ -7,7 +7,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 NUMPY_TYPES = {
     "int32": np.int32,
     "int64": np.int64,
@@ -69,9 +68,7 @@ def dtype_from_schema(schema, *, binary=True):
     for field in schema["fields"]:
         numpy_type = field.get("numpy_type")
         if numpy_type not in NUMPY_TYPES:
-            raise ValueError(
-                f"Unsupported dtype '{numpy_type}' for field '{field.get('name')}'"
-            )
+            raise ValueError(f"Unsupported dtype '{numpy_type}' for field '{field.get('name')}'")
 
         shape = tuple(field.get("shape", []))
         base_type = NUMPY_TYPES[numpy_type]
@@ -101,6 +98,4 @@ def units_from_schema(schema):
 
 def descriptions_from_schema(schema):
     """Return field descriptions from a Mimic output schema."""
-    return {
-        field["name"]: field.get("description", "") for field in schema["fields"]
-    }
+    return {field["name"]: field.get("description", "") for field in schema["fields"]}

@@ -69,11 +69,10 @@ void load_tree_table_binary(int32_t filenr) {
   char buf[MAX_BUF_SIZE + 1];
 
   // Open the file
-  snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
-           MimicConfig.TreeName, filenr, MimicConfig.TreeExtension);
+  snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName, filenr,
+           MimicConfig.TreeExtension);
   if (!(load_fd = fopen(buf, "r"))) {
-    FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf,
-                filenr);
+    FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf, filenr);
   }
 
   // For simplicity, assume host endianness for legacy files
@@ -112,8 +111,7 @@ void load_tree_table_binary(int32_t filenr) {
   if (Ntrees > 0) {
     InputTreeFirstHalo[0] = 0;
     for (i = 1; i < Ntrees; i++)
-      InputTreeFirstHalo[i] =
-          InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
+      InputTreeFirstHalo[i] = InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
   }
 }
 
@@ -141,13 +139,12 @@ void load_tree_binary(int32_t treenr) {
 
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * InputTreeNHalos[treenr], MEM_TREES);
   if (InputTreeHalos == NULL) {
-    FATAL_ERROR("Failed to allocate memory for Halo array with %d halos",
-                InputTreeNHalos[treenr]);
+    FATAL_ERROR("Failed to allocate memory for Halo array with %d halos", InputTreeNHalos[treenr]);
   }
 
   // Use direct fread to avoid our problematic wrapper
-  if (fread(InputTreeHalos, sizeof(struct RawHalo), InputTreeNHalos[treenr],
-            load_fd) != (size_t)InputTreeNHalos[treenr]) {
+  if (fread(InputTreeHalos, sizeof(struct RawHalo), InputTreeNHalos[treenr], load_fd) !=
+      (size_t)InputTreeNHalos[treenr]) {
     FATAL_ERROR("Failed to read halo data for tree %d", treenr);
   }
 }

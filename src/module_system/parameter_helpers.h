@@ -44,11 +44,11 @@
  *     return -1;
  *   }
  */
-#define LOAD_PARAM_DOUBLE(name, var) \
-  do { \
-    if (model_get_double(name, &var) != 0) { \
-      return -1; \
-    } \
+#define LOAD_PARAM_DOUBLE(name, var)                                                               \
+  do {                                                                                             \
+    if (model_get_double(name, &var) != 0) {                                                       \
+      return -1;                                                                                   \
+    }                                                                                              \
   } while (0)
 
 /**
@@ -57,11 +57,11 @@
  * Example:
  *   LOAD_PARAM_INT("ReionizationOn", reionization_on);
  */
-#define LOAD_PARAM_INT(name, var) \
-  do { \
-    if (model_get_int(name, &var) != 0) { \
-      return -1; \
-    } \
+#define LOAD_PARAM_INT(name, var)                                                                  \
+  do {                                                                                             \
+    if (model_get_int(name, &var) != 0) {                                                          \
+      return -1;                                                                                   \
+    }                                                                                              \
   } while (0)
 
 /**
@@ -71,11 +71,11 @@
  *   char cool_dir[MAX_STRING_LEN];
  *   LOAD_PARAM_STRING("CoolFunctionsDir", cool_dir, MAX_STRING_LEN);
  */
-#define LOAD_PARAM_STRING(name, var, max_len) \
-  do { \
-    if (model_get_string(name, var, max_len) != 0) { \
-      return -1; \
-    } \
+#define LOAD_PARAM_STRING(name, var, max_len)                                                      \
+  do {                                                                                             \
+    if (model_get_string(name, var, max_len) != 0) {                                               \
+      return -1;                                                                                   \
+    }                                                                                              \
   } while (0)
 
 /* ==============================================================================
@@ -92,18 +92,18 @@
  *   VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", baryon_frac, 0.0, 1.0,
  *                             "cosmic baryon fraction must be physical");
  */
-#define VALIDATE_RANGE_EXCLUSIVE(param, value, min, max, context) \
-  do { \
-    if ((value) <= (min) || (value) > (max)) { \
-      if (context != NULL && *context != '\0') { \
-        ERROR_LOG("%s = %.4g out of valid range (%.4g, %.4g] - %s", \
-                  param, (double)(value), (double)(min), (double)(max), context); \
-      } else { \
-        ERROR_LOG("%s = %.4g out of valid range (%.4g, %.4g]", \
-                  param, (double)(value), (double)(min), (double)(max)); \
-      } \
-      return -1; \
-    } \
+#define VALIDATE_RANGE_EXCLUSIVE(param, value, min, max, context)                                  \
+  do {                                                                                             \
+    if ((value) <= (min) || (value) > (max)) {                                                     \
+      if (context != NULL && *context != '\0') {                                                   \
+        ERROR_LOG("%s = %.4g out of valid range (%.4g, %.4g] - %s", param, (double)(value),        \
+                  (double)(min), (double)(max), context);                                          \
+      } else {                                                                                     \
+        ERROR_LOG("%s = %.4g out of valid range (%.4g, %.4g]", param, (double)(value),             \
+                  (double)(min), (double)(max));                                                   \
+      }                                                                                            \
+      return -1;                                                                                   \
+    }                                                                                              \
   } while (0)
 
 /**
@@ -114,18 +114,18 @@
  * Example:
  *   VALIDATE_RANGE_INCLUSIVE("RadioModeEfficiency", efficiency, 0.0, 1.0, NULL);
  */
-#define VALIDATE_RANGE_INCLUSIVE(param, value, min, max, context) \
-  do { \
-    if ((value) < (min) || (value) > (max)) { \
-      if (context != NULL && *context != '\0') { \
-        ERROR_LOG("%s = %.4g out of valid range [%.4g, %.4g] - %s", \
-                  param, (double)(value), (double)(min), (double)(max), context); \
-      } else { \
-        ERROR_LOG("%s = %.4g out of valid range [%.4g, %.4g]", \
-                  param, (double)(value), (double)(min), (double)(max)); \
-      } \
-      return -1; \
-    } \
+#define VALIDATE_RANGE_INCLUSIVE(param, value, min, max, context)                                  \
+  do {                                                                                             \
+    if ((value) < (min) || (value) > (max)) {                                                      \
+      if (context != NULL && *context != '\0') {                                                   \
+        ERROR_LOG("%s = %.4g out of valid range [%.4g, %.4g] - %s", param, (double)(value),        \
+                  (double)(min), (double)(max), context);                                          \
+      } else {                                                                                     \
+        ERROR_LOG("%s = %.4g out of valid range [%.4g, %.4g]", param, (double)(value),             \
+                  (double)(min), (double)(max));                                                   \
+      }                                                                                            \
+      return -1;                                                                                   \
+    }                                                                                              \
   } while (0)
 
 /**
@@ -136,18 +136,16 @@
  * Example:
  *   VALIDATE_OPTION("AGNrecipe", agn_recipe, 3, "0=off, 1=radio, 2=quasar, 3=both");
  */
-#define VALIDATE_OPTION(param, value, max_value, context) \
-  do { \
-    if ((value) < 0 || (value) > (max_value)) { \
-      if (context != NULL && *context != '\0') { \
-        ERROR_LOG("%s = %d out of valid range [0, %d] - %s", \
-                  param, value, max_value, context); \
-      } else { \
-        ERROR_LOG("%s = %d out of valid range [0, %d]", \
-                  param, value, max_value); \
-      } \
-      return -1; \
-    } \
+#define VALIDATE_OPTION(param, value, max_value, context)                                          \
+  do {                                                                                             \
+    if ((value) < 0 || (value) > (max_value)) {                                                    \
+      if (context != NULL && *context != '\0') {                                                   \
+        ERROR_LOG("%s = %d out of valid range [0, %d] - %s", param, value, max_value, context);    \
+      } else {                                                                                     \
+        ERROR_LOG("%s = %d out of valid range [0, %d]", param, value, max_value);                  \
+      }                                                                                            \
+      return -1;                                                                                   \
+    }                                                                                              \
   } while (0)
 
 /* ==============================================================================
@@ -166,10 +164,10 @@
  *   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("BaryonFrac", baryon_frac, 0.0, 1.0,
  *                                     "cosmic baryon fraction");
  */
-#define LOAD_AND_VALIDATE_RANGE_EXCLUSIVE(param, var, min, max, context) \
-  do { \
-    LOAD_PARAM_DOUBLE(param, var); \
-    VALIDATE_RANGE_EXCLUSIVE(param, var, min, max, context); \
+#define LOAD_AND_VALIDATE_RANGE_EXCLUSIVE(param, var, min, max, context)                           \
+  do {                                                                                             \
+    LOAD_PARAM_DOUBLE(param, var);                                                                 \
+    VALIDATE_RANGE_EXCLUSIVE(param, var, min, max, context);                                       \
   } while (0)
 
 /**
@@ -180,10 +178,10 @@
  * Example:
  *   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RadioModeEfficiency", efficiency, 0.0, 1.0, NULL);
  */
-#define LOAD_AND_VALIDATE_RANGE_INCLUSIVE(param, var, min, max, context) \
-  do { \
-    LOAD_PARAM_DOUBLE(param, var); \
-    VALIDATE_RANGE_INCLUSIVE(param, var, min, max, context); \
+#define LOAD_AND_VALIDATE_RANGE_INCLUSIVE(param, var, min, max, context)                           \
+  do {                                                                                             \
+    LOAD_PARAM_DOUBLE(param, var);                                                                 \
+    VALIDATE_RANGE_INCLUSIVE(param, var, min, max, context);                                       \
   } while (0)
 
 /**
@@ -195,10 +193,10 @@
  *   LOAD_AND_VALIDATE_OPTION("AGNrecipe", agn_recipe, 3,
  *                            "0=off, 1=radio, 2=quasar, 3=both");
  */
-#define LOAD_AND_VALIDATE_OPTION(param, var, max_value, context) \
-  do { \
-    LOAD_PARAM_INT(param, var); \
-    VALIDATE_OPTION(param, var, max_value, context); \
+#define LOAD_AND_VALIDATE_OPTION(param, var, max_value, context)                                   \
+  do {                                                                                             \
+    LOAD_PARAM_INT(param, var);                                                                    \
+    VALIDATE_OPTION(param, var, max_value, context);                                               \
   } while (0)
 
 #endif /* PARAMETER_HELPERS_H */

@@ -6,9 +6,10 @@ The HDF5 format is self-describing, so h5py reads the structure directly from
 the file.
 """
 
+from pathlib import Path
+
 import h5py
 import numpy as np
-from pathlib import Path
 
 
 def read_hdf5_snapshot(filename, snapshot_num):
@@ -23,7 +24,7 @@ def read_hdf5_snapshot(filename, snapshot_num):
         np.recarray: Structured array of halos, or None if snapshot not found
     """
     try:
-        with h5py.File(filename, 'r') as f:
+        with h5py.File(filename, "r") as f:
             # Format: Snap063, Snap037, etc.
             group_name = f"Snap{snapshot_num:03d}"
 
@@ -35,19 +36,19 @@ def read_hdf5_snapshot(filename, snapshot_num):
 
             # Master files have File000, File001, etc. subgroups
             # Individual files have Galaxies dataset directly
-            if 'Galaxies' in snap_group:
+            if "Galaxies" in snap_group:
                 # Individual file format
-                dataset = snap_group['Galaxies']
+                dataset = snap_group["Galaxies"]
                 return np.array(dataset[:])
             else:
                 # Master file format - need to read from all File subgroups
                 # Iterate over actual File subgroups instead of assuming File000, File001, etc.
                 halos_list = []
                 for key in sorted(snap_group.keys()):
-                    if key.startswith('File'):
+                    if key.startswith("File"):
                         file_group = snap_group[key]
-                        if 'Galaxies' in file_group:
-                            dataset = file_group['Galaxies']
+                        if "Galaxies" in file_group:
+                            dataset = file_group["Galaxies"]
                             halos_list.append(np.array(dataset[:]))
 
                 if not halos_list:
@@ -73,7 +74,7 @@ def count_halos_in_file(filename, snapshot_num):
         int: Number of halos in the snapshot, or 0 if not found
     """
     try:
-        with h5py.File(filename, 'r') as f:
+        with h5py.File(filename, "r") as f:
             group_name = f"Snap{snapshot_num:03d}"
 
             if group_name not in f:
@@ -81,18 +82,18 @@ def count_halos_in_file(filename, snapshot_num):
 
             snap_group = f[group_name]
 
-            if 'Galaxies' in snap_group:
+            if "Galaxies" in snap_group:
                 # Individual file
-                return snap_group['Galaxies'].shape[0]
+                return snap_group["Galaxies"].shape[0]
             else:
                 # Master file - sum across all File subgroups
                 # Iterate over actual File subgroups instead of assuming File000, File001, etc.
                 total = 0
                 for key in snap_group.keys():
-                    if key.startswith('File'):
+                    if key.startswith("File"):
                         file_group = snap_group[key]
-                        if 'Galaxies' in file_group:
-                            total += file_group['Galaxies'].shape[0]
+                        if "Galaxies" in file_group:
+                            total += file_group["Galaxies"].shape[0]
 
                 return total
 
@@ -161,14 +162,14 @@ def get_hdf5_metadata(filename):
     metadata = {}
 
     try:
-        with h5py.File(filename, 'r') as f:
+        with h5py.File(filename, "r") as f:
             # Read root-level attributes
             for attr_name in f.attrs:
                 metadata[attr_name] = f.attrs[attr_name]
 
             # Read snapshot-level attributes if needed
             for group_name in f.keys():
-                if group_name.startswith('Snap'):
+                if group_name.startswith("Snap"):
                     snap_group = f[group_name]
                     snap_attrs = {f"{group_name}_{k}": v for k, v in snap_group.attrs.items()}
                     metadata.update(snap_attrs)

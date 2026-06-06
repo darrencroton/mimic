@@ -26,7 +26,6 @@ import sys
 from pathlib import Path
 
 import yaml
-
 from discovery import REPO_ROOT, live_simulation_roots, module_metadata_files
 
 # ==============================================================================
@@ -87,10 +86,7 @@ def simulation_tests(repo_root, test_type, pattern):
         test_dir = simulation_root / "_tests" / test_type
         if not test_dir.exists():
             continue
-        tests.extend(
-            str(path.relative_to(repo_root))
-            for path in sorted(test_dir.glob(pattern))
-        )
+        tests.extend(str(path.relative_to(repo_root)) for path in sorted(test_dir.glob(pattern)))
     return tests
 
 
@@ -118,9 +114,7 @@ def process_test_entries(test_value, module_path, repo_root, test_type, module_n
             test_paths.append(str(rel_path))
         else:
             # Collect missing tests for later reporting
-            missing_tests.append(
-                f"{module_name}: {test_type} test '{test_file}' not found"
-            )
+            missing_tests.append(f"{module_name}: {test_type} test '{test_file}' not found")
 
     return test_paths
 
@@ -275,9 +269,7 @@ def generate_test_registry(strict: bool = False):
             print_warning("Some declared tests not found:")
             for msg in missing_tests:
                 print(f"  {COLOR_YELLOW}- {msg}{COLOR_RESET}")
-            print(
-                f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}"
-            )
+            print(f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}")
 
     print()
     print("Generated files:")
@@ -295,9 +287,7 @@ def generate_test_registry(strict: bool = False):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Generate test registry from module metadata"
-    )
+    parser = argparse.ArgumentParser(description="Generate test registry from module metadata")
     parser.add_argument(
         "--strict",
         action="store_true",

@@ -33,8 +33,8 @@ from discovery import (
     halo_property_files,
     model_property_files,
     module_metadata_files,
-    standalone_module_files,
     rel,
+    standalone_module_files,
 )
 
 # ==============================================================================
@@ -232,9 +232,7 @@ def check_hashes(files: List[Path], current_hash: str, scope_label: str) -> bool
         print(f"✗ OUT OF DATE: {scope_label} changed, generated files need updating")
         print()
         print(f"  Current {scope_label} hash:  {current_hash}")
-        print(
-            f"  Embedded hash:      {embedded_hash if embedded_hash else '(missing)'}"
-        )
+        print(f"  Embedded hash:      {embedded_hash if embedded_hash else '(missing)'}")
         print()
         print("  Files need regeneration:")
         for filename in mismatches:
@@ -313,9 +311,7 @@ def main():
     property_files_ok = validate_generated_files(
         PROPERTY_GENERATED_FILES, "Property-generated file"
     )
-    module_files_ok = validate_generated_files(
-        MODULE_GENERATED_FILES, "Module-generated file"
-    )
+    module_files_ok = validate_generated_files(MODULE_GENERATED_FILES, "Module-generated file")
     if property_files_ok and module_files_ok:
         total_files = len(PROPERTY_GENERATED_FILES) + len(MODULE_GENERATED_FILES)
         print(f"✓ All {total_files} generated files present")

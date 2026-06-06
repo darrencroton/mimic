@@ -20,6 +20,7 @@ Date: [DATE]
 
 import sys
 from pathlib import Path
+
 import numpy as np
 
 # Add plot/mimic-plot to path for data loading utilities
@@ -29,11 +30,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "plot" / "mimic-plo
 # from mimic_plot import load_binary_data, load_hdf5_data
 
 # ANSI color codes (module-level constants)
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def load_halos(snapshot_file):

@@ -11,16 +11,13 @@
 
 static void validate_segment(const struct OutputBufferSegment *segment) {
   if (segment->workspace_start < 0 || segment->workspace_count < 0) {
-    FATAL_ERROR("Invalid output segment for source %d: start=%d count=%d",
-                segment->source_id, segment->workspace_start,
-                segment->workspace_count);
+    FATAL_ERROR("Invalid output segment for source %d: start=%d count=%d", segment->source_id,
+                segment->workspace_start, segment->workspace_count);
   }
 }
 
-void marshal_workspace_to_output_buffer(struct Halo *workspace,
-                                        struct OutputBuffer *buffer,
-                                        struct OutputBufferSegment *segments,
-                                        int nsegments) {
+void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuffer *buffer,
+                                        struct OutputBufferSegment *segments, int nsegments) {
   assert(workspace != NULL);
   assert(buffer != NULL);
   assert(buffer->halos != NULL);

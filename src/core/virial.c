@@ -46,14 +46,12 @@
  * estimated from particle counts.
  *
  * For central halos (FirstHaloInFOFgroup), it uses the catalog Mvir when
- * non-negative (>= 0.0). Otherwise, it calculates mass as number of 
+ * non-negative (>= 0.0). Otherwise, it calculates mass as number of
  * particles × particle mass.
  */
 double get_virial_mass(int halonr) {
-  if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup &&
-      InputTreeHalos[halonr].Mvir >= 0.0)
-    return InputTreeHalos[halonr]
-        .Mvir; /* take spherical overdensity mass estimate */
+  if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup && InputTreeHalos[halonr].Mvir >= 0.0)
+    return InputTreeHalos[halonr].Mvir; /* take spherical overdensity mass estimate */
   else
     return InputTreeHalos[halonr].Len * MimicConfig.PartMass;
 }
@@ -110,11 +108,10 @@ double get_virial_radius(int halonr) {
   double zplus1, hubble_of_z_sq, rhocrit, fac;
 
   zplus1 = 1 + MimicConfig.ZZ[InputTreeHalos[halonr].SnapNum];
-  hubble_of_z_sq =
-      MimicConfig.Hubble * MimicConfig.Hubble *
-      (MimicConfig.Omega * zplus1 * zplus1 * zplus1 +
-       (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) * zplus1 * zplus1 +
-       MimicConfig.OmegaLambda);
+  hubble_of_z_sq = MimicConfig.Hubble * MimicConfig.Hubble *
+                   (MimicConfig.Omega * zplus1 * zplus1 * zplus1 +
+                    (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) * zplus1 * zplus1 +
+                    MimicConfig.OmegaLambda);
 
   rhocrit = safe_div(3 * hubble_of_z_sq, 8 * M_PI * MimicConfig.G, 0.0);
   fac = safe_div(1.0, 200 * 4 * M_PI / 3.0 * rhocrit, 0.0);

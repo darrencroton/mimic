@@ -9,7 +9,6 @@ This module generates a halo mass function plot from Mimic halo data.
 # Third-party packages
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import MultipleLocator
 
 # Local application imports
 from figures import (
@@ -21,11 +20,12 @@ from figures import (
     setup_legend,
     setup_plot_fonts,
 )
+from matplotlib.ticker import MultipleLocator
 from output_utils import (
     calculate_mass_function,
     check_field_has_values,
     check_required_fields,
-        save_and_close_figure,
+    save_and_close_figure,
     setup_figure,
     validate_filtered_data,
     warn,
@@ -34,7 +34,7 @@ from output_utils import (
 # Physical limits for halo mass functions
 HALO_MASS_MIN = 10.0  # log10(Msun) - below resolution limit
 HALO_MASS_MAX = 16.0  # log10(Msun) - above cluster scale
-BINWIDTH_DEX = 0.1    # Standard bin width in dex
+BINWIDTH_DEX = 0.1  # Standard bin width in dex
 PLOT_XLIM = (10.0, 15.0)  # Plot x-axis limits
 PLOT_YLIM = (1.0e-6, 1.0e-1)  # Plot y-axis limits
 
@@ -69,9 +69,7 @@ def plot(
     """
     # Check for required fields
     success, optional, msg = check_required_fields(
-        galaxies,
-        required_fields=['Mvir'],
-        plot_name='Halo Mass Function'
+        galaxies, required_fields=["Mvir"], plot_name="Halo Mass Function"
     )
 
     if not success:
@@ -94,7 +92,9 @@ def plot(
     mass = np.log10(galaxies.Mvir[w] * 1.0e10 / hubble_h)
 
     # Calculate halo mass function
-    xaxis, hmf = calculate_mass_function(mass, volume, hubble_h, BINWIDTH_DEX, HALO_MASS_MIN, HALO_MASS_MAX)
+    xaxis, hmf = calculate_mass_function(
+        mass, volume, hubble_h, BINWIDTH_DEX, HALO_MASS_MIN, HALO_MASS_MAX
+    )
 
     # Print debugging info
     if verbose:

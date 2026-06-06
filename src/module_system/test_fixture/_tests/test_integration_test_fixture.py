@@ -25,8 +25,8 @@ Date: 2025-11-13
 """
 
 import os
-import sys
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -37,18 +37,18 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 
 # Add tests directory to path to import framework
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import load_binary_halos, core_input_file
+from framework import core_input_file, load_binary_halos
 
 # Test state
 temp_dir = None
 ref_param_file = None
 
 # ANSI color codes (module-level constants)
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def run_mimic(param_file):
@@ -65,13 +65,14 @@ def run_mimic(param_file):
         [str(MIMIC_EXE), str(param_file)],
         capture_output=True,
         text=True,
-        timeout=60  # 60 second timeout
+        timeout=60,  # 60 second timeout
     )
     return result.returncode, result.stdout, result.stderr
 
 
-def create_test_param_file(output_name, phase_config=None,
-                           model_params=None, first_file=0, last_file=0):
+def create_test_param_file(
+    output_name, phase_config=None, model_params=None, first_file=0, last_file=0
+):
     """
     Create a test YAML parameter file with specified module configuration.
 
@@ -94,7 +95,7 @@ def create_test_param_file(output_name, phase_config=None,
 
     # Use the compiled model's local test parameter file instead of a production run file.
     test_ref_file = core_input_file("test_binary.yaml")
-    with open(test_ref_file, 'r') as f:
+    with open(test_ref_file, "r") as f:
         config = yaml.safe_load(f)
 
     # Create output directory
@@ -102,58 +103,57 @@ def create_test_param_file(output_name, phase_config=None,
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Update configuration
-    config['output']['output_directory'] = str(output_dir)
-    config['output']['output_format'] = 'binary'
+    config["output"]["output_directory"] = str(output_dir)
+    config["output"]["output_format"] = "binary"
 
-    sim_config_path = REPO_ROOT / config['simulation']['config']
-    with open(sim_config_path, 'r') as f:
+    sim_config_path = REPO_ROOT / config["simulation"]["config"]
+    with open(sim_config_path, "r") as f:
         sim_config = yaml.safe_load(f)
-    sim_config['input']['first_file'] = first_file
-    sim_config['input']['last_file'] = last_file
+    sim_config["input"]["first_file"] = first_file
+    sim_config["input"]["last_file"] = last_file
     generated_sim_config = Path(temp_dir) / f"{output_name}_simulation.yaml"
-    with open(generated_sim_config, 'w') as f:
+    with open(generated_sim_config, "w") as f:
         yaml.dump(sim_config, f, default_flow_style=False, sort_keys=False)
-    config['simulation']['config'] = str(generated_sim_config)
+    config["simulation"]["config"] = str(generated_sim_config)
 
     # Update module configuration - multi-phase pipeline format
     # Put all modules in galaxy_physics with processing_mode=BY_GALAXY (test_fixture is a simple test module)
-    config['modules']['pre_timestep'] = []
-    config['modules']['galaxy_physics'] = []
-    config['modules']['satellite_mergers'] = []
-    config['modules']['post_timestep'] = []
+    config["modules"]["pre_timestep"] = []
+    config["modules"]["galaxy_physics"] = []
+    config["modules"]["satellite_mergers"] = []
+    config["modules"]["post_timestep"] = []
 
     for phase_name, modules in phase_config.items():
-        config['modules'][phase_name] = [
-            {module_name: processing_mode}
-            for module_name, processing_mode in modules
+        config["modules"][phase_name] = [
+            {module_name: processing_mode} for module_name, processing_mode in modules
         ]
 
     # Add model_parameters (test_fixture needs TestFixtureDummyParameter and TestFixtureEnableLogging)
-    config['modules']['parameters'] = {
-        'TestFixtureDummyParameter': 1.0,
-        'TestFixtureEnableLogging': 0
+    config["modules"]["parameters"] = {
+        "TestFixtureDummyParameter": 1.0,
+        "TestFixtureEnableLogging": 0,
     }
 
     # Override model parameters if provided
     if model_params:
         for param_name, value in model_params.items():
-            if param_name == 'TestFixtureDummyParameter':
+            if param_name == "TestFixtureDummyParameter":
                 try:
                     value = float(value)
                     if value.is_integer():
                         value = int(value)
                 except (ValueError, AttributeError):
                     pass
-                config['modules']['parameters']['TestFixtureDummyParameter'] = value
-            elif param_name == 'TestFixtureEnableLogging':
-                config['modules']['parameters']['TestFixtureEnableLogging'] = int(value)
+                config["modules"]["parameters"]["TestFixtureDummyParameter"] = value
+            elif param_name == "TestFixtureEnableLogging":
+                config["modules"]["parameters"]["TestFixtureEnableLogging"] = int(value)
 
     # Write test parameter file as YAML
     param_path = Path(temp_dir) / f"{output_name}.yaml"
-    with open(param_path, 'w') as f:
-        f.write("#" + "="*77 + "\n")
+    with open(param_path, "w") as f:
+        f.write("#" + "=" * 77 + "\n")
         f.write("# test_fixture Integration Test\n")
-        f.write("#" + "="*77 + "\n\n")
+        f.write("#" + "=" * 77 + "\n\n")
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     return param_path
@@ -176,6 +176,7 @@ def setup_module():
 def teardown_module():
     """Clean up test environment - called after tests."""
     import shutil
+
     if temp_dir and Path(temp_dir).exists():
         shutil.rmtree(temp_dir)
         print(f"\nCleaned up: {temp_dir}")
@@ -195,7 +196,7 @@ def test_module_loads():
         phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
         model_params={"TestFixtureDummyParameter": "1.0"},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # Run Mimic
@@ -208,8 +209,9 @@ def test_module_loads():
         print(f"\nSTDOUT:\n{stdout}")
         print(f"\nSTDERR:\n{stderr}\n")
     assert returncode == 0, f"Mimic should exit successfully (got {returncode})"
-    assert "Test fixture module initialized" in stdout, \
-        "Module initialization message should appear in output"
+    assert (
+        "Test fixture module initialized" in stdout
+    ), "Module initialization message should appear in output"
 
     print(f"  {GREEN}✓{NC} Module loaded and initialized")
 
@@ -228,7 +230,7 @@ def test_parameter_configuration():
         phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
         model_params={"TestFixtureDummyParameter": "3.14"},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # Run Mimic
@@ -236,8 +238,7 @@ def test_parameter_configuration():
 
     # Validate
     assert returncode == 0, f"Mimic should exit successfully (got {returncode})"
-    assert "DummyParameter = 3.14" in stdout, \
-        "Custom parameter value should appear in output"
+    assert "DummyParameter = 3.14" in stdout, "Custom parameter value should appear in output"
 
     print(f"  {GREEN}✓{NC} Parameter configuration works")
 
@@ -256,19 +257,19 @@ def test_execution_completes():
         phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
         model_params={"TestFixtureDummyParameter": "1.0"},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # Run Mimic
     returncode, stdout, stderr = run_mimic(param_file)
 
     # Validate execution
-    assert returncode == 0, \
-        f"Mimic should exit successfully (got {returncode})\nStderr: {stderr}"
+    assert returncode == 0, f"Mimic should exit successfully (got {returncode})\nStderr: {stderr}"
 
     # Check module initialized and cleaned up
-    assert "Test fixture module initialized" in stdout, \
-        "Module initialization message should appear"
+    assert (
+        "Test fixture module initialized" in stdout
+    ), "Module initialization message should appear"
 
     # Check output directory was created
     output_dir = Path(temp_dir) / "test_fixture_exec"
@@ -291,23 +292,22 @@ def test_memory_safety():
         phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
         model_params={"TestFixtureDummyParameter": "1.0"},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # Run Mimic
     returncode, stdout, stderr = run_mimic(param_file)
 
     # Validate no memory leaks
-    assert returncode == 0, \
-        f"Mimic should exit successfully (got {returncode})\nStderr: {stderr}"
+    assert returncode == 0, f"Mimic should exit successfully (got {returncode})\nStderr: {stderr}"
 
     # Check for memory leak detection messages
     # Success message: "No memory leaks detected"
     # Failure message: "Memory leak detected"
-    assert "Memory leak detected" not in stdout, \
-        "Should not have 'Memory leak detected' warning message"
-    assert "Memory leak detected" not in stderr, \
-        "Should not have memory leak warnings in stderr"
+    assert (
+        "Memory leak detected" not in stdout
+    ), "Should not have 'Memory leak detected' warning message"
+    assert "Memory leak detected" not in stderr, "Should not have memory leak warnings in stderr"
 
     print(f"  {GREEN}✓{NC} No memory leaks detected")
 

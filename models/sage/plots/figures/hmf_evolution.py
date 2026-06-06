@@ -9,7 +9,6 @@ This module generates a halo mass function evolution plot from Mimic halo data.
 # Third-party packages
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import MultipleLocator
 
 # Local application imports
 from figures import (
@@ -21,6 +20,7 @@ from figures import (
     setup_legend,
     setup_plot_fonts,
 )
+from matplotlib.ticker import MultipleLocator
 from output_utils import (
     calculate_mass_function,
     check_field_has_values,
@@ -38,7 +38,7 @@ TARGET_TOLERANCE = [0.2, 0.5, 0.5, 0.5]  # Tolerance for each target redshift
 # Physical limits for halo mass functions
 HALO_MASS_MIN = 10.0  # log10(Msun) - below resolution limit
 HALO_MASS_MAX = 16.0  # log10(Msun) - above cluster scale
-BINWIDTH_DEX = 0.1    # Standard bin width in dex
+BINWIDTH_DEX = 0.1  # Standard bin width in dex
 PLOT_XLIM = (10.0, 15.0)  # Plot x-axis limits
 PLOT_YLIM = (1.0e-6, 1.0e-1)  # Plot y-axis limits
 
@@ -71,18 +71,14 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     galaxies_sample = first_snap[0]
 
     success, optional, msg = check_required_fields(
-        galaxies_sample,
-        required_fields=['Mvir'],
-        plot_name='Halo Mass Function Evolution'
+        galaxies_sample, required_fields=["Mvir"], plot_name="Halo Mass Function Evolution"
     )
 
     if not success:
         return None, f"Required fields missing: {msg}"
 
     # Field-level validation: Check if Mvir has any non-zero values
-    has_mvir, count, msg = check_field_has_values(
-        galaxies_sample.Mvir, 'Mvir', threshold=0.0
-    )
+    has_mvir, count, msg = check_field_has_values(galaxies_sample.Mvir, "Mvir", threshold=0.0)
     if not has_mvir:
         return None, f"Field validation failed: {msg}"
 
@@ -117,7 +113,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             if abs(closest[3]["redshift"] - target_z) <= tolerance:
                 target_snapshots.append(closest)
                 if verbose:
-                    warn(f"Target z={target_z:.1f}: Using snapshot with z={closest[3]['redshift']:.3f}")
+                    warn(
+                        f"Target z={target_z:.1f}: Using snapshot with z={closest[3]['redshift']:.3f}"
+                    )
         elif verbose:
             warn(f"Target z={target_z:.1f}: No suitable snapshot found")
 
@@ -149,7 +147,9 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         mass = np.log10(galaxies.Mvir[w] * 1.0e10 / hubble_h)
 
         # Calculate mass function
-        xaxis, hmf = calculate_mass_function(mass, volume, hubble_h, BINWIDTH_DEX, HALO_MASS_MIN, HALO_MASS_MAX)
+        xaxis, hmf = calculate_mass_function(
+            mass, volume, hubble_h, BINWIDTH_DEX, HALO_MASS_MIN, HALO_MASS_MAX
+        )
 
         # Plot the histogram
         ax.plot(xaxis, hmf, color=color, linestyle="-", lw=2)
@@ -171,7 +171,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.set_xlabel(get_halo_mass_label(), fontsize=AXIS_LABEL_SIZE)
 
     # Add redshift labels in the top right corner
-    if 'redshift_labels' in locals():
+    if "redshift_labels" in locals():
         # Sort labels by redshift
         redshift_labels.sort(key=lambda x: x[0])
         # Position for the first label
@@ -184,12 +184,14 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
                 f"z = {z:.1f}",
                 color=color,
                 fontsize=IN_FIGURE_TEXT_SIZE,
-                ha='right',
-                va='top'
+                ha="right",
+                va="top",
             )
             # Move down for the next label
             y_pos *= 0.6  # Reduces y-position by 40% each time (works well with log scale)
 
     # Save and close the figure
-    plot_path = save_and_close_figure(fig, output_dir, "HaloMassFunction_Evolution", output_format, verbose)
+    plot_path = save_and_close_figure(
+        fig, output_dir, "HaloMassFunction_Evolution", output_format, verbose
+    )
     return plot_path, None

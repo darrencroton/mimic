@@ -19,7 +19,6 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import create_test_param_file, load_binary_halos, run_mimic
 
-
 MERGER_MODEL_PARAMS = {
     "GlobalBaryonFraction": 0.17,
     "SfrEfficiency": 0.05,
@@ -61,9 +60,9 @@ GALAXY_PHYSICS_MODULES = [
 ]
 
 
-def build_phase_config(merger_mode="process_full_halo",
-                       enable_phase2_quasar=True,
-                       enable_phase2_starburst=True):
+def build_phase_config(
+    merger_mode="process_full_halo", enable_phase2_quasar=True, enable_phase2_starburst=True
+):
     """Build the smallest deterministic pipeline that exercises merger events."""
     satellite_mergers = [("sage_resolve_mergers_and_disruption", merger_mode)]
     if enable_phase2_quasar:
@@ -79,9 +78,12 @@ def build_phase_config(merger_mode="process_full_halo",
     }
 
 
-def run_merger_pipeline(output_name, merger_mode="process_full_halo",
-                        enable_phase2_quasar=True,
-                        enable_phase2_starburst=True):
+def run_merger_pipeline(
+    output_name,
+    merger_mode="process_full_halo",
+    enable_phase2_quasar=True,
+    enable_phase2_starburst=True,
+):
     """Execute the immediate-merger pipeline on the standard test dataset."""
     return create_test_param_file(
         output_name=output_name,
@@ -103,9 +105,7 @@ def load_output_halos(output_dir):
 
 def merger_remnant_mask(halos):
     """Select galaxies that recorded a merger in the current run."""
-    return (halos["TimeOfLastMinorMerger"] > 0.0) | (
-        halos["TimeOfLastMajorMerger"] > 0.0
-    )
+    return (halos["TimeOfLastMinorMerger"] > 0.0) | (halos["TimeOfLastMajorMerger"] > 0.0)
 
 
 def common_merger_field_values(halos_a, halos_b, field_name):
@@ -119,9 +119,7 @@ def common_merger_field_values(halos_a, halos_b, field_name):
     ids_a = subset_a["UniqueGalaxyID"][order_a]
     ids_b = subset_b["UniqueGalaxyID"][order_b]
 
-    common_ids, idx_a, idx_b = np.intersect1d(
-        ids_a, ids_b, return_indices=True
-    )
+    common_ids, idx_a, idx_b = np.intersect1d(ids_a, ids_b, return_indices=True)
 
     values_a = subset_a[field_name][order_a][idx_a]
     values_b = subset_b[field_name][order_b][idx_b]
@@ -151,11 +149,9 @@ def test_quasar_consumer_receives_merger_events():
     base_param_file, base_output_dir, base_temp_dir = run_merger_pipeline(
         output_name="merger_event_quasar_base"
     )
-    no_quasar_param_file, no_quasar_output_dir, no_quasar_temp_dir = (
-        run_merger_pipeline(
-            output_name="merger_event_quasar_disabled",
-            enable_phase2_quasar=False,
-        )
+    no_quasar_param_file, no_quasar_output_dir, no_quasar_temp_dir = run_merger_pipeline(
+        output_name="merger_event_quasar_disabled",
+        enable_phase2_quasar=False,
     )
 
     try:
@@ -184,13 +180,13 @@ def test_quasar_consumer_receives_merger_events():
         accretion_delta = float(np.sum(base_accretion - no_quasar_accretion))
 
         # ~0.05 M_sun/h total BH mass added across merger remnants in the test snapshot
-        assert bh_delta > 0.05, (
-            "satellite_mergers quasar consumer should increase remnant BH mass via merger events"
-        )
+        assert (
+            bh_delta > 0.05
+        ), "satellite_mergers quasar consumer should increase remnant BH mass via merger events"
         # ~0.002 M_sun/h total accretion recorded across merger remnants
-        assert accretion_delta > 0.002, (
-            "satellite_mergers quasar consumer should record merger-driven BH accretion"
-        )
+        assert (
+            accretion_delta > 0.002
+        ), "satellite_mergers quasar consumer should record merger-driven BH accretion"
     finally:
         shutil.rmtree(base_temp_dir)
         shutil.rmtree(no_quasar_temp_dir)
@@ -201,11 +197,9 @@ def test_starburst_consumer_receives_merger_events():
     base_param_file, base_output_dir, base_temp_dir = run_merger_pipeline(
         output_name="merger_event_starburst_base"
     )
-    no_starburst_param_file, no_starburst_output_dir, no_starburst_temp_dir = (
-        run_merger_pipeline(
-            output_name="merger_event_starburst_disabled",
-            enable_phase2_starburst=False,
-        )
+    no_starburst_param_file, no_starburst_output_dir, no_starburst_temp_dir = run_merger_pipeline(
+        output_name="merger_event_starburst_disabled",
+        enable_phase2_starburst=False,
     )
 
     try:
@@ -238,22 +232,22 @@ def test_starburst_consumer_receives_merger_events():
         cold_gas_delta = float(np.sum(base_cold_gas - no_starburst_cold_gas))
 
         # ~9 M_sun/h total bulge mass added across merger remnants in the test snapshot
-        assert bulge_delta > 5.0, (
-            "satellite_mergers starburst consumer should increase merger-remnant bulge mass"
-        )
+        assert (
+            bulge_delta > 5.0
+        ), "satellite_mergers starburst consumer should increase merger-remnant bulge mass"
         # ~6.5 M_sun/h net stellar mass increase from burst star formation
-        assert stellar_delta > 5.0, (
-            "satellite_mergers starburst consumer should form additional stars in merger remnants"
-        )
+        assert (
+            stellar_delta > 5.0
+        ), "satellite_mergers starburst consumer should form additional stars in merger remnants"
         # The burst net-consumes a few M_sun/h of cold gas. SAGE parity note: the
         # merger quasar wind (grow_black_hole -> quasar_mode_wind, which fires
         # BEFORE the starburst in SAGE deal_with_galaxy_merger) ejects some cold
         # gas first, so the net cold-gas reduction attributable to the burst is a
         # few M_sun/h (~-4.7 here), not the larger value seen before the quasar
         # wind energy was unit-corrected.
-        assert cold_gas_delta < -3.0, (
-            "satellite_mergers starburst consumer should net-consume cold gas in merger remnants"
-        )
+        assert (
+            cold_gas_delta < -3.0
+        ), "satellite_mergers starburst consumer should net-consume cold gas in merger remnants"
     finally:
         shutil.rmtree(base_temp_dir)
         shutil.rmtree(no_starburst_temp_dir)

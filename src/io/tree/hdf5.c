@@ -52,8 +52,7 @@ struct METADATA_NAMES {
 
 int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
                             enum Valid_TreeTypes my_TreeType);
-int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
-                           int *attribute);
+int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name, int *attribute);
 int32_t read_dataset(char *dataset_name, int32_t datatype, void *buffer);
 
 // External Functions //
@@ -84,8 +83,8 @@ void load_tree_table_hdf5(int filenr) {
 
   struct METADATA_NAMES metadata_names;
 
-  snprintf(buf, MAX_STRING_LEN, "%s/%s.%d%s", MimicConfig.SimulationDir,
-           MimicConfig.TreeName, filenr, MimicConfig.TreeExtension);
+  snprintf(buf, MAX_STRING_LEN, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
+           filenr, MimicConfig.TreeExtension);
   hdf5_file = H5Fopen(buf, H5F_ACC_RDONLY, H5P_DEFAULT);
 
   if (hdf5_file < 0) {
@@ -94,35 +93,28 @@ void load_tree_table_hdf5(int filenr) {
 
   status = fill_metadata_names(&metadata_names, MimicConfig.TreeType);
   if (status != EXIT_SUCCESS) {
-    FATAL_ERROR("Failed to fill metadata names for tree type %d",
-                MimicConfig.TreeType);
+    FATAL_ERROR("Failed to fill metadata names for tree type %d", MimicConfig.TreeType);
   }
 
-  status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_NTrees,
-                              &Ntrees);
+  status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_NTrees, &Ntrees);
   if (status != EXIT_SUCCESS) {
-    FATAL_ERROR("Error %d while reading NTrees attribute from file '%s'",
-                status, buf);
+    FATAL_ERROR("Error %d while reading NTrees attribute from file '%s'", status, buf);
   }
 
-  status = read_attribute_int(hdf5_file, "/Header",
-                              metadata_names.name_totNHalos, &totNHalos);
+  status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_totNHalos, &totNHalos);
   if (status != EXIT_SUCCESS) {
-    FATAL_ERROR("Error %d while reading totNHalos attribute from file '%s'",
-                status, buf);
+    FATAL_ERROR("Error %d while reading totNHalos attribute from file '%s'", status, buf);
   }
 
   printf("There are %d trees and %d total halos\n", Ntrees, totNHalos);
 
   InputTreeNHalos = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
 
-  status =
-      read_attribute_int(hdf5_file, "/Header",
-                         metadata_names.name_InputTreeNHalos, InputTreeNHalos);
+  status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_InputTreeNHalos,
+                              InputTreeNHalos);
   if (status != EXIT_SUCCESS) {
     IO_FATAL_ERROR(IO_ERROR_HDF5, "read_attribute", buf,
-                   "Failed to read InputTreeNHalos attribute (status=%d)",
-                   status);
+                   "Failed to read InputTreeNHalos attribute (status=%d)", status);
   }
 
   InputTreeFirstHalo = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
@@ -136,36 +128,33 @@ void load_tree_table_hdf5(int filenr) {
     InputTreeFirstHalo[i] = InputTreeFirstHalo[i - 1] + InputTreeNHalos[i - 1];
 }
 
-#define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)         \
-  {                                                                            \
-    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr,             \
-             #hdf5_name);                                                      \
-    status = read_dataset(dataset_name, type_int, buffer);                     \
-    if (status != EXIT_SUCCESS) {                                              \
-      IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,              \
-                     "Failed to read property for tree %d", treenr);           \
-    }                                                                          \
-    for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {               \
-      InputTreeHalos[halo_idx].field_name = ((data_type *)buffer)[halo_idx];   \
-    }                                                                          \
+#define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)                             \
+  {                                                                                                \
+    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr, #hdf5_name);                    \
+    status = read_dataset(dataset_name, type_int, buffer);                                         \
+    if (status != EXIT_SUCCESS) {                                                                  \
+      IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,                                  \
+                     "Failed to read property for tree %d", treenr);                               \
+    }                                                                                              \
+    for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {                                   \
+      InputTreeHalos[halo_idx].field_name = ((data_type *)buffer)[halo_idx];                       \
+    }                                                                                              \
   }
 
-#define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int,        \
-                                       data_type)                              \
-  {                                                                            \
-    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr,             \
-             #hdf5_name);                                                      \
-    status = read_dataset(dataset_name, type_int, buffer_multipledim);         \
-    if (status != EXIT_SUCCESS) {                                              \
-      IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,              \
-                     "Failed to read property for tree %d", treenr);           \
-    }                                                                          \
-    for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {               \
-      for (dim = 0; dim < NDIM; ++dim) {                                       \
-        InputTreeHalos[halo_idx].field_name[dim] =                             \
-            ((data_type *)buffer_multipledim)[halo_idx * NDIM + dim];          \
-      }                                                                        \
-    }                                                                          \
+#define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int, data_type)                 \
+  {                                                                                                \
+    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr, #hdf5_name);                    \
+    status = read_dataset(dataset_name, type_int, buffer_multipledim);                             \
+    if (status != EXIT_SUCCESS) {                                                                  \
+      IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,                                  \
+                     "Failed to read property for tree %d", treenr);                               \
+    }                                                                                              \
+    for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {                                   \
+      for (dim = 0; dim < NDIM; ++dim) {                                                           \
+        InputTreeHalos[halo_idx].field_name[dim] =                                                 \
+            ((data_type *)buffer_multipledim)[halo_idx * NDIM + dim];                              \
+      }                                                                                            \
+    }                                                                                              \
   }
 
 /**
@@ -199,14 +188,12 @@ void load_tree_hdf5(int32_t treenr) {
 
   if (hdf5_file <= 0) {
     IO_FATAL_ERROR(IO_ERROR_HDF5, "read_tree", NULL,
-                   "HDF5 file not open when reading tree %d (handle=%d)",
-                   treenr, hdf5_file);
+                   "HDF5 file not open when reading tree %d (handle=%d)", treenr, hdf5_file);
   }
 
   NHalos_ThisTree = InputTreeNHalos[treenr];
 
-  InputTreeHalos =
-      mymalloc_cat(sizeof(struct RawHalo) * NHalos_ThisTree, MEM_TREES);
+  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * NHalos_ThisTree, MEM_TREES);
 
   buffer = calloc(NHalos_ThisTree, sizeof(*(buffer)));
   if (buffer == NULL) {
@@ -215,13 +202,11 @@ void load_tree_hdf5(int32_t treenr) {
                 treenr, NHalos_ThisTree, NHalos_ThisTree * sizeof(*buffer));
   }
 
-  buffer_multipledim =
-      calloc(NHalos_ThisTree * NDIM, sizeof(*(buffer_multipledim)));
+  buffer_multipledim = calloc(NHalos_ThisTree * NDIM, sizeof(*(buffer_multipledim)));
   if (buffer_multipledim == NULL) {
     FATAL_ERROR("Memory allocation failed for HDF5 multidim buffer: tree %d, "
                 "%d halos, %zu bytes",
-                treenr, NHalos_ThisTree,
-                NHalos_ThisTree * NDIM * sizeof(*buffer_multipledim));
+                treenr, NHalos_ThisTree, NHalos_ThisTree * NDIM * sizeof(*buffer_multipledim));
   }
 
   // We now need to read in all the halo fields for this tree.
@@ -261,8 +246,7 @@ void load_tree_hdf5(int32_t treenr) {
   for (i = 0; i < 20; ++i) {
     DEBUG_LOG("halo %d: Descendant %d FirstProg %d x %.4f y %.4f z %.4f", i,
               InputTreeHalos[i].Descendant, InputTreeHalos[i].FirstProgenitor,
-              InputTreeHalos[i].Pos[0], InputTreeHalos[i].Pos[1],
-              InputTreeHalos[i].Pos[2]);
+              InputTreeHalos[i].Pos[0], InputTreeHalos[i].Pos[1], InputTreeHalos[i].Pos[2]);
   }
   // Debug exit point
   FATAL_ERROR("Debug exit after showing first 20 halos");
@@ -323,10 +307,9 @@ int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
     return EXIT_FAILURE;
 
   default:
-    FATAL_ERROR(
-        "Tree type %d has not been included in the switch statement for "
-        "fill_metadata_names in io/tree_hdf5.c. Please add it there.",
-        my_TreeType);
+    FATAL_ERROR("Tree type %d has not been included in the switch statement for "
+                "fill_metadata_names in io/tree_hdf5.c. Please add it there.",
+                my_TreeType);
   }
 
   return EXIT_FAILURE;
@@ -348,24 +331,20 @@ int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
  * The function can read both scalar attributes and array attributes,
  * depending on the provided attribute pointer.
  */
-int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
-                           int *attribute) {
+int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name, int *attribute) {
 
   int32_t status;
   hid_t attr_id;
 
-  attr_id = H5Aopen_by_name(my_hdf5_file, groupname, attr_name, H5P_DEFAULT,
-                            H5P_DEFAULT);
+  attr_id = H5Aopen_by_name(my_hdf5_file, groupname, attr_name, H5P_DEFAULT, H5P_DEFAULT);
   if (attr_id < 0) {
-    ERROR_LOG("Could not open the attribute %s in group %s", attr_name,
-              groupname);
+    ERROR_LOG("Could not open the attribute %s in group %s", attr_name, groupname);
     return attr_id;
   }
 
   status = H5Aread(attr_id, H5T_NATIVE_INT, attribute);
   if (status < 0) {
-    ERROR_LOG("Could not read the attribute %s in group %s", attr_name,
-              groupname);
+    ERROR_LOG("Could not read the attribute %s in group %s", attr_name, groupname);
     return status;
   }
 
@@ -401,22 +380,18 @@ int32_t read_dataset(char *dataset_name, int32_t datatype, void *buffer) {
 
   dataset_id = H5Dopen2(hdf5_file, dataset_name, H5P_DEFAULT);
   if (dataset_id < 0) {
-    ERROR_LOG("Error %d when trying to open dataset %s", dataset_id,
-              dataset_name);
+    ERROR_LOG("Error %d when trying to open dataset %s", dataset_id, dataset_name);
     return dataset_id;
   }
 
   /* Read the dataset with error checking */
   herr_t status;
   if (datatype == 0) {
-    status = H5Dread(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                     buffer);
+    status = H5Dread(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
   } else if (datatype == 1) {
-    status = H5Dread(dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL,
-                     H5P_DEFAULT, buffer);
+    status = H5Dread(dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
   } else if (datatype == 2) {
-    status = H5Dread(dataset_id, H5T_NATIVE_LLONG, H5S_ALL, H5S_ALL,
-                     H5P_DEFAULT, buffer);
+    status = H5Dread(dataset_id, H5T_NATIVE_LLONG, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
   } else {
     ERROR_LOG("Invalid datatype %d for dataset %s", datatype, dataset_name);
     H5Dclose(dataset_id);

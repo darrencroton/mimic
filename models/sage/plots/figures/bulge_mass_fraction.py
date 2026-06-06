@@ -18,12 +18,12 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_filtered_data,
     save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -57,9 +57,7 @@ def plot(
     """
     # Check required fields
     success, optional, msg = check_required_fields(
-        galaxies,
-        required_fields=['StellarMass', 'BulgeMass'],
-        plot_name='Bulge Mass Fraction'
+        galaxies, required_fields=["StellarMass", "BulgeMass"], plot_name="Bulge Mass Fraction"
     )
 
     if not success:
@@ -118,9 +116,7 @@ def plot(
 
     # Plot bulge fractions
     mask_bulge = f_bulge_ave > 0.0
-    ax.plot(
-        mass_range[mask_bulge] + shift, f_bulge_ave[mask_bulge], "r-", label="bulge"
-    )
+    ax.plot(mass_range[mask_bulge] + shift, f_bulge_ave[mask_bulge], "r-", label="bulge")
     ax.fill_between(
         mass_range[mask_bulge] + shift,
         np.clip(f_bulge_ave[mask_bulge] + np.sqrt(f_bulge_var[mask_bulge]), 0, 1),
@@ -131,9 +127,7 @@ def plot(
 
     # Plot disk fractions
     mask_disk = f_disk_ave > 0.0
-    ax.plot(
-        mass_range[mask_disk] + shift, f_disk_ave[mask_disk], "k-", label="disk stars"
-    )
+    ax.plot(mass_range[mask_disk] + shift, f_disk_ave[mask_disk], "k-", label="disk stars")
     ax.fill_between(
         mass_range[mask_disk] + shift,
         np.clip(f_disk_ave[mask_disk] + np.sqrt(f_disk_var[mask_disk]), 0, 1),

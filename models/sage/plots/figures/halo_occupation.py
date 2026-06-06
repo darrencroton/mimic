@@ -15,14 +15,14 @@ from figures import (
     setup_legend,
     setup_plot_fonts,
 )
-from matplotlib.ticker import MultipleLocator, MaxNLocator
+from matplotlib.ticker import MaxNLocator, MultipleLocator
 from output_utils import (
-    warn,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_filtered_data,
     save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -57,8 +57,8 @@ def plot(
     # Check for required fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['Mvir', 'UniqueCentralGalaxyID'],
-        plot_name='Halo Occupation Distribution'
+        required_fields=["Mvir", "UniqueCentralGalaxyID"],
+        plot_name="Halo Occupation Distribution",
     )
 
     if not success:
@@ -81,44 +81,44 @@ def plot(
     # Get only valid halo indices
     halo_indices = np.unique(galaxies.UniqueCentralGalaxyID)
     valid_indices = halo_indices[halo_indices >= 0]
-    
+
     if verbose:
         print(f"  Processing {len(valid_indices)} unique halos")
-    
+
     # Pre-allocate arrays for the results with known size
     halo_mass = np.zeros(len(valid_indices))
     occupation_all = np.zeros(len(valid_indices), dtype=np.int32)
     occupation_central = np.zeros(len(valid_indices), dtype=np.int32)
     occupation_satellite = np.zeros(len(valid_indices), dtype=np.int32)
-    
+
     # Create a mapping from central galaxy index to position in our arrays
     # This avoids looping over individual halos and makes vectorized operations possible
     central_index_to_pos = {}
     for i, idx in enumerate(valid_indices):
         central_index_to_pos[idx] = i
-    
+
     # Count all galaxies belonging to each halo in one vectorized operation
     unique_indices, counts = np.unique(galaxies.UniqueCentralGalaxyID, return_counts=True)
-    
+
     # Filter out invalid indices and update occupation counts
     for i, idx in enumerate(unique_indices):
         if idx >= 0 and idx in central_index_to_pos:
             pos = central_index_to_pos[idx]
             occupation_all[pos] = counts[i]
-    
+
     # Count central galaxies (Type == 0) and get their halo masses
     central_mask = (galaxies.Type == 0) & np.isin(galaxies.UniqueCentralGalaxyID, valid_indices)
     central_galaxies = galaxies[central_mask]
-    
+
     for i, gal in enumerate(central_galaxies):
         if gal.UniqueCentralGalaxyID in central_index_to_pos:
             pos = central_index_to_pos[gal.UniqueCentralGalaxyID]
             occupation_central[pos] = 1  # Should be only one central per halo
             halo_mass[pos] = gal.Mvir * 1.0e10 / hubble_h  # Convert to physical units (Msun)
-    
+
     # Compute satellite counts (occupation_all - occupation_central)
     occupation_satellite = occupation_all - occupation_central
-    
+
     # Remove any remaining zeros in halo_mass (halos without centrals)
     valid_halos = halo_mass > 0
     halo_mass = halo_mass[valid_halos]
@@ -133,9 +133,7 @@ def plot(
         print(
             f"  Halo mass range: {np.log10(min(halo_mass)):.2f} to {np.log10(max(halo_mass)):.2f}"
         )
-        print(
-            f"  Occupation number range: {min(occupation_all)} to {max(occupation_all)}"
-        )
+        print(f"  Occupation number range: {min(occupation_all)} to {max(occupation_all)}")
 
     # Bin the data by halo mass for the mean occupation
     bin_width = 0.2  # dex
@@ -148,16 +146,16 @@ def plot(
     # Calculate mean occupation in each bin using numpy's digitize for efficient binning
     log_halo_mass = np.log10(halo_mass)
     bin_indices = np.digitize(log_halo_mass, mass_bins)
-    
+
     # Calculate means for each bin in a vectorized way
     for i in range(1, len(mass_bins)):
         bin_mask = bin_indices == i
         count = np.sum(bin_mask)
         if count > 0:
-            mean_occupation_all[i-1] = np.mean(occupation_all[bin_mask])
-            mean_occupation_central[i-1] = np.mean(occupation_central[bin_mask])
-            mean_occupation_satellite[i-1] = np.mean(occupation_satellite[bin_mask])
-            bin_counts[i-1] = count
+            mean_occupation_all[i - 1] = np.mean(occupation_all[bin_mask])
+            mean_occupation_central[i - 1] = np.mean(occupation_central[bin_mask])
+            mean_occupation_satellite[i - 1] = np.mean(occupation_satellite[bin_mask])
+            bin_counts[i - 1] = count
 
     # Plot the results
     bin_centers = mass_bins[:-1] + bin_width / 2
@@ -194,9 +192,7 @@ def plot(
 
     # Customize the plot
     ax.set_xlabel(r"log$_{10}$ M$_{\rm halo}$ [M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
-    ax.set_ylabel(
-        r"Mean occupation number $\langle N \rangle$", fontsize=AXIS_LABEL_SIZE
-    )
+    ax.set_ylabel(r"Mean occupation number $\langle N \rangle$", fontsize=AXIS_LABEL_SIZE)
 
     # Set the x and y axis minor ticks with MaxNLocator to avoid excessive ticks
     ax.xaxis.set_minor_locator(MultipleLocator(0.1))

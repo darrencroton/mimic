@@ -26,8 +26,7 @@ static inline int mimic_find_fof_central_index(const struct Halo *halos, int nga
  * - All other types use the provided fallback (normally FOF Type 0).
  */
 static inline int mimic_resolve_type2_target_index(const struct Halo *halos, int ngal,
-                                                   int satellite_index,
-                                                   int fallback_index) {
+                                                   int satellite_index, int fallback_index) {
   if (halos == NULL || satellite_index < 0 || satellite_index >= ngal) {
     return -1;
   }
@@ -57,10 +56,8 @@ static inline int mimic_resolve_type2_target_index(const struct Halo *halos, int
  * - Do not recurse and do not replace the redirect hop with a generic FOF
  *   fallback.
  */
-static inline int mimic_resolve_immediate_target_index(const struct Halo *halos,
-                                                       int ngal,
-                                                       int satellite_index,
-                                                       int fallback_index) {
+static inline int mimic_resolve_immediate_target_index(const struct Halo *halos, int ngal,
+                                                       int satellite_index, int fallback_index) {
   int target_idx = fallback_index;
 
   if (halos == NULL || satellite_index < 0 || satellite_index >= ngal) {
@@ -83,8 +80,7 @@ static inline int mimic_resolve_immediate_target_index(const struct Halo *halos,
   }
 
   const int redirect_idx = halos[target_idx].CentralHalo;
-  if (redirect_idx < 0 || redirect_idx >= ngal ||
-      redirect_idx == satellite_index) {
+  if (redirect_idx < 0 || redirect_idx >= ngal || redirect_idx == satellite_index) {
     return -1;
   }
 

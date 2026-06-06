@@ -4,7 +4,6 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
-
 from figures import setup_plot_fonts
 from output_utils import (
     check_required_fields,
@@ -56,9 +55,7 @@ def plot(
         & (galaxies.ShamVpeak > 0.0)
         & np.isfinite(galaxies.StellarMass)
     )[0]
-    is_valid, skip_msg = validate_filtered_data(
-        w, "SHAM Stellar-Halo Relation", verbose
-    )
+    is_valid, skip_msg = validate_filtered_data(w, "SHAM Stellar-Halo Relation", verbose)
     if not is_valid:
         return None, skip_msg
 
@@ -91,9 +88,7 @@ def plot(
     xmid, med, p16, p84 = _median_relation(log_mpeak, log_mstar, bins)
     good = np.isfinite(med)
     axes[0].plot(xmid[good], med[good], color="#0173b2", lw=2, label="Median")
-    axes[0].fill_between(
-        xmid[good], p16[good], p84[good], color="#0173b2", alpha=0.18, lw=0
-    )
+    axes[0].fill_between(xmid[good], p16[good], p84[good], color="#0173b2", alpha=0.18, lw=0)
     axes[0].set_xlabel(r"log$_{10}$ M$_{\rm peak}$ [M$_{\odot}$]")
     axes[0].set_ylabel(r"log$_{10}$ M$_*$ [M$_{\odot}$]")
     axes[0].set_xlim(10.0, 15.0)
@@ -120,18 +115,13 @@ def plot(
     xmid, med, p16, p84 = _median_relation(log_vpeak, log_mstar, vbins)
     good = np.isfinite(med)
     axes[1].plot(xmid[good], med[good], color="#0173b2", lw=2, label="Median")
-    axes[1].fill_between(
-        xmid[good], p16[good], p84[good], color="#0173b2", alpha=0.18, lw=0
-    )
+    axes[1].fill_between(xmid[good], p16[good], p84[good], color="#0173b2", alpha=0.18, lw=0)
     axes[1].set_xlabel(r"log$_{10}$ V$_{\rm peak}$ [km/s]")
     axes[1].set_ylabel(r"log$_{10}$ M$_*$ [M$_{\odot}$]")
     axes[1].set_xlim(1.7, 3.5)
     axes[1].set_ylim(7.5, 12.2)
 
     return (
-        save_and_close_figure(
-            fig, output_dir, "ShamStellarHaloRelation", output_format, verbose
-        ),
+        save_and_close_figure(fig, output_dir, "ShamStellarHaloRelation", output_format, verbose),
         None,
     )
-

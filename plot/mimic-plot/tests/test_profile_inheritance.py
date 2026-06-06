@@ -7,7 +7,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 HERE = Path(__file__).resolve().parent
 MIMIC_PLOT_DIR = HERE.parent
 sys.path.insert(0, str(MIMIC_PLOT_DIR))

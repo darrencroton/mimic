@@ -87,11 +87,9 @@ extern struct RawHalo *InputTreeHalos;
 extern struct HaloAuxData *HaloAux;
 
 /* runtime file information */
-extern int Ntrees; /* number of trees in current file  */
-extern int
-    NumProcessedHalos; /* Total number of halos stored for current tree */
-extern int
-    MaxProcessedHalos; /* Maximum number of halos allowed for current tree */
+extern int Ntrees;            /* number of trees in current file  */
+extern int NumProcessedHalos; /* Total number of halos stored for current tree */
+extern int MaxProcessedHalos; /* Maximum number of halos allowed for current tree */
 extern int MaxFoFWorkspace;
 extern int HaloCounter; /* unique halo ID for main progenitor line in tree */
 
@@ -110,9 +108,9 @@ extern int ParamID[MAXTAGS];
 extern void *ParamAddr[MAXTAGS];
 
 /* units */
-extern double UnitLength_in_cm, UnitTime_in_s, UnitVelocity_in_cm_per_s,
-    UnitMass_in_g, RhoCrit, UnitPressure_in_cgs, UnitDensity_in_cgs,
-    UnitCoolingRate_in_cgs, UnitEnergy_in_cgs, UnitTime_in_Megayears, G, Hubble;
+extern double UnitLength_in_cm, UnitTime_in_s, UnitVelocity_in_cm_per_s, UnitMass_in_g, RhoCrit,
+    UnitPressure_in_cgs, UnitDensity_in_cgs, UnitCoolingRate_in_cgs, UnitEnergy_in_cgs,
+    UnitTime_in_Megayears, G, Hubble;
 
 /* output snapshots - kept for backward compatibility */
 extern int ListOutputSnaps[ABSOLUTEMAXSNAPS];

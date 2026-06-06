@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 from typing import Iterable, List
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = ""
 # Simulation selected when neither SIMULATION nor SIM is set in the environment.
@@ -62,11 +61,7 @@ def live_simulation_roots() -> List[Path]:
     or by setting the ``SIMULATION``/``SIM`` environment variable when invoking
     helper scripts directly. Defaults to :data:`DEFAULT_SIMULATION`.
     """
-    selected = (
-        os.environ.get("SIMULATION")
-        or os.environ.get("SIM")
-        or DEFAULT_SIMULATION
-    )
+    selected = os.environ.get("SIMULATION") or os.environ.get("SIM") or DEFAULT_SIMULATION
     if not selected:
         return []
     simulations_dir = REPO_ROOT / "simulations"
@@ -98,9 +93,7 @@ def test_property_files() -> List[Path]:
     """
     if not test_build_enabled():
         return []
-    return existing(
-        [module_system_dir() / "test_fixture" / "test_properties.yaml"]
-    )
+    return existing([module_system_dir() / "test_fixture" / "test_properties.yaml"])
 
 
 def core_property_files() -> List[Path]:

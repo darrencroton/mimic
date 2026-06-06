@@ -19,11 +19,11 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
     check_required_fields,
-    validate_filtered_data,
-    setup_figure,
     save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -58,8 +58,8 @@ def plot(
     # Check required fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['Mvir', 'Type', 'StellarMass', 'ColdGas', 'HotGas', 'EjectedGas', 'ICS'],
-        plot_name='Mass Reservoir Scatter'
+        required_fields=["Mvir", "Type", "StellarMass", "ColdGas", "HotGas", "EjectedGas", "ICS"],
+        plot_name="Mass Reservoir Scatter",
     )
 
     if not success:
@@ -75,9 +75,7 @@ def plot(
     dilute = 7500
 
     # Filter for type 0 (central) galaxies with non-zero Mvir
-    w = np.where(
-        (galaxies.Type == 0) & (galaxies.Mvir > 1.0) & (galaxies.StellarMass > 0.0)
-    )[0]
+    w = np.where((galaxies.Type == 0) & (galaxies.Mvir > 1.0) & (galaxies.StellarMass > 0.0))[0]
 
     # Validate filtered data
     is_valid, skip_msg = validate_filtered_data(w, "Mass Reservoir Scatter", verbose)
@@ -106,20 +104,14 @@ def plot(
     if verbose:
         print(f"  Number of galaxies plotted: {len(w)}")
         print(f"  Halo mass range: {min(mvir):.2f} to {max(mvir):.2f}")
-        print(
-            f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}"
-        )
+        print(f"  Stellar mass range: {min(stellar_mass):.2f} to {max(stellar_mass):.2f}")
 
     # Plot each mass component
     ax.scatter(mvir, stellar_mass, marker="o", s=0.8, c="k", alpha=0.5, label="Stars")
     ax.scatter(mvir, cold_gas, marker="o", s=0.8, c="blue", alpha=0.5, label="Cold gas")
     ax.scatter(mvir, hot_gas, marker="o", s=0.8, c="red", alpha=0.5, label="Hot gas")
-    ax.scatter(
-        mvir, ejected_gas, marker="o", s=0.8, c="green", alpha=0.5, label="Ejected gas"
-    )
-    ax.scatter(
-        mvir, ics, marker="x", s=5, c="yellow", alpha=0.7, label="Intracluster stars"
-    )
+    ax.scatter(mvir, ejected_gas, marker="o", s=0.8, c="green", alpha=0.5, label="Ejected gas")
+    ax.scatter(mvir, ics, marker="x", s=5, c="yellow", alpha=0.7, label="Intracluster stars")
 
     # Customize the plot
     ax.set_xlabel(r"log M$_{\rm vir}$ [h$^{-1}$ M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
@@ -139,13 +131,13 @@ def plot(
     ax.set_ylim(y_min, y_max)
 
     # Add text annotation 'All' in the bottom-right corner
-    ax.text(
-        0.95, 0.05, r"All", transform=ax.transAxes, fontsize=12, ha="right", va="bottom"
-    )
+    ax.text(0.95, 0.05, r"All", transform=ax.transAxes, fontsize=12, ha="right", va="bottom")
 
     # Add consistently styled legend
     setup_legend(ax, loc="upper left")
 
     # Save and close the figure
-    plot_path = save_and_close_figure(fig, output_dir, "MassReservoirScatter", output_format, verbose)
+    plot_path = save_and_close_figure(
+        fig, output_dir, "MassReservoirScatter", output_format, verbose
+    )
     return plot_path, None

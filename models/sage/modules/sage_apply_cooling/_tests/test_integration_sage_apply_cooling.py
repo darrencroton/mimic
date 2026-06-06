@@ -29,8 +29,8 @@ Author: Mimic Development Team
 Date: 2025-12-18
 """
 
-import sys
 import shutil
+import sys
 from pathlib import Path
 
 # Add tests directory to path to import framework
@@ -40,16 +40,16 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
     MIMIC_EXE,
     create_test_param_file,
-    run_mimic,
     load_binary_halos,
+    run_mimic,
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def test_module_loads():
@@ -66,28 +66,38 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_load",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_apply_cooling", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Mimic should execute successfully with sage_apply_cooling\nStderr: {stderr}"
+    assert (
+        returncode == 0
+    ), f"Mimic should execute successfully with sage_apply_cooling\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE apply cooling module initialized" in stdout, \
-        "sage_apply_cooling should log initialization message"
+    assert (
+        "SAGE apply cooling module initialized" in stdout
+    ), "sage_apply_cooling should log initialization message"
 
     # Check that sage_calculate_cooling_budget ran first
-    assert "SAGE calculate cooling budget module initialized" in stdout, \
-        "sage_calculate_cooling_budget should run before sage_apply_cooling"
+    assert (
+        "SAGE calculate cooling budget module initialized" in stdout
+    ), "sage_calculate_cooling_budget should run before sage_apply_cooling"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -108,12 +118,19 @@ def test_output_properties_exist():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_output",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_apply_cooling", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -129,16 +146,11 @@ def test_output_properties_exist():
     assert len(halos) > 0, "Should have halos in output"
 
     # Check output properties exist
-    assert 'ColdGas' in halos.dtype.names, \
-        "ColdGas property should exist in output"
-    assert 'HotGas' in halos.dtype.names, \
-        "HotGas property should exist in output"
-    assert 'MetalsColdGas' in halos.dtype.names, \
-        "MetalsColdGas property should exist in output"
-    assert 'MetalsHotGas' in halos.dtype.names, \
-        "MetalsHotGas property should exist in output"
-    assert 'Cooling' in halos.dtype.names, \
-        "Cooling property should exist in output"
+    assert "ColdGas" in halos.dtype.names, "ColdGas property should exist in output"
+    assert "HotGas" in halos.dtype.names, "HotGas property should exist in output"
+    assert "MetalsColdGas" in halos.dtype.names, "MetalsColdGas property should exist in output"
+    assert "MetalsHotGas" in halos.dtype.names, "MetalsHotGas property should exist in output"
+    assert "Cooling" in halos.dtype.names, "Cooling property should exist in output"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -160,32 +172,37 @@ def test_with_sage_calculate_cooling_budget():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_with_calc",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_apply_cooling", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Should run with both modules\nStderr: {stderr}"
+    assert returncode == 0, f"Should run with both modules\nStderr: {stderr}"
 
     # Verify all modules initialized
-    assert "SAGE reionization module initialized" in stdout, \
-        "sage_reionization should initialize"
-    assert "SAGE prepare infall budget module initialized" in stdout, \
-        "sage_prepare_infall_budget should initialize"
-    assert "SAGE apply infall module initialized" in stdout, \
-        "sage_apply_infall should initialize"
-    assert "SAGE calculate cooling budget module initialized" in stdout, \
-        "sage_calculate_cooling_budget should initialize"
-    assert "SAGE apply cooling module initialized" in stdout, \
-        "sage_apply_cooling should initialize"
+    assert "SAGE reionization module initialized" in stdout, "sage_reionization should initialize"
+    assert (
+        "SAGE prepare infall budget module initialized" in stdout
+    ), "sage_prepare_infall_budget should initialize"
+    assert "SAGE apply infall module initialized" in stdout, "sage_apply_infall should initialize"
+    assert (
+        "SAGE calculate cooling budget module initialized" in stdout
+    ), "sage_calculate_cooling_budget should initialize"
+    assert "SAGE apply cooling module initialized" in stdout, "sage_apply_cooling should initialize"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -206,12 +223,19 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_memory",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_apply_cooling", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -219,10 +243,8 @@ def test_memory_safety():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Execution should succeed"
-    assert "Memory leak detected" not in stdout, \
-        "Should not have memory leaks"
-    assert "Memory leak detected" not in stderr, \
-        "Should not have memory leaks in stderr"
+    assert "Memory leak detected" not in stdout, "Should not have memory leaks"
+    assert "Memory leak detected" not in stderr, "Should not have memory leaks in stderr"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -243,14 +265,21 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_complete",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_apply_cooling", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17},
+        model_params={"GlobalBaryonFraction": 0.17},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -258,10 +287,8 @@ def test_execution_completes():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Pipeline should complete successfully"
-    assert "SAGE apply cooling module initialized" in stdout, \
-        "Module initialization message"
-    assert "SAGE apply cooling module cleaned up" in stdout, \
-        "Module cleanup message"
+    assert "SAGE apply cooling module initialized" in stdout, "Module initialization message"
+    assert "SAGE apply cooling module cleaned up" in stdout, "Module cleanup message"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -282,12 +309,19 @@ def test_gas_transfer_physics():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_transfer",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_apply_cooling", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -300,22 +334,19 @@ def test_gas_transfer_physics():
 
     # Filter to Type 0 centrals
     import numpy as np
-    type0_mask = halos['Type'] == 0
+
+    type0_mask = halos["Type"] == 0
     type0_halos = halos[type0_mask]
 
     # Check gas reservoirs are physically reasonable
-    assert np.all(np.isfinite(type0_halos['HotGas'])), \
-        "HotGas should have finite values"
-    assert np.all(type0_halos['HotGas'] >= 0), \
-        "HotGas should be non-negative"
+    assert np.all(np.isfinite(type0_halos["HotGas"])), "HotGas should have finite values"
+    assert np.all(type0_halos["HotGas"] >= 0), "HotGas should be non-negative"
 
-    assert np.all(np.isfinite(type0_halos['ColdGas'])), \
-        "ColdGas should have finite values"
-    assert np.all(type0_halos['ColdGas'] >= 0), \
-        "ColdGas should be non-negative"
+    assert np.all(np.isfinite(type0_halos["ColdGas"])), "ColdGas should have finite values"
+    assert np.all(type0_halos["ColdGas"] >= 0), "ColdGas should be non-negative"
 
     # Check that some halos have cold gas (cooling occurred)
-    num_with_cold_gas = np.sum(type0_halos['ColdGas'] > 0)
+    num_with_cold_gas = np.sum(type0_halos["ColdGas"] > 0)
     print(f"  Found {num_with_cold_gas} / {len(type0_halos)} centrals with cold gas")
     assert num_with_cold_gas > 0, "Some centrals should have cold gas from cooling"
 
@@ -338,12 +369,19 @@ def test_metallicity_preservation():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_metallicity",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_apply_cooling", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -356,29 +394,35 @@ def test_metallicity_preservation():
 
     # Filter to Type 0 centrals
     import numpy as np
-    type0_mask = halos['Type'] == 0
+
+    type0_mask = halos["Type"] == 0
     type0_halos = halos[type0_mask]
 
     # Check metal reservoirs are physically reasonable
-    assert np.all(np.isfinite(type0_halos['MetalsHotGas'])), \
-        "MetalsHotGas should have finite values"
-    assert np.all(type0_halos['MetalsHotGas'] >= 0), \
-        "MetalsHotGas should be non-negative"
+    assert np.all(
+        np.isfinite(type0_halos["MetalsHotGas"])
+    ), "MetalsHotGas should have finite values"
+    assert np.all(type0_halos["MetalsHotGas"] >= 0), "MetalsHotGas should be non-negative"
 
-    assert np.all(np.isfinite(type0_halos['MetalsColdGas'])), \
-        "MetalsColdGas should have finite values"
-    assert np.all(type0_halos['MetalsColdGas'] >= 0), \
-        "MetalsColdGas should be non-negative"
+    assert np.all(
+        np.isfinite(type0_halos["MetalsColdGas"])
+    ), "MetalsColdGas should have finite values"
+    assert np.all(type0_halos["MetalsColdGas"] >= 0), "MetalsColdGas should be non-negative"
 
     # Check that metals don't exceed gas (metallicity ≤ 1.0)
-    hot_gas_nonzero = type0_halos['HotGas'] > 0
+    hot_gas_nonzero = type0_halos["HotGas"] > 0
     if np.any(hot_gas_nonzero):
-        z_hot = type0_halos['MetalsHotGas'][hot_gas_nonzero] / type0_halos['HotGas'][hot_gas_nonzero]
+        z_hot = (
+            type0_halos["MetalsHotGas"][hot_gas_nonzero] / type0_halos["HotGas"][hot_gas_nonzero]
+        )
         assert np.all(z_hot <= 1.0), "Hot gas metallicity should be ≤ 1.0"
 
-    cold_gas_nonzero = type0_halos['ColdGas'] > 0
+    cold_gas_nonzero = type0_halos["ColdGas"] > 0
     if np.any(cold_gas_nonzero):
-        z_cold = type0_halos['MetalsColdGas'][cold_gas_nonzero] / type0_halos['ColdGas'][cold_gas_nonzero]
+        z_cold = (
+            type0_halos["MetalsColdGas"][cold_gas_nonzero]
+            / type0_halos["ColdGas"][cold_gas_nonzero]
+        )
         assert np.all(z_cold <= 1.0), "Cold gas metallicity should be ≤ 1.0"
 
     # Cleanup
@@ -400,12 +444,19 @@ def test_cooling_energy_tracking():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_cooling_energy",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo'), ('sage_calculate_cooling_budget', 'process_by_galaxy'), ('sage_apply_cooling', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_apply_cooling", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -418,20 +469,19 @@ def test_cooling_energy_tracking():
 
     # Check Cooling property
     import numpy as np
-    assert 'Cooling' in halos.dtype.names, "Cooling property should exist"
+
+    assert "Cooling" in halos.dtype.names, "Cooling property should exist"
 
     # Filter to Type 0 centrals
-    type0_mask = halos['Type'] == 0
+    type0_mask = halos["Type"] == 0
     type0_halos = halos[type0_mask]
 
     # Check cooling values are finite and non-negative
-    assert np.all(np.isfinite(type0_halos['Cooling'])), \
-        "Cooling should have finite values"
-    assert np.all(type0_halos['Cooling'] >= 0), \
-        "Cooling should be non-negative"
+    assert np.all(np.isfinite(type0_halos["Cooling"])), "Cooling should have finite values"
+    assert np.all(type0_halos["Cooling"] >= 0), "Cooling should be non-negative"
 
     # Check that some halos have non-zero cooling
-    num_with_cooling = np.sum(type0_halos['Cooling'] > 0)
+    num_with_cooling = np.sum(type0_halos["Cooling"] > 0)
     print(f"  Found {num_with_cooling} / {len(type0_halos)} centrals with cooling energy")
 
     # Cleanup

@@ -15,11 +15,11 @@ void log_run_header(const char *param_file, LogLevel log_level) {
   const char *reset = MimicLogUseColor ? "\x1b[0m" : "";
 
   /* Optional per-line colours for the ASCII MIMIC banner */
-  const char *c1 = MimicLogUseColor ? "\x1b[95m" : "";   // bright magenta
-  const char *c2 = MimicLogUseColor ? "\x1b[94m" : "";   // bright blue
-  const char *c3 = MimicLogUseColor ? "\x1b[96m" : "";   // bright cyan
-  const char *c4 = MimicLogUseColor ? "\x1b[92m" : "";   // bright green
-  const char *c5 = MimicLogUseColor ? "\x1b[93m" : "";   // bright yellow
+  const char *c1 = MimicLogUseColor ? "\x1b[95m" : ""; // bright magenta
+  const char *c2 = MimicLogUseColor ? "\x1b[94m" : ""; // bright blue
+  const char *c3 = MimicLogUseColor ? "\x1b[96m" : ""; // bright cyan
+  const char *c4 = MimicLogUseColor ? "\x1b[92m" : ""; // bright green
+  const char *c5 = MimicLogUseColor ? "\x1b[93m" : ""; // bright yellow
 
   time_t now;
   time(&now);
@@ -32,13 +32,11 @@ void log_run_header(const char *param_file, LogLevel log_level) {
     fprintf(stdout, "%s   /  |/  / /  _/ /  |/  / /  _/ / ____/%s\n", c2, reset);
     fprintf(stdout, "%s  / /|_/ /  / /  / /|_/ /  / /  / /     %s\n", c3, reset);
     fprintf(stdout, "%s / /  / / _/ /  / /  / / _/ /  / /___   %s\n", c4, reset);
-    fprintf(stdout, "%s/_/  /_/ /___/ /_/  /_/ /___/  \\____/   %s%s\n\n", c5,
-      bold, reset);
+    fprintf(stdout, "%s/_/  /_/ /___/ /_/  /_/ /___/  \\____/   %s%s\n\n", c5, bold, reset);
   }
 
   fprintf(stdout, "%sMIMIC Galaxy Evolution Framework%s\n", bold, reset);
-  fprintf(stdout, "%sCommit%s  : %s (%s)\n", bold, reset, GIT_COMMIT,
-          GIT_BRANCH);
+  fprintf(stdout, "%sCommit%s  : %s (%s)\n", bold, reset, GIT_COMMIT, GIT_BRANCH);
   fprintf(stdout, "Started : %s\n", time_str);
   if (param_file != NULL) {
     fprintf(stdout, "Config  : %s\n", param_file);
@@ -88,9 +86,7 @@ void log_phase_banner(MimicPhase phase) {
   }
 
   fprintf(stdout, "\n");
-  fprintf(stdout,
-          "===============================================================\n");
+  fprintf(stdout, "===============================================================\n");
   fprintf(stdout, "%s%s%s\n", bold_cyan, label, reset);
-  fprintf(stdout,
-          "===============================================================\n");
+  fprintf(stdout, "===============================================================\n");
 }

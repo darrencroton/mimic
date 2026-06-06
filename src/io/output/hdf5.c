@@ -33,7 +33,7 @@
 #include "output/util.h"
 #include "error.h"
 #include "module_system/output_helpers.h"
-#include "module_registry.h"         /* For PhaseModuleConfig */
+#include "module_registry.h" /* For PhaseModuleConfig */
 
 #define TRUE 1
 #define FALSE 0
@@ -75,8 +75,8 @@ void calc_hdf5_props(void) {
   /* Create datatypes for different size arrays */
   hid_t array3f_tid = H5Tarray_create(H5T_NATIVE_FLOAT, 1, (hsize_t[]){3});
 
-  /* AUTO-GENERATED: Set property count and allocate arrays */
-  #include "../../include/generated/hdf5_field_count.inc"
+/* AUTO-GENERATED: Set property count and allocate arrays */
+#include "../../include/generated/hdf5_field_count.inc"
 
   /* Allocate arrays for field metadata */
   HDF5_dst_offsets = mymalloc_cat(sizeof(size_t) * HDF5_n_props, MEM_IO);
@@ -84,9 +84,9 @@ void calc_hdf5_props(void) {
   HDF5_field_names = mymalloc_cat(sizeof(const char *) * HDF5_n_props, MEM_IO);
   HDF5_field_types = mymalloc_cat(sizeof(hid_t) * HDF5_n_props, MEM_IO);
 
-  /* AUTO-GENERATED: Define all HDF5 fields from metadata
-   * This replaces ~150 lines of manual field definitions */
-  #include "../../include/generated/hdf5_field_definitions.inc"
+/* AUTO-GENERATED: Define all HDF5 fields from metadata
+ * This replaces ~150 lines of manual field definitions */
+#include "../../include/generated/hdf5_field_definitions.inc"
 
   /* Validate property count */
   if (i != HDF5_n_props) {
@@ -144,14 +144,12 @@ void prep_hdf5_file(char *fname) {
   // Create a group for each output snapshot
   for (i_snap = 0; i_snap < MimicConfig.NOUT; i_snap++) {
     sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[i_snap]);
-    snap_group_id =
-        H5Gcreate(file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    snap_group_id = H5Gcreate(file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 
     // Make the table
-    status =
-        H5TBmake_table("halo Table", snap_group_id, "Galaxies", HDF5_n_props, 0,
-                       HDF5_dst_size, HDF5_field_names, HDF5_dst_offsets,
-                       HDF5_field_types, chunk_size, fill_data, 0, NULL);
+    status = H5TBmake_table("halo Table", snap_group_id, "Galaxies", HDF5_n_props, 0, HDF5_dst_size,
+                            HDF5_field_names, HDF5_dst_offsets, HDF5_field_types, chunk_size,
+                            fill_data, 0, NULL);
     if (status < 0) {
       FATAL_ERROR("Failed to create HDF5 table for snapshot %d in file '%s'",
                   MimicConfig.ListOutputSnaps[i_snap], fname);
@@ -198,8 +196,7 @@ void prep_hdf5_file(char *fname) {
  *
  * This reduces HDF5 overhead from O(N) to O(1) per batch.
  */
-void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n,
-                           int filenr) {
+void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, int filenr) {
 
   herr_t status;
   hid_t group_id;
@@ -207,8 +204,7 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n,
 
   // Verify file is open
   if (HDF5_current_file_id < 0) {
-    FATAL_ERROR("HDF5 file not open for writing (file_id = %lld)",
-                (long long)HDF5_current_file_id);
+    FATAL_ERROR("HDF5 file not open for writing (file_id = %lld)", (long long)HDF5_current_file_id);
   }
 
   if (num_halos <= 0)
@@ -218,13 +214,13 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n,
   sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
   group_id = H5Gopen(HDF5_current_file_id, target_group, H5P_DEFAULT);
   if (group_id < 0) {
-    FATAL_ERROR("Failed to open HDF5 group '%s' for snapshot %d (filenr %d)",
-                target_group, MimicConfig.ListOutputSnaps[n], filenr);
+    FATAL_ERROR("Failed to open HDF5 group '%s' for snapshot %d (filenr %d)", target_group,
+                MimicConfig.ListOutputSnaps[n], filenr);
   }
 
   // Write entire batch at once
-  status = H5TBappend_records(group_id, "Galaxies", num_halos, HDF5_dst_size,
-                              HDF5_dst_offsets, HDF5_dst_sizes, halo_batch);
+  status = H5TBappend_records(group_id, "Galaxies", num_halos, HDF5_dst_size, HDF5_dst_offsets,
+                              HDF5_dst_sizes, halo_batch);
   if (status < 0) {
     FATAL_ERROR("Failed to append %d halo records to HDF5 file for snapshot %d "
                 "(filenr %d)",
@@ -245,18 +241,18 @@ void write_hdf5_galsnap_data(int n, int filenr) {
   herr_t status;
   hid_t file_id, group_id;
   char target_group[100];
-  char fname[2 * MAX_STRING_LEN + 50];  // Sufficient for dir + "/" + basename + "_NNN.hdf5"
+  char fname[2 * MAX_STRING_LEN + 50]; // Sufficient for dir + "/" + basename + "_NNN.hdf5"
 
   // Generate the filename to be opened.
-  int ret = snprintf(fname, sizeof(fname), "%s/%s_%03d.hdf5",
-                     MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+  int ret = snprintf(fname, sizeof(fname), "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
+                     MimicConfig.OutputFileBaseName, filenr);
   if (ret < 0) {
-    FATAL_ERROR("Path formatting error for: %s/%s_%03d.hdf5",
-                MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+    FATAL_ERROR("Path formatting error for: %s/%s_%03d.hdf5", MimicConfig.OutputDir,
+                MimicConfig.OutputFileBaseName, filenr);
   }
   if (ret >= (int)sizeof(fname)) {
-    FATAL_ERROR("Output path too long: %s/%s_%03d.hdf5",
-                MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+    FATAL_ERROR("Output path too long: %s/%s_%03d.hdf5", MimicConfig.OutputDir,
+                MimicConfig.OutputFileBaseName, filenr);
   }
 
   // Open the file.
@@ -268,14 +264,12 @@ void write_hdf5_galsnap_data(int n, int filenr) {
 
   // Write
   if (TotHalosPerSnap[n] > 0) {
-    status = H5TBappend_records(
-        group_id, "Galaxies", (hsize_t)(TotHalosPerSnap[n]), HDF5_dst_size,
-        HDF5_dst_offsets, HDF5_dst_sizes,
-        (struct HaloOutput *)(ptr_galsnapdata[n] + offset_galsnapdata[n]));
+    status = H5TBappend_records(group_id, "Galaxies", (hsize_t)(TotHalosPerSnap[n]), HDF5_dst_size,
+                                HDF5_dst_offsets, HDF5_dst_sizes,
+                                (struct HaloOutput *)(ptr_galsnapdata[n] + offset_galsnapdata[n]));
     if (status < 0) {
-      FATAL_ERROR(
-          "Failed to append %d halo records to HDF5 file '%s', snapshot %d",
-          TotHalosPerSnap[n], fname, MimicConfig.ListOutputSnaps[n]);
+      FATAL_ERROR("Failed to append %d halo records to HDF5 file '%s', snapshot %d",
+                  TotHalosPerSnap[n], fname, MimicConfig.ListOutputSnaps[n]);
     }
   }
 
@@ -336,23 +330,20 @@ void write_hdf5_attrs(int n, int filenr) {
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
   // Write the number of trees
-  attribute_id = H5Acreate(dataset_id, "Ntrees", H5T_NATIVE_INT, dataspace_id,
-                           H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(dataset_id, "Ntrees", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   status = H5Awrite(attribute_id, H5T_NATIVE_INT, &Ntrees);
   if (status < 0) {
-    FATAL_ERROR("Failed to write Ntrees attribute to HDF5 file (filenr %d)",
-                filenr);
+    FATAL_ERROR("Failed to write Ntrees attribute to HDF5 file (filenr %d)", filenr);
   }
   H5Aclose(attribute_id);
 
   // Write the total number of objects.
-  attribute_id = H5Acreate(dataset_id, "TotHalosPerSnap", H5T_NATIVE_INT,
-                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id = H5Acreate(dataset_id, "TotHalosPerSnap", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT,
+                           H5P_DEFAULT);
   status = H5Awrite(attribute_id, H5T_NATIVE_INT, &TotHalosPerSnap[n]);
   if (status < 0) {
-    FATAL_ERROR(
-        "Failed to write TotHalosPerSnap attribute to HDF5 file (filenr %d)",
-        filenr);
+    FATAL_ERROR("Failed to write TotHalosPerSnap attribute to HDF5 file (filenr %d)", filenr);
   }
   H5Aclose(attribute_id);
 
@@ -362,9 +353,9 @@ void write_hdf5_attrs(int n, int filenr) {
   // Close the dataset
   H5Dclose(dataset_id);
 
-  // Write field metadata table (auto-generated from property metadata)
-  // Creates FieldMetadata dataset with field names and units for discoverability
-  #include "../../include/generated/hdf5_field_metadata.inc"
+// Write field metadata table (auto-generated from property metadata)
+// Creates FieldMetadata dataset with field names and units for discoverability
+#include "../../include/generated/hdf5_field_metadata.inc"
 
   // Create an array dataset to hold the number of objects per tree and write
   // it.
@@ -375,15 +366,15 @@ void write_hdf5_attrs(int n, int filenr) {
                 (int)dims, MimicConfig.ListOutputSnaps[n], filenr);
   }
   dataspace_id = H5Screate_simple(1, &dims, NULL);
-  dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT,
-                         dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  dataset_id = H5Dcreate(group_id, "TreeHalosPerSnap", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT,
+                         H5P_DEFAULT, H5P_DEFAULT);
 
   // Add description attribute for self-documentation
   hid_t attr_space_desc = H5Screate(H5S_SCALAR);
   hid_t str_type_desc = H5Tcopy(H5T_C_S1);
   H5Tset_size(str_type_desc, 64);
-  hid_t attr_desc = H5Acreate(dataset_id, "description", str_type_desc,
-                              attr_space_desc, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t attr_desc = H5Acreate(dataset_id, "description", str_type_desc, attr_space_desc,
+                              H5P_DEFAULT, H5P_DEFAULT);
   const char *desc_text = "Number of halos per merger tree at this snapshot";
   herr_t attr_status = H5Awrite(attr_desc, str_type_desc, desc_text);
   if (attr_status < 0) {
@@ -396,8 +387,8 @@ void write_hdf5_attrs(int n, int filenr) {
   H5Sclose(attr_space_desc);
 
   // Write the halos per tree data
-  status = H5Dwrite(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                    InputHalosPerSnap[n]);
+  status =
+      H5Dwrite(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, InputHalosPerSnap[n]);
   if (status < 0) {
     FATAL_ERROR("Failed to write TreeHalosPerSnap dataset for snapshot %d "
                 "(filenr %d, status=%d)",
@@ -419,9 +410,9 @@ void write_hdf5_attrs(int n, int filenr) {
  * core-physics separation (Vision Principle #1).
  */
 typedef struct {
-  const char *name;     /* HDF5 attribute name */
-  int type;             /* Parameter type (INT, DOUBLE, STRING) */
-  void *address;        /* Pointer to MimicConfig field */
+  const char *name; /* HDF5 attribute name */
+  int type;         /* Parameter type (INT, DOUBLE, STRING) */
+  void *address;    /* Pointer to MimicConfig field */
 } ConfigParamDescriptor;
 
 /**
@@ -437,14 +428,13 @@ static void write_version_metadata(hid_t parent_group_id) {
   hsize_t dims = 1;
   herr_t status;
 
-  /* Include git version info generated at build time. Use the build-dir include
-   * path (-I$(BUILD_DIR)/generated), like version.c/run_log.c, so the location
-   * follows the selected build directory (e.g. build/ or build/test/). */
-  #include "git_version.h"
+/* Include git version info generated at build time. Use the build-dir include
+ * path (-I$(BUILD_DIR)/generated), like version.c/run_log.c, so the location
+ * follows the selected build directory (e.g. build/ or build/test/). */
+#include "git_version.h"
 
   /* Create Version subgroup */
-  version_group_id = H5Gcreate(parent_group_id, "Version", H5P_DEFAULT,
-                               H5P_DEFAULT, H5P_DEFAULT);
+  version_group_id = H5Gcreate(parent_group_id, "Version", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   if (version_group_id < 0) {
     FATAL_ERROR("Failed to create Version subgroup in HDF5 file");
   }
@@ -458,33 +448,33 @@ static void write_version_metadata(hid_t parent_group_id) {
   }
 
   /* Write git commit SHA */
-  attribute_id = H5Acreate(version_group_id, "git_commit", str_type,
-                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(version_group_id, "git_commit", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, GIT_COMMIT);
   H5Aclose(attribute_id);
 
   /* Write git branch */
-  attribute_id = H5Acreate(version_group_id, "git_branch", str_type,
-                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(version_group_id, "git_branch", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, GIT_BRANCH);
   H5Aclose(attribute_id);
 
   /* Write git date */
-  attribute_id = H5Acreate(version_group_id, "git_date", str_type,
-                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(version_group_id, "git_date", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, GIT_DATE);
   H5Aclose(attribute_id);
 
   /* Write build date */
-  attribute_id = H5Acreate(version_group_id, "build_date", str_type,
-                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(version_group_id, "build_date", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, BUILD_DATE);
   H5Aclose(attribute_id);
 
   /* Write HDF5 format version (increment when output schema changes) */
   const char *hdf5_format_version = "1.0";
-  attribute_id = H5Acreate(version_group_id, "hdf5_format_version",
-                           str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id = H5Acreate(version_group_id, "hdf5_format_version", str_type, dataspace_id,
+                           H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, hdf5_format_version);
   H5Aclose(attribute_id);
 
@@ -522,9 +512,9 @@ static void write_parameters_metadata(hid_t parent_group_id) {
 
   /* Create compound datatype for parameter table (name, value pairs) */
   memtype = H5Tcreate(H5T_COMPOUND, sizeof(struct {
-    char param_name[MAX_STRING_LEN];
-    char value[MAX_STRING_LEN];
-  }));
+                        char param_name[MAX_STRING_LEN];
+                        char value[MAX_STRING_LEN];
+                      }));
 
   hid_t str_type = H5Tcopy(H5T_C_S1);
   H5Tset_size(str_type, MAX_STRING_LEN);
@@ -534,9 +524,9 @@ static void write_parameters_metadata(hid_t parent_group_id) {
 
   /* Create matching file type */
   filetype = H5Tcreate(H5T_COMPOUND, sizeof(struct {
-    char param_name[MAX_STRING_LEN];
-    char value[MAX_STRING_LEN];
-  }));
+                         char param_name[MAX_STRING_LEN];
+                         char value[MAX_STRING_LEN];
+                       }));
   H5Tinsert(filetype, "param_name", 0, str_type);
   H5Tinsert(filetype, "value", MAX_STRING_LEN, str_type);
 
@@ -545,15 +535,14 @@ static void write_parameters_metadata(hid_t parent_group_id) {
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
   /* Create dataset */
-  dataset_id = H5Dcreate(parent_group_id, "Parameters", filetype,
-                         dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  dataset_id = H5Dcreate(parent_group_id, "Parameters", filetype, dataspace_id, H5P_DEFAULT,
+                         H5P_DEFAULT, H5P_DEFAULT);
   if (dataset_id < 0) {
     FATAL_ERROR("Failed to create Parameters dataset in HDF5 file");
   }
 
   /* Write the parameter data directly from MimicConfig.ModelParams */
-  status = H5Dwrite(dataset_id, memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                    MimicConfig.ModelParams);
+  status = H5Dwrite(dataset_id, memtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, MimicConfig.ModelParams);
   if (status < 0) {
     FATAL_ERROR("Failed to write Parameters dataset to HDF5 file");
   }
@@ -562,8 +551,8 @@ static void write_parameters_metadata(hid_t parent_group_id) {
   hid_t attr_space = H5Screate(H5S_SCALAR);
   hid_t attr_str_type = H5Tcopy(H5T_C_S1);
   H5Tset_size(attr_str_type, 256);
-  hid_t attr_id = H5Acreate(dataset_id, "description", attr_str_type,
-                            attr_space, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t attr_id =
+      H5Acreate(dataset_id, "description", attr_str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
   const char *desc = "Runtime model parameters from input YAML file (modules.parameters section)";
   H5Awrite(attr_id, attr_str_type, desc);
   H5Aclose(attr_id);
@@ -593,19 +582,18 @@ static void write_redshifts(hid_t parent_group_id) {
   herr_t status;
 
   /* Create dataspace for redshift array */
-  dims = MimicConfig.LastSnapshotNr + 1;  /* E.g., 64 snapshots (0-63) */
+  dims = MimicConfig.LastSnapshotNr + 1; /* E.g., 64 snapshots (0-63) */
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
   /* Create dataset */
-  dataset_id = H5Dcreate(parent_group_id, "Redshifts", H5T_NATIVE_DOUBLE,
-                         dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  dataset_id = H5Dcreate(parent_group_id, "Redshifts", H5T_NATIVE_DOUBLE, dataspace_id, H5P_DEFAULT,
+                         H5P_DEFAULT, H5P_DEFAULT);
   if (dataset_id < 0) {
     FATAL_ERROR("Failed to create Redshifts dataset in HDF5 file");
   }
 
   /* Write the redshift array from MimicConfig.ZZ */
-  status = H5Dwrite(dataset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL,
-                    H5P_DEFAULT, MimicConfig.ZZ);
+  status = H5Dwrite(dataset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, MimicConfig.ZZ);
   if (status < 0) {
     FATAL_ERROR("Failed to write Redshifts dataset to HDF5 file");
   }
@@ -614,8 +602,8 @@ static void write_redshifts(hid_t parent_group_id) {
   attr_space = H5Screate(H5S_SCALAR);
   str_type = H5Tcopy(H5T_C_S1);
   H5Tset_size(str_type, 128);
-  attribute_id = H5Acreate(dataset_id, "description", str_type, attr_space,
-                           H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(dataset_id, "description", str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
   const char *desc = "Redshift for each snapshot index (0 to LastSnapshotNr)";
   status = H5Awrite(attribute_id, str_type, desc);
   if (status < 0) {
@@ -636,16 +624,16 @@ static void write_redshifts(hid_t parent_group_id) {
  * @param   mode   ProcessingMode enum value
  * @return  String representation of the processing mode
  */
-static const char* processing_mode_to_string(enum ProcessingMode mode) {
+static const char *processing_mode_to_string(enum ProcessingMode mode) {
   switch (mode) {
-    case PROCESSING_MODE_FULL_HALO:
-      return "process_full_halo";
-    case PROCESSING_MODE_PER_EVENT:
-      return "process_per_event";
-    case PROCESSING_MODE_BY_GALAXY:
-      return "process_by_galaxy";
-    default:
-      return "unknown";
+  case PROCESSING_MODE_FULL_HALO:
+    return "process_full_halo";
+  case PROCESSING_MODE_PER_EVENT:
+    return "process_per_event";
+  case PROCESSING_MODE_BY_GALAXY:
+    return "process_by_galaxy";
+  default:
+    return "unknown";
   }
 }
 
@@ -708,11 +696,9 @@ static void write_enabled_modules(hid_t parent_group_id) {
   } ModuleEntry;
 
   /* Allocate array for all module entries */
-  ModuleEntry *entries = (ModuleEntry *)mymalloc_cat(
-      total_entries * sizeof(ModuleEntry), MEM_IO);
+  ModuleEntry *entries = (ModuleEntry *)mymalloc_cat(total_entries * sizeof(ModuleEntry), MEM_IO);
   if (entries == NULL) {
-    FATAL_ERROR("Memory allocation failed for EnabledModules array (%d entries)",
-                total_entries);
+    FATAL_ERROR("Memory allocation failed for EnabledModules array (%d entries)", total_entries);
   }
 
   /* Populate entries array from all phases in execution order */
@@ -720,12 +706,10 @@ static void write_enabled_modules(hid_t parent_group_id) {
 
   /* Pre-timestep phase */
   for (int i = 0; i < MimicConfig.num_pre_timestep; i++, idx++) {
-    copy_hdf5_string(entries[idx].module_name,
-                     MimicConfig.pre_timestep[i].module_name);
+    copy_hdf5_string(entries[idx].module_name, MimicConfig.pre_timestep[i].module_name);
     copy_hdf5_string(entries[idx].phase, "pre_timestep");
     copy_hdf5_string(entries[idx].processing_mode,
-                     processing_mode_to_string(
-                         MimicConfig.pre_timestep[i].processing_mode));
+                     processing_mode_to_string(MimicConfig.pre_timestep[i].processing_mode));
   }
 
   /* User-named substep middle phases, in input order */
@@ -735,19 +719,16 @@ static void write_enabled_modules(hid_t parent_group_id) {
       copy_hdf5_string(entries[idx].module_name, phase->modules[i].module_name);
       copy_hdf5_string(entries[idx].phase, phase->name);
       copy_hdf5_string(entries[idx].processing_mode,
-                       processing_mode_to_string(
-                           phase->modules[i].processing_mode));
+                       processing_mode_to_string(phase->modules[i].processing_mode));
     }
   }
 
   /* Post-timestep phase */
   for (int i = 0; i < MimicConfig.num_post_timestep; i++, idx++) {
-    copy_hdf5_string(entries[idx].module_name,
-                     MimicConfig.post_timestep[i].module_name);
+    copy_hdf5_string(entries[idx].module_name, MimicConfig.post_timestep[i].module_name);
     copy_hdf5_string(entries[idx].phase, "post_timestep");
     copy_hdf5_string(entries[idx].processing_mode,
-                     processing_mode_to_string(
-                         MimicConfig.post_timestep[i].processing_mode));
+                     processing_mode_to_string(MimicConfig.post_timestep[i].processing_mode));
   }
 
   /* Create string datatype for fields */
@@ -774,8 +755,8 @@ static void write_enabled_modules(hid_t parent_group_id) {
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
   /* Create dataset */
-  dataset_id = H5Dcreate(parent_group_id, "EnabledModules", filetype,
-                         dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  dataset_id = H5Dcreate(parent_group_id, "EnabledModules", filetype, dataspace_id, H5P_DEFAULT,
+                         H5P_DEFAULT, H5P_DEFAULT);
   if (dataset_id < 0) {
     FATAL_ERROR("Failed to create EnabledModules dataset in HDF5 file");
   }
@@ -790,9 +771,11 @@ static void write_enabled_modules(hid_t parent_group_id) {
   attr_space = H5Screate(H5S_SCALAR);
   attr_str_type = H5Tcopy(H5T_C_S1);
   H5Tset_size(attr_str_type, 512);
-  attribute_id = H5Acreate(dataset_id, "description", attr_str_type,
-                           attr_space, H5P_DEFAULT, H5P_DEFAULT);
-  const char *desc = "Complete module execution pipeline configuration. Each row specifies one module's name, execution phase, and processing mode. Preserves full pipeline including modules in multiple phases.";
+  attribute_id =
+      H5Acreate(dataset_id, "description", attr_str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
+  const char *desc = "Complete module execution pipeline configuration. Each row specifies one "
+                     "module's name, execution phase, and processing mode. Preserves full pipeline "
+                     "including modules in multiple phases.";
   H5Awrite(attribute_id, attr_str_type, desc);
   H5Aclose(attribute_id);
   H5Tclose(attr_str_type);
@@ -815,7 +798,7 @@ typedef struct {
   char consumer_module[MAX_STRING_LEN];
   char producer_module[MAX_STRING_LEN];
   char event_name[MAX_STRING_LEN];
-  int  event_id;
+  int event_id;
 } ContractEntry;
 
 /** Accumulator state passed to fill_contract_cb */
@@ -825,24 +808,29 @@ typedef struct {
 } FillState;
 
 /** EventContractCallback: count pass — increments *(int *)userdata */
-static void count_contract_cb(const char *phase, const char *consumer,
-                               const char *producer, const char *event_name,
-                               int event_id, void *userdata) {
-  (void)phase; (void)consumer; (void)producer;
-  (void)event_name; (void)event_id;
+static void count_contract_cb(const char *phase, const char *consumer, const char *producer,
+                              const char *event_name, int event_id, void *userdata) {
+  (void)phase;
+  (void)consumer;
+  (void)producer;
+  (void)event_name;
+  (void)event_id;
   (*(int *)userdata)++;
 }
 
 /** EventContractCallback: fill pass — appends one row via FillState */
-static void fill_contract_cb(const char *phase, const char *consumer,
-                              const char *producer, const char *event_name,
-                              int event_id, void *userdata) {
+static void fill_contract_cb(const char *phase, const char *consumer, const char *producer,
+                             const char *event_name, int event_id, void *userdata) {
   FillState *fs = (FillState *)userdata;
   ContractEntry *e = &fs->buf[fs->idx++];
-  strncpy(e->phase,           phase,      MAX_STRING_LEN - 1); e->phase[MAX_STRING_LEN - 1]           = '\0';
-  strncpy(e->consumer_module, consumer,   MAX_STRING_LEN - 1); e->consumer_module[MAX_STRING_LEN - 1] = '\0';
-  strncpy(e->producer_module, producer,   MAX_STRING_LEN - 1); e->producer_module[MAX_STRING_LEN - 1] = '\0';
-  strncpy(e->event_name,      event_name, MAX_STRING_LEN - 1); e->event_name[MAX_STRING_LEN - 1]      = '\0';
+  strncpy(e->phase, phase, MAX_STRING_LEN - 1);
+  e->phase[MAX_STRING_LEN - 1] = '\0';
+  strncpy(e->consumer_module, consumer, MAX_STRING_LEN - 1);
+  e->consumer_module[MAX_STRING_LEN - 1] = '\0';
+  strncpy(e->producer_module, producer, MAX_STRING_LEN - 1);
+  e->producer_module[MAX_STRING_LEN - 1] = '\0';
+  strncpy(e->event_name, event_name, MAX_STRING_LEN - 1);
+  e->event_name[MAX_STRING_LEN - 1] = '\0';
   e->event_id = event_id;
 }
 
@@ -882,15 +870,13 @@ static void write_event_contracts(hid_t parent_group_id) {
   }
 
   /* --- Allocate buffer --- */
-  ContractEntry *entries = (ContractEntry *)mymalloc_cat(
-      count * sizeof(ContractEntry), MEM_IO);
+  ContractEntry *entries = (ContractEntry *)mymalloc_cat(count * sizeof(ContractEntry), MEM_IO);
   if (entries == NULL) {
-    FATAL_ERROR("Memory allocation failed for EventContracts array (%d entries)",
-                count);
+    FATAL_ERROR("Memory allocation failed for EventContracts array (%d entries)", count);
   }
 
   /* --- Fill pass --- */
-  FillState fs = { entries, 0 };
+  FillState fs = {entries, 0};
   module_system_enumerate_event_contracts(fill_contract_cb, &fs);
 
   /* --- Build HDF5 compound type --- */
@@ -901,24 +887,24 @@ static void write_event_contracts(hid_t parent_group_id) {
   }
 
   memtype = H5Tcreate(H5T_COMPOUND, sizeof(ContractEntry));
-  H5Tinsert(memtype, "phase",           HOFFSET(ContractEntry, phase),           str_type);
+  H5Tinsert(memtype, "phase", HOFFSET(ContractEntry, phase), str_type);
   H5Tinsert(memtype, "consumer_module", HOFFSET(ContractEntry, consumer_module), str_type);
   H5Tinsert(memtype, "producer_module", HOFFSET(ContractEntry, producer_module), str_type);
-  H5Tinsert(memtype, "event_name",      HOFFSET(ContractEntry, event_name),      str_type);
-  H5Tinsert(memtype, "event_id",        HOFFSET(ContractEntry, event_id),        H5T_NATIVE_INT);
+  H5Tinsert(memtype, "event_name", HOFFSET(ContractEntry, event_name), str_type);
+  H5Tinsert(memtype, "event_id", HOFFSET(ContractEntry, event_id), H5T_NATIVE_INT);
 
   filetype = H5Tcreate(H5T_COMPOUND, sizeof(ContractEntry));
-  H5Tinsert(filetype, "phase",           HOFFSET(ContractEntry, phase),           str_type);
+  H5Tinsert(filetype, "phase", HOFFSET(ContractEntry, phase), str_type);
   H5Tinsert(filetype, "consumer_module", HOFFSET(ContractEntry, consumer_module), str_type);
   H5Tinsert(filetype, "producer_module", HOFFSET(ContractEntry, producer_module), str_type);
-  H5Tinsert(filetype, "event_name",      HOFFSET(ContractEntry, event_name),      str_type);
-  H5Tinsert(filetype, "event_id",        HOFFSET(ContractEntry, event_id),        H5T_NATIVE_INT);
+  H5Tinsert(filetype, "event_name", HOFFSET(ContractEntry, event_name), str_type);
+  H5Tinsert(filetype, "event_id", HOFFSET(ContractEntry, event_id), H5T_NATIVE_INT);
 
   dims = (hsize_t)count;
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
-  dataset_id = H5Dcreate(parent_group_id, "EventContracts", filetype,
-                          dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  dataset_id = H5Dcreate(parent_group_id, "EventContracts", filetype, dataspace_id, H5P_DEFAULT,
+                         H5P_DEFAULT, H5P_DEFAULT);
   if (dataset_id < 0) {
     FATAL_ERROR("Failed to create EventContracts dataset in HDF5 file");
   }
@@ -932,12 +918,11 @@ static void write_event_contracts(hid_t parent_group_id) {
   attr_space = H5Screate(H5S_SCALAR);
   attr_str_type = H5Tcopy(H5T_C_S1);
   H5Tset_size(attr_str_type, 512);
-  attribute_id = H5Acreate(dataset_id, "description", attr_str_type,
-                            attr_space, H5P_DEFAULT, H5P_DEFAULT);
-  const char *desc =
-      "Resolved event subscription contracts active for this run. Each row "
-      "specifies one consumer module's subscription to one producer event "
-      "with the execution phase, module names, event name, and numeric event ID.";
+  attribute_id =
+      H5Acreate(dataset_id, "description", attr_str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
+  const char *desc = "Resolved event subscription contracts active for this run. Each row "
+                     "specifies one consumer module's subscription to one producer event "
+                     "with the execution phase, module names, event name, and numeric event ID.";
   H5Awrite(attribute_id, attr_str_type, desc);
   H5Aclose(attribute_id);
   H5Tclose(attr_str_type);
@@ -968,18 +953,17 @@ static void write_perfile_metadata(hid_t file_id) {
   hid_t props_group_id;
 
   /* Create RunProperties group for per-file metadata */
-  props_group_id = H5Gcreate(file_id, "RunProperties", H5P_DEFAULT,
-                             H5P_DEFAULT, H5P_DEFAULT);
+  props_group_id = H5Gcreate(file_id, "RunProperties", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   if (props_group_id < 0) {
     FATAL_ERROR("Failed to create RunProperties group in per-file HDF5 output");
   }
 
   /* Write essential metadata for self-containment (same order as master) */
-  write_version_metadata(props_group_id);     /* Identity */
-  write_enabled_modules(props_group_id);      /* Configuration */
-  write_event_contracts(props_group_id);      /* Configuration: event wiring */
-  write_parameters_metadata(props_group_id);  /* Configuration */
-  write_redshifts(props_group_id);            /* Auxiliary */
+  write_version_metadata(props_group_id);    /* Identity */
+  write_enabled_modules(props_group_id);     /* Configuration */
+  write_event_contracts(props_group_id);     /* Configuration: event wiring */
+  write_parameters_metadata(props_group_id); /* Configuration */
+  write_redshifts(props_group_id);           /* Auxiliary */
 
   H5Gclose(props_group_id);
 }
@@ -1011,43 +995,43 @@ static void store_run_properties(hid_t master_file_id) {
   /* Configuration parameter table - defines what to write to HDF5
    * This table approach keeps the code generic and agnostic to specific parameters */
   ConfigParamDescriptor config_params[] = {
-    /* File information */
-    {"OutputFileBaseName", STRING, &MimicConfig.OutputFileBaseName},
-    {"TreeName", STRING, &MimicConfig.TreeName},
-    {"SimulationDir", STRING, &MimicConfig.SimulationDir},
-    {"FileWithSnapList", STRING, &MimicConfig.FileWithSnapList},
-    {"ModelName", STRING, &MimicConfig.ModelName},
-    {"ModelPath", STRING, &MimicConfig.ModelPath},
-    {"ModelPropertiesPath", STRING, &MimicConfig.ModelPropertiesPath},
-    {"SimulationName", STRING, &MimicConfig.SimulationName},
-    {"SimulationPath", STRING, &MimicConfig.SimulationPath},
-    {"SimulationConfigPath", STRING, &MimicConfig.SimulationConfigPath},
-    {"SimulationHaloPropertiesPath", STRING, &MimicConfig.SimulationHaloPropertiesPath},
-    {"PlottingProfilePath", STRING, &MimicConfig.PlottingProfilePath},
+      /* File information */
+      {"OutputFileBaseName", STRING, &MimicConfig.OutputFileBaseName},
+      {"TreeName", STRING, &MimicConfig.TreeName},
+      {"SimulationDir", STRING, &MimicConfig.SimulationDir},
+      {"FileWithSnapList", STRING, &MimicConfig.FileWithSnapList},
+      {"ModelName", STRING, &MimicConfig.ModelName},
+      {"ModelPath", STRING, &MimicConfig.ModelPath},
+      {"ModelPropertiesPath", STRING, &MimicConfig.ModelPropertiesPath},
+      {"SimulationName", STRING, &MimicConfig.SimulationName},
+      {"SimulationPath", STRING, &MimicConfig.SimulationPath},
+      {"SimulationConfigPath", STRING, &MimicConfig.SimulationConfigPath},
+      {"SimulationHaloPropertiesPath", STRING, &MimicConfig.SimulationHaloPropertiesPath},
+      {"PlottingProfilePath", STRING, &MimicConfig.PlottingProfilePath},
 
-    /* Simulation parameters */
-    {"LastSnapshotNr", INT, &MimicConfig.LastSnapshotNr},
-    {"FirstFile", INT, &MimicConfig.FirstFile},
-    {"LastFile", INT, &MimicConfig.LastFile},
-    {"NumOutputs", INT, &MimicConfig.NOUT},
-    {"BoxSize", DOUBLE, &MimicConfig.BoxSize},
+      /* Simulation parameters */
+      {"LastSnapshotNr", INT, &MimicConfig.LastSnapshotNr},
+      {"FirstFile", INT, &MimicConfig.FirstFile},
+      {"LastFile", INT, &MimicConfig.LastFile},
+      {"NumOutputs", INT, &MimicConfig.NOUT},
+      {"BoxSize", DOUBLE, &MimicConfig.BoxSize},
 
-    /* Cosmology */
-    {"Omega", DOUBLE, &MimicConfig.Omega},
-    {"OmegaLambda", DOUBLE, &MimicConfig.OmegaLambda},
-    {"Hubble_h", DOUBLE, &MimicConfig.Hubble_h},
-    {"PartMass", DOUBLE, &MimicConfig.PartMass},
+      /* Cosmology */
+      {"Omega", DOUBLE, &MimicConfig.Omega},
+      {"OmegaLambda", DOUBLE, &MimicConfig.OmegaLambda},
+      {"Hubble_h", DOUBLE, &MimicConfig.Hubble_h},
+      {"PartMass", DOUBLE, &MimicConfig.PartMass},
 
-    /* Units */
-    {"UnitVelocity_in_cm_per_s", DOUBLE, &MimicConfig.UnitVelocity_in_cm_per_s},
-    {"UnitLength_in_cm", DOUBLE, &MimicConfig.UnitLength_in_cm},
-    {"UnitMass_in_g", DOUBLE, &MimicConfig.UnitMass_in_g},
+      /* Units */
+      {"UnitVelocity_in_cm_per_s", DOUBLE, &MimicConfig.UnitVelocity_in_cm_per_s},
+      {"UnitLength_in_cm", DOUBLE, &MimicConfig.UnitLength_in_cm},
+      {"UnitMass_in_g", DOUBLE, &MimicConfig.UnitMass_in_g},
   };
   int num_config_params = sizeof(config_params) / sizeof(ConfigParamDescriptor);
 
   /* Create the group to hold the run properties */
-  props_group_id = H5Gcreate(master_file_id, "RunProperties", H5P_DEFAULT,
-                             H5P_DEFAULT, H5P_DEFAULT);
+  props_group_id =
+      H5Gcreate(master_file_id, "RunProperties", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 
   /* Set up common data structures for attributes */
   dims = 1;
@@ -1062,25 +1046,22 @@ static void store_run_properties(hid_t master_file_id) {
   for (i = 0; i < num_config_params; i++) {
     switch (config_params[i].type) {
     case INT:
-      attribute_id = H5Acreate(props_group_id, config_params[i].name,
-                              H5T_NATIVE_INT, dataspace_id,
-                              H5P_DEFAULT, H5P_DEFAULT);
+      attribute_id = H5Acreate(props_group_id, config_params[i].name, H5T_NATIVE_INT, dataspace_id,
+                               H5P_DEFAULT, H5P_DEFAULT);
       H5Awrite(attribute_id, H5T_NATIVE_INT, config_params[i].address);
       H5Aclose(attribute_id);
       break;
 
     case DOUBLE:
-      attribute_id = H5Acreate(props_group_id, config_params[i].name,
-                              H5T_NATIVE_DOUBLE, dataspace_id,
-                              H5P_DEFAULT, H5P_DEFAULT);
+      attribute_id = H5Acreate(props_group_id, config_params[i].name, H5T_NATIVE_DOUBLE,
+                               dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
       H5Awrite(attribute_id, H5T_NATIVE_DOUBLE, config_params[i].address);
       H5Aclose(attribute_id);
       break;
 
     case STRING:
-      attribute_id = H5Acreate(props_group_id, config_params[i].name,
-                              str_type, dataspace_id,
-                              H5P_DEFAULT, H5P_DEFAULT);
+      attribute_id = H5Acreate(props_group_id, config_params[i].name, str_type, dataspace_id,
+                               H5P_DEFAULT, H5P_DEFAULT);
       H5Awrite(attribute_id, str_type, config_params[i].address);
       H5Aclose(attribute_id);
       break;
@@ -1099,14 +1080,14 @@ static void store_run_properties(hid_t master_file_id) {
   default:
     tree_type_str = "unknown";
   }
-  attribute_id = H5Acreate(props_group_id, "TreeType", str_type,
-                          dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(props_group_id, "TreeType", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, tree_type_str);
   H5Aclose(attribute_id);
 
   /* Runtime metadata */
-  attribute_id = H5Acreate(props_group_id, "NCores", H5T_NATIVE_INT,
-                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(props_group_id, "NCores", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
 #ifdef MPI
   H5Awrite(attribute_id, H5T_NATIVE_INT, &NTask);
 #else
@@ -1117,15 +1098,15 @@ static void store_run_properties(hid_t master_file_id) {
 
   time(&t);
   local = localtime(&t);
-  attribute_id = H5Acreate(props_group_id, "RunEndTime", str_type, dataspace_id,
-                           H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(props_group_id, "RunEndTime", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, asctime(local));
   H5Aclose(attribute_id);
 
   /* Add input simulation info if defined */
 #ifdef INPUTSIM
-  attribute_id = H5Acreate(props_group_id, "InputSimulation", str_type,
-                           dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id = H5Acreate(props_group_id, "InputSimulation", str_type, dataspace_id, H5P_DEFAULT,
+                           H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, INPUTSIM);
   H5Aclose(attribute_id);
 #endif
@@ -1135,11 +1116,11 @@ static void store_run_properties(hid_t master_file_id) {
   H5Tclose(str_type);
 
   /* Add extended metadata using helper functions (ordered by importance) */
-  write_version_metadata(props_group_id);     /* Identity: version & provenance */
-  write_enabled_modules(props_group_id);      /* Configuration: which physics */
-  write_event_contracts(props_group_id);      /* Configuration: event wiring */
-  write_parameters_metadata(props_group_id);  /* Configuration: parameter values */
-  write_redshifts(props_group_id);            /* Auxiliary: snapshot mapping */
+  write_version_metadata(props_group_id);    /* Identity: version & provenance */
+  write_enabled_modules(props_group_id);     /* Configuration: which physics */
+  write_event_contracts(props_group_id);     /* Configuration: event wiring */
+  write_parameters_metadata(props_group_id); /* Configuration: parameter values */
+  write_redshifts(props_group_id);           /* Auxiliary: snapshot mapping */
 
   /* Close the RunProperties group */
   H5Gclose(props_group_id);
@@ -1162,59 +1143,54 @@ void write_master_file(void) {
   int filenr, n, ngal_in_file, ngal_in_core;
   char master_file[2 * MAX_STRING_LEN + 50], target_file[2 * MAX_STRING_LEN + 50];
   char target_group[100], source_ds[100];
-  hid_t master_file_id, dataset_id, attribute_id, dataspace_id, group_id,
-      target_file_id;
+  hid_t master_file_id, dataset_id, attribute_id, dataspace_id, group_id, target_file_id;
   herr_t status;
   hsize_t dims;
   float redshift;
   int ret;
 
   // Open the master file.
-  ret = snprintf(master_file, sizeof(master_file), "%s/%s.hdf5",
-                 MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
+  ret = snprintf(master_file, sizeof(master_file), "%s/%s.hdf5", MimicConfig.OutputDir,
+                 MimicConfig.OutputFileBaseName);
   if (ret < 0) {
-    FATAL_ERROR("Path formatting error for: %s/%s.hdf5",
-                MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
+    FATAL_ERROR("Path formatting error for: %s/%s.hdf5", MimicConfig.OutputDir,
+                MimicConfig.OutputFileBaseName);
   }
   if (ret >= (int)sizeof(master_file)) {
-    FATAL_ERROR("Master file path too long: %s/%s.hdf5",
-                MimicConfig.OutputDir, MimicConfig.OutputFileBaseName);
+    FATAL_ERROR("Master file path too long: %s/%s.hdf5", MimicConfig.OutputDir,
+                MimicConfig.OutputFileBaseName);
   }
   DEBUG_LOG("Creating master HDF5 file '%s'", master_file);
-  master_file_id =
-      H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  master_file_id = H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
   // Loop through each snapshot.
   for (n = 0; n < MimicConfig.NOUT; n++) {
 
     // Create a group to hold this snapshot's data
     sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
-    group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT, H5P_DEFAULT,
-                         H5P_DEFAULT);
+    group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 
     // Save the redshift of this snapshot as an attribute
     dims = 1;
     dataspace_id = H5Screate_simple(1, &dims, NULL);
-    attribute_id = H5Acreate(group_id, "Redshift", H5T_NATIVE_FLOAT,
-                             dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+    attribute_id =
+        H5Acreate(group_id, "Redshift", H5T_NATIVE_FLOAT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
     redshift = (float)(MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]]);
     H5Awrite(attribute_id, H5T_NATIVE_FLOAT, &redshift);
     H5Aclose(attribute_id);
     H5Sclose(dataspace_id);
 
-    // Add FieldMetadata table to master file for self-documentation
-    // (auto-generated from property metadata, same as per-file output)
-    #include "../../include/generated/hdf5_field_metadata.inc"
+// Add FieldMetadata table to master file for self-documentation
+// (auto-generated from property metadata, same as per-file output)
+#include "../../include/generated/hdf5_field_metadata.inc"
 
     H5Gclose(group_id);
 
     // Loop through each file for this snapshot.
-    for (filenr = MimicConfig.FirstFile; filenr <= MimicConfig.LastFile;
-         filenr++) {
+    for (filenr = MimicConfig.FirstFile; filenr <= MimicConfig.LastFile; filenr++) {
       // Create a group to hold this snapshot's data
       sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
-      group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT,
-                           H5P_DEFAULT, H5P_DEFAULT);
+      group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
       H5Gclose(group_id);
 
       ngal_in_file = 0;
@@ -1222,40 +1198,38 @@ void write_master_file(void) {
       sprintf(target_file, "%s_%03d.hdf5", MimicConfig.OutputFileBaseName, filenr);
 
       // Create a dataset which will act as the soft link to the output
-      sprintf(target_group, "Snap%03d/File%03d/Galaxies", MimicConfig.ListOutputSnaps[n],
-              filenr);
+      sprintf(target_group, "Snap%03d/File%03d/Galaxies", MimicConfig.ListOutputSnaps[n], filenr);
       sprintf(source_ds, "Snap%03d/Galaxies", MimicConfig.ListOutputSnaps[n]);
       DEBUG_LOG("Creating external DS link - %s", target_group);
-      status = H5Lcreate_external(target_file, source_ds, master_file_id,
-                                  target_group, H5P_DEFAULT, H5P_DEFAULT);
+      status = H5Lcreate_external(target_file, source_ds, master_file_id, target_group, H5P_DEFAULT,
+                                  H5P_DEFAULT);
       if (status < 0) {
-        FATAL_ERROR(
-            "Failed to create external link for Galaxies in master file");
+        FATAL_ERROR("Failed to create external link for Galaxies in master file");
       }
 
       // Create a dataset which will act as the soft link to the array storing
       // the number of objects per tree for this file.
-      sprintf(target_group, "Snap%03d/File%03d/TreeHalosPerSnap",
-              MimicConfig.ListOutputSnaps[n], filenr);
+      sprintf(target_group, "Snap%03d/File%03d/TreeHalosPerSnap", MimicConfig.ListOutputSnaps[n],
+              filenr);
       sprintf(source_ds, "Snap%03d/TreeHalosPerSnap", MimicConfig.ListOutputSnaps[n]);
       DEBUG_LOG("Creating external DS link - %s", target_group);
-      status = H5Lcreate_external(target_file, source_ds, master_file_id,
-                                  target_group, H5P_DEFAULT, H5P_DEFAULT);
+      status = H5Lcreate_external(target_file, source_ds, master_file_id, target_group, H5P_DEFAULT,
+                                  H5P_DEFAULT);
       if (status < 0) {
         FATAL_ERROR("Failed to create external link for TreeHalosPerSnap in "
                     "master file");
       }
 
       // Increment the total number of objects for this file.
-      ret = snprintf(target_file, sizeof(target_file), "%s/%s_%03d.hdf5",
-                     MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+      ret = snprintf(target_file, sizeof(target_file), "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
+                     MimicConfig.OutputFileBaseName, filenr);
       if (ret < 0) {
-        FATAL_ERROR("Path formatting error for: %s/%s_%03d.hdf5",
-                    MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+        FATAL_ERROR("Path formatting error for: %s/%s_%03d.hdf5", MimicConfig.OutputDir,
+                    MimicConfig.OutputFileBaseName, filenr);
       }
       if (ret >= (int)sizeof(target_file)) {
-        FATAL_ERROR("Target file path too long: %s/%s_%03d.hdf5",
-                    MimicConfig.OutputDir, MimicConfig.OutputFileBaseName, filenr);
+        FATAL_ERROR("Target file path too long: %s/%s_%03d.hdf5", MimicConfig.OutputDir,
+                    MimicConfig.OutputFileBaseName, filenr);
       }
       target_file_id = H5Fopen(target_file, H5F_ACC_RDONLY, H5P_DEFAULT);
       sprintf(source_ds, "Snap%03d/Galaxies", MimicConfig.ListOutputSnaps[n]);
@@ -1263,8 +1237,7 @@ void write_master_file(void) {
       attribute_id = H5Aopen(dataset_id, "TotHalosPerSnap", H5P_DEFAULT);
       status = H5Aread(attribute_id, H5T_NATIVE_INT, &ngal_in_core);
       if (status < 0) {
-        FATAL_ERROR("Failed to read TotHalosPerSnap attribute from file '%s'",
-                    target_file);
+        FATAL_ERROR("Failed to read TotHalosPerSnap attribute from file '%s'", target_file);
       }
       H5Aclose(attribute_id);
       H5Dclose(dataset_id);
@@ -1276,8 +1249,8 @@ void write_master_file(void) {
       dataspace_id = H5Screate_simple(1, &dims, NULL);
       sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
       group_id = H5Gopen(master_file_id, target_group, H5P_DEFAULT);
-      attribute_id = H5Acreate(group_id, "TotHalosPerSnap", H5T_NATIVE_INT,
-                               dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+      attribute_id = H5Acreate(group_id, "TotHalosPerSnap", H5T_NATIVE_INT, dataspace_id,
+                               H5P_DEFAULT, H5P_DEFAULT);
       H5Awrite(attribute_id, H5T_NATIVE_INT, &ngal_in_file);
       H5Aclose(attribute_id);
       H5Gclose(group_id);
@@ -1295,13 +1268,13 @@ void write_master_file(void) {
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
   sprintf(tempstr, GITREF_STR);
-  attribute_id = H5Acreate(master_file_id, "GitRef", str_type, dataspace_id,
-                           H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(master_file_id, "GitRef", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, tempstr);
 
   sprintf(tempstr, MODELNAME);
-  attribute_id = H5Acreate(master_file_id, "Model", str_type, dataspace_id,
-                           H5P_DEFAULT, H5P_DEFAULT);
+  attribute_id =
+      H5Acreate(master_file_id, "Model", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, tempstr);
 
   H5Aclose(attribute_id);
@@ -1343,13 +1316,12 @@ void save_halos_hdf5(int filenr, int tree) {
       continue; /* Skip snapshots with no halos */
 
     /* Allocate array for batch writing using tracked memory allocation */
-    struct HaloOutput *halo_batch = (struct HaloOutput *)mymalloc_cat(
-        OutputGalCount[n] * sizeof(struct HaloOutput), MEM_IO);
+    struct HaloOutput *halo_batch =
+        (struct HaloOutput *)mymalloc_cat(OutputGalCount[n] * sizeof(struct HaloOutput), MEM_IO);
     if (halo_batch == NULL) {
       FATAL_ERROR("Memory allocation failed for HaloOutput batch array (%d "
                   "halos, %zu bytes)",
-                  OutputGalCount[n],
-                  OutputGalCount[n] * sizeof(struct HaloOutput));
+                  OutputGalCount[n], OutputGalCount[n] * sizeof(struct HaloOutput));
     }
 
     /* Prepare all halos for this snapshot */

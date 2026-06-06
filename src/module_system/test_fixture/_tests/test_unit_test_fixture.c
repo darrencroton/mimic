@@ -41,36 +41,31 @@ static int failed = 0;
 static int modules_registered = 0;
 
 /* Test fixture: reset configuration state */
-static void reset_config(void)
-{
-    memset(&MimicConfig, 0, sizeof(MimicConfig));
-}
+static void reset_config(void) { memset(&MimicConfig, 0, sizeof(MimicConfig)); }
 
 /* Test fixture: ensure modules are registered (only once) */
-static void ensure_modules_registered(void)
-{
-    if (!modules_registered) {
-        register_all_modules();
-        modules_registered = 1;
-    }
+static void ensure_modules_registered(void) {
+  if (!modules_registered) {
+    register_all_modules();
+    modules_registered = 1;
+  }
 }
 
 /* Test fixture: Set test_fixture parameters via centralized system */
-static void set_test_fixture_params(double dummy_val, int logging_val)
-{
-    // Set parameters in parameter system
-    // ModelParams is an array of {param_name, value} pairs
-    int idx = 0;
+static void set_test_fixture_params(double dummy_val, int logging_val) {
+  // Set parameters in parameter system
+  // ModelParams is an array of {param_name, value} pairs
+  int idx = 0;
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureDummyParameter");
-    snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%.10g", dummy_val);
-    idx++;
+  strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureDummyParameter");
+  snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%.10g", dummy_val);
+  idx++;
 
-    strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureEnableLogging");
-    snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%d", logging_val);
-    idx++;
+  strcpy(MimicConfig.ModelParams[idx].param_name, "TestFixtureEnableLogging");
+  snprintf(MimicConfig.ModelParams[idx].value, MAX_STRING_LEN, "%d", logging_val);
+  idx++;
 
-    MimicConfig.NumModelParams = idx;
+  MimicConfig.NumModelParams = idx;
 }
 
 /**
@@ -79,18 +74,17 @@ static void set_test_fixture_params(double dummy_val, int logging_val)
  *
  * Expected: Module registration succeeds without errors
  */
-int test_module_registration(void)
-{
-    /* ===== SETUP ===== */
-    reset_config();
+int test_module_registration(void) {
+  /* ===== SETUP ===== */
+  reset_config();
 
-    /* ===== EXECUTE ===== */
-    ensure_modules_registered();
+  /* ===== EXECUTE ===== */
+  ensure_modules_registered();
 
-    /* ===== VALIDATE ===== */
-    /* If we got here without crashing, registration succeeded */
+  /* ===== VALIDATE ===== */
+  /* If we got here without crashing, registration succeeded */
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -99,29 +93,28 @@ int test_module_registration(void)
  *
  * Expected: Module init and cleanup succeed without errors
  */
-int test_module_initialization(void)
-{
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
-    set_test_fixture_params(2.5, 0);
+int test_module_initialization(void) {
+  /* ===== SETUP ===== */
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+  set_test_fixture_params(2.5, 0);
 
-    /* Configure test_fixture module in a substep phase (for testing) */
-    test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
-    MimicConfig.SubSteps = 1;
+  /* Configure test_fixture module in a substep phase (for testing) */
+  test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
 
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
+  /* ===== EXECUTE ===== */
+  int result = module_system_init();
 
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == 0, "Module system init should succeed");
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(result == 0, "Module system init should succeed");
 
-    /* ===== CLEANUP ===== */
-    module_system_cleanup();
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  module_system_cleanup();
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -130,32 +123,31 @@ int test_module_initialization(void)
  *
  * Expected: Module reads DummyParameter from config
  */
-int test_parameter_reading(void)
-{
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
+int test_parameter_reading(void) {
+  /* ===== SETUP ===== */
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
 
-    /* Set custom parameter value via centralized system */
-    set_test_fixture_params(3.14, 0);
+  /* Set custom parameter value via centralized system */
+  set_test_fixture_params(3.14, 0);
 
-    /* Configure test_fixture module in a substep phase (for testing) */
-    test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
-    MimicConfig.SubSteps = 1;
+  /* Configure test_fixture module in a substep phase (for testing) */
+  test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
 
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
+  /* ===== EXECUTE ===== */
+  int result = module_system_init();
 
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(result == 0, "Module init should succeed with custom parameters");
-    /* Parameter is internal to module, we validated it initialized without error */
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(result == 0, "Module init should succeed with custom parameters");
+  /* Parameter is internal to module, we validated it initialized without error */
 
-    /* ===== CLEANUP ===== */
-    module_system_cleanup();
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  module_system_cleanup();
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -165,32 +157,31 @@ int test_parameter_reading(void)
  * Expected: Property can be read/written without crashes
  * Note: Full property setting tested in integration tests
  */
-int test_property_access(void)
-{
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+int test_property_access(void) {
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* Create test halo and galaxy */
-    struct Halo test_halo;
-    memset(&test_halo, 0, sizeof(test_halo));
-    test_halo.Type = 0; /* Central galaxy */
+  /* Create test halo and galaxy */
+  struct Halo test_halo;
+  memset(&test_halo, 0, sizeof(test_halo));
+  test_halo.Type = 0; /* Central galaxy */
 
-    struct GalaxyData test_galaxy;
-    memset(&test_galaxy, 0, sizeof(test_galaxy));
-    test_halo.galaxy = &test_galaxy;
+  struct GalaxyData test_galaxy;
+  memset(&test_galaxy, 0, sizeof(test_galaxy));
+  test_halo.galaxy = &test_galaxy;
 
-    /* ===== EXECUTE ===== */
-    /* Test property access (should not crash) */
-    test_galaxy.TestDummyProperty = 1.5f;
-    float value = test_galaxy.TestDummyProperty;
+  /* ===== EXECUTE ===== */
+  /* Test property access (should not crash) */
+  test_galaxy.TestDummyProperty = 1.5f;
+  float value = test_galaxy.TestDummyProperty;
 
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(fabs(value - 1.5f) < 1e-6, "Property access should work correctly");
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(fabs(value - 1.5f) < 1e-6, "Property access should work correctly");
 
-    /* ===== CLEANUP ===== */
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -199,53 +190,51 @@ int test_property_access(void)
  *
  * Expected: No memory leaks after init/cleanup cycle
  */
-int test_memory_safety(void)
-{
-    /* ===== SETUP ===== */
-    reset_config();
-    init_memory_system(0);
-    ensure_modules_registered();
-    set_test_fixture_params(2.5, 0);
+int test_memory_safety(void) {
+  /* ===== SETUP ===== */
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+  set_test_fixture_params(2.5, 0);
 
-    /* Configure test_fixture module in a substep phase (for testing) */
-    test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
-    MimicConfig.SubSteps = 1;
+  /* Configure test_fixture module in a substep phase (for testing) */
+  test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
+  MimicConfig.SubSteps = 1;
 
-    /* ===== EXECUTE ===== */
-    int result = module_system_init();
-    TEST_ASSERT(result == 0, "Module initialization should succeed");
+  /* ===== EXECUTE ===== */
+  int result = module_system_init();
+  TEST_ASSERT(result == 0, "Module initialization should succeed");
 
-    /* ===== VALIDATE ===== */
-    /* Module initialized successfully without memory leaks */
-    /* (Full pipeline processing tested in integration tests) */
+  /* ===== VALIDATE ===== */
+  /* Module initialized successfully without memory leaks */
+  /* (Full pipeline processing tested in integration tests) */
 
-    /* ===== CLEANUP ===== */
-    module_system_cleanup();
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  module_system_cleanup();
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
  * @brief   Main test runner
  */
-int main(void)
-{
-    printf("%s", BLUE);
-    printf("============================================================\n");
-    printf("Test Suite: test_fixture\n");
-    printf("============================================================\n");
-    printf("%s", NC);
+int main(void) {
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: test_fixture\n");
+  printf("============================================================\n");
+  printf("%s", NC);
 
-    /* Run tests */
-    TEST_RUN(test_module_registration);
-    TEST_RUN(test_module_initialization);
-    TEST_RUN(test_parameter_reading);
-    TEST_RUN(test_property_access);
-    TEST_RUN(test_memory_safety);
+  /* Run tests */
+  TEST_RUN(test_module_registration);
+  TEST_RUN(test_module_initialization);
+  TEST_RUN(test_parameter_reading);
+  TEST_RUN(test_property_access);
+  TEST_RUN(test_memory_safety);
 
-    /* Print summary */
-    TEST_SUMMARY();
+  /* Print summary */
+  TEST_SUMMARY();
 
-    return TEST_RESULT();
+  return TEST_RESULT();
 }

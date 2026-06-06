@@ -36,9 +36,9 @@ struct InheritanceProgenitorGalaxy {
  * assert(), so callers must satisfy the precondition rather than rely on
  * runtime growth here.
  */
-int inherit_descendant_halos(
-    struct Halo *workspace, int start, int capacity,
-    const struct InheritanceDescendant *descendant,
-    const struct InheritanceProgenitorGalaxy *progenitors, int nprogenitors);
+int inherit_descendant_halos(struct Halo *workspace, int start, int capacity,
+                             const struct InheritanceDescendant *descendant,
+                             const struct InheritanceProgenitorGalaxy *progenitors,
+                             int nprogenitors);
 
 #endif /* CORE_INHERITANCE_H */

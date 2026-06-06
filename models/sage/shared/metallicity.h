@@ -3,7 +3,8 @@
  * @brief Common metallicity calculation utilities for physics modules
  *
  * This shared utility provides robust metallicity calculations used by
- * multiple physics modules (sage_calculate_infall, sage_calculate_cooling, sage_radio_mode_heating, etc.).
+ * multiple physics modules (sage_calculate_infall, sage_calculate_cooling, sage_radio_mode_heating,
+ * etc.).
  *
  * @note This file is part of the model-local shared utilities system.
  *       Modules include it using relative paths: #include "shared/metallicity.h"
@@ -34,15 +35,14 @@
  *   float stripped_metals = stripped_gas * Z;
  * @endcode
  */
-static inline float mimic_get_metallicity(float gas, float metals)
-{
-    if (gas <= EPSILON_SMALL)
-        return 0.0f;
+static inline float mimic_get_metallicity(float gas, float metals) {
+  if (gas <= EPSILON_SMALL)
+    return 0.0f;
 
-    float Z = metals / gas;
+  float Z = metals / gas;
 
-    /* Cap at 1.0 to enforce physical limit (100% metal mass fraction) */
-    return (Z < 1.0f) ? Z : 1.0f;
+  /* Cap at 1.0 to enforce physical limit (100% metal mass fraction) */
+  return (Z < 1.0f) ? Z : 1.0f;
 }
 
 #endif /* MIMIC_SHARED_METALLICITY_H */

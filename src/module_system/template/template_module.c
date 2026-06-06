@@ -88,8 +88,7 @@ int template_module_init(void) {
  * @param   ngal    Number of halos (1 if process_by_galaxy, >1 if process_full_halo)
  * @return  0 on success, non-zero on failure
  */
-int template_module_process(struct ModuleContext *ctx,
-                                    struct Halo *halos, int ngal) {
+int template_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
   if (halos == NULL || ngal <= 0) {
     return 0;
   }

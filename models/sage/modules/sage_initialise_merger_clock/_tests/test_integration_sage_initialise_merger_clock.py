@@ -30,11 +30,12 @@ Date: 2025-12-23
 """
 
 import os
-import sys
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
 import numpy as np
 
 # Repository root and paths
@@ -45,19 +46,19 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
     create_test_param_file,
-    run_mimic,
     load_binary_halos,
-    validate_no_nans,
+    run_mimic,
     validate_no_infs,
-    validate_range
+    validate_no_nans,
+    validate_range,
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def test_module_loads():
@@ -73,24 +74,24 @@ def test_module_loads():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_initialise_merger_clock_load",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={}
+        model_params={},
     )
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Mimic should execute successfully\nStderr: {stderr}"
+    assert returncode == 0, f"Mimic should execute successfully\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE initialise merger clock initialized" in stdout, \
-        f"sage_initialise_merger_clock should log initialization message\nStdout:\n{stdout}"
+    assert (
+        "SAGE initialise merger clock initialized" in stdout
+    ), f"sage_initialise_merger_clock should log initialization message\nStdout:\n{stdout}"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -111,12 +112,12 @@ def test_memory_safety():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_initialise_merger_clock_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={}
+        model_params={},
     )
 
     # ===== EXECUTE =====
@@ -124,10 +125,8 @@ def test_memory_safety():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Execution should succeed"
-    assert "Memory leak detected" not in stdout, \
-        "Should not have memory leaks"
-    assert "Memory leak detected" not in stderr, \
-        "Should not have memory leaks in stderr"
+    assert "Memory leak detected" not in stdout, "Should not have memory leaks"
+    assert "Memory leak detected" not in stderr, "Should not have memory leaks in stderr"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -149,14 +148,14 @@ def test_output_properties_exist():
         output_name="sage_initialise_merger_clock_properties",
         output_format="binary",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -171,10 +170,11 @@ def test_output_properties_exist():
     # Check required properties exist (C-Python binding validation)
     # Note: MergTime may not be in output struct if not configured for output
     # Check Type and infallMvir which the module reads
-    required_props = ['Type', 'Mvir', 'infallMvir', 'Len']
+    required_props = ["Type", "Mvir", "infallMvir", "Len"]
     for prop in required_props:
-        assert prop in halos.dtype.names, \
-            f"Property '{prop}' should exist in output (C-Python binding)"
+        assert (
+            prop in halos.dtype.names
+        ), f"Property '{prop}' should exist in output (C-Python binding)"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -196,14 +196,14 @@ def test_output_property_types():
         output_name="sage_initialise_merger_clock_types",
         output_format="binary",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -215,12 +215,11 @@ def test_output_property_types():
     halos, metadata = load_binary_halos(str(output_file))
 
     # Check data types
-    assert halos['Type'].dtype == np.int32, \
-        f"Type should be int32, got {halos['Type'].dtype}"
-    assert halos['Mvir'].dtype == np.float32, \
-        f"Mvir should be float32, got {halos['Mvir'].dtype}"
-    assert halos['infallMvir'].dtype == np.float32, \
-        f"infallMvir should be float32, got {halos['infallMvir'].dtype}"
+    assert halos["Type"].dtype == np.int32, f"Type should be int32, got {halos['Type'].dtype}"
+    assert halos["Mvir"].dtype == np.float32, f"Mvir should be float32, got {halos['Mvir'].dtype}"
+    assert (
+        halos["infallMvir"].dtype == np.float32
+    ), f"infallMvir should be float32, got {halos['infallMvir'].dtype}"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -242,14 +241,14 @@ def test_output_sanity_checks():
         output_name="sage_initialise_merger_clock_sanity",
         output_format="binary",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -265,11 +264,10 @@ def test_output_sanity_checks():
     validate_no_infs(halos)
 
     # Check Type values are valid (0, 1, 2, or 3)
-    assert np.all((halos['Type'] >= 0) & (halos['Type'] <= 3)), \
-        "Type should be 0, 1, 2, or 3"
+    assert np.all((halos["Type"] >= 0) & (halos["Type"] <= 3)), "Type should be 0, 1, 2, or 3"
 
     # Check Mvir is non-negative
-    validate_range(halos, 'Mvir', 0.0, 1e10)
+    validate_range(halos, "Mvir", 0.0, 1e10)
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -292,14 +290,14 @@ def test_data_flow_validation():
         output_name="sage_initialise_merger_clock_dataflow",
         output_format="binary",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -314,18 +312,19 @@ def test_data_flow_validation():
     assert len(halos) > 0, "Output should contain halos"
 
     # Verify centrals exist (Type 0)
-    centrals = halos[halos['Type'] == 0]
+    centrals = halos[halos["Type"] == 0]
     assert len(centrals) > 0, "Output should contain centrals"
 
     # Verify satellites exist (Type 1) - needed for merger timescale calculation
-    satellites = halos[halos['Type'] == 1]
+    satellites = halos[halos["Type"] == 1]
     # Note: Not all trees may have satellites at z=0
     if len(satellites) > 0:
         print(f"    Found {len(satellites)} satellites in output")
 
     # Basic data flow check: Data is valid (not all NaN)
-    assert not np.all(np.isnan(halos['Mvir'])), \
-        "Mvir values should not all be NaN (data should flow through)"
+    assert not np.all(
+        np.isnan(halos["Mvir"])
+    ), "Mvir values should not all be NaN (data should flow through)"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -346,26 +345,26 @@ def test_standalone_execution():
     param_file, output_dir, test_temp_dir = create_test_param_file(
         output_name="sage_initialise_merger_clock_standalone",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Module should run standalone without other modules\nStderr: {stderr}"
+    assert returncode == 0, f"Module should run standalone without other modules\nStderr: {stderr}"
 
     # Verify module initialized (log message check)
-    assert "SAGE initialise merger clock initialized" in stdout, \
-        f"Module should initialize\nStdout:\n{stdout}"
+    assert (
+        "SAGE initialise merger clock initialized" in stdout
+    ), f"Module should initialize\nStdout:\n{stdout}"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
@@ -388,14 +387,14 @@ def test_with_infall_module():
         output_name="sage_initialise_merger_clock_infall",
         output_format="binary",
         phase_config={
-            'pre_timestep': [('sage_set_infall_properties', 'process_full_halo')],
-            'galaxy_physics': [('sage_initialise_merger_clock', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_set_infall_properties", "process_full_halo")],
+            "galaxy_physics": [("sage_initialise_merger_clock", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -413,10 +412,10 @@ def test_with_infall_module():
     halos, metadata = load_binary_halos(str(output_file))
 
     # Check that satellites have infallMvir set
-    satellites = halos[halos['Type'] == 1]
+    satellites = halos[halos["Type"] == 1]
     if len(satellites) > 0:
         # Some satellites should have infallMvir > 0
-        has_infall = satellites['infallMvir'] > 0
+        has_infall = satellites["infallMvir"] > 0
         if np.any(has_infall):
             print(f"    {np.sum(has_infall)}/{len(satellites)} satellites have infallMvir set")
 

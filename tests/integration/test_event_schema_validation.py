@@ -33,24 +33,23 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 from generate_module_registry import collect_event_info, validate_event_declarations
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+NC = "\033[0m"
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_producer(name, event_names, modes=None):
     """Return a minimal producer module dict."""
     return {
         "name": name,
         "supported_processing_modes": modes or ["process_full_halo"],
-        "events": {
-            "emits": [{"name": n, "description": f"test event {n}"} for n in event_names]
-        },
+        "events": {"emits": [{"name": n, "description": f"test event {n}"} for n in event_names]},
     }
 
 
@@ -62,9 +61,7 @@ def make_consumer(name, subscriptions, modes=None):
     return {
         "name": name,
         "supported_processing_modes": modes or ["process_per_event"],
-        "events": {
-            "consumes": [{"producer": p, "event": e} for p, e in subscriptions]
-        },
+        "events": {"consumes": [{"producer": p, "event": e} for p, e in subscriptions]},
     }
 
 
@@ -87,6 +84,7 @@ def collect_and_validate(modules):
 # Tests
 # ---------------------------------------------------------------------------
 
+
 def test_duplicate_emitted_event_name_fails():
     """
     A producer declaring the same event name twice must be rejected.
@@ -108,8 +106,9 @@ def test_duplicate_emitted_event_name_fails():
 
     errors = collect_and_validate([producer])
 
-    assert any("duplicate" in e and "my_event" in e for e in errors), \
-        f"Expected duplicate event name error, got: {errors}"
+    assert any(
+        "duplicate" in e and "my_event" in e for e in errors
+    ), f"Expected duplicate event name error, got: {errors}"
 
     print(f"  ✓ Duplicate event name correctly rejected ({len(errors)} error(s))")
 
@@ -127,8 +126,9 @@ def test_consumer_of_nonexistent_producer_fails():
 
     errors = collect_and_validate(modules)
 
-    assert any("ghost_producer" in e for e in errors), \
-        f"Expected unknown-producer error, got: {errors}"
+    assert any(
+        "ghost_producer" in e for e in errors
+    ), f"Expected unknown-producer error, got: {errors}"
 
     print(f"  ✓ Subscription to nonexistent producer correctly rejected ({len(errors)} error(s))")
 
@@ -146,8 +146,9 @@ def test_consumer_of_nonexistent_event_fails():
 
     errors = collect_and_validate([producer, consumer])
 
-    assert any("no_such_event" in e and "real_producer" in e for e in errors), \
-        f"Expected undeclared-event error, got: {errors}"
+    assert any(
+        "no_such_event" in e and "real_producer" in e for e in errors
+    ), f"Expected undeclared-event error, got: {errors}"
 
     print(f"  ✓ Subscription to nonexistent event correctly rejected ({len(errors)} error(s))")
 
@@ -160,15 +161,17 @@ def test_emits_on_non_full_halo_module_fails():
     """
     print("Testing events.emits on non-process_full_halo module fails...")
 
-    producer = make_producer("wrong_mode_producer", ["my_event"],
-                             modes=["process_by_galaxy"])
+    producer = make_producer("wrong_mode_producer", ["my_event"], modes=["process_by_galaxy"])
 
     errors = collect_and_validate([producer])
 
-    assert any("wrong_mode_producer" in e and "process_full_halo" in e for e in errors), \
-        f"Expected mode constraint error for emitter, got: {errors}"
+    assert any(
+        "wrong_mode_producer" in e and "process_full_halo" in e for e in errors
+    ), f"Expected mode constraint error for emitter, got: {errors}"
 
-    print(f"  ✓ events.emits on non-process_full_halo module correctly rejected ({len(errors)} error(s))")
+    print(
+        f"  ✓ events.emits on non-process_full_halo module correctly rejected ({len(errors)} error(s))"
+    )
 
 
 def test_consumes_on_non_per_event_module_fails():
@@ -180,15 +183,19 @@ def test_consumes_on_non_per_event_module_fails():
     print("Testing events.consumes on non-process_per_event module fails...")
 
     producer = make_producer("my_producer", ["my_event"])
-    consumer = make_consumer("wrong_mode_consumer", [("my_producer", "my_event")],
-                             modes=["process_full_halo"])
+    consumer = make_consumer(
+        "wrong_mode_consumer", [("my_producer", "my_event")], modes=["process_full_halo"]
+    )
 
     errors = collect_and_validate([producer, consumer])
 
-    assert any("wrong_mode_consumer" in e and "process_per_event" in e for e in errors), \
-        f"Expected mode constraint error for consumer, got: {errors}"
+    assert any(
+        "wrong_mode_consumer" in e and "process_per_event" in e for e in errors
+    ), f"Expected mode constraint error for consumer, got: {errors}"
 
-    print(f"  ✓ events.consumes on non-process_per_event module correctly rejected ({len(errors)} error(s))")
+    print(
+        f"  ✓ events.consumes on non-process_per_event module correctly rejected ({len(errors)} error(s))"
+    )
 
 
 def test_valid_declarations_produce_no_errors():
@@ -205,8 +212,7 @@ def test_valid_declarations_produce_no_errors():
 
     errors = collect_and_validate([producer, consumer_a, consumer_b])
 
-    assert len(errors) == 0, \
-        f"Expected no errors for valid declarations, got: {errors}"
+    assert len(errors) == 0, f"Expected no errors for valid declarations, got: {errors}"
 
     print(f"  ✓ Valid declarations accepted with no errors")
 
@@ -214,6 +220,7 @@ def test_valid_declarations_produce_no_errors():
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
+
 
 def main():
     print(f"{BLUE}{'=' * 60}{NC}")
@@ -246,6 +253,7 @@ def main():
             failed += 1
         except Exception as e:
             import traceback
+
             print(f"  {RED}✗ ERROR{NC}: {test_func.__name__}: {e}")
             traceback.print_exc()
             print()

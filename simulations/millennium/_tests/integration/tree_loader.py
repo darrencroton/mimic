@@ -12,8 +12,9 @@ Author: Mimic Testing Team
 Date: 2025-11-29
 """
 
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 
 
 def get_tree_dtype():
@@ -35,32 +36,33 @@ def get_tree_dtype():
         >>> print(f"Struct size: {dtype.itemsize} bytes")
         >>> print(f"Fields: {dtype.names}")
     """
-    return np.dtype([
-        # Merger tree pointers (20 bytes)
-        ("Descendant", np.int32),
-        ("FirstProgenitor", np.int32),
-        ("NextProgenitor", np.int32),
-        ("FirstHaloInFOFgroup", np.int32),
-        ("NextHaloInFOFgroup", np.int32),
-
-        # Properties of halo (68 bytes)
-        ("Len", np.int32),
-        ("M_Mean200", np.float32),
-        ("Mvir", np.float32),
-        ("M_TopHat", np.float32),
-        ("Pos", (np.float32, 3)),
-        ("Vel", (np.float32, 3)),
-        ("VelDisp", np.float32),
-        ("Vmax", np.float32),
-        ("Spin", (np.float32, 3)),
-        ("MostBoundID", np.int64),
-
-        # Original position in simulation tree files (16 bytes)
-        ("SnapNum", np.int32),
-        ("FileNr", np.int32),
-        ("SubhaloIndex", np.int32),
-        ("SubHalfMass", np.float32),
-    ], align=True)  # ← CRITICAL: C struct alignment!
+    return np.dtype(
+        [
+            # Merger tree pointers (20 bytes)
+            ("Descendant", np.int32),
+            ("FirstProgenitor", np.int32),
+            ("NextProgenitor", np.int32),
+            ("FirstHaloInFOFgroup", np.int32),
+            ("NextHaloInFOFgroup", np.int32),
+            # Properties of halo (68 bytes)
+            ("Len", np.int32),
+            ("M_Mean200", np.float32),
+            ("Mvir", np.float32),
+            ("M_TopHat", np.float32),
+            ("Pos", (np.float32, 3)),
+            ("Vel", (np.float32, 3)),
+            ("VelDisp", np.float32),
+            ("Vmax", np.float32),
+            ("Spin", (np.float32, 3)),
+            ("MostBoundID", np.int64),
+            # Original position in simulation tree files (16 bytes)
+            ("SnapNum", np.int32),
+            ("FileNr", np.int32),
+            ("SubhaloIndex", np.int32),
+            ("SubHalfMass", np.float32),
+        ],
+        align=True,
+    )  # ← CRITICAL: C struct alignment!
 
 
 def load_binary_tree(file_path):
@@ -114,20 +116,16 @@ def load_binary_tree(file_path):
     # Get dtype
     dtype = get_tree_dtype()
 
-    with open(file_path, 'rb') as f:
+    with open(file_path, "rb") as f:
         # Read header
         Ntrees = np.fromfile(f, np.int32, 1)[0]
         totNHalos = np.fromfile(f, np.int32, 1)[0]
 
         # Validate header values are reasonable
         if Ntrees <= 0 or Ntrees > 1000000:
-            raise ValueError(
-                f"Invalid Ntrees: {Ntrees} (expected 1-1000000)"
-            )
+            raise ValueError(f"Invalid Ntrees: {Ntrees} (expected 1-1000000)")
         if totNHalos <= 0 or totNHalos > 100000000:
-            raise ValueError(
-                f"Invalid totNHalos: {totNHalos} (expected 1-100000000)"
-            )
+            raise ValueError(f"Invalid totNHalos: {totNHalos} (expected 1-100000000)")
 
         # Read tree sizes
         NHalos_per_tree = np.fromfile(f, np.int32, Ntrees)
@@ -155,10 +153,10 @@ def load_binary_tree(file_path):
 
     # Create metadata dictionary
     metadata = {
-        'Ntrees': Ntrees,
-        'totNHalos': totNHalos,
-        'NHalos_per_tree': NHalos_per_tree,
-        'file_path': str(file_path),
+        "Ntrees": Ntrees,
+        "totNHalos": totNHalos,
+        "NHalos_per_tree": NHalos_per_tree,
+        "file_path": str(file_path),
     }
 
     return halos, metadata

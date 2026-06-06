@@ -19,14 +19,14 @@ from figures import (
     setup_legend,
     setup_plot_fonts,
 )
-from matplotlib.ticker import MultipleLocator, MaxNLocator
+from matplotlib.ticker import MaxNLocator, MultipleLocator
 from output_utils import (
-    warn,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_filtered_data,
     save_and_close_figure,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -63,9 +63,9 @@ def plot(
     # Check required and optional fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['Mvir', 'UniqueCentralGalaxyID'],
-        optional_fields=['StellarMass', 'ColdGas', 'HotGas', 'EjectedGas', 'ICS', 'BlackHoleMass'],
-        plot_name='Baryon Fraction'
+        required_fields=["Mvir", "UniqueCentralGalaxyID"],
+        optional_fields=["StellarMass", "ColdGas", "HotGas", "EjectedGas", "ICS", "BlackHoleMass"],
+        plot_name="Baryon Fraction",
     )
 
     if not success:
@@ -78,12 +78,12 @@ def plot(
     baryon_frac = params.get("BaryonFrac", 0.17) if params else 0.17
 
     # Check which optional baryonic properties are available
-    has_stellar = optional.get('StellarMass', False)
-    has_cold = optional.get('ColdGas', False)
-    has_hot = optional.get('HotGas', False)
-    has_ejected = optional.get('EjectedGas', False)
-    has_ics = optional.get('ICS', False)
-    has_bh = optional.get('BlackHoleMass', False)
+    has_stellar = optional.get("StellarMass", False)
+    has_cold = optional.get("ColdGas", False)
+    has_hot = optional.get("HotGas", False)
+    has_ejected = optional.get("EjectedGas", False)
+    has_ics = optional.get("ICS", False)
+    has_bh = optional.get("BlackHoleMass", False)
 
     # Check if we have any baryonic properties at all
     has_any_baryons = any([has_stellar, has_cold, has_hot, has_ejected, has_ics, has_bh])
@@ -134,9 +134,7 @@ def plot(
     # Loop through halo mass bins
     for i in range(nbins - 1):
         # Get central galaxies in this mass bin
-        bin_mask = (
-            central_mask & (halo_mass >= halo_bins[i]) & (halo_mass < halo_bins[i + 1])
-        )
+        bin_mask = central_mask & (halo_mass >= halo_bins[i]) & (halo_mass < halo_bins[i + 1])
         centrals_in_bin = np.where(bin_mask)[0]
 
         # Skip if not enough central galaxies in this bin
@@ -186,14 +184,10 @@ def plot(
 
             if np.any(group_mask):
                 # Sum components across all galaxies in the halo (only available ones)
-                stars = (
-                    np.sum(group_data["stellar"][group_mask]) if has_stellar else 0.0
-                )
+                stars = np.sum(group_data["stellar"][group_mask]) if has_stellar else 0.0
                 cold = np.sum(group_data["cold"][group_mask]) if has_cold else 0.0
                 hot = np.sum(group_data["hot"][group_mask]) if has_hot else 0.0
-                ejected = (
-                    np.sum(group_data["ejected"][group_mask]) if has_ejected else 0.0
-                )
+                ejected = np.sum(group_data["ejected"][group_mask]) if has_ejected else 0.0
                 ics = np.sum(group_data["ics"][group_mask]) if has_ics else 0.0
                 bh = np.sum(group_data["bh"][group_mask]) if has_bh else 0.0
 
@@ -302,9 +296,7 @@ def plot(
     )
 
     # Customize the plot
-    ax.set_xlabel(
-        r"Central log$_{10}$ M$_{\rm vir}$ [M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE
-    )
+    ax.set_xlabel(r"Central log$_{10}$ M$_{\rm vir}$ [M$_{\odot}$]", fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel(r"Baryon Fraction", fontsize=AXIS_LABEL_SIZE)
 
     # Set the x and y axis minor ticks with MaxNLocator to avoid excessive ticks

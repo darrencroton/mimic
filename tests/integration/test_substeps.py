@@ -38,11 +38,11 @@ from framework import (
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def parse_test_fixture_executions(stdout):
@@ -58,17 +58,19 @@ def parse_test_fixture_executions(stdout):
         list: List of dicts with execution information
     """
     executions = []
-    pattern = r'TEST_FIXTURE_EXEC: count=(\d+) ngal=(\d+) substep=(\d+)/(\d+) substep_dt=([\d.e+-]+) z=([\d.]+)'
+    pattern = r"TEST_FIXTURE_EXEC: count=(\d+) ngal=(\d+) substep=(\d+)/(\d+) substep_dt=([\d.e+-]+) z=([\d.]+)"
 
     for match in re.finditer(pattern, stdout):
-        executions.append({
-            'count': int(match.group(1)),
-            'ngal': int(match.group(2)),
-            'substep_number': int(match.group(3)),
-            'num_substeps': int(match.group(4)),
-            'substep_dt': float(match.group(5)),
-            'redshift': float(match.group(6))
-        })
+        executions.append(
+            {
+                "count": int(match.group(1)),
+                "ngal": int(match.group(2)),
+                "substep_number": int(match.group(3)),
+                "num_substeps": int(match.group(4)),
+                "substep_dt": float(match.group(5)),
+                "redshift": float(match.group(6)),
+            }
+        )
 
     return executions
 
@@ -86,26 +88,24 @@ def test_substeps_creates_loop():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="substeps_loop",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('test_fixture', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("test_fixture", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Set SubSteps=5
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 5
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 5
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -122,18 +122,25 @@ def test_substeps_creates_loop():
         first_fof = all_executions[:5]
 
         # Verify substep numbers: 0, 1, 2, 3, 4
-        substep_numbers = [e['substep_number'] for e in first_fof]
-        assert substep_numbers == [0, 1, 2, 3, 4], \
-            f"Expected substep numbers [0, 1, 2, 3, 4], got {substep_numbers}"
+        substep_numbers = [e["substep_number"] for e in first_fof]
+        assert substep_numbers == [
+            0,
+            1,
+            2,
+            3,
+            4,
+        ], f"Expected substep numbers [0, 1, 2, 3, 4], got {substep_numbers}"
 
         # Verify all have num_substeps=5
-        assert all(e['num_substeps'] == 5 for e in first_fof), \
-            "All executions should have num_substeps=5"
+        assert all(
+            e["num_substeps"] == 5 for e in first_fof
+        ), "All executions should have num_substeps=5"
 
         # Total executions should be 5 times number of FOF groups
         num_fof_groups = len(all_executions) // 5
-        assert len(all_executions) == num_fof_groups * 5, \
-            f"Expected {num_fof_groups * 5} total executions (5 per FOF group)"
+        assert (
+            len(all_executions) == num_fof_groups * 5
+        ), f"Expected {num_fof_groups * 5} total executions (5 per FOF group)"
 
         print(f"  ✓ SubSteps=5 creates 5-iteration loop per FOF group")
         print(f"    Verified substep numbers [0, 1, 2, 3, 4] for first FOF group")
@@ -156,26 +163,24 @@ def test_substep_dt_calculation():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="substep_dt",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('test_fixture', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("test_fixture", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Set SubSteps=10
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 10
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 10
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -192,10 +197,11 @@ def test_substep_dt_calculation():
         first_fof = all_executions[:10]
 
         # Verify all substep_dt values are equal
-        substep_dts = [e['substep_dt'] for e in first_fof]
+        substep_dts = [e["substep_dt"] for e in first_fof]
         first_dt = substep_dts[0]
-        assert all(abs(dt - first_dt) < 1e-10 for dt in substep_dts), \
-            f"All substep_dt values should be equal, got {substep_dts}"
+        assert all(
+            abs(dt - first_dt) < 1e-10 for dt in substep_dts
+        ), f"All substep_dt values should be equal, got {substep_dts}"
 
         # Verify substep_dt > 0 (non-zero time step)
         assert first_dt > 0, f"substep_dt should be positive, got {first_dt}"
@@ -204,8 +210,9 @@ def test_substep_dt_calculation():
         # (Each substep gets 1/SubSteps of the time interval)
         total_dt = sum(substep_dts)
         expected_total_dt = first_dt * 10  # Should be consistent
-        assert abs(total_dt - expected_total_dt) < 1e-9, \
-            f"Total time should equal SubSteps * substep_dt"
+        assert (
+            abs(total_dt - expected_total_dt) < 1e-9
+        ), f"Total time should equal SubSteps * substep_dt"
 
         print(f"  ✓ substep_dt is consistent across all substeps")
         print(f"    substep_dt = {first_dt:.6e} (equal for all 10 substeps)")
@@ -228,26 +235,24 @@ def test_module_context_fields():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="context_fields",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('test_fixture', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("test_fixture", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Set SubSteps=4
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 4
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 4
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -265,29 +270,35 @@ def test_module_context_fields():
 
         # Verify redshift is set and reasonable (0 <= z <= 127 for Millennium)
         for exec_info in first_fof:
-            z = exec_info['redshift']
+            z = exec_info["redshift"]
             assert 0 <= z <= 127, f"Redshift should be in range [0, 127], got {z}"
 
         # Verify redshift is same for all substeps in a FOF group
-        redshifts = [e['redshift'] for e in first_fof]
-        assert all(z == redshifts[0] for z in redshifts), \
-            f"All substeps in FOF group should have same redshift, got {redshifts}"
+        redshifts = [e["redshift"] for e in first_fof]
+        assert all(
+            z == redshifts[0] for z in redshifts
+        ), f"All substeps in FOF group should have same redshift, got {redshifts}"
 
         # Verify num_substeps is 4 for all
-        assert all(e['num_substeps'] == 4 for e in first_fof), \
-            "All executions should have num_substeps=4"
+        assert all(
+            e["num_substeps"] == 4 for e in first_fof
+        ), "All executions should have num_substeps=4"
 
         # Verify substep_number increments correctly
-        substep_numbers = [e['substep_number'] for e in first_fof]
-        assert substep_numbers == [0, 1, 2, 3], \
-            f"Expected substep numbers [0, 1, 2, 3], got {substep_numbers}"
+        substep_numbers = [e["substep_number"] for e in first_fof]
+        assert substep_numbers == [
+            0,
+            1,
+            2,
+            3,
+        ], f"Expected substep numbers [0, 1, 2, 3], got {substep_numbers}"
 
         # Verify substep_dt is positive and consistent
-        substep_dts = [e['substep_dt'] for e in first_fof]
-        assert all(dt > 0 for dt in substep_dts), \
-            "All substep_dt values should be positive"
-        assert all(abs(dt - substep_dts[0]) < 1e-10 for dt in substep_dts), \
-            "All substep_dt values should be equal"
+        substep_dts = [e["substep_dt"] for e in first_fof]
+        assert all(dt > 0 for dt in substep_dts), "All substep_dt values should be positive"
+        assert all(
+            abs(dt - substep_dts[0]) < 1e-10 for dt in substep_dts
+        ), "All substep_dt values should be equal"
 
         print(f"  ✓ ModuleContext fields are valid and consistent:")
         print(f"    - redshift: {redshifts[0]:.4f} (constant across substeps)")
@@ -313,26 +324,24 @@ def test_substeps_one_no_loop():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="substeps_one",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('test_fixture', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("test_fixture", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Set SubSteps=1 (or leave default)
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 1
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 1
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -350,12 +359,14 @@ def test_substeps_one_no_loop():
         first_exec = all_executions[0]
 
         # Verify num_substeps=1
-        assert first_exec['num_substeps'] == 1, \
-            f"Expected num_substeps=1, got {first_exec['num_substeps']}"
+        assert (
+            first_exec["num_substeps"] == 1
+        ), f"Expected num_substeps=1, got {first_exec['num_substeps']}"
 
         # Verify substep_number=0 (only substep)
-        assert first_exec['substep_number'] == 0, \
-            f"Expected substep_number=0, got {first_exec['substep_number']}"
+        assert (
+            first_exec["substep_number"] == 0
+        ), f"Expected substep_number=0, got {first_exec['substep_number']}"
 
         # Total executions should equal number of FOF groups (1 per group)
         num_fof_groups = len(all_executions)

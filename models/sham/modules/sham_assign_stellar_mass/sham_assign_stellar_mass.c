@@ -70,10 +70,8 @@ static uint64_t galaxy_key(const struct Halo *halo) {
   if (halo->UniqueGalaxyID != 0) {
     return (uint64_t)halo->UniqueGalaxyID;
   }
-  return ((uint64_t)(uint32_t)FileNum << 48) ^
-         ((uint64_t)(uint32_t)TreeID << 24) ^
-         (uint64_t)(uint32_t)halo->HaloNr ^
-         (uint64_t)halo->MostBoundID;
+  return ((uint64_t)(uint32_t)FileNum << 48) ^ ((uint64_t)(uint32_t)TreeID << 24) ^
+         (uint64_t)(uint32_t)halo->HaloNr ^ (uint64_t)halo->MostBoundID;
 }
 
 static double moster_stellar_mass_msun(double halo_mass_msun) {
@@ -166,33 +164,29 @@ int sham_assign_stellar_mass_init(void) {
                                     "log10 pivot halo mass in Msun");
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ShamN", sham_n, 0.0, 1.0,
                                     "stellar-to-halo mass normalization");
-  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ShamBeta", sham_beta, 0.0, 10.0,
-                                    "low-mass slope");
-  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ShamGamma", sham_gamma, 0.0, 10.0,
-                                    "high-mass slope");
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamScatterDex", sham_scatter_dex, 0.0,
-                                    2.0, "stellar mass scatter");
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamMinMpeak", sham_min_mpeak, 0.0,
-                                    1.0e8, "minimum Mpeak in code units");
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamMinVpeak", sham_min_vpeak, 0.0,
-                                    5000.0, "minimum Vpeak in km/s");
+  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ShamBeta", sham_beta, 0.0, 10.0, "low-mass slope");
+  LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ShamGamma", sham_gamma, 0.0, 10.0, "high-mass slope");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamScatterDex", sham_scatter_dex, 0.0, 2.0,
+                                    "stellar mass scatter");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamMinMpeak", sham_min_mpeak, 0.0, 1.0e8,
+                                    "minimum Mpeak in code units");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamMinVpeak", sham_min_vpeak, 0.0, 5000.0,
+                                    "minimum Vpeak in km/s");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamMaxStellarBaryonFraction",
                                     sham_max_stellar_baryon_fraction, 0.0, 1.0,
                                     "cap as fraction of Mpeak");
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamOrphanMaxAgeMyr",
-                                    sham_orphan_max_age_myr, 0.0, 20000.0,
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamOrphanMaxAgeMyr", sham_orphan_max_age_myr, 0.0, 20000.0,
                                     "0 disables orphan age removal");
   LOAD_AND_VALIDATE_OPTION("ShamUseScatter", sham_use_scatter, 1,
                            "0=off, 1=deterministic log-normal scatter");
 
   INFO_LOG("SHAM stellar mass assignment initialized");
-  VERBOSE_LOG("  SHMR: logM1=%.3f N=%.4f beta=%.3f gamma=%.3f scatter=%.3f dex",
-              sham_log_m1, sham_n, sham_beta, sham_gamma, sham_scatter_dex);
+  VERBOSE_LOG("  SHMR: logM1=%.3f N=%.4f beta=%.3f gamma=%.3f scatter=%.3f dex", sham_log_m1,
+              sham_n, sham_beta, sham_gamma, sham_scatter_dex);
   return 0;
 }
 
-int sham_assign_stellar_mass_process(struct ModuleContext *ctx,
-                                     struct Halo *halos, int ngal) {
+int sham_assign_stellar_mass_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
   (void)ctx;
 
   if (halos == NULL || ngal <= 0) {
@@ -206,8 +200,8 @@ int sham_assign_stellar_mass_process(struct ModuleContext *ctx,
 
     update_peak_proxies(&halos[i]);
     if (orphan_exceeds_lifetime(&halos[i])) {
-      DEBUG_LOG("SHAM removing orphan galaxy %lld after %.1f Myr",
-                halos[i].UniqueGalaxyID, halos[i].galaxy->ShamOrphanAge);
+      DEBUG_LOG("SHAM removing orphan galaxy %lld after %.1f Myr", halos[i].UniqueGalaxyID,
+                halos[i].galaxy->ShamOrphanAge);
       halos[i].Type = 3;
       continue;
     }
@@ -219,4 +213,3 @@ int sham_assign_stellar_mass_process(struct ModuleContext *ctx,
 }
 
 int sham_assign_stellar_mass_cleanup(void) { return 0; }
-

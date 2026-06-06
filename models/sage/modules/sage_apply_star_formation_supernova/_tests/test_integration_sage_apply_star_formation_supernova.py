@@ -26,21 +26,22 @@ Date: 2025-12-18 (Refactored for comprehensive physics validation)
 """
 
 import os
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import create_test_param_file, run_mimic, load_binary_halos, check_no_memory_leaks
+from framework import check_no_memory_leaks, create_test_param_file, load_binary_halos, run_mimic
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+NC = "\033[0m"
 
 
 def test_full_pipeline_conservation():
@@ -57,24 +58,24 @@ def test_full_pipeline_conservation():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="update_sf_conservation",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -86,31 +87,43 @@ def test_full_pipeline_conservation():
     # Conservation check: Mass (gas + stars should be reasonable)
     # Note: We can't check absolute conservation without initial conditions,
     # but we can check that values are physically reasonable
-    total_baryons = halos['ColdGas'] + halos['HotGas'] + halos['EjectedGas'] + halos['StellarMass']
+    total_baryons = halos["ColdGas"] + halos["HotGas"] + halos["EjectedGas"] + halos["StellarMass"]
     assert np.all(total_baryons >= 0), "Total baryonic mass should be non-negative"
     assert np.all(np.isfinite(total_baryons)), "Total baryonic mass should be finite"
 
     # Check metals are non-negative and finite
-    total_metals = (halos['MetalsColdGas'] + halos['MetalsHotGas'] +
-                   halos['MetalsEjectedGas'] + halos['MetalsStellarMass'])
+    total_metals = (
+        halos["MetalsColdGas"]
+        + halos["MetalsHotGas"]
+        + halos["MetalsEjectedGas"]
+        + halos["MetalsStellarMass"]
+    )
     assert np.all(total_metals >= 0), "Total metals should be non-negative"
     assert np.all(np.isfinite(total_metals)), "Total metals should be finite"
 
     # Check metallicities are reasonable (0 to ~0.05 = 2.5*solar)
-    for component in ['ColdGas', 'HotGas', 'EjectedGas', 'StellarMass']:
+    for component in ["ColdGas", "HotGas", "EjectedGas", "StellarMass"]:
         mass = halos[component]
-        metals = halos[f'Metals{component}']
+        metals = halos[f"Metals{component}"]
         non_zero = mass > 1e-6
         if np.sum(non_zero) > 0:
             metallicity = np.where(non_zero, metals / mass, 0.0)
-            assert np.all(metallicity[non_zero] >= 0.0), f"{component} metallicity should be non-negative"
-            assert np.all(metallicity[non_zero] <= 0.1), f"{component} metallicity should be < 0.1 (5*solar)"
+            assert np.all(
+                metallicity[non_zero] >= 0.0
+            ), f"{component} metallicity should be non-negative"
+            assert np.all(
+                metallicity[non_zero] <= 0.1
+            ), f"{component} metallicity should be < 0.1 (5*solar)"
 
     # Print ranges if we have data
     if np.sum(total_baryons > 0) > 0:
-        print(f"  Total baryons range: {np.min(total_baryons[total_baryons>0]):.2e} to {np.max(total_baryons):.2e}")
+        print(
+            f"  Total baryons range: {np.min(total_baryons[total_baryons>0]):.2e} to {np.max(total_baryons):.2e}"
+        )
     if np.sum(total_metals > 0) > 0:
-        print(f"  Total metals range: {np.min(total_metals[total_metals>0]):.2e} to {np.max(total_metals):.2e}")
+        print(
+            f"  Total metals range: {np.min(total_metals[total_metals>0]):.2e} to {np.max(total_metals):.2e}"
+        )
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Full pipeline conservation validated{NC}")
@@ -131,24 +144,24 @@ def test_gas_transfer_physics():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="update_sf_gas_transfers",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -158,40 +171,44 @@ def test_gas_transfer_physics():
     halos, metadata = load_binary_halos(output_file)
 
     # Check star-forming galaxies
-    star_forming = halos['StarFormationRate'] > 0
+    star_forming = halos["StarFormationRate"] > 0
     num_sf = np.sum(star_forming)
 
     if num_sf > 0:
         print(f"  Found {num_sf} star-forming galaxies")
 
         # Star-forming galaxies should have stellar mass
-        assert np.all(halos['StellarMass'][star_forming] > 0), \
-            "Star-forming galaxies should have stellar mass"
+        assert np.all(
+            halos["StellarMass"][star_forming] > 0
+        ), "Star-forming galaxies should have stellar mass"
 
         # Star-forming galaxies should have some cold gas (may be depleted but not zero)
         # Note: Some may have zero cold gas after full depletion
-        print(f"  Cold gas range: {np.min(halos['ColdGas'][star_forming]):.2e} to " +
-              f"{np.max(halos['ColdGas'][star_forming]):.2e}")
-        print(f"  Stellar mass range: {np.min(halos['StellarMass'][star_forming]):.2e} to " +
-              f"{np.max(halos['StellarMass'][star_forming]):.2e}")
+        print(
+            f"  Cold gas range: {np.min(halos['ColdGas'][star_forming]):.2e} to "
+            + f"{np.max(halos['ColdGas'][star_forming]):.2e}"
+        )
+        print(
+            f"  Stellar mass range: {np.min(halos['StellarMass'][star_forming]):.2e} to "
+            + f"{np.max(halos['StellarMass'][star_forming]):.2e}"
+        )
 
         # Check that SFR is reasonable (< 50% of cold gas per Gyr, accounting for recycle)
         # SFR in units of (1e10 Msun/h) / (Gyr/h), assume dt ~ 0.1 Gyr
         # Max reasonable SFR ~ ColdGas / 0.1 = 10 * ColdGas
-        cold_gas_sf = halos['ColdGas'][star_forming]
-        sfr_sf = halos['StarFormationRate'][star_forming]
+        cold_gas_sf = halos["ColdGas"][star_forming]
+        sfr_sf = halos["StarFormationRate"][star_forming]
         if np.sum(cold_gas_sf > 0) > 0:
             sfr_ratio = sfr_sf[cold_gas_sf > 0] / cold_gas_sf[cold_gas_sf > 0]
-            assert np.all(sfr_ratio < 50.0), \
-                "SFR should be reasonable compared to cold gas"
+            assert np.all(sfr_ratio < 50.0), "SFR should be reasonable compared to cold gas"
     else:
         print(f"  No star-forming galaxies found (expected for small test dataset)")
 
     # Check that gas exists in different phases
-    has_cold = np.sum(halos['ColdGas'] > 1e-6)
-    has_hot = np.sum(halos['HotGas'] > 1e-6)
-    has_ejected = np.sum(halos['EjectedGas'] > 1e-6)
-    has_stars = np.sum(halos['StellarMass'] > 1e-6)
+    has_cold = np.sum(halos["ColdGas"] > 1e-6)
+    has_hot = np.sum(halos["HotGas"] > 1e-6)
+    has_ejected = np.sum(halos["EjectedGas"] > 1e-6)
+    has_stars = np.sum(halos["StellarMass"] > 1e-6)
 
     print(f"  Galaxies with ColdGas: {has_cold}")
     print(f"  Galaxies with HotGas: {has_hot}")
@@ -220,24 +237,24 @@ def test_metal_enrichment():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="update_sf_metals",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,  # Higher yield for testing
-            'FracZleaveDisk': 0.5
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,  # Higher yield for testing
+            "FracZleaveDisk": 0.5,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -247,8 +264,12 @@ def test_metal_enrichment():
     halos, metadata = load_binary_halos(output_file)
 
     # Check that metals exist
-    total_metals = (halos['MetalsColdGas'] + halos['MetalsHotGas'] +
-                   halos['MetalsEjectedGas'] + halos['MetalsStellarMass'])
+    total_metals = (
+        halos["MetalsColdGas"]
+        + halos["MetalsHotGas"]
+        + halos["MetalsEjectedGas"]
+        + halos["MetalsStellarMass"]
+    )
 
     has_metals = total_metals > 1e-10
     num_with_metals = np.sum(has_metals)
@@ -260,8 +281,9 @@ def test_metal_enrichment():
         print(f"  Total metals range: {np.min(metal_range):.2e} to {np.max(metal_range):.2e}")
 
         # Check metallicity is reasonable (should be < 0.1 = 5*solar)
-        total_baryons = (halos['ColdGas'] + halos['HotGas'] +
-                        halos['EjectedGas'] + halos['StellarMass'])
+        total_baryons = (
+            halos["ColdGas"] + halos["HotGas"] + halos["EjectedGas"] + halos["StellarMass"]
+        )
         has_mass = total_baryons > 1e-6
 
         if np.sum(has_mass) > 0:
@@ -290,24 +312,24 @@ def test_parameter_sensitivity():
     param_file1, output_dir1, temp_dir1 = create_test_param_file(
         output_name="update_sf_params_low",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.3,  # Lower recycling
-            'Yield': 0.015,  # Lower yield
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.3,  # Lower recycling
+            "Yield": 0.015,  # Lower yield
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode1, stdout1, stderr1 = run_mimic(param_file1)
@@ -320,24 +342,24 @@ def test_parameter_sensitivity():
     param_file2, output_dir2, temp_dir2 = create_test_param_file(
         output_name="update_sf_params_high",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.5,  # Higher recycling
-            'Yield': 0.035,  # Higher yield
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.5,  # Higher recycling
+            "Yield": 0.035,  # Higher yield
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode2, stdout2, stderr2 = run_mimic(param_file2)
@@ -349,8 +371,8 @@ def test_parameter_sensitivity():
     # Compare results
     # Higher RecycleFraction should mean less stellar mass per SF event
     # (more gas returned, less locked into stars)
-    total_stellar1 = np.sum(halos1['StellarMass'])
-    total_stellar2 = np.sum(halos2['StellarMass'])
+    total_stellar1 = np.sum(halos1["StellarMass"])
+    total_stellar2 = np.sum(halos2["StellarMass"])
 
     print(f"  Total stellar mass (low recycle): {total_stellar1:.2e}")
     print(f"  Total stellar mass (high recycle): {total_stellar2:.2e}")
@@ -365,10 +387,18 @@ def test_parameter_sensitivity():
         assert ratio != 1.0, "Different RecycleFraction should affect results"
 
     # Higher Yield should mean more metals
-    total_metals1 = np.sum(halos1['MetalsColdGas'] + halos1['MetalsHotGas'] +
-                          halos1['MetalsEjectedGas'] + halos1['MetalsStellarMass'])
-    total_metals2 = np.sum(halos2['MetalsColdGas'] + halos2['MetalsHotGas'] +
-                          halos2['MetalsEjectedGas'] + halos2['MetalsStellarMass'])
+    total_metals1 = np.sum(
+        halos1["MetalsColdGas"]
+        + halos1["MetalsHotGas"]
+        + halos1["MetalsEjectedGas"]
+        + halos1["MetalsStellarMass"]
+    )
+    total_metals2 = np.sum(
+        halos2["MetalsColdGas"]
+        + halos2["MetalsHotGas"]
+        + halos2["MetalsEjectedGas"]
+        + halos2["MetalsStellarMass"]
+    )
 
     print(f"  Total metals (low yield): {total_metals1:.2e}")
     print(f"  Total metals (high yield): {total_metals2:.2e}")
@@ -398,24 +428,24 @@ def test_edge_cases():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="update_sf_edge_cases",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -425,26 +455,35 @@ def test_edge_cases():
     halos, metadata = load_binary_halos(output_file)
 
     # Check for NaNs and Infs
-    for field in ['ColdGas', 'HotGas', 'EjectedGas', 'StellarMass',
-                  'MetalsColdGas', 'MetalsHotGas', 'MetalsEjectedGas', 'MetalsStellarMass',
-                  'StarFormationRate']:
+    for field in [
+        "ColdGas",
+        "HotGas",
+        "EjectedGas",
+        "StellarMass",
+        "MetalsColdGas",
+        "MetalsHotGas",
+        "MetalsEjectedGas",
+        "MetalsStellarMass",
+        "StarFormationRate",
+    ]:
         assert not np.any(np.isnan(halos[field])), f"{field} should not have NaN values"
         assert not np.any(np.isinf(halos[field])), f"{field} should not have Inf values"
 
     # Check zero cold gas galaxies
-    zero_cold = halos['ColdGas'] < 1e-10
+    zero_cold = halos["ColdGas"] < 1e-10
     num_zero_cold = np.sum(zero_cold)
 
     if num_zero_cold > 0:
         print(f"  Galaxies with zero cold gas: {num_zero_cold}")
         # These should have zero SFR
-        assert np.all(halos['StarFormationRate'][zero_cold] == 0.0), \
-            "Galaxies with no cold gas should have zero SFR"
+        assert np.all(
+            halos["StarFormationRate"][zero_cold] == 0.0
+        ), "Galaxies with no cold gas should have zero SFR"
 
     # Check Type distribution (0=central, 1=satellite, 2=orphan)
     type_counts = {}
     for t in [0, 1, 2]:
-        count = np.sum(halos['Type'] == t)
+        count = np.sum(halos["Type"] == t)
         type_counts[t] = count
 
     print(f"  Type 0 (central): {type_counts.get(0, 0)}")
@@ -452,8 +491,16 @@ def test_edge_cases():
     print(f"  Type 2 (orphan): {type_counts.get(2, 0)}")
 
     # Check all values are non-negative (except sentinels)
-    for field in ['ColdGas', 'HotGas', 'EjectedGas', 'StellarMass',
-                  'MetalsColdGas', 'MetalsHotGas', 'MetalsEjectedGas', 'MetalsStellarMass']:
+    for field in [
+        "ColdGas",
+        "HotGas",
+        "EjectedGas",
+        "StellarMass",
+        "MetalsColdGas",
+        "MetalsHotGas",
+        "MetalsEjectedGas",
+        "MetalsStellarMass",
+    ]:
         assert np.all(halos[field] >= 0.0), f"{field} should be non-negative"
 
     shutil.rmtree(temp_dir)
@@ -473,24 +520,24 @@ def test_memory_and_performance():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="update_sf_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_calculate_star_formation', 'process_by_galaxy'),
-                ('sage_calculate_supernova_feedback', 'process_by_galaxy'),
-                ('sage_apply_star_formation_supernova', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_calculate_supernova_feedback", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.3,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.3,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -543,5 +590,5 @@ def main():
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

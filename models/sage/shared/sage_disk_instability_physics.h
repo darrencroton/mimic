@@ -10,9 +10,9 @@
  * Apply SAGE's disk-instability structural response to a live remnant and
  * return the unstable gas fraction for any same-context downstream physics.
  */
-static inline double mimic_sage_apply_disk_instability(
-    struct Halo *halo, const struct ModuleContext *ctx,
-    double star_forming_disk_factor) {
+static inline double mimic_sage_apply_disk_instability(struct Halo *halo,
+                                                       const struct ModuleContext *ctx,
+                                                       double star_forming_disk_factor) {
   if (halo == NULL || halo->galaxy == NULL || ctx == NULL || ctx->params == NULL ||
       ctx->params->G <= 0.0) {
     return 0.0;
@@ -24,9 +24,8 @@ static inline double mimic_sage_apply_disk_instability(
     return 0.0;
   }
 
-  double mcrit = halo->Vmax * halo->Vmax *
-                 (star_forming_disk_factor * gal->DiskScaleRadius) /
-                 ctx->params->G;
+  double mcrit =
+      halo->Vmax * halo->Vmax * (star_forming_disk_factor * gal->DiskScaleRadius) / ctx->params->G;
   if (mcrit > diskmass) {
     mcrit = diskmass;
   }
@@ -38,10 +37,8 @@ static inline double mimic_sage_apply_disk_instability(
 
   if (unstable_stars > 0.0) {
     const double disk_stellar_mass = gal->StellarMass - gal->BulgeMass;
-    const double disk_metal_mass =
-        gal->MetalsStellarMass - gal->MetalsBulgeMass;
-    const double metallicity =
-        mimic_get_metallicity(disk_stellar_mass, disk_metal_mass);
+    const double disk_metal_mass = gal->MetalsStellarMass - gal->MetalsBulgeMass;
+    const double metallicity = mimic_get_metallicity(disk_stellar_mass, disk_metal_mass);
 
     gal->BulgeMass += unstable_stars;
     gal->MetalsBulgeMass += metallicity * unstable_stars;
@@ -58,15 +55,14 @@ static inline double mimic_sage_apply_disk_instability(
       gal->MetalsBulgeMass = gal->MetalsStellarMass;
     }
 
-    DEBUG_LOG("Halo %d: Disk unstable - transferred %.3e Msun to bulge",
-              halo->HaloNr, unstable_stars);
+    DEBUG_LOG("Halo %d: Disk unstable - transferred %.3e Msun to bulge", halo->HaloNr,
+              unstable_stars);
   }
 
   if (unstable_gas > 0.0 && gal->ColdGas > 0.0) {
     const double unstable_gas_fraction = unstable_gas / gal->ColdGas;
 
-    DEBUG_LOG("Halo %d: Unstable gas fraction = %.4f",
-              halo->HaloNr, unstable_gas_fraction);
+    DEBUG_LOG("Halo %d: Unstable gas fraction = %.4f", halo->HaloNr, unstable_gas_fraction);
     return unstable_gas_fraction;
   }
 

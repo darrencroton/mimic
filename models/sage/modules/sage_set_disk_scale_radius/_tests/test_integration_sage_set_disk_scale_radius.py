@@ -21,21 +21,22 @@ Date: 2025-12-18
 """
 
 import os
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import create_test_param_file, run_mimic, load_binary_halos, check_no_memory_leaks
+from framework import check_no_memory_leaks, create_test_param_file, load_binary_halos, run_mimic
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+NC = "\033[0m"
 
 
 def test_module_pipeline_integration():
@@ -52,12 +53,12 @@ def test_module_pipeline_integration():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="disk_radius_integration",
         phase_config={
-            'pre_timestep': [('sage_set_disk_scale_radius', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_set_disk_scale_radius", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={}
+        model_params={},
     )
 
     # Execute Mimic
@@ -74,10 +75,10 @@ def test_module_pipeline_integration():
     assert len(halos) > 0, "Should have output halos"
 
     # Check DiskScaleRadius field exists
-    assert 'DiskScaleRadius' in halos.dtype.names, "Output should have DiskScaleRadius field"
+    assert "DiskScaleRadius" in halos.dtype.names, "Output should have DiskScaleRadius field"
 
     # Basic validation: no NaNs or Infs
-    disk_radius = halos['DiskScaleRadius']
+    disk_radius = halos["DiskScaleRadius"]
     assert not np.any(np.isnan(disk_radius)), "DiskScaleRadius should not have NaN values"
     assert not np.any(np.isinf(disk_radius)), "DiskScaleRadius should not have Inf values"
     assert np.all(disk_radius >= 0.0), "DiskScaleRadius should be non-negative"
@@ -100,12 +101,12 @@ def test_disk_radius_physics():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="disk_radius_physics",
         phase_config={
-            'pre_timestep': [('sage_set_disk_scale_radius', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_set_disk_scale_radius", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={}
+        model_params={},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -115,9 +116,9 @@ def test_disk_radius_physics():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    disk_radius = halos['DiskScaleRadius']
-    rvir = halos['Rvir']
-    halo_type = halos['Type']
+    disk_radius = halos["DiskScaleRadius"]
+    rvir = halos["Rvir"]
+    halo_type = halos["Type"]
 
     # Physics validation 1: Disk radius should be a reasonable fraction of Rvir
     # for halos with positive virial radius.
@@ -125,22 +126,25 @@ def test_disk_radius_physics():
     galaxies_with_radius = (disk_radius > 0) & (rvir > 0)
     zero_rvir_with_disk = np.sum((disk_radius > 0) & (rvir <= 0))
     if zero_rvir_with_disk > 0:
-        print(f"  Note: {zero_rvir_with_disk} halos have DiskScaleRadius>0 with Rvir=0 edge-case output")
+        print(
+            f"  Note: {zero_rvir_with_disk} halos have DiskScaleRadius>0 with Rvir=0 edge-case output"
+        )
 
     if np.sum(galaxies_with_radius) > 0:
         rd_over_rvir = disk_radius[galaxies_with_radius] / rvir[galaxies_with_radius]
 
         # Disk radius should always be less than virial radius where Rvir is positive.
-        assert np.all(disk_radius[galaxies_with_radius] <= rvir[galaxies_with_radius]), \
-            "DiskScaleRadius should always be <= Rvir for halos with Rvir > 0"
+        assert np.all(
+            disk_radius[galaxies_with_radius] <= rvir[galaxies_with_radius]
+        ), "DiskScaleRadius should always be <= Rvir for halos with Rvir > 0"
 
         # Should be reasonable fraction
-        assert np.all(rd_over_rvir < 1.0), \
-            "DiskScaleRadius/Rvir should be < 1.0"
-        assert np.all(rd_over_rvir > 0.0), \
-            "DiskScaleRadius/Rvir should be positive"
+        assert np.all(rd_over_rvir < 1.0), "DiskScaleRadius/Rvir should be < 1.0"
+        assert np.all(rd_over_rvir > 0.0), "DiskScaleRadius/Rvir should be positive"
 
-        print(f"  DiskScaleRadius/Rvir range: {np.min(rd_over_rvir):.4e} to {np.max(rd_over_rvir):.4e}")
+        print(
+            f"  DiskScaleRadius/Rvir range: {np.min(rd_over_rvir):.4e} to {np.max(rd_over_rvir):.4e}"
+        )
 
     # Physics validation 2: Disk radius should scale with Rvir
     # (for similar spin parameters, larger halos have larger disks)
@@ -148,20 +152,20 @@ def test_disk_radius_physics():
     # both spin parameter and Rvir, and spin varies significantly between halos
     if np.sum(galaxies_with_radius) > 10:
         # Correlation coefficient should be positive (but may be moderate due to spin variation)
-        correlation = np.corrcoef(disk_radius[galaxies_with_radius],
-                                   rvir[galaxies_with_radius])[0, 1]
+        correlation = np.corrcoef(disk_radius[galaxies_with_radius], rvir[galaxies_with_radius])[
+            0, 1
+        ]
         print(f"  Correlation(DiskScaleRadius, Rvir): {correlation:.3f}")
-        assert correlation > 0.2, \
-            f"DiskScaleRadius should correlate positively with Rvir (got {correlation:.3f})"
+        assert (
+            correlation > 0.2
+        ), f"DiskScaleRadius should correlate positively with Rvir (got {correlation:.3f})"
 
     # Physics validation 3: Typical disk radii should be in range 0.001-1.0 Mpc/h
     if np.sum(galaxies_with_radius) > 0:
         median_disk_radius = np.median(disk_radius[galaxies_with_radius])
         print(f"  Median DiskScaleRadius: {median_disk_radius:.4e} Mpc/h")
-        assert median_disk_radius > 0.0001, \
-            "Median disk radius too small (< 0.1 kpc/h)"
-        assert median_disk_radius < 10.0, \
-            "Median disk radius too large (> 10 Mpc/h)"
+        assert median_disk_radius > 0.0001, "Median disk radius too small (< 0.1 kpc/h)"
+        assert median_disk_radius < 10.0, "Median disk radius too large (> 10 Mpc/h)"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Disk radius physics is physically reasonable{NC}")
@@ -180,12 +184,12 @@ def test_disk_radius_type_filtering():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="disk_radius_types",
         phase_config={
-            'pre_timestep': [('sage_set_disk_scale_radius', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_set_disk_scale_radius", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={}
+        model_params={},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -195,8 +199,8 @@ def test_disk_radius_type_filtering():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    disk_radius = halos['DiskScaleRadius']
-    halo_type = halos['Type']
+    disk_radius = halos["DiskScaleRadius"]
+    halo_type = halos["Type"]
 
     # Count halos by type
     type0_count = np.sum(halo_type == 0)
@@ -208,35 +212,35 @@ def test_disk_radius_type_filtering():
     print(f"  Type 2+ (orphan) halos: {type2_count}")
 
     # Type 0 galaxies: should have non-zero disk radii when virial properties are valid.
-    type0_halos = (halo_type == 0)
+    type0_halos = halo_type == 0
     if np.sum(type0_halos) > 0:
         type0_disk_radii = disk_radius[type0_halos]
 
         nonzero_type0 = np.sum(type0_disk_radii > 0)
         fraction_nonzero = nonzero_type0 / np.sum(type0_halos)
-        print(f"  Type 0 with non-zero DiskScaleRadius: {nonzero_type0}/{np.sum(type0_halos)} ({fraction_nonzero:.1%})")
+        print(
+            f"  Type 0 with non-zero DiskScaleRadius: {nonzero_type0}/{np.sum(type0_halos)} ({fraction_nonzero:.1%})"
+        )
 
-        assert fraction_nonzero > 0.5, \
-            "Most Type 0 galaxies should have non-zero disk radii"
+        assert fraction_nonzero > 0.5, "Most Type 0 galaxies should have non-zero disk radii"
 
     # Type 1/2+ galaxies are not recomputed by this module. Depending on
     # inheritance they may carry a previous central value or remain zero; the
     # integration contract here is that they remain finite and non-negative.
     if type1_count > 0:
         type1_disk_radii = disk_radius[halo_type == 1]
-        assert not np.any(np.isnan(type1_disk_radii)), \
-            "Type 1 DiskScaleRadius should not have NaN values"
-        assert not np.any(np.isinf(type1_disk_radii)), \
-            "Type 1 DiskScaleRadius should not have Inf values"
-        assert np.all(type1_disk_radii >= 0.0), \
-            "Type 1 DiskScaleRadius should remain non-negative"
+        assert not np.any(
+            np.isnan(type1_disk_radii)
+        ), "Type 1 DiskScaleRadius should not have NaN values"
+        assert not np.any(
+            np.isinf(type1_disk_radii)
+        ), "Type 1 DiskScaleRadius should not have Inf values"
+        assert np.all(type1_disk_radii >= 0.0), "Type 1 DiskScaleRadius should remain non-negative"
 
     if type2_count > 0:
         type2_disk_radii = disk_radius[halo_type >= 2]
-        assert not np.any(np.isnan(type2_disk_radii)), \
-            "Type 2+ should not have NaN disk radii"
-        assert not np.any(np.isinf(type2_disk_radii)), \
-            "Type 2+ should not have Inf disk radii"
+        assert not np.any(np.isnan(type2_disk_radii)), "Type 2+ should not have NaN disk radii"
+        assert not np.any(np.isinf(type2_disk_radii)), "Type 2+ should not have Inf disk radii"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Type filtering validated{NC}")
@@ -254,16 +258,17 @@ def test_memory_and_performance():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="disk_radius_memory",
         phase_config={
-            'pre_timestep': [('sage_set_disk_scale_radius', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("sage_set_disk_scale_radius", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={}
+        model_params={},
     )
 
     # Execute and time
     import time
+
     start_time = time.time()
     returncode, stdout, stderr = run_mimic(param_file)
     elapsed_time = time.time() - start_time
@@ -309,9 +314,10 @@ def main():
         print(f"{RED}Unexpected error: {e}{NC}")
         print(f"{RED}{'=' * 60}{NC}")
         import traceback
+
         traceback.print_exc()
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

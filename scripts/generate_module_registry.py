@@ -46,9 +46,9 @@ from discovery import (
     halo_property_files,
     model_property_files,
     module_metadata_files,
+    rel,
     standalone_module_files,
     test_property_files,
-    rel,
 )
 
 # ==============================================================================
@@ -433,9 +433,7 @@ def producer_name_to_enum_type(producer_name: str) -> str:
     return "".join(p.capitalize() for p in parts) + "EventId"
 
 
-def collect_event_info(
-    modules: List[Dict[str, Any]]
-) -> Tuple[Dict[str, Any], List[str]]:
+def collect_event_info(modules: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], List[str]]:
     """
     Collect and index event declarations from all modules.
 
@@ -465,10 +463,7 @@ def collect_event_info(
             consumes[name] = consume_list
 
     # Assign stable producer IDs (sorted by module name, 1-indexed)
-    producer_ids = {
-        name: idx + 1
-        for idx, name in enumerate(sorted(emits.keys()))
-    }
+    producer_ids = {name: idx + 1 for idx, name in enumerate(sorted(emits.keys()))}
 
     return {"producer_ids": producer_ids, "emits": emits, "consumes": consumes}, errors
 
@@ -596,7 +591,7 @@ def generate_event_contracts_h(
     header = generate_c_header(
         metadata_hash,
         "Public event contract definitions for module C code.\n"
-        "Include as: #include \"module_system/generated/event_contracts.h\"",
+        'Include as: #include "module_system/generated/event_contracts.h"',
     )
     lines.extend(header.splitlines())
     lines.append("")
@@ -625,9 +620,7 @@ def generate_event_contracts_h(
         lines.append(
             " * Used in ModuleEvent.producer_module_id and EventSubscription.producer_module_id."
         )
-        lines.append(
-            " * These IDs are injected by the core; producers never set them manually."
-        )
+        lines.append(" * These IDs are injected by the core; producers never set them manually.")
         lines.append(" */")
         lines.append("")
         for name in sorted(producer_ids.keys()):
@@ -647,12 +640,8 @@ def generate_event_contracts_h(
         )
         lines.append("")
         lines.append("/*")
-        lines.append(
-            " * Use these constants as the event_id argument to module_emit_event()."
-        )
-        lines.append(
-            " * IDs start at 1; 0 is reserved for 'unset'."
-        )
+        lines.append(" * Use these constants as the event_id argument to module_emit_event().")
+        lines.append(" * IDs start at 1; 0 is reserved for 'unset'.")
         lines.append(" */")
         lines.append("")
         for producer_name in sorted(emits.keys()):
@@ -751,15 +740,9 @@ def load_saved_hash() -> str:
 def generate_lifecycle_forward_declarations(modules: List[Dict[str, Any]]) -> List[str]:
     """Generate forward declarations for module lifecycle functions."""
     lines = []
-    lines.append(
-        "/* ========================================================================== */"
-    )
-    lines.append(
-        "/* FORWARD DECLARATIONS FOR MODULE LIFECYCLE FUNCTIONS                       */"
-    )
-    lines.append(
-        "/* ========================================================================== */"
-    )
+    lines.append("/* ========================================================================== */")
+    lines.append("/* FORWARD DECLARATIONS FOR MODULE LIFECYCLE FUNCTIONS                       */")
+    lines.append("/* ========================================================================== */")
     lines.append("")
     lines.append("/*")
     lines.append(" * Forward declarations for module lifecycle functions.")
@@ -790,25 +773,15 @@ def generate_module_struct_definitions(
     emits = event_info["emits"]
 
     lines = []
-    lines.append(
-        "/* ========================================================================== */"
-    )
-    lines.append(
-        "/* MODULE STRUCT DEFINITIONS (auto-generated from module metadata)            */"
-    )
-    lines.append(
-        "/* ========================================================================== */"
-    )
+    lines.append("/* ========================================================================== */")
+    lines.append("/* MODULE STRUCT DEFINITIONS (auto-generated from module metadata)            */")
+    lines.append("/* ========================================================================== */")
     lines.append("")
     lines.append("/*")
     lines.append(" * Module struct definitions generated from discovered module metadata.")
-    lines.append(
-        " * Each module struct connects lifecycle functions to the module registry."
-    )
+    lines.append(" * Each module struct connects lifecycle functions to the module registry.")
     lines.append(" *")
-    lines.append(
-        " * Directory modules use module_info.yaml; standalone modules derive minimal"
-    )
+    lines.append(" * Directory modules use module_info.yaml; standalone modules derive minimal")
     lines.append(" * metadata from their package-local source file.")
     lines.append(" */")
     lines.append("")
@@ -883,41 +856,23 @@ def generate_module_init_c(
     lines.extend(generate_lifecycle_forward_declarations(runtime_modules))
 
     # Generate processing mode arrays for each module
-    lines.append(
-        "/* ========================================================================== */"
-    )
-    lines.append(
-        "/* SUPPORTED PROCESSING MODES (Auto-generated from module metadata)          */"
-    )
-    lines.append(
-        "/* ========================================================================== */"
-    )
+    lines.append("/* ========================================================================== */")
+    lines.append("/* SUPPORTED PROCESSING MODES (Auto-generated from module metadata)          */")
+    lines.append("/* ========================================================================== */")
     lines.append("")
     lines.append("/*")
     lines.append(" * These arrays define which processing modes each module supports:")
-    lines.append(
-        " * - PROCESSING_MODE_FULL_HALO: Module processes full halo array (ngal > 1)"
-    )
+    lines.append(" * - PROCESSING_MODE_FULL_HALO: Module processes full halo array (ngal > 1)")
     lines.append(
         " * - PROCESSING_MODE_PER_EVENT: Module processes one event target at a time (ngal = 1)"
     )
-    lines.append(
-        " * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (ngal = 1)"
-    )
+    lines.append(" * - PROCESSING_MODE_BY_GALAXY: Module processes one galaxy at a time (ngal = 1)")
     lines.append(" *")
-    lines.append(
-        " * Generated from supported_processing_modes metadata."
-    )
-    lines.append(
-        " * Runtime directory modules declare this in module_info.yaml; standalone"
-    )
-    lines.append(
-        " * modules inherit all processing modes."
-    )
+    lines.append(" * Generated from supported_processing_modes metadata.")
+    lines.append(" * Runtime directory modules declare this in module_info.yaml; standalone")
+    lines.append(" * modules inherit all processing modes.")
     lines.append(" *")
-    lines.append(
-        " * Modules reference these arrays in their Module struct initialization."
-    )
+    lines.append(" * Modules reference these arrays in their Module struct initialization.")
     lines.append(" */")
     lines.append("")
 
@@ -941,15 +896,16 @@ def generate_module_init_c(
 
         # Generate array
         mode_list = ", ".join(mode_enums)
-        lines.append(
-            f"const enum ProcessingMode {name}_supported_modes[] = {{{mode_list}}};"
-        )
+        lines.append(f"const enum ProcessingMode {name}_supported_modes[] = {{{mode_list}}};")
 
     lines.append("")
 
     # Generate producer emit ID arrays (for emit-time validation in module_emit_event)
-    producer_modules = {name: events for name, events in emits.items()
-                        if any(m["name"] == name for m in runtime_modules)}
+    producer_modules = {
+        name: events
+        for name, events in emits.items()
+        if any(m["name"] == name for m in runtime_modules)
+    }
     if producer_modules:
         lines.append(
             "/* ========================================================================== */"
@@ -962,38 +918,28 @@ def generate_module_init_c(
         )
         lines.append("")
         lines.append("/*")
-        lines.append(
-            " * Emit ID arrays record which event IDs each producer module declared."
-        )
-        lines.append(
-            " * module_emit_event() validates against these arrays at emit time so"
-        )
-        lines.append(
-            " * undeclared event IDs are rejected immediately rather than silently"
-        )
-        lines.append(
-            " * routing to no consumer."
-        )
+        lines.append(" * Emit ID arrays record which event IDs each producer module declared.")
+        lines.append(" * module_emit_event() validates against these arrays at emit time so")
+        lines.append(" * undeclared event IDs are rejected immediately rather than silently")
+        lines.append(" * routing to no consumer.")
         lines.append(" *")
-        lines.append(
-            " * Generated from 'events.emits' sections in module_info.yaml."
-        )
+        lines.append(" * Generated from 'events.emits' sections in module_info.yaml.")
         lines.append(" */")
         lines.append("")
         for producer_name in sorted(producer_modules.keys()):
             emit_list = producer_modules[producer_name]
             id_list = ", ".join(
-                str(event_name_to_enum_constant(producer_name, e["name"]))
-                for e in emit_list
+                str(event_name_to_enum_constant(producer_name, e["name"])) for e in emit_list
             )
-            lines.append(
-                f"static const int {producer_name}_emitted_event_ids[] = {{{id_list}}};"
-            )
+            lines.append(f"static const int {producer_name}_emitted_event_ids[] = {{{id_list}}};")
             lines.append("")
 
     # Generate event subscription tables for consumers
-    consumer_modules = {name: subs for name, subs in consumes.items()
-                        if any(m["name"] == name for m in runtime_modules)}
+    consumer_modules = {
+        name: subs
+        for name, subs in consumes.items()
+        if any(m["name"] == name for m in runtime_modules)
+    }
     if consumer_modules:
         lines.append(
             "/* ========================================================================== */"
@@ -1006,22 +952,12 @@ def generate_module_init_c(
         )
         lines.append("")
         lines.append("/*")
-        lines.append(
-            " * Subscription tables define which (producer, event) pairs each"
-        )
-        lines.append(
-            " * process_per_event consumer module is subscribed to."
-        )
-        lines.append(
-            " * The dispatch loop checks these before calling consumer modules —"
-        )
-        lines.append(
-            " * no event-code filtering is needed in module C code."
-        )
+        lines.append(" * Subscription tables define which (producer, event) pairs each")
+        lines.append(" * process_per_event consumer module is subscribed to.")
+        lines.append(" * The dispatch loop checks these before calling consumer modules —")
+        lines.append(" * no event-code filtering is needed in module C code.")
         lines.append(" *")
-        lines.append(
-            " * Generated from 'events.consumes' sections in module_info.yaml."
-        )
+        lines.append(" * Generated from 'events.consumes' sections in module_info.yaml.")
         lines.append(" */")
         lines.append("")
 
@@ -1048,15 +984,9 @@ def generate_module_init_c(
     lines.extend(generate_module_struct_definitions(runtime_modules, event_info))
 
     # Registration function
-    lines.append(
-        "/* ========================================================================== */"
-    )
-    lines.append(
-        "/* MODULE REGISTRATION                                                        */"
-    )
-    lines.append(
-        "/* ========================================================================== */"
-    )
+    lines.append("/* ========================================================================== */")
+    lines.append("/* MODULE REGISTRATION                                                        */")
+    lines.append("/* ========================================================================== */")
     lines.append("")
     lines.append("/**")
     lines.append(" * @brief Register all available physics modules")
@@ -1078,9 +1008,7 @@ def generate_module_init_c(
     lines.append("void register_all_modules(void) {")
 
     if runtime_modules:
-        lines.append(
-            "    /* Directly register module structs (no per-module functions) */"
-        )
+        lines.append("    /* Directly register module structs (no per-module functions) */")
         for module in runtime_modules:
             name = module["name"]
             properties = module.get("dependencies", {}).get("properties", [])
@@ -1184,9 +1112,7 @@ def generate_module_sources_mk(
 # ==============================================================================
 
 
-def generate_hash_file(
-    metadata_hash: str, output_path: Path, dry_run: bool = False
-) -> bool:
+def generate_hash_file(metadata_hash: str, output_path: Path, dry_run: bool = False) -> bool:
     """Generate hash file for validation."""
 
     lines = []
@@ -1326,9 +1252,7 @@ def main():
             print_warning("Some declared tests not found:")
             for warn in test_warnings:
                 print(f"  {COLOR_YELLOW}- {warn}{COLOR_RESET}")
-            print(
-                f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}"
-            )
+            print(f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}")
         else:
             print("✓ All declared test files exist")
 

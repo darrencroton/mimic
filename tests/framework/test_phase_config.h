@@ -24,7 +24,7 @@
 #include "util/memory.h"
 #include "core/module_registry.h"
 #include "include/types.h"
-#include "include/globals.h"   /* extern struct MimicConfig MimicConfig */
+#include "include/globals.h" /* extern struct MimicConfig MimicConfig */
 
 /** Per-phase module capacity for tests (over-allocated; freed by count). */
 #define TEST_PHASE_MODULE_CAP 16
@@ -33,12 +33,11 @@
  * @brief   Append (module_name, mode) to the named substep phase, creating it
  *          if it does not exist yet. Phases appear in first-mention order.
  */
-static inline void test_phase_add(const char *phase_name,
-                                  const char *module_name,
+static inline void test_phase_add(const char *phase_name, const char *module_name,
                                   enum ProcessingMode mode) {
   if (MimicConfig.substep_phases == NULL) {
-    MimicConfig.substep_phases = mymalloc_cat(
-        MAX_SUBSTEP_PHASES * sizeof(struct ModulePhaseConfig), MEM_UTILITY);
+    MimicConfig.substep_phases =
+        mymalloc_cat(MAX_SUBSTEP_PHASES * sizeof(struct ModulePhaseConfig), MEM_UTILITY);
     MimicConfig.num_substep_phases = 0;
   }
 
@@ -52,8 +51,8 @@ static inline void test_phase_add(const char *phase_name,
   if (phase == NULL) {
     phase = &MimicConfig.substep_phases[MimicConfig.num_substep_phases++];
     phase->name = strdup(phase_name);
-    phase->modules = mymalloc_cat(
-        TEST_PHASE_MODULE_CAP * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    phase->modules =
+        mymalloc_cat(TEST_PHASE_MODULE_CAP * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     phase->num_modules = 0;
   }
 

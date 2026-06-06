@@ -36,11 +36,11 @@ from framework import (
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def parse_test_fixture_executions(stdout):
@@ -56,17 +56,19 @@ def parse_test_fixture_executions(stdout):
         list: List of dicts with execution information
     """
     executions = []
-    pattern = r'TEST_FIXTURE_EXEC: count=(\d+) ngal=(\d+) substep=(\d+)/(\d+) substep_dt=([\d.e+-]+) z=([\d.]+)'
+    pattern = r"TEST_FIXTURE_EXEC: count=(\d+) ngal=(\d+) substep=(\d+)/(\d+) substep_dt=([\d.e+-]+) z=([\d.]+)"
 
     for match in re.finditer(pattern, stdout):
-        executions.append({
-            'count': int(match.group(1)),
-            'ngal': int(match.group(2)),
-            'substep_number': int(match.group(3)),
-            'num_substeps': int(match.group(4)),
-            'substep_dt': float(match.group(5)),
-            'redshift': float(match.group(6))
-        })
+        executions.append(
+            {
+                "count": int(match.group(1)),
+                "ngal": int(match.group(2)),
+                "substep_number": int(match.group(3)),
+                "num_substeps": int(match.group(4)),
+                "substep_dt": float(match.group(5)),
+                "redshift": float(match.group(6)),
+            }
+        )
 
     return executions
 
@@ -84,29 +86,27 @@ def test_multiple_modules_galaxy_major():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="galaxy_major",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('test_fixture', 'process_by_galaxy'),  # Module instance 1
-                ('test_fixture', 'process_by_galaxy'),  # Module instance 2
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("test_fixture", "process_by_galaxy"),  # Module instance 1
+                ("test_fixture", "process_by_galaxy"),  # Module instance 2
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Use SubSteps=1 for simpler analysis
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 1
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 1
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -123,16 +123,18 @@ def test_multiple_modules_galaxy_major():
         total_executions = len(all_executions)
 
         # All executions should have ngal=1 (PROCESSING_MODE_ALL)
-        ngal_values = [e['ngal'] for e in all_executions]
-        assert all(ngal == 1 for ngal in ngal_values), \
-            "All executions should have ngal=1 with PROCESSING_MODE_ALL"
+        ngal_values = [e["ngal"] for e in all_executions]
+        assert all(
+            ngal == 1 for ngal in ngal_values
+        ), "All executions should have ngal=1 with PROCESSING_MODE_ALL"
 
         # Total galaxies processed = total_executions / 2 (2 modules per galaxy)
         total_galaxies = total_executions // 2
 
         # Verify the count is exactly twice the number of galaxies
-        assert total_executions == total_galaxies * 2, \
-            f"Expected {total_galaxies * 2} executions (2 per galaxy)"
+        assert (
+            total_executions == total_galaxies * 2
+        ), f"Expected {total_galaxies * 2} executions (2 per galaxy)"
 
         print(f"  ✓ Galaxy-major execution verified:")
         print(f"    - {total_galaxies} total galaxies processed")
@@ -157,31 +159,29 @@ def test_two_phase_modules_ordering():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="multi_phase_galaxy",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('test_fixture', 'process_by_galaxy'),
-                ('test_fixture', 'process_by_galaxy'),
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("test_fixture", "process_by_galaxy"),
+                ("test_fixture", "process_by_galaxy"),
             ],
-            'satellite_mergers': [
-                ('test_fixture', 'process_by_galaxy'),
+            "satellite_mergers": [
+                ("test_fixture", "process_by_galaxy"),
             ],
-            'post_timestep': []
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Use SubSteps=2 to see phase ordering across substeps
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 2
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 2
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -200,16 +200,15 @@ def test_two_phase_modules_ordering():
         # Total: 6N calls per FOF group
 
         # All executions should have ngal=1
-        ngal_values = [e['ngal'] for e in all_executions]
-        assert all(ngal == 1 for ngal in ngal_values), \
-            "All executions should have ngal=1"
+        ngal_values = [e["ngal"] for e in all_executions]
+        assert all(ngal == 1 for ngal in ngal_values), "All executions should have ngal=1"
 
         # Check substep pattern for first few executions
         first_fof = all_executions[:12]  # Assumes first FOF has at least 2 galaxies
 
         # Group by substep
-        substep_0 = [e for e in first_fof if e['substep_number'] == 0]
-        substep_1 = [e for e in first_fof if e['substep_number'] == 1]
+        substep_0 = [e for e in first_fof if e["substep_number"] == 0]
+        substep_1 = [e for e in first_fof if e["substep_number"] == 1]
 
         # Each substep should have executions (2N from galaxy_physics + N from satellite_mergers)
         # Verify we have both substeps represented
@@ -217,8 +216,9 @@ def test_two_phase_modules_ordering():
         assert len(substep_1) > 0, "Should have executions in substep 1"
 
         # Verify substep numbers are correct
-        assert all(e['num_substeps'] == 2 for e in first_fof), \
-            "All executions should have num_substeps=2"
+        assert all(
+            e["num_substeps"] == 2 for e in first_fof
+        ), "All executions should have num_substeps=2"
 
         total_executions = len(all_executions)
         total_galaxies = total_executions // 6  # 6 executions per galaxy (2 substeps × 3 modules)

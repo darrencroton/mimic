@@ -40,9 +40,11 @@ Date: 2025-12-09
 """
 
 import sys
-from pathlib import Path
-import numpy as np
 from collections import defaultdict
+from pathlib import Path
+
+import numpy as np
+
 
 def find_repo_root(start):
     """Find the repository root from this simulation-owned test path."""
@@ -56,23 +58,23 @@ REPO_ROOT = find_repo_root(Path(__file__).resolve())
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
-    TEST_DATA_DIR,
     MIMIC_EXE,
+    TEST_DATA_DIR,
     ensure_output_dirs,
-    simulation_input_file,
-    run_mimic,
     read_param_file,
+    run_mimic,
+    simulation_input_file,
 )
 
 # Ensure output directories exist
 ensure_output_dirs()
 
 # ANSI color codes (module-level constants)
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def load_hdf5_halos(output_file):
@@ -90,12 +92,12 @@ def load_hdf5_halos(output_file):
     except ImportError:
         raise ImportError(f"{RED}h5py not available - cannot load HDF5 output{NC}")
 
-    with h5py.File(output_file, 'r') as f:
+    with h5py.File(output_file, "r") as f:
         # Mimic HDF5 structure: Root contains snapshot groups (e.g., 'Snap063')
         # Each snapshot group contains 'Galaxies' dataset (structured array)
 
         # Get snapshot groups (e.g., 'Snap063')
-        snap_groups = [key for key in f.keys() if key.startswith('Snap')]
+        snap_groups = [key for key in f.keys() if key.startswith("Snap")]
 
         if not snap_groups:
             raise ValueError(f"{RED}No snapshot groups found in HDF5 file: {output_file}{NC}")
@@ -106,24 +108,24 @@ def load_hdf5_halos(output_file):
         snap_group = f[snap_name]
 
         # Read halo data from 'Galaxies' dataset
-        if 'Galaxies' not in snap_group:
+        if "Galaxies" not in snap_group:
             raise ValueError(f"{RED}No 'Galaxies' dataset found in {snap_name}{NC}")
 
         # Load the structured array directly
-        halos = snap_group['Galaxies'][:]
+        halos = snap_group["Galaxies"][:]
 
         # Get metadata from group attributes
-        attrs = dict(snap_group.attrs) if hasattr(snap_group, 'attrs') else {}
+        attrs = dict(snap_group.attrs) if hasattr(snap_group, "attrs") else {}
 
         # Also check for TreeHalosPerSnap to get tree count
-        ntrees = len(snap_group['TreeHalosPerSnap'][:]) if 'TreeHalosPerSnap' in snap_group else 1
+        ntrees = len(snap_group["TreeHalosPerSnap"][:]) if "TreeHalosPerSnap" in snap_group else 1
 
         # Create metadata
         metadata = {
-            'TotHalos': len(halos),
-            'Ntrees': ntrees,
-            'NoutputSnaps': 1,
-            'SnapshotName': snap_name,
+            "TotHalos": len(halos),
+            "Ntrees": ntrees,
+            "NoutputSnaps": 1,
+            "SnapshotName": snap_name,
         }
         metadata.update(attrs)
 
@@ -161,7 +163,7 @@ def calculate_distance_3d(pos1, pos2, box_size):
     if dz > box_size / 2.0:
         dz = box_size - dz
 
-    return np.sqrt(dx*dx + dy*dy + dz*dz)
+    return np.sqrt(dx * dx + dy * dy + dz * dz)
 
 
 def is_halo_inside_safe_region(pos, rvir, box_size, safety_factor=10.0):
@@ -225,7 +227,7 @@ def test_satellite_spatial_distribution():
     print(f"  Running Mimic to generate HDF5 output...")
     returncode, stdout, stderr = run_mimic(param_file)
     if returncode != 0:
-        output = (stdout + stderr)
+        output = stdout + stderr
         if "requires HDF5" in output or "HDF5 support" in output or "Recompile with" in output:
             print(f"  Skipping (Mimic not compiled with HDF5 support)")
             return
@@ -242,7 +244,7 @@ def test_satellite_spatial_distribution():
     # Load parameter file to get box_size
     print(f"  Loading parameter file: {param_file.relative_to(REPO_ROOT)}")
     params = read_param_file(param_file)
-    box_size = float(params['BoxSize'])
+    box_size = float(params["BoxSize"])
     print(f"    Box size: {box_size} Mpc/h")
 
     # Load HDF5 output
@@ -308,13 +310,15 @@ def test_satellite_spatial_distribution():
 
         # Find central galaxy
         if central_id not in galaxy_lookup:
-            missing_centrals.append({
-                'satellite_id': sat.UniqueGalaxyID,
-                'central_id': central_id,
-                'type': sat.Type,
-                'mvir': sat.Mvir,
-                'rvir': sat.Rvir,
-            })
+            missing_centrals.append(
+                {
+                    "satellite_id": sat.UniqueGalaxyID,
+                    "central_id": central_id,
+                    "type": sat.Type,
+                    "mvir": sat.Mvir,
+                    "rvir": sat.Rvir,
+                }
+            )
             continue
 
         central = galaxy_lookup[central_id]
@@ -329,59 +333,71 @@ def test_satellite_spatial_distribution():
         if sat.Type == 1:
             # Type 1: Apply pass/warn/fail criteria
             if distance > 10.0 * central_rvir:
-                violations_10x.append({
-                    'satellite_id': sat.UniqueGalaxyID,
-                    'central_id': central_id,
-                    'type': sat.Type,
-                    'distance': distance,
-                    'central_rvir': central_rvir,
-                    'ratio': distance / central_rvir,
-                    'sat_pos': sat.Pos,
-                    'central_pos': central.Pos,
-                    'sat_mvir': sat.Mvir,
-                    'central_mvir': central.Mvir,
-                })
+                violations_10x.append(
+                    {
+                        "satellite_id": sat.UniqueGalaxyID,
+                        "central_id": central_id,
+                        "type": sat.Type,
+                        "distance": distance,
+                        "central_rvir": central_rvir,
+                        "ratio": distance / central_rvir,
+                        "sat_pos": sat.Pos,
+                        "central_pos": central.Pos,
+                        "sat_mvir": sat.Mvir,
+                        "central_mvir": central.Mvir,
+                    }
+                )
             elif distance > 3.0 * central_rvir:
-                violations_3x.append({
-                    'satellite_id': sat.UniqueGalaxyID,
-                    'central_id': central_id,
-                    'type': sat.Type,
-                    'distance': distance,
-                    'central_rvir': central_rvir,
-                    'ratio': distance / central_rvir,
-                })
+                violations_3x.append(
+                    {
+                        "satellite_id": sat.UniqueGalaxyID,
+                        "central_id": central_id,
+                        "type": sat.Type,
+                        "distance": distance,
+                        "central_rvir": central_rvir,
+                        "ratio": distance / central_rvir,
+                    }
+                )
             else:
-                valid_satellites.append({
-                    'satellite_id': sat.UniqueGalaxyID,
-                    'distance': distance,
-                    'central_rvir': central_rvir,
-                    'ratio': distance / central_rvir,
-                })
+                valid_satellites.append(
+                    {
+                        "satellite_id": sat.UniqueGalaxyID,
+                        "distance": distance,
+                        "central_rvir": central_rvir,
+                        "ratio": distance / central_rvir,
+                    }
+                )
         elif sat.Type == 2:
             # Type 2 (orphans): Count for information only
             if distance > 10.0 * central_rvir:
-                orphan_10x.append({
-                    'satellite_id': sat.UniqueGalaxyID,
-                    'central_id': central_id,
-                    'distance': distance,
-                    'central_rvir': central_rvir,
-                    'ratio': distance / central_rvir,
-                })
+                orphan_10x.append(
+                    {
+                        "satellite_id": sat.UniqueGalaxyID,
+                        "central_id": central_id,
+                        "distance": distance,
+                        "central_rvir": central_rvir,
+                        "ratio": distance / central_rvir,
+                    }
+                )
             elif distance > 3.0 * central_rvir:
-                orphan_3x.append({
-                    'satellite_id': sat.UniqueGalaxyID,
-                    'central_id': central_id,
-                    'distance': distance,
-                    'central_rvir': central_rvir,
-                    'ratio': distance / central_rvir,
-                })
+                orphan_3x.append(
+                    {
+                        "satellite_id": sat.UniqueGalaxyID,
+                        "central_id": central_id,
+                        "distance": distance,
+                        "central_rvir": central_rvir,
+                        "ratio": distance / central_rvir,
+                    }
+                )
             else:
-                orphan_valid.append({
-                    'satellite_id': sat.UniqueGalaxyID,
-                    'distance': distance,
-                    'central_rvir': central_rvir,
-                    'ratio': distance / central_rvir,
-                })
+                orphan_valid.append(
+                    {
+                        "satellite_id": sat.UniqueGalaxyID,
+                        "distance": distance,
+                        "central_rvir": central_rvir,
+                        "ratio": distance / central_rvir,
+                    }
+                )
 
     # Report statistics
     n_tested = len(safe_satellites)
@@ -416,48 +432,72 @@ def test_satellite_spatial_distribution():
 
     # Report missing centrals
     if missing_centrals:
-        print(f"\n{YELLOW}  ⚠ WARNING: {len(missing_centrals)} satellites have missing central galaxies{NC}")
-        print(f"{YELLOW}  This may indicate a bug in central galaxy tracking or UniqueCentralGalaxyID assignment.{NC}")
+        print(
+            f"\n{YELLOW}  ⚠ WARNING: {len(missing_centrals)} satellites have missing central galaxies{NC}"
+        )
+        print(
+            f"{YELLOW}  This may indicate a bug in central galaxy tracking or UniqueCentralGalaxyID assignment.{NC}"
+        )
         print(f"{YELLOW}  Showing first 5 satellites with missing centrals:{NC}")
         for i, info in enumerate(missing_centrals[:5]):
-            print(f"{YELLOW}    {i+1}. Satellite {info['satellite_id']}: Type={info['type']}, "
-                  f"Mvir={info['mvir']:.3f}, expects central {info['central_id']} (not found){NC}")
+            print(
+                f"{YELLOW}    {i+1}. Satellite {info['satellite_id']}: Type={info['type']}, "
+                f"Mvir={info['mvir']:.3f}, expects central {info['central_id']} (not found){NC}"
+            )
         if len(missing_centrals) > 5:
             print(f"{YELLOW}    ... and {len(missing_centrals) - 5} more{NC}")
 
     # Report violations > 3x Rvir (WARNING) - Type 1 only
     if violations_3x:
-        print(f"\n{YELLOW}  ⚠ WARNING: {len(violations_3x)} Type 1 satellites beyond 3x Rvir of their central{NC}")
+        print(
+            f"\n{YELLOW}  ⚠ WARNING: {len(violations_3x)} Type 1 satellites beyond 3x Rvir of their central{NC}"
+        )
         print(f"{YELLOW}  This is unusual but can occur for substructure or recent infall.{NC}")
         print(f"{YELLOW}  Showing first 10 Type 1 satellites with large separations:{NC}")
 
         # Sort by ratio (largest first)
-        violations_3x.sort(key=lambda x: x['ratio'], reverse=True)
+        violations_3x.sort(key=lambda x: x["ratio"], reverse=True)
 
         for i, info in enumerate(violations_3x[:10]):
-            print(f"{YELLOW}    {i+1}. Satellite {info['satellite_id']} → Central {info['central_id']}: "
-                  f"distance={info['distance']:.3f} Mpc/h ({info['ratio']:.2f}x Rvir){NC}")
-            print(f"{YELLOW}       Type={info['type']}, Central Rvir={info['central_rvir']:.3f} Mpc/h{NC}")
+            print(
+                f"{YELLOW}    {i+1}. Satellite {info['satellite_id']} → Central {info['central_id']}: "
+                f"distance={info['distance']:.3f} Mpc/h ({info['ratio']:.2f}x Rvir){NC}"
+            )
+            print(
+                f"{YELLOW}       Type={info['type']}, Central Rvir={info['central_rvir']:.3f} Mpc/h{NC}"
+            )
 
         if len(violations_3x) > 10:
             print(f"{YELLOW}    ... and {len(violations_3x) - 10} more{NC}")
 
     # Report violations > 10x Rvir (FAIL) - Type 1 only
     if violations_10x:
-        print(f"\n{RED}  ✗ FAIL: {len(violations_10x)} Type 1 satellites beyond 10x Rvir of their central!{NC}")
-        print(f"{RED}  This is unphysical and indicates a serious bug in halo tracking or merger handling.{NC}")
+        print(
+            f"\n{RED}  ✗ FAIL: {len(violations_10x)} Type 1 satellites beyond 10x Rvir of their central!{NC}"
+        )
+        print(
+            f"{RED}  This is unphysical and indicates a serious bug in halo tracking or merger handling.{NC}"
+        )
         print(f"{RED}  Showing all Type 1 satellites with extreme separations:{NC}")
 
         # Sort by ratio (largest first)
-        violations_10x.sort(key=lambda x: x['ratio'], reverse=True)
+        violations_10x.sort(key=lambda x: x["ratio"], reverse=True)
 
         for i, info in enumerate(violations_10x):
-            print(f"\n{RED}    {i+1}. Satellite {info['satellite_id']} → Central {info['central_id']}:{NC}")
-            print(f"{RED}       Distance: {info['distance']:.3f} Mpc/h ({info['ratio']:.2f}x Rvir){NC}")
+            print(
+                f"\n{RED}    {i+1}. Satellite {info['satellite_id']} → Central {info['central_id']}:{NC}"
+            )
+            print(
+                f"{RED}       Distance: {info['distance']:.3f} Mpc/h ({info['ratio']:.2f}x Rvir){NC}"
+            )
             print(f"{RED}       Central Rvir: {info['central_rvir']:.3f} Mpc/h{NC}")
             print(f"{RED}       Satellite Type: {info['type']}{NC}")
-            print(f"{RED}       Satellite Pos: [{info['sat_pos'][0]:.2f}, {info['sat_pos'][1]:.2f}, {info['sat_pos'][2]:.2f}] Mpc/h{NC}")
-            print(f"{RED}       Central Pos:   [{info['central_pos'][0]:.2f}, {info['central_pos'][1]:.2f}, {info['central_pos'][2]:.2f}] Mpc/h{NC}")
+            print(
+                f"{RED}       Satellite Pos: [{info['sat_pos'][0]:.2f}, {info['sat_pos'][1]:.2f}, {info['sat_pos'][2]:.2f}] Mpc/h{NC}"
+            )
+            print(
+                f"{RED}       Central Pos:   [{info['central_pos'][0]:.2f}, {info['central_pos'][1]:.2f}, {info['central_pos'][2]:.2f}] Mpc/h{NC}"
+            )
             print(f"{RED}       Satellite Mvir: {info['sat_mvir']:.3f} (1e10 Msun/h){NC}")
             print(f"{RED}       Central Mvir:   {info['central_mvir']:.3f} (1e10 Msun/h){NC}")
 
@@ -470,7 +510,7 @@ def test_satellite_spatial_distribution():
 
     # Calculate distance statistics for valid satellites
     if valid_satellites:
-        distances = np.array([s['ratio'] for s in valid_satellites])
+        distances = np.array([s["ratio"] for s in valid_satellites])
         print(f"\n  Distance ratio statistics (valid satellites):")
         print(f"    Mean: {np.mean(distances):.2f}x Rvir")
         print(f"    Median: {np.median(distances):.2f}x Rvir")
@@ -479,11 +519,17 @@ def test_satellite_spatial_distribution():
         print(f"    Max: {np.max(distances):.2f}x Rvir")
         print(f"    95th percentile: {np.percentile(distances, 95):.2f}x Rvir")
 
-    print(f"\n{GREEN}  ✓ PASS: All {n_type1} Type 1 satellites within 10x Rvir of their centrals{NC}")
+    print(
+        f"\n{GREEN}  ✓ PASS: All {n_type1} Type 1 satellites within 10x Rvir of their centrals{NC}"
+    )
     if n_warn > 0:
-        print(f"{YELLOW}  Note: {n_warn} Type 1 satellites between 3-10x Rvir (see warnings above){NC}")
+        print(
+            f"{YELLOW}  Note: {n_warn} Type 1 satellites between 3-10x Rvir (see warnings above){NC}"
+        )
     if n_missing > 0:
-        print(f"{YELLOW}  Note: {n_missing} satellites with missing centrals (see warnings above){NC}")
+        print(
+            f"{YELLOW}  Note: {n_missing} satellites with missing centrals (see warnings above){NC}"
+        )
     if n_type2 > 0:
         print(f"  Info: {n_type2} Type 2 orphans tested (for information only)")
 
@@ -492,7 +538,9 @@ def main():
     """Main test runner."""
     # Print test suite header
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: Satellite Spatial Distribution (test_satellite_spatial_distribution.py){NC}")
+    print(
+        f"{BLUE}Test Suite: Satellite Spatial Distribution (test_satellite_spatial_distribution.py){NC}"
+    )
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
     print(f"Repository root: {REPO_ROOT}")

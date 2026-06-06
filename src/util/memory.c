@@ -32,8 +32,7 @@
 #include "proto.h"
 
 /* Memory category names for reporting */
-static const char *CategoryNames[] = {"Unknown", "Galaxies", "Halos",
-                                      "Trees",   "I/O",      "Utility"};
+static const char *CategoryNames[] = {"Unknown", "Galaxies", "Halos", "Trees", "I/O", "Utility"};
 
 /* ============================================================================
  * Memory Tracking Global State
@@ -57,18 +56,16 @@ static const char *CategoryNames[] = {"Unknown", "Galaxies", "Halos",
 
 /* Memory tracking variables */
 static unsigned long MaxBlocks = DEFAULT_MAX_MEMORY_BLOCKS;
-static unsigned long Nblocks = 0;            /* Number of allocated blocks */
-static void **Table = NULL;                  /* Pointers to allocated blocks */
-static size_t *SizeTable = NULL;             /* Sizes of allocated blocks */
-static MemoryCategory *CategoryTable = NULL; /* Category of each block */
-static size_t TotMem = 0;                    /* Total allocated memory */
-static size_t HighMarkMem = 0;          /* High watermark of memory usage */
-static size_t OldPrintedHighMark = 0;   /* Last reported high watermark */
-static int MemorySystemInitialized = 0; /* Flag to track initialization state */
-static size_t CategorySizes[MEM_MAX_CATEGORY] = {
-    0}; /* Memory used per category */
-static int MemoryReportLevel =
-    MEMORY_REPORT_MINIMAL; /* Default to minimal reporting */
+static unsigned long Nblocks = 0;                     /* Number of allocated blocks */
+static void **Table = NULL;                           /* Pointers to allocated blocks */
+static size_t *SizeTable = NULL;                      /* Sizes of allocated blocks */
+static MemoryCategory *CategoryTable = NULL;          /* Category of each block */
+static size_t TotMem = 0;                             /* Total allocated memory */
+static size_t HighMarkMem = 0;                        /* High watermark of memory usage */
+static size_t OldPrintedHighMark = 0;                 /* Last reported high watermark */
+static int MemorySystemInitialized = 0;               /* Flag to track initialization state */
+static size_t CategorySizes[MEM_MAX_CATEGORY] = {0};  /* Memory used per category */
+static int MemoryReportLevel = MEMORY_REPORT_MINIMAL; /* Default to minimal reporting */
 
 #ifdef DEBUG_MEMORY
 #define MEMORY_GUARD_SIZE 8 /* Size of guard areas in bytes */
@@ -107,8 +104,7 @@ void init_memory_system(unsigned long max_blocks) {
   memset(CategorySizes, 0, sizeof(CategorySizes));
   MemorySystemInitialized = 1;
 
-  INFO_LOG("Memory management system initialized with capacity for %lu blocks",
-           MaxBlocks);
+  INFO_LOG("Memory management system initialized with capacity for %lu blocks", MaxBlocks);
 }
 
 /**
@@ -232,16 +228,14 @@ void *mymalloc_cat(size_t size, MemoryCategory category) {
     HighMarkMem = TotMem;
     /* Only report when verbose format is enabled (--verbose) */
     if (HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
-      VERBOSE_LOG("New memory usage high mark: %.2f MB",
-                  HighMarkMem / (1024.0 * 1024.0));
+      VERBOSE_LOG("New memory usage high mark: %.2f MB", HighMarkMem / (1024.0 * 1024.0));
       OldPrintedHighMark = HighMarkMem;
     }
   }
 
   /* Optional detailed reporting */
   if (MemoryReportLevel >= MEMORY_REPORT_DETAILED) {
-    INFO_LOG("Allocated %.2f KB for category %s", size / 1024.0,
-             CategoryNames[category]);
+    INFO_LOG("Allocated %.2f KB for category %s", size / 1024.0, CategoryNames[category]);
   }
 
   /* Increment block count and return pointer */
@@ -352,16 +346,14 @@ void *myrealloc_cat(void *p, size_t size, MemoryCategory category) {
     HighMarkMem = TotMem;
     /* Only report when verbose format is enabled (--verbose) */
     if (HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
-      VERBOSE_LOG("New memory usage high mark: %.2f MB",
-                  HighMarkMem / (1024.0 * 1024.0));
+      VERBOSE_LOG("New memory usage high mark: %.2f MB", HighMarkMem / (1024.0 * 1024.0));
       OldPrintedHighMark = HighMarkMem;
     }
   }
 
   /* Optional detailed reporting */
   if (MemoryReportLevel >= MEMORY_REPORT_DETAILED) {
-    INFO_LOG("Reallocated %.2f KB for category %s", size / 1024.0,
-             CategoryNames[category]);
+    INFO_LOG("Reallocated %.2f KB for category %s", size / 1024.0, CategoryNames[category]);
   }
 
   return user_newp;
@@ -416,8 +408,7 @@ void myfree(void *p) {
   /* Find the block in the table */
   int index = find_block_index(p);
   if (index == -1) {
-    FATAL_ERROR(
-        "Memory management error: Attempting to free untracked pointer %p", p);
+    FATAL_ERROR("Memory management error: Attempting to free untracked pointer %p", p);
   }
 
 #ifdef DEBUG_MEMORY
@@ -467,9 +458,8 @@ void myfree(void *p) {
  */
 void print_memory_brief(void) {
   if (MemorySystemInitialized) {
-    INFO_LOG("Memory: %.2f MB used, %.2f MB peak, %lu blocks",
-             TotMem / (1024.0 * 1024.0), HighMarkMem / (1024.0 * 1024.0),
-             Nblocks);
+    INFO_LOG("Memory: %.2f MB used, %.2f MB peak, %lu blocks", TotMem / (1024.0 * 1024.0),
+             HighMarkMem / (1024.0 * 1024.0), Nblocks);
   }
 }
 
@@ -482,8 +472,8 @@ void print_memory_brief(void) {
  */
 void print_allocated(void) {
   if (MemorySystemInitialized) {
-    INFO_LOG("Memory currently allocated: %.2f MB (%lu blocks)",
-             TotMem / (1024.0 * 1024.0), Nblocks);
+    INFO_LOG("Memory currently allocated: %.2f MB (%lu blocks)", TotMem / (1024.0 * 1024.0),
+             Nblocks);
 
     if (MemoryReportLevel >= MEMORY_REPORT_DETAILED) {
       print_allocated_by_category();
@@ -504,8 +494,7 @@ void print_allocated_by_category(void) {
   INFO_LOG("Memory usage by category:");
   for (int i = 0; i < MEM_MAX_CATEGORY; i++) {
     if (CategorySizes[i] > 0) {
-      INFO_LOG("  %s: %.2f MB", CategoryNames[i],
-               CategorySizes[i] / (1024.0 * 1024.0));
+      INFO_LOG("  %s: %.2f MB", CategoryNames[i], CategorySizes[i] / (1024.0 * 1024.0));
     }
   }
 }
@@ -519,8 +508,8 @@ void print_allocated_by_category(void) {
  */
 void check_memory_leaks(void) {
   if (Nblocks > 0) {
-    WARNING_LOG("Memory leak detected: %lu blocks (%.2f MB) still allocated",
-                Nblocks, TotMem / (1024.0 * 1024.0));
+    WARNING_LOG("Memory leak detected: %lu blocks (%.2f MB) still allocated", Nblocks,
+                TotMem / (1024.0 * 1024.0));
 
     /* Count leaks by category */
     size_t category_counts[MEM_MAX_CATEGORY] = {0};
@@ -539,9 +528,8 @@ void check_memory_leaks(void) {
     /* Print details of leaked blocks if detailed reporting enabled */
     if (MemoryReportLevel >= MEMORY_REPORT_DETAILED) {
       for (unsigned long i = 0; i < Nblocks; i++) {
-        WARNING_LOG("  Leaked block %lu: %.2f KB at %p (category: %s)", i,
-                    SizeTable[i] / 1024.0, Table[i],
-                    CategoryNames[CategoryTable[i]]);
+        WARNING_LOG("  Leaked block %lu: %.2f KB at %p (category: %s)", i, SizeTable[i] / 1024.0,
+                    Table[i], CategoryNames[CategoryTable[i]]);
       }
     }
   } else {
@@ -562,8 +550,7 @@ void check_memory_leaks(void) {
 static void add_memory_guards(void *real_ptr, size_t size) {
   /* Calculate guard locations */
   uint32_t *front_guard = (uint32_t *)real_ptr;
-  uint32_t *back_guard =
-      (uint32_t *)((char *)real_ptr + MEMORY_GUARD_SIZE + size);
+  uint32_t *back_guard = (uint32_t *)((char *)real_ptr + MEMORY_GUARD_SIZE + size);
 
   /* Set front guard (2 32-bit values) */
   front_guard[0] = MEMORY_GUARD_VALUE;
@@ -590,10 +577,8 @@ static int check_memory_guards(void *user_ptr, size_t size) {
   uint32_t *back_guard = (uint32_t *)((char *)user_ptr + size);
 
   /* Check guards */
-  if (front_guard[0] != MEMORY_GUARD_VALUE ||
-      front_guard[1] != MEMORY_GUARD_VALUE ||
-      back_guard[0] != MEMORY_GUARD_VALUE ||
-      back_guard[1] != MEMORY_GUARD_VALUE) {
+  if (front_guard[0] != MEMORY_GUARD_VALUE || front_guard[1] != MEMORY_GUARD_VALUE ||
+      back_guard[0] != MEMORY_GUARD_VALUE || back_guard[1] != MEMORY_GUARD_VALUE) {
     return 0; /* Guards damaged */
   }
 
@@ -621,8 +606,7 @@ int validate_memory_block(void *ptr) {
 #ifdef DEBUG_MEMORY
   /* Check memory guards */
   if (!check_memory_guards(ptr, SizeTable[index])) {
-    WARNING_LOG("Memory corruption detected: Guards damaged for pointer %p",
-                ptr);
+    WARNING_LOG("Memory corruption detected: Guards damaged for pointer %p", ptr);
     return 0;
   }
 #endif
@@ -648,9 +632,7 @@ int validate_all_memory(void) {
     if (check_memory_guards(Table[i], SizeTable[i])) {
       valid_blocks++;
     } else {
-      WARNING_LOG(
-          "Memory corruption detected: Guards damaged for block %lu at %p", i,
-          Table[i]);
+      WARNING_LOG("Memory corruption detected: Guards damaged for block %lu at %p", i, Table[i]);
       invalid_blocks++;
     }
 #else
@@ -664,8 +646,8 @@ int validate_all_memory(void) {
     }
     return 1;
   } else {
-    WARNING_LOG("Memory validation: %d valid blocks, %d corrupted blocks",
-                valid_blocks, invalid_blocks);
+    WARNING_LOG("Memory validation: %d valid blocks, %d corrupted blocks", valid_blocks,
+                invalid_blocks);
     return 0;
   }
 }
@@ -681,8 +663,7 @@ void cleanup_memory_system(void) {
     /* Only report post-cleanup stats at detailed level (debugging) */
     if (MemoryReportLevel >= MEMORY_REPORT_DETAILED) {
       INFO_LOG("Memory usage after cleanup: %.2f MB used, %.2f MB peak, %lu blocks",
-               TotMem / (1024.0 * 1024.0), HighMarkMem / (1024.0 * 1024.0),
-               Nblocks);
+               TotMem / (1024.0 * 1024.0), HighMarkMem / (1024.0 * 1024.0), Nblocks);
     }
 
     free(Table);

@@ -8,18 +8,19 @@ Tests the new validation helpers added for skipping empty plots:
 - check_field_has_values()
 """
 
-import numpy as np
-import sys
 import os
+import sys
+
+import numpy as np
 
 # Add parent directory to path for imports
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, parent_dir)
 
 from output_utils import (
-    validate_filtered_data,
-    validate_evolution_snapshot,
     check_field_has_values,
+    validate_evolution_snapshot,
+    validate_filtered_data,
 )
 
 
@@ -62,9 +63,7 @@ def test_validate_evolution_snapshot_with_data():
     """Test evolution validation with data."""
     print("Testing validate_evolution_snapshot with valid data...")
     indices = np.array([0, 1, 2])
-    is_valid, skip_msg = validate_evolution_snapshot(
-        indices, 1.5, "Test Evolution", verbose=False
-    )
+    is_valid, skip_msg = validate_evolution_snapshot(indices, 1.5, "Test Evolution", verbose=False)
 
     assert is_valid == True, "Should be valid with data"
     assert skip_msg is None, "Skip message should be None when valid"
@@ -75,9 +74,7 @@ def test_validate_evolution_snapshot_empty():
     """Test evolution validation without data."""
     print("Testing validate_evolution_snapshot with empty data...")
     indices = np.array([])
-    is_valid, skip_msg = validate_evolution_snapshot(
-        indices, 2.0, "Test Evolution", verbose=False
-    )
+    is_valid, skip_msg = validate_evolution_snapshot(indices, 2.0, "Test Evolution", verbose=False)
 
     assert is_valid == False, "Should be invalid with no data"
     assert skip_msg is not None, "Skip message should be provided"
@@ -90,9 +87,7 @@ def test_validate_evolution_snapshot_verbose():
     """Test evolution validation verbose mode."""
     print("Testing validate_evolution_snapshot verbose mode...")
     indices = np.array([])
-    is_valid, skip_msg = validate_evolution_snapshot(
-        indices, 1.0, "Test Evolution", verbose=True
-    )
+    is_valid, skip_msg = validate_evolution_snapshot(indices, 1.0, "Test Evolution", verbose=True)
 
     assert is_valid == False, "Should be invalid"
     assert skip_msg is not None, "Skip message should be provided"

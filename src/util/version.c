@@ -119,8 +119,7 @@ static int get_git_branch_name(char *branch_buffer, size_t size) {
     return 0;
   }
 #endif
-  return execute_command("git rev-parse --abbrev-ref HEAD 2>/dev/null",
-                         branch_buffer, size);
+  return execute_command("git rev-parse --abbrev-ref HEAD 2>/dev/null", branch_buffer, size);
 }
 
 /**
@@ -131,13 +130,12 @@ static int get_git_branch_name(char *branch_buffer, size_t size) {
  * @param   hash           The git hash to create the URL for
  * @return  0 on success, non-zero if URL couldn't be created
  */
-static int get_github_commit_url(char *url_buffer, size_t size,
-                                 const char *hash) {
+static int get_github_commit_url(char *url_buffer, size_t size, const char *hash) {
   char remote_url[MAX_OUTPUT_LENGTH];
 
   /* First get the remote URL to determine the GitHub repo */
-  if (execute_command("git config --get remote.origin.url 2>/dev/null",
-                      remote_url, sizeof(remote_url)) != 0) {
+  if (execute_command("git config --get remote.origin.url 2>/dev/null", remote_url,
+                      sizeof(remote_url)) != 0) {
     return 1;
   }
 
@@ -158,8 +156,7 @@ static int get_github_commit_url(char *url_buffer, size_t size,
       *git_suffix = '\0';
     }
 
-    snprintf(url_buffer, size, "https://github.com/%s/commit/%s", github_part,
-             hash);
+    snprintf(url_buffer, size, "https://github.com/%s/commit/%s", github_part, hash);
   } else if (strncmp(remote_url, "https://", 8) == 0) {
     /* HTTPS format: https://github.com/owner/repo.git */
     github_part += 11; /* Skip "github.com/" */
@@ -170,8 +167,7 @@ static int get_github_commit_url(char *url_buffer, size_t size,
       *git_suffix = '\0';
     }
 
-    snprintf(url_buffer, size, "https://github.com/%s/commit/%s", github_part,
-             hash);
+    snprintf(url_buffer, size, "https://github.com/%s/commit/%s", github_part, hash);
   } else {
     return 1;
   }
@@ -187,11 +183,10 @@ static int get_github_commit_url(char *url_buffer, size_t size,
  */
 static void get_compiler_info(char *compiler_buffer, size_t size) {
 #ifdef __GNUC__
-  snprintf(compiler_buffer, size, "gcc %d.%d.%d", __GNUC__, __GNUC_MINOR__,
-           __GNUC_PATCHLEVEL__);
+  snprintf(compiler_buffer, size, "gcc %d.%d.%d", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
 #elif defined(__clang__)
-  snprintf(compiler_buffer, size, "clang %d.%d.%d", __clang_major__,
-           __clang_minor__, __clang_patchlevel__);
+  snprintf(compiler_buffer, size, "clang %d.%d.%d", __clang_major__, __clang_minor__,
+           __clang_patchlevel__);
 #else
   strncpy(compiler_buffer, "unknown", size);
 #endif
@@ -217,14 +212,12 @@ static int get_system_info(char *system_buffer, size_t size) {
   /* Get more detailed OS version information */
   if (strcmp(system_info.sysname, "Darwin") == 0) {
     /* For macOS, use sw_vers command to get precise version */
-    if (execute_command("sw_vers -productVersion 2>/dev/null", os_version,
-                        sizeof(os_version)) == 0) {
-      snprintf(system_buffer, size, "macOS %s %s", os_version,
-               system_info.machine);
+    if (execute_command("sw_vers -productVersion 2>/dev/null", os_version, sizeof(os_version)) ==
+        0) {
+      snprintf(system_buffer, size, "macOS %s %s", os_version, system_info.machine);
     } else {
       /* Fallback to basic information */
-      snprintf(system_buffer, size, "macOS %s %s", system_info.release,
-               system_info.machine);
+      snprintf(system_buffer, size, "macOS %s %s", system_info.release, system_info.machine);
     }
   } else if (strcmp(system_info.sysname, "Linux") == 0) {
     /* For Linux, try to get distribution information */
@@ -268,21 +261,21 @@ static int get_system_info(char *system_buffer, size_t size) {
       fclose(os_release);
 
       if (distro_name[0] && distro_version[0]) {
-        snprintf(system_buffer, size, "%s %s %s %s", system_info.sysname,
-                 distro_name, distro_version, system_info.machine);
+        snprintf(system_buffer, size, "%s %s %s %s", system_info.sysname, distro_name,
+                 distro_version, system_info.machine);
       } else {
-        snprintf(system_buffer, size, "%s %s %s", system_info.sysname,
-                 system_info.release, system_info.machine);
+        snprintf(system_buffer, size, "%s %s %s", system_info.sysname, system_info.release,
+                 system_info.machine);
       }
     } else {
       /* Fallback to basic information */
-      snprintf(system_buffer, size, "%s %s %s", system_info.sysname,
-               system_info.release, system_info.machine);
+      snprintf(system_buffer, size, "%s %s %s", system_info.sysname, system_info.release,
+               system_info.machine);
     }
   } else {
     /* For other OSes, use the standard uname information */
-    snprintf(system_buffer, size, "%s %s %s", system_info.sysname,
-             system_info.release, system_info.machine);
+    snprintf(system_buffer, size, "%s %s %s", system_info.sysname, system_info.release,
+             system_info.machine);
   }
 
   return 0;
@@ -317,16 +310,14 @@ static int get_username(char *user_buffer, size_t size) {
  * @param   size           Size of the buffer
  * @return  0 on success, non-zero on error
  */
-static int calculate_file_md5_checksum(const char *filepath,
-                                       char *digest_buffer, size_t size) {
+static int calculate_file_md5_checksum(const char *filepath, char *digest_buffer, size_t size) {
   char command[MAX_CMD_LENGTH];
 
   /* Use md5 on macOS, md5sum on Linux systems */
 #ifdef __APPLE__
   snprintf(command, MAX_CMD_LENGTH, "md5 -q \"%s\" 2>/dev/null", filepath);
 #else
-  snprintf(command, MAX_CMD_LENGTH,
-           "md5sum \"%s\" 2>/dev/null | awk '{print $1}'", filepath);
+  snprintf(command, MAX_CMD_LENGTH, "md5sum \"%s\" 2>/dev/null | awk '{print $1}'", filepath);
 #endif
 
   if (execute_command(command, digest_buffer, size) != 0) {
@@ -353,12 +344,9 @@ static int calculate_file_md5_checksum(const char *filepath,
  *
  * @return  0 on success, non-zero on error
  */
-int create_version_metadata(const char *output_dir,
-                            const char *parameter_file) {
-  char metadata_dir[MAX_STRING_LEN +
-                    15]; /* +15 for "/metadata" and null terminator */
-  char metadata_path[MAX_STRING_LEN +
-                     50]; /* Extra space for the complete file path */
+int create_version_metadata(const char *output_dir, const char *parameter_file) {
+  char metadata_dir[MAX_STRING_LEN + 15];  /* +15 for "/metadata" and null terminator */
+  char metadata_path[MAX_STRING_LEN + 50]; /* Extra space for the complete file path */
   FILE *metadata_file;
 
   /* Buffers for various metadata values */
@@ -402,8 +390,7 @@ int create_version_metadata(const char *output_dir,
   get_username(username, sizeof(username));
 
   /* Calculate parameter file MD5 checksum */
-  calculate_file_md5_checksum(parameter_file, parameter_digest,
-                              sizeof(parameter_digest));
+  calculate_file_md5_checksum(parameter_file, parameter_digest, sizeof(parameter_digest));
 
   /* Make sure metadata directory exists */
   snprintf(metadata_dir, sizeof(metadata_dir), "%s/metadata", output_dir);
@@ -413,8 +400,7 @@ int create_version_metadata(const char *output_dir,
   }
 
   /* Create metadata JSON file */
-  snprintf(metadata_path, sizeof(metadata_path), "%s/version_info.json",
-           metadata_dir);
+  snprintf(metadata_path, sizeof(metadata_path), "%s/version_info.json", metadata_dir);
   metadata_file = fopen(metadata_path, "w");
 
   if (metadata_file == NULL) {
@@ -436,8 +422,7 @@ int create_version_metadata(const char *output_dir,
   fprintf(metadata_file, "  \"run_date\": \"%s\",\n", current_time);
   fprintf(metadata_file, "  \"parameters\": {\n");
   fprintf(metadata_file, "    \"file_path\": \"%s\",\n", parameter_file);
-  fprintf(metadata_file, "    \"parameter_md5_checksum\": \"%s\"\n",
-          parameter_digest);
+  fprintf(metadata_file, "    \"parameter_md5_checksum\": \"%s\"\n", parameter_digest);
   fprintf(metadata_file, "  },\n");
   fprintf(metadata_file, "  \"compiler\": \"%s\",\n", compiler_info);
   fprintf(metadata_file, "  \"system\": \"%s\",\n", system_info);

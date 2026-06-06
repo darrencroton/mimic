@@ -36,9 +36,8 @@
  * @param result Pointer to store result
  * @param error Pointer to store error estimate
  */
-static void adaptive_simpson(integrand_func_t f, void *params, double a,
-                             double b, double tol, int depth, int max_depth,
-                             double *result, double *error) {
+static void adaptive_simpson(integrand_func_t f, void *params, double a, double b, double tol,
+                             int depth, int max_depth, double *result, double *error) {
   // Calculate midpoint and evaluate function at three points
   double c = (a + b) / 2.0;
   double fa = f(a, params);
@@ -64,10 +63,8 @@ static void adaptive_simpson(integrand_func_t f, void *params, double a,
   double left_result, left_error;
   double right_result, right_error;
 
-  adaptive_simpson(f, params, a, c, tol / 2.0, depth + 1, max_depth,
-                   &left_result, &left_error);
-  adaptive_simpson(f, params, c, b, tol / 2.0, depth + 1, max_depth,
-                   &right_result, &right_error);
+  adaptive_simpson(f, params, a, c, tol / 2.0, depth + 1, max_depth, &left_result, &left_error);
+  adaptive_simpson(f, params, c, b, tol / 2.0, depth + 1, max_depth, &right_result, &right_error);
 
   // Combine results
   *result = left_result + right_result;
@@ -77,9 +74,8 @@ static void adaptive_simpson(integrand_func_t f, void *params, double a,
 /**
  * Implementation of Simpson's rule integration
  */
-static void simpson_integrate(double a, double b, integrand_func_t f,
-                              void *params, double *result, double *abserr,
-                              double *resabs, double *resasc) {
+static void simpson_integrate(double a, double b, integrand_func_t f, void *params, double *result,
+                              double *abserr, double *resabs, double *resasc) {
   // Use adaptive Simpson's rule with a reasonable max depth
   adaptive_simpson(f, params, a, b, 1.0e-10, 0, 20, result, abserr);
 
@@ -94,8 +90,7 @@ static void simpson_integrate(double a, double b, integrand_func_t f,
 integration_workspace_t *integration_workspace_alloc(size_t size) {
   integration_workspace_t *workspace;
 
-  workspace =
-      (integration_workspace_t *)malloc(sizeof(integration_workspace_t));
+  workspace = (integration_workspace_t *)malloc(sizeof(integration_workspace_t));
   if (workspace == NULL) {
     ERROR_LOG("Failed to allocate integration workspace");
     return NULL;
@@ -118,9 +113,8 @@ void integration_workspace_free(integration_workspace_t *workspace) {
 /**
  * Main integration function using adaptive Simpson's rule
  */
-int integration_qag(integration_function_t *f, double a, double b,
-                    double epsabs, double epsrel, size_t limit, int key,
-                    integration_workspace_t *workspace, double *result,
+int integration_qag(integration_function_t *f, double a, double b, double epsabs, double epsrel,
+                    size_t limit, int key, integration_workspace_t *workspace, double *result,
                     double *abserr) {
   double resabs, resasc;
 
@@ -132,8 +126,7 @@ int integration_qag(integration_function_t *f, double a, double b,
   // We'll use Simpson's rule directly, ignoring the workspace and key
   // parameters This is simpler and more robust for the specific case of
   // lookback time integration
-  simpson_integrate(a, b, f->function, f->params, result, abserr, &resabs,
-                    &resasc);
+  simpson_integrate(a, b, f->function, f->params, result, abserr, &resabs, &resasc);
 
   // Check if we met the tolerance requirements
   double tolerance = fmax(epsabs, epsrel * fabs(*result));

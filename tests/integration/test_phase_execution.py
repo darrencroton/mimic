@@ -38,11 +38,11 @@ from framework import (
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def parse_test_fixture_executions(stdout):
@@ -61,17 +61,19 @@ def parse_test_fixture_executions(stdout):
     executions = []
 
     # Pattern: TEST_FIXTURE_EXEC: count=%d ngal=%d substep=%d/%d substep_dt=%.6e z=%.4f
-    pattern = r'TEST_FIXTURE_EXEC: count=(\d+) ngal=(\d+) substep=(\d+)/(\d+) substep_dt=([\d.e+-]+) z=([\d.]+)'
+    pattern = r"TEST_FIXTURE_EXEC: count=(\d+) ngal=(\d+) substep=(\d+)/(\d+) substep_dt=([\d.e+-]+) z=([\d.]+)"
 
     for match in re.finditer(pattern, stdout):
-        executions.append({
-            'count': int(match.group(1)),
-            'ngal': int(match.group(2)),
-            'substep_number': int(match.group(3)),
-            'num_substeps': int(match.group(4)),
-            'substep_dt': float(match.group(5)),
-            'redshift': float(match.group(6))
-        })
+        executions.append(
+            {
+                "count": int(match.group(1)),
+                "ngal": int(match.group(2)),
+                "substep_number": int(match.group(3)),
+                "num_substeps": int(match.group(4)),
+                "substep_dt": float(match.group(5)),
+                "redshift": float(match.group(6)),
+            }
+        )
 
     return executions
 
@@ -89,26 +91,27 @@ def test_pre_timestep_frequency():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="pre_timestep_freq",
         phase_config={
-            'pre_timestep': [('test_fixture', 'process_full_halo')],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [("test_fixture", "process_full_halo")],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
             "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1  # Enable detailed logging
+            "TestFixtureEnableLogging": 1,  # Enable detailed logging
         },
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Explicitly set SubSteps=3 in the parameter file
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 3
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 3
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -126,16 +129,20 @@ def test_pre_timestep_frequency():
         first_exec = all_executions[0]
 
         # Should have SubSteps=3 in context
-        assert first_exec['num_substeps'] == 3, \
-            f"Expected num_substeps=3, got {first_exec['num_substeps']}"
+        assert (
+            first_exec["num_substeps"] == 3
+        ), f"Expected num_substeps=3, got {first_exec['num_substeps']}"
 
         # Should start at substep 0
-        assert first_exec['substep_number'] == 0, \
-            f"Expected substep=0, got {first_exec['substep_number']}"
+        assert (
+            first_exec["substep_number"] == 0
+        ), f"Expected substep=0, got {first_exec['substep_number']}"
 
         # Count total executions and verify it matches number of FOF groups
         num_fof_groups = len(all_executions)  # One pre_timestep per FOF group
-        print(f"  ✓ pre_timestep executes once per FOF group ({num_fof_groups} FOF groups processed)")
+        print(
+            f"  ✓ pre_timestep executes once per FOF group ({num_fof_groups} FOF groups processed)"
+        )
 
     finally:
         # ===== CLEANUP =====
@@ -155,26 +162,26 @@ def test_galaxy_physics_frequency():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="galaxy_physics_freq",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer counting
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("test_fixture", "process_full_halo")
+            ],  # Use 'process_full_halo' for clearer counting
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Set SubSteps=3
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 3
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 3
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -191,20 +198,27 @@ def test_galaxy_physics_frequency():
         first_fof_executions = all_executions[:3]
 
         # Verify substep numbers increment: 0, 1, 2 for first FOF group
-        substep_numbers = [e['substep_number'] for e in first_fof_executions]
-        assert substep_numbers == [0, 1, 2], \
-            f"Expected substep numbers [0, 1, 2], got {substep_numbers}"
+        substep_numbers = [e["substep_number"] for e in first_fof_executions]
+        assert substep_numbers == [
+            0,
+            1,
+            2,
+        ], f"Expected substep numbers [0, 1, 2], got {substep_numbers}"
 
         # Verify all have same num_substeps
-        assert all(e['num_substeps'] == 3 for e in first_fof_executions), \
-            "All executions should have num_substeps=3"
+        assert all(
+            e["num_substeps"] == 3 for e in first_fof_executions
+        ), "All executions should have num_substeps=3"
 
         # Total executions should be 3 times number of FOF groups
         num_fof_groups = len(all_executions) // 3
-        assert len(all_executions) == num_fof_groups * 3, \
-            f"Expected {num_fof_groups * 3} total executions (3 per FOF group)"
+        assert (
+            len(all_executions) == num_fof_groups * 3
+        ), f"Expected {num_fof_groups * 3} total executions (3 per FOF group)"
 
-        print(f"  ✓ galaxy_physics executes SubSteps times (3) per FOF group with correct substep numbers")
+        print(
+            f"  ✓ galaxy_physics executes SubSteps times (3) per FOF group with correct substep numbers"
+        )
 
     finally:
         # ===== CLEANUP =====
@@ -224,26 +238,26 @@ def test_satellite_mergers_frequency():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="satellite_mergers_freq",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [],
-            'satellite_mergers': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer counting
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [],
+            "satellite_mergers": [
+                ("test_fixture", "process_full_halo")
+            ],  # Use 'process_full_halo' for clearer counting
+            "post_timestep": [],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Set SubSteps=3
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 3
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 3
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -260,14 +274,19 @@ def test_satellite_mergers_frequency():
         first_fof_executions = all_executions[:3]
 
         # Verify substep numbers increment: 0, 1, 2 for first FOF group
-        substep_numbers = [e['substep_number'] for e in first_fof_executions]
-        assert substep_numbers == [0, 1, 2], \
-            f"Expected substep numbers [0, 1, 2], got {substep_numbers}"
+        substep_numbers = [e["substep_number"] for e in first_fof_executions]
+        assert substep_numbers == [
+            0,
+            1,
+            2,
+        ], f"Expected substep numbers [0, 1, 2], got {substep_numbers}"
 
         # Total executions should be 3 times number of FOF groups
         num_fof_groups = len(all_executions) // 3
 
-        print(f"  ✓ satellite_mergers executes SubSteps times (3) per FOF group with correct substep numbers")
+        print(
+            f"  ✓ satellite_mergers executes SubSteps times (3) per FOF group with correct substep numbers"
+        )
 
     finally:
         # ===== CLEANUP =====
@@ -287,26 +306,24 @@ def test_post_timestep_frequency():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="post_timestep_freq",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [],
-            'satellite_mergers': [],
-            'post_timestep': [('test_fixture', 'process_full_halo')]
+            "pre_timestep": [],
+            "galaxy_physics": [],
+            "satellite_mergers": [],
+            "post_timestep": [("test_fixture", "process_full_halo")],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Set SubSteps=3
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 3
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 3
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -323,12 +340,14 @@ def test_post_timestep_frequency():
         first_exec = all_executions[0]
 
         # Should have SubSteps=3 in context
-        assert first_exec['num_substeps'] == 3, \
-            f"Expected num_substeps=3, got {first_exec['num_substeps']}"
+        assert (
+            first_exec["num_substeps"] == 3
+        ), f"Expected num_substeps=3, got {first_exec['num_substeps']}"
 
         # Should be at last substep (2) since post_timestep runs after loop
-        assert first_exec['substep_number'] == 2, \
-            f"Expected substep=2 (last substep), got {first_exec['substep_number']}"
+        assert (
+            first_exec["substep_number"] == 2
+        ), f"Expected substep=2 (last substep), got {first_exec['substep_number']}"
 
         # Count total executions and verify it matches number of FOF groups
         num_fof_groups = len(all_executions)
@@ -356,26 +375,28 @@ def test_all_phases_execution_order():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="all_phases",
         phase_config={
-            'pre_timestep': [('test_fixture', 'process_full_halo')],
-            'galaxy_physics': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer pattern
-            'satellite_mergers': [('test_fixture', 'process_full_halo')],  # Use 'process_full_halo' for clearer pattern
-            'post_timestep': [('test_fixture', 'process_full_halo')]
+            "pre_timestep": [("test_fixture", "process_full_halo")],
+            "galaxy_physics": [
+                ("test_fixture", "process_full_halo")
+            ],  # Use 'process_full_halo' for clearer pattern
+            "satellite_mergers": [
+                ("test_fixture", "process_full_halo")
+            ],  # Use 'process_full_halo' for clearer pattern
+            "post_timestep": [("test_fixture", "process_full_halo")],
         },
-        model_params={
-            "TestFixtureDummyParameter": 1.0,
-            "TestFixtureEnableLogging": 1
-        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     try:
         # Set SubSteps=3
         import yaml
-        with open(param_file, 'r') as f:
+
+        with open(param_file, "r") as f:
             config = yaml.safe_load(f)
-        config['SubSteps'] = 3
-        with open(param_file, 'w') as f:
+        config["SubSteps"] = 3
+        with open(param_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
@@ -388,7 +409,9 @@ def test_all_phases_execution_order():
         all_executions = parse_test_fixture_executions(stdout)
 
         # Check pattern for first FOF group (first 8 executions)
-        assert len(all_executions) >= 8, f"Should have at least 8 executions, got {len(all_executions)}"
+        assert (
+            len(all_executions) >= 8
+        ), f"Should have at least 8 executions, got {len(all_executions)}"
         first_fof_executions = all_executions[:8]
 
         # Verify substep pattern for first FOF group
@@ -398,24 +421,28 @@ def test_all_phases_execution_order():
         # substep 2: galaxy_physics substep=2, satellite_mergers substep=2
         # post: substep=2
         expected_substeps = [0, 0, 0, 1, 1, 2, 2, 2]
-        actual_substeps = [e['substep_number'] for e in first_fof_executions]
-        assert actual_substeps == expected_substeps, \
-            f"Expected substep pattern {expected_substeps}, got {actual_substeps}"
+        actual_substeps = [e["substep_number"] for e in first_fof_executions]
+        assert (
+            actual_substeps == expected_substeps
+        ), f"Expected substep pattern {expected_substeps}, got {actual_substeps}"
 
         # Verify execution counts increment sequentially for first FOF group
         expected_counts = list(range(1, 9))  # 1, 2, 3, 4, 5, 6, 7, 8
-        actual_counts = [e['count'] for e in first_fof_executions]
-        assert actual_counts == expected_counts, \
-            f"Expected counts {expected_counts}, got {actual_counts}"
+        actual_counts = [e["count"] for e in first_fof_executions]
+        assert (
+            actual_counts == expected_counts
+        ), f"Expected counts {expected_counts}, got {actual_counts}"
 
         # Verify all have same num_substeps
-        assert all(e['num_substeps'] == 3 for e in first_fof_executions), \
-            "All executions should have num_substeps=3"
+        assert all(
+            e["num_substeps"] == 3 for e in first_fof_executions
+        ), "All executions should have num_substeps=3"
 
         # Total executions should be 8 times number of FOF groups
         num_fof_groups = len(all_executions) // 8
-        assert len(all_executions) == num_fof_groups * 8, \
-            f"Expected {num_fof_groups * 8} total executions (8 per FOF group)"
+        assert (
+            len(all_executions) == num_fof_groups * 8
+        ), f"Expected {num_fof_groups * 8} total executions (8 per FOF group)"
 
         print("  ✓ All phases execute in correct order (verified on first FOF group):")
         print("    - pre_timestep: 1 execution at substep 0")
@@ -437,7 +464,9 @@ def main():
     """
     # Print test suite header
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: Multi-Phase Execution Order and Frequency (test_phase_execution.py){NC}")
+    print(
+        f"{BLUE}Test Suite: Multi-Phase Execution Order and Frequency (test_phase_execution.py){NC}"
+    )
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 

@@ -26,8 +26,8 @@ Author: Mimic Development Team
 Date: 2025-12-11
 """
 
-import sys
 import shutil
+import sys
 from pathlib import Path
 
 # Add tests directory to path to import framework
@@ -37,16 +37,16 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
     MIMIC_EXE,
     create_test_param_file,
-    run_mimic,
     load_binary_halos,
+    run_mimic,
 )
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def test_module_loads():
@@ -63,28 +63,34 @@ def test_module_loads():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_load",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [("sage_apply_infall", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Mimic should execute successfully with sage_apply_infall\nStderr: {stderr}"
+    assert (
+        returncode == 0
+    ), f"Mimic should execute successfully with sage_apply_infall\nStderr: {stderr}"
 
     # Check initialization log message
-    assert "SAGE apply infall module initialized" in stdout, \
-        "sage_apply_infall should log initialization message"
+    assert (
+        "SAGE apply infall module initialized" in stdout
+    ), "sage_apply_infall should log initialization message"
 
     # Check that sage_prepare_infall_budget ran first
-    assert "SAGE prepare infall budget module initialized" in stdout, \
-        "sage_prepare_infall_budget should run before sage_apply_infall"
+    assert (
+        "SAGE prepare infall budget module initialized" in stdout
+    ), "sage_prepare_infall_budget should run before sage_apply_infall"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -105,12 +111,15 @@ def test_output_properties_exist():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_output",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [("sage_apply_infall", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -126,10 +135,8 @@ def test_output_properties_exist():
     assert len(halos) > 0, "Should have halos in output"
 
     # Check output properties exist
-    assert 'HotGas' in halos.dtype.names, \
-        "HotGas property should exist in output"
-    assert 'MetalsHotGas' in halos.dtype.names, \
-        "MetalsHotGas property should exist in output"
+    assert "HotGas" in halos.dtype.names, "HotGas property should exist in output"
+    assert "MetalsHotGas" in halos.dtype.names, "MetalsHotGas property should exist in output"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -151,28 +158,29 @@ def test_with_sage_prepare_infall_budget():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_with_infall",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [("sage_apply_infall", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
     returncode, stdout, stderr = run_mimic(param_file)
 
     # ===== VALIDATE =====
-    assert returncode == 0, \
-        f"Should run with both modules\nStderr: {stderr}"
+    assert returncode == 0, f"Should run with both modules\nStderr: {stderr}"
 
     # Verify all modules initialized
-    assert "SAGE reionization module initialized" in stdout, \
-        "sage_reionization should initialize"
-    assert "SAGE prepare infall budget module initialized" in stdout, \
-        "sage_prepare_infall_budget should initialize"
-    assert "SAGE apply infall module initialized" in stdout, \
-        "sage_apply_infall should initialize"
+    assert "SAGE reionization module initialized" in stdout, "sage_reionization should initialize"
+    assert (
+        "SAGE prepare infall budget module initialized" in stdout
+    ), "sage_prepare_infall_budget should initialize"
+    assert "SAGE apply infall module initialized" in stdout, "sage_apply_infall should initialize"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -193,12 +201,15 @@ def test_memory_safety():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_memory",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [("sage_apply_infall", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -206,10 +217,8 @@ def test_memory_safety():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Execution should succeed"
-    assert "Memory leak detected" not in stdout, \
-        "Should not have memory leaks"
-    assert "Memory leak detected" not in stderr, \
-        "Should not have memory leaks in stderr"
+    assert "Memory leak detected" not in stdout, "Should not have memory leaks"
+    assert "Memory leak detected" not in stderr, "Should not have memory leaks in stderr"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -230,14 +239,17 @@ def test_execution_completes():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_complete",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [("sage_apply_infall", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17},
+        model_params={"GlobalBaryonFraction": 0.17},
         first_file=0,
-        last_file=0
+        last_file=0,
     )
 
     # ===== EXECUTE =====
@@ -245,10 +257,8 @@ def test_execution_completes():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Pipeline should complete successfully"
-    assert "SAGE apply infall module initialized" in stdout, \
-        "Module initialization message"
-    assert "SAGE apply infall module cleaned up" in stdout, \
-        "Module cleanup message"
+    assert "SAGE apply infall module initialized" in stdout, "Module initialization message"
+    assert "SAGE apply infall module cleaned up" in stdout, "Module cleanup message"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -271,21 +281,24 @@ def test_substep_distribution():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_substeps",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [("sage_apply_infall", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # Update substeps in the parameter file (SubSteps is a top-level key)
-    with open(param_file, 'r') as f:
+    with open(param_file, "r") as f:
         config = yaml.safe_load(f)
 
-    config['SubSteps'] = 4
+    config["SubSteps"] = 4
 
-    with open(param_file, 'w') as f:
+    with open(param_file, "w") as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # ===== EXECUTE =====
@@ -293,15 +306,16 @@ def test_substep_distribution():
 
     # ===== VALIDATE =====
     assert returncode == 0, "Execution with substeps should succeed"
-    assert "SAGE apply infall module initialized" in stdout, \
-        "Module should initialize with substeps"
+    assert (
+        "SAGE apply infall module initialized" in stdout
+    ), "Module should initialize with substeps"
 
     # Load output and verify HotGas is reasonable
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
     # Just check that HotGas exists and is non-negative
-    assert all(halos['HotGas'] >= 0), "HotGas should be non-negative"
+    assert all(halos["HotGas"] >= 0), "HotGas should be non-negative"
 
     # Cleanup
     shutil.rmtree(temp_dir)
@@ -322,12 +336,15 @@ def test_negative_infall_physics():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_apply_infall_negative",
         phase_config={
-            'pre_timestep': [('sage_reionization', 'process_full_halo'), ('sage_prepare_infall_budget', 'process_full_halo')],
-            'galaxy_physics': [('sage_apply_infall', 'process_full_halo')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+            ],
+            "galaxy_physics": [("sage_apply_infall", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={'GlobalBaryonFraction': 0.17}
+        model_params={"GlobalBaryonFraction": 0.17},
     )
 
     # ===== EXECUTE =====
@@ -344,29 +361,30 @@ def test_negative_infall_physics():
 
     # Filter to Type 0 centrals
     import numpy as np
-    type0_mask = halos['Type'] == 0
+
+    type0_mask = halos["Type"] == 0
     type0_halos = halos[type0_mask]
 
     # Check that all gas reservoirs are physically reasonable
-    assert np.all(np.isfinite(type0_halos['HotGas'])), \
-        "HotGas should have finite values"
-    assert np.all(type0_halos['HotGas'] >= 0), \
-        "HotGas should be non-negative (negative infall handled correctly)"
+    assert np.all(np.isfinite(type0_halos["HotGas"])), "HotGas should have finite values"
+    assert np.all(
+        type0_halos["HotGas"] >= 0
+    ), "HotGas should be non-negative (negative infall handled correctly)"
 
-    assert np.all(np.isfinite(type0_halos['EjectedGas'])), \
-        "EjectedGas should have finite values"
-    assert np.all(type0_halos['EjectedGas'] >= 0), \
-        "EjectedGas should be non-negative (negative infall handled correctly)"
+    assert np.all(np.isfinite(type0_halos["EjectedGas"])), "EjectedGas should have finite values"
+    assert np.all(
+        type0_halos["EjectedGas"] >= 0
+    ), "EjectedGas should be non-negative (negative infall handled correctly)"
 
-    assert np.all(np.isfinite(type0_halos['MetalsHotGas'])), \
-        "MetalsHotGas should have finite values"
-    assert np.all(type0_halos['MetalsHotGas'] >= 0), \
-        "MetalsHotGas should be non-negative"
+    assert np.all(
+        np.isfinite(type0_halos["MetalsHotGas"])
+    ), "MetalsHotGas should have finite values"
+    assert np.all(type0_halos["MetalsHotGas"] >= 0), "MetalsHotGas should be non-negative"
 
     # Check if there are any halos with InfallingGas in the data
     # (InfallingGas is calculated in sage_prepare_infall_budget, may be positive or negative)
-    if 'InfallingGas' in type0_halos.dtype.names:
-        infalling = type0_halos['InfallingGas']
+    if "InfallingGas" in type0_halos.dtype.names:
+        infalling = type0_halos["InfallingGas"]
         negative_infall_mask = infalling < 0
 
         if np.any(negative_infall_mask):
@@ -375,10 +393,12 @@ def test_negative_infall_physics():
 
             # Verify these halos have reasonable gas reservoirs
             negative_infall_halos = type0_halos[negative_infall_mask]
-            assert np.all(negative_infall_halos['HotGas'] >= 0), \
-                "Halos with negative infall should still have non-negative HotGas"
-            assert np.all(negative_infall_halos['EjectedGas'] >= 0), \
-                "Halos with negative infall should still have non-negative EjectedGas"
+            assert np.all(
+                negative_infall_halos["HotGas"] >= 0
+            ), "Halos with negative infall should still have non-negative HotGas"
+            assert np.all(
+                negative_infall_halos["EjectedGas"] >= 0
+            ), "Halos with negative infall should still have non-negative EjectedGas"
 
             print(f"  ✓ Negative infall handled correctly for {num_negative} halos")
         else:

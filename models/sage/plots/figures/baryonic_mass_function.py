@@ -19,13 +19,13 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
+    calculate_mass_function,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_filtered_data,
     save_and_close_figure,
-    calculate_mass_function,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -59,9 +59,7 @@ def plot(
     """
     # Check required fields
     success, optional, msg = check_required_fields(
-        galaxies,
-        required_fields=['StellarMass', 'ColdGas'],
-        plot_name='Baryonic Mass Function'
+        galaxies, required_fields=["StellarMass", "ColdGas"], plot_name="Baryonic Mass Function"
     )
 
     if not success:
@@ -109,9 +107,7 @@ def plot(
         ax.plot(np.log10(10.0**M / 0.7), yval, "b-", lw=2.0, label="Bell et al. 2003")
     elif whichimf == 1:
         # converted diet Salpeter IMF to Salpeter IMF, then to Chabrier IMF
-        ax.plot(
-            np.log10(10.0**M / 0.7 / 1.8), yval, "g--", lw=1.5, label="Bell et al. 2003"
-        )
+        ax.plot(np.log10(10.0**M / 0.7 / 1.8), yval, "g--", lw=1.5, label="Bell et al. 2003")
 
     # Customize the plot
     ax.set_yscale("log")
@@ -126,5 +122,7 @@ def plot(
     setup_legend(ax, loc="lower left")
 
     # Save and close the figure
-    plot_path = save_and_close_figure(fig, output_dir, "BaryonicMassFunction", output_format, verbose)
+    plot_path = save_and_close_figure(
+        fig, output_dir, "BaryonicMassFunction", output_format, verbose
+    )
     return plot_path, None

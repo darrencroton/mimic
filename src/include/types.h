@@ -33,18 +33,10 @@ struct RawHalo {
 };
 
 /* Enum for tree types */
-enum Valid_TreeTypes {
-  genesis_lhalo_hdf5 = 0,
-  lhalo_binary = 1,
-  num_tree_types
-};
+enum Valid_TreeTypes { genesis_lhalo_hdf5 = 0, lhalo_binary = 1, num_tree_types };
 
 /* Enum for output formats */
-enum Valid_OutputFormats {
-  output_binary = 0,
-  output_hdf5 = 1,
-  num_output_formats
-};
+enum Valid_OutputFormats { output_binary = 0, output_hdf5 = 1, num_output_formats };
 
 /* Forward declarations for phase config structs (defined in module_registry.h,
  * which uses enum ProcessingMode from module_interface.h) */
@@ -150,9 +142,9 @@ struct MimicConfig {
   /* Model parameters - ALL physics parameters */
   int NumModelParams; /* Number of model parameters loaded from input file */
   struct {
-    char param_name[MAX_STRING_LEN];  /* Parameter name (e.g., "BaryonFrac") */
-    char value[MAX_STRING_LEN];       /* String value (parsed to type by modules) */
-  } ModelParams[256]; /* Maximum parameters in input file */
+    char param_name[MAX_STRING_LEN]; /* Parameter name (e.g., "BaryonFrac") */
+    char value[MAX_STRING_LEN];      /* String value (parsed to type by modules) */
+  } ModelParams[256];                /* Maximum parameters in input file */
 };
 
 /* Halo tracking structures defined in generated/property_defs.h:

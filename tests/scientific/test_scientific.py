@@ -26,16 +26,17 @@ Author: Mimic Testing Team
 Date: 2025-11-11 (Updated for metadata-driven validation)
 """
 
+import json
 import sys
 from pathlib import Path
+
 import numpy as np
-import json
 
 # Add framework to path
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import load_binary_halos, core_input_file, run_mimic_fresh
+from framework import core_input_file, load_binary_halos, run_mimic_fresh
 
 # Repository paths
 TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
@@ -60,11 +61,11 @@ ensure_output_dirs()
 VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.json"
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
 
 
 def regenerate_output():
@@ -102,38 +103,38 @@ def check_nans_infs(halos):
         data = getattr(halos, field)
 
         # Check for NaN (only for float types)
-        if data.dtype.kind == 'f':  # floating point
+        if data.dtype.kind == "f":  # floating point
             if data.ndim == 1:
                 # Scalar field
                 nan_count = np.sum(np.isnan(data))
                 if nan_count > 0:
                     indices = np.where(np.isnan(data))[0][:5]
                     nan_fields[field] = {
-                        'count': nan_count,
-                        'examples': [(int(i), float(data[i])) for i in indices]
+                        "count": nan_count,
+                        "examples": [(int(i), float(data[i])) for i in indices],
                     }
 
                 inf_count = np.sum(np.isinf(data))
                 if inf_count > 0:
                     indices = np.where(np.isinf(data))[0][:5]
                     inf_fields[field] = {
-                        'count': inf_count,
-                        'examples': [(int(i), float(data[i])) for i in indices]
+                        "count": inf_count,
+                        "examples": [(int(i), float(data[i])) for i in indices],
                     }
             else:
                 # Vector field
                 nan_count = np.sum(np.isnan(data))
                 if nan_count > 0:
-                    nan_fields[field] = {'count': nan_count, 'examples': []}
+                    nan_fields[field] = {"count": nan_count, "examples": []}
 
                 inf_count = np.sum(np.isinf(data))
                 if inf_count > 0:
-                    inf_fields[field] = {'count': inf_count, 'examples': []}
+                    inf_fields[field] = {"count": inf_count, "examples": []}
 
     return {
-        'passed': len(nan_fields) == 0 and len(inf_fields) == 0,
-        'nan_fields': nan_fields,
-        'inf_fields': inf_fields
+        "passed": len(nan_fields) == 0 and len(inf_fields) == 0,
+        "nan_fields": nan_fields,
+        "inf_fields": inf_fields,
     }
 
 
@@ -147,24 +148,24 @@ def check_zeros(halos, manifest):
         dict: Field name -> count and examples
     """
     zero_counts = {}
-    props = manifest.get('properties', {})
+    props = manifest.get("properties", {})
 
     # Check all numeric fields in the dtype
     for field in halos.dtype.names:
         data = getattr(halos, field)
 
         # Only check numeric types (not in vectors for now, to keep output manageable)
-        if data.ndim == 1 and data.dtype.kind in ('f', 'i'):  # float or int
+        if data.ndim == 1 and data.dtype.kind in ("f", "i"):  # float or int
             # Check if this property has 0/0.0 in sentinels
             spec = props.get(field, {})
-            sentinels = set(spec.get('sentinels', []))
+            sentinels = set(spec.get("sentinels", []))
 
             # Skip zero check if 0 or 0.0 is in sentinels (intentional)
             if 0 in sentinels or 0.0 in sentinels:
                 continue
 
             # Check for zeros
-            if data.dtype.kind == 'f':
+            if data.dtype.kind == "f":
                 zero_mask = data == 0.0
             else:
                 zero_mask = data == 0
@@ -173,8 +174,11 @@ def check_zeros(halos, manifest):
             if count > 0:
                 indices = np.where(zero_mask)[0][:5]
                 zero_counts[field] = {
-                    'count': count,
-                    'examples': [(int(i), float(data[i]) if data.dtype.kind == 'f' else int(data[i])) for i in indices]
+                    "count": count,
+                    "examples": [
+                        (int(i), float(data[i]) if data.dtype.kind == "f" else int(data[i]))
+                        for i in indices
+                    ],
                 }
 
     return zero_counts
@@ -203,20 +207,20 @@ def check_range(halos, field, min_val, max_val, exclude_zeros=False):
     else:
         data_to_check = data
 
-    below_min = (data_to_check < min_val)
-    above_max = (data_to_check > max_val)
+    below_min = data_to_check < min_val
+    above_max = data_to_check > max_val
 
     count_below = np.sum(below_min)
     count_above = np.sum(above_max)
 
     result = {
-        'passed': count_below == 0 and count_above == 0,
-        'min_value': float(np.min(data_to_check)) if len(data_to_check) > 0 else 0.0,
-        'max_value': float(np.max(data_to_check)) if len(data_to_check) > 0 else 0.0,
-        'count_below': count_below,
-        'count_above': count_above,
-        'examples_below': [],
-        'examples_above': []
+        "passed": count_below == 0 and count_above == 0,
+        "min_value": float(np.min(data_to_check)) if len(data_to_check) > 0 else 0.0,
+        "max_value": float(np.max(data_to_check)) if len(data_to_check) > 0 else 0.0,
+        "count_below": count_below,
+        "count_above": count_above,
+        "examples_below": [],
+        "examples_above": [],
     }
 
     if count_below > 0:
@@ -228,7 +232,7 @@ def check_range(halos, field, min_val, max_val, exclude_zeros=False):
         else:
             actual_indices = np.where(below_min)[0][:5]
 
-        result['examples_below'] = [(int(i), float(data[i])) for i in actual_indices]
+        result["examples_below"] = [(int(i), float(data[i])) for i in actual_indices]
 
     if count_above > 0:
         if exclude_zeros:
@@ -238,7 +242,7 @@ def check_range(halos, field, min_val, max_val, exclude_zeros=False):
         else:
             actual_indices = np.where(above_max)[0][:5]
 
-        result['examples_above'] = [(int(i), float(data[i])) for i in actual_indices]
+        result["examples_above"] = [(int(i), float(data[i])) for i in actual_indices]
 
     return result
 
@@ -248,9 +252,7 @@ def load_validation_manifest():
     Load the generated validation manifest consumed by metadata-driven tests.
     """
     if not VALIDATION_MANIFEST_PATH.exists():
-        raise FileNotFoundError(
-            f"Validation manifest not found: {VALIDATION_MANIFEST_PATH}"
-        )
+        raise FileNotFoundError(f"Validation manifest not found: {VALIDATION_MANIFEST_PATH}")
     with open(VALIDATION_MANIFEST_PATH) as f:
         return json.load(f)
 
@@ -261,16 +263,16 @@ def mass_fields_from_metadata(manifest, output_fields):
     """
     fields = []
     output_field_set = set(output_fields)
-    for field, spec in manifest.get('properties', {}).items():
-        units = str(spec.get('units', '')).lower()
-        rng = spec.get('range')
+    for field, spec in manifest.get("properties", {}).items():
+        units = str(spec.get("units", "")).lower()
+        rng = spec.get("range")
         if field not in output_field_set:
             continue
-        if spec.get('is_vector', False):
+        if spec.get("is_vector", False):
             continue
-        if spec.get('type') not in ('float', 'double', 'int', 'long long'):
+        if spec.get("type") not in ("float", "double", "int", "long long"):
             continue
-        if 'msun' not in units:
+        if "msun" not in units:
             continue
         if not rng or rng[0] < 0:
             continue
@@ -283,9 +285,9 @@ def test_numerical_validity():
     Test for NaN and Inf values (critical failures)
     """
     print()
-    print("="*60)
+    print("=" * 60)
     print("NUMERICAL VALIDITY (NaN/Inf checks)")
-    print("="*60)
+    print("=" * 60)
 
     if not MIMIC_EXE.exists():
         print(f"  Skipping (Mimic not built)")
@@ -297,21 +299,21 @@ def test_numerical_validity():
 
     result = check_nans_infs(halos)
 
-    if result['nan_fields']:
+    if result["nan_fields"]:
         print(f"{RED}✗ FAIL: Found NaN values in {len(result['nan_fields'])} field(s):{NC}")
-        for field, info in result['nan_fields'].items():
+        for field, info in result["nan_fields"].items():
             print(f"  {field}: {info['count']} NaN values")
-            if info['examples']:
-                for idx, val in info['examples']:
+            if info["examples"]:
+                for idx, val in info["examples"]:
                     print(f"    Halo {idx}: {field} = {val}")
         return False, 1
 
-    if result['inf_fields']:
+    if result["inf_fields"]:
         print(f"{RED}✗ FAIL: Found Inf values in {len(result['inf_fields'])} field(s):{NC}")
-        for field, info in result['inf_fields'].items():
+        for field, info in result["inf_fields"].items():
             print(f"  {field}: {info['count']} Inf values")
-            if info['examples']:
-                for idx, val in info['examples']:
+            if info["examples"]:
+                for idx, val in info["examples"]:
                     print(f"    Halo {idx}: {field} = {val}")
         return False, 1
 
@@ -325,9 +327,9 @@ def test_zero_values():
     Respects sentinels - suppresses warnings for properties where 0/0.0 is intentional
     """
     print()
-    print("="*60)
+    print("=" * 60)
     print("ZERO VALUE CHECKS (warnings, respects sentinels)")
-    print("="*60)
+    print("=" * 60)
 
     # Load validation manifest
     if not VALIDATION_MANIFEST_PATH.exists():
@@ -348,7 +350,7 @@ def test_zero_values():
 
     output_file = regenerate_output()
     halos, metadata = load_binary_halos(output_file)
-    total_halos = metadata['TotHalos']
+    total_halos = metadata["TotHalos"]
 
     zero_counts = check_zeros(halos, manifest)
 
@@ -357,7 +359,7 @@ def test_zero_values():
         print(f"(Properties with sentinel 0/0.0 are not shown)")
         for field, info in zero_counts.items():
             print(f"  {field}: {info['count']} zero values out of {total_halos} total")
-            for idx, val in info['examples'][:3]:  # Limit to 3 examples
+            for idx, val in info["examples"][:3]:  # Limit to 3 examples
                 print(f"    Halo {idx}: {field} = {val}")
         return True, len(zero_counts)  # Warnings, not failures
     else:
@@ -370,9 +372,9 @@ def test_physical_ranges():
     Test that all OUTPUT properties are within ranges defined in metadata
     """
     print()
-    print("="*60)
+    print("=" * 60)
     print("PHYSICAL RANGE VALIDATION")
-    print("="*60)
+    print("=" * 60)
 
     # Load validation manifest
     if not VALIDATION_MANIFEST_PATH.exists():
@@ -396,24 +398,24 @@ def test_physical_ranges():
 
     failures = 0
 
-    props = manifest.get('properties', {})
+    props = manifest.get("properties", {})
     output_fields = list(halos.dtype.names)
 
     # Report summary
-    with_ranges = [k for k, v in props.items() if 'range' in v]
+    with_ranges = [k for k, v in props.items() if "range" in v]
     print(f"Found {len(output_fields)} output fields in binary file.")
     print(f"Validation specs present for {len(with_ranges)} properties with ranges.\n")
 
     # Validate each field present in output and manifest
     for field in output_fields:
         spec = props.get(field)
-        if not spec or 'range' not in spec:
+        if not spec or "range" not in spec:
             # No spec, skip with notice
             print(f"{YELLOW}Skipping {field}: no range specified in metadata{NC}")
             continue
 
-        rmin, rmax = spec['range']
-        sentinels = set(spec.get('sentinels', []))
+        rmin, rmax = spec["range"]
+        sentinels = set(spec.get("sentinels", []))
         data = getattr(halos, field)
 
         # Build mask for values to check (exclude sentinels)
@@ -421,7 +423,7 @@ def test_physical_ranges():
             mask = np.ones_like(data, dtype=bool)
             if len(sentinels) > 0:
                 for s in sentinels:
-                    mask &= (data != s)
+                    mask &= data != s
 
             values = data[mask]
 
@@ -434,7 +436,9 @@ def test_physical_ranges():
                 failures += 1
                 print(f"{RED}✗ FAIL: {field} outside [{rmin}, {rmax}] inclusive{NC}")
                 print(f"  Actual range: {np.min(values):.4g} to {np.max(values):.4g}")
-                print(f"  Failed: {total_failed} out of {total_checked} halos ({100.0*total_failed/total_checked:.1f}%)")
+                print(
+                    f"  Failed: {total_failed} out of {total_checked} halos ({100.0*total_failed/total_checked:.1f}%)"
+                )
             else:
                 print(f"{GREEN}✓ PASS: {field} within [{rmin}, {rmax}] (inclusive){NC}")
 
@@ -449,7 +453,7 @@ def test_physical_ranges():
                 mask = np.ones_like(comp, dtype=bool)
                 if len(sentinels) > 0:
                     for s in sentinels:
-                        mask &= (comp != s)
+                        mask &= comp != s
                 values = comp[mask]
                 all_comp_values.extend(values)  # Collect values from all components
 
@@ -466,8 +470,12 @@ def test_physical_ranges():
                 total_checked = len(all_vals)
 
                 print(f"{RED}✗ FAIL: {field} component(s) outside [{rmin}, {rmax}] inclusive{NC}")
-                print(f"  Actual range: {np.min(all_vals):.4g} to {np.max(all_vals):.4g} (across all components)")
-                print(f"  Failed: {total_failed} out of {total_checked} values ({100.0*total_failed/total_checked:.1f}%)")
+                print(
+                    f"  Actual range: {np.min(all_vals):.4g} to {np.max(all_vals):.4g} (across all components)"
+                )
+                print(
+                    f"  Failed: {total_failed} out of {total_checked} values ({100.0*total_failed/total_checked:.1f}%)"
+                )
             else:
                 print(f"{GREEN}✓ PASS: {field} components within [{rmin}, {rmax}] (inclusive){NC}")
 
@@ -482,9 +490,9 @@ def test_unit_consistency():
     which catches unit conversion bugs (like incorrect G values).
     """
     print()
-    print("="*60)
+    print("=" * 60)
     print("UNIT CONSISTENCY CHECKS")
-    print("="*60)
+    print("=" * 60)
 
     if not MIMIC_EXE.exists():
         print(f"  Skipping (Mimic not built)")
@@ -532,10 +540,14 @@ def test_unit_consistency():
                 expected = np.sqrt(G_CODE * halos.Mvir[idx] / halos.Rvir[idx])
                 actual = halos.Vvir[idx]
                 error = 100 * abs(actual - expected) / expected
-                print(f"  Halo {idx}: Vvir={actual:.2f} km/s, expected={expected:.2f} km/s (error: {error:.1f}%)")
+                print(
+                    f"  Halo {idx}: Vvir={actual:.2f} km/s, expected={expected:.2f} km/s (error: {error:.1f}%)"
+                )
         else:
             max_error = np.max(rel_error) * 100 if len(rel_error) > 0 else 0
-            print(f"{GREEN}✓ PASS: All {valid_halos} halos satisfy virial relation (max error: {max_error:.3f}%){NC}")
+            print(
+                f"{GREEN}✓ PASS: All {valid_halos} halos satisfy virial relation (max error: {max_error:.3f}%){NC}"
+            )
 
     print("\n2. Velocity sanity: Vvir << speed of light")
 
@@ -564,8 +576,8 @@ def test_unit_consistency():
     for field in mass_fields:
         data = getattr(halos, field)
         mask = np.ones_like(data, dtype=bool)
-        for sentinel in manifest.get('properties', {}).get(field, {}).get('sentinels', []):
-            mask &= (data != sentinel)
+        for sentinel in manifest.get("properties", {}).get(field, {}).get("sentinels", []):
+            mask &= data != sentinel
         values = data[mask]
         negative = np.sum(values < 0)
         if negative > 0:
@@ -580,11 +592,13 @@ def test_unit_consistency():
     elif not mass_fields:
         print(f"{YELLOW}⚠ No metadata-selected mass fields to check{NC}")
     else:
-        print(f"{GREEN}✓ PASS: All {len(mass_fields)} metadata-selected mass fields are non-negative{NC}")
+        print(
+            f"{GREEN}✓ PASS: All {len(mass_fields)} metadata-selected mass fields are non-negative{NC}"
+        )
 
     print("\n4. Time step sanity: dT reasonable")
 
-    if hasattr(halos, 'dT'):
+    if hasattr(halos, "dT"):
         # dT is in Myr (output units after conversion)
         # Valid range: 0 to ~1000 Myr (1 Gyr) for typical timesteps
         # -1.0 is sentinel for "not set"

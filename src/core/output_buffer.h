@@ -18,9 +18,7 @@ struct OutputBufferSegment {
   int output_count;
 };
 
-void marshal_workspace_to_output_buffer(struct Halo *workspace,
-                                        struct OutputBuffer *buffer,
-                                        struct OutputBufferSegment *segments,
-                                        int nsegments);
+void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuffer *buffer,
+                                        struct OutputBufferSegment *segments, int nsegments);
 
 #endif /* CORE_OUTPUT_BUFFER_H */

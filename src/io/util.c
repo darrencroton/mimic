@@ -53,8 +53,7 @@ int is_same_endian(int file_endian) { return file_endian == MIMIC_HOST_ENDIAN; }
  * It supports common data sizes (2, 4, and 8 bytes). The data is modified in
  * place.
  */
-void *swap_bytes_if_needed(void *data, size_t size, size_t count,
-                           int file_endian) {
+void *swap_bytes_if_needed(void *data, size_t size, size_t count, int file_endian) {
   /* Return early if no conversion is needed */
   if (is_same_endian(file_endian) || data == NULL || count == 0) {
     return data;

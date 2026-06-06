@@ -38,39 +38,36 @@ static double STAR_FORMING_DISK_FACTOR;
 // MODULE LIFECYCLE
 // ============================================================================
 
-int sage_disk_instability_init(void)
-{
-    LOAD_AND_VALIDATE_RANGE_INCLUSIVE("StarFormingDiskFactor", STAR_FORMING_DISK_FACTOR,
-                                       0.0, 10.0, "star forming disk factor");
+int sage_disk_instability_init(void) {
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("StarFormingDiskFactor", STAR_FORMING_DISK_FACTOR, 0.0, 10.0,
+                                    "star forming disk factor");
 
-    INFO_LOG("SAGE disk instability module initialized");
-    VERBOSE_LOG("  StarFormingDiskFactor = %.2f", STAR_FORMING_DISK_FACTOR);
-    return 0;
+  INFO_LOG("SAGE disk instability module initialized");
+  VERBOSE_LOG("  StarFormingDiskFactor = %.2f", STAR_FORMING_DISK_FACTOR);
+  return 0;
 }
 
-int sage_disk_instability_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
-{
-    // Verify process_by_galaxy mode
-    if (ngal != 1) {
-        ERROR_LOG("sage_disk_instability expects ngal=1, got %d", ngal);
-        return -1;
-    }
+int sage_disk_instability_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  // Verify process_by_galaxy mode
+  if (ngal != 1) {
+    ERROR_LOG("sage_disk_instability expects ngal=1, got %d", ngal);
+    return -1;
+  }
 
-    struct Halo *halo = &halos[0];
-    struct GalaxyData *gal = halo->galaxy;
+  struct Halo *halo = &halos[0];
+  struct GalaxyData *gal = halo->galaxy;
 
-    if (gal == NULL) {
-        return 0;
-    }
-
-    gal->UnstableDiskGasFraction =
-        mimic_sage_apply_disk_instability(halo, ctx, STAR_FORMING_DISK_FACTOR);
-
+  if (gal == NULL) {
     return 0;
+  }
+
+  gal->UnstableDiskGasFraction =
+      mimic_sage_apply_disk_instability(halo, ctx, STAR_FORMING_DISK_FACTOR);
+
+  return 0;
 }
 
-int sage_disk_instability_cleanup(void)
-{
-    VERBOSE_LOG("SAGE disk instability module cleaned up");
-    return 0;
+int sage_disk_instability_cleanup(void) {
+  VERBOSE_LOG("SAGE disk instability module cleaned up");
+  return 0;
 }

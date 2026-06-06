@@ -25,21 +25,22 @@ Date: 2025-12-23
 """
 
 import os
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import create_test_param_file, run_mimic, load_binary_halos, check_no_memory_leaks
+from framework import check_no_memory_leaks, create_test_param_file, load_binary_halos, run_mimic
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+NC = "\033[0m"
 
 
 def test_module_pipeline_integration():
@@ -56,23 +57,23 @@ def test_module_pipeline_integration():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="quasar_integration",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
+            "pre_timestep": [],
+            "galaxy_physics": [
                 # Disk instability sets UnstableDiskGasFraction trigger
-                ('sage_disk_instability', 'process_by_galaxy'),
+                ("sage_disk_instability", "process_by_galaxy"),
                 # Quasar mode processes the trigger
-                ('sage_quasar_mode', 'process_by_galaxy')
+                ("sage_quasar_mode", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'BlackHoleGrowthRate': 0.01,
-            'QuasarModeEfficiency': 0.001,
+            "BlackHoleGrowthRate": 0.01,
+            "QuasarModeEfficiency": 0.001,
             # Disk instability module parameters (required dependency)
-            'fStabInstability': 0.5,
-            'StarFormingDiskFactor': 3.0
-        }
+            "fStabInstability": 0.5,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     # Execute Mimic
@@ -89,17 +90,18 @@ def test_module_pipeline_integration():
     assert len(halos) > 0, "Should have output halos"
 
     # Check quasar-mode related fields exist
-    assert 'BlackHoleMass' in halos.dtype.names, "Output should have BlackHoleMass field"
-    assert 'QuasarModeBHaccretionMass' in halos.dtype.names, \
-        "Output should have QuasarModeBHaccretionMass field"
-    assert 'ColdGas' in halos.dtype.names, "Output should have ColdGas field"
-    assert 'EjectedGas' in halos.dtype.names, "Output should have EjectedGas field"
+    assert "BlackHoleMass" in halos.dtype.names, "Output should have BlackHoleMass field"
+    assert (
+        "QuasarModeBHaccretionMass" in halos.dtype.names
+    ), "Output should have QuasarModeBHaccretionMass field"
+    assert "ColdGas" in halos.dtype.names, "Output should have ColdGas field"
+    assert "EjectedGas" in halos.dtype.names, "Output should have EjectedGas field"
 
     # Basic validation: no NaNs or Infs
-    bh_mass = halos['BlackHoleMass']
-    quasar_accretion = halos['QuasarModeBHaccretionMass']
-    cold_gas = halos['ColdGas']
-    ejected_gas = halos['EjectedGas']
+    bh_mass = halos["BlackHoleMass"]
+    quasar_accretion = halos["QuasarModeBHaccretionMass"]
+    cold_gas = halos["ColdGas"]
+    ejected_gas = halos["EjectedGas"]
 
     assert not np.any(np.isnan(bh_mass)), "BlackHoleMass should not have NaN values"
     assert not np.any(np.isinf(bh_mass)), "BlackHoleMass should not have Inf values"
@@ -136,20 +138,20 @@ def test_quasar_physics_correctness():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="quasar_physics",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_quasar_mode', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_quasar_mode", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'BlackHoleGrowthRate': 0.01,
-            'QuasarModeEfficiency': 0.001,
-            'fStabInstability': 0.5,
-            'StarFormingDiskFactor': 3.0
-        }
+            "BlackHoleGrowthRate": 0.01,
+            "QuasarModeEfficiency": 0.001,
+            "fStabInstability": 0.5,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -159,11 +161,11 @@ def test_quasar_physics_correctness():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    bh_mass = halos['BlackHoleMass']
-    quasar_accretion = halos['QuasarModeBHaccretionMass']
-    cold_gas = halos['ColdGas']
-    ejected_gas = halos['EjectedGas']
-    mvir = halos['Mvir']
+    bh_mass = halos["BlackHoleMass"]
+    quasar_accretion = halos["QuasarModeBHaccretionMass"]
+    cold_gas = halos["ColdGas"]
+    ejected_gas = halos["EjectedGas"]
+    mvir = halos["Mvir"]
 
     # Physics validation 1: BH masses should be reasonable
     total_bh_mass = np.sum(bh_mass)
@@ -176,14 +178,16 @@ def test_quasar_physics_correctness():
     if np.sum(massive_halos) > 0:
         bh_fraction = bh_mass[massive_halos] / mvir[massive_halos]
         max_bh_fraction = np.max(bh_fraction)
-        assert max_bh_fraction < 0.1, \
-            f"BH mass should be < 10% of halo mass (unreasonably high: {max_bh_fraction:.4f})"
+        assert (
+            max_bh_fraction < 0.1
+        ), f"BH mass should be < 10% of halo mass (unreasonably high: {max_bh_fraction:.4f})"
         print(f"  Mean BH mass fraction in massive halos: {np.mean(bh_fraction):.4e}")
 
     # Physics validation 3: Quasar accretion should be <= BH mass
     # (BH mass can come from other sources like mergers)
-    assert np.all(quasar_accretion <= bh_mass + 1e-6), \
-        "Quasar accretion should not exceed total BH mass"
+    assert np.all(
+        quasar_accretion <= bh_mass + 1e-6
+    ), "Quasar accretion should not exceed total BH mass"
 
     # Physics validation 4: Cold gas should be reasonable
     total_cold_gas = np.sum(cold_gas)
@@ -212,20 +216,20 @@ def test_disk_instability_trigger():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="quasar_disk_trigger",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_quasar_mode', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_quasar_mode", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'BlackHoleGrowthRate': 0.01,
-            'QuasarModeEfficiency': 0.001,
-            'fStabInstability': 0.5,  # Triggers disk instability
-            'StarFormingDiskFactor': 3.0
-        }
+            "BlackHoleGrowthRate": 0.01,
+            "QuasarModeEfficiency": 0.001,
+            "fStabInstability": 0.5,  # Triggers disk instability
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -234,8 +238,8 @@ def test_disk_instability_trigger():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    bh_mass = halos['BlackHoleMass']
-    quasar_accretion = halos['QuasarModeBHaccretionMass']
+    bh_mass = halos["BlackHoleMass"]
+    quasar_accretion = halos["QuasarModeBHaccretionMass"]
 
     # Some galaxies should have accreted via quasar mode
     total_quasar_accretion = np.sum(quasar_accretion)
@@ -264,17 +268,12 @@ def test_merger_trigger():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="quasar_merger_trigger",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_quasar_mode', 'process_by_galaxy')
-            ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_quasar_mode", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
-        model_params={
-            'BlackHoleGrowthRate': 0.01,
-            'QuasarModeEfficiency': 0.001
-        }
+        model_params={"BlackHoleGrowthRate": 0.01, "QuasarModeEfficiency": 0.001},
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -285,12 +284,11 @@ def test_merger_trigger():
 
     # Without merger modules, quasar accretion should be zero
     # (no triggers set)
-    quasar_accretion = halos['QuasarModeBHaccretionMass']
+    quasar_accretion = halos["QuasarModeBHaccretionMass"]
     total_quasar_accretion = np.sum(quasar_accretion)
     print(f"  Total quasar accretion (no triggers): {total_quasar_accretion:.2e}")
     # Should be zero without triggers
-    assert total_quasar_accretion < 1e-10, \
-        "Quasar accretion should be zero without triggers"
+    assert total_quasar_accretion < 1e-10, "Quasar accretion should be zero without triggers"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ Merger trigger validated (no triggers = no accretion){NC}")
@@ -310,20 +308,20 @@ def test_parameter_sensitivity():
     param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
         output_name="quasar_low_growth",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_quasar_mode', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_quasar_mode", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'BlackHoleGrowthRate': 0.005,  # Low
-            'QuasarModeEfficiency': 0.001,
-            'fStabInstability': 0.5,
-            'StarFormingDiskFactor': 3.0
-        }
+            "BlackHoleGrowthRate": 0.005,  # Low
+            "QuasarModeEfficiency": 0.001,
+            "fStabInstability": 0.5,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_low)
@@ -331,7 +329,7 @@ def test_parameter_sensitivity():
 
     output_file_low = output_dir_low / "model_z0.000_0"
     halos_low, _ = load_binary_halos(output_file_low)
-    quasar_accretion_low = halos_low['QuasarModeBHaccretionMass']
+    quasar_accretion_low = halos_low["QuasarModeBHaccretionMass"]
     total_accretion_low = np.sum(quasar_accretion_low)
     print(f"  Total quasar accretion (low growth): {total_accretion_low:.2e}")
 
@@ -339,20 +337,20 @@ def test_parameter_sensitivity():
     param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
         output_name="quasar_high_growth",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_quasar_mode', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_quasar_mode", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'BlackHoleGrowthRate': 0.02,  # High (4x)
-            'QuasarModeEfficiency': 0.001,
-            'fStabInstability': 0.5,
-            'StarFormingDiskFactor': 3.0
-        }
+            "BlackHoleGrowthRate": 0.02,  # High (4x)
+            "QuasarModeEfficiency": 0.001,
+            "fStabInstability": 0.5,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_high)
@@ -360,7 +358,7 @@ def test_parameter_sensitivity():
 
     output_file_high = output_dir_high / "model_z0.000_0"
     halos_high, _ = load_binary_halos(output_file_high)
-    quasar_accretion_high = halos_high['QuasarModeBHaccretionMass']
+    quasar_accretion_high = halos_high["QuasarModeBHaccretionMass"]
     total_accretion_high = np.sum(quasar_accretion_high)
     print(f"  Total quasar accretion (high growth): {total_accretion_high:.2e}")
 
@@ -368,20 +366,20 @@ def test_parameter_sensitivity():
     param_file_low_eff, output_dir_low_eff, temp_dir_low_eff = create_test_param_file(
         output_name="quasar_low_eff",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_quasar_mode', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_quasar_mode", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'BlackHoleGrowthRate': 0.01,
-            'QuasarModeEfficiency': 0.0001,  # Low
-            'fStabInstability': 0.5,
-            'StarFormingDiskFactor': 3.0
-        }
+            "BlackHoleGrowthRate": 0.01,
+            "QuasarModeEfficiency": 0.0001,  # Low
+            "fStabInstability": 0.5,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_low_eff)
@@ -389,7 +387,7 @@ def test_parameter_sensitivity():
 
     output_file_low_eff = output_dir_low_eff / "model_z0.000_0"
     halos_low_eff, _ = load_binary_halos(output_file_low_eff)
-    ejected_low_eff = halos_low_eff['EjectedGas']
+    ejected_low_eff = halos_low_eff["EjectedGas"]
     total_ejected_low_eff = np.sum(ejected_low_eff)
     print(f"  Total ejected gas (low efficiency): {total_ejected_low_eff:.2e}")
 
@@ -397,20 +395,20 @@ def test_parameter_sensitivity():
     param_file_high_eff, output_dir_high_eff, temp_dir_high_eff = create_test_param_file(
         output_name="quasar_high_eff",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_quasar_mode', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_quasar_mode", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'BlackHoleGrowthRate': 0.01,
-            'QuasarModeEfficiency': 0.01,  # High (100x)
-            'fStabInstability': 0.5,
-            'StarFormingDiskFactor': 3.0
-        }
+            "BlackHoleGrowthRate": 0.01,
+            "QuasarModeEfficiency": 0.01,  # High (100x)
+            "fStabInstability": 0.5,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_high_eff)
@@ -418,18 +416,20 @@ def test_parameter_sensitivity():
 
     output_file_high_eff = output_dir_high_eff / "model_z0.000_0"
     halos_high_eff, _ = load_binary_halos(output_file_high_eff)
-    ejected_high_eff = halos_high_eff['EjectedGas']
+    ejected_high_eff = halos_high_eff["EjectedGas"]
     total_ejected_high_eff = np.sum(ejected_high_eff)
     print(f"  Total ejected gas (high efficiency): {total_ejected_high_eff:.2e}")
 
     # Validate parameter sensitivity
     # Test 1: Higher growth rate should produce more accretion (or equal)
-    assert total_accretion_high >= total_accretion_low, \
-        "Higher growth rate should produce at least as much accretion"
+    assert (
+        total_accretion_high >= total_accretion_low
+    ), "Higher growth rate should produce at least as much accretion"
 
     # Test 2: Higher efficiency should produce more ejection (or equal)
-    assert total_ejected_high_eff >= total_ejected_low_eff, \
-        "Higher efficiency should produce at least as much ejection"
+    assert (
+        total_ejected_high_eff >= total_ejected_low_eff
+    ), "Higher efficiency should produce at least as much ejection"
 
     # Cleanup
     shutil.rmtree(temp_dir_low)
@@ -452,24 +452,25 @@ def test_memory_and_performance():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="quasar_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_quasar_mode', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_quasar_mode", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'BlackHoleGrowthRate': 0.01,
-            'QuasarModeEfficiency': 0.001,
-            'fStabInstability': 0.5,
-            'StarFormingDiskFactor': 3.0
-        }
+            "BlackHoleGrowthRate": 0.01,
+            "QuasarModeEfficiency": 0.001,
+            "fStabInstability": 0.5,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     # Execute and time
     import time
+
     start_time = time.time()
     returncode, stdout, stderr = run_mimic(param_file)
     elapsed_time = time.time() - start_time
@@ -517,9 +518,10 @@ def main():
         print(f"{RED}Unexpected error: {e}{NC}")
         print(f"{RED}{'=' * 60}{NC}")
         import traceback
+
         traceback.print_exc()
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

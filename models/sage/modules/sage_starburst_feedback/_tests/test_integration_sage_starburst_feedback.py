@@ -26,21 +26,22 @@ Date: 2025-12-23
 """
 
 import os
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import create_test_param_file, run_mimic, load_binary_halos, check_no_memory_leaks
+from framework import check_no_memory_leaks, create_test_param_file, load_binary_halos, run_mimic
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+NC = "\033[0m"
 
 
 def test_module_pipeline_integration():
@@ -57,26 +58,26 @@ def test_module_pipeline_integration():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="starburst_integration",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
+            "pre_timestep": [],
+            "galaxy_physics": [
                 # Disk instability sets UnstableDiskGasFraction trigger
-                ('sage_disk_instability', 'process_by_galaxy'),
+                ("sage_disk_instability", "process_by_galaxy"),
                 # Collisional starburst processes the trigger
-                ('sage_starburst_feedback', 'process_by_galaxy')
+                ("sage_starburst_feedback", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.5,
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,
-            'FracZleaveDisk': 0.5,
-            'ThresholdMajorMerger': 0.3,
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.5,
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,
+            "FracZleaveDisk": 0.5,
+            "ThresholdMajorMerger": 0.3,
             # Disk instability module parameter
-            'StarFormingDiskFactor': 3.0
-        }
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     # Execute Mimic
@@ -93,20 +94,20 @@ def test_module_pipeline_integration():
     assert len(halos) > 0, "Should have output halos"
 
     # Check starburst-related fields exist
-    assert 'StellarMass' in halos.dtype.names, "Output should have StellarMass field"
-    assert 'BulgeMass' in halos.dtype.names, "Output should have BulgeMass field"
-    assert 'ColdGas' in halos.dtype.names, "Output should have ColdGas field"
-    assert 'HotGas' in halos.dtype.names, "Output should have HotGas field"
-    assert 'EjectedGas' in halos.dtype.names, "Output should have EjectedGas field"
-    assert 'StarFormationRate' in halos.dtype.names, "Output should have StarFormationRate field"
+    assert "StellarMass" in halos.dtype.names, "Output should have StellarMass field"
+    assert "BulgeMass" in halos.dtype.names, "Output should have BulgeMass field"
+    assert "ColdGas" in halos.dtype.names, "Output should have ColdGas field"
+    assert "HotGas" in halos.dtype.names, "Output should have HotGas field"
+    assert "EjectedGas" in halos.dtype.names, "Output should have EjectedGas field"
+    assert "StarFormationRate" in halos.dtype.names, "Output should have StarFormationRate field"
 
     # Basic validation: no NaNs or Infs
-    stellar_mass = halos['StellarMass']
-    bulge_mass = halos['BulgeMass']
-    cold_gas = halos['ColdGas']
-    hot_gas = halos['HotGas']
-    ejected_gas = halos['EjectedGas']
-    sfr = halos['StarFormationRate']
+    stellar_mass = halos["StellarMass"]
+    bulge_mass = halos["BulgeMass"]
+    cold_gas = halos["ColdGas"]
+    hot_gas = halos["HotGas"]
+    ejected_gas = halos["EjectedGas"]
+    sfr = halos["StarFormationRate"]
 
     assert not np.any(np.isnan(stellar_mass)), "StellarMass should not have NaN values"
     assert not np.any(np.isinf(stellar_mass)), "StellarMass should not have Inf values"
@@ -152,23 +153,23 @@ def test_starburst_physics_correctness():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="starburst_physics",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_starburst_feedback', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_starburst_feedback", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.5,
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,
-            'FracZleaveDisk': 0.5,
-            'ThresholdMajorMerger': 0.3,
-            'StarFormingDiskFactor': 3.0
-        }
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.5,
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,
+            "FracZleaveDisk": 0.5,
+            "ThresholdMajorMerger": 0.3,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -178,13 +179,13 @@ def test_starburst_physics_correctness():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    stellar_mass = halos['StellarMass']
-    bulge_mass = halos['BulgeMass']
-    cold_gas = halos['ColdGas']
-    hot_gas = halos['HotGas']
-    ejected_gas = halos['EjectedGas']
-    sfr = halos['StarFormationRate']
-    mvir = halos['Mvir']
+    stellar_mass = halos["StellarMass"]
+    bulge_mass = halos["BulgeMass"]
+    cold_gas = halos["ColdGas"]
+    hot_gas = halos["HotGas"]
+    ejected_gas = halos["EjectedGas"]
+    sfr = halos["StarFormationRate"]
+    mvir = halos["Mvir"]
 
     # Physics validation 1: Stellar masses should be reasonable
     total_stellar = np.sum(stellar_mass)
@@ -192,8 +193,7 @@ def test_starburst_physics_correctness():
     assert total_stellar >= 0.0, "Total stellar mass should be non-negative"
 
     # Physics validation 2: Bulge mass should be <= stellar mass
-    assert np.all(bulge_mass <= stellar_mass + 1e-6), \
-        "Bulge mass should not exceed stellar mass"
+    assert np.all(bulge_mass <= stellar_mass + 1e-6), "Bulge mass should not exceed stellar mass"
     print(f"  Total bulge mass: {np.sum(bulge_mass):.2e} [1e10 Msun/h]")
 
     # Physics validation 3: Cold gas should be reasonable
@@ -239,23 +239,23 @@ def test_disk_instability_trigger():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="starburst_disk_trigger",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_starburst_feedback', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_starburst_feedback", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.5,
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,
-            'FracZleaveDisk': 0.5,
-            'ThresholdMajorMerger': 0.3,
-            'StarFormingDiskFactor': 3.0
-        }
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.5,
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,
+            "FracZleaveDisk": 0.5,
+            "ThresholdMajorMerger": 0.3,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -264,8 +264,8 @@ def test_disk_instability_trigger():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    stellar_mass = halos['StellarMass']
-    bulge_mass = halos['BulgeMass']
+    stellar_mass = halos["StellarMass"]
+    bulge_mass = halos["BulgeMass"]
 
     # Validate output properties are valid (no NaNs, non-negative)
     assert not np.any(np.isnan(stellar_mass)), "StellarMass should not have NaN"
@@ -274,8 +274,7 @@ def test_disk_instability_trigger():
     assert np.all(bulge_mass >= 0.0), "BulgeMass should be non-negative"
 
     # Bulge mass should not exceed stellar mass
-    assert np.all(bulge_mass <= stellar_mass + 1e-6), \
-        "BulgeMass should not exceed StellarMass"
+    assert np.all(bulge_mass <= stellar_mass + 1e-6), "BulgeMass should not exceed StellarMass"
 
     # Without upstream gas modules, expect zero stellar mass (no cold gas to form stars)
     total_stellar = np.sum(stellar_mass)
@@ -301,21 +300,19 @@ def test_merger_trigger():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="starburst_no_triggers",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_starburst_feedback', 'process_by_galaxy')
-            ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [("sage_starburst_feedback", "process_by_galaxy")],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.5,
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,
-            'FracZleaveDisk': 0.5,
-            'ThresholdMajorMerger': 0.3
-        }
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.5,
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,
+            "FracZleaveDisk": 0.5,
+            "ThresholdMajorMerger": 0.3,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -348,23 +345,23 @@ def test_parameter_sensitivity():
     param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
         output_name="starburst_low_reheating",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_starburst_feedback', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_starburst_feedback", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'FeedbackReheatingEpsilon': 1.0,  # Low
-            'FeedbackEjectionEfficiency': 0.5,
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,
-            'FracZleaveDisk': 0.5,
-            'ThresholdMajorMerger': 0.3,
-            'StarFormingDiskFactor': 3.0
-        }
+            "FeedbackReheatingEpsilon": 1.0,  # Low
+            "FeedbackEjectionEfficiency": 0.5,
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,
+            "FracZleaveDisk": 0.5,
+            "ThresholdMajorMerger": 0.3,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_low)
@@ -372,7 +369,7 @@ def test_parameter_sensitivity():
 
     output_file_low = output_dir_low / "model_z0.000_0"
     halos_low, _ = load_binary_halos(output_file_low)
-    hot_gas_low = halos_low['HotGas']
+    hot_gas_low = halos_low["HotGas"]
     total_hot_low = np.sum(hot_gas_low)
     print(f"  Total hot gas (low reheating): {total_hot_low:.2e}")
 
@@ -380,23 +377,23 @@ def test_parameter_sensitivity():
     param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
         output_name="starburst_high_reheating",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_starburst_feedback', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_starburst_feedback", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'FeedbackReheatingEpsilon': 5.0,  # High (5x)
-            'FeedbackEjectionEfficiency': 0.5,
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,
-            'FracZleaveDisk': 0.5,
-            'ThresholdMajorMerger': 0.3,
-            'StarFormingDiskFactor': 3.0
-        }
+            "FeedbackReheatingEpsilon": 5.0,  # High (5x)
+            "FeedbackEjectionEfficiency": 0.5,
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,
+            "FracZleaveDisk": 0.5,
+            "ThresholdMajorMerger": 0.3,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_high)
@@ -404,7 +401,7 @@ def test_parameter_sensitivity():
 
     output_file_high = output_dir_high / "model_z0.000_0"
     halos_high, _ = load_binary_halos(output_file_high)
-    hot_gas_high = halos_high['HotGas']
+    hot_gas_high = halos_high["HotGas"]
     total_hot_high = np.sum(hot_gas_high)
     print(f"  Total hot gas (high reheating): {total_hot_high:.2e}")
 
@@ -412,23 +409,23 @@ def test_parameter_sensitivity():
     param_file_low_ej, output_dir_low_ej, temp_dir_low_ej = create_test_param_file(
         output_name="starburst_low_ejection",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_starburst_feedback', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_starburst_feedback", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.1,  # Low
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,
-            'FracZleaveDisk': 0.5,
-            'ThresholdMajorMerger': 0.3,
-            'StarFormingDiskFactor': 3.0
-        }
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.1,  # Low
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,
+            "FracZleaveDisk": 0.5,
+            "ThresholdMajorMerger": 0.3,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_low_ej)
@@ -436,7 +433,7 @@ def test_parameter_sensitivity():
 
     output_file_low_ej = output_dir_low_ej / "model_z0.000_0"
     halos_low_ej, _ = load_binary_halos(output_file_low_ej)
-    ejected_low_ej = halos_low_ej['EjectedGas']
+    ejected_low_ej = halos_low_ej["EjectedGas"]
     total_ejected_low_ej = np.sum(ejected_low_ej)
     print(f"  Total ejected gas (low efficiency): {total_ejected_low_ej:.2e}")
 
@@ -444,23 +441,23 @@ def test_parameter_sensitivity():
     param_file_high_ej, output_dir_high_ej, temp_dir_high_ej = create_test_param_file(
         output_name="starburst_high_ejection",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_starburst_feedback', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_starburst_feedback", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 2.0,  # High (20x)
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,
-            'FracZleaveDisk': 0.5,
-            'ThresholdMajorMerger': 0.3,
-            'StarFormingDiskFactor': 3.0
-        }
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 2.0,  # High (20x)
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,
+            "FracZleaveDisk": 0.5,
+            "ThresholdMajorMerger": 0.3,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_high_ej)
@@ -468,18 +465,20 @@ def test_parameter_sensitivity():
 
     output_file_high_ej = output_dir_high_ej / "model_z0.000_0"
     halos_high_ej, _ = load_binary_halos(output_file_high_ej)
-    ejected_high_ej = halos_high_ej['EjectedGas']
+    ejected_high_ej = halos_high_ej["EjectedGas"]
     total_ejected_high_ej = np.sum(ejected_high_ej)
     print(f"  Total ejected gas (high efficiency): {total_ejected_high_ej:.2e}")
 
     # Validate parameter sensitivity
     # Test 1: Higher reheating should produce more hot gas (or equal)
-    assert total_hot_high >= total_hot_low, \
-        "Higher reheating epsilon should produce at least as much hot gas"
+    assert (
+        total_hot_high >= total_hot_low
+    ), "Higher reheating epsilon should produce at least as much hot gas"
 
     # Test 2: Higher ejection efficiency should produce more ejection (or equal)
-    assert total_ejected_high_ej >= total_ejected_low_ej, \
-        "Higher ejection efficiency should produce at least as much ejection"
+    assert (
+        total_ejected_high_ej >= total_ejected_low_ej
+    ), "Higher ejection efficiency should produce at least as much ejection"
 
     # Cleanup
     shutil.rmtree(temp_dir_low)
@@ -502,27 +501,28 @@ def test_memory_and_performance():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="starburst_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_starburst_feedback', 'process_by_galaxy')
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_starburst_feedback", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.5,
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,
-            'FracZleaveDisk': 0.5,
-            'ThresholdMajorMerger': 0.3,
-            'StarFormingDiskFactor': 3.0
-        }
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.5,
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,
+            "FracZleaveDisk": 0.5,
+            "ThresholdMajorMerger": 0.3,
+            "StarFormingDiskFactor": 3.0,
+        },
     )
 
     # Execute and time
     import time
+
     start_time = time.time()
     returncode, stdout, stderr = run_mimic(param_file)
     elapsed_time = time.time() - start_time
@@ -557,42 +557,42 @@ def test_full_pipeline_star_formation():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="starburst_full_pipeline",
         phase_config={
-            'pre_timestep': [
-                ('sage_reionization', 'process_full_halo'),
-                ('sage_prepare_infall_budget', 'process_full_halo'),
-                ('sage_set_disk_scale_radius', 'process_full_halo')
+            "pre_timestep": [
+                ("sage_reionization", "process_full_halo"),
+                ("sage_prepare_infall_budget", "process_full_halo"),
+                ("sage_set_disk_scale_radius", "process_full_halo"),
             ],
-            'galaxy_physics': [
+            "galaxy_physics": [
                 # Gas accretion chain
-                ('sage_apply_infall', 'process_full_halo'),
-                ('sage_reincorporation', 'process_full_halo'),
+                ("sage_apply_infall", "process_full_halo"),
+                ("sage_reincorporation", "process_full_halo"),
                 # Cooling chain
-                ('sage_calculate_cooling_budget', 'process_by_galaxy'),
-                ('sage_apply_cooling', 'process_by_galaxy'),
+                ("sage_calculate_cooling_budget", "process_by_galaxy"),
+                ("sage_apply_cooling", "process_by_galaxy"),
                 # Disk instability and starburst
-                ('sage_disk_instability', 'process_by_galaxy'),
-                ('sage_starburst_feedback', 'process_by_galaxy')
+                ("sage_disk_instability", "process_by_galaxy"),
+                ("sage_starburst_feedback", "process_by_galaxy"),
             ],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
             # Infall/Reionization
-            'GlobalBaryonFraction': 0.17,
+            "GlobalBaryonFraction": 0.17,
             # Cooling (AGN off for simplicity)
-            'AGNrecipe': 0,
+            "AGNrecipe": 0,
             # Reincorporation
-            'ReIncorporationFactor': 0.15,
+            "ReIncorporationFactor": 0.15,
             # Disk instability
-            'StarFormingDiskFactor': 3.0,
+            "StarFormingDiskFactor": 3.0,
             # Starburst
-            'FeedbackReheatingEpsilon': 3.0,
-            'FeedbackEjectionEfficiency': 0.5,
-            'RecycleFraction': 0.43,
-            'Yield': 0.03,
-            'FracZleaveDisk': 0.5,
-            'ThresholdMajorMerger': 0.3
-        }
+            "FeedbackReheatingEpsilon": 3.0,
+            "FeedbackEjectionEfficiency": 0.5,
+            "RecycleFraction": 0.43,
+            "Yield": 0.03,
+            "FracZleaveDisk": 0.5,
+            "ThresholdMajorMerger": 0.3,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -601,11 +601,11 @@ def test_full_pipeline_star_formation():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    stellar_mass = halos['StellarMass']
-    bulge_mass = halos['BulgeMass']
-    cold_gas = halos['ColdGas']
-    hot_gas = halos['HotGas']
-    sfr = halos['StarFormationRate']
+    stellar_mass = halos["StellarMass"]
+    bulge_mass = halos["BulgeMass"]
+    cold_gas = halos["ColdGas"]
+    hot_gas = halos["HotGas"]
+    sfr = halos["StarFormationRate"]
 
     # With full pipeline, we should have cold gas
     total_cold_gas = np.sum(cold_gas)
@@ -624,8 +624,7 @@ def test_full_pipeline_star_formation():
     print(f"  Total bulge mass: {total_bulge:.2e} [1e10 Msun/h]")
 
     # Bulge mass should not exceed stellar mass
-    assert np.all(bulge_mass <= stellar_mass + 1e-6), \
-        "BulgeMass should not exceed StellarMass"
+    assert np.all(bulge_mass <= stellar_mass + 1e-6), "BulgeMass should not exceed StellarMass"
 
     # Stellar mass should be non-negative
     assert np.all(stellar_mass >= 0.0), "StellarMass should be non-negative"
@@ -670,9 +669,10 @@ def main():
         print(f"{RED}Unexpected error: {e}{NC}")
         print(f"{RED}{'=' * 60}{NC}")
         import traceback
+
         traceback.print_exc()
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

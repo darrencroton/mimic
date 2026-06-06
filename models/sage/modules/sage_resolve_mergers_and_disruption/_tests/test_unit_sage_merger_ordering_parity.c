@@ -23,11 +23,10 @@ static int failed = 0;
 
 extern int sage_resolve_mergers_and_disruption_init(void);
 extern int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx,
-                                                 struct Halo *halos, int ngal);
+                                                       struct Halo *halos, int ngal);
 extern int sage_resolve_mergers_and_disruption_cleanup(void);
 extern void sage_resolve_mergers_and_disruption_set_action_hook(
-    void (*hook)(const char *action, int source_index, int target_index,
-                 double mass_ratio));
+    void (*hook)(const char *action, int source_index, int target_index, double mass_ratio));
 
 static const double TEST_METALLICITY = 0.02;
 static const double TEST_THRESHOLD_MAJOR = 0.3;
@@ -41,8 +40,8 @@ static void init_unit_constants(void) {
   UnitMass_in_g = 1.989e43;
 
   UnitTime_in_s = UnitLength_in_cm / UnitVelocity_in_cm_per_s;
-  UnitEnergy_in_cgs = UnitMass_in_g * UnitLength_in_cm * UnitLength_in_cm /
-                      (UnitTime_in_s * UnitTime_in_s);
+  UnitEnergy_in_cgs =
+      UnitMass_in_g * UnitLength_in_cm * UnitLength_in_cm / (UnitTime_in_s * UnitTime_in_s);
 }
 
 static void reset_config(void) {
@@ -53,18 +52,13 @@ static void reset_config(void) {
   MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
 }
 
-static void setup_model_parameters(double threshold_sat_disruption,
-                                   double threshold_major_merger) {
+static void setup_model_parameters(double threshold_sat_disruption, double threshold_major_merger) {
   int idx = 0;
 
-  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN,
-           "ThresholdSatDisruption");
-  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f",
-           threshold_sat_disruption);
-  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN,
-           "ThresholdMajorMerger");
-  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f",
-           threshold_major_merger);
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "ThresholdSatDisruption");
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", threshold_sat_disruption);
+  snprintf(MimicConfig.ModelParams[idx].param_name, MAX_STRING_LEN, "ThresholdMajorMerger");
+  snprintf(MimicConfig.ModelParams[idx++].value, MAX_STRING_LEN, "%.6f", threshold_major_merger);
 
   MimicConfig.NumModelParams = idx;
 }
@@ -82,11 +76,9 @@ static void setup_context(struct ModuleContext *ctx) {
   ctx->params = &MimicConfig;
 }
 
-static void setup_test_halo(struct Halo *halo, struct GalaxyData *galaxy,
-                            long long halo_nr, int type, int central_halo,
-                            double mvir, double delta_mvir, double vvir,
-                            double merg_time, double stellar_mass,
-                            double cold_gas, double hot_gas,
+static void setup_test_halo(struct Halo *halo, struct GalaxyData *galaxy, long long halo_nr,
+                            int type, int central_halo, double mvir, double delta_mvir, double vvir,
+                            double merg_time, double stellar_mass, double cold_gas, double hot_gas,
                             double ejected_gas, double ics, double bulge_mass) {
   memset(halo, 0, sizeof(*halo));
   memset(galaxy, 0, sizeof(*galaxy));
@@ -129,22 +121,21 @@ static const char *classify_merger(double ratio) {
   return (ratio > TEST_THRESHOLD_MAJOR) ? "major" : "minor";
 }
 
-static void record_immediate_action(const char *action, int source_index,
-                                    int target_index, double mass_ratio) {
+static void record_immediate_action(const char *action, int source_index, int target_index,
+                                    double mass_ratio) {
   if (active_trace == NULL || action == NULL) {
     return;
   }
 
   if (strcmp(action, "merge") == 0) {
-    parity_trace_append(active_trace, "%02d|merge|src=%d|dst=%d|%s",
-                        active_trace->count + 1, source_index, target_index,
-                        classify_merger(mass_ratio));
+    parity_trace_append(active_trace, "%02d|merge|src=%d|dst=%d|%s", active_trace->count + 1,
+                        source_index, target_index, classify_merger(mass_ratio));
     return;
   }
 
   if (strcmp(action, "disrupt") == 0) {
-    parity_trace_append(active_trace, "%02d|disrupt|src=%d|dst=%d",
-                        active_trace->count + 1, source_index, target_index);
+    parity_trace_append(active_trace, "%02d|disrupt|src=%d|dst=%d", active_trace->count + 1,
+                        source_index, target_index);
   }
 }
 
@@ -163,8 +154,7 @@ static void cleanup_parity_modules(void) {
   active_trace = NULL;
 }
 
-static int trace_matches_contract(const char *label,
-                                  const struct ParityTrace *expected,
+static int trace_matches_contract(const char *label, const struct ParityTrace *expected,
                                   const struct ParityTrace *actual) {
   char expected_buf[PARITY_TRACE_MAX_LINES * PARITY_TRACE_LINE_LEN];
   char actual_buf[PARITY_TRACE_MAX_LINES * PARITY_TRACE_LINE_LEN];
@@ -182,8 +172,7 @@ static int trace_matches_contract(const char *label,
   return 1;
 }
 
-static int state_matches_contract(const char *label, double expected_stellar,
-                                  double expected_bulge,
+static int state_matches_contract(const char *label, double expected_stellar, double expected_bulge,
                                   const struct GalaxyData *actual_target,
                                   const struct GalaxyData *actual_fof) {
   if (fabs(actual_target->StellarMass - expected_stellar) <= 1e-6 &&
@@ -192,52 +181,47 @@ static int state_matches_contract(const char *label, double expected_stellar,
   }
 
   fprintf(stderr, "FAIL: %s\n", label);
-  fprintf(stderr,
-          "  Expected redirect target StellarMass=%.3f BulgeMass=%.3f\n",
-          expected_stellar, expected_bulge);
-  fprintf(stderr,
-          "  Actual redirect target StellarMass=%.3f BulgeMass=%.3f\n",
+  fprintf(stderr, "  Expected redirect target StellarMass=%.3f BulgeMass=%.3f\n", expected_stellar,
+          expected_bulge);
+  fprintf(stderr, "  Actual redirect target StellarMass=%.3f BulgeMass=%.3f\n",
           actual_target->StellarMass, actual_target->BulgeMass);
-  fprintf(stderr,
-          "  Actual FOF target      StellarMass=%.3f BulgeMass=%.3f\n",
+  fprintf(stderr, "  Actual FOF target      StellarMass=%.3f BulgeMass=%.3f\n",
           actual_fof->StellarMass, actual_fof->BulgeMass);
   return 1;
 }
 
-static void setup_shared_target_fixture(struct ModuleContext *ctx,
-                                        struct Halo halos[3],
+static void setup_shared_target_fixture(struct ModuleContext *ctx, struct Halo halos[3],
                                         struct GalaxyData galaxies[3]) {
   setup_context(ctx);
 
-  setup_test_halo(&halos[0], &galaxies[0], 1000, 0, -1, 50.0, 0.0, 220.0,
-                  999.9, 10.0, 5.0, 4.0, 1.0, 0.5, 2.0);
-  setup_test_halo(&halos[1], &galaxies[1], 1001, 1, 0, 1.0, 0.0, 80.0, 0.4,
-                  2.0, 1.0, 1.0, 0.2, 0.1, 0.2);
-  setup_test_halo(&halos[2], &galaxies[2], 1002, 1, 0, 1.0, 0.0, 90.0, -0.1,
-                  1.5, 0.5, 0.2, 0.1, 0.0, 0.1);
+  setup_test_halo(&halos[0], &galaxies[0], 1000, 0, -1, 50.0, 0.0, 220.0, 999.9, 10.0, 5.0, 4.0,
+                  1.0, 0.5, 2.0);
+  setup_test_halo(&halos[1], &galaxies[1], 1001, 1, 0, 1.0, 0.0, 80.0, 0.4, 2.0, 1.0, 1.0, 0.2, 0.1,
+                  0.2);
+  setup_test_halo(&halos[2], &galaxies[2], 1002, 1, 0, 1.0, 0.0, 90.0, -0.1, 1.5, 0.5, 0.2, 0.1,
+                  0.0, 0.1);
 
   ctx->central_galaxy = &halos[0];
 }
 
-static void setup_consumed_target_fixture(struct ModuleContext *ctx,
-                                          struct Halo halos[4],
+static void setup_consumed_target_fixture(struct ModuleContext *ctx, struct Halo halos[4],
                                           struct GalaxyData galaxies[4]) {
   setup_context(ctx);
 
-  setup_test_halo(&halos[0], &galaxies[0], 2000, 0, -1, 80.0, 0.0, 240.0,
-                  999.9, 18.0, 2.0, 6.0, 1.0, 0.2, 3.0);
+  setup_test_halo(&halos[0], &galaxies[0], 2000, 0, -1, 80.0, 0.0, 240.0, 999.9, 18.0, 2.0, 6.0,
+                  1.0, 0.2, 3.0);
 
   /*
    * Type 1 satellites ignore CentralHalo in the split modules. This fixture
    * uses halos[1].CentralHalo as the SAGE-style one-hop redirect destination
    * that should be followed after halos[1] is consumed.
    */
-  setup_test_halo(&halos[1], &galaxies[1], 2001, 1, 2, 1.0, 0.0, 120.0, -0.1,
-                  2.0, 1.0, 0.5, 0.1, 0.0, 0.3);
-  setup_test_halo(&halos[2], &galaxies[2], 2002, 1, 0, 20.0, 0.0, 100.0, 5.0,
-                  1.2, 0.3, 0.3, 0.1, 0.0, 0.2);
-  setup_test_halo(&halos[3], &galaxies[3], 2003, 2, 1, 0.5, 0.0, 70.0, -0.1,
-                  1.2, 0.6, 0.2, 0.1, 0.0, 0.1);
+  setup_test_halo(&halos[1], &galaxies[1], 2001, 1, 2, 1.0, 0.0, 120.0, -0.1, 2.0, 1.0, 0.5, 0.1,
+                  0.0, 0.3);
+  setup_test_halo(&halos[2], &galaxies[2], 2002, 1, 0, 20.0, 0.0, 100.0, 5.0, 1.2, 0.3, 0.3, 0.1,
+                  0.0, 0.2);
+  setup_test_halo(&halos[3], &galaxies[3], 2003, 2, 1, 0.5, 0.0, 70.0, -0.1, 1.2, 0.6, 0.2, 0.1,
+                  0.0, 0.1);
 
   ctx->central_galaxy = &halos[0];
 }
@@ -266,19 +250,15 @@ int test_shared_target_immediate_trace(void) {
   active_trace = &actual_trace;
 
   parity_trace_append(&expected_trace, "01|disrupt|src=1|dst=0");
-  parity_trace_append(&expected_trace, "02|merge|src=2|dst=0|%s",
-                      classify_merger(merge_ratio));
+  parity_trace_append(&expected_trace, "02|merge|src=2|dst=0|%s", classify_merger(merge_ratio));
 
   TEST_ASSERT(sage_resolve_mergers_and_disruption_process(&ctx, halos, 3) == 0,
               "Immediate parity module should succeed");
-  TEST_ASSERT(halos[1].Type == 3,
-              "Immediate path should consume the disrupted satellite");
-  TEST_ASSERT(halos[2].Type == 3,
-              "Immediate path should consume the merger satellite");
+  TEST_ASSERT(halos[1].Type == 3, "Immediate path should consume the disrupted satellite");
+  TEST_ASSERT(halos[2].Type == 3, "Immediate path should consume the merger satellite");
 
   parity_failure = trace_matches_contract(
-      "Shared-target fixture should match SAGE immediate ordering",
-      &expected_trace, &actual_trace);
+      "Shared-target fixture should match SAGE immediate ordering", &expected_trace, &actual_trace);
 
   cleanup_parity_modules();
   check_memory_leaks();
@@ -301,8 +281,7 @@ int test_consumed_target_redirect_trace(void) {
   init_memory_system(0);
   reset_config();
   setup_model_parameters(TEST_THRESHOLD_DISRUPTION, TEST_THRESHOLD_MAJOR);
-  TEST_ASSERT(init_parity_modules() == 0,
-              "Parity module should initialize for redirect fixture");
+  TEST_ASSERT(init_parity_modules() == 0, "Parity module should initialize for redirect fixture");
 
   setup_consumed_target_fixture(&ctx, halos, galaxies);
 
@@ -310,21 +289,18 @@ int test_consumed_target_redirect_trace(void) {
   parity_trace_reset(&actual_trace);
   active_trace = &actual_trace;
 
-  parity_trace_append(&expected_trace, "01|merge|src=1|dst=0|%s",
-                      classify_merger(first_ratio));
+  parity_trace_append(&expected_trace, "01|merge|src=1|dst=0|%s", classify_merger(first_ratio));
   parity_trace_append(&expected_trace, "02|merge|src=3|dst=2|%s",
                       classify_merger(expected_second_ratio));
 
   TEST_ASSERT(sage_resolve_mergers_and_disruption_process(&ctx, halos, 4) == 0,
               "Immediate parity module should succeed");
-  TEST_ASSERT(halos[1].Type == 3,
-              "First merger should consume the intermediate target");
-  TEST_ASSERT(halos[3].Type == 3,
-              "Second merger should consume the Type 2 orphan");
+  TEST_ASSERT(halos[1].Type == 3, "First merger should consume the intermediate target");
+  TEST_ASSERT(halos[3].Type == 3, "Second merger should consume the Type 2 orphan");
 
-  parity_failure = trace_matches_contract(
-      "Consumed-target redirect fixture should match SAGE one-hop redirect",
-      &expected_trace, &actual_trace);
+  parity_failure =
+      trace_matches_contract("Consumed-target redirect fixture should match SAGE one-hop redirect",
+                             &expected_trace, &actual_trace);
 
   cleanup_parity_modules();
   check_memory_leaks();
@@ -345,20 +321,17 @@ int test_consumed_target_redirect_changes_major_minor_state(void) {
   init_memory_system(0);
   reset_config();
   setup_model_parameters(TEST_THRESHOLD_DISRUPTION, TEST_THRESHOLD_MAJOR);
-  TEST_ASSERT(init_parity_modules() == 0,
-              "Parity module should initialize for state fixture");
+  TEST_ASSERT(init_parity_modules() == 0, "Parity module should initialize for state fixture");
 
   setup_consumed_target_fixture(&ctx, halos, galaxies);
 
   TEST_ASSERT(sage_resolve_mergers_and_disruption_process(&ctx, halos, 4) == 0,
               "Immediate parity module should succeed");
-  TEST_ASSERT(halos[3].Type == 3,
-              "Type 2 orphan should be consumed in the immediate merge");
+  TEST_ASSERT(halos[3].Type == 3, "Type 2 orphan should be consumed in the immediate merge");
 
   parity_failure = state_matches_contract(
-      "SAGE redirect should deliver a major merger remnant to halo 2",
-      expected_target2_stellar, expected_target2_bulge, halos[2].galaxy,
-      halos[0].galaxy);
+      "SAGE redirect should deliver a major merger remnant to halo 2", expected_target2_stellar,
+      expected_target2_bulge, halos[2].galaxy, halos[0].galaxy);
 
   cleanup_parity_modules();
   check_memory_leaks();

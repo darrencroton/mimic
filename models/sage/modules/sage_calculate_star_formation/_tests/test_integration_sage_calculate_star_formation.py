@@ -21,21 +21,22 @@ Date: 2025-12-18
 """
 
 import os
-import sys
 import shutil
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import create_test_param_file, run_mimic, load_binary_halos, check_no_memory_leaks
+from framework import check_no_memory_leaks, create_test_param_file, load_binary_halos, run_mimic
 
 # ANSI color codes
-BLUE = '\033[1;34m'
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-NC = '\033[0m'
+BLUE = "\033[1;34m"
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+NC = "\033[0m"
 
 
 def test_module_pipeline_integration():
@@ -52,18 +53,21 @@ def test_module_pipeline_integration():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sf_integration",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     # Execute Mimic
@@ -80,10 +84,10 @@ def test_module_pipeline_integration():
     assert len(halos) > 0, "Should have output halos"
 
     # Check StarFormationRate field exists
-    assert 'StarFormationRate' in halos.dtype.names, "Output should have StarFormationRate field"
+    assert "StarFormationRate" in halos.dtype.names, "Output should have StarFormationRate field"
 
     # Basic validation: no NaNs or Infs
-    sfr = halos['StarFormationRate']
+    sfr = halos["StarFormationRate"]
     assert not np.any(np.isnan(sfr)), "StarFormationRate should not have NaN values"
     assert not np.any(np.isinf(sfr)), "StarFormationRate should not have Inf values"
     assert np.all(sfr >= 0.0), "StarFormationRate should be non-negative"
@@ -106,18 +110,21 @@ def test_star_formation_physics():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sf_physics",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file)
@@ -127,26 +134,25 @@ def test_star_formation_physics():
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(output_file)
 
-    sfr = halos['StarFormationRate']
-    cold_gas = halos['ColdGas']
+    sfr = halos["StarFormationRate"]
+    cold_gas = halos["ColdGas"]
 
     # Physics validation 1: SFR should be reasonable fraction of cold gas
     # For efficiency=0.02 and typical timescales, expect SFR ~0.001-0.1 * ColdGas
     star_forming_galaxies = (sfr > 0) & (cold_gas > 0)
     if np.sum(star_forming_galaxies) > 0:
         sfr_fraction = sfr[star_forming_galaxies] / cold_gas[star_forming_galaxies]
-        assert np.all(sfr_fraction < 0.5), \
-            "SFR should be < 50% of cold gas (unreasonably high)"
-        assert np.all(sfr_fraction > 0.0), \
-            "SFR fraction should be positive for star-forming galaxies"
+        assert np.all(sfr_fraction < 0.5), "SFR should be < 50% of cold gas (unreasonably high)"
+        assert np.all(
+            sfr_fraction > 0.0
+        ), "SFR fraction should be positive for star-forming galaxies"
 
         print(f"  SFR/ColdGas range: {np.min(sfr_fraction):.4e} to {np.max(sfr_fraction):.4e}")
 
     # Physics validation 2: Galaxies with no cold gas should have no star formation
     no_gas_galaxies = cold_gas < 1e-6
     if np.sum(no_gas_galaxies) > 0:
-        assert np.all(sfr[no_gas_galaxies] == 0.0), \
-            "Galaxies with no cold gas should have zero SFR"
+        assert np.all(sfr[no_gas_galaxies] == 0.0), "Galaxies with no cold gas should have zero SFR"
         print(f"  Verified {np.sum(no_gas_galaxies)} galaxies with no gas have zero SFR")
 
     # Physics validation 3: Total SFR should be reasonable
@@ -175,18 +181,21 @@ def test_parameter_sensitivity():
     param_file_low, output_dir_low, temp_dir_low = create_test_param_file(
         output_name="sf_low_eff",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.01,  # Low efficiency
-            'StarFormingDiskFactor': 3.0,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.01,  # Low efficiency
+            "StarFormingDiskFactor": 3.0,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_low)
@@ -194,25 +203,28 @@ def test_parameter_sensitivity():
 
     output_file_low = output_dir_low / "model_z0.000_0"
     halos_low, _ = load_binary_halos(output_file_low)
-    sfr_low = halos_low['StarFormationRate']
+    sfr_low = halos_low["StarFormationRate"]
     total_sfr_low = np.sum(sfr_low)
 
     # Run with high efficiency
     param_file_high, output_dir_high, temp_dir_high = create_test_param_file(
         output_name="sf_high_eff",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.05,  # 5x higher efficiency
-            'StarFormingDiskFactor': 3.0,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.05,  # 5x higher efficiency
+            "StarFormingDiskFactor": 3.0,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     returncode, stdout, stderr = run_mimic(param_file_high)
@@ -220,15 +232,16 @@ def test_parameter_sensitivity():
 
     output_file_high = output_dir_high / "model_z0.000_0"
     halos_high, _ = load_binary_halos(output_file_high)
-    sfr_high = halos_high['StarFormationRate']
+    sfr_high = halos_high["StarFormationRate"]
     total_sfr_high = np.sum(sfr_high)
 
     # Validate parameter sensitivity
     # Note: It's possible that low efficiency produces zero SFR if all galaxies
     # are below the critical threshold. The key test is that higher efficiency
     # produces more (or equal) SFR.
-    assert total_sfr_high >= total_sfr_low, \
-        "Higher efficiency should produce at least as much star formation"
+    assert (
+        total_sfr_high >= total_sfr_low
+    ), "Higher efficiency should produce at least as much star formation"
 
     # If both produce star formation, check approximate linear scaling
     if total_sfr_low > 0 and total_sfr_high > 0:
@@ -245,7 +258,9 @@ def test_parameter_sensitivity():
         print(f"  High efficiency produced SFR = {total_sfr_high:.2e}")
         assert total_sfr_high > 0, "High efficiency should produce some SFR"
     else:
-        print(f"  Warning: Both efficiencies produced zero SFR (test data may have no star-forming galaxies)")
+        print(
+            f"  Warning: Both efficiencies produced zero SFR (test data may have no star-forming galaxies)"
+        )
 
     # Cleanup
     shutil.rmtree(temp_dir_low)
@@ -266,22 +281,26 @@ def test_memory_and_performance():
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sf_memory",
         phase_config={
-            'pre_timestep': [],
-            'galaxy_physics': [('sage_calculate_star_formation', 'process_by_galaxy'), ('sage_apply_star_formation_supernova', 'process_by_galaxy')],
-            'satellite_mergers': [],
-            'post_timestep': []
+            "pre_timestep": [],
+            "galaxy_physics": [
+                ("sage_calculate_star_formation", "process_by_galaxy"),
+                ("sage_apply_star_formation_supernova", "process_by_galaxy"),
+            ],
+            "satellite_mergers": [],
+            "post_timestep": [],
         },
         model_params={
-            'SfrEfficiency': 0.02,
-            'StarFormingDiskFactor': 3.0,
-            'RecycleFraction': 0.43,
-            'Yield': 0.025,
-            'FracZleaveDisk': 0.0
-        }
+            "SfrEfficiency": 0.02,
+            "StarFormingDiskFactor": 3.0,
+            "RecycleFraction": 0.43,
+            "Yield": 0.025,
+            "FracZleaveDisk": 0.0,
+        },
     )
 
     # Execute and time
     import time
+
     start_time = time.time()
     returncode, stdout, stderr = run_mimic(param_file)
     elapsed_time = time.time() - start_time
@@ -327,9 +346,10 @@ def main():
         print(f"{RED}Unexpected error: {e}{NC}")
         print(f"{RED}{'=' * 60}{NC}")
         import traceback
+
         traceback.print_exc()
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

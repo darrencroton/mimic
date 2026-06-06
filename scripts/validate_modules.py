@@ -40,8 +40,8 @@ from discovery import (
     halo_property_files,
     model_property_files,
     module_metadata_files,
-    standalone_module_files,
     rel,
+    standalone_module_files,
 )
 
 # ANSI color codes (module-level constants)
@@ -225,7 +225,9 @@ def load_property_metadata() -> Dict[str, Dict[str, Any]]:
                                 "source": rel(path),
                             }
         except Exception as e:
-            print(f"WARNING: Failed to load galaxy properties from {rel(path)}: {e}", file=sys.stderr)
+            print(
+                f"WARNING: Failed to load galaxy properties from {rel(path)}: {e}", file=sys.stderr
+            )
 
     # Load halo properties
     for path in halo_property_files():
@@ -273,9 +275,7 @@ def validate_required_fields(
     missing = [field for field in all_required if field not in module]
 
     if missing:
-        results.add_error(
-            module_name, 1, f"Missing required fields: {', '.join(missing)}"
-        )
+        results.add_error(module_name, 1, f"Missing required fields: {', '.join(missing)}")
         return False
 
     # Validate dependencies subfields IF present
@@ -317,18 +317,14 @@ def validate_field_types(
             results.add_error(module_name, 1, "Field 'additional_files' must be a list")
             valid = False
         elif not all(isinstance(item, str) for item in module["additional_files"]):
-            results.add_error(
-                module_name, 1, "All items in 'additional_files' must be strings"
-            )
+            results.add_error(module_name, 1, "All items in 'additional_files' must be strings")
             valid = False
 
     # Supported processing modes (optional field)
     if "supported_processing_modes" in module:
         modes = module["supported_processing_modes"]
         if not isinstance(modes, list):
-            results.add_error(
-                module_name, 1, "Field 'supported_processing_modes' must be a list"
-            )
+            results.add_error(module_name, 1, "Field 'supported_processing_modes' must be a list")
             valid = False
         elif not all(isinstance(item, str) for item in modes):
             results.add_error(
@@ -348,9 +344,7 @@ def validate_field_types(
             # Validate 'properties' (list of all properties used by module)
             if "properties" in deps:
                 if not isinstance(deps["properties"], list):
-                    results.add_error(
-                        module_name, 1, "dependencies.properties must be a list"
-                    )
+                    results.add_error(module_name, 1, "dependencies.properties must be a list")
                     valid = False
                 elif not all(isinstance(item, str) for item in deps["properties"]):
                     results.add_error(
@@ -363,9 +357,7 @@ def validate_field_types(
             # Validate 'parameters' (list of all parameters needed by module)
             if "parameters" in deps:
                 if not isinstance(deps["parameters"], list):
-                    results.add_error(
-                        module_name, 1, "dependencies.parameters must be a list"
-                    )
+                    results.add_error(module_name, 1, "dependencies.parameters must be a list")
                     valid = False
                 elif not all(isinstance(item, str) for item in deps["parameters"]):
                     results.add_error(
@@ -401,9 +393,7 @@ def validate_field_types(
     return valid
 
 
-def validate_version(
-    module: Dict[str, Any], module_name: str, results: ValidationResults
-) -> bool:
+def validate_version(module: Dict[str, Any], module_name: str, results: ValidationResults) -> bool:
     """Validate version follows semantic versioning (if present)."""
 
     # Version is optional - defaults to "1.0.0" if not specified
@@ -435,9 +425,7 @@ def validate_name(
 
     # Check C identifier
     if not C_IDENTIFIER_PATTERN.match(name):
-        results.add_error(
-            module_name, 4, f"Module name '{name}' is not a valid C identifier"
-        )
+        results.add_error(module_name, 4, f"Module name '{name}' is not a valid C identifier")
         return False
 
     # Check lowercase with underscores convention
@@ -531,9 +519,7 @@ def validate_supported_processing_modes(
 
     # Check for duplicates
     if len(modes) != len(set(modes)):
-        results.add_error(
-            module_name, 1, "supported_processing_modes contains duplicates"
-        )
+        results.add_error(module_name, 1, "supported_processing_modes contains duplicates")
         return False
 
     return True
@@ -563,9 +549,7 @@ def validate_source_files(
         else module_dir / f"{module_name}.c"
     )
     if not main_file.exists():
-        results.add_error(
-            module_name, 2, f"Main module file not found: {module_name}.c"
-        )
+        results.add_error(module_name, 2, f"Main module file not found: {module_name}.c")
         valid = False
 
     # Check additional files (if any)
@@ -607,18 +591,14 @@ def validate_test_files(
                 # Check tests/unit/ directory second (centralized)
                 central_test_path = REPO_ROOT / "tests" / "unit" / test_file
                 if not module_test_path.exists() and not central_test_path.exists():
-                    results.add_warning(
-                        module_name, f"Unit test file not found: {test_file}"
-                    )
+                    results.add_warning(module_name, f"Unit test file not found: {test_file}")
         else:
             # Check module directory first (co-located)
             module_test_path = module_dir / unit_test
             # Check tests/unit/ directory second (centralized)
             central_test_path = REPO_ROOT / "tests" / "unit" / unit_test
             if not module_test_path.exists() and not central_test_path.exists():
-                results.add_warning(
-                    module_name, f"Unit test file not found: {unit_test}"
-                )
+                results.add_warning(module_name, f"Unit test file not found: {unit_test}")
 
     # Integration tests are co-located with module
     if "integration" in tests:
@@ -652,9 +632,7 @@ def validate_test_files(
             for test_file in scientific_test:
                 sci_test_path = module_dir / test_file
                 if not sci_test_path.exists():
-                    results.add_warning(
-                        module_name, f"Scientific test file not found: {test_file}"
-                    )
+                    results.add_warning(module_name, f"Scientific test file not found: {test_file}")
         else:
             sci_test_path = module_dir / scientific_test
             if not sci_test_path.exists():
@@ -682,9 +660,7 @@ def validate_doc_files(
         if physics_doc is not None:
             physics_doc_path = module_dir / physics_doc
             if not physics_doc_path.exists():
-                results.add_warning(
-                    module_name, f"Physics documentation not found: {physics_doc}"
-                )
+                results.add_warning(module_name, f"Physics documentation not found: {physics_doc}")
 
     return True
 
@@ -856,9 +832,7 @@ def main():
     """Main entry point."""
 
     parser = argparse.ArgumentParser(description="Validate Mimic module metadata")
-    parser.add_argument(
-        "module_path", nargs="?", help="Path to specific module directory"
-    )
+    parser.add_argument("module_path", nargs="?", help="Path to specific module directory")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     args = parser.parse_args()
 
@@ -877,9 +851,7 @@ def main():
         galaxy_count = sum(
             1 for p in property_metadata.values() if p.get("source") in galaxy_sources
         )
-        halo_count = sum(
-            1 for p in property_metadata.values() if p.get("source") in halo_sources
-        )
+        halo_count = sum(1 for p in property_metadata.values() if p.get("source") in halo_sources)
         print(
             f"Loaded {len(property_metadata)} properties "
             f"({galaxy_count} galaxy, {halo_count} halo)"
@@ -930,9 +902,7 @@ def main():
     valid_modules = []
     for module_dir, metadata in modules:
         if metadata is None:
-            results.add_error(
-                module_dir.name, 1, "module_info.yaml not found or invalid"
-            )
+            results.add_error(module_dir.name, 1, "module_info.yaml not found or invalid")
             continue
 
         validate_module(module_dir, metadata, property_metadata, results, args.verbose)

@@ -43,23 +43,23 @@ static int failed = 0;
  * Validates: Memory system can be initialized and cleaned up
  */
 int test_memory_init(void) {
-    /* ===== SETUP ===== */
-    /* Nothing needed - testing init itself */
+  /* ===== SETUP ===== */
+  /* Nothing needed - testing init itself */
 
-    /* ===== EXECUTE ===== */
-    init_memory_system(0);  /* Use default max blocks */
+  /* ===== EXECUTE ===== */
+  init_memory_system(0); /* Use default max blocks */
 
-    /* ===== VALIDATE ===== */
-    /* If we got here without crashing, init succeeded */
-    /* Try a simple allocation to verify system is operational */
-    void *test_ptr = mymalloc(100);
-    TEST_ASSERT(test_ptr != NULL, "Memory allocation should succeed after init");
+  /* ===== VALIDATE ===== */
+  /* If we got here without crashing, init succeeded */
+  /* Try a simple allocation to verify system is operational */
+  void *test_ptr = mymalloc(100);
+  TEST_ASSERT(test_ptr != NULL, "Memory allocation should succeed after init");
 
-    /* ===== CLEANUP ===== */
-    myfree(test_ptr);
-    check_memory_leaks();  /* Should report no leaks */
+  /* ===== CLEANUP ===== */
+  myfree(test_ptr);
+  check_memory_leaks(); /* Should report no leaks */
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -70,35 +70,36 @@ int test_memory_init(void) {
  * Validates: Core malloc/free functionality
  */
 int test_basic_allocation(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE & VALIDATE ===== */
-    /* Test small allocation */
-    void *small = mymalloc(10);
-    TEST_ASSERT(small != NULL, "Small allocation should succeed");
+  /* ===== EXECUTE & VALIDATE ===== */
+  /* Test small allocation */
+  void *small = mymalloc(10);
+  TEST_ASSERT(small != NULL, "Small allocation should succeed");
 
-    /* Test medium allocation */
-    void *medium = mymalloc(1024);
-    TEST_ASSERT(medium != NULL, "Medium allocation should succeed");
+  /* Test medium allocation */
+  void *medium = mymalloc(1024);
+  TEST_ASSERT(medium != NULL, "Medium allocation should succeed");
 
-    /* Test large allocation */
-    void *large = mymalloc(1024 * 1024);
-    TEST_ASSERT(large != NULL, "Large allocation should succeed");
+  /* Test large allocation */
+  void *large = mymalloc(1024 * 1024);
+  TEST_ASSERT(large != NULL, "Large allocation should succeed");
 
-    /* Test zero allocation (should handle gracefully) */
-    void *zero = mymalloc(0);
-    /* Don't assert on zero - behavior may be implementation-defined */
+  /* Test zero allocation (should handle gracefully) */
+  void *zero = mymalloc(0);
+  /* Don't assert on zero - behavior may be implementation-defined */
 
-    /* ===== CLEANUP ===== */
-    myfree(small);
-    myfree(medium);
-    myfree(large);
-    if (zero) myfree(zero);
+  /* ===== CLEANUP ===== */
+  myfree(small);
+  myfree(medium);
+  myfree(large);
+  if (zero)
+    myfree(zero);
 
-    check_memory_leaks();
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -109,35 +110,35 @@ int test_basic_allocation(void) {
  * Validates: Category-based memory tracking
  */
 int test_categorized_allocation(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE ===== */
-    /* Allocate memory in different categories */
-    void *halos = mymalloc_cat(1000, MEM_HALOS);
-    void *trees = mymalloc_cat(2000, MEM_TREES);
-    void *io = mymalloc_cat(500, MEM_IO);
-    void *util = mymalloc_cat(100, MEM_UTILITY);
+  /* ===== EXECUTE ===== */
+  /* Allocate memory in different categories */
+  void *halos = mymalloc_cat(1000, MEM_HALOS);
+  void *trees = mymalloc_cat(2000, MEM_TREES);
+  void *io = mymalloc_cat(500, MEM_IO);
+  void *util = mymalloc_cat(100, MEM_UTILITY);
 
-    /* ===== VALIDATE ===== */
-    TEST_ASSERT(halos != NULL, "Halo category allocation should succeed");
-    TEST_ASSERT(trees != NULL, "Tree category allocation should succeed");
-    TEST_ASSERT(io != NULL, "I/O category allocation should succeed");
-    TEST_ASSERT(util != NULL, "Utility category allocation should succeed");
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(halos != NULL, "Halo category allocation should succeed");
+  TEST_ASSERT(trees != NULL, "Tree category allocation should succeed");
+  TEST_ASSERT(io != NULL, "I/O category allocation should succeed");
+  TEST_ASSERT(util != NULL, "Utility category allocation should succeed");
 
-    /* Print categorized allocation (manual inspection) */
-    printf("  Categorized allocation summary:\n");
-    print_allocated_by_category();
+  /* Print categorized allocation (manual inspection) */
+  printf("  Categorized allocation summary:\n");
+  print_allocated_by_category();
 
-    /* ===== CLEANUP ===== */
-    myfree(halos);
-    myfree(trees);
-    myfree(io);
-    myfree(util);
+  /* ===== CLEANUP ===== */
+  myfree(halos);
+  myfree(trees);
+  myfree(io);
+  myfree(util);
 
-    check_memory_leaks();
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -148,36 +149,36 @@ int test_categorized_allocation(void) {
  * Validates: myrealloc() functionality
  */
 int test_reallocation(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE ===== */
-    /* Allocate initial block */
-    size_t initial_size = 100;
-    int *data = (int *)mymalloc(initial_size * sizeof(int));
-    TEST_ASSERT(data != NULL, "Initial allocation should succeed");
+  /* ===== EXECUTE ===== */
+  /* Allocate initial block */
+  size_t initial_size = 100;
+  int *data = (int *)mymalloc(initial_size * sizeof(int));
+  TEST_ASSERT(data != NULL, "Initial allocation should succeed");
 
-    /* Fill with test data */
-    for (size_t i = 0; i < initial_size; i++) {
-        data[i] = (int)i;
-    }
+  /* Fill with test data */
+  for (size_t i = 0; i < initial_size; i++) {
+    data[i] = (int)i;
+  }
 
-    /* Reallocate to larger size */
-    size_t new_size = 200;
-    int *new_data = (int *)myrealloc(data, new_size * sizeof(int));
-    TEST_ASSERT(new_data != NULL, "Reallocation should succeed");
+  /* Reallocate to larger size */
+  size_t new_size = 200;
+  int *new_data = (int *)myrealloc(data, new_size * sizeof(int));
+  TEST_ASSERT(new_data != NULL, "Reallocation should succeed");
 
-    /* ===== VALIDATE ===== */
-    /* Check that original data is preserved */
-    for (size_t i = 0; i < initial_size; i++) {
-        TEST_ASSERT(new_data[i] == (int)i, "Data should be preserved after realloc");
-    }
+  /* ===== VALIDATE ===== */
+  /* Check that original data is preserved */
+  for (size_t i = 0; i < initial_size; i++) {
+    TEST_ASSERT(new_data[i] == (int)i, "Data should be preserved after realloc");
+  }
 
-    /* ===== CLEANUP ===== */
-    myfree(new_data);
-    check_memory_leaks();
+  /* ===== CLEANUP ===== */
+  myfree(new_data);
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -191,30 +192,30 @@ int test_reallocation(void) {
  *       We suppress the leak warning and clean up afterward.
  */
 int test_leak_detection(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE ===== */
-    /* Intentionally allocate without freeing */
-    void *leak1 = mymalloc(100);
-    void *leak2 = mymalloc_cat(200, MEM_HALOS);
-    TEST_ASSERT(leak1 != NULL, "Allocation 1 should succeed");
-    TEST_ASSERT(leak2 != NULL, "Allocation 2 should succeed");
+  /* ===== EXECUTE ===== */
+  /* Intentionally allocate without freeing */
+  void *leak1 = mymalloc(100);
+  void *leak2 = mymalloc_cat(200, MEM_HALOS);
+  TEST_ASSERT(leak1 != NULL, "Allocation 1 should succeed");
+  TEST_ASSERT(leak2 != NULL, "Allocation 2 should succeed");
 
-    /* ===== VALIDATE ===== */
-    printf("  Expecting leak warning (this is intentional for testing):\n");
-    check_memory_leaks();  /* Should report 2 leaks */
+  /* ===== VALIDATE ===== */
+  printf("  Expecting leak warning (this is intentional for testing):\n");
+  check_memory_leaks(); /* Should report 2 leaks */
 
-    /* ===== CLEANUP ===== */
-    /* Clean up the intentional leaks */
-    myfree(leak1);
-    myfree(leak2);
+  /* ===== CLEANUP ===== */
+  /* Clean up the intentional leaks */
+  myfree(leak1);
+  myfree(leak2);
 
-    /* Verify leaks are gone */
-    printf("  After cleanup (should be clean):\n");
-    check_memory_leaks();
+  /* Verify leaks are gone */
+  printf("  After cleanup (should be clean):\n");
+  check_memory_leaks();
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -225,26 +226,26 @@ int test_leak_detection(void) {
  * Validates: Memory system stability over time
  */
 int test_multiple_alloc_free_cycles(void) {
-    /* ===== SETUP ===== */
-    init_memory_system(0);
+  /* ===== SETUP ===== */
+  init_memory_system(0);
 
-    /* ===== EXECUTE ===== */
-    /* Perform many allocation/free cycles */
-    const int num_cycles = 100;
-    for (int i = 0; i < num_cycles; i++) {
-        void *ptr = mymalloc(1024);
-        TEST_ASSERT(ptr != NULL, "Allocation in cycle should succeed");
-        myfree(ptr);
-    }
+  /* ===== EXECUTE ===== */
+  /* Perform many allocation/free cycles */
+  const int num_cycles = 100;
+  for (int i = 0; i < num_cycles; i++) {
+    void *ptr = mymalloc(1024);
+    TEST_ASSERT(ptr != NULL, "Allocation in cycle should succeed");
+    myfree(ptr);
+  }
 
-    /* ===== VALIDATE ===== */
-    /* No leaks should be detected */
-    check_memory_leaks();
+  /* ===== VALIDATE ===== */
+  /* No leaks should be detected */
+  check_memory_leaks();
 
-    /* ===== CLEANUP ===== */
-    /* Already cleaned in loop */
+  /* ===== CLEANUP ===== */
+  /* Already cleaned in loop */
 
-    return TEST_PASS;
+  return TEST_PASS;
 }
 
 /**
@@ -253,24 +254,24 @@ int test_multiple_alloc_free_cycles(void) {
  * Executes all test cases and reports results.
  */
 int main(void) {
-    printf("%s", BLUE);
-    printf("============================================================\n");
-    printf("Test Suite: Memory System\n");
-    printf("============================================================\n");
-    printf("%s\n", NC);
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: Memory System\n");
+  printf("============================================================\n");
+  printf("%s\n", NC);
 
-    /* Initialize error handling for tests */
-    initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
+  /* Initialize error handling for tests */
+  initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
 
-    /* Run all test cases */
-    TEST_RUN(test_memory_init);
-    TEST_RUN(test_basic_allocation);
-    TEST_RUN(test_categorized_allocation);
-    TEST_RUN(test_reallocation);
-    TEST_RUN(test_leak_detection);
-    TEST_RUN(test_multiple_alloc_free_cycles);
+  /* Run all test cases */
+  TEST_RUN(test_memory_init);
+  TEST_RUN(test_basic_allocation);
+  TEST_RUN(test_categorized_allocation);
+  TEST_RUN(test_reallocation);
+  TEST_RUN(test_leak_detection);
+  TEST_RUN(test_multiple_alloc_free_cycles);
 
-    /* Print summary and return result */
-    TEST_SUMMARY();
-    return TEST_RESULT();
+  /* Print summary and return result */
+  TEST_SUMMARY();
+  return TEST_RESULT();
 }

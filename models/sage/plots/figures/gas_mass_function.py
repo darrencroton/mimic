@@ -19,13 +19,13 @@ from figures import (
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
-    warn,
+    calculate_mass_function,
     check_field_has_values,
     check_required_fields,
-        setup_figure,
-    validate_filtered_data,
     save_and_close_figure,
-    calculate_mass_function,
+    setup_figure,
+    validate_filtered_data,
+    warn,
 )
 
 
@@ -60,9 +60,9 @@ def plot(
     # Check required and optional fields
     success, optional, msg = check_required_fields(
         galaxies,
-        required_fields=['ColdGas'],
-        optional_fields=['SfrDisk', 'SfrBulge', 'StellarMass'],
-        plot_name='Gas Mass Function'
+        required_fields=["ColdGas"],
+        optional_fields=["SfrDisk", "SfrBulge", "StellarMass"],
+        plot_name="Gas Mass Function",
     )
 
     if not success:
@@ -88,7 +88,11 @@ def plot(
     mass = np.log10(galaxies.ColdGas[w] * 1.0e10 / hubble_h)
 
     # Calculate specific SFR for red/blue division (if fields available)
-    has_sfr_fields = optional.get('SfrDisk', False) and optional.get('SfrBulge', False) and optional.get('StellarMass', False)
+    has_sfr_fields = (
+        optional.get("SfrDisk", False)
+        and optional.get("SfrBulge", False)
+        and optional.get("StellarMass", False)
+    )
     if has_sfr_fields:
         sfr = galaxies.SfrDisk[w] + galaxies.SfrBulge[w]
         stellar_mass = galaxies.StellarMass[w] * 1.0e10 / hubble_h

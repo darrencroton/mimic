@@ -44,6 +44,7 @@ import numpy as np
 
 try:
     import h5py
+
     H5PY_AVAILABLE = True
 except ImportError:
     H5PY_AVAILABLE = False
@@ -52,26 +53,25 @@ except ImportError:
 # like the Mimic output being compared against.
 from output_schema import dtype_from_schema, load_schema
 
-
 # Renamed-only properties. Field names that are identical in SAGE and Mimic
 # do not need an entry here.
 SAGE_TO_MIMIC_FIELD = {
-    "IntraClusterStars":         "ICS",
-    "EjectedMass":               "EjectedGas",
-    "MetalsIntraClusterStars":   "MetalsICS",
-    "MetalsEjectedMass":         "MetalsEjectedGas",
-    "OutflowRate":               "SupernovaOutflowRate",
-    "DiskRadius":                "DiskScaleRadius",
-    "GalaxyIndex":               "UniqueGalaxyID",
-    "CentralGalaxyIndex":        "UniqueCentralGalaxyID",
-    "SimulationHaloIndex":       "MostBoundID",
+    "IntraClusterStars": "ICS",
+    "EjectedMass": "EjectedGas",
+    "MetalsIntraClusterStars": "MetalsICS",
+    "MetalsEjectedMass": "MetalsEjectedGas",
+    "OutflowRate": "SupernovaOutflowRate",
+    "DiskRadius": "DiskScaleRadius",
+    "GalaxyIndex": "UniqueGalaxyID",
+    "CentralGalaxyIndex": "UniqueCentralGalaxyID",
+    "SimulationHaloIndex": "MostBoundID",
 }
 
 # Vector fields that SAGE stores as scalar x/y/z components and Mimic
 # stores as a single (3,) sub-field.
 SAGE_VECTOR_FIELDS = {
-    "Pos":  ("Posx",  "Posy",  "Posz"),
-    "Vel":  ("Velx",  "Vely",  "Velz"),
+    "Pos": ("Posx", "Posy", "Posz"),
+    "Vel": ("Velx", "Vely", "Velz"),
     "Spin": ("Spinx", "Spiny", "Spinz"),
 }
 
@@ -131,8 +131,7 @@ def _read_sage_snapshot_group(snap, snapshot_num, mimic_dtype):
     # see SAGE data the same way they would see Mimic data.
     if "StarFormationRate" in mimic_dtype.names and "SfrDisk" in present:
         disk = np.asarray(snap["SfrDisk"][:])
-        bulge = (np.asarray(snap["SfrBulge"][:])
-                 if "SfrBulge" in present else 0.0)
+        bulge = np.asarray(snap["SfrBulge"][:]) if "SfrBulge" in present else 0.0
         galaxies["StarFormationRate"] = disk + bulge
 
     # Stamp the snapshot number on every row regardless of whether the SAGE
@@ -213,8 +212,10 @@ def _resolve_snapshot_number(model_path, params, output_dir, verbose=False, quie
         out_snaps = params.get("OutputSnapshots") or []
         if out_snaps:
             return int(out_snaps[0])
-        print("ERROR: Cannot infer SAGE snapshot number from model path "
-              f"'{model_path}' and no OutputSnapshots in parameter file.")
+        print(
+            "ERROR: Cannot infer SAGE snapshot number from model path "
+            f"'{model_path}' and no OutputSnapshots in parameter file."
+        )
         sys.exit(1)
 
     try:
@@ -225,8 +226,7 @@ def _resolve_snapshot_number(model_path, params, output_dir, verbose=False, quie
     return int(mapper.snapshots[idx])
 
 
-def read_data_sage_native(model_path, first_file, last_file, params,
-                          verbose=False, quiet=False):
+def read_data_sage_native(model_path, first_file, last_file, params, verbose=False, quiet=False):
     """Read SAGE-native HDF5 output for one snapshot.
 
     Designed to be a drop-in alternative to `read_data()` in mimic-plot.py
@@ -242,8 +242,10 @@ def read_data_sage_native(model_path, first_file, last_file, params,
         verbose, quiet: output-level flags.
     """
     if not H5PY_AVAILABLE:
-        print("ERROR: h5py is required to read SAGE-native HDF5 output. "
-              "Install with: pip install h5py")
+        print(
+            "ERROR: h5py is required to read SAGE-native HDF5 output. "
+            "Install with: pip install h5py"
+        )
         sys.exit(1)
 
     hubble_h = params["Hubble_h"]
@@ -259,8 +261,9 @@ def read_data_sage_native(model_path, first_file, last_file, params,
         model_path, params, output_dir, verbose=verbose, quiet=quiet
     )
     if verbose:
-        print(f"SAGE-native reader: Snap_{snapshot_num} from "
-              f"{file_base}_<N>.hdf5 in {output_dir}")
+        print(
+            f"SAGE-native reader: Snap_{snapshot_num} from " f"{file_base}_<N>.hdf5 in {output_dir}"
+        )
 
     chunks = []
     total = 0
@@ -273,17 +276,17 @@ def read_data_sage_native(model_path, first_file, last_file, params,
     # Prefer the master file when present; fall back to per-rank files.
     master_path = os.path.join(output_dir, f"{file_base}.hdf5")
     if os.path.isfile(master_path):
-        master_chunks = _read_sage_master_file(
-            master_path, snapshot_num, mimic_dtype, verbose
-        )
+        master_chunks = _read_sage_master_file(master_path, snapshot_num, mimic_dtype, verbose)
         if master_chunks:
             chunks = master_chunks
             total = sum(len(c) for c in chunks)
             good_files = len(chunks)
             used_master = True
             if verbose:
-                print(f"  Master file {master_path}: aggregated {good_files} cores, "
-                      f"{total} galaxies")
+                print(
+                    f"  Master file {master_path}: aggregated {good_files} cores, "
+                    f"{total} galaxies"
+                )
 
     if not chunks:
         for fnr in range(first_file, last_file + 1):
@@ -315,28 +318,27 @@ def read_data_sage_native(model_path, first_file, last_file, params,
         # Master file is self-describing: count Core_ groups directly.
         try:
             with h5py.File(master_path, "r") as _f:
-                total_output_files = len([k for k in _f.keys()
-                                          if k.startswith("Core_")])
+                total_output_files = len([k for k in _f.keys() if k.startswith("Core_")])
         except (OSError, KeyError):
             total_output_files = good_files
     else:
         # Per-rank files: count all rank files that exist on disk.
-        total_output_files = len(glob.glob(
-            os.path.join(output_dir, f"{file_base}_*.hdf5")
-        ))
+        total_output_files = len(glob.glob(os.path.join(output_dir, f"{file_base}_*.hdf5")))
 
-    volume = box_size ** 3.0
+    volume = box_size**3.0
     if total_output_files > 0 and good_files > 0:
         volume = volume * good_files / total_output_files
         if verbose:
-            print(f"  Volume fraction: {good_files}/{total_output_files} = "
-                  f"{good_files / total_output_files:.4f}")
+            print(
+                f"  Volume fraction: {good_files}/{total_output_files} = "
+                f"{good_files / total_output_files:.4f}"
+            )
 
     metadata = {
         "hubble_h": hubble_h,
         "box_size": box_size,
         "volume": volume,
-        "ntrees": 0,         # SAGE HDF5 output does not expose Ntrees at this level
+        "ntrees": 0,  # SAGE HDF5 output does not expose Ntrees at this level
         "ngals": total,
         "good_files": good_files,
         "snapshot": snapshot_num,

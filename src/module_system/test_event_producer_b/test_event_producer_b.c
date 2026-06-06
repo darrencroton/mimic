@@ -22,46 +22,42 @@ static int EMIT_B_COUNT;
 static int total_emitted = 0;
 
 int test_event_producer_b_init(void) {
-    if (model_get_int("TestEventProducerBEmitCount", &EMIT_B_COUNT) != 0) {
-        ERROR_LOG("Failed to read TestEventProducerBEmitCount from model_parameters");
-        return -1;
-    }
-    if (EMIT_B_COUNT < 0 || EMIT_B_COUNT > 64) {
-        ERROR_LOG("TestEventProducerBEmitCount must be in [0, 64], got %d", EMIT_B_COUNT);
-        return -1;
-    }
-    INFO_LOG("test_event_producer_b initialized (emit_b_count=%d)", EMIT_B_COUNT);
-    return 0;
+  if (model_get_int("TestEventProducerBEmitCount", &EMIT_B_COUNT) != 0) {
+    ERROR_LOG("Failed to read TestEventProducerBEmitCount from model_parameters");
+    return -1;
+  }
+  if (EMIT_B_COUNT < 0 || EMIT_B_COUNT > 64) {
+    ERROR_LOG("TestEventProducerBEmitCount must be in [0, 64], got %d", EMIT_B_COUNT);
+    return -1;
+  }
+  INFO_LOG("test_event_producer_b initialized (emit_b_count=%d)", EMIT_B_COUNT);
+  return 0;
 }
 
-int test_event_producer_b_process(struct ModuleContext *ctx, struct Halo *halos,
-                                  int ngal) {
-    if (ctx == NULL || halos == NULL || ngal <= 0) {
-        return 0;
-    }
-
-    for (int i = 0; i < ngal && i < EMIT_B_COUNT; i++) {
-        if (halos[i].galaxy == NULL) {
-            continue;
-        }
-        int target = (i + 1 < ngal) ? i + 1 : 0;
-        int rc = module_emit_event(ctx,
-                                   TEST_EVENT_PRODUCER_B_EVENT_TEST_EVENT_B,
-                                   i, target,
-                                   (double)total_emitted,
-                                   (double)ngal);
-        if (rc != 0) {
-            ERROR_LOG("test_event_producer_b: test_event_b emit failed (i=%d)", i);
-            return -1;
-        }
-        total_emitted++;
-    }
-
+int test_event_producer_b_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
+  if (ctx == NULL || halos == NULL || ngal <= 0) {
     return 0;
+  }
+
+  for (int i = 0; i < ngal && i < EMIT_B_COUNT; i++) {
+    if (halos[i].galaxy == NULL) {
+      continue;
+    }
+    int target = (i + 1 < ngal) ? i + 1 : 0;
+    int rc = module_emit_event(ctx, TEST_EVENT_PRODUCER_B_EVENT_TEST_EVENT_B, i, target,
+                               (double)total_emitted, (double)ngal);
+    if (rc != 0) {
+      ERROR_LOG("test_event_producer_b: test_event_b emit failed (i=%d)", i);
+      return -1;
+    }
+    total_emitted++;
+  }
+
+  return 0;
 }
 
 int test_event_producer_b_cleanup(void) {
-    INFO_LOG("test_event_producer_b: total events emitted = %d", total_emitted);
-    total_emitted = 0;
-    return 0;
+  INFO_LOG("test_event_producer_b: total events emitted = %d", total_emitted);
+  total_emitted = 0;
+  return 0;
 }

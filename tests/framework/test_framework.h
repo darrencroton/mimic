@@ -43,11 +43,11 @@
 #include <math.h>
 
 /* ANSI color codes for test output */
-#define BLUE    "\033[1;34m"
-#define GREEN   "\033[0;32m"
-#define RED     "\033[0;31m"
-#define YELLOW  "\033[1;33m"
-#define NC      "\033[0m"
+#define BLUE "\033[1;34m"
+#define GREEN "\033[0;32m"
+#define RED "\033[0;31m"
+#define YELLOW "\033[1;33m"
+#define NC "\033[0m"
 
 /**
  * @def     TEST_ASSERT
@@ -60,13 +60,13 @@
  *   TEST_ASSERT(value > 0, "Value must be positive");
  *   TEST_ASSERT(ptr != NULL, "Pointer cannot be NULL");
  */
-#define TEST_ASSERT(cond, msg)                                                \
-    if (!(cond)) {                                                            \
-        fprintf(stderr, "✗ FAIL: %s\n", msg);                                 \
-        fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);           \
-        fprintf(stderr, "  Condition: %s\n", #cond);                          \
-        return 1;                                                             \
-    }
+#define TEST_ASSERT(cond, msg)                                                                     \
+  if (!(cond)) {                                                                                   \
+    fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
+    fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
+    fprintf(stderr, "  Condition: %s\n", #cond);                                                   \
+    return 1;                                                                                      \
+  }
 
 /**
  * @def     TEST_ASSERT_EQUAL
@@ -76,13 +76,13 @@
  * @param   b       Second value
  * @param   msg     Error message if assertion fails
  */
-#define TEST_ASSERT_EQUAL(a, b, msg)                                          \
-    if ((a) != (b)) {                                                         \
-        fprintf(stderr, "✗ FAIL: %s\n", msg);                                 \
-        fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);           \
-        fprintf(stderr, "  Expected: %d, Got: %d\n", (int)(b), (int)(a));     \
-        return 1;                                                             \
-    }
+#define TEST_ASSERT_EQUAL(a, b, msg)                                                               \
+  if ((a) != (b)) {                                                                                \
+    fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
+    fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
+    fprintf(stderr, "  Expected: %d, Got: %d\n", (int)(b), (int)(a));                              \
+    return 1;                                                                                      \
+  }
 
 /**
  * @def     TEST_ASSERT_DOUBLE_EQUAL
@@ -93,14 +93,14 @@
  * @param   tol     Tolerance (absolute)
  * @param   msg     Error message if assertion fails
  */
-#define TEST_ASSERT_DOUBLE_EQUAL(a, b, tol, msg)                              \
-    if (fabs((a) - (b)) > (tol)) {                                            \
-        fprintf(stderr, "✗ FAIL: %s\n", msg);                                 \
-        fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);           \
-        fprintf(stderr, "  Expected: %.6f, Got: %.6f (tol: %.6f)\n",          \
-                (double)(b), (double)(a), (double)(tol));                     \
-        return 1;                                                             \
-    }
+#define TEST_ASSERT_DOUBLE_EQUAL(a, b, tol, msg)                                                   \
+  if (fabs((a) - (b)) > (tol)) {                                                                   \
+    fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
+    fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
+    fprintf(stderr, "  Expected: %.6f, Got: %.6f (tol: %.6f)\n", (double)(b), (double)(a),         \
+            (double)(tol));                                                                        \
+    return 1;                                                                                      \
+  }
 
 /**
  * @def     TEST_ASSERT_STRING_EQUAL
@@ -110,13 +110,13 @@
  * @param   b       Second string
  * @param   msg     Error message if assertion fails
  */
-#define TEST_ASSERT_STRING_EQUAL(a, b, msg)                                   \
-    if (strcmp((a), (b)) != 0) {                                              \
-        fprintf(stderr, "✗ FAIL: %s\n", msg);                                 \
-        fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);           \
-        fprintf(stderr, "  Expected: \"%s\", Got: \"%s\"\n", (b), (a));       \
-        return 1;                                                             \
-    }
+#define TEST_ASSERT_STRING_EQUAL(a, b, msg)                                                        \
+  if (strcmp((a), (b)) != 0) {                                                                     \
+    fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
+    fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
+    fprintf(stderr, "  Expected: \"%s\", Got: \"%s\"\n", (b), (a));                                \
+    return 1;                                                                                      \
+  }
 
 /**
  * @def     TEST_RUN
@@ -131,18 +131,18 @@
  *   TEST_RUN(test_memory_allocation);
  *   TEST_RUN(test_parameter_parsing);
  */
-#define TEST_RUN(test_func)                                                   \
-    do {                                                                      \
-        printf("\nRunning: %-50s ", #test_func);                              \
-        fflush(stdout);                                                       \
-        if (test_func() == 0) {                                               \
-            printf("✓ PASS\n");                                               \
-            passed++;                                                         \
-        } else {                                                              \
-            printf("✗ FAIL\n");                                               \
-            failed++;                                                         \
-        }                                                                     \
-    } while (0)
+#define TEST_RUN(test_func)                                                                        \
+  do {                                                                                             \
+    printf("\nRunning: %-50s ", #test_func);                                                       \
+    fflush(stdout);                                                                                \
+    if (test_func() == 0) {                                                                        \
+      printf("✓ PASS\n");                                                                          \
+      passed++;                                                                                    \
+    } else {                                                                                       \
+      printf("✗ FAIL\n");                                                                          \
+      failed++;                                                                                    \
+    }                                                                                              \
+  } while (0)
 
 /**
  * @def     TEST_SUMMARY
@@ -153,25 +153,25 @@
  * Usage:
  *   TEST_SUMMARY();
  */
-#define TEST_SUMMARY()                                                        \
-    do {                                                                      \
-        printf("\n%s", BLUE);                                                 \
-        printf("============================================================\n"); \
-        printf("Test Summary\n");                                             \
-        printf("============================================================\n"); \
-        printf("%s", NC);                                                     \
-        printf("Passed: %d\n", passed);                                       \
-        printf("Failed: %d\n", failed);                                       \
-        printf("Total:  %d\n", passed + failed);                              \
-        printf("%s", BLUE);                                                   \
-        printf("============================================================\n"); \
-        printf("%s\n", NC);                                                     \
-        if (failed == 0) {                                                    \
-            printf("%s✓ All tests passed!%s\n", GREEN, NC);                   \
-        } else {                                                              \
-            printf("%s✗ %d test(s) failed%s\n", RED, failed, NC);             \
-        }                                                                     \
-    } while (0)
+#define TEST_SUMMARY()                                                                             \
+  do {                                                                                             \
+    printf("\n%s", BLUE);                                                                          \
+    printf("============================================================\n");                      \
+    printf("Test Summary\n");                                                                      \
+    printf("============================================================\n");                      \
+    printf("%s", NC);                                                                              \
+    printf("Passed: %d\n", passed);                                                                \
+    printf("Failed: %d\n", failed);                                                                \
+    printf("Total:  %d\n", passed + failed);                                                       \
+    printf("%s", BLUE);                                                                            \
+    printf("============================================================\n");                      \
+    printf("%s\n", NC);                                                                            \
+    if (failed == 0) {                                                                             \
+      printf("%s✓ All tests passed!%s\n", GREEN, NC);                                              \
+    } else {                                                                                       \
+      printf("%s✗ %d test(s) failed%s\n", RED, failed, NC);                                        \
+    }                                                                                              \
+  } while (0)
 
 /**
  * @def     TEST_RESULT

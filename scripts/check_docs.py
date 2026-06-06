@@ -14,7 +14,6 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKIP_DIRS = {
     ".git",
@@ -108,9 +107,7 @@ def parse_markdown_target(raw_target: str) -> Tuple[str, str]:
     return path_part.strip(), anchor_part.strip()
 
 
-def validate_internal_links(
-    doc_files: List[Path], markdown_cache: Dict[Path, str]
-) -> List[str]:
+def validate_internal_links(doc_files: List[Path], markdown_cache: Dict[Path, str]) -> List[str]:
     errors: List[str] = []
     anchor_cache: Dict[Path, Set[str]] = {}
 
@@ -162,9 +159,7 @@ def validate_internal_links(
     return errors
 
 
-def validate_no_ponder_markers(
-    doc_files: List[Path], markdown_cache: Dict[Path, str]
-) -> List[str]:
+def validate_no_ponder_markers(doc_files: List[Path], markdown_cache: Dict[Path, str]) -> List[str]:
     """Reject unresolved inline review markers in Markdown documentation."""
     errors: List[str] = []
     pattern = re.compile(r"\[ponder\s*:", re.IGNORECASE)
