@@ -1,4 +1,8 @@
-# Test Millennium Simulation Metadata
+# Millennium fast-tier fixture: compiles against simulations/millennium/halo_properties.yaml
+# but deliberately reuses the shared mini-Millennium tree data from tests/data/input/.
+# This keeps CI fast without requiring production Millennium catalog access.
+# What it tests: the Millennium-compiled binary can load LHalo trees and complete the pipeline.
+# What it does NOT test: Millennium-specific halo property values or production-scale behavior.
 
 input:
   first_file: 0
