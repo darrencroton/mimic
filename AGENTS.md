@@ -195,18 +195,17 @@ deactivate
 
 ```bash
 # Run performance benchmark (default uses models/sage/input/sage_millennium.yaml)
-cd scripts
-./benchmark_mimic.sh
+./scripts/benchmark_mimic.sh
 
 # With options
-make -C .. MODEL=sage generate-test-inputs
-./benchmark_mimic.sh --param-file ../build/generated/test_inputs/sage/millennium/core/test_binary.yaml
-./benchmark_mimic.sh --verbose
-MAKE_FLAGS="USE-HDF5=no" ./benchmark_mimic.sh
-MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh
+make MODEL=sage SIMULATION=millennium generate-test-inputs
+./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/millennium/core/test_binary.yaml
+./scripts/benchmark_mimic.sh --verbose
+MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
+MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
 
 # Results saved to benchmarks/ (gitignored)
-diff ../benchmarks/baseline_YYYYMMDD_HHMMSS.json ../benchmarks/baseline_YYYYMMDD_HHMMSS.json
+diff benchmarks/baseline_YYYYMMDD_HHMMSS.json benchmarks/baseline_YYYYMMDD_HHMMSS.json
 ```
 
 ---

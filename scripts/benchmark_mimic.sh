@@ -7,14 +7,14 @@
 # performance metrics to help developers track performance changes over time.
 #
 # USAGE:
-#   ./benchmark_mimic.sh                           # Run with default settings
-#   ./benchmark_mimic.sh --verbose                 # Run with detailed output
-#   ./benchmark_mimic.sh --help                    # Show help information
-#   ./benchmark_mimic.sh --param-file custom.yaml   # Use custom parameter file
-#   ./benchmark_mimic.sh models/sage/input/sage_millennium.yaml  # Positional parameter file argument
+#   ./scripts/benchmark_mimic.sh                           # Run with default settings
+#   ./scripts/benchmark_mimic.sh --verbose                 # Run with detailed output
+#   ./scripts/benchmark_mimic.sh --help                    # Show help information
+#   ./scripts/benchmark_mimic.sh --param-file custom.yaml  # Explicit parameter file
+#   ./scripts/benchmark_mimic.sh custom.yaml               # Same, positional shorthand
 #
 # REQUIREMENTS:
-#   - Must be run from the scripts/ directory
+#   - Can be run from any directory
 #   - GNU Make must be available
 #   - Parameter file must exist (default: models/sage/input/sage_millennium.yaml)
 #
@@ -29,32 +29,34 @@
 #
 # EXAMPLES:
 #   # Basic benchmark (uses default models/sage/input/sage_millennium.yaml)
-#   ./benchmark_mimic.sh
+#   ./scripts/benchmark_mimic.sh
 #
-#   # Benchmark with custom parameter file from scripts/
-#   make -C .. MODEL=sage generate-test-inputs
-#   ./benchmark_mimic.sh --param-file ../build/generated/test_inputs/sage/millennium/core/test_binary.yaml
-#   ./benchmark_mimic.sh ../build/generated/test_inputs/sage/millennium/core/test_binary.yaml
+#   # Benchmark with custom parameter file
+#   make MODEL=sage SIMULATION=millennium generate-test-inputs
+#   ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/millennium/core/test_binary.yaml
+#   ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage/millennium/core/test_binary.yaml
 #
 #   # Benchmark with MPI
-#   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./benchmark_mimic.sh
+#   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
 #
 #   # Binary-only benchmark (opt out of HDF5)
-#   MAKE_FLAGS="USE-HDF5=no" ./benchmark_mimic.sh
+#   MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
 #
 #   # Compare two benchmark runs
-#   diff ../benchmarks/baseline_20250101_120000.json ../benchmarks/baseline_20250102_120000.json
+#   diff benchmarks/baseline_20250101_120000.json benchmarks/baseline_20250102_120000.json
 #
 
 set -e  # Exit on any error
 
 # Configuration
-BENCHMARK_DIR="../benchmarks"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-BENCHMARK_RESULTS="${BENCHMARK_DIR}/baseline_${TIMESTAMP}.json"
+BENCHMARK_RESULTS="baseline_${TIMESTAMP}.json"
 VERBOSE=0
 SHOW_HELP=0
 PARAM_FILE=""  # Will be set to default later if not specified
+RUN_PARAM_FILE=""
+TEMP_PARAM_DIR=""
+OUTPUT_MARKER=""
 
 # Process command line arguments
 while [[ $# -gt 0 ]]; do
@@ -100,6 +102,17 @@ error_exit() {
     exit 1
 }
 
+cleanup_temp_files() {
+    if [[ -n "${TEMP_PARAM_DIR}" && -d "${TEMP_PARAM_DIR}" ]]; then
+        rm -rf "${TEMP_PARAM_DIR}"
+    fi
+    if [[ -n "${OUTPUT_MARKER}" && -f "${OUTPUT_MARKER}" ]]; then
+        rm -f "${OUTPUT_MARKER}"
+    fi
+}
+
+trap cleanup_temp_files EXIT
+
 # Function to log verbose output
 verbose_log() {
     if [ $VERBOSE -eq 1 ]; then
@@ -115,7 +128,7 @@ fi
 # Show help if requested
 if [ $SHOW_HELP -eq 1 ]; then
     cat << 'EOF'
-Usage: ./benchmark_mimic.sh [OPTIONS] [PARAM_FILE]
+Usage: ./scripts/benchmark_mimic.sh [OPTIONS] [PARAM_FILE]
 
 OPTIONS:
   --help                Show this help message
@@ -139,7 +152,7 @@ PURPOSE:
   between different versions, configurations, or optimizations.
 
 OUTPUT:
-  Results are stored in ../benchmarks/ directory with the format:
+  Results are stored in benchmarks/ directory with the format:
   baseline_YYYYMMDD_HHMMSS.json
 
   JSON structure includes:
@@ -152,12 +165,13 @@ OUTPUT:
 
 EXAMPLES:
   # Basic benchmark (uses default models/sage/input/sage_millennium.yaml)
-  # Can run from anywhere:
+  # Can run from anywhere; build selectors come from the run file, environment,
+  # or Makefile defaults, in that order:
   ./scripts/benchmark_mimic.sh
   cd scripts && ./benchmark_mimic.sh
 
   # Benchmark with custom parameter file from the repository root
-  MODEL=sage make generate-test-inputs
+  make MODEL=sage SIMULATION=millennium generate-test-inputs
   ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/millennium/core/test_binary.yaml
   ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage/millennium/core/test_binary.yaml
 
@@ -167,8 +181,8 @@ EXAMPLES:
   # MPI benchmark
   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
 
-    # Binary output only benchmark (opt out of HDF5)
-    MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
+  # Binary output only benchmark (opt out of HDF5)
+  MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
 
 COMPARING RESULTS:
   # Simple diff
@@ -193,6 +207,14 @@ fi
 verbose_log "Script location: ${SCRIPT_PATH}"
 verbose_log "Root directory: ${ROOT_DIR}"
 
+make_default() {
+    local key="$1"
+    local fallback="$2"
+    local value
+    value=$(awk -v key="$key" '$1 == key && $2 == ":=" { print $3; exit }' "${ROOT_DIR}/Makefile")
+    echo "${value:-$fallback}"
+}
+
 # Create benchmark directory if it doesn't exist
 mkdir -p "${ROOT_DIR}/benchmarks"
 
@@ -216,43 +238,97 @@ fi
 
 verbose_log "Using parameter file: ${PARAM_FILE}"
 
-# Parse output directory and format from YAML parameter file using Python
-read -r OUTPUT_DIR OUTPUT_FORMAT OUTPUT_BASENAME TREE_TYPE <<< $(python3 -c "
+# Parse benchmark-relevant settings from the run YAML using the same precedence
+# as read_parameter_file.c: simulation config defaults first, then run-file
+# sections override them.
+CONFIG_VALUES=$(PARAM_FILE="${PARAM_FILE}" ROOT_DIR="${ROOT_DIR}" python3 - << 'PY'
+import os
 import sys
 import yaml
 from pathlib import Path
 
-param_file = Path('${PARAM_FILE}')
-repo_root = Path('${ROOT_DIR}')
+param_file = Path(os.environ["PARAM_FILE"])
+repo_root = Path(os.environ["ROOT_DIR"])
+
+
+def resolve_repo_path(path_value):
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+
+    repo_candidate = repo_root / path
+    if repo_candidate.is_file():
+        return repo_candidate
+
+    param_candidate = param_file.parent / path
+    if param_candidate.is_file():
+        return param_candidate
+
+    return repo_candidate
+
+
+def simulation_package_from_halo_properties(config):
+    halo_properties = config.get("simulation", {}).get("halo_properties", "")
+    if not halo_properties:
+        return ""
+    parts = Path(halo_properties).parts
+    try:
+        simulations_index = parts.index("simulations")
+    except ValueError:
+        return ""
+    if simulations_index + 1 >= len(parts):
+        return ""
+    return parts[simulations_index + 1]
 
 try:
     with open(param_file, 'r') as f:
-        config = yaml.safe_load(f)
+        config = yaml.safe_load(f) or {}
 
     output_dir = config.get('output', {}).get('output_directory', './output/')
     output_format = config.get('output', {}).get('output_format', 'binary')
     output_basename = config.get('output', {}).get('output_filename', 'model')
-    input_config = config.get('input', {})
+    input_config = {}
 
     simulation_config_path = config.get('simulation', {}).get('config')
     if simulation_config_path:
-        simulation_config_path = Path(simulation_config_path)
-        if not simulation_config_path.is_absolute():
-            simulation_config_path = repo_root / simulation_config_path
+        simulation_config_path = resolve_repo_path(simulation_config_path)
         with open(simulation_config_path, 'r') as f:
             simulation_config = yaml.safe_load(f) or {}
-        input_config = simulation_config.get('input', input_config)
+        input_config.update(simulation_config.get('input', {}))
+
+    input_config.update(config.get('input', {}))
 
     tree_type = input_config.get('tree_type', 'lhalo_binary')
+    model_name = config.get('model', {}).get('name', '')
+    simulation_package = simulation_package_from_halo_properties(config)
 
     # Remove trailing slash from output_dir
     output_dir = output_dir.rstrip('/')
 
-    print(f'{output_dir} {output_format} {output_basename} {tree_type}')
+    print(output_dir)
+    print(output_format)
+    print(output_basename)
+    print(tree_type)
+    print(model_name)
+    print(simulation_package)
 except Exception as e:
     print(f'ERROR: Failed to parse YAML: {e}', file=sys.stderr)
     sys.exit(1)
-")
+PY
+) || error_exit "Failed to parse parameter file"
+
+CONFIG_LINE=0
+while IFS= read -r line; do
+    case $CONFIG_LINE in
+        0) OUTPUT_DIR="$line" ;;
+        1) OUTPUT_FORMAT="$line" ;;
+        2) OUTPUT_BASENAME="$line" ;;
+        3) TREE_TYPE="$line" ;;
+        4) CONFIG_MODEL="$line" ;;
+        5) CONFIG_SIMULATION="$line" ;;
+    esac
+    CONFIG_LINE=$((CONFIG_LINE + 1))
+done <<< "$CONFIG_VALUES"
 
 # Resolve OUTPUT_DIR if it's a relative path
 if [[ "$OUTPUT_DIR" != /* ]]; then
@@ -260,10 +336,34 @@ if [[ "$OUTPUT_DIR" != /* ]]; then
     OUTPUT_DIR="${ROOT_DIR}/${OUTPUT_DIR}"
 fi
 
-# MODEL is required; there is no default
-if [[ -z "${MODEL}" ]]; then
-    error_exit "MODEL is required. Run as: MODEL=sage ./benchmark_mimic.sh"
+SELECTED_MODEL="${MODEL:-${CONFIG_MODEL:-$(make_default DEFAULT_MODEL sage)}}"
+SELECTED_SIMULATION="${SIMULATION:-${SIM:-${CONFIG_SIMULATION:-$(make_default DEFAULT_SIMULATION millennium)}}}"
+
+if [[ -z "${SELECTED_MODEL}" ]]; then
+    error_exit "Could not determine MODEL from environment, run file, or Makefile default"
 fi
+
+if [[ -z "${SELECTED_SIMULATION}" ]]; then
+    error_exit "Could not determine SIMULATION from environment, run file, or Makefile default"
+fi
+
+if [[ -n "${CONFIG_MODEL}" && "${SELECTED_MODEL}" != "${CONFIG_MODEL}" ]]; then
+    error_exit "Run file selects model.name='${CONFIG_MODEL}' but benchmark would build MODEL=${SELECTED_MODEL}"
+fi
+
+if [[ -n "${CONFIG_SIMULATION}" && "${SELECTED_SIMULATION}" != "${CONFIG_SIMULATION}" ]]; then
+    error_exit "Run file's simulation.halo_properties belongs to '${CONFIG_SIMULATION}' but benchmark would build SIMULATION=${SELECTED_SIMULATION}"
+fi
+
+RUN_PARAM_FILE="${PARAM_FILE}"
+case "${PARAM_FILE}" in
+    "${ROOT_DIR}/build/"*)
+        TEMP_PARAM_DIR=$(mktemp -d "${TMPDIR:-/tmp}/mimic-benchmark-param.XXXXXX")
+        RUN_PARAM_FILE="${TEMP_PARAM_DIR}/$(basename "${PARAM_FILE}")"
+        cp "${PARAM_FILE}" "${RUN_PARAM_FILE}" || error_exit "Failed to preserve generated parameter file before clean build"
+        verbose_log "Copied generated parameter file to ${RUN_PARAM_FILE} for clean build"
+        ;;
+esac
 
 # CRITICAL SAFETY CHECK: Ensure variables are not empty
 if [[ -z "${OUTPUT_DIR}" ]] || [[ -z "${OUTPUT_BASENAME}" ]]; then
@@ -274,6 +374,8 @@ verbose_log "Detected OutputDir: ${OUTPUT_DIR}"
 verbose_log "Detected OutputFormat: ${OUTPUT_FORMAT}"
 verbose_log "Detected OutputFileBaseName: ${OUTPUT_BASENAME}"
 verbose_log "Detected TreeType: ${TREE_TYPE}"
+verbose_log "Selected MODEL: ${SELECTED_MODEL}"
+verbose_log "Selected SIMULATION: ${SELECTED_SIMULATION}"
 
 # Auto-detect if HDF5 support is needed and add to MAKE_FLAGS
 if [[ "$OUTPUT_FORMAT" == "hdf5" ]] || [[ "$TREE_TYPE" == *"hdf5"* ]]; then
@@ -300,9 +402,13 @@ verbose_log "Using file pattern: ${FILE_PATTERN}"
 echo "=== Mimic Performance Benchmark ==="
 echo "Timestamp: $(date)"
 echo "Parameter file: ${PARAM_FILE}"
+if [[ "${RUN_PARAM_FILE}" != "${PARAM_FILE}" ]]; then
+    echo "Runtime parameter file: ${RUN_PARAM_FILE}"
+fi
 echo "Output format: ${OUTPUT_FORMAT}"
-echo "Model set: ${MODEL}"
-echo "Saving results to: ${ROOT_DIR}/benchmarks/$(basename "$BENCHMARK_RESULTS")"
+echo "Model set: ${SELECTED_MODEL}"
+echo "Simulation package: ${SELECTED_SIMULATION}"
+echo "Saving results to: ${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}"
 echo
 
 # Build Mimic using Make
@@ -315,10 +421,10 @@ make clean > /dev/null 2>&1 || true
 
 # Generate module registration code
 verbose_log "Generating module registration code..."
-make MODEL="${MODEL}" generate > /dev/null 2>&1 || error_exit "Code generation failed"
+make MODEL="${SELECTED_MODEL}" SIMULATION="${SELECTED_SIMULATION}" generate > /dev/null 2>&1 || error_exit "Code generation failed"
 
 verbose_log "Building Mimic with flags: ${MAKE_FLAGS}"
-make MODEL="${MODEL}" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} || error_exit "Build failed"
+make MODEL="${SELECTED_MODEL}" SIMULATION="${SELECTED_SIMULATION}" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} || error_exit "Build failed"
 
 echo "Build successful."
 echo
@@ -334,20 +440,14 @@ verbose_log "Using Mimic executable: $MIMIC_EXECUTABLE"
 # Prepare benchmark run
 echo "Preparing benchmark run..."
 
-# Clean any previous benchmark output
-# CRITICAL SAFETY CHECK: Double-check variables before deletion
+# CRITICAL SAFETY CHECK: Double-check variables before preparing output checks
 if [[ -z "${OUTPUT_DIR}" ]] || [[ -z "${OUTPUT_BASENAME}" ]]; then
-    error_exit "CRITICAL SAFETY: OUTPUT_DIR or OUTPUT_BASENAME is empty. Refusing to delete files."
+    error_exit "CRITICAL SAFETY: OUTPUT_DIR or OUTPUT_BASENAME is empty. Refusing to continue."
 fi
 
+OUTPUT_MARKER=$(mktemp)
 if [[ -d "${OUTPUT_DIR}" ]]; then
-    verbose_log "Cleaning previous output in ${OUTPUT_DIR}"
-    # Additional safety: ensure OUTPUT_DIR is an absolute path and contains 'output' or 'benchmark'
-    if [[ "${OUTPUT_DIR}" == /* ]] && [[ "${OUTPUT_DIR}" == *output* || "${OUTPUT_DIR}" == *benchmark* ]]; then
-        rm -f "${OUTPUT_DIR}"/${OUTPUT_BASENAME}*
-    else
-        error_exit "CRITICAL SAFETY: OUTPUT_DIR='${OUTPUT_DIR}' does not look like a safe output directory. Refusing to delete files."
-    fi
+    verbose_log "Existing output files in ${OUTPUT_DIR} may be overwritten by Mimic"
 fi
 
 if [ $VERBOSE -eq 1 ]; then
@@ -374,6 +474,8 @@ verbose_log "Running with $NUM_MIMIC_PROCS processes"
 RUN_OUTPUT=$(mktemp)
 TIME_OUTPUT=$(mktemp)
 
+set +e
+
 # Check if /usr/bin/time is available
 if [ -x "/usr/bin/time" ]; then
     verbose_log "Using /usr/bin/time for accurate measurement"
@@ -383,10 +485,10 @@ if [ -x "/usr/bin/time" ]; then
         # macOS version
         verbose_log "Detected macOS"
         if [[ -n "${MPI_RUN_COMMAND}" ]]; then
-            /usr/bin/time -l ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            /usr/bin/time -l ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         else
-            /usr/bin/time -l "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            /usr/bin/time -l "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         fi
 
@@ -410,10 +512,10 @@ if [ -x "/usr/bin/time" ]; then
         # Linux version
         verbose_log "Detected Linux"
         if [[ -n "${MPI_RUN_COMMAND}" ]]; then
-            /usr/bin/time -v ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            /usr/bin/time -v ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         else
-            /usr/bin/time -v "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            /usr/bin/time -v "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         fi
 
@@ -447,10 +549,10 @@ else
     start_time=$(date +%s)
 
     if [[ -n "${MPI_RUN_COMMAND}" ]]; then
-        ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
+        ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
         RUN_STATUS=$?
     else
-        "${MIMIC_EXECUTABLE}" "${PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
+        "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
         RUN_STATUS=$?
     fi
 
@@ -459,6 +561,8 @@ else
     MAX_MEMORY="N/A"
     verbose_log "Memory measurement not available without /usr/bin/time"
 fi
+
+set -e
 
 # Check if run was successful
 if [ $RUN_STATUS -ne 0 ]; then
@@ -507,9 +611,9 @@ BUILD_FLAGS="${MAKE_FLAGS:-none}"
 
 # Verify output was created - find any output file
 if [[ -d "${OUTPUT_DIR}" ]]; then
-    OUTPUT_FILE=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -type f 2>/dev/null | head -1)
+    OUTPUT_FILE=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -type f -newer "${OUTPUT_MARKER}" 2>/dev/null | head -1)
     if [[ -z "$OUTPUT_FILE" ]]; then
-        error_exit "Mimic did not produce any output files in: ${OUTPUT_DIR}"
+        error_exit "Mimic did not produce any new output files in: ${OUTPUT_DIR}"
     fi
 else
     error_exit "Output directory not found: ${OUTPUT_DIR}"
@@ -519,16 +623,16 @@ verbose_log "Benchmark run completed successfully"
 verbose_log "Output file created: $OUTPUT_FILE"
 
 # Get total size of all output files
-TOTAL_OUTPUT_SIZE=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -type f -exec stat -f%z {} + 2>/dev/null | awk '{s+=$1} END {print s}')
+TOTAL_OUTPUT_SIZE=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -type f -newer "${OUTPUT_MARKER}" -exec stat -f%z {} + 2>/dev/null | awk '{s+=$1} END {print s}')
 if [[ -z "$TOTAL_OUTPUT_SIZE" ]]; then
-    TOTAL_OUTPUT_SIZE=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -type f -exec stat -c%s {} + 2>/dev/null | awk '{s+=$1} END {print s}')
+    TOTAL_OUTPUT_SIZE=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -type f -newer "${OUTPUT_MARKER}" -exec stat -c%s {} + 2>/dev/null | awk '{s+=$1} END {print s}')
 fi
 TOTAL_OUTPUT_SIZE=${TOTAL_OUTPUT_SIZE:-0}
 
 # Create comprehensive JSON output
 echo "Generating benchmark results..."
 
-cat > "${ROOT_DIR}/benchmarks/baseline_${TIMESTAMP}.json" << EOF
+cat > "${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}" << EOF
 {
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "git": {
@@ -547,12 +651,15 @@ cat > "${ROOT_DIR}/benchmarks/baseline_${TIMESTAMP}.json" << EOF
   },
   "test_case": {
     "parameter_file": "$PARAM_FILE",
+    "runtime_parameter_file": "$RUN_PARAM_FILE",
     "output_format": "$OUTPUT_FORMAT",
     "output_directory": "$OUTPUT_DIR",
     "num_processes": $NUM_MIMIC_PROCS,
     "mpi_command": "${MPI_RUN_COMMAND:-none}"
   },
   "configuration": {
+    "model": "${SELECTED_MODEL}",
+    "simulation": "${SELECTED_SIMULATION}",
     "build_flags": "$BUILD_FLAGS",
     "build_system": "GNU Make",
     "mimic_executable": "$MIMIC_EXECUTABLE"
@@ -578,12 +685,14 @@ echo "Wall Clock Time: ${REAL_TIME} seconds"
 echo "Maximum Memory Usage: ${MAX_MEMORY} MB"
 echo "Output Format: $OUTPUT_FORMAT"
 echo "MPI Processes: $NUM_MIMIC_PROCS"
+echo "Model Set: $SELECTED_MODEL"
+echo "Simulation Package: $SELECTED_SIMULATION"
 echo "Build Flags: $BUILD_FLAGS"
 echo "Git Commit: $GIT_COMMIT"
 echo "Git Branch: $GIT_BRANCH"
 echo "Git Dirty: $GIT_DIRTY"
 echo
-echo "Full results saved to: ${ROOT_DIR}/benchmarks/baseline_${TIMESTAMP}.json"
+echo "Full results saved to: ${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}"
 echo
 echo "USAGE NOTES:"
 echo "  - Run this script regularly to track performance changes"
