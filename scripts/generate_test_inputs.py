@@ -60,10 +60,19 @@ def plot_profile(model_root: Path, simulation: str) -> str:
 def test_simulation_config(simulation_root: Path, simulation: str) -> tuple[str, str, str]:
     """Return simulation name, path, and config for fast test runs.
 
+    A simulation package may provide a test-sized simulation metadata file at
+    simulations/<simulation>/_tests/input/test_simulation.yaml. This keeps fast
+    core/model tests independent of production catalog size while still compiling
+    against the selected simulation's halo_properties.yaml.
+
     mini-Millennium has a shared single-file mini-catalog under tests/data/.
     All other simulations fall back to the production simulation_info.yaml;
     the generated run YAML then applies input: overrides to cap the file range.
     """
+    package_test_config = simulation_root / "_tests" / "input" / "test_simulation.yaml"
+    if package_test_config.is_file():
+        return f"test_{simulation}", rel(simulation_root), rel(package_test_config)
+
     shared_mini_millennium_config = REPO_ROOT / "tests" / "data" / "test_simulation.yaml"
     if simulation == "mini-millennium" and shared_mini_millennium_config.is_file():
         return "test_mini-millennium", "tests/data", rel(shared_mini_millennium_config)

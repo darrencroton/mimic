@@ -43,9 +43,11 @@ from framework import (
     baseline_rtol,
     core_input_file,
     ensure_output_dirs,
+    is_default_baseline_combo,
     load_binary_halos,
     run_mimic,
     run_mimic_fresh,
+    skip_non_default_baseline,
 )
 
 VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.json"
@@ -605,6 +607,9 @@ def test_binary_baseline_comparison():
     if not MIMIC_EXE.exists():
         print(f"  Skipping (Mimic not built)")
         return
+    if not is_default_baseline_combo():
+        skip_non_default_baseline("binary baseline comparison")
+        return
 
     # Load current test output
     output_dir = TEST_DATA_DIR / "output" / "binary"
@@ -855,6 +860,9 @@ def test_hdf5_baseline_comparison():
 
     if not MIMIC_EXE.exists():
         print(f"  Skipping (Mimic not built)")
+        return
+    if not is_default_baseline_combo():
+        skip_non_default_baseline("HDF5 baseline comparison")
         return
 
     # Check if HDF5 is supported

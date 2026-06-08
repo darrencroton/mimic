@@ -43,8 +43,10 @@ from framework import (
     MIMIC_EXE,
     baseline_rtol,
     compiled_model,
+    is_default_baseline_combo,
     load_binary_halos,
     run_mimic_fresh,
+    skip_non_default_baseline,
 )
 from test_output_formats import compare_halos_comprehensive
 
@@ -74,6 +76,9 @@ def test_sage_physics_baseline():
 
     if compiled_model() != "sage":
         print(f"  Skipping (MODEL={compiled_model()}, this baseline is SAGE-specific)")
+        return
+    if not is_default_baseline_combo():
+        skip_non_default_baseline("SAGE full-physics baseline")
         return
 
     if not MIMIC_EXE.exists():

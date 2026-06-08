@@ -32,6 +32,46 @@ def compiled_simulation():
     return os.environ.get("SIMULATION") or os.environ.get("SIM") or "mini-millennium"
 
 
+def _makefile_default(variable, fallback):
+    """Read a simple DEFAULT_* assignment from the repository Makefile."""
+    makefile = REPO_ROOT / "Makefile"
+    try:
+        with makefile.open(encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.split("#", 1)[0].strip()
+                prefix = f"{variable} :="
+                if line.startswith(prefix):
+                    value = line[len(prefix) :].strip()
+                    return value or fallback
+    except OSError:
+        pass
+    return fallback
+
+
+def default_model():
+    """Return the Makefile default model package used by committed baselines."""
+    return _makefile_default("DEFAULT_MODEL", "sage")
+
+
+def default_simulation():
+    """Return the Makefile default simulation package used by committed baselines."""
+    return _makefile_default("DEFAULT_SIMULATION", "mini-millennium")
+
+
+def is_default_baseline_combo():
+    """Whether the selected build matches the committed baseline package pair."""
+    return compiled_model() == default_model() and compiled_simulation() == default_simulation()
+
+
+def skip_non_default_baseline(test_name):
+    """Print a consistent skip reason for default-package baseline regressions."""
+    print(
+        f"  Skipping {test_name}: committed baseline is for "
+        f"MODEL={default_model()} SIMULATION={default_simulation()}, but this run selected "
+        f"MODEL={compiled_model()} SIMULATION={compiled_simulation()}"
+    )
+
+
 # Strict default tolerance for comparisons against a committed baseline. The
 # baseline reproduces bit-for-bit on the platform that generated it, so the
 # default is deliberately tight.
@@ -120,8 +160,7 @@ def _ensure_generated_test_inputs():
         root / "simulations" / compiled_simulation() / "test_binary.yaml",
         root / "simulations" / compiled_simulation() / "test_hdf5.yaml",
     ]
-    if compiled_simulation() == "mini-millennium":
-        required.append(root / "simulations" / compiled_simulation() / "test_uniquegalid.yaml")
+    required.append(root / "simulations" / compiled_simulation() / "test_uniquegalid.yaml")
 
     if _generated_inputs_match_selection(root) and all(path.exists() for path in required):
         return
@@ -342,7 +381,8 @@ def read_param_file(param_file):
         params["OutputFileBaseName"] = config["output"].get("output_filename", "model")
         params["OutputFormat"] = config["output"].get("output_format", "binary")
 
-    input_config = sim_config.get("input", config.get("input", {}))
+    input_config = dict(sim_config.get("input", {}) or {})
+    input_config.update(config.get("input", {}) or {})
     if input_config:
         params["FirstFile"] = str(input_config.get("first_file", 0))
         params["LastFile"] = str(input_config.get("last_file", 0))
@@ -371,6 +411,22 @@ def read_param_file(param_file):
             )
 
     return params
+
+
+def input_tree_file_for_run(param_file, file_number=None):
+    """Return the tree file path used by a generated run file.
+
+    This mirrors the run-time config load order: simulation config defaults are
+    loaded first, then any run-file input overrides apply on top.
+    """
+    params = read_param_file(param_file)
+    if file_number is None:
+        file_number = int(params["FirstFile"])
+
+    simulation_dir = Path(params["SimulationDir"])
+    if not simulation_dir.is_absolute():
+        simulation_dir = REPO_ROOT / simulation_dir
+    return simulation_dir / f"{params['TreeName']}.{file_number}"
 
 
 def create_test_param_file(
