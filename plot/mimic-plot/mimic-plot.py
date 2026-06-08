@@ -794,7 +794,9 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
         if total_files > 0:
             volume = volume * good_files / total_files
             if verbose:
-                print(f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}")
+                print(
+                    f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}"
+                )
                 print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
 
     # Create metadata dictionary
@@ -963,7 +965,9 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
         if total_files > 0:
             volume = volume * good_files / total_files
             if verbose:
-                print(f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}")
+                print(
+                    f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}"
+                )
                 print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
 
     # Create metadata dictionary
