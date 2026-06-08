@@ -382,9 +382,6 @@ $(PROP_STAMP): $(PROP_YAML) scripts/generate_properties.py FORCE
 $(GENERATED_HEADERS): $(PROP_STAMP)
 	@true
 
-# Ensure object compilation waits for generated property and module registration outputs
-$(OBJECTS): | $(GENERATED_HEADERS) $(MODULE_INIT_C)
-
 # -----------------------------------------------------------------------------
 # Module metadata auto-generation
 # -----------------------------------------------------------------------------
@@ -401,15 +398,29 @@ MODULE_SOURCES_MK := tests/generated/module_sources.mk
 # Module validation script
 MODULE_VALIDATOR := scripts/validate_modules.py
 
-# Ensure module_init.o waits for generated module registration code
-$(OBJ_DIR)/src/module_system/generated/module_init.o: $(MODULE_INIT_C)
+# Stamp lives in build/ (always cleaned) so the generator reliably runs on fresh builds.
+# Using MODULE_INIT_C directly as the prereq failed: it survives make clean (lives in
+# src/), and the := assignment order meant it expanded to empty at parse time anyway.
+MODULE_STAMP := $(BUILD_DIR)/generated/module_registry.stamp
+
+# Ensure object compilation waits for generated property and module registration outputs
+$(OBJECTS): | $(GENERATED_HEADERS) $(MODULE_STAMP)
 
 # Rule to (re)generate module registration code whenever YAML or generator changes
-$(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py FORCE
+$(MODULE_STAMP): $(MODULE_YAML) scripts/generate_module_registry.py FORCE
 	@echo ""
 	@echo "Generating module registration code from metadata (auto)..."
 	@python3 scripts/generate_module_registry.py
 	@echo "Generated files for $(words $(MODULE_YAML)) module(s)"
+	@mkdir -p $(BUILD_DIR)/generated
+	@touch $@
+
+# Generated module files depend on the stamp (mirrors GENERATED_HEADERS → PROP_STAMP)
+$(MODULE_INIT_C): $(MODULE_STAMP)
+	@true
+
+# Ensure module_init.o waits for generated module registration code
+$(OBJ_DIR)/src/module_system/generated/module_init.o: $(MODULE_INIT_C)
 
 # -----------------------------------------------------------------------------
 # Housekeeping Targets
