@@ -13,7 +13,7 @@ simulation:
 
 input:
   first_file: 0
-  last_file: 3
+  last_file: 15
 
 plotting:
   profile: models/sage/plots/profiles/millennium_plot_profile.yaml

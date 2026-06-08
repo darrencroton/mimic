@@ -69,16 +69,19 @@ extern char *ThisNode;
  * mymalloc_cat(MaxFoFWorkspace * sizeof(Halo), MEM_HALOS)
  *
  *   free_halos_and_tree():
+ *     galaxy_pool_reset()   // reclaim all galaxy slots for the next tree
  *     myfree(FoFWorkspace)
  *     myfree(ProcessedHalos)
  *     myfree(HaloAux)
  *     myfree(InputTreeHalos)
  *
- * IMPORTANT: GalaxyData pointers are not shared between FoFWorkspace and
- * ProcessedHalos across inheritance boundaries. Inheritance allocates deep
- * copies in FoFWorkspace; the shared output-buffer marshaller transfers
- * surviving pointers into ProcessedHalos by struct copy; free_halos_and_tree()
- * frees galaxy data from ProcessedHalos only.
+ * IMPORTANT: GalaxyData is owned by the per-tree galaxy pool (see galaxy_pool.h),
+ * not by individual halos. Inheritance allocates each workspace galaxy from the
+ * pool; the output-buffer marshaller transfers surviving halos (and their galaxy
+ * pointers) into ProcessedHalos by struct copy; the pool's slots stay valid
+ * because chunks never move. No per-halo galaxy frees occur — free_halos_and_tree()
+ * resets the pool in one step, which is why the same galaxy pointer can be held
+ * by both a FoFWorkspace and a ProcessedHalos slot without any double-free risk.
  */
 
 /* halo data pointers */

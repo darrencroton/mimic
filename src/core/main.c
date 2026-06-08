@@ -34,6 +34,7 @@
 
 #include "config.h"
 #include "proto.h"
+#include "galaxy_pool.h"
 #include "globals.h"
 #include "tree/interface.h"
 #include "run_log.h"
@@ -323,6 +324,9 @@ int main(int argc, char **argv) {
   /* Initialize memory management system (will log at correct level) */
   init_memory_system(0); /* Use default block limit */
 
+  /* Prepare the per-tree galaxy storage pool (grows to the largest tree). */
+  galaxy_pool_init(0);
+
   /* Log startup information */
   DEBUG_LOG("Starting Mimic with verbosity level: %s", get_log_level_name(log_level));
   INFO_LOG("Mimic physics-agnostic galaxy evolution framework starting up");
@@ -431,10 +435,10 @@ int main(int argc, char **argv) {
       /* Log progress periodically */
       if (treenr % TREE_PROGRESS_INTERVAL == 0) {
 #ifdef MPI
-        INFO_LOG("Processing task: %d node: %s file: %i tree: %i of %i", ThisTask, ThisNode, filenr,
-                 treenr, Ntrees);
+        INFO_LOG("  Processing task %d | node %s | file %i | tree %i of %i", ThisTask, ThisNode,
+                 filenr, treenr, Ntrees);
 #else
-        INFO_LOG("Processing file: %i tree: %i of %i", filenr, treenr, Ntrees);
+        INFO_LOG("  Processing file %i | tree %i of %i", filenr, treenr, Ntrees);
 #endif
       }
 
@@ -493,7 +497,7 @@ int main(int argc, char **argv) {
 #endif
     free_tree_table(MimicConfig.TreeType);
 
-    INFO_LOG("Completed processing file %d", filenr);
+    INFO_LOG("%sCompleted file %d%s", mimic_color_green(), filenr, mimic_color_reset());
   }
 
   /* Disable rate limiting for DEBUG_LOG after tree processing completes */
@@ -532,6 +536,10 @@ int main(int argc, char **argv) {
 
   /* Release the run-persistent inheritance gather scratch buffer */
   free_tree_driver_scratch();
+
+  /* Release the galaxy pool before the leak check so its chunks are accounted
+   * for and not reported as leaks. */
+  galaxy_pool_destroy();
 
   /* Check for memory leaks and clean up memory system */
   check_memory_leaks();

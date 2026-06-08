@@ -4,7 +4,7 @@
 
 Mimic is approaching v1.0 with a deliberately more flexible package model: one executable is built from a selected `MODEL` and `SIMULATION`, while run files choose modules and input ranges at runtime. The test system must support that flexibility without hiding package-boundary bugs, without forcing full production catalogs through fast test tiers, and without duplicating baseline logic in many places.
 
-This document records the intended KISS and DRY testing model. It complements the architectural constraints in [VISION.md](../VISION.md): the core stays physics-agnostic, metadata is the source of structural truth, selected model/simulation packages must be validated together, and failing tests represent real problems.
+This document records the intended KISS and DRY testing model. It complements the architectural constraints in [VISION.md](../../VISION.md): the core stays physics-agnostic, metadata is the source of structural truth, selected model/simulation packages must be validated together, and failing tests represent real problems.
 
 This document also captures design decisions made for v1.0 and flags known gaps for the team to revisit after release (or sooner if the test suite grows materially). See [**Post-v1.0 Notes**](#post-v10-notes-and-known-gaps) at the bottom.
 

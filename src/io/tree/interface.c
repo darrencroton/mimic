@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include "config.h"
+#include "galaxy_pool.h"
 #include "globals.h"
 #include "types.h"
 #include "proto.h"
@@ -315,29 +316,16 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
  * 4. InputTreeHalos: Raw merger tree input (MEM_TREES)
  *
  * IMPORTANT: The deallocation order (reverse of allocation) is critical for
- * proper memory management. Inheritance deep-copies GalaxyData into
- * FoFWorkspace, then the shared output-buffer marshaller transfers surviving
- * pointers into ProcessedHalos by struct copy.
+ * proper memory management.
  *
  * This cleanup is performed after each tree is fully processed, allowing
  * the memory to be reused for the next tree.
  */
 void free_halos_and_tree(void) {
-  /* Free all galaxy data structures in ProcessedHalos
-   * Since inheritance performs deep copies into FoFWorkspace, each surviving
-   * halo has its own independent galaxy data allocation. FoFWorkspace galaxy
-   * pointers are moved to ProcessedHalos by struct copy, so we only free from
-   * ProcessedHalos to avoid double-free errors. */
-  for (int i = 0; i < NumProcessedHalos; i++) {
-    if (ProcessedHalos[i].galaxy != NULL) {
-      myfree(ProcessedHalos[i].galaxy);
-      ProcessedHalos[i].galaxy = NULL;
-    }
-  }
-
-  /* Note: FoFWorkspace galaxy pointers are transferred to ProcessedHalos
-   * via struct copy by the output-buffer marshaller, so they are freed above.
-   * We do not free them here to avoid double-free errors. */
+  /* Galaxy data is owned by the per-tree galaxy pool, not by individual halos.
+   * Resetting the pool reclaims every galaxy slot for the next tree in one step
+   * (and avoids the per-halo free traffic that previously capped tree size). */
+  galaxy_pool_reset();
 
   /* Free halo arrays in reverse allocation order - see load_tree() */
   myfree(FoFWorkspace);   // Temporary FoF workspace

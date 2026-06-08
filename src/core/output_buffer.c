@@ -6,7 +6,6 @@
 #include <assert.h>
 
 #include "error.h"
-#include "memory.h"
 #include "output_buffer.h"
 
 static void validate_segment(const struct OutputBufferSegment *segment) {
@@ -33,10 +32,9 @@ void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuf
     const int end = segment->workspace_start + segment->workspace_count;
     for (int p = segment->workspace_start; p < end; p++) {
       if (workspace[p].Type == 3) {
-        if (workspace[p].galaxy != NULL) {
-          myfree(workspace[p].galaxy);
-          workspace[p].galaxy = NULL;
-        }
+        /* Type 3 halos are not emitted. The galaxy pool owns the galaxy memory
+         * and reclaims it on the per-tree reset, so we only clear the pointer. */
+        workspace[p].galaxy = NULL;
         continue;
       }
 

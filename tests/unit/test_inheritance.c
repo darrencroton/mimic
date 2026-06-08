@@ -7,6 +7,7 @@
  */
 
 #include "../framework/test_framework.h"
+#include "../../src/core/galaxy_pool.h"
 #include "../../src/core/inheritance.h"
 #include "../../src/include/generated/property_test_helpers.h"
 #include "../../src/util/error.h"
@@ -84,15 +85,6 @@ static void init_source_halo(struct Halo *halo, struct GalaxyData *galaxy, int t
   init_galaxy_defaults(galaxy);
 }
 
-static void cleanup_workspace(struct Halo *workspace, int start, int end) {
-  for (int i = start; i < end; i++) {
-    if (workspace[i].galaxy != NULL) {
-      myfree(workspace[i].galaxy);
-      workspace[i].galaxy = NULL;
-    }
-  }
-}
-
 int test_main_branch_deep_copy_and_reset(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -131,7 +123,7 @@ int test_main_branch_deep_copy_and_reset(void) {
   TEST_ASSERT(workspace[0].CentralHalo == 0,
               "Single inherited central should point CentralHalo to itself");
 
-  cleanup_workspace(workspace, 0, end);
+  galaxy_pool_destroy();
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -163,7 +155,7 @@ int test_satellite_transition_captures_infall(void) {
   TEST_ASSERT_DOUBLE_EQUAL(workspace[0].infallVmax, 210.0, 1e-6,
                            "Type 0 to Type 1 transition should capture infall Vmax");
 
-  cleanup_workspace(workspace, 0, end);
+  galaxy_pool_destroy();
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -202,7 +194,7 @@ int test_orphan_conversion_and_local_central(void) {
   TEST_ASSERT(workspace[0].CentralHalo == 0 && workspace[1].CentralHalo == 0,
               "Type 2 orphan should point to the subhalo-local Type 1 central");
 
-  cleanup_workspace(workspace, 0, end);
+  galaxy_pool_destroy();
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -237,7 +229,7 @@ int test_type3_skip_and_new_halo_creation(void) {
   TEST_ASSERT(generated_test_default_galaxy_properties_equal_init(workspace[0].galaxy),
               "New halo galaxy properties should use generated defaults");
 
-  cleanup_workspace(workspace, 0, end);
+  galaxy_pool_destroy();
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -276,7 +268,7 @@ int test_type2_preserved_without_orphan_retransition(void) {
   TEST_ASSERT(workspace[0].CentralHalo == 0 && workspace[1].CentralHalo == 0,
               "Preserved Type 2 should point to the local Type 1 central");
 
-  cleanup_workspace(workspace, 0, end);
+  galaxy_pool_destroy();
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -302,7 +294,7 @@ int test_no_progenitor_central_creates_new_halo(void) {
   TEST_ASSERT(workspace[0].CentralHalo == 0,
               "New no-progenitor halo should be its subhalo-local central");
 
-  cleanup_workspace(workspace, 0, end);
+  galaxy_pool_destroy();
   check_memory_leaks();
   return TEST_PASS;
 }

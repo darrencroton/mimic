@@ -2,14 +2,14 @@
 #include <string.h>
 
 #include "inheritance.h"
-#include "memory.h"
+#include "galaxy_pool.h"
 #include "error.h"
 
 static void copy_progenitor_galaxy(struct Halo *target, const struct Halo *source) {
   *target = *source;
 
   if (source->galaxy != NULL) {
-    target->galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
+    target->galaxy = galaxy_pool_alloc();
     memcpy(target->galaxy, source->galaxy, sizeof(struct GalaxyData));
     reset_galaxy_snapshot_accumulators(target->galaxy);
   } else {
@@ -17,12 +17,9 @@ static void copy_progenitor_galaxy(struct Halo *target, const struct Halo *sourc
   }
 }
 
-static void free_inherited_galaxy(struct Halo *halo) {
-  if (halo->galaxy != NULL) {
-    myfree(halo->galaxy);
-    halo->galaxy = NULL;
-  }
-}
+/* The pool owns galaxy memory and reclaims it on reset, so discarding an
+ * inherited galaxy is just clearing the halo's pointer. */
+static void discard_inherited_galaxy(struct Halo *halo) { halo->galaxy = NULL; }
 
 static void apply_descendant_properties(struct Halo *halo,
                                         const struct InheritanceDescendant *descendant) {
@@ -88,7 +85,7 @@ static void init_new_halo(struct Halo *halo, const struct InheritanceDescendant 
   halo->SnapNum = descendant->current_snap - 1;
   halo->dT = descendant->new_halo_dt;
   halo->UniqueGalaxyID = descendant->unique_galaxy_id;
-  halo->galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
+  halo->galaxy = galaxy_pool_alloc();
   init_galaxy_defaults(halo->galaxy);
 }
 
@@ -149,7 +146,7 @@ int inherit_descendant_halos(struct Halo *workspace, int start, int capacity,
     workspace[end].dT = progenitors[i].source_time - descendant->current_time;
 
     if (workspace[end].Type == 3) {
-      free_inherited_galaxy(&workspace[end]);
+      discard_inherited_galaxy(&workspace[end]);
       continue;
     }
 

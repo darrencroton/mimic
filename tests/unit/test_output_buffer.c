@@ -3,6 +3,7 @@
  * @brief   Unit tests for driver-neutral output buffer marshalling
  */
 
+#include "../../src/core/galaxy_pool.h"
 #include "../../src/core/output_buffer.h"
 #include "../../src/util/error.h"
 #include "../../src/util/memory.h"
@@ -61,7 +62,7 @@ int test_copies_non_type3_and_sets_segment_fields(void) {
   return TEST_PASS;
 }
 
-int test_skips_type3_and_frees_galaxy_data(void) {
+int test_skips_type3_and_clears_galaxy_pointer(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
@@ -79,7 +80,9 @@ int test_skips_type3_and_frees_galaxy_data(void) {
   memset(output, 0, sizeof(output));
   init_halo(&workspace[0], 3, 7);
   init_halo(&workspace[1], 1, 7);
-  workspace[0].galaxy = mymalloc_cat(sizeof(struct GalaxyData), MEM_HALOS);
+  /* Galaxy memory is owned by the pool; the marshaller must clear (not free) the
+   * Type-3 pointer and leave reclamation to the per-tree pool reset. */
+  workspace[0].galaxy = galaxy_pool_alloc();
   memset(workspace[0].galaxy, 0, sizeof(struct GalaxyData));
 
   marshal_workspace_to_output_buffer(workspace, &buffer, &segment, 1);
@@ -87,9 +90,10 @@ int test_skips_type3_and_frees_galaxy_data(void) {
   TEST_ASSERT(buffer.count == 1, "Type 3 halo should not be copied");
   TEST_ASSERT(segment.output_first == 0, "Segment output_first should be set");
   TEST_ASSERT(segment.output_count == 1, "Only one non-Type-3 halo should be counted");
-  TEST_ASSERT(workspace[0].galaxy == NULL, "Type 3 galaxy data should be freed");
+  TEST_ASSERT(workspace[0].galaxy == NULL, "Type 3 galaxy pointer should be cleared");
   TEST_ASSERT(output[0].Type == 1, "Copied halo should be the surviving non-Type-3 entry");
 
+  galaxy_pool_destroy();
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -182,7 +186,7 @@ int main(void) {
   initialize_error_handling(LOG_LEVEL_DEBUG, NULL);
 
   TEST_RUN(test_copies_non_type3_and_sets_segment_fields);
-  TEST_RUN(test_skips_type3_and_frees_galaxy_data);
+  TEST_RUN(test_skips_type3_and_clears_galaxy_pointer);
   TEST_RUN(test_empty_segment_records_zero_count);
   TEST_RUN(test_multiple_segments_accumulate_into_one_buffer);
 

@@ -23,6 +23,17 @@ typedef enum {
 extern int MimicLogUseColor;
 
 /**
+ * @brief ANSI colour escapes for run output, gated on MimicLogUseColor.
+ *
+ * Each returns its escape sequence when colour is enabled and "" when it is not,
+ * so any output can wrap text unconditionally, e.g.
+ *   INFO_LOG("%sdone%s", mimic_color_green(), mimic_color_reset());
+ * Add further colours here following the same pattern as they are needed.
+ */
+const char *mimic_color_green(void);
+const char *mimic_color_reset(void);
+
+/**
  * @brief Print a compact run header at startup
  *
  * @param param_file Path to the main parameter file

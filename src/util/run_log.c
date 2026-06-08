@@ -7,6 +7,9 @@
 
 int MimicLogUseColor = 0;
 
+const char *mimic_color_green(void) { return MimicLogUseColor ? "\x1b[92m" : ""; }
+const char *mimic_color_reset(void) { return MimicLogUseColor ? "\x1b[0m" : ""; }
+
 void log_run_header(const char *param_file, LogLevel log_level) {
   /* Check if we're in quiet mode */
   int is_quiet = (log_level >= LOG_LEVEL_WARNING);
