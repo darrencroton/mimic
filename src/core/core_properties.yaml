@@ -114,8 +114,7 @@ halo_properties:
     description: Virial mass of the central halo in this FoF group
     # Structural per-FoF-group constant (the input-catalog Mvir of the FOF
     # central), stamped onto every workspace member by the driver before physics
-    # and copied straight to output. See docs/dev/CENTRALMVIR-SEMANTICS.md for the
-    # option to track the evolved central Mvir instead.
+    # and copied straight to output.
     output: true
     init_source: default
     init_value: 0.0

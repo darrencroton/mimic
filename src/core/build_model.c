@@ -122,8 +122,7 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
        * at output time. CentralMvir is a structural per-FoF-group constant (the
        * input-catalog Mvir of the FOF central); physics never writes it, so the
        * value still reaches output unchanged and the shared marshaller no
-       * longer needs to know about this field. See
-       * docs/dev/CENTRALMVIR-SEMANTICS.md.
+       * longer needs to know about this field.
        */
       float central_mvir = (float)get_virial_mass(InputTreeHalos[source_halo].FirstHaloInFOFgroup);
       for (int p = workspace_start; p < ngal; p++) {
