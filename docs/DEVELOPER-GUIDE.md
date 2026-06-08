@@ -870,6 +870,24 @@ make check-generated
 
 to verify ignored generated files are current after generation.
 
+### Benchmarking
+
+Use `scripts/benchmark_mimic.sh` when you need a repeatable runtime and memory baseline before or after performance-sensitive changes. The default invocation benchmarks `models/sage/input/sage_millennium.yaml` and writes a timestamped JSON result under `benchmarks/`:
+
+```bash
+./scripts/benchmark_mimic.sh
+```
+
+For a faster generated test input or a specific run file:
+
+```bash
+make MODEL=sage SIMULATION=millennium generate-test-inputs
+./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/millennium/core/test_binary.yaml
+./scripts/benchmark_mimic.sh models/sage/input/sage_millennium.yaml
+```
+
+Run `./scripts/benchmark_mimic.sh --help` for MPI, HDF5, and custom build-flag options.
+
 ---
 
 ## Debugging
