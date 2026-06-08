@@ -1,14 +1,14 @@
 {
-  "git_commit": "7a8a55426a3637d1c20f1a5f18f33be1bd482756",
+  "git_commit": "a5b379d5b53010334980f491ad346a8658795efc",
   "git_branch": "main",
-  "github_url": "https://github.com/darrencroton/mimic/commit/7a8a55426a3637d1c20f1a5f18f33be1bd482756",
-  "build_date": "May 30 2026",
-  "run_date": "2026-05-30T23:56:59Z",
+  "github_url": "https://github.com/darrencroton/mimic/commit/a5b379d5b53010334980f491ad346a8658795efc",
+  "build_date": "Jun  8 2026",
+  "run_date": "2026-06-08T13:30:00Z",
   "parameters": {
-    "file_path": "tests/data/test_hdf5.yaml",
-    "parameter_md5_checksum": "9678ccba7ce55357bede6244661dbfb3"
+    "file_path": "build/generated/test_inputs/sage/millennium/core/test_hdf5.yaml",
+    "parameter_md5_checksum": "a85f070b663297e6b764cc8a2075d659"
   },
   "compiler": "gcc 4.2.1",
-  "system": "macOS 26.5 arm64",
+  "system": "macOS 26.5.1 arm64",
   "user": "dcroton"
 }

@@ -5,6 +5,9 @@ mimic
 input/data
 output
 simulations/*/snapshots
+!tests/data/output/
+!tests/data/output/baseline/
+!tests/data/output/baseline/**
 
 # Benchmark results
 benchmarks

@@ -166,6 +166,55 @@ def load_hdf5_halos(output_file):
     return halos, metadata
 
 
+def decode_hdf5_string(value):
+    """Decode scalar or one-element HDF5 string attributes."""
+    if isinstance(value, np.ndarray):
+        value = value[0]
+    if isinstance(value, bytes):
+        return value.decode()
+    return str(value)
+
+
+def assert_hdf5_schema_layout(output_file, expected_format_version="1.1"):
+    """
+    Validate the current Mimic HDF5 schema layout.
+
+    FieldMetadata is intentionally written once per file under RunProperties.
+    Snapshot-local copies are stale duplication and should not be reintroduced.
+    """
+    try:
+        import h5py
+    except ImportError:
+        raise ImportError(f"{RED}h5py not available - cannot validate HDF5 schema{NC}")
+
+    with h5py.File(output_file, "r") as f:
+        assert "RunProperties" in f, "Missing RunProperties group"
+        assert "FieldMetadata" in f["RunProperties"], "Missing RunProperties/FieldMetadata"
+        assert "Version" in f["RunProperties"], "Missing RunProperties/Version"
+
+        version_attrs = f["RunProperties/Version"].attrs
+        assert "hdf5_format_version" in version_attrs, "Missing HDF5 format version attribute"
+        actual_version = decode_hdf5_string(version_attrs["hdf5_format_version"])
+        assert actual_version == expected_format_version, (
+            f"HDF5 format version mismatch: expected {expected_format_version}, "
+            f"got {actual_version}"
+        )
+
+        field_metadata = f["RunProperties/FieldMetadata"]
+        assert field_metadata.shape[0] > 0, "FieldMetadata table is empty"
+        assert {"field_name", "units", "description"}.issubset(
+            field_metadata.dtype.fields
+        ), "FieldMetadata table missing required fields"
+
+        snap_groups = [key for key in f.keys() if key.startswith("Snap")]
+        assert snap_groups, "No snapshot groups found"
+        for snap_name in snap_groups:
+            assert "FieldMetadata" not in f[snap_name], (
+                f"{snap_name}/FieldMetadata should not exist; metadata belongs under "
+                "RunProperties/FieldMetadata"
+            )
+
+
 def _write_ranked_mismatches(
     report, prop_name, ranked, summary, marker="❌", kind="mismatches", color=""
 ):
@@ -715,9 +764,69 @@ def test_hdf5_format_loading():
     # Validate loaded data
     assert metadata["TotHalos"] > 0, "No halos loaded from HDF5 file"
     assert len(halos) == metadata["TotHalos"], "Halo count mismatch"
+    assert_hdf5_schema_layout(output_file)
+
+    master_file = output_dir / "model.hdf5"
+    assert master_file.exists(), f"HDF5 master file not created: {master_file}"
+    assert_hdf5_schema_layout(master_file)
 
     print(f"  ✓ Loaded {metadata['TotHalos']} halos from CURRENT HDF5 output")
     print(f"    File size: {output_file.stat().st_size:,} bytes")
+
+
+def test_hdf5_compression_equivalence():
+    """
+    Test that --compress produces readable gzip HDF5 output with unchanged values.
+    """
+    print("Testing HDF5 compression equivalence...")
+
+    if not MIMIC_EXE.exists():
+        print(f"  Skipping (Mimic not built)")
+        return
+
+    if not check_hdf5_support():
+        print(f"  Skipping (Mimic not compiled with HDF5 support)")
+        return
+
+    try:
+        import h5py
+    except ImportError:
+        print(f"  Skipping (h5py not available)")
+        return
+
+    output_dir = TEST_DATA_DIR / "output" / "hdf5"
+    output_file = output_dir / "model_000.hdf5"
+    param_file = core_input_file("test_hdf5.yaml")
+
+    run_mimic_fresh(param_file, output_file)
+    halos_uncompressed, metadata_uncompressed = load_hdf5_halos(output_file)
+    with h5py.File(output_file, "r") as f:
+        snap_name = metadata_uncompressed["SnapshotName"]
+        assert f[snap_name]["Galaxies"].compression is None, "Default HDF5 output is compressed"
+
+    run_mimic_fresh(param_file, output_file, extra_args=["--compress"])
+    assert_hdf5_schema_layout(output_file)
+    halos_compressed, metadata_compressed = load_hdf5_halos(output_file)
+    with h5py.File(output_file, "r") as f:
+        snap_name = metadata_compressed["SnapshotName"]
+        assert (
+            f[snap_name]["Galaxies"].compression == "gzip"
+        ), "--compress did not gzip-compress the Galaxies table"
+
+    assert (
+        metadata_uncompressed["TotHalos"] == metadata_compressed["TotHalos"]
+    ), "Compressed and uncompressed HDF5 halo counts differ"
+
+    passed, report = compare_halos_comprehensive(
+        halos_uncompressed, halos_compressed, label1="uncompressed", label2="compressed", rtol=1e-6
+    )
+    print(report, end="")
+    assert passed, (
+        f"{RED}Compressed HDF5 output differs from uncompressed output.\n"
+        f"Compression should only change on-disk bytes, not stored values.{NC}"
+    )
+
+    print(f"{GREEN}  ✓ Compressed HDF5 output is value-equivalent and gzip-filtered{NC}")
 
 
 def test_hdf5_baseline_comparison():
@@ -782,14 +891,21 @@ def test_hdf5_baseline_comparison():
     # Load committed baseline
     baseline_dir = TEST_DATA_DIR / "output" / "baseline" / "hdf5"
     baseline_file = baseline_dir / "model_000.hdf5"
+    baseline_master_file = baseline_dir / "model.hdf5"
 
     assert baseline_file.exists(), (
         f"{RED}Baseline file not found: {baseline_file}\n"
         f"Run Mimic once with HDF5 to establish baseline, then commit the baseline file.{NC}"
     )
+    assert baseline_master_file.exists(), (
+        f"{RED}Baseline master file not found: {baseline_master_file}\n"
+        f"Run Mimic once with HDF5 to establish baseline, then commit the baseline files.{NC}"
+    )
 
     print(f"  Loading BASELINE: {baseline_file.relative_to(REPO_ROOT)}")
     halos_baseline, metadata_baseline = load_hdf5_halos(baseline_file)
+    assert_hdf5_schema_layout(baseline_file)
+    assert_hdf5_schema_layout(baseline_master_file)
     print(f"    → {metadata_baseline['TotHalos']} halos")
 
     # Compare halo counts
@@ -1036,6 +1152,7 @@ def main():
         test_binary_baseline_comparison,  # Validates binary core property determinism
         test_hdf5_format_execution,
         test_hdf5_format_loading,
+        test_hdf5_compression_equivalence,
         test_hdf5_baseline_comparison,  # Validates HDF5 core property determinism
         test_unique_id_contract,  # Validates UniqueGalaxyID/UniqueCentralGalaxyID invariants
         test_format_equivalence,  # Validates binary matches HDF5 (all properties)

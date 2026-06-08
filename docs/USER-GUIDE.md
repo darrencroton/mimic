@@ -105,6 +105,9 @@ Command-line options:
 | `--debug`, `-d` | Adds DEBUG messages | Troubleshooting module/configuration issues |
 | `--quiet`, `-q` | WARNING and ERROR only | Batch or production runs |
 | `--skip` | Skips existing output files | Resume interrupted runs |
+| `--compress` | gzip-compresses HDF5 galaxy output (off by default) | Disk-constrained or archival runs |
+
+`--compress` trades a little CPU for roughly half the HDF5 file size and changes only the on-disk byte layout, not the stored values. It has no effect on binary output. Leave it off unless disk space is a constraint.
 
 Example:
 
@@ -307,7 +310,7 @@ The current output schema is generated at build time from:
 
 The generated executable, `struct HaloOutput`, HDF5 field metadata, output schema writer, and validation ranges are therefore model-and-simulation specific. Re-run `make generate` or `make` after changing metadata for the default packages; add `MODEL=<name> SIMULATION=<name>` when regenerating a non-default package pair.
 
-Each property metadata entry declares its output unit label, initialization behavior, output conversion, and whether it is written to output. HDF5 output also writes `FieldMetadata` so analysis code can inspect field names, units, and descriptions directly from the file. Binary output relies on `metadata/output_schema.json`; keep the `metadata/` directory with any binary files you move or sync elsewhere.
+Each property metadata entry declares its output unit label, initialization behavior, output conversion, and whether it is written to output. HDF5 output also writes a `FieldMetadata` table (under `RunProperties`, once per file) so analysis code can inspect field names, units, and descriptions directly from the file. Binary output relies on `metadata/output_schema.json`; keep the `metadata/` directory with any binary files you move or sync elsewhere.
 
 For the shipped Millennium/SAGE configuration, common output conventions include:
 
@@ -328,7 +331,7 @@ import h5py
 
 with h5py.File("output/sage-millennium/model_000.hdf5", "r") as f:
     galaxies = f["Snap063/Galaxies"][:]
-    metadata = f["Snap063/FieldMetadata"][:]
+    metadata = f["RunProperties/FieldMetadata"][:]
 
     units = {
         row["field_name"].decode(): row["units"].decode()
@@ -351,8 +354,8 @@ Per-file HDF5 output contains:
   EventContracts          # present only when event contracts exist
   Parameters
   Redshifts
+  FieldMetadata           # field names, units, descriptions (once per file)
 /Snap063/
-  FieldMetadata
   Galaxies
     @Ntrees
     @TotHalosPerSnap
@@ -363,8 +366,8 @@ The master HDF5 file, `model.hdf5`, contains run metadata plus external links to
 
 ```text
 /RunProperties/
-/Snap063/
   FieldMetadata
+/Snap063/
   File000/Galaxies -> model_000.hdf5:/Snap063/Galaxies
   File000/TreeHalosPerSnap -> model_000.hdf5:/Snap063/TreeHalosPerSnap
 ```

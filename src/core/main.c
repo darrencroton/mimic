@@ -244,7 +244,8 @@ int main(int argc, char **argv) {
 
   /* Set default values */
   MimicConfig.OverwriteOutputFiles = 1;
-  MimicConfig.MaxTreeDepth = 500; // Typical trees: 50-100 levels
+  MimicConfig.HDF5CompressionLevel = 0; // Off by default; enabled via --compress
+  MimicConfig.MaxTreeDepth = 500;       // Typical trees: 50-100 levels
 
   /* Parse command-line arguments for special flags like help, verbosity */
   int i;
@@ -263,7 +264,9 @@ int main(int argc, char **argv) {
       printf("  -d, --debug      Enable debug output with context (most verbose)\n");
       printf("  -q, --quiet      Show only warnings and errors (least verbose)\n");
       printf("  --skip           Skip existing output files instead of "
-             "overwriting\n\n");
+             "overwriting\n");
+      printf("  --compress       Compress HDF5 galaxy output with gzip "
+             "(off by default)\n\n");
       exit(0);
     } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
       // Enable verbose formatting (adds timestamp, file:line context)
@@ -279,6 +282,11 @@ int main(int argc, char **argv) {
       i = remove_arg(argv, &argc, i);
     } else if (strcmp(argv[i], "--skip") == 0) {
       MimicConfig.OverwriteOutputFiles = 0;
+      i = remove_arg(argv, &argc, i);
+    } else if (strcmp(argv[i], "--compress") == 0) {
+      /* On/off: HDF5's table API applies a fixed gzip level, so there is no
+       * level to expose here. Any nonzero value enables compression. */
+      MimicConfig.HDF5CompressionLevel = 1;
       i = remove_arg(argv, &argc, i);
     }
   }
@@ -461,6 +469,9 @@ int main(int argc, char **argv) {
     /* Finalize output files (format depends on OutputFormat parameter) */
 #ifdef HDF5
     if (MimicConfig.OutputFormat == output_hdf5) {
+      /* Flush any buffered halos accumulated across trees for this file */
+      flush_hdf5_buffers(filenr);
+
       /* Write metadata attributes for each output snapshot */
       int n;
       for (n = 0; n < MimicConfig.NOUT; n++) {

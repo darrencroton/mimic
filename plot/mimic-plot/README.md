@@ -177,8 +177,8 @@ print(f"Mvir range: {masses_code_units.min():.2e} to {masses_code_units.max():.2
 import h5py
 
 with h5py.File('model_000.hdf5', 'r') as f:
-    # Read FieldMetadata dataset (recommended)
-    metadata = f['Snap016/FieldMetadata'][:]
+    # Read FieldMetadata dataset (recommended) - written once per file
+    metadata = f['RunProperties/FieldMetadata'][:]
 
     # Convert to dictionary for easy lookup
     units_dict = {row['field_name'].decode(): row['units'].decode()

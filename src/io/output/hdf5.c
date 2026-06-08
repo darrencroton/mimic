@@ -146,10 +146,12 @@ void prep_hdf5_file(char *fname) {
     sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[i_snap]);
     snap_group_id = H5Gcreate(file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 
-    // Make the table
+    // Make the table. Compression (gzip) is off by default and enabled at
+    // runtime via --compress; it trades CPU for disk and changes only the
+    // on-disk byte layout, not the stored values.
     status = H5TBmake_table("halo Table", snap_group_id, "Galaxies", HDF5_n_props, 0, HDF5_dst_size,
                             HDF5_field_names, HDF5_dst_offsets, HDF5_field_types, chunk_size,
-                            fill_data, 0, NULL);
+                            fill_data, MimicConfig.HDF5CompressionLevel, NULL);
     if (status < 0) {
       FATAL_ERROR("Failed to create HDF5 table for snapshot %d in file '%s'",
                   MimicConfig.ListOutputSnaps[i_snap], fname);
@@ -353,9 +355,9 @@ void write_hdf5_attrs(int n, int filenr) {
   // Close the dataset
   H5Dclose(dataset_id);
 
-// Write field metadata table (auto-generated from property metadata)
-// Creates FieldMetadata dataset with field names and units for discoverability
-#include "../../include/generated/hdf5_field_metadata.inc"
+  /* FieldMetadata is identical for every snapshot, so it is written once per
+   * file under RunProperties (see write_perfile_metadata) rather than being
+   * duplicated in each snapshot group. */
 
   // Create an array dataset to hold the number of objects per tree and write
   // it.
@@ -472,7 +474,7 @@ static void write_version_metadata(hid_t parent_group_id) {
   H5Aclose(attribute_id);
 
   /* Write HDF5 format version (increment when output schema changes) */
-  const char *hdf5_format_version = "1.0";
+  const char *hdf5_format_version = "1.1";
   attribute_id = H5Acreate(version_group_id, "hdf5_format_version", str_type, dataspace_id,
                            H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, hdf5_format_version);
@@ -965,6 +967,13 @@ static void write_perfile_metadata(hid_t file_id) {
   write_parameters_metadata(props_group_id); /* Configuration */
   write_redshifts(props_group_id);           /* Auxiliary */
 
+  /* Field schema (names, units, descriptions) is identical across snapshots,
+   * so write it once per file here. The generated snippet targets `group_id`. */
+  {
+    hid_t group_id = props_group_id;
+#include "../../include/generated/hdf5_field_metadata.inc"
+  }
+
   H5Gclose(props_group_id);
 }
 
@@ -1122,6 +1131,12 @@ static void store_run_properties(hid_t master_file_id) {
   write_parameters_metadata(props_group_id); /* Configuration: parameter values */
   write_redshifts(props_group_id);           /* Auxiliary: snapshot mapping */
 
+  /* Field schema, written once (generated snippet targets `group_id`) */
+  {
+    hid_t group_id = props_group_id;
+#include "../../include/generated/hdf5_field_metadata.inc"
+  }
+
   /* Close the RunProperties group */
   H5Gclose(props_group_id);
 }
@@ -1180,9 +1195,8 @@ void write_master_file(void) {
     H5Aclose(attribute_id);
     H5Sclose(dataspace_id);
 
-// Add FieldMetadata table to master file for self-documentation
-// (auto-generated from property metadata, same as per-file output)
-#include "../../include/generated/hdf5_field_metadata.inc"
+    /* FieldMetadata is written once under RunProperties (store_run_properties),
+     * not duplicated per snapshot group. */
 
     H5Gclose(group_id);
 
@@ -1304,46 +1318,65 @@ void write_master_file(void) {
  * 4. Updates halo counts for the file and tree
  *
  */
+/*
+ * Cross-tree write buffer.
+ *
+ * One fixed-size buffer of prepared HaloOutput records per output snapshot.
+ * Records accumulate across trees and flush to HDF5 only when a buffer fills
+ * or at end of file (flush_hdf5_buffers). This decouples HDF5 write
+ * granularity from tree boundaries (the previous one-append-per-tree pattern)
+ * and from total file size, so memory stays bounded regardless of simulation
+ * scale. Appends drop from O(Ntrees * NOUT) to O(total_records / BUFFER_RECORDS)
+ * per snapshot, which is what makes HDF5 output as cheap as binary.
+ */
+#define HDF5_WRITE_BUFFER_RECORDS 8192
+static struct HaloOutput *hdf5_wbuf[ABSOLUTEMAXSNAPS] = {0};
+static int hdf5_wbuf_count[ABSOLUTEMAXSNAPS] = {0};
+
+static void flush_hdf5_buffer(int n, int filenr) {
+  if (hdf5_wbuf_count[n] > 0) {
+    write_hdf5_halo_batch(hdf5_wbuf[n], hdf5_wbuf_count[n], n, filenr);
+    hdf5_wbuf_count[n] = 0;
+  }
+}
+
+void flush_hdf5_buffers(int filenr) {
+  for (int n = 0; n < MimicConfig.NOUT; n++) {
+    flush_hdf5_buffer(n, filenr);
+    if (hdf5_wbuf[n] != NULL) {
+      myfree(hdf5_wbuf[n]);
+      hdf5_wbuf[n] = NULL;
+    }
+  }
+}
+
 void save_halos_hdf5(int filenr, int tree) {
   int i, n;
-  int OutputGalCount[MAXSNAPS];
 
-  count_output_halos_by_snapshot(OutputGalCount);
-
-  // Now prepare and write halos to HDF5 (BATCH WRITE for performance)
   for (n = 0; n < MimicConfig.NOUT; n++) {
-    if (OutputGalCount[n] == 0)
-      continue; /* Skip snapshots with no halos */
-
-    /* Allocate array for batch writing using tracked memory allocation */
-    struct HaloOutput *halo_batch =
-        (struct HaloOutput *)mymalloc_cat(OutputGalCount[n] * sizeof(struct HaloOutput), MEM_IO);
-    if (halo_batch == NULL) {
-      FATAL_ERROR("Memory allocation failed for HaloOutput batch array (%d "
-                  "halos, %zu bytes)",
-                  OutputGalCount[n], OutputGalCount[n] * sizeof(struct HaloOutput));
-    }
-
-    /* Prepare all halos for this snapshot */
-    int batch_idx = 0;
     for (i = 0; i < NumProcessedHalos; i++) {
-      if (ProcessedHalos[i].SnapNum == MimicConfig.ListOutputSnaps[n]) {
-        prepare_halo_for_output(&ProcessedHalos[i], &halo_batch[batch_idx]);
-        batch_idx++;
+      if (ProcessedHalos[i].SnapNum != MimicConfig.ListOutputSnaps[n])
+        continue;
 
-        /* Increment halo counters */
-        TotHalosPerSnap[n]++;
-        InputHalosPerSnap[n][tree]++;
+      if (hdf5_wbuf[n] == NULL) {
+        hdf5_wbuf[n] = (struct HaloOutput *)mymalloc_cat(
+            HDF5_WRITE_BUFFER_RECORDS * sizeof(struct HaloOutput), MEM_IO);
+        if (hdf5_wbuf[n] == NULL) {
+          FATAL_ERROR("Memory allocation failed for HDF5 write buffer (snapshot %d)", n);
+        }
+      }
+
+      prepare_halo_for_output(&ProcessedHalos[i], &hdf5_wbuf[n][hdf5_wbuf_count[n]]);
+      hdf5_wbuf_count[n]++;
+
+      /* Increment halo counters */
+      TotHalosPerSnap[n]++;
+      InputHalosPerSnap[n][tree]++;
+
+      if (hdf5_wbuf_count[n] == HDF5_WRITE_BUFFER_RECORDS) {
+        flush_hdf5_buffer(n, filenr);
       }
     }
-
-    /* Write entire batch at once */
-    if (batch_idx > 0) {
-      write_hdf5_halo_batch(halo_batch, batch_idx, n, filenr);
-    }
-
-    /* Free batch array using tracked memory deallocation */
-    myfree(halo_batch);
   }
 }
 

@@ -118,6 +118,7 @@ make check-format
 ./mimic --verbose models/sage/input/sage_millennium.yaml  # Add context (timestamp, file:line)
 ./mimic --quiet models/sage/input/sage_millennium.yaml    # Warnings/errors only
 ./mimic --skip models/sage/input/sage_millennium.yaml     # Skip existing output files
+./mimic --compress models/sage/input/sage_millennium.yaml # gzip HDF5 galaxy output (off by default)
 ```
 
 ---

@@ -878,7 +878,7 @@ def generate_hdf5_field_metadata(
     code += "    metadata_field_names,        /* Field names */\n"
     code += "    metadata_field_offsets,      /* Field offsets */\n"
     code += "    metadata_field_types,        /* Field types */\n"
-    code += "    1000,                        /* Chunk size */\n"
+    code += "    NUM_FIELDS,                  /* Chunk size (= record count: no padding) */\n"
     code += "    NULL,                        /* Fill data */\n"
     code += "    0,                           /* Compress */\n"
     code += "    field_metadata               /* Data */\n"

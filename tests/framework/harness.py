@@ -168,13 +168,14 @@ def ensure_output_dirs():
     (TEST_DATA_DIR / "output" / "hdf5").mkdir(parents=True, exist_ok=True)
 
 
-def run_mimic(param_file, cwd=None):
+def run_mimic(param_file, cwd=None, extra_args=None):
     """
     Execute Mimic with specified parameter file
 
     Args:
         param_file (str or Path): Path to parameter file
         cwd (str or Path): Working directory for execution (default: repo root)
+        extra_args (list[str], optional): Additional command-line arguments before the parameter file.
 
     Returns:
         tuple: (returncode, stdout, stderr)
@@ -194,14 +195,17 @@ def run_mimic(param_file, cwd=None):
             f"Mimic executable not found at {MIMIC_EXE}. " f"Build it first with: make"
         )
 
-    result = subprocess.run(
-        [str(MIMIC_EXE), "--verbose", str(param_file)], cwd=str(cwd), capture_output=True, text=True
-    )
+    cmd = [str(MIMIC_EXE), "--verbose"]
+    if extra_args is not None:
+        cmd.extend(extra_args)
+    cmd.append(str(param_file))
+
+    result = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True)
 
     return result.returncode, result.stdout, result.stderr
 
 
-def run_mimic_fresh(param_file, expected_output=None, cwd=None):
+def run_mimic_fresh(param_file, expected_output=None, cwd=None, extra_args=None):
     """
     Run Mimic, always (re)generating output for the selected model.
 
@@ -217,6 +221,7 @@ def run_mimic_fresh(param_file, expected_output=None, cwd=None):
             validate. Removed before the run so a stale file cannot survive a
             failed or skipped regeneration.
         cwd (str or Path): Working directory for execution (default: repo root).
+        extra_args (list[str], optional): Additional command-line arguments before the parameter file.
 
     Returns:
         tuple: (returncode, stdout, stderr) from the Mimic run.
@@ -229,7 +234,7 @@ def run_mimic_fresh(param_file, expected_output=None, cwd=None):
         if expected_output.exists():
             expected_output.unlink()
 
-    returncode, stdout, stderr = run_mimic(param_file, cwd=cwd)
+    returncode, stdout, stderr = run_mimic(param_file, cwd=cwd, extra_args=extra_args)
     assert returncode == 0, (
         f"Mimic execution failed (rc={returncode})\n" f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
     )
