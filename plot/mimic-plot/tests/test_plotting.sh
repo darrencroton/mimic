@@ -10,12 +10,12 @@ MIMIC_PLOT_DIR="$(dirname "$SCRIPT_DIR")"
 MIMIC_ROOT="$(dirname "$(dirname "$MIMIC_PLOT_DIR")")"
 
 # Default parameter file
-PARAM_FILE="${PARAM_FILE:-$MIMIC_ROOT/models/sage/input/sage_millennium.yaml}"
+PARAM_FILE="${PARAM_FILE:-$MIMIC_ROOT/models/sage/input/sage_mini-millennium.yaml}"
 
 # Check parameter file exists
 if [ ! -f "$PARAM_FILE" ]; then
     echo "Error: Parameter file not found: $PARAM_FILE"
-    echo "Set PARAM_FILE environment variable or ensure models/sage/input/sage_millennium.yaml exists"
+    echo "Set PARAM_FILE environment variable or ensure models/sage/input/sage_mini-millennium.yaml exists"
     exit 1
 fi
 

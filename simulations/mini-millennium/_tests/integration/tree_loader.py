@@ -96,6 +96,13 @@ def load_binary_tree(file_path):
     Raises:
         FileNotFoundError: If file doesn't exist
         ValueError: If file format is invalid or inconsistent
+
+    Example:
+        >>> halos, meta = load_binary_tree('tests/data/input/trees_063.0')
+        >>> print(f"Loaded {meta['totNHalos']} halos from {meta['Ntrees']} trees")
+        Loaded 175869 halos from 3432 trees
+        >>> print(f"First halo: Mvir={halos[0].Mvir:.3f}, Pos={halos[0].Pos}")
+        First halo: Mvir=12.345, Pos=[10.2 15.3 8.9]
     """
     file_path = Path(file_path)
 
@@ -171,9 +178,10 @@ def get_halos_by_snapshot(halos):
             Values are NumPy arrays of indices into the halos array
 
     Example:
-        >>> halos, _ = load_binary_tree('simulations/millennium/snapshots/trees_063.0')
+        >>> halos, _ = load_binary_tree('trees_063.0')
         >>> by_snap = get_halos_by_snapshot(halos)
         >>> print(f"Snapshot 63 has {len(by_snap[63])} halos")
+        Snapshot 63 has 52341 halos
         >>> # Access halos at snapshot 63
         >>> snap63_halos = halos[by_snap[63]]
     """

@@ -13,7 +13,7 @@ DEFAULT_MODEL = ""
 # Mirrors DEFAULT_SIMULATION in the Makefile. The Makefile always exports
 # SIMULATION when it invokes these helpers, so this default only applies to
 # standalone script runs.
-DEFAULT_SIMULATION = "millennium"
+DEFAULT_SIMULATION = "mini-millennium"
 
 
 def rel(path: Path) -> str:

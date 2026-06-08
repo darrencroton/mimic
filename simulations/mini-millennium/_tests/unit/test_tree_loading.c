@@ -196,7 +196,7 @@ int test_tree_data_validity(void) {
 
     /* Check snapshot number is reasonable */
     TEST_ASSERT(h->SnapNum >= 0, "SnapNum should be non-negative");
-    TEST_ASSERT(h->SnapNum <= 63, "SnapNum should be <= 63 for Millennium");
+    TEST_ASSERT(h->SnapNum <= 63, "SnapNum should be <= 63 for mini-Millennium");
   }
 
   printf("  ✓ All checked halos have valid data\n");

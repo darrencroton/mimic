@@ -404,6 +404,9 @@ class MimicParameters:
             self.params["NumSimulationTreeFiles"] = (
                 self.params["LastFile"] - self.params["FirstFile"] + 1
             )
+            # For .par format there is no separate simulation-extent concept; the
+            # specified file range is the full volume being analysed.
+            self.params["SimulationTotalTreeFiles"] = self.params["NumSimulationTreeFiles"]
         elif "NumSimulationTreeFiles" not in self.params:
             if colour_enabled():
                 print(
@@ -462,12 +465,31 @@ class MimicParameters:
         # Input section from simulation package
         input_config = sim_config.get("input", {})
         if input_config:
-            self.params["FirstFile"] = input_config.get("first_file", 0)
-            self.params["LastFile"] = input_config.get("last_file", 0)
+            sim_first = input_config.get("first_file", 0)
+            sim_last = input_config.get("last_file", 0)
+            self.params["FirstFile"] = sim_first
+            self.params["LastFile"] = sim_last
             self.params["TreeName"] = input_config.get("tree_name", "")
             self.params["TreeType"] = input_config.get("tree_type", "lhalo_binary")
             self.params["SimulationDir"] = input_config.get("simulation_dir", "./")
             self.params["FileWithSnapList"] = input_config.get("snapshot_list_file", "")
+
+            # Full simulation file count — denominator for volume fraction
+            self.params["SimulationTotalTreeFiles"] = sim_last - sim_first + 1
+
+            # Apply first_file/last_file overrides from the run YAML's input: block.
+            # These are the only input-block fields that affect plotting calculations.
+            run_input = config.get("input", {})
+            if run_input:
+                if "first_file" in run_input:
+                    self.params["FirstFile"] = run_input["first_file"]
+                if "last_file" in run_input:
+                    self.params["LastFile"] = run_input["last_file"]
+
+            # Files actually processed — numerator for volume fraction
+            self.params["NumSimulationTreeFiles"] = (
+                self.params["LastFile"] - self.params["FirstFile"] + 1
+            )
 
             a_list_path = resolve_relative_path(self.params["FileWithSnapList"], self.param_file)
             if os.path.exists(a_list_path):
@@ -476,11 +498,6 @@ class MimicParameters:
                 if not self.params["OutputSnapshots"]:
                     self.params["OutputSnapshots"] = list(range(num_snapshots))
                     self.params["NumOutputs"] = num_snapshots
-
-            # Calculate NumSimulationTreeFiles from FirstFile and LastFile
-            self.params["NumSimulationTreeFiles"] = (
-                self.params["LastFile"] - self.params["FirstFile"] + 1
-            )
 
         # Simulation section from simulation package
         simulation_config = sim_config.get("simulation", {})
@@ -767,20 +784,17 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     # Convert to recarray for attribute access
     galaxies = galaxies.view(np.recarray)
 
-    # Calculate the volume based on the box size and the number of good files read
-    # Volume is the box size cubed, scaled by the fraction of files actually read
-    # This assumes files are distributed uniformly across the simulation volume
     volume = box_size**3.0
 
-    # If we have information about first/last file and good files, adjust volume
-    if "FirstFile" in params and "LastFile" in params:
-        total_files = params["NumSimulationTreeFiles"]
-        if total_files > 0 and good_files > 0:
+    # Scale volume by the fraction of simulation files actually read.
+    # NumSimulationTreeFiles reflects any first_file/last_file overrides from the run YAML.
+    # SimulationTotalTreeFiles is always the full simulation extent from simulation_info.yaml.
+    if "NumSimulationTreeFiles" in params and "SimulationTotalTreeFiles" in params:
+        total_files = params["SimulationTotalTreeFiles"]
+        if total_files > 0:
             volume = volume * good_files / total_files
             if verbose:
-                print(
-                    f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}"
-                )
+                print(f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}")
                 print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
 
     # Create metadata dictionary
@@ -939,16 +953,17 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
     if verbose:
         print(f"Total halos read: {tot_ngals}")
 
-    # Calculate volume
     volume = box_size**3.0
-    if "FirstFile" in params and "LastFile" in params:
-        total_files = params.get("NumSimulationTreeFiles", good_files)
-        if total_files > 0 and good_files > 0:
+
+    # Scale volume by the fraction of simulation files actually read.
+    # NumSimulationTreeFiles reflects any first_file/last_file overrides from the run YAML.
+    # SimulationTotalTreeFiles is always the full simulation extent from simulation_info.yaml.
+    if "NumSimulationTreeFiles" in params and "SimulationTotalTreeFiles" in params:
+        total_files = params["SimulationTotalTreeFiles"]
+        if total_files > 0:
             volume = volume * good_files / total_files
             if verbose:
-                print(
-                    f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}"
-                )
+                print(f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}")
                 print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
 
     # Create metadata dictionary

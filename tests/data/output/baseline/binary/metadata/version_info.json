@@ -5,7 +5,7 @@
   "build_date": "Jun  8 2026",
   "run_date": "2026-06-08T13:30:06Z",
   "parameters": {
-    "file_path": "build/generated/test_inputs/sage/millennium/simulations/millennium/test_uniquegalid.yaml",
+    "file_path": "build/generated/test_inputs/sage/mini-millennium/simulations/mini-millennium/test_uniquegalid.yaml",
     "parameter_md5_checksum": "6461737693e98258a5f8eea6d15b2bf9"
   },
   "compiler": "gcc 4.2.1",

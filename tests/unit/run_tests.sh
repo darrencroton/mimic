@@ -127,9 +127,9 @@ MODEL_ROOT="models/${MODEL}"
 
 # SIMULATION selects the compiled simulation property package, required for the
 # MIMIC_COMPILED_SIMULATION macro in read_parameter_file.c. The Makefile exports
-# SIMULATION when invoking tests-unit; default to millennium for standalone runs,
+# SIMULATION when invoking tests-unit; default to mini-millennium for standalone runs,
 # mirroring DEFAULT_SIMULATION in the Makefile.
-SIMULATION="${SIMULATION:-millennium}"
+SIMULATION="${SIMULATION:-mini-millennium}"
 
 # Common compiler flags
 CC="${CC:-gcc}"

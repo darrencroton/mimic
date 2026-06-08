@@ -61,7 +61,7 @@ class TestModulePipeline(unittest.TestCase):
             )
 
         # Reference parameter file
-        cls.ref_param_file = os.path.join(cls.repo_root, "input", "millennium.yaml")
+        cls.ref_param_file = os.path.join(cls.repo_root, "input", "mini-millennium.yaml")
 
         # Create temporary directory for test outputs
         cls.temp_dir = tempfile.mkdtemp(prefix="mimic_module_test_")

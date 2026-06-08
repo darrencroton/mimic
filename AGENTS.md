@@ -27,7 +27,7 @@ make
 # Note: Property code auto-regenerates during `make` when YAML changes
 # MODEL selects the model set and SIMULATION selects the simulation/catalog
 # property package. They default to DEFAULT_MODEL (sage) and DEFAULT_SIMULATION
-# (millennium) in the Makefile, so plain `make` builds the defaults; override
+# (mini-millennium) in the Makefile, so plain `make` builds the defaults; override
 # both per invocation when testing other combinations. If either package is
 # missing (renamed/removed), make fails loudly with "Unknown MODEL" or
 # "Unknown SIMULATION" rather than mis-building. Mimic builds one model set and
@@ -110,15 +110,15 @@ make check-format
 
 ```bash
 # Basic execution
-./mimic models/sage/input/sage_millennium.yaml
-./mimic models/sham/input/sham_millennium.yaml    # SHAM model
+./mimic models/sage/input/sage_mini-millennium.yaml
+./mimic models/sham/input/sham_mini-millennium.yaml    # SHAM model
 
 # Verbosity options
-./mimic --debug models/sage/input/sage_millennium.yaml    # Most verbose (debug output + context)
-./mimic --verbose models/sage/input/sage_millennium.yaml  # Add context (timestamp, file:line)
-./mimic --quiet models/sage/input/sage_millennium.yaml    # Warnings/errors only
-./mimic --skip models/sage/input/sage_millennium.yaml     # Skip existing output files
-./mimic --compress models/sage/input/sage_millennium.yaml # gzip HDF5 galaxy output (off by default)
+./mimic --debug models/sage/input/sage_mini-millennium.yaml    # Most verbose (debug output + context)
+./mimic --verbose models/sage/input/sage_mini-millennium.yaml  # Add context (timestamp, file:line)
+./mimic --quiet models/sage/input/sage_mini-millennium.yaml    # Warnings/errors only
+./mimic --skip models/sage/input/sage_mini-millennium.yaml     # Skip existing output files
+./mimic --compress models/sage/input/sage_mini-millennium.yaml # gzip HDF5 galaxy output (off by default)
 ```
 
 ---
@@ -174,18 +174,18 @@ python3 test_validation_helpers.py
 
 # Generate all plots (18 snapshot + 4 evolution)
 cd ..
-python mimic-plot.py --param-file=../../models/sage/input/sage_millennium.yaml
+python mimic-plot.py --param-file=../../models/sage/input/sage_mini-millennium.yaml
 
 # Generate specific plots
-python mimic-plot.py --param-file=../../models/sage/input/sage_millennium.yaml --plots=halo_mass_function,spin_distribution
+python mimic-plot.py --param-file=../../models/sage/input/sage_mini-millennium.yaml --plots=halo_mass_function,spin_distribution
 
 # Snapshot-only or evolution-only
-python mimic-plot.py --param-file=../../models/sage/input/sage_millennium.yaml --snapshot-plots
-python mimic-plot.py --param-file=../../models/sage/input/sage_millennium.yaml --evolution-plots
+python mimic-plot.py --param-file=../../models/sage/input/sage_mini-millennium.yaml --snapshot-plots
+python mimic-plot.py --param-file=../../models/sage/input/sage_mini-millennium.yaml --evolution-plots
 
 # Works from any directory
 cd ../..
-python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_millennium.yaml --plots=halo_mass_function
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_mini-millennium.yaml --plots=halo_mass_function
 
 deactivate
 ```
@@ -195,12 +195,12 @@ deactivate
 ## Benchmarking
 
 ```bash
-# Run performance benchmark (default uses models/sage/input/sage_millennium.yaml)
+# Run performance benchmark (default uses models/sage/input/sage_mini-millennium.yaml)
 ./scripts/benchmark_mimic.sh
 
 # With options
-make MODEL=sage SIMULATION=millennium generate-test-inputs
-./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/millennium/core/test_binary.yaml
+make MODEL=sage SIMULATION=mini-millennium generate-test-inputs
+./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
 ./scripts/benchmark_mimic.sh --verbose
 MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
 MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
@@ -248,7 +248,7 @@ models/
     └── plots/    SHAM plotting figures and profiles
 
 simulations/
-└── millennium/    Millennium metadata, halo properties, and snapshot lists
+└── mini-millennium/    mini-Millennium metadata, halo properties, and snapshot lists
 
 build/generated/     Build-time generated files (git_version.h, test lists)
 tests/               Unit, integration, and scientific tests

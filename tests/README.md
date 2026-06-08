@@ -14,7 +14,7 @@ make tests-integration   # Python integration tests
 make tests-scientific    # Physics validation
 ```
 
-NOTE: `MODEL` and `SIMULATION` default to `sage` and `millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
+NOTE: `MODEL` and `SIMULATION` default to `sage` and `mini-millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
 
 ## Test Tiers
 
@@ -71,7 +71,7 @@ python3 tests/integration/test_output_formats.py
 python3 models/sage/modules/sage_apply_cooling/_tests/test_integration_sage_apply_cooling.py
 ```
 
-Integration tests are plain Python scripts. You can run core tests under `tests/integration/`, simulation-owned tests under `simulations/<simulation>/_tests/integration/`, or module-specific scripts under `models/<model>/modules/<module>/_tests/`. Shared core and simulation test run files are generated under `build/generated/test_inputs/<MODEL>/<SIMULATION>/`; set both explicitly when the built executable is not the default SAGE/Millennium build.
+Integration tests are plain Python scripts. You can run core tests under `tests/integration/`, simulation-owned tests under `simulations/<simulation>/_tests/integration/`, or module-specific scripts under `models/<model>/modules/<module>/_tests/`. Shared core and simulation test run files are generated under `build/generated/test_inputs/<MODEL>/<SIMULATION>/`; set both explicitly when the built executable is not the default SAGE/mini-Millennium build.
 
 **Scientific tests**:
 ```bash
@@ -103,7 +103,7 @@ Generated shared test run files live under `build/generated/test_inputs/<MODEL>/
 
 Test suite uses mini-Millennium simulation data, automatically downloaded by `./scripts/first_run.sh`.
 
-Location: `simulations/millennium/snapshots/`
+Location: `simulations/mini-millennium/snapshots/`
 
 ## Writing Tests
 
@@ -121,7 +121,7 @@ See [docs/DEVELOPER-GUIDE.md](../docs/DEVELOPER-GUIDE.md#testing) for:
 
 **Integration or scientific tests fail**: Ensure Python environment activated (`source mimic_venv/bin/activate`)
 
-**Wrong model or simulation at runtime**: Rebuild with the same selectors as the run file, for example `make MODEL=sham SIMULATION=millennium` for the SHAM/Millennium package pair. Mimic fails fast if a run file selects a model or simulation property package that does not match the executable.
+**Wrong model or simulation at runtime**: Rebuild with the same selectors as the run file, for example `make MODEL=sham SIMULATION=mini-millennium` for the SHAM/mini-Millennium package pair. Mimic fails fast if a run file selects a model or simulation property package that does not match the executable.
 
 **Unit test command not found**: Do not run `./test_memory_system.test` directly from `tests/unit/`; use `MODEL=<name> SIMULATION=<name> tests/unit/run_tests.sh <test_name>` so the binary is rebuilt with current generated sources.
 

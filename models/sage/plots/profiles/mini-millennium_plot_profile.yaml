@@ -1,0 +1,12 @@
+inherits:
+  - default.yaml
+
+mode: validation
+
+simulation: mini-millennium
+
+axes:
+  stellar_mass_function:
+    xlim: [7.0, 12.5]
+  halo_mass_function:
+    xlim: [9.0, 15.5]

@@ -23,8 +23,8 @@ echo ""
 # Script is in scripts/ subdirectory, so get parent directory (repo root)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-RUN_FILE="models/sage/input/sage_millennium.yaml"
-SIM_CONFIG_FILE="simulations/millennium/simulation_info.yaml"
+RUN_FILE="models/sage/input/sage_mini-millennium.yaml"
+SIM_CONFIG_FILE="simulations/mini-millennium/simulation_info.yaml"
 cd "$REPO_ROOT"
 
 if [[ ! -f "README.md" ]] || [[ ! -f "Makefile" ]] || [[ ! -d "src" ]]; then
@@ -41,9 +41,9 @@ echo ""
 echo "Step 1: Creating directory structure..."
 echo "----------------------------------------"
 
-echo "Creating ./simulations/millennium/snapshots directory..."
-mkdir -p simulations/millennium/snapshots
-echo "✓ Created simulations/millennium/snapshots"
+echo "Creating ./simulations/mini-millennium/snapshots directory..."
+mkdir -p simulations/mini-millennium/snapshots
+echo "✓ Created simulations/mini-millennium/snapshots"
 
 echo ""
 
@@ -51,10 +51,10 @@ echo ""
 echo "Step 2: Downloading mini-Millennium simulation trees..."
 echo "--------------------------------------------------------"
 
-cd simulations/millennium/snapshots
+cd simulations/mini-millennium/snapshots
 
 if [[ -f "trees_063.7" ]]; then
-    echo "✓ Mini-Millennium trees already present. Skipping download."
+    echo "✓ mini-Millennium trees already present. Skipping download."
 else
     echo "Checking for download tools (wget or curl)..."
     
@@ -100,7 +100,7 @@ else
     echo "✓ Extracted and cleaned up tree files"
 fi
 
-echo "✓ Mini-Millennium trees are ready in: $(pwd)"
+echo "✓ mini-Millennium trees are ready in: $(pwd)"
 echo ""
 
 # Step 3: Set up Python plotting environment
@@ -281,12 +281,12 @@ echo "---------------------------"
 VALIDATION_ERRORS=()
 
 # Check if tree files exist
-if [[ ! -f "simulations/millennium/snapshots/trees_063.0" ]]; then
-    VALIDATION_ERRORS+=("Tree files not found in simulations/millennium/snapshots/")
+if [[ ! -f "simulations/mini-millennium/snapshots/trees_063.0" ]]; then
+    VALIDATION_ERRORS+=("Tree files not found in simulations/mini-millennium/snapshots/")
 fi
 
 # Check if a_list file exists
-if [[ ! -f "simulations/millennium/millennium.a_list" ]]; then
+if [[ ! -f "simulations/mini-millennium/mini-millennium.a_list" ]]; then
     VALIDATION_ERRORS+=("simulation snapshot list not found")
 fi
 

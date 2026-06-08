@@ -268,7 +268,7 @@ def test_module_context_fields():
         assert len(all_executions) >= 4, "Should have at least 4 executions"
         first_fof = all_executions[:4]
 
-        # Verify redshift is set and reasonable (0 <= z <= 127 for Millennium)
+        # Verify redshift is set and reasonable (0 <= z <= 127 for mini-Millennium)
         for exec_info in first_fof:
             z = exec_info["redshift"]
             assert 0 <= z <= 127, f"Redshift should be in range [0, 127], got {z}"

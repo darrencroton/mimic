@@ -21,7 +21,7 @@ MODEL_FREE_TARGETS := clean tidy help check-docs check-format test-clean
 # Most users work with one model/simulation pair: leave these defaults as your
 # primary pair and run plain `make`. Override per-invocation with
 # `make MODEL=<name> SIMULATION=<name>`, or change these lines if your primary
-# packages are not sage/Millennium.
+# packages are not sage/mini-Millennium.
 DEFAULT_MODEL := sage
 MODEL ?= $(DEFAULT_MODEL)
 
@@ -48,8 +48,8 @@ endif
 # line. Mimic compiles one model package against one simulation/catalog property
 # package at a time. Leave this as your primary simulation and run plain `make`;
 # override per-invocation with `make SIMULATION=<name>` (or the `SIM=<name>`
-# shorthand), or change this line if your primary simulation is not millennium.
-DEFAULT_SIMULATION := millennium
+# shorthand), or change this line if your primary simulation is not mini-millennium.
+DEFAULT_SIMULATION := mini-millennium
 
 # Catch the common 'simulation='/'sim=' (lowercase) typos — Make variable names
 # are case-sensitive, so these would otherwise be silently ignored.
@@ -455,9 +455,9 @@ help:
 	@echo "  make validate-test-registry - Validate test declarations"
 	@echo ""
 	@echo "Options:"
-	@echo "  Defaults: MODEL=sage SIMULATION=millennium"
-	@echo "  make MODEL=sham SIMULATION=millennium  - Build SHAM against Millennium"
-	@echo "  make SIM=millennium                    - Shorthand for SIMULATION=<name>"
+	@echo "  Defaults: MODEL=sage SIMULATION=mini-millennium"
+	@echo "  make MODEL=sham SIMULATION=mini-millennium  - Build SHAM against mini-Millennium"
+	@echo "  make SIM=mini-millennium                    - Shorthand for SIMULATION=<name>"
 	@echo "  make USE-HDF5=no                       - Disable HDF5 support"
 	@echo "  make USE-MPI=yes                       - Enable MPI support"
 	@echo "  make -j4                               - Parallel build"

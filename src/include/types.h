@@ -15,7 +15,7 @@ struct RawHalo {
 
   /* properties of halo */
   int Len;
-  float M_Mean200, Mvir, M_TopHat; /* for Millennium, Mvir=M_Crit200 */
+  float M_Mean200, Mvir, M_TopHat; /* for mini-Millennium, Mvir=M_Crit200 */
   float Pos[3];
   float Vel[3];
   float VelDisp;

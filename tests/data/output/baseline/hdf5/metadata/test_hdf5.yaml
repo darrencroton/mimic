@@ -8,10 +8,10 @@ model:
   path: models/sage
   model_properties: models/sage/model_properties.yaml
 simulation:
-  name: test_millennium
+  name: test_mini-millennium
   path: tests/data
   config: tests/data/test_simulation.yaml
-  halo_properties: simulations/millennium/halo_properties.yaml
+  halo_properties: simulations/mini-millennium/halo_properties.yaml
 output:
   output_filename: model
   output_directory: ./tests/data/output/hdf5/
@@ -22,4 +22,4 @@ SubSteps: 1
 modules:
   parameters: {}
 plotting:
-  profile: models/sage/plots/profiles/millennium_plot_profile.yaml
+  profile: models/sage/plots/profiles/mini-millennium_plot_profile.yaml

@@ -3,7 +3,7 @@ inherits:
 
 mode: validation
 
-simulation: millennium
+simulation: mini-millennium
 
 axes:
   stellar_mass_function:

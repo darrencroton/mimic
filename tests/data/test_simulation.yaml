@@ -1,4 +1,4 @@
-# Test Millennium Simulation Metadata
+# Test mini-Millennium Simulation Metadata
 
 input:
   first_file: 0
@@ -6,7 +6,7 @@ input:
   tree_name: trees_063
   tree_type: lhalo_binary
   simulation_dir: ./tests/data/input/
-  snapshot_list_file: ./tests/data/input/millennium.a_list
+  snapshot_list_file: ./tests/data/input/mini-millennium.a_list
 
 simulation:
   cosmology:

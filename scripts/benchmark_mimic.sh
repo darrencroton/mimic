@@ -16,7 +16,7 @@
 # REQUIREMENTS:
 #   - Can be run from any directory
 #   - GNU Make must be available
-#   - Parameter file must exist (default: models/sage/input/sage_millennium.yaml)
+#   - Parameter file must exist (default: models/sage/input/sage_mini-millennium.yaml)
 #
 # OUTPUT:
 #   Results are stored in JSON format in the benchmarks/ directory
@@ -28,13 +28,13 @@
 #   MAKE_FLAGS        - Additional make flags (e.g., "USE-HDF5=no USE-MPI=yes")
 #
 # EXAMPLES:
-#   # Basic benchmark (uses default models/sage/input/sage_millennium.yaml)
+#   # Basic benchmark (uses default models/sage/input/sage_mini-millennium.yaml)
 #   ./scripts/benchmark_mimic.sh
 #
 #   # Benchmark with custom parameter file
-#   make MODEL=sage SIMULATION=millennium generate-test-inputs
-#   ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/millennium/core/test_binary.yaml
-#   ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage/millennium/core/test_binary.yaml
+#   make MODEL=sage SIMULATION=mini-millennium generate-test-inputs
+#   ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
+#   ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
 #
 #   # Benchmark with MPI
 #   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
@@ -122,7 +122,7 @@ verbose_log() {
 
 # Set default parameter file if not specified
 if [[ -z "$PARAM_FILE" ]]; then
-    PARAM_FILE="${ROOT_DIR}/models/sage/input/sage_millennium.yaml"
+    PARAM_FILE="${ROOT_DIR}/models/sage/input/sage_mini-millennium.yaml"
 fi
 
 # Show help if requested
@@ -136,7 +136,7 @@ OPTIONS:
   --param-file FILE     Parameter file to use for benchmarking
 
 ARGUMENTS:
-  PARAM_FILE            Parameter file to benchmark (default: models/sage/input/sage_millennium.yaml)
+  PARAM_FILE            Parameter file to benchmark (default: models/sage/input/sage_mini-millennium.yaml)
                         Can be specified as positional argument or with --param-file
                         Supports both absolute and relative paths
 
@@ -164,16 +164,16 @@ OUTPUT:
   - configuration: Build and runtime configuration
 
 EXAMPLES:
-  # Basic benchmark (uses default models/sage/input/sage_millennium.yaml)
+  # Basic benchmark (uses default models/sage/input/sage_mini-millennium.yaml)
   # Can run from anywhere; build selectors come from the run file, environment,
   # or Makefile defaults, in that order:
   ./scripts/benchmark_mimic.sh
   cd scripts && ./benchmark_mimic.sh
 
   # Benchmark with custom parameter file from the repository root
-  make MODEL=sage SIMULATION=millennium generate-test-inputs
-  ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/millennium/core/test_binary.yaml
-  ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage/millennium/core/test_binary.yaml
+  make MODEL=sage SIMULATION=mini-millennium generate-test-inputs
+  ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
+  ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
 
   # Verbose output
   ./scripts/benchmark_mimic.sh --verbose
@@ -337,7 +337,7 @@ if [[ "$OUTPUT_DIR" != /* ]]; then
 fi
 
 SELECTED_MODEL="${MODEL:-${CONFIG_MODEL:-$(make_default DEFAULT_MODEL sage)}}"
-SELECTED_SIMULATION="${SIMULATION:-${SIM:-${CONFIG_SIMULATION:-$(make_default DEFAULT_SIMULATION millennium)}}}"
+SELECTED_SIMULATION="${SIMULATION:-${SIM:-${CONFIG_SIMULATION:-$(make_default DEFAULT_SIMULATION mini-millennium)}}}"
 
 if [[ -z "${SELECTED_MODEL}" ]]; then
     error_exit "Could not determine MODEL from environment, run file, or Makefile default"

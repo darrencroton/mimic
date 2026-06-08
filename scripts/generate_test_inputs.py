@@ -18,7 +18,7 @@ import yaml
 from discovery import REPO_ROOT
 
 DEFAULT_MODEL = "sage"
-DEFAULT_SIMULATION = "millennium"
+DEFAULT_SIMULATION = "mini-millennium"
 OUTPUT_ROOT = REPO_ROOT / "build" / "generated" / "test_inputs"
 
 
@@ -60,17 +60,13 @@ def plot_profile(model_root: Path, simulation: str) -> str:
 def test_simulation_config(simulation_root: Path, simulation: str) -> tuple[str, str, str]:
     """Return simulation name, path, and config for fast test runs.
 
-    A simulation package may provide its own test-sized simulation metadata at
-    simulations/<simulation>/_tests/input/test_simulation.yaml. Millennium also
-    has the historical shared mini-catalog under tests/data/.
+    mini-Millennium has a shared single-file mini-catalog under tests/data/.
+    All other simulations fall back to the production simulation_info.yaml;
+    the generated run YAML then applies input: overrides to cap the file range.
     """
-    package_test_config = simulation_root / "_tests" / "input" / "test_simulation.yaml"
-    if package_test_config.is_file():
-        return f"test_{simulation}", rel(simulation_root), rel(package_test_config)
-
-    shared_millennium_config = REPO_ROOT / "tests" / "data" / "test_simulation.yaml"
-    if simulation == "millennium" and shared_millennium_config.is_file():
-        return "test_millennium", "tests/data", rel(shared_millennium_config)
+    shared_mini_millennium_config = REPO_ROOT / "tests" / "data" / "test_simulation.yaml"
+    if simulation == "mini-millennium" and shared_mini_millennium_config.is_file():
+        return "test_mini-millennium", "tests/data", rel(shared_mini_millennium_config)
 
     production_config = simulation_root / "simulation_info.yaml"
     require_file(production_config, "simulation config")
@@ -132,8 +128,11 @@ def write_run(
     output_directory: str,
     output_filename: str,
     snapshot_list: list[int],
+    input_overrides: dict[str, Any] | None = None,
 ) -> None:
     config = dict(base)
+    if input_overrides:
+        config["input"] = input_overrides
     config["output"] = {
         "output_filename": output_filename,
         "output_directory": output_directory,
@@ -153,6 +152,10 @@ def generate() -> None:
     output_root = generation_root(model, simulation)
     base = base_run_config(model, simulation)
 
+    # All test runs use a single tree file regardless of what simulation_info.yaml says.
+    # This keeps tests fast and independent of local data availability.
+    test_input = {"first_file": 0, "last_file": 0}
+
     write_run(
         output_root / "core" / "test_binary.yaml",
         base,
@@ -161,6 +164,7 @@ def generate() -> None:
         output_directory="./tests/data/output/binary/",
         output_filename="model",
         snapshot_list=[63],
+        input_overrides=test_input,
     )
     write_run(
         output_root / "core" / "test_hdf5.yaml",
@@ -170,6 +174,7 @@ def generate() -> None:
         output_directory="./tests/data/output/hdf5/",
         output_filename="model",
         snapshot_list=[63],
+        input_overrides=test_input,
     )
 
     simulation_dir = output_root / "simulations" / simulation
@@ -181,6 +186,7 @@ def generate() -> None:
         output_directory="./tests/data/output/binary/",
         output_filename="model",
         snapshot_list=[63],
+        input_overrides=test_input,
     )
     write_run(
         simulation_dir / "test_hdf5.yaml",
@@ -190,17 +196,18 @@ def generate() -> None:
         output_directory="./tests/data/output/hdf5/",
         output_filename="model",
         snapshot_list=[63],
+        input_overrides=test_input,
     )
-    if simulation == "millennium":
-        write_run(
-            simulation_dir / "test_uniquegalid.yaml",
-            base,
-            title="Mimic Millennium UniqueGalaxyID Test Run",
-            output_format="binary",
-            output_directory="./tests/data/output/binary/",
-            output_filename="model_uniquegalid",
-            snapshot_list=[62, 63],
-        )
+    write_run(
+        simulation_dir / "test_uniquegalid.yaml",
+        base,
+        title=f"Mimic {simulation} UniqueGalaxyID Test Run",
+        output_format="binary",
+        output_directory="./tests/data/output/binary/",
+        output_filename="model_uniquegalid",
+        snapshot_list=[62, 63],
+        input_overrides=test_input,
+    )
 
     manifest = {
         "generated_by": "scripts/generate_test_inputs.py",

@@ -119,7 +119,7 @@ Then regenerate, build, and run:
 make validate-modules
 make generate
 make
-./mimic models/sage/input/sage_millennium.yaml
+./mimic models/sage/input/sage_mini-millennium.yaml
 ```
 
 ---
@@ -522,7 +522,7 @@ Property metadata is the source of truth for output fields and unit labels. Do n
 
 ## Adding a New Simulation
 
-A simulation package lives under `simulations/<name>/` and provides the merger tree catalog, cosmology, units, snapshot list, and any catalog-specific halo properties for a particular N-body simulation run. The shipped `simulations/millennium/` package is the reference example.
+A simulation package lives under `simulations/<name>/` and provides the merger tree catalog, cosmology, units, snapshot list, and any catalog-specific halo properties for a particular N-body simulation run. The shipped `simulations/mini-millennium/` package is the reference example.
 
 ### Directory Structure
 
@@ -563,7 +563,7 @@ simulation:
     velocity_in_cm_per_s: 100000.0  # 1 code velocity unit in cm/s (1 km/s here)
 ```
 
-The `simulation.units` block is not labeling — `init.c` derives all runtime unit conversions (time, density, pressure, energy, G) from these three values. Getting them wrong produces physically incorrect output with no error at runtime. The Millennium example uses the standard `Mpc/h`, `1e10 Msun/h`, `km/s` convention.
+The `simulation.units` block is not labeling — `init.c` derives all runtime unit conversions (time, density, pressure, energy, G) from these three values. Getting them wrong produces physically incorrect output with no error at runtime. The mini-Millennium example uses the standard `Mpc/h`, `1e10 Msun/h`, `km/s` convention.
 
 **Supported tree formats:**
 
@@ -652,7 +652,7 @@ plotting:
   profile: simulations/my_sim/my_sim_plot_profile.yaml
 ```
 
-The run file `plotting.profile` must be present for `mimic-plot.py` to locate it; the binary itself ignores the plotting section. Profile `inherits` entries are resolved relative to the profile file that declares them, so package-local profiles should inherit neighbouring defaults with local paths such as `default.yaml`. See `simulations/millennium/plot_profile.yaml` for the format.
+The run file `plotting.profile` must be present for `mimic-plot.py` to locate it; the binary itself ignores the plotting section. Profile `inherits` entries are resolved relative to the profile file that declares them, so package-local profiles should inherit neighbouring defaults with local paths such as `default.yaml`. See `simulations/mini-millennium/plot_profile.yaml` for the format.
 
 ### Workflow Summary
 
@@ -665,7 +665,7 @@ mkdir -p simulations/my_sim/snapshots
 # 3. Place or symlink tree data under simulations/my_sim/snapshots/
 
 # 4. Create the run file
-cp models/sage/input/sage_millennium.yaml models/sage/input/my_sim.yaml
+cp models/sage/input/sage_mini-millennium.yaml models/sage/input/my_sim.yaml
 # Edit to point at simulations/my_sim/simulation_info.yaml and halo_properties.yaml
 
 # 5. Regenerate property code for the selected model + simulation package
@@ -823,7 +823,7 @@ Daily loop:
 make validate-modules
 make generate
 make
-./mimic --debug models/sage/input/sage_millennium.yaml
+./mimic --debug models/sage/input/sage_mini-millennium.yaml
 make check-docs
 make tests
 ```
@@ -880,7 +880,7 @@ to verify ignored generated files are current after generation.
 
 ### Benchmarking
 
-Use `scripts/benchmark_mimic.sh` when you need a repeatable runtime and memory baseline before or after performance-sensitive changes. The default invocation benchmarks `models/sage/input/sage_millennium.yaml` and writes a timestamped JSON result under `benchmarks/`:
+Use `scripts/benchmark_mimic.sh` when you need a repeatable runtime and memory baseline before or after performance-sensitive changes. The default invocation benchmarks `models/sage/input/sage_mini-millennium.yaml` and writes a timestamped JSON result under `benchmarks/`:
 
 ```bash
 ./scripts/benchmark_mimic.sh
@@ -889,9 +889,9 @@ Use `scripts/benchmark_mimic.sh` when you need a repeatable runtime and memory b
 For a faster generated test input or a specific run file:
 
 ```bash
-make MODEL=sage SIMULATION=millennium generate-test-inputs
-./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/millennium/core/test_binary.yaml
-./scripts/benchmark_mimic.sh models/sage/input/sage_millennium.yaml
+make MODEL=sage SIMULATION=mini-millennium generate-test-inputs
+./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
+./scripts/benchmark_mimic.sh models/sage/input/sage_mini-millennium.yaml
 ```
 
 Run `./scripts/benchmark_mimic.sh --help` for MPI, HDF5, and custom build-flag options.
@@ -929,7 +929,7 @@ make clean && make
 Run with debug logs:
 
 ```bash
-./mimic --debug models/sage/input/sage_millennium.yaml 2>&1 | tee debug.log
+./mimic --debug models/sage/input/sage_mini-millennium.yaml 2>&1 | tee debug.log
 ```
 
 If `process()` fails without a useful reason, add `ERROR_LOG()` immediately before the failing `return -1` in the module. The core can identify the module and substep, but only the module knows the physics reason.
@@ -948,8 +948,8 @@ myfree(table);
 For deeper checks:
 
 ```bash
-./mimic --debug models/sage/input/sage_millennium.yaml
-valgrind --leak-check=full ./mimic models/sage/input/sage_millennium.yaml
+./mimic --debug models/sage/input/sage_mini-millennium.yaml
+valgrind --leak-check=full ./mimic models/sage/input/sage_mini-millennium.yaml
 ```
 
 ---

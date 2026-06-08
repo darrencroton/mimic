@@ -1,0 +1,7 @@
+name: mini-millennium
+tree_type: lhalo_binary
+required_files:
+  - path: ./simulations/mini-millennium/snapshots/
+    description: mini-Millennium LHaloTree files used by the shipped SAGE run
+  - path: simulations/mini-millennium/mini-millennium.a_list
+    description: Snapshot scale factor list

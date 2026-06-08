@@ -19,16 +19,16 @@ References:
 ## Package Contents
 
 - `model_properties.yaml`: SAGE galaxy/model property metadata. Edit this when adding, removing, or changing SAGE-owned galaxy properties, then run `make MODEL=sage generate`.
-- `input/`: User-facing SAGE run parameter YAML files, including the shipped Millennium configuration.
+- `input/`: User-facing SAGE run parameter YAML files, including the shipped mini-Millennium configuration.
 - `modules/`: Runtime SAGE physics modules. Each production module has its own directory containing C source, `module_info.yaml`, README, and `_tests/` where applicable.
 - `modules/_tests/`: Shared cross-module tests for processing contracts and parity checks.
 - `shared/`: SAGE-local helper headers and event contracts. These are not framework APIs; copy or reimplement them in another model package if needed.
 - `plots/figures/`: SAGE-specific diagnostic plot implementations for `mimic-plot.py`.
-- `plots/profiles/`: Plot profile YAML files, including Millennium defaults used by the shipped SAGE run.
+- `plots/profiles/`: Plot profile YAML files, including mini-Millennium defaults used by the shipped SAGE run.
 
 ## Runtime Pipeline
 
-The shipped SAGE run configuration lives at `models/sage/input/sage_millennium.yaml`. It builds the pipeline as:
+The shipped SAGE run configuration lives at `models/sage/input/sage_mini-millennium.yaml`. It builds the pipeline as:
 
 - `pre_timestep`: reionization, infall budget preparation, disk scale setup, merger-clock initialization.
 - `galaxy_physics`: gas supply, reincorporation, satellite stripping, cooling, AGN radio-mode heating, star formation, supernova feedback, disk instability, quasar mode, and starburst feedback.
@@ -41,8 +41,8 @@ SAGE uses transport properties such as `InfallingGas`, `CoolingGas`, `NewStellar
 
 ```bash
 make MODEL=sage
-./mimic models/sage/input/sage_millennium.yaml
-python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_millennium.yaml
+./mimic models/sage/input/sage_mini-millennium.yaml
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_mini-millennium.yaml
 ```
 
 Useful checks:

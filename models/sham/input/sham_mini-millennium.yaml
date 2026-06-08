@@ -1,4 +1,4 @@
-# Mimic SHAM on Millennium Run Configuration
+# Mimic SHAM on mini-Millennium Run Configuration
 
 model:
   name: sham
@@ -6,17 +6,17 @@ model:
   model_properties: models/sham/model_properties.yaml
 
 simulation:
-  name: millennium
-  path: simulations/millennium
-  config: simulations/millennium/simulation_info.yaml
-  halo_properties: simulations/millennium/halo_properties.yaml
+  name: mini-millennium
+  path: simulations/mini-millennium
+  config: simulations/mini-millennium/simulation_info.yaml
+  halo_properties: simulations/mini-millennium/halo_properties.yaml
 
 plotting:
-  profile: models/sham/plots/profiles/millennium_plot_profile.yaml
+  profile: models/sham/plots/profiles/mini-millennium_plot_profile.yaml
 
 output:
   output_filename: sham
-  output_directory: output/sham-millennium
+  output_directory: output/sham-mini-millennium
   output_format: hdf5                               # Select binary or hdf5
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]   # Leave empty for all snapshots
 
@@ -43,7 +43,7 @@ modules:
     ShamUseScatter: 1
     ShamScatterDex: 0.20
 
-    # Millennium tree resolution and conservative orphan treatment.
+    # mini-Millennium tree resolution and conservative orphan treatment.
     ShamMinMpeak: 0.10
     ShamMinVpeak: 80.0
     ShamMaxStellarBaryonFraction: 0.17

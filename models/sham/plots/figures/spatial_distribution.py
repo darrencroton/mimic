@@ -70,7 +70,7 @@ def plot(
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
-    box_size = metadata.get("box_size", 62.5)  # Default to Mini-Millennium
+    box_size = metadata.get("box_size", 62.5)  # Default to mini-Millennium
 
     # Filter for galaxies with non-zero halo mass
     w = np.where(galaxies.Mvir > 0.0)[0]

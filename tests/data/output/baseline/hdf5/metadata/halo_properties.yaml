@@ -1,6 +1,6 @@
-# Millennium Halo Catalog Properties
+# mini-Millennium Halo Catalog Properties
 #
-# These fields come from the Millennium/LHaloTree catalog format or are
+# These fields come from the mini-Millennium/LHaloTree catalog format or are
 # catalog-oriented output fields. They are not required for the generic Mimic
 # core processing model.
 

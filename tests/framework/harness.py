@@ -29,7 +29,7 @@ def compiled_model():
 
 def compiled_simulation():
     """Return the simulation property package selected for this test run."""
-    return os.environ.get("SIMULATION") or os.environ.get("SIM") or "millennium"
+    return os.environ.get("SIMULATION") or os.environ.get("SIM") or "mini-millennium"
 
 
 # Strict default tolerance for comparisons against a committed baseline. The
@@ -120,7 +120,7 @@ def _ensure_generated_test_inputs():
         root / "simulations" / compiled_simulation() / "test_binary.yaml",
         root / "simulations" / compiled_simulation() / "test_hdf5.yaml",
     ]
-    if compiled_simulation() == "millennium":
+    if compiled_simulation() == "mini-millennium":
         required.append(root / "simulations" / compiled_simulation() / "test_uniquegalid.yaml")
 
     if _generated_inputs_match_selection(root) and all(path.exists() for path in required):

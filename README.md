@@ -39,12 +39,12 @@ cd mimic
 
 # Build and run the default SAGE + mini-Millennium simulation
 make
-./mimic models/sage/input/sage_millennium.yaml
+./mimic models/sage/input/sage_mini-millennium.yaml
 ```
 
 This runs the shipped mini-Millennium + SAGE example. Other simulations and physics combinations are configured through YAML and module metadata.
 
-NOTE: `MODEL` and `SIMULATION` default to `sage` and `millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
+NOTE: `MODEL` and `SIMULATION` default to `sage` and `mini-millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
 
 ### Generate Plots
 
@@ -53,7 +53,7 @@ NOTE: `MODEL` and `SIMULATION` default to `sage` and `millennium`. Change `DEFAU
 source mimic_venv/bin/activate
 
 # Generate all plots
-python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_millennium.yaml
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_mini-millennium.yaml
 
 # Deactivate when done
 deactivate

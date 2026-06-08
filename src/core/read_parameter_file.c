@@ -1038,8 +1038,8 @@ static void validate_and_postprocess(void) {
   /* The compiled property schema is generated from one simulation's
    * halo_properties.yaml (selected with make SIMULATION=<name>). The run file's
    * simulation.name is a free-form label and may legitimately differ (for
-   * example a test fixture reusing the millennium catalog as
-   * 'test_millennium'). What must match is the property package: the parent
+   * example a test fixture reusing the mini-millennium catalog as
+   * 'test_mini-millennium'). What must match is the property package: the parent
    * directory of the declared simulation.halo_properties path must equal
    * MIMIC_COMPILED_SIMULATION, otherwise the run would be interpreted with a
    * schema it was not built for. */

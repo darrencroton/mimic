@@ -32,7 +32,7 @@ Periodic Boundaries:
 
 Test Data:
   - Uses test_hdf5.yaml (snapshot 63, z=0)
-  - Box size: 500.0 Mpc/h
+  - Box size: 62.5 Mpc/h
   - Processes only halos well inside box boundaries
 
 Author: Mimic Testing Team

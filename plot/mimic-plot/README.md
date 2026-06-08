@@ -530,7 +530,7 @@ If you used the main Mimic setup script (`../../scripts/first_run.sh`), the Pyth
 # From the main Mimic directory
 source mimic_venv/bin/activate
 cd plot/mimic-plot
-python mimic-plot.py --param-file=../../models/sage/input/sage_millennium.yaml
+python mimic-plot.py --param-file=../../models/sage/input/sage_mini-millennium.yaml
 ```
 
 ### Manual Setup

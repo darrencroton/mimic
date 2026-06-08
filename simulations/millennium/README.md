@@ -5,6 +5,6 @@ This package contains Millennium-specific catalog metadata used by Mimic:
 - `simulation_info.yaml`: tree input paths, snapshot list path, cosmology, units, box size, and particle mass
 - `halo_properties.yaml`: Millennium/LHaloTree catalog fields included in the generated output schema (auto-discovered by `make generate`)
 - `millennium.a_list`: 64 snapshot scale factors used for redshift and timestep calculations
-- `snapshots/`: tree data directory — mini-Millennium files land here on `first_run.sh`, or replace with a symlink to your local data
+- `snapshots/`: tree data directory — symlink this to your local Millennium LHaloTree data
 - `plot_profile.yaml`: simulation-specific plotting axis limits and defaults, referenced from run files that use `mimic-plot.py`
-- `input_data_manifest.yaml`: lists the required data files; used by `first_run.sh` to know what to download
+- `input_data_manifest.yaml`: lists the required data files (512 tree files, trees_063.0 through trees_063.511)

@@ -42,7 +42,7 @@ cd "$REPO_ROOT" || exit 1
 MIMIC_EXE="$REPO_ROOT/mimic"
 MODEL="${MODEL:-sage}"
 export MODEL
-SIMULATION="${SIMULATION:-millennium}"
+SIMULATION="${SIMULATION:-mini-millennium}"
 export SIMULATION
 PARAM_FILE="$REPO_ROOT/build/generated/test_inputs/$MODEL/$SIMULATION/core/test_hdf5.yaml"
 OUTPUT_DIR="$REPO_ROOT/tests/data/output/hdf5"
