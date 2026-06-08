@@ -120,6 +120,16 @@ verbose_log() {
     fi
 }
 
+# Evaluate an arithmetic expression via awk; optional second arg is a printf format.
+calc() {
+    local expr="$1" fmt="${2:-}"
+    if [[ -n "$fmt" ]]; then
+        awk "BEGIN {printf \"${fmt}\n\", ${expr}}"
+    else
+        awk "BEGIN {print ${expr}}"
+    fi
+}
+
 # Set default parameter file if not specified
 if [[ -z "$PARAM_FILE" ]]; then
     PARAM_FILE="${ROOT_DIR}/models/sage/input/sage_mini-millennium.yaml"
@@ -419,10 +429,6 @@ cd "${ROOT_DIR}" || error_exit "Could not change to Mimic root directory"
 verbose_log "Cleaning previous build..."
 make clean > /dev/null 2>&1 || true
 
-# Generate module registration code
-verbose_log "Generating module registration code..."
-make MODEL="${SELECTED_MODEL}" SIMULATION="${SELECTED_SIMULATION}" generate > /dev/null 2>&1 || error_exit "Code generation failed"
-
 verbose_log "Building Mimic with flags: ${MAKE_FLAGS}"
 make MODEL="${SELECTED_MODEL}" SIMULATION="${SELECTED_SIMULATION}" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} || error_exit "Build failed"
 
@@ -439,11 +445,6 @@ verbose_log "Using Mimic executable: $MIMIC_EXECUTABLE"
 
 # Prepare benchmark run
 echo "Preparing benchmark run..."
-
-# CRITICAL SAFETY CHECK: Double-check variables before preparing output checks
-if [[ -z "${OUTPUT_DIR}" ]] || [[ -z "${OUTPUT_BASENAME}" ]]; then
-    error_exit "CRITICAL SAFETY: OUTPUT_DIR or OUTPUT_BASENAME is empty. Refusing to continue."
-fi
 
 OUTPUT_MARKER=$(mktemp)
 if [[ -d "${OUTPUT_DIR}" ]]; then
@@ -495,19 +496,11 @@ if [ -x "/usr/bin/time" ]; then
         # Extract wall clock time (user + system)
         USER_TIME=$(grep "user" "${TIME_OUTPUT}" | awk '{print $1}')
         SYS_TIME=$(grep "sys" "${TIME_OUTPUT}" | awk '{print $1}')
-        if command -v bc > /dev/null 2>&1; then
-            REAL_TIME=$(echo "$USER_TIME + $SYS_TIME" | bc)
-        else
-            REAL_TIME=$(awk "BEGIN {print $USER_TIME + $SYS_TIME}")
-        fi
+        REAL_TIME=$(calc "$USER_TIME + $SYS_TIME")
 
         # Memory usage (convert bytes to MB)
         MAX_MEMORY=$(grep "maximum resident set size" "${TIME_OUTPUT}" | awk '{print $1}')
-        if command -v bc > /dev/null 2>&1 && [[ -n "$MAX_MEMORY" ]]; then
-            MAX_MEMORY=$(echo "scale=2; ${MAX_MEMORY} / 1048576" | bc)
-        else
-            MAX_MEMORY=$(awk "BEGIN {printf \"%.2f\", ${MAX_MEMORY:-0} / 1048576}")
-        fi
+        MAX_MEMORY=$(calc "${MAX_MEMORY:-0} / 1048576" "%.2f")
     else
         # Linux version
         verbose_log "Detected Linux"
@@ -532,11 +525,7 @@ if [ -x "/usr/bin/time" ]; then
 
         # Memory usage (convert KB to MB)
         MAX_MEMORY=$(grep "Maximum resident set size" "${TIME_OUTPUT}" | awk '{print $NF}')
-        if command -v bc > /dev/null 2>&1 && [[ -n "$MAX_MEMORY" ]]; then
-            MAX_MEMORY=$(echo "scale=2; ${MAX_MEMORY} / 1024" | bc)
-        else
-            MAX_MEMORY=$(awk "BEGIN {printf \"%.2f\", ${MAX_MEMORY:-0} / 1024}")
-        fi
+        MAX_MEMORY=$(calc "${MAX_MEMORY:-0} / 1024" "%.2f")
     fi
 
     if [ $VERBOSE -eq 1 ]; then

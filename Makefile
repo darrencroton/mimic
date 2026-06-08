@@ -298,7 +298,7 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 .PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific test-clean validate-modules lint-parameters validate-build
 
-all: generate validate-build $(EXEC)
+all: validate-build $(EXEC)
 
 # Pre-build validation - runs on every make
 validate-build:
@@ -410,9 +410,6 @@ $(MODULE_INIT_C): $(MODULE_YAML) scripts/generate_module_registry.py FORCE
 	@echo "Generating module registration code from metadata (auto)..."
 	@python3 scripts/generate_module_registry.py
 	@echo "Generated files for $(words $(MODULE_YAML)) module(s)"
-	@echo ""
-	@echo "Validating parameter usage..."
-	@python3 scripts/lint_parameter_usage.py
 
 # -----------------------------------------------------------------------------
 # Housekeeping Targets
