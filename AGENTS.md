@@ -69,15 +69,19 @@ make tidy
 
 ## Code Formatting
 
+**Always run before committing:**
+
 ```bash
-# Format all C and Python code
 ./scripts/beautify.sh
+```
 
-# Format only C code (requires clang-format)
-./scripts/beautify.sh --c-only
+This formats all C and Python files in one pass. Run the full formatter regardless of which languages you touched — commits often span both, and CI (`make check-format`) checks both.
 
-# Format only Python code (requires black and isort)
-./scripts/beautify.sh --py-only
+Selective flags (only when you need them for a specific reason):
+
+```bash
+./scripts/beautify.sh --c-only    # C only (clang-format)
+./scripts/beautify.sh --py-only   # Python only (black + isort)
 ```
 
 ---
@@ -86,14 +90,12 @@ make tidy
 
 ### C
 - 2-space indent, LLVM base style, 100-character line limit — enforced by `.clang-format` in the repo root; editors discover it automatically
-- Format before committing: `./scripts/beautify.sh --c-only`
 - **Never hand-edit files under `*/generated/`** — they are produced by `make generate` and will be overwritten; the formatter excludes them automatically
 - Code must compile clean under `-Wall -Wextra -Wshadow -Wformat-security -Wundef`; do not introduce new warnings
 - Comments explain **why**, not what — one short line maximum; `@file`/`@brief` Doxygen headers are fine on public API files
 
 ### Python
 - black (line-length 100) + isort (profile black) — configuration in `pyproject.toml`
-- Format before committing: `./scripts/beautify.sh --py-only`
 - Scripts must run under Python 3.9+
 
 ### Line length
