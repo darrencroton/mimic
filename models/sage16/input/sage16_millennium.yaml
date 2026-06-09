@@ -1,4 +1,4 @@
-# Mimic SAGE on mini-Millennium Run Configuration
+# Mimic SAGE on Millennium Run Configuration
 
 model:
   name: sage16
@@ -6,17 +6,21 @@ model:
   model_properties: models/sage16/model_properties.yaml
 
 simulation:
-  name: mini-millennium
-  path: simulations/mini-millennium
-  config: simulations/mini-millennium/simulation_info.yaml
-  halo_properties: simulations/mini-millennium/halo_properties.yaml
+  name: millennium
+  path: simulations/millennium
+  config: simulations/millennium/simulation_info.yaml
+  halo_properties: simulations/millennium/halo_properties.yaml
+
+input:
+  first_file: 0
+  last_file: 15
 
 plotting:
-  profile: models/sage16/plots/profiles/mini-millennium_plot_profile.yaml
+  profile: models/sage16/plots/profiles/millennium_plot_profile.yaml
 
 output:
   output_filename: model
-  output_directory: output/sage-mini-millennium
+  output_directory: output/sage16-millennium
   output_format: hdf5                               # Select binary or hdf5
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]   # Leave empty for all snapshots
 
