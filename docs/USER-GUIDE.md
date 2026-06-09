@@ -324,6 +324,8 @@ For the shipped mini-Millennium/SAGE configuration, common output conventions in
 
 Do not assume these lists are universal for every future model. Treat the property metadata and HDF5 `FieldMetadata` as the source of truth.
 
+Mimic writes a ready-to-run Python example script (`example_Mvir_Len_plot.py`) into the output directory alongside the data. It is pre-configured for that run's format, filename, snapshot, and cosmology — run it directly with no arguments to print the full field list and produce a scatter plot.
+
 ### Reading HDF5 Output
 
 ```python

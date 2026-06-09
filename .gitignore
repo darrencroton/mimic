@@ -3,7 +3,7 @@ mimic
 
 # Data and results
 input/data
-output
+/output
 simulations/*/snapshots
 !tests/data/output/
 !tests/data/output/baseline/

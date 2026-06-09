@@ -40,6 +40,7 @@
 #include "run_log.h"
 
 #include "output/hdf5.h"
+#include "output/python_example.h"
 #include "version.h"
 #include "io.h"
 #include "generated/property_defs.h"
@@ -572,6 +573,7 @@ int main(int argc, char **argv) {
   /* PlottingProfilePath is intentionally not copied: the profile is only
    * needed by mimic-plot.py, which reads it from the run YAML directly. */
   write_output_schema_metadata(metadata_dir);
+  write_python_example(MimicConfig.OutputDir);
   INFO_LOG("Run configuration and referenced package files copied to %s", metadata_dir);
 
   // Create version metadata file
