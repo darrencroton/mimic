@@ -22,7 +22,7 @@ MODEL_FREE_TARGETS := clean tidy help check-docs check-format test-clean
 # primary pair and run plain `make`. Override per-invocation with
 # `make MODEL=<name> SIMULATION=<name>`, or change these lines if your primary
 # packages are not sage/mini-Millennium.
-DEFAULT_MODEL := sage
+DEFAULT_MODEL := sage16
 MODEL ?= $(DEFAULT_MODEL)
 
 # Catch the common 'model=' (lowercase) typo — Make variable names are case-sensitive.

@@ -38,9 +38,13 @@ NC='\033[0m' # No Color
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
+# Load shared project defaults (DEFAULT_MODEL, DEFAULT_SIMULATION, make_default)
+# shellcheck source=scripts/lib/defaults.sh
+. "${REPO_ROOT}/scripts/lib/defaults.sh"
+
 # Paths
 MIMIC_EXE="$REPO_ROOT/mimic"
-MODEL="${MODEL:-sage}"
+MODEL="${MODEL:-${DEFAULT_MODEL}}"
 export MODEL
 SIMULATION="${SIMULATION:-mini-millennium}"
 export SIMULATION

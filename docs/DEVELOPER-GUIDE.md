@@ -863,6 +863,8 @@ Run `make generate` after editing the default package pair, or add `MODEL=<name>
 
 Use the same model and simulation selectors for generation, validation, tests, and build. For the default packages, plain `make generate` and `make` are enough; for a non-default pair, add the same `MODEL=<name> SIMULATION=<name>` values to each command.
 
+To change the project default (e.g. when promoting a new model or simulation package), update `DEFAULT_MODEL` and/or `DEFAULT_SIMULATION` in the Makefile. `scripts/lib/defaults.sh` reads these values at runtime, so `scripts/benchmark_mimic.sh`, `scripts/regenerate_baseline.sh`, and `plot/mimic-plot/tests/test_plotting.sh` all pick up the new defaults automatically. Also update the `model.name`, `model.path`, `model.model_properties`, and `plotting.profile` fields in the model's input YAML files to match.
+
 Generated files include:
 
 | Generator | Inputs | Outputs |

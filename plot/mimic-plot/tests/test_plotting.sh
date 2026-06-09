@@ -9,8 +9,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIMIC_PLOT_DIR="$(dirname "$SCRIPT_DIR")"
 MIMIC_ROOT="$(dirname "$(dirname "$MIMIC_PLOT_DIR")")"
 
+# Load shared project defaults (DEFAULT_MODEL, DEFAULT_SIMULATION, make_default)
+# shellcheck source=scripts/lib/defaults.sh
+. "${MIMIC_ROOT}/scripts/lib/defaults.sh"
+
 # Default parameter file
-PARAM_FILE="${PARAM_FILE:-$MIMIC_ROOT/models/sage/input/sage_mini-millennium.yaml}"
+PARAM_FILE="${PARAM_FILE:-$MIMIC_ROOT/models/${DEFAULT_MODEL}/input/${DEFAULT_MODEL}_${DEFAULT_SIMULATION}.yaml}"
 
 # Check parameter file exists
 if [ ! -f "$PARAM_FILE" ]; then

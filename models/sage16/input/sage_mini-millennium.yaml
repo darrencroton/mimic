@@ -1,9 +1,9 @@
 # Mimic SAGE on mini-Millennium Run Configuration
 
 model:
-  name: sage
-  path: models/sage
-  model_properties: models/sage/model_properties.yaml
+  name: sage16
+  path: models/sage16
+  model_properties: models/sage16/model_properties.yaml
 
 simulation:
   name: mini-millennium
@@ -12,7 +12,7 @@ simulation:
   halo_properties: simulations/mini-millennium/halo_properties.yaml
 
 plotting:
-  profile: models/sage/plots/profiles/mini-millennium_plot_profile.yaml
+  profile: models/sage16/plots/profiles/mini-millennium_plot_profile.yaml
 
 output:
   output_filename: model

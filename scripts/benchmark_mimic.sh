@@ -113,6 +113,10 @@ done
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_PATH")"
 
+# Load shared project defaults (DEFAULT_MODEL, DEFAULT_SIMULATION, make_default)
+# shellcheck source=scripts/lib/defaults.sh
+. "${SCRIPT_PATH}/lib/defaults.sh"
+
 # Function to display error and exit
 error_exit() {
     echo "ERROR: $1"
@@ -150,7 +154,7 @@ calc() {
 
 # Set default parameter file if not specified
 if [[ -z "$PARAM_FILE" ]]; then
-    PARAM_FILE="${ROOT_DIR}/models/sage/input/sage_mini-millennium.yaml"
+    PARAM_FILE="${ROOT_DIR}/models/${DEFAULT_MODEL}/input/${DEFAULT_MODEL}_${DEFAULT_SIMULATION}.yaml"
 fi
 
 # Show help if requested
@@ -252,14 +256,6 @@ fi
 
 verbose_log "Script location: ${SCRIPT_PATH}"
 verbose_log "Root directory: ${ROOT_DIR}"
-
-make_default() {
-    local key="$1"
-    local fallback="$2"
-    local value
-    value=$(awk -v key="$key" '$1 == key && $2 == ":=" { print $3; exit }' "${ROOT_DIR}/Makefile")
-    echo "${value:-$fallback}"
-}
 
 # Create benchmark directory if it doesn't exist
 mkdir -p "${ROOT_DIR}/benchmarks"
@@ -382,8 +378,8 @@ if [[ "$OUTPUT_DIR" != /* ]]; then
     OUTPUT_DIR="${ROOT_DIR}/${OUTPUT_DIR}"
 fi
 
-SELECTED_MODEL="${MODEL:-${CONFIG_MODEL:-$(make_default DEFAULT_MODEL sage)}}"
-SELECTED_SIMULATION="${SIMULATION:-${SIM:-${CONFIG_SIMULATION:-$(make_default DEFAULT_SIMULATION mini-millennium)}}}"
+SELECTED_MODEL="${MODEL:-${CONFIG_MODEL:-${DEFAULT_MODEL}}}"
+SELECTED_SIMULATION="${SIMULATION:-${SIM:-${CONFIG_SIMULATION:-${DEFAULT_SIMULATION}}}}"
 
 if [[ -z "${SELECTED_MODEL}" ]]; then
     error_exit "Could not determine MODEL from environment, run file, or Makefile default"
