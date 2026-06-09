@@ -156,6 +156,11 @@ CFLAGS += -DMIMIC_COMPILED_MODEL=\"$(MODEL)\"
 CFLAGS += -DMIMIC_COMPILED_MODEL_PATH=\"$(MODEL_ROOT)\"
 CFLAGS += -DMIMIC_COMPILED_SIMULATION=\"$(SIMULATION)\"
 CFLAGS += -MMD -MP
+# Optional compiler flag extension — intended for benchmarking/profiling only
+# (e.g., EXTRA_CFLAGS="-O3 -march=native"). Not for production builds.
+ifdef EXTRA_CFLAGS
+    CFLAGS += $(EXTRA_CFLAGS)
+endif
 
 # Linker configuration
 LDFLAGS =

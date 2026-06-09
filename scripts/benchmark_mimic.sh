@@ -7,11 +7,13 @@
 # performance metrics to help developers track performance changes over time.
 #
 # USAGE:
-#   ./scripts/benchmark_mimic.sh                           # Run with default settings
-#   ./scripts/benchmark_mimic.sh --verbose                 # Run with detailed output
-#   ./scripts/benchmark_mimic.sh --help                    # Show help information
-#   ./scripts/benchmark_mimic.sh --param-file custom.yaml  # Explicit parameter file
-#   ./scripts/benchmark_mimic.sh custom.yaml               # Same, positional shorthand
+#   ./scripts/benchmark_mimic.sh                              # Run with default settings
+#   ./scripts/benchmark_mimic.sh --verbose                    # Run with detailed output
+#   ./scripts/benchmark_mimic.sh --help                       # Show help information
+#   ./scripts/benchmark_mimic.sh --param-file custom.yaml     # Explicit parameter file
+#   ./scripts/benchmark_mimic.sh custom.yaml                  # Same, positional shorthand
+#   ./scripts/benchmark_mimic.sh --compress                   # Benchmark HDF5 compression overhead
+#   EXTRA_CFLAGS="-O3 -march=native" ./scripts/benchmark_mimic.sh  # Release-optimised build
 #
 # REQUIREMENTS:
 #   - Can be run from any directory
@@ -26,6 +28,10 @@
 #   MIMIC_EXECUTABLE  - Override mimic executable location
 #   MPI_RUN_COMMAND   - Run with MPI (e.g., "mpirun -np 4")
 #   MAKE_FLAGS        - Additional make flags (e.g., "USE-HDF5=no USE-MPI=yes")
+#   MIMIC_FLAGS       - Additional runtime flags passed to the mimic executable
+#                       (e.g., "--compress"). Use --compress shorthand for convenience.
+#   EXTRA_CFLAGS      - Additional compiler flags for the build step only
+#                       (e.g., "-O3 -march=native"). Not for production builds.
 #
 # EXAMPLES:
 #   # Basic benchmark (uses default models/sage/input/sage_mini-millennium.yaml)
@@ -42,6 +48,13 @@
 #   # Binary-only benchmark (opt out of HDF5)
 #   MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
 #
+#   # HDF5 compression benchmark (measures CPU/time/disk trade-off)
+#   ./scripts/benchmark_mimic.sh --compress
+#   MIMIC_FLAGS="--compress" ./scripts/benchmark_mimic.sh
+#
+#   # Release-optimised build benchmark
+#   EXTRA_CFLAGS="-O3 -march=native" ./scripts/benchmark_mimic.sh
+#
 #   # Compare two benchmark runs
 #   diff benchmarks/baseline_20250101_120000.json benchmarks/baseline_20250102_120000.json
 #
@@ -57,6 +70,7 @@ PARAM_FILE=""  # Will be set to default later if not specified
 RUN_PARAM_FILE=""
 TEMP_PARAM_DIR=""
 OUTPUT_MARKER=""
+MIMIC_FLAGS="${MIMIC_FLAGS:-}"  # Runtime flags passed to the mimic executable
 
 # Process command line arguments
 while [[ $# -gt 0 ]]; do
@@ -78,9 +92,13 @@ while [[ $# -gt 0 ]]; do
             PARAM_FILE="${1#*=}"
             shift
             ;;
+        --compress)
+            MIMIC_FLAGS="${MIMIC_FLAGS} --compress"
+            shift
+            ;;
         -*)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--help] [--verbose] [--param-file FILE] [PARAM_FILE]"
+            echo "Usage: $0 [--help] [--verbose] [--compress] [--param-file FILE] [PARAM_FILE]"
             exit 1
             ;;
         *)
@@ -143,6 +161,8 @@ Usage: ./scripts/benchmark_mimic.sh [OPTIONS] [PARAM_FILE]
 OPTIONS:
   --help                Show this help message
   --verbose             Run with detailed output and timing information
+  --compress            Enable HDF5 gzip compression (measures CPU/time/disk trade-off;
+                        only meaningful with hdf5 output format)
   --param-file FILE     Parameter file to use for benchmarking
 
 ARGUMENTS:
@@ -173,6 +193,15 @@ OUTPUT:
   - overall_performance: Runtime and memory metrics
   - configuration: Build and runtime configuration
 
+ENVIRONMENT VARIABLES:
+  MIMIC_FLAGS           Runtime flags passed to the mimic executable
+                        (e.g., MIMIC_FLAGS="--compress")
+  EXTRA_CFLAGS          Additional compiler flags for benchmarking/profiling builds only
+                        (e.g., EXTRA_CFLAGS="-O3 -march=native")
+  MAKE_FLAGS            Additional make flags (e.g., "USE-HDF5=no USE-MPI=yes")
+  MPI_RUN_COMMAND       MPI launch command (e.g., "mpirun -np 4")
+  MIMIC_EXECUTABLE      Override mimic executable path
+
 EXAMPLES:
   # Basic benchmark (uses default models/sage/input/sage_mini-millennium.yaml)
   # Can run from anywhere; build selectors come from the run file, environment,
@@ -193,6 +222,13 @@ EXAMPLES:
 
   # Binary output only benchmark (opt out of HDF5)
   MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
+
+  # HDF5 compression benchmark (measures CPU/time/disk trade-off)
+  ./scripts/benchmark_mimic.sh --compress
+  MIMIC_FLAGS="--compress" ./scripts/benchmark_mimic.sh
+
+  # Release-optimised build benchmark
+  EXTRA_CFLAGS="-O3 -march=native" ./scripts/benchmark_mimic.sh
 
 COMPARING RESULTS:
   # Simple diff
@@ -398,6 +434,13 @@ if [[ "$OUTPUT_FORMAT" == "hdf5" ]] || [[ "$TREE_TYPE" == *"hdf5"* ]]; then
     fi
 fi
 
+# Warn if --compress was requested but output is not HDF5 (mimic silently ignores it)
+if [[ "${MIMIC_FLAGS}" == *"--compress"* ]] && [[ "$OUTPUT_FORMAT" != "hdf5" ]]; then
+    echo "WARNING: --compress has no effect with output_format='${OUTPUT_FORMAT}' (HDF5 only). Continuing without compression."
+    MIMIC_FLAGS="${MIMIC_FLAGS/--compress/}"
+    MIMIC_FLAGS="${MIMIC_FLAGS# }"  # trim leading space
+fi
+
 # Set file search pattern based on output format
 if [[ "$OUTPUT_FORMAT" == "hdf5" ]]; then
     # HDF5 format uses: model_000.hdf5, model_001.hdf5, model.hdf5
@@ -429,8 +472,8 @@ cd "${ROOT_DIR}" || error_exit "Could not change to Mimic root directory"
 verbose_log "Cleaning previous build..."
 make clean > /dev/null 2>&1 || true
 
-verbose_log "Building Mimic with flags: ${MAKE_FLAGS}"
-make MODEL="${SELECTED_MODEL}" SIMULATION="${SELECTED_SIMULATION}" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} || error_exit "Build failed"
+verbose_log "Building Mimic with flags: ${MAKE_FLAGS}${EXTRA_CFLAGS:+ EXTRA_CFLAGS=${EXTRA_CFLAGS}}"
+make MODEL="${SELECTED_MODEL}" SIMULATION="${SELECTED_SIMULATION}" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} ${EXTRA_CFLAGS:+EXTRA_CFLAGS="${EXTRA_CFLAGS}"} || error_exit "Build failed"
 
 echo "Build successful."
 echo
@@ -471,6 +514,19 @@ fi
 
 verbose_log "Running with $NUM_MIMIC_PROCS processes"
 
+# Suppress mimic's INFO log output during the timed run to reduce I/O noise;
+# use --verbose when the benchmark is run with --verbose so diagnostic output
+# is still available.
+VERBOSITY_FLAG="--quiet"
+if [ $VERBOSE -eq 1 ]; then
+    VERBOSITY_FLAG="--verbose"
+fi
+
+# Build the full argument list for the mimic invocation
+MIMIC_ARGS="${VERBOSITY_FLAG} ${MIMIC_FLAGS} ${RUN_PARAM_FILE}"
+
+verbose_log "Mimic runtime flags: ${VERBOSITY_FLAG} ${MIMIC_FLAGS}"
+
 # Platform-specific timing and memory measurement
 RUN_OUTPUT=$(mktemp)
 TIME_OUTPUT=$(mktemp)
@@ -486,10 +542,12 @@ if [ -x "/usr/bin/time" ]; then
         # macOS version
         verbose_log "Detected macOS"
         if [[ -n "${MPI_RUN_COMMAND}" ]]; then
-            /usr/bin/time -l ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            # shellcheck disable=SC2086
+            /usr/bin/time -l ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         else
-            /usr/bin/time -l "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            # shellcheck disable=SC2086
+            /usr/bin/time -l "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         fi
 
@@ -505,10 +563,12 @@ if [ -x "/usr/bin/time" ]; then
         # Linux version
         verbose_log "Detected Linux"
         if [[ -n "${MPI_RUN_COMMAND}" ]]; then
-            /usr/bin/time -v ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            # shellcheck disable=SC2086
+            /usr/bin/time -v ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         else
-            /usr/bin/time -v "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
+            # shellcheck disable=SC2086
+            /usr/bin/time -v "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2> "${TIME_OUTPUT}"
             RUN_STATUS=$?
         fi
 
@@ -538,10 +598,12 @@ else
     start_time=$(date +%s)
 
     if [[ -n "${MPI_RUN_COMMAND}" ]]; then
-        ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
+        # shellcheck disable=SC2086
+        ${MPI_RUN_COMMAND} "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2>&1
         RUN_STATUS=$?
     else
-        "${MIMIC_EXECUTABLE}" "${RUN_PARAM_FILE}" > "${RUN_OUTPUT}" 2>&1
+        # shellcheck disable=SC2086
+        "${MIMIC_EXECUTABLE}" ${MIMIC_ARGS} > "${RUN_OUTPUT}" 2>&1
         RUN_STATUS=$?
     fi
 
@@ -650,6 +712,8 @@ cat > "${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}" << EOF
     "model": "${SELECTED_MODEL}",
     "simulation": "${SELECTED_SIMULATION}",
     "build_flags": "$BUILD_FLAGS",
+    "extra_cflags": "${EXTRA_CFLAGS:-none}",
+    "runtime_flags": "${MIMIC_FLAGS:-none}",
     "build_system": "GNU Make",
     "mimic_executable": "$MIMIC_EXECUTABLE"
   },
@@ -677,6 +741,8 @@ echo "MPI Processes: $NUM_MIMIC_PROCS"
 echo "Model Set: $SELECTED_MODEL"
 echo "Simulation Package: $SELECTED_SIMULATION"
 echo "Build Flags: $BUILD_FLAGS"
+echo "Extra CFLAGS: ${EXTRA_CFLAGS:-none}"
+echo "Runtime Flags: ${MIMIC_FLAGS:-none}"
 echo "Git Commit: $GIT_COMMIT"
 echo "Git Branch: $GIT_BRANCH"
 echo "Git Dirty: $GIT_DIRTY"
