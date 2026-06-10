@@ -24,7 +24,7 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 
 def compiled_model():
     """Return the model selected for this test run."""
-    return os.environ.get("MODEL", "sage")
+    return os.environ.get("MODEL") or _makefile_default("DEFAULT_MODEL", "sage16")
 
 
 def compiled_simulation():
@@ -50,7 +50,7 @@ def _makefile_default(variable, fallback):
 
 def default_model():
     """Return the Makefile default model package used by committed baselines."""
-    return _makefile_default("DEFAULT_MODEL", "sage")
+    return _makefile_default("DEFAULT_MODEL", "sage16")
 
 
 def default_simulation():

@@ -1,12 +1,11 @@
 {
-  "git_commit": "a5b379d5b53010334980f491ad346a8658795efc",
+  "git_commit": "f9ad241668d6569f0d31d7e7dd585d39efd36b90",
   "git_branch": "main",
-  "github_url": "https://github.com/darrencroton/mimic/commit/a5b379d5b53010334980f491ad346a8658795efc",
-  "build_date": "Jun  8 2026",
-  "run_date": "2026-06-08T13:30:00Z",
+  "build_date": "Jun 11 2026",
+  "run_date": "2026-06-11T07:27:09Z",
   "parameters": {
-    "file_path": "build/generated/test_inputs/sage/mini-millennium/core/test_hdf5.yaml",
-    "parameter_md5_checksum": "a85f070b663297e6b764cc8a2075d659"
+    "file_path": "build/generated/test_inputs/sage16/mini-millennium/core/test_hdf5.yaml",
+    "parameter_md5_checksum": "40248da3f2981a82767b0224f0e7785a"
   },
   "compiler": "gcc 4.2.1",
   "system": "macOS 26.5.1 arm64",

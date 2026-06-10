@@ -63,14 +63,15 @@ halo_properties:
     output_source: copy_direct
 
   - name: dT
-    type: float
+    type: double  # Double precision: per-object substep dt derives from this, and float
+                  # rounding of the interval perturbs every dt-scaled physics quantity
     units: Myr/h
     description: Time elapsed since progenitor snapshot (lookback time difference)
     output: true
     init_source: default
     init_value: -1.0
     output_source: copy_direct
-    output_convert: UnitTime_in_s / SEC_PER_MEGAYEAR  # Convert seconds → Myr
+    output_convert: MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR  # Convert seconds → Myr
     range: [0.0, 2000.0]  # Reasonable time between snapshots (in Myr)
     sentinels: [-1.0]  # -1 for unset/invalid (preserved, not converted)
 

@@ -4,9 +4,9 @@
 #=============================================================================
 
 model:
-  name: sage
-  path: models/sage
-  model_properties: models/sage/model_properties.yaml
+  name: sage16
+  path: models/sage16
+  model_properties: models/sage16/model_properties.yaml
 simulation:
   name: test_mini-millennium
   path: tests/data
@@ -22,4 +22,7 @@ SubSteps: 1
 modules:
   parameters: {}
 plotting:
-  profile: models/sage/plots/profiles/mini-millennium_plot_profile.yaml
+  profile: models/sage16/plots/profiles/mini-millennium_plot_profile.yaml
+input:
+  first_file: 0
+  last_file: 0

@@ -8,7 +8,7 @@ simulation/catalog fields, and is shared by every model package. It therefore
 cannot catch drift in galaxy-formation output.
 
 This model-owned test closes that gap for SAGE. It runs the complete SAGE
-physics pipeline (models/sage/modules/_tests/input/test_physics_binary.yaml) and compares ALL
+physics pipeline (models/sage16/modules/_tests/input/test_physics_binary.yaml) and compares ALL
 output properties -- core halo tracking AND baryonic galaxy properties
 (StellarMass, ColdGas, BlackHoleMass, ...) -- against a committed reference
 captured from a known-good build. This is the safety net that proves
@@ -20,11 +20,11 @@ floats, exact for integers (reusing the integration-tier comparator).
 
 If this test fails after a DELIBERATE, validated science change, refresh the
 reference:
-    ./mimic models/sage/modules/_tests/input/test_physics_binary.yaml
+    ./mimic models/sage16/modules/_tests/input/test_physics_binary.yaml
     cp tests/data/output/physics-binary/model_z0.000_0 \\
-       models/sage/modules/_tests/baseline/physics-binary/
+       models/sage16/modules/_tests/baseline/physics-binary/
     cp tests/data/output/physics-binary/metadata/output_schema.json \\
-       models/sage/modules/_tests/baseline/physics-binary/metadata/
+       models/sage16/modules/_tests/baseline/physics-binary/metadata/
 and document why in the commit message.
 """
 
@@ -56,12 +56,14 @@ RED = "\033[0;31m"
 YELLOW = "\033[1;33m"
 NC = "\033[0m"
 
-INPUT = REPO_ROOT / "models" / "sage" / "modules" / "_tests" / "input" / "test_physics_binary.yaml"
+INPUT = (
+    REPO_ROOT / "models" / "sage16" / "modules" / "_tests" / "input" / "test_physics_binary.yaml"
+)
 CURRENT = REPO_ROOT / "tests" / "data" / "output" / "physics-binary" / "model_z0.000_0"
 BASELINE = (
     REPO_ROOT
     / "models"
-    / "sage"
+    / "sage16"
     / "modules"
     / "_tests"
     / "baseline"
@@ -74,7 +76,7 @@ def test_sage_physics_baseline():
     """Current full-physics SAGE output matches the committed baryonic baseline."""
     print("Testing SAGE full-physics galaxy-output baseline...")
 
-    if compiled_model() != "sage":
+    if compiled_model() != "sage16":
         print(f"  Skipping (MODEL={compiled_model()}, this baseline is SAGE-specific)")
         return
     if not is_default_baseline_combo():

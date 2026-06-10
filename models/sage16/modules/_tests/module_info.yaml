@@ -1,7 +1,7 @@
 # Physics Module Test Registry
 #
 # This file enables automatic discovery for shared cross-module tests that live
-# in models/sage/modules/_tests/.
+# in models/sage16/modules/_tests/.
 #
 # Do not register module-specific tests here. Runtime modules own their tests in
 # models/<model>/modules/<module>/_tests/, and retired tests belong in archive/src-modules/_archive/.

@@ -6,15 +6,15 @@
 # only), this exercises galaxy physics so the committed baryonic baseline can
 # catch drift in galaxy-formation output, not just core halo tracking.
 #
-# Used by: models/sage/modules/_tests/test_scientific_sage_physics_baseline.py
+# Used by: models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py
 #
 # To run manually:
-#   ./mimic models/sage/modules/_tests/input/test_physics_binary.yaml
+#   ./mimic models/sage16/modules/_tests/input/test_physics_binary.yaml
 #
 # Output location:
 #   tests/data/output/physics-binary/  (gitignored test output)
 # Committed reference:
-#   models/sage/modules/_tests/baseline/physics-binary/  (galaxy-physics baseline)
+#   models/sage16/modules/_tests/baseline/physics-binary/  (galaxy-physics baseline)
 #=============================================================================
 
 model:

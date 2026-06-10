@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "generated_by": "scripts/generate_properties.py",
-  "source_md5": "6f76e817e800fc30801a70ccf7fd1195",
-  "model": "sage",
-  "model_path": "models/sage",
+  "source_md5": "4a2661156281dd07d386c0d040428f89",
+  "model": "sage16",
+  "model_path": "models/sage16",
   "record": {
     "c_struct": "HaloOutput",
-    "binary_record_size": 216,
+    "binary_record_size": 232,
     "byte_order": "native",
     "alignment": "native_c_compiler"
   },
@@ -62,12 +62,12 @@
     {
       "name": "dT",
       "category": "halo",
-      "c_type": "float",
-      "metadata_type": "float",
-      "numpy_type": "float32",
+      "c_type": "double",
+      "metadata_type": "double",
+      "numpy_type": "float64",
       "shape": [],
       "offset": 24,
-      "size": 4,
+      "size": 8,
       "units": "Myr/h",
       "description": "Time elapsed since progenitor snapshot (lookback time difference)"
     },
@@ -78,7 +78,7 @@
       "metadata_type": "int",
       "numpy_type": "int32",
       "shape": [],
-      "offset": 28,
+      "offset": 32,
       "size": 4,
       "units": "particles",
       "description": "Number of particles in halo"
@@ -90,7 +90,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 32,
+      "offset": 36,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Virial mass (M200c definition)"
@@ -102,7 +102,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 36,
+      "offset": 40,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Change in virial mass since last snapshot (internal, not output)"
@@ -114,7 +114,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 40,
+      "offset": 44,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Virial mass of the central halo in this FoF group"
@@ -126,7 +126,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 44,
+      "offset": 48,
       "size": 4,
       "units": "Mpc/h",
       "description": "Virial radius (radius at which density is 200 * critical density)"
@@ -138,7 +138,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 48,
+      "offset": 52,
       "size": 4,
       "units": "km/s",
       "description": "Virial velocity (circular velocity at virial radius)"
@@ -150,7 +150,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 52,
+      "offset": 56,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Virial mass at infall (satellites only, 0 for centrals)"
@@ -162,7 +162,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 56,
+      "offset": 60,
       "size": 4,
       "units": "km/s",
       "description": "Virial velocity at infall (satellites only, 0 for centrals)"
@@ -174,7 +174,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 60,
+      "offset": 64,
       "size": 4,
       "units": "km/s",
       "description": "Maximum circular velocity at infall (satellites only, 0 for centrals)"
@@ -186,7 +186,7 @@
       "metadata_type": "long long",
       "numpy_type": "int64",
       "shape": [],
-      "offset": 64,
+      "offset": 72,
       "size": 8,
       "units": "dimensionless",
       "description": "ID of most bound particle (original simulation halo ID)"
@@ -198,7 +198,7 @@
       "metadata_type": "vec3_float",
       "numpy_type": "float32",
       "shape": [3],
-      "offset": 72,
+      "offset": 80,
       "size": 12,
       "units": "Mpc/h",
       "description": "3D position vector (comoving coordinates)"
@@ -210,7 +210,7 @@
       "metadata_type": "vec3_float",
       "numpy_type": "float32",
       "shape": [3],
-      "offset": 84,
+      "offset": 92,
       "size": 12,
       "units": "km/s",
       "description": "3D velocity vector (peculiar velocity)"
@@ -222,7 +222,7 @@
       "metadata_type": "vec3_float",
       "numpy_type": "float32",
       "shape": [3],
-      "offset": 96,
+      "offset": 104,
       "size": 12,
       "units": "dimensionless",
       "description": "Dimensionless spin parameter (Bullock definition)"
@@ -234,7 +234,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 108,
+      "offset": 116,
       "size": 4,
       "units": "km/s",
       "description": "Maximum circular velocity"
@@ -246,7 +246,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 112,
+      "offset": 120,
       "size": 4,
       "units": "km/s",
       "description": "Velocity dispersion"
@@ -254,12 +254,12 @@
     {
       "name": "HaloBaryonFraction",
       "category": "galaxy",
-      "c_type": "float",
-      "metadata_type": "float",
-      "numpy_type": "float32",
+      "c_type": "double",
+      "metadata_type": "double",
+      "numpy_type": "float64",
       "shape": [],
-      "offset": 116,
-      "size": 4,
+      "offset": 128,
+      "size": 8,
       "units": "dimensionless",
       "description": "Local baryon fraction for this halo"
     },
@@ -270,7 +270,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 120,
+      "offset": 136,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Cold gas mass available for star formation"
@@ -282,7 +282,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 124,
+      "offset": 140,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Hot gas mass in halo atmosphere"
@@ -294,7 +294,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 128,
+      "offset": 144,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Mass of gas ejected from galaxy by feedback"
@@ -306,7 +306,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 132,
+      "offset": 148,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Total stellar mass"
@@ -318,7 +318,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 136,
+      "offset": 152,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Stellar mass in bulge component"
@@ -330,7 +330,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 140,
+      "offset": 156,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Intracluster stellar mass"
@@ -342,7 +342,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 144,
+      "offset": 160,
       "size": 4,
       "units": "Msun/yr",
       "description": "Average star formation rate over snapshot (total stars formed / dT)"
@@ -354,7 +354,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 148,
+      "offset": 164,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Metal mass in stellar component"
@@ -366,7 +366,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 152,
+      "offset": 168,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Metal mass in bulge component"
@@ -378,7 +378,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 156,
+      "offset": 172,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Metal mass in cold gas reservoir"
@@ -390,7 +390,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 160,
+      "offset": 176,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Metal mass in hot gas reservoir"
@@ -402,7 +402,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 164,
+      "offset": 180,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Metal mass in intracluster stars"
@@ -414,7 +414,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 168,
+      "offset": 184,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Metal mass in ejected gas reservoir"
@@ -426,7 +426,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 172,
+      "offset": 188,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Central supermassive black hole mass"
@@ -438,7 +438,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 176,
+      "offset": 192,
       "size": 4,
       "units": "1e10 Msun/h",
       "description": "Current timestep black hole accretion mass in quasar mode"
@@ -450,7 +450,7 @@
       "metadata_type": "double",
       "numpy_type": "float64",
       "shape": [],
-      "offset": 184,
+      "offset": 200,
       "size": 8,
       "units": "log10(erg/s)",
       "description": "Cumulative cooling energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed"
@@ -462,7 +462,7 @@
       "metadata_type": "double",
       "numpy_type": "float64",
       "shape": [],
-      "offset": 192,
+      "offset": 208,
       "size": 8,
       "units": "log10(erg/s)",
       "description": "Cumulative AGN heating energy (0.5 * m * V_vir^2), converted to erg/s and log10-transformed"
@@ -474,7 +474,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 200,
+      "offset": 216,
       "size": 4,
       "units": "Msun/yr",
       "description": "Current gas outflow rate from supernova feedback"
@@ -486,7 +486,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 204,
+      "offset": 220,
       "size": 4,
       "units": "Mpc/h",
       "description": "Disk scale radius (exponential disk scale length)"
@@ -498,7 +498,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 208,
+      "offset": 224,
       "size": 4,
       "units": "Gyr/h",
       "description": "Cosmic time of last major merger (mass ratio > threshold)"
@@ -510,7 +510,7 @@
       "metadata_type": "float",
       "numpy_type": "float32",
       "shape": [],
-      "offset": 212,
+      "offset": 228,
       "size": 4,
       "units": "Gyr/h",
       "description": "Cosmic time of last minor merger (mass ratio > 0.1)"
