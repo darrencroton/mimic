@@ -70,7 +70,7 @@ halo_properties:
     init_source: default
     init_value: -1.0
     output_source: copy_direct
-    output_convert: UnitTime_in_s / SEC_PER_MEGAYEAR  # Convert seconds → Myr
+    output_convert: MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR  # Convert seconds → Myr
     range: [0.0, 2000.0]  # Reasonable time between snapshots (in Myr)
     sentinels: [-1.0]  # -1 for unset/invalid (preserved, not converted)
 

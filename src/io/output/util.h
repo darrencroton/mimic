@@ -2,7 +2,7 @@
 #define IO_SAVE_UTIL_H
 
 /**
- * @file    io_save_util.h
+ * @file    output/util.h
  * @brief   Shared utilities for output file writing (binary and HDF5)
  *
  * This file provides common functions used by both binary and HDF5 output
@@ -10,23 +10,34 @@
  * output counts and conversion from internal halo format to output format.
  */
 
+#include <stddef.h>
+
 #include "constants.h"
 
 /**
- * @brief Counts processed halos per requested output snapshot.
+ * @brief   Build the path of one binary output file (one file per snapshot per filenr)
  *
- * This function fills an array with the number of processed halos belonging to
- * each requested output snapshot. Writers preserve output order by scanning
- * ProcessedHalos directly.
- *
- * @param[out] OutputGalCount  An array to be filled with the number of halos
- *                             per output snapshot. Must be allocated by caller
- *                             with size [MAXSNAPS].
- *
- * @note Uses the global variables: ProcessedHalos, NumProcessedHalos,
- *       ListOutputSnaps, and MimicConfig.NOUT
+ * Single home for the binary output naming scheme: <dir>/<base>_z<zzz>_<filenr>.
+ * Fatal if the path does not fit in @p size.
  */
-void count_output_halos_by_snapshot(int OutputGalCount[MAXSNAPS]);
+void output_path_binary(char *buf, size_t size, int filenr, int snap_index);
+
+/**
+ * @brief   Build the path of one HDF5 output file (one file per filenr)
+ *
+ * Single home for the HDF5 output naming scheme: <dir>/<base>_<NNN>.hdf5.
+ * Fatal if the path does not fit in @p size.
+ */
+void output_path_hdf5(char *buf, size_t size, int filenr);
+
+/**
+ * @brief   Create/initialize this filenr's output files (dispatches on OutputFormat)
+ *
+ * Binary: creates one empty file per requested snapshot. HDF5: creates the
+ * per-filenr file with its snapshot tables and leaves it open for writing
+ * (HDF5_current_file_id).
+ */
+void prepare_output_files(int filenr);
 
 /**
  * @brief Converts internal halo structure to output format

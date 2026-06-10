@@ -18,7 +18,6 @@
  * - bye(): Performs cleanup on program exit
  */
 
-#include <assert.h>
 #include <math.h>
 #include <signal.h>
 #include <stddef.h>
@@ -41,6 +40,7 @@
 
 #include "output/hdf5.h"
 #include "output/python_example.h"
+#include "output/util.h"
 #include "version.h"
 #include "io.h"
 #include "generated/property_defs.h"
@@ -48,9 +48,14 @@
 /* Module system (physics-agnostic) */
 #include "module_registry.h"
 
-#define MAX_BUFZ0_SIZE (3 * MAX_STRING_LEN + 25)
-static char bufz0[MAX_BUFZ0_SIZE + 1]; /* 3 strings + max 19 bytes for a number */
-static int exitfail = 1;               /* Flag indicating whether program exit was due to failure */
+#define MAX_PATH_BUF_SIZE (3 * MAX_STRING_LEN + 25)
+
+/* Output path of the filenr currently being processed. Set when the file is
+ * claimed, cleared once it completes, and unlinked by bye() if the program
+ * exits with a failure in between — so a crash never leaves a partial output
+ * file behind, and never deletes a completed one. */
+static char current_output_path[MAX_PATH_BUF_SIZE + 1];
+static int exitfail = 1; /* Flag indicating whether program exit was due to failure */
 
 static struct sigaction saveaction_XCPU;  /* Saved signal action for SIGXCPU */
 static volatile sig_atomic_t gotXCPU = 0; /* Flag indicating whether SIGXCPU was received */
@@ -128,8 +133,10 @@ void bye() {
 #endif
 
   if (exitfail) {
-    unlink(bufz0); /* Remove temporary output file if we're exiting due to
-                      failure */
+    /* Remove the in-progress output file so a failed run leaves no partial output */
+    if (current_output_path[0] != '\0') {
+      unlink(current_output_path);
+    }
 
 #ifdef MPI
     if (ThisTask == 0 && gotXCPU == 1)
@@ -220,28 +227,17 @@ static void write_output_schema_metadata(const char *metadata_dir) {
  * 8. Perform cleanup and exit
  */
 
-int main(int argc, char **argv) {
-  int filenr, treenr, halonr;
-  struct sigaction current_XCPU;
-
-  struct stat filestatus;
-  FILE *fd;
-
-#ifdef MPI
-  /* Initialize MPI environment */
-  MPI_Init(&argc, &argv);
-  MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask); /* Get this processor's task ID */
-  MPI_Comm_size(MPI_COMM_WORLD, &NTask);    /* Get total number of processors */
-
-  /* Get the name of this processor's node */
-  ThisNode = malloc(MPI_MAX_PROCESSOR_NAME * sizeof(char));
-  MPI_Get_processor_name(ThisNode, &nodeNameLen);
-  if (nodeNameLen >= MPI_MAX_PROCESSOR_NAME) {
-    FATAL_ERROR("MPI node name string too long (%d >= %d)", nodeNameLen, MPI_MAX_PROCESSOR_NAME);
-  }
-#endif
-
-  /* Set default logging level */
+/**
+ * @brief   Parse command-line flags, leaving only the parameter file in argv
+ *
+ * Handles -h/--help (prints usage and exits), verbosity flags, --skip, and
+ * --compress. Also installs the runtime defaults the flags may override.
+ *
+ * @param   argc  Pointer to argument count (updated as flags are consumed)
+ * @param   argv  Argument vector (flags are removed in place)
+ * @return  The selected log level
+ */
+static LogLevel parse_cli(int *argc, char **argv) {
   LogLevel log_level = LOG_LEVEL_INFO;
 
   /* Set default values */
@@ -249,15 +245,12 @@ int main(int argc, char **argv) {
   MimicConfig.HDF5CompressionLevel = 0; // Off by default; enabled via --compress
   MimicConfig.MaxTreeDepth = 500;       // Typical trees: 50-100 levels
 
-  /* Parse command-line arguments for special flags like help, verbosity */
-  int i;
-  for (i = 1; i < argc; i++) {
+  for (int i = 1; i < *argc; i++) {
     if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
       /* Initialize error handling early for proper message formatting */
       initialize_error_handling(log_level, NULL);
 
       /* Display help and exit */
-      INFO_LOG("Mimic Help");
       printf("\nMimic - Physics-Agnostic Galaxy Evolution Framework\n");
       printf("Usage: mimic [options] <parameterfile>\n\n");
       printf("Options:\n");
@@ -273,25 +266,177 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
       // Enable verbose formatting (adds timestamp, file:line context)
       set_verbose_format(1);
-      i = remove_arg(argv, &argc, i);
+      i = remove_arg(argv, argc, i);
     } else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--debug") == 0) {
       // Enable debug level logging with verbose formatting
       log_level = LOG_LEVEL_DEBUG;
       set_verbose_format(1);
-      i = remove_arg(argv, &argc, i);
+      i = remove_arg(argv, argc, i);
     } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
       log_level = LOG_LEVEL_WARNING;
-      i = remove_arg(argv, &argc, i);
+      i = remove_arg(argv, argc, i);
     } else if (strcmp(argv[i], "--skip") == 0) {
       MimicConfig.OverwriteOutputFiles = 0;
-      i = remove_arg(argv, &argc, i);
+      i = remove_arg(argv, argc, i);
     } else if (strcmp(argv[i], "--compress") == 0) {
       /* On/off: HDF5's table API applies a fixed gzip level, so there is no
        * level to expose here. Any nonzero value enables compression. */
       MimicConfig.HDF5CompressionLevel = 1;
-      i = remove_arg(argv, &argc, i);
+      i = remove_arg(argv, argc, i);
     }
   }
+
+  return log_level;
+}
+
+/**
+ * @brief   Process every tree of one input file and finalize its output
+ *
+ * Loads the tree table, creates the output files, runs the depth-first tree
+ * driver over every tree, writes the processed halos, and finalizes the
+ * format-specific output for this filenr.
+ */
+static void process_file(int filenr) {
+  int treenr, halonr;
+
+  /* Load the tree table and create this filenr's output files */
+  FileNum = filenr;
+  load_tree_table(filenr, MimicConfig.TreeType);
+  prepare_output_files(filenr);
+
+  for (treenr = 0; treenr < Ntrees; treenr++) {
+    /* Stop cleanly if the CPU time limit signal was received (batch systems) */
+    if (gotXCPU) {
+      FATAL_ERROR("Received SIGXCPU (CPU time limit) — stopping before tree %d of file %d", treenr,
+                  filenr);
+    }
+
+    /* Log progress periodically */
+    if (treenr % TREE_PROGRESS_INTERVAL == 0) {
+#ifdef MPI
+      INFO_LOG("  Processing task %d | node %s | file %i | tree %i of %i", ThisTask, ThisNode,
+               filenr, treenr, Ntrees);
+#else
+      INFO_LOG("  Processing file %i | tree %i of %i", filenr, treenr, Ntrees);
+#endif
+    }
+
+    /* Set the current tree ID and load the tree */
+    TreeID = treenr;
+    load_tree(treenr, MimicConfig.TreeType);
+
+    /* Reset the per-tree output-buffer count */
+    NumProcessedHalos = 0;
+
+    /* Construct objects for each unprocessed halo in the tree */
+    for (halonr = 0; halonr < InputTreeNHalos[treenr]; halonr++)
+      if (HaloAux[halonr].DoneFlag == 0)
+        build_halo_tree(halonr, treenr, filenr, 0);
+
+    /* Save the processed halos (format depends on OutputFormat parameter) */
+#ifdef HDF5
+    if (MimicConfig.OutputFormat == output_hdf5) {
+      save_halos_hdf5(filenr, treenr);
+    } else {
+      save_halos(filenr, treenr);
+    }
+#else
+    save_halos(filenr, treenr);
+#endif
+    free_halos_and_tree();
+  }
+
+  /* Finalize output files (format depends on OutputFormat parameter) */
+#ifdef HDF5
+  if (MimicConfig.OutputFormat == output_hdf5) {
+    /* Flush any buffered halos accumulated across trees for this file */
+    flush_hdf5_buffers(filenr);
+
+    /* Write metadata attributes for each output snapshot */
+    for (int n = 0; n < MimicConfig.NOUT; n++) {
+      write_hdf5_attrs(n, filenr);
+    }
+
+    /* Close the HDF5 file */
+    if (HDF5_current_file_id >= 0) {
+      DEBUG_LOG("Closing HDF5 file (ID %lld) for filenr %d", (long long)HDF5_current_file_id,
+                filenr);
+      H5Fclose(HDF5_current_file_id);
+      HDF5_current_file_id = -1;
+    }
+  } else {
+    finalize_halo_file(filenr);
+  }
+#else
+  finalize_halo_file(filenr);
+#endif
+  free_tree_table(MimicConfig.TreeType);
+}
+
+/**
+ * @brief   Snapshot the run configuration and provenance next to the output
+ *
+ * Copies the run file and every referenced package file to the output metadata
+ * directory so it is a self-contained, reproducible snapshot of the run. The
+ * run YAML only references the model and simulation packages by path, so the
+ * referenced files (simulation config, model/simulation properties) must be
+ * captured here too. core_properties.yaml is a fixed framework path — not
+ * referenced in the run file — but it defines the core half of the output
+ * schema alongside model_properties.yaml. HDF5 also records resolved values in
+ * RunProperties, but binary output relies solely on these copies.
+ */
+static void write_run_metadata(const char *param_file) {
+#define CORE_PROPERTIES_PATH "src/core/core_properties.yaml"
+  char metadata_dir[MAX_STRING_LEN + 15]; // +15 for "/metadata" and null terminator
+
+  // Create metadata directory if it doesn't exist
+  snprintf(metadata_dir, sizeof(metadata_dir), "%s/metadata", MimicConfig.OutputDir);
+  if (ensure_directory_exists(metadata_dir) != 0) {
+    WARNING_LOG("Failed to create metadata directory '%s'", metadata_dir);
+  }
+
+  copy_to_metadata(metadata_dir, param_file);
+  copy_to_metadata(metadata_dir, MimicConfig.FileWithSnapList);
+  copy_to_metadata(metadata_dir, MimicConfig.SimulationConfigPath);
+  copy_to_metadata(metadata_dir, CORE_PROPERTIES_PATH);
+  copy_to_metadata(metadata_dir, MimicConfig.ModelPropertiesPath);
+  copy_to_metadata(metadata_dir, MimicConfig.SimulationHaloPropertiesPath);
+  /* PlottingProfilePath is intentionally not copied: the profile is only
+   * needed by mimic-plot.py, which reads it from the run YAML directly. */
+  write_output_schema_metadata(metadata_dir);
+  write_python_example(MimicConfig.OutputDir);
+  INFO_LOG("Run configuration and referenced package files copied to %s", metadata_dir);
+
+  // Create version metadata file
+  if (create_version_metadata(MimicConfig.OutputDir, param_file) != 0) {
+    WARNING_LOG("Failed to create version metadata file");
+  }
+}
+
+int main(int argc, char **argv) {
+  int filenr;
+  struct sigaction current_XCPU;
+
+  struct stat filestatus;
+  FILE *fd;
+  char tree_path[MAX_PATH_BUF_SIZE + 1];
+
+#ifdef MPI
+  /* Initialize MPI environment */
+  MPI_Init(&argc, &argv);
+  MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask); /* Get this processor's task ID */
+  MPI_Comm_size(MPI_COMM_WORLD, &NTask);    /* Get total number of processors */
+
+  /* Get the name of this processor's node */
+  ThisNode = malloc(MPI_MAX_PROCESSOR_NAME * sizeof(char));
+  MPI_Get_processor_name(ThisNode, &nodeNameLen);
+  if (nodeNameLen >= MPI_MAX_PROCESSOR_NAME) {
+    FATAL_ERROR("MPI node name string too long (%d >= %d)", nodeNameLen, MPI_MAX_PROCESSOR_NAME);
+  }
+#endif
+
+  /* Parse command-line flags (verbosity, --skip, --compress, help) */
+  LogLevel log_level = parse_cli(&argc, argv);
 
   /* Ensure we have exactly one parameter file specified */
   if (argc != 2) {
@@ -334,8 +479,7 @@ int main(int argc, char **argv) {
 
   /* Log detailed command line arguments at debug level */
   DEBUG_LOG("Command line argument count: %d", argc);
-  int j;
-  for (j = 0; j < argc; j++) {
+  for (int j = 0; j < argc; j++) {
     DEBUG_LOG("Argument %d: %s", j, argv[j]);
   }
 
@@ -389,10 +533,10 @@ int main(int argc, char **argv) {
 #endif
   {
     /* Construct tree filename and check if it exists */
-    snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
-             filenr, MimicConfig.TreeExtension);
-    if (!(fd = fopen(bufz0, "r"))) {
-      INFO_LOG("Missing tree %s ... skipping", bufz0);
+    snprintf(tree_path, MAX_PATH_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
+             MimicConfig.TreeName, filenr, MimicConfig.TreeExtension);
+    if (!(fd = fopen(tree_path, "r"))) {
+      INFO_LOG("Missing tree %s ... skipping", tree_path);
       continue; // tree file does not exist, move along
     } else
       fclose(fd);
@@ -402,101 +546,29 @@ int main(int argc, char **argv) {
 #ifdef HDF5
     if (MimicConfig.OutputFormat == output_hdf5) {
       /* HDF5 format: one file per filenr (e.g., model_000.hdf5) */
-      snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
-               MimicConfig.OutputFileBaseName, filenr);
+      output_path_hdf5(current_output_path, MAX_PATH_BUF_SIZE, filenr);
     } else {
       /* Binary format: one file per snapshot per filenr (e.g., model_z0.000_0) */
-      snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[0]],
-               filenr);
+      output_path_binary(current_output_path, MAX_PATH_BUF_SIZE, filenr, 0);
     }
 #else
     /* Binary format only (no HDF5 support compiled in) */
-    snprintf(bufz0, MAX_BUFZ0_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-             MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[0]],
-             filenr);
+    output_path_binary(current_output_path, MAX_PATH_BUF_SIZE, filenr, 0);
 #endif
-    if (stat(bufz0, &filestatus) == 0 && !MimicConfig.OverwriteOutputFiles) {
-      INFO_LOG("Output for tree %s already exists ... skipping", bufz0);
+    if (stat(current_output_path, &filestatus) == 0 && !MimicConfig.OverwriteOutputFiles) {
+      INFO_LOG("Output for tree %s already exists ... skipping", current_output_path);
+      current_output_path[0] = '\0';
       continue; // output seems to already exist, dont overwrite, move along
     }
 
     /* Create output file to mark that we're processing this tree */
-    if ((fd = fopen(bufz0, "w")))
+    if ((fd = fopen(current_output_path, "w")))
       fclose(fd);
 
-    /* Load the tree table and process each tree */
-    FileNum = filenr;
-    load_tree_table(filenr, MimicConfig.TreeType);
+    process_file(filenr);
 
-    for (treenr = 0; treenr < Ntrees; treenr++) {
-      /* Check if we've received a CPU time limit signal */
-      assert(!gotXCPU);
-
-      /* Log progress periodically */
-      if (treenr % TREE_PROGRESS_INTERVAL == 0) {
-#ifdef MPI
-        INFO_LOG("  Processing task %d | node %s | file %i | tree %i of %i", ThisTask, ThisNode,
-                 filenr, treenr, Ntrees);
-#else
-        INFO_LOG("  Processing file %i | tree %i of %i", filenr, treenr, Ntrees);
-#endif
-      }
-
-      /* Set the current tree ID and load the tree */
-      TreeID = treenr;
-      load_tree(treenr, MimicConfig.TreeType);
-
-      /* Random seed setting removed - not actually used in computation */
-
-      /* Reset halo counters */
-      NumProcessedHalos = 0;
-      HaloCounter = 0;
-
-      /* Construct objects for each unprocessed halo in the tree */
-      for (halonr = 0; halonr < InputTreeNHalos[treenr]; halonr++)
-        if (HaloAux[halonr].DoneFlag == 0)
-          build_halo_tree(halonr, treenr, filenr, 0);
-
-      /* Save the processed halos (format depends on OutputFormat parameter) */
-#ifdef HDF5
-      if (MimicConfig.OutputFormat == output_hdf5) {
-        save_halos_hdf5(filenr, treenr);
-      } else {
-        save_halos(filenr, treenr);
-      }
-#else
-      save_halos(filenr, treenr);
-#endif
-      free_halos_and_tree();
-    }
-
-    /* Finalize output files (format depends on OutputFormat parameter) */
-#ifdef HDF5
-    if (MimicConfig.OutputFormat == output_hdf5) {
-      /* Flush any buffered halos accumulated across trees for this file */
-      flush_hdf5_buffers(filenr);
-
-      /* Write metadata attributes for each output snapshot */
-      int n;
-      for (n = 0; n < MimicConfig.NOUT; n++) {
-        write_hdf5_attrs(n, filenr);
-      }
-
-      /* Close the HDF5 file */
-      if (HDF5_current_file_id >= 0) {
-        DEBUG_LOG("Closing HDF5 file (ID %lld) for filenr %d", (long long)HDF5_current_file_id,
-                  filenr);
-        H5Fclose(HDF5_current_file_id);
-        HDF5_current_file_id = -1;
-      }
-    } else {
-      finalize_halo_file(filenr);
-    }
-#else
-    finalize_halo_file(filenr);
-#endif
-    free_tree_table(MimicConfig.TreeType);
+    /* This filenr's output is complete; nothing to unlink on later failure */
+    current_output_path[0] = '\0';
 
     INFO_LOG("%sCompleted file %d%s", mimic_color_green(), filenr, mimic_color_reset());
   }
@@ -526,10 +598,8 @@ int main(int argc, char **argv) {
 
   /* Clean up allocated memory */
 
-  /* Free Age array using original allocation pointer (fix for issue 1.2.1) */
+  /* Free Age array using its original (unoffset) allocation pointer */
   myfree(Age_base);
-
-  /* Random generator freeing removed - not actually used in computation */
 
   /* Cleanup galaxy physics modules */
   INFO_LOG("Cleaning up galaxy physics module system");
@@ -546,40 +616,8 @@ int main(int argc, char **argv) {
   check_memory_leaks();
   cleanup_memory_system();
 
-  /* Copy the run file and every referenced package file to the output metadata
-   * directory so it is a self-contained, reproducible snapshot of the run. The
-   * run YAML only references the model and simulation packages by path, so the
-   * referenced files (simulation config, model/simulation properties, plot
-   * profile) must be captured here too. core_properties.yaml is a fixed
-   * framework path — not referenced in the run file — but it defines the core
-   * half of the output schema alongside model_properties.yaml.
-   * HDF5 also records resolved values in RunProperties, but binary output
-   * relies solely on these copies. */
-#define CORE_PROPERTIES_PATH "src/core/core_properties.yaml"
-  char metadata_dir[MAX_STRING_LEN + 15]; // +15 for "/metadata" and null terminator
-
-  // Create metadata directory if it doesn't exist
-  snprintf(metadata_dir, sizeof(metadata_dir), "%s/metadata", MimicConfig.OutputDir);
-  if (ensure_directory_exists(metadata_dir) != 0) {
-    WARNING_LOG("Failed to create metadata directory '%s'", metadata_dir);
-  }
-
-  copy_to_metadata(metadata_dir, argv[1]);
-  copy_to_metadata(metadata_dir, MimicConfig.FileWithSnapList);
-  copy_to_metadata(metadata_dir, MimicConfig.SimulationConfigPath);
-  copy_to_metadata(metadata_dir, CORE_PROPERTIES_PATH);
-  copy_to_metadata(metadata_dir, MimicConfig.ModelPropertiesPath);
-  copy_to_metadata(metadata_dir, MimicConfig.SimulationHaloPropertiesPath);
-  /* PlottingProfilePath is intentionally not copied: the profile is only
-   * needed by mimic-plot.py, which reads it from the run YAML directly. */
-  write_output_schema_metadata(metadata_dir);
-  write_python_example(MimicConfig.OutputDir);
-  INFO_LOG("Run configuration and referenced package files copied to %s", metadata_dir);
-
-  // Create version metadata file
-  if (create_version_metadata(MimicConfig.OutputDir, argv[1]) != 0) {
-    WARNING_LOG("Failed to create version metadata file");
-  }
+  /* Snapshot the run configuration and provenance next to the output */
+  write_run_metadata(argv[1]);
 
   /* Set exit status to success */
   log_phase_banner(PHASE_SHUTDOWN);

@@ -2,6 +2,12 @@
 #define IO_SAVE_BINARY_H
 
 /**
+ * @brief   Create one empty output file per requested snapshot for this filenr
+ * @param   filenr  File number being processed
+ */
+void create_binary_output_files(int filenr);
+
+/**
  * @brief   Write halos to binary output files for all snapshots
  * @param   filenr  File number being processed
  * @param   tree    Tree number being processed

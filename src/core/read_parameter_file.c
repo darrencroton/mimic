@@ -11,6 +11,8 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdarg.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,9 +48,8 @@ static const char *get_scalar_value(yaml_node_t *node);
 static void reject_unknown_keys(yaml_document_t *doc, yaml_node_t *mapping,
                                 const char *section_name, const char *const *valid_keys,
                                 size_t num_valid_keys);
-static int get_int_value(yaml_node_t *node);
 static int get_strict_int_value(yaml_node_t *node, const char *field_name);
-static double get_double_value(yaml_node_t *node);
+static double get_strict_double_value(yaml_node_t *node, const char *field_name);
 static void parse_output_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_input_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_model_section(yaml_document_t *doc, yaml_node_t *section);
@@ -63,6 +64,49 @@ static void resolve_config_path(const char *path, const char *param_file, char *
 static int file_exists_readable(const char *path);
 
 /**
+ * @brief   Bundled handles for one loaded YAML document.
+ *
+ * yaml_file_open() fills all four fields (fatal on any failure), and
+ * yaml_file_close() releases them. The root node is guaranteed to be a
+ * mapping.
+ */
+struct YamlFile {
+  FILE *fh;
+  yaml_parser_t parser;
+  yaml_document_t document;
+  yaml_node_t *root;
+};
+
+static void yaml_file_open(struct YamlFile *yf, const char *fname, const char *what) {
+  yf->fh = fopen(fname, "r");
+  if (!yf->fh) {
+    FATAL_ERROR("Cannot open %s '%s'", what, fname);
+  }
+
+  if (!yaml_parser_initialize(&yf->parser)) {
+    FATAL_ERROR("Failed to initialize YAML parser for '%s'", fname);
+  }
+
+  yaml_parser_set_input_file(&yf->parser, yf->fh);
+
+  if (!yaml_parser_load(&yf->parser, &yf->document)) {
+    FATAL_ERROR("YAML parse error in %s '%s' at line %zu: %s", what, fname,
+                yf->parser.problem_mark.line + 1, yf->parser.problem);
+  }
+
+  yf->root = yaml_document_get_root_node(&yf->document);
+  if (!yf->root || yf->root->type != YAML_MAPPING_NODE) {
+    FATAL_ERROR("%s '%s': YAML root must be a mapping", what, fname);
+  }
+}
+
+static void yaml_file_close(struct YamlFile *yf) {
+  yaml_document_delete(&yf->document);
+  yaml_parser_delete(&yf->parser);
+  fclose(yf->fh);
+}
+
+/**
  * @brief   Read and parse YAML parameter file
  *
  * @param   fname   Path to YAML parameter file
@@ -71,44 +115,13 @@ static int file_exists_readable(const char *path);
  * then navigates the tree to extract configuration values.
  */
 void read_parameter_file(const char *fname) {
-  FILE *fh;
-  yaml_parser_t parser;
-  yaml_document_t document;
+  struct YamlFile yf;
 
   INFO_LOG("Reading YAML parameter file: %s", fname);
 
-  /* Open file */
-  fh = fopen(fname, "r");
-  if (!fh) {
-    ERROR_LOG("Cannot open parameter file '%s'", fname);
-    FATAL_ERROR("Failed to open parameter file");
-  }
-
-  /* Initialize parser */
-  if (!yaml_parser_initialize(&parser)) {
-    fclose(fh);
-    FATAL_ERROR("Failed to initialize YAML parser");
-  }
-
-  yaml_parser_set_input_file(&parser, fh);
-
-  /* Load document (builds DOM tree) */
-  if (!yaml_parser_load(&parser, &document)) {
-    ERROR_LOG("YAML parse error at line %zu: %s", parser.problem_mark.line + 1, parser.problem);
-    yaml_parser_delete(&parser);
-    fclose(fh);
-    FATAL_ERROR("Failed to parse YAML file");
-  }
-
-  /* Get root node */
-  yaml_node_t *root = yaml_document_get_root_node(&document);
-  if (!root || root->type != YAML_MAPPING_NODE) {
-    ERROR_LOG("YAML root must be a mapping");
-    yaml_document_delete(&document);
-    yaml_parser_delete(&parser);
-    fclose(fh);
-    FATAL_ERROR("Invalid YAML structure");
-  }
+  yaml_file_open(&yf, fname, "parameter file");
+  yaml_document_t *document = &yf.document;
+  yaml_node_t *root = yf.root;
 
   yaml_node_t *section;
   yaml_node_t *node;
@@ -123,9 +136,9 @@ void read_parameter_file(const char *fname) {
    * so we extract just that key before anything else, load the sim config, then
    * parse the full run file on top.
    */
-  section = get_mapping_value(&document, root, "simulation");
+  section = get_mapping_value(document, root, "simulation");
   if (section) {
-    node = get_mapping_value(&document, section, "config");
+    node = get_mapping_value(document, section, "config");
     if (node && (str = get_scalar_value(node))) {
       resolve_config_path(str, fname, MimicConfig.SimulationConfigPath,
                           sizeof(MimicConfig.SimulationConfigPath));
@@ -133,43 +146,40 @@ void read_parameter_file(const char *fname) {
     }
   }
 
-  section = get_mapping_value(&document, root, "output");
+  section = get_mapping_value(document, root, "output");
   if (section)
-    parse_output_section(&document, section);
+    parse_output_section(document, section);
 
-  section = get_mapping_value(&document, root, "input");
+  section = get_mapping_value(document, root, "input");
   if (section)
-    parse_input_section(&document, section);
+    parse_input_section(document, section);
 
-  section = get_mapping_value(&document, root, "model");
+  section = get_mapping_value(document, root, "model");
   if (section)
-    parse_model_section(&document, section);
+    parse_model_section(document, section);
 
-  section = get_mapping_value(&document, root, "simulation");
+  section = get_mapping_value(document, root, "simulation");
   if (section)
-    parse_simulation_section(&document, section);
+    parse_simulation_section(document, section);
 
-  section = get_mapping_value(&document, root, "plotting");
+  section = get_mapping_value(document, root, "plotting");
   if (section)
-    parse_plotting_section(&document, section);
+    parse_plotting_section(document, section);
 
   /* Parse SubSteps (top-level parameter) */
-  node = get_mapping_value(&document, root, "SubSteps");
+  node = get_mapping_value(document, root, "SubSteps");
   if (node) {
-    MimicConfig.SubSteps = get_int_value(node);
+    MimicConfig.SubSteps = get_strict_int_value(node, "SubSteps");
     DEBUG_LOG("SubSteps = %d", MimicConfig.SubSteps);
   } else {
     MimicConfig.SubSteps = 1; /* Default: no sub-stepping */
   }
 
-  section = get_mapping_value(&document, root, "modules");
+  section = get_mapping_value(document, root, "modules");
   if (section)
-    parse_modules_section(&document, section);
+    parse_modules_section(document, section);
 
-  /* Cleanup */
-  yaml_document_delete(&document);
-  yaml_parser_delete(&parser);
-  fclose(fh);
+  yaml_file_close(&yf);
 
   /* Validate and post-process */
   validate_and_postprocess();
@@ -265,58 +275,45 @@ static int file_exists_readable(const char *path) {
  * the repo root), then relative to the parameter file's parent directory. The
  * returned path is stored for metadata copying and later diagnostics.
  */
+static void snprintf_path(char *dst, size_t size, const char *what, const char *fmt, ...) {
+  va_list ap;
+  int written;
+
+  va_start(ap, fmt);
+  written = vsnprintf(dst, size, fmt, ap);
+  va_end(ap);
+
+  if (written < 0 || (size_t)written >= size) {
+    FATAL_ERROR("Path too long while resolving '%s'", what);
+  }
+}
+
 static void resolve_config_path(const char *path, const char *param_file, char *resolved,
                                 size_t resolved_size) {
   const char *last_slash;
-  int written;
   char param_dir[MAX_STRING_LEN];
-  char candidate[MAX_STRING_LEN];
 
   if (path == NULL || path[0] == '\0') {
     resolved[0] = '\0';
     return;
   }
 
+  /* Absolute paths and paths that already resolve are used as-is. */
   if (path[0] == '/' || file_exists_readable(path)) {
-    written = snprintf(resolved, resolved_size, "%s", path);
-    if (written < 0 || (size_t)written >= resolved_size) {
-      FATAL_ERROR("Simulation config path too long: %s", path);
-    }
+    snprintf_path(resolved, resolved_size, path, "%s", path);
     return;
   }
 
+  /* Fall back to a path relative to the parameter file's directory. */
   last_slash = strrchr(param_file, '/');
   if (last_slash == NULL) {
-    written = snprintf(resolved, resolved_size, "%s", path);
-    if (written < 0 || (size_t)written >= resolved_size) {
-      FATAL_ERROR("Simulation config path too long: %s", path);
-    }
+    snprintf_path(resolved, resolved_size, path, "%s", path);
     return;
   }
 
-  written =
-      snprintf(param_dir, sizeof(param_dir), "%.*s", (int)(last_slash - param_file), param_file);
-  if (written < 0 || (size_t)written >= sizeof(param_dir)) {
-    FATAL_ERROR("Parameter file path too long while resolving '%s'", path);
-  }
-
-  written = snprintf(candidate, sizeof(candidate), "%s/%s", param_dir, path);
-  if (written < 0 || (size_t)written >= sizeof(candidate)) {
-    FATAL_ERROR("Resolved simulation config path too long: %s/%s", param_dir, path);
-  }
-
-  written = snprintf(resolved, resolved_size, "%s", candidate);
-  if (written < 0 || (size_t)written >= resolved_size) {
-    FATAL_ERROR("Resolved simulation config path too long: %s", candidate);
-  }
-}
-
-/**
- * @brief   Get scalar value as integer
- */
-static int get_int_value(yaml_node_t *node) {
-  const char *str = get_scalar_value(node);
-  return str ? atoi(str) : 0;
+  snprintf_path(param_dir, sizeof(param_dir), param_file, "%.*s", (int)(last_slash - param_file),
+                param_file);
+  snprintf_path(resolved, resolved_size, path, "%s/%s", param_dir, path);
 }
 
 /**
@@ -348,11 +345,31 @@ static int get_strict_int_value(yaml_node_t *node, const char *field_name) {
 }
 
 /**
- * @brief   Get scalar value as double
+ * @brief   Get scalar value as double, rejecting malformed input.
  */
-static double get_double_value(yaml_node_t *node) {
+static double get_strict_double_value(yaml_node_t *node, const char *field_name) {
   const char *str = get_scalar_value(node);
-  return str ? atof(str) : 0.0;
+  char *endptr;
+  double value;
+
+  if (str == NULL) {
+    FATAL_ERROR("%s must be a numeric scalar", field_name);
+  }
+
+  errno = 0;
+  value = strtod(str, &endptr);
+  if (str == endptr || errno != 0 || !isfinite(value)) {
+    FATAL_ERROR("%s must be a valid finite number", field_name);
+  }
+
+  while (isspace((unsigned char)*endptr)) {
+    endptr++;
+  }
+  if (*endptr != '\0') {
+    FATAL_ERROR("%s must be a valid finite number", field_name);
+  }
+
+  return value;
 }
 
 /**
@@ -436,13 +453,13 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
 
   node = get_mapping_value(doc, section, "first_file");
   if (node) {
-    MimicConfig.FirstFile = get_int_value(node);
+    MimicConfig.FirstFile = get_strict_int_value(node, "input.first_file");
     DEBUG_LOG("FirstFile = %d", MimicConfig.FirstFile);
   }
 
   node = get_mapping_value(doc, section, "last_file");
   if (node) {
-    MimicConfig.LastFile = get_int_value(node);
+    MimicConfig.LastFile = get_strict_int_value(node, "input.last_file");
     DEBUG_LOG("LastFile = %d", MimicConfig.LastFile);
   }
 
@@ -482,7 +499,7 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
 
   node = get_mapping_value(doc, section, "max_tree_depth");
   if (node) {
-    MimicConfig.MaxTreeDepth = get_int_value(node);
+    MimicConfig.MaxTreeDepth = get_strict_int_value(node, "input.max_tree_depth");
     DEBUG_LOG("MaxTreeDepth = %d", MimicConfig.MaxTreeDepth);
   }
 }
@@ -523,8 +540,15 @@ static void parse_model_section(yaml_document_t *doc, yaml_node_t *section) {
 static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node, *cosmology, *units;
   const char *str;
+  static const char *const valid_keys[] = {
+      "name",      "path",     "config",        "halo_properties",
+      "cosmology", "box_size", "particle_mass", "units"};
+  static const char *const cosmology_keys[] = {"omega_matter", "omega_lambda", "hubble_h"};
+  static const char *const units_keys[] = {"length_in_cm", "mass_in_g", "velocity_in_cm_per_s"};
 
   DEBUG_LOG("Parsing simulation section");
+  reject_unknown_keys(doc, section, "simulation", valid_keys,
+                      sizeof(valid_keys) / sizeof(valid_keys[0]));
 
   node = get_mapping_value(doc, section, "name");
   if (node && (str = get_scalar_value(node))) {
@@ -554,34 +578,37 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
   /* Parse cosmology subsection */
   cosmology = get_mapping_value(doc, section, "cosmology");
   if (cosmology) {
+    reject_unknown_keys(doc, cosmology, "simulation.cosmology", cosmology_keys,
+                        sizeof(cosmology_keys) / sizeof(cosmology_keys[0]));
+
     node = get_mapping_value(doc, cosmology, "omega_matter");
     if (node) {
-      MimicConfig.Omega = get_double_value(node);
+      MimicConfig.Omega = get_strict_double_value(node, "simulation.cosmology.omega_matter");
       DEBUG_LOG("Omega = %g", MimicConfig.Omega);
     }
 
     node = get_mapping_value(doc, cosmology, "omega_lambda");
     if (node) {
-      MimicConfig.OmegaLambda = get_double_value(node);
+      MimicConfig.OmegaLambda = get_strict_double_value(node, "simulation.cosmology.omega_lambda");
       DEBUG_LOG("OmegaLambda = %g", MimicConfig.OmegaLambda);
     }
 
     node = get_mapping_value(doc, cosmology, "hubble_h");
     if (node) {
-      MimicConfig.Hubble_h = get_double_value(node);
+      MimicConfig.Hubble_h = get_strict_double_value(node, "simulation.cosmology.hubble_h");
       DEBUG_LOG("Hubble_h = %g", MimicConfig.Hubble_h);
     }
   }
 
   node = get_mapping_value(doc, section, "box_size");
   if (node) {
-    MimicConfig.BoxSize = get_double_value(node);
+    MimicConfig.BoxSize = get_strict_double_value(node, "simulation.box_size");
     DEBUG_LOG("BoxSize = %g", MimicConfig.BoxSize);
   }
 
   node = get_mapping_value(doc, section, "particle_mass");
   if (node) {
-    MimicConfig.PartMass = get_double_value(node);
+    MimicConfig.PartMass = get_strict_double_value(node, "simulation.particle_mass");
     DEBUG_LOG("PartMass = %g", MimicConfig.PartMass);
   }
 
@@ -589,22 +616,25 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
   units = get_mapping_value(doc, section, "units");
   if (units) {
     DEBUG_LOG("Parsing simulation.units subsection");
+    reject_unknown_keys(doc, units, "simulation.units", units_keys,
+                        sizeof(units_keys) / sizeof(units_keys[0]));
 
     node = get_mapping_value(doc, units, "length_in_cm");
     if (node) {
-      MimicConfig.UnitLength_in_cm = get_double_value(node);
+      MimicConfig.UnitLength_in_cm = get_strict_double_value(node, "simulation.units.length_in_cm");
       DEBUG_LOG("UnitLength_in_cm = %g", MimicConfig.UnitLength_in_cm);
     }
 
     node = get_mapping_value(doc, units, "mass_in_g");
     if (node) {
-      MimicConfig.UnitMass_in_g = get_double_value(node);
+      MimicConfig.UnitMass_in_g = get_strict_double_value(node, "simulation.units.mass_in_g");
       DEBUG_LOG("UnitMass_in_g = %g", MimicConfig.UnitMass_in_g);
     }
 
     node = get_mapping_value(doc, units, "velocity_in_cm_per_s");
     if (node) {
-      MimicConfig.UnitVelocity_in_cm_per_s = get_double_value(node);
+      MimicConfig.UnitVelocity_in_cm_per_s =
+          get_strict_double_value(node, "simulation.units.velocity_in_cm_per_s");
       DEBUG_LOG("UnitVelocity_in_cm_per_s = %g", MimicConfig.UnitVelocity_in_cm_per_s);
     }
   }
@@ -616,8 +646,11 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
 static void parse_plotting_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node;
   const char *str;
+  static const char *const valid_keys[] = {"profile"};
 
   DEBUG_LOG("Parsing plotting section");
+  reject_unknown_keys(doc, section, "plotting", valid_keys,
+                      sizeof(valid_keys) / sizeof(valid_keys[0]));
 
   node = get_mapping_value(doc, section, "profile");
   if (node && (str = get_scalar_value(node))) {
@@ -629,52 +662,22 @@ static void parse_plotting_section(yaml_document_t *doc, yaml_node_t *section) {
  * @brief   Load simulation-owned input and physical metadata from YAML.
  */
 static void parse_simulation_config_file(const char *fname) {
-  FILE *fh;
-  yaml_parser_t parser;
-  yaml_document_t document;
+  struct YamlFile yf;
 
   INFO_LOG("Reading simulation config file: %s", fname);
 
-  fh = fopen(fname, "r");
-  if (!fh) {
-    ERROR_LOG("Cannot open simulation config file '%s'", fname);
-    FATAL_ERROR("Failed to open simulation config file");
-  }
+  yaml_file_open(&yf, fname, "simulation config file");
+  yaml_document_t *document = &yf.document;
 
-  if (!yaml_parser_initialize(&parser)) {
-    fclose(fh);
-    FATAL_ERROR("Failed to initialize YAML parser");
-  }
-
-  yaml_parser_set_input_file(&parser, fh);
-  if (!yaml_parser_load(&parser, &document)) {
-    ERROR_LOG("YAML parse error in simulation config at line %zu: %s", parser.problem_mark.line + 1,
-              parser.problem);
-    yaml_parser_delete(&parser);
-    fclose(fh);
-    FATAL_ERROR("Failed to parse simulation config file");
-  }
-
-  yaml_node_t *root = yaml_document_get_root_node(&document);
-  if (!root || root->type != YAML_MAPPING_NODE) {
-    ERROR_LOG("Simulation config root must be a mapping");
-    yaml_document_delete(&document);
-    yaml_parser_delete(&parser);
-    fclose(fh);
-    FATAL_ERROR("Invalid simulation config structure");
-  }
-
-  yaml_node_t *section = get_mapping_value(&document, root, "input");
+  yaml_node_t *section = get_mapping_value(document, yf.root, "input");
   if (section)
-    parse_input_section(&document, section);
+    parse_input_section(document, section);
 
-  section = get_mapping_value(&document, root, "simulation");
+  section = get_mapping_value(document, yf.root, "simulation");
   if (section)
-    parse_simulation_section(&document, section);
+    parse_simulation_section(document, section);
 
-  yaml_document_delete(&document);
-  yaml_parser_delete(&parser);
-  fclose(fh);
+  yaml_file_close(&yf);
 }
 
 /**
@@ -796,9 +799,10 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
       return -1;
     }
 
-    /* Store in config */
+    /* Store in config (resolved is populated later by module_system_init) */
     (*config)[idx].module_name = strdup(module_name);
     (*config)[idx].processing_mode = processing_mode;
+    (*config)[idx].resolved = NULL;
 
     DEBUG_LOG("Phase '%s': %s (processing_mode=%s)", phase_name, module_name, processing_mode_str);
     idx++;
@@ -959,16 +963,15 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
 
     /* Parameters are a simple mapping: param_name -> value */
     if (parameters->type != YAML_MAPPING_NODE) {
-      ERROR_LOG("modules.parameters section must be a mapping");
-      return;
+      FATAL_ERROR("modules.parameters section must be a mapping");
     }
 
     yaml_node_pair_t *pair;
     int idx = 0;
 
     /* Iterate over each parameter in the mapping */
-    for (pair = parameters->data.mapping.pairs.start;
-         pair < parameters->data.mapping.pairs.top && idx < 256; pair++) {
+    for (pair = parameters->data.mapping.pairs.start; pair < parameters->data.mapping.pairs.top;
+         pair++) {
 
       yaml_node_t *key_node = yaml_document_get_node(doc, pair->key);
       yaml_node_t *value_node = yaml_document_get_node(doc, pair->value);
@@ -977,6 +980,9 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
       const char *param_value = get_scalar_value(value_node);
 
       if (param_name && param_value) {
+        if (idx >= MAX_MODEL_PARAMS) {
+          FATAL_ERROR("modules.parameters has more than %d entries", MAX_MODEL_PARAMS);
+        }
         /* Store in ModelParams array */
         strncpy(MimicConfig.ModelParams[idx].param_name, param_name, MAX_STRING_LEN - 1);
         strncpy(MimicConfig.ModelParams[idx].value, param_value, MAX_STRING_LEN - 1);
@@ -1119,11 +1125,6 @@ static void validate_and_postprocess(void) {
 
   read_snap_list();
   validate_output_snapshots();
-
-  SYNC_CONFIG_INT(NOUT);
-  for (int i = 0; i < MimicConfig.NOUT; i++) {
-    ListOutputSnaps[i] = MimicConfig.ListOutputSnaps[i];
-  }
 
   /* Log summary */
   int total_modules = MimicConfig.num_pre_timestep + MimicConfig.num_post_timestep;

@@ -1,12 +1,11 @@
 /**
- * @file    io_tree.c
+ * @file    tree/interface.c
  * @brief   Functions for loading and managing merger trees
  *
  * This file contains the core functionality for loading merger trees from
- * various file formats, managing the tree data in memory, and preparing
- * output files for halo data. It serves as a central hub for different
- * tree file formats (binary, HDF5) and handles the allocation/deallocation
- * of tree-related data structures.
+ * various file formats and managing the tree data in memory. It serves as a
+ * central hub for different tree file formats (binary, HDF5) and handles the
+ * allocation/deallocation of tree-related data structures.
  *
  * Key functions:
  * - load_tree_table(): Loads tree metadata from input files
@@ -34,25 +33,15 @@
 #include "types.h"
 #include "proto.h"
 #include "tree/interface.h"
-#include "util.h"
 #include "error.h"
 
 #include "tree/binary.h"
 #ifdef HDF5
-#include "output/hdf5.h"
 #include "tree/hdf5.h"
 #endif
 
-/* Global file endianness variable - initialized to host endianness by default
- */
-static int file_endianness = MIMIC_HOST_ENDIAN;
-
-#ifndef MAX_BUF_SIZE
-#define MAX_BUF_SIZE (3 * MAX_STRING_LEN + 40)
-#endif
-
 /**
- * @brief   Loads merger tree metadata and prepares output files
+ * @brief   Loads merger tree metadata for one input file
  *
  * @param   filenr       Current file number being processed
  * @param   my_TreeType  Type of merger tree format to load
@@ -62,16 +51,13 @@ static int file_endianness = MIMIC_HOST_ENDIAN;
  *
  * 1. Calls the appropriate format-specific loader based on tree type
  * 2. Allocates memory for tracking objects per tree for each output snapshot
- * 3. Creates empty output files for each requested snapshot
- * 4. Initializes halo counters
+ * 3. Initializes per-snapshot halo counters
  *
  * The function supports different tree formats (binary, HDF5) through a
  * dispatching mechanism to format-specific implementations.
  */
 void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
   int i, n;
-  FILE *fd;
-  char buf[MAX_BUF_SIZE + 1];
 
   switch (my_TreeType) {
 #ifdef HDF5
@@ -92,62 +78,11 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
 
   for (n = 0; n < MimicConfig.NOUT; n++) {
     InputHalosPerSnap[n] = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
-    if (InputHalosPerSnap[n] == NULL) {
-      FATAL_ERROR("Memory allocation failed for InputHalosPerSnap[%d] array (%d trees, "
-                  "%zu bytes)",
-                  n, Ntrees, Ntrees * sizeof(int));
-    }
-
     for (i = 0; i < Ntrees; i++)
       InputHalosPerSnap[n][i] = 0;
 
     TotHalosPerSnap[n] = 0;
   }
-
-  /* Create output files based on format */
-#ifdef HDF5
-  if (MimicConfig.OutputFormat == output_hdf5) {
-    /* For HDF5, create one file per filenr with all snapshots */
-    snprintf(buf, MAX_BUF_SIZE, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
-             MimicConfig.OutputFileBaseName, filenr);
-    prep_hdf5_file(buf);
-
-    /* Open the file and keep it open for fast writes */
-    HDF5_current_file_id = H5Fopen(buf, H5F_ACC_RDWR, H5P_DEFAULT);
-    if (HDF5_current_file_id < 0) {
-      FATAL_ERROR("Failed to open HDF5 file '%s' for writing", buf);
-    }
-    DEBUG_LOG("HDF5 file '%s' opened with ID %lld", buf, (long long)HDF5_current_file_id);
-  } else {
-    /* For binary, create one file per snapshot per filenr */
-    for (n = 0; n < MimicConfig.NOUT; n++) {
-      snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]],
-               filenr);
-
-      if (!(fd = fopen(buf, "w"))) {
-        FATAL_ERROR("Failed to create output halo file '%s' for snapshot %d "
-                    "(filenr %d)",
-                    buf, MimicConfig.ListOutputSnaps[n], filenr);
-      }
-      fclose(fd);
-    }
-  }
-#else
-  /* Binary format only (no HDF5 support) */
-  for (n = 0; n < MimicConfig.NOUT; n++) {
-    snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-             MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]],
-             filenr);
-
-    if (!(fd = fopen(buf, "w"))) {
-      FATAL_ERROR("Failed to create output halo file '%s' for snapshot %d "
-                  "(filenr %d)",
-                  buf, MimicConfig.ListOutputSnaps[n], filenr);
-    }
-    fclose(fd);
-  }
-#endif
 }
 
 /**
@@ -269,27 +204,13 @@ void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
 
   /* Allocate auxiliary metadata (parallel to InputTreeHalos) */
   HaloAux = mymalloc_cat(sizeof(struct HaloAuxData) * InputTreeNHalos[treenr], MEM_HALOS);
-  if (HaloAux == NULL) {
-    FATAL_ERROR("Memory allocation failed for HaloAux array (%d halos, %zu bytes)",
-                InputTreeNHalos[treenr], InputTreeNHalos[treenr] * sizeof(struct HaloAuxData));
-  }
-
   /* Allocate permanent storage for processed halos */
   ProcessedHalos = mymalloc_cat(sizeof(struct Halo) * MaxProcessedHalos, MEM_HALOS);
-  if (ProcessedHalos == NULL) {
-    FATAL_ERROR("Memory allocation failed for ProcessedHalos array (%d halos, "
-                "%zu bytes)",
-                MaxProcessedHalos, MaxProcessedHalos * sizeof(struct Halo));
-  }
   /* Zero the array to ensure uninitialized galaxy pointers are NULL */
   memset(ProcessedHalos, 0, sizeof(struct Halo) * MaxProcessedHalos);
 
   /* Allocate temporary workspace for FoF processing */
   FoFWorkspace = mymalloc_cat(sizeof(struct Halo) * MaxFoFWorkspace, MEM_HALOS);
-  if (FoFWorkspace == NULL) {
-    FATAL_ERROR("Memory allocation failed for FoFWorkspace array (%d halos, %zu bytes)",
-                MaxFoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
-  }
   /* Zero the workspace to ensure uninitialized galaxy pointers are NULL */
   memset(FoFWorkspace, 0, sizeof(struct Halo) * MaxFoFWorkspace);
 
@@ -332,141 +253,4 @@ void free_halos_and_tree(void) {
   myfree(ProcessedHalos); // Permanent processed halo storage
   myfree(HaloAux);        // Auxiliary metadata
   myfree(InputTreeHalos); // Raw input from merger tree files
-}
-
-/**
- * @brief   Set the endianness for binary file operations
- *
- * @param   endianness    The endianness to use (MIMIC_LITTLE_ENDIAN or
- * MIMIC_BIG_ENDIAN)
- *
- * This function sets the global endianness value used for all binary file
- * operations. It's typically called after detecting the endianness of a file.
- * The functions myfread and myfwrite will use this value to perform any
- * necessary byte swapping.
- */
-void set_file_endianness(int endianness) {
-  if (endianness != MIMIC_LITTLE_ENDIAN && endianness != MIMIC_BIG_ENDIAN) {
-    WARNING_LOG("Invalid endianness value %d. Using host endianness (%d).", endianness,
-                MIMIC_HOST_ENDIAN);
-    file_endianness = MIMIC_HOST_ENDIAN;
-  } else {
-    file_endianness = endianness;
-  }
-}
-
-/**
- * @brief   Get the current file endianness setting
- *
- * @return  Current file endianness (MIMIC_LITTLE_ENDIAN or MIMIC_BIG_ENDIAN)
- *
- * This function returns the global endianness value currently used for
- * binary file operations.
- */
-int get_file_endianness(void) { return file_endianness; }
-
-/**
- * @brief   Wrapper for fread with endianness handling
- *
- * @param   ptr      Pointer to the data buffer
- * @param   size     Size of each element
- * @param   nmemb    Number of elements to read
- * @param   stream   File stream to read from
- * @return  Number of elements successfully read
- *
- * This function provides a wrapper around the standard fread function
- * with endianness conversion and error handling.
- */
-size_t myfread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
-  size_t items_read;
-
-  if (ptr == NULL || stream == NULL) {
-    IO_ERROR_LOG(IO_ERROR_READ_FAILED, "myfread", NULL, "NULL pointer passed to myfread");
-    return 0;
-  }
-
-  /* Use standard library fread */
-  items_read = fread(ptr, size, nmemb, stream);
-
-  /* Perform endianness conversion if needed */
-  if (items_read > 0 && !is_same_endian(file_endianness)) {
-    /* Only swap if element size is appropriate */
-    if (size == 2 || size == 4 || size == 8) {
-      swap_bytes_if_needed(ptr, size, items_read, file_endianness);
-    }
-  }
-
-  return items_read;
-}
-
-/**
- * @brief   Wrapper for fwrite with endianness handling
- *
- * @param   ptr      Pointer to the data buffer
- * @param   size     Size of each element
- * @param   nmemb    Number of elements to write
- * @param   stream   File stream to write to
- * @return  Number of elements successfully written
- *
- * This function provides a wrapper around the standard fwrite function
- * with endianness conversion and error handling.
- */
-size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream) {
-  void *tmp_buffer = NULL;
-  size_t items_written;
-
-  if (ptr == NULL || stream == NULL) {
-    IO_ERROR_LOG(IO_ERROR_WRITE_FAILED, "myfwrite", NULL, "NULL pointer passed to myfwrite");
-    return 0;
-  }
-
-  /* Create a clean copy of the data for writing */
-  tmp_buffer = mymalloc_cat(size * nmemb, MEM_IO);
-
-  /* First zero the buffer to avoid any garbage data */
-  memset(tmp_buffer, 0, size * nmemb);
-
-  /* Then copy the data to ensure clean transfer */
-  memcpy(tmp_buffer, ptr, size * nmemb);
-
-  /* Perform endianness conversion if needed */
-  if (!is_same_endian(file_endianness) && (size == 2 || size == 4 || size == 8)) {
-    /* Swap bytes in temporary buffer */
-    swap_bytes_if_needed(tmp_buffer, size, nmemb, file_endianness);
-  }
-
-  /* Use standard library fwrite */
-  items_written = fwrite(tmp_buffer, size, nmemb, stream);
-
-  /* Free temporary buffer */
-  myfree(tmp_buffer);
-
-  return items_written;
-}
-
-/**
- * @brief   Wrapper for fseek with error handling
- *
- * @param   stream   File stream to seek within
- * @param   offset   Offset from the position specified by whence
- * @param   whence   Position from which to seek (SEEK_SET, SEEK_CUR, SEEK_END)
- * @return  0 on success, non-zero on error
- *
- * This function provides a wrapper around the standard fseek function
- * with error handling.
- */
-int myfseek(FILE *stream, long offset, int whence) {
-  int result;
-
-  if (stream == NULL) {
-    IO_ERROR_LOG(IO_ERROR_SEEK_FAILED, "myfseek", NULL, "NULL stream pointer passed to myfseek");
-    return -1;
-  }
-
-  /* Use standard library fseek */
-  result = fseek(stream, offset, whence);
-  if (result != 0) {
-    IO_ERROR_LOG(IO_ERROR_SEEK_FAILED, "myfseek", NULL, "fseek failed with error %d", result);
-  }
-  return result;
 }

@@ -31,51 +31,10 @@
  *      (process_per_event), or single galaxy (process_by_galaxy)
  * 4. Core calls cleanup() during program shutdown
  *
- * Example module implementation:
- * @code
- * static int my_module_init(void) {
- *     INFO_LOG("My module initialized");
- *     return 0;
- * }
- *
- * static int my_module_process(struct ModuleContext *ctx, struct Halo *halos,
- *                               int ngal) {
- *     // Access substep information
- *     int substep = ctx->substep_number;
- *     double dt = ctx->substep_dt;
- *
- *     // Process halos:
- *     //   - ngal=1 for process_by_galaxy and process_per_event
- *     //   - ngal>1 for process_full_halo
- *     for (int i = 0; i < ngal; i++) {
- *         if (halos[i].galaxy == NULL) continue;
- *
- *         // Access simulation context
- *         double z = ctx->redshift;
- *         double hubble_h = ctx->params->Hubble_h;
- *
- *         // Update galaxy properties
- *         halos[i].galaxy->SomeProperty += compute_physics(halos[i], z, dt);
- *     }
- *     return 0;
- * }
- *
- * static int my_module_cleanup(void) {
- *     INFO_LOG("My module cleaned up");
- *     return 0;
- * }
- *
- * static struct Module my_module = {
- *     .name = "my_module",
- *     .init = my_module_init,
- *     .process = my_module_process,
- *     .cleanup = my_module_cleanup
- * };
- *
- * void my_module_register(void) {
- *     module_registry_add(&my_module);
- * }
- * @endcode
+ * For a complete, maintained example implementation (including the
+ * supported-modes metadata wiring), start from
+ * src/module_system/template/template_module.c and its
+ * template_module_info.yaml.
  */
 
 #ifndef MODULE_INTERFACE_H
@@ -121,6 +80,11 @@ enum ProcessingMode {
   PROCESSING_MODE_BY_GALAXY, /**< Module called per-galaxy (galaxy-major loop) */
   PROCESSING_MODE_COUNT      /**< Number of processing modes */
 };
+
+/**
+ * @brief   Configuration-string name for a processing mode (e.g. "process_full_halo")
+ */
+const char *processing_mode_to_string(enum ProcessingMode mode);
 
 /**
  * @brief   Phase-local event payload with producer-scoped identity

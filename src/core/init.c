@@ -1,5 +1,5 @@
 /**
- * @file    core_init.c
+ * @file    init.c
  * @brief   Initialization functions for the Mimic framework
  *
  * This file contains functions responsible for initializing the Mimic
@@ -37,43 +37,27 @@
 /**
  * @brief   Main initialization function for the Mimic framework
  *
- * This function coordinates the initialization of all components required
- * by the Mimic framework. It performs the following tasks:
- *
- * 1. Allocates memory for the Age array
- * 2. Initializes the random number generator
- * 3. Sets up physical units and constants
- * 4. Calculates redshifts from the validated snapshot scale-factor list
- * 5. Computes lookback times for each snapshot
- * 6. Initializes reionization parameters
- * 7. Reads cooling function tables
- *
- * After this function completes, the model is ready to begin processing
- * merger trees and evolving them.
+ * Allocates the Age lookback-time table, sets up physical units and derived
+ * constants, and computes the redshift and lookback time of every snapshot
+ * from the validated scale-factor list. After this function completes, the
+ * model is ready to begin processing merger trees.
  */
 void init(void) {
   int i;
 
-  /* Allocate Age array and store base pointer (fix for issue 1.2.1) */
+  /* Allocate the Age table; the +1 offset invariant is documented in globals.h */
   Age_base = mymalloc_cat(ABSOLUTEMAXSNAPS * sizeof(*Age_base), MEM_UTILITY);
-  Age = Age_base;
-
-  // No need for random number generator as it's not actually used in the code
 
   set_units();
-  srand((unsigned)time(NULL));
 
-  /* Store initial redshift lookback time at index 0, then offset Age pointer
-   * by 1 to allow 1-based indexing (Age[-1] accesses original Age[0]) */
-  Age_base[0] = time_to_present(INITIAL_REDSHIFT); // lookback time from z=1000 (recombination era)
+  /* Leading slot holds the lookback time to recombination; Age[snap] starts
+   * one element past it (Age[-1] addresses this value) */
+  Age_base[0] = time_to_present(INITIAL_REDSHIFT);
   Age = Age_base + 1;
 
   for (i = 0; i < MimicConfig.Snaplistlen; i++) {
     MimicConfig.ZZ[i] = safe_div(1.0, MimicConfig.AA[i], 0.0) - 1;
     Age[i] = time_to_present(MimicConfig.ZZ[i]);
-    // Synchronize array element (Phase 1) - manual assignment required for
-    // array elements
-    ZZ[i] = MimicConfig.ZZ[i];
   }
 }
 
@@ -85,11 +69,7 @@ void init(void) {
  *
  * 1. Computes derived units (time, density, pressure, energy)
  * 2. Converts physical constants to code units (G, Hubble constant)
- * 3. Calculates supernova energy and feedback parameters in code units
- * 4. Computes the critical density of the universe
- *
- * The function also synchronizes the unit values with global variables
- * for backward compatibility with older code.
+ * 3. Computes the critical density of the universe
  *
  * Units are defined in terms of length (cm), mass (g), and velocity (cm/s),
  * with other units derived from these base units.
@@ -112,20 +92,6 @@ void set_units(void) {
 
   // Compute a few quantities
   MimicConfig.RhoCrit = 3 * MimicConfig.Hubble * MimicConfig.Hubble / (8 * M_PI * MimicConfig.G);
-
-  // Synchronize with global variables using explicit macros (Phase 1)
-  SYNC_CONFIG_DOUBLE(UnitLength_in_cm);
-  SYNC_CONFIG_DOUBLE(UnitMass_in_g);
-  SYNC_CONFIG_DOUBLE(UnitVelocity_in_cm_per_s);
-  SYNC_CONFIG_DOUBLE(UnitTime_in_s);
-  SYNC_CONFIG_DOUBLE(UnitTime_in_Megayears);
-  SYNC_CONFIG_DOUBLE(G);
-  SYNC_CONFIG_DOUBLE(UnitDensity_in_cgs);
-  SYNC_CONFIG_DOUBLE(UnitPressure_in_cgs);
-  SYNC_CONFIG_DOUBLE(UnitCoolingRate_in_cgs);
-  SYNC_CONFIG_DOUBLE(UnitEnergy_in_cgs);
-  SYNC_CONFIG_DOUBLE(Hubble);
-  SYNC_CONFIG_DOUBLE(RhoCrit);
 }
 
 /**
@@ -137,9 +103,6 @@ void set_units(void) {
  * 1. Reads the scale factor value (a = 1/(1+z))
  * 2. Stores it in the MimicConfig.AA array
  * 3. Counts the total number of snapshots
- *
- * The function also synchronizes the snapshot data with global variables
- * for backward compatibility with older code.
  *
  * If the file cannot be read, the function terminates with a fatal error.
  */
@@ -211,11 +174,6 @@ void read_snap_list(void) {
   MimicConfig.LastSnapshotNr = MimicConfig.Snaplistlen - 1;
   MimicConfig.MAXSNAPS = MimicConfig.Snaplistlen;
 
-  // Synchronize with globals using explicit pattern (Phase 1)
-  SYNC_CONFIG_INT(MAXSNAPS);
-  SYNC_CONFIG_INT(Snaplistlen);
-  memcpy(AA, MimicConfig.AA, sizeof(double) * ABSOLUTEMAXSNAPS);
-
 #ifdef MPI
   if (ThisTask == 0)
 #endif
@@ -229,36 +187,20 @@ void read_snap_list(void) {
  * @param   z   Redshift to calculate lookback time for
  * @return  Lookback time in internal time units
  *
- * This function computes the lookback time from the present to a given
- * redshift in a ΛCDM universe. It uses numerical integration to calculate:
+ * Computes the lookback time from the present to redshift z in a LCDM
+ * universe:
  *
- * t(z) = 1/H₀ ∫ da / (a² √(Ω_m/a + (1-Ω_m-Ω_Λ) + Ω_Λ a²))
+ * t(z) = 1/H0 * integral da / (a^2 sqrt(Om/a + (1 - Om - OL) + OL a^2))
  *
- * where the integration is performed from a=1/(1+z) to a=1.
- *
- * The result is returned in the internal time units of the simulation.
+ * integrated from a = 1/(1+z) to a = 1, in internal time units.
  */
 double time_to_present(double z) {
-#define WORKSIZE 1000
-  integration_function_t F;
-  integration_workspace_t *workspace;
-  double time, result, abserr;
+  /* Absolute tolerance 1e-9/H gives SAGE-parity precision for lookback times
+   * of order 1/H (sage-code core_init.c used 1e-9 relative tolerance). */
+  double result = integrate_adaptive_simpson(integrand_time_to_present, NULL,
+                                             safe_div(1.0, z + 1, 1.0), 1.0, 1.0e-10, NULL);
 
-  workspace = integration_workspace_alloc(WORKSIZE);
-  F.function = &integrand_time_to_present;
-  F.params = NULL;
-
-  // Use adaptive integration with GAUSS21 method.
-  // SAGE parity: relative tolerance is 1.0e-9 (sage-code core_init.c).
-  integration_qag(&F, safe_div(1.0, z + 1, 1.0), 1.0, safe_div(1.0, MimicConfig.Hubble, 0.0),
-                  1.0e-9, WORKSIZE, INTEG_GAUSS21, workspace, &result, &abserr);
-
-  time = safe_div(1.0, MimicConfig.Hubble, 0.0) * result;
-
-  integration_workspace_free(workspace);
-
-  // return time to present as a function of redshift
-  return time;
+  return safe_div(1.0, MimicConfig.Hubble, 0.0) * result;
 }
 
 /**

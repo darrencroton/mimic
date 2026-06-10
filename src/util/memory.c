@@ -1,5 +1,5 @@
 /**
- * @file    util_memory.c
+ * @file    memory.c
  * @brief   Flexible memory management system with tracking
  *
  * This file implements a memory allocation and tracking system that:
@@ -152,6 +152,20 @@ static int find_block_index(void *ptr) {
 }
 
 /**
+ * @brief   Track (and occasionally report) the memory high watermark
+ */
+static void update_high_watermark(void) {
+  if (TotMem > HighMarkMem) {
+    HighMarkMem = TotMem;
+    /* Only report when verbose format is enabled (--verbose) */
+    if (HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
+      VERBOSE_LOG("New memory usage high mark: %.2f MB", HighMarkMem / (1024.0 * 1024.0));
+      OldPrintedHighMark = HighMarkMem;
+    }
+  }
+}
+
+/**
  * @brief   Allocates memory with category tracking
  *
  * @param   size      Number of bytes to allocate
@@ -223,15 +237,7 @@ void *mymalloc_cat(size_t size, MemoryCategory category) {
   /* Record allocation size and update total */
   TotMem += size;
 
-  /* Update and potentially report high watermark */
-  if (TotMem > HighMarkMem) {
-    HighMarkMem = TotMem;
-    /* Only report when verbose format is enabled (--verbose) */
-    if (HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
-      VERBOSE_LOG("New memory usage high mark: %.2f MB", HighMarkMem / (1024.0 * 1024.0));
-      OldPrintedHighMark = HighMarkMem;
-    }
-  }
+  update_high_watermark();
 
   /* Optional detailed reporting */
   if (MemoryReportLevel >= MEMORY_REPORT_DETAILED) {
@@ -341,15 +347,7 @@ void *myrealloc_cat(void *p, size_t size, MemoryCategory category) {
   CategoryTable[index] = category;
   TotMem += size;
 
-  /* Update high watermark if needed */
-  if (TotMem > HighMarkMem) {
-    HighMarkMem = TotMem;
-    /* Only report when verbose format is enabled (--verbose) */
-    if (HighMarkMem > OldPrintedHighMark + 10 * 1024.0 * 1024.0) {
-      VERBOSE_LOG("New memory usage high mark: %.2f MB", HighMarkMem / (1024.0 * 1024.0));
-      OldPrintedHighMark = HighMarkMem;
-    }
-  }
+  update_high_watermark();
 
   /* Optional detailed reporting */
   if (MemoryReportLevel >= MEMORY_REPORT_DETAILED) {

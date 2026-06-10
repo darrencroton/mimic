@@ -112,6 +112,15 @@ static struct Module *find_module_by_id(int module_id) {
   return NULL;
 }
 
+void for_each_phase(PhaseVisitor visit, void *userdata) {
+  visit("pre_timestep", MimicConfig.pre_timestep, MimicConfig.num_pre_timestep, userdata);
+  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
+    struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
+    visit(phase->name, phase->modules, phase->num_modules, userdata);
+  }
+  visit("post_timestep", MimicConfig.post_timestep, MimicConfig.num_post_timestep, userdata);
+}
+
 /**
  * @brief   Register a galaxy physics module
  *
@@ -123,29 +132,24 @@ static struct Module *find_module_by_id(int module_id) {
  */
 void module_registry_add(struct Module *module) {
   if (module == NULL) {
-    ERROR_LOG("Attempted to register NULL module");
-    exit(EXIT_FAILURE);
+    FATAL_ERROR("Attempted to register NULL module");
   }
 
   if (num_registered_modules >= MAX_MODULES) {
-    ERROR_LOG("Maximum number of modules (%d) exceeded", MAX_MODULES);
-    exit(EXIT_FAILURE);
+    FATAL_ERROR("Maximum number of modules (%d) exceeded", MAX_MODULES);
   }
 
   if (module->name == NULL) {
-    ERROR_LOG("Module has NULL name");
-    exit(EXIT_FAILURE);
+    FATAL_ERROR("Module has NULL name");
   }
 
   if (module->init == NULL || module->process == NULL || module->cleanup == NULL) {
-    ERROR_LOG("Module '%s' has NULL function pointers", module->name);
-    exit(EXIT_FAILURE);
+    FATAL_ERROR("Module '%s' has NULL function pointers", module->name);
   }
 
   // Check for duplicate names
   if (find_module_by_name(module->name) != NULL) {
-    ERROR_LOG("Module '%s' is already registered", module->name);
-    exit(EXIT_FAILURE);
+    FATAL_ERROR("Module '%s' is already registered", module->name);
   }
 
   registered_modules[num_registered_modules] = module;
@@ -155,25 +159,16 @@ void module_registry_add(struct Module *module) {
 }
 
 /**
- * @brief   Initialize the module system
- *
- * Validates multi-phase pipeline configuration and initializes all referenced
- * modules. Modules are initialized in the order they appear across all phases
- * (pre_timestep → named substep phases → post_timestep), with duplicates
- * initialized only once.
- *
- * @return  0 on success, non-zero if initialization fails
- */
-/**
- * @brief   Helper to add module to execution pipeline if not already present
+ * @brief   Resolve a configured module and add it to the pipeline if new
  *
  * @param   module_name  Name of module to add
+ * @return  The registered module (never NULL; fatal if unregistered)
  */
-static void add_module_to_pipeline(const char *module_name) {
+static struct Module *add_module_to_pipeline(const char *module_name) {
   /* Check if already in pipeline */
   for (int i = 0; i < num_pipeline_modules; i++) {
     if (strcmp(execution_pipeline[i]->name, module_name) == 0) {
-      return; /* Already added */
+      return execution_pipeline[i]; /* Already added */
     }
   }
 
@@ -185,16 +180,16 @@ static void add_module_to_pipeline(const char *module_name) {
     for (int j = 0; j < num_registered_modules; j++) {
       ERROR_LOG("  - %s", registered_modules[j]->name);
     }
-    exit(EXIT_FAILURE);
+    FATAL_ERROR("Unknown module '%s' in pipeline configuration", module_name);
   }
 
   /* Add to execution pipeline */
   if (num_pipeline_modules >= MAX_MODULES) {
-    ERROR_LOG("Too many unique modules in pipeline (max %d)", MAX_MODULES);
-    exit(EXIT_FAILURE);
+    FATAL_ERROR("Too many unique modules in pipeline (max %d)", MAX_MODULES);
   }
   execution_pipeline[num_pipeline_modules++] = mod;
   DEBUG_LOG("Added module to pipeline: %s", module_name);
+  return mod;
 }
 
 /**
@@ -214,10 +209,7 @@ static bool module_supports_processing_mode(const struct Module *mod,
   return false;
 }
 
-/**
- * @brief   Convert processing mode enum to configuration string
- */
-static const char *processing_mode_to_string(enum ProcessingMode mode) {
+const char *processing_mode_to_string(enum ProcessingMode mode) {
   switch (mode) {
   case PROCESSING_MODE_FULL_HALO:
     return "process_full_halo";
@@ -239,12 +231,16 @@ static const char *processing_mode_to_string(enum ProcessingMode mode) {
  */
 static const char *format_supported_modes(const struct Module *mod) {
   static char buffer[128];
-  buffer[0] = '\0';
+  size_t used = 0;
 
-  for (int i = 0; i < mod->num_supported_modes; i++) {
-    if (i > 0)
-      strcat(buffer, ", ");
-    strcat(buffer, processing_mode_to_string(mod->supported_processing_modes[i]));
+  buffer[0] = '\0';
+  for (int i = 0; i < mod->num_supported_modes && used < sizeof(buffer); i++) {
+    int written = snprintf(buffer + used, sizeof(buffer) - used, "%s%s", (i > 0) ? ", " : "",
+                           processing_mode_to_string(mod->supported_processing_modes[i]));
+    if (written < 0) {
+      break;
+    }
+    used += (size_t)written;
   }
   return buffer;
 }
@@ -501,25 +497,56 @@ static int validate_event_subscriptions(struct PhaseModuleConfig *config, int nu
   return 0;
 }
 
+/* ── for_each_phase visitors used by module_system_init ─────────────────── */
+
+static void build_pipeline_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
+                                   int num_modules, void *userdata) {
+  (void)phase_name;
+  (void)userdata;
+  for (int i = 0; i < num_modules; i++) {
+    modules[i].resolved = add_module_to_pipeline(modules[i].module_name);
+  }
+}
+
+static void log_phase_size_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
+                                   int num_modules, void *userdata) {
+  (void)modules;
+  (void)userdata;
+  INFO_LOG("  %s: %d module(s)", phase_name, num_modules);
+}
+
+static void validate_modes_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
+                                   int num_modules, void *userdata) {
+  if (validate_phase_processing_modes(modules, num_modules, phase_name) != 0) {
+    *(int *)userdata = 1;
+  }
+}
+
+static void validate_events_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
+                                    int num_modules, void *userdata) {
+  if (validate_event_subscriptions(modules, num_modules, phase_name) != 0) {
+    *(int *)userdata = 1;
+  }
+}
+
+/**
+ * @brief   Initialize the module system
+ *
+ * Validates multi-phase pipeline configuration and initializes all referenced
+ * modules. Modules are initialized in the order they appear across all phases
+ * (pre_timestep, named substep phases, post_timestep), with duplicates
+ * initialized only once.
+ *
+ * @return  0 on success, non-zero if initialization fails
+ */
 int module_system_init(void) {
+  int validation_failed = 0;
+
   INFO_LOG("Initializing multi-phase module system");
 
   /* Build execution pipeline by collecting all unique modules across phases */
   num_pipeline_modules = 0;
-
-  /* Collect modules from all phases in execution order */
-  for (int i = 0; i < MimicConfig.num_pre_timestep; i++) {
-    add_module_to_pipeline(MimicConfig.pre_timestep[i].module_name);
-  }
-  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
-    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
-    for (int i = 0; i < phase->num_modules; i++) {
-      add_module_to_pipeline(phase->modules[i].module_name);
-    }
-  }
-  for (int i = 0; i < MimicConfig.num_post_timestep; i++) {
-    add_module_to_pipeline(MimicConfig.post_timestep[i].module_name);
-  }
+  for_each_phase(build_pipeline_visitor, NULL);
 
   if (num_pipeline_modules == 0) {
     INFO_LOG("No modules configured (physics-free mode)");
@@ -529,56 +556,23 @@ int module_system_init(void) {
 
   INFO_LOG("Pipeline configuration:");
   INFO_LOG("  SubSteps: %d", MimicConfig.SubSteps);
-  INFO_LOG("  Pre-timestep: %d module(s)", MimicConfig.num_pre_timestep);
-  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
-    INFO_LOG("  %s: %d module(s)", MimicConfig.substep_phases[p].name,
-             MimicConfig.substep_phases[p].num_modules);
-  }
-  INFO_LOG("  Post-timestep: %d module(s)", MimicConfig.num_post_timestep);
+  for_each_phase(log_phase_size_visitor, NULL);
   INFO_LOG("  Total unique modules: %d", num_pipeline_modules);
 
   /* Validate processing mode configurations */
   INFO_LOG("Validating module processing mode configurations...");
-
-  if (validate_phase_processing_modes(MimicConfig.pre_timestep, MimicConfig.num_pre_timestep,
-                                      "pre_timestep") != 0) {
+  for_each_phase(validate_modes_visitor, &validation_failed);
+  if (validation_failed) {
     return -1;
   }
-
-  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
-    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
-    if (validate_phase_processing_modes(phase->modules, phase->num_modules, phase->name) != 0) {
-      return -1;
-    }
-  }
-
-  if (validate_phase_processing_modes(MimicConfig.post_timestep, MimicConfig.num_post_timestep,
-                                      "post_timestep") != 0) {
-    return -1;
-  }
-
   INFO_LOG("Processing mode validation passed");
 
   /* Validate event subscription contracts for each phase */
   INFO_LOG("Validating event subscription contracts...");
-
-  if (validate_event_subscriptions(MimicConfig.pre_timestep, MimicConfig.num_pre_timestep,
-                                   "pre_timestep") != 0) {
+  for_each_phase(validate_events_visitor, &validation_failed);
+  if (validation_failed) {
     return -1;
   }
-
-  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
-    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
-    if (validate_event_subscriptions(phase->modules, phase->num_modules, phase->name) != 0) {
-      return -1;
-    }
-  }
-
-  if (validate_event_subscriptions(MimicConfig.post_timestep, MimicConfig.num_post_timestep,
-                                   "post_timestep") != 0) {
-    return -1;
-  }
-
   INFO_LOG("Event subscription validation passed");
 
   /* Initialize all modules in pipeline order */
@@ -662,9 +656,8 @@ static void dispatch_events_range(int start_index, int end_index) {
     const struct ModuleEvent *event = &phase_event_state.events[event_index];
 
     if (event->target_index < 0 || event->target_index >= phase_event_state.ngal) {
-      ERROR_LOG("Event dispatch failed: target_index=%d out of bounds [0, %d)", event->target_index,
-                phase_event_state.ngal);
-      exit(EXIT_FAILURE);
+      FATAL_ERROR("Event dispatch failed: target_index=%d out of bounds [0, %d)",
+                  event->target_index, phase_event_state.ngal);
     }
 
     struct Halo *target_halo = &phase_event_state.halos[event->target_index];
@@ -674,11 +667,11 @@ static void dispatch_events_range(int start_index, int end_index) {
         continue;
       }
 
-      struct Module *mod = find_module_by_name(phase_event_state.phase_config[i].module_name);
+      struct Module *mod = phase_event_state.phase_config[i].resolved;
       if (mod == NULL) {
-        ERROR_LOG("Module '%s' configured but not registered",
-                  phase_event_state.phase_config[i].module_name);
-        exit(EXIT_FAILURE);
+        FATAL_ERROR("Module '%s' was not resolved — module_system_init() must run "
+                    "before event dispatch",
+                    phase_event_state.phase_config[i].module_name);
       }
 
       /* Subscription routing: only dispatch to consumers subscribed to this event */
@@ -704,9 +697,8 @@ static void dispatch_events_range(int start_index, int end_index) {
 
       int result = mod->process(phase_event_state.ctx, target_halo, 1);
       if (result != 0) {
-        ERROR_LOG("Module '%s' failed on event %d (event_id=%d, substep %d)", mod->name,
-                  event_index, event->event_id, phase_event_state.ctx->substep_number);
-        exit(EXIT_FAILURE);
+        FATAL_ERROR("Module '%s' failed on event %d (event_id=%d, substep %d)", mod->name,
+                    event_index, event->event_id, phase_event_state.ctx->substep_number);
       }
     }
 
@@ -836,10 +828,11 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
       continue;
     }
 
-    struct Module *mod = find_module_by_name(phase_config[i].module_name);
+    struct Module *mod = phase_config[i].resolved;
     if (mod == NULL) {
-      ERROR_LOG("Module '%s' configured but not registered", phase_config[i].module_name);
-      exit(EXIT_FAILURE);
+      FATAL_ERROR("Module '%s' was not resolved — module_system_init() must run "
+                  "before execute_phase()",
+                  phase_config[i].module_name);
     }
 
     DEBUG_LOG("Executing module: %s (full array, ngal=%d, substep %d/%d, z=%.3f)", mod->name, ngal,
@@ -853,8 +846,7 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
     phase_event_state.current_producer_module_id = 0;
 
     if (result != 0) {
-      ERROR_LOG("Module '%s' failed (substep %d)", mod->name, ctx->substep_number);
-      exit(EXIT_FAILURE);
+      FATAL_ERROR("Module '%s' failed (substep %d)", mod->name, ctx->substep_number);
     }
 
     /* Safety dispatch for any events not yet dispatched during emission. */
@@ -872,10 +864,11 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
         continue;
       }
 
-      struct Module *mod = find_module_by_name(phase_config[i].module_name);
+      struct Module *mod = phase_config[i].resolved;
       if (mod == NULL) {
-        ERROR_LOG("Module '%s' configured but not registered", phase_config[i].module_name);
-        exit(EXIT_FAILURE);
+        FATAL_ERROR("Module '%s' was not resolved — module_system_init() must run "
+                    "before execute_phase()",
+                    phase_config[i].module_name);
       }
 
       DEBUG_LOG("Executing module: %s (galaxy %d/%d, substep %d/%d, z=%.3f)", mod->name, g, ngal,
@@ -884,9 +877,8 @@ void execute_phase(struct PhaseModuleConfig *phase_config, int num_modules,
       ctx->active_event = NULL;
       int result = mod->process(ctx, &halos[g], 1);
       if (result != 0) {
-        ERROR_LOG("Module '%s' failed on galaxy %d (substep %d)", mod->name, g,
-                  ctx->substep_number);
-        exit(EXIT_FAILURE);
+        FATAL_ERROR("Module '%s' failed on galaxy %d (substep %d)", mod->name, g,
+                    ctx->substep_number);
       }
     }
   }
@@ -1052,19 +1044,24 @@ static void enumerate_phase_event_contracts(const char *phase_name,
   }
 }
 
+struct ContractEnumState {
+  EventContractCallback cb;
+  void *userdata;
+};
+
+static void enumerate_contracts_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
+                                        int num_modules, void *userdata) {
+  struct ContractEnumState *state = userdata;
+  enumerate_phase_event_contracts(phase_name, modules, num_modules, state->cb, state->userdata);
+}
+
 void module_system_enumerate_event_contracts(EventContractCallback cb, void *userdata) {
   if (cb == NULL) {
     return;
   }
 
-  enumerate_phase_event_contracts("pre_timestep", MimicConfig.pre_timestep,
-                                  MimicConfig.num_pre_timestep, cb, userdata);
-  for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
-    const struct ModulePhaseConfig *phase = &MimicConfig.substep_phases[p];
-    enumerate_phase_event_contracts(phase->name, phase->modules, phase->num_modules, cb, userdata);
-  }
-  enumerate_phase_event_contracts("post_timestep", MimicConfig.post_timestep,
-                                  MimicConfig.num_post_timestep, cb, userdata);
+  struct ContractEnumState state = {cb, userdata};
+  for_each_phase(enumerate_contracts_visitor, &state);
 }
 
 /* ==============================================================================

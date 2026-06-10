@@ -1,5 +1,5 @@
 /**
- * @file    model_misc.c
+ * @file    virial.c
  * @brief   Miscellaneous utility functions for halo tracking
  *
  * This file contains various utility functions used throughout the Mimic code
@@ -103,8 +103,10 @@ double get_virial_velocity(int halonr) {
  * halo catalog could be used directly instead of this calculation.
  */
 double get_virial_radius(int halonr) {
-  // return InputTreeHalos[halonr].Rvir;  // Used for Bolshoi
-
+  /* Rvir is recomputed from Mvir and the critical density rather than taken
+   * from the catalog, so all simulations share one virial definition
+   * (catalogs like Bolshoi provide Rvir directly, but with varying
+   * conventions). */
   double zplus1, hubble_of_z_sq, rhocrit, fac;
 
   zplus1 = 1 + MimicConfig.ZZ[InputTreeHalos[halonr].SnapNum];

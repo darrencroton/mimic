@@ -35,13 +35,14 @@ static const double TEST_THRESHOLD_DISRUPTION = 1.0;
 static struct ParityTrace *active_trace = NULL;
 
 static void init_unit_constants(void) {
-  UnitLength_in_cm = 3.08568e24;
-  UnitVelocity_in_cm_per_s = 1.0e5;
-  UnitMass_in_g = 1.989e43;
+  MimicConfig.UnitLength_in_cm = 3.08568e24;
+  MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5;
+  MimicConfig.UnitMass_in_g = 1.989e43;
 
-  UnitTime_in_s = UnitLength_in_cm / UnitVelocity_in_cm_per_s;
-  UnitEnergy_in_cgs =
-      UnitMass_in_g * UnitLength_in_cm * UnitLength_in_cm / (UnitTime_in_s * UnitTime_in_s);
+  MimicConfig.UnitTime_in_s = MimicConfig.UnitLength_in_cm / MimicConfig.UnitVelocity_in_cm_per_s;
+  MimicConfig.UnitEnergy_in_cgs = MimicConfig.UnitMass_in_g * MimicConfig.UnitLength_in_cm *
+                                  MimicConfig.UnitLength_in_cm /
+                                  (MimicConfig.UnitTime_in_s * MimicConfig.UnitTime_in_s);
 }
 
 static void reset_config(void) {

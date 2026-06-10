@@ -1,5 +1,5 @@
 /**
- * @file    core_build_model.c
+ * @file    build_model.c
  *
  * This file contains the core algorithms for tracking halos from
  * merger trees and managing halo evolution through the simulation.
@@ -174,9 +174,8 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
  * of the descendant halo.
  */
 int find_most_massive_progenitor(int halonr) {
-  int prog, first_occupied, lenmax, lenoccmax;
+  int prog, first_occupied, lenoccmax;
 
-  lenmax = 0;
   lenoccmax = 0;
   first_occupied = InputTreeHalos[halonr].FirstProgenitor;
   prog = InputTreeHalos[halonr].FirstProgenitor;
@@ -188,10 +187,6 @@ int find_most_massive_progenitor(int halonr) {
   // Find most massive progenitor that contains an actual object
   // Maybe FirstProgenitor never was FirstHaloInFOFGroup and thus has no object
   while (prog >= 0) {
-    if (InputTreeHalos[prog].Len > lenmax) {
-      lenmax = InputTreeHalos[prog].Len;
-      /* mother_halo = prog; */
-    }
     if (lenoccmax != -1 && InputTreeHalos[prog].Len > lenoccmax && HaloAux[prog].NHalos > 0) {
       lenoccmax = InputTreeHalos[prog].Len;
       first_occupied = prog;
@@ -258,7 +253,7 @@ static void ensure_fof_workspace_capacity(int required) {
     INFO_LOG("Growing halo array from %d to %d elements", MaxFoFWorkspace, new_size);
 
     MaxFoFWorkspace = new_size;
-    FoFWorkspace = myrealloc(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo));
+    FoFWorkspace = myrealloc_cat(FoFWorkspace, MaxFoFWorkspace * sizeof(struct Halo), MEM_HALOS);
     memset(&FoFWorkspace[old_size], 0, (new_size - old_size) * sizeof(struct Halo));
   }
 }
@@ -383,7 +378,6 @@ static void gather_progenitor_galaxies(int halonr, int first_occupied,
  */
 int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
   int current_snap, first_occupied, ngal, nprogenitors, required;
-  double virial_mass, virial_radius, virial_velocity;
   struct InheritanceDescendant descendant;
   struct InheritanceProgenitorGalaxy *progenitors = NULL;
 
@@ -403,16 +397,13 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
   }
 
   current_snap = InputTreeHalos[halonr].SnapNum;
-  virial_mass = get_virial_mass(halonr);
-  virial_radius = get_virial_radius(halonr);
-  virial_velocity = get_virial_velocity(halonr);
   descendant.halo_nr = halonr;
   descendant.current_snap = current_snap;
   descendant.current_time = Age[current_snap];
   descendant.new_halo_dt = (current_snap > 0) ? Age[current_snap - 1] - Age[current_snap] : -1.0;
-  descendant.virial_mass = virial_mass;
-  descendant.virial_radius = virial_radius;
-  descendant.virial_velocity = virial_velocity;
+  descendant.virial_mass = get_virial_mass(halonr);
+  descendant.virial_radius = get_virial_radius(halonr);
+  descendant.virial_velocity = get_virial_velocity(halonr);
   descendant.is_fof_central = (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup);
   descendant.unique_galaxy_id = make_unique_galaxy_id(halonr, tree, filenr);
   descendant.halo_payload = make_halo_init_payload(halonr);
@@ -434,7 +425,7 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr, int cent
   int snap = InputTreeHalos[halonr].SnapNum;
 
   /* Snapshot information */
-  ctx->redshift = ZZ[snap];
+  ctx->redshift = MimicConfig.ZZ[snap];
   ctx->time = Age[snap];
   ctx->snapshot_number = snap;
 
@@ -449,9 +440,14 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr, int cent
   /* Determine number of substeps (default to 1 if not specified) */
   ctx->num_substeps = (MimicConfig.SubSteps > 0) ? MimicConfig.SubSteps : 1;
 
-  /* Calculate total time interval for this timestep */
+  /* Calculate total time interval for this timestep.
+   *
+   * INVARIANT: workspace halos still carry their *progenitor's* SnapNum at
+   * this point — inheritance copies it unchanged, and it is only advanced to
+   * the current snapshot when the workspace is marshalled to the output
+   * buffer. That is what makes Age[SnapNum] here the progenitor age. */
   if (FoFWorkspace[centralgal].SnapNum >= 0) {
-    int prev_snap = FoFWorkspace[centralgal].SnapNum; /* Previous snapshot */
+    int prev_snap = FoFWorkspace[centralgal].SnapNum;
     ctx->time_interval = Age[prev_snap] - Age[snap];
   } else {
     ctx->time_interval = 0.0; /* First snapshot has no previous */
@@ -492,11 +488,13 @@ void process_halo_evolution(int halonr, int ngal) {
   }
 
   if (centralgal == -1) {
-    ERROR_LOG("FATAL: No Type 0 central found for FOF halo %d (ngal=%d)", halonr, ngal);
-    assert(centralgal != -1);
+    FATAL_ERROR("No Type 0 central found for FOF halo %d (ngal=%d)", halonr, ngal);
   }
 
-  assert(FoFWorkspace[centralgal].HaloNr == halonr);
+  if (FoFWorkspace[centralgal].HaloNr != halonr) {
+    FATAL_ERROR("Central galaxy HaloNr=%d does not match FOF halo %d",
+                FoFWorkspace[centralgal].HaloNr, halonr);
+  }
 
   /* Set FOF-host central unique ID for all members (stable output contract). */
   for (i = 0; i < ngal; i++) {

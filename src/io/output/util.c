@@ -1,5 +1,5 @@
 /**
- * @file    io_save_util.c
+ * @file    output/util.c
  * @brief   Shared utilities for output file writing (binary and HDF5)
  *
  * This file implements common functions used by both binary and HDF5 output
@@ -7,7 +7,6 @@
  * ensure consistent behavior across output formats.
  *
  * Key functions:
- * - count_output_halos_by_snapshot(): Counts output halos by snapshot
  * - prepare_halo_for_output(): Converts internal halo format to output format
  */
 
@@ -19,32 +18,38 @@
 #include "globals.h"
 #include "proto.h"
 #include "output/util.h"
+#include "output/binary.h"
+#ifdef HDF5
+#include "output/hdf5.h"
+#endif
 #include "module_system/output_helpers.h"
 #include "module_system/physical_constants.h" /* For SEC_PER_MEGAYEAR */
 
-/**
- * @brief Counts processed halos per requested output snapshot.
- *
- * See io_save_util.h for full documentation.
- */
-void count_output_halos_by_snapshot(int OutputGalCount[MAXSNAPS]) {
-  int i, n;
-
-  for (i = 0; i < MAXSNAPS; i++)
-    OutputGalCount[i] = 0;
-
-  /*
-   * Count halos for each requested output snapshot.
-   *
-   * Complexity: O(NumProcessedHalos × NOUT)
-   */
-  for (n = 0; n < MimicConfig.NOUT; n++) {
-    for (i = 0; i < NumProcessedHalos; i++) {
-      if (ProcessedHalos[i].SnapNum == MimicConfig.ListOutputSnaps[n]) {
-        OutputGalCount[n]++;
-      }
-    }
+void output_path_binary(char *buf, size_t size, int filenr, int snap_index) {
+  int written =
+      snprintf(buf, size, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir, MimicConfig.OutputFileBaseName,
+               MimicConfig.ZZ[MimicConfig.ListOutputSnaps[snap_index]], filenr);
+  if (written < 0 || (size_t)written >= size) {
+    FATAL_ERROR("Binary output path too long (filenr %d, snapshot index %d)", filenr, snap_index);
   }
+}
+
+void output_path_hdf5(char *buf, size_t size, int filenr) {
+  int written = snprintf(buf, size, "%s/%s_%03d.hdf5", MimicConfig.OutputDir,
+                         MimicConfig.OutputFileBaseName, filenr);
+  if (written < 0 || (size_t)written >= size) {
+    FATAL_ERROR("HDF5 output path too long (filenr %d)", filenr);
+  }
+}
+
+void prepare_output_files(int filenr) {
+#ifdef HDF5
+  if (MimicConfig.OutputFormat == output_hdf5) {
+    open_hdf5_output_file(filenr);
+    return;
+  }
+#endif
+  create_binary_output_files(filenr);
 }
 
 /**

@@ -1,5 +1,5 @@
 /**
- * @file    util_numeric.c
+ * @file    numeric.c
  * @brief   Implementation of utility functions for numerical stability
  *
  * This file implements utility functions to improve numerical stability in

@@ -1,5 +1,5 @@
 /**
- * @file    core_allvars.c
+ * @file    allvars.c
  * @brief   Defines global variables used throughout the Mimic framework
  *
  * This file contains the definitions of all global variables used by the
@@ -35,9 +35,7 @@ struct HaloAuxData *HaloAux;
 
 /*  misc  */
 
-int HDF5Output;
 #ifdef HDF5
-char *core_output_file;
 size_t HDF5_dst_size;
 size_t *HDF5_dst_offsets;
 size_t *HDF5_dst_sizes;
@@ -52,15 +50,9 @@ int MaxFoFWorkspace;
 int Ntrees;            /*  number of trees in current file  */
 int NumProcessedHalos; /*  Total number of halos stored for current tree  */
 
-int HaloCounter; /*  unique halo ID for main progenitor line in tree */
-
-int TotHalos;
 int TotHalosPerSnap[ABSOLUTEMAXSNAPS];
 int *InputHalosPerSnap[ABSOLUTEMAXSNAPS];
 
-double BoxSize;
-
-int *FirstHaloInSnap;
 int *InputTreeNHalos;
 int *InputTreeFirstHalo;
 
@@ -69,30 +61,10 @@ int ThisTask, NTask, nodeNameLen;
 char *ThisNode;
 #endif
 
-/*  recipe parameters  */
-int NParam;
-char ParamTag[MAXTAGS][50];
-int ParamID[MAXTAGS];
-void *ParamAddr[MAXTAGS];
-
-/*  more misc - kept for backward compatibility */
-double UnitLength_in_cm, UnitTime_in_s, UnitVelocity_in_cm_per_s, UnitMass_in_g, RhoCrit,
-    UnitPressure_in_cgs, UnitDensity_in_cgs, UnitCoolingRate_in_cgs, UnitEnergy_in_cgs,
-    UnitTime_in_Megayears, G, Hubble;
-
-int ListOutputSnaps[ABSOLUTEMAXSNAPS];
-double ZZ[ABSOLUTEMAXSNAPS];
-double AA[ABSOLUTEMAXSNAPS];
+/* Lookback-time table; see globals.h for the Age/Age_base offset invariant */
 double *Age;
-double *Age_base; /* Original allocation pointer for Age (fix for issue 1.2.1) */
+double *Age_base;
 
-int MAXSNAPS;
-int NOUT;
-int Snaplistlen;
-
-/* Random number generator removed - not used in computation */
-
+/* Current tree/file indices, read by model modules building unique IDs */
 int TreeID;
 int FileNum;
-
-enum Valid_TreeTypes TreeType;

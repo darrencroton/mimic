@@ -1,5 +1,5 @@
 /**
- * @file    io/tree_binary.c
+ * @file    tree/binary.c
  * @brief   Functions for reading binary merger tree files
  *
  * This file implements functionality for loading merger trees from
@@ -33,7 +33,6 @@
 #include "globals.h"
 #include "tree/interface.h"
 #include "tree/binary.h"
-#include "util.h"
 #include "types.h"
 #include "error.h"
 
@@ -75,12 +74,7 @@ void load_tree_table_binary(int32_t filenr) {
     FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf, filenr);
   }
 
-  // For simplicity, assume host endianness for legacy files
-  set_file_endianness(MIMIC_HOST_ENDIAN);
-  DEBUG_LOG("Using legacy headerless file format (assuming %s endian)",
-            (MIMIC_HOST_ENDIAN == MIMIC_LITTLE_ENDIAN) ? "little" : "big");
-
-  // Read the tree metadata
+  // Read the tree metadata (legacy headerless format, host endianness assumed)
   if (fread(&Ntrees, sizeof(int), 1, load_fd) != 1) {
     FATAL_ERROR("Failed to read Ntrees from file '%s'", buf);
   }
@@ -93,15 +87,7 @@ void load_tree_table_binary(int32_t filenr) {
 
   // Allocate arrays for tree data
   InputTreeNHalos = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
-  if (InputTreeNHalos == NULL) {
-    FATAL_ERROR("Failed to allocate memory for InputTreeNHalos array");
-  }
-
   InputTreeFirstHalo = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
-  if (InputTreeFirstHalo == NULL) {
-    FATAL_ERROR("Failed to allocate memory for InputTreeFirstHalo array");
-  }
-
   // Read the number of halos per tree - using direct fread for now
   if (fread(InputTreeNHalos, sizeof(int), Ntrees, load_fd) != (size_t)Ntrees) {
     FATAL_ERROR("Failed to read tree halo counts from file '%s'", buf);
@@ -138,10 +124,6 @@ void load_tree_binary(int32_t treenr) {
   assert(load_fd);
 
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * InputTreeNHalos[treenr], MEM_TREES);
-  if (InputTreeHalos == NULL) {
-    FATAL_ERROR("Failed to allocate memory for Halo array with %d halos", InputTreeNHalos[treenr]);
-  }
-
   // Use direct fread to avoid our problematic wrapper
   if (fread(InputTreeHalos, sizeof(struct RawHalo), InputTreeNHalos[treenr], load_fd) !=
       (size_t)InputTreeNHalos[treenr]) {

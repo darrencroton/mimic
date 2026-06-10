@@ -1,5 +1,5 @@
 /**
- * @file    io/tree_hdf5.c
+ * @file    tree/hdf5.c
  * @brief   Functions for reading HDF5 format merger tree files
  *
  * This file implements functionality for loading merger trees from
@@ -38,7 +38,7 @@
 #include "types.h"
 
 // Local Variables //
-static hid_t hdf5_file;
+static hid_t hdf5_file = -1;
 
 // Local Structs //
 
@@ -48,12 +48,16 @@ struct METADATA_NAMES {
   char name_InputTreeNHalos[MAX_STRING_LEN + 1];
 };
 
+/* How read_dataset() should interpret a dataset's elements */
+enum ReadDatatype { READ_AS_INT = 0, READ_AS_FLOAT = 1, READ_AS_LLONG = 2 };
+
 // Local Proto-Types //
 
-int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
-                            enum Valid_TreeTypes my_TreeType);
-int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name, int *attribute);
-int32_t read_dataset(char *dataset_name, int32_t datatype, void *buffer);
+static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
+                                   enum Valid_TreeTypes my_TreeType);
+static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
+                                  int *attribute);
+static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void *buffer);
 
 // External Functions //
 
@@ -106,7 +110,7 @@ void load_tree_table_hdf5(int filenr) {
     FATAL_ERROR("Error %d while reading totNHalos attribute from file '%s'", status, buf);
   }
 
-  printf("There are %d trees and %d total halos\n", Ntrees, totNHalos);
+  DEBUG_LOG("There are %d trees and %d total halos", Ntrees, totNHalos);
 
   InputTreeNHalos = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
 
@@ -118,9 +122,6 @@ void load_tree_table_hdf5(int filenr) {
   }
 
   InputTreeFirstHalo = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
-
-  for (i = 0; i < 20; ++i)
-    printf("Tree %d: NHalos %d\n", i, InputTreeNHalos[i]);
 
   if (Ntrees)
     InputTreeFirstHalo[0] = 0;
@@ -186,9 +187,10 @@ void load_tree_hdf5(int32_t treenr) {
   double *buffer_multipledim; // However also need a buffer three times as large
                               // to hold data such as position/velocity.
 
-  if (hdf5_file <= 0) {
+  if (hdf5_file < 0) {
     IO_FATAL_ERROR(IO_ERROR_HDF5, "read_tree", NULL,
-                   "HDF5 file not open when reading tree %d (handle=%d)", treenr, hdf5_file);
+                   "HDF5 file not open when reading tree %d (handle=%lld)", treenr,
+                   (long long)hdf5_file);
   }
 
   NHalos_ThisTree = InputTreeNHalos[treenr];
@@ -214,29 +216,29 @@ void load_tree_hdf5(int32_t treenr) {
   // into the RawHalo struct (InputTreeHalos).
 
   /* Merger Tree Pointers */
-  READ_TREE_PROPERTY(Descendant, Descendant, 0, int);
-  READ_TREE_PROPERTY(FirstProgenitor, FirstProgenitor, 0, int);
-  READ_TREE_PROPERTY(NextProgenitor, NextProgenitor, 0, int);
-  READ_TREE_PROPERTY(FirstHaloInFOFgroup, FirstHaloInFOFgroup, 0, int);
-  READ_TREE_PROPERTY(NextHaloInFOFgroup, NextHaloInFOFgroup, 0, int);
+  READ_TREE_PROPERTY(Descendant, Descendant, READ_AS_INT, int);
+  READ_TREE_PROPERTY(FirstProgenitor, FirstProgenitor, READ_AS_INT, int);
+  READ_TREE_PROPERTY(NextProgenitor, NextProgenitor, READ_AS_INT, int);
+  READ_TREE_PROPERTY(FirstHaloInFOFgroup, FirstHaloInFOFgroup, READ_AS_INT, int);
+  READ_TREE_PROPERTY(NextHaloInFOFgroup, NextHaloInFOFgroup, READ_AS_INT, int);
 
   /* Halo Properties */
-  READ_TREE_PROPERTY(Len, Len, 0, int);
-  READ_TREE_PROPERTY(M_Mean200, M_mean200, 1, float);
-  READ_TREE_PROPERTY(Mvir, Mvir, 1, float);
-  READ_TREE_PROPERTY(M_TopHat, M_TopHat, 1, float);
-  READ_TREE_PROPERTY_MULTIPLEDIM(Pos, Pos, 1, float);
-  READ_TREE_PROPERTY_MULTIPLEDIM(Vel, Vel, 1, float);
-  READ_TREE_PROPERTY(VelDisp, VelDisp, 1, float);
-  READ_TREE_PROPERTY(Vmax, Vmax, 1, float);
-  READ_TREE_PROPERTY_MULTIPLEDIM(Spin, Spin, 1, float);
-  READ_TREE_PROPERTY(MostBoundID, MostBoundID, 2, long long);
+  READ_TREE_PROPERTY(Len, Len, READ_AS_INT, int);
+  READ_TREE_PROPERTY(M_Mean200, M_mean200, READ_AS_FLOAT, float);
+  READ_TREE_PROPERTY(Mvir, Mvir, READ_AS_FLOAT, float);
+  READ_TREE_PROPERTY(M_TopHat, M_TopHat, READ_AS_FLOAT, float);
+  READ_TREE_PROPERTY_MULTIPLEDIM(Pos, Pos, READ_AS_FLOAT, float);
+  READ_TREE_PROPERTY_MULTIPLEDIM(Vel, Vel, READ_AS_FLOAT, float);
+  READ_TREE_PROPERTY(VelDisp, VelDisp, READ_AS_FLOAT, float);
+  READ_TREE_PROPERTY(Vmax, Vmax, READ_AS_FLOAT, float);
+  READ_TREE_PROPERTY_MULTIPLEDIM(Spin, Spin, READ_AS_FLOAT, float);
+  READ_TREE_PROPERTY(MostBoundID, MostBoundID, READ_AS_LLONG, long long);
 
   /* File Position Info */
-  READ_TREE_PROPERTY(SnapNum, SnapNum, 0, int);
-  READ_TREE_PROPERTY(FileNr, Filenr, 0, int);
-  READ_TREE_PROPERTY(SubhaloIndex, SubHaloIndex, 0, int);
-  READ_TREE_PROPERTY(SubHalfMass, SubHalfMass, 0, int);
+  READ_TREE_PROPERTY(SnapNum, SnapNum, READ_AS_INT, int);
+  READ_TREE_PROPERTY(FileNr, Filenr, READ_AS_INT, int);
+  READ_TREE_PROPERTY(SubhaloIndex, SubHaloIndex, READ_AS_INT, int);
+  READ_TREE_PROPERTY(SubHalfMass, SubHalfMass, READ_AS_FLOAT, float);
 
   free(buffer);
   free(buffer_multipledim);
@@ -266,7 +268,12 @@ void load_tree_hdf5(int32_t treenr) {
  * Proper file closure is important to ensure all data is flushed to
  * disk and to free associated HDF5 resources.
  */
-void close_hdf5_file(void) { H5Fclose(hdf5_file); }
+void close_hdf5_file(void) {
+  if (hdf5_file >= 0) {
+    H5Fclose(hdf5_file);
+    hdf5_file = -1;
+  }
+}
 
 // Local Functions //
 
@@ -286,8 +293,8 @@ void close_hdf5_file(void) { H5Fclose(hdf5_file); }
  *
  * The function returns an error if an unsupported tree type is specified.
  */
-int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
-                            enum Valid_TreeTypes my_TreeType) {
+static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
+                                   enum Valid_TreeTypes my_TreeType) {
 
   switch (my_TreeType) {
 
@@ -331,7 +338,8 @@ int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
  * The function can read both scalar attributes and array attributes,
  * depending on the provided attribute pointer.
  */
-int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name, int *attribute) {
+static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
+                                  int *attribute) {
 
   int32_t status;
   hid_t attr_id;
@@ -375,7 +383,7 @@ int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
  * The function provides error checking and appropriate error messages for
  * debugging purposes.
  */
-int32_t read_dataset(char *dataset_name, int32_t datatype, void *buffer) {
+static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void *buffer) {
   hid_t dataset_id;
 
   dataset_id = H5Dopen2(hdf5_file, dataset_name, H5P_DEFAULT);
@@ -386,11 +394,11 @@ int32_t read_dataset(char *dataset_name, int32_t datatype, void *buffer) {
 
   /* Read the dataset with error checking */
   herr_t status;
-  if (datatype == 0) {
+  if (datatype == READ_AS_INT) {
     status = H5Dread(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
-  } else if (datatype == 1) {
+  } else if (datatype == READ_AS_FLOAT) {
     status = H5Dread(dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
-  } else if (datatype == 2) {
+  } else if (datatype == READ_AS_LLONG) {
     status = H5Dread(dataset_id, H5T_NATIVE_LLONG, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
   } else {
     ERROR_LOG("Invalid datatype %d for dataset %s", datatype, dataset_name);

@@ -16,16 +16,13 @@
 /* Floating-point comparison epsilon values */
 #define EPSILON_SMALL 1.0e-10 /* For near-zero comparisons */
 #define EPSILON_MEDIUM 1.0e-6 /* For general equality comparisons */
-#define EPSILON_LARGE 1.0e-4  /* For physics model thresholds */
 
 /* Numerical constants for the simulation */
 #define NDIM 3
 #define MAXHALOFAC 5
-#define ALLOCPARAMETER 10.0
-#define MAX_NODE_NAME_LEN 50
 #define ABSOLUTEMAXSNAPS 1000 /* The largest number of snapshots for any simulation */
-#define MAXTAGS 300           /* Max number of parameters */
 #define MAX_STRING_LEN 1024   /* Max length of a string containing a name */
+#define MAX_MODEL_PARAMS 256  /* Max modules.parameters entries in the input file */
 
 /* Cosmological constants */
 #define INITIAL_REDSHIFT 1000.0 /* Recombination era (CMB formation) */

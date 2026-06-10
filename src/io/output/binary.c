@@ -1,5 +1,5 @@
 /**
- * @file    io_save_binary.c
+ * @file    output/binary.c
  * @brief   Functions for saving halo data to binary output files
  *
  * This file contains the functionality for writing tracked halos to binary
@@ -17,7 +17,6 @@
  * Format-agnostic utilities (shared with HDF5) are in io/output/util.c.
  */
 
-#include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,7 +30,6 @@
 #include "output/binary.h"
 #include "output/util.h"
 #include "proto.h"
-#include "util.h"
 #include "module_system/output_helpers.h"
 #include "module_system/physical_constants.h" /* For SEC_PER_MEGAYEAR */
 
@@ -42,6 +40,27 @@ FILE *save_fd[ABSOLUTEMAXSNAPS] = {0};
 #define MAX_BUF_SIZE (3 * MAX_STRING_LEN + 40)
 #endif
 #define MAX_OUTFILE_SIZE (MAX_STRING_LEN + 40)
+
+/**
+ * @brief   Create one empty output file per requested snapshot for this filenr
+ *
+ * Called once per filenr before tree processing so output files exist (and
+ * mark the filenr as claimed) even before the first halo is written.
+ */
+void create_binary_output_files(int filenr) {
+  char buf[MAX_BUF_SIZE + 1];
+  FILE *fd;
+
+  for (int n = 0; n < MimicConfig.NOUT; n++) {
+    output_path_binary(buf, MAX_BUF_SIZE, filenr, n);
+
+    if (!(fd = fopen(buf, "w"))) {
+      FATAL_ERROR("Failed to create output halo file '%s' for snapshot %d (filenr %d)", buf,
+                  MimicConfig.ListOutputSnaps[n], filenr);
+    }
+    fclose(fd);
+  }
+}
 
 /**
  * @brief   Saves output files for all requested snapshots
@@ -72,9 +91,7 @@ void save_halos(int filenr, int tree) {
   for (n = 0; n < MimicConfig.NOUT; n++) {
     // only open the file if it is not already open.
     if (!save_fd[n]) {
-      snprintf(buf, MAX_BUF_SIZE, "%s/%s_z%1.3f_%d", MimicConfig.OutputDir,
-               MimicConfig.OutputFileBaseName, MimicConfig.ZZ[MimicConfig.ListOutputSnaps[n]],
-               filenr);
+      output_path_binary(buf, MAX_BUF_SIZE, filenr, n);
 
       /* Open in binary mode with update permissions */
       save_fd[n] = fopen(buf, "wb+");
@@ -95,12 +112,13 @@ void save_halos(int filenr, int tree) {
 
       memset(tmp_buf, 0, size);
 
-      /* Write header data (will be flushed on close) */
+      /* Write a zeroed placeholder header; finalize_halo_file() rewrites it
+       * with the real counts once all halos are written */
       nwritten = fwrite(tmp_buf, sizeof(int), Ntrees + 2, save_fd[n]);
       if (nwritten != Ntrees + 2) {
-        ERROR_LOG("Failed to write header information to output file %d. Expected %d "
-                  "elements, wrote %d elements. Will retry after output is complete",
-                  n, Ntrees + 2, nwritten);
+        FATAL_ERROR("Failed to write placeholder header to output file %d (expected %d "
+                    "elements, wrote %d)",
+                    n, Ntrees + 2, nwritten);
       }
 
       /* Make sure data is actually written to disk */
@@ -156,8 +174,9 @@ void finalize_halo_file(int filenr) {
   int n, nwritten;
 
   for (n = 0; n < MimicConfig.NOUT; n++) {
-    // file must already be open.
-    assert(save_fd[n]);
+    if (save_fd[n] == NULL) {
+      FATAL_ERROR("Output file for snapshot index %d (filenr %d) was never opened", n, filenr);
+    }
 
     // Finalize the file for this snapshot
 

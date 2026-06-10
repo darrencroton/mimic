@@ -51,6 +51,9 @@
 struct PhaseModuleConfig {
   char *module_name;                   /**< Module name (must match registered module) */
   enum ProcessingMode processing_mode; /**< How to call module */
+  struct Module *resolved;             /**< Registered module, resolved once by
+                                            module_system_init() so execution never
+                                            looks modules up by name on the hot path */
 };
 
 /** Maximum number of user-named substep middle phases per run */
@@ -71,6 +74,26 @@ struct ModulePhaseConfig {
   struct PhaseModuleConfig *modules; /**< Modules configured in this phase */
   int num_modules;                   /**< Number of modules in this phase */
 };
+
+/**
+ * @brief   Visitor callback for iterating all configured phases in execution order
+ *
+ * @param   phase_name   Phase name ("pre_timestep", user-named, "post_timestep")
+ * @param   modules      Phase module configuration array (may be NULL when empty)
+ * @param   num_modules  Number of entries in the array
+ * @param   userdata     Caller-supplied context pointer
+ */
+typedef void (*PhaseVisitor)(const char *phase_name, struct PhaseModuleConfig *modules,
+                             int num_modules, void *userdata);
+
+/**
+ * @brief   Visit every configured phase (pre_timestep, each substep phase in
+ *          input order, post_timestep) exactly once
+ *
+ * Single home for the phase-iteration pattern shared by pipeline build,
+ * validation, contract enumeration, and output metadata.
+ */
+void for_each_phase(PhaseVisitor visit, void *userdata);
 
 /**
  * @brief   Register a galaxy physics module

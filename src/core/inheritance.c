@@ -102,21 +102,19 @@ static void set_local_centrals(struct Halo *workspace, int start, int end) {
     if (workspace[i].Type == 0 || workspace[i].Type == 1) {
       ncentrals++;
       if (ncentrals > 1) {
-        ERROR_LOG("FATAL: Multiple Type 0/1 centrals found in subhalo slice "
-                  "(range %d-%d, first=%d, second=%d)",
-                  start, end, centralgal, i);
-        assert(ncentrals == 1);
+        FATAL_ERROR("Multiple Type 0/1 centrals found in subhalo slice "
+                    "(range %d-%d, first=%d, second=%d)",
+                    start, end, centralgal, i);
       }
       centralgal = i;
     }
   }
 
   if (centralgal == -1) {
-    ERROR_LOG("FATAL: No Type 0/1 central found in subhalo slice (range %d-%d)", start, end);
     for (i = start; i < end; i++) {
       ERROR_LOG("  Galaxy %d: Type=%d, HaloNr=%d", i, workspace[i].Type, workspace[i].HaloNr);
     }
-    assert(centralgal != -1);
+    FATAL_ERROR("No Type 0/1 central found in subhalo slice (range %d-%d)", start, end);
   }
 
   for (i = start; i < end; i++) {

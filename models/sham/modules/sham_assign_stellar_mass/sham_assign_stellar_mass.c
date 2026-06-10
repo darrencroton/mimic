@@ -98,7 +98,7 @@ static void update_peak_proxies(struct Halo *halo) {
     gal->ShamVpeak = (float)max_double(gal->ShamVpeak, halo->Vmax);
     gal->ShamOrphanAge = 0.0f;
   } else if (halo->Type == 2 && halo->dT > 0.0f) {
-    const double dt_myr = halo->dT * UnitTime_in_s / SEC_PER_MEGAYEAR;
+    const double dt_myr = halo->dT * MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR;
     if (isfinite(dt_myr) && dt_myr > 0.0) {
       gal->ShamOrphanAge += (float)dt_myr;
     }

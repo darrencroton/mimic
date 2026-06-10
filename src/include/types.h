@@ -147,7 +147,7 @@ struct MimicConfig {
   struct {
     char param_name[MAX_STRING_LEN]; /* Parameter name (e.g., "BaryonFrac") */
     char value[MAX_STRING_LEN];      /* String value (parsed to type by modules) */
-  } ModelParams[256];                /* Maximum parameters in input file */
+  } ModelParams[MAX_MODEL_PARAMS];
 };
 
 /* Halo tracking structures defined in generated/property_defs.h:

@@ -1,5 +1,5 @@
 /**
- * @file    util_version.c
+ * @file    version.c
  * @brief   Implementation of Mimic version tracking functionality
  *
  * This file implements the functions for gathering version information and
@@ -79,99 +79,6 @@ static int execute_command(const char *command, char *output, size_t size) {
   }
 
   pclose(fp);
-  return 0;
-}
-
-/**
- * @brief   Gets the git commit hash for the current codebase
- *
- * @param   hash_buffer    Buffer to store the commit hash
- * @param   size           Size of the buffer
- * @return  0 on success, non-zero if git information couldn't be retrieved
- */
-static int get_git_commit_hash(char *hash_buffer, size_t size) {
-  /* The header file might not exist during the first build, so check both
-   * approaches */
-#ifdef GIT_COMMIT_HASH
-  if (strcmp(GIT_COMMIT_HASH, "@GIT_COMMIT_HASH@") !=
-      0) { /* Make sure it was properly substituted */
-    strncpy(hash_buffer, GIT_COMMIT_HASH, size);
-    return 0;
-  }
-#endif
-  return execute_command("git rev-parse HEAD 2>/dev/null", hash_buffer, size);
-}
-
-/**
- * @brief   Gets the git branch name for the current codebase
- *
- * @param   branch_buffer  Buffer to store the branch name
- * @param   size           Size of the buffer
- * @return  0 on success, non-zero if git information couldn't be retrieved
- */
-static int get_git_branch_name(char *branch_buffer, size_t size) {
-  /* The header file might not exist during the first build, so check both
-   * approaches */
-#ifdef GIT_BRANCH_NAME
-  if (strcmp(GIT_BRANCH_NAME, "@GIT_BRANCH_NAME@") !=
-      0) { /* Make sure it was properly substituted */
-    strncpy(branch_buffer, GIT_BRANCH_NAME, size);
-    return 0;
-  }
-#endif
-  return execute_command("git rev-parse --abbrev-ref HEAD 2>/dev/null", branch_buffer, size);
-}
-
-/**
- * @brief   Gets the GitHub URL for the current commit
- *
- * @param   url_buffer     Buffer to store the URL
- * @param   size           Size of the buffer
- * @param   hash           The git hash to create the URL for
- * @return  0 on success, non-zero if URL couldn't be created
- */
-static int get_github_commit_url(char *url_buffer, size_t size, const char *hash) {
-  char remote_url[MAX_OUTPUT_LENGTH];
-
-  /* First get the remote URL to determine the GitHub repo */
-  if (execute_command("git config --get remote.origin.url 2>/dev/null", remote_url,
-                      sizeof(remote_url)) != 0) {
-    return 1;
-  }
-
-  /* Parse the remote URL to extract owner and repo */
-  char *github_part = strstr(remote_url, "github.com");
-  if (github_part == NULL) {
-    return 1;
-  }
-
-  /* Create the URL, handling both SSH and HTTPS formats */
-  if (strncmp(remote_url, "git@", 4) == 0) {
-    /* SSH format: git@github.com:owner/repo.git */
-    github_part += 10; /* Skip "github.com:" */
-
-    /* Remove .git suffix if present */
-    char *git_suffix = strstr(github_part, ".git");
-    if (git_suffix != NULL) {
-      *git_suffix = '\0';
-    }
-
-    snprintf(url_buffer, size, "https://github.com/%s/commit/%s", github_part, hash);
-  } else if (strncmp(remote_url, "https://", 8) == 0) {
-    /* HTTPS format: https://github.com/owner/repo.git */
-    github_part += 11; /* Skip "github.com/" */
-
-    /* Remove .git suffix if present */
-    char *git_suffix = strstr(github_part, ".git");
-    if (git_suffix != NULL) {
-      *git_suffix = '\0';
-    }
-
-    snprintf(url_buffer, size, "https://github.com/%s/commit/%s", github_part, hash);
-  } else {
-    return 1;
-  }
-
   return 0;
 }
 
@@ -351,9 +258,6 @@ int create_version_metadata(const char *output_dir, const char *parameter_file) 
 
   /* Buffers for various metadata values */
   char current_time[64];
-  char git_hash[MAX_OUTPUT_LENGTH];
-  char git_branch[MAX_OUTPUT_LENGTH];
-  char git_url[MAX_OUTPUT_LENGTH];
   char compiler_info[MAX_OUTPUT_LENGTH];
   char system_info[MAX_OUTPUT_LENGTH];
   char username[MAX_OUTPUT_LENGTH];
@@ -361,26 +265,6 @@ int create_version_metadata(const char *output_dir, const char *parameter_file) 
 
   /* Get current date and time */
   get_current_datetime(current_time, sizeof(current_time));
-
-  /* Try to get git information (if available) */
-  int has_git_info = 0;
-  if (get_git_commit_hash(git_hash, sizeof(git_hash)) == 0) {
-    has_git_info = 1;
-
-    /* Try to get branch name, but don't fail if we can't */
-    if (get_git_branch_name(git_branch, sizeof(git_branch)) != 0) {
-      strncpy(git_branch, "unknown", sizeof(git_branch));
-    }
-
-    /* Try to get GitHub URL, but don't fail if we can't */
-    if (get_github_commit_url(git_url, sizeof(git_url), git_hash) != 0) {
-      strncpy(git_url, "unavailable", sizeof(git_url));
-    }
-  } else {
-    strncpy(git_hash, "unavailable", sizeof(git_hash));
-    strncpy(git_branch, "unavailable", sizeof(git_branch));
-    strncpy(git_url, "unavailable", sizeof(git_url));
-  }
 
   /* Get compiler and system information */
   get_compiler_info(compiler_info, sizeof(compiler_info));
@@ -408,16 +292,12 @@ int create_version_metadata(const char *output_dir, const char *parameter_file) 
     return 1;
   }
 
-  /* Write metadata in JSON format */
+  /* Write metadata in JSON format. Git identity comes from the build-time
+   * git_version.h header, so it always describes the compiled executable
+   * (a runtime `git` query would describe the current working directory). */
   fprintf(metadata_file, "{\n");
-  fprintf(metadata_file, "  \"git_commit\": \"%s\",\n", git_hash);
-  fprintf(metadata_file, "  \"git_branch\": \"%s\",\n", git_branch);
-
-  /* Only include GitHub URL if we actually have it */
-  if (has_git_info && strcmp(git_url, "unavailable") != 0) {
-    fprintf(metadata_file, "  \"github_url\": \"%s\",\n", git_url);
-  }
-
+  fprintf(metadata_file, "  \"git_commit\": \"%s\",\n", GIT_COMMIT);
+  fprintf(metadata_file, "  \"git_branch\": \"%s\",\n", GIT_BRANCH);
   fprintf(metadata_file, "  \"build_date\": \"%s\",\n", __DATE__);
   fprintf(metadata_file, "  \"run_date\": \"%s\",\n", current_time);
   fprintf(metadata_file, "  \"parameters\": {\n");

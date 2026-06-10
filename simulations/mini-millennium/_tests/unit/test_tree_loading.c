@@ -26,6 +26,7 @@
 #include "../../../../tests/framework/test_framework.h"
 #include "../../../../src/include/types.h"
 #include "../../../../src/include/proto.h"
+#include "../../../../src/io/tree/interface.h"
 #include "../../../../src/util/memory.h"
 #include "../../../../src/util/error.h"
 

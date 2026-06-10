@@ -1,40 +1,26 @@
 /**
- * @file    util_integration.c
- * @brief   Numerical integration utilities for Mimic
+ * @file    integration.c
+ * @brief   Adaptive Simpson integration for Mimic
  *
- * This file implements high-accuracy numerical integration functions.
- * It provides an adaptive Simpson's rule implementation for precise
- * calculation of definite integrals.
+ * One public entry point (integrate_adaptive_simpson) over a recursive
+ * adaptive Simpson kernel. Accurate for the smooth integrands Mimic needs
+ * (cosmological lookback times).
  */
 
 #include "integration.h"
-#include "error.h"
-#include <float.h>
 #include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <stddef.h>
 
-/* Define integration constants */
-#define INTEG_GAUSS15 1
-#define INTEG_GAUSS21 2
-#define INTEG_GAUSS31 3
-#define INTEG_GAUSS41 4
-#define INTEG_GAUSS51 5
-#define INTEG_GAUSS61 6
+/* Recursion limit: 2^20 subintervals is far beyond what smooth cosmological
+ * integrands need to reach the requested tolerance. */
+#define MAX_ADAPTIVE_DEPTH 20
 
 /**
- * @brief Simple adaptive Simpson's rule integration method
+ * @brief Recursive adaptive Simpson kernel
  *
- * @param f Function to integrate
- * @param params Parameter to pass to function
- * @param a Lower limit of integration
- * @param b Upper limit of integration
- * @param tol Desired tolerance
- * @param depth Current recursion depth
- * @param max_depth Maximum recursion depth
- * @param result Pointer to store result
- * @param error Pointer to store error estimate
+ * Compares the Simpson estimate over [a, b] against the sum of the two
+ * half-interval estimates; recurses with half the tolerance per side until
+ * the difference is within tolerance or the depth limit is reached.
  */
 static void adaptive_simpson(integrand_func_t f, void *params, double a, double b, double tol,
                              int depth, int max_depth, double *result, double *error) {
@@ -71,71 +57,14 @@ static void adaptive_simpson(integrand_func_t f, void *params, double a, double 
   *error = left_error + right_error;
 }
 
-/**
- * Implementation of Simpson's rule integration
- */
-static void simpson_integrate(double a, double b, integrand_func_t f, void *params, double *result,
-                              double *abserr, double *resabs, double *resasc) {
-  // Use adaptive Simpson's rule with a reasonable max depth
-  adaptive_simpson(f, params, a, b, 1.0e-10, 0, 20, result, abserr);
+double integrate_adaptive_simpson(integrand_func_t f, void *params, double a, double b, double tol,
+                                  double *abserr) {
+  double result, error;
 
-  // Calculate absolute result for scaling
-  *resabs = fabs(*result);
-  *resasc = fabs(*abserr);
-}
+  adaptive_simpson(f, params, a, b, tol, 0, MAX_ADAPTIVE_DEPTH, &result, &error);
 
-/**
- * Allocate integration workspace (simplified)
- */
-integration_workspace_t *integration_workspace_alloc(size_t size) {
-  integration_workspace_t *workspace;
-
-  workspace = (integration_workspace_t *)malloc(sizeof(integration_workspace_t));
-  if (workspace == NULL) {
-    ERROR_LOG("Failed to allocate integration workspace");
-    return NULL;
+  if (abserr != NULL) {
+    *abserr = error;
   }
-
-  workspace->size = size;
-
-  return workspace;
-}
-
-/**
- * Free integration workspace (simplified)
- */
-void integration_workspace_free(integration_workspace_t *workspace) {
-  if (workspace) {
-    free(workspace);
-  }
-}
-
-/**
- * Main integration function using adaptive Simpson's rule
- */
-int integration_qag(integration_function_t *f, double a, double b, double epsabs, double epsrel,
-                    size_t limit, int key, integration_workspace_t *workspace, double *result,
-                    double *abserr) {
-  double resabs, resasc;
-
-  /* Parameters unused in simplified integration implementation */
-  (void)limit;
-  (void)key;
-  (void)workspace;
-
-  // We'll use Simpson's rule directly, ignoring the workspace and key
-  // parameters This is simpler and more robust for the specific case of
-  // lookback time integration
-  simpson_integrate(a, b, f->function, f->params, result, abserr, &resabs, &resasc);
-
-  // Check if we met the tolerance requirements
-  double tolerance = fmax(epsabs, epsrel * fabs(*result));
-
-  if (*abserr <= tolerance) {
-    return 0; // Success
-  } else {
-    // Since we're using a fixed approach, no warning needed
-    // The integration will work for cosmological functions
-    return 0; // Return success anyway, since the result is good enough
-  }
+  return result;
 }

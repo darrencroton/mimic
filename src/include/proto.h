@@ -6,54 +6,31 @@
 #include "types.h"
 #include "memory.h"
 
-size_t myfread(void *ptr, size_t size, size_t nmemb, FILE *stream);
-size_t myfwrite(void *ptr, size_t size, size_t nmemb, FILE *stream);
-int myfseek(FILE *stream, long offset, int whence);
-
+/* Tree driver (src/core/build_model.c) */
 void build_halo_tree(int halonr, int tree, int filenr, int depth);
 void process_halo_evolution(int halonr, int ngal);
 int join_progenitor_halos(int halonr, int nstart, int tree, int filenr);
 int find_most_massive_progenitor(int halonr);
 void free_tree_driver_scratch(void);
+
+/* Initialization (src/core/init.c) */
 void init(void);
 void set_units(void);
+void read_snap_list(void);
+double time_to_present(double z);
+double integrand_time_to_present(double a, void *param);
 
-void load_tree_table(int filenr, enum Valid_TreeTypes TreeType);
-void load_tree(int treenr, enum Valid_TreeTypes TreeType);
+/* Configuration (src/core/read_parameter_file.c) */
+void read_parameter_file(const char *fname);
+
+/* Output writers (src/io/output/) */
 void save_halos(int filenr, int tree);
-
+void finalize_halo_file(int filenr);
 void prepare_halo_for_output(const struct Halo *g, struct HaloOutput *o);
 
-void free_halos_and_tree(void);
-void free_tree_table(enum Valid_TreeTypes TreeType);
-void print_allocated(void);
-
-void read_parameter_file(const char *fname);
-void read_yaml_parameter_file(const char *fname);
-void init_memory_system(unsigned long max_blocks);
-void *mymalloc(size_t n);
-void *mymalloc_cat(size_t size, MemoryCategory category);
-void *myrealloc(void *p, size_t n);
-void *myrealloc_cat(void *p, size_t size, MemoryCategory category);
-void myfree(void *p);
-void set_memory_reporting(int level);
-void print_allocated_by_category(void);
-void print_memory_brief(void);
-void check_memory_leaks(void);
-int validate_memory_block(void *ptr);
-int validate_all_memory(void);
-void cleanup_memory_system(void);
-void myexit(int signum);
-
-void finalize_halo_file(int filenr);
-
+/* Virial property helpers (src/core/virial.c) */
 double get_virial_velocity(int halonr);
 double get_virial_radius(int halonr);
 double get_virial_mass(int halonr);
-
-void read_snap_list(void);
-
-double time_to_present(double z);
-double integrand_time_to_present(double a, void *param);
 
 #endif /* #ifndef CORE_PROTO_H */

@@ -94,20 +94,21 @@ extern int sage_starburst_feedback_cleanup(void);
 /**
  * @brief   Initialize global unit conversion constants
  *
- * CRITICAL: The module uses global unit variables (UnitEnergy_in_cgs, UnitMass_in_g)
- * to convert physical constants to code units. These must be initialized before
- * calling sage_starburst_feedback_init() or EnergySNcode/EtaSNcode will be garbage.
+ * CRITICAL: The module uses global unit variables (MimicConfig.UnitEnergy_in_cgs,
+ * MimicConfig.UnitMass_in_g) to convert physical constants to code units. These must be initialized
+ * before calling sage_starburst_feedback_init() or EnergySNcode/EtaSNcode will be garbage.
  */
 static void init_unit_constants(void) {
   /* Standard cosmological unit system */
-  UnitLength_in_cm = 3.08568e24;    /* 1 Mpc in cm */
-  UnitVelocity_in_cm_per_s = 1.0e5; /* 1 km/s in cm/s */
-  UnitMass_in_g = 1.989e43;         /* 1e10 Msun in g */
+  MimicConfig.UnitLength_in_cm = 3.08568e24;    /* 1 Mpc in cm */
+  MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5; /* 1 km/s in cm/s */
+  MimicConfig.UnitMass_in_g = 1.989e43;         /* 1e10 Msun in g */
 
   /* Derived units */
-  UnitTime_in_s = UnitLength_in_cm / UnitVelocity_in_cm_per_s;
-  UnitEnergy_in_cgs =
-      UnitMass_in_g * UnitLength_in_cm * UnitLength_in_cm / (UnitTime_in_s * UnitTime_in_s);
+  MimicConfig.UnitTime_in_s = MimicConfig.UnitLength_in_cm / MimicConfig.UnitVelocity_in_cm_per_s;
+  MimicConfig.UnitEnergy_in_cgs = MimicConfig.UnitMass_in_g * MimicConfig.UnitLength_in_cm *
+                                  MimicConfig.UnitLength_in_cm /
+                                  (MimicConfig.UnitTime_in_s * MimicConfig.UnitTime_in_s);
 }
 
 /**

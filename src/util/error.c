@@ -1,5 +1,5 @@
 /**
- * @file    error_handling.c
+ * @file    error.c
  * @brief   Implementation of the Mimic error handling and logging system
  *
  * This file implements a comprehensive error handling and logging system for
@@ -240,197 +240,121 @@ FILE *set_log_output(FILE *output_file) {
 }
 
 /**
- * @brief   Central logging function
+ * @brief   Shared log emitter used by log_message() and log_io_error()
  *
- * @param   level     Severity level of the message
- * @param   file      Source file where logging occurs
- * @param   func      Function where logging occurs
- * @param   line      Line number where logging occurs
- * @param   format    Printf-style format string
- * @param   ...       Variable arguments for format string
- *
- * This function implements the core logging functionality. It formats
- * a message with context information (timestamp, level, file, function,
- * line) and writes it to the appropriate output. Messages below the
- * current minimum log level are silently ignored.
- *
- * The function automatically adds a newline if not present in the
- * format string, and immediately flushes the output for error and
- * fatal messages to ensure they are visible even if the program
- * terminates abnormally.
- *
- * Note: This function is not usually called directly; instead, use
- * the DEBUG_LOG, INFO_LOG, WARNING_LOG, ERROR_LOG, and FATAL_ERROR
- * macros defined in error_handling.h.
+ * Handles stream selection, colour, the verbosity-dependent header, an
+ * optional context prefix (used for I/O logs), the message body, trailing
+ * newline, and flushing for errors. Level filtering is done by the callers.
  */
-void log_message(LogLevel level, const char *file, const char *func, int line, const char *format,
-                 ...) {
-  // Suppress unused parameter warning (func not used in simplified format)
-  (void)func;
-
-  // Skip if below current log level
-  if (level < current_log_level) {
-    return;
-  }
-
-  // Get current time
-  time_t now;
-  time(&now);
-
-  // Choose output stream based on message level
+static void emit_log(LogLevel level, const char *file, int line, const char *prefix,
+                     const char *format, va_list args) {
+  /* Choose output stream based on message level */
   FILE *output = log_output;
   if (output == NULL) {
     output = (level >= LOG_LEVEL_WARNING) ? stderr : stdout;
   }
 
-  // Optional colour codes for terminal output
+  /* Optional colour codes for terminal output:
+   * WARNING -> yellow, ERROR -> red, FATAL -> bold red */
   const char *colour_start = "";
   const char *colour_end = "";
-
-  // Apply colours only for warnings and above when running in a TTY
-  // WARNING  -> yellow, ERROR -> red, FATAL -> bold red
   if (isatty(fileno(output))) {
     if (level == LOG_LEVEL_WARNING) {
-      colour_start = "\x1b[33m"; // yellow
+      colour_start = "\x1b[33m";
       colour_end = "\x1b[0m";
     } else if (level == LOG_LEVEL_ERROR) {
-      colour_start = "\x1b[31m"; // red
+      colour_start = "\x1b[31m";
       colour_end = "\x1b[0m";
     } else if (level == LOG_LEVEL_FATAL) {
-      colour_start = "\x1b[1;31m"; // bold red
+      colour_start = "\x1b[1;31m";
       colour_end = "\x1b[0m";
     }
   }
 
-  // Print header - format depends on verbosity setting
-  // Verbose format: Add context (timestamp, level, file:line)
+  /* Print header - format depends on verbosity setting */
   if (verbose_format) {
+    /* Verbose format: add context (timestamp, level, file:line) */
+    time_t now;
     char time_str[9];
+    time(&now);
     strftime(time_str, sizeof(time_str), "%H:%M:%S", localtime(&now));
-    // Extract just filename from full path
     const char *filename = strrchr(file, '/');
     filename = filename ? filename + 1 : file;
     fprintf(output, "%s[%s] %s - %s:%d - ", colour_start, time_str, level_names[level], filename,
             line);
-  }
-  // Quiet mode or warnings/errors: Show level prefix
-  else if (current_log_level >= LOG_LEVEL_WARNING || level >= LOG_LEVEL_WARNING) {
+  } else if (current_log_level >= LOG_LEVEL_WARNING || level >= LOG_LEVEL_WARNING) {
+    /* Quiet mode or warnings/errors: show level prefix */
     fprintf(output, "%s%s: ", colour_start, level_names[level]);
-  }
-  // Normal mode (default): Clean output, just the message
-  else {
+  } else {
+    /* Normal mode (default): clean output, just the message */
     fprintf(output, "%s", colour_start);
   }
 
-  // Print the actual message with variable arguments
-  va_list args;
-  va_start(args, format);
-  vfprintf(output, format, args);
-  va_end(args);
+  if (prefix != NULL) {
+    fprintf(output, "%s", prefix);
+  }
 
-  // Reset colour if it was enabled
+  vfprintf(output, format, args);
+
   if (colour_end[0] != '\0') {
     fprintf(output, "%s", colour_end);
   }
 
-  // Add newline if not already present
+  /* Add newline if not already present */
   if (format[strlen(format) - 1] != '\n') {
     fprintf(output, "\n");
   }
 
-  // Flush output immediately for errors and fatal messages
+  /* Flush output immediately for errors and fatal messages */
   if (level >= LOG_LEVEL_ERROR) {
     fflush(output);
   }
 }
 
 /**
- * @brief   I/O-specific logging function
+ * @brief   Central logging function
  *
- * @param   level      Severity level of the message
- * @param   code       I/O error code
- * @param   file       Source file where logging occurs
- * @param   func       Function where logging occurs
- * @param   line       Line number where logging occurs
- * @param   operation  Type of I/O operation (e.g., "read", "write", "open")
- * @param   filename   Name of the file being operated on
- * @param   format     Printf-style format string for additional details
- * @param   ...        Variable arguments for format string
- *
- * This function extends the core logging functionality with I/O-specific
- * context information. It formats a message with operation type, filename,
- * and error code in addition to the standard context information.
- *
- * The function is especially useful for standardizing I/O error reporting
- * throughout the codebase. It follows the same filtering and output rules
- * as the core log_message() function.
- *
- * Note: This function is not usually called directly; instead, use
- * the IO_DEBUG_LOG, IO_INFO_LOG, IO_WARNING_LOG, IO_ERROR_LOG, and
- * IO_FATAL_ERROR macros defined in error_handling.h.
+ * Formats a message with context information and writes it to the
+ * appropriate output. Messages below the current minimum log level are
+ * silently ignored. Use the DEBUG_LOG/INFO_LOG/WARNING_LOG/ERROR_LOG/
+ * FATAL_ERROR macros from error.h rather than calling this directly.
  */
-void log_io_error(LogLevel level, IOErrorCode code, const char *file, const char *func, int line,
-                  const char *operation, const char *filename, const char *format, ...) {
-  // Skip if below current log level
+void log_message(LogLevel level, const char *file, const char *func, int line, const char *format,
+                 ...) {
+  (void)func;
+
   if (level < current_log_level) {
     return;
   }
 
-  // Get current time
-  time_t now;
-  time(&now);
-  char time_str[20];
-  strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", localtime(&now));
-
-  // Choose output stream based on message level
-  FILE *output = log_output;
-  if (output == NULL) {
-    output = (level >= LOG_LEVEL_WARNING) ? stderr : stdout;
-  }
-
-  // Optional colour codes for terminal output
-  const char *colour_start = "";
-  const char *colour_end = "";
-
-  if (isatty(fileno(output))) {
-    if (level == LOG_LEVEL_WARNING) {
-      colour_start = "\x1b[33m"; // yellow
-      colour_end = "\x1b[0m";
-    } else if (level == LOG_LEVEL_ERROR) {
-      colour_start = "\x1b[31m"; // red
-      colour_end = "\x1b[0m";
-    } else if (level == LOG_LEVEL_FATAL) {
-      colour_start = "\x1b[1;31m"; // bold red
-      colour_end = "\x1b[0m";
-    }
-  }
-
-  // Print header with time, level, file, function, and line
-  fprintf(output, "%s[%s] %s - %s:%s:%d - ", colour_start, time_str, level_names[level], file, func,
-          line);
-
-  // Print I/O-specific information: operation, filename, and error code
-  fprintf(output, "[I/O %s, file: '%s', error: %s] ", operation, filename ? filename : "?",
-          get_io_error_name(code));
-
-  // Print the additional details with variable arguments
   va_list args;
   va_start(args, format);
-  vfprintf(output, format, args);
+  emit_log(level, file, line, NULL, format, args);
   va_end(args);
+}
 
-  // Reset colour if it was enabled
-  if (colour_end[0] != '\0') {
-    fprintf(output, "%s", colour_end);
+/**
+ * @brief   I/O-specific logging function
+ *
+ * Extends log_message() with I/O context (operation, filename, error code),
+ * emitted as a bracketed prefix before the message. Follows the same
+ * filtering, header, and output rules as log_message(). Use the IO_*_LOG
+ * macros from error.h rather than calling this directly.
+ */
+void log_io_error(LogLevel level, IOErrorCode code, const char *file, const char *func, int line,
+                  const char *operation, const char *filename, const char *format, ...) {
+  (void)func;
+
+  if (level < current_log_level) {
+    return;
   }
 
-  // Add newline if not already present
-  if (format[strlen(format) - 1] != '\n') {
-    fprintf(output, "\n");
-  }
+  char prefix[512];
+  snprintf(prefix, sizeof(prefix), "[I/O %s, file: '%s', error: %s] ", operation,
+           filename ? filename : "?", get_io_error_name(code));
 
-  // Flush output immediately for errors and fatal messages
-  if (level >= LOG_LEVEL_ERROR) {
-    fflush(output);
-  }
+  va_list args;
+  va_start(args, format);
+  emit_log(level, file, line, prefix, format, args);
+  va_end(args);
 }
