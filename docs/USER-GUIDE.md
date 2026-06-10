@@ -122,7 +122,7 @@ python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_min
 deactivate
 ```
 
-Look in `output/sage16-mini-millennium/plots/` for the stellar mass function, baryonic Tully-Fisher relation, gas fractions, star formation history, and more. The shipped sage16 model reproduces the original SAGE code to near-bit-parity ([parity report](SAGE16-PARITY-REPORT.md)), so these figures should match the published model behaviour.
+Look in `output/sage16-mini-millennium/plots/` for the stellar mass function, baryonic Tully-Fisher relation, gas fractions, star formation history, and more.
 
 ### Command-Line Options
 

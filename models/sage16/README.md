@@ -2,8 +2,6 @@
 
 **sage16** is a complete, physically motivated model package for Mimic, and the current build default: a modular port of SAGE (Semi-Analytic Galaxy Evolution) as calibrated and published in Croton et al. (2016), with the 2006 physics lineage behind it. Mimic's physics-agnostic core handles tree traversal, memory, configuration, validation, and output, while this package owns the baryonic physics.
 
-The port is validated, not just inspired: sage16 output has been compared galaxy-by-galaxy against the original SAGE code on identical mini-Millennium trees and agrees to near-bit-parity (97.9–100% of galaxies bit-identical per property). See [docs/SAGE16-PARITY-REPORT.md](../../docs/SAGE16-PARITY-REPORT.md) for the methodology, the fixes that achieved it, and the intentionally preserved SAGE quirks.
-
 This package is also the reference example for a mature Mimic model set: it has model-local properties, runtime modules, shared helper APIs, module-owned tests, and model-specific plotting figures. For the general model-package concepts, see the [Developer Guide](../../docs/DEVELOPER-GUIDE.md); for running and configuring this model, see the [User Guide](../../docs/USER-GUIDE.md).
 
 ## Scientific Scope

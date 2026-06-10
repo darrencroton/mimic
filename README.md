@@ -22,7 +22,7 @@ The catch is that traditional SAMs are monolithic. The physics is hard-wired int
 - **Experiment with the physics.** Disable a feedback channel, swap an AGN mode, reorder a pipeline stage, or run pure halo tracking with no galaxy physics at all — all from the run file, with the active pipeline recorded in the output for reproducibility.
 - **Swap the simulation under the model.** Simulation packages are as interchangeable as models: run identical physics on different merger-tree catalogues — a small box for development, a larger one for production, different resolutions or cosmologies to test the robustness of your conclusions.
 - **Build your own model.** Properties and modules are declared in YAML metadata and generated into type-safe C, so a new physics module is a small, testable unit rather than a patch across a monolith. Every model package is self-contained: its physics, properties, parameters, tests, and plots live together under `models/<model>/`.
-- **Start from shipped, validated physics.** Mimic comes with ready-to-run model packages — the current default, `sage16`, is a modular port of the published SAGE model, reproduced to near-bit-parity against the original code ([parity report](docs/SAGE16-PARITY-REPORT.md)) — proof that the modular architecture can carry a full production model without altering its science.
+- **Start from shipped, validated physics.** Mimic comes with ready-to-run model packages — the current default, `sage16`, is a modular port of the published SAGE model, reproduced from the original code.
 - **Inspect results immediately** with a plotting suite covering the standard diagnostics: mass functions, scaling relations, gas fractions, star formation histories, and more.
 
 ## Who It's For
