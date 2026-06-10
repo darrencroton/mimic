@@ -1,6 +1,6 @@
 # Mimic Plotting Tool
 
-A centralized plotting tool for the Mimic physics-agnostic galaxy evolution framework.
+A centralized plotting tool for the Mimic physics-agnostic galaxy evolution framework. This is the detailed plotting manual; for the basic plotting workflow in context, see the [User Guide](../../docs/USER-GUIDE.md#plotting).
 
 ## Overview
 
@@ -23,7 +23,7 @@ This tool provides a single, comprehensive entry point for generating plots from
 Build Mimic with the same model set as the parameter file before plotting. The
 available plot registry is model-specific, so a SHAM run should be built with
 `make MODEL=sham`, while the shipped SAGE run should be built with
-`make MODEL=sage`. Binary outputs must be kept with their run `metadata/`
+`make MODEL=sage16`. Binary outputs must be kept with their run `metadata/`
 directory because `mimic-plot` reads `metadata/output_schema.json`.
 
 ```bash
@@ -103,7 +103,7 @@ The tool supports three verbosity levels:
 
 ## Available Plots
 
-The plotting system currently includes 18 snapshot plots and 4 evolution plots. The source of truth for registered plot names is `figures/__init__.py`; use the lists below as a human-readable summary.
+The plot registry is model-specific: it lives in the active model package at `models/<MODEL>/plots/figures/__init__.py`, which is the source of truth for registered plot names. The lists below summarise the shipped sage16 registry (18 snapshot plots and 4 evolution plots); the sham package registers a smaller diagnostic set.
 
 ### Snapshot Plots (Single Redshift)
 
@@ -219,7 +219,7 @@ For run-level unit configuration, see the `simulation.units` section described i
 
 To add a new plot type, follow these steps:
 
-1. **Create a new Python module** in the `figures/` directory with a descriptive name (e.g., `new_plot_type.py`)
+1. **Create a new Python module** in the active model package's `plots/figures/` directory (e.g. `models/sage16/plots/figures/new_plot_type.py`) with a descriptive name
 
 2. **Implement the plot function** with the appropriate signature and automatic validation:
 
@@ -370,7 +370,7 @@ To add a new plot type, follow these steps:
 
    When validation fails, plots are automatically skipped and reported to the user with clear reasons.
 
-5. **Update `figures/__init__.py`** to include your new module:
+5. **Update the model package's `plots/figures/__init__.py`** to include your new module:
    ```python
    # Add import
    from . import new_plot_type
@@ -530,7 +530,7 @@ If you used the main Mimic setup script (`../../scripts/first_run.sh`), the Pyth
 # From the main Mimic directory
 source mimic_venv/bin/activate
 cd plot/mimic-plot
-python mimic-plot.py --param-file=../../models/sage/input/sage_mini-millennium.yaml
+python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml
 ```
 
 ### Manual Setup

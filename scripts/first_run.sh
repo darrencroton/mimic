@@ -13,17 +13,17 @@ echo "=========================================="
 echo "Mimic First Run Setup Script"
 echo "=========================================="
 echo ""
-echo "Welcome to Mimic - Halo-only tracking based on Mimic!"
+echo "Welcome to Mimic - a physics-agnostic galaxy evolution framework!"
 echo "This script will set up Mimic from a fresh GitHub clone."
 echo ""
-echo "For the latest updates, visit: https://github.com/darrencroton/sage"
+echo "For the latest updates, visit: https://github.com/darrencroton/mimic"
 echo ""
 
 # Ensure we're in the correct directory
 # Script is in scripts/ subdirectory, so get parent directory (repo root)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-RUN_FILE="models/sage/input/sage_mini-millennium.yaml"
+RUN_FILE="models/sage16/input/sage16_mini-millennium.yaml"
 SIM_CONFIG_FILE="simulations/mini-millennium/simulation_info.yaml"
 cd "$REPO_ROOT"
 

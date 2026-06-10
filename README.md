@@ -1,4 +1,4 @@
-# Mimic: Physics-Agnostic Galaxy Evolution Framework
+# Mimic: A Physics-Agnostic Galaxy Evolution Framework
 
 ```
     __  ___  ____  __  ___  ____  ______
@@ -8,147 +8,84 @@
 /_/  /_/ /___/ /_/  /_/ /___/  \____/
 ```
 
-**Mimic** is a physics-agnostic galaxy evolution framework with runtime-configurable physics modules. Built on metadata-driven architecture, it enables flexible experimentation with different physics combinations without recompilation, making it useful for exploring galaxy formation models and testing alternative physics implementations.
+## The Problem
 
-## What Makes Mimic Different
+Cosmological N-body simulations tell us where dark matter halos form and how they merge, but they say nothing about the galaxies inside them. Semi-analytic models (SAMs) bridge that gap: they apply physically motivated prescriptions for gas cooling, star formation, feedback, and mergers to halo merger trees, producing mock galaxy catalogues in minutes rather than the months a full hydrodynamic simulation would take.
 
-- **Runtime Physics Configuration**: Select and configure physics modules via YAML files without recompilation
-- **Physics-Agnostic Core**: Infrastructure completely independent of specific physics implementations
-- **Metadata-Driven Architecture**: Properties and modules defined once in YAML, auto-generated into type-safe C code
-- **Robust Testing Framework**: Three-tier testing (unit, integration, scientific) ensures reliability
-- **Multi-Format I/O**: Binary and HDF5 output with self-documenting metadata
-- **SAGE Example Pathway**: Shipped mini-Millennium + SAGE configuration for first runs, validation, and plotting examples
+The catch is that traditional SAMs are monolithic. The physics is hard-wired into the source code, so testing a different feedback prescription, dropping a process to measure its effect, or comparing two model variants means editing C code, recompiling, and hoping nothing else silently changed. The science question — *what does this physics choice do to the galaxy population?* — gets buried under software archaeology.
 
-**Scientific Heritage**: Mimic builds upon the SAGE (Semi-Analytic Galaxy Evolution) model ([Croton et al. 2016](http://arxiv.org/abs/1601.04709), [2006](http://arxiv.org/abs/astro-ph/0508046)) while providing an extensible foundation for galaxy evolution modeling.
+**Mimic** separates the two concerns. A physics-agnostic core owns tree processing, memory, I/O, validation, and output provenance. The astrophysics lives in self-contained runtime modules that you select, order, and parameterise in a YAML file. Changing the physics pipeline means editing configuration, not code.
+
+## What You Can Do With It
+
+- **Generate mock galaxy catalogues** from halo merger trees: stellar masses, gas reservoirs, star formation rates, black holes, metals, and positions, written as self-documenting HDF5 or compact binary.
+- **Run trusted physics out of the box.** The shipped `sage16` model package is a modular port of SAGE (Croton et al. [2006](http://arxiv.org/abs/astro-ph/0508046), [2016](http://arxiv.org/abs/1601.04709)), validated galaxy-by-galaxy against the original code to near-bit-parity ([parity report](docs/SAGE16-PARITY-REPORT.md)).
+- **Experiment with the physics.** Disable supernova feedback, swap an AGN mode, reorder a pipeline stage, or run pure halo tracking with no galaxy physics at all — all from the run file, with the active pipeline recorded in the output for reproducibility.
+- **Build your own model.** Properties and modules are declared in YAML metadata and generated into type-safe C, so a new physics module is a small, testable unit rather than a patch across a monolith. A minimal example package (`sham`) shows the full pattern in one module.
+- **Inspect results immediately** with a plotting suite covering the standard diagnostics: mass functions, the baryonic Tully-Fisher relation, gas fractions, star formation histories, and more.
+
+## Who It's For
+
+- **Researchers** who need mock catalogues for survey design, clustering studies, or comparison with observations.
+- **Galaxy formation modellers** who want to isolate and test individual physical prescriptions.
+- **Developers** who want a disciplined, metadata-driven SAM infrastructure with a three-tier test suite (unit, integration, scientific) underneath.
 
 ## Quick Start
 
-### Prerequisites
-
-- C compiler (gcc or compatible) and GNU Make
-- Python 3.6+ with numpy, matplotlib, pyyaml
-- Optional: HDF5 libraries, MPI, clang-format, black/isort
-
-### Build and Run
+From a fresh clone to your first galaxy catalogue and plots:
 
 ```bash
-# Clone and setup
 git clone https://github.com/darrencroton/mimic.git
 cd mimic
-./scripts/first_run.sh        # Creates directories, downloads mini-Millennium data, sets up Python environment
+./scripts/first_run.sh    # creates directories, downloads mini-Millennium tree data, sets up Python env
 
-# Build and run the default SAGE + mini-Millennium simulation
-make
-./mimic models/sage/input/sage_mini-millennium.yaml
+make                       # builds the default sage16 + mini-Millennium configuration
+./mimic models/sage16/input/sage16_mini-millennium.yaml
 ```
 
-This runs the shipped mini-Millennium + SAGE example. Other simulations and physics combinations are configured through YAML and module metadata.
-
-NOTE: `MODEL` and `SIMULATION` default to `sage` and `mini-millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
-
-### Generate Plots
+This evolves galaxies through the mini-Millennium simulation ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)) with the full SAGE physics pipeline and writes the catalogue to `output/sage16-mini-millennium/`. Then visualise it:
 
 ```bash
-# Activate Python environment
 source mimic_venv/bin/activate
-
-# Generate all plots
-python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_mini-millennium.yaml
-
-# Deactivate when done
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_mini-millennium.yaml
 deactivate
 ```
 
-## Build Options
+You'll find stellar mass functions, gas fractions, Tully-Fisher relations, and more under `output/sage16-mini-millennium/plots/`. Mimic also writes a ready-to-run analysis script (`example_Mvir_Len_plot.py`) into the output directory so you can start exploring the catalogue in Python straight away.
 
-```bash
-make                   # Standard build (HDF5 enabled by default)
-make USE-HDF5=no       # Build without HDF5 support (binary output only)
-make USE-MPI=yes       # With MPI parallelization
-make -j$(nproc)        # Parallel compilation (faster)
-make clean             # Clean all build artifacts
-make tests             # Run comprehensive test suite
-```
+**Prerequisites**: a C compiler (gcc or clang), GNU Make, and Python 3.9+. HDF5 libraries are recommended (build with `make USE-HDF5=no` without them); MPI is optional for parallel runs.
 
 ## Where to Go Next
 
-### For Users (Running Simulations)
+The documentation follows your journey:
 
-**[docs/USER-GUIDE.md](docs/USER-GUIDE.md)** - Complete guide to installation, configuration, running simulations, and analyzing output
+| You're asking | Read |
+| --- | --- |
+| *How do I use Mimic for my science?* | **[User Guide](docs/USER-GUIDE.md)** — workflows for running simulations, configuring physics, reading outputs, and plotting, plus troubleshooting |
+| *How do I extend or modify Mimic?* | **[Developer Guide](docs/DEVELOPER-GUIDE.md)** — architecture, writing physics modules, the property system, adding simulations, and testing |
+| *Why is it designed this way?* | **[Vision](docs/VISION.md)** — the architectural principles and design boundaries |
 
-**Key Topics**:
-- Detailed installation instructions
-- Configuring physics modules
-- Multi-phase pipeline configuration
-- Output formats (binary and HDF5)
-- Plotting and visualization
-- Troubleshooting
+Useful entry points along the way:
 
-For detailed plotting options and plot names, see **[plot/mimic-plot/README.md](plot/mimic-plot/README.md)**.
-
-### For Developers (Extending Mimic)
-
-**[docs/DEVELOPER-GUIDE.md](docs/DEVELOPER-GUIDE.md)** - Complete guide to architecture, module development, and testing
-
-**Key Topics**:
-- FoF workspace and module lifecycle
-- Creating new physics modules
-- Property system and metadata schemas
-- Processing modes, phases, parameters, and events
-- Testing framework and standards
-- Development workflow
-- Debugging and generated-code workflow
-
-### For Understanding Design Philosophy
-
-**[docs/VISION.md](docs/VISION.md)** - Architectural principles and design philosophy
-
-**Key Topics**:
-- Core architectural principles
-- Implementation philosophy
-- Design boundaries and rationale
-- Data-flow overview
-
-## Testing
-
-Mimic includes a comprehensive three-tier testing framework:
-
-```bash
-make tests              # Run all tests (validates metadata, runs all tiers)
-make tests-unit          # C unit tests
-make tests-integration   # Python integration tests
-make tests-scientific    # Physics validation tests
-```
-
-Test data uses mini-Millennium simulation files ([Springel et al. 2005](http://arxiv.org/abs/astro-ph/0504097)) prepared by `./scripts/first_run.sh`.
-
-## Contributing
-
-Contributions are welcome! When contributing:
-
-1. Follow the coding standards in [docs/DEVELOPER-GUIDE.md](docs/DEVELOPER-GUIDE.md)
-2. Align with architectural principles in [docs/VISION.md](docs/VISION.md)
-3. Write comprehensive tests for new features
-4. Update relevant documentation
+- **[models/sage16/README.md](models/sage16/README.md)** — the SAGE physics package: scientific scope, pipeline, and references
+- **[models/sham/README.md](models/sham/README.md)** — the minimal example model package
+- **[plot/mimic-plot/README.md](plot/mimic-plot/README.md)** — the plotting manual: available plots, options, and adding new figures
+- **[tests/README.md](tests/README.md)** — running the test suite
 
 ## Citation
 
-If you use Mimic (SAGE) in your research, please cite the SAGE paper:
+If you use Mimic with the shipped SAGE physics (`sage16`) in your research, please cite:
 
-- Croton et al. 2016: [Semi-Analytic Galaxy Evolution (SAGE): Model Calibration and Basic Results](http://arxiv.org/abs/1601.04709)
+- Croton et al. 2016, [Semi-Analytic Galaxy Evolution (SAGE): Model Calibration and Basic Results](http://arxiv.org/abs/1601.04709), ApJS, 222, 22
 
-**Related SAGE Resources**:
-- [Original SAGE code](https://github.com/darrencroton/sage)
-- [ASCL Entry](http://ascl.net/1601.006)
-- [TAO Platform](https://tao.asvo.org.au/)
-- [![DOI](https://zenodo.org/badge/13542/darrencroton/sage.svg)](https://zenodo.org/badge/latestdoi/13542/darrencroton/sage)
+**Related SAGE resources**: [original SAGE code](https://github.com/darrencroton/sage) · [ASCL entry](http://ascl.net/1601.006) · [TAO platform](https://tao.asvo.org.au/)
 
-## License
+## Contributing
 
-Mimic is available under an open-source license. See LICENSE file for details.
+Contributions are welcome. Start with the [Developer Guide](docs/DEVELOPER-GUIDE.md) for coding standards and the development workflow, and the [Vision](docs/VISION.md) document for the architectural principles new code should follow. All changes should come with tests — see [tests/README.md](tests/README.md).
 
-## Contact
+## License and Contact
 
-**Darren Croton**
-Email: dcroton@swin.edu.au
-Web: [darrencroton.github.io](https://darrencroton.github.io)
+Mimic is open source; see [LICENSE.txt](LICENSE.txt) for details.
+
+**Darren Croton** · dcroton@swin.edu.au · [darrencroton.github.io](https://darrencroton.github.io)
