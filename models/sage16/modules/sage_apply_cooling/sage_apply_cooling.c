@@ -86,7 +86,8 @@ int sage_apply_cooling_process(struct ModuleContext *ctx, struct Halo *halos, in
 
   const double coolingGas = (double)halo->galaxy->CoolingGas;
 
-  if (coolingGas > EPSILON_SMALL) {
+  // SAGE parity: cool_gas_onto_galaxy applies for any coolingGas > 0.0
+  if (coolingGas > 0.0) {
     cool_gas_onto_galaxy(halo, coolingGas, halo->Vvir);
   }
 

@@ -41,7 +41,6 @@ static double calculate_reionization_modifier(const struct ModuleContext *ctx, f
   const double redshift = ctx->redshift;
   const double omega = ctx->params->Omega;
   const double omega_lambda = ctx->params->OmegaLambda;
-  const double hubble_h = ctx->params->Hubble_h;
 
   // Calculate filtering mass using Kravtsov et al. (2004) fitting formula
   const double a = 1.0 / (1.0 + redshift);
@@ -77,8 +76,11 @@ static double calculate_reionization_modifier(const struct ModuleContext *ctx, f
   const double xZ = omegaZ - 1.0;
   const double deltacritZ =
       18.0 * M_PI * M_PI + 82.0 * xZ - 39.0 * xZ * xZ; // Bryan & Norman (1998)
+  /* H(z) in code units. Lengths are Mpc/h, so H0 in code units is ~100 km/s/(Mpc/h)
+   * with NO factor of h (SAGE parity: run_params->Hubble = HUBBLE * UnitTime_in_s).
+   * Using 100*h here would inflate the characteristic mass Mchar by 1/h (~37%). */
   const double HubbleZ =
-      100.0 * hubble_h *
+      ctx->params->Hubble *
       sqrt(omega * (1.0 + redshift) * (1.0 + redshift) * (1.0 + redshift) + omega_lambda);
 
   const double G_code = ctx->params->G; // G in code units
@@ -121,7 +123,7 @@ int sage_reionization_process(struct ModuleContext *ctx, struct Halo *halos, int
     if (halos[i].Mvir > EPSILON_SMALL) {
       if (halos[i].Type == 0) {
         const double reionization_modifier = calculate_reionization_modifier(ctx, halos[i].Mvir);
-        halos[i].galaxy->HaloBaryonFraction = (float)(GLOBAL_BARYON_FRAC * reionization_modifier);
+        halos[i].galaxy->HaloBaryonFraction = GLOBAL_BARYON_FRAC * reionization_modifier;
 
         DEBUG_LOG("Halo %d (Type=0): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f", i,
                   halos[i].Mvir, reionization_modifier, halos[i].galaxy->HaloBaryonFraction,
@@ -129,7 +131,7 @@ int sage_reionization_process(struct ModuleContext *ctx, struct Halo *halos, int
       } else {
         // Compute per-satellite reionization modifier using satellite's own Mvir.
         const double reionization_modifier = calculate_reionization_modifier(ctx, halos[i].Mvir);
-        halos[i].galaxy->HaloBaryonFraction = (float)(GLOBAL_BARYON_FRAC * reionization_modifier);
+        halos[i].galaxy->HaloBaryonFraction = GLOBAL_BARYON_FRAC * reionization_modifier;
 
         DEBUG_LOG("Halo %d (Type=%d): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f", i,
                   halos[i].Type, halos[i].Mvir, reionization_modifier,

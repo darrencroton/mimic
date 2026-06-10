@@ -133,10 +133,11 @@ int sage_calculate_cooling_budget_process(struct ModuleContext *ctx, struct Halo
   double rcool, lambda;
   double coolingGas = cooling_recipe(halo, ctx, dt_obj, &rcool, &lambda);
 
-  // Store in properties for subsequent modules
-  halo->galaxy->CoolingGas = (float)coolingGas;
-  halo->galaxy->Rcool = (float)rcool;
-  halo->galaxy->CoolingLambda = (float)lambda;
+  // Store in properties for subsequent modules (double properties: no rounding
+  // between budget, AGN-heating, and apply steps — SAGE keeps these as double locals)
+  halo->galaxy->CoolingGas = coolingGas;
+  halo->galaxy->Rcool = rcool;
+  halo->galaxy->CoolingLambda = lambda;
 
   return 0;
 }

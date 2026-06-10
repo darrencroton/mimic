@@ -140,9 +140,12 @@ static void setup_test_context(struct ModuleContext *ctx, double dt) {
 static float calculate_expected_disk_radius(float spin_x, float spin_y, float spin_z, float vvir,
                                             float rvir) {
   if (vvir > EPSILON_SMALL && rvir > EPSILON_SMALL) {
-    const float spin_mag = sqrtf(spin_x * spin_x + spin_y * spin_y + spin_z * spin_z);
-    const float lambda = spin_mag / (1.414213562f * vvir * rvir);
-    return (lambda / 1.414213562f) * rvir;
+    /* SAGE parity: double-precision arithmetic with the truncated 1.414 literal,
+     * matching SAGE model_misc.c get_disk_radius(). */
+    const double spin_mag =
+        sqrt((double)spin_x * spin_x + (double)spin_y * spin_y + (double)spin_z * spin_z);
+    const double lambda = spin_mag / (1.414 * vvir * rvir);
+    return (float)((lambda / 1.414) * rvir);
   } else {
     return 0.1f * rvir;
   }

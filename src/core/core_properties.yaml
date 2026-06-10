@@ -63,7 +63,8 @@ halo_properties:
     output_source: copy_direct
 
   - name: dT
-    type: float
+    type: double  # Double precision: per-object substep dt derives from this, and float
+                  # rounding of the interval perturbs every dt-scaled physics quantity
     units: Myr/h
     description: Time elapsed since progenitor snapshot (lookback time difference)
     output: true

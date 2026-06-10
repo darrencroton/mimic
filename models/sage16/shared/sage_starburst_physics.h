@@ -122,7 +122,8 @@ mimic_apply_collisional_starburst(double efficiency_factor, struct GalaxyData *g
     gal->SupernovaOutflowRate += reheated_mass / rate_dt;
   }
 
-  if (gal->ColdGas > EPSILON_SMALL && efficiency_factor < p->threshold_major_merger) {
+  /* SAGE parity: collisional_starburst_recipe uses a 1e-8 cold-gas threshold. */
+  if (gal->ColdGas > 1.0e-8 && efficiency_factor < p->threshold_major_merger) {
     const double frac_z_leave_disk_val =
         p->frac_z_leave_disk * exp(-1.0 * central_halo->Mvir / 30.0);
     gal->MetalsColdGas += p->yield * (1.0 - frac_z_leave_disk_val) * stars;

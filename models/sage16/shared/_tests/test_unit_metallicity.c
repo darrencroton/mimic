@@ -60,27 +60,29 @@ int test_metallicity_normal(void) {
 
 /**
  * @test test_metallicity_zero_gas
- * @brief Test metallicity with zero or negligible gas mass
+ * @brief Test metallicity with zero, tiny, or negative gas mass
  *
- * Expected: Returns 0.0 when gas <= EPSILON_SMALL
- * Validates: Division by zero protection
+ * Expected: Returns 0.0 when gas <= 0.0 (SAGE parity: gas > 0 && metals > 0
+ * required); tiny positive gas computes a real (capped) metallicity
+ * Validates: Division by zero protection and SAGE-exact thresholds
  */
 int test_metallicity_zero_gas(void) {
-  float Z;
+  double Z;
 
   /* Test case 1: Exactly zero gas */
-  Z = mimic_get_metallicity(0.0f, 5.0f);
-  TEST_ASSERT(fabsf(Z - 0.0f) < 1e-10f, "Zero gas mass should return Z=0.0");
+  Z = mimic_get_metallicity(0.0, 5.0);
+  TEST_ASSERT(fabs(Z) < 1e-12, "Zero gas mass should return Z=0.0");
 
-  /* Test case 2: Very small gas (below EPSILON_SMALL = 1e-10) */
-  Z = mimic_get_metallicity(1e-12f, 1.0f);
-  TEST_ASSERT(fabsf(Z - 0.0f) < 1e-10f, "Gas below EPSILON_SMALL should return Z=0.0");
+  /* Test case 2: Tiny positive gas computes a real metallicity, capped at 1.0
+   * (SAGE parity: no epsilon cutoff — only gas <= 0 returns 0) */
+  Z = mimic_get_metallicity(1e-12, 1.0);
+  TEST_ASSERT(fabs(Z - 1.0) < 1e-12, "Tiny gas with larger metals should cap at Z=1.0");
 
   /* Test case 3: Negative gas (unphysical but should be safe) */
-  Z = mimic_get_metallicity(-1.0f, 1.0f);
-  TEST_ASSERT(fabsf(Z - 0.0f) < 1e-10f, "Negative gas should safely return Z=0.0");
+  Z = mimic_get_metallicity(-1.0, 1.0);
+  TEST_ASSERT(fabs(Z) < 1e-12, "Negative gas should safely return Z=0.0");
 
-  printf("  Zero gas cases safely return Z=0.0\n");
+  printf("  Zero/negative gas cases safely return Z=0.0\n");
 
   return TEST_PASS;
 }
@@ -103,10 +105,10 @@ int test_metallicity_zero_metals(void) {
   Z = mimic_get_metallicity(100.0f, 1e-12f);
   TEST_ASSERT(fabsf(Z) < 1e-10f, "Very small metals should give ~zero metallicity");
 
-  /* Test case 3: Negative metals (unphysical but should handle) */
+  /* Test case 3: Negative metals must return exactly 0, never a negative Z
+   * (SAGE parity: get_metallicity requires metals > 0) */
   Z = mimic_get_metallicity(100.0f, -1.0f);
-  TEST_ASSERT(Z < 0.01f, /* Just check it doesn't explode */
-              "Negative metals should not cause crash");
+  TEST_ASSERT(fabsf(Z) < 1e-12f, "Negative metals should return Z=0.0, not negative Z");
 
   printf("  Primordial (metal-free) gas: Z=%.6f\n", mimic_get_metallicity(100.0f, 0.0f));
 
@@ -161,14 +163,14 @@ int test_metallicity_numerical_stability(void) {
   Z = mimic_get_metallicity(1e-8f, 1e-10f);
   TEST_ASSERT(isfinite(Z), "Very small masses should not produce NaN/Inf");
 
-  /* Test case 3: Gas at EPSILON_SMALL boundary */
-  /* Just above threshold */
+  /* Test case 3: Tiny positive gas — SAGE parity computes a real ratio
+   * (no epsilon cutoff; only gas <= 0 or metals <= 0 short-circuits) */
   Z = mimic_get_metallicity(1.1e-10f, 1e-12f);
-  TEST_ASSERT(isfinite(Z), "Gas just above EPSILON_SMALL should work");
+  TEST_ASSERT(isfinite(Z), "Tiny positive gas should compute a finite Z");
 
-  /* Just below threshold */
   Z = mimic_get_metallicity(0.9e-10f, 1e-12f);
-  TEST_ASSERT(fabsf(Z - 0.0f) < 1e-10f, "Gas just below EPSILON_SMALL should return 0.0");
+  TEST_ASSERT(isfinite(Z) && Z > 0.0f && Z <= 1.0f,
+              "Tiny positive gas with positive metals should give 0 < Z <= 1");
 
   /* Test case 4: Metals > Gas (unphysical - should cap at 1.0) */
   Z = mimic_get_metallicity(10.0f, 20.0f); /* Would be Z=2.0 without cap */

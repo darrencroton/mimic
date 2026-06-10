@@ -12,7 +12,7 @@ galaxy_properties:
   # =============================================================================
 
   - name: HaloBaryonFraction
-    type: float
+    type: double  # SAGE parity: reionization modifier is a double local in SAGE
     units: dimensionless
     description: Local baryon fraction for this halo
     output: true
@@ -27,7 +27,7 @@ galaxy_properties:
   # =============================================================================
 
   - name: InfallingGas
-    type: float
+    type: double  # SAGE parity: infallingGas is a double local in SAGE's evolve loop
     units: 1e10 Msun/h
     description: Cosmological gas infalling onto galaxy this snapshot
     role: transport  # Written by sage_prepare_infall_budget (pre_timestep); read by sage_apply_infall (galaxy_physics)
@@ -39,7 +39,7 @@ galaxy_properties:
     sentinels: [0.0]  # Can be zero if no infall (e.g., satellites)
 
   - name: CoolingGas
-    type: float
+    type: double  # SAGE parity: coolingGas is a double local through SAGE's cooling chain
     units: 1e10 Msun/h
     description: Gas mass cooling from hot to cold this substep
     role: transport  # Written by sage_calculate_cooling_budget; read/modified by sage_radio_mode_heating; consumed by sage_apply_cooling
@@ -121,7 +121,7 @@ galaxy_properties:
     sentinels: [0.0]  # Zero if no satellites have been disrupted
 
   - name: NewStellarMass
-    type: float
+    type: double  # SAGE parity: stars is a double local in SAGE
     units: 1e10 Msun/h
     description: New stars formed this timestep
     role: transport  # Written by sage_calculate_star_formation; read by sage_calculate_supernova_feedback and sage_apply_star_formation_supernova
@@ -247,7 +247,7 @@ galaxy_properties:
   # =============================================================================
 
   - name: SupernovaReheatedMass
-    type: float
+    type: double  # SAGE parity: reheated_mass is a double local in SAGE
     units: 1e10 Msun/h
     description: Gas mass to be reheated by supernova feedback this timestep
     role: transport  # Written by sage_calculate_supernova_feedback; consumed by sage_apply_star_formation_supernova
@@ -259,7 +259,7 @@ galaxy_properties:
     sentinels: [0.0]  # Zero when no feedback occurring
 
   - name: SupernovaEjectedMass
-    type: float
+    type: double  # SAGE parity: ejected_mass is a double local in SAGE
     units: 1e10 Msun/h
     description: Gas mass to be ejected by supernova feedback this timestep
     role: transport  # Written by sage_calculate_supernova_feedback; consumed by sage_apply_star_formation_supernova
@@ -299,7 +299,7 @@ galaxy_properties:
     sentinels: [0.0]  # Can be zero if no AGN heating has occurred
 
   - name: Rcool
-    type: float
+    type: double  # SAGE parity: rcool is a double local passed into do_AGN_heating
     units: Mpc/h
     description: Cooling radius calculated this substep
     role: transport  # Written by sage_calculate_cooling_budget; read by sage_apply_cooling
@@ -311,7 +311,7 @@ galaxy_properties:
     sentinels: [0.0]  # Can be zero if no cooling
 
   - name: CoolingLambda
-    type: float
+    type: double  # SAGE parity: lambda is a double local in SAGE's cooling_recipe
     units: erg cm^3/s
     description: Metallicity-dependent cooling function Lambda(T,Z) from Sutherland & Dopita (1993)
     role: transport  # Written by sage_calculate_cooling_budget; diagnostic output only (output: false)
@@ -402,7 +402,7 @@ galaxy_properties:
   # =============================================================================
 
   - name: UnstableDiskGasFraction
-    type: float
+    type: double  # SAGE parity: unstable_gas_fraction is a double local in SAGE
     units: dimensionless
     description: Fraction of cold gas that is unstable (0.0-1.0)
     role: transport  # Written by sage_disk_instability; read by sage_quasar_mode and sage_starburst_feedback; reset to 0.0 each substep (init_repeat)

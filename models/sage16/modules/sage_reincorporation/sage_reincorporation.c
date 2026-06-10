@@ -67,8 +67,9 @@ int sage_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos, 
 
   gal = central_halo->galaxy;
 
-  // Skip if no ejected gas to reincorporate
-  if (gal->EjectedGas <= EPSILON_SMALL) {
+  // Skip if no ejected gas to reincorporate (no-op in SAGE too: the
+  // reincorporated mass scales with EjectedMass, so zero stays zero)
+  if (gal->EjectedGas <= 0.0f) {
     return 0;
   }
 

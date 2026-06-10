@@ -147,13 +147,14 @@ int sage_prepare_infall_budget_process(struct ModuleContext *ctx, struct Halo *h
   }
 
   // Initialize HaloBaryonFraction to GlobalBaryonFraction if first time
-  if (halos[central_idx].galaxy->HaloBaryonFraction == -1.0f) {
-    halos[central_idx].galaxy->HaloBaryonFraction = (float)GLOBAL_BARYON_FRAC;
+  if (halos[central_idx].galaxy->HaloBaryonFraction == -1.0) {
+    halos[central_idx].galaxy->HaloBaryonFraction = GLOBAL_BARYON_FRAC;
   }
 
-  // Calculate and store infalling mass
+  // Calculate and store infalling mass (double property: SAGE keeps this as a
+  // double local through the whole snapshot interval)
   const double infallingMass = infall_recipe(halos, ngal, central_idx);
-  halos[central_idx].galaxy->InfallingGas = (float)infallingMass;
+  halos[central_idx].galaxy->InfallingGas = infallingMass;
 
   DEBUG_LOG("Infall: Mvir=%.3e, HaloBaryonFrac=%.4f, InfallingGas=%.3e, z=%.3f",
             halos[central_idx].Mvir, halos[central_idx].galaxy->HaloBaryonFraction, infallingMass,

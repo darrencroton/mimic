@@ -119,11 +119,10 @@ static void do_AGN_heating(struct Halo *halo, struct ModuleContext *ctx, const d
   double coolingGas = (double)halo->galaxy->CoolingGas;
   const double rcool = halo->galaxy->Rcool;
 
-  // First update cooling rate based on past AGN heating
-  if (rcool <= EPSILON_SMALL) {
-    // No cooling if cooling radius is zero
-    coolingGas = 0.0;
-  } else if (rheat < rcool) {
+  // First update cooling rate based on past AGN heating (SAGE parity:
+  // rheat < rcool gives partial suppression, otherwise complete suppression;
+  // rcool == 0 with rheat == 0 falls into the complete-suppression branch)
+  if (rheat < rcool) {
     // Partial suppression based on heating radius fraction
     coolingGas = (1.0 - rheat / rcool) * coolingGas;
   } else {
@@ -196,7 +195,7 @@ static void do_AGN_heating(struct Halo *halo, struct ModuleContext *ctx, const d
   }
 
   // Update CoolingGas property to reflect AGN suppression
-  halo->galaxy->CoolingGas = (float)coolingGas;
+  halo->galaxy->CoolingGas = coolingGas;
 }
 
 // ============================================================================
@@ -235,7 +234,8 @@ int sage_radio_mode_heating_process(struct ModuleContext *ctx, struct Halo *halo
   }
 
   // Only apply AGN heating if cooling is occurring and AGN is enabled
-  if (halo->galaxy->CoolingGas > EPSILON_SMALL && AGN_RECIPE_ON > 0) {
+  // (SAGE parity: cooling_recipe gates do_AGN_heating on coolingGas > 0.0)
+  if (halo->galaxy->CoolingGas > 0.0 && AGN_RECIPE_ON > 0) {
     dt_status = mimic_object_substep_dt(halo, ctx, &dt_obj);
     if (dt_status == MIMIC_OBJECT_TIME_SKIP_INITIAL) {
       return 0;

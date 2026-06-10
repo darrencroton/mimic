@@ -28,8 +28,6 @@
 // ============================================================================
 
 static double RECYCLE_FRACTION;
-static double YIELD;
-static double FRAC_Z_LEAVE_DISK;
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -38,9 +36,6 @@ static double FRAC_Z_LEAVE_DISK;
 int sage_apply_star_formation_supernova_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RecycleFraction", RECYCLE_FRACTION, 0.0, 1.0,
                                     "recycle fraction");
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("Yield", YIELD, 0.0, 1.0, "metal yield");
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FracZleaveDisk", FRAC_Z_LEAVE_DISK, 0.0, 1.0,
-                                    "metal outflow fraction");
 
   /* Dependency checks: this is an infrastructure apply step that must follow
    * its SF/SN prescription modules. §7 of SAGE-MODULE-REVIEW.md. */
@@ -74,10 +69,16 @@ int sage_apply_star_formation_supernova_init(void) {
     return -1;
   }
 
+  /* WARNING: without the enrichment module, NewStellarMass is never consumed
+   * and SAGE's instantaneous-recycling disk yield is silently skipped */
+  if (sf_present && !module_configured_anywhere("sage_apply_metal_enrichment")) {
+    WARNING_LOG("sage_apply_star_formation_supernova: sage_apply_metal_enrichment is not "
+                "configured — the disk-SF metal yield will not be applied "
+                "(SAGE parity loss; metals will be under-produced)");
+  }
+
   INFO_LOG("SAGE SF/SN apply step module initialized");
   VERBOSE_LOG("  RecycleFraction = %.3f", RECYCLE_FRACTION);
-  VERBOSE_LOG("  Yield = %.4f", YIELD);
-  VERBOSE_LOG("  FracZleaveDisk = %.3f", FRAC_Z_LEAVE_DISK);
 
   return 0;
 }
@@ -103,10 +104,11 @@ int sage_apply_star_formation_supernova_process(struct ModuleContext *ctx, struc
   const double reheated_mass = gal->SupernovaReheatedMass;
   double ejected_mass = gal->SupernovaEjectedMass;
 
-  // Skip if no star formation occurred
-  if (stars <= EPSILON_SMALL) {
-    // Zero out temporary properties even if no SF
-    gal->NewStellarMass = 0.0;
+  // Skip if no star formation occurred (SAGE runs unconditionally, but with
+  // stars == 0 every update below is a no-op, so skipping only at exactly 0
+  // is equivalent; a larger epsilon here would drop real tiny SF events).
+  // NewStellarMass is left for sage_apply_metal_enrichment to consume.
+  if (stars <= 0.0) {
     gal->SupernovaReheatedMass = 0.0;
     gal->SupernovaEjectedMass = 0.0;
     return 0;
@@ -173,25 +175,12 @@ int sage_apply_star_formation_supernova_process(struct ModuleContext *ctx, struc
   }
 
   // ========================================================================
-  // METAL ENRICHMENT: Instantaneous recycling approximation
+  // CLEANUP: Zero out consumed SN transport properties
   // ========================================================================
+  // NewStellarMass is intentionally NOT zeroed here: sage_apply_metal_enrichment
+  // consumes it after the disk-instability chain (SAGE ordering parity — the
+  // disk-SF metal yield is added after check_disk_instability in SAGE).
 
-  if (gal->ColdGas > EPSILON_SMALL) {
-    const double FracZleaveDiskVal =
-        FRAC_Z_LEAVE_DISK *
-        exp(-1.0 * halo->Mvir /
-            30.0); // Krumholz & Dekel 2011 Eq. 22 (metal ejection scale = 30.0 in 10^10 Msun/h)
-    gal->MetalsColdGas += YIELD * (1.0 - FracZleaveDiskVal) * stars;
-    central_gal->MetalsHotGas += YIELD * FracZleaveDiskVal * stars;
-  } else {
-    central_gal->MetalsHotGas += YIELD * stars;
-  }
-
-  // ========================================================================
-  // CLEANUP: Zero out temporary calculation properties
-  // ========================================================================
-
-  gal->NewStellarMass = 0.0;
   gal->SupernovaReheatedMass = 0.0;
   gal->SupernovaEjectedMass = 0.0;
 

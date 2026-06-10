@@ -27,7 +27,7 @@ static inline double mimic_apply_black_hole_growth(struct Halo *halo, double eff
   struct GalaxyData *gal;
   double bh_accrete;
   double accrete;
-  float metallicity;
+  double metallicity;
 
   if (halo == NULL || halo->galaxy == NULL || efficiency_factor <= 0.0 ||
       black_hole_growth_rate <= 0.0) {

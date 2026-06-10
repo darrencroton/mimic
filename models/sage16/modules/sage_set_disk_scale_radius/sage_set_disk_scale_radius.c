@@ -26,8 +26,9 @@
 /**
  * @brief Calculate spin parameter magnitude from 3D spin vector
  */
-static inline float get_spin_magnitude(float spin_x, float spin_y, float spin_z) {
-  return sqrtf(spin_x * spin_x + spin_y * spin_y + spin_z * spin_z);
+static inline double get_spin_magnitude(float spin_x, float spin_y, float spin_z) {
+  /* SAGE parity: compute in double like SAGE's get_disk_radius, store as float. */
+  return sqrt((double)spin_x * spin_x + (double)spin_y * spin_y + (double)spin_z * spin_z);
 }
 
 /**
@@ -36,12 +37,16 @@ static inline float get_spin_magnitude(float spin_x, float spin_y, float spin_z)
  * Computes the dimensionless spin parameter:
  *   λ = |J| / (√2 * Vvir * Rvir)
  */
-static inline float get_spin_parameter(float spin_magnitude, float vvir, float rvir) {
+static inline double get_spin_parameter(double spin_magnitude, float vvir, float rvir) {
   if (vvir <= EPSILON_SMALL || rvir <= EPSILON_SMALL) {
-    return 0.0f;
+    return 0.0;
   }
 
-  return spin_magnitude / (1.414213562f * vvir * rvir);
+  /* SAGE parity: original SAGE uses the truncated literal 1.414 (model_misc.c
+   * get_disk_radius), not full-precision sqrt(2). Keeping the same constant is
+   * required for output parity — the ~3e-4 difference otherwise perturbs the
+   * star formation threshold for every galaxy at every substep. */
+  return spin_magnitude / (1.414 * vvir * rvir);
 }
 
 /**
@@ -55,11 +60,11 @@ static inline float get_spin_parameter(float spin_magnitude, float vvir, float r
 static float calculate_disk_radius(float spin_x, float spin_y, float spin_z, float vvir,
                                    float rvir) {
   if (vvir > EPSILON_SMALL && rvir > EPSILON_SMALL) {
-    const float spin_mag = get_spin_magnitude(spin_x, spin_y, spin_z);
-    const float lambda = get_spin_parameter(spin_mag, vvir, rvir);
+    const double spin_mag = get_spin_magnitude(spin_x, spin_y, spin_z);
+    const double lambda = get_spin_parameter(spin_mag, vvir, rvir);
 
-    // Mo, Mao & White (1998) eq. 12: Rd = (λ / √2) * Rvir
-    return (lambda / 1.414213562f) * rvir;
+    // Mo, Mao & White (1998) eq. 12: Rd = (λ / √2) * Rvir (1.414 literal for SAGE parity)
+    return (float)((lambda / 1.414) * rvir);
   } else {
     // Fallback: use 10% of virial radius as rough estimate
     return 0.1f * rvir;

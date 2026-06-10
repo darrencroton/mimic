@@ -74,6 +74,14 @@ extern int sage_apply_star_formation_supernova_process(struct ModuleContext *ctx
                                                        struct Halo *halos, int ngal);
 extern int sage_apply_star_formation_supernova_cleanup(void);
 
+/* Downstream metal-yield module (SAGE ordering parity: the disk-SF yield is
+ * applied after the disk-instability chain by sage_apply_metal_enrichment;
+ * pipeline tests below run both modules in sequence) */
+extern int sage_apply_metal_enrichment_init(void);
+extern int sage_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo *halos,
+                                               int ngal);
+extern int sage_apply_metal_enrichment_cleanup(void);
+
 /* External stubs */
 extern void set_test_model_parameters(void);
 
@@ -776,6 +784,8 @@ int test_metal_yield_production(void) {
 
   int init_result = sage_apply_star_formation_supernova_init();
   TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+  TEST_ASSERT(sage_apply_metal_enrichment_init() == 0,
+              "Metal enrichment module initialization should succeed");
 
   struct Halo test_halo, central_halo;
   struct GalaxyData test_galaxy, central_galaxy;
@@ -797,10 +807,13 @@ int test_metal_yield_production(void) {
   setup_module_context(&ctx, &central_halo, 0.1);
 
   /* ===== EXECUTE ===== */
+  /* Run the full SF/SN apply -> metal enrichment pipeline (SAGE ordering) */
   int result = sage_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
+  TEST_ASSERT(result == 0, "Module process should succeed");
+  result = sage_apply_metal_enrichment_process(&ctx, &test_halo, 1);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
+  TEST_ASSERT(result == 0, "Metal enrichment process should succeed");
 
   /* Calculate total metals after (all reservoirs) */
   double total_metals_after = test_galaxy.MetalsColdGas + test_galaxy.MetalsHotGas +
@@ -833,6 +846,8 @@ int test_metal_disk_vs_halo_split(void) {
 
   int init_result = sage_apply_star_formation_supernova_init();
   TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+  TEST_ASSERT(sage_apply_metal_enrichment_init() == 0,
+              "Metal enrichment module initialization should succeed");
 
   struct Halo test_halo;
   struct GalaxyData test_galaxy;
@@ -853,10 +868,13 @@ int test_metal_disk_vs_halo_split(void) {
   double metals_hot_initial = initial_metals_hot;
 
   /* ===== EXECUTE ===== */
+  /* Run the full SF/SN apply -> metal enrichment pipeline (SAGE ordering) */
   int result = sage_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
+  TEST_ASSERT(result == 0, "Module process should succeed");
+  result = sage_apply_metal_enrichment_process(&ctx, &test_halo, 1);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
+  TEST_ASSERT(result == 0, "Metal enrichment process should succeed");
 
   /* Calculate expected split */
   double frac_z_leave_disk_val = test_frac_z_leave_disk * exp(-1.0 * mvir / 30.0);
@@ -893,6 +911,8 @@ int test_metal_enrichment_zero_cold_gas(void) {
 
   int init_result = sage_apply_star_formation_supernova_init();
   TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+  TEST_ASSERT(sage_apply_metal_enrichment_init() == 0,
+              "Metal enrichment module initialization should succeed");
 
   struct Halo test_halo, central_halo;
   struct GalaxyData test_galaxy, central_galaxy;
@@ -912,10 +932,13 @@ int test_metal_enrichment_zero_cold_gas(void) {
   setup_module_context(&ctx, &central_halo, 0.1);
 
   /* ===== EXECUTE ===== */
+  /* Run the full SF/SN apply -> metal enrichment pipeline (SAGE ordering) */
   int result = sage_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
+  TEST_ASSERT(result == 0, "Module process should succeed");
+  result = sage_apply_metal_enrichment_process(&ctx, &test_halo, 1);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
+  TEST_ASSERT(result == 0, "Metal enrichment process should succeed");
 
   /* All yield metals should go to central's hot halo */
   double expected_new_metals = test_yield * new_stars;
@@ -1069,6 +1092,8 @@ int test_temporary_properties_reset(void) {
 
   int init_result = sage_apply_star_formation_supernova_init();
   TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+  TEST_ASSERT(sage_apply_metal_enrichment_init() == 0,
+              "Metal enrichment module initialization should succeed");
 
   struct Halo test_halo, central_halo;
   struct GalaxyData test_galaxy, central_galaxy;
@@ -1089,13 +1114,20 @@ int test_temporary_properties_reset(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT(result == 0, "Module process should succeed");
 
-  /* All temporary properties should be zero */
-  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.NewStellarMass, 0.0, 1e-6,
-                           "NewStellarMass should be zeroed after processing");
+  /* SN transport properties are consumed by the apply step; NewStellarMass is
+   * intentionally preserved for sage_apply_metal_enrichment (SAGE ordering) */
+  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.NewStellarMass, 1.0, 1e-6,
+                           "NewStellarMass should be preserved for the enrichment module");
   TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaReheatedMass, 0.0, 1e-6,
                            "SupernovaReheatedMass should be zeroed after processing");
   TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.SupernovaEjectedMass, 0.0, 1e-6,
                            "SupernovaEjectedMass should be zeroed after processing");
+
+  /* The enrichment module consumes NewStellarMass */
+  result = sage_apply_metal_enrichment_process(&ctx, &test_halo, 1);
+  TEST_ASSERT(result == 0, "Metal enrichment process should succeed");
+  TEST_ASSERT_DOUBLE_EQUAL(test_galaxy.NewStellarMass, 0.0, 1e-6,
+                           "NewStellarMass should be zeroed after metal enrichment");
 
   return TEST_PASS;
 }
@@ -1180,6 +1212,8 @@ int test_metal_conservation(void) {
 
   int init_result = sage_apply_star_formation_supernova_init();
   TEST_ASSERT(init_result == 0, "Module initialization should succeed");
+  TEST_ASSERT(sage_apply_metal_enrichment_init() == 0,
+              "Metal enrichment module initialization should succeed");
 
   struct Halo test_halo, central_halo;
   struct GalaxyData test_galaxy, central_galaxy;
@@ -1203,10 +1237,13 @@ int test_metal_conservation(void) {
   setup_module_context(&ctx, &central_halo, 0.1);
 
   /* ===== EXECUTE ===== */
+  /* Run the full SF/SN apply -> metal enrichment pipeline (SAGE ordering) */
   int result = sage_apply_star_formation_supernova_process(&ctx, &test_halo, 1);
+  TEST_ASSERT(result == 0, "Module process should succeed");
+  result = sage_apply_metal_enrichment_process(&ctx, &test_halo, 1);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT(result == 0, "Module process should succeed");
+  TEST_ASSERT(result == 0, "Metal enrichment process should succeed");
 
   /* Calculate total metals after */
   double total_metals_after = (test_galaxy.MetalsColdGas + test_galaxy.MetalsHotGas +

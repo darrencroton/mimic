@@ -1,6 +1,6 @@
 module:
   name: sage_apply_star_formation_supernova
-  description: "Infrastructure apply step: commits NewStellarMass and SN transport fields to galaxy reservoirs with recycling, metallicity refresh, and gas-phase transfers. Not a swappable prescription; must follow sage_calculate_star_formation and/or sage_calculate_supernova_feedback in the same phase."
+  description: "Infrastructure apply step: commits NewStellarMass and SN transport fields to galaxy reservoirs with recycling, metallicity refresh, and gas-phase transfers. Not a swappable prescription; must follow sage_calculate_star_formation and/or sage_calculate_supernova_feedback in the same phase. The disk-SF metal yield is applied later by sage_apply_metal_enrichment (SAGE ordering parity)."
 
   supported_processing_modes: [process_by_galaxy]
 
@@ -23,8 +23,6 @@ module:
       - SupernovaOutflowRate
     parameters:
       - RecycleFraction
-      - Yield
-      - FracZleaveDisk
 
   tests:
     unit: _tests/test_unit_sage_apply_star_formation_supernova.c

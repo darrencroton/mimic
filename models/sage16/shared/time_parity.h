@@ -45,12 +45,12 @@ mimic_object_substep_dt(const struct Halo *halo, const struct ModuleContext *ctx
     return MIMIC_OBJECT_TIME_INVALID;
   }
 
-  if (halo->dT > 0.0f) {
+  if (halo->dT > 0.0) {
     *dt_out = (double)halo->dT / (double)ctx->num_substeps;
     return MIMIC_OBJECT_TIME_OK;
   }
 
-  if (halo->SnapNum < 0 && halo->dT <= 0.0f) {
+  if (halo->SnapNum < 0 && halo->dT <= 0.0) {
     return MIMIC_OBJECT_TIME_SKIP_INITIAL;
   }
 

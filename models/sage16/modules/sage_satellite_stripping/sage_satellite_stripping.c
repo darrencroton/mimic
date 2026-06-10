@@ -80,7 +80,8 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *hal
       -1.0 * (halo_baryon_frac * halo->Mvir - total_baryons) / (double)ctx->num_substeps;
 
   if (strippedGas > 0.0) {
-    const float metallicity = mimic_get_metallicity(sat_gal->HotGas, sat_gal->MetalsHotGas);
+    /* SAGE parity: strip_from_satellite uses a double-precision metallicity. */
+    const double metallicity = mimic_get_metallicity(sat_gal->HotGas, sat_gal->MetalsHotGas);
     double strippedMetals = strippedGas * metallicity;
 
     // Limit to available hot gas and metals
@@ -89,11 +90,12 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *hal
     if (strippedMetals > sat_gal->MetalsHotGas)
       strippedMetals = sat_gal->MetalsHotGas;
 
-    // Transfer gas and metals from satellite to central
-    sat_gal->HotGas -= (float)strippedGas;
-    sat_gal->MetalsHotGas -= (float)strippedMetals;
-    cen_gal->HotGas += (float)strippedGas;
-    cen_gal->MetalsHotGas += (float)strippedMetals;
+    // Transfer gas and metals from satellite to central (SAGE parity:
+    // double-precision products accumulated into the float reservoirs)
+    sat_gal->HotGas -= strippedGas;
+    sat_gal->MetalsHotGas -= strippedMetals;
+    cen_gal->HotGas += strippedGas;
+    cen_gal->MetalsHotGas += strippedGas * metallicity;
   }
 
   return 0;

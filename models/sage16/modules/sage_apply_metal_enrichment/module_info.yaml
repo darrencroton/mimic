@@ -1,0 +1,25 @@
+module:
+  name: sage_apply_metal_enrichment
+  description: "Applies the instantaneous-recycling disk-SF metal yield after the disk-instability chain (SAGE ordering parity)"
+
+  supported_processing_modes: [process_by_galaxy]
+
+  dependencies:
+    properties:
+      - Type
+      - Mvir
+      - ColdGas
+      - MetalsColdGas
+      - MetalsHotGas
+      - NewStellarMass
+    parameters:
+      - Yield
+      - FracZleaveDisk
+
+  tests:
+    unit:
+    integration:
+    scientific: []
+
+  docs:
+    physics: README.md

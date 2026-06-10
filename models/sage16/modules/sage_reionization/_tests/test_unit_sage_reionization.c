@@ -78,7 +78,8 @@ static void setup_module_for_physics_test(double global_baryon_frac) {
   MimicConfig.Omega = 0.25;
   MimicConfig.OmegaLambda = 0.75;
   MimicConfig.Hubble_h = 0.73;
-  MimicConfig.G = 43007.1; /* G in code units */
+  MimicConfig.Hubble = 100.0; /* H0 in code units (km/s per Mpc/h) */
+  MimicConfig.G = 43007.1;    /* G in code units */
 
   /* Configure sage_reionization module in pre_timestep phase */
   MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
@@ -163,6 +164,7 @@ int test_module_initialization(void) {
   MimicConfig.Omega = 0.25;
   MimicConfig.OmegaLambda = 0.75;
   MimicConfig.Hubble_h = 0.73;
+  MimicConfig.Hubble = 100.0; /* H0 in code units (km/s per Mpc/h) */
 
   /* Configure sage_reionization module */
   MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
@@ -202,6 +204,7 @@ int test_parameter_reading(void) {
   MimicConfig.Omega = 0.25;
   MimicConfig.OmegaLambda = 0.75;
   MimicConfig.Hubble_h = 0.73;
+  MimicConfig.Hubble = 100.0; /* H0 in code units (km/s per Mpc/h) */
 
   /* Configure sage_reionization with custom GlobalBaryonFraction */
   MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
@@ -249,6 +252,7 @@ int test_invalid_parameter_fails(void) {
     MimicConfig.Omega = 0.25;
     MimicConfig.OmegaLambda = 0.75;
     MimicConfig.Hubble_h = 0.73;
+    MimicConfig.Hubble = 100.0; /* H0 in code units (km/s per Mpc/h) */
 
     MimicConfig.pre_timestep = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
     MimicConfig.pre_timestep[0].module_name = strdup("sage_reionization");

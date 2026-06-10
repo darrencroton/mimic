@@ -58,6 +58,9 @@ modules:
       - sage_quasar_mode:               process_by_galaxy
       - sage_starburst_feedback:        process_by_galaxy
 
+      # Disk-SF metal yield — must follow the disk-instability chain (SAGE ordering)
+      - sage_apply_metal_enrichment:    process_by_galaxy
+
     satellite_mergers:
       # Mergers and disruption — runs after all galaxy physics for the current substep
       # sage_resolve_mergers_and_disruption emits SAGE_EVENT_MERGER for downstream consumers
