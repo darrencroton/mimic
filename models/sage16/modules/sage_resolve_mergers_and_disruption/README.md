@@ -24,4 +24,4 @@ module layer:
 This module is intentionally metadata-driven and module-local. Processing-mode
 validation is enforced through `module_info.yaml`, and end-to-end event-chain
 coverage lives in
-`models/sage/modules/sage_resolve_mergers_and_disruption/_tests/test_integration_sage_merger_event_consumers.py`.
+`models/sage16/modules/sage_resolve_mergers_and_disruption/_tests/test_integration_sage_merger_event_consumers.py`.

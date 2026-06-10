@@ -8,3 +8,5 @@ This package contains mini-Millennium-specific catalog metadata used by Mimic:
 - `snapshots/`: tree data directory — mini-Millennium files land here on `first_run.sh`, or replace with a symlink to your local data
 - `plot_profile.yaml`: simulation-specific plotting axis limits and defaults, referenced from run files that use `mimic-plot.py`
 - `input_data_manifest.yaml`: lists the required data files; used by `first_run.sh` to know what to download
+
+This is the simulation package used by the shipped quick-start configuration — see the [User Guide](../../docs/USER-GUIDE.md) for running it. To create a package like this for your own simulation, see [Adding a New Simulation](../../docs/DEVELOPER-GUIDE.md#adding-a-new-simulation) in the Developer Guide.

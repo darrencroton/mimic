@@ -14,7 +14,7 @@ make tests-integration   # Python integration tests
 make tests-scientific    # Physics validation
 ```
 
-NOTE: `MODEL` and `SIMULATION` default to `sage` and `mini-millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
+NOTE: `MODEL` and `SIMULATION` default to `sage16` and `mini-millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
 
 ## Test Tiers
 
@@ -68,10 +68,10 @@ Unit tests are compiled on demand through the runner. Use the test name without 
 ```bash
 python3 tests/integration/test_full_pipeline.py
 python3 tests/integration/test_output_formats.py
-python3 models/sage/modules/sage_apply_cooling/_tests/test_integration_sage_apply_cooling.py
+python3 models/sage16/modules/sage_apply_cooling/_tests/test_integration_sage_apply_cooling.py
 ```
 
-Integration tests are plain Python scripts. You can run core tests under `tests/integration/`, simulation-owned tests under `simulations/<simulation>/_tests/integration/`, or module-specific scripts under `models/<model>/modules/<module>/_tests/`. Shared core and simulation test run files are generated under `build/generated/test_inputs/<MODEL>/<SIMULATION>/`; set both explicitly when the built executable is not the default SAGE/mini-Millennium build.
+Integration tests are plain Python scripts. You can run core tests under `tests/integration/`, simulation-owned tests under `simulations/<simulation>/_tests/integration/`, or module-specific scripts under `models/<model>/modules/<module>/_tests/`. Shared core and simulation test run files are generated under `build/generated/test_inputs/<MODEL>/<SIMULATION>/`; set both explicitly when the built executable is not the default sage16/mini-Millennium build.
 
 **Scientific tests**:
 ```bash

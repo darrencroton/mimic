@@ -1,6 +1,6 @@
 # SHAM Model Package
 
-This package contains a Mimic-native pseudo-SHAM model. It is mainly a compact proof of concept for the model-package boundary: a model-specific property file, one runtime module, and self-contained plotting diagnostics under `models/sham/`.
+This package contains a Mimic-native pseudo-SHAM model. It is mainly a compact proof of concept for the model-package boundary: a model-specific property file, one runtime module, and self-contained plotting diagnostics under `models/sham/`. If you are building your own model package, this is the minimal worked example of the pattern described in the [Developer Guide](../../docs/DEVELOPER-GUIDE.md#creating-physics-modules); the [sage16 package](../sage16/README.md) shows the same pattern at production scale.
 
 ## Scientific Status
 

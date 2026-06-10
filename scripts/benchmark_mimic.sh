@@ -18,7 +18,7 @@
 # REQUIREMENTS:
 #   - Can be run from any directory
 #   - GNU Make must be available
-#   - Parameter file must exist (default: models/sage/input/sage_mini-millennium.yaml)
+#   - Parameter file must exist (default: models/sage16/input/sage16_mini-millennium.yaml)
 #
 # OUTPUT:
 #   Results are stored in JSON format in the benchmarks/ directory
@@ -34,13 +34,13 @@
 #                       (e.g., "-O3 -march=native"). Not for production builds.
 #
 # EXAMPLES:
-#   # Basic benchmark (uses default models/sage/input/sage_mini-millennium.yaml)
+#   # Basic benchmark (uses default models/sage16/input/sage16_mini-millennium.yaml)
 #   ./scripts/benchmark_mimic.sh
 #
 #   # Benchmark with custom parameter file
-#   make MODEL=sage SIMULATION=mini-millennium generate-test-inputs
-#   ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
-#   ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
+#   make MODEL=sage16 SIMULATION=mini-millennium generate-test-inputs
+#   ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml
+#   ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml
 #
 #   # Benchmark with MPI
 #   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
@@ -170,7 +170,7 @@ OPTIONS:
   --param-file FILE     Parameter file to use for benchmarking
 
 ARGUMENTS:
-  PARAM_FILE            Parameter file to benchmark (default: models/sage/input/sage_mini-millennium.yaml)
+  PARAM_FILE            Parameter file to benchmark (default: models/sage16/input/sage16_mini-millennium.yaml)
                         Can be specified as positional argument or with --param-file
                         Supports both absolute and relative paths
 
@@ -207,16 +207,16 @@ ENVIRONMENT VARIABLES:
   MIMIC_EXECUTABLE      Override mimic executable path
 
 EXAMPLES:
-  # Basic benchmark (uses default models/sage/input/sage_mini-millennium.yaml)
+  # Basic benchmark (uses default models/sage16/input/sage16_mini-millennium.yaml)
   # Can run from anywhere; build selectors come from the run file, environment,
   # or Makefile defaults, in that order:
   ./scripts/benchmark_mimic.sh
   cd scripts && ./benchmark_mimic.sh
 
   # Benchmark with custom parameter file from the repository root
-  make MODEL=sage SIMULATION=mini-millennium generate-test-inputs
-  ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
-  ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
+  make MODEL=sage16 SIMULATION=mini-millennium generate-test-inputs
+  ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml
+  ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml
 
   # Verbose output
   ./scripts/benchmark_mimic.sh --verbose

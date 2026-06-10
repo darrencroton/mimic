@@ -32,18 +32,18 @@ Place your test in this directory:
 
 ```bash
 # Unit test (C)
-models/sage/modules/_tests/test_unit_my_module.c
+models/sage16/modules/_tests/test_unit_my_module.c
 
 # Integration test (Python)
-models/sage/modules/_tests/test_integration_my_module.py
+models/sage16/modules/_tests/test_integration_my_module.py
 
 # Scientific test (Python)
-models/sage/modules/_tests/test_scientific_my_module.py
+models/sage16/modules/_tests/test_scientific_my_module.py
 ```
 
 ### 2. Register in module_info.yaml
 
-Edit `models/sage/modules/_tests/module_info.yaml`:
+Edit `models/sage16/modules/_tests/module_info.yaml`:
 
 ```yaml
 tests:
@@ -58,19 +58,19 @@ tests:
 ### 3. Regenerate Test Registry
 
 ```bash
-make MODEL=sage generate
+make MODEL=sage16 generate
 ```
 
 ### 4. Run Tests
 
 ```bash
 # Run all tests
-make MODEL=sage tests
+make MODEL=sage16 tests
 
 # Run specific tier
-make MODEL=sage tests-unit
-make MODEL=sage tests-integration
-make MODEL=sage tests-scientific
+make MODEL=sage16 tests-unit
+make MODEL=sage16 tests-integration
+make MODEL=sage16 tests-scientific
 ```
 
 ---
@@ -153,20 +153,20 @@ if __name__ == '__main__':
 
 ## Test Discovery
 
-Tests are auto-discovered via `make MODEL=sage generate`, which:
+Tests are auto-discovered via `make MODEL=sage16 generate`, which:
 
 1. Scans `module_info.yaml` for test declarations
 2. Generates test registries in `build/generated/`
 3. Test runners use these registries to find and execute tests
 
-**No manual registration needed** - just add to `module_info.yaml` and run `make MODEL=sage generate`.
+**No manual registration needed** - just add to `module_info.yaml` and run `make MODEL=sage16 generate`.
 
 ---
 
 ## Directory Structure
 
 ```
-models/sage/modules/
+models/sage16/modules/
 ├── _tests/                          # This directory
 │   ├── README.md                    # This file
 │   ├── module_info.yaml             # Shared test registry
