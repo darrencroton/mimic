@@ -4,7 +4,7 @@
 
 Mimic turns dark-matter halo merger trees into mock galaxy catalogues. You give it three things: a **simulation package** (the merger trees plus their cosmology and units), a **model package** (the galaxy physics, as runtime-configurable modules), and a **run file** (a YAML file pairing the two and setting parameters). It gives you back a catalogue of galaxies — masses, gas reservoirs, star formation rates, positions — at the redshifts you ask for, plus enough metadata to reproduce and interpret the run later.
 
-This guide works through that journey using the current default configuration — the `sage16` model package run on the mini-Millennium simulation — purely as a worked example. Everything generalises: every model package follows the same workflow, run-file structure, and output conventions, so wherever you see `sage16` in a path below, substitute the model package you are actually using.
+This guide works through that journey using the current default configuration — the `sage16` model package run on the mini-Millennium simulation — purely as a worked example. Everything generalises: models and simulations are both interchangeable packages, and every pairing follows the same workflow, run-file structure, and output conventions. Wherever you see `sage16` or `mini-millennium` in a path below, substitute the packages you are actually using.
 
 If you're still deciding whether Mimic fits your science, start with the [README](../README.md). If you want to modify or extend the code, see the [Developer Guide](DEVELOPER-GUIDE.md).
 
@@ -16,7 +16,7 @@ If you're still deciding whether Mimic fits your science, start with the [README
 2. [Your First Galaxy Catalogue](#your-first-galaxy-catalogue)
 3. [How Mimic Processes a Run](#how-mimic-processes-a-run)
 4. [Configuring Your Runs](#configuring-your-runs)
-5. [Choosing a Model Package](#choosing-a-model-package)
+5. [Choosing Model and Simulation Packages](#choosing-model-and-simulation-packages)
 6. [Working With Your Catalogue](#working-with-your-catalogue)
 7. [Plotting](#plotting)
 8. [Troubleshooting](#troubleshooting)
@@ -319,20 +319,20 @@ For balanced work, choose a rank count that divides `last_file - first_file + 1`
 
 ---
 
-## Choosing a Model Package
+## Choosing Model and Simulation Packages
 
-Model packages live under `models/`, and each one is self-documenting: its README describes the scientific scope, module pipeline, parameters, and references, and its `input/` directory holds ready-to-run configurations. The workflow in this guide applies to all of them equally — and to any package you build yourself.
+Both halves of a Mimic run are interchangeable packages. **Model packages** live under `models/`, and each one is self-documenting: its README describes the scientific scope, module pipeline, parameters, and references, and its `input/` directory holds ready-to-run configurations. **Simulation packages** live under `simulations/` and wrap a merger-tree catalogue with its cosmology, units, and snapshot list. The workflow in this guide applies to every combination equally — including packages you build yourself.
 
-To run any model, build for it and use one of its run files:
+To run any pairing, build for it and use the matching run file:
 
 ```bash
 make MODEL=<model> SIMULATION=<simulation>
 ./mimic models/<model>/input/<run_file>.yaml
 ```
 
-For example, the shipped packages at the time of writing are [sage16](../models/sage16/README.md) (the default — a complete galaxy formation model ported from SAGE and validated against the original code) and [sham](../models/sham/README.md) (a deliberately minimal one-module package; not a calibrated science model, but the clearest starting point for building your own). Check `models/` for the current list, and each package's README before drawing scientific conclusions from it.
+For example, the model packages shipped at the time of writing are [sage16](../models/sage16/README.md) (the default — a complete galaxy formation model ported from SAGE and validated against the original code) and [sham](../models/sham/README.md) (a deliberately minimal one-module package; not a calibrated science model, but the clearest starting point for building your own). Check `models/` for the current list, and each package's README before drawing scientific conclusions from it.
 
-For input simulations, the same pattern applies under `simulations/`: the shipped [mini-Millennium package](../simulations/mini-millennium/README.md) is the working example, and a [full Millennium package](../simulations/millennium/README.md) is provided for users with access to the complete tree data. Adding your own simulation is a developer task — see [Adding a New Simulation](DEVELOPER-GUIDE.md#adding-a-new-simulation).
+Swapping the simulation under a fixed model is a workflow in its own right, not just a configuration detail: develop and calibrate on a small box, then rerun the identical physics on a larger volume for production statistics, or across catalogues with different resolutions or cosmologies to test how robust your conclusions are to the input simulation. The shipped [mini-Millennium package](../simulations/mini-millennium/README.md) is the small working example, and a [full Millennium package](../simulations/millennium/README.md) is provided for users with access to the complete tree data — check `simulations/` for the current list. Adding your own simulation is a developer task — see [Adding a New Simulation](DEVELOPER-GUIDE.md#adding-a-new-simulation).
 
 ---
 
