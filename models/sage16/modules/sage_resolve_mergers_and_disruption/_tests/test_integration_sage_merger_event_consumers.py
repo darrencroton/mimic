@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 # Add tests directory to path to import framework
-# This test is one level deeper than models/sage16/modules/_tests/ so needs 5 parent hops
+# This test is one level deeper than models/sage/modules/_tests/ so needs 5 parent hops
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 

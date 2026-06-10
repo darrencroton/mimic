@@ -2,7 +2,7 @@
 
 **Practical guide to extending Mimic with physics modules, properties, tests, and generated metadata.**
 
-This guide is for contributors and researchers modifying Mimic internals: writing a new physics module, adding properties, wiring up a new simulation, or working on the framework itself. It assumes you have already run Mimic successfully — if not, start with the [User Guide](USER-GUIDE.md). For the architectural principles and design rationale behind the structures described here, see [VISION.md](VISION.md). The shipped model packages are worked examples of everything in this guide: [models/sage16/](../models/sage16/README.md) is a mature production package, and [models/sham/](../models/sham/README.md) is the minimal pattern.
+This guide explains the development workflow. For user-facing run and configuration guidance, see [USER-GUIDE.md](USER-GUIDE.md). For design principles, see [VISION.md](VISION.md).
 
 ---
 
@@ -119,7 +119,7 @@ Then regenerate, build, and run:
 make validate-modules
 make generate
 make
-./mimic models/sage16/input/sage16_mini-millennium.yaml
+./mimic models/sage/input/sage_mini-millennium.yaml
 ```
 
 ---
@@ -152,6 +152,7 @@ Key directories:
 | `src/module_system/` | Framework helpers, templates, generated module code, constants |
 | `models/<model>/shared/` | Model-local helper APIs used by modules in that model set |
 | `models/<model>/modules/_tests/` | Cross-module tests that do not belong to one module |
+| `archive/src-modules/_archive/` | Retired module code/tests preserved outside the live runtime tree |
 | `src/include/generated/` | Generated property structs and output helpers |
 | `tests/` | Core unit, integration, scientific, framework, and generated test support |
 | `plot/mimic-plot/` | Plotting, schema readers, and model-local plot discovery |
@@ -325,7 +326,7 @@ Module READMEs should be short, local contracts rather than full papers. Include
 - implementation notes that affect configuration
 - key references
 
-The concise README in `models/sage16/modules/sage_resolve_mergers_and_disruption/README.md` is a good model.
+The concise README in `models/sage/modules/sage_resolve_mergers_and_disruption/README.md` is a good model.
 
 ---
 
@@ -664,15 +665,15 @@ mkdir -p simulations/my_sim/snapshots
 # 3. Place or symlink tree data under simulations/my_sim/snapshots/
 
 # 4. Create the run file
-cp models/sage16/input/sage16_mini-millennium.yaml models/sage16/input/my_sim.yaml
+cp models/sage/input/sage_mini-millennium.yaml models/sage/input/my_sim.yaml
 # Edit to point at simulations/my_sim/simulation_info.yaml and halo_properties.yaml
 
 # 5. Regenerate property code for the selected model + simulation package
-make MODEL=sage16 SIMULATION=my_sim generate
+make MODEL=sage SIMULATION=my_sim generate
 
 # 6. Build and run
-make MODEL=sage16 SIMULATION=my_sim
-./mimic models/sage16/input/my_sim.yaml
+make MODEL=sage SIMULATION=my_sim
+./mimic models/sage/input/my_sim.yaml
 ```
 
 ---
@@ -822,7 +823,7 @@ Daily loop:
 make validate-modules
 make generate
 make
-./mimic --debug models/sage16/input/sage16_mini-millennium.yaml
+./mimic --debug models/sage/input/sage_mini-millennium.yaml
 make check-docs
 make tests
 ```
@@ -881,7 +882,7 @@ to verify ignored generated files are current after generation.
 
 ### Benchmarking
 
-Use `scripts/benchmark_mimic.sh` when you need a repeatable runtime and memory baseline before or after performance-sensitive changes. The default invocation benchmarks `models/sage16/input/sage16_mini-millennium.yaml` and writes a timestamped JSON result under `benchmarks/`:
+Use `scripts/benchmark_mimic.sh` when you need a repeatable runtime and memory baseline before or after performance-sensitive changes. The default invocation benchmarks `models/sage/input/sage_mini-millennium.yaml` and writes a timestamped JSON result under `benchmarks/`:
 
 ```bash
 ./scripts/benchmark_mimic.sh
@@ -890,9 +891,9 @@ Use `scripts/benchmark_mimic.sh` when you need a repeatable runtime and memory b
 For a faster generated test input or a specific run file:
 
 ```bash
-make MODEL=sage16 SIMULATION=mini-millennium generate-test-inputs
-./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml
-./scripts/benchmark_mimic.sh models/sage16/input/sage16_mini-millennium.yaml
+make MODEL=sage SIMULATION=mini-millennium generate-test-inputs
+./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
+./scripts/benchmark_mimic.sh models/sage/input/sage_mini-millennium.yaml
 ```
 
 Run `./scripts/benchmark_mimic.sh --help` for MPI, HDF5, and custom build-flag options.
@@ -930,7 +931,7 @@ make clean && make
 Run with debug logs:
 
 ```bash
-./mimic --debug models/sage16/input/sage16_mini-millennium.yaml 2>&1 | tee debug.log
+./mimic --debug models/sage/input/sage_mini-millennium.yaml 2>&1 | tee debug.log
 ```
 
 If `process()` fails without a useful reason, add `ERROR_LOG()` immediately before the failing `return -1` in the module. The core can identify the module and substep, but only the module knows the physics reason.
@@ -949,8 +950,8 @@ myfree(table);
 For deeper checks:
 
 ```bash
-./mimic --debug models/sage16/input/sage16_mini-millennium.yaml
-valgrind --leak-check=full ./mimic models/sage16/input/sage16_mini-millennium.yaml
+./mimic --debug models/sage/input/sage_mini-millennium.yaml
+valgrind --leak-check=full ./mimic models/sage/input/sage_mini-millennium.yaml
 ```
 
 ---

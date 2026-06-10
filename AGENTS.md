@@ -26,7 +26,7 @@ make
 
 # Note: Property code auto-regenerates during `make` when YAML changes
 # MODEL selects the model set and SIMULATION selects the simulation/catalog
-# property package. They default to DEFAULT_MODEL (sage16) and DEFAULT_SIMULATION
+# property package. They default to DEFAULT_MODEL (sage) and DEFAULT_SIMULATION
 # (mini-millennium) in the Makefile, so plain `make` builds the defaults; override
 # both per invocation when testing other combinations. If either package is
 # missing (renamed/removed), make fails loudly with "Unknown MODEL" or
@@ -112,15 +112,15 @@ make check-format
 
 ```bash
 # Basic execution
-./mimic models/sage16/input/sage16_mini-millennium.yaml
+./mimic models/sage/input/sage_mini-millennium.yaml
 ./mimic models/sham/input/sham_mini-millennium.yaml    # SHAM model
 
 # Verbosity options
-./mimic --debug models/sage16/input/sage16_mini-millennium.yaml    # Most verbose (debug output + context)
-./mimic --verbose models/sage16/input/sage16_mini-millennium.yaml  # Add context (timestamp, file:line)
-./mimic --quiet models/sage16/input/sage16_mini-millennium.yaml    # Warnings/errors only
-./mimic --skip models/sage16/input/sage16_mini-millennium.yaml     # Skip existing output files
-./mimic --compress models/sage16/input/sage16_mini-millennium.yaml # gzip HDF5 galaxy output (off by default)
+./mimic --debug models/sage/input/sage_mini-millennium.yaml    # Most verbose (debug output + context)
+./mimic --verbose models/sage/input/sage_mini-millennium.yaml  # Add context (timestamp, file:line)
+./mimic --quiet models/sage/input/sage_mini-millennium.yaml    # Warnings/errors only
+./mimic --skip models/sage/input/sage_mini-millennium.yaml     # Skip existing output files
+./mimic --compress models/sage/input/sage_mini-millennium.yaml # gzip HDF5 galaxy output (off by default)
 ```
 
 ---
@@ -176,18 +176,18 @@ python3 test_validation_helpers.py
 
 # Generate all plots (18 snapshot + 4 evolution)
 cd ..
-python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml
+python mimic-plot.py --param-file=../../models/sage/input/sage_mini-millennium.yaml
 
 # Generate specific plots
-python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml --plots=halo_mass_function,spin_distribution
+python mimic-plot.py --param-file=../../models/sage/input/sage_mini-millennium.yaml --plots=halo_mass_function,spin_distribution
 
 # Snapshot-only or evolution-only
-python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml --snapshot-plots
-python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml --evolution-plots
+python mimic-plot.py --param-file=../../models/sage/input/sage_mini-millennium.yaml --snapshot-plots
+python mimic-plot.py --param-file=../../models/sage/input/sage_mini-millennium.yaml --evolution-plots
 
 # Works from any directory
 cd ../..
-python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_mini-millennium.yaml --plots=halo_mass_function
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_mini-millennium.yaml --plots=halo_mass_function
 
 deactivate
 ```
@@ -197,12 +197,12 @@ deactivate
 ## Benchmarking
 
 ```bash
-# Run performance benchmark (default uses models/sage16/input/sage16_mini-millennium.yaml)
+# Run performance benchmark (default uses models/sage/input/sage_mini-millennium.yaml)
 ./scripts/benchmark_mimic.sh
 
 # With options
-make MODEL=sage16 SIMULATION=mini-millennium generate-test-inputs
-./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml
+make MODEL=sage SIMULATION=mini-millennium generate-test-inputs
+./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage/mini-millennium/core/test_binary.yaml
 ./scripts/benchmark_mimic.sh --verbose
 MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
 MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
@@ -237,7 +237,7 @@ src/
     └── generated/ Auto-generated property code and model parameter validation
 
 models/
-├── sage16/
+├── sage/
 │   ├── input/    SAGE run parameter YAML files
 │   ├── model_properties.yaml
 │   ├── modules/  SAGE physics modules and module-local tests
@@ -250,13 +250,12 @@ models/
     └── plots/    SHAM plotting figures and profiles
 
 simulations/
-├── mini-millennium/    mini-Millennium metadata, halo properties, and snapshot lists
-└── millennium/         full Millennium metadata (tree data not bundled; symlink your own)
+└── mini-millennium/    mini-Millennium metadata, halo properties, and snapshot lists
 
 build/generated/     Build-time generated files (git_version.h, test lists)
 tests/               Unit, integration, and scientific tests
   └── generated/     Auto-generated test metadata
-plot/mimic-plot/     Plotting system (registry is model-local; sage16 ships 18 snapshot + 4 evolution plots)
+plot/mimic-plot/     Plotting system (22 plots: 18 snapshot, 4 evolution)
   ├── tests/         Plotting system tests (unit and integration)
   └── output_schema.py  Run-local schema reader for binary outputs
 ```

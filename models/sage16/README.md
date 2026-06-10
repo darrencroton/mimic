@@ -1,16 +1,14 @@
-# sage16 Model Package
+# SAGE Model Package
 
-**sage16** is the main physically motivated model package shipped with Mimic: a modular port of SAGE (Semi-Analytic Galaxy Evolution) as calibrated and published in Croton et al. (2016), with the 2006 physics lineage behind it. Mimic's physics-agnostic core handles tree traversal, memory, configuration, validation, and output, while this package owns the baryonic physics.
+SAGE (Semi-Analytic Galaxy Evolution) is the main physically motivated model package shipped with Mimic. It implements a modular version of the SAGE galaxy-formation model described by Croton et al. (2006, 2016), with Mimic's physics-agnostic core handling tree traversal, memory, configuration, validation, and output while the SAGE package owns the baryonic physics.
 
-The port is validated, not just inspired: sage16 output has been compared galaxy-by-galaxy against the original SAGE code on identical mini-Millennium trees and agrees to near-bit-parity (97.9–100% of galaxies bit-identical per property). See [docs/SAGE16-PARITY-REPORT.md](../../docs/SAGE16-PARITY-REPORT.md) for the methodology, the fixes that achieved it, and the intentionally preserved SAGE quirks.
-
-This package is also the reference example for a mature Mimic model set: it has model-local properties, runtime modules, shared helper APIs, module-owned tests, and model-specific plotting figures. For the general model-package concepts, see the [Developer Guide](../../docs/DEVELOPER-GUIDE.md); for running and configuring this model, see the [User Guide](../../docs/USER-GUIDE.md).
+This package is the reference example for a mature Mimic model set: it has model-local properties, runtime modules, shared helper APIs, module-owned tests, and model-specific plotting figures.
 
 ## Scientific Scope
 
 SAGE follows baryonic reservoirs on dark-matter halo merger trees: infalling, hot, cold, ejected, stellar, bulge, black-hole, and intracluster components. The module pipeline covers reionization, gas infall, reincorporation, satellite stripping, radiative cooling, AGN heating, star formation, supernova feedback, disk instabilities, black-hole growth, starbursts, mergers, and satellite disruption.
 
-The implementation preserves the structure and prescriptions of SAGE while exposing them as independently testable Mimic modules. Scientific changes should be made deliberately: update the module implementation, declared dependencies, parameters, tests, and model-level run configuration together — and be aware that any physics change moves the package away from its validated parity baseline.
+The implementation is intended to preserve the structure and major prescriptions of SAGE while exposing them as independently testable Mimic modules. Scientific changes should be made deliberately: update the module implementation, declared dependencies, parameters, tests, and model-level run configuration together.
 
 References:
 
@@ -20,51 +18,49 @@ References:
 
 ## Package Contents
 
-- `model_properties.yaml`: sage16 galaxy/model property metadata. Edit this when adding, removing, or changing model-owned galaxy properties, then run `make MODEL=sage16 generate`.
-- `input/`: User-facing run parameter YAML files for mini-Millennium and full Millennium.
-- `modules/`: Runtime physics modules. Each production module has its own directory containing C source, `module_info.yaml`, README, and `_tests/` where applicable.
+- `model_properties.yaml`: SAGE galaxy/model property metadata. Edit this when adding, removing, or changing SAGE-owned galaxy properties, then run `make MODEL=sage generate`.
+- `input/`: User-facing SAGE run parameter YAML files, including the shipped mini-Millennium configuration.
+- `modules/`: Runtime SAGE physics modules. Each production module has its own directory containing C source, `module_info.yaml`, README, and `_tests/` where applicable.
 - `modules/_tests/`: Shared cross-module tests for processing contracts and parity checks.
-- `shared/`: Model-local helper headers and event contracts. These are not framework APIs; copy or reimplement them in another model package if needed.
-- `plots/figures/`: Model-specific diagnostic plot implementations for `mimic-plot.py`.
-- `plots/profiles/`: Plot profile YAML files, including mini-Millennium defaults used by the shipped run.
+- `shared/`: SAGE-local helper headers and event contracts. These are not framework APIs; copy or reimplement them in another model package if needed.
+- `plots/figures/`: SAGE-specific diagnostic plot implementations for `mimic-plot.py`.
+- `plots/profiles/`: Plot profile YAML files, including mini-Millennium defaults used by the shipped SAGE run.
 
 ## Runtime Pipeline
 
-The shipped run configuration lives at `models/sage16/input/sage16_mini-millennium.yaml`. It builds the pipeline as:
+The shipped SAGE run configuration lives at `models/sage/input/sage_mini-millennium.yaml`. It builds the pipeline as:
 
 - `pre_timestep`: reionization, infall budget preparation, disk scale setup, merger-clock initialization.
 - `galaxy_physics`: gas supply, reincorporation, satellite stripping, cooling, AGN radio-mode heating, star formation, supernova feedback, disk instability, quasar mode, and starburst feedback.
 - `satellite_mergers`: merger/disruption resolution plus event-driven quasar and starburst consumers.
-- `post_timestep`: empty in the default configuration.
+- `post_timestep`: empty in the default SAGE configuration.
 
 SAGE uses transport properties such as `InfallingGas`, `CoolingGas`, `NewStellarMass`, `SupernovaReheatedMass`, and `SupernovaEjectedMass` to separate calculation modules from apply/commit modules. Preserve this ordering when changing the pipeline.
 
 ## Build, Run, and Plot
 
-sage16 is the default model, so plain `make` builds it; the explicit selectors below behave identically:
-
 ```bash
-make MODEL=sage16
-./mimic models/sage16/input/sage16_mini-millennium.yaml
-python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_mini-millennium.yaml
+make MODEL=sage
+./mimic models/sage/input/sage_mini-millennium.yaml
+python plot/mimic-plot/mimic-plot.py --param-file=models/sage/input/sage_mini-millennium.yaml
 ```
 
 Useful checks:
 
 ```bash
-make MODEL=sage16 validate-modules
-make MODEL=sage16 check-generated
-make MODEL=sage16 tests-unit
+make MODEL=sage validate-modules
+make MODEL=sage check-generated
+make MODEL=sage tests-unit
 ```
 
-## Extending sage16
+## Extending SAGE
 
 To add or change a module:
 
-1. Work under `models/sage16/modules/<module_name>/`.
+1. Work under `models/sage/modules/<module_name>/`.
 2. Declare supported processing modes, property dependencies, parameter dependencies, event contracts, tests, and docs in `module_info.yaml`.
 3. Add or update properties in `model_properties.yaml` only when the model's galaxy state changes.
-4. Keep reusable model-local helper logic in `shared/`; do not promote it to core unless it is genuinely physics-agnostic.
-5. Regenerate and validate with `make MODEL=sage16 generate` and `make MODEL=sage16 validate-modules`.
+4. Keep reusable SAGE-only helper logic in `shared/`; do not promote it to core unless it is genuinely physics-agnostic.
+5. Regenerate and validate with `make MODEL=sage generate` and `make MODEL=sage validate-modules`.
 
-When creating a new model family from sage16, copy the needed modules into a new `models/<model>/` package and reconcile property names, units, parameters, tests, plots, and run YAML there instead of mixing model packages at runtime. See [Creating Physics Modules](../../docs/DEVELOPER-GUIDE.md#creating-physics-modules) for the full workflow.
+When creating a new model family from SAGE, copy the needed modules into a new `models/<model>/` package and reconcile property names, units, parameters, tests, plots, and run YAML there instead of mixing model packages at runtime.
