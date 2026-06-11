@@ -77,7 +77,13 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *hal
       -1.0 * (halo_baryon_frac * halo->Mvir - total_baryons) / (double)ctx->num_substeps;
 
   if (strippedGas > 0.0) {
-    /* SAGE parity: strip_from_satellite uses a double-precision metallicity. */
+    /* SAGE parity: strip_from_satellite uses a double-precision metallicity,
+     * computes the metal transfer from the UNCLAMPED gas, clamps gas and
+     * metals independently, and credits the central with clamped-gas *
+     * metallicity (model_infall.c:106-118). When a clamp engages, the
+     * satellite's metal loss and the central's metal gain differ — this
+     * non-conservation is faithful to SAGE and must not be "fixed" without
+     * regenerating the physics baseline. */
     const double metallicity = mimic_get_metallicity(sat_gal->HotGas, sat_gal->MetalsHotGas);
     double strippedMetals = strippedGas * metallicity;
 

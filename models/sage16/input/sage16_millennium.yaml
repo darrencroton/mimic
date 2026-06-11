@@ -12,6 +12,9 @@ simulation:
   halo_properties: simulations/millennium/halo_properties.yaml
 
 input:
+  # Deliberate subset of the 512 Millennium tree files (0-511, see
+  # simulation_info.yaml): enough to check the model without the run time
+  # of the full volume. Raise last_file for production runs.
   first_file: 0
   last_file: 15
 
