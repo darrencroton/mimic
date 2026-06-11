@@ -17,7 +17,17 @@ import numpy as np
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import create_test_param_file, load_binary_halos, run_mimic
+from framework import (
+    MIMIC_EXE,
+    TestSkipped,
+    create_test_param_file,
+    load_binary_halos,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
+    run_mimic,
+)
 
 MERGER_MODEL_PARAMS = {
     "GlobalBaryonFraction": 0.17,
@@ -255,19 +265,64 @@ def test_starburst_consumer_receives_merger_events():
 
 def main():
     """Run the immediate merger event integration suite."""
-    try:
-        test_invalid_processing_mode_rejected()
-        test_quasar_consumer_receives_merger_events()
-        test_starburst_consumer_receives_merger_events()
-        return 0
-    except AssertionError as exc:
-        print(f"Test failed: {exc}")
-        return 1
-    except Exception as exc:
-        print(f"Unexpected error: {exc}")
-        import traceback
+    BLUE = "\033[1;34m"
+    GREEN = "\033[0;32m"
+    RED = "\033[0;31m"
+    NC = "\033[0m"
 
-        traceback.print_exc()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: {Path(__file__).name}{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
+    tests = [
+        test_invalid_processing_mode_rejected,
+        test_quasar_consumer_receives_merger_events,
+        test_starburst_consumer_receives_merger_events,
+    ]
+
+    if not MIMIC_EXE.exists():
+        for test in tests:
+            result_skip(test.__name__, "Mimic not built")
+        return 0
+
+    passed = 0
+    failed = 0
+    skipped = 0
+
+    for test in tests:
+        print()
+        try:
+            test()
+            result_pass(test.__name__)
+            passed += 1
+        except TestSkipped as e:
+            result_skip(test.__name__, str(e))
+            skipped += 1
+        except AssertionError as e:
+            result_fail(test.__name__, str(e).splitlines()[0])
+            failed += 1
+        except Exception as e:
+            result_error(test.__name__, str(e).splitlines()[0])
+            failed += 1
+
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"Passed:  {passed}")
+    if skipped:
+        print(f"Skipped: {skipped}")
+    print(f"Failed:  {failed}")
+    print(f"Total:   {passed + failed + skipped}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
+    if failed == 0:
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        return 0
+    else:
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
         return 1
 
 

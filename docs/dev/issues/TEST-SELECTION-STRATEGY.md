@@ -102,7 +102,7 @@ Required helpers (all in `tests/framework/harness.py`, exported via `tests/frame
 - `default_model()`: `DEFAULT_MODEL` from the Makefile.
 - `default_simulation()`: `DEFAULT_SIMULATION` from the Makefile.
 - `is_default_baseline_combo()`: true when selected packages match the committed baseline package pair.
-- `skip_non_default_baseline(test_name)`: consistent skip message for default-only baselines.
+- `skip_non_default_baseline(test_name)`: raises `TestSkipped` with a consistent skip reason for default-only baselines.
 
 Initial consumers:
 
@@ -110,7 +110,7 @@ Initial consumers:
 - `models/sage/modules/_tests/test_scientific_sage_physics_baseline.py`: SAGE full-physics baseline is default-combo-only unless a future per-combo baseline is added.
 - `simulations/<simulation>/_tests/integration/test_tree_preservation.py`: selected-simulation test, derives its input tree from the generated run file.
 
-**Known limitation (skip visibility):** `skip_non_default_baseline()` prints a message and the calling test does an early `return`. This is consistent with the codebase's existing print-and-return skip pattern throughout all test files. The result is that skipped tests appear as PASSED in any tool that counts test results rather than as SKIPPED. If CI tooling is later added that tracks skip counts or distinguishes skipped from passed, this pattern will need to migrate to `pytest.skip()` or an equivalent. That migration requires first adopting pytest as the test runner. For now the pattern is acceptable.
+**Skip visibility:** `skip_non_default_baseline()` now raises `TestSkipped`, and the standard Python test runners emit `MIMIC_RESULT: SKIP ...` markers. Summary-mode output and test counts can distinguish deliberate skips from passes without requiring pytest.
 
 ## Near-Term Implementation Steps
 
@@ -196,11 +196,11 @@ The doc describes `make tests-slow` and `make tests-full SIMULATION=millennium` 
 
 **What to do:** Add `tests-slow` as a Makefile target. Gate it on an environment variable or explicit opt-in flag. Document which tests belong to it, what data they require, and expected runtime. Per-simulation `simulations/<simulation>/_tests/slow/` directories can hold the scripts; the Makefile target discovers and runs them.
 
-### 3. Skip visibility is misleading
+### 3. Skip visibility is now explicit
 
-`skip_non_default_baseline()` uses print + early return. In any test count or CI summary, skipped tests appear as passed. This is fine when there is no CI dashboard tracking skip rates, but it becomes a problem if the team ever adds test analytics or if someone reads a "100% pass rate" as "100% of tests exercised."
+`skip_non_default_baseline()` raises `TestSkipped`, and Python test runners emit structured skip markers. Summary-mode output now surfaces deliberate skips separately from passes.
 
-**What to do:** When the test suite migrates to pytest as its runner, replace `skip_non_default_baseline()` with `pytest.skip()` at each call site. The centralised helper makes that a straightforward find-and-replace.
+**What to do:** Keep new Python tests on the standard marker loop (`TestSkipped` plus `result_skip`) so skip visibility remains consistent.
 
 ### 4. The `_makefile_default` parser is fragile
 

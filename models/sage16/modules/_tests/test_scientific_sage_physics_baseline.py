@@ -28,9 +28,7 @@ reference:
 and document why in the commit message.
 """
 
-import io
 import sys
-from contextlib import redirect_stdout
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -41,10 +39,15 @@ from framework import (
     BASELINE_ATOL_DEFAULT,
     BASELINE_RTOL_DEFAULT,
     MIMIC_EXE,
+    TestSkipped,
     baseline_rtol,
     compiled_model,
     is_default_baseline_combo,
     load_binary_halos,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
     run_mimic_fresh,
     skip_non_default_baseline,
 )
@@ -77,15 +80,12 @@ def test_sage_physics_baseline():
     print("Testing SAGE full-physics galaxy-output baseline...")
 
     if compiled_model() != "sage16":
-        print(f"  Skipping (MODEL={compiled_model()}, this baseline is SAGE-specific)")
-        return
+        raise TestSkipped(f"MODEL={compiled_model()}, this baseline is SAGE-specific")
     if not is_default_baseline_combo():
         skip_non_default_baseline("SAGE full-physics baseline")
-        return
 
     if not MIMIC_EXE.exists():
-        print("  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     assert INPUT.exists(), f"Full-physics input not found: {INPUT}"
     assert BASELINE.exists(), (
@@ -136,17 +136,12 @@ def test_sage_physics_baseline():
 def main():
     print(f"{BLUE}{'=' * 60}{NC}")
     print(
-        f"{BLUE}Test Suite: SAGE Full-Physics Baseline Tests (test_scientific_sage_physics_baseline.py){NC}"
+        f"{BLUE}Test Suite: SAGE Full-Physics Baseline (test_scientific_sage_physics_baseline.py){NC}"
     )
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
-
-    if not MIMIC_EXE.exists():
-        print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
-        print("Build it first with: make")
-        return 1
 
     tests = [
         test_sage_physics_baseline,
@@ -159,31 +154,17 @@ def main():
     for test in tests:
         print()
         try:
-            output_buffer = io.StringIO()
-            with redirect_stdout(output_buffer):
-                test()
-
-            output = output_buffer.getvalue()
-            print(output, end="")
-
-            if "Skipping" in output:
-                print(f"{YELLOW}⊘ SKIP: {test.__name__}{NC}")
-                skipped += 1
-            else:
-                passed += 1
+            test()
+            result_pass(test.__name__)
+            passed += 1
+        except TestSkipped as e:
+            result_skip(test.__name__, str(e))
+            skipped += 1
         except AssertionError as e:
-            output = output_buffer.getvalue()
-            if output:
-                print(output, end="")
-            print(f"{RED}✗ FAIL: {test.__name__}{NC}")
-            print(f"  {e}")
+            result_fail(test.__name__, str(e).splitlines()[0])
             failed += 1
         except Exception as e:
-            output = output_buffer.getvalue()
-            if output:
-                print(output, end="")
-            print(f"{RED}✗ ERROR: {test.__name__}{NC}")
-            print(f"  {e}")
+            result_error(test.__name__, str(e).splitlines()[0])
             failed += 1
 
     print()
@@ -191,16 +172,15 @@ def main():
     print(f"{BLUE}Test Summary{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed:  {passed}")
+    if skipped:
+        print(f"Skipped: {skipped}")
     print(f"Failed:  {failed}")
-    print(f"Skipped: {skipped}")
     print(f"Total:   {passed + failed + skipped}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
     if failed == 0:
         print(f"{GREEN}✓ All tests passed!{NC}")
-        if skipped > 0:
-            print(f"{YELLOW}⊘ {skipped} test(s) skipped{NC}")
         return 0
     else:
         print(f"{RED}✗ {failed} test(s) failed{NC}")

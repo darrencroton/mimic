@@ -64,10 +64,12 @@ def is_default_baseline_combo():
 
 
 def skip_non_default_baseline(test_name):
-    """Print a consistent skip reason for default-package baseline regressions."""
-    print(
-        f"  Skipping {test_name}: committed baseline is for "
-        f"MODEL={default_model()} SIMULATION={default_simulation()}, but this run selected "
+    """Raise TestSkipped for default-package baseline regressions."""
+    from .markers import TestSkipped
+
+    raise TestSkipped(
+        f"committed baseline is for MODEL={default_model()} "
+        f"SIMULATION={default_simulation()}, but this run selected "
         f"MODEL={compiled_model()} SIMULATION={compiled_simulation()}"
     )
 

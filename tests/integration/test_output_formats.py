@@ -40,11 +40,16 @@ from framework import (
     BASELINE_RTOL_DEFAULT,
     MIMIC_EXE,
     TEST_DATA_DIR,
+    TestSkipped,
     baseline_rtol,
     core_input_file,
     ensure_output_dirs,
     is_default_baseline_combo,
     load_binary_halos,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
     run_mimic,
     run_mimic_fresh,
     skip_non_default_baseline,
@@ -519,8 +524,7 @@ def test_binary_format_execution():
     print("Testing binary format execution...")
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     param_file = core_input_file("test_binary.yaml")
     assert param_file.exists(), f"Parameter file not found: {param_file}"
@@ -545,8 +549,7 @@ def test_binary_format_loading():
     print("Testing binary format data loading...")
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     # Check output file exists
     output_dir = TEST_DATA_DIR / "output" / "binary"
@@ -605,11 +608,9 @@ def test_binary_baseline_comparison():
     print("Testing binary baseline comparison...")
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
     if not is_default_baseline_combo():
         skip_non_default_baseline("binary baseline comparison")
-        return
 
     # Load current test output
     output_dir = TEST_DATA_DIR / "output" / "binary"
@@ -701,8 +702,7 @@ def test_hdf5_format_execution():
     print("Testing HDF5 format execution...")
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     # Check if HDF5 parameter file exists
     param_file = core_input_file("test_hdf5.yaml")
@@ -713,9 +713,7 @@ def test_hdf5_format_execution():
     if returncode != 0:
         output = stdout + stderr
         if "requires HDF5" in output or "HDF5 support" in output or "Recompile with" in output:
-            print(f"  Skipping (Mimic not compiled with HDF5 support)")
-            print(f"  To enable: make clean && make  # HDF5 is enabled by default")
-            return
+            raise TestSkipped("HDF5 not compiled")
         else:
             # Execution failed for a different reason
             assert False, f"Mimic failed with code {returncode}\nSTDERR: {stderr}"
@@ -735,13 +733,11 @@ def test_hdf5_format_loading():
     print("Testing HDF5 format data loading...")
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     # Check if HDF5 is supported
     if not check_hdf5_support():
-        print(f"  Skipping (Mimic not compiled with HDF5 support)")
-        return
+        raise TestSkipped("HDF5 not compiled")
 
     # Check output file exists
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
@@ -758,9 +754,7 @@ def test_hdf5_format_loading():
     try:
         import h5py  # noqa: F401 - import used only for availability check
     except ImportError:
-        print(f"  Skipping detailed validation (h5py not available)")
-        print(f"  Install with: pip install h5py")
-        return
+        raise TestSkipped("h5py not available")
 
     # Load halos
     print(f"  Loading: {output_file.relative_to(REPO_ROOT)}")
@@ -786,18 +780,15 @@ def test_hdf5_compression_equivalence():
     print("Testing HDF5 compression equivalence...")
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     if not check_hdf5_support():
-        print(f"  Skipping (Mimic not compiled with HDF5 support)")
-        return
+        raise TestSkipped("HDF5 not compiled")
 
     try:
         import h5py
     except ImportError:
-        print(f"  Skipping (h5py not available)")
-        return
+        raise TestSkipped("h5py not available")
 
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     output_file = output_dir / "model_000.hdf5"
@@ -859,23 +850,19 @@ def test_hdf5_baseline_comparison():
     print("Testing HDF5 baseline comparison...")
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
     if not is_default_baseline_combo():
         skip_non_default_baseline("HDF5 baseline comparison")
-        return
 
     # Check if HDF5 is supported
     if not check_hdf5_support():
-        print(f"  Skipping (Mimic not compiled with HDF5 support)")
-        return
+        raise TestSkipped("HDF5 not compiled")
 
     # Check if h5py is available
     try:
         import h5py  # noqa: F401 - import used only for availability check
     except ImportError:
-        print(f"  Skipping (h5py not available)")
-        return
+        raise TestSkipped("h5py not available")
 
     # Load current test output
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
@@ -963,18 +950,15 @@ def test_unique_id_contract():
     print("Testing Unique ID contract...")
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     if not check_hdf5_support():
-        print(f"  Skipping (Mimic not compiled with HDF5 support)")
-        return
+        raise TestSkipped("HDF5 not compiled")
 
     try:
         import h5py  # noqa: F401 - import used only for availability check
     except ImportError:
-        print(f"  Skipping (h5py not available)")
-        return
+        raise TestSkipped("h5py not available")
 
     output_dir = TEST_DATA_DIR / "output" / "hdf5"
     output_file = output_dir / "model_000.hdf5"
@@ -1046,20 +1030,17 @@ def test_format_equivalence():
     print("Testing binary vs HDF5 format equivalence...")
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     # Check if HDF5 is supported
     if not check_hdf5_support():
-        print(f"  Skipping (Mimic not compiled with HDF5 support)")
-        return
+        raise TestSkipped("HDF5 not compiled")
 
     # Check if h5py is available
     try:
         import h5py  # noqa: F401 - import used only for availability check
     except ImportError:
-        print(f"  Skipping (h5py not available)")
-        return
+        raise TestSkipped("h5py not available")
 
     # Load current binary output
     binary_dir = TEST_DATA_DIR / "output" / "binary"
@@ -1173,55 +1154,33 @@ def main():
     for test in tests:
         print()
         try:
-            # Capture print output to detect skips
-            import io
-            from contextlib import redirect_stdout
-
-            output_buffer = io.StringIO()
-            with redirect_stdout(output_buffer):
-                test()
-
-            output = output_buffer.getvalue()
-            print(output, end="")  # Print the output
-
-            if "Skipping" in output:
-                print(f"{YELLOW}⊘ SKIP: {test.__name__}{NC}")
-                skipped += 1
-            else:
-                passed += 1
+            test()
+            result_pass(test.__name__)
+            passed += 1
+        except TestSkipped as e:
+            result_skip(test.__name__, str(e))
+            skipped += 1
         except AssertionError as e:
-            # Print captured output before showing failure
-            output = output_buffer.getvalue()
-            if output:
-                print(output, end="")
-            print(f"{RED}✗ FAIL: {test.__name__}{NC}")
-            print(f"  {e}")
+            result_fail(test.__name__, str(e).splitlines()[0])
             failed += 1
         except Exception as e:
-            # Print captured output before showing error
-            output = output_buffer.getvalue()
-            if output:
-                print(output, end="")
-            print(f"{RED}✗ ERROR: {test.__name__}{NC}")
-            print(f"  {e}")
+            result_error(test.__name__, str(e).splitlines()[0])
             failed += 1
 
-    # Print summary
     print()
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"{BLUE}Test Summary{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed:  {passed}")
+    if skipped:
+        print(f"Skipped: {skipped}")
     print(f"Failed:  {failed}")
-    print(f"Skipped: {skipped}")
     print(f"Total:   {passed + failed + skipped}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
     if failed == 0:
         print(f"{GREEN}✓ All tests passed!{NC}")
-        if skipped > 0:
-            print(f"{YELLOW}⊘ {skipped} test(s) skipped (HDF5 support not available){NC}")
         return 0
     else:
         print(f"{RED}✗ {failed} test(s) failed{NC}")

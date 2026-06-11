@@ -764,6 +764,30 @@ Run everything:
 make tests
 ```
 
+To see only warnings, failures, skipped tests, and final suite outcomes, add the `summary` goal modifier:
+
+```bash
+make tests summary
+make tests-unit summary
+make tests-integration summary
+make tests-scientific summary
+```
+
+Summary mode works by filtering for structured result markers. Every test emits one of:
+
+```
+MIMIC_RESULT: PASS <test_name>
+MIMIC_RESULT: FAIL <test_name> [-- <reason>]
+MIMIC_RESULT: SKIP <test_name> [-- <reason>]
+MIMIC_RESULT: WARN <test_name> [-- <reason>]
+MIMIC_RESULT: ERROR <test_name> [-- <reason>]
+```
+
+Summary mode filters structured markers directly: pass markers are suppressed, while fail, skip, warning, and error markers are shown. The filter is deterministic by design, with no natural-language heuristics or exclusion lists. New tests must emit these markers:
+
+- **C unit tests** — use `TEST_MARKER_*` macros from `tests/framework/test_framework.h`. `TEST_RUN` and `TEST_ASSERT*` emit them automatically; no per-test changes needed.
+- **Python tests** — call `result_pass / result_fail / result_skip / result_warn / result_error` from `tests/framework` in the `main()` loop. Raise `TestSkipped` to skip; the standard loop pattern catches it and calls `result_skip` automatically.
+
 For long-running test sessions, capture logs and check the exit code:
 
 ```bash

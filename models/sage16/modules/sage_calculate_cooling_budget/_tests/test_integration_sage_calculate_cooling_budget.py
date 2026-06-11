@@ -27,7 +27,15 @@ import numpy as np
 
 # Add test framework to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../../../tests"))
-from framework import harness
+from framework import (
+    MIMIC_EXE,
+    TestSkipped,
+    harness,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
+)
 
 # ANSI color codes (module-level constants)
 BLUE = "\033[1;34m"
@@ -269,59 +277,56 @@ class TestSageCoolingIntegration:
 
 def main():
     """Run all integration tests"""
-    # Get all test methods from the test class
-    test_class = TestSageCoolingIntegration()
-    test_methods = [name for name in dir(test_class) if name.startswith("test_")]
-
-    passed = 0
-    failed = 0
-    errors = []
-
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"{BLUE}Test Suite: sage_calculate_cooling_budget Integration Tests{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
-    for test_name in test_methods:
+    test_class = TestSageCoolingIntegration()
+    test_names = sorted(name for name in dir(test_class) if name.startswith("test_"))
+
+    if not MIMIC_EXE.exists():
+        for name in test_names:
+            result_skip(name, "Mimic not built")
+        return 0
+
+    passed = 0
+    failed = 0
+    skipped = 0
+
+    for test_name in test_names:
         try:
-            # Run test
             test_method = getattr(test_class, test_name)
             test_method()
-
-            print(f"✓ PASS: {test_name}")
+            result_pass(test_name)
             passed += 1
+        except TestSkipped as e:
+            result_skip(test_name, str(e))
+            skipped += 1
         except AssertionError as e:
-            print(f"✗ FAIL: {test_name}")
-            print(f"  {str(e)}")
+            result_fail(test_name, str(e).splitlines()[0])
             failed += 1
-            errors.append((test_name, str(e)))
         except Exception as e:
-            print(f"✗ ERROR: {test_name}")
-            print(f"  {str(e)}")
+            result_error(test_name, str(e).splitlines()[0])
             failed += 1
-            errors.append((test_name, str(e)))
 
-    # Summary
     print()
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"{BLUE}Test Summary{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed:  {passed}")
+    if skipped:
+        print(f"Skipped: {skipped}")
     print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed}")
+    print(f"Total:   {passed + failed + skipped}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
     if failed == 0:
         print(f"{GREEN}✓ All tests passed!{NC}")
-        print()
         return 0
     else:
         print(f"{RED}✗ {failed} test(s) failed{NC}")
-        for test_name, error in errors:
-            print(f"\nFailed: {test_name}")
-            print(f"  {error}")
-        print()
         return 1
 
 

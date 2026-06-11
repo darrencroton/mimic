@@ -42,6 +42,16 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 TEST_FAILURES_FILE="${REPO_ROOT}/build/.test_failures"
 
+summary_enabled() {
+    [ "${TEST_SUMMARY:-0}" = "1" ]
+}
+
+# In summary mode, print only non-pass MIMIC_RESULT: lines from a captured log file.
+print_markers() {
+    local log_file=$1
+    grep "^MIMIC_RESULT: \(FAIL\|SKIP\|WARN\|ERROR\)" "$log_file" || true
+}
+
 record_failed_test() {
     local test_name=$1
 
@@ -185,9 +195,11 @@ else
     TESTS="$REGISTRY_TESTS"
 fi
 
-echo "Repository: $REPO_ROOT"
-echo "Compiler: $CC"
-echo "Build directory: $BUILD_DIR"
+if ! summary_enabled; then
+    echo "Repository: $REPO_ROOT"
+    echo "Compiler: $CC"
+    echo "Build directory: $BUILD_DIR"
+fi
 
 ###############################################################################
 # Function: compile_and_run_test
@@ -226,6 +238,7 @@ compile_and_run_test() {
 
     # Final check if test file exists
     if [ ! -f "$test_file" ]; then
+        echo "MIMIC_RESULT: ERROR ${test_display} -- test file not found"
         echo -e "${RED}✗ Test file not found: ${test_name}.c${NC}"
         FAILED_TESTS=$((FAILED_TESTS + 1))
         record_failed_test "$test_display"
@@ -242,20 +255,52 @@ compile_and_run_test() {
     fi
 
     # Compile test
-    echo -e "${BLUE}Compiling ${test_name}...${NC}"
-    if ! $CC $CFLAGS $module_include $test_file $ALL_SRCS -o $test_exe $LDFLAGS 2>&1 | tee "${BUILD_DIR}/${test_name}.compile.log"; then
-        echo -e "${RED}✗ Compilation failed for ${test_name}${NC}"
-        echo "  See ${BUILD_DIR}/${test_name}.compile.log for details"
-        COMPILE_ERRORS=$((COMPILE_ERRORS + 1))
-        FAILED_TESTS=$((FAILED_TESTS + 1))
-        record_failed_test "$test_display"
-        return 2
+    local compile_log="${BUILD_DIR}/${test_name}.compile.log"
+    if summary_enabled; then
+        if ! $CC $CFLAGS $module_include $test_file $ALL_SRCS -o $test_exe $LDFLAGS > "$compile_log" 2>&1; then
+            echo "MIMIC_RESULT: ERROR ${test_display} -- compilation failed"
+            cat "$compile_log"
+            COMPILE_ERRORS=$((COMPILE_ERRORS + 1))
+            FAILED_TESTS=$((FAILED_TESTS + 1))
+            record_failed_test "$test_display"
+            return 2
+        fi
+    else
+        echo -e "${BLUE}Compiling ${test_name}...${NC}"
+        if ! $CC $CFLAGS $module_include $test_file $ALL_SRCS -o $test_exe $LDFLAGS 2>&1 | tee "$compile_log"; then
+            echo -e "${RED}✗ Compilation failed for ${test_name}${NC}"
+            echo "  See ${compile_log} for details"
+            COMPILE_ERRORS=$((COMPILE_ERRORS + 1))
+            FAILED_TESTS=$((FAILED_TESTS + 1))
+            record_failed_test "$test_display"
+            return 2
+        fi
     fi
 
     # Run test
-    echo -e "${BLUE}Running test: ${test_name}${NC}"
+    if ! summary_enabled; then
+        echo -e "${BLUE}Running test: ${test_name}${NC}"
+    fi
 
-    if $test_exe; then
+    local run_log="${BUILD_DIR}/${test_name}.run.log"
+    if summary_enabled; then
+        if $test_exe > "$run_log" 2>&1; then
+            print_markers "$run_log"
+            PASSED_TESTS=$((PASSED_TESTS + 1))
+            return 0
+        else
+            # On failure: show markers if any were emitted; otherwise show full log
+            # (the full log path handles crashes/signals that emit no markers at all)
+            if grep -q "^MIMIC_RESULT:" "$run_log"; then
+                print_markers "$run_log"
+            else
+                cat "$run_log"
+            fi
+            FAILED_TESTS=$((FAILED_TESTS + 1))
+            record_failed_test "$test_display"
+            return 1
+        fi
+    elif $test_exe; then
         echo -e "${GREEN}✓ ${test_name} PASSED${NC}"
         PASSED_TESTS=$((PASSED_TESTS + 1))
         return 0
@@ -273,7 +318,9 @@ compile_and_run_test() {
 
 # Run all specified tests
 for test in $TESTS; do
-    echo ""
+    if ! summary_enabled; then
+        echo ""
+    fi
     compile_and_run_test "$test"
 done
 

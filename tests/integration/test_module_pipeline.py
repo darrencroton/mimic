@@ -31,6 +31,10 @@ from framework import (
     REPO_ROOT,
     create_test_param_file,
     read_param_file,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
     run_mimic,
 )
 
@@ -40,6 +44,26 @@ GREEN = "\033[0;32m"
 RED = "\033[0;31m"
 YELLOW = "\033[1;33m"
 NC = "\033[0m"
+
+
+class _MarkerTestResult(unittest.TextTestResult):
+    """unittest.TestResult subclass that emits MIMIC_RESULT: markers."""
+
+    def addSuccess(self, test):
+        super().addSuccess(test)
+        result_pass(test._testMethodName)
+
+    def addFailure(self, test, err):
+        super().addFailure(test, err)
+        result_fail(test._testMethodName, str(err[1]).splitlines()[0])
+
+    def addError(self, test, err):
+        super().addError(test, err)
+        result_error(test._testMethodName, str(err[1]).splitlines()[0])
+
+    def addSkip(self, test, reason):
+        super().addSkip(test, reason)
+        result_skip(test._testMethodName, reason)
 
 
 class TestModulePipeline(unittest.TestCase):
@@ -284,8 +308,8 @@ def main():
     # Set up test suite
     suite = unittest.TestLoader().loadTestsFromTestCase(TestModulePipeline)
 
-    # Run tests with verbose output
-    runner = unittest.TextTestRunner(verbosity=2)
+    # Run tests with verbose output and marker emission
+    runner = unittest.TextTestRunner(verbosity=2, resultclass=_MarkerTestResult)
     result = runner.run(suite)
 
     # Print summary

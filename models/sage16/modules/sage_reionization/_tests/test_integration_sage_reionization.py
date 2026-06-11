@@ -37,8 +37,13 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
     MIMIC_EXE,
+    TestSkipped,
     create_test_param_file,
     load_binary_halos,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
     run_mimic,
 )
 
@@ -390,12 +395,6 @@ def main():
     print(f"{BLUE}Test Suite: SAGE Reionization Integration Tests{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
 
-    # Check prerequisites
-    if not MIMIC_EXE.exists():
-        print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
-        print("Build it first with: make")
-        return 1
-
     tests = [
         test_module_loads,
         test_output_properties_exist,
@@ -408,38 +407,46 @@ def main():
 
     passed = 0
     failed = 0
+    skipped = 0
+
+    if not MIMIC_EXE.exists():
+        for test in tests:
+            result_skip(test.__name__, "Mimic not built")
+        return 0
 
     for test in tests:
         print()
         try:
             test()
+            result_pass(test.__name__)
             passed += 1
+        except TestSkipped as e:
+            result_skip(test.__name__, str(e))
+            skipped += 1
         except AssertionError as e:
-            print(f"{RED}✗ FAIL: {test.__name__}{NC}")
-            print(f"  {e}")
+            result_fail(test.__name__, str(e).splitlines()[0])
             failed += 1
         except Exception as e:
-            print(f"{RED}✗ ERROR: {test.__name__}{NC}")
-            print(f"  {e}")
+            result_error(test.__name__, str(e).splitlines()[0])
             failed += 1
 
     print()
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"{BLUE}Test Summary{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed: {passed}")
-    print(f"Failed: {failed}")
-    print(f"Total:  {passed + failed}")
+    print(f"Passed:  {passed}")
+    if skipped:
+        print(f"Skipped: {skipped}")
+    print(f"Failed:  {failed}")
+    print(f"Total:   {passed + failed + skipped}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
     if failed == 0:
         print(f"{GREEN}✓ All tests passed!{NC}")
-        print()
         return 0
     else:
         print(f"{RED}✗ {failed} test(s) failed{NC}")
-        print()
         return 1
 
 

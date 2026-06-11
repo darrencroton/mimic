@@ -14,6 +14,8 @@ make tests-integration   # Python integration tests
 make tests-scientific    # Physics validation
 ```
 
+Append "summary" to suppress most output and only show warnings, failures, skipped tests, and final suite outcomes (e.g. `make tests summary`).
+
 NOTE: `MODEL` and `SIMULATION` default to `sage16` and `mini-millennium`. Change `DEFAULT_MODEL` and `DEFAULT_SIMULATION` in the `Makefile`, or override them per command, when you want a different package pair.
 
 ## Test Tiers

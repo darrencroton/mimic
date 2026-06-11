@@ -23,8 +23,14 @@ from pathlib import Path
 
 import numpy as np
 
+REPO_ROOT = Path(__file__).parent.parent.parent
+
+# Add tests framework to path for summary markers and shared helpers
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+from framework import TestSkipped, result_error, result_fail, result_pass, result_skip
+
 # Add plot/mimic-plot to path for data loading utilities
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "plot" / "mimic-plot"))
+sys.path.insert(0, str(REPO_ROOT / "plot" / "mimic-plot"))
 
 # You may need to import plotting utilities for data loading
 # from mimic_plot import load_binary_data, load_hdf5_data
@@ -208,18 +214,22 @@ def main():
 
     passed = 0
     failed = 0
+    skipped = 0
 
     for test in tests:
+        print()
         try:
             test()
+            result_pass(test.__name__)
             passed += 1
+        except TestSkipped as e:
+            result_skip(test.__name__, str(e))
+            skipped += 1
         except AssertionError as e:
-            print(f"✗ FAIL: {test.__name__}")
-            print(f"  {e}")
+            result_fail(test.__name__, str(e).splitlines()[0])
             failed += 1
         except Exception as e:
-            print(f"✗ ERROR: {test.__name__}")
-            print(f"  {e}")
+            result_error(test.__name__, str(e).splitlines()[0])
             failed += 1
 
     # Print summary
@@ -228,8 +238,10 @@ def main():
     print(f"{BLUE}Test Summary{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed: {passed}")
+    if skipped:
+        print(f"Skipped: {skipped}")
     print(f"Failed: {failed}")
-    print(f"Total:  {passed + failed}")
+    print(f"Total:  {passed + failed + skipped}")
     print(f"{BLUE}{'=' * 60}{NC}")
 
     if failed == 0:

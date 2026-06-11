@@ -147,6 +147,12 @@ Unit and integration tests each take up to 3 minutes and produce large output. S
 # Run all tests (validates metadata first, then all tiers)
 make tests
 
+# Show only warnings, failures, skipped tests, and final suite outcomes
+make tests summary
+make tests-unit summary
+make tests-integration summary
+make tests-scientific summary
+
 # Run specific tiers
 make validate-modules   # Validate module metadata only
 make tests-unit          # C unit tests (up to 3min, large output — delegate)
@@ -155,6 +161,23 @@ make tests-scientific    # Python scientific validation (fast, ~30s)
 ```
 
 Individual tests: use `tests/unit/run_tests.sh <test_name>` for C unit tests and `python3 path/to/test.py` for integration/scientific scripts.
+
+### Structured Marker Protocol
+
+Every test — C unit, Python integration, and Python scientific — emits structured result lines to stdout that the summary filter grabs deterministically:
+
+```
+MIMIC_RESULT: PASS <test_name>
+MIMIC_RESULT: FAIL <test_name> [-- <reason>]
+MIMIC_RESULT: SKIP <test_name> [-- <reason>]
+MIMIC_RESULT: WARN <test_name> [-- <reason>]
+MIMIC_RESULT: ERROR <test_name> [-- <reason>]
+```
+
+Summary mode filters structured markers directly: pass markers are suppressed, while fail, skip, warning, and error markers are shown. New tests **must** emit these markers; the protocol lives in:
+
+- **C tests:** `TEST_MARKER_PASS / TEST_MARKER_FAIL` macros in `tests/framework/test_framework.h` — emitted automatically by `TEST_RUN` and `TEST_ASSERT*`. No per-test work required.
+- **Python tests:** `result_pass / result_fail / result_skip / result_warn / result_error` helpers in `tests/framework/markers.py` (re-exported via `tests/framework/__init__.py`). Call them in each test's `main()` loop. Raise `TestSkipped` (also from `tests/framework`) to skip a test — the loop catches it and calls `result_skip` automatically.
 
 ```bash
 # Test data loader

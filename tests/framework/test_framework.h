@@ -50,6 +50,41 @@
 #define NC "\033[0m"
 
 /**
+ * @def     TEST_MARKER_PASS / TEST_MARKER_FAIL / TEST_MARKER_SKIP / TEST_MARKER_WARN /
+ * TEST_MARKER_ERROR
+ * @brief   Emit a structured MIMIC_RESULT: line for summary-mode filtering.
+ *
+ * These are the only lines the summary filter matches — no natural-language
+ * regex needed.  Emit to stdout so they land in the same captured stream as
+ * all other test output.  fflush ensures ordering when stderr is interleaved.
+ */
+#define TEST_MARKER_PASS(name)                                                                     \
+  do {                                                                                             \
+    printf("MIMIC_RESULT: PASS %s\n", (name));                                                     \
+    fflush(stdout);                                                                                \
+  } while (0)
+#define TEST_MARKER_FAIL(name, reason)                                                             \
+  do {                                                                                             \
+    printf("MIMIC_RESULT: FAIL %s -- %s\n", (name), (reason));                                     \
+    fflush(stdout);                                                                                \
+  } while (0)
+#define TEST_MARKER_SKIP(name, reason)                                                             \
+  do {                                                                                             \
+    printf("MIMIC_RESULT: SKIP %s -- %s\n", (name), (reason));                                     \
+    fflush(stdout);                                                                                \
+  } while (0)
+#define TEST_MARKER_WARN(name, msg)                                                                \
+  do {                                                                                             \
+    printf("MIMIC_RESULT: WARN %s -- %s\n", (name), (msg));                                        \
+    fflush(stdout);                                                                                \
+  } while (0)
+#define TEST_MARKER_ERROR(name, msg)                                                               \
+  do {                                                                                             \
+    printf("MIMIC_RESULT: ERROR %s -- %s\n", (name), (msg));                                       \
+    fflush(stdout);                                                                                \
+  } while (0)
+
+/**
  * @def     TEST_ASSERT
  * @brief   Assert that a condition is true, fail test if false
  *
@@ -62,6 +97,7 @@
  */
 #define TEST_ASSERT(cond, msg)                                                                     \
   if (!(cond)) {                                                                                   \
+    TEST_MARKER_FAIL(__func__, msg);                                                               \
     fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
     fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
     fprintf(stderr, "  Condition: %s\n", #cond);                                                   \
@@ -78,6 +114,7 @@
  */
 #define TEST_ASSERT_EQUAL(a, b, msg)                                                               \
   if ((a) != (b)) {                                                                                \
+    TEST_MARKER_FAIL(__func__, msg);                                                               \
     fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
     fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
     fprintf(stderr, "  Expected: %d, Got: %d\n", (int)(b), (int)(a));                              \
@@ -95,6 +132,7 @@
  */
 #define TEST_ASSERT_DOUBLE_EQUAL(a, b, tol, msg)                                                   \
   if (fabs((a) - (b)) > (tol)) {                                                                   \
+    TEST_MARKER_FAIL(__func__, msg);                                                               \
     fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
     fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
     fprintf(stderr, "  Expected: %.6f, Got: %.6f (tol: %.6f)\n", (double)(b), (double)(a),         \
@@ -112,6 +150,7 @@
  */
 #define TEST_ASSERT_STRING_EQUAL(a, b, msg)                                                        \
   if (strcmp((a), (b)) != 0) {                                                                     \
+    TEST_MARKER_FAIL(__func__, msg);                                                               \
     fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
     fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
     fprintf(stderr, "  Expected: \"%s\", Got: \"%s\"\n", (b), (a));                                \
@@ -137,6 +176,7 @@
     fflush(stdout);                                                                                \
     if (test_func() == 0) {                                                                        \
       printf("✓ PASS\n");                                                                          \
+      TEST_MARKER_PASS(#test_func);                                                                \
       passed++;                                                                                    \
     } else {                                                                                       \
       printf("✗ FAIL\n");                                                                          \

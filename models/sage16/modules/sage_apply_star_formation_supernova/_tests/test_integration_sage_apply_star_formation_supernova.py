@@ -35,7 +35,18 @@ import numpy as np
 # Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import check_no_memory_leaks, create_test_param_file, load_binary_halos, run_mimic
+from framework import (
+    MIMIC_EXE,
+    TestSkipped,
+    check_no_memory_leaks,
+    create_test_param_file,
+    load_binary_halos,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
+    run_mimic,
+)
 
 # ANSI color codes
 BLUE = "\033[1;34m"
@@ -560,33 +571,62 @@ def test_memory_and_performance():
 
 def main():
     """Main test runner"""
-    print(f"{BLUE}{'=' * 70}{NC}")
-    print(f"{BLUE}Test Suite: sage_apply_star_formation_supernova Integration Tests{NC}")
-    print(f"{BLUE}{'=' * 70}{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Suite: {Path(__file__).name}{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
-    try:
-        test_full_pipeline_conservation()
-        test_gas_transfer_physics()
-        test_metal_enrichment()
-        test_parameter_sensitivity()
-        test_edge_cases()
-        test_memory_and_performance()
+    tests = [
+        test_full_pipeline_conservation,
+        test_gas_transfer_physics,
+        test_metal_enrichment,
+        test_parameter_sensitivity,
+        test_edge_cases,
+        test_memory_and_performance,
+    ]
 
-        print(f"\n{GREEN}{'=' * 70}{NC}")
-        print(f"{GREEN}All integration tests passed!{NC}")
-        print(f"{GREEN}{'=' * 70}{NC}")
+    if not MIMIC_EXE.exists():
+        for test in tests:
+            result_skip(test.__name__, "Mimic not built")
         return 0
 
-    except AssertionError as e:
-        print(f"\n{RED}{'=' * 70}{NC}")
-        print(f"{RED}Test failed: {e}{NC}")
-        print(f"{RED}{'=' * 70}{NC}")
-        return 1
+    passed = 0
+    failed = 0
+    skipped = 0
 
-    except Exception as e:
-        print(f"\n{RED}{'=' * 70}{NC}")
-        print(f"{RED}Unexpected error: {e}{NC}")
-        print(f"{RED}{'=' * 70}{NC}")
+    for test in tests:
+        print()
+        try:
+            test()
+            result_pass(test.__name__)
+            passed += 1
+        except TestSkipped as e:
+            result_skip(test.__name__, str(e))
+            skipped += 1
+        except AssertionError as e:
+            result_fail(test.__name__, str(e).splitlines()[0])
+            failed += 1
+        except Exception as e:
+            result_error(test.__name__, str(e).splitlines()[0])
+            failed += 1
+
+    print()
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"Passed:  {passed}")
+    if skipped:
+        print(f"Skipped: {skipped}")
+    print(f"Failed:  {failed}")
+    print(f"Total:   {passed + failed + skipped}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
+
+    if failed == 0:
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        return 0
+    else:
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
         return 1
 
 

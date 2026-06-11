@@ -13,7 +13,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import create_test_param_file, run_mimic
+from framework import (
+    MIMIC_EXE,
+    TestSkipped,
+    create_test_param_file,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
+    run_mimic,
+)
 
 
 def assert_invalid_mode_rejected(output_name, phase_config, expected_mode, expected_supported):
@@ -94,11 +103,63 @@ def test_full_halo_only_module_rejects_process_per_event():
 
 
 def main():
-    test_full_halo_only_module_rejects_process_by_galaxy()
-    test_by_galaxy_only_module_rejects_process_full_halo()
-    test_dual_mode_module_rejects_process_full_halo()
-    test_full_halo_only_module_rejects_process_per_event()
-    return 0
+    print(f"\033[1;34m{'=' * 60}\033[0m")
+    print(
+        f"\033[1;34mTest Suite: Processing Mode Contracts (test_integration_processing_mode_contracts.py)\033[0m"
+    )
+    print(f"\033[1;34m{'=' * 60}\033[0m")
+    print()
+
+    tests = [
+        test_full_halo_only_module_rejects_process_by_galaxy,
+        test_by_galaxy_only_module_rejects_process_full_halo,
+        test_dual_mode_module_rejects_process_full_halo,
+        test_full_halo_only_module_rejects_process_per_event,
+    ]
+
+    if not MIMIC_EXE.exists():
+        for test in tests:
+            result_skip(test.__name__, "Mimic not built")
+        return 0
+
+    passed = 0
+    failed = 0
+    skipped = 0
+
+    for test in tests:
+        print()
+        try:
+            test()
+            result_pass(test.__name__)
+            passed += 1
+        except TestSkipped as e:
+            result_skip(test.__name__, str(e))
+            skipped += 1
+        except AssertionError as e:
+            result_fail(test.__name__, str(e).splitlines()[0])
+            failed += 1
+        except Exception as e:
+            result_error(test.__name__, str(e).splitlines()[0])
+            failed += 1
+
+    print()
+    print(f"\033[1;34m{'=' * 60}\033[0m")
+    print(f"\033[1;34mTest Summary\033[0m")
+    print(f"\033[1;34m{'=' * 60}\033[0m")
+    print(f"Passed:  {passed}")
+    if skipped:
+        print(f"Skipped: {skipped}")
+    print(f"Failed:  {failed}")
+    print(f"Total:   {passed + failed + skipped}")
+    print(f"\033[1;34m{'=' * 60}\033[0m")
+    print()
+
+    if failed == 0:
+        print(f"\033[0;32m✓ All tests passed!\033[0m")
+        return 0
+    else:
+        print(f"\033[0;31m✗ {failed} test(s) failed\033[0m")
+        return 1
 
 
 if __name__ == "__main__":

@@ -35,6 +35,14 @@ from .harness import (
     simulation_input_file,
     skip_non_default_baseline,
 )
+from .markers import (
+    TestSkipped,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
+    result_warn,
+)
 
 __all__ = [
     # Data loading and validation
@@ -66,4 +74,11 @@ __all__ = [
     "read_param_file",
     "create_test_param_file",
     "check_no_memory_leaks",
+    # Summary markers
+    "TestSkipped",
+    "result_pass",
+    "result_fail",
+    "result_skip",
+    "result_warn",
+    "result_error",
 ]

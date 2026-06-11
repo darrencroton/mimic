@@ -15,7 +15,7 @@ OBJ_DIR = $(BUILD_DIR)/obj
 DEP_DIR = $(BUILD_DIR)/deps
 
 # Targets that work without selected model/simulation packages.
-MODEL_FREE_TARGETS := clean tidy help check-docs check-format test-clean
+MODEL_FREE_TARGETS := clean tidy help check-docs check-format test-clean summary
 
 # Default model package used when MODEL is not given on the command line.
 # Most users work with one model/simulation pair: leave these defaults as your
@@ -292,6 +292,8 @@ endif
 # -----------------------------------------------------------------------------
 PYTHON := $(shell if [ -f mimic_venv/bin/python3 ]; then echo mimic_venv/bin/python3; else echo python3; fi)
 CLANG_FORMAT := $(shell if [ -f mimic_venv/bin/clang-format ]; then echo mimic_venv/bin/clang-format; else echo clang-format; fi)
+TEST_SUMMARY ?= $(if $(filter summary,$(MAKECMDGOALS)),1,0)
+export TEST_SUMMARY
 
 # -----------------------------------------------------------------------------
 # Git Version Tracking
@@ -301,9 +303,12 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific test-clean validate-modules lint-parameters validate-build
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific test-clean validate-modules lint-parameters validate-build summary
 
 all: validate-build $(EXEC)
+
+summary:
+	@:
 
 # Pre-build validation - runs on every make
 validate-build:
@@ -463,6 +468,7 @@ help:
 	@echo "  make tests-unit         - Run unit tests only"
 	@echo "  make tests-integration  - Run integration tests only"
 	@echo "  make tests-scientific   - Run scientific tests only"
+	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
 	@echo "  make test-clean                   - Clean test artifacts"
 	@echo "  make generate-test-registry - Discover selected tests"
 	@echo "  make validate-test-registry - Validate test declarations"
@@ -602,11 +608,28 @@ define RUN_PYTHON_TEST_REGISTRY
 	FAILED_TESTS=""; \
 	echo "Running $(1) tests from registry..."; \
 	for test in $$(grep -v '^#' build/generated/$(2)_tests.txt | grep -v '^$$'); do \
-		echo ""; \
-		echo "\033[0;34mRunning: $$test\033[0m"; \
-		if ! $(PYTHON) $$test; then \
-			FAILED=1; \
-			FAILED_TESTS="$$FAILED_TESTS $$test"; \
+		if [ "$(TEST_SUMMARY)" != "1" ]; then \
+			echo ""; \
+			echo "\033[0;34mRunning: $$test\033[0m"; \
+			if ! $(PYTHON) $$test; then \
+				FAILED=1; \
+				FAILED_TESTS="$$FAILED_TESTS $$test"; \
+			fi; \
+		else \
+			output_file=$$(mktemp); \
+			if $(PYTHON) $$test > "$$output_file" 2>&1; then \
+				grep "^MIMIC_RESULT: \(FAIL\|SKIP\|WARN\|ERROR\)" "$$output_file" || true; \
+				rm -f "$$output_file"; \
+			else \
+				if grep -q "^MIMIC_RESULT:" "$$output_file"; then \
+					grep "^MIMIC_RESULT: \(FAIL\|SKIP\|WARN\|ERROR\)" "$$output_file" || true; \
+				else \
+					cat "$$output_file"; \
+				fi; \
+				rm -f "$$output_file"; \
+				FAILED=1; \
+				FAILED_TESTS="$$FAILED_TESTS $$test"; \
+			fi; \
 		fi; \
 	done; \
 	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate >/dev/null 2>&1 || true; \
@@ -630,17 +653,54 @@ define RUN_PYTHON_TEST_REGISTRY
 	fi
 endef
 
+# For infrastructure steps (build, generate, validate): silence on success,
+# show full output on failure so the developer can diagnose.
+define RUN_SUMMARY_AWARE
+	@if [ "$(TEST_SUMMARY)" = "1" ]; then \
+		output_file=$$(mktemp); \
+		if $(1) > "$$output_file" 2>&1; then \
+			rm -f "$$output_file"; \
+		else \
+			rc=$$?; \
+			cat "$$output_file"; \
+			rm -f "$$output_file"; \
+			exit $$rc; \
+		fi; \
+	else \
+		$(1); \
+	fi
+endef
+
+# For infrastructure steps that should not abort the top-level aggregate target:
+# silence successful runs, show failed command output, then record the suite label.
+define RUN_SUMMARY_AWARE_RECORD
+	@if [ "$(TEST_SUMMARY)" = "1" ]; then \
+		output_file=$$(mktemp); \
+		if $(1) > "$$output_file" 2>&1; then \
+			rm -f "$$output_file"; \
+		else \
+			cat "$$output_file"; \
+			rm -f "$$output_file"; \
+			grep -qxF "$(2)" build/.test_failures 2>/dev/null || echo "$(2)" >> build/.test_failures; \
+		fi; \
+	else \
+		if ! $(1); then \
+			grep -qxF "$(2)" build/.test_failures 2>/dev/null || echo "$(2)" >> build/.test_failures; \
+		fi; \
+	fi
+endef
+
 tests:
 	@echo "Cleaning and building once for all tests..."
 	@$(MAKE) clean > /dev/null 2>&1
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate-test-registry > /dev/null 2>&1
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) USE-HDF5=yes
+	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) USE-HDF5=yes,build)
 	@mkdir -p build
 	@rm -f build/.test_failures
 	@echo ""
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) check-docs || { grep -qx docs build/.test_failures 2>/dev/null || echo "docs" >> build/.test_failures; true; }
+	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) check-docs,docs)
 	@echo ""
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules || { grep -qx validate-modules build/.test_failures 2>/dev/null || echo "validate-modules" >> build/.test_failures; true; }
+	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules,validate-modules)
 	@echo ""
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-unit || { grep -q '^unit:' build/.test_failures 2>/dev/null || grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-integration || { grep -q '^integration:' build/.test_failures 2>/dev/null || grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
@@ -670,29 +730,29 @@ tests-unit:
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING UNIT TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
-	@python3 scripts/generate_test_registry.py --strict
-	@python3 scripts/generate_test_inputs.py
+	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
+	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@cd tests/unit && MIMIC_RECORD_TEST_FAILURES=1 ./run_tests.sh
 
 tests-integration:
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC)
+	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC),build integration test executable)
 	@echo ""
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING INTEGRATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
-	@python3 scripts/generate_test_registry.py --strict
-	@python3 scripts/generate_test_inputs.py
+	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
+	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@echo ""
 	$(call RUN_PYTHON_TEST_REGISTRY,integration,integration,INTEGRATION)
 
 tests-scientific:
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC)
+	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC),build scientific test executable)
 	@echo ""
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING SCIENTIFIC VALIDATION TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
-	@python3 scripts/generate_test_registry.py --strict
-	@python3 scripts/generate_test_inputs.py
+	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
+	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@echo ""
 	$(call RUN_PYTHON_TEST_REGISTRY,scientific,scientific,SCIENTIFIC)
 

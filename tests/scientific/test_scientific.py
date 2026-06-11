@@ -36,7 +36,17 @@ import numpy as np
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-from framework import core_input_file, load_binary_halos, run_mimic_fresh
+from framework import (
+    TestSkipped,
+    core_input_file,
+    load_binary_halos,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
+    result_warn,
+    run_mimic_fresh,
+)
 
 # Repository paths
 TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
@@ -290,8 +300,7 @@ def test_numerical_validity():
     print("=" * 60)
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return True, 0
+        raise TestSkipped("Mimic not built")
 
     output_file = regenerate_output()
     halos, metadata = load_binary_halos(output_file)
@@ -331,12 +340,8 @@ def test_zero_values():
     print("ZERO VALUE CHECKS (warnings, respects sentinels)")
     print("=" * 60)
 
-    # Load validation manifest
     if not VALIDATION_MANIFEST_PATH.exists():
-        print(f"{YELLOW}⚠ WARNING: Validation manifest not found: {VALIDATION_MANIFEST_PATH}{NC}")
-        print("  Run 'make generate' to create property_ranges.json from YAML metadata.")
-        print("  Skipping zero-value checks.")
-        return True, 0
+        raise TestSkipped("validation manifest not found: run 'make generate'")
 
     try:
         manifest = load_validation_manifest()
@@ -345,8 +350,7 @@ def test_zero_values():
         return False, 1
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return True, 0
+        raise TestSkipped("Mimic not built")
 
     output_file = regenerate_output()
     halos, metadata = load_binary_halos(output_file)
@@ -376,12 +380,8 @@ def test_physical_ranges():
     print("PHYSICAL RANGE VALIDATION")
     print("=" * 60)
 
-    # Load validation manifest
     if not VALIDATION_MANIFEST_PATH.exists():
-        print(f"{YELLOW}⚠ WARNING: Validation manifest not found: {VALIDATION_MANIFEST_PATH}{NC}")
-        print("  Run 'make generate' to create property_ranges.json from YAML metadata.")
-        print("  Skipping range validation.")
-        return True, 0
+        raise TestSkipped("validation manifest not found: run 'make generate'")
 
     try:
         manifest = load_validation_manifest()
@@ -390,8 +390,7 @@ def test_physical_ranges():
         return False, 1
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return True, 0
+        raise TestSkipped("Mimic not built")
 
     output_file = regenerate_output()
     halos, metadata = load_binary_halos(output_file)
@@ -495,8 +494,7 @@ def test_unit_consistency():
     print("=" * 60)
 
     if not MIMIC_EXE.exists():
-        print(f"  Skipping (Mimic not built)")
-        return True, 0
+        raise TestSkipped("Mimic not built")
 
     output_file = regenerate_output()
     halos, metadata = load_binary_halos(output_file)
@@ -623,72 +621,67 @@ def main():
     """
     Main test runner
     """
-    # Print test suite header
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: Scientific Validation{NC}")
+    print(f"{BLUE}Test Suite: Scientific Validation (test_scientific.py){NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
 
-    # Check prerequisites
-    if not MIMIC_EXE.exists():
-        print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
-        print("Build it first with: make")
-        return 1
+    tests = [
+        test_numerical_validity,
+        test_zero_values,
+        test_physical_ranges,
+        test_unit_consistency,
+    ]
 
-    # Run test sections
-    passed_sections = 0
-    failed_sections = 0
-    warning_count = 0
+    passed = 0
+    failed = 0
+    skipped = 0
+    warned = 0
 
-    # 1. Numerical validity (critical)
-    passed, failures = test_numerical_validity()
-    if passed:
-        passed_sections += 1
-    else:
-        failed_sections += failures
+    for test_func in tests:
+        try:
+            ok, count = test_func()
+            if ok:
+                if count > 0:
+                    result_warn(test_func.__name__, f"{count} field(s) with zero values")
+                    warned += 1
+                else:
+                    result_pass(test_func.__name__)
+                passed += 1
+            else:
+                result_fail(test_func.__name__, f"{count} failure(s)")
+                failed += 1
+        except TestSkipped as e:
+            result_skip(test_func.__name__, str(e))
+            skipped += 1
+        except Exception as e:
+            result_error(test_func.__name__, str(e).splitlines()[0])
+            failed += 1
 
-    # 2. Zero values (warnings)
-    passed, warnings = test_zero_values()
-    warning_count = warnings
-    if passed:
-        passed_sections += 1
-
-    # 3. Physical ranges
-    passed, failures = test_physical_ranges()
-    if passed:
-        passed_sections += 1
-    else:
-        failed_sections += failures
-
-    # 4. Unit consistency (NEW - catches unit bugs like incorrect G)
-    passed, failures = test_unit_consistency()
-    if passed:
-        passed_sections += 1
-    else:
-        failed_sections += failures
-
-    # Print summary
     print()
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"{BLUE}Test Summary{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Sections passed: {passed_sections}")
-    print(f"Sections failed: {failed_sections}")
-    if warning_count > 0:
-        print(f"{YELLOW}Warnings: {warning_count} field(s) with zero values{NC}")
+    print(f"Passed:  {passed}")
+    if warned:
+        print(f"Warned:  {warned}")
+    if skipped:
+        print(f"Skipped: {skipped}")
+    print(f"Failed:  {failed}")
+    print(f"Total:   {passed + failed + skipped}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
-    if failed_sections == 0:
-        if warning_count > 0:
+    if failed == 0:
+        if warned:
             print(f"{YELLOW}✓ All tests passed (with warnings){NC}")
         else:
             print(f"{GREEN}✓ All tests passed!{NC}")
         return 0
     else:
-        print(f"{RED}✗ {failed_sections} test(s) failed{NC}")
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
         return 1
 
 

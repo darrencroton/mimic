@@ -41,7 +41,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
     REPO_ROOT,
+    TestSkipped,
     create_test_param_file,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
     run_mimic,
 )
 
@@ -340,28 +345,42 @@ def main():
 
     passed = 0
     failed = 0
+    skipped = 0
 
     for test_func in tests:
+        print()
         try:
             test_func()
-            print(f"  {GREEN}✓ PASSED{NC}: {test_func.__name__}")
-            print()
+            result_pass(test_func.__name__)
             passed += 1
+        except TestSkipped as e:
+            result_skip(test_func.__name__, str(e))
+            skipped += 1
         except AssertionError as e:
-            print(f"  {RED}✗ FAILED{NC}: {test_func.__name__}")
-            print(f"    {RED}{e}{NC}")
-            print()
+            result_fail(test_func.__name__, str(e).splitlines()[0])
             failed += 1
         except Exception as e:
-            print(f"  {RED}✗ ERROR{NC}: {test_func.__name__}: {e}")
-            print()
+            result_error(test_func.__name__, str(e).splitlines()[0])
             failed += 1
 
+    print()
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Results: {GREEN}{passed} passed{NC}, {RED}{failed} failed{NC}")
+    print(f"{BLUE}Test Summary{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"Passed:  {passed}")
+    if skipped:
+        print(f"Skipped: {skipped}")
+    print(f"Failed:  {failed}")
+    print(f"Total:   {passed + failed + skipped}")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print()
 
-    return 0 if failed == 0 else 1
+    if failed == 0:
+        print(f"{GREEN}✓ All tests passed!{NC}")
+        return 0
+    else:
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
+        return 1
 
 
 if __name__ == "__main__":
