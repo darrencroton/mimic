@@ -142,6 +142,6 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx, struct 
 }
 
 int sage_calculate_supernova_feedback_cleanup(void) {
-  INFO_LOG("SAGE supernova feedback module cleaned up");
+  VERBOSE_LOG("SAGE supernova feedback module cleaned up");
   return 0;
 }

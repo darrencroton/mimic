@@ -119,22 +119,13 @@ int sage_reionization_process(struct ModuleContext *ctx, struct Halo *halos, int
     }
 
     if (halos[i].Mvir > EPSILON_SMALL) {
-      if (halos[i].Type == 0) {
-        const double reionization_modifier = calculate_reionization_modifier(ctx, halos[i].Mvir);
-        halos[i].galaxy->HaloBaryonFraction = GLOBAL_BARYON_FRAC * reionization_modifier;
+      // Centrals and satellites alike use their own Mvir for the modifier.
+      const double reionization_modifier = calculate_reionization_modifier(ctx, halos[i].Mvir);
+      halos[i].galaxy->HaloBaryonFraction = GLOBAL_BARYON_FRAC * reionization_modifier;
 
-        DEBUG_LOG("Halo %d (Type=0): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f", i,
-                  halos[i].Mvir, reionization_modifier, halos[i].galaxy->HaloBaryonFraction,
-                  ctx->redshift);
-      } else {
-        // Compute per-satellite reionization modifier using satellite's own Mvir.
-        const double reionization_modifier = calculate_reionization_modifier(ctx, halos[i].Mvir);
-        halos[i].galaxy->HaloBaryonFraction = GLOBAL_BARYON_FRAC * reionization_modifier;
-
-        DEBUG_LOG("Halo %d (Type=%d): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f", i,
-                  halos[i].Type, halos[i].Mvir, reionization_modifier,
-                  halos[i].galaxy->HaloBaryonFraction, ctx->redshift);
-      }
+      DEBUG_LOG("Halo %d (Type=%d): Mvir=%.3e, f_reion=%.4f, HaloBaryonFraction=%.4f, z=%.3f", i,
+                halos[i].Type, halos[i].Mvir, reionization_modifier,
+                halos[i].galaxy->HaloBaryonFraction, ctx->redshift);
     } else {
       halos[i].galaxy->HaloBaryonFraction = 0.0;
     }

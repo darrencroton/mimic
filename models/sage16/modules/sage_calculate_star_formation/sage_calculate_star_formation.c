@@ -111,6 +111,6 @@ int sage_calculate_star_formation_process(struct ModuleContext *ctx, struct Halo
 }
 
 int sage_calculate_star_formation_cleanup(void) {
-  INFO_LOG("SAGE star formation module cleaned up");
+  VERBOSE_LOG("SAGE star formation module cleaned up");
   return 0;
 }

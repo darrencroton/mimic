@@ -120,6 +120,6 @@ int sage_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo *
 }
 
 int sage_apply_metal_enrichment_cleanup(void) {
-  INFO_LOG("SAGE metal enrichment module cleaned up");
+  VERBOSE_LOG("SAGE metal enrichment module cleaned up");
   return 0;
 }

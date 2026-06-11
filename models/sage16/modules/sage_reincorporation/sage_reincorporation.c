@@ -124,6 +124,6 @@ int sage_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos, 
 }
 
 int sage_reincorporation_cleanup(void) {
-  INFO_LOG("SAGE reincorporation module cleaned up");
+  VERBOSE_LOG("SAGE reincorporation module cleaned up");
   return 0;
 }

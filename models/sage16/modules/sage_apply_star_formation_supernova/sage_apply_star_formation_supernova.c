@@ -196,6 +196,6 @@ int sage_apply_star_formation_supernova_process(struct ModuleContext *ctx, struc
 }
 
 int sage_apply_star_formation_supernova_cleanup(void) {
-  INFO_LOG("SAGE apply star formation supernova module cleaned up");
+  VERBOSE_LOG("SAGE apply star formation supernova module cleaned up");
   return 0;
 }

@@ -18,6 +18,7 @@
 #include "module_interface.h"
 #include "module_registry.h"
 #include "numeric.h"
+#include "shared/central_link.h"
 #include "types.h"
 
 // ============================================================================
@@ -125,17 +126,9 @@ int sage_prepare_infall_budget_process(struct ModuleContext *ctx, struct Halo *h
     return 0;
   }
 
-  // Find central galaxy
-  int central_idx = -1;
-  for (int i = 0; i < ngal; i++) {
-    if (halos[i].Type == 0) {
-      central_idx = i;
-      break;
-    }
-  }
-
+  // No FOF central is a legal no-op (the tree build enforces centrals upstream)
+  const int central_idx = mimic_find_fof_central_index(halos, ngal);
   if (central_idx == -1) {
-    ERROR_LOG("No central galaxy found in FOF group (ngal=%d)", ngal);
     return 0;
   }
 

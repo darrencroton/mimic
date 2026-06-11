@@ -13,6 +13,7 @@
 #include "constants.h"
 #include "error.h"
 #include "globals.h"
+#include "shared/central_link.h"
 #include "shared/metallicity.h"
 #include "module_interface.h"
 #include "module_registry.h"
@@ -42,17 +43,9 @@ int sage_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, int
     return 0;
   }
 
-  // Find central galaxy
-  int central_idx = -1;
-  for (int i = 0; i < ngal; i++) {
-    if (halos[i].Type == 0) {
-      central_idx = i;
-      break;
-    }
-  }
-
+  // No FOF central is a legal no-op (the tree build enforces centrals upstream)
+  const int central_idx = mimic_find_fof_central_index(halos, ngal);
   if (central_idx == -1) {
-    DEBUG_LOG("No central galaxy found in FOF group (ngal=%d)", ngal);
     return 0;
   }
 
