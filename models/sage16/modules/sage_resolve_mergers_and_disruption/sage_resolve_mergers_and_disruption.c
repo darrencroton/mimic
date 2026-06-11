@@ -98,7 +98,7 @@ int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struc
       continue;
     }
     if (dt_status != MIMIC_OBJECT_TIME_OK) {
-      ERROR_LOG("Invalid immediate-merger dt for halo %lld (SnapNum=%d, dT=%.3e, num_substeps=%d, "
+      ERROR_LOG("Invalid immediate-merger dt for halo %d (SnapNum=%d, dT=%.3e, num_substeps=%d, "
                 "status=%s)",
                 halos[i].HaloNr, halos[i].SnapNum, halos[i].dT, ctx->num_substeps,
                 mimic_object_time_status_str(dt_status));
@@ -106,7 +106,7 @@ int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struc
     }
 
     if (satellite->MergTime >= 999.0) {
-      ERROR_LOG("Satellite %lld has unset MergTime (%.1f)", halos[i].HaloNr, satellite->MergTime);
+      ERROR_LOG("Satellite %d has unset MergTime (%.1f)", halos[i].HaloNr, satellite->MergTime);
       return -1;
     }
 
@@ -129,7 +129,7 @@ int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struc
     }
 
     if (!isfinite(satellite->MergTime)) {
-      WARNING_LOG("Satellite %lld has non-finite MergTime", halos[i].HaloNr);
+      WARNING_LOG("Satellite %d has non-finite MergTime", halos[i].HaloNr);
       continue;
     }
 

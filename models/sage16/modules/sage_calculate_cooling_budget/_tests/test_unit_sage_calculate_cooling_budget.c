@@ -239,8 +239,11 @@ int test_super_solar_metallicity(void) {
   TEST_ASSERT(lambda > 0.0, "Super-solar cooling must be positive");
   TEST_ASSERT(isfinite(lambda), "Super-solar cooling must be finite");
 
-  /* Should give same result as maximum table metallicity */
-  double lambda_max = get_metaldependent_cooling_rate(logT, log10(0.063)); /* [Fe/H]=+0.5 */
+  /* Should give same result as the maximum table metallicity, [Fe/H]=+0.5,
+   * i.e. logZ = 0.5 + log10(Z_sun). (The previous probe log10(0.063) sits just
+   * BELOW this boundary and only matched while a table-corruption bug shifted
+   * the boundary downward on re-init; see cooling_tables.c metallicities.) */
+  double lambda_max = get_metaldependent_cooling_rate(logT, 0.5 + log10(0.02));
   TEST_ASSERT(fabs(lambda - lambda_max) < 1e-30, "Super-solar should clamp to maximum table");
 
   cooling_tables_cleanup();

@@ -84,6 +84,11 @@ int sage_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo *
     return 0;
   }
 
+  if (ctx->central_galaxy == NULL || ctx->central_galaxy->galaxy == NULL) {
+    DEBUG_LOG("No FOF central available for metal ejection destination");
+    return 0;
+  }
+
   struct GalaxyData *gal = halo->galaxy;
   struct GalaxyData *central_gal = ctx->central_galaxy->galaxy;
 

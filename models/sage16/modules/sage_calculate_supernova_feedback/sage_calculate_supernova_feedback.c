@@ -92,6 +92,11 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx, struct 
     return 0;
   }
 
+  if (ctx->central_galaxy == NULL) {
+    DEBUG_LOG("No FOF central available for ejection potential");
+    return 0;
+  }
+
   struct GalaxyData *gal = halo->galaxy;
 
   // Read calculated star formation from previous module

@@ -29,11 +29,15 @@ static const char *cooling_file_names[] = {
     "stripped_mzero.cie", "stripped_m-30.cie", "stripped_m-20.cie", "stripped_m-15.cie",
     "stripped_m-10.cie",  "stripped_m-05.cie", "stripped_m-00.cie", "stripped_m+05.cie"};
 
-// Metallicities [Fe/H] relative to solar. Converted to absolute log(Z) by adding log10(Z_sun)
-static double metallicities[8] = {-5.0, // primordial -> effectively -infinity
-                                  -3.0, -2.0, -1.5, -1.0, -0.5,
-                                  +0.0, // solar
-                                  +0.5};
+// Metallicities [Fe/H] relative to solar
+static const double metallicities_feh[8] = {-5.0, // primordial -> effectively -infinity
+                                            -3.0, -2.0, -1.5, -1.0, -0.5,
+                                            +0.0, // solar
+                                            +0.5};
+
+// Absolute log(Z) values, filled at init by adding log10(Z_sun). Kept separate
+// from the [Fe/H] source so init/cleanup/init cycles cannot re-shift the table.
+static double metallicities[8];
 
 static double CoolRate[8][TABSIZE];
 static int tables_initialized = 0;
@@ -74,7 +78,7 @@ int cooling_tables_init(const char *cool_functions_dir) {
   // Convert metallicities from [Fe/H] to absolute log(Z) by adding log10(Z_sun), Z_sun=0.02
   const double log10_zsun = log10(0.02);
   for (int i = 0; i < 8; i++)
-    metallicities[i] += log10_zsun;
+    metallicities[i] = metallicities_feh[i] + log10_zsun;
 
   // Load each cooling function table
   for (int i = 0; i < 8; i++) {

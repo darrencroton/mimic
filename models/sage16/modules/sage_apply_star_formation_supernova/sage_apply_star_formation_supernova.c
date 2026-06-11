@@ -96,6 +96,11 @@ int sage_apply_star_formation_supernova_process(struct ModuleContext *ctx, struc
     return 0;
   }
 
+  if (ctx->central_galaxy == NULL || ctx->central_galaxy->galaxy == NULL) {
+    DEBUG_LOG("No FOF central available for feedback destination");
+    return 0;
+  }
+
   struct GalaxyData *gal = halo->galaxy;
   struct GalaxyData *central_gal = ctx->central_galaxy->galaxy;
 
