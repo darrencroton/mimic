@@ -21,20 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Test statistics (required for TEST_RUN macro) */
-static int passed = 0;
-static int failed = 0;
-
-static int modules_registered = 0;
-
-static void reset_config(void) { memset(&MimicConfig, 0, sizeof(MimicConfig)); }
-
-static void ensure_modules_registered(void) {
-  if (!modules_registered) {
-    register_all_modules();
-    modules_registered = 1;
-  }
-}
+/* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
+#include "modules/_tests/sage_test_fixtures.h"
 
 /* ============================================================================
  * DEPENDENCY ENFORCEMENT TESTS (§7 of SAGE-MODULE-REVIEW.md)
@@ -64,8 +52,6 @@ static const char *read_captured_log(FILE *fp) {
   buf[n] = '\0';
   return buf;
 }
-
-extern void set_test_model_parameters(void);
 
 /**
  * @test    test_dep_apply_infall_missing_prepare_error

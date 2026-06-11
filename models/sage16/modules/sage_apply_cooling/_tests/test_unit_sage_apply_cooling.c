@@ -47,27 +47,8 @@
 #include <string.h>
 #include <math.h>
 
-/* Test statistics (required for TEST_RUN macro) */
-static int passed = 0;
-static int failed = 0;
-
-/* Track whether modules have been registered */
-static int modules_registered = 0;
-
-/* Test fixture: reset configuration state */
-static void reset_config(void) { memset(&MimicConfig, 0, sizeof(MimicConfig)); }
-
-/* Test fixture: ensure modules are registered (only once) */
-static void ensure_modules_registered(void) {
-  if (!modules_registered) {
-    register_all_modules();
-    modules_registered = 1;
-  }
-}
-
-/* Test fixture: Set all required model parameters
- * Defined in tests/unit/test_stubs.c - provides all required parameters */
-extern void set_test_model_parameters(void);
+/* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
+#include "modules/_tests/sage_test_fixtures.h"
 
 /* External module interface for direct testing */
 extern int sage_apply_cooling_init(void);
@@ -107,16 +88,6 @@ static struct Halo create_test_halo(int type, float mvir, float vvir) {
   memset(halo.galaxy, 0, sizeof(struct GalaxyData));
 
   return halo;
-}
-
-/**
- * @brief Free test halo resources
- */
-static void free_test_halo(struct Halo *halo) {
-  if (halo->galaxy != NULL) {
-    myfree(halo->galaxy);
-    halo->galaxy = NULL;
-  }
 }
 
 /**

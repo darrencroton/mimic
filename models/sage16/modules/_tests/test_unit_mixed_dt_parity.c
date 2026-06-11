@@ -49,13 +49,8 @@
 #include <string.h>
 #include <math.h>
 
-/* Test statistics */
-static int passed = 0;
-static int failed = 0;
-
-/* Suppress unused warnings */
-__attribute__((unused)) static int *_passed_ptr = &passed;
-__attribute__((unused)) static int *_failed_ptr = &failed;
+/* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
+#include "modules/_tests/sage_test_fixtures.h"
 
 /* External module interfaces */
 extern int sage_reincorporation_init(void);
@@ -83,13 +78,9 @@ extern int sage_resolve_mergers_and_disruption_cleanup(void);
 extern void sage_resolve_mergers_and_disruption_set_action_hook(
     void (*hook)(const char *action, int source_index, int target_index, double mass_ratio));
 
-extern void set_test_model_parameters(void);
-
 /* ========================================================================== */
 /* HELPERS                                                                    */
 /* ========================================================================== */
-
-static void reset_config(void) { memset(&MimicConfig, 0, sizeof(MimicConfig)); }
 
 static struct ModuleContext create_context(double central_dt, int num_substeps) {
   struct ModuleContext ctx;

@@ -40,12 +40,8 @@
 #include <string.h>
 #include <math.h>
 
-/* Test statistics (required for TEST_RUN macro) */
-static int passed = 0;
-static int failed = 0;
-
-/* Track whether modules have been registered */
-static int modules_registered = 0;
+/* Shared SAGE16 test fixture boilerplate (counters, config reset, module registration) */
+#include "modules/_tests/sage_test_fixtures.h"
 
 /* Module parameters (extern declarations to access module internals for testing) */
 extern double SFR_EFFICIENCY;
@@ -61,9 +57,6 @@ static char sf_phase_name[] = "galaxy_physics";
 static struct PhaseModuleConfig sf_physics_pipeline[2];
 static struct ModulePhaseConfig sf_substep_phase;
 
-/* External stubs */
-extern void set_test_model_parameters(void);
-
 /* Module functions (extern declarations for direct testing) */
 extern int sage_calculate_star_formation_init(void);
 extern int sage_calculate_star_formation_process(struct ModuleContext *ctx, struct Halo *halos,
@@ -73,21 +66,6 @@ extern int sage_calculate_star_formation_cleanup(void);
 // ============================================================================
 // TEST FIXTURES
 // ============================================================================
-
-/**
- * @brief   Reset global configuration state
- */
-static void reset_config(void) { memset(&MimicConfig, 0, sizeof(MimicConfig)); }
-
-/**
- * @brief   Ensure modules are registered (only once)
- */
-static void ensure_modules_registered(void) {
-  if (!modules_registered) {
-    register_all_modules();
-    modules_registered = 1;
-  }
-}
 
 /**
  * @brief   Setup test galaxy with specified properties
