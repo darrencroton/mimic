@@ -68,7 +68,7 @@ from framework import (
     simulation_input_file,
 )
 
-# Import the mini-Millennium/lhalo-specific tree loader owned by this test package.
+# Import the LHaloTree-specific tree loader owned by this test package.
 from tree_loader import get_halos_by_snapshot, load_binary_tree
 
 # Ensure output directories exist

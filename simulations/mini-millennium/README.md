@@ -10,3 +10,5 @@ This package contains mini-Millennium-specific catalog metadata used by Mimic:
 - `input_data_manifest.yaml`: lists the required data files; used by `first_run.sh` to know what to download
 
 This is the simulation package used by the shipped quick-start configuration — see the [User Guide](../../docs/USER-GUIDE.md) for running it. To create a package like this for your own simulation, see [Adding a New Simulation](../../docs/DEVELOPER-GUIDE.md#adding-a-new-simulation) in the Developer Guide.
+
+**Mirror maintenance:** `halo_properties.yaml`, the `.a_list` file, and the `_tests/` suites are intentional near-mirrors of the `simulations/millennium/` package (simulation packages are self-contained by design). When changing any of them, apply the same change to the other package.

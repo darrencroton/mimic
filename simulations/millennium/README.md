@@ -10,3 +10,5 @@ This package contains Millennium-specific catalog metadata used by Mimic:
 - `input_data_manifest.yaml`: lists the required data files (512 tree files, trees_063.0 through trees_063.511)
 
 The full Millennium tree data is not downloaded automatically — symlink `snapshots/` to your local copy. The structure of a simulation package is documented in [Adding a New Simulation](../../docs/DEVELOPER-GUIDE.md#adding-a-new-simulation) in the Developer Guide.
+
+**Mirror maintenance:** `halo_properties.yaml`, the `.a_list` file, and the `_tests/` suites are intentional near-mirrors of the `simulations/mini-millennium/` package (simulation packages are self-contained by design). When changing any of them, apply the same change to the other package.
