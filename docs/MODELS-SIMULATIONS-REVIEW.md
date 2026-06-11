@@ -3,7 +3,7 @@
 **Date**: 2026-06-11
 **Scope**: Every hand-written file under `models/` (sage16: 19 physics modules + shared headers + metadata + module tests + plots; sham: 1 module + plots) and `simulations/` (mini-millennium, millennium). Generated files and `plot/mimic-plot/` library code are context only.
 **Method**: Holistic, system-by-system code-level review against `docs/VISION.md`, mirroring the `src/` review implemented in commit `d6d0187` (`git show d6d0187:docs/SRC-SYSTEMS-REVIEW.md`). Goal: simplification, clarity, and maintainability with **no behavior change**, enforced by the sage16 full-physics byte-identical baseline (`test_scientific_sage_physics_baseline.py`). All dead-code claims were verified by repo-wide grep; the unused-import claims were verified by AST scan plus manual spot-check.
-**Status**: PROPOSED. Roadmap in §6; per-batch commits with user approval.
+**Status**: IMPLEMENTED (2026-06-11). All eight batches of §6 landed as individual commits (`9e56e49` … `1758e61`); see §7 for per-batch verification and deviations. Still open: B3 (stripping metal asymmetry — verify against sage-model, user decision), M3-5 (millennium input file-range annotation — pending user confirmation), M1-4 (preamble helper — deliberately deferred), M4-2/M4-3 (test header trim; SHAM unit test — additive follow-up work).
 
 **Standing decisions** (confirmed with the user before this review):
 
