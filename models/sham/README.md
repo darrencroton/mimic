@@ -21,7 +21,7 @@ References:
 
 - `model_properties.yaml`: All SHAM-owned galaxy properties, including `ShamMpeak`, `ShamVpeak`, `ShamStellarMassNoScatter`, `ShamScatterDex`, and `ShamOrphanAge`.
 - `input/`: User-facing SHAM run parameter YAML files, including the shipped mini-Millennium configuration.
-- `modules/sham_assign_stellar_mass/`: The only runtime module. It tracks peak proxies, assigns `StellarMass`, mirrors that mass into `BulgeMass` for simple diagnostics, and handles Type 2 orphan ageing.
+- `modules/sham_assign_stellar_mass/`: The only runtime module. It tracks peak proxies, assigns `StellarMass` (bulge and metal components are reset to zero), and handles Type 2 orphan ageing.
 - `plots/figures/`: SHAM-specific and shared diagnostic figures for `mimic-plot.py`.
 - `plots/profiles/`: Plot profile YAML files, including mini-Millennium defaults used by the shipped SHAM run.
 

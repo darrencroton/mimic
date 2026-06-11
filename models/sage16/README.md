@@ -22,7 +22,7 @@ References:
 - `input/`: User-facing run parameter YAML files for mini-Millennium and full Millennium.
 - `modules/`: Runtime physics modules. Each production module has its own directory containing C source, `module_info.yaml`, README, and `_tests/` where applicable.
 - `modules/_tests/`: Shared cross-module tests for processing contracts and parity checks.
-- `shared/`: Model-local helper headers and event contracts. These are not framework APIs; copy or reimplement them in another model package if needed.
+- `shared/`: Model-local helper headers (physics kernels, parity helpers, shared constants). These are not framework APIs; copy or reimplement them in another model package if needed. Event contracts are generated from each module's `module_info.yaml`.
 - `plots/figures/`: Model-specific diagnostic plot implementations for `mimic-plot.py`.
 - `plots/profiles/`: Plot profile YAML files, including mini-Millennium defaults used by the shipped run.
 

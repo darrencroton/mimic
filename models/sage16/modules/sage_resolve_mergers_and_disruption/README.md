@@ -10,14 +10,15 @@ module layer:
 - evaluate disruption versus merger from live substep state
 - resolve the execution target with one-hop consumed-target redirect
 - mutate the live target immediately before advancing to the next satellite
-- emit merger events immediately for phase-2 `process_per_event` consumers
+- emit merger events immediately for `process_per_event` consumers in the same
+  substep phase
 
 ## Processing contract
 
 - Supported mode: `process_full_halo`
 - Expects the full halo workspace for the current FoF system
-- Emits `SAGE_EVENT_MERGER` events consumed by modules such as
-  `sage_quasar_mode` and `sage_starburst_feedback`
+- Emits its merger event (declared under `events.emits` in `module_info.yaml`)
+  consumed by modules such as `sage_quasar_mode` and `sage_starburst_feedback`
 
 ## Notes
 

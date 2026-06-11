@@ -818,6 +818,12 @@ tests/unit/run_tests.sh test_unit_my_module
 
 The runner compiles tests on demand and uses generated module/test registries.
 
+New sage16 unit tests should include the shared fixture header instead of re-declaring the common boilerplate (test counters, `reset_config()`, `ensure_modules_registered()`, `free_test_halo()`):
+
+```c
+#include "modules/_tests/sage_test_fixtures.h"
+```
+
 Model-level tests that span multiple modules live in `models/<model>/modules/_tests/` and are registered by `models/<model>/modules/_tests/module_info.yaml`.
 
 ### Integration and Scientific Tests

@@ -20,4 +20,4 @@ None.
 
 ## Notes
 
-Disk radii are used by star formation and disk instability modules, so this should run before phase-1 baryonic physics. This matches SAGE's central-only radius update: satellites are not recomputed after infall.
+Disk radii are used by star formation and disk instability modules, so this should run in `pre_timestep`, before the substep baryonic physics phases. This matches SAGE's central-only radius update: satellites are not recomputed after infall.
