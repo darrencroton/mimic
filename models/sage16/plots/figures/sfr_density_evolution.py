@@ -7,24 +7,14 @@ This module generates a plot of the star formation rate density evolution from M
 Requires: StarFormationRate property (from galaxy physics modules)
 """
 
-import matplotlib.pyplot as plt
 import numpy as np
-from figures import (
-    AXIS_LABEL_SIZE,
-    IN_FIGURE_TEXT_SIZE,
-    LEGEND_FONT_SIZE,
-    get_redshift_label,
-    get_sfr_density_label,
-    setup_legend,
-    setup_plot_fonts,
-)
+from figures import AXIS_LABEL_SIZE, get_redshift_label, get_sfr_density_label, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_field_has_values,
     check_required_fields,
     save_and_close_figure,
     setup_figure,
-    validate_evolution_snapshot,
     warn,
 )
 

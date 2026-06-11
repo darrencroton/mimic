@@ -6,26 +6,15 @@ SAGE Gas Mass Function Plot
 This module generates a gas mass function plot from SAGE galaxy data.
 """
 
-import matplotlib.pyplot as plt
 import numpy as np
-from figures import (
-    AXIS_LABEL_SIZE,
-    IN_FIGURE_TEXT_SIZE,
-    LEGEND_FONT_SIZE,
-    get_gas_mass_label,
-    get_mass_function_labels,
-    setup_legend,
-    setup_plot_fonts,
-)
+from figures import AXIS_LABEL_SIZE, get_gas_mass_label, get_mass_function_labels, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     calculate_mass_function,
-    check_field_has_values,
     check_required_fields,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
-    warn,
 )
 
 

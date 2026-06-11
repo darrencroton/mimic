@@ -8,16 +8,13 @@ This module generates a specific star formation rate plot from SAGE galaxy data.
 
 from random import sample, seed
 
-import matplotlib.pyplot as plt
 import numpy as np
 from figures import (
     AXIS_LABEL_SIZE,
     IN_FIGURE_TEXT_SIZE,
-    LEGEND_FONT_SIZE,
     get_ssfr_label,
     get_stellar_mass_label,
     setup_legend,
-    setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
@@ -26,7 +23,6 @@ from output_utils import (
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
-    warn,
 )
 
 

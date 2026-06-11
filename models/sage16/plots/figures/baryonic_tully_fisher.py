@@ -10,28 +10,12 @@ This module generates a baryonic Tully-Fisher plot from SAGE galaxy data.
 from random import sample, seed
 
 # Third-party packages
-import matplotlib.pyplot as plt
 import numpy as np
 
 # Local application imports
-from figures import (
-    AXIS_LABEL_SIZE,
-    IN_FIGURE_TEXT_SIZE,
-    LEGEND_FONT_SIZE,
-    get_baryonic_mass_label,
-    get_vmax_label,
-    setup_legend,
-    setup_plot_fonts,
-)
+from figures import AXIS_LABEL_SIZE, get_baryonic_mass_label, get_vmax_label, setup_legend
 from matplotlib.ticker import MultipleLocator
-from output_utils import (
-    check_field_has_values,
-    check_required_fields,
-    save_and_close_figure,
-    setup_figure,
-    validate_filtered_data,
-    warn,
-)
+from output_utils import check_required_fields, save_and_close_figure, setup_figure
 
 
 def plot(

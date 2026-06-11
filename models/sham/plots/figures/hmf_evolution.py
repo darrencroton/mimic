@@ -7,18 +7,14 @@ This module generates a halo mass function evolution plot from Mimic halo data.
 """
 
 # Third-party packages
-import matplotlib.pyplot as plt
 import numpy as np
 
 # Local application imports
 from figures import (
     AXIS_LABEL_SIZE,
     IN_FIGURE_TEXT_SIZE,
-    LEGEND_FONT_SIZE,
     get_halo_mass_label,
     get_mass_function_labels,
-    setup_legend,
-    setup_plot_fonts,
 )
 from matplotlib.ticker import MultipleLocator
 from output_utils import (

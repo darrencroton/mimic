@@ -8,19 +8,10 @@ Requires: StellarMass property (from galaxy physics modules)
 """
 
 # Third-party packages
-import matplotlib.pyplot as plt
 import numpy as np
 
 # Local application imports
-from figures import (
-    AXIS_LABEL_SIZE,
-    IN_FIGURE_TEXT_SIZE,
-    LEGEND_FONT_SIZE,
-    get_mass_function_labels,
-    get_stellar_mass_label,
-    setup_legend,
-    setup_plot_fonts,
-)
+from figures import AXIS_LABEL_SIZE, get_mass_function_labels, get_stellar_mass_label, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     calculate_mass_function,
@@ -29,7 +20,6 @@ from output_utils import (
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
-    warn,
 )
 
 # Physical limits for stellar mass functions

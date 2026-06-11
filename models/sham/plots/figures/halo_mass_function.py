@@ -7,28 +7,17 @@ This module generates a halo mass function plot from Mimic halo data.
 """
 
 # Third-party packages
-import matplotlib.pyplot as plt
 import numpy as np
 
 # Local application imports
-from figures import (
-    AXIS_LABEL_SIZE,
-    IN_FIGURE_TEXT_SIZE,
-    LEGEND_FONT_SIZE,
-    get_halo_mass_label,
-    get_mass_function_labels,
-    setup_legend,
-    setup_plot_fonts,
-)
+from figures import AXIS_LABEL_SIZE, get_halo_mass_label, get_mass_function_labels, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     calculate_mass_function,
-    check_field_has_values,
     check_required_fields,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
-    warn,
 )
 
 # Physical limits for halo mass functions

@@ -8,22 +8,14 @@ This module generates a scatter plot showing the mass in different galaxy compon
 
 import random
 
-import matplotlib.pyplot as plt
 import numpy as np
-from figures import (
-    AXIS_LABEL_SIZE,
-    IN_FIGURE_TEXT_SIZE,
-    LEGEND_FONT_SIZE,
-    setup_legend,
-    setup_plot_fonts,
-)
+from figures import AXIS_LABEL_SIZE, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_required_fields,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
-    warn,
 )
 
 

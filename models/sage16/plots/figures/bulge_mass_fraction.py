@@ -6,24 +6,13 @@ SAGE Bulge Mass Fraction Plot
 This module generates a plot showing the bulge and disk mass fractions vs. stellar mass for SAGE galaxy data.
 """
 
-import matplotlib.pyplot as plt
 import numpy as np
-from figures import (
-    AXIS_LABEL_SIZE,
-    IN_FIGURE_TEXT_SIZE,
-    LEGEND_FONT_SIZE,
-    get_stellar_mass_label,
-    setup_legend,
-    setup_plot_fonts,
-)
-from matplotlib.ticker import MultipleLocator
+from figures import AXIS_LABEL_SIZE, get_stellar_mass_label, setup_legend
 from output_utils import (
-    check_field_has_values,
     check_required_fields,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
-    warn,
 )
 
 

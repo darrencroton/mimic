@@ -1,24 +1,18 @@
-"""
-Mimic Figure Modules
+"""Mimic SAGE16 figure modules."""
 
-This package contains self-contained modules for creating various plots from Mimic halo data.
-"""
-
-# Standard figure settings for consistent appearance
-"""Standard figure settings for consistent appearance across all plots."""
-AXIS_LABEL_SIZE = 16  # Font size for axis labels
-TICK_LABEL_SIZE = 12  # Font size for tick labels
-LEGEND_FONT_SIZE = 12  # Size for legend text (use numeric size instead of 'large')
-IN_FIGURE_TEXT_SIZE = 12  # Size for text inside figures (annotations, etc.)
+# Standard figure settings for consistent appearance across all plots.
+AXIS_LABEL_SIZE = 16
+TICK_LABEL_SIZE = 12
+LEGEND_FONT_SIZE = 12
+IN_FIGURE_TEXT_SIZE = 12
 
 
 def setup_plot_fonts(ax):
     """Apply consistent font sizes to a plot."""
-    # Increase tick label sizes
     ax.tick_params(axis="both", which="major", labelsize=TICK_LABEL_SIZE)
     ax.tick_params(axis="both", which="minor", labelsize=TICK_LABEL_SIZE)
 
-    # Configure global font sizes
+    import matplotlib as mpl
     import matplotlib.pyplot as plt
 
     plt.rcParams.update(
@@ -28,129 +22,99 @@ def setup_plot_fonts(ax):
             "figure.titlesize": AXIS_LABEL_SIZE,
         }
     )
-
-    # Make sure all labels in legends will use the same font size
-    import matplotlib as mpl
-
     mpl.rcParams["legend.fontsize"] = LEGEND_FONT_SIZE
-
     return ax
 
 
 def setup_legend(ax, loc="best", frameon=False):
     """Create a consistently styled legend."""
     leg = ax.legend(loc=loc, numpoints=1, labelspacing=0.1, frameon=frameon)
-    for t in leg.get_texts():
-        t.set_fontsize(LEGEND_FONT_SIZE)
+    for text in leg.get_texts():
+        text.set_fontsize(LEGEND_FONT_SIZE)
     return leg
 
 
-# Utility functions for consistent LaTeX-free labels
 def get_mass_function_labels():
     """Return consistent axis labels for mass function plots."""
-    y_label = r"$\phi$ [Mpc$^{-3}$ dex$^{-1}$]"
-    return y_label
+    return r"$\phi$ [Mpc$^{-3}$ dex$^{-1}$]"
 
 
-# Halo property utility functions
 def get_halo_mass_label():
     """Return consistent x-axis label for halo mass plots."""
-    x_label = r"log$_{10}$ M$_{\rm halo}$ [M$_{\odot}$]"
-    return x_label
+    return r"log$_{10}$ M$_{\rm halo}$ [M$_{\odot}$]"
 
 
 def get_spin_parameter_label():
     """Return consistent x-axis label for spin parameter plots."""
-    x_label = r"Spin Parameter"
-    return x_label
+    return r"Spin Parameter"
 
 
 def get_redshift_label():
     """Return consistent x-axis label for redshift plots."""
-    x_label = r"redshift"
-    return x_label
+    return r"redshift"
 
 
 def get_vmax_label():
     """Return consistent x-axis label for Vmax plots."""
-    x_label = r"log$_{10}$ V$_{\rm max}$ [km/s]"
-    return x_label
+    return r"log$_{10}$ V$_{\rm max}$ [km/s]"
 
 
-# Galaxy physics utility functions (require physics modules)
 def get_stellar_mass_label():
     """Return consistent x-axis label for stellar mass plots."""
-    x_label = r"log$_{10}$ M$_{*}$ [M$_{\odot}$]"
-    return x_label
+    return r"log$_{10}$ M$_{*}$ [M$_{\odot}$]"
 
 
 def get_cold_gas_label():
     """Return consistent x-axis label for cold gas plots."""
-    x_label = r"log$_{10}$ M$_{\rm cold~gas}$ [M$_{\odot}$]"
-    return x_label
+    return r"log$_{10}$ M$_{\rm cold~gas}$ [M$_{\odot}$]"
 
 
 def get_baryonic_mass_label():
     """Return consistent x-axis label for baryonic mass plots."""
-    x_label = r"log$_{10}$ M$_{\rm bar}$ [M$_{\odot}$]"
-    return x_label
+    return r"log$_{10}$ M$_{\rm bar}$ [M$_{\odot}$]"
 
 
 def get_gas_mass_label():
     """Return consistent x-axis label for gas mass plots."""
-    x_label = r"log$_{10}$ M$_{\rm X}$ [M$_{\odot}$]"
-    return x_label
+    return r"log$_{10}$ M$_{\rm X}$ [M$_{\odot}$]"
 
 
 def get_sfr_density_label():
     """Return consistent y-axis label for SFR density plots."""
-    y_label = r"log$_{10}$ SFR density [M$_{\odot}$ yr$^{-1}$ Mpc$^{-3}$]"
-    return y_label
+    return r"log$_{10}$ SFR density [M$_{\odot}$ yr$^{-1}$ Mpc$^{-3}$]"
 
 
 def get_ssfr_label():
     """Return consistent y-axis label for specific SFR plots."""
-    y_label = r"log$_{10}$ sSFR [yr$^{-1}$]"
-    return y_label
+    return r"log$_{10}$ sSFR [yr$^{-1}$]"
 
 
 def get_black_hole_mass_label():
     """Return consistent x-axis label for black hole mass plots."""
-    x_label = r"log$_{10}$ M$_{\rm BH}$ [M$_{\odot}$]"
-    return x_label
+    return r"log$_{10}$ M$_{\rm BH}$ [M$_{\odot}$]"
 
 
 def get_bulge_mass_label():
     """Return consistent x-axis label for bulge mass plots."""
-    x_label = r"log$_{10}$ M$_{\rm bulge}$ [M$_{\odot}$]"
-    return x_label
+    return r"log$_{10}$ M$_{\rm bulge}$ [M$_{\odot}$]"
 
 
-# Property availability checking
 def check_required_properties(galaxies, required_properties):
     """
     Check if galaxy data contains required properties.
 
-    Args:
-        galaxies: NumPy recarray with galaxy data
-        required_properties: List of property names required for plot
-
     Returns:
-        tuple: (available, missing) where available is bool and missing is list of str
+        tuple: (available, missing) where available is bool and missing is list
+        of strings.
     """
     if galaxies is None or len(galaxies) == 0:
         return False, required_properties
 
-    # Get available fields from dtype
     available_fields = set(galaxies.dtype.names)
-
-    # Check which required properties are missing
     missing = [prop for prop in required_properties if prop not in available_fields]
-
     return len(missing) == 0, missing
 
 
-# Import all the figure modules so they can be discovered
 from . import (
     baryon_fraction,
     baryonic_mass_function,
@@ -176,8 +140,6 @@ from . import (
     velocity_distribution,
 )
 
-# Define available plot types
-"""List of all available snapshot plot modules."""
 SNAPSHOT_PLOTS = [
     # Halo property plots (always available)
     "halo_mass_function",
@@ -201,7 +163,6 @@ SNAPSHOT_PLOTS = [
     "mass_reservoir_scatter",
 ]
 
-"""List of all available evolution plot modules."""
 EVOLUTION_PLOTS = [
     # Halo property evolution (always available)
     "hmf_evolution",
@@ -211,8 +172,6 @@ EVOLUTION_PLOTS = [
     "stellar_mass_density_evolution",
 ]
 
-# Define property requirements for each plot
-"""Mapping of plot names to required properties."""
 PLOT_REQUIREMENTS = {
     # Halo plots (no extra properties needed beyond base halos)
     "halo_mass_function": [],
@@ -240,7 +199,6 @@ PLOT_REQUIREMENTS = {
     "stellar_mass_density_evolution": ["StellarMass"],
 }
 
-"""Mapping of plot names to their corresponding functions."""
 PLOT_FUNCS = {
     "halo_mass_function": halo_mass_function.plot,
     "halo_occupation": halo_occupation.plot,
