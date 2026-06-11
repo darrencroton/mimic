@@ -13,6 +13,7 @@
 #include <math.h>
 
 #include "shared/central_link.h"
+#include "shared/sage_constants.h"
 #include "module_system/generated/event_contracts.h"
 #include "sage_merger_ops.h"
 #include "shared/time_parity.h"
@@ -105,7 +106,7 @@ int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struc
       return -1;
     }
 
-    if (satellite->MergTime >= 999.0) {
+    if (satellite->MergTime >= SAGE_MERGTIME_UNSET_THRESHOLD) {
       ERROR_LOG("Satellite %d has unset MergTime (%.1f)", halos[i].HaloNr, satellite->MergTime);
       return -1;
     }

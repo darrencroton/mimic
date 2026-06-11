@@ -14,6 +14,7 @@
 #include "constants.h"
 #include "error.h"
 #include "shared/metallicity.h"
+#include "shared/sage_constants.h"
 #include "shared/time_parity.h"
 #include "module_system/physical_constants.h"
 #include "module_interface.h"
@@ -36,7 +37,7 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx, const
 
   if (halo->galaxy->HotGas > 0.0 && halo->Vvir > 0.0) {
     const double tcool = halo->Rvir / halo->Vvir;
-    const double temp = 35.9 * halo->Vvir * halo->Vvir; // T_vir in Kelvin
+    const double temp = SAGE_TVIR_K_PER_SQKMS * halo->Vvir * halo->Vvir; // T_vir in Kelvin
 
     double logZ = -10.0;
     if (halo->galaxy->MetalsHotGas > 0.0) {

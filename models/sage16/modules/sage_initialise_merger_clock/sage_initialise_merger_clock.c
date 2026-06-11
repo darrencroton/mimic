@@ -22,6 +22,11 @@
 #include "module_interface.h"
 #include "types.h"
 #include "shared/central_link.h"
+#include "shared/sage_constants.h"
+
+/* SAGE parity: satellites below this particle count get an immediate merger
+ * clock rather than a dynamical-friction time (estimate_merging_time). */
+static const int MinNumPartSatHalo = 10;
 
 int sage_initialise_merger_clock_init(void) {
   VERBOSE_LOG("SAGE initialise merger clock initialized");
@@ -55,11 +60,11 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo 
     // This handles Type 1/2→0 transitions where satellites become centrals
     // (e.g., original central disrupted, satellite promoted to central)
     if (halos[i].Type == 0) {
-      if (halos[i].galaxy->MergTime < 999.0f) {
+      if (halos[i].galaxy->MergTime < SAGE_MERGTIME_UNSET_THRESHOLD) {
         DEBUG_LOG("Reset MergTime for central %d (Type→0 transition, was %.3f)", halos[i].HaloNr,
                   halos[i].galaxy->MergTime);
 
-        halos[i].galaxy->MergTime = 999.9f;
+        halos[i].galaxy->MergTime = SAGE_MERGTIME_UNSET;
       }
       continue;
     }
@@ -69,7 +74,7 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo 
 
     // SAGE parity: unresolved Type 2 entries with unset merger time must
     // merge immediately rather than receive a new dynamical-friction clock.
-    if (halos[i].Type == 2 && halos[i].galaxy->MergTime > 999.0f) {
+    if (halos[i].Type == 2 && halos[i].galaxy->MergTime > SAGE_MERGTIME_UNSET_THRESHOLD) {
       halos[i].galaxy->MergTime = 0.0f;
       DEBUG_LOG("Type 2 satellite %d: forcing immediate merge (MergTime=0.0)", halos[i].HaloNr);
       continue;
@@ -84,11 +89,9 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo 
 
     // Calculate only once per satellite episode: skip if already set.
     // SAGE parity uses MergTime sentinel state, not infallMvir sign.
-    if (halos[i].galaxy->MergTime <= 999.0) {
+    if (halos[i].galaxy->MergTime <= SAGE_MERGTIME_UNSET_THRESHOLD) {
       continue; // Already calculated
     }
-
-    const int MinNumPartSatHalo = 10;
 
     // Coulomb logarithm from particle number ratio, log1p(x) is better than log(1 + x)
     // SAGE parity: use the satellite's actual Len (no floor); the Len >= 10
@@ -112,12 +115,13 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo 
       mergtime = 2.0 * 1.17 * SatelliteRadius * SatelliteRadius * Vvir /
                  (coulomb * ctx->params->G * SatelliteMass);
     } else {
-      mergtime = -1.0; // Invalid: zero mass, or below the SAGE particle threshold
+      // Invalid: zero mass, or below the SAGE particle threshold
+      mergtime = SAGE_MERGTIME_IMMEDIATE;
     }
 
     // Apply ceiling for very long merger times
-    if (mergtime >= 999.0) {
-      mergtime = 998.0;
+    if (mergtime >= SAGE_MERGTIME_UNSET_THRESHOLD) {
+      mergtime = SAGE_MERGTIME_CEILING;
     }
 
     halos[i].galaxy->MergTime = mergtime;

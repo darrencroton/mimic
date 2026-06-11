@@ -13,6 +13,7 @@
 #include "constants.h"
 #include "error.h"
 #include "shared/metallicity.h"
+#include "shared/sage_constants.h"
 #include "shared/time_parity.h"
 #include "module_system/parameter_helpers.h"
 #include "module_system/physical_constants.h"
@@ -64,7 +65,7 @@ static double calculate_agn_rate_empirical(const double black_hole_mass, const d
  */
 static double calculate_agn_rate_bondi(const double black_hole_mass, const double vvir,
                                        const double lambda, const struct MimicConfig *run_params) {
-  const double temp = 35.9 * vvir * vvir; // T_vir in Kelvin
+  const double temp = SAGE_TVIR_K_PER_SQKMS * vvir * vvir; // T_vir in Kelvin
 
   double x = PROTONMASS * BOLTZMANN * temp / lambda;                 // sec * g/cm^3
   x /= (run_params->UnitDensity_in_cgs * run_params->UnitTime_in_s); // convert to code units

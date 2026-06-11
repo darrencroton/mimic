@@ -24,6 +24,7 @@
 #include "module_interface.h"
 #include "module_registry.h"
 #include "types.h"
+#include "shared/sage_constants.h"
 #include "module_system/parameter_helpers.h"
 
 // ============================================================================
@@ -101,11 +102,11 @@ int sage_apply_metal_enrichment_process(struct ModuleContext *ctx, struct Halo *
   }
 
   // Formation of new metals - instantaneous recycling approximation - only SNII
-  // SAGE parity: threshold is 1.0e-8 and the Krumholz & Dekel scale uses the
-  // FOF central's Mvir (metal ejection scale = 30.0 in 10^10 Msun/h)
-  if (gal->ColdGas > 1.0e-8) {
+  // SAGE parity: the Krumholz & Dekel (2011) ejection scale uses the FOF
+  // central's Mvir
+  if (gal->ColdGas > SAGE_COLD_GAS_YIELD_THRESHOLD) {
     const double FracZleaveDiskVal =
-        FRAC_Z_LEAVE_DISK * exp(-1.0 * ctx->central_galaxy->Mvir / 30.0); // Krumholz & Dekel 2011
+        FRAC_Z_LEAVE_DISK * exp(-1.0 * ctx->central_galaxy->Mvir / SAGE_METAL_EJECTION_MVIR_SCALE);
     gal->MetalsColdGas += YIELD * (1.0 - FracZleaveDiskVal) * stars;
     central_gal->MetalsHotGas += YIELD * FracZleaveDiskVal * stars;
   } else {
