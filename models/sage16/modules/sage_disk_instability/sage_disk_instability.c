@@ -15,7 +15,7 @@
  * Trigger Flag:
  *   Sets UnstableDiskGasFraction for downstream modules:
  *     - sage_quasar_mode: BH growth + quasar winds from unstable gas
- *     - sage_collisional_starburst: Starburst + SN feedback from unstable gas
+ *     - sage_starburst_feedback: Starburst + SN feedback from unstable gas
  *
  * References:
  *   - SAGE: model_disk_instability.c (lines 20-54)

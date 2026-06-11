@@ -3,8 +3,7 @@
  * @brief Common metallicity calculation utilities for physics modules
  *
  * This shared utility provides robust metallicity calculations used by
- * multiple physics modules (sage_calculate_infall, sage_calculate_cooling, sage_radio_mode_heating,
- * etc.).
+ * multiple physics modules across the gas-cycle, feedback, and merger chains.
  *
  * @note This file is part of the model-local shared utilities system.
  *       Modules include it using relative paths: #include "shared/metallicity.h"

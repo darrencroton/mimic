@@ -14,7 +14,6 @@
 
 #include <math.h>
 #include <stdint.h>
-#include <stdio.h>
 
 #include "constants.h"
 #include "error.h"

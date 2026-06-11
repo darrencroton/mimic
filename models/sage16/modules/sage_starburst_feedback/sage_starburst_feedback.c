@@ -20,7 +20,6 @@
  */
 
 #include <stdbool.h>
-#include <string.h>
 
 #include "constants.h"
 #include "error.h"
@@ -100,7 +99,7 @@ int sage_starburst_feedback_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThresholdMajorMerger", THRESHOLD_MAJOR_MERGER, 0.0, 1.0,
                                     "major merger threshold");
 
-  /* Dependency checks — §7 of SAGE-MODULE-REVIEW.md */
+  /* Dependency checks */
 
   /* ERROR: process_per_event requires a merger event producer in the same phase */
   if (module_in_substep_phase("sage_starburst_feedback", PROCESSING_MODE_PER_EVENT) &&

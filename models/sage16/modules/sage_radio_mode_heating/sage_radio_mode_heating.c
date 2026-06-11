@@ -9,8 +9,6 @@
  */
 
 #include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 #include "constants.h"
 #include "error.h"

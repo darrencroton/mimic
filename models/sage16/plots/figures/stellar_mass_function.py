@@ -151,7 +151,10 @@ def plot(
         ax.plot(xaxis, smf_red, "r:", lw=2, label="Model - Red")
         ax.plot(xaxis, smf_blue, "b:", lw=2, label="Model - Blue")
 
-    # Add Baldry+2008 observational data
+    # Baldry, Glazebrook & Driver (2008), MNRAS 388, 945: z~0.1 field stellar
+    # mass function. Columns: log10(M*) (Salpeter IMF; shifted -0.26 dex to
+    # Chabrier below), phi, phi uncertainty — h-dependence removed by the
+    # hubble_h conversions that follow.
     baldry = np.array(
         [
             [7.05, 1.3531e-01, 6.0741e-02],

@@ -9,9 +9,6 @@
  * Reference: Gnedin (2000), Kravtsov et al. (2004), Croton et al. (2006, 2016)
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-
 #include "error.h"
 #include "module_system/parameter_helpers.h"
 #include "shared/metallicity.h"

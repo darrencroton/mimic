@@ -3,7 +3,7 @@
  * @brief   SAGE cooling application - commits CoolingGas budget to cold reservoir
  *
  * Transfers gas from hot to cold reservoir based on CoolingGas property
- * (calculated by sage_calculate_cooling and modified by sage_radio_mode_heating).
+ * (calculated by sage_calculate_cooling_budget and modified by sage_radio_mode_heating).
  *
  * Reference: Croton et al. (2006, 2016)
  */
@@ -11,7 +11,6 @@
 #include "constants.h"
 #include "error.h"
 #include "shared/metallicity.h"
-#include "module_system/physical_constants.h"
 #include "module_interface.h"
 #include "module_registry.h"
 #include "globals.h"

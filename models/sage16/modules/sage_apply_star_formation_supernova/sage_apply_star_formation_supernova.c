@@ -38,7 +38,7 @@ int sage_apply_star_formation_supernova_init(void) {
                                     "recycle fraction");
 
   /* Dependency checks: this is an infrastructure apply step that must follow
-   * its SF/SN prescription modules. §7 of SAGE-MODULE-REVIEW.md. */
+   * its SF/SN prescription modules. */
 
   const bool sf_present = module_configured_anywhere("sage_calculate_star_formation");
   const bool sn_present = module_configured_anywhere("sage_calculate_supernova_feedback");

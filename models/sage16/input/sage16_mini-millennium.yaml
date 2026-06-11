@@ -63,7 +63,7 @@ modules:
 
     satellite_mergers:
       # Mergers and disruption — runs after all galaxy physics for the current substep
-      # sage_resolve_mergers_and_disruption emits SAGE_EVENT_MERGER for downstream consumers
+      # sage_resolve_mergers_and_disruption emits its merger event for downstream consumers
       - sage_resolve_mergers_and_disruption: process_full_halo
       - sage_quasar_mode:               process_per_event   # merger event consumer
       - sage_starburst_feedback:        process_per_event   # merger event consumer

@@ -44,7 +44,7 @@ int sage_calculate_supernova_feedback_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("FeedbackEjectionEfficiency", FEEDBACK_EJECTION_EFFICIENCY, 0.0,
                                     100.0, "ejection efficiency");
 
-  /* Dependency checks — §7 of SAGE-MODULE-REVIEW.md */
+  /* Dependency checks */
 
   /* ERROR: apply step is required to commit SN transport fields to galaxy reservoirs */
   if (!module_configured_anywhere("sage_apply_star_formation_supernova")) {
