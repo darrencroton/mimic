@@ -489,7 +489,7 @@ def test_memory_and_performance():
     assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
 
     # Check for memory leaks
-    assert check_no_memory_leaks(output_dir), "Should not have memory leaks"
+    assert check_no_memory_leaks(stdout, stderr), "Should not have memory leaks"
 
     # Performance baseline (should complete in < 30 seconds for test data)
     print(f"  Execution time: {elapsed_time:.2f}s")

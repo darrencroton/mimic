@@ -163,21 +163,17 @@ def test_no_memory_leaks():
     """
     Test that Mimic runs without memory leaks
 
-    Expected: Zero memory leaks reported in logs
+    Expected: No leak report in the run's captured output
     Validates: Memory management correctness
     """
     print("Testing for memory leaks...")
 
-    # Run Mimic
+    # Run Mimic; the allocator's leak report goes to the run's own output
     param_file = core_input_file("test_binary.yaml")
     returncode, stdout, stderr = run_mimic(param_file)
     assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
-    # Check for memory leaks in output logs (test_binary.yaml writes to binary/)
-    output_dir = TEST_DATA_DIR / "output" / "binary"
-    has_leaks = not check_no_memory_leaks(output_dir)
-
-    assert not has_leaks, f"{RED}Memory leaks detected in Mimic run{NC}"
+    assert check_no_memory_leaks(stdout, stderr), f"{RED}Memory leaks detected in Mimic run{NC}"
 
     print("  ✓ No memory leaks detected")
 

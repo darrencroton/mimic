@@ -596,52 +596,32 @@ def create_test_param_file(
     return param_path, output_dir, Path(temp_dir)
 
 
-def check_no_memory_leaks(output_dir):
+def check_no_memory_leaks(stdout, stderr=""):
     """
-    Check that Mimic run had no memory leaks
+    Check that a Mimic run reported no memory leaks.
 
-    Scans log files in output directory for memory leak indicators.
+    The allocator's end-of-run leak report (check_memory_leaks() in
+    src/util/memory.c: "Memory leak detected: N blocks ...") goes to the run's
+    own stdout/stderr -- Mimic writes no log files -- so the captured output
+    from run_mimic() is the only place the report exists.
 
     Args:
-        output_dir (Path): Output directory containing metadata/logs
+        stdout (str): Captured stdout from the Mimic run.
+        stderr (str): Captured stderr from the Mimic run.
 
     Returns:
-        bool: True if no leaks, False if leaks detected
+        bool: True if no leak was reported, False if a leak report was found.
 
     Usage:
-        output_dir = Path("tests/data/output/binary")
-        has_leaks = not check_no_memory_leaks(output_dir)
-        assert not has_leaks, "Memory leaks detected"
+        returncode, stdout, stderr = run_mimic(param_file)
+        assert check_no_memory_leaks(stdout, stderr), "Memory leaks detected"
     """
-    # ANSI color codes
-    YELLOW = "\033[1;33m"
-    RED = "\033[0;31m"
-    NC = "\033[0m"  # No Color
-
-    log_dir = output_dir / "metadata"
-    if not log_dir.exists():
-        print(f"{YELLOW}Warning: Log directory not found: {log_dir}{NC}")
-        return True  # Can't check, assume OK
-
-    for log_file in log_dir.glob("*.log"):
-        with open(log_file) as f:
-            for line in f:
-                line_lower = line.lower()
-                # Check for actual leak messages, not success messages
-                # "No memory leaks detected" is a success message, not a failure
-                if "memory leak" in line_lower:
-                    # Exclude success messages
-                    if "no memory leak" not in line_lower:
-                        # Check if it's a warning or error (not just INFO)
-                        if (
-                            "warning" in line_lower
-                            or "error" in line_lower
-                            or "fatal" in line_lower
-                        ):
-                            print(f"{RED}Memory leak detected in {log_file}{NC}")
-                            print(f"  {line.strip()}")
-                            return False
-
+    for line in (stdout + "\n" + stderr).splitlines():
+        line_lower = line.lower()
+        # "No memory leaks detected" is the allocator's success message.
+        if "memory leak" in line_lower and "no memory leak" not in line_lower:
+            print(f"Memory leak reported by Mimic run: {line.strip()}")
+            return False
     return True
 
 

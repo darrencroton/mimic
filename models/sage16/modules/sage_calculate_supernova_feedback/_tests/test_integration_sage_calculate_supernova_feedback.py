@@ -205,7 +205,7 @@ def test_memory_safety():
     returncode, stdout, stderr = run_mimic(param_file)
     assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
 
-    assert check_no_memory_leaks(output_dir), "Should not have memory leaks"
+    assert check_no_memory_leaks(stdout, stderr), "Should not have memory leaks"
 
     shutil.rmtree(temp_dir)
     print(f"{GREEN}✓ No memory leaks detected{NC}")

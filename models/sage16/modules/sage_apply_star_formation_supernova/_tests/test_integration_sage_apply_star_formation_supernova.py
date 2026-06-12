@@ -555,7 +555,7 @@ def test_memory_and_performance():
     assert returncode == 0, f"Mimic should execute successfully\nSTDERR: {stderr}"
 
     # Check for memory leaks
-    assert check_no_memory_leaks(output_dir), "Should not have memory leaks"
+    assert check_no_memory_leaks(stdout, stderr), "Should not have memory leaks"
 
     # Check output file
     output_file = output_dir / "model_z0.000_0"

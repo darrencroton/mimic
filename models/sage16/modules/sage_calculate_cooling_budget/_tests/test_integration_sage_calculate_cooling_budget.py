@@ -93,7 +93,7 @@ class TestSageCoolingIntegration:
 
         assert returncode == 0, f"Pipeline should run successfully\nStderr: {stderr}"
         # Check for no memory leaks
-        assert harness.check_no_memory_leaks(output_dir), "Should have no memory leaks"
+        assert harness.check_no_memory_leaks(stdout, stderr), "Should have no memory leaks"
 
     def test_memory_safety(self):
         """Test that sage_calculate_cooling_budget doesn't leak memory"""
@@ -110,7 +110,7 @@ class TestSageCoolingIntegration:
 
         returncode, stdout, stderr = harness.run_mimic(param_file)
         assert returncode == 0, f"Execution should succeed\nStderr: {stderr}"
-        assert harness.check_no_memory_leaks(output_dir), "Should have no memory leaks"
+        assert harness.check_no_memory_leaks(stdout, stderr), "Should have no memory leaks"
 
     def test_execution_completes(self):
         """Test that full pipeline execution completes without errors"""

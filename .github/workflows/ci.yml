@@ -61,14 +61,11 @@ jobs:
       run: |
         make tests-scientific
 
-    - name: Check for memory leaks
-      run: |
-        if grep -riq "memory leak" tests/data/output/binary/metadata/*.log 2>/dev/null; then
-          echo "Memory leak detected!"
-          grep -i "memory leak" tests/data/output/binary/metadata/*.log
-          exit 1
-        fi
-        echo "No memory leaks detected"
+    # Memory-leak gating happens inside the test suites: C unit tests call
+    # check_memory_leaks() in-process, and integration tests assert
+    # check_no_memory_leaks() against each Mimic run's captured output.
+    # (A previous standalone step here grepped metadata/*.log files that no
+    # Mimic run ever writes, so it could never fail.)
 
     - name: Upload test results
       if: failure()
@@ -77,4 +74,4 @@ jobs:
         name: test-results
         path: |
           tests/unit/build/*.log
-          tests/data/output/binary/metadata/*.log
+          tests/data/output/binary/metadata/
