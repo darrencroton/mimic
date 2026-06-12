@@ -19,7 +19,7 @@ The catch is that traditional SAMs are monolithic. The physics is hard-wired int
 ## What You Can Do With It
 
 - **Generate mock galaxy catalogues** from halo merger trees: stellar masses, gas reservoirs, star formation rates, black holes, metals, and positions, written as self-documenting HDF5 or compact binary.
-- **Experiment with the physics.** Disable a feedback channel, swap an AGN mode, reorder a pipeline stage, or run pure halo tracking with no galaxy physics at all — all from the run file, with the active pipeline recorded in the output for reproducibility.
+- **Experiment with the physics.** Disable a feedback channel, swap an AGN mode, reorder a pipeline stage, or use the `halos-only` package for pure halo tracking with no galaxy physics — all with the active pipeline recorded in the output for reproducibility.
 - **Swap the simulation under the model.** Simulation packages are as interchangeable as models: run identical physics on different merger-tree catalogues — a small box for development, a larger one for production, different resolutions or cosmologies to test the robustness of your conclusions.
 - **Build your own model.** Properties and modules are declared in YAML metadata and generated into type-safe C, so a new physics module is a small, testable unit rather than a patch across a monolith. Every model package is self-contained: its physics, properties, parameters, tests, and plots live together under `models/<model>/`.
 - **Start from shipped, validated physics.** Mimic comes with ready-to-run model packages — the current default, `sage16`, is a modular port of the published SAGE model, reproduced from the original code.
@@ -54,7 +54,7 @@ deactivate
 
 You'll find mass functions, scaling relations, star formation histories, and more under `output/sage16-mini-millennium/plots/`. Mimic also writes a ready-to-run analysis script (`example_Mvir_Len_plot.py`) into the output directory so you can start exploring the catalogue in Python straight away.
 
-Any other model + simulation pairing runs the same way — build with `make MODEL=<name> SIMULATION=<name>` and point `./mimic` at the matching run file.
+Any other model + simulation pairing runs the same way — build with `make MODEL=<name> SIMULATION=<name>` and point `./mimic` at the matching run file. For dark-matter halo catalogues without galaxy physics, use `make MODEL=halos-only SIMULATION=mini-millennium` and `models/halos-only/input/halos-only_mini-millennium.yaml`.
 
 **Prerequisites**: a C compiler (gcc or clang), GNU Make, and Python 3.9+. HDF5 libraries are recommended (build with `make USE-HDF5=no` without them); MPI is optional for parallel runs.
 

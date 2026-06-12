@@ -1,0 +1,7 @@
+# Mimic halos-only model properties.
+#
+# This package intentionally declares no galaxy-formation properties. Production
+# runs output only core and selected-simulation halo/catalog fields.
+
+galaxy_properties: []
+

@@ -1,0 +1,10 @@
+mode: exploration
+
+plots:
+  snapshot:
+    - halo_mass_function
+    - spin_distribution
+    - velocity_distribution
+    - spatial_distribution
+  evolution:
+    - hmf_evolution

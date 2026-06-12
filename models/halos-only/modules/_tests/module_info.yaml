@@ -1,0 +1,15 @@
+# Halos-only package test registry.
+#
+# This utility metadata registers package-level tests without adding runtime
+# physics modules to the halos-only model package.
+
+module:
+  name: _tests
+  display_name: "Halos-Only Package Tests"
+  description: "Package-level checks for the halos-only model."
+  is_utility: true
+
+  tests:
+    integration:
+      - test_integration_halos_only_package.py
+

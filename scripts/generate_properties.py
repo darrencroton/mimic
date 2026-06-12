@@ -356,6 +356,8 @@ def generate_property_defs_h(
     # struct GalaxyData
     code += "/* Galaxy properties (baryonic physics) */\n"
     code += "struct GalaxyData {\n"
+    if not galaxy_props:
+        code += "  char _mimic_empty;\n"
     for prop in galaxy_props:
         type_info = TYPE_MAP[prop["type"]]
         c_type = type_info["c_type"]
@@ -390,6 +392,7 @@ def generate_property_defs_h(
     code += "}\n\n"
 
     code += "static inline void init_galaxy_defaults(struct GalaxyData *galaxy) {\n"
+    emitted_galaxy_default = False
     for prop in galaxy_props:
         init_source = prop.get("init_source", "default")
         name = prop["name"]
@@ -397,6 +400,9 @@ def generate_property_defs_h(
         if init_source == "default":
             init_value = prop.get("init_value", "0.0")
             code += f"  galaxy->{name} = {init_value};\n"
+            emitted_galaxy_default = True
+    if not emitted_galaxy_default:
+        code += "  (void)galaxy;\n"
     code += "}\n\n"
 
     repeated_props = [prop for prop in galaxy_props if prop.get("init_repeat", False)]
@@ -405,6 +411,8 @@ def generate_property_defs_h(
         name = prop["name"]
         init_value = prop.get("init_value", "0.0")
         code += f"  galaxy->{name} = {init_value};\n"
+    if not repeated_props:
+        code += "  (void)galaxy;\n"
     code += "}\n\n"
 
     # struct HaloOutput (all properties with output=true)

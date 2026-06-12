@@ -17,6 +17,7 @@
 #include "../../src/util/memory.h"
 #include "../framework/test_framework.h"
 
+#include <string.h>
 #include <stdlib.h>
 
 static int passed = 0;
@@ -25,6 +26,22 @@ static int failed = 0;
 /* Comfortably beyond the per-block tracking cap that the old per-galaxy
  * allocation pattern would have hit. With the pool this is a handful of chunks. */
 #define SLOTS (DEFAULT_MAX_MEMORY_BLOCKS + 10000)
+
+static void stamp_slot(struct GalaxyData *galaxy, int value) {
+  memset(galaxy, value & 0xff, sizeof(*galaxy));
+}
+
+static int slot_has_stamp(const struct GalaxyData *galaxy, int value) {
+  const unsigned char *bytes = (const unsigned char *)galaxy;
+  unsigned char expected = (unsigned char)(value & 0xff);
+
+  for (size_t i = 0; i < sizeof(*galaxy); i++) {
+    if (bytes[i] != expected) {
+      return 0;
+    }
+  }
+  return 1;
+}
 
 int test_alloc_beyond_block_cap_grows_and_is_stable(void) {
   init_memory_system(0);
@@ -38,15 +55,15 @@ int test_alloc_beyond_block_cap_grows_and_is_stable(void) {
   for (int i = 0; i < SLOTS; i++) {
     ptrs[i] = galaxy_pool_alloc();
     TEST_ASSERT(ptrs[i] != NULL, "Pool allocation past the block cap should succeed");
-    ptrs[i]->StellarMass = (float)i;
+    stamp_slot(ptrs[i], i);
   }
 
   /* Pointer stability + distinctness: every earlier slot must still hold its own
    * value after all the growth that followed it (chunks never move, and no two
-   * slots alias). (float)i is exact for i well under 2^24. */
+   * slots alias). */
   int stable = 1;
   for (int i = 0; i < SLOTS; i++) {
-    if (ptrs[i]->StellarMass != (float)i) {
+    if (!slot_has_stamp(ptrs[i], i)) {
       stable = 0;
       break;
     }
@@ -64,7 +81,7 @@ int test_alloc_beyond_block_cap_grows_and_is_stable(void) {
   for (int i = 0; i < SLOTS; i++) {
     struct GalaxyData *g = galaxy_pool_alloc();
     TEST_ASSERT(g != NULL, "Reused pool should satisfy the same allocation volume");
-    g->StellarMass = (float)(SLOTS - i);
+    stamp_slot(g, SLOTS - i);
   }
 
   free(ptrs);
@@ -80,7 +97,7 @@ int test_destroy_then_realloc_starts_fresh(void) {
   /* No explicit init: first alloc must lazily initialise the pool. */
   struct GalaxyData *a = galaxy_pool_alloc();
   TEST_ASSERT(a != NULL, "Lazy init on first alloc should succeed");
-  a->StellarMass = 1.0f;
+  stamp_slot(a, 1);
 
   galaxy_pool_destroy();
 

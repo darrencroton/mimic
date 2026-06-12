@@ -80,7 +80,7 @@ python -c "import numpy, matplotlib, tqdm, h5py, yaml; print('All plotting packa
 
 ### Basic Usage
 
-Build Mimic with the same model set as the parameter file before plotting. The available plot registry is model-specific, so a SHAM run should be built with `make MODEL=sham`, while the shipped SAGE run should be built with `make MODEL=sage16`. Binary outputs must be kept with their run `metadata/` directory because `mimic-plot` reads `metadata/output_schema.json`.
+Build Mimic with the same model set as the parameter file before plotting. The available plot registry is model-specific, so a SHAM run should be built with `make MODEL=sham`, the shipped SAGE run with `make MODEL=sage16`, and halo-catalogue-only runs with `make MODEL=halos-only`. Binary outputs must be kept with their run `metadata/` directory because `mimic-plot` reads `metadata/output_schema.json`.
 
 ```bash
 # Activate virtual environment (if using one)

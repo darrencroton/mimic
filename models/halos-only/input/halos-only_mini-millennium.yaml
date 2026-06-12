@@ -1,0 +1,27 @@
+# Mimic halos-only mini-Millennium Run Configuration
+
+model:
+  name: halos-only
+  path: models/halos-only
+  model_properties: models/halos-only/model_properties.yaml
+
+simulation:
+  name: mini-millennium
+  path: simulations/mini-millennium
+  config: simulations/mini-millennium/simulation_info.yaml
+  halo_properties: simulations/mini-millennium/halo_properties.yaml
+
+plotting:
+  profile: models/halos-only/plots/profiles/mini-millennium_plot_profile.yaml
+
+output:
+  output_filename: halos
+  output_directory: output/halos-only-mini-millennium
+  output_format: hdf5
+  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
+
+SubSteps: 1
+
+modules:
+  parameters: {}
+

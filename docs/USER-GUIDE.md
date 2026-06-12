@@ -57,13 +57,14 @@ make
 ```bash
 make                                          # default: sage16 model + mini-Millennium simulation
 make MODEL=sham SIMULATION=mini-millennium    # build the SHAM example model instead
+make MODEL=halos-only SIMULATION=mini-millennium  # halo catalogue only, no galaxy physics
 make -j$(nproc)                               # parallel build (on macOS use e.g. make -j8)
 make USE-HDF5=no                              # build without HDF5 (binary output only)
 make USE-MPI=yes                              # build with MPI support
 make info                                     # show detected compiler, libraries, and selected packages
 ```
 
-A Mimic executable is compiled against **one model package and one simulation package at a time**. `MODEL` selects which `models/<model>/` package contributes galaxy properties, physics modules, and plots; `SIMULATION` selects which `simulations/<simulation>/` package contributes catalogue halo properties. They default to `DEFAULT_MODEL` (`sage16`) and `DEFAULT_SIMULATION` (`mini-millennium`) near the top of the `Makefile`, so plain `make` builds the shipped configuration. Override them per invocation, or edit the defaults if you mainly work with a different pair. If a selected package does not exist, the build stops with an `Unknown MODEL` or `Unknown SIMULATION` error rather than silently mis-building.
+A Mimic executable is compiled against **one model package and one simulation package at a time**. `MODEL` selects which `models/<model>/` package contributes galaxy properties, physics modules, and plots; `SIMULATION` selects which `simulations/<simulation>/` package contributes catalogue halo properties. A model package can intentionally provide no galaxy physics: `halos-only` is the shipped package for dark-matter halo catalogue exploration. The defaults are `DEFAULT_MODEL` (`sage16`) and `DEFAULT_SIMULATION` (`mini-millennium`) near the top of the `Makefile`, so plain `make` builds the shipped full-physics example. Override them per invocation, or edit the defaults if you mainly work with a different pair. If a selected package does not exist, the build stops with an `Unknown MODEL` or `Unknown SIMULATION` error rather than silently mis-building.
 
 This pairing is enforced at runtime too: a run file whose `model.name` or `simulation.halo_properties` does not match the executable fails at startup, so you can't accidentally analyse output produced by the wrong physics. If you want to mix modules from different model families, create a new `models/<model>/` package and reconcile property names, parameters, units, dependencies, tests, and plots there — see the [Developer Guide](DEVELOPER-GUIDE.md#module-communication).
 
@@ -259,7 +260,14 @@ Module parameters have no global defaults in the core. A module loads and valida
 
 ### Configuration Recipes
 
-**Physics-free mode** writes halo-tracking output without galaxy physics — useful for testing your input trees or for halo-only science:
+**Physics-free mode** writes halo-tracking output without galaxy physics — useful for testing your input trees or for halo-only science. For normal use, prefer the shipped `halos-only` package:
+
+```bash
+make MODEL=halos-only SIMULATION=mini-millennium
+./mimic models/halos-only/input/halos-only_mini-millennium.yaml
+```
+
+Inside any model package, the same runtime behaviour is an empty module pipeline:
 
 ```yaml
 modules:
@@ -330,7 +338,7 @@ make MODEL=<model> SIMULATION=<simulation>
 ./mimic models/<model>/input/<run_file>.yaml
 ```
 
-For example, the model packages shipped at the time of writing are [sage16](../models/sage16/README.md) (the default — a complete galaxy formation model ported from SAGE and validated against the original code) and [sham](../models/sham/README.md) (a deliberately minimal one-module package; not a calibrated science model, but the clearest starting point for building your own). Check `models/` for the current list, and each package's README before drawing scientific conclusions from it.
+For example, [sage16](../models/sage16/README.md) is the default complete galaxy-formation model, [sham](../models/sham/README.md) is a compact one-module example, and [halos-only](../models/halos-only/README.md) is the no-galaxy-physics package for exploring the dark-matter halo catalogue. Check `models/` for the current list, and each package's README before drawing scientific conclusions from it.
 
 Swapping the simulation under a fixed model is a workflow in its own right, not just a configuration detail: develop and calibrate on a small box, then rerun the identical physics on a larger volume for production statistics, or across catalogues with different resolutions or cosmologies to test how robust your conclusions are to the input simulation. The shipped [mini-Millennium package](../simulations/mini-millennium/README.md) is the small working example, and a [full Millennium package](../simulations/millennium/README.md) is provided for users with access to the complete tree data — check `simulations/` for the current list. Adding your own simulation is a developer task — see [Adding a New Simulation](DEVELOPER-GUIDE.md#adding-a-new-simulation).
 
@@ -479,7 +487,7 @@ deactivate
 
 Plots are written under the configured output directory, normally `output/sage16-mini-millennium/plots/` for the shipped example.
 
-The plot registry is model-specific — it lives in `models/<model>/plots/figures/` — so build Mimic with the same `MODEL` as the run file before plotting. The detailed plotting manual is [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): command-line options, available plot names, skipped-plot diagnostics, plotting native SAGE output for comparison, and adding new plot types.
+The plot registry is model-specific — it lives in `models/<model>/plots/figures/` — so build Mimic with the same `MODEL` as the run file before plotting. The `halos-only` registry intentionally advertises only halo/catalogue diagnostics. The detailed plotting manual is [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): command-line options, available plot names, skipped-plot diagnostics, plotting native SAGE output for comparison, and adding new plot types.
 
 ---
 
@@ -539,7 +547,7 @@ This usually indicates a new module or metadata change was not regenerated, or a
 source mimic_venv/bin/activate
 ```
 
-**No plots generated or many skipped plots**: Some plots require populated galaxy-physics fields. A physics-free run can still produce halo-property plots, but galaxy plots will be skipped. Run with `--verbose` to see skip reasons:
+**No plots generated or many skipped plots**: Some plots require populated galaxy-physics fields. A physics-free run can still produce halo-property plots, and the `halos-only` package avoids advertising galaxy-property plots in the first place. Run with `--verbose` to see skip reasons:
 
 ```bash
 python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_mini-millennium.yaml --verbose

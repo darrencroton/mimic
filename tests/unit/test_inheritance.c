@@ -96,7 +96,9 @@ int test_main_branch_deep_copy_and_reset(void) {
   struct InheritanceProgenitorGalaxy progenitor;
   memset(workspace, 0, sizeof(workspace));
   init_source_halo(&source, &source_galaxy, 0);
+#if GENERATED_INIT_REPEAT_PROPERTY_COUNT > 0
   generated_test_seed_init_repeat_properties(source.galaxy);
+#endif
 
   progenitor.source = &source;
   progenitor.source_time = 14.0;
@@ -106,10 +108,12 @@ int test_main_branch_deep_copy_and_reset(void) {
 
   TEST_ASSERT(end == 1, "Main branch progenitor should produce one workspace halo");
   TEST_ASSERT(workspace[0].galaxy != source.galaxy, "Inherited galaxy data must be deep-copied");
+#if GENERATED_INIT_REPEAT_PROPERTY_COUNT > 0
   TEST_ASSERT(generated_test_init_repeat_properties_equal_init(workspace[0].galaxy),
               "Snapshot accumulator properties should reset after deep copy");
   TEST_ASSERT(!generated_test_init_repeat_properties_equal_init(source.galaxy),
               "Source galaxy accumulators should remain untouched");
+#endif
   TEST_ASSERT(workspace[0].Type == 0, "FOF-central main branch should remain Type 0");
   TEST_ASSERT(workspace[0].HaloNr == descendant.halo_nr,
               "Inherited halo should point to descendant halo number");
