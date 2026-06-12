@@ -47,9 +47,45 @@ static inline void ensure_modules_registered(void) {
   }
 }
 
-/* Test fixture: Set all required model parameters
- * Defined in tests/unit/test_stubs.c - provides all required parameters */
-extern void set_test_model_parameters(void);
+/* Test fixture: set all required SAGE16 model parameters to standard test
+ * values (SAGE defaults). Model-owned: every model package provides its own
+ * parameter fixture; the core test stubs carry no model knowledge. */
+static inline void set_test_model_parameters(void) {
+  static const struct {
+    const char *name;
+    const char *value;
+  } params[] = {
+      /* Cosmological */
+      {"GlobalBaryonFraction", "0.17"},
+      /* Cooling & AGN feedback */
+      {"RadioModeEfficiency", "0.01"},
+      {"AGNrecipe", "1"},
+      /* Star formation */
+      {"SfrEfficiency", "0.02"},
+      /* Stellar feedback */
+      {"FeedbackReheatingEpsilon", "3.0"},
+      {"FeedbackEjectionEfficiency", "0.3"},
+      /* Stellar evolution */
+      {"RecycleFraction", "0.43"},
+      {"Yield", "0.03"},
+      {"FracZleaveDisk", "0.3"},
+      /* Reincorporation */
+      {"ReIncorporationFactor", "1.0"},
+      /* Mergers */
+      {"BlackHoleGrowthRate", "0.01"},
+      {"QuasarModeEfficiency", "0.001"},
+      {"ThresholdMajorMerger", "0.3"},
+      {"ThresholdSatDisruption", "1.0"},
+      /* Disk instability */
+      {"StarFormingDiskFactor", "3.0"},
+  };
+  const int n = (int)(sizeof(params) / sizeof(params[0]));
+  for (int i = 0; i < n; i++) {
+    strncpy(MimicConfig.ModelParams[i].param_name, params[i].name, MAX_STRING_LEN - 1);
+    strncpy(MimicConfig.ModelParams[i].value, params[i].value, MAX_STRING_LEN - 1);
+  }
+  MimicConfig.NumModelParams = n;
+}
 
 /* Test fixture: free the galaxy attached to a locally-built test halo */
 static inline void free_test_halo(struct Halo *halo) {

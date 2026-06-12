@@ -25,19 +25,8 @@
 static int passed = 0;
 static int failed = 0;
 
-/* Track whether modules have been registered */
-static int modules_registered = 0;
-
-/* Test fixture: reset configuration state */
-static void reset_config(void) { memset(&MimicConfig, 0, sizeof(MimicConfig)); }
-
-/* Test fixture: ensure modules are registered (only once) */
-static void ensure_modules_registered(void) {
-  if (!modules_registered) {
-    register_all_modules();
-    modules_registered = 1;
-  }
-}
+/* Shared core-test fixtures (config reset, registration) */
+#include "../framework/core_test_fixtures.h"
 
 /* Test fixture: Set test_fixture parameters in centralized model_parameters */
 static void set_test_fixture_params(double dummy_val, int logging_val) {

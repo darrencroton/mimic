@@ -17,7 +17,7 @@ Reads:
 Generates:
     src/module_system/generated/module_init.c      - Module registration code
     src/module_system/generated/event_contracts.h  - Event ID enums and module IDs
-    tests/generated/module_sources.mk                - Test build configuration
+    tests/generated/module_sources.txt               - Module source list for the unit-test runner
     build/generated/module_registry_hash.txt         - Validation hash
 
 Exit codes:
@@ -83,7 +83,7 @@ def print_warning(msg: str) -> None:
 # Output files
 MODULE_INIT_C = generated_module_dir() / "module_init.c"
 EVENT_CONTRACTS_H = generated_module_dir() / "event_contracts.h"
-MODULE_SOURCES_MK = REPO_ROOT / "tests" / "generated" / "module_sources.mk"
+MODULE_SOURCES_TXT = REPO_ROOT / "tests" / "generated" / "module_sources.txt"
 MODULE_HASH_FILE = REPO_ROOT / "build" / "generated" / "module_registry_hash.txt"
 
 # ==============================================================================
@@ -1049,17 +1049,21 @@ def generate_module_init_c(
 
 
 # ==============================================================================
-# CODE GENERATION - module_sources.mk
+# CODE GENERATION - module_sources.txt
 # ==============================================================================
 
 
-def generate_module_sources_mk(
+def generate_module_sources_list(
     modules: List[Dict[str, Any]],
     metadata_hash: str,
     output_path: Path,
     dry_run: bool = False,
 ) -> bool:
-    """Generate makefile fragment for test system."""
+    """Generate the module source list consumed by tests/unit/run_tests.sh.
+
+    Plain newline-separated paths ('#' comments allowed): the only consumer is
+    the shell runner, so no make syntax is involved.
+    """
 
     # Filter out utilities (is_utility: true) - they have no runtime source files
     runtime_modules = [m for m in modules if not m.get("is_utility", False)]
@@ -1071,28 +1075,21 @@ def generate_module_sources_mk(
     lines.extend(header.splitlines())
     lines.append("")
 
-    # Module source files
-    lines.append("# Module source files for unit testing")
-    lines.append("MODULE_SRCS = \\")
-    lines.append("    src/core/module_registry.c \\")
-
-    # Add each module's source files
+    # Module source files for unit testing, one per line
+    lines.append("src/core/module_registry.c")
     for module in runtime_modules:
         module_dir = module.get("_module_dir")
         if module_dir:
-            sources = module.get("sources", [])
-            for source in sources:
-                lines.append(f"    {rel(module_dir / source)} \\")
-
-    # Add module_init.c last (no backslash)
-    lines.append(f"    {rel(MODULE_INIT_C)}")
+            for source in module.get("sources", []):
+                lines.append(rel(module_dir / source))
+    lines.append(rel(MODULE_INIT_C))
     lines.append("")
 
     # Write file
     content = "\n".join(lines)
 
     if dry_run:
-        print("\n=== module_sources.mk (DRY RUN) ===")
+        print("\n=== module_sources.txt (DRY RUN) ===")
         print(content)
         return True
 
@@ -1326,8 +1323,8 @@ def main():
     success &= generate_module_init_c(
         sorted_modules, event_info, metadata_hash, MODULE_INIT_C, args.dry_run
     )
-    success &= generate_module_sources_mk(
-        sorted_modules, metadata_hash, MODULE_SOURCES_MK, args.dry_run
+    success &= generate_module_sources_list(
+        sorted_modules, metadata_hash, MODULE_SOURCES_TXT, args.dry_run
     )
     success &= generate_hash_file(metadata_hash, MODULE_HASH_FILE, args.dry_run)
 

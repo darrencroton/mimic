@@ -157,6 +157,26 @@ def generation_root(model: str, simulation: str) -> Path:
     return OUTPUT_ROOT / model / simulation
 
 
+def last_snapshot_index(sim_config_rel: str) -> int:
+    """Return the last snapshot index from the simulation's scale-factor list.
+
+    Test inputs must request snapshots that exist for the selected simulation
+    package, whatever its snapshot count -- nothing here assumes the
+    64-snapshot Millennium convention.
+    """
+    config = yaml.safe_load((REPO_ROOT / sim_config_rel).read_text(encoding="utf-8"))
+    a_list_rel = (config.get("input") or {}).get("snapshot_list_file")
+    if not a_list_rel:
+        raise ValueError(f"simulation config {sim_config_rel} lacks input.snapshot_list_file")
+    a_list = REPO_ROOT / a_list_rel
+    count = sum(
+        1 for raw in a_list.read_text(encoding="utf-8").splitlines() if raw.split("#", 1)[0].strip()
+    )
+    if count < 2:
+        raise ValueError(f"snapshot list {a_list} has fewer than 2 snapshots")
+    return count - 1
+
+
 def generate() -> None:
     model = selected_model()
     simulation = selected_simulation()
@@ -167,6 +187,10 @@ def generate() -> None:
     # This keeps tests fast and independent of local data availability.
     test_input = {"first_file": 0, "last_file": 0}
 
+    # Snapshot indices derive from the selected simulation's a_list (last and
+    # second-last snapshots) rather than hardcoding the mini-Millennium 63.
+    last_snap = last_snapshot_index(base["simulation"]["config"])
+
     write_run(
         output_root / "core" / "test_binary.yaml",
         base,
@@ -174,7 +198,7 @@ def generate() -> None:
         output_format="binary",
         output_directory="./tests/data/output/binary/",
         output_filename="model",
-        snapshot_list=[63],
+        snapshot_list=[last_snap],
         input_overrides=test_input,
     )
     write_run(
@@ -184,7 +208,7 @@ def generate() -> None:
         output_format="hdf5",
         output_directory="./tests/data/output/hdf5/",
         output_filename="model",
-        snapshot_list=[63],
+        snapshot_list=[last_snap],
         input_overrides=test_input,
     )
 
@@ -196,7 +220,7 @@ def generate() -> None:
         output_format="binary",
         output_directory="./tests/data/output/binary/",
         output_filename="model",
-        snapshot_list=[63],
+        snapshot_list=[last_snap],
         input_overrides=test_input,
     )
     write_run(
@@ -206,7 +230,7 @@ def generate() -> None:
         output_format="hdf5",
         output_directory="./tests/data/output/hdf5/",
         output_filename="model",
-        snapshot_list=[63],
+        snapshot_list=[last_snap],
         input_overrides=test_input,
     )
     write_run(
@@ -216,7 +240,7 @@ def generate() -> None:
         output_format="binary",
         output_directory="./tests/data/output/binary/",
         output_filename="model_uniquegalid",
-        snapshot_list=[62, 63],
+        snapshot_list=[last_snap - 1, last_snap],
         input_overrides=test_input,
     )
 

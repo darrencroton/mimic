@@ -27,16 +27,11 @@ static int passed = 0;
 static int failed = 0;
 
 /* External globals */
-extern struct MimicConfig MimicConfig;
 extern struct RawHalo *InputTreeHalos;
 extern double *Age_base; /* For cleanup of init() allocation */
 
-static const char *test_binary_param_file(void) {
-  static char path[MAX_STRING_LEN];
-  snprintf(path, sizeof(path), "build/generated/test_inputs/%s/%s/core/test_binary.yaml",
-           MIMIC_COMPILED_MODEL, MIMIC_COMPILED_SIMULATION);
-  return path;
-}
+/* Shared core-test fixtures (config reset, registration, generated run file path) */
+#include "../framework/core_test_fixtures.h"
 
 /**
  * @test    test_virial_mass_from_mvir

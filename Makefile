@@ -404,7 +404,6 @@ MODULE_YAML := $(wildcard $(MODEL_ROOT)/module_info.yaml) \
 
 # Generated module registration files
 MODULE_INIT_C := $(SRC_DIR)/module_system/generated/module_init.c
-MODULE_SOURCES_MK := tests/generated/module_sources.mk
 # Module validation script
 MODULE_VALIDATOR := scripts/validate_modules.py
 
@@ -497,7 +496,7 @@ help:
 	@echo ""
 	@echo "  Module metadata (models/<model>/modules/*/module_info.yaml):"
 	@echo "    - src/module_system/generated/module_init.c"
-	@echo "    - tests/generated/module_sources.mk"
+	@echo "    - tests/generated/module_sources.txt"
 
 # Show build configuration and detected libraries
 info:
