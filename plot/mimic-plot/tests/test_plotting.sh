@@ -1,6 +1,12 @@
 #!/bin/bash
 # Test script for mimic-plot.py functionality
 # Tests basic plotting operations with different command-line options
+#
+# This suite is deliberately standalone (not part of `make tests`): it needs
+# the plotting virtual environment (mimic_venv) and real Mimic output data
+# from a prior run of the default model. The Python unit tests it invokes
+# emit the standard MIMIC_RESULT markers; this driver itself gates on exit
+# codes via `set -e`.
 
 set -e  # Exit on first error
 
@@ -91,6 +97,9 @@ python3 "$SCRIPT_DIR/test_profile_inheritance.py"
 
 echo "Test 8: Snapshot redshift mapper unit tests"
 python3 "$SCRIPT_DIR/test_snapshot_redshift_mapper.py"
+
+echo "Test 9: Validation helper unit tests"
+python3 "$SCRIPT_DIR/test_validation_helpers.py"
 
 echo ""
 echo "=========================================="

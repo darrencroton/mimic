@@ -9,7 +9,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 MIMIC_PLOT_DIR = HERE.parent
+REPO_ROOT = HERE.parent.parent.parent
 sys.path.insert(0, str(MIMIC_PLOT_DIR))
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+
+from framework import run_test_suite
 
 
 def load_profile_helpers():
@@ -68,29 +72,13 @@ def test_profile_local_inheritance():
     assert profile["style"]["marker"] == "circle"
 
 
-def run_all_tests():
-    """Run all profile inheritance tests."""
-
-    tests = [test_profile_local_inheritance]
-    passed = 0
-    failed = 0
-
-    print("=" * 60)
-    print("Running plot profile inheritance unit tests")
-    print("=" * 60)
-
-    for test in tests:
-        try:
-            test()
-            print(f"PASS: {test.__name__}")
-            passed += 1
-        except Exception as exc:
-            print(f"FAIL: {test.__name__}: {exc}")
-            failed += 1
-
-    print(f"Results: {passed} passed, {failed} failed out of {len(tests)} tests")
-    return failed == 0
+def main():
+    """Run this file's tests via the shared framework runner."""
+    return run_test_suite(
+        [test_profile_local_inheritance],
+        "Plot Profile Inheritance (test_profile_inheritance.py)",
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(0 if run_all_tests() else 1)
+    sys.exit(main())

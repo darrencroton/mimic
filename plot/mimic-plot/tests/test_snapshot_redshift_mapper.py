@@ -6,8 +6,11 @@ import sys
 import tempfile
 
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+repo_root = os.path.dirname(os.path.dirname(parent_dir))
 sys.path.insert(0, parent_dir)
+sys.path.insert(0, os.path.join(repo_root, "tests"))
 
+from framework import run_test_suite
 from snapshot_redshift_mapper import read_expansion_factors
 
 
@@ -61,29 +64,20 @@ def test_read_expansion_factors_rejects_non_increasing():
     assert_rejects("0.1\n0.1\n", "strictly increasing")
 
 
-def run_all_tests():
-    tests = [
-        test_read_expansion_factors_accepts_valid_file,
-        test_read_expansion_factors_rejects_nan,
-        test_read_expansion_factors_rejects_inf,
-        test_read_expansion_factors_rejects_empty_file,
-        test_read_expansion_factors_rejects_non_positive,
-        test_read_expansion_factors_rejects_non_increasing,
-    ]
-    passed = 0
-    failed = 0
-    for test in tests:
-        try:
-            test()
-            print(f"{test.__name__}: PASS")
-            passed += 1
-        except AssertionError as exc:
-            print(f"{test.__name__}: FAIL: {exc}")
-            failed += 1
-
-    print(f"\nPassed: {passed}, Failed: {failed}")
-    return failed == 0
+def main():
+    """Run this file's tests via the shared framework runner."""
+    return run_test_suite(
+        [
+            test_read_expansion_factors_accepts_valid_file,
+            test_read_expansion_factors_rejects_nan,
+            test_read_expansion_factors_rejects_inf,
+            test_read_expansion_factors_rejects_empty_file,
+            test_read_expansion_factors_rejects_non_positive,
+            test_read_expansion_factors_rejects_non_increasing,
+        ],
+        "Snapshot Scale-Factor Validation (test_snapshot_redshift_mapper.py)",
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(0 if run_all_tests() else 1)
+    sys.exit(main())

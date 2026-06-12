@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
 Unit tests for the SAGE-native HDF5 reader (plot/mimic-plot/sage_native_hdf5.py).
