@@ -4,9 +4,6 @@ Test Harness Utilities for Mimic
 Centralized test utilities for integration and scientific testing.
 Eliminates code duplication across test files.
 
-Phase: Phase 4.2 (Testing Framework Refinement)
-Author: Mimic Testing Team
-Date: 2025-12-09 (Updated for multi-phase pipeline)
 """
 
 import json
@@ -15,6 +12,8 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+
+from .markers import TestSkipped
 
 # Repository paths
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -63,10 +62,8 @@ def is_default_baseline_combo():
     return compiled_model() == default_model() and compiled_simulation() == default_simulation()
 
 
-def skip_non_default_baseline(test_name):
+def skip_non_default_baseline():
     """Raise TestSkipped for default-package baseline regressions."""
-    from .markers import TestSkipped
-
     raise TestSkipped(
         f"committed baseline is for MODEL={default_model()} "
         f"SIMULATION={default_simulation()}, but this run selected "

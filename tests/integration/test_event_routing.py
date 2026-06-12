@@ -11,25 +11,6 @@ Test infrastructure used:
   - test_event_consumer_alpha: process_per_event; subscribes to test_event
   - test_event_consumer_beta:  process_per_event; subscribes to test_event_alt
 
-Test cases:
-  - test_routing_single_consumer_receives_events:
-        A subscribed consumer receives routed events.
-  - test_routing_unsubscribed_consumer_receives_no_events:
-        A consumer whose subscription does not match the emitted event
-        receives zero events (no spurious delivery).
-  - test_routing_two_consumers_different_subscriptions:
-        Two consumers with different subscriptions each receive only
-        their respective event type (one producer, two events).
-
-Test cases also cover:
-  - test_routing_multiple_producers_in_one_phase:
-        test_event_producer (emits test_event → alpha) and test_event_producer_b
-        (emits test_event_b → gamma) run in the same phase; each consumer receives
-        only its producer's events.
-
-Author: Mimic Testing Team
-Date: 2026-03-18
-Phase: Phase 5 (Event System Implementation)
 """
 
 import re

@@ -3,7 +3,6 @@
 SubSteps Time-Stepping and ModuleContext Validation Test
 
 Validates: SubSteps parameter creates substep loop with correct ModuleContext
-Phase: Phase 3+ (Multi-Phase Pipeline)
 
 This test validates that the SubSteps parameter correctly implements time
 sub-stepping for numerical stability, and that modules receive accurate
@@ -13,14 +12,6 @@ context information:
   - substep_dt: Equals time_interval / SubSteps
   - redshift, time: Set correctly from snapshot data
 
-Test cases:
-  - test_substeps_creates_loop: SubSteps > 1 creates substep loop
-  - test_substep_dt_calculation: substep_dt = time_interval / SubSteps
-  - test_module_context_fields: All ModuleContext fields set correctly
-  - test_substeps_one_no_loop: SubSteps=1 means no sub-stepping (single timestep)
-
-Author: Mimic Testing Team
-Date: 2025-12-09
 """
 
 import re

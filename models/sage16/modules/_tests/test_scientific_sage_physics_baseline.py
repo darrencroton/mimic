@@ -82,7 +82,7 @@ def test_sage_physics_baseline():
     if compiled_model() != "sage16":
         raise TestSkipped(f"MODEL={compiled_model()}, this baseline is SAGE-specific")
     if not is_default_baseline_combo():
-        skip_non_default_baseline("SAGE full-physics baseline")
+        skip_non_default_baseline()
 
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")

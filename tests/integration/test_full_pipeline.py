@@ -3,7 +3,6 @@
 Full Pipeline Integration Test
 
 Validates: Complete Mimic execution from input to output
-Phase: Phase 2 (Testing Framework)
 
 This test validates that the full Mimic pipeline executes successfully:
 - Reads parameter file correctly
@@ -13,14 +12,6 @@ This test validates that the full Mimic pipeline executes successfully:
 - Completes with zero memory leaks
 - Produces expected output structure
 
-Test cases:
-  - test_basic_execution: Mimic runs to completion
-  - test_output_files_created: Output files exist
-  - test_no_memory_leaks: Zero memory leaks reported
-  - test_output_loadable: Output files can be read
-
-Author: Mimic Testing Team
-Date: 2025-11-08
 """
 
 import sys
@@ -237,7 +228,6 @@ def main():
     Main test runner
 
     Executes all test cases and reports results.
-    Can be run directly or via pytest.
     """
     # Print test suite header
     print(f"{BLUE}{'=' * 60}{NC}")

@@ -3,7 +3,6 @@
  * @brief   Unit tests for numerical utility functions
  *
  * Validates: Safe floating-point comparison and numerical stability utilities
- * Phase: Phase 2 (Testing Framework)
  *
  * This test validates that Mimic's numerical utilities correctly:
  * - Detect effectively zero values
@@ -11,16 +10,6 @@
  * - Handle edge cases (zero, infinity, NaN)
  * - Provide consistent comparison results
  * - Handle range checking
- *
- * Test cases:
- *   - test_is_zero: Zero detection with tolerance
- *   - test_is_equal: Equality comparison with tolerance
- *   - test_comparison_operators: Greater/less than comparisons
- *   - test_range_checking: Value within range
- *   - test_edge_cases: NaN, Inf, and extreme values
- *
- * @author  Mimic Testing Team
- * @date    2025-11-08
  */
 
 #include "../framework/test_framework.h"

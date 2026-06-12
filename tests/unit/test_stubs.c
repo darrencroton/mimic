@@ -4,9 +4,6 @@
  *
  * Provides minimal implementations of functions from main.c that are
  * needed by unit tests but can't be linked from main.c (which has main()).
- *
- * @author  Mimic Testing Team
- * @date    2025-11-08
  */
 
 #include <stdio.h>

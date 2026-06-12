@@ -5,8 +5,7 @@ Event Schema Validation Tests
 Validates that the module registry generator rejects invalid event
 declarations with clear error messages.
 
-Tests the generator-level checks called out in the plan
-(docs/EVENT-SYSTEM-IMPROVEMENTS.md §444-449):
+Tests the generator-level event-declaration checks:
 
   - duplicate emitted event names within a producer
   - consumer subscribing to a producer that has no events.emits
@@ -20,9 +19,6 @@ These tests call the generator's pure validation functions directly
 Runtime/phase validation (invalid mode/event combinations at startup)
 is covered in tests/integration/test_processing_modes.py.
 
-Author: Mimic Testing Team
-Date: 2026-03-18
-Phase: Phase 5 (Event System Implementation)
 """
 
 import sys

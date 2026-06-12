@@ -197,7 +197,6 @@ def main():
     Main test runner
 
     Executes all scientific validation tests and reports results.
-    Can be run directly or via pytest.
     """
     # Print test suite header
     print(f"{BLUE}{'=' * 60}{NC}")
@@ -282,14 +281,12 @@ TEMPLATE USAGE INSTRUCTIONS:
    - Rough comparison to literature: 0.5 (50%)
    - Document why tolerance is chosen
 
-5. Add test to pytest discovery:
-   - Tests automatically discovered by pytest
-   - Or run directly: python test_yourname.py
-
-6. Verify test works:
-   - Run: python test_yourname.py
-   - Or: pytest test_yourname.py -v
-   - Or: make tests-scientific
+5. Verify test works:
+   - Run directly: python3 test_yourname.py
+   - Or via the suite: make tests-scientific
+   (Core tests under tests/scientific/ are auto-discovered by
+   scripts/generate_test_registry.py; module tests register via
+   module_info.yaml.)
 
 VALIDATION STRATEGIES:
 =====================

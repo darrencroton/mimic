@@ -12,12 +12,8 @@
 #
 # Exit codes:
 #   0 - All tests passed
-#   1 - One or more tests failed
-#   2 - Compilation error
-#
-# Author: Mimic Testing Team
-# Date: 2025-11-08
-# Phase: Phase 2 (Testing Framework)
+#   1 - One or more tests failed (including compilation failures)
+#   2 - Test preamble failed (code generation / registry refresh)
 ###############################################################################
 
 # Detect compiler failures even when piping to tee for logs
@@ -152,7 +148,6 @@ LDFLAGS="-lm ${YAML_LDFLAGS}"
 UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c"
 CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/virial.c ${SRC_DIR}/core/inheritance.c ${SRC_DIR}/core/output_buffer.c ${SRC_DIR}/core/galaxy_pool.c"
 IO_SRCS="${SRC_DIR}/io/tree/interface.c ${SRC_DIR}/io/tree/binary.c ${SRC_DIR}/io/output/util.c ${SRC_DIR}/io/output/binary.c"
-GENERATED_SRCS=""
 TEST_STUBS="${TEST_DIR}/test_stubs.c"
 
 # Module system sources - Auto-generated from module metadata
@@ -171,7 +166,7 @@ else
 fi
 
 # Combine all necessary sources (excluding main.c)
-ALL_SRCS="${UTIL_SRCS} ${CORE_SRCS} ${IO_SRCS} ${GENERATED_SRCS} ${MODULE_SRCS} ${TEST_STUBS}"
+ALL_SRCS="${UTIL_SRCS} ${CORE_SRCS} ${IO_SRCS} ${MODULE_SRCS} ${TEST_STUBS}"
 
 # Test list (can be overridden by command line argument)
 if [ $# -gt 0 ]; then

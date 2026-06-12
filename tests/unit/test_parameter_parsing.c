@@ -3,7 +3,6 @@
  * @brief   Unit tests for parameter file parsing
  *
  * Validates: Configuration file parsing and parameter validation
- * Phase: Phase 2 (Testing Framework)
  *
  * This test validates that Mimic's parameter file parser correctly:
  * - Reads parameter files without errors
@@ -11,16 +10,6 @@
  * - Handles comments and whitespace
  * - Handles YAML snapshot lists
  * - Populates MimicConfig structure correctly
- *
- * Test cases:
- *   - test_basic_parsing: Parse test_binary.yaml successfully
- *   - test_integer_parameters: Integer parameters read correctly
- *   - test_float_parameters: Float parameters read correctly
- *   - test_string_parameters: String parameters read correctly
- *   - test_cosmology_parameters: Cosmological parameters read correctly
- *
- * @author  Mimic Testing Team
- * @date    2025-11-08
  */
 
 #include "../../src/include/proto.h"

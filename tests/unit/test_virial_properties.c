@@ -3,7 +3,6 @@
  * @brief   Unit tests for virial property calculations
  *
  * Validates: Halo virial mass, radius, and velocity calculations
- * Phase: Phase 4 (Test Coverage Enhancement)
  *
  * This test validates that Mimic's virial property calculations correctly:
  * - Calculate virial mass from Mvir or particle count
@@ -11,18 +10,6 @@
  * - Calculate virial velocity from mass and radius
  * - Maintain consistency relations (e.g., Vvir ∝ Mvir^(1/3))
  * - Handle edge cases (zero values, satellites)
- *
- * Test cases:
- *   - test_virial_mass_from_mvir: Virial mass when Mvir available
- *   - test_virial_mass_zero_catalog_central: Central Mvir=0 uses catalog value
- *   - test_virial_mass_from_particles: Virial mass from particle count
- *   - test_virial_radius_calculation: Virial radius physics
- *   - test_virial_velocity_calculation: Virial velocity from mass/radius
- *   - test_virial_consistency_relations: Vvir^2 ∝ Mvir/Rvir
- *   - test_virial_edge_cases: Zero mass, satellites
- *
- * @author  Mimic Testing Team
- * @date    2025-11-23
  */
 
 #include "../framework/test_framework.h"

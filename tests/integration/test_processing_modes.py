@@ -1,27 +1,15 @@
 #!/usr/bin/env python3
 """
-Processing Mode Behavior Test - PROCESSING_MODE_ALL vs PROCESSING_MODE_ONCE
+Processing Mode Behavior Test - process_full_halo vs process_by_galaxy
 
-Validates: Loop modes control how modules process galaxies
-Phase: Phase 3+ (Multi-Phase Pipeline)
+Validates: Processing modes control how modules receive galaxies, and that
+process_per_event configuration errors fail fast at startup.
 
-This test validates that the two processing modes behave correctly:
-  - PROCESSING_MODE_ONCE: Module receives full galaxy array (ngal > 1)
-  - PROCESSING_MODE_ALL: Module called once per galaxy (ngal = 1)
-
-Loop modes enable different execution patterns:
-  - PROCESSING_MODE_ONCE: Efficient array processing
-  - PROCESSING_MODE_ALL: Galaxy-major loop for cache locality
-
-Test cases:
-  - test_processing_mode_once_array_processing: Module receives full array
-  - test_processing_mode_all_per_galaxy: Module called once per galaxy
-  - test_processing_mode_all_ngal_is_one: Verify ngal=1 for each call
-  - test_processing_mode_per_event_no_emissions: No-op when no producer emits events
-  - test_processing_mode_per_event_mode_mismatch_fails: Validation rejects unsupported mode
-
-Author: Mimic Testing Team
-Date: 2025-12-09
+  - process_full_halo: module receives the full FoF workspace (ngal >= 1)
+  - process_by_galaxy: module is called once per galaxy (ngal = 1),
+    giving the galaxy-major loop for cache locality
+  - process_per_event: requires declared subscriptions and module support;
+    invalid configurations are rejected at startup
 """
 
 import re
@@ -81,21 +69,21 @@ def parse_test_fixture_executions(stdout):
     return executions
 
 
-def test_processing_mode_once_array_processing():
+def test_full_halo_mode_array_processing():
     """
-    Test that PROCESSING_MODE_ONCE passes full galaxy array to module
+    Test that process_full_halo passes the full FoF workspace to the module
 
     Expected: Module receives ngal > 1 (full array of galaxies in FOF group)
-    Validates: PROCESSING_MODE_ONCE enables efficient array processing
+    Validates: process_full_halo enables whole-workspace array processing
     """
-    print("Testing PROCESSING_MODE_ONCE array processing...")
+    print("Testing process_full_halo array processing...")
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="loop_once",
         phase_config={
             "pre_timestep": [],
-            "galaxy_physics": [("test_fixture", "process_full_halo")],  # PROCESSING_MODE_ONCE
+            "galaxy_physics": [("test_fixture", "process_full_halo")],
             "satellite_mergers": [],
             "post_timestep": [],
         },
@@ -123,7 +111,7 @@ def test_processing_mode_once_array_processing():
         # Parse executions
         all_executions = parse_test_fixture_executions(stdout)
 
-        # With PROCESSING_MODE_ONCE, module is called once per FOF group
+        # With process_full_halo, the module is called once per FOF group
         # Total executions should equal number of FOF groups
         num_fof_groups = len(all_executions)
 
@@ -142,7 +130,7 @@ def test_processing_mode_once_array_processing():
         avg_ngal = sum(ngal_values) / len(ngal_values)
         max_ngal = max(ngal_values)
 
-        print(f"  ✓ PROCESSING_MODE_ONCE passes full array to module:")
+        print(f"  ✓ process_full_halo passes the full workspace to the module:")
         print(f"    - {num_fof_groups} FOF groups processed")
         print(f"    - Average galaxies per FOF group: {avg_ngal:.1f}")
         print(f"    - Largest FOF group: {max_ngal} galaxies")
@@ -153,21 +141,21 @@ def test_processing_mode_once_array_processing():
         shutil.rmtree(temp_dir)
 
 
-def test_processing_mode_all_per_galaxy():
+def test_by_galaxy_mode_per_galaxy():
     """
-    Test that PROCESSING_MODE_ALL calls module once per galaxy
+    Test that process_by_galaxy calls the module once per galaxy
 
     Expected: Module called many times, once for each galaxy
-    Validates: PROCESSING_MODE_ALL implements galaxy-major loop
+    Validates: process_by_galaxy implements the galaxy-major loop
     """
-    print("Testing PROCESSING_MODE_ALL per-galaxy processing...")
+    print("Testing process_by_galaxy per-galaxy processing...")
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="loop_all",
         phase_config={
             "pre_timestep": [],
-            "galaxy_physics": [("test_fixture", "process_by_galaxy")],  # PROCESSING_MODE_ALL
+            "galaxy_physics": [("test_fixture", "process_by_galaxy")],
             "satellite_mergers": [],
             "post_timestep": [],
         },
@@ -195,7 +183,7 @@ def test_processing_mode_all_per_galaxy():
         # Parse executions
         all_executions = parse_test_fixture_executions(stdout)
 
-        # With PROCESSING_MODE_ALL, module is called once per galaxy
+        # With process_by_galaxy, the module is called once per galaxy
         # Total executions should be much larger than number of FOF groups
         total_executions = len(all_executions)
 
@@ -205,16 +193,16 @@ def test_processing_mode_all_per_galaxy():
         # Count ngal=1 executions
         ngal_one_count = sum(1 for ngal in ngal_values if ngal == 1)
 
-        # With PROCESSING_MODE_ALL, vast majority should be ngal=1
+        # With process_by_galaxy, the vast majority should be ngal=1
         # (Some may be FOF groups with 1 galaxy where ngal=1 anyway)
         percent_ngal_one = (ngal_one_count / total_executions) * 100
 
-        # We expect nearly all (>95%) to be ngal=1 with PROCESSING_MODE_ALL
+        # We expect nearly all (>95%) to be ngal=1 with process_by_galaxy
         assert (
             percent_ngal_one > 95
         ), f"Expected >95% of executions with ngal=1, got {percent_ngal_one:.1f}%"
 
-        print(f"  ✓ PROCESSING_MODE_ALL calls module once per galaxy:")
+        print(f"  ✓ process_by_galaxy calls the module once per galaxy:")
         print(f"    - {total_executions} total module calls")
         print(f"    - {ngal_one_count} calls with ngal=1 ({percent_ngal_one:.1f}%)")
         print(f"    - Module processes galaxies individually (galaxy-major loop)")
@@ -224,21 +212,21 @@ def test_processing_mode_all_per_galaxy():
         shutil.rmtree(temp_dir)
 
 
-def test_processing_mode_all_ngal_is_one():
+def test_by_galaxy_mode_ngal_is_one():
     """
-    Test that PROCESSING_MODE_ALL always passes ngal=1 to module
+    Test that process_by_galaxy always passes ngal=1 to the module
 
     Expected: Every module call should have ngal=1 (single galaxy)
     Validates: Galaxy-major loop processes one galaxy at a time
     """
-    print("Testing PROCESSING_MODE_ALL ngal=1 invariant...")
+    print("Testing process_by_galaxy ngal=1 invariant...")
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="loop_all_ngal",
         phase_config={
             "pre_timestep": [],
-            "galaxy_physics": [("test_fixture", "process_by_galaxy")],  # PROCESSING_MODE_ALL
+            "galaxy_physics": [("test_fixture", "process_by_galaxy")],
             "satellite_mergers": [],
             "post_timestep": [],
         },
@@ -270,15 +258,15 @@ def test_processing_mode_all_ngal_is_one():
         sample_size = min(100, len(all_executions))
         sample_executions = all_executions[:sample_size]
 
-        # ALL should have ngal=1 with PROCESSING_MODE_ALL
+        # Every call should have ngal=1 with process_by_galaxy
         ngal_values = [e["ngal"] for e in sample_executions]
 
         # Verify all are ngal=1
         assert all(
             ngal == 1 for ngal in ngal_values
-        ), f"Expected all ngal=1 with PROCESSING_MODE_ALL, got {set(ngal_values)}"
+        ), f"Expected all ngal=1 with process_by_galaxy, got {set(ngal_values)}"
 
-        print(f"  ✓ PROCESSING_MODE_ALL invariant verified:")
+        print(f"  ✓ process_by_galaxy invariant verified:")
         print(f"    - Checked {sample_size} module calls")
         print(f"    - All have ngal=1 (single galaxy per call)")
         print(f"    - Confirms galaxy-major execution pattern")
@@ -301,7 +289,7 @@ def test_processing_mode_per_event_no_emissions():
     Expected: Run fails with a clear error about missing subscriptions
     Validates: validate_event_subscriptions() startup check (module_registry.c)
     """
-    print("Testing PROCESSING_MODE_PER_EVENT subscription requirement...")
+    print("Testing process_per_event subscription requirement...")
 
     # ===== SETUP =====
     # test_fixture has no events.consumes — configuring it as process_per_event
@@ -333,7 +321,7 @@ def test_processing_mode_per_event_no_emissions():
             "declares no event subscriptions" in combined
         ), f"Expected subscription-missing error in output, got:\n{combined}"
 
-        print("  ✓ PROCESSING_MODE_PER_EVENT subscription requirement validated")
+        print("  ✓ process_per_event subscription requirement validated")
         print("    - Run correctly rejected at startup")
         print("    - Error message references missing subscriptions")
 
@@ -349,7 +337,7 @@ def test_processing_mode_per_event_mode_mismatch_fails():
     Expected: module_system_init reports mode mismatch and exits non-zero
     Validates: mode support checks include process_per_event
     """
-    print("Testing PROCESSING_MODE_PER_EVENT mode-mismatch validation...")
+    print("Testing process_per_event mode-mismatch validation...")
 
     # ===== SETUP =====
     param_file, output_dir, temp_dir = create_test_param_file(
@@ -376,7 +364,7 @@ def test_processing_mode_per_event_mode_mismatch_fails():
             "does not support processing mode 'process_per_event'" in combined_output
         ), "Expected clear processing mode mismatch message"
 
-        print("  ✓ PROCESSING_MODE_PER_EVENT mismatch rejected as expected")
+        print("  ✓ process_per_event mismatch rejected as expected")
         print("    - Run failed fast during mode validation")
 
     finally:
@@ -392,16 +380,14 @@ def main():
     """
     # Print test suite header
     print(f"{BLUE}{'=' * 60}{NC}")
-    print(
-        f"{BLUE}Test Suite: Processing Mode Behavior (ONCE vs ALL) (test_processing_modes.py){NC}"
-    )
+    print(f"{BLUE}Test Suite: Processing Mode Behavior (test_processing_modes.py){NC}")
     print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
     tests = [
-        test_processing_mode_once_array_processing,
-        test_processing_mode_all_per_galaxy,
-        test_processing_mode_all_ngal_is_one,
+        test_full_halo_mode_array_processing,
+        test_by_galaxy_mode_per_galaxy,
+        test_by_galaxy_mode_ngal_is_one,
         test_processing_mode_per_event_no_emissions,
         test_processing_mode_per_event_mode_mismatch_fails,
     ]

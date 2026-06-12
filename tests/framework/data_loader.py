@@ -5,8 +5,6 @@ Data Loader for Mimic Binary Output
 Provides utilities for loading and validating Mimic binary output files.
 Used by scientific tests to validate halo properties.
 
-Author: Mimic Testing Team
-Date: 2025-11-08
 """
 
 import sys

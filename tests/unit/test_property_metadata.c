@@ -3,7 +3,6 @@
  * @brief   Unit tests for property metadata system
  *
  * Validates: Generated property structures and metadata correctness
- * Phase: Phase 2 (Testing Framework)
  *
  * This test validates that the property metadata system correctly:
  * - Generates struct Halo with expected properties
@@ -11,16 +10,6 @@
  * - Generates struct HaloOutput with expected properties
  * - Maintains consistent sizes and layouts
  * - Properly separates halo tracking from galaxy physics
- *
- * Test cases:
- *   - test_halo_structure: Halo struct contains expected fields
- *   - test_galaxy_structure: GalaxyData struct exists for selected model fields
- *   - test_output_structure: HaloOutput struct contains expected fields
- *   - test_structure_sizes: Struct sizes are reasonable
- *   - test_galaxy_separation: Galaxy pointer properly separates physics
- *
- * @author  Mimic Testing Team
- * @date    2025-11-08
  */
 
 #include "../framework/test_framework.h"

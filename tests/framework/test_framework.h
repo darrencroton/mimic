@@ -28,10 +28,6 @@
  *       TEST_SUMMARY();
  *       return TEST_RESULT();
  *   }
- *
- * @author  Mimic Development Team
- * @date    2025-11-08
- * @version 1.0 (Phase 2: Testing Framework)
  */
 
 #ifndef TEST_FRAMEWORK_H

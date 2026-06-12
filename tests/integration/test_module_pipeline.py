@@ -10,14 +10,10 @@ This test validates that Mimic's module system works end-to-end:
 - Different module combinations work correctly
 - Log messages confirm module initialization
 
-Phase: Phase 3 (Runtime Module Configuration)
-Author: Mimic Development Team
-Date: 2025-11-09
 """
 
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -28,9 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
     MIMIC_EXE,
-    REPO_ROOT,
     create_test_param_file,
-    read_param_file,
     result_error,
     result_fail,
     result_pass,
@@ -72,20 +66,11 @@ class TestModulePipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test environment once for all tests."""
-        # Get repository root
-        cls.repo_root = str(REPO_ROOT)
-
-        # Path to mimic executable
-        cls.mimic_exe = str(MIMIC_EXE)
-
         # Check mimic is compiled
         if not MIMIC_EXE.exists():
             raise RuntimeError(
                 f"Mimic executable not found at {MIMIC_EXE}. " "Run 'make' to compile."
             )
-
-        # Reference parameter file
-        cls.ref_param_file = os.path.join(cls.repo_root, "input", "mini-millennium.yaml")
 
         # Create temporary directory for test outputs
         cls.temp_dir = tempfile.mkdtemp(prefix="mimic_module_test_")

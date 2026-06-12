@@ -15,9 +15,6 @@ Generates:
     build/generated/scientific_tests.txt  - Scientific test paths
     build/generated/test_registry_hash.txt - Validation hash
 
-Author: Mimic Development Team
-Date: 2025-11-12
-Phase: Phase 4.2 (Test Architecture Refactor)
 """
 
 import argparse

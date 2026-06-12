@@ -3,7 +3,6 @@
 Output Format Integration Test
 
 Validates: Binary and HDF5 output format correctness and baseline comparison
-Phase: Phase 3 (Testing Framework Enhancement)
 
 This test validates that Mimic's output system correctly:
 - Produces binary output files with correct structure
@@ -12,16 +11,6 @@ This test validates that Mimic's output system correctly:
 - Output matches baseline reference data
 - Both formats contain equivalent halo counts
 
-Test cases:
-  - test_binary_format_execution: Binary format end-to-end execution
-  - test_binary_format_loading: Binary output can be loaded
-  - test_binary_baseline_comparison: Binary output matches baseline
-  - test_hdf5_format_execution: HDF5 format end-to-end execution (if available)
-  - test_hdf5_format_loading: HDF5 output can be loaded (if available)
-  - test_hdf5_baseline_comparison: HDF5 output matches baseline (if available)
-
-Author: Mimic Testing Team
-Date: 2025-11-10
 """
 
 import json
@@ -610,7 +599,7 @@ def test_binary_baseline_comparison():
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
     if not is_default_baseline_combo():
-        skip_non_default_baseline("binary baseline comparison")
+        skip_non_default_baseline()
 
     # Load current test output
     output_dir = TEST_DATA_DIR / "output" / "binary"
@@ -852,7 +841,7 @@ def test_hdf5_baseline_comparison():
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
     if not is_default_baseline_combo():
-        skip_non_default_baseline("HDF5 baseline comparison")
+        skip_non_default_baseline()
 
     # Check if HDF5 is supported
     if not check_hdf5_support():

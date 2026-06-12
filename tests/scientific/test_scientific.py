@@ -3,7 +3,6 @@
 Scientific Validation Test (Metadata-Driven)
 
 Validates: Physical correctness and reasonable ranges of ALL output properties
-Phase: Phase 3 (Metadata-Driven Testing)
 
 This comprehensive test dynamically validates ALL output properties based on YAML metadata:
 - NaN/Inf Detection: Checks ALL floating-point properties (FAIL if found)
@@ -22,8 +21,6 @@ Validation Rules Source:
 
 Note: Internal units are 10^10 Msun/h for masses
 
-Author: Mimic Testing Team
-Date: 2025-11-11 (Updated for metadata-driven validation)
 """
 
 import json

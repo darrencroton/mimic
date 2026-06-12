@@ -3,20 +3,8 @@
  * @brief   Unit tests for multi-phase module configuration system
  *
  * Validates: Module registration, phase-based configuration, pipeline execution
- * Phase: Phase 3 (Runtime Module Configuration)
  *
  * Validates module registration and multi-phase execution pipeline configuration.
- *
- * Test cases:
- *   - test_module_registry_init: Registry initialization
- *   - test_phase_configuration: Parse multi-phase pipeline structure
- *   - test_physics_free_mode: No modules enabled (empty phases)
- *   - test_valid_module_initialization: Initialize modules across phases
- *   - test_unknown_module_error: Invalid module name handling
- *   - test_single_phase_configuration: Single phase with modules
- *
- * @author  Mimic Development Team
- * @date    2025-12-09
  */
 
 #include "../framework/test_framework.h"

@@ -3,7 +3,6 @@
  * @brief   Unit tests for memory management system
  *
  * Validates: Memory allocation, deallocation, leak detection, and categorization
- * Phase: Phase 2 (Testing Framework)
  *
  * This test validates that Mimic's memory management system correctly:
  * - Initializes without errors
@@ -11,16 +10,6 @@
  * - Tracks memory by category
  * - Detects memory leaks
  * - Handles reallocations
- *
- * Test cases:
- *   - test_memory_init: System initialization
- *   - test_basic_allocation: Simple malloc/free
- *   - test_categorized_allocation: Category tracking
- *   - test_reallocation: Memory reallocation
- *   - test_leak_detection: Leak detection works
- *
- * @author  Mimic Testing Team
- * @date    2025-11-08
  */
 
 #include "../framework/test_framework.h"

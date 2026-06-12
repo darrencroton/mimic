@@ -3,7 +3,6 @@
 Multi-Phase Pipeline Execution Order and Frequency Test
 
 Validates: Phase execution order and execution frequency with SubSteps
-Phase: Phase 3+ (Multi-Phase Pipeline)
 
 This test validates that the multi-phase pipeline executes phases in the
 correct order and with the correct frequency:
@@ -12,15 +11,6 @@ correct order and with the correct frequency:
   - satellite_mergers: Runs SubSteps times DURING substep loop (once per substep)
   - post_timestep: Runs exactly once AFTER substep loop
 
-Test cases:
-  - test_pre_timestep_frequency: Pre-timestep runs exactly once
-  - test_galaxy_physics_frequency: galaxy_physics runs SubSteps times
-  - test_satellite_mergers_frequency: satellite_mergers runs SubSteps times
-  - test_post_timestep_frequency: Post-timestep runs exactly once
-  - test_all_phases_execution_order: All phases execute in correct order
-
-Author: Mimic Testing Team
-Date: 2025-12-09
 """
 
 import re

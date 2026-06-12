@@ -3,19 +3,10 @@
  * @brief   Unit tests for init_repeat property reset behavior
  *
  * Validates: Properties with init_repeat: true reset each snapshot
- * Phase: Property Reset Implementation
  *
  * This test validates that Mimic generates and compiles snapshot-scoped
  * property reset code from the selected model metadata. Hand-written core
  * tests must not name model-owned galaxy fields directly.
- *
- * Test cases:
- *   - test_generated_metadata_available: Verify generated helper metadata exists
- *   - test_generated_init_code_executes: Verify generated init code resets all default properties
- *   - test_generated_reset_code_executes: Verify init_repeat fields reset to init_value
- *
- * @author  Mimic Testing Team
- * @date    2025-12-03
  */
 
 #include "../framework/test_framework.h"
