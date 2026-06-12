@@ -1,21 +1,31 @@
 #!/usr/bin/env python3
 """
-[TEST NAME] - Scientific Validation Test
+[TEST NAME] - Scientific Validation Test (template)
 
-Validates: [PHYSICS REQUIREMENT OR CONSERVATION LAW]
-Reference: [PUBLISHED PAPER OR KNOWN RESULT IF APPLICABLE]
-Phase: [ROADMAP PHASE - e.g., Phase 2, Phase 6, etc.]
+HOW TO USE THIS TEMPLATE (works for any model package):
 
-This test validates [detailed explanation of what physics is being tested].
-It checks [specific conservation laws, property ranges, or scientific requirements].
+  1. Copy to tests/scientific/test_<name>.py (core, model-neutral physics) or
+     models/<model>/modules/_tests/test_scientific_<name>.py (model-owned,
+     declared under tests: scientific: in a module_info.yaml).
+  2. Replace the placeholder docstrings and example checks with the physics
+     requirement being validated; cite the published result if there is one.
+  3. Verify: python3 tests/scientific/test_<name>.py, or make tests-scientific.
 
-Test cases:
-  - test_[physics_property_1]: [Description]
-  - test_[conservation_law_1]: [Description]
-  - test_[property_range_1]: [Description]
+WHAT THE SCIENTIFIC TIER VALIDATES:
+  - Fundamental physics of a full run, not implementation details:
+    sanity (no NaN/Inf, positive masses), conservation laws, property
+    ranges, ensemble statistics against known results.
+  - Note that tests/scientific/test_scientific.py already validates ALL
+    output properties against the ranges and sentinels declared in the
+    property YAML metadata — add a new scientific test only for physics
+    that metadata cannot express (relations between properties,
+    statistics, literature comparisons).
 
-Author: [YOUR NAME]
-Date: [DATE]
+TOLERANCE GUIDANCE (document why each tolerance is chosen):
+  - Exact conservation: ~1e-10 (numerical precision)
+  - Approximate conservation: ~1e-2 (1%)
+  - Rough comparison to literature: up to ~0.5 (50%)
+  - Committed-baseline comparisons: use framework baseline_rtol()
 """
 
 import sys
@@ -24,302 +34,75 @@ from pathlib import Path
 import numpy as np
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-
-# Add tests framework to path for summary markers and shared helpers
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import TestSkipped, result_error, result_fail, result_pass, result_skip
 
-# Add plot/mimic-plot to path for data loading utilities
-sys.path.insert(0, str(REPO_ROOT / "plot" / "mimic-plot"))
-
-# You may need to import plotting utilities for data loading
-# from mimic_plot import load_binary_data, load_hdf5_data
-
-# ANSI color codes (module-level constants)
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
+from framework import (
+    TEST_DATA_DIR,
+    core_input_file,
+    load_binary_halos,
+    run_mimic_fresh,
+    run_test_suite,
+)
 
 
-def load_halos(snapshot_file):
-    """
-    Load halo properties from output file
-
-    Args:
-        snapshot_file (str): Path to snapshot output file
-
-    Returns:
-        np.ndarray: Structured array with halo properties
-
-    TODO: Implement using existing plotting infrastructure
-    See plot/mimic-plot/ for reference implementations
-    """
-    # Use existing data loading utilities
-    raise NotImplementedError("Implement using mimic-plot utilities")
+def regenerate_output():
+    """Run Mimic fresh and return the output path (see test_scientific.py)."""
+    output_file = TEST_DATA_DIR / "output" / "binary" / "model_z0.000_0"
+    run_mimic_fresh(core_input_file("test_binary.yaml"), output_file)
+    return output_file
 
 
 def test_physics_sanity_check():
-    """
-    [ONE-LINE DESCRIPTION OF PHYSICS SANITY CHECK]
+    """[ONE-LINE DESCRIPTION OF THE PHYSICS SANITY CHECK]
 
     Expected: [PHYSICALLY REASONABLE VALUES]
-    Validates: [BASIC PHYSICS CORRECTNESS]
-
-    Detailed explanation of what physical properties are checked...
     """
-    print("Testing [physics sanity]...")
+    halos, metadata = load_binary_halos(regenerate_output())
 
-    # ===== LOAD DATA =====
-    # Load halo properties from test output
-    # halos = load_halos("tests/data/output/binary/model_z0.000_0")
-
-    # ===== VALIDATE RANGES =====
-    # Check that physical quantities are in reasonable ranges
-    # assert np.all(halos['Mvir'] > 0), "Mvir must be positive"
-    # assert np.all(halos['Rvir'] > 0), "Rvir must be positive"
-    # assert np.all(halos['Vvir'] > 0), "Vvir must be positive"
-
-    # Check for NaN or Inf
-    # assert np.all(np.isfinite(halos['Mvir'])), "Mvir contains NaN/Inf"
-
-    # ===== VALIDATE PHYSICS =====
-    # Check physical relationships
-    # virial_check = halos['Vvir']**2 / halos['Rvir']  # Should relate to Mvir
-    # assert np.all(virial_check > 0), "Virial relationship broken"
-
-    print("✓ Physics sanity check passed")
+    # Example: basic physical positivity and finiteness
+    assert np.all(halos.Mvir >= 0), "Mvir must be non-negative"
+    assert np.all(np.isfinite(halos.Mvir)), "Mvir must be finite"
 
 
 def test_conservation_law():
-    """
-    [DESCRIPTION OF CONSERVATION LAW BEING TESTED]
+    """[DESCRIPTION OF THE CONSERVATION LAW BEING TESTED]
 
     Expected: [QUANTITY] conserved within [TOLERANCE]
-    Validates: [PHYSICS CONSERVATION]
     Reference: [PAPER OR EQUATION IF APPLICABLE]
     """
-    print("Testing [conservation law]...")
+    halos, metadata = load_binary_halos(regenerate_output())
 
-    # ===== LOAD DATA =====
-    # Load halos from output
-    # halos = load_halos("tests/data/output/binary/model_z0.000_0")
-
-    # ===== CALCULATE QUANTITY =====
-    # Compute total conserved quantity
-    # total_mass = np.sum(halos['Mvir'])
-    # expected_mass = 1.0e12  # Known value or calculated from input
-
-    # ===== VALIDATE CONSERVATION =====
-    # Check conservation within tolerance
-    # relative_error = abs(total_mass - expected_mass) / expected_mass
-    # tolerance = 0.01  # 1%
-
-    # assert relative_error < tolerance, \
-    #     f"Mass not conserved: {relative_error*100:.2f}% error (tolerance: {tolerance*100}%)"
-
-    # print(f"  Conservation error: {relative_error*100:.4f}%")
-    print("✓ Conservation law validated")
-
-
-def test_property_ranges():
-    """
-    [DESCRIPTION OF PROPERTY RANGES BEING TESTED]
-
-    Expected: All properties within physically reasonable ranges
-    Validates: [PROPERTY CALCULATIONS CORRECT]
-    Reference: [KNOWN RANGES FROM LITERATURE IF APPLICABLE]
-    """
-    print("Testing [property ranges]...")
-
-    # ===== LOAD DATA =====
-    # halos = load_halos("tests/data/output/binary/model_z0.000_0")
-
-    # ===== VALIDATE INDIVIDUAL PROPERTIES =====
-
-    # Example: Spin parameter should be 0 < λ < 1
-    # spin_params = halos['Spin']
-    # assert np.all(spin_params >= 0), "Spin parameter cannot be negative"
-    # assert np.all(spin_params <= 1), "Spin parameter cannot exceed 1"
-    # median_spin = np.median(spin_params)
-    # assert 0.01 < median_spin < 0.1, \
-    #     f"Median spin unreasonable: {median_spin} (expected 0.01-0.1)"
-
-    # Example: Concentration should be 1 < c < 50
-    # concentrations = halos['Concentration']
-    # assert np.all(concentrations > 1), "Concentration must be > 1"
-    # assert np.all(concentrations < 50), "Concentration unreasonably high"
-
-    # Example: Positions should be within box
-    # box_size = 500.0  # Mpc/h
-    # positions = halos['Pos']  # Shape: (N, 3)
-    # assert np.all(positions >= 0), "Positions cannot be negative"
-    # assert np.all(positions < box_size), f"Positions exceed box size {box_size}"
-
-    print("✓ Property ranges validated")
+    # Example shape:
+    # total = np.sum(halos.ReservoirA + halos.ReservoirB)
+    # expected = ...
+    # rel_error = abs(total - expected) / expected
+    # assert rel_error < 0.01, f"Not conserved: {rel_error*100:.2f}% error"
 
 
 def test_statistical_properties():
+    """[DESCRIPTION OF THE ENSEMBLE/STATISTICAL CHECK]
+
+    Expected: [STATISTIC MATCHES EXPECTATION]
+    Reference: [PUBLISHED RESULT IF APPLICABLE]
     """
-    [DESCRIPTION OF STATISTICAL TEST]
+    halos, metadata = load_binary_halos(regenerate_output())
 
-    Expected: [STATISTICAL PROPERTY MATCHES EXPECTATION]
-    Validates: [ENSEMBLE PROPERTIES CORRECT]
-    Reference: [PUBLISHED RESULTS IF APPLICABLE]
-    """
-    print("Testing [statistical properties]...")
-
-    # ===== LOAD DATA =====
-    # halos = load_halos("tests/data/output/binary/model_z0.000_0")
-
-    # ===== CALCULATE STATISTICS =====
-    # median_mass = np.median(halos['Mvir'])
-    # mass_range = np.ptp(halos['Mvir'])  # Peak-to-peak
-
-    # ===== VALIDATE STATISTICS =====
-    # assert median_mass > 0, "Median mass should be positive"
-    # assert mass_range > 0, "Should have mass diversity"
-
-    # ===== COMPARE TO KNOWN RESULTS =====
-    # If comparing to published results:
-    # expected_median = 1e11  # From Croton+2006 or similar
-    # tolerance = 0.5  # 50% tolerance for rough comparison
-    # relative_diff = abs(median_mass - expected_median) / expected_median
-    # assert relative_diff < tolerance, \
-    #     f"Median mass differs from expected: {relative_diff*100:.1f}%"
-
-    print("✓ Statistical properties validated")
+    # Example shape:
+    # median_mass = np.median(halos.Mvir[halos.Mvir > 0])
+    # assert 0.1 < median_mass < 100.0, f"Median Mvir unreasonable: {median_mass}"
 
 
 def main():
-    """
-    Main test runner
-
-    Executes all scientific validation tests and reports results.
-    """
-    # Print test suite header
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: [TEST SUITE NAME] (filename.py){NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    tests = [
-        test_physics_sanity_check,
-        test_conservation_law,
-        test_property_ranges,
-        test_statistical_properties,
-    ]
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    # Print summary
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed: {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed: {failed}")
-    print(f"Total:  {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    return run_test_suite(
+        [
+            test_physics_sanity_check,
+            test_conservation_law,
+            test_statistical_properties,
+        ],
+        "[TEST SUITE NAME] Scientific Validation",
+    )
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-"""
-TEMPLATE USAGE INSTRUCTIONS:
-============================
-
-1. Copy this template to tests/scientific/test_yourname.py
-
-2. Update the file header:
-   - Change test name
-   - Fill in what physics is validated
-   - Add reference to published results if applicable
-   - Note the roadmap phase
-   - Add your name and date
-
-3. Implement test functions:
-   - Load halo data from output
-   - Calculate physics properties
-   - Validate against known ranges or conservation laws
-   - Use tolerance-based comparisons for floating point
-   - Document physical expectations
-
-4. Set appropriate tolerances:
-   - Exact conservation: 1e-10 (numerical precision)
-   - Approximate conservation: 1e-2 (1%)
-   - Rough comparison to literature: 0.5 (50%)
-   - Document why tolerance is chosen
-
-5. Verify test works:
-   - Run directly: python3 test_yourname.py
-   - Or via the suite: make tests-scientific
-   (Core tests under tests/scientific/ are auto-discovered by
-   scripts/generate_test_registry.py; module tests register via
-   module_info.yaml.)
-
-VALIDATION STRATEGIES:
-=====================
-
-1. Sanity Checks:
-   - No NaN or Inf values
-   - Physical quantities positive (mass, radius, velocity)
-   - Values within reasonable ranges
-
-2. Conservation Laws:
-   - Mass conservation
-   - Energy conservation
-   - Baryon fraction conservation
-   - Use appropriate tolerance
-
-3. Property Ranges:
-   - Spin parameter: 0 < λ < 1
-   - Concentration: 1 < c < 50
-   - Positions within box
-   - Based on physical constraints
-
-4. Statistical Properties:
-   - Median values reasonable
-   - Distributions match expectations
-   - Compare to published results when available
-
-GUIDELINES:
-===========
-- Test fundamental physics, not implementation details
-- Use physically motivated tolerances
-- Document expected ranges and why
-- Reference published results when comparing
-- Keep tests focused on one physics aspect
-- Make failure messages informative
-- Consider both point-wise and ensemble properties
-"""

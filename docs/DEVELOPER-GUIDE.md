@@ -801,6 +801,10 @@ echo "exit_code=${test_rc}"
 
 A non-zero exit code is a failure even if the log text looks harmless.
 
+### Test Templates
+
+Starting points for new tests live in `tests/framework/`: `c_unit_test_template.c`, `python_integration_test_template.py`, and `python_scientific_test_template.py`. Each template's header documents where to copy it, how to register the test, and what its tier should (and should not) validate — they are written for any model package, not just the bundled ones.
+
 ### Unit Tests
 
 Module unit tests live in `models/<model>/modules/<module>/_tests/` and are registered in `module_info.yaml`:
