@@ -12,14 +12,15 @@ This guide is for contributors and researchers modifying Mimic internals: writin
 2. [Architecture Overview](#architecture-overview)
 3. [Creating Physics Modules](#creating-physics-modules)
 4. [Processing Modes and Phases](#processing-modes-and-phases)
-5. [Parameters](#parameters)
-6. [Property System](#property-system)
-7. [Adding a New Simulation](#adding-a-new-simulation)
-8. [Events](#events)
+5. [Events](#events)
+6. [Parameters](#parameters)
+7. [Property System](#property-system)
+8. [Adding a New Simulation](#adding-a-new-simulation)
 9. [Testing](#testing)
 10. [Development Workflow](#development-workflow)
 11. [Debugging](#debugging)
 12. [Reference](#reference)
+13. [Documentation Directory](#documentation-directory)
 
 Common tasks:
 
@@ -28,7 +29,7 @@ Common tasks:
 - Adding a property: [Property System](#property-system)
 - Loading parameters: [Parameters](#parameters)
 - Adding a simulation: [Adding a New Simulation](#adding-a-new-simulation)
-- Using events: [Events](#events)
+- Wiring event-triggered modules: [Events](#events)
 - Running tests: [Testing](#testing)
 - Day-to-day development (including regenerating code): [Development Workflow](#development-workflow)
 
@@ -126,7 +127,7 @@ make
 
 ## Architecture Overview
 
-Mimic separates core infrastructure from physics modules.
+Mimic separates core infrastructure from physics modules. Most scientific customisation should happen under `models/<model>/` and `simulations/<simulation>/`: new physics modules, galaxy properties, model-local helpers, run files, plot definitions, catalog halo properties, and simulation metadata all belong there. Core code under `src/` is shared infrastructure; changing it is appropriate for framework work such as new tree readers, output writers, dispatch behavior, generated-code support, or memory/I/O changes, but it can affect every model package at once.
 
 ```text
 Mimic application
@@ -152,6 +153,7 @@ Key directories:
 | `src/module_system/` | Framework helpers, templates, generated module code, constants |
 | `models/<model>/shared/` | Model-local helper APIs used by modules in that model set |
 | `models/<model>/modules/_tests/` | Cross-module tests that do not belong to one module |
+| `simulations/<simulation>/` | Simulation metadata, snapshot lists, catalog halo properties, tree data, and simulation-owned tests |
 | `src/include/generated/` | Generated property structs and output helpers |
 | `tests/` | Core unit, integration, scientific, framework, and generated test support |
 | `plot/mimic-plot/` | Plotting, schema readers, and model-local plot discovery |
@@ -254,7 +256,7 @@ A single `.c` file placed directly under a model package module root is also a v
 models/<model>/modules/my_prototype.c
 ```
 
-Standalone modules are package-local. The old `src/modules/` root is not searched.
+Standalone modules are package-local.
 
 The generator derives minimal metadata from the file name:
 
@@ -312,6 +314,8 @@ module:
 
 Use `docs.physics` for production modules. If documentation is intentionally centralised elsewhere, make that explicit in the module metadata or validator policy rather than leaving unexplained warnings.
 
+For the metadata field reference, see [Module Metadata Schema](#module-metadata-schema).
+
 ### Module README
 
 Module READMEs should be short, local contracts rather than full papers. Include:
@@ -364,11 +368,9 @@ Phase selection guide:
 
 | Phase | Runs | Typical use |
 | --- | --- | --- |
-| `pre_timestep` | Once before substeps | Setup, reionization, infall budgets, disk radii, merger clock setup |
+| `pre_timestep` | Once before substeps | Setup, reionization, infall budgets, merger clock setup |
 | `modules.phases.<name>` | Each substep, in YAML order | Named physical stages such as `galaxy_physics` or `satellite_mergers` |
 | `post_timestep` | Once after substeps | Finalization and accumulator conversion |
-
-Only `pre_timestep`, `phases`, `post_timestep`, and `parameters` are valid under `modules`. Legacy top-level `phase_1`, `phase_2`, and `enabled` keys are rejected at startup.
 
 ### Accessing the Central Galaxy
 
@@ -381,6 +383,85 @@ double central_hot_gas = central->galaxy->HotGas;
 ```
 
 Use this when a satellite calculation depends on the central potential or when a module moves material to the central reservoir. Do not assume every entry in the `halos` array is valid for processing; check `halos[i].galaxy != NULL` and any relevant `Type` constraints.
+
+For the full context field reference, see [ModuleContext Fields](#modulecontext-fields).
+
+---
+
+## Events
+
+Events connect a `process_full_halo` producer to one or more `process_per_event` consumers in the same phase. Use them when a full-halo module detects a discrete event, such as a merger, and downstream modules need to respond immediately to the event target. Event contracts belong in each directory module's `module_info.yaml`, alongside supported modes and dependencies; see [Module Metadata Schema](#module-metadata-schema) for the full metadata field list.
+
+Producer `module_info.yaml`:
+
+```yaml
+module:
+  name: my_merge_producer
+  supported_processing_modes: [process_full_halo]
+  events:
+    emits:
+      - name: merger
+        description: "value0=mass_ratio, value1=source_dt"
+```
+
+Consumer `module_info.yaml`:
+
+```yaml
+module:
+  name: my_consumer
+  supported_processing_modes: [process_per_event]
+  events:
+    consumes:
+      - producer: my_merge_producer
+        event: merger
+```
+
+Producer code:
+
+```c
+#include "module_system/generated/event_contracts.h"
+
+if (module_emit_event(ctx, MY_MERGE_PRODUCER_EVENT_MERGER,
+                      satellite_idx, central_idx,
+                      mass_ratio, source_dt) != 0) {
+    ERROR_LOG("Failed to emit merger event");
+    return -1;
+}
+```
+
+Consumer code:
+
+```c
+int my_consumer_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
+{
+    if (ctx->active_event == NULL || ngal != 1) {
+        return -1;
+    }
+
+    double mass_ratio = ctx->active_event->value0;
+    apply_event_physics(&halos[0], mass_ratio);
+    return 0;
+}
+```
+
+Configuration:
+
+```yaml
+modules:
+  phases:
+    satellite_mergers:
+      - my_merge_producer: process_full_halo
+      - my_consumer: process_per_event
+```
+
+Rules:
+
+- Only `process_full_halo` modules can emit events.
+- Consumers must declare `events.consumes` in their module metadata.
+- The producer must be configured in the same phase as the consumer.
+- Events are dispatched immediately when emitted.
+- Consumer YAML order controls the order of consumers subscribed to the same event.
+- HDF5 output records resolved event contracts under `RunProperties/EventContracts`.
 
 ---
 
@@ -428,11 +509,12 @@ Parameter helper definitions live in `src/module_system/parameter_helpers.h`. Th
 
 ## Property System
 
-Properties are generated from YAML metadata and then accessed as normal C struct fields.
+Properties are generated from YAML metadata and then accessed as normal C struct fields. Core and simulation halo properties together define the merger-tree fields that Mimic uses to build workspaces; model properties define the galaxy state that physics modules evolve.
 
 | Property type | Metadata file | Typical owner |
 | --- | --- | --- |
-| Halo properties | `src/core/core_properties.yaml` | Core tree tracking and output |
+| Core halo properties | `src/core/core_properties.yaml` | Minimum halo-tracking state Mimic requires to run |
+| Simulation halo properties | `simulations/<SIMULATION>/halo_properties.yaml` | Catalog-specific merger-tree fields such as positions, velocities, spins, and IDs |
 | Galaxy/model properties | `models/<MODEL>/model_properties.yaml` | Selected model-set physics modules |
 
 Workflow for adding a galaxy property:
@@ -507,13 +589,13 @@ output_function: output_infall_property_or_zero
 output_function_arg: "g, g->infallMvir"
 ```
 
-Property metadata is the source of truth for output fields and unit labels. Do not maintain manual exhaustive property tables in prose documentation unless they are generated or deliberately illustrative.
+Property metadata is the source of truth for output fields and unit labels. Do not maintain manual exhaustive property tables in prose documentation unless they are generated or deliberately illustrative. For the metadata field reference, see [Property Metadata Schema](#property-metadata-schema).
 
 ### HDF5 Output Writer
 
 `src/io/output/hdf5.c` writes each output snapshot as a single compound `Galaxies` table (one row per `struct HaloOutput`), matching the binary record layout so both formats share `prepare_halo_for_output()`.
 
-- **Buffered writes.** Prepared records accumulate in a fixed-size per-snapshot buffer (`HDF5_WRITE_BUFFER_RECORDS`) that flushes when full and once more at end of file (`flush_hdf5_buffers`). This decouples write granularity from tree boundaries and from file size, so memory stays bounded at large scale and the number of `H5TBappend_records` calls drops from O(trees × snapshots) to O(records / buffer). It is what makes HDF5 output as cheap as binary; do not reintroduce per-tree appends.
+- **Buffered writes.** Prepared records accumulate in a fixed-size per-snapshot buffer (`HDF5_WRITE_BUFFER_RECORDS`) that flushes when full and once more at end of file (`flush_hdf5_buffers`). This decouples write granularity from tree boundaries and from file size, so memory stays bounded at large scale and the number of `H5TBappend_records` calls drops from O(trees × snapshots) to O(records / buffer).
 - **FieldMetadata** (field names, units, descriptions) is identical for every snapshot, so it is written once per file under `RunProperties/FieldMetadata`, not duplicated per snapshot group. Its creation is generated by `scripts/generate_properties.py`; edit the generator, never the generated include.
 - **Compression** is off by default and enabled per run with `--compress`, which sets `MimicConfig.HDF5CompressionLevel` and turns on gzip for the `Galaxies` table. HDF5's table API applies a fixed deflate level, so the flag is on/off only. Compression changes on-disk bytes, not stored values.
 
@@ -644,7 +726,7 @@ Any `input:` key in the run file takes precedence over the same key in `simulati
 
 ### Optional: plot_profile.yaml
 
-If users will generate plots with `mimic-plot.py`, provide a `plot_profile.yaml` with simulation-specific axis limits and display parameters. Reference it from the run file:
+Provide a simulation-level `plot_profile.yaml` when plots need simulation-specific axis limits, units, or display defaults. Reference it from the run file:
 
 ```yaml
 plotting:
@@ -677,80 +759,9 @@ make MODEL=sage16 SIMULATION=my_sim
 
 ---
 
-## Events
-
-Events connect a full-halo producer to one or more `process_per_event` consumers in the same phase. Use events when a producer detects discrete events, such as mergers, and downstream modules need to respond immediately to the event target.
-
-Producer metadata:
-
-```yaml
-events:
-  emits:
-    - name: merger
-      description: "value0=mass_ratio, value1=source_dt"
-```
-
-Consumer metadata:
-
-```yaml
-events:
-  consumes:
-    - producer: my_merge_producer
-      event: merger
-```
-
-Producer code:
-
-```c
-#include "module_system/generated/event_contracts.h"
-
-if (module_emit_event(ctx, MY_MERGE_PRODUCER_EVENT_MERGER,
-                      satellite_idx, central_idx,
-                      mass_ratio, source_dt) != 0) {
-    ERROR_LOG("Failed to emit merger event");
-    return -1;
-}
-```
-
-Consumer code:
-
-```c
-int my_consumer_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
-{
-    if (ctx->active_event == NULL || ngal != 1) {
-        return -1;
-    }
-
-    double mass_ratio = ctx->active_event->value0;
-    apply_event_physics(&halos[0], mass_ratio);
-    return 0;
-}
-```
-
-Configuration:
-
-```yaml
-modules:
-  phases:
-    satellite_mergers:
-      - my_merge_producer: process_full_halo
-      - my_consumer: process_per_event
-```
-
-Rules:
-
-- Only `process_full_halo` modules can emit events.
-- Consumers must declare `events.consumes`.
-- The producer must be configured in the same phase as the consumer.
-- Events are dispatched immediately when emitted.
-- Consumer YAML order controls the order of consumers subscribed to the same event.
-- HDF5 output records resolved event contracts under `RunProperties/EventContracts`.
-
----
-
 ## Testing
 
-Mimic uses three test tiers. Every tier runs the core tests, selected-simulation tests under `simulations/<SIMULATION>/_tests/`, and tests declared by the selected model package. Empty generated lists are valid; if a simulation or model has no tests in a tier, that tier still runs the core tests and exits successfully.
+Mimic uses three test tiers. Every tier runs the core tests, selected-simulation tests under `simulations/<SIMULATION>/_tests/`, and tests declared by the selected model package. Empty generated lists are valid; if a simulation or model has no tests in a tier, that tier still runs the core tests and exits successfully. Unit and integration tiers can each take about three minutes; scientific validation is usually shorter, around tens of seconds for the shipped configuration. The quick-reference version of this section is [tests/README.md](../tests/README.md).
 
 | Tier | Command | Scope |
 | --- | --- | --- |
@@ -764,14 +775,7 @@ Run everything:
 make tests
 ```
 
-To see only warnings, failures, skipped tests, and final suite outcomes, add the `summary` goal modifier:
-
-```bash
-make tests summary
-make tests-unit summary
-make tests-integration summary
-make tests-scientific summary
-```
+To see only warnings, failures, skipped tests, and final suite outcomes, add the `summary` goal modifier (e.g. `make tests summary`).
 
 Summary mode works by filtering for structured result markers. Every test emits one of:
 
@@ -795,7 +799,8 @@ mkdir -p archive/test-logs
 make tests > archive/test-logs/tests.log 2>&1
 test_rc=$?
 tail -n 80 archive/test-logs/tests.log
-rg -n -i "failed|error|traceback" archive/test-logs/tests.log
+rg -n "^MIMIC_RESULT: (FAIL|SKIP|WARN|ERROR)" archive/test-logs/tests.log
+rg -n -i "traceback|fatal|segmentation fault" archive/test-logs/tests.log
 echo "exit_code=${test_rc}"
 ```
 
@@ -902,8 +907,10 @@ Generated files include:
 
 | Generator | Inputs | Outputs |
 | --- | --- | --- |
-| `scripts/generate_properties.py` | halo and galaxy property metadata | C property structs/includes, HDF5 field metadata, output schema writer, validation ranges |
-| `scripts/generate_module_registry.py` | module metadata | runtime module registration, event contracts, module source fragments |
+| `scripts/generate_properties.py` | `src/core/core_properties.yaml`, `simulations/<SIMULATION>/halo_properties.yaml`, `models/<MODEL>/model_properties.yaml` | `src/include/generated/property_defs.h`, `populate_halo_payload_from_tree.inc`, `property_test_helpers.h`, `copy_to_output.inc`, `hdf5_field_*.inc`, `output_schema_writer.inc`, and `tests/generated/property_ranges.json` |
+| `scripts/generate_module_registry.py` | selected model `shared/module_info.yaml`, module `module_info.yaml` files, and standalone module files | `src/module_system/generated/module_init.c`, `src/module_system/generated/event_contracts.h`, `tests/generated/module_sources.txt`, and `build/generated/module_registry_hash.txt` |
+| `scripts/generate_test_registry.py` | core tests plus selected simulation and model test metadata | `build/generated/unit_tests.txt`, `integration_tests.txt`, `scientific_tests.txt`, and `test_registry_hash.txt` |
+| `scripts/generate_test_inputs.py` | selected model and simulation package metadata | shared test run files under `build/generated/test_inputs/<MODEL>/<SIMULATION>/` |
 
 Use:
 
@@ -993,6 +1000,8 @@ valgrind --leak-check=full ./mimic models/sage16/input/sage16_mini-millennium.ya
 
 ### Module Metadata Schema
 
+Used by [Creating Physics Modules](#creating-physics-modules) and [Events](#events).
+
 Required fields for directory runtime modules:
 
 | Field | Type | Description |
@@ -1020,6 +1029,8 @@ The validator implementation in `scripts/validate_modules.py` is the enforcement
 
 ### Property Metadata Schema
 
+Used by [Property System](#property-system) and [Adding a New Simulation](#adding-a-new-simulation).
+
 Required fields:
 
 | Field | Description |
@@ -1029,8 +1040,6 @@ Required fields:
 | `units` | Output unit label |
 | `description` | Human-readable meaning |
 | `output` | Whether the property is written to output |
-| `init_source` | Initialization method |
-| `output_source` | Output method when `output: true` |
 
 Common initialization sources:
 
@@ -1046,6 +1055,8 @@ Common optional fields:
 
 | Field | Meaning |
 | --- | --- |
+| `init_source` | Initialization method; defaults differ by property category and generator context |
+| `output_source` | Output method; defaults to direct halo copy or galaxy-property copy when omitted |
 | `init_value` | Default value or tree field, depending on `init_source` |
 | `init_repeat` | Reset after inheritance each snapshot |
 | `output_convert` | Unit conversion expression |
@@ -1059,6 +1070,8 @@ Common optional fields:
 ### ModuleContext Fields
 
 `struct ModuleContext` is defined in `src/core/module_interface.h`. Treat all fields as read-only.
+
+Used by [Processing Modes and Phases](#processing-modes-and-phases), especially [Accessing the Central Galaxy](#accessing-the-central-galaxy), and by [Events](#events) through `active_event`.
 
 Common fields:
 
@@ -1080,6 +1093,8 @@ Common fields:
 
 Definitions live in `src/module_system/parameter_helpers.h`.
 
+Used by [Parameters](#parameters).
+
 | Macro | Use |
 | --- | --- |
 | `LOAD_PARAM_DOUBLE(name, var)` | Load a double |
@@ -1096,6 +1111,8 @@ Definitions live in `src/module_system/parameter_helpers.h`.
 
 Definitions live in `src/util/memory.h`.
 
+Used by [Memory Issues](#memory-issues) and by modules that allocate tables or other persistent state.
+
 | Category | Use |
 | --- | --- |
 | `MEM_GALAXIES` | Galaxy data |
@@ -1107,6 +1124,8 @@ Definitions live in `src/util/memory.h`.
 ### Logging Macros
 
 Definitions live in `src/util/error.h`.
+
+Used throughout module `init()`, `process()`, and cleanup paths; see [Broken Module Startup](#broken-module-startup) and [Runtime Failures](#runtime-failures).
 
 | Macro | Visible when | Use for |
 | --- | --- | --- |
@@ -1120,3 +1139,17 @@ Definitions live in `src/util/error.h`.
 ### Physical Constants
 
 Do not duplicate the physical constants table in documentation. The source of truth is `src/module_system/physical_constants.h`. Runtime-derived unit quantities are computed in `src/core/init.c` from `simulation.units` in the input YAML.
+
+Used by [Adding a New Simulation](#adding-a-new-simulation) when defining catalog units and by model modules that need shared constants.
+
+---
+
+## Documentation Directory
+
+- [README.md](../README.md): project overview and shortest path to a first result
+- [VISION.md](VISION.md): architectural principles and design boundaries
+- [USER-GUIDE.md](USER-GUIDE.md): installation, run configuration, output analysis, plotting, and troubleshooting
+- [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): detailed plotting manual
+- [tests/README.md](../tests/README.md): test-suite quick reference
+- `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references
+- `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes

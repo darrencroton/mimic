@@ -2,6 +2,19 @@
 
 A centralized plotting tool for the Mimic physics-agnostic galaxy evolution framework. This is the detailed plotting manual; for the basic plotting workflow in context, see the [User Guide](../../docs/USER-GUIDE.md#plotting).
 
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Setup and Requirements](#setup-and-requirements)
+3. [Usage](#usage)
+4. [Available Plots](#available-plots)
+5. [Working with Units](#working-with-units)
+6. [Adding New Plot Types](#adding-new-plot-types)
+7. [Testing](#testing)
+8. [Architecture](#architecture)
+9. [Documentation Directory](#documentation-directory)
+10. [License](#license)
+
 ## Overview
 
 This tool provides a single, comprehensive entry point for generating plots from Mimic halo tracking outputs. It features:
@@ -14,17 +27,60 @@ This tool provides a single, comprehensive entry point for generating plots from
 - Consistent styling and formatting across all plot types
 - Robust error handling and fallback mechanisms
 
+## Setup and Requirements
+
+### Quick Setup
+
+If you used the main Mimic setup script (`../../scripts/first_run.sh`), the Python environment is already configured. Activate it before running plots:
+
+```bash
+# From the main Mimic directory
+source mimic_venv/bin/activate
+cd plot/mimic-plot
+python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml
+```
+
+### Manual Setup
+
+Requirements:
+
+- Python 3.9+
+- NumPy
+- Matplotlib (>=3.0.0)
+- tqdm (for progress bars)
+- h5py for HDF5 output
+- PyYAML for run files and plot profiles
+- Optional: LaTeX installation for text rendering in plots
+
+Recommended setup from the main Mimic requirements:
+
+```bash
+# From the main Mimic directory
+python3 -m venv mimic_venv
+source mimic_venv/bin/activate
+pip install -r requirements.txt
+cd plot/mimic-plot
+```
+
+Direct package installation also works for standalone plotting environments:
+
+```bash
+python3 -m venv plotting-env
+source plotting-env/bin/activate
+pip install "numpy>=1.20.0" "matplotlib>=3.0.0" "tqdm>=4.0.0" "h5py>=3.0.0" "PyYAML>=5.0.0"
+```
+
+Verify the environment:
+
+```bash
+python -c "import numpy, matplotlib, tqdm, h5py, yaml; print('All plotting packages available')"
+```
+
 ## Usage
 
 ### Basic Usage
 
-**Important**: Always activate the Python environment before running plots:
-
-Build Mimic with the same model set as the parameter file before plotting. The
-available plot registry is model-specific, so a SHAM run should be built with
-`make MODEL=sham`, while the shipped SAGE run should be built with
-`make MODEL=sage16`. Binary outputs must be kept with their run `metadata/`
-directory because `mimic-plot` reads `metadata/output_schema.json`.
+Build Mimic with the same model set as the parameter file before plotting. The available plot registry is model-specific, so a SHAM run should be built with `make MODEL=sham`, while the shipped SAGE run should be built with `make MODEL=sage16`. Binary outputs must be kept with their run `metadata/` directory because `mimic-plot` reads `metadata/output_schema.json`.
 
 ```bash
 # Activate virtual environment (if using one)
@@ -201,7 +257,8 @@ with h5py.File('model_000.hdf5', 'r') as f:
 
 ### Unit Conventions
 
-Mimic uses a consistent code unit system:
+Mimic derives runtime code units from `simulation.units` in the active simulation package and writes output unit labels from property metadata. The shipped Millennium-family examples use these common conventions:
+
 - **Mass**: `1e10 Msun/h` (10^10 solar masses with Hubble parameter)
 - **Length**: `Mpc/h` (megaparsecs comoving with Hubble parameter)
 - **Velocity**: `km/s` (kilometers per second)
@@ -213,7 +270,7 @@ h = 0.73  # From parameter file
 mass_physical_msun = halos['Mvir'] * 1e10 / h  # Convert to physical solar masses
 ```
 
-For run-level unit configuration, see the `simulation.units` section described in [docs/USER-GUIDE.md](../../docs/USER-GUIDE.md).
+Do not assume these labels are universal for every simulation or model package. For run-level unit configuration, see the `simulation.units` section described in [docs/USER-GUIDE.md](../../docs/USER-GUIDE.md), and treat HDF5 `FieldMetadata` or `metadata/output_schema.json` as the source of truth for a completed run.
 
 ## Adding New Plot Types
 
@@ -520,62 +577,15 @@ The plotting system is organized around these key components:
    - All have consistent interfaces
    - Can be easily extended with new types
 
-## Setup and Requirements
+## Documentation Directory
 
-### Quick Setup
-
-If you used the main Mimic setup script (`../../scripts/first_run.sh`), the Python environment is already configured. Simply activate it:
-
-```bash
-# From the main Mimic directory
-source mimic_venv/bin/activate
-cd plot/mimic-plot
-python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml
-```
-
-### Manual Setup
-
-If you need to set up the plotting environment manually:
-
-#### Requirements
-- Python 3.x
-- NumPy
-- Matplotlib (>=3.0.0)
-- tqdm (for progress bars)
-- (Optional) LaTeX installation for high-quality text rendering in plots
-
-#### Installation Options
-
-**Option 1 (Recommended): Use the main Mimic requirements.txt:**
-```bash
-# From the main Mimic directory
-cd ../..
-python3 -m venv mimic_venv
-source mimic_venv/bin/activate
-pip install -r requirements.txt
-cd plot/mimic-plot
-```
-
-**Option 2: Install packages directly:**
-```bash
-# Using virtual environment (recommended)
-python3 -m venv plotting-env
-source plotting-env/bin/activate
-pip install "numpy>=1.20.0" "matplotlib>=3.0.0" "tqdm>=4.0.0"
-
-# Or using --user flag
-pip3 install --user "numpy>=1.20.0" "matplotlib>=3.0.0" "tqdm>=4.0.0"
-
-# Or using system package manager (macOS with Homebrew)
-brew install python-numpy python-matplotlib python-tqdm
-```
-
-#### Verification
-
-Test your setup:
-```bash
-python -c "import numpy, matplotlib, tqdm; print('All packages available!')"
-```
+- [README.md](../../README.md): project overview and shortest path to a first result
+- [docs/VISION.md](../../docs/VISION.md): architectural principles and design boundaries
+- [docs/USER-GUIDE.md](../../docs/USER-GUIDE.md): installation, run configuration, output analysis, plotting, and troubleshooting
+- [docs/DEVELOPER-GUIDE.md](../../docs/DEVELOPER-GUIDE.md): extending models, modules, simulations, properties, tests, and generated metadata
+- [tests/README.md](../../tests/README.md): test-suite quick reference
+- `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references
+- `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes
 
 ## License
 

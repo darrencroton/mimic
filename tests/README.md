@@ -2,6 +2,18 @@
 
 Quick reference for running tests. See [docs/DEVELOPER-GUIDE.md](../docs/DEVELOPER-GUIDE.md#testing) for complete testing documentation.
 
+## Table of Contents
+
+1. [Quick Start](#quick-start)
+2. [Test Tiers](#test-tiers)
+3. [Structured Markers and Summary Mode](#structured-markers-and-summary-mode)
+4. [Running Individual Tests](#running-individual-tests)
+5. [Directory Structure](#directory-structure)
+6. [Test Data](#test-data)
+7. [Writing Tests](#writing-tests)
+8. [Troubleshooting](#troubleshooting)
+9. [Documentation Directory](#documentation-directory)
+
 ## Quick Start
 
 ```bash
@@ -11,7 +23,7 @@ make tests
 # Run specific test tiers
 make tests-unit          # C unit tests
 make tests-integration   # Python integration tests
-make tests-scientific    # Physics validation
+make tests-scientific    # Scientific validation
 ```
 
 Append "summary" to suppress most output and only show warnings, failures, skipped tests, and final suite outcomes (e.g. `make tests summary`).
@@ -22,24 +34,43 @@ NOTE: `MODEL` and `SIMULATION` default to `sage16` and `mini-millennium`. Change
 
 **Unit Tests** (`tests/unit/`)
 - C-based tests for individual functions and modules
-- Fast (<10 seconds total)
+- Can take up to about 3 minutes for the selected package pair
 - Core tests cover memory management, I/O, generated properties, and infrastructure
 - Selected-simulation tests come from `simulations/<SIMULATION>/_tests/unit/`
 - Selected-model tests come from `models/<MODEL>/modules/**/_tests/` and `models/<MODEL>/modules/_tests/`
 
 **Integration Tests** (`tests/integration/`)
 - Python-based end-to-end workflow tests
-- Medium speed (<1 minute total)
+- Can take up to about 3 minutes for the selected package pair
 - Core tests cover pipeline execution, output formats, and model-neutral contracts
 - Selected-simulation tests come from `simulations/<SIMULATION>/_tests/integration/`
 - Selected-model integration tests come from `models/<MODEL>/modules/**/_tests/`
 
 **Scientific Tests** (`tests/scientific/`)
 - Python-based physics validation
-- Slower (<5 minutes total)
+- Usually quicker than the other tiers for the shipped configuration, around tens of seconds
 - Core scientific tests validate model-neutral scientific contracts
 - Selected-simulation tests come from `simulations/<SIMULATION>/_tests/scientific/`
 - Selected-model scientific tests come from `models/<MODEL>/modules/**/_tests/`
+
+The `make MODEL=<name> SIMULATION=<name> tests-unit`, `tests-integration`, `tests-scientific`, and `tests` targets run core tests, selected-simulation tests, and tests declared by the selected model package. Empty generated lists are valid; a tier with no model or simulation tests still runs the core tests and exits successfully.
+
+## Structured Markers and Summary Mode
+
+Every C unit, Python integration, and Python scientific test should emit a structured result marker:
+
+```text
+MIMIC_RESULT: PASS <test_name>
+MIMIC_RESULT: FAIL <test_name> [-- <reason>]
+MIMIC_RESULT: SKIP <test_name> [-- <reason>]
+MIMIC_RESULT: WARN <test_name> [-- <reason>]
+MIMIC_RESULT: ERROR <test_name> [-- <reason>]
+```
+
+Summary mode filters these markers directly. Pass markers are suppressed; failures, skips, warnings, and errors stay visible.
+
+- C tests use `TEST_MARKER_*`, `TEST_RUN`, and `TEST_ASSERT*` from `tests/framework/test_framework.h`. Use `return TEST_SKIP_WITH("reason")` when a test cannot run in the current configuration.
+- Python tests use `result_pass`, `result_fail`, `result_skip`, `result_warn`, `result_error`, and `TestSkipped` from `tests/framework`.
 
 ## Running Individual Tests
 
@@ -52,7 +83,8 @@ mkdir -p archive/test-logs
 make tests > archive/test-logs/tests.log 2>&1
 test_rc=$?
 tail -n 80 archive/test-logs/tests.log
-rg -n -i "failed|error|traceback" archive/test-logs/tests.log
+rg -n "^MIMIC_RESULT: (FAIL|SKIP|WARN|ERROR)" archive/test-logs/tests.log
+rg -n -i "traceback|fatal|segmentation fault" archive/test-logs/tests.log
 echo "exit_code=${test_rc}"
 ```
 
@@ -81,8 +113,6 @@ python3 tests/scientific/test_scientific.py
 ```
 
 Scientific validation currently has one repository-level script in `tests/scientific/`. Future simulation or module scientific tests can be run the same way with `python3 path/to/test.py`.
-
-The `make MODEL=<name> SIMULATION=<name> tests-unit`, `tests-integration`, `tests-scientific`, and `tests` targets run core tests, selected-simulation tests, and tests declared by the selected model package. Empty generated lists are valid; a tier with no model or simulation tests still runs the core tests and exits successfully.
 
 ## Directory Structure
 
@@ -128,3 +158,13 @@ See [docs/DEVELOPER-GUIDE.md](../docs/DEVELOPER-GUIDE.md#testing) for:
 **Unit test command not found**: Do not run `./test_memory_system.test` directly from `tests/unit/`; use `MODEL=<name> SIMULATION=<name> tests/unit/run_tests.sh <test_name>` so the binary is rebuilt with current generated sources.
 
 **Need more detail**: See [docs/DEVELOPER-GUIDE.md](../docs/DEVELOPER-GUIDE.md#testing)
+
+## Documentation Directory
+
+- [README.md](../README.md): project overview and shortest path to a first result
+- [docs/VISION.md](../docs/VISION.md): architectural principles and design boundaries
+- [docs/USER-GUIDE.md](../docs/USER-GUIDE.md): installation, run configuration, output analysis, plotting, and troubleshooting
+- [docs/DEVELOPER-GUIDE.md](../docs/DEVELOPER-GUIDE.md): extending models, modules, simulations, properties, tests, and generated metadata
+- [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): detailed plotting manual
+- `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references
+- `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes

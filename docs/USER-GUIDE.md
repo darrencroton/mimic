@@ -20,6 +20,8 @@ If you're still deciding whether Mimic fits your science, start with the [README
 6. [Working With Your Catalogue](#working-with-your-catalogue)
 7. [Plotting](#plotting)
 8. [Troubleshooting](#troubleshooting)
+9. [Documentation Directory](#documentation-directory)
+10. [Citations](#citations)
 
 ---
 
@@ -214,7 +216,7 @@ modules:
   parameters: {}
 ```
 
-The `plotting.profile` section is optional. Omit it entirely if you do not intend to use `mimic-plot.py` — the binary will run without it. If you do want plots, the profile must be present in the run YAML so `mimic-plot.py` can locate it; the path must be repo-relative, not absolute. Inside a plot profile, `inherits` entries are resolved from the directory containing that profile, so model-local profiles should inherit neighbouring defaults by local filename, for example `inherits: [default.yaml]`.
+The `plotting.profile` section is optional. Omit it entirely if you do not intend to use `mimic-plot.py` — Mimic will run without it. If you do want plots, the profile must be present in the run YAML so `mimic-plot.py` can locate it; the path must be repo-relative, not absolute. Inside a plot profile, `inherits` entries are resolved from the directory containing that profile, so model-local profiles should inherit neighbouring defaults by local filename, for example `inherits: [default.yaml]`.
 
 The referenced simulation config, `simulations/mini-millennium/simulation_info.yaml`, owns tree input paths, cosmology, box size, particle mass, and units. `simulation.units` in that file defines the base code units used to derive time, density, pressure, energy, `G`, and related runtime quantities. The shipped mini-Millennium/SAGE example uses `Mpc/h`, `1e10 Msun/h`, and `km/s` conventions.
 
@@ -254,8 +256,6 @@ modules:
 ```
 
 Module parameters have no global defaults in the core. A module loads and validates the parameters it needs during its `init()` function. If a required parameter is missing, startup fails before trees are processed — a few seconds, not after a long run.
-
-Only `pre_timestep`, `phases`, `post_timestep`, and `parameters` are valid keys under `modules`. The old top-level `phase_1`, `phase_2`, and `enabled` keys are not supported.
 
 ### Configuration Recipes
 
@@ -347,7 +347,7 @@ output:
   output_format: hdf5   # or binary
 ```
 
-HDF5 is self-documenting and portable — field names, units, and run provenance travel inside the file. Binary is compact and fast; Mimic writes `metadata/output_schema.json` beside every run so binary readers can reconstruct the exact record layout used by that executable. If you move or sync binary outputs elsewhere, keep the `metadata/` directory with them.
+HDF5 is self-documenting and portable — field names, units, and run provenance travel inside the file. Binary is compact and fast; Mimic writes `metadata/output_schema.json` beside every run so binary readers can reconstruct the exact record layout used by that executable. The bundled `example_Mvir_Len_plot.py` in each output directory is a ready-to-run Python example configured for the exact output that was just written. If you move or sync binary outputs elsewhere, keep the `metadata/` directory with them.
 
 ### Units and Schema
 
@@ -555,14 +555,15 @@ pip install -r requirements.txt
 
 ---
 
-## Related Documentation
+## Documentation Directory
 
-- [README.md](../README.md): what Mimic is, and the shortest path to a first result
-- [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md): writing modules, the property system, adding simulations, testing
-- [VISION.md](VISION.md): architectural principles and design rationale
-- [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): the plotting manual
-- [models/sage16/README.md](../models/sage16/README.md) and [models/sham/README.md](../models/sham/README.md): the shipped model packages
-- [tests/README.md](../tests/README.md): running the test suite
+- [README.md](../README.md): project overview and shortest path to a first result
+- [VISION.md](VISION.md): architectural principles and design boundaries
+- [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md): extending models, modules, simulations, properties, tests, and generated metadata
+- [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): detailed plotting manual
+- [tests/README.md](../tests/README.md): test-suite quick reference
+- `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references
+- `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes
 
 ## Citations
 
