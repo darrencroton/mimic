@@ -153,7 +153,7 @@ int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struc
     enum MimicObjectTimeStatus time_status =
         mimic_object_substep_time(&halos[i], ctx, &source_time);
     if (time_status != MIMIC_OBJECT_TIME_OK) {
-      ERROR_LOG("Invalid immediate-merger event time for halo %lld (status=%s)", halos[i].HaloNr,
+      ERROR_LOG("Invalid immediate-merger event time for halo %d (status=%s)", halos[i].HaloNr,
                 mimic_object_time_status_str(time_status));
       return -1;
     }

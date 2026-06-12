@@ -154,7 +154,7 @@ For now, filename/location conventions plus centralized harness helpers are suff
 
 `make tests` with defaults:
 
-- Builds `MODEL=sage SIMULATION=mini-millennium`.
+- Builds `MODEL=sage16 SIMULATION=mini-millennium`.
 - Runs core invariant tests on the fast mini fixture.
 - Runs mini-Millennium selected-simulation tests.
 - Runs default baseline comparisons.
