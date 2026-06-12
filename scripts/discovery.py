@@ -31,7 +31,7 @@ def makefile_default(variable: str, fallback: str) -> str:
     return fallback
 
 
-DEFAULT_MODEL = ""
+DEFAULT_MODEL = makefile_default("DEFAULT_MODEL", "sage16")
 # Simulation selected when neither SIMULATION nor SIM is set in the environment.
 # Read from DEFAULT_SIMULATION in the Makefile. The Makefile always exports
 # SIMULATION when it invokes these helpers, so this default only applies to

@@ -33,7 +33,16 @@ from pathlib import Path
 
 import numpy as np
 
-REPO_ROOT = Path(__file__).parent.parent.parent
+
+def find_repo_root(start):
+    """Find the Mimic repository root from a copied test file."""
+    for candidate in [start, *start.parents]:
+        if (candidate / "Makefile").is_file() and (candidate / "tests" / "framework").is_dir():
+            return candidate
+    raise RuntimeError(f"Could not find Mimic repository root from {start}")
+
+
+REPO_ROOT = find_repo_root(Path(__file__).resolve())
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
