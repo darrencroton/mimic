@@ -137,6 +137,42 @@ def validate_no_infs(halos):
     return _count_matching(halos, np.isinf)
 
 
+def find_nonfinite(halos, max_examples=5):
+    """
+    Locate NaN and Inf values in all float fields, with examples for scalars.
+
+    Richer sibling of validate_no_nans/validate_no_infs for diagnostic
+    reporting (used by the metadata-driven scientific tier).
+
+    Args:
+        halos: NumPy recarray of halo data
+        max_examples: Example (index, value) pairs to collect per scalar field
+
+    Returns:
+        dict: {"nan": {field: {"count": int, "examples": [(idx, val), ...]}},
+               "inf": {...}} -- inner dicts are empty when the data is clean
+    """
+
+    def scan(predicate):
+        fields = {}
+        for field in halos.dtype.names:
+            if not np.issubdtype(halos.dtype[field], np.floating):
+                continue
+            data = halos[field]
+            mask = predicate(data)
+            count = int(np.sum(mask))
+            if count == 0:
+                continue
+            examples = []
+            if data.ndim == 1 and max_examples:
+                indices = np.where(mask)[0][:max_examples]
+                examples = [(int(i), float(data[i])) for i in indices]
+            fields[field] = {"count": count, "examples": examples}
+        return fields
+
+    return {"nan": scan(np.isnan), "inf": scan(np.isinf)}
+
+
 def validate_range(halos, field, min_val, max_val):
     """
     Validate that a field's values are within expected range.
@@ -191,3 +227,116 @@ def validate_range(halos, field, min_val, max_val):
         "examples_below": examples_below,
         "examples_above": examples_above,
     }
+
+
+# ---------------------------------------------------------------------------
+# HDF5 output loading and schema-layout validation
+# ---------------------------------------------------------------------------
+
+
+def load_hdf5_halos(output_file):
+    """
+    Load halo data from HDF5 output file
+
+    Args:
+        output_file (Path): Path to HDF5 output file
+
+    Returns:
+        tuple: (halos, metadata) where halos is structured array
+    """
+
+    try:
+        import h5py
+    except ImportError:
+        raise ImportError("h5py not available - cannot load HDF5 output")
+
+    with h5py.File(output_file, "r") as f:
+        # Mimic HDF5 structure: Root contains snapshot groups (e.g., 'Snap063')
+        # Each snapshot group contains 'Galaxies' dataset (structured array)
+
+        # Get snapshot groups (e.g., 'Snap063')
+        snap_groups = [key for key in f.keys() if key.startswith("Snap")]
+
+        if not snap_groups:
+            raise ValueError(f"No snapshot groups found in HDF5 file: {output_file}")
+
+        # For testing, we expect one snapshot (Snap063 for z=0)
+        # Use the first snapshot group found
+        snap_name = snap_groups[0]
+        snap_group = f[snap_name]
+
+        # Read halo data from 'Galaxies' dataset
+        if "Galaxies" not in snap_group:
+            raise ValueError(f"No 'Galaxies' dataset found in {snap_name}")
+
+        # Load the structured array directly
+        halos = snap_group["Galaxies"][:]
+
+        # Get metadata from group attributes
+        attrs = dict(snap_group.attrs) if hasattr(snap_group, "attrs") else {}
+
+        # Also check for TreeHalosPerSnap to get tree count
+        ntrees = len(snap_group["TreeHalosPerSnap"][:]) if "TreeHalosPerSnap" in snap_group else 1
+
+        # Create metadata
+        metadata = {
+            "TotHalos": len(halos),
+            "Ntrees": ntrees,
+            "NoutputSnaps": 1,
+            "SnapshotName": snap_name,
+        }
+        metadata.update(attrs)
+
+    # Convert to recarray for attribute access (outside the 'with' block)
+    halos = halos.view(np.recarray)
+
+    return halos, metadata
+
+
+def decode_hdf5_string(value):
+    """Decode scalar or one-element HDF5 string attributes."""
+    if isinstance(value, np.ndarray):
+        value = value[0]
+    if isinstance(value, bytes):
+        return value.decode()
+    return str(value)
+
+
+def assert_hdf5_schema_layout(output_file, expected_format_version="1.1"):
+    """
+    Validate the current Mimic HDF5 schema layout.
+
+    FieldMetadata is intentionally written once per file under RunProperties.
+    Snapshot-local copies are stale duplication and should not be reintroduced.
+    """
+    try:
+        import h5py
+    except ImportError:
+        raise ImportError("h5py not available - cannot validate HDF5 schema")
+
+    with h5py.File(output_file, "r") as f:
+        assert "RunProperties" in f, "Missing RunProperties group"
+        assert "FieldMetadata" in f["RunProperties"], "Missing RunProperties/FieldMetadata"
+        assert "Version" in f["RunProperties"], "Missing RunProperties/Version"
+
+        version_attrs = f["RunProperties/Version"].attrs
+        assert "hdf5_format_version" in version_attrs, "Missing HDF5 format version attribute"
+        actual_version = decode_hdf5_string(version_attrs["hdf5_format_version"])
+        assert actual_version == expected_format_version, (
+            f"HDF5 format version mismatch: expected {expected_format_version}, "
+            f"got {actual_version}"
+        )
+
+        field_metadata = f["RunProperties/FieldMetadata"]
+        assert field_metadata.shape[0] > 0, "FieldMetadata table is empty"
+        assert {"field_name", "units", "description"}.issubset(
+            field_metadata.dtype.fields
+        ), "FieldMetadata table missing required fields"
+
+        snap_groups = [key for key in f.keys() if key.startswith("Snap")]
+        assert snap_groups, "No snapshot groups found"
+        for snap_name in snap_groups:
+            assert "FieldMetadata" not in f[snap_name], (
+                f"{snap_name}/FieldMetadata should not exist; metadata belongs under "
+                "RunProperties/FieldMetadata"
+            )

@@ -4,9 +4,13 @@ Test Framework for Mimic
 Shared utilities for testing Mimic functionality.
 """
 
+from .comparison import compare_halos_comprehensive
 from .data_loader import (
+    assert_hdf5_schema_layout,
+    find_nonfinite,
     get_halo_dtype,
     load_binary_halos,
+    load_hdf5_halos,
     validate_no_infs,
     validate_no_nans,
     validate_range,
@@ -47,12 +51,16 @@ from .markers import (
 from .runner import BLUE, GREEN, NC, RED, YELLOW, run_test_suite
 
 __all__ = [
-    # Data loading and validation
+    # Data loading, validation, and comparison
     "load_binary_halos",
+    "load_hdf5_halos",
+    "assert_hdf5_schema_layout",
+    "compare_halos_comprehensive",
     "get_halo_dtype",
     "validate_no_nans",
     "validate_no_infs",
     "validate_range",
+    "find_nonfinite",
     # Test harness utilities
     "REPO_ROOT",
     "TEST_DATA_DIR",

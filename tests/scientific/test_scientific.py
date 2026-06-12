@@ -44,6 +44,7 @@ from framework import (
     TestSkipped,
     core_input_file,
     ensure_output_dirs,
+    find_nonfinite,
     load_binary_halos,
     run_mimic_fresh,
     run_test_suite,
@@ -56,74 +57,34 @@ ensure_output_dirs()
 VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.json"
 
 
+# Output regenerated once per process: the fresh-run guard protects against
+# stale files from other runs/models, and the first regeneration in this
+# process establishes that guarantee for every test in the suite.
+_regenerated_output = None
+
+
 def regenerate_output():
     """
     Regenerate Mimic output for the selected model and return its path.
 
-    Always re-runs Mimic (removing any pre-existing output first) so a stale
-    file from a previous run -- possibly produced by a different MODEL writing
-    the same shared path -- cannot be validated as if it were this run.
+    On first call, re-runs Mimic (removing any pre-existing output first) so a
+    stale file from a previous run -- possibly produced by a different MODEL
+    writing the same shared path -- cannot be validated as if it were this
+    run. Subsequent calls in the same process reuse that output.
 
     Returns:
         Path: Path to output file
     """
-    output_dir = TEST_DATA_DIR / "output" / "binary"
-    output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
+    global _regenerated_output
+    if _regenerated_output is None:
+        output_dir = TEST_DATA_DIR / "output" / "binary"
+        output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
 
-    param_file = core_input_file("test_binary.yaml")
-    run_mimic_fresh(param_file, output_file)
+        param_file = core_input_file("test_binary.yaml")
+        run_mimic_fresh(param_file, output_file)
+        _regenerated_output = output_file
 
-    return output_file
-
-
-def check_nans_infs(halos):
-    """
-    Check for NaN and Inf values in ALL output fields dynamically
-
-    Returns:
-        dict: Results with 'passed', 'nan_fields', 'inf_fields'
-    """
-    nan_fields = {}
-    inf_fields = {}
-
-    # Check all fields in the dtype
-    for field in halos.dtype.names:
-        data = getattr(halos, field)
-
-        # Check for NaN (only for float types)
-        if data.dtype.kind == "f":  # floating point
-            if data.ndim == 1:
-                # Scalar field
-                nan_count = np.sum(np.isnan(data))
-                if nan_count > 0:
-                    indices = np.where(np.isnan(data))[0][:5]
-                    nan_fields[field] = {
-                        "count": nan_count,
-                        "examples": [(int(i), float(data[i])) for i in indices],
-                    }
-
-                inf_count = np.sum(np.isinf(data))
-                if inf_count > 0:
-                    indices = np.where(np.isinf(data))[0][:5]
-                    inf_fields[field] = {
-                        "count": inf_count,
-                        "examples": [(int(i), float(data[i])) for i in indices],
-                    }
-            else:
-                # Vector field
-                nan_count = np.sum(np.isnan(data))
-                if nan_count > 0:
-                    nan_fields[field] = {"count": nan_count, "examples": []}
-
-                inf_count = np.sum(np.isinf(data))
-                if inf_count > 0:
-                    inf_fields[field] = {"count": inf_count, "examples": []}
-
-    return {
-        "passed": len(nan_fields) == 0 and len(inf_fields) == 0,
-        "nan_fields": nan_fields,
-        "inf_fields": inf_fields,
-    }
+    return _regenerated_output
 
 
 def check_zeros(halos, manifest):
@@ -284,25 +245,25 @@ def test_numerical_validity():
     halos, metadata = load_binary_halos(output_file)
     print(f"Loaded {metadata['TotHalos']} halos from {metadata['Ntrees']} trees\n")
 
-    result = check_nans_infs(halos)
+    nonfinite = find_nonfinite(halos)
 
-    if result["nan_fields"]:
-        print(f"{RED}✗ FAIL: Found NaN values in {len(result['nan_fields'])} field(s):{NC}")
-        for field, info in result["nan_fields"].items():
+    if nonfinite["nan"]:
+        print(f"{RED}✗ FAIL: Found NaN values in {len(nonfinite['nan'])} field(s):{NC}")
+        for field, info in nonfinite["nan"].items():
             print(f"  {field}: {info['count']} NaN values")
             if info["examples"]:
                 for idx, val in info["examples"]:
                     print(f"    Halo {idx}: {field} = {val}")
-        raise AssertionError(f"NaN values in {len(result['nan_fields'])} field(s)")
+        raise AssertionError(f"NaN values in {len(nonfinite['nan'])} field(s)")
 
-    if result["inf_fields"]:
-        print(f"{RED}✗ FAIL: Found Inf values in {len(result['inf_fields'])} field(s):{NC}")
-        for field, info in result["inf_fields"].items():
+    if nonfinite["inf"]:
+        print(f"{RED}✗ FAIL: Found Inf values in {len(nonfinite['inf'])} field(s):{NC}")
+        for field, info in nonfinite["inf"].items():
             print(f"  {field}: {info['count']} Inf values")
             if info["examples"]:
                 for idx, val in info["examples"]:
                     print(f"    Halo {idx}: {field} = {val}")
-        raise AssertionError(f"Inf values in {len(result['inf_fields'])} field(s)")
+        raise AssertionError(f"Inf values in {len(nonfinite['inf'])} field(s)")
 
     print(f"{GREEN}✓ PASS: No NaN or Inf values found{NC}")
 
