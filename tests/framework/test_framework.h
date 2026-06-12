@@ -42,12 +42,19 @@
 #include <string.h>
 #include <math.h>
 
-/* ANSI color codes for test output */
+/* ANSI color codes for test output. These short names are claimed by this
+ * header; test translation units must not define their own. */
 #define BLUE "\033[1;34m"
 #define GREEN "\033[0;32m"
 #define RED "\033[0;31m"
 #define YELLOW "\033[1;33m"
 #define NC "\033[0m"
+
+/* Per-translation-unit framework state. Test files own 'passed'/'failed'
+ * (see TEST_RUN); the framework owns these. */
+static int test_skips __attribute__((unused)) = 0;
+static const char *test_skip_reason __attribute__((unused)) = "";
+static int test_fail_marked __attribute__((unused)) = 0;
 
 /**
  * @def     TEST_MARKER_PASS / TEST_MARKER_FAIL / TEST_MARKER_SKIP / TEST_MARKER_WARN /
@@ -57,7 +64,16 @@
  * These are the only lines the summary filter matches — no natural-language
  * regex needed.  Emit to stdout so they land in the same captured stream as
  * all other test output.  fflush ensures ordering when stderr is interleaved.
+ *
+ * TEST_MARKER_FAIL also records that this test emitted a failing marker, so
+ * TEST_RUN can guarantee every failure is visible in summary mode without
+ * double-reporting assertion failures.
  */
+#define TEST_MARKER_WITH_REASON(status, name, reason)                                              \
+  do {                                                                                             \
+    printf("MIMIC_RESULT: " status " %s -- %s\n", (name), (reason));                               \
+    fflush(stdout);                                                                                \
+  } while (0)
 #define TEST_MARKER_PASS(name)                                                                     \
   do {                                                                                             \
     printf("MIMIC_RESULT: PASS %s\n", (name));                                                     \
@@ -65,24 +81,12 @@
   } while (0)
 #define TEST_MARKER_FAIL(name, reason)                                                             \
   do {                                                                                             \
-    printf("MIMIC_RESULT: FAIL %s -- %s\n", (name), (reason));                                     \
-    fflush(stdout);                                                                                \
+    TEST_MARKER_WITH_REASON("FAIL", (name), (reason));                                             \
+    test_fail_marked = 1;                                                                          \
   } while (0)
-#define TEST_MARKER_SKIP(name, reason)                                                             \
-  do {                                                                                             \
-    printf("MIMIC_RESULT: SKIP %s -- %s\n", (name), (reason));                                     \
-    fflush(stdout);                                                                                \
-  } while (0)
-#define TEST_MARKER_WARN(name, msg)                                                                \
-  do {                                                                                             \
-    printf("MIMIC_RESULT: WARN %s -- %s\n", (name), (msg));                                        \
-    fflush(stdout);                                                                                \
-  } while (0)
-#define TEST_MARKER_ERROR(name, msg)                                                               \
-  do {                                                                                             \
-    printf("MIMIC_RESULT: ERROR %s -- %s\n", (name), (msg));                                       \
-    fflush(stdout);                                                                                \
-  } while (0)
+#define TEST_MARKER_SKIP(name, reason) TEST_MARKER_WITH_REASON("SKIP", (name), (reason))
+#define TEST_MARKER_WARN(name, msg) TEST_MARKER_WITH_REASON("WARN", (name), (msg))
+#define TEST_MARKER_ERROR(name, msg) TEST_MARKER_WITH_REASON("ERROR", (name), (msg))
 
 /**
  * @def     TEST_ASSERT
@@ -96,13 +100,15 @@
  *   TEST_ASSERT(ptr != NULL, "Pointer cannot be NULL");
  */
 #define TEST_ASSERT(cond, msg)                                                                     \
-  if (!(cond)) {                                                                                   \
-    TEST_MARKER_FAIL(__func__, msg);                                                               \
-    fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
-    fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
-    fprintf(stderr, "  Condition: %s\n", #cond);                                                   \
-    return 1;                                                                                      \
-  }
+  do {                                                                                             \
+    if (!(cond)) {                                                                                 \
+      TEST_MARKER_FAIL(__func__, msg);                                                             \
+      fprintf(stderr, "✗ FAIL: %s\n", msg);                                                        \
+      fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                  \
+      fprintf(stderr, "  Condition: %s\n", #cond);                                                 \
+      return 1;                                                                                    \
+    }                                                                                              \
+  } while (0)
 
 /**
  * @def     TEST_ASSERT_EQUAL
@@ -113,13 +119,15 @@
  * @param   msg     Error message if assertion fails
  */
 #define TEST_ASSERT_EQUAL(a, b, msg)                                                               \
-  if ((a) != (b)) {                                                                                \
-    TEST_MARKER_FAIL(__func__, msg);                                                               \
-    fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
-    fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
-    fprintf(stderr, "  Expected: %d, Got: %d\n", (int)(b), (int)(a));                              \
-    return 1;                                                                                      \
-  }
+  do {                                                                                             \
+    if ((a) != (b)) {                                                                              \
+      TEST_MARKER_FAIL(__func__, msg);                                                             \
+      fprintf(stderr, "✗ FAIL: %s\n", msg);                                                        \
+      fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                  \
+      fprintf(stderr, "  Expected: %lld, Got: %lld\n", (long long)(b), (long long)(a));            \
+      return 1;                                                                                    \
+    }                                                                                              \
+  } while (0)
 
 /**
  * @def     TEST_ASSERT_DOUBLE_EQUAL
@@ -131,14 +139,16 @@
  * @param   msg     Error message if assertion fails
  */
 #define TEST_ASSERT_DOUBLE_EQUAL(a, b, tol, msg)                                                   \
-  if (fabs((a) - (b)) > (tol)) {                                                                   \
-    TEST_MARKER_FAIL(__func__, msg);                                                               \
-    fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
-    fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
-    fprintf(stderr, "  Expected: %.6f, Got: %.6f (tol: %.6f)\n", (double)(b), (double)(a),         \
-            (double)(tol));                                                                        \
-    return 1;                                                                                      \
-  }
+  do {                                                                                             \
+    if (fabs((a) - (b)) > (tol)) {                                                                 \
+      TEST_MARKER_FAIL(__func__, msg);                                                             \
+      fprintf(stderr, "✗ FAIL: %s\n", msg);                                                        \
+      fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                  \
+      fprintf(stderr, "  Expected: %.6f, Got: %.6f (tol: %.6f)\n", (double)(b), (double)(a),       \
+              (double)(tol));                                                                      \
+      return 1;                                                                                    \
+    }                                                                                              \
+  } while (0)
 
 /**
  * @def     TEST_ASSERT_STRING_EQUAL
@@ -149,22 +159,30 @@
  * @param   msg     Error message if assertion fails
  */
 #define TEST_ASSERT_STRING_EQUAL(a, b, msg)                                                        \
-  if (strcmp((a), (b)) != 0) {                                                                     \
-    TEST_MARKER_FAIL(__func__, msg);                                                               \
-    fprintf(stderr, "✗ FAIL: %s\n", msg);                                                          \
-    fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                    \
-    fprintf(stderr, "  Expected: \"%s\", Got: \"%s\"\n", (b), (a));                                \
-    return 1;                                                                                      \
-  }
+  do {                                                                                             \
+    if (strcmp((a), (b)) != 0) {                                                                   \
+      TEST_MARKER_FAIL(__func__, msg);                                                             \
+      fprintf(stderr, "✗ FAIL: %s\n", msg);                                                        \
+      fprintf(stderr, "  Location: %s:%d\n", __FILE__, __LINE__);                                  \
+      fprintf(stderr, "  Expected: \"%s\", Got: \"%s\"\n", (b), (a));                              \
+      return 1;                                                                                    \
+    }                                                                                              \
+  } while (0)
 
 /**
  * @def     TEST_RUN
  * @brief   Run a test function and track results
  *
- * @param   test_func   Test function to execute (must return 0 for pass, 1 for fail)
+ * @param   test_func   Test function to execute; returns TEST_PASS, TEST_FAIL,
+ *                      or TEST_SKIP (see those macros)
  *
- * Automatically increments 'passed' or 'failed' counters.
+ * Automatically increments 'passed' or 'failed' counters (skips are tracked
+ * by the framework and reported by TEST_SUMMARY; they count as neither).
  * Requires: static int passed = 0, failed = 0; in the file scope.
+ *
+ * Every outcome emits a MIMIC_RESULT marker: assertion failures emit theirs
+ * from TEST_ASSERT*, and a test that fails without one gets a generic FAIL
+ * marker here so no failure is invisible in summary mode.
  *
  * Usage:
  *   TEST_RUN(test_memory_allocation);
@@ -172,14 +190,25 @@
  */
 #define TEST_RUN(test_func)                                                                        \
   do {                                                                                             \
+    int test_run_rc;                                                                               \
     printf("\nRunning: %-50s ", #test_func);                                                       \
     fflush(stdout);                                                                                \
-    if (test_func() == 0) {                                                                        \
+    test_fail_marked = 0;                                                                          \
+    test_skip_reason = "";                                                                         \
+    test_run_rc = test_func();                                                                     \
+    if (test_run_rc == TEST_PASS) {                                                                \
       printf("✓ PASS\n");                                                                          \
       TEST_MARKER_PASS(#test_func);                                                                \
       passed++;                                                                                    \
+    } else if (test_run_rc == TEST_SKIP) {                                                         \
+      printf("– SKIP\n");                                                                          \
+      TEST_MARKER_SKIP(#test_func, test_skip_reason[0] ? test_skip_reason : "skipped");            \
+      test_skips++;                                                                                \
     } else {                                                                                       \
       printf("✗ FAIL\n");                                                                          \
+      if (!test_fail_marked) {                                                                     \
+        TEST_MARKER_FAIL(#test_func, "test returned failure without a failing assertion");         \
+      }                                                                                            \
       failed++;                                                                                    \
     }                                                                                              \
   } while (0)
@@ -201,8 +230,11 @@
     printf("============================================================\n");                      \
     printf("%s", NC);                                                                              \
     printf("Passed: %d\n", passed);                                                                \
+    if (test_skips > 0) {                                                                          \
+      printf("Skipped: %d\n", test_skips);                                                         \
+    }                                                                                              \
     printf("Failed: %d\n", failed);                                                                \
-    printf("Total:  %d\n", passed + failed);                                                       \
+    printf("Total:  %d\n", passed + test_skips + failed);                                          \
     printf("%s", BLUE);                                                                            \
     printf("============================================================\n");                      \
     printf("%s\n", NC);                                                                            \
@@ -225,15 +257,24 @@
 #define TEST_RESULT() (failed > 0 ? 1 : 0)
 
 /**
- * @def     TEST_PASS
- * @brief   Constant representing test pass
+ * @def     TEST_PASS / TEST_FAIL / TEST_SKIP
+ * @brief   Return-value vocabulary for test functions run via TEST_RUN.
+ *
+ * Return TEST_SKIP (optionally via TEST_SKIP_WITH for a reason) from a test
+ * that cannot run in this configuration; TEST_RUN emits the SKIP marker so
+ * the skip stays visible in summary mode instead of masquerading as a pass.
  */
 #define TEST_PASS 0
+#define TEST_FAIL 1
+#define TEST_SKIP 2
 
 /**
- * @def     TEST_FAIL
- * @brief   Constant representing test fail
+ * @def     TEST_SKIP_WITH
+ * @brief   Skip the current test with a reason shown in the SKIP marker.
+ *
+ * Usage:
+ *   return TEST_SKIP_WITH("requires process isolation");
  */
-#define TEST_FAIL 1
+#define TEST_SKIP_WITH(reason) (test_skip_reason = (reason), TEST_SKIP)
 
 #endif /* TEST_FRAMEWORK_H */

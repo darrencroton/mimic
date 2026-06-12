@@ -176,7 +176,7 @@ MIMIC_RESULT: ERROR <test_name> [-- <reason>]
 
 Summary mode filters structured markers directly: pass markers are suppressed, while fail, skip, warning, and error markers are shown. New tests **must** emit these markers; the protocol lives in:
 
-- **C tests:** `TEST_MARKER_PASS / TEST_MARKER_FAIL` macros in `tests/framework/test_framework.h` — emitted automatically by `TEST_RUN` and `TEST_ASSERT*`. No per-test work required.
+- **C tests:** `TEST_MARKER_PASS / TEST_MARKER_FAIL` macros in `tests/framework/test_framework.h` — emitted automatically by `TEST_RUN` and `TEST_ASSERT*`. No per-test work required. A test that cannot run in this configuration returns `TEST_SKIP_WITH("reason")` and is reported as a SKIP, not a pass.
 - **Python tests:** `result_pass / result_fail / result_skip / result_warn / result_error` helpers in `tests/framework/markers.py` (re-exported via `tests/framework/__init__.py`). Call them in each test's `main()` loop. Raise `TestSkipped` (also from `tests/framework`) to skip a test — the loop catches it and calls `result_skip` automatically.
 
 ```bash

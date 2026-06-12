@@ -262,23 +262,17 @@ int test_consistency(void) {
   double a = 5.0;
   double b = 10.0;
 
-  /* If a < b, then NOT (a > b) */
-  if (is_less(a, b)) {
-    TEST_ASSERT(is_greater(a, b) == false, "If a < b, then NOT (a > b)");
-  }
+  /* Assert the premises directly so a broken comparator cannot make the
+   * consistency checks pass vacuously. */
+  TEST_ASSERT(is_less(a, b) == true, "5.0 < 10.0 (premise)");
+  TEST_ASSERT(is_greater(a, b) == false, "If a < b, then NOT (a > b)");
+  TEST_ASSERT(is_less(b, a) == false, "If a > b, then NOT (a < b)");
 
-  /* If a > b, then NOT (a < b) */
-  if (is_greater(a, b)) {
-    TEST_ASSERT(is_less(a, b) == false, "If a > b, then NOT (a < b)");
-  }
-
-  /* If a == b, then NOT (a > b) AND NOT (a < b) */
   double c = 5.0;
   double d = 5.0;
-  if (is_equal(c, d)) {
-    TEST_ASSERT(is_greater(c, d) == false, "If a == b, then NOT (a > b)");
-    TEST_ASSERT(is_less(c, d) == false, "If a == b, then NOT (a < b)");
-  }
+  TEST_ASSERT(is_equal(c, d) == true, "5.0 == 5.0 (premise)");
+  TEST_ASSERT(is_greater(c, d) == false, "If a == b, then NOT (a > b)");
+  TEST_ASSERT(is_less(c, d) == false, "If a == b, then NOT (a < b)");
 
   /* a >= b should be equivalent to (a > b OR a == b) */
   bool ge = is_greater_or_equal(a, b);

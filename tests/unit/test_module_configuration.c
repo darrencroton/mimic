@@ -245,22 +245,13 @@ int test_valid_module_initialization(void) {
  * Expected: module_system_init() exits with error for invalid module
  * Validates: Invalid module names are detected and reported
  *
- * NOTE: This test is disabled because module_system_init() calls exit()
- *       on invalid module names (fail-fast design). Testing this would
- *       require process isolation or refactoring to return error codes.
+ * Skipped: module_system_init() calls exit() on invalid module names
+ * (fail-fast design), so this needs process isolation. The behavior is
+ * covered by tests/integration/test_module_pipeline.py
+ * (test_unknown_module_error), which runs Mimic as a subprocess.
  */
 int test_unknown_module_error(void) {
-  /* ===== SKIP TEST ===== */
-  /* This test cannot be implemented without process isolation because
-   * module_system_init() calls exit() on invalid module names.
-   * This is intentional (fail-fast) but makes unit testing difficult.
-   *
-   * Proper validation requires integration testing with separate processes
-   * or refactoring to return error codes instead of calling exit().
-   */
-
-  printf("  SKIPPED (requires process isolation)\n");
-  return TEST_PASS;
+  return TEST_SKIP_WITH("requires process isolation; covered by test_module_pipeline.py");
 }
 
 /**
