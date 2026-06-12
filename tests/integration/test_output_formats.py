@@ -27,8 +27,13 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
     BASELINE_ATOL_DEFAULT,
     BASELINE_RTOL_DEFAULT,
+    BLUE,
+    GREEN,
     MIMIC_EXE,
+    NC,
+    RED,
     TEST_DATA_DIR,
+    YELLOW,
     TestSkipped,
     baseline_rtol,
     core_input_file,
@@ -41,6 +46,7 @@ from framework import (
     result_skip,
     run_mimic,
     run_mimic_fresh,
+    run_test_suite,
     skip_non_default_baseline,
 )
 
@@ -48,13 +54,6 @@ VALIDATION_MANIFEST_PATH = REPO_ROOT / "tests" / "generated" / "property_ranges.
 
 # Ensure output directories exist before any tests run
 ensure_output_dirs()
-
-# ANSI color codes (module-level constants)
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
 
 
 def check_hdf5_support():
@@ -110,9 +109,6 @@ def load_hdf5_halos(output_file):
     Returns:
         tuple: (halos, metadata) where halos is structured array
     """
-    # ANSI color codes
-    RED = "\033[0;31m"
-    NC = "\033[0m"  # No Color
 
     try:
         import h5py
@@ -619,10 +615,6 @@ def test_binary_baseline_comparison():
     baseline_dir = TEST_DATA_DIR / "output" / "baseline" / "binary"
     baseline_file = baseline_dir / "model_z0.000_0"
 
-    # ANSI color codes
-    RED = "\033[0;31m"
-    NC = "\033[0m"  # No Color
-
     assert baseline_file.exists(), (
         f"{RED}Baseline file not found: {baseline_file}\n"
         f"Run Mimic once to establish baseline, then commit the baseline file.{NC}"
@@ -662,10 +654,6 @@ def test_binary_baseline_comparison():
         warn_rtol=BASELINE_RTOL_DEFAULT,
         atol=BASELINE_ATOL_DEFAULT,
     )
-
-    # ANSI color codes
-    GREEN = "\033[0;32m"
-    NC = "\033[0m"  # No Color
 
     # Print report
     print(report, end="")  # Remove blank line after report
@@ -867,11 +855,6 @@ def test_hdf5_baseline_comparison():
     halos_test, metadata_test = load_hdf5_halos(output_file)
     print(f"    → {metadata_test['TotHalos']} halos")
 
-    # ANSI color codes
-    RED = "\033[0;31m"
-    GREEN = "\033[0;32m"
-    NC = "\033[0m"  # No Color
-
     # Load committed baseline
     baseline_dir = TEST_DATA_DIR / "output" / "baseline" / "hdf5"
     baseline_file = baseline_dir / "model_000.hdf5"
@@ -1053,11 +1036,6 @@ def test_format_equivalence():
     hdf5_param_file = core_input_file("test_hdf5.yaml")
     run_mimic_fresh(hdf5_param_file, hdf5_file)
 
-    # ANSI color codes
-    RED = "\033[0;31m"
-    GREEN = "\033[0;32m"
-    NC = "\033[0m"  # No Color
-
     print(f"  Loading HDF5: {hdf5_file.relative_to(REPO_ROOT)}")
     halos_hdf5, metadata_hdf5 = load_hdf5_halos(hdf5_file)
     print(f"    → {metadata_hdf5['TotHalos']} halos")
@@ -1098,82 +1076,29 @@ def test_format_equivalence():
 
 
 def main():
-    """
-    Main test runner
-
-    Executes all test cases and reports results.
-    """
-    # Print test suite header
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: Output Formats (test_output_formats.py){NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
+    """Run this file's tests via the shared framework runner."""
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
 
-    # Check prerequisites
     if not MIMIC_EXE.exists():
         print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
         print("Build it first with: make")
         return 1
 
-    # Testing Strategy:
-    # - Binary baseline test validates binary core property determinism
-    # - HDF5 baseline test validates HDF5 core property determinism
-    # - Format equivalence test validates binary matches HDF5 output
-    # Both baseline tests are enabled: each output carries metadata/output_schema.json
-    # so the loader always uses the dtype that matches the file, not a generated fallback.
-
-    tests = [
-        test_binary_format_execution,
-        test_binary_format_loading,
-        test_binary_baseline_comparison,  # Validates binary core property determinism
-        test_hdf5_format_execution,
-        test_hdf5_format_loading,
-        test_hdf5_compression_equivalence,
-        test_hdf5_baseline_comparison,  # Validates HDF5 core property determinism
-        test_unique_id_contract,  # Validates UniqueGalaxyID/UniqueCentralGalaxyID invariants
-        test_format_equivalence,  # Validates binary matches HDF5 (all properties)
-    ]
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    return run_test_suite(
+        [
+            test_binary_format_execution,
+            test_binary_format_loading,
+            test_binary_baseline_comparison,
+            test_hdf5_format_execution,
+            test_hdf5_format_loading,
+            test_hdf5_compression_equivalence,
+            test_hdf5_baseline_comparison,
+            test_unique_id_contract,
+            test_format_equivalence,
+        ],
+        "Output Formats (test_output_formats.py)",
+    )
 
 
 if __name__ == "__main__":

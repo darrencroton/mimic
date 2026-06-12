@@ -9,9 +9,13 @@ Eliminates code duplication across test files.
 import json
 import math
 import os
+import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+import yaml
 
 from .markers import TestSkipped
 
@@ -20,41 +24,34 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 TEST_DATA_DIR = REPO_ROOT / "tests" / "data"
 MIMIC_EXE = REPO_ROOT / "mimic"
 
+# Single source of truth for Makefile DEFAULT_* parsing lives with the
+# generator scripts' discovery helpers.
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from discovery import makefile_default
+
 
 def compiled_model():
     """Return the model selected for this test run."""
-    return os.environ.get("MODEL") or _makefile_default("DEFAULT_MODEL", "sage16")
+    return os.environ.get("MODEL") or makefile_default("DEFAULT_MODEL", "sage16")
 
 
 def compiled_simulation():
     """Return the simulation property package selected for this test run."""
-    return os.environ.get("SIMULATION") or os.environ.get("SIM") or "mini-millennium"
-
-
-def _makefile_default(variable, fallback):
-    """Read a simple DEFAULT_* assignment from the repository Makefile."""
-    makefile = REPO_ROOT / "Makefile"
-    try:
-        with makefile.open(encoding="utf-8") as handle:
-            for raw_line in handle:
-                line = raw_line.split("#", 1)[0].strip()
-                prefix = f"{variable} :="
-                if line.startswith(prefix):
-                    value = line[len(prefix) :].strip()
-                    return value or fallback
-    except OSError:
-        pass
-    return fallback
+    return (
+        os.environ.get("SIMULATION")
+        or os.environ.get("SIM")
+        or makefile_default("DEFAULT_SIMULATION", "mini-millennium")
+    )
 
 
 def default_model():
     """Return the Makefile default model package used by committed baselines."""
-    return _makefile_default("DEFAULT_MODEL", "sage16")
+    return makefile_default("DEFAULT_MODEL", "sage16")
 
 
 def default_simulation():
     """Return the Makefile default simulation package used by committed baselines."""
-    return _makefile_default("DEFAULT_SIMULATION", "mini-millennium")
+    return makefile_default("DEFAULT_SIMULATION", "mini-millennium")
 
 
 def is_default_baseline_combo():
@@ -167,29 +164,28 @@ def _ensure_generated_test_inputs():
     _run_test_input_generator()
 
 
-def core_input_file(filename):
-    """Return a generated core-owned test input file."""
+def _generated_input(relative_parts, error_hint):
+    """Return a generated test input file, regenerating once if missing."""
     _ensure_generated_test_inputs()
-    path = _generated_input_root() / "core" / filename
+    path = _generated_input_root().joinpath(*relative_parts)
     if not path.exists():
         _run_test_input_generator()
     if not path.exists():
-        raise FileNotFoundError(f"Generated core test input not found: {path}")
+        raise FileNotFoundError(f"{error_hint}: {path}")
     return path
+
+
+def core_input_file(filename):
+    """Return a generated core-owned test input file."""
+    return _generated_input(("core", filename), "Generated core test input not found")
 
 
 def simulation_input_file(filename):
     """Return a generated input file owned by the selected simulation tests."""
-    _ensure_generated_test_inputs()
-    path = _generated_input_root() / "simulations" / compiled_simulation() / filename
-    if not path.exists():
-        _run_test_input_generator()
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Generated simulation test input not found: {path}. "
-            f"Selected SIMULATION={compiled_simulation()}."
-        )
-    return path
+    return _generated_input(
+        ("simulations", compiled_simulation(), filename),
+        f"Generated simulation test input (SIMULATION={compiled_simulation()}) not found",
+    )
 
 
 def ensure_output_dirs():
@@ -359,8 +355,6 @@ def read_param_file(param_file):
         output_dir = params['OutputDir']
         hubble_h = float(params['Hubble_h'])
     """
-    import yaml
-
     param_file = Path(param_file)
 
     with open(param_file, "r") as f:
@@ -437,6 +431,7 @@ def create_test_param_file(
     ref_param_file=None,
     temp_dir=None,
     output_format=None,
+    substeps=None,
 ):
     """
     Create a test YAML parameter file with multi-phase module configuration
@@ -465,6 +460,7 @@ def create_test_param_file(
                                       (default: generated core test_binary.yaml)
         temp_dir (str or Path): Temporary directory for outputs (default: create new)
         output_format (str): Output format override ('binary' or 'hdf5', default: from ref file)
+        substeps (int, optional): SubSteps override (default: value from ref file, or 1)
 
     Returns:
         tuple: (param_file_path, output_dir_path, temp_dir_path)
@@ -496,8 +492,6 @@ def create_test_param_file(
         import shutil
         shutil.rmtree(temp_dir)
     """
-    import yaml
-
     # Set defaults
     if ref_param_file is None:
         ref_param_file = core_input_file("test_binary.yaml")
@@ -530,9 +524,11 @@ def create_test_param_file(
         yaml.dump(sim_config, f, default_flow_style=False, sort_keys=False)
     config["simulation"]["config"] = str(generated_sim_config)
 
-    # Set SubSteps (default to 1 if not in reference file)
+    # Set SubSteps (default to 1 if not in reference file; explicit override wins)
     if "SubSteps" not in config:
         config["SubSteps"] = 1
+    if substeps is not None:
+        config["SubSteps"] = int(substeps)
 
     # Rebuild the modules section in the current named-substep-phase form:
     #   pre_timestep (lifecycle) -> phases: { <name>: [...] } -> post_timestep.
@@ -622,20 +618,36 @@ def check_no_memory_leaks(stdout, stderr=""):
     return True
 
 
-# Convenience exports for common paths
-__all__ = [
-    "REPO_ROOT",
-    "TEST_DATA_DIR",
-    "MIMIC_EXE",
-    "compiled_model",
-    "compiled_simulation",
-    "core_input_file",
-    "simulation_input_file",
-    "ensure_output_dirs",
-    "run_mimic",
-    "run_mimic_fresh",
-    "resolve_sim_config_path",
-    "read_param_file",
-    "create_test_param_file",
-    "check_no_memory_leaks",
-]
+# The framework test fixture module (src/module_system/test_fixture) logs one
+# line per process() call in this exact format; this parser is the Python side
+# of that contract. Keep the two in sync.
+_TEST_FIXTURE_EXEC_PATTERN = re.compile(
+    r"TEST_FIXTURE_EXEC: count=(\d+) ngal=(\d+) substep=(\d+)/(\d+) "
+    r"substep_dt=([\d.e+-]+) z=([\d.]+)"
+)
+
+
+def parse_test_fixture_executions(stdout):
+    """
+    Parse test_fixture execution log lines from a Mimic run's output.
+
+    Args:
+        stdout (str): Captured stdout containing TEST_FIXTURE_EXEC log lines.
+
+    Returns:
+        list[dict]: One dict per module execution with keys 'count', 'ngal',
+        'substep_number', 'num_substeps', 'substep_dt', 'redshift'.
+    """
+    executions = []
+    for match in _TEST_FIXTURE_EXEC_PATTERN.finditer(stdout):
+        executions.append(
+            {
+                "count": int(match.group(1)),
+                "ngal": int(match.group(2)),
+                "substep_number": int(match.group(3)),
+                "num_substeps": int(match.group(4)),
+                "substep_dt": float(match.group(5)),
+                "redshift": float(match.group(6)),
+            }
+        )
+    return executions

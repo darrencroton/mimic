@@ -8,12 +8,35 @@ from pathlib import Path
 from typing import Iterable, List
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def makefile_default(variable: str, fallback: str) -> str:
+    """Read a simple DEFAULT_* assignment from the repository Makefile.
+
+    Single source of truth for the default MODEL/SIMULATION selection used by
+    generator scripts and the test harness when the environment does not
+    select a package explicitly.
+    """
+    makefile = REPO_ROOT / "Makefile"
+    try:
+        with makefile.open(encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.split("#", 1)[0].strip()
+                prefix = f"{variable} :="
+                if line.startswith(prefix):
+                    value = line[len(prefix) :].strip()
+                    return value or fallback
+    except OSError:
+        pass
+    return fallback
+
+
 DEFAULT_MODEL = ""
 # Simulation selected when neither SIMULATION nor SIM is set in the environment.
-# Mirrors DEFAULT_SIMULATION in the Makefile. The Makefile always exports
+# Read from DEFAULT_SIMULATION in the Makefile. The Makefile always exports
 # SIMULATION when it invokes these helpers, so this default only applies to
 # standalone script runs.
-DEFAULT_SIMULATION = "mini-millennium"
+DEFAULT_SIMULATION = makefile_default("DEFAULT_SIMULATION", "mini-millennium")
 
 
 def rel(path: Path) -> str:

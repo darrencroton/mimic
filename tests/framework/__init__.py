@@ -28,6 +28,7 @@ from .harness import (
     ensure_output_dirs,
     input_tree_file_for_run,
     is_default_baseline_combo,
+    parse_test_fixture_executions,
     read_param_file,
     resolve_sim_config_path,
     run_mimic,
@@ -43,6 +44,7 @@ from .markers import (
     result_skip,
     result_warn,
 )
+from .runner import BLUE, GREEN, NC, RED, YELLOW, run_test_suite
 
 __all__ = [
     # Data loading and validation
@@ -74,6 +76,7 @@ __all__ = [
     "read_param_file",
     "create_test_param_file",
     "check_no_memory_leaks",
+    "parse_test_fixture_executions",
     # Summary markers
     "TestSkipped",
     "result_pass",
@@ -81,4 +84,11 @@ __all__ = [
     "result_skip",
     "result_warn",
     "result_error",
+    # Suite runner and shared output colors
+    "run_test_suite",
+    "BLUE",
+    "GREEN",
+    "RED",
+    "YELLOW",
+    "NC",
 ]

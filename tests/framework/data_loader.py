@@ -100,6 +100,17 @@ def load_binary_halos(file_path):
     return halos, metadata
 
 
+def _count_matching(halos, predicate):
+    """Count predicate hits per float field (scalar and vector fields alike)."""
+    counts = {}
+    for field in halos.dtype.names:
+        if np.issubdtype(halos.dtype[field], np.floating):
+            count = int(np.sum(predicate(halos[field])))
+            if count > 0:
+                counts[field] = count
+    return counts
+
+
 def validate_no_nans(halos):
     """
     Check that no halo properties contain NaN values.
@@ -110,26 +121,7 @@ def validate_no_nans(halos):
     Returns:
         dict: {field_name: count_of_nans} for fields with NaNs, empty if all clean
     """
-    nan_counts = {}
-
-    for field in halos.dtype.names:
-        # Get field data
-        data = halos[field]
-
-        # Check for NaNs (only for float fields)
-        if np.issubdtype(halos.dtype[field], np.floating):
-            if data.ndim == 1:
-                # Scalar field
-                nan_count = np.sum(np.isnan(data))
-                if nan_count > 0:
-                    nan_counts[field] = nan_count
-            else:
-                # Vector field (e.g., Pos, Vel, Spin)
-                nan_count = np.sum(np.isnan(data))
-                if nan_count > 0:
-                    nan_counts[field] = nan_count
-
-    return nan_counts
+    return _count_matching(halos, np.isnan)
 
 
 def validate_no_infs(halos):
@@ -142,26 +134,7 @@ def validate_no_infs(halos):
     Returns:
         dict: {field_name: count_of_infs} for fields with infs, empty if all clean
     """
-    inf_counts = {}
-
-    for field in halos.dtype.names:
-        # Get field data
-        data = halos[field]
-
-        # Check for infinities (only for float fields)
-        if np.issubdtype(halos.dtype[field], np.floating):
-            if data.ndim == 1:
-                # Scalar field
-                inf_count = np.sum(np.isinf(data))
-                if inf_count > 0:
-                    inf_counts[field] = inf_count
-            else:
-                # Vector field
-                inf_count = np.sum(np.isinf(data))
-                if inf_count > 0:
-                    inf_counts[field] = inf_count
-
-    return inf_counts
+    return _count_matching(halos, np.isinf)
 
 
 def validate_range(halos, field, min_val, max_val):
@@ -181,7 +154,8 @@ def validate_range(halos, field, min_val, max_val):
             - 'count_above': number of values above max_val
             - 'min_value': actual minimum value in data
             - 'max_value': actual maximum value in data
-            - 'example_violations': list of (index, value) tuples for first few violations
+            - 'examples_below' / 'examples_above': (index, value) tuples for
+              the first few violations of each kind
     """
     data = halos[field]
 

@@ -24,7 +24,11 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
+    BLUE,
+    GREEN,
     MIMIC_EXE,
+    NC,
+    RED,
     REPO_ROOT,
     TEST_DATA_DIR,
     TestSkipped,
@@ -37,17 +41,11 @@ from framework import (
     result_skip,
     run_mimic,
     run_mimic_fresh,
+    run_test_suite,
 )
 
 # Ensure output directories exist before any tests run
 ensure_output_dirs()
-
-# ANSI color codes (module-level constants)
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
 
 
 def test_basic_execution():
@@ -224,72 +222,26 @@ def test_stdout_content():
 
 
 def main():
-    """
-    Main test runner
-
-    Executes all test cases and reports results.
-    """
-    # Print test suite header
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: Full Pipeline (test_full_pipeline.py){NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
+    """Run this file's tests via the shared framework runner."""
     print(f"Repository root: {REPO_ROOT}")
     print(f"Mimic executable: {MIMIC_EXE}")
 
-    # Check prerequisites
     if not MIMIC_EXE.exists():
         print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
         print("Build it first with: make")
         return 1
 
-    tests = [
-        test_basic_execution,
-        test_output_files_created,
-        test_output_directory_created_if_missing,
-        test_no_memory_leaks,
-        test_output_loadable,
-        test_stdout_content,
-    ]
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    return run_test_suite(
+        [
+            test_basic_execution,
+            test_output_files_created,
+            test_output_directory_created_if_missing,
+            test_no_memory_leaks,
+            test_output_loadable,
+            test_stdout_content,
+        ],
+        "Full Pipeline (test_full_pipeline.py)",
+    )
 
 
 if __name__ == "__main__":

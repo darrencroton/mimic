@@ -27,15 +27,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from framework import TestSkipped, result_error, result_fail, result_pass, result_skip
+from framework import (
+    BLUE,
+    GREEN,
+    NC,
+    RED,
+    TestSkipped,
+    result_error,
+    result_fail,
+    result_pass,
+    result_skip,
+    run_test_suite,
+)
 from generate_module_registry import collect_event_info, validate_event_declarations
-
-# ANSI color codes
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-NC = "\033[0m"
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -221,58 +225,18 @@ def test_valid_declarations_produce_no_errors():
 
 
 def main():
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: Event Schema Validation (test_event_schema_validation.py){NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    tests = [
-        test_duplicate_emitted_event_name_fails,
-        test_consumer_of_nonexistent_producer_fails,
-        test_consumer_of_nonexistent_event_fails,
-        test_emits_on_non_full_halo_module_fails,
-        test_consumes_on_non_per_event_module_fails,
-        test_valid_declarations_produce_no_errors,
-    ]
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test_func in tests:
-        print()
-        try:
-            test_func()
-            result_pass(test_func.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test_func.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test_func.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test_func.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    return run_test_suite(
+        [
+            test_duplicate_emitted_event_name_fails,
+            test_consumer_of_nonexistent_producer_fails,
+            test_consumer_of_nonexistent_event_fails,
+            test_emits_on_non_full_halo_module_fails,
+            test_consumes_on_non_per_event_module_fails,
+            test_valid_declarations_produce_no_errors,
+        ],
+        "Event Schema Validation (test_event_schema_validation.py)",
+    )
 
 
 if __name__ == "__main__":

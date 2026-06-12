@@ -14,7 +14,6 @@ context information:
 
 """
 
-import re
 import shutil
 import sys
 from pathlib import Path
@@ -23,52 +22,21 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
+    BLUE,
+    GREEN,
+    NC,
+    RED,
     REPO_ROOT,
     TestSkipped,
     create_test_param_file,
+    parse_test_fixture_executions,
     result_error,
     result_fail,
     result_pass,
     result_skip,
     run_mimic,
+    run_test_suite,
 )
-
-# ANSI color codes
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
-
-
-def parse_test_fixture_executions(stdout):
-    """
-    Parse test_fixture execution log messages
-
-    Extracts execution information from TEST_FIXTURE_EXEC log lines.
-
-    Args:
-        stdout (str): Mimic stdout containing test_fixture logs
-
-    Returns:
-        list: List of dicts with execution information
-    """
-    executions = []
-    pattern = r"TEST_FIXTURE_EXEC: count=(\d+) ngal=(\d+) substep=(\d+)/(\d+) substep_dt=([\d.e+-]+) z=([\d.]+)"
-
-    for match in re.finditer(pattern, stdout):
-        executions.append(
-            {
-                "count": int(match.group(1)),
-                "ngal": int(match.group(2)),
-                "substep_number": int(match.group(3)),
-                "num_substeps": int(match.group(4)),
-                "substep_dt": float(match.group(5)),
-                "redshift": float(match.group(6)),
-            }
-        )
-
-    return executions
 
 
 def test_substeps_creates_loop():
@@ -92,17 +60,10 @@ def test_substeps_creates_loop():
         model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
         last_file=0,
+        substeps=5,
     )
 
     try:
-        # Set SubSteps=5
-        import yaml
-
-        with open(param_file, "r") as f:
-            config = yaml.safe_load(f)
-        config["SubSteps"] = 5
-        with open(param_file, "w") as f:
-            yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
         returncode, stdout, stderr = run_mimic(param_file)
@@ -167,17 +128,10 @@ def test_substep_dt_calculation():
         model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
         last_file=0,
+        substeps=10,
     )
 
     try:
-        # Set SubSteps=10
-        import yaml
-
-        with open(param_file, "r") as f:
-            config = yaml.safe_load(f)
-        config["SubSteps"] = 10
-        with open(param_file, "w") as f:
-            yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
         returncode, stdout, stderr = run_mimic(param_file)
@@ -239,17 +193,10 @@ def test_module_context_fields():
         model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
         last_file=0,
+        substeps=4,
     )
 
     try:
-        # Set SubSteps=4
-        import yaml
-
-        with open(param_file, "r") as f:
-            config = yaml.safe_load(f)
-        config["SubSteps"] = 4
-        with open(param_file, "w") as f:
-            yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
         returncode, stdout, stderr = run_mimic(param_file)
@@ -328,17 +275,10 @@ def test_substeps_one_no_loop():
         model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
         first_file=0,
         last_file=0,
+        substeps=1,
     )
 
     try:
-        # Set SubSteps=1 (or leave default)
-        import yaml
-
-        with open(param_file, "r") as f:
-            config = yaml.safe_load(f)
-        config["SubSteps"] = 1
-        with open(param_file, "w") as f:
-            yaml.dump(config, f, default_flow_style=False)
 
         # ===== EXECUTE =====
         returncode, stdout, stderr = run_mimic(param_file)
@@ -376,62 +316,16 @@ def test_substeps_one_no_loop():
 
 
 def main():
-    """
-    Main test runner
-
-    Executes all test cases and reports results.
-    """
-    # Print test suite header
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: SubSteps Time-Stepping and ModuleContext (test_substeps.py){NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    tests = [
-        test_substeps_creates_loop,
-        test_substep_dt_calculation,
-        test_module_context_fields,
-        test_substeps_one_no_loop,
-    ]
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            result_pass(test.__name__)
-            passed += 1
-        except TestSkipped as e:
-            result_skip(test.__name__, str(e))
-            skipped += 1
-        except AssertionError as e:
-            result_fail(test.__name__, str(e).splitlines()[0])
-            failed += 1
-        except Exception as e:
-            result_error(test.__name__, str(e).splitlines()[0])
-            failed += 1
-
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    if skipped:
-        print(f"Skipped: {skipped}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    """Run this file's tests via the shared framework runner."""
+    return run_test_suite(
+        [
+            test_substeps_creates_loop,
+            test_substep_dt_calculation,
+            test_module_context_fields,
+            test_substeps_one_no_loop,
+        ],
+        "SubSteps Time-Stepping and ModuleContext (test_substeps.py)",
+    )
 
 
 if __name__ == "__main__":

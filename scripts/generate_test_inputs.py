@@ -15,36 +15,20 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from discovery import REPO_ROOT
+from discovery import REPO_ROOT, makefile_default
 
 OUTPUT_ROOT = REPO_ROOT / "build" / "generated" / "test_inputs"
 
 
-def _makefile_default(variable: str, fallback: str) -> str:
-    """Read a simple DEFAULT_* assignment from the repository Makefile."""
-    makefile = REPO_ROOT / "Makefile"
-    try:
-        with makefile.open(encoding="utf-8") as handle:
-            for raw_line in handle:
-                line = raw_line.split("#", 1)[0].strip()
-                prefix = f"{variable} :="
-                if line.startswith(prefix):
-                    value = line[len(prefix) :].strip()
-                    return value or fallback
-    except OSError:
-        pass
-    return fallback
-
-
 def selected_model() -> str:
-    return os.environ.get("MODEL") or _makefile_default("DEFAULT_MODEL", "sage16")
+    return os.environ.get("MODEL") or makefile_default("DEFAULT_MODEL", "sage16")
 
 
 def selected_simulation() -> str:
     return (
         os.environ.get("SIMULATION")
         or os.environ.get("SIM")
-        or _makefile_default("DEFAULT_SIMULATION", "mini-millennium")
+        or makefile_default("DEFAULT_SIMULATION", "mini-millennium")
     )
 
 
