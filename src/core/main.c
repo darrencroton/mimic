@@ -50,11 +50,13 @@
 
 #define MAX_PATH_BUF_SIZE (3 * MAX_STRING_LEN + 25)
 
-/* Output path of the filenr currently being processed. Set when the file is
- * claimed, cleared once it completes, and unlinked by bye() if the program
- * exits with a failure in between — so a crash never leaves a partial output
- * file behind, and never deletes a completed one. */
-static char current_output_path[MAX_PATH_BUF_SIZE + 1];
+/* Output paths of the filenr currently being processed. Set before the filenr
+ * is claimed, cleared once it completes, and unlinked by bye() if the program
+ * exits with a failure in between, so a crash never leaves partial output files
+ * behind and never deletes completed ones. Binary output has one path per
+ * requested snapshot; HDF5 output has one path per filenr. */
+static char current_output_paths[ABSOLUTEMAXSNAPS][MAX_PATH_BUF_SIZE + 1];
+static int current_output_path_count = 0;
 static int exitfail = 1; /* Flag indicating whether program exit was due to failure */
 
 static struct sigaction saveaction_XCPU;  /* Saved signal action for SIGXCPU */
@@ -133,15 +135,65 @@ void bye() {
 #endif
 
   if (exitfail) {
-    /* Remove the in-progress output file so a failed run leaves no partial output */
-    if (current_output_path[0] != '\0') {
-      unlink(current_output_path);
+    /* Remove in-progress output files so a failed run leaves no partial output */
+    for (int i = 0; i < current_output_path_count; i++) {
+      if (current_output_paths[i][0] != '\0') {
+        unlink(current_output_paths[i]);
+      }
     }
 
 #ifdef MPI
     if (ThisTask == 0 && gotXCPU == 1)
       printf("Received XCPU, exiting. But we'll be back.\n");
 #endif
+  }
+}
+
+static void clear_current_output_paths(void) {
+  for (int i = 0; i < current_output_path_count; i++) {
+    current_output_paths[i][0] = '\0';
+  }
+  current_output_path_count = 0;
+}
+
+static void set_current_output_paths(int filenr) {
+  clear_current_output_paths();
+
+#ifdef HDF5
+  if (MimicConfig.OutputFormat == output_hdf5) {
+    output_path_hdf5(current_output_paths[0], MAX_PATH_BUF_SIZE, filenr);
+    current_output_path_count = 1;
+    return;
+  }
+#endif
+
+  for (int n = 0; n < MimicConfig.NOUT; n++) {
+    output_path_binary(current_output_paths[n], MAX_PATH_BUF_SIZE, filenr, n);
+  }
+  current_output_path_count = MimicConfig.NOUT;
+}
+
+static int count_existing_current_outputs(void) {
+  struct stat filestatus;
+  int existing = 0;
+
+  for (int i = 0; i < current_output_path_count; i++) {
+    if (stat(current_output_paths[i], &filestatus) == 0) {
+      existing++;
+    }
+  }
+
+  return existing;
+}
+
+static void claim_current_output_paths(int filenr) {
+  for (int i = 0; i < current_output_path_count; i++) {
+    FILE *fd = fopen(current_output_paths[i], "w");
+    if (fd == NULL) {
+      FATAL_ERROR("Failed to claim output file '%s' for filenr %d", current_output_paths[i],
+                  filenr);
+    }
+    fclose(fd);
   }
 }
 
@@ -417,7 +469,6 @@ int main(int argc, char **argv) {
   int filenr;
   struct sigaction current_XCPU;
 
-  struct stat filestatus;
   FILE *fd;
   char tree_path[MAX_PATH_BUF_SIZE + 1];
 
@@ -541,34 +592,32 @@ int main(int argc, char **argv) {
     } else
       fclose(fd);
 
-    /* Check if output file already exists (to avoid reprocessing unless
-     * overwrite flag is set) */
-#ifdef HDF5
-    if (MimicConfig.OutputFormat == output_hdf5) {
-      /* HDF5 format: one file per filenr (e.g., model_000.hdf5) */
-      output_path_hdf5(current_output_path, MAX_PATH_BUF_SIZE, filenr);
-    } else {
-      /* Binary format: one file per snapshot per filenr (e.g., model_z0.000_0) */
-      output_path_binary(current_output_path, MAX_PATH_BUF_SIZE, filenr, 0);
-    }
-#else
-    /* Binary format only (no HDF5 support compiled in) */
-    output_path_binary(current_output_path, MAX_PATH_BUF_SIZE, filenr, 0);
-#endif
-    if (stat(current_output_path, &filestatus) == 0 && !MimicConfig.OverwriteOutputFiles) {
-      INFO_LOG("Output for tree %s already exists ... skipping", current_output_path);
-      current_output_path[0] = '\0';
-      continue; // output seems to already exist, dont overwrite, move along
+    /* Check if output already exists (to avoid reprocessing unless overwrite
+     * is set). Binary output is complete only if every requested snapshot file
+     * exists; a partial set is usually an interrupted run and should fail fast
+     * rather than silently skip or overwrite a subset under --skip. */
+    set_current_output_paths(filenr);
+    int existing_outputs = count_existing_current_outputs();
+    if (!MimicConfig.OverwriteOutputFiles) {
+      if (existing_outputs == current_output_path_count) {
+        INFO_LOG("Output for filenr %d already exists ... skipping", filenr);
+        clear_current_output_paths();
+        continue;
+      }
+      if (existing_outputs > 0) {
+        FATAL_ERROR("Partial output exists for filenr %d (%d of %d files). Remove the partial "
+                    "files or rerun without --skip.",
+                    filenr, existing_outputs, current_output_path_count);
+      }
     }
 
-    /* Create output file to mark that we're processing this tree */
-    if ((fd = fopen(current_output_path, "w")))
-      fclose(fd);
+    /* Create output files to mark that this filenr is being processed */
+    claim_current_output_paths(filenr);
 
     process_file(filenr);
 
     /* This filenr's output is complete; nothing to unlink on later failure */
-    current_output_path[0] = '\0';
+    clear_current_output_paths();
 
     INFO_LOG("%sCompleted file %d%s", mimic_color_green(), filenr, mimic_color_reset());
   }

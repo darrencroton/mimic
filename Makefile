@@ -327,16 +327,39 @@ $(GIT_VERSION_H): .git/HEAD .git/index
 	@echo "#define BUILD_DATE \"$$(date '+%Y-%m-%d')\"" >> $@
 	@echo "#endif" >> $@
 
-# Records the build mode (TEST_BUILD value) of the last link. Production and
-# test builds use separate object trees but share the $(EXEC) (mimic) path, so
-# without this a production build after a test build (or vice versa) might see
-# its own objects as older than the existing binary and skip relinking, leaving
-# a mismatched executable. The marker is shared (always under build/) and only
-# rewritten when the mode changes, forcing a relink exactly on a mode switch.
+# Records the executable mode of the last link. Production and test builds use
+# separate object trees but share the $(EXEC) (mimic) path, so without this a
+# production build after a test build (or vice versa) might see its own objects
+# as older than the existing binary and skip relinking, leaving a mismatched
+# executable. The marker is shared (always under build/) and only rewritten when
+# the mode changes, forcing a relink exactly on a mode switch.
 EXEC_MODE_MARKER := build/.last_exec_mode
 $(EXEC_MODE_MARKER): FORCE
 	@mkdir -p build
-	@printf '%s' '$(TEST_BUILD)' > $@.tmp
+	@{ \
+		printf 'TEST_BUILD=%s\n' '$(TEST_BUILD)'; \
+		printf 'USE-HDF5=%s\n' '$(USE-HDF5)'; \
+		printf 'USE-MPI=%s\n' '$(USE-MPI)'; \
+		printf 'MODEL=%s\n' '$(MODEL)'; \
+		printf 'SIMULATION=%s\n' '$(SIMULATION)'; \
+	} > $@.tmp
+	@if cmp -s $@.tmp $@ 2>/dev/null; then rm -f $@.tmp; else mv $@.tmp $@; fi
+
+# Records the compile mode for object files. Make does not automatically know
+# that variables embedded in CFLAGS changed between invocations, so this marker
+# forces a rebuild when feature flags or selected packages change.
+COMPILE_MODE_MARKER := $(BUILD_DIR)/.last_compile_mode
+$(COMPILE_MODE_MARKER): FORCE
+	@mkdir -p $(BUILD_DIR)
+	@{ \
+		printf 'TEST_BUILD=%s\n' '$(TEST_BUILD)'; \
+		printf 'USE-HDF5=%s\n' '$(USE-HDF5)'; \
+		printf 'USE-MPI=%s\n' '$(USE-MPI)'; \
+		printf 'MODEL=%s\n' '$(MODEL)'; \
+		printf 'SIMULATION=%s\n' '$(SIMULATION)'; \
+		printf 'CC=%s\n' '$(CC)'; \
+		printf 'EXTRA_CFLAGS=%s\n' '$(EXTRA_CFLAGS)'; \
+	} > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm -f $@.tmp; else mv $@.tmp $@; fi
 
 $(EXEC): $(OBJECTS) $(EXEC_MODE_MARKER)
@@ -344,7 +367,7 @@ $(EXEC): $(OBJECTS) $(EXEC_MODE_MARKER)
 	$(CC) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBS)
 	@echo "Build complete"
 
-$(OBJ_DIR)/%.o: %.c $(GIT_VERSION_H) Makefile
+$(OBJ_DIR)/%.o: %.c $(GIT_VERSION_H) Makefile $(COMPILE_MODE_MARKER)
 	@mkdir -p $(dir $@) $(dir $(DEP_DIR)/$*.d)
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -MF $(DEP_DIR)/$*.d -c $< -o $@

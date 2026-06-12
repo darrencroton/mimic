@@ -750,20 +750,28 @@ int module_emit_event(struct ModuleContext *ctx, int event_id, int source_index,
 
   /* Validate the (producer, event_id) pair was declared in module_info.yaml */
   const struct Module *producer = find_module_by_id(phase_event_state.current_producer_module_id);
-  if (producer != NULL && producer->num_emitted_events > 0) {
-    bool event_declared = false;
-    for (int i = 0; i < producer->num_emitted_events; i++) {
-      if (producer->emitted_event_ids[i] == event_id) {
-        event_declared = true;
-        break;
-      }
+  if (producer == NULL) {
+    FATAL_ERROR("module_emit_event internal error: producer module_id=%d is not registered",
+                phase_event_state.current_producer_module_id);
+  }
+  if (producer->num_emitted_events <= 0) {
+    FATAL_ERROR("module_emit_event internal error: module '%s' has producer module_id=%d "
+                "but no declared events.emits entries",
+                producer->name, phase_event_state.current_producer_module_id);
+  }
+
+  bool event_declared = false;
+  for (int i = 0; i < producer->num_emitted_events; i++) {
+    if (producer->emitted_event_ids[i] == event_id) {
+      event_declared = true;
+      break;
     }
-    if (!event_declared) {
-      ERROR_LOG("module_emit_event: module '%s' emitted event_id=%d which is not "
-                "declared in its events.emits (module_info.yaml)",
-                producer->name, event_id);
-      return -1;
-    }
+  }
+  if (!event_declared) {
+    ERROR_LOG("module_emit_event: module '%s' emitted event_id=%d which is not "
+              "declared in its events.emits (module_info.yaml)",
+              producer->name, event_id);
+    return -1;
   }
 
   if (source_index < 0 || source_index >= phase_event_state.ngal) {
