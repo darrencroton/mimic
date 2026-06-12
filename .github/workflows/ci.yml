@@ -42,6 +42,14 @@ jobs:
       run: |
         make check-generated
 
+    - name: Validate documentation links
+      run: |
+        make check-docs
+
+    - name: Validate module metadata
+      run: |
+        make validate-modules
+
     - name: Run unit tests
       run: |
         make tests-unit

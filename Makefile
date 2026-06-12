@@ -691,8 +691,14 @@ endef
 
 tests:
 	@echo "Cleaning and building once for all tests..."
-	@$(MAKE) clean > /dev/null 2>&1
-	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate-test-registry > /dev/null 2>&1
+	@output_file=$$(mktemp); \
+	if ! { $(MAKE) clean && $(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate-test-registry; } > "$$output_file" 2>&1; then \
+		cat "$$output_file"; \
+		rm -f "$$output_file"; \
+		echo "\033[0;31mERROR: test preamble (clean / generate-test-registry) failed — output above\033[0m"; \
+		exit 1; \
+	fi; \
+	rm -f "$$output_file"
 	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) USE-HDF5=yes,build)
 	@mkdir -p build
 	@rm -f build/.test_failures
@@ -733,27 +739,25 @@ tests-unit:
 	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@cd tests/unit && MIMIC_RECORD_TEST_FAILURES=1 ./run_tests.sh
 
-tests-integration:
-	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC),build integration test executable)
+# One canned recipe for the Python test tiers: $(1) registry name (also the
+# TLDR label uppercased via $(3)), $(2) banner text.
+define RUN_PYTHON_TIER
+	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC),build $(1) test executable)
 	@echo ""
 	@echo "\033[0;34m============================================================\033[0m"
-	@echo "\033[0;34mRUNNING INTEGRATION TESTS\033[0m"
+	@echo "\033[0;34mRUNNING $(2) TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
 	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
 	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@echo ""
-	$(call RUN_PYTHON_TEST_REGISTRY,integration,integration,INTEGRATION)
+	$(call RUN_PYTHON_TEST_REGISTRY,$(1),$(1),$(3))
+endef
+
+tests-integration:
+	$(call RUN_PYTHON_TIER,integration,INTEGRATION,INTEGRATION)
 
 tests-scientific:
-	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC),build scientific test executable)
-	@echo ""
-	@echo "\033[0;34m============================================================\033[0m"
-	@echo "\033[0;34mRUNNING SCIENTIFIC VALIDATION TESTS\033[0m"
-	@echo "\033[0;34m============================================================\033[0m"
-	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
-	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
-	@echo ""
-	$(call RUN_PYTHON_TEST_REGISTRY,scientific,scientific,SCIENTIFIC)
+	$(call RUN_PYTHON_TIER,scientific,SCIENTIFIC VALIDATION,SCIENTIFIC)
 
 test-clean:
 	@echo "Cleaning test artifacts..."
@@ -762,6 +766,6 @@ test-clean:
 	@rm -rf tests/data/output/hdf5/*
 	@mkdir -p tests/data/output/binary
 	@mkdir -p tests/data/output/hdf5
-	@rm -rf tests/**/__pycache__
-	@rm -f tests/**/*.pyc
+	@find tests -name __pycache__ -type d -prune -exec rm -rf {} +
+	@find tests -name '*.pyc' -delete
 	@echo "Test artifacts cleaned"
