@@ -47,6 +47,9 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
     MIMIC_EXE,
     TestSkipped,
+    assert_no_infs,
+    assert_no_nans,
+    assert_range,
     create_test_param_file,
     load_binary_halos,
     result_error,
@@ -54,9 +57,6 @@ from framework import (
     result_pass,
     result_skip,
     run_mimic,
-    validate_no_infs,
-    validate_no_nans,
-    validate_range,
 )
 
 # ANSI color codes
@@ -303,12 +303,12 @@ def test_output_sanity_checks():
     halos, metadata = load_binary_halos(str(output_file))
 
     # Check for NaN and Inf
-    validate_no_nans(halos)
-    validate_no_infs(halos)
+    assert_no_nans(halos)
+    assert_no_infs(halos)
 
     # Check non-negativity (masses can't be negative)
-    validate_range(halos, "HotGas", 0.0, 1e10)
-    validate_range(halos, "MetalsHotGas", 0.0, 1e10)
+    assert_range(halos, "HotGas", 0.0, 1e10)
+    assert_range(halos, "MetalsHotGas", 0.0, 1e10)
 
     # Cleanup
     shutil.rmtree(test_temp_dir)

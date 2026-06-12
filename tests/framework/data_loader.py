@@ -173,6 +173,28 @@ def find_nonfinite(halos, max_examples=5):
     return {"nan": scan(np.isnan), "inf": scan(np.isinf)}
 
 
+def assert_no_nans(halos):
+    """Assert that no float field contains NaN values (B7 asserting wrapper)."""
+    bad = validate_no_nans(halos)
+    assert not bad, f"NaN values found: {bad}"
+
+
+def assert_no_infs(halos):
+    """Assert that no float field contains infinite values (B7 asserting wrapper)."""
+    bad = validate_no_infs(halos)
+    assert not bad, f"Inf values found: {bad}"
+
+
+def assert_range(halos, field, min_val, max_val):
+    """Assert that a field's values lie within [min_val, max_val] inclusive."""
+    result = validate_range(halos, field, min_val, max_val)
+    assert result["passed"], (
+        f"{field} outside [{min_val}, {max_val}]: "
+        f"{result['count_below']} below (examples {result['examples_below']}), "
+        f"{result['count_above']} above (examples {result['examples_above']})"
+    )
+
+
 def validate_range(halos, field, min_val, max_val):
     """
     Validate that a field's values are within expected range.

@@ -33,7 +33,7 @@ module:
       - ShamUseScatter
 
   tests:
-    unit: []
+    unit: _tests/test_unit_sham_assign_stellar_mass.c
     integration: []
     scientific: []
 

@@ -7,6 +7,9 @@ Shared utilities for testing Mimic functionality.
 from .comparison import compare_halos_comprehensive
 from .data_loader import (
     assert_hdf5_schema_layout,
+    assert_no_infs,
+    assert_no_nans,
+    assert_range,
     find_nonfinite,
     get_halo_dtype,
     load_binary_halos,
@@ -60,6 +63,9 @@ __all__ = [
     "validate_no_nans",
     "validate_no_infs",
     "validate_range",
+    "assert_no_nans",
+    "assert_no_infs",
+    "assert_range",
     "find_nonfinite",
     # Test harness utilities
     "REPO_ROOT",
