@@ -115,12 +115,7 @@ class SnapshotRedshiftMapper:
         Returns:
             True if successful, False otherwise
         """
-        # Get the .a_list file path from parameters - required parameter
-        if not self.params:
-            print("Error: Parameter dictionary is required")
-            return False
-
-        # Check if required parameters exist
+        # Check if required parameters exist (params presence is guaranteed by __init__)
         required_params = ["FileWithSnapList"]
         missing_params = [p for p in required_params if p not in self.params]
         if missing_params:
@@ -186,7 +181,6 @@ class SnapshotRedshiftMapper:
 
             if self.params.get("verbose", False):
                 print(f"Loaded {len(self.redshifts)} redshift values from {a_list_file}")
-            if self.params.get("verbose", False):
                 # Print first few snapshot-redshift pairs
                 print("Snapshot-Redshift mapping (showing first 5):")
                 for i in range(min(5, len(self.snapshots))):
@@ -200,41 +194,22 @@ class SnapshotRedshiftMapper:
             print(f"Error loading from a_list file: {e}")
             return False
 
-    def get_redshift(self, snapshot):
-        """
-        Get redshift value for a given snapshot index.
-
-        Args:
-            snapshot: Snapshot index
-
-        Returns:
-            Redshift value
-        """
+    def _index_for_snapshot(self, snapshot):
+        """Return the list index of a snapshot, or exit with a clear error."""
         try:
-            idx = self.snapshots.index(snapshot)
-            return self.redshifts[idx]
+            return self.snapshots.index(snapshot)
         except (ValueError, IndexError):
             print(f"Error: Snapshot {snapshot} not found in redshift mapping")
             print(f"Available snapshots: {self.snapshots}")
             sys.exit(1)
+
+    def get_redshift(self, snapshot):
+        """Get the redshift value for a given snapshot index."""
+        return self.redshifts[self._index_for_snapshot(snapshot)]
 
     def get_redshift_str(self, snapshot):
-        """
-        Get formatted redshift string for filenames.
-
-        Args:
-            snapshot: Snapshot index
-
-        Returns:
-            Formatted string (e.g., "_z0.000")
-        """
-        try:
-            idx = self.snapshots.index(snapshot)
-            return self.redshift_strs[idx]
-        except (ValueError, IndexError):
-            print(f"Error: Snapshot {snapshot} not found in redshift mapping")
-            print(f"Available snapshots: {self.snapshots}")
-            sys.exit(1)
+        """Get the formatted redshift string (e.g. "_z0.000") for a snapshot index."""
+        return self.redshift_strs[self._index_for_snapshot(snapshot)]
 
     def get_model_file_path(self, snapshot, file_num):
         """
