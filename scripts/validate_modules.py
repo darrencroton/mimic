@@ -30,6 +30,7 @@ except ImportError:
     print("ERROR: PyYAML not installed. Run: pip install PyYAML", file=sys.stderr)
     sys.exit(1)
 
+from console import BLUE, GREEN, NC, RED, YELLOW
 from discovery import (
     REPO_ROOT,
     halo_property_files,
@@ -38,13 +39,6 @@ from discovery import (
     rel,
     standalone_module_files,
 )
-
-# ANSI color codes (module-level constants)
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
 
 # ==============================================================================
 # PATHS

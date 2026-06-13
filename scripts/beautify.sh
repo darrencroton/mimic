@@ -68,11 +68,9 @@ else
     CLANG_FORMAT="clang-format"
 fi
 
-# ANSI color codes
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
+# Shared ANSI colour codes (RED/GREEN/YELLOW/BLUE/NC)
+# shellcheck source=scripts/lib/colors.sh
+. "${ROOT_DIR}/scripts/lib/colors.sh"
 
 # Print banner
 echo -e "${YELLOW}=== Mimic Code Beautifier ===${NC}"

@@ -23,31 +23,8 @@ import sys
 from pathlib import Path
 
 import yaml
+from console import NC, RED, YELLOW, print_error, print_warning
 from discovery import REPO_ROOT, live_simulation_roots, module_metadata_files
-
-# ==============================================================================
-# COLOR OUTPUT
-# ==============================================================================
-
-# ANSI color codes (disabled if not a TTY)
-if sys.stdout.isatty():
-    COLOR_RED = "\033[91m"
-    COLOR_YELLOW = "\033[93m"
-    COLOR_RESET = "\033[0m"
-else:
-    COLOR_RED = ""
-    COLOR_YELLOW = ""
-    COLOR_RESET = ""
-
-
-def print_error(msg: str) -> None:
-    """Print error message in red."""
-    print(f"{COLOR_RED}ERROR: {msg}{COLOR_RESET}", file=sys.stderr)
-
-
-def print_warning(msg: str) -> None:
-    """Print warning message in yellow."""
-    print(f"{COLOR_YELLOW}WARNING: {msg}{COLOR_RESET}")
 
 
 def core_unit_tests(repo_root):
@@ -226,17 +203,17 @@ def generate_test_registry(strict: bool = False):
         if strict:
             print_error("Declared tests not found:")
             for msg in missing_tests:
-                print(f"  {COLOR_RED}- {msg}{COLOR_RESET}", file=sys.stderr)
+                print(f"  {RED}- {msg}{NC}", file=sys.stderr)
             print()
             print("=" * 70)
-            print(f"{COLOR_RED}✗ TEST REGISTRY GENERATION FAILED{COLOR_RESET}")
+            print(f"{RED}✗ TEST REGISTRY GENERATION FAILED{NC}")
             print("=" * 70)
             return 1
         else:
             print_warning("Some declared tests not found:")
             for msg in missing_tests:
-                print(f"  {COLOR_YELLOW}- {msg}{COLOR_RESET}")
-            print(f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}")
+                print(f"  {YELLOW}- {msg}{NC}")
+            print(f"  {YELLOW}(Tests may be planned but not yet implemented){NC}")
 
     print()
     print("Generated files:")

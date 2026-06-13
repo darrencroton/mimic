@@ -23,20 +23,16 @@
 #   6. Provides git commit instructions
 ###############################################################################
 
-# Color codes for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 # Get repository root (one level up from scripts/)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
 # Load shared project defaults (DEFAULT_MODEL, DEFAULT_SIMULATION, make_default)
+# and the shared ANSI colour codes (RED/GREEN/YELLOW/BLUE/NC).
 # shellcheck source=scripts/lib/defaults.sh
 . "${REPO_ROOT}/scripts/lib/defaults.sh"
+# shellcheck source=scripts/lib/colors.sh
+. "${REPO_ROOT}/scripts/lib/colors.sh"
 
 # Paths
 MIMIC_EXE="$REPO_ROOT/mimic"
