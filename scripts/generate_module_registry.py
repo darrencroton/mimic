@@ -38,6 +38,7 @@ except ImportError:
     print("ERROR: PyYAML not installed. Run: pip install PyYAML", file=sys.stderr)
     sys.exit(1)
 
+from console import NC, YELLOW, print_error, print_warning
 from discovery import (
     REPO_ROOT,
     generated_module_dir,
@@ -48,31 +49,6 @@ from discovery import (
     standalone_module_files,
     test_property_files,
 )
-
-# ==============================================================================
-# COLOR OUTPUT
-# ==============================================================================
-
-# ANSI color codes (disabled if not a TTY)
-if sys.stdout.isatty():
-    COLOR_RED = "\033[91m"
-    COLOR_YELLOW = "\033[93m"
-    COLOR_RESET = "\033[0m"
-else:
-    COLOR_RED = ""
-    COLOR_YELLOW = ""
-    COLOR_RESET = ""
-
-
-def print_error(msg: str) -> None:
-    """Print error message in red."""
-    print(f"{COLOR_RED}ERROR: {msg}{COLOR_RESET}", file=sys.stderr)
-
-
-def print_warning(msg: str) -> None:
-    """Print warning message in yellow."""
-    print(f"{COLOR_YELLOW}WARNING: {msg}{COLOR_RESET}")
-
 
 # ==============================================================================
 # PATHS
@@ -1246,8 +1222,8 @@ def main():
         if test_warnings:
             print_warning("Some declared tests not found:")
             for warn in test_warnings:
-                print(f"  {COLOR_YELLOW}- {warn}{COLOR_RESET}")
-            print(f"  {COLOR_YELLOW}(Tests may be planned but not yet implemented){COLOR_RESET}")
+                print(f"  {YELLOW}- {warn}{NC}")
+            print(f"  {YELLOW}(Tests may be planned but not yet implemented){NC}")
         else:
             print("✓ All declared test files exist")
 
