@@ -597,6 +597,39 @@ def setup_matplotlib(use_tex=False):
     plt.rcParams["mathtext.default"] = "regular"
 
 
+def scale_volume_by_file_fraction(box_size, params, good_files, verbose=False):
+    """Return the comoving box volume scaled by the fraction of files actually read.
+
+    NumSimulationTreeFiles reflects any first_file/last_file overrides from the run
+    YAML; SimulationTotalTreeFiles is always the full simulation extent from
+    simulation_info.yaml. Shared by the binary and HDF5 readers so both normalize
+    identically.
+    """
+    volume = box_size**3.0
+    if "NumSimulationTreeFiles" in params and "SimulationTotalTreeFiles" in params:
+        total_files = params["SimulationTotalTreeFiles"]
+        if total_files > 0:
+            volume = volume * good_files / total_files
+            if verbose:
+                print(
+                    f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}"
+                )
+                print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
+    return volume
+
+
+def build_metadata(hubble_h, box_size, volume, ngals, good_files, ntrees=0):
+    """Assemble the (galaxies, volume, metadata) third element returned by the readers."""
+    return {
+        "hubble_h": hubble_h,
+        "box_size": box_size,
+        "volume": volume,
+        "ntrees": ntrees,
+        "ngals": ngals,
+        "good_files": good_files,
+    }
+
+
 def read_data(model_path, first_file, last_file, params=None, verbose=False, quiet=False):
     """
     Read galaxy data from Mimic output files.
@@ -794,30 +827,8 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     # Convert to recarray for attribute access
     galaxies = galaxies.view(np.recarray)
 
-    volume = box_size**3.0
-
-    # Scale volume by the fraction of simulation files actually read.
-    # NumSimulationTreeFiles reflects any first_file/last_file overrides from the run YAML.
-    # SimulationTotalTreeFiles is always the full simulation extent from simulation_info.yaml.
-    if "NumSimulationTreeFiles" in params and "SimulationTotalTreeFiles" in params:
-        total_files = params["SimulationTotalTreeFiles"]
-        if total_files > 0:
-            volume = volume * good_files / total_files
-            if verbose:
-                print(
-                    f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}"
-                )
-                print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
-
-    # Create metadata dictionary
-    metadata = {
-        "hubble_h": hubble_h,
-        "box_size": box_size,
-        "volume": volume,
-        "ntrees": tot_ntrees,
-        "ngals": tot_ngals,
-        "good_files": good_files,
-    }
+    volume = scale_volume_by_file_fraction(box_size, params, good_files, verbose)
+    metadata = build_metadata(hubble_h, box_size, volume, tot_ngals, good_files, ntrees=tot_ntrees)
 
     return galaxies, volume, metadata
 
@@ -958,30 +969,9 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
     if verbose:
         print(f"Total halos read: {tot_ngals}")
 
-    volume = box_size**3.0
-
-    # Scale volume by the fraction of simulation files actually read.
-    # NumSimulationTreeFiles reflects any first_file/last_file overrides from the run YAML.
-    # SimulationTotalTreeFiles is always the full simulation extent from simulation_info.yaml.
-    if "NumSimulationTreeFiles" in params and "SimulationTotalTreeFiles" in params:
-        total_files = params["SimulationTotalTreeFiles"]
-        if total_files > 0:
-            volume = volume * good_files / total_files
-            if verbose:
-                print(
-                    f"  Volume fraction: {good_files}/{total_files} = {good_files/total_files:.4f}"
-                )
-                print(f"  Adjusted volume: {volume:.2f} (Mpc/h)³")
-
-    # Create metadata dictionary
-    metadata = {
-        "hubble_h": hubble_h,
-        "box_size": box_size,
-        "volume": volume,
-        "ntrees": 0,  # Not tracked in HDF5 format
-        "ngals": tot_ngals,
-        "good_files": good_files,
-    }
+    # ntrees defaults to 0 — not tracked in HDF5 format.
+    volume = scale_volume_by_file_fraction(box_size, params, good_files, verbose)
+    metadata = build_metadata(hubble_h, box_size, volume, tot_ngals, good_files)
 
     return galaxies, volume, metadata
 
