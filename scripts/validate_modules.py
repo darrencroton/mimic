@@ -552,6 +552,22 @@ def validate_source_files(
     return valid
 
 
+def _missing_test_files(
+    test_value: Any, module_dir: Path, extra_dirs: Tuple[Path, ...] = ()
+) -> List[str]:
+    """Return declared test filenames that do not exist in any search directory.
+
+    ``test_value`` may be None (no test declared), a single filename, or a list.
+    A file is present if it exists under ``module_dir`` or any of ``extra_dirs``
+    (e.g. the centralized tests/unit/ directory for unit tests).
+    """
+    if test_value is None:
+        return []
+    test_files = test_value if isinstance(test_value, list) else [test_value]
+    search_dirs = (module_dir, *extra_dirs)
+    return [tf for tf in test_files if not any((base / tf).exists() for base in search_dirs)]
+
+
 def validate_test_files(
     module: Dict[str, Any],
     module_name: str,
@@ -566,68 +582,17 @@ def validate_test_files(
 
     tests = module["tests"]
 
-    # Unit tests can be in tests/unit/ OR co-located with module
-    if "unit" in tests:
-        unit_test = tests["unit"]
-        # null means "no unit test" — treat as absent
-        if unit_test is None:
-            pass
-        # Handle list format (e.g., shared utilities with multiple tests)
-        elif isinstance(unit_test, list):
-            for test_file in unit_test:
-                # Check module directory first (co-located)
-                module_test_path = module_dir / test_file
-                # Check tests/unit/ directory second (centralized)
-                central_test_path = REPO_ROOT / "tests" / "unit" / test_file
-                if not module_test_path.exists() and not central_test_path.exists():
-                    results.add_warning(module_name, f"Unit test file not found: {test_file}")
-        else:
-            # Check module directory first (co-located)
-            module_test_path = module_dir / unit_test
-            # Check tests/unit/ directory second (centralized)
-            central_test_path = REPO_ROOT / "tests" / "unit" / unit_test
-            if not module_test_path.exists() and not central_test_path.exists():
-                results.add_warning(module_name, f"Unit test file not found: {unit_test}")
-
-    # Integration tests are co-located with module
-    if "integration" in tests:
-        integration_test = tests["integration"]
-        # null means "no integration test" — treat as absent
-        if integration_test is None:
-            pass
-        # Handle list format
-        elif isinstance(integration_test, list):
-            for test_file in integration_test:
-                int_test_path = module_dir / test_file
-                if not int_test_path.exists():
-                    results.add_warning(
-                        module_name, f"Integration test file not found: {test_file}"
-                    )
-        else:
-            int_test_path = module_dir / integration_test
-            if not int_test_path.exists():
-                results.add_warning(
-                    module_name, f"Integration test file not found: {integration_test}"
-                )
-
-    # Scientific tests are co-located with module
-    if "scientific" in tests:
-        scientific_test = tests["scientific"]
-        # null means "no scientific test" — treat as absent
-        if scientific_test is None:
-            pass
-        # Handle list format
-        elif isinstance(scientific_test, list):
-            for test_file in scientific_test:
-                sci_test_path = module_dir / test_file
-                if not sci_test_path.exists():
-                    results.add_warning(module_name, f"Scientific test file not found: {test_file}")
-        else:
-            sci_test_path = module_dir / scientific_test
-            if not sci_test_path.exists():
-                results.add_warning(
-                    module_name, f"Scientific test file not found: {scientific_test}"
-                )
+    # Unit tests may be co-located with the module or centralized in tests/unit/;
+    # integration and scientific tests are co-located only.
+    tiers = [
+        ("unit", "Unit", (REPO_ROOT / "tests" / "unit",)),
+        ("integration", "Integration", ()),
+        ("scientific", "Scientific", ()),
+    ]
+    for key, label, extra_dirs in tiers:
+        if key in tests:
+            for test_file in _missing_test_files(tests[key], module_dir, extra_dirs):
+                results.add_warning(module_name, f"{label} test file not found: {test_file}")
 
     return True
 

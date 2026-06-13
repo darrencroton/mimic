@@ -203,12 +203,12 @@ def check_hashes(files: List[Path], current_hash: str, scope_label: str) -> bool
         print(f"✗ ERROR: Cannot compute {scope_label} hash (inputs missing or unreadable)")
         return False
 
-    mismatches = []
+    mismatches = []  # (filename, embedded_hash) for each out-of-date file
     missing_hash = []
 
     for gen_file in files:
         if not gen_file.exists():
-            mismatches.append(gen_file.name)
+            mismatches.append((gen_file.name, "(file missing)"))
             continue
 
         embedded_hash = extract_yaml_hash_from_file(gen_file)
@@ -217,7 +217,7 @@ def check_hashes(files: List[Path], current_hash: str, scope_label: str) -> bool
             continue
 
         if embedded_hash != current_hash:
-            mismatches.append(gen_file.name)
+            mismatches.append((gen_file.name, embedded_hash))
 
     if missing_hash:
         print(f"✗ WARNING: Some {scope_label} files are missing embedded hash")
@@ -228,12 +228,11 @@ def check_hashes(files: List[Path], current_hash: str, scope_label: str) -> bool
     if mismatches:
         print(f"✗ OUT OF DATE: {scope_label} changed, generated files need updating")
         print()
-        print(f"  Current {scope_label} hash:  {current_hash}")
-        print(f"  Embedded hash:      {embedded_hash if embedded_hash else '(missing)'}")
+        print(f"  Current {scope_label} hash: {current_hash}")
         print()
-        print("  Files need regeneration:")
-        for filename in mismatches:
-            print(f"    - {filename}")
+        print("  Files need regeneration (embedded hash shown):")
+        for filename, embedded in mismatches:
+            print(f"    - {filename}: {embedded}")
         return False
 
     return True

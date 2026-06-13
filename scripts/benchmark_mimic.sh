@@ -24,39 +24,11 @@
 #   Results are stored in JSON format in the benchmarks/ directory
 #   with timestamp-based filenames for easy comparison across runs.
 #
-# ENVIRONMENT VARIABLES:
-#   MIMIC_EXECUTABLE  - Override mimic executable location
-#   MPI_RUN_COMMAND   - Run with MPI (e.g., "mpirun -np 4")
-#   MAKE_FLAGS        - Additional make flags (e.g., "USE-HDF5=no USE-MPI=yes")
-#   MIMIC_FLAGS       - Additional runtime flags passed to the mimic executable
-#                       (e.g., "--compress"). Use --compress shorthand for convenience.
-#   EXTRA_CFLAGS      - Additional compiler flags for the build step only
-#                       (e.g., "-O3 -march=native"). Not for production builds.
-#
-# EXAMPLES:
-#   # Basic benchmark (uses default models/sage16/input/sage16_mini-millennium.yaml)
-#   ./scripts/benchmark_mimic.sh
-#
-#   # Benchmark with custom parameter file
-#   make MODEL=sage16 SIMULATION=mini-millennium generate-test-inputs
-#   ./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml
-#   ./scripts/benchmark_mimic.sh build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml
-#
-#   # Benchmark with MPI
-#   MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
-#
-#   # Binary-only benchmark (opt out of HDF5)
-#   MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
-#
-#   # HDF5 compression benchmark (measures CPU/time/disk trade-off)
-#   ./scripts/benchmark_mimic.sh --compress
-#   MIMIC_FLAGS="--compress" ./scripts/benchmark_mimic.sh
-#
-#   # Release-optimised build benchmark
-#   EXTRA_CFLAGS="-O3 -march=native" ./scripts/benchmark_mimic.sh
-#
-#   # Compare two benchmark runs
-#   diff benchmarks/baseline_20250101_120000.json benchmarks/baseline_20250102_120000.json
+# ENVIRONMENT VARIABLES & EXAMPLES:
+#   See `./scripts/benchmark_mimic.sh --help` — the help text is the single
+#   source of truth for the MIMIC_FLAGS / MAKE_FLAGS / MPI_RUN_COMMAND /
+#   EXTRA_CFLAGS / MIMIC_EXECUTABLE variables, worked examples, and result
+#   comparison tips (kept there so this header cannot drift out of sync).
 #
 
 set -e  # Exit on any error

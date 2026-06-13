@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from discovery import REPO_ROOT, makefile_default
+from discovery import REPO_ROOT, makefile_default, rel
 
 OUTPUT_ROOT = REPO_ROOT / "build" / "generated" / "test_inputs"
 
@@ -30,10 +30,6 @@ def selected_simulation() -> str:
         or os.environ.get("SIM")
         or makefile_default("DEFAULT_SIMULATION", "mini-millennium")
     )
-
-
-def rel(path: Path) -> str:
-    return str(path.relative_to(REPO_ROOT))
 
 
 def require_file(path: Path, label: str) -> Path:
