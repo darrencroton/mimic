@@ -1458,13 +1458,6 @@ def main():
                 quiet=args.quiet,
             )
             if args.verbose:
-                if metadata.get("sample_data", False):
-                    print(
-                        "USING SAMPLE DATA: No real galaxy data was found, using generated test data instead."
-                    )
-                    print(
-                        "This is useful for testing the plotting code but the plots will not reflect real Mimic output."
-                    )
                 print(f"Read {len(galaxies)} galaxies from volume {volume:.2f} (Mpc/h)³")
             snapshot_data_available = True
         except Exception as e:
@@ -1547,23 +1540,15 @@ def main():
                         verbose=args.verbose,
                     )
 
-                    # Handle return value: can be path (old style) or (path, skip_msg) tuple (new style)
-                    if isinstance(result, tuple):
-                        plot_path, skip_msg = result
-                        if plot_path:
-                            snapshot_generated_plots.append(plot_path)
-                            if not args.quiet:
-                                print(f"Created {plot_name} plot")
-                        elif skip_msg:
-                            snapshot_skipped_validation[plot_name] = skip_msg
-                            if args.verbose:
-                                print(f"Skipped {plot_name}: {skip_msg}")
-                    else:
-                        # Old-style return (just path)
-                        plot_path = result
+                    plot_path, skip_msg = result
+                    if plot_path:
                         snapshot_generated_plots.append(plot_path)
                         if not args.quiet:
                             print(f"Created {plot_name} plot")
+                    elif skip_msg:
+                        snapshot_skipped_validation[plot_name] = skip_msg
+                        if args.verbose:
+                            print(f"Skipped {plot_name}: {skip_msg}")
                 except Exception as e:
                     if not args.quiet:
                         print(f"Error generating {plot_name}: {e}")
@@ -1661,17 +1646,6 @@ def main():
             else snapshots
         )
         for snap in snapshot_iterator:
-            # Special case for -1 snap code that was used for sample z=0 data
-            if snap == -1:
-                if colour_enabled():
-                    print("\x1b[31mERROR: Sample data generation is no longer supported.\x1b[0m")
-                    print("\x1b[33mPlease ensure all necessary data files exist.\x1b[0m")
-                else:
-                    print("ERROR: Sample data generation is no longer supported.")
-                    print("Please ensure all necessary data files exist.")
-                sys.exit(1)
-
-            # Regular case - read actual snapshot data
             # Get redshift and model file path from mapper
             redshift = mapper.get_redshift(snap)
             model_file_base = mapper.get_model_file_path(snap, 0).rsplit("_", 1)[
@@ -1801,23 +1775,15 @@ def main():
                         verbose=args.verbose,
                     )
 
-                    # Handle return value: can be path (old style) or (path, skip_msg) tuple (new style)
-                    if isinstance(result, tuple):
-                        plot_path, skip_msg = result
-                        if plot_path:
-                            evolution_generated_plots.append(plot_path)
-                            if not args.quiet:
-                                print(f"Created {plot_name} plot")
-                        elif skip_msg:
-                            evolution_skipped_validation[plot_name] = skip_msg
-                            if args.verbose:
-                                print(f"Skipped {plot_name}: {skip_msg}")
-                    else:
-                        # Old-style return (just path)
-                        plot_path = result
+                    plot_path, skip_msg = result
+                    if plot_path:
                         evolution_generated_plots.append(plot_path)
                         if not args.quiet:
                             print(f"Created {plot_name} plot")
+                    elif skip_msg:
+                        evolution_skipped_validation[plot_name] = skip_msg
+                        if args.verbose:
+                            print(f"Skipped {plot_name}: {skip_msg}")
                 except Exception as e:
                     if not args.quiet:
                         print(f"Error generating {plot_name}: {e}")

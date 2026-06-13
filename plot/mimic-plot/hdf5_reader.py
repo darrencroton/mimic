@@ -1,12 +1,10 @@
 """
 HDF5 data reader for Mimic output files.
 
-This module provides functions to read Mimic output in HDF5 format.
+Reads one snapshot from Mimic HDF5 output (individual per-file or master file).
 The HDF5 format is self-describing, so h5py reads the structure directly from
 the file.
 """
-
-from pathlib import Path
 
 import h5py
 import numpy as np
@@ -60,121 +58,3 @@ def read_hdf5_snapshot(filename, snapshot_num):
     except (OSError, KeyError, ValueError) as e:
         print(f"Warning: Could not read snapshot {snapshot_num} from {filename}: {e}")
         return None
-
-
-def count_halos_in_file(filename, snapshot_num):
-    """
-    Count total halos in a specific snapshot.
-
-    Args:
-        filename (str or Path): Path to HDF5 file
-        snapshot_num (int): Snapshot number
-
-    Returns:
-        int: Number of halos in the snapshot, or 0 if not found
-    """
-    try:
-        with h5py.File(filename, "r") as f:
-            group_name = f"Snap{snapshot_num:03d}"
-
-            if group_name not in f:
-                return 0
-
-            snap_group = f[group_name]
-
-            if "Galaxies" in snap_group:
-                # Individual file
-                return snap_group["Galaxies"].shape[0]
-            else:
-                # Master file - sum across all File subgroups
-                # Iterate over actual File subgroups instead of assuming File000, File001, etc.
-                total = 0
-                for key in snap_group.keys():
-                    if key.startswith("File"):
-                        file_group = snap_group[key]
-                        if "Galaxies" in file_group:
-                            total += file_group["Galaxies"].shape[0]
-
-                return total
-
-    except (OSError, KeyError, ValueError):
-        return 0
-
-
-def read_hdf5_data(output_dir, file_base, first_file, last_file, snapshot_num):
-    """
-    Read halos from multiple HDF5 files for a given snapshot.
-
-    Matches the interface of the binary read_data() function in mimic-plot.py.
-
-    Args:
-        output_dir (str): Directory containing output files
-        file_base (str): Base name for output files
-        first_file (int): First file number to read
-        last_file (int): Last file number to read
-        snapshot_num (int): Snapshot number to extract
-
-    Returns:
-        tuple: (halos_array, total_halos) where halos_array is np.recarray
-               and total_halos is int, or (None, 0) on error
-    """
-    output_path = Path(output_dir)
-    halos_list = []
-    total_halos = 0
-
-    # Try reading from master file first
-    master_file = output_path / f"{file_base}.hdf5"
-    if master_file.exists():
-        halos = read_hdf5_snapshot(master_file, snapshot_num)
-        if halos is not None:
-            return halos, len(halos)
-
-    # Fall back to individual files
-    for file_num in range(first_file, last_file + 1):
-        filename = output_path / f"{file_base}_{file_num:03d}.hdf5"
-
-        if not filename.exists():
-            continue
-
-        halos = read_hdf5_snapshot(filename, snapshot_num)
-        if halos is not None:
-            halos_list.append(halos)
-            total_halos += len(halos)
-
-    if not halos_list:
-        return None, 0
-
-    # Concatenate all halos from all files
-    all_halos = np.concatenate(halos_list)
-    return all_halos, total_halos
-
-
-def get_hdf5_metadata(filename):
-    """
-    Read metadata attributes from HDF5 file.
-
-    Args:
-        filename (str or Path): Path to HDF5 file
-
-    Returns:
-        dict: Metadata attributes (Ntrees, Ntothalos, etc.)
-    """
-    metadata = {}
-
-    try:
-        with h5py.File(filename, "r") as f:
-            # Read root-level attributes
-            for attr_name in f.attrs:
-                metadata[attr_name] = f.attrs[attr_name]
-
-            # Read snapshot-level attributes if needed
-            for group_name in f.keys():
-                if group_name.startswith("Snap"):
-                    snap_group = f[group_name]
-                    snap_attrs = {f"{group_name}_{k}": v for k, v in snap_group.attrs.items()}
-                    metadata.update(snap_attrs)
-
-    except (OSError, KeyError, ValueError) as e:
-        print(f"Warning: Could not read metadata from {filename}: {e}")
-
-    return metadata

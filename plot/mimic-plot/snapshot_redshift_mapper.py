@@ -10,9 +10,6 @@ for Mimic galaxy evolution plots.
 import math
 import os
 import sys
-from collections import OrderedDict
-
-import numpy as np
 
 
 def read_expansion_factors(a_list_file):
@@ -203,11 +200,6 @@ class SnapshotRedshiftMapper:
             print(f"Error loading from a_list file: {e}")
             return False
 
-    # Removed fallback methods:
-    # - _load_from_model_files
-    # - _load_hardcoded_values
-    # - _generate_approximate_mapping
-
     def get_redshift(self, snapshot):
         """
         Get redshift value for a given snapshot index.
@@ -262,60 +254,6 @@ class SnapshotRedshiftMapper:
             return os.path.join(self.output_dir, f"{self.file_name_base}{redshift_str}_{file_num}")
         else:
             return f"{self.file_name_base}{redshift_str}_{file_num}"
-
-    def select_snapshots_for_evolution(self, num_snapshots=8, redshift_max=8.0):
-        """
-        Select appropriate snapshots for evolution plots.
-
-        Args:
-            num_snapshots: Number of snapshots to select
-            redshift_max: Maximum redshift to consider
-
-        Returns:
-            List of snapshot indices
-        """
-        # Create a list of (snapshot, redshift) tuples
-        snapshot_redshift_pairs = list(zip(self.snapshots, self.redshifts))
-
-        # Filter out snapshots with redshift > redshift_max
-        filtered_pairs = [(snap, z) for snap, z in snapshot_redshift_pairs if z <= redshift_max]
-
-        # If we have no snapshots left, return an empty list
-        if not filtered_pairs:
-            return []
-
-        # If we have fewer snapshots than requested, return all of them
-        if len(filtered_pairs) <= num_snapshots:
-            return [snap for snap, _ in filtered_pairs]
-
-        # Otherwise, select snapshots evenly spaced in redshift
-        # Sort by redshift
-        filtered_pairs.sort(key=lambda x: x[1])
-
-        # Determine step size
-        step = max(1, len(filtered_pairs) // num_snapshots)
-
-        # Select snapshots
-        selected_pairs = filtered_pairs[::step][:num_snapshots]
-
-        # If we have fewer than requested, add some more
-        if len(selected_pairs) < num_snapshots:
-            # Find snapshots that weren't selected
-            unselected = [p for p in filtered_pairs if p not in selected_pairs]
-
-            # Sort by redshift
-            unselected.sort(key=lambda x: x[1])
-
-            # Add as many as needed
-            selected_pairs.extend(unselected[: num_snapshots - len(selected_pairs)])
-
-            # Resort by redshift
-            selected_pairs.sort(key=lambda x: x[1])
-
-        # Extract snapshot indices
-        selected_snapshots = [snap for snap, _ in selected_pairs]
-
-        return selected_snapshots
 
     def get_all_snapshots(self):
         """

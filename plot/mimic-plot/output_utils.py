@@ -214,7 +214,7 @@ def save_and_close_figure(fig, output_dir, filename, output_format=".png", verbo
     """
     Save and close a matplotlib figure with standardized error handling.
 
-    This eliminates the duplicate save/close pattern appearing in all 21 figure files.
+    This centralizes the save/close pattern shared by every figure module.
 
     Args:
         fig: Matplotlib figure object
