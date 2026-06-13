@@ -31,7 +31,6 @@ import argparse
 import glob
 import importlib
 import os
-import random
 import sys
 from pathlib import Path
 
@@ -60,8 +59,6 @@ try:
 except ImportError:
     SAGE_NATIVE_AVAILABLE = False
 # <<< SAGE-NATIVE-HDF5 <<<
-
-random.seed(42)  # For reproducibility with sample data
 
 from output_schema import dtype_from_schema, load_schema
 
