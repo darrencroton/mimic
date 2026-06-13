@@ -9,7 +9,7 @@
 # or CI output stays free of escape codes. The single source of truth for the
 # shell side, mirroring scripts/console.py for the Python side.
 
-if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+if [ -t 1 ] && [ -z "${NO_COLOR+x}" ]; then
     RED='\033[0;31m'
     GREEN='\033[0;32m'
     YELLOW='\033[1;33m'

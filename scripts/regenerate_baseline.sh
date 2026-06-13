@@ -12,6 +12,7 @@
 #
 # Usage:
 #   ./scripts/regenerate_baseline.sh
+#   ./scripts/regenerate_baseline.sh --help
 #   MODEL=sham ./scripts/regenerate_baseline.sh
 #
 # What this script does:
@@ -22,6 +23,45 @@
 #   5. Validates baseline against current output
 #   6. Provides git commit instructions
 ###############################################################################
+
+show_help() {
+    cat <<'EOF'
+Usage: ./scripts/regenerate_baseline.sh [--help]
+
+Regenerate the HDF5 baseline file used by Mimic integration tests.
+
+Options:
+  --help, -h    Show this help message and exit without changing files
+
+Environment:
+  MODEL         Model package to use (default: Makefile DEFAULT_MODEL)
+  SIMULATION    Simulation package to use (default: mini-millennium)
+
+What this script does:
+  1. Verifies mimic is compiled with HDF5 support
+  2. Validates that the generated HDF5 test parameter file is physics-free
+  3. Runs mimic to generate fresh baseline output
+  4. Backs up and replaces tests/data/output/baseline/hdf5/model_000.hdf5
+  5. Runs the HDF5 baseline comparison check
+
+Only regenerate the baseline after deliberate, validated changes to core halo
+tracking behavior. Never regenerate it merely to silence a failing test.
+EOF
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown option: $arg" >&2
+            echo "Usage: ./scripts/regenerate_baseline.sh [--help]" >&2
+            exit 1
+            ;;
+    esac
+done
 
 # Get repository root (one level up from scripts/)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
