@@ -1090,16 +1090,11 @@ def get_available_plot_modules(plot_type, verbose=False):
     return modules
 
 
-def main():
-    """Main execution function."""
-    args = parse_arguments()
+def load_and_validate_config(args):
+    """Parse the run file, validate required parameters, and load the model figure package.
 
-    # Startup banner
-    print_banner(args.param_file, quiet=args.quiet)
-
-    # Parse the parameter file
-    if not args.quiet:
-        print_phase("CONFIGURATION")
+    Returns the populated MimicParameters; exits on any fatal configuration error.
+    """
     try:
         params = MimicParameters(args.param_file)
 
@@ -1142,7 +1137,6 @@ def main():
         error(f"Could not load parameter file: {e}")
         sys.exit(1)
 
-    # Verify all required parameters exist
     required_params = [
         "OutputDir",
         "OutputFileBaseName",
@@ -1152,7 +1146,6 @@ def main():
         "Hubble_h",
         "FileWithSnapList",
     ]
-
     if validate_required_params(params.params, required_params):
         sys.exit(1)
 
@@ -1163,19 +1156,27 @@ def main():
         error(f"Could not load model plotting package: {e}")
         sys.exit(1)
 
-    # Resolve and update paths from parameter file
-    output_dir = resolve_relative_path(params["OutputDir"], args.param_file)
-    params.params["OutputDir"] = output_dir  # Update the params dictionary
+    return params
 
-    simulation_dir = params.get("SimulationDir")  # May not be used directly
+
+def resolve_paths(params, args):
+    """Resolve and validate run paths; return the plots output directory.
+
+    Updates params in place with absolute OutputDir/SimulationDir/FileWithSnapList and
+    sets up matplotlib. Exits if the output directory or snapshot list is missing or
+    unwritable.
+    """
+    output_dir = resolve_relative_path(params["OutputDir"], args.param_file)
+    params.params["OutputDir"] = output_dir
+
+    simulation_dir = params.get("SimulationDir")
     if simulation_dir:
         simulation_dir = resolve_relative_path(simulation_dir, args.param_file)
-        params.params["SimulationDir"] = simulation_dir  # Update the params dictionary
+        params.params["SimulationDir"] = simulation_dir
 
     file_name_base = params["OutputFileBaseName"]
-
     file_with_snap_list = resolve_relative_path(params["FileWithSnapList"], args.param_file)
-    params.params["FileWithSnapList"] = file_with_snap_list  # Update the params dictionary
+    params.params["FileWithSnapList"] = file_with_snap_list
 
     if args.verbose:
         print(f"Parameter file details:")
@@ -1188,12 +1189,12 @@ def main():
         print(f"  BoxSize: {params['BoxSize']}")
         print(f"  Hubble_h: {params['Hubble_h']}")
 
-    # Check if OutputDir exists
     if not os.path.exists(output_dir):
-        error(f"OutputDir '{output_dir}' from parameter file does not exist.")
+        error(f"OutputDir '{output_dir}' specified in parameter file does not exist.")
         sys.exit(1)
-
-    # Check if FileWithSnapList exists (path already resolved)
+    if not os.access(output_dir, os.W_OK):
+        error(f"OutputDir '{output_dir}' specified in parameter file is not writable.")
+        sys.exit(1)
     if not os.path.exists(file_with_snap_list):
         error(
             f"FileWithSnapList '{file_with_snap_list}' not found. "
@@ -1201,507 +1202,395 @@ def main():
         )
         sys.exit(1)
 
-    # Set up matplotlib
     setup_matplotlib(args.use_tex)
-
-    # Get output directory from parameter file - required parameter
-    if "OutputDir" not in params:
-        error("OutputDir parameter is required in the parameter file.")
-        sys.exit(1)
-
-    # Get the output directory path (already resolved)
-    model_output_dir = params["OutputDir"]
-
-    if args.verbose:
-        print(f"\nOutput directory handling:")
-        print(f"  model_output_dir from params: '{model_output_dir}'")
-
-    # Check if output directory exists
-    if not os.path.exists(model_output_dir):
-        error(f"OutputDir '{model_output_dir}' specified in parameter file does not exist.")
-        sys.exit(1)
-
-    # Check if output directory is writable
-    if not os.access(model_output_dir, os.W_OK):
-        error(f"OutputDir '{model_output_dir}' specified in parameter file is not writable.")
-        sys.exit(1)
 
     # Set the plots directory independently from the model output directory.
     if args.output_dir:
-        output_dir = resolve_relative_path(args.output_dir, args.param_file)
+        plots_dir = resolve_relative_path(args.output_dir, args.param_file)
     else:
-        output_dir = os.path.join(model_output_dir, "plots")
+        plots_dir = os.path.join(output_dir, "plots")
 
     if args.verbose:
-        print(f"  Using output directory: '{output_dir}'")
+        print(f"  Using output directory: '{plots_dir}'")
 
-    # Create the plots directory if it doesn't exist
     try:
-        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(plots_dir, exist_ok=True)
         if args.verbose:
-            print(f"  Successfully created/verified output directory: {output_dir}")
+            print(f"  Successfully created/verified output directory: {plots_dir}")
     except Exception as e:
-        error(f"Could not create output directory {output_dir}: {e}")
+        error(f"Could not create output directory {plots_dir}: {e}")
         sys.exit(1)
 
-    # Determine which plots to generate
-    if args.plots == "all":
-        selected_plots = None  # All available
+    return plots_dir
+
+
+def resolve_file_range(params, args):
+    """Return (first_file, last_file), honouring CLI overrides and validating the range."""
+    if args.first_file is not None:
+        first_file = args.first_file
+        if args.verbose:
+            print(f"Using first_file={first_file} from command-line argument")
     else:
-        selected_plots = [p.strip() for p in args.plots.split(",")]
+        first_file = params["FirstFile"]
+        if args.verbose:
+            print(f"Using first_file={first_file} from parameter file")
 
-    # Show simple progress message in quiet mode
-    if args.quiet:
-        print("\nCreating plots ...")
+    if args.last_file is not None:
+        last_file = args.last_file
+        if args.verbose:
+            print(f"Using last_file={last_file} from command-line argument")
+    else:
+        last_file = params["LastFile"]
+        if args.verbose:
+            print(f"Using last_file={last_file} from parameter file")
 
-    # Generate snapshot plots
-    if args.snapshot_plots:
-        if not args.quiet:
-            print_phase("SNAPSHOT PLOTS")
-        # Get required parameters for finding model files
-        if "OutputDir" not in params:
-            error("OutputDir parameter is required in the parameter file.")
-            sys.exit(1)
+    if first_file > last_file:
+        error(f"FirstFile ({first_file}) is greater than LastFile ({last_file})")
+        sys.exit(1)
 
-        if "OutputFileBaseName" not in params:
-            error("OutputFileBaseName parameter is required in the parameter file.")
-            sys.exit(1)
+    return first_file, last_file
 
-        # Get output model path and snapshot number (already resolved)
-        model_path = params["OutputDir"]
-        snapshot = args.snapshot if args.snapshot is not None else params.get("LastSnapshotNr")
 
-        if snapshot is None:
-            error(
-                "Could not derive the last snapshot from FileWithSnapList "
-                "and no snapshot was specified."
+def run_plot_modules(plot_modules, selected_plots, gate_galaxies, call_kwargs, skip_label, args):
+    """Filter and run a set of plot modules, returning (created_paths, skipped_validation).
+
+    Plots are filtered to ``selected_plots`` (when given) and then to those whose declared
+    PLOT_REQUIREMENTS are satisfied by ``gate_galaxies``; unsatisfied plots are reported as
+    a "missing properties" skip. Each remaining plot is called with ``call_kwargs`` and its
+    ``(path, skip_msg)`` return is recorded.
+    """
+    if selected_plots:
+        plot_modules = {k: v for k, v in plot_modules.items() if k in selected_plots}
+
+    available_plots = {}
+    skipped_props = {}
+    for plot_name, plot_func in plot_modules.items():
+        required_props = PLOT_REQUIREMENTS.get(plot_name, [])
+        if required_props and gate_galaxies is not None:
+            props_available, missing_props = check_required_properties(
+                gate_galaxies, required_props
             )
-            sys.exit(1)
+            if not props_available:
+                skipped_props[plot_name] = missing_props
+                continue
+        available_plots[plot_name] = plot_func
 
-        # File name from parameter file
-        file_name_base = params["OutputFileBaseName"]
+    if skipped_props:
+        print(f"\nSkipping {len(skipped_props)} {skip_label} due to missing properties:")
+        for plot_name, missing in skipped_props.items():
+            print(f"  - {plot_name}: missing {', '.join(missing)}")
+        print(f"  (Enable physics modules to generate these plots)\n")
 
+    created = []
+    skipped_validation = {}
+    for plot_name, plot_func in available_plots.items():
+        try:
+            if args.verbose:
+                print(f"Generating {plot_name}...")
+            plot_path, skip_msg = plot_func(**call_kwargs)
+            if plot_path:
+                created.append(plot_path)
+                if not args.quiet:
+                    print(f"Created {plot_name} plot")
+            elif skip_msg:
+                skipped_validation[plot_name] = skip_msg
+                if args.verbose:
+                    print(f"Skipped {plot_name}: {skip_msg}")
+        except Exception as e:
+            if not args.quiet:
+                print(f"Error generating {plot_name}: {e}")
+
+    return created, skipped_validation
+
+
+def generate_snapshot_plots(params, args, output_dir, selected_plots):
+    """Read the requested snapshot and generate its plots.
+
+    Returns (created_paths, skipped_validation, data_available).
+    """
+    if not args.quiet:
+        print_phase("SNAPSHOT PLOTS")
+
+    model_path = params["OutputDir"]
+    snapshot = args.snapshot if args.snapshot is not None else params.get("LastSnapshotNr")
+    if snapshot is None:
+        error(
+            "Could not derive the last snapshot from FileWithSnapList "
+            "and no snapshot was specified."
+        )
+        sys.exit(1)
+
+    file_name_base = params["OutputFileBaseName"]
+    if args.verbose:
+        print(f"\nModel file discovery:")
+        print(f"  model_path from params: '{model_path}'")
+        print(f"  file_name_base: '{file_name_base}'")
+        print(f"  Using snapshot: {snapshot}")
+
+    # Map the snapshot to its redshift filename suffix.
+    mapper_params = params.params.copy()
+    mapper_params["quiet"] = args.quiet
+    mapper_params["verbose"] = args.verbose
+    mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, model_path)
+    redshift_str = mapper.get_redshift_str(snapshot)
+    if args.verbose:
+        print(f"  Redshift string for snapshot {snapshot}: {redshift_str}")
+
+    base_model_file = os.path.join(model_path, f"{file_name_base}{redshift_str}")
+    if args.verbose:
+        print(f"  Using model file base: {base_model_file}")
+
+    if validate_required_params(params.params, ["FirstFile", "LastFile"], "snapshot plots"):
+        sys.exit(1)
+    first_file, last_file = resolve_file_range(params, args)
+
+    try:
+        galaxies, volume, metadata = read_data(
+            model_path=base_model_file,
+            first_file=first_file,
+            last_file=last_file,
+            params=params.params,
+            verbose=args.verbose,
+            quiet=args.quiet,
+        )
         if args.verbose:
-            print(f"\nModel file discovery:")
-            print(f"  model_path from params: '{model_path}'")
-            print(f"  file_name_base: '{file_name_base}'")
-            print(f"  Using snapshot: {snapshot}")
-
-        # Check if model_path exists
-        if not os.path.exists(model_path):
-            error(f"OutputDir '{model_path}' from parameter file does not exist.")
+            print(f"Read {len(galaxies)} galaxies from volume {volume:.2f} (Mpc/h)³")
+    except Exception as e:
+        if not args.quiet:
+            if args.verbose:
+                warn(f"Could not read snapshot data: {e}")
+            warn("Skipping snapshot plots (no data available)")
+        # If only snapshot plots were requested and they failed, exit with error.
+        if not args.evolution_plots:
+            error("No plots could be generated.")
             sys.exit(1)
+        if not args.quiet:
+            print("")
+        return [], {}, False
 
-        # Get the redshift for this snapshot using the mapper
-        # Add quiet and verbose flags to params for mapper
-        mapper_params = params.params.copy()
-        mapper_params["quiet"] = args.quiet
-        mapper_params["verbose"] = args.verbose
-        mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, model_path)
-        redshift_str = mapper.get_redshift_str(snapshot)
+    plot_modules = get_available_plot_modules("snapshot", args.verbose)
+    if args.verbose:
+        print(f"Available snapshot plots: {', '.join(plot_modules.keys())}")
+    call_kwargs = dict(
+        galaxies=galaxies,
+        volume=volume,
+        metadata=metadata,
+        params=params.params,
+        output_dir=output_dir,
+        output_format=args.format,
+        verbose=args.verbose,
+    )
+    created, skipped_validation = run_plot_modules(
+        plot_modules, selected_plots, galaxies, call_kwargs, "plot(s)", args
+    )
+    if args.verbose:
+        print(f"Generated {len(created)} snapshot plots.")
+    return created, skipped_validation, True
 
+
+def generate_evolution_plots(params, args, output_dir, selected_plots):
+    """Read every evolution snapshot and generate the evolution plots.
+
+    Returns (created_paths, skipped_validation).
+    """
+    if not args.quiet:
+        print_phase("EVOLUTION PLOTS")
+
+    plot_modules = get_available_plot_modules("evolution", args.verbose)
+    if args.verbose:
+        print(f"Available evolution plots: {', '.join(plot_modules.keys())}")
+
+    mapper_params = params.params.copy()
+    mapper_params["quiet"] = args.quiet
+    mapper_params["verbose"] = args.verbose
+    mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, params["OutputDir"])
+    if args.verbose:
+        print(mapper.debug_info())
+
+    # Determine which snapshots to process
+    if args.all_snapshots:
+        snapshots = mapper.get_all_snapshots()
         if args.verbose:
-            print(f"  Redshift string for snapshot {snapshot}: {redshift_str}")
-
-        # Construct the base model file path directly
-        base_model_file = os.path.join(model_path, f"{file_name_base}{redshift_str}")
-
+            print(f"Using all {len(snapshots)} available snapshots")
+    elif args.snapshot:
+        if args.snapshot not in mapper.snapshots:
+            error(f"Specified snapshot {args.snapshot} not found in redshift mapping")
+            print(f"Available snapshots: {mapper.snapshots}")
+            sys.exit(1)
+        snapshots = [args.snapshot]
         if args.verbose:
-            print(f"  Using model file base: {base_model_file}")
-
-        # Required parameters check
-        if validate_required_params(params.params, ["FirstFile", "LastFile"], "snapshot plots"):
+            print(f"Using single snapshot: {args.snapshot}")
+    else:
+        # Use the evolution snapshots determined by the mapper (prioritises OutputSnapshots).
+        snapshots = mapper.get_evolution_snapshots()
+        if len(snapshots) < 2:
+            error("At least 2 snapshots are required for evolution plots")
+            print(f"Available snapshots: {snapshots}")
             sys.exit(1)
+        redshifts = [mapper.get_redshift(snap) for snap in snapshots]
+        if args.verbose:
+            print(f"Using {len(snapshots)} snapshots for evolution plots")
+            print(f"Redshift range: z={min(redshifts):.3f} to z={max(redshifts):.3f}")
 
-        # Get first and last file numbers, prioritizing command-line arguments
-        if args.first_file is not None:
-            first_file = args.first_file
-            if args.verbose:
-                print(f"Using first_file={first_file} from command-line argument")
-        else:
-            first_file = params["FirstFile"]
-            if args.verbose:
-                print(f"Using first_file={first_file} from parameter file")
+    if args.verbose:
+        print(f"Selected snapshots for evolution plots: {snapshots}")
+        print(
+            "Corresponding redshifts: "
+            f"{[mapper.get_redshift(snap) if snap >= 0 else 0.0 for snap in snapshots]}"
+        )
 
-        if args.last_file is not None:
-            last_file = args.last_file
-            if args.verbose:
-                print(f"Using last_file={last_file} from command-line argument")
-        else:
-            last_file = params["LastFile"]
-            if args.verbose:
-                print(f"Using last_file={last_file} from parameter file")
+    # Read galaxy data for each snapshot
+    snapshot_data = {}
+    snapshot_iterator = (
+        tqdm(snapshots, desc="Loading snapshot data for evolution plots")
+        if args.verbose
+        else snapshots
+    )
+    for snap in snapshot_iterator:
+        redshift = mapper.get_redshift(snap)
+        model_file_base = mapper.get_model_file_path(snap, 0).rsplit("_", 1)[
+            0
+        ]  # Remove file number
+        if args.verbose:
+            print(f"Processing snapshot {snap} (z={redshift:.3f})")
+            print(f"Using model file pattern: {model_file_base}")
 
-        # Validate file range
-        if first_file > last_file:
-            error(f"FirstFile ({first_file}) is greater than LastFile ({last_file})")
+        if validate_required_params(
+            params.params,
+            ["FirstFile", "LastFile", "NumSimulationTreeFiles"],
+            "evolution plots",
+        ):
             sys.exit(1)
+        first_file, last_file = resolve_file_range(params, args)
 
-        # Read galaxy data
         try:
             galaxies, volume, metadata = read_data(
-                model_path=base_model_file,
+                model_path=model_file_base,
                 first_file=first_file,
                 last_file=last_file,
                 params=params.params,
                 verbose=args.verbose,
                 quiet=args.quiet,
             )
+            metadata["redshift"] = redshift
+            snapshot_data[snap] = (galaxies, volume, metadata)
             if args.verbose:
-                print(f"Read {len(galaxies)} galaxies from volume {volume:.2f} (Mpc/h)³")
-            snapshot_data_available = True
+                print(f"  Read {len(galaxies)} galaxies at z={redshift:.2f}")
         except Exception as e:
-            # Set empty list for snapshot plots
-            snapshot_generated_plots = []
-            snapshot_data_available = False
-            if not args.quiet:
-                if args.verbose:
-                    # Show detailed error only in verbose mode
-                    warn(f"Could not read snapshot data: {e}")
-                warn("Skipping snapshot plots (no data available)")
-            # Continue to evolution plots (if enabled)
-            if not args.evolution_plots:
-                # If only snapshot plots were requested and they failed, exit with error
-                error("No plots could be generated.")
-                sys.exit(1)
-            else:
-                # Continue to evolution plots section
-                if not args.quiet:
-                    print("")
-
-        # Only generate snapshot plots if data was successfully loaded
-        if snapshot_data_available:
-            # Get available snapshot plot modules
-            plot_modules = get_available_plot_modules("snapshot", args.verbose)
-
             if args.verbose:
-                print(f"Available snapshot plots: {', '.join(plot_modules.keys())}")
+                warn(f"Could not read snapshot {snap}: {e}")
+            # Continue to next snapshot - skipped snapshots won't be in the summary
 
-            # Filter to selected plots if specified
-            if selected_plots:
-                plot_modules = {k: v for k, v in plot_modules.items() if k in selected_plots}
-
-            # Filter plots based on available properties
-            available_plots = {}
-            skipped_plots = {}
-
-            for plot_name, plot_func in plot_modules.items():
-                required_props = PLOT_REQUIREMENTS.get(plot_name, [])
-                if required_props:
-                    # Check if required properties are available
-                    props_available, missing_props = check_required_properties(
-                        galaxies, required_props
-                    )
-                    if not props_available:
-                        skipped_plots[plot_name] = missing_props
-                        continue
-                available_plots[plot_name] = plot_func
-
-            # Report skipped plots
-            if skipped_plots:
-                print(f"\nSkipping {len(skipped_plots)} plot(s) due to missing properties:")
-                for plot_name, missing in skipped_plots.items():
-                    print(f"  - {plot_name}: missing {', '.join(missing)}")
-                print(f"  (Enable physics modules to generate these plots)\n")
-
-            # Generate each plot
-            snapshot_generated_plots = []
-            snapshot_skipped_validation = {}  # Track plots skipped due to data validation
-            for plot_name, plot_func in available_plots.items():
-                try:
-                    if args.verbose:
-                        print(f"Generating {plot_name}...")
-                    result = plot_func(
-                        galaxies=galaxies,
-                        volume=volume,
-                        metadata=metadata,
-                        params=params.params,
-                        output_dir=output_dir,
-                        output_format=args.format,
-                        verbose=args.verbose,
-                    )
-
-                    plot_path, skip_msg = result
-                    if plot_path:
-                        snapshot_generated_plots.append(plot_path)
-                        if not args.quiet:
-                            print(f"Created {plot_name} plot")
-                    elif skip_msg:
-                        snapshot_skipped_validation[plot_name] = skip_msg
-                        if args.verbose:
-                            print(f"Skipped {plot_name}: {skip_msg}")
-                except Exception as e:
-                    if not args.quiet:
-                        print(f"Error generating {plot_name}: {e}")
-
-            if args.verbose:
-                print(f"Generated {len(snapshot_generated_plots)} snapshot plots.")
-
-    # Generate evolution plots
-    if args.evolution_plots:
+    if not snapshot_data:
         if not args.quiet:
-            print_phase("EVOLUTION PLOTS")
-        # Get available evolution plot modules
-        plot_modules = get_available_plot_modules("evolution", args.verbose)
+            warn("Skipping evolution plots (no data available)")
+        return [], {}
 
-        if args.verbose:
-            print(f"Available evolution plots: {', '.join(plot_modules.keys())}")
+    # Check properties in the first available snapshot as a representative sample.
+    sample_galaxies = next(iter(snapshot_data.values()))[0]
+    call_kwargs = dict(
+        snapshots=snapshot_data,
+        params=params.params,
+        output_dir=output_dir,
+        output_format=args.format,
+        verbose=args.verbose,
+    )
+    created, skipped_validation = run_plot_modules(
+        plot_modules, selected_plots, sample_galaxies, call_kwargs, "evolution plot(s)", args
+    )
+    if args.verbose:
+        print(f"Generated {len(created)} evolution plots.")
+    return created, skipped_validation
 
-        # Filter to selected plots if specified
-        if selected_plots:
-            plot_modules = {k: v for k, v in plot_modules.items() if k in selected_plots}
 
-        # Create a snapshot-to-redshift mapper
-        # Add quiet and verbose flags to params for mapper
-        mapper_params = params.params.copy()
-        mapper_params["quiet"] = args.quiet
-        mapper_params["verbose"] = args.verbose
-        mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, model_output_dir)
-        if args.verbose:
-            print(mapper.debug_info())
+def print_run_summary(
+    args, output_dir, snapshot_created, snapshot_skipped, evolution_created, evolution_skipped
+):
+    """Print the optional SKIPPED PLOTS detail and the final COMPLETE summary."""
+    total_skipped = 0
+    if args.snapshot_plots:
+        total_skipped += len(snapshot_skipped)
+    if args.evolution_plots:
+        total_skipped += len(evolution_skipped)
 
-        # Create the mapper from parameter file (paths already resolved)
-        mapper = SnapshotRedshiftMapper(args.param_file, mapper_params, params["OutputDir"])
-
-        # Determine which snapshots to process
-        if args.all_snapshots:
-            # Process all available snapshots
-            snapshots = mapper.get_all_snapshots()
-            if args.verbose:
-                print(f"Using all {len(snapshots)} available snapshots")
-        elif args.snapshot:
-            # Process only the specified snapshot
-            # Verify this snapshot exists in our mapping
-            if args.snapshot not in mapper.snapshots:
-                error(f"Specified snapshot {args.snapshot} not found in redshift mapping")
-                print(f"Available snapshots: {mapper.snapshots}")
-                sys.exit(1)
-
-            snapshots = [args.snapshot]
-            if args.verbose:
-                print(f"Using single snapshot: {args.snapshot}")
-        else:
-            # Use the evolution snapshots determined by the mapper
-            # This will prioritize OutputSnapshots from parameter file
-            snapshots = mapper.get_evolution_snapshots()
-
-            # Check that we have at least 2 snapshots for a meaningful evolution plot
-            if len(snapshots) < 2:
-                error("At least 2 snapshots are required for evolution plots")
-                print(f"Available snapshots: {snapshots}")
-                sys.exit(1)
-
-            # Check for diverse redshift coverage
-            redshifts = [mapper.get_redshift(snap) for snap in snapshots]
-            min_z = min(redshifts)
-            max_z = max(redshifts)
-
-            if args.verbose:
-                print(f"Using {len(snapshots)} snapshots for evolution plots")
-                print(f"Redshift range: z={min_z:.3f} to z={max_z:.3f}")
-
-        if args.verbose:
-            print(f"Selected snapshots for evolution plots: {snapshots}")
-            print(
-                f"Corresponding redshifts: {[mapper.get_redshift(snap) if snap >= 0 else 0.0 for snap in snapshots]}"
-            )
-
-        # Read galaxy data for each snapshot
-        snapshot_data = {}
-        # Only show progress bar when verbose is enabled
-        snapshot_iterator = (
-            tqdm(snapshots, desc="Loading snapshot data for evolution plots")
-            if args.verbose
-            else snapshots
-        )
-        for snap in snapshot_iterator:
-            # Get redshift and model file path from mapper
-            redshift = mapper.get_redshift(snap)
-            model_file_base = mapper.get_model_file_path(snap, 0).rsplit("_", 1)[
-                0
-            ]  # Remove file number
-
-            if args.verbose:
-                print(f"Processing snapshot {snap} (z={redshift:.3f})")
-                print(f"Using model file pattern: {model_file_base}")
-
-            # Required parameters check
-            if validate_required_params(
-                params.params,
-                ["FirstFile", "LastFile", "NumSimulationTreeFiles"],
-                "evolution plots",
-            ):
-                sys.exit(1)
-
-            # Get first and last file numbers, prioritizing command-line arguments
-            if args.first_file is not None:
-                first_file = args.first_file
-                if args.verbose:
-                    print(f"Using first_file={first_file} from command-line argument")
-            else:
-                first_file = params["FirstFile"]
-                if args.verbose:
-                    print(f"Using first_file={first_file} from parameter file")
-
-            if args.last_file is not None:
-                last_file = args.last_file
-                if args.verbose:
-                    print(f"Using last_file={last_file} from command-line argument")
-            else:
-                last_file = params["LastFile"]
-                if args.verbose:
-                    print(f"Using last_file={last_file} from parameter file")
-
-            # Validate file range
-            if first_file > last_file:
-                error(f"FirstFile ({first_file}) is greater than LastFile ({last_file})")
-                sys.exit(1)
-
-            try:
-                galaxies, volume, metadata = read_data(
-                    model_path=model_file_base,
-                    first_file=first_file,
-                    last_file=last_file,
-                    params=params.params,
-                    verbose=args.verbose,
-                    quiet=args.quiet,
-                )
-                # Add redshift to metadata
-                metadata["redshift"] = redshift
-                snapshot_data[snap] = (galaxies, volume, metadata)
-                if args.verbose:
-                    print(f"  Read {len(galaxies)} galaxies at z={redshift:.2f}")
-            except Exception as e:
-                if args.verbose:
-                    warn(f"Could not read snapshot {snap}: {e}")
-                # Continue to next snapshot - skipped snapshots won't be in the summary
-
-        # Check if we have any snapshot data for evolution plots
-        if not snapshot_data:
-            evolution_generated_plots = []
-            if not args.quiet:
-                warn("Skipping evolution plots (no data available)")
-        else:
-            # Filter evolution plots based on available properties
-            # Check properties in first available snapshot as representative sample
-            available_plots = {}
-            skipped_plots = {}
-
-            # Get a sample galaxy dataset from any snapshot to check properties
-            sample_galaxies = None
-            if snapshot_data:
-                sample_snap = next(iter(snapshot_data.values()))
-                sample_galaxies = sample_snap[0]  # galaxies from (galaxies, volume, metadata) tuple
-
-            for plot_name, plot_func in plot_modules.items():
-                required_props = PLOT_REQUIREMENTS.get(plot_name, [])
-                if required_props and sample_galaxies is not None:
-                    # Check if required properties are available
-                    props_available, missing_props = check_required_properties(
-                        sample_galaxies, required_props
-                    )
-                    if not props_available:
-                        skipped_plots[plot_name] = missing_props
-                        continue
-                available_plots[plot_name] = plot_func
-
-            # Report skipped plots
-            if skipped_plots:
-                print(
-                    f"\nSkipping {len(skipped_plots)} evolution plot(s) due to missing properties:"
-                )
-                for plot_name, missing in skipped_plots.items():
-                    print(f"  - {plot_name}: missing {', '.join(missing)}")
-                print(f"  (Enable physics modules to generate these plots)\n")
-
-            # Generate each evolution plot
-            evolution_generated_plots = []
-            evolution_skipped_validation = {}  # Track plots skipped due to data validation
-            for plot_name, plot_func in available_plots.items():
-                try:
-                    if args.verbose:
-                        print(f"Generating {plot_name}...")
-                    result = plot_func(
-                        snapshots=snapshot_data,
-                        params=params.params,
-                        output_dir=output_dir,
-                        output_format=args.format,
-                        verbose=args.verbose,
-                    )
-
-                    plot_path, skip_msg = result
-                    if plot_path:
-                        evolution_generated_plots.append(plot_path)
-                        if not args.quiet:
-                            print(f"Created {plot_name} plot")
-                    elif skip_msg:
-                        evolution_skipped_validation[plot_name] = skip_msg
-                        if args.verbose:
-                            print(f"Skipped {plot_name}: {skip_msg}")
-                except Exception as e:
-                    if not args.quiet:
-                        print(f"Error generating {plot_name}: {e}")
-
-            if args.verbose:
-                print(f"Generated {len(evolution_generated_plots)} evolution plots.")
-
-    # Report validation-based skips if any (before COMPLETE section)
-    # Only show in verbose mode
-    total_skipped_validation = 0
-    if args.snapshot_plots and "snapshot_skipped_validation" in locals():
-        total_skipped_validation += len(snapshot_skipped_validation)
-    if args.evolution_plots and "evolution_skipped_validation" in locals():
-        total_skipped_validation += len(evolution_skipped_validation)
-
-    if args.verbose and total_skipped_validation > 0:
+    if args.verbose and total_skipped > 0:
         print_phase("SKIPPED PLOTS")
-        print(f"Skipped {total_skipped_validation} plot(s) due to insufficient data")
+        print(f"Skipped {total_skipped} plot(s) due to insufficient data")
         print()
-
-        if (
-            args.snapshot_plots
-            and "snapshot_skipped_validation" in locals()
-            and snapshot_skipped_validation
-        ):
+        if args.snapshot_plots and snapshot_skipped:
             print("Snapshot plots:")
-            for plot_name, reason in snapshot_skipped_validation.items():
+            for plot_name, reason in snapshot_skipped.items():
                 print(f"  • {plot_name}")
                 print(f"    {reason}")
             print()
-
-        if (
-            args.evolution_plots
-            and "evolution_skipped_validation" in locals()
-            and evolution_skipped_validation
-        ):
+        if args.evolution_plots and evolution_skipped:
             print("Evolution plots:")
-            for plot_name, reason in evolution_skipped_validation.items():
+            for plot_name, reason in evolution_skipped.items():
                 print(f"  • {plot_name}")
                 print(f"    {reason}")
             print()
 
-    # Show completion message for quiet mode
     if args.quiet:
         print("... finished\n")
-
-    # Final completion summary
     if not args.quiet:
         print_phase("COMPLETE")
 
     total_plots = 0
-    if args.snapshot_plots and "snapshot_generated_plots" in locals():
-        snapshot_plot_count = len(snapshot_generated_plots)
-        total_plots += snapshot_plot_count
-        print(f"Snapshot plots  : {snapshot_plot_count}")
-
-    if args.evolution_plots and "evolution_generated_plots" in locals():
-        evolution_count = len(evolution_generated_plots)
-        total_plots += evolution_count
-        print(f"Evolution plots : {evolution_count}")
+    if args.snapshot_plots:
+        print(f"Snapshot plots  : {len(snapshot_created)}")
+        total_plots += len(snapshot_created)
+    if args.evolution_plots:
+        print(f"Evolution plots : {len(evolution_created)}")
+        total_plots += len(evolution_created)
 
     print(f"Plots created   : {total_plots}")
-    print(f"Skipped plots   : {total_skipped_validation} (run with --verbose flag for details)")
+    print(f"Skipped plots   : {total_skipped} (run with --verbose flag for details)")
     print(f"Output location : {output_dir}")
+
+
+def main():
+    """Main execution function."""
+    args = parse_arguments()
+
+    # Startup banner
+    print_banner(args.param_file, quiet=args.quiet)
+
+    # Parse, validate, and load the active model's figure package and plot profile.
+    if not args.quiet:
+        print_phase("CONFIGURATION")
+    params = load_and_validate_config(args)
+    output_dir = resolve_paths(params, args)
+
+    # Determine which plots to generate
+    selected_plots = None if args.plots == "all" else [p.strip() for p in args.plots.split(",")]
+
+    # Show simple progress message in quiet mode
+    if args.quiet:
+        print("\nCreating plots ...")
+
+    snapshot_created, snapshot_skipped = [], {}
+    evolution_created, evolution_skipped = [], {}
+
+    # Generate snapshot plots
+    if args.snapshot_plots:
+        snapshot_created, snapshot_skipped, _ = generate_snapshot_plots(
+            params, args, output_dir, selected_plots
+        )
+
+    # Generate evolution plots
+    if args.evolution_plots:
+        evolution_created, evolution_skipped = generate_evolution_plots(
+            params, args, output_dir, selected_plots
+        )
+
+    print_run_summary(
+        args,
+        output_dir,
+        snapshot_created,
+        snapshot_skipped,
+        evolution_created,
+        evolution_skipped,
+    )
 
 
 if __name__ == "__main__":
