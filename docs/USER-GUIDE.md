@@ -445,12 +445,13 @@ import numpy as np
 repo = Path("/path/to/mimic")
 sys.path.insert(0, str(repo / "plot" / "mimic-plot"))
 
-from output_schema import dtype_from_schema, units_from_schema
+from output_schema import descriptions_from_schema, dtype_from_schema, units_from_schema
 
 path = repo / "output" / "sage16-mini-millennium" / "model_z0.000_0"
 schema = json.loads((path.parent / "metadata" / "output_schema.json").read_text())
 dtype = dtype_from_schema(schema, binary=True)
 units = units_from_schema(schema)
+descriptions = descriptions_from_schema(schema)  # {field: human-readable description}
 
 with path.open("rb") as f:
     ntrees = np.fromfile(f, dtype=np.int32, count=1)[0]

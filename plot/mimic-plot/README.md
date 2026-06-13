@@ -210,14 +210,16 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, "/path/to/mimic/plot/mimic-plot")
-from output_schema import dtype_from_schema, units_from_schema
+from output_schema import descriptions_from_schema, dtype_from_schema, units_from_schema
 
 output_file = Path("model_z0.000_0")
 schema = json.loads((output_file.parent / "metadata" / "output_schema.json").read_text())
 units = units_from_schema(schema)
+descriptions = descriptions_from_schema(schema)  # {field: human-readable description}
 print(f"Mvir is in: {units['Mvir']}")  # "1e10 Msun/h"
 print(f"dT is in: {units['dT']}")      # "Myr/h"
 print(f"Rvir is in: {units['Rvir']}")  # "Mpc/h"
+print(f"Mvir: {descriptions['Mvir']}")  # human-readable field description
 
 with output_file.open("rb") as handle:
     ntrees = np.fromfile(handle, dtype=np.int32, count=1)[0]
