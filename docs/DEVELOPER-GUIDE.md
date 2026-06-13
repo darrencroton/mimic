@@ -913,6 +913,8 @@ Use the same model and simulation selectors for generation, validation, tests, a
 
 To change the project default (e.g. when promoting a new model or simulation package), update `DEFAULT_MODEL` and/or `DEFAULT_SIMULATION` in the Makefile. `scripts/lib/defaults.sh` reads these values at runtime, so `scripts/benchmark_mimic.sh`, `scripts/regenerate_baseline.sh`, and `plot/mimic-plot/tests/test_plotting.sh` all pick up the new defaults automatically. Also update the `model.name` and `simulation.name` fields in the affected model input YAML files to match.
 
+The generator and validator scripts share a few single-source helpers rather than re-implementing them per file: `scripts/discovery.py` resolves the selected model/simulation package paths, and `scripts/console.py` (Python) and `scripts/lib/colors.sh` (shell) provide the common `ERROR:`/`WARNING:` coloured console output. Colour is emitted only when stdout is a TTY and `NO_COLOR` is unset, so piped or CI output stays free of escape codes.
+
 Generated files include:
 
 | Generator | Inputs | Outputs |
