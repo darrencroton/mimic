@@ -7,24 +7,23 @@ YAML property metadata definitions. This eliminates manual synchronization acros
 8+ files and enables rapid property addition (<2 minutes vs 30 minutes).
 
 Usage:
-    MODEL=sage python3 scripts/generate_properties.py
+    MODEL=sage16 python3 scripts/generate_properties.py
 
 Reads:
     src/core/core_properties.yaml
-    simulations/*/halo_properties.yaml
+    simulations/<SIMULATION>/halo_properties.yaml
     models/<MODEL>/model_properties.yaml
 
 Generates:
     src/include/generated/property_defs.h
-    src/include/generated/init_halo_properties.inc
-    src/include/generated/init_galaxy_properties.inc
+    src/include/generated/populate_halo_payload_from_tree.inc
+    src/include/generated/property_test_helpers.h
     src/include/generated/copy_to_output.inc
     src/include/generated/hdf5_field_count.inc
     src/include/generated/hdf5_field_definitions.inc
+    src/include/generated/hdf5_field_metadata.inc
     src/include/generated/output_schema_writer.inc
-
-Author: Property Metadata System (Phase 1)
-Date: 2025-11-07
+    tests/generated/property_ranges.json
 """
 
 import hashlib

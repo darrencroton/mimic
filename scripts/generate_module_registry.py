@@ -7,7 +7,7 @@ from module_info.yaml metadata files. Eliminates manual synchronization and
 implements the metadata-driven module architecture including the event system.
 
 Usage:
-    MODEL=sage python3 scripts/generate_module_registry.py [--dry-run] [--verbose]
+    MODEL=sage16 python3 scripts/generate_module_registry.py [--dry-run] [--verbose]
 
 Reads:
     models/<MODEL>/module_info.yaml
@@ -23,8 +23,6 @@ Generates:
 Exit codes:
     0 - Success
     1 - Generation failed (validation errors, I/O errors)
-
-Author: Module Metadata System
 """
 
 import argparse
@@ -32,7 +30,7 @@ import hashlib
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import yaml

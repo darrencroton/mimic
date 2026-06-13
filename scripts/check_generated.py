@@ -10,14 +10,11 @@ Current scope:
 - Module-generated event contract header
 
 Usage:
-    MODEL=sage python3 scripts/check_generated.py
+    MODEL=sage16 python3 scripts/check_generated.py
 
 Exit codes:
     0 - All generated files are up-to-date
     1 - Generated files are out of date or missing
-
-Author: Property Metadata System (Phase 1)
-Date: 2025-11-07
 """
 
 import hashlib

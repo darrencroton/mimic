@@ -14,13 +14,8 @@ Exit codes:
     0 - All validations passed
     1 - Schema error (missing fields, wrong types)
     2 - File not found (source, header, test, doc)
-    3 - Dependency error (circular, unresolved)
+    3 - Dependency error (unresolved property)
     4 - Naming convention violation
-    5 - Parameter validation error
-    6 - Code verification error (register function not found)
-
-Author: Module Metadata System (Phase 4.2.5)
-Date: 2025-11-12
 """
 
 import argparse
@@ -663,11 +658,6 @@ def validate_doc_files(
                 results.add_warning(module_name, f"Physics documentation not found: {physics_doc}")
 
     return True
-
-
-# ==============================================================================
-# CODE VERIFICATION
-# ==============================================================================
 
 
 # ==============================================================================

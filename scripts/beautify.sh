@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 # beautify.sh - Format C and Python code in the Mimic codebase
-# Created: March 2025
 
 # Display help information
 show_help() {

@@ -12,15 +12,12 @@ Checks:
 Usage:
     python3 scripts/lint_parameter_usage.py           # Check all modules
     python3 scripts/lint_parameter_usage.py --verbose # Verbose output
-    python3 scripts/lint_parameter_usage.py --module sage_cooling # Check specific module
+    python3 scripts/lint_parameter_usage.py --module sage_apply_cooling # Check specific module
 
 Exit codes:
     0 - All checks passed
     1 - Found undeclared parameters (ERROR)
     2 - Found unused parameters (WARNING)
-
-Author: Mimic Development Team
-Date: 2025-12-02
 """
 
 import argparse

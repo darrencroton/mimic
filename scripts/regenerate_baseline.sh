@@ -21,10 +21,6 @@
 #   4. Copies output to baseline directory
 #   5. Validates baseline against current output
 #   6. Provides git commit instructions
-#
-# Author: Mimic Testing Team
-# Date: 2025-11-13
-# Phase: Phase 4.2 (Testing Framework Refinement)
 ###############################################################################
 
 # Color codes for output

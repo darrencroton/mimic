@@ -82,7 +82,7 @@ else
         echo "ERROR: Failed to download tree files."
         echo "Please check your internet connection and try again."
         echo "If the problem persists, please open an issue at:"
-        echo "https://github.com/darrencroton/sage/issues"
+        echo "https://github.com/darrencroton/mimic/issues"
         exit 1
     fi
     
@@ -332,6 +332,6 @@ echo "- Always activate before running plotting scripts"
 echo ""
 echo "For more information, see the README.md file."
 echo "If you encounter any issues, please visit:"
-echo "https://github.com/darrencroton/sage/issues"
+echo "https://github.com/darrencroton/mimic/issues"
 echo ""
 echo "Happy halo tracking!"
