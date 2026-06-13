@@ -493,10 +493,9 @@ help:
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
 	@echo "  make test-clean                   - Clean test artifacts"
 	@echo "  make generate-test-registry - Discover selected tests"
-	@echo "  make validate-test-registry - Validate test declarations"
 	@echo ""
 	@echo "Options:"
-	@echo "  Defaults: MODEL=sage SIMULATION=mini-millennium"
+	@echo "  Defaults: MODEL=sage16 SIMULATION=mini-millennium"
 	@echo "  make MODEL=sham SIMULATION=mini-millennium  - Build SHAM against mini-Millennium"
 	@echo "  make SIM=mini-millennium                    - Shorthand for SIMULATION=<name>"
 	@echo "  make USE-HDF5=no                       - Disable HDF5 support"
@@ -617,9 +616,6 @@ check-format:
 generate-test-registry:
 	@python3 scripts/generate_test_registry.py
 	@python3 scripts/generate_test_inputs.py
-
-validate-test-registry:
-	@python3 scripts/validate_module_tests.py
 
 # -----------------------------------------------------------------------------
 # Test Targets
