@@ -707,11 +707,19 @@ See [Property Metadata Schema](#property-metadata-schema) in the Reference secti
 Reference the simulation package from a model-local run file under `models/<model>/input/`:
 
 ```yaml
+model:
+  name: my_model
+
 simulation:
   name: my_sim
-  path: simulations/my_sim
-  config: simulations/my_sim/simulation_info.yaml
-  halo_properties: simulations/my_sim/halo_properties.yaml
+```
+
+Mimic derives `models/<model.name>`, `models/<model.name>/model_properties.yaml`, `simulations/<simulation.name>`, `simulations/<simulation.name>/simulation_info.yaml`, and `simulations/<simulation.name>/halo_properties.yaml`. The package paths and property metadata files are not run-file knobs because they must match the generated executable. Use `simulation.config` only when the run needs an alternate simulation metadata file with the same compiled simulation package, for example a smaller fixture:
+
+```yaml
+simulation:
+  name: my_sim
+  config: simulations/my_sim/_tests/input/test_simulation.yaml
 ```
 
 To override simulation defaults for a specific run without changing the shared config:
@@ -726,14 +734,16 @@ Any `input:` key in the run file takes precedence over the same key in `simulati
 
 ### Optional: plot_profile.yaml
 
-Provide a simulation-level `plot_profile.yaml` when plots need simulation-specific axis limits, units, or display defaults. Reference it from the run file:
+Provide a simulation-level `plot_profile.yaml` when plots need simulation-specific axis limits, units, or display defaults. `mimic-plot.py` discovers it automatically from `simulations/<simulation.name>/plot_profile.yaml`. It also discovers model-level defaults from `models/<model.name>/plots/profiles/default.yaml` and model/simulation-specific defaults from `models/<model.name>/plots/profiles/<simulation.name>_plot_profile.yaml`.
+
+Use `plotting.profile` only for an additional run-specific override:
 
 ```yaml
 plotting:
-  profile: simulations/my_sim/my_sim_plot_profile.yaml
+  profile: models/my_model/plots/profiles/custom_validation.yaml
 ```
 
-The run file `plotting.profile` must be present for `mimic-plot.py` to locate it; the binary itself ignores the plotting section. Profile `inherits` entries are resolved relative to the profile file that declares them, so package-local profiles should inherit neighbouring defaults with local paths such as `default.yaml`. See `simulations/mini-millennium/plot_profile.yaml` for the format.
+The binary itself ignores the plotting section except for recording the configured path in run metadata. Profile `inherits` entries are resolved relative to the profile file that declares them, so package-local profiles should inherit neighbouring defaults with local paths such as `default.yaml`. See `simulations/mini-millennium/plot_profile.yaml` for the format.
 
 ### Workflow Summary
 
@@ -901,7 +911,7 @@ Run `make generate` after editing the default package pair, or add `MODEL=<name>
 
 Use the same model and simulation selectors for generation, validation, tests, and build. For the default packages, plain `make generate` and `make` are enough; for a non-default pair, add the same `MODEL=<name> SIMULATION=<name>` values to each command.
 
-To change the project default (e.g. when promoting a new model or simulation package), update `DEFAULT_MODEL` and/or `DEFAULT_SIMULATION` in the Makefile. `scripts/lib/defaults.sh` reads these values at runtime, so `scripts/benchmark_mimic.sh`, `scripts/regenerate_baseline.sh`, and `plot/mimic-plot/tests/test_plotting.sh` all pick up the new defaults automatically. Also update the `model.name`, `model.path`, `model.model_properties`, and `plotting.profile` fields in the model's input YAML files to match.
+To change the project default (e.g. when promoting a new model or simulation package), update `DEFAULT_MODEL` and/or `DEFAULT_SIMULATION` in the Makefile. `scripts/lib/defaults.sh` reads these values at runtime, so `scripts/benchmark_mimic.sh`, `scripts/regenerate_baseline.sh`, and `plot/mimic-plot/tests/test_plotting.sh` all pick up the new defaults automatically. Also update the `model.name` and `simulation.name` fields in the affected model input YAML files to match.
 
 Generated files include:
 

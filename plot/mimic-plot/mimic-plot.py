@@ -193,7 +193,7 @@ def configure_figure_package(params, param_file, verbose=False):
 
     model_path = params.get("ModelPath")
     if not model_path:
-        raise RuntimeError("model.path is required for figure discovery")
+        raise RuntimeError("model.name is required for figure discovery")
 
     plots_dir = Path(resolve_relative_path(model_path, param_file)) / "plots"
     if not plots_dir.exists():
@@ -278,6 +278,16 @@ def configure_plot_profile(params, param_file, verbose=False):
         )
         if simulation_profile.exists():
             profile_paths.append(simulation_profile)
+
+    simulation_name = params.get("SimulationName")
+    if model_path and simulation_name:
+        model_simulation_profile = (
+            Path(resolve_relative_path(model_path, param_file))
+            / "plots/profiles"
+            / f"{simulation_name}_plot_profile.yaml"
+        )
+        if model_simulation_profile.exists():
+            profile_paths.append(model_simulation_profile)
 
     configured_profile = params.get("PlottingProfilePath")
     if configured_profile:
@@ -423,25 +433,53 @@ class MimicParameters:
         import yaml
 
         with open(self.param_file, "r") as f:
-            config = yaml.safe_load(f)
+            config = yaml.safe_load(f) or {}
+
+        model_config = config.get("model") or {}
+        simulation_config_run = config.get("simulation") or {}
+        unknown_model_keys = set(model_config) - {"name"}
+        unknown_simulation_keys = set(simulation_config_run) - {
+            "name",
+            "config",
+            "cosmology",
+            "box_size",
+            "particle_mass",
+            "units",
+        }
+        if unknown_model_keys:
+            keys = ", ".join(sorted(unknown_model_keys))
+            raise RuntimeError(f"Unknown model key(s): {keys}")
+        if unknown_simulation_keys:
+            keys = ", ".join(sorted(unknown_simulation_keys))
+            raise RuntimeError(f"Unknown simulation key(s): {keys}")
+
+        model_name = model_config.get("name", "")
+        simulation_name = simulation_config_run.get("name", "")
+        model_path = f"models/{model_name}" if model_name else ""
+        simulation_path = f"simulations/{simulation_name}" if simulation_name else ""
+        simulation_config_path = simulation_config_run.get("config", "")
+        if not simulation_config_path and simulation_path:
+            simulation_config_path = f"{simulation_path}/simulation_info.yaml"
 
         sim_config = {}
-        if "simulation" in config and "config" in config["simulation"]:
-            sim_config_path = resolve_relative_path(config["simulation"]["config"], self.param_file)
+        if simulation_config_path:
+            sim_config_path = resolve_relative_path(simulation_config_path, self.param_file)
             with open(sim_config_path, "r") as f:
                 sim_config = yaml.safe_load(f) or {}
 
-        if "model" in config:
-            self.params["ModelName"] = config["model"].get("name", "")
-            self.params["ModelPath"] = config["model"].get("path", "")
-            self.params["ModelPropertiesPath"] = config["model"].get("model_properties", "")
+        if model_config:
+            self.params["ModelName"] = model_name
+            self.params["ModelPath"] = model_path
+            self.params["ModelPropertiesPath"] = (
+                f"{model_path}/model_properties.yaml" if model_path else ""
+            )
 
-        if "simulation" in config:
-            self.params["SimulationName"] = config["simulation"].get("name", "")
-            self.params["SimulationPath"] = config["simulation"].get("path", "")
-            self.params["SimulationConfigPath"] = config["simulation"].get("config", "")
-            self.params["SimulationHaloPropertiesPath"] = config["simulation"].get(
-                "halo_properties", ""
+        if simulation_config_run:
+            self.params["SimulationName"] = simulation_name
+            self.params["SimulationPath"] = simulation_path
+            self.params["SimulationConfigPath"] = simulation_config_path
+            self.params["SimulationHaloPropertiesPath"] = (
+                f"{simulation_path}/halo_properties.yaml" if simulation_path else ""
             )
 
         if "plotting" in config:

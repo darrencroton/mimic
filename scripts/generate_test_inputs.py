@@ -48,24 +48,13 @@ def require_dir(path: Path, label: str) -> Path:
     return path
 
 
-def plot_profile(model_root: Path, simulation: str) -> str:
-    candidates = [
-        model_root / "plots" / "profiles" / f"{simulation}_plot_profile.yaml",
-        model_root / "plots" / "profiles" / "default.yaml",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return rel(candidate)
-    return ""
-
-
-def test_simulation_config(simulation_root: Path, simulation: str) -> tuple[str, str, str]:
-    """Return simulation name, path, and config for fast test runs.
+def test_simulation_config(simulation_root: Path, simulation: str) -> str:
+    """Return a test-sized simulation config path for fast test runs.
 
     A simulation package may provide a test-sized simulation metadata file at
     simulations/<simulation>/_tests/input/test_simulation.yaml. This keeps fast
     core/model tests independent of production catalog size while still compiling
-    against the selected simulation's halo_properties.yaml.
+    against the selected simulation package.
 
     mini-Millennium has a shared single-file mini-catalog under tests/data/.
     All other simulations fall back to the production simulation_info.yaml;
@@ -73,38 +62,32 @@ def test_simulation_config(simulation_root: Path, simulation: str) -> tuple[str,
     """
     package_test_config = simulation_root / "_tests" / "input" / "test_simulation.yaml"
     if package_test_config.is_file():
-        return f"test_{simulation}", rel(simulation_root), rel(package_test_config)
+        return rel(package_test_config)
 
     shared_mini_millennium_config = REPO_ROOT / "tests" / "data" / "test_simulation.yaml"
     if simulation == "mini-millennium" and shared_mini_millennium_config.is_file():
-        return "test_mini-millennium", "tests/data", rel(shared_mini_millennium_config)
+        return rel(shared_mini_millennium_config)
 
     production_config = simulation_root / "simulation_info.yaml"
     require_file(production_config, "simulation config")
-    return simulation, rel(simulation_root), rel(production_config)
+    return rel(production_config)
 
 
 def base_run_config(model: str, simulation: str) -> dict[str, Any]:
     model_root = require_dir(REPO_ROOT / "models" / model, "model package")
     simulation_root = require_dir(REPO_ROOT / "simulations" / simulation, "simulation package")
 
-    model_properties = require_file(model_root / "model_properties.yaml", "model properties")
-    halo_properties = require_file(
-        simulation_root / "halo_properties.yaml", "simulation halo properties"
-    )
-    sim_name, sim_path, sim_config = test_simulation_config(simulation_root, simulation)
+    require_file(model_root / "model_properties.yaml", "model properties")
+    require_file(simulation_root / "halo_properties.yaml", "simulation halo properties")
+    sim_config = test_simulation_config(simulation_root, simulation)
 
     config: dict[str, Any] = {
         "model": {
             "name": model,
-            "path": rel(model_root),
-            "model_properties": rel(model_properties),
         },
         "simulation": {
-            "name": sim_name,
-            "path": sim_path,
+            "name": simulation,
             "config": sim_config,
-            "halo_properties": rel(halo_properties),
         },
         "output": {},
         "SubSteps": 1,
@@ -112,10 +95,6 @@ def base_run_config(model: str, simulation: str) -> dict[str, Any]:
             "parameters": {},
         },
     }
-
-    profile = plot_profile(model_root, simulation)
-    if profile:
-        config["plotting"] = {"profile": profile}
 
     return config
 

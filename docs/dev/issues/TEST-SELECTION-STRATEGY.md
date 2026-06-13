@@ -83,7 +83,7 @@ A simulation package can provide a fast fixture config at:
 simulations/<simulation>/_tests/input/test_simulation.yaml
 ```
 
-If present, `scripts/generate_test_inputs.py` should use it for generated test run files. The generated run still points `simulation.halo_properties` at the selected simulation package, so compiled schema validation remains meaningful.
+If present, `scripts/generate_test_inputs.py` should use it as the generated run file's `simulation.config` override. The generated run still sets `simulation.name` to the selected simulation package, so compiled schema validation remains meaningful.
 
 If no package fixture is present, the generator may fall back to the simulation's production `simulation_info.yaml` and cap `first_file`/`last_file` for basic testing. That fallback is acceptable only when the capped range is known to be small enough for fast tiers. For large catalogs, the package should declare a fixture explicitly.
 

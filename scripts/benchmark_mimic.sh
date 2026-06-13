@@ -309,19 +309,6 @@ def resolve_repo_path(path_value):
     return repo_candidate
 
 
-def simulation_package_from_halo_properties(config):
-    halo_properties = config.get("simulation", {}).get("halo_properties", "")
-    if not halo_properties:
-        return ""
-    parts = Path(halo_properties).parts
-    try:
-        simulations_index = parts.index("simulations")
-    except ValueError:
-        return ""
-    if simulations_index + 1 >= len(parts):
-        return ""
-    return parts[simulations_index + 1]
-
 try:
     with open(param_file, 'r') as f:
         config = yaml.safe_load(f) or {}
@@ -331,7 +318,11 @@ try:
     output_basename = config.get('output', {}).get('output_filename', 'model')
     input_config = {}
 
-    simulation_config_path = config.get('simulation', {}).get('config')
+    simulation_section = config.get('simulation', {}) or {}
+    simulation_package = simulation_section.get('name', '')
+    simulation_config_path = simulation_section.get('config')
+    if not simulation_config_path and simulation_package:
+        simulation_config_path = f"simulations/{simulation_package}/simulation_info.yaml"
     if simulation_config_path:
         simulation_config_path = resolve_repo_path(simulation_config_path)
         with open(simulation_config_path, 'r') as f:
@@ -342,7 +333,6 @@ try:
 
     tree_type = input_config.get('tree_type', 'lhalo_binary')
     model_name = config.get('model', {}).get('name', '')
-    simulation_package = simulation_package_from_halo_properties(config)
 
     # Remove trailing slash from output_dir
     output_dir = output_dir.rstrip('/')
@@ -394,7 +384,7 @@ if [[ -n "${CONFIG_MODEL}" && "${SELECTED_MODEL}" != "${CONFIG_MODEL}" ]]; then
 fi
 
 if [[ -n "${CONFIG_SIMULATION}" && "${SELECTED_SIMULATION}" != "${CONFIG_SIMULATION}" ]]; then
-    error_exit "Run file's simulation.halo_properties belongs to '${CONFIG_SIMULATION}' but benchmark would build SIMULATION=${SELECTED_SIMULATION}"
+    error_exit "Run file selects simulation.name='${CONFIG_SIMULATION}' but benchmark would build SIMULATION=${SELECTED_SIMULATION}"
 fi
 
 RUN_PARAM_FILE="${PARAM_FILE}"

@@ -34,7 +34,9 @@ def test_user_run_file_has_empty_pipeline():
         (MODEL_ROOT / "input" / "halos-only_mini-millennium.yaml").read_text(encoding="utf-8")
     )
     assert data["model"]["name"] == "halos-only"
-    assert data["model"]["path"] == "models/halos-only"
+    assert set(data["model"]) == {"name"}
+    assert data["simulation"]["name"] == "mini-millennium"
+    assert set(data["simulation"]) == {"name"}
 
     modules = data.get("modules") or {}
     active = {

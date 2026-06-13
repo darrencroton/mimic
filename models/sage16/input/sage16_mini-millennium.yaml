@@ -2,17 +2,9 @@
 
 model:
   name: sage16
-  path: models/sage16
-  model_properties: models/sage16/model_properties.yaml
 
 simulation:
   name: mini-millennium
-  path: simulations/mini-millennium
-  config: simulations/mini-millennium/simulation_info.yaml
-  halo_properties: simulations/mini-millennium/halo_properties.yaml
-
-plotting:
-  profile: models/sage16/plots/profiles/mini-millennium_plot_profile.yaml
 
 output:
   output_filename: model

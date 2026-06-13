@@ -62,6 +62,10 @@ static void validate_output_snapshots(void);
 static void resolve_config_path(const char *path, const char *param_file, char *resolved,
                                 size_t resolved_size);
 static int file_exists_readable(const char *path);
+static void set_model_package_paths(void);
+static void set_simulation_package_paths(void);
+static void set_default_simulation_config_path(const char *param_file, yaml_document_t *doc,
+                                               yaml_node_t *simulation_section);
 
 /**
  * @brief   Bundled handles for one loaded YAML document.
@@ -125,23 +129,20 @@ void read_parameter_file(const char *fname) {
 
   yaml_node_t *section;
   yaml_node_t *node;
-  const char *str;
 
   /*
    * Load order: simulation config file first (provides defaults), then all
    * sections from the run file (may override those defaults). This means any
    * field present in both files takes the value from the run file.
    *
-   * The simulation config path lives inside the run file's simulation section,
-   * so we extract just that key before anything else, load the sim config, then
-   * parse the full run file on top.
+   * The default simulation config is derived from simulation.name. A run file
+   * may still point simulation.config at a smaller fixture or alternate input
+   * range while keeping the compiled simulation property package fixed.
    */
   section = get_mapping_value(document, root, "simulation");
   if (section) {
-    node = get_mapping_value(document, section, "config");
-    if (node && (str = get_scalar_value(node))) {
-      resolve_config_path(str, fname, MimicConfig.SimulationConfigPath,
-                          sizeof(MimicConfig.SimulationConfigPath));
+    set_default_simulation_config_path(fname, document, section);
+    if (strlen(MimicConfig.SimulationConfigPath) > 0) {
       parse_simulation_config_file(MimicConfig.SimulationConfigPath);
     }
   }
@@ -314,6 +315,67 @@ static void resolve_config_path(const char *path, const char *param_file, char *
   snprintf_path(param_dir, sizeof(param_dir), param_file, "%.*s", (int)(last_slash - param_file),
                 param_file);
   snprintf_path(resolved, resolved_size, path, "%s/%s", param_dir, path);
+}
+
+/**
+ * @brief   Derive model-owned package paths from the selected model name.
+ */
+static void set_model_package_paths(void) {
+  if (strlen(MimicConfig.ModelName) == 0) {
+    return;
+  }
+
+  snprintf_path(MimicConfig.ModelPath, sizeof(MimicConfig.ModelPath), "model.path", "models/%s",
+                MimicConfig.ModelName);
+  snprintf_path(MimicConfig.ModelPropertiesPath, sizeof(MimicConfig.ModelPropertiesPath),
+                "model.model_properties", "%s/model_properties.yaml", MimicConfig.ModelPath);
+}
+
+/**
+ * @brief   Derive simulation-owned package paths from the selected simulation.
+ */
+static void set_simulation_package_paths(void) {
+  if (strlen(MimicConfig.SimulationName) == 0) {
+    return;
+  }
+
+  snprintf_path(MimicConfig.SimulationPath, sizeof(MimicConfig.SimulationPath), "simulation.path",
+                "simulations/%s", MimicConfig.SimulationName);
+  snprintf_path(MimicConfig.SimulationHaloPropertiesPath,
+                sizeof(MimicConfig.SimulationHaloPropertiesPath), "simulation.halo_properties",
+                "%s/halo_properties.yaml", MimicConfig.SimulationPath);
+}
+
+/**
+ * @brief   Resolve the simulation config path before loading simulation defaults.
+ */
+static void set_default_simulation_config_path(const char *param_file, yaml_document_t *doc,
+                                               yaml_node_t *simulation_section) {
+  yaml_node_t *node;
+  const char *str;
+  char default_path[MAX_STRING_LEN];
+
+  node = get_mapping_value(doc, simulation_section, "name");
+  if (node && (str = get_scalar_value(node))) {
+    strncpy(MimicConfig.SimulationName, str, MAX_STRING_LEN - 1);
+    set_simulation_package_paths();
+  }
+
+  node = get_mapping_value(doc, simulation_section, "config");
+  if (node && (str = get_scalar_value(node))) {
+    resolve_config_path(str, param_file, MimicConfig.SimulationConfigPath,
+                        sizeof(MimicConfig.SimulationConfigPath));
+    return;
+  }
+
+  if (strlen(MimicConfig.SimulationName) == 0) {
+    return;
+  }
+
+  snprintf_path(default_path, sizeof(default_path), "simulation.config", "%s/simulation_info.yaml",
+                MimicConfig.SimulationPath);
+  resolve_config_path(default_path, param_file, MimicConfig.SimulationConfigPath,
+                      sizeof(MimicConfig.SimulationConfigPath));
 }
 
 /**
@@ -510,7 +572,7 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
 static void parse_model_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node;
   const char *str;
-  static const char *const valid_keys[] = {"name", "path", "model_properties"};
+  static const char *const valid_keys[] = {"name"};
 
   DEBUG_LOG("Parsing model section");
   reject_unknown_keys(doc, section, "model", valid_keys,
@@ -519,16 +581,7 @@ static void parse_model_section(yaml_document_t *doc, yaml_node_t *section) {
   node = get_mapping_value(doc, section, "name");
   if (node && (str = get_scalar_value(node))) {
     strncpy(MimicConfig.ModelName, str, MAX_STRING_LEN - 1);
-  }
-
-  node = get_mapping_value(doc, section, "path");
-  if (node && (str = get_scalar_value(node))) {
-    strncpy(MimicConfig.ModelPath, str, MAX_STRING_LEN - 1);
-  }
-
-  node = get_mapping_value(doc, section, "model_properties");
-  if (node && (str = get_scalar_value(node))) {
-    strncpy(MimicConfig.ModelPropertiesPath, str, MAX_STRING_LEN - 1);
+    set_model_package_paths();
   }
 }
 
@@ -540,9 +593,8 @@ static void parse_model_section(yaml_document_t *doc, yaml_node_t *section) {
 static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node, *cosmology, *units;
   const char *str;
-  static const char *const valid_keys[] = {
-      "name",      "path",     "config",        "halo_properties",
-      "cosmology", "box_size", "particle_mass", "units"};
+  static const char *const valid_keys[] = {"name",     "config",        "cosmology",
+                                           "box_size", "particle_mass", "units"};
   static const char *const cosmology_keys[] = {"omega_matter", "omega_lambda", "hubble_h"};
   static const char *const units_keys[] = {"length_in_cm", "mass_in_g", "velocity_in_cm_per_s"};
 
@@ -553,16 +605,7 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
   node = get_mapping_value(doc, section, "name");
   if (node && (str = get_scalar_value(node))) {
     strncpy(MimicConfig.SimulationName, str, MAX_STRING_LEN - 1);
-  }
-
-  node = get_mapping_value(doc, section, "path");
-  if (node && (str = get_scalar_value(node))) {
-    strncpy(MimicConfig.SimulationPath, str, MAX_STRING_LEN - 1);
-  }
-
-  node = get_mapping_value(doc, section, "halo_properties");
-  if (node && (str = get_scalar_value(node))) {
-    strncpy(MimicConfig.SimulationHaloPropertiesPath, str, MAX_STRING_LEN - 1);
+    set_simulation_package_paths();
   }
 
   node = get_mapping_value(doc, section, "config");
@@ -1015,14 +1058,6 @@ static void validate_and_postprocess(void) {
     ERROR_LOG("Required parameter 'model.name' missing");
     errors++;
   }
-  if (strlen(MimicConfig.ModelPath) == 0) {
-    ERROR_LOG("Required parameter 'model.path' missing");
-    errors++;
-  }
-  if (strlen(MimicConfig.ModelPropertiesPath) == 0) {
-    ERROR_LOG("Required parameter 'model.model_properties' missing");
-    errors++;
-  }
   if (strlen(MimicConfig.ModelName) > 0 &&
       strcmp(MimicConfig.ModelName, MIMIC_COMPILED_MODEL) != 0) {
     ERROR_LOG("Run file selects model.name='%s' but this executable was built "
@@ -1032,8 +1067,7 @@ static void validate_and_postprocess(void) {
   }
   if (strlen(MimicConfig.ModelPath) > 0 &&
       strcmp(MimicConfig.ModelPath, MIMIC_COMPILED_MODEL_PATH) != 0) {
-    ERROR_LOG("Run file selects model.path='%s' but this executable was built "
-              "with MODEL=%s (%s)",
+    ERROR_LOG("Derived model.path='%s' but this executable was built with MODEL=%s (%s)",
               MimicConfig.ModelPath, MIMIC_COMPILED_MODEL, MIMIC_COMPILED_MODEL_PATH);
     errors++;
   }
@@ -1041,41 +1075,15 @@ static void validate_and_postprocess(void) {
     ERROR_LOG("Required parameter 'simulation.name' missing");
     errors++;
   }
-  /* The compiled property schema is generated from one simulation's
-   * halo_properties.yaml (selected with make SIMULATION=<name>). The run file's
-   * simulation.name is a free-form label and may legitimately differ (for
-   * example a test fixture reusing the mini-millennium catalog as
-   * 'test_mini-millennium'). What must match is the property package: the parent
-   * directory of the declared simulation.halo_properties path must equal
-   * MIMIC_COMPILED_SIMULATION, otherwise the run would be interpreted with a
-   * schema it was not built for. */
-  if (strlen(MimicConfig.SimulationHaloPropertiesPath) > 0) {
-    const char *path = MimicConfig.SimulationHaloPropertiesPath;
-    const char *file_slash = strrchr(path, '/');
-    const char *pkg = NULL;
-    size_t pkg_len = 0;
-    if (file_slash != NULL && file_slash != path) {
-      const char *dir_start = file_slash - 1;
-      while (dir_start > path && *dir_start != '/') {
-        dir_start--;
-      }
-      if (*dir_start == '/') {
-        dir_start++;
-      }
-      pkg = dir_start;
-      pkg_len = (size_t)(file_slash - dir_start);
-    }
-    const char *compiled = MIMIC_COMPILED_SIMULATION;
-    if (pkg == NULL || pkg_len != strlen(compiled) || strncmp(pkg, compiled, pkg_len) != 0) {
-      ERROR_LOG("Run file's simulation.halo_properties='%s' belongs to a "
-                "different simulation package than this executable, which was "
-                "built with SIMULATION=%s (expected path under simulations/%s/)",
-                path, compiled, compiled);
-      errors++;
-    }
+  if (strlen(MimicConfig.SimulationName) > 0 &&
+      strcmp(MimicConfig.SimulationName, MIMIC_COMPILED_SIMULATION) != 0) {
+    ERROR_LOG("Run file selects simulation.name='%s' but this executable was built "
+              "with SIMULATION=%s",
+              MimicConfig.SimulationName, MIMIC_COMPILED_SIMULATION);
+    errors++;
   }
   if (strlen(MimicConfig.SimulationPath) == 0) {
-    ERROR_LOG("Required parameter 'simulation.path' missing");
+    ERROR_LOG("Failed to derive simulation.path from simulation.name");
     errors++;
   }
   if (strlen(MimicConfig.SimulationConfigPath) == 0) {
@@ -1083,7 +1091,7 @@ static void validate_and_postprocess(void) {
     errors++;
   }
   if (strlen(MimicConfig.SimulationHaloPropertiesPath) == 0) {
-    ERROR_LOG("Required parameter 'simulation.halo_properties' missing");
+    ERROR_LOG("Failed to derive simulation.halo_properties from simulation.name");
     errors++;
   }
   if (strlen(MimicConfig.PlottingProfilePath) > 0 && MimicConfig.PlottingProfilePath[0] == '/') {

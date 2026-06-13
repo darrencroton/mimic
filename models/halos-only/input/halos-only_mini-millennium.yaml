@@ -2,17 +2,9 @@
 
 model:
   name: halos-only
-  path: models/halos-only
-  model_properties: models/halos-only/model_properties.yaml
 
 simulation:
   name: mini-millennium
-  path: simulations/mini-millennium
-  config: simulations/mini-millennium/simulation_info.yaml
-  halo_properties: simulations/mini-millennium/halo_properties.yaml
-
-plotting:
-  profile: models/halos-only/plots/profiles/mini-millennium_plot_profile.yaml
 
 output:
   output_filename: halos
@@ -24,4 +16,3 @@ SubSteps: 1
 
 modules:
   parameters: {}
-

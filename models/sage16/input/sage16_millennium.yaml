@@ -2,14 +2,9 @@
 
 model:
   name: sage16
-  path: models/sage16
-  model_properties: models/sage16/model_properties.yaml
 
 simulation:
   name: millennium
-  path: simulations/millennium
-  config: simulations/millennium/simulation_info.yaml
-  halo_properties: simulations/millennium/halo_properties.yaml
 
 input:
   # Deliberate subset of the 512 Millennium tree files (0-511, see
@@ -17,9 +12,6 @@ input:
   # of the full volume. Raise last_file for production runs.
   first_file: 0
   last_file: 15
-
-plotting:
-  profile: models/sage16/plots/profiles/millennium_plot_profile.yaml
 
 output:
   output_filename: model

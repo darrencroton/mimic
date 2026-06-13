@@ -66,7 +66,7 @@ make info                                     # show detected compiler, librarie
 
 A Mimic executable is compiled against **one model package and one simulation package at a time**. `MODEL` selects which `models/<model>/` package contributes galaxy properties, physics modules, and plots; `SIMULATION` selects which `simulations/<simulation>/` package contributes catalogue halo properties. A model package can intentionally provide no galaxy physics: `halos-only` is the shipped package for dark-matter halo catalogue exploration. The defaults are `DEFAULT_MODEL` (`sage16`) and `DEFAULT_SIMULATION` (`mini-millennium`) near the top of the `Makefile`, so plain `make` builds the shipped full-physics example. Override them per invocation, or edit the defaults if you mainly work with a different pair. If a selected package does not exist, the build stops with an `Unknown MODEL` or `Unknown SIMULATION` error rather than silently mis-building.
 
-This pairing is enforced at runtime too: a run file whose `model.name` or `simulation.halo_properties` does not match the executable fails at startup, so you can't accidentally analyse output produced by the wrong physics. If you want to mix modules from different model families, create a new `models/<model>/` package and reconcile property names, parameters, units, dependencies, tests, and plots there — see the [Developer Guide](DEVELOPER-GUIDE.md#module-communication).
+This pairing is enforced at runtime too: a run file whose `model.name` or `simulation.name` does not match the executable fails at startup, so you can't accidentally analyse output produced by the wrong physics. Mimic derives package paths from those names: `models/<model>` and `simulations/<simulation>`. If you want to mix modules from different model families, create a new `models/<model>/` package and reconcile property names, parameters, units, dependencies, tests, and plots there — see the [Developer Guide](DEVELOPER-GUIDE.md#module-communication).
 
 ### Manual Setup
 
@@ -190,17 +190,9 @@ The shipped configuration is `models/sage16/input/sage16_mini-millennium.yaml`. 
 ```yaml
 model:
   name: sage16
-  path: models/sage16
-  model_properties: models/sage16/model_properties.yaml
 
 simulation:
   name: mini-millennium
-  path: simulations/mini-millennium
-  config: simulations/mini-millennium/simulation_info.yaml
-  halo_properties: simulations/mini-millennium/halo_properties.yaml
-
-plotting:
-  profile: models/sage16/plots/profiles/mini-millennium_plot_profile.yaml  # optional
 
 output:
   output_filename: model
@@ -217,7 +209,17 @@ modules:
   parameters: {}
 ```
 
-The `plotting.profile` section is optional. Omit it entirely if you do not intend to use `mimic-plot.py` — Mimic will run without it. If you do want plots, the profile must be present in the run YAML so `mimic-plot.py` can locate it; the path must be repo-relative, not absolute. Inside a plot profile, `inherits` entries are resolved from the directory containing that profile, so model-local profiles should inherit neighbouring defaults by local filename, for example `inherits: [default.yaml]`.
+`model.name` and `simulation.name` are package names, not display labels. Mimic derives `models/<model.name>/model_properties.yaml`, `simulations/<simulation.name>/simulation_info.yaml`, and `simulations/<simulation.name>/halo_properties.yaml` from them. These package paths are not user-overridable because the executable is generated and compiled for exactly one model/simulation pair.
+
+`simulation.config` is optional and defaults to `simulations/<simulation.name>/simulation_info.yaml`. Add it only when a run should use an alternate simulation metadata file, such as a small test fixture with the same compiled simulation package:
+
+```yaml
+simulation:
+  name: mini-millennium
+  config: tests/data/test_simulation.yaml
+```
+
+The `plotting` section is optional. `mimic-plot.py` automatically layers the global plotting defaults, `models/<model.name>/plots/profiles/default.yaml`, `simulations/<simulation.name>/plot_profile.yaml`, and `models/<model.name>/plots/profiles/<simulation.name>_plot_profile.yaml` when those files exist. Use `plotting.profile` only for an additional run-specific override; the path must be repo-relative, not absolute. Inside a plot profile, `inherits` entries are resolved from the directory containing that profile, so model-local profiles should inherit neighbouring defaults by local filename, for example `inherits: [default.yaml]`.
 
 The referenced simulation config, `simulations/mini-millennium/simulation_info.yaml`, owns tree input paths, cosmology, box size, particle mass, and units. `simulation.units` in that file defines the base code units used to derive time, density, pressure, energy, `G`, and related runtime quantities. The shipped mini-Millennium/SAGE example uses `Mpc/h`, `1e10 Msun/h`, and `km/s` conventions.
 
