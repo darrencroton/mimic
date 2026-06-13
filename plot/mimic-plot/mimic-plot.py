@@ -180,9 +180,7 @@ def validate_required_params(params, required_params, context=""):
     missing = [p for p in required_params if p not in params]
     if missing:
         context_str = f" for {context}" if context else ""
-        print(
-            f"Error: Required parameters missing from parameter file{context_str}: {', '.join(missing)}"
-        )
+        error(f"Required parameters missing from parameter file{context_str}: {', '.join(missing)}")
     return missing
 
 
@@ -418,14 +416,7 @@ class MimicParameters:
             # specified file range is the full volume being analysed.
             self.params["SimulationTotalTreeFiles"] = self.params["NumSimulationTreeFiles"]
         elif "NumSimulationTreeFiles" not in self.params:
-            if colour_enabled():
-                print(
-                    "\x1b[31mERROR: Could not determine NumSimulationTreeFiles, check FirstFile and LastFile\x1b[0m"
-                )
-            else:
-                print(
-                    "ERROR: Could not determine NumSimulationTreeFiles, check FirstFile and LastFile"
-                )
+            error("Could not determine NumSimulationTreeFiles, check FirstFile and LastFile")
             sys.exit(1)
 
     def parse_yaml_file(self):
@@ -628,10 +619,7 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
         print(f"Reading galaxy data from {model_path}")
     # Get required parameters from the parameter file
     if not params:
-        if colour_enabled():
-            print("\x1b[31mERROR: Parameter dictionary is required.\x1b[0m")
-        else:
-            print("ERROR: Parameter dictionary is required.")
+        error("Parameter dictionary is required.")
         sys.exit(1)
 
     # Ensure required parameters exist
@@ -663,16 +651,10 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     # Handle HDF5 format
     if output_format == "hdf5":
         if not HDF5_AVAILABLE:
-            if colour_enabled():
-                print(
-                    "\x1b[31mERROR: OutputFormat=hdf5 specified in parameter file, but h5py is not installed.\x1b[0m"
-                )
-                print("\x1b[33mPlease install h5py: pip install h5py\x1b[0m")
-            else:
-                print(
-                    "ERROR: OutputFormat=hdf5 specified in parameter file, but h5py is not installed."
-                )
-                print("Please install h5py: pip install h5py")
+            error(
+                "OutputFormat=hdf5 specified in parameter file, but h5py is not installed. "
+                "Install with: pip install h5py"
+            )
             sys.exit(1)
 
         if verbose:
@@ -723,10 +705,7 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
             if len(existing_files) > 5:
                 print(f"  ... and {len(existing_files) - 5} more")
     else:
-        if colour_enabled():
-            print(f"\x1b[33mWARNING: No files found matching the pattern {base_name}_*\x1b[0m")
-        else:
-            print(f"WARNING: No files found matching the pattern {base_name}_*")
+        warn(f"No files found matching the pattern {base_name}_*")
 
     # Get the galaxy data dtype
     galdesc = get_dtype(dir_path)
@@ -773,14 +752,7 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     if tot_ngals == 0:
         error_msg = "No galaxies found in the model files"
         if verbose:
-            if colour_enabled():
-                print(
-                    f"\x1b[31mERROR: {error_msg}. Please check that the model files exist and are not empty.\x1b[0m"
-                )
-            else:
-                print(
-                    f"ERROR: {error_msg}. Please check that the model files exist and are not empty."
-                )
+            error(f"{error_msg}. Please check that the model files exist and are not empty.")
         raise FileNotFoundError(error_msg)
 
     # Initialize the storage array
@@ -976,14 +948,7 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
     if not galaxies_list:
         error_msg = "No halos found in HDF5 files"
         if verbose:
-            if colour_enabled():
-                print(
-                    f"\x1b[31mERROR: {error_msg}. Please check that the HDF5 files exist and contain data.\x1b[0m"
-                )
-            else:
-                print(
-                    f"ERROR: {error_msg}. Please check that the HDF5 files exist and contain data."
-                )
+            error(f"{error_msg}. Please check that the HDF5 files exist and contain data.")
         raise FileNotFoundError(error_msg)
 
     # Concatenate all halos
@@ -1184,10 +1149,7 @@ def main():
             for key, value in params.params.items():
                 print(f"  {key} = {value} (type: {type(value)})")
     except Exception as e:
-        if colour_enabled():
-            print(f"\x1b[31mERROR loading parameter file: {e}\x1b[0m")
-        else:
-            print(f"ERROR loading parameter file: {e}")
+        error(f"Could not load parameter file: {e}")
         sys.exit(1)
 
     # Verify all required parameters exist
@@ -1202,20 +1164,13 @@ def main():
     ]
 
     if validate_required_params(params.params, required_params):
-        if colour_enabled():
-            print("\x1b[31mERROR: Missing required parameters.\x1b[0m")
-        else:
-            print("ERROR: Missing required parameters.")
         sys.exit(1)
 
     try:
         configure_figure_package(params.params, args.param_file, args.verbose)
         configure_plot_profile(params.params, args.param_file, args.verbose)
     except Exception as e:
-        if colour_enabled():
-            print(f"\x1b[31mERROR loading model plotting package: {e}\x1b[0m")
-        else:
-            print(f"ERROR loading model plotting package: {e}")
+        error(f"Could not load model plotting package: {e}")
         sys.exit(1)
 
     # Resolve and update paths from parameter file
@@ -1245,22 +1200,15 @@ def main():
 
     # Check if OutputDir exists
     if not os.path.exists(output_dir):
-        if colour_enabled():
-            print(
-                f"\x1b[31mERROR: OutputDir '{output_dir}' from parameter file does not exist.\x1b[0m"
-            )
-        else:
-            print(f"ERROR: OutputDir '{output_dir}' from parameter file does not exist.")
+        error(f"OutputDir '{output_dir}' from parameter file does not exist.")
         sys.exit(1)
 
     # Check if FileWithSnapList exists (path already resolved)
     if not os.path.exists(file_with_snap_list):
-        if colour_enabled():
-            print(f"\x1b[31mERROR: FileWithSnapList '{file_with_snap_list}' not found.\x1b[0m")
-            print("\x1b[33mPlease verify the path is correct in the parameter file.\x1b[0m")
-        else:
-            print(f"ERROR: FileWithSnapList '{file_with_snap_list}' not found.")
-            print("Please verify the path is correct in the parameter file.")
+        error(
+            f"FileWithSnapList '{file_with_snap_list}' not found. "
+            "Please verify the path is correct in the parameter file."
+        )
         sys.exit(1)
 
     # Set up matplotlib
@@ -1268,10 +1216,7 @@ def main():
 
     # Get output directory from parameter file - required parameter
     if "OutputDir" not in params:
-        if colour_enabled():
-            print("\x1b[31mERROR: OutputDir parameter is required in the parameter file.\x1b[0m")
-        else:
-            print("ERROR: OutputDir parameter is required in the parameter file.")
+        error("OutputDir parameter is required in the parameter file.")
         sys.exit(1)
 
     # Get the output directory path (already resolved)
@@ -1283,26 +1228,12 @@ def main():
 
     # Check if output directory exists
     if not os.path.exists(model_output_dir):
-        if colour_enabled():
-            print(
-                f"\x1b[31mERROR: OutputDir '{model_output_dir}' specified in parameter file does not exist.\x1b[0m"
-            )
-        else:
-            print(
-                f"ERROR: OutputDir '{model_output_dir}' specified in parameter file does not exist."
-            )
+        error(f"OutputDir '{model_output_dir}' specified in parameter file does not exist.")
         sys.exit(1)
 
     # Check if output directory is writable
     if not os.access(model_output_dir, os.W_OK):
-        if colour_enabled():
-            print(
-                f"\x1b[31mERROR: OutputDir '{model_output_dir}' specified in parameter file is not writable.\x1b[0m"
-            )
-        else:
-            print(
-                f"ERROR: OutputDir '{model_output_dir}' specified in parameter file is not writable."
-            )
+        error(f"OutputDir '{model_output_dir}' specified in parameter file is not writable.")
         sys.exit(1)
 
     # Set the plots directory independently from the model output directory.
@@ -1320,10 +1251,7 @@ def main():
         if args.verbose:
             print(f"  Successfully created/verified output directory: {output_dir}")
     except Exception as e:
-        if colour_enabled():
-            print(f"\x1b[31mERROR: Could not create output directory {output_dir}: {e}\x1b[0m")
-        else:
-            print(f"ERROR: Could not create output directory {output_dir}: {e}")
+        error(f"Could not create output directory {output_dir}: {e}")
         sys.exit(1)
 
     # Determine which plots to generate
@@ -1342,21 +1270,11 @@ def main():
             print_phase("SNAPSHOT PLOTS")
         # Get required parameters for finding model files
         if "OutputDir" not in params:
-            if colour_enabled():
-                print(
-                    "\x1b[31mERROR: OutputDir parameter is required in the parameter file.\x1b[0m"
-                )
-            else:
-                print("ERROR: OutputDir parameter is required in the parameter file.")
+            error("OutputDir parameter is required in the parameter file.")
             sys.exit(1)
 
         if "OutputFileBaseName" not in params:
-            if colour_enabled():
-                print(
-                    "\x1b[31mERROR: OutputFileBaseName parameter is required in the parameter file.\x1b[0m"
-                )
-            else:
-                print("ERROR: OutputFileBaseName parameter is required in the parameter file.")
+            error("OutputFileBaseName parameter is required in the parameter file.")
             sys.exit(1)
 
         # Get output model path and snapshot number (already resolved)
@@ -1364,14 +1282,10 @@ def main():
         snapshot = args.snapshot if args.snapshot is not None else params.get("LastSnapshotNr")
 
         if snapshot is None:
-            if colour_enabled():
-                print(
-                    "\x1b[31mERROR: Could not derive the last snapshot from FileWithSnapList and no snapshot was specified.\x1b[0m"
-                )
-            else:
-                print(
-                    "ERROR: Could not derive the last snapshot from FileWithSnapList and no snapshot was specified."
-                )
+            error(
+                "Could not derive the last snapshot from FileWithSnapList "
+                "and no snapshot was specified."
+            )
             sys.exit(1)
 
         # File name from parameter file
@@ -1385,12 +1299,7 @@ def main():
 
         # Check if model_path exists
         if not os.path.exists(model_path):
-            if colour_enabled():
-                print(
-                    f"\x1b[31mERROR: OutputDir '{model_path}' from parameter file does not exist.\x1b[0m"
-                )
-            else:
-                print(f"ERROR: OutputDir '{model_path}' from parameter file does not exist.")
+            error(f"OutputDir '{model_path}' from parameter file does not exist.")
             sys.exit(1)
 
         # Get the redshift for this snapshot using the mapper
@@ -1412,10 +1321,6 @@ def main():
 
         # Required parameters check
         if validate_required_params(params.params, ["FirstFile", "LastFile"], "snapshot plots"):
-            if colour_enabled():
-                print("\x1b[31mERROR: Missing required parameters for snapshot plots.\x1b[0m")
-            else:
-                print("ERROR: Missing required parameters for snapshot plots.")
             sys.exit(1)
 
         # Get first and last file numbers, prioritizing command-line arguments
@@ -1439,12 +1344,7 @@ def main():
 
         # Validate file range
         if first_file > last_file:
-            if colour_enabled():
-                print(
-                    f"\x1b[31mERROR: FirstFile ({first_file}) is greater than LastFile ({last_file})\x1b[0m"
-                )
-            else:
-                print(f"ERROR: FirstFile ({first_file}) is greater than LastFile ({last_file})")
+            error(f"FirstFile ({first_file}) is greater than LastFile ({last_file})")
             sys.exit(1)
 
         # Read galaxy data
@@ -1467,21 +1367,12 @@ def main():
             if not args.quiet:
                 if args.verbose:
                     # Show detailed error only in verbose mode
-                    if colour_enabled():
-                        print(f"\x1b[33mWARNING: Could not read snapshot data: {e}\x1b[0m")
-                    else:
-                        print(f"WARNING: Could not read snapshot data: {e}")
-                if colour_enabled():
-                    print(f"\x1b[33mSkipping snapshot plots (no data available)\x1b[0m")
-                else:
-                    print(f"Skipping snapshot plots (no data available)")
+                    warn(f"Could not read snapshot data: {e}")
+                warn("Skipping snapshot plots (no data available)")
             # Continue to evolution plots (if enabled)
             if not args.evolution_plots:
                 # If only snapshot plots were requested and they failed, exit with error
-                if colour_enabled():
-                    print(f"\x1b[31mERROR: No plots could be generated.\x1b[0m")
-                else:
-                    print(f"ERROR: No plots could be generated.")
+                error("No plots could be generated.")
                 sys.exit(1)
             else:
                 # Continue to evolution plots section
@@ -1592,14 +1483,7 @@ def main():
             # Process only the specified snapshot
             # Verify this snapshot exists in our mapping
             if args.snapshot not in mapper.snapshots:
-                if colour_enabled():
-                    print(
-                        f"\x1b[31mERROR: Specified snapshot {args.snapshot} not found in redshift mapping\x1b[0m"
-                    )
-                else:
-                    print(
-                        f"ERROR: Specified snapshot {args.snapshot} not found in redshift mapping"
-                    )
+                error(f"Specified snapshot {args.snapshot} not found in redshift mapping")
                 print(f"Available snapshots: {mapper.snapshots}")
                 sys.exit(1)
 
@@ -1613,12 +1497,7 @@ def main():
 
             # Check that we have at least 2 snapshots for a meaningful evolution plot
             if len(snapshots) < 2:
-                if colour_enabled():
-                    print(
-                        "\x1b[31mERROR: At least 2 snapshots are required for evolution plots\x1b[0m"
-                    )
-                else:
-                    print("ERROR: At least 2 snapshots are required for evolution plots")
+                error("At least 2 snapshots are required for evolution plots")
                 print(f"Available snapshots: {snapshots}")
                 sys.exit(1)
 
@@ -1662,10 +1541,6 @@ def main():
                 ["FirstFile", "LastFile", "NumSimulationTreeFiles"],
                 "evolution plots",
             ):
-                if colour_enabled():
-                    print("\x1b[31mERROR: Missing required parameters for evolution plots.\x1b[0m")
-                else:
-                    print("ERROR: Missing required parameters for evolution plots.")
                 sys.exit(1)
 
             # Get first and last file numbers, prioritizing command-line arguments
@@ -1689,12 +1564,7 @@ def main():
 
             # Validate file range
             if first_file > last_file:
-                if colour_enabled():
-                    print(
-                        f"\x1b[31mERROR: FirstFile ({first_file}) is greater than LastFile ({last_file})\x1b[0m"
-                    )
-                else:
-                    print(f"ERROR: FirstFile ({first_file}) is greater than LastFile ({last_file})")
+                error(f"FirstFile ({first_file}) is greater than LastFile ({last_file})")
                 sys.exit(1)
 
             try:
@@ -1713,20 +1583,14 @@ def main():
                     print(f"  Read {len(galaxies)} galaxies at z={redshift:.2f}")
             except Exception as e:
                 if args.verbose:
-                    if colour_enabled():
-                        print(f"\x1b[33mWARNING: Could not read snapshot {snap}: {e}\x1b[0m")
-                    else:
-                        print(f"WARNING: Could not read snapshot {snap}: {e}")
+                    warn(f"Could not read snapshot {snap}: {e}")
                 # Continue to next snapshot - skipped snapshots won't be in the summary
 
         # Check if we have any snapshot data for evolution plots
         if not snapshot_data:
             evolution_generated_plots = []
             if not args.quiet:
-                if colour_enabled():
-                    print(f"\x1b[33mSkipping evolution plots (no data available)\x1b[0m")
-                else:
-                    print(f"Skipping evolution plots (no data available)")
+                warn("Skipping evolution plots (no data available)")
         else:
             # Filter evolution plots based on available properties
             # Check properties in first available snapshot as representative sample
