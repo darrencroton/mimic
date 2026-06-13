@@ -346,28 +346,44 @@ python3 scripts/generate_properties.py > /dev/null 2>&1 || true
 python3 scripts/generate_module_registry.py > /dev/null 2>&1 || true
 
 # Print summary
-echo ""
-echo -e "${BLUE}============================================================${NC}"
-echo -e "${BLUE}Unit Test Summary${NC}"
-echo -e "${BLUE}============================================================${NC}"
-echo "Total tests:    $TOTAL_TESTS"
-echo -e "Passed:         ${GREEN}$PASSED_TESTS${NC}"
-if [ $FAILED_TESTS -gt 0 ]; then
-    echo -e "Failed:         ${RED}$FAILED_TESTS${NC}"
+if summary_enabled; then
+    echo -n "Unit Test Summary: total=${TOTAL_TESTS} passed="
+    echo -en "${GREEN}${PASSED_TESTS}${NC}"
+    echo -n " failed="
+    if [ $FAILED_TESTS -gt 0 ]; then
+        echo -en "${RED}${FAILED_TESTS}${NC}"
+    else
+        echo -n "$FAILED_TESTS"
+    fi
+    if [ $COMPILE_ERRORS -gt 0 ]; then
+        echo -n " compile_errors="
+        echo -en "${YELLOW}${COMPILE_ERRORS}${NC}"
+    fi
+    echo ""
 else
-    echo "Failed:         $FAILED_TESTS"
+    echo ""
+    echo -e "${BLUE}============================================================${NC}"
+    echo -e "${BLUE}Unit Test Summary${NC}"
+    echo -e "${BLUE}============================================================${NC}"
+    echo "Total tests:    $TOTAL_TESTS"
+    echo -e "Passed:         ${GREEN}$PASSED_TESTS${NC}"
+    if [ $FAILED_TESTS -gt 0 ]; then
+        echo -e "Failed:         ${RED}$FAILED_TESTS${NC}"
+    else
+        echo "Failed:         $FAILED_TESTS"
+    fi
+    if [ $COMPILE_ERRORS -gt 0 ]; then
+        echo -e "Compile errors: ${YELLOW}$COMPILE_ERRORS${NC}"
+    fi
+    if [ $FAILED_TESTS -gt 0 ]; then
+        echo -e "${RED}Failed tests:${NC}"
+        for test_name in $FAILED_TEST_NAMES; do
+            echo "  - $test_name"
+        done
+    fi
+    echo -e "${BLUE}============================================================${NC}"
+    echo ""
 fi
-if [ $COMPILE_ERRORS -gt 0 ]; then
-    echo -e "Compile errors: ${YELLOW}$COMPILE_ERRORS${NC}"
-fi
-if [ $FAILED_TESTS -gt 0 ]; then
-    echo -e "${RED}Failed tests:${NC}"
-    for test_name in $FAILED_TEST_NAMES; do
-        echo "  - $test_name"
-    done
-fi
-echo -e "${BLUE}============================================================${NC}"
-echo ""
 
 # Final result
 if [ $FAILED_TESTS -eq 0 ] && [ $COMPILE_ERRORS -eq 0 ]; then

@@ -628,7 +628,9 @@ validate-test-registry:
 define RUN_PYTHON_TEST_REGISTRY
 	@FAILED=0; \
 	FAILED_TESTS=""; \
-	echo "Running $(1) tests from registry..."; \
+	if [ "$(TEST_SUMMARY)" != "1" ]; then \
+		echo "Running $(1) tests from registry..."; \
+	fi; \
 	for test in $$(grep -v '^#' build/generated/$(2)_tests.txt | grep -v '^$$'); do \
 		if [ "$(TEST_SUMMARY)" != "1" ]; then \
 			echo ""; \
@@ -655,7 +657,9 @@ define RUN_PYTHON_TEST_REGISTRY
 		fi; \
 	done; \
 	$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate >/dev/null 2>&1 || true; \
-	echo ""; \
+	if [ "$(TEST_SUMMARY)" != "1" ]; then \
+		echo ""; \
+	fi; \
 	if [ $$FAILED -eq 1 ]; then \
 		mkdir -p build; \
 		for test in $$FAILED_TESTS; do \
@@ -725,16 +729,15 @@ tests:
 	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) USE-HDF5=yes,build)
 	@mkdir -p build
 	@rm -f build/.test_failures
-	@echo ""
+	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) check-docs,docs)
-	@echo ""
+	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_SUMMARY_AWARE_RECORD,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) validate-modules,validate-modules)
-	@echo ""
+	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-unit || { grep -q '^unit:' build/.test_failures 2>/dev/null || grep -qx unit build/.test_failures 2>/dev/null || echo "unit" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-integration || { grep -q '^integration:' build/.test_failures 2>/dev/null || grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-scientific || { grep -q '^scientific:' build/.test_failures 2>/dev/null || grep -qx scientific build/.test_failures 2>/dev/null || echo "scientific" >> build/.test_failures; true; }
-	@echo ""
-	@echo ""
+	@if [ "$(TEST_SUMMARY)" = "1" ]; then echo ""; else echo ""; echo ""; fi
 	@if [ -f build/.test_failures ]; then \
 		echo "\033[0;31m############################################################\033[0m"; \
 		echo "\033[0;31m=== TLDR: FAILED TESTS/SUITES ===\033[0m"; \
@@ -754,7 +757,7 @@ tests:
 	fi
 
 tests-unit:
-	@echo ""
+	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING UNIT TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
@@ -766,13 +769,13 @@ tests-unit:
 # TLDR label uppercased via $(3)), $(2) banner text.
 define RUN_PYTHON_TIER
 	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC),build $(1) test executable)
-	@echo ""
+	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	@echo "\033[0;34m============================================================\033[0m"
 	@echo "\033[0;34mRUNNING $(2) TESTS\033[0m"
 	@echo "\033[0;34m============================================================\033[0m"
 	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
 	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
-	@echo ""
+	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_PYTHON_TEST_REGISTRY,$(1),$(1),$(3))
 endef
 
