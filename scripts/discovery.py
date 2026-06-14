@@ -130,6 +130,11 @@ def model_property_files() -> List[Path]:
     return existing(model_files)
 
 
+def parameter_unit_files() -> List[Path]:
+    """Optional model-global dimensional parameter metadata."""
+    return existing([root / "parameter_units.yaml" for root in live_model_roots()])
+
+
 def simulation_halo_property_files() -> List[Path]:
     """Simulation/catalog halo property metadata from all live simulations."""
     return existing([root / "halo_properties.yaml" for root in live_simulation_roots()])

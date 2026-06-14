@@ -96,6 +96,19 @@ def units_from_schema(schema):
     return {field["name"]: field.get("units", "") for field in schema["fields"]}
 
 
+def mass_to_msun(values, unit_label, hubble_h):
+    """Convert Mimic mass values to physical Msun using schema unit labels."""
+    if unit_label == "Msun":
+        return values
+    if unit_label == "Msun/h":
+        return values / hubble_h
+    if unit_label == "1e10 Msun":
+        return values * 1.0e10
+    if unit_label == "1e10 Msun/h":
+        return values * 1.0e10 / hubble_h
+    raise ValueError(f"Unsupported mass unit label: {unit_label}")
+
+
 def descriptions_from_schema(schema):
     """Return field descriptions from a Mimic output schema."""
     return {field["name"]: field.get("description", "") for field in schema["fields"]}

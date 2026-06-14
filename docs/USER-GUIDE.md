@@ -221,7 +221,7 @@ simulation:
 
 The `plotting` section is optional. `mimic-plot.py` automatically layers the global plotting defaults, `models/<model.name>/plots/profiles/default.yaml`, `simulations/<simulation.name>/plot_profile.yaml`, and `models/<model.name>/plots/profiles/<simulation.name>_plot_profile.yaml` when those files exist. Use `plotting.profile` only for an additional run-specific override; the path must be repo-relative, not absolute. Inside a plot profile, `inherits` entries are resolved from the directory containing that profile, so model-local profiles should inherit neighbouring defaults by local filename, for example `inherits: [default.yaml]`.
 
-The referenced simulation config, `simulations/mini-millennium/simulation_info.yaml`, owns tree input paths, cosmology, box size, particle mass, and units. `simulation.units` in that file defines the base code units used to derive time, density, pressure, energy, `G`, and related runtime quantities. The shipped mini-Millennium/SAGE example uses `Mpc/h`, `1e10 Msun/h`, and `km/s` conventions.
+The referenced simulation config, `simulations/mini-millennium/simulation_info.yaml`, owns tree input paths, cosmology, box size, and particle mass. Mimic's internal reference units are fixed by core metadata (`Mpc/h`, `1e10 Msun/h`, `km/s`); simulation packages declare catalog field units in `halo_properties.yaml`, and the generated reader boundary converts catalog values into that reference basis.
 
 ### The Physics Pipeline
 

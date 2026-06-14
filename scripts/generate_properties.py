@@ -44,7 +44,9 @@ from discovery import (
     core_property_files,
     halo_property_files,
     model_property_files,
+    parameter_unit_files,
     rel,
+    simulation_halo_property_files,
     test_property_files,
 )
 
@@ -113,6 +115,63 @@ VALID_OUTPUT_SOURCES = [
 VALID_OUTPUT_TRANSFORMS = [
     "log10",
 ]
+
+NUMERIC_TYPES = {"float", "double", "vec3_float"}
+H_CONVENTIONS = {"carried", "none", "free"}
+
+UNIT_REGISTRY = {
+    "dimensionless": {"dimension": "dimensionless", "cgs": 1.0, "h_convention": "none"},
+    "index": {"dimension": "dimensionless", "cgs": 1.0, "h_convention": "none"},
+    "identifier": {"dimension": "dimensionless", "cgs": 1.0, "h_convention": "none"},
+    "count": {"dimension": "count", "cgs": 1.0, "h_convention": "none"},
+    "particles": {"dimension": "count", "cgs": 1.0, "h_convention": "none"},
+    "Internal": {"dimension": "internal", "cgs": 1.0, "h_convention": "none"},
+    "dex": {"dimension": "dimensionless", "cgs": 1.0, "h_convention": "none"},
+    "Msun": {"dimension": "mass", "cgs": 1.989e33, "h_convention": "free"},
+    "Msun/h": {"dimension": "mass", "cgs": 1.989e33, "h_convention": "carried"},
+    "1e10 Msun": {"dimension": "mass", "cgs": 1.989e43, "h_convention": "free"},
+    "1e10 Msun/h": {"dimension": "mass", "cgs": 1.989e43, "h_convention": "carried"},
+    "cm": {"dimension": "length", "cgs": 1.0, "h_convention": "free"},
+    "kpc": {"dimension": "length", "cgs": 3.08568e21, "h_convention": "free"},
+    "kpc/h": {"dimension": "length", "cgs": 3.08568e21, "h_convention": "carried"},
+    "Mpc": {"dimension": "length", "cgs": 3.08568e24, "h_convention": "free"},
+    "Mpc/h": {"dimension": "length", "cgs": 3.08568e24, "h_convention": "carried"},
+    "cm/s": {"dimension": "velocity", "cgs": 1.0, "h_convention": "none"},
+    "km/s": {"dimension": "velocity", "cgs": 1.0e5, "h_convention": "none"},
+    "s": {"dimension": "time", "cgs": 1.0, "h_convention": "free"},
+    "yr": {"dimension": "time", "cgs": 3.155e7, "h_convention": "free"},
+    "Myr": {"dimension": "time", "cgs": 3.155e13, "h_convention": "free"},
+    "Myr/h": {"dimension": "time", "cgs": 3.155e13, "h_convention": "carried"},
+    "Gyr": {"dimension": "time", "cgs": 3.155e16, "h_convention": "free"},
+    "Gyr/h": {"dimension": "time", "cgs": 3.155e16, "h_convention": "carried"},
+    "erg": {"dimension": "energy", "cgs": 1.0, "h_convention": "none"},
+    "erg/s": {"dimension": "luminosity", "cgs": 1.0, "h_convention": "none"},
+    "log10(erg/s)": {"dimension": "luminosity_log", "cgs": 1.0, "h_convention": "none"},
+    "Msun/yr": {"dimension": "mass_rate", "cgs": 1.989e33 / 3.155e7, "h_convention": "free"},
+    "erg cm^3/s": {"dimension": "cooling_rate", "cgs": 1.0, "h_convention": "none"},
+}
+
+RAW_HALO_FIELDS = {
+    "Descendant": "int",
+    "FirstProgenitor": "int",
+    "NextProgenitor": "int",
+    "FirstHaloInFOFgroup": "int",
+    "NextHaloInFOFgroup": "int",
+    "Len": "int",
+    "M_Mean200": "float",
+    "Mvir": "float",
+    "M_TopHat": "float",
+    "Pos": "vec3_float",
+    "Vel": "vec3_float",
+    "VelDisp": "float",
+    "Vmax": "float",
+    "Spin": "vec3_float",
+    "MostBoundID": "long long",
+    "SnapNum": "int",
+    "FileNr": "int",
+    "SubhaloIndex": "int",
+    "SubHalfMass": "float",
+}
 
 # ==============================================================================
 # PATHS
@@ -242,6 +301,281 @@ def validate_properties(halo_props: List[Dict], galaxy_props: List[Dict]) -> Non
     print(f"✓ Validated {len(galaxy_props)} galaxy properties")
 
 
+def load_yaml_mapping(path: Path) -> Dict[str, Any]:
+    """Load one YAML file as a mapping."""
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{rel(path)}: expected a YAML mapping")
+    return data
+
+
+def load_core_metadata() -> Dict[str, Any]:
+    paths = core_property_files()
+    if len(paths) != 1:
+        raise ValueError("expected exactly one core property metadata file")
+    return load_yaml_mapping(paths[0])
+
+
+def load_simulation_catalog_contract() -> Dict[str, Any]:
+    paths = simulation_halo_property_files()
+    if len(paths) != 1:
+        raise ValueError("expected exactly one simulation halo_properties.yaml file")
+    data = load_yaml_mapping(paths[0])
+    return {
+        "path": paths[0],
+        "core_property_map": data.get("core_property_map", {}),
+        "catalog_properties": data.get("catalog_properties", []),
+    }
+
+
+def _unit_info(label: str) -> Dict[str, Any]:
+    if label not in UNIT_REGISTRY:
+        raise ValueError(f"Unknown unit label '{label}'")
+    return UNIT_REGISTRY[label]
+
+
+def _effective_h_convention(meta: Dict[str, Any]) -> str:
+    explicit = meta.get("h_convention")
+    if explicit is not None:
+        if explicit not in H_CONVENTIONS:
+            raise ValueError(
+                f"Invalid h_convention '{explicit}' for '{meta.get('name', meta.get('label', '?'))}'"
+            )
+        return "free" if explicit == "none" else explicit
+    label = meta.get("units") or meta.get("label")
+    return _unit_info(label).get("h_convention", "none")
+
+
+def _h_factor_expr(target_h: str, source_h: str) -> str:
+    target = "carried" if target_h == "carried" else "free"
+    source = "carried" if source_h == "carried" else "free"
+    if target == source:
+        return "1.0"
+    if target == "carried":
+        return "MimicConfig.Hubble_h"
+    return "1.0 / MimicConfig.Hubble_h"
+
+
+def _linear_conversion_expr(
+    source_label: str,
+    source_h: str,
+    target_label: str,
+    target_h: str,
+    context: str,
+) -> str:
+    source = _unit_info(source_label)
+    target = _unit_info(target_label)
+    if source["dimension"] != target["dimension"]:
+        raise ValueError(
+            f"{context}: cannot convert {source_label} ({source['dimension']}) "
+            f"to {target_label} ({target['dimension']})"
+        )
+    if "time" in (source["dimension"], target["dimension"]):
+        # The reference time unit is derived (length/velocity), so its true
+        # magnitude has no registry label. Linear, registry-driven time
+        # conversion would be silently wrong; time fields must declare an
+        # explicit output_convert/output_transform instead.
+        raise ValueError(
+            f"{context}: time conversions must be declared manually via "
+            "output_convert/output_transform (reference time unit is derived)"
+        )
+
+    scale = source["cgs"] / target["cgs"]
+    h_expr = _h_factor_expr(target_h, source_h)
+    if abs(scale - 1.0) < 1.0e-15 and h_expr == "1.0":
+        return "1.0"
+    if abs(scale - 1.0) < 1.0e-15:
+        return h_expr
+    scale_expr = f"{scale:.17g}"
+    if h_expr == "1.0":
+        return scale_expr
+    return f"({scale_expr} * {h_expr})"
+
+
+def reference_units_from_core(core_meta: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    reference_units = core_meta.get("reference_units")
+    if not isinstance(reference_units, dict):
+        raise ValueError("src/core/core_properties.yaml missing reference_units mapping")
+
+    by_dimension: Dict[str, Dict[str, Any]] = {}
+    for key, unit in reference_units.items():
+        if not isinstance(unit, dict):
+            raise ValueError(f"reference_units.{key} must be a mapping")
+        label = unit.get("label")
+        dimension = unit.get("dimension", key)
+        if not label:
+            raise ValueError(f"reference_units.{key} missing label")
+        derived = "derived_from" in unit
+        try:
+            in_cgs = float(unit["in_cgs"]) if "in_cgs" in unit else None
+        except (TypeError, ValueError):
+            raise ValueError(f"reference_units.{key}.in_cgs must be numeric")
+        if derived:
+            # Derived dimensions (e.g. time = length/velocity) have no registry
+            # label; their magnitude is computed below, not declared.
+            h_conv = "carried" if unit.get("h_convention") == "carried" else "none"
+        else:
+            registry_cgs = _unit_info(label)["cgs"]
+            if in_cgs is None:
+                raise ValueError(f"reference_units.{key} missing in_cgs")
+            if abs(in_cgs - registry_cgs) > 1.0e-9 * registry_cgs:
+                raise ValueError(
+                    f"reference_units.{key}.in_cgs ({in_cgs:g}) disagrees with unit "
+                    f"registry value for '{label}' ({registry_cgs:g})"
+                )
+            h_conv = _effective_h_convention({"name": key, **unit, "units": label})
+        by_dimension[dimension] = {
+            **unit,
+            "label": label,
+            "dimension": dimension,
+            "h_convention": h_conv,
+            "in_cgs": in_cgs,
+        }
+
+    for required in ("mass", "length", "velocity", "time"):
+        if required not in by_dimension:
+            raise ValueError(f"reference_units missing required dimension '{required}'")
+
+    # The reference time unit is length/velocity; compute its true magnitude so
+    # the schema reports an honest cgs value rather than a registry label.
+    time_unit = by_dimension["time"]
+    if time_unit.get("in_cgs") is None:
+        time_unit["in_cgs"] = by_dimension["length"]["in_cgs"] / by_dimension["velocity"]["in_cgs"]
+    return by_dimension
+
+
+def normalize_catalog_contract(
+    halo_props: List[Dict[str, Any]],
+    catalog_contract: Dict[str, Any],
+    reference_units: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    """Validate catalog metadata and attach source/conversion info to halo props."""
+
+    core_map = catalog_contract.get("core_property_map")
+    catalog_props = catalog_contract.get("catalog_properties")
+    if not isinstance(core_map, dict) or not isinstance(catalog_props, list):
+        raise ValueError(
+            f"{rel(catalog_contract['path'])}: requires core_property_map and catalog_properties"
+        )
+
+    catalog_by_name: Dict[str, Dict[str, Any]] = {}
+    for prop in catalog_props:
+        name = prop.get("name")
+        if not name:
+            raise ValueError(f"{rel(catalog_contract['path'])}: catalog property missing name")
+        if name in catalog_by_name:
+            raise ValueError(f"Duplicate catalog property '{name}'")
+        raw_member = prop.get("raw_member", name)
+        if raw_member not in RAW_HALO_FIELDS:
+            raise ValueError(
+                f"Catalog property '{name}' maps to unknown RawHalo member '{raw_member}'"
+            )
+        expected_type = RAW_HALO_FIELDS[raw_member]
+        if prop.get("type") != expected_type:
+            raise ValueError(
+                f"Catalog property '{name}' type {prop.get('type')} does not match "
+                f"RawHalo.{raw_member} type {expected_type}"
+            )
+        _unit_info(prop.get("units", "dimensionless"))
+        catalog_by_name[name] = {**prop, "raw_member": raw_member}
+
+    required_inputs = load_core_metadata().get("required_inputs", [])
+    for required in required_inputs:
+        name = required.get("name")
+        if name not in core_map:
+            raise ValueError(f"core_property_map missing required input '{name}'")
+        if core_map[name] not in catalog_by_name:
+            raise ValueError(
+                f"core_property_map.{name} references unknown catalog property '{core_map[name]}'"
+            )
+
+    for prop in halo_props:
+        init_source = prop.get("init_source", "skip")
+        if init_source not in {"copy_from_tree", "copy_from_tree_array"}:
+            continue
+        source_name = prop.get("source") or core_map.get(prop["name"]) or prop["name"]
+        if source_name not in catalog_by_name:
+            raise ValueError(
+                f"Halo property '{prop['name']}' copies from tree but source '{source_name}' "
+                "is not in catalog_properties"
+            )
+        source = catalog_by_name[source_name]
+        if source["type"] != prop["type"]:
+            raise ValueError(
+                f"Halo property '{prop['name']}' type {prop['type']} does not match "
+                f"catalog source '{source_name}' type {source['type']}"
+            )
+        dimension = prop.get("dimension") or _unit_info(prop["units"])["dimension"]
+        target_unit = reference_units.get(dimension, {}).get("label", prop["units"])
+        target_h = reference_units.get(dimension, {}).get(
+            "h_convention", _effective_h_convention(prop)
+        )
+        prop["_catalog_source"] = source_name
+        prop["_raw_member"] = source["raw_member"]
+        prop["_input_convert"] = _linear_conversion_expr(
+            source["units"],
+            _effective_h_convention(source),
+            target_unit,
+            target_h,
+            f"input {prop['name']}",
+        )
+
+    virial_source_name = core_map["VirialMassInput"]
+    virial_source = catalog_by_name[virial_source_name]
+    mass_ref = reference_units["mass"]
+    return {
+        "catalog_by_name": catalog_by_name,
+        "core_property_map": core_map,
+        "virial_mass_input": {
+            **virial_source,
+            "_input_convert": _linear_conversion_expr(
+                virial_source["units"],
+                _effective_h_convention(virial_source),
+                mass_ref["label"],
+                mass_ref["h_convention"],
+                "input VirialMassInput",
+            ),
+        },
+    }
+
+
+def attach_output_conversions(
+    props: List[Dict[str, Any]], reference_units: Dict[str, Dict[str, Any]], category: str
+) -> None:
+    """Attach metadata-driven output conversion expressions where needed."""
+    for prop in props:
+        if not prop.get("output"):
+            continue
+        if "output_convert" in prop or "output_transform" in prop:
+            _unit_info(prop.get("units", "dimensionless"))
+            continue
+        dimension = (
+            prop.get("dimension") or _unit_info(prop.get("units", "dimensionless"))["dimension"]
+        )
+        if dimension == "time":
+            # Time output fields are written verbatim: either the producing module
+            # already stores them in their label unit (e.g. ShamOrphanAge in Myr/h)
+            # or they declare an explicit output_convert (e.g. dT). The reference
+            # time unit is derived, so metadata-driven linear time conversion is
+            # intentionally never generated; _linear_conversion_expr rejects it as a
+            # safeguard against catalog/parameter time conversions.
+            continue
+        if dimension not in reference_units:
+            _unit_info(prop.get("units", "dimensionless"))
+            continue
+        ref = reference_units[dimension]
+        expr = _linear_conversion_expr(
+            ref["label"],
+            ref["h_convention"],
+            prop["units"],
+            _effective_h_convention(prop),
+            f"output {category}.{prop['name']}",
+        )
+        if expr != "1.0":
+            prop["_output_convert"] = expr
+
+
 # ==============================================================================
 # C CODE GENERATION
 # ==============================================================================
@@ -256,7 +590,12 @@ def compute_yaml_hash() -> str:
     md5.update(generator_path.read_bytes())
 
     # Hash all YAML files in stable generation order.
-    for yaml_file in halo_property_files() + model_property_files() + test_property_files():
+    for yaml_file in (
+        halo_property_files()
+        + model_property_files()
+        + parameter_unit_files()
+        + test_property_files()
+    ):
         with open(yaml_file, "rb") as f:
             md5.update(rel(yaml_file).encode("utf-8"))
             md5.update(f.read())
@@ -290,7 +629,12 @@ def generate_header(yaml_hash: str):
     selected_model = os.environ.get("MODEL") or "<MODEL>"
     source_lines = "\n".join(
         f" *   - {rel(path)}"
-        for path in halo_property_files() + model_property_files() + test_property_files()
+        for path in (
+            halo_property_files()
+            + model_property_files()
+            + parameter_unit_files()
+            + test_property_files()
+        )
     )
     return f"""/* AUTO-GENERATED CODE - DO NOT EDIT
  *
@@ -437,6 +781,169 @@ def generate_property_defs_h(
     return code
 
 
+def generate_reference_units_h(reference_units: Dict[str, Dict[str, Any]], yaml_hash: str) -> str:
+    """Generate fixed internal reference unit constants for runtime C code."""
+    code = generate_header(yaml_hash)
+    code += "#ifndef GENERATED_REFERENCE_UNITS_H\n"
+    code += "#define GENERATED_REFERENCE_UNITS_H\n\n"
+    code += "/* Fixed Mimic internal reference basis. */\n"
+    code += f"#define MIMIC_REF_UNIT_LENGTH_IN_CM {reference_units['length']['in_cgs']:.17g}\n"
+    code += f"#define MIMIC_REF_UNIT_MASS_IN_G {reference_units['mass']['in_cgs']:.17g}\n"
+    code += (
+        f"#define MIMIC_REF_UNIT_VELOCITY_IN_CM_PER_S "
+        f"{reference_units['velocity']['in_cgs']:.17g}\n"
+    )
+    code += f'#define MIMIC_REF_UNIT_LENGTH_LABEL "{reference_units["length"]["label"]}"\n'
+    code += f'#define MIMIC_REF_UNIT_MASS_LABEL "{reference_units["mass"]["label"]}"\n'
+    code += f'#define MIMIC_REF_UNIT_VELOCITY_LABEL "{reference_units["velocity"]["label"]}"\n'
+    code += f'#define MIMIC_REF_UNIT_TIME_LABEL "{reference_units["time"]["label"]}"\n'
+    code += "\n#endif /* GENERATED_REFERENCE_UNITS_H */\n"
+    return code
+
+
+def generate_unit_registry_h(yaml_hash: str) -> str:
+    """Generate the runtime unit-label registry from the single Python source.
+
+    Keeps the C scalar-conversion path (box_size/particle_mass parsing) in sync
+    with the generator's UNIT_REGISTRY rather than re-hardcoding cgs constants.
+    """
+    code = generate_header(yaml_hash)
+    code += "#ifndef GENERATED_UNIT_REGISTRY_H\n"
+    code += "#define GENERATED_UNIT_REGISTRY_H\n\n"
+    code += "#include <string.h>\n\n"
+    code += "/* cgs scale for a unit label, or -1.0 if the label is unknown. */\n"
+    code += "static inline double mimic_unit_label_cgs(const char *label) {\n"
+    for label in sorted(UNIT_REGISTRY):
+        code += f'  if (strcmp(label, "{label}") == 0)\n'
+        code += f'    return {UNIT_REGISTRY[label]["cgs"]:.17g};\n'
+    code += "  return -1.0;\n"
+    code += "}\n\n"
+    code += "/* 1 if the unit label carries little-h, 0 otherwise. */\n"
+    code += "static inline int mimic_unit_label_carried(const char *label) {\n"
+    carried = [
+        lbl for lbl in sorted(UNIT_REGISTRY) if UNIT_REGISTRY[lbl]["h_convention"] == "carried"
+    ]
+    for label in carried:
+        code += f'  if (strcmp(label, "{label}") == 0)\n    return 1;\n'
+    code += "  return 0;\n"
+    code += "}\n\n"
+    code += "#endif /* GENERATED_UNIT_REGISTRY_H */\n"
+    return code
+
+
+def _c_expr_with_conversion(base_expr: str, conversion_expr: str) -> str:
+    if conversion_expr == "1.0":
+        return base_expr
+    return f"(({base_expr}) * ({conversion_expr}))"
+
+
+def generate_tree_property_accessors_h(
+    halo_props: List[Dict],
+    catalog_info: Dict[str, Dict[str, Any]],
+    yaml_hash: str,
+) -> str:
+    """Generate tree/raw field accessors with catalog-to-reference conversion."""
+    virial = catalog_info["virial_mass_input"]
+    code = generate_header(yaml_hash)
+    code += "#ifndef GENERATED_TREE_PROPERTY_ACCESSORS_H\n"
+    code += "#define GENERATED_TREE_PROPERTY_ACCESSORS_H\n\n"
+    code += '#include "globals.h"\n\n'
+    code += "static inline double mimic_tree_get_VirialMassInput(int halonr) {\n"
+    virial_expr = _c_expr_with_conversion(
+        f"InputTreeHalos[halonr].{virial['raw_member']}", virial["_input_convert"]
+    )
+    code += f"  return (double)({virial_expr});\n"
+    code += "}\n\n"
+
+    emitted = {"VirialMassInput"}
+    for prop in halo_props:
+        init_source = prop.get("init_source", "skip")
+        if init_source not in {"copy_from_tree", "copy_from_tree_array"}:
+            continue
+        if prop["name"] in emitted:
+            continue
+        emitted.add(prop["name"])
+        raw_member = prop["_raw_member"]
+        conv = prop.get("_input_convert", "1.0")
+        type_info = TYPE_MAP[prop["type"]]
+        c_type = type_info["c_type"]
+        if type_info["is_array"]:
+            code += f"static inline {c_type} mimic_tree_get_{prop['name']}_component(int halonr, int component) {{\n"
+            expr = _c_expr_with_conversion(f"InputTreeHalos[halonr].{raw_member}[component]", conv)
+            code += f"  return ({c_type})({expr});\n"
+            code += "}\n\n"
+        else:
+            code += f"static inline {c_type} mimic_tree_get_{prop['name']}(int halonr) {{\n"
+            expr = _c_expr_with_conversion(f"InputTreeHalos[halonr].{raw_member}", conv)
+            code += f"  return ({c_type})({expr});\n"
+            code += "}\n\n"
+
+    code += "#endif /* GENERATED_TREE_PROPERTY_ACCESSORS_H */\n"
+    return code
+
+
+def _read_type_for_catalog(prop: Dict[str, Any]) -> str:
+    if prop["type"] in {"int", "vec3_int"}:
+        return "READ_AS_INT, int"
+    if prop["type"] in {"float", "vec3_float"}:
+        return "READ_AS_FLOAT, float"
+    if prop["type"] == "long long":
+        return "READ_AS_LLONG, long long"
+    raise ValueError(f"Unsupported catalog type for HDF5 read: {prop['type']}")
+
+
+def generate_read_tree_hdf5_properties_inc(
+    catalog_info: Dict[str, Dict[str, Any]], yaml_hash: str
+) -> str:
+    """Generate the HDF5 RawHalo population list from catalog metadata."""
+    code = generate_header(yaml_hash)
+    code += "/* Requires READ_TREE_PROPERTY and READ_TREE_PROPERTY_MULTIPLEDIM macros. */\n\n"
+    for prop in catalog_info["catalog_by_name"].values():
+        hdf5_source = prop.get("hdf5_source", prop["raw_member"])
+        read_args = _read_type_for_catalog(prop)
+        if TYPE_MAP[prop["type"]]["is_array"]:
+            code += f"READ_TREE_PROPERTY_MULTIPLEDIM({prop['raw_member']}, {hdf5_source}, {read_args});\n"
+        else:
+            code += f"READ_TREE_PROPERTY({prop['raw_member']}, {hdf5_source}, {read_args});\n"
+    return code
+
+
+def generate_parameter_unit_conversions_h(
+    parameter_units: List[Dict[str, Any]],
+    reference_units: Dict[str, Dict[str, Any]],
+    yaml_hash: str,
+) -> str:
+    code = generate_header(yaml_hash)
+    code += "#ifndef GENERATED_PARAMETER_UNIT_CONVERSIONS_H\n"
+    code += "#define GENERATED_PARAMETER_UNIT_CONVERSIONS_H\n\n"
+    code += "#include <string.h>\n"
+    code += '#include "globals.h"\n\n'
+    code += "static inline double mimic_parameter_unit_factor(const char *param_name) {\n"
+    code += "  (void)param_name;\n"
+    for param in parameter_units:
+        units = param["units"]
+        dimension = _unit_info(units)["dimension"]
+        if dimension not in reference_units:
+            raise ValueError(
+                f"Parameter '{param['name']}' uses units '{units}' with unsupported reference dimension"
+            )
+        ref = reference_units[dimension]
+        expr = _linear_conversion_expr(
+            units,
+            _effective_h_convention(param),
+            ref["label"],
+            ref["h_convention"],
+            f"parameter {param['name']}",
+        )
+        code += f'  if (strcmp(param_name, "{param["name"]}") == 0) {{\n'
+        code += f"    return {expr};\n"
+        code += "  }\n"
+    code += "  return 1.0;\n"
+    code += "}\n\n"
+    code += "#endif /* GENERATED_PARAMETER_UNIT_CONVERSIONS_H */\n"
+    return code
+
+
 def generate_populate_halo_payload_from_tree(halo_props: List[Dict], yaml_hash: str) -> str:
     """Generate populate_halo_payload_from_tree.inc.
 
@@ -467,7 +974,7 @@ def generate_populate_halo_payload_from_tree(halo_props: List[Dict], yaml_hash: 
         type_info = TYPE_MAP[prop["type"]]
 
         if init_source == "copy_from_tree":
-            code += f"payload.{name} = InputTreeHalos[halonr].{name};\n"
+            code += f"payload.{name} = mimic_tree_get_{name}(halonr);\n"
 
         elif init_source == "copy_from_tree_array":
             if not type_info["is_array"]:
@@ -475,7 +982,7 @@ def generate_populate_halo_payload_from_tree(halo_props: List[Dict], yaml_hash: 
                     f"Property '{name}' uses copy_from_tree_array but type is not array"
                 )
             code += f"for (int j = 0; j < {type_info['array_size']}; j++) {{\n"
-            code += f"  payload.{name}[j] = InputTreeHalos[halonr].{name}[j];\n"
+            code += f"  payload.{name}[j] = mimic_tree_get_{name}_component(halonr, j);\n"
             code += "}\n"
 
         elif init_source == "calculate":
@@ -637,8 +1144,8 @@ def generate_copy_to_output(
 
         # Apply unit conversion if output_convert is specified
         # Skip if output_source is custom (custom code handles its own conversions)
-        if output_source != "custom" and "output_convert" in prop:
-            conversion_expr = prop["output_convert"]
+        conversion_expr = prop.get("output_convert") or prop.get("_output_convert")
+        if output_source != "custom" and conversion_expr:
             sentinels = prop.get("sentinels", [])
             c_type = type_info["c_type"]
 
@@ -697,8 +1204,8 @@ def generate_copy_to_output(
             code += f"o->{name} = g->galaxy->{name};\n"
 
             # Apply unit conversion if output_convert is specified
-            if "output_convert" in prop:
-                conversion_expr = prop["output_convert"]
+            conversion_expr = prop.get("output_convert") or prop.get("_output_convert")
+            if conversion_expr:
                 sentinels = prop.get("sentinels", [])
                 c_type = type_info["c_type"]
 
@@ -933,7 +1440,10 @@ def _schema_shape(prop: Dict[str, Any]) -> str:
 
 
 def generate_output_schema_writer(
-    halo_props: List[Dict], galaxy_props: List[Dict], yaml_hash: str
+    halo_props: List[Dict],
+    galaxy_props: List[Dict],
+    reference_units: Dict[str, Dict[str, Any]],
+    yaml_hash: str,
 ) -> str:
     """Generate C statements that write the run-local output schema JSON."""
 
@@ -950,6 +1460,17 @@ def generate_output_schema_writer(
     code += (
         'fprintf(schema_file, "  \\"model_path\\": \\"%s\\",\\n", ' "MIMIC_COMPILED_MODEL_PATH);\n"
     )
+    code += 'fprintf(schema_file, "  \\"reference_units\\": {\\n");\n'
+    ref_items = [(dim, reference_units[dim]) for dim in ("mass", "length", "velocity", "time")]
+    for idx, (dim, unit) in enumerate(ref_items):
+        comma = "," if idx < len(ref_items) - 1 else ""
+        code += (
+            f'fprintf(schema_file, "    \\"{dim}\\": '
+            f'{{\\"label\\": {_json_string(unit["label"])}, '
+            f'\\"h_convention\\": {_json_string(unit["h_convention"])}, '
+            f'\\"in_cgs\\": {unit["in_cgs"]:.17g}}}{comma}\\n");\n'
+        )
+    code += 'fprintf(schema_file, "  },\\n");\n'
     code += 'fprintf(schema_file, "  \\"record\\": {\\n");\n'
     code += 'fprintf(schema_file, "    \\"c_struct\\": \\"HaloOutput\\",\\n");\n'
     code += (
@@ -1141,6 +1662,32 @@ def load_property_package(path: Path, key: str) -> List[Dict[str, Any]]:
     return props
 
 
+def load_parameter_units() -> List[Dict[str, Any]]:
+    """Load optional model-global dimensional parameter metadata."""
+    entries: List[Dict[str, Any]] = []
+    for path in parameter_unit_files():
+        data = load_yaml_mapping(path)
+        params = data.get("parameters", [])
+        if not isinstance(params, list):
+            raise ValueError(f"{rel(path)}: parameters must be a list")
+        for param in params:
+            for field in ("name", "type", "units"):
+                if field not in param:
+                    raise ValueError(f"{rel(path)}: parameter unit entry missing '{field}'")
+            if param["type"] != "double":
+                raise ValueError(
+                    f"{rel(path)}: parameter '{param['name']}' only type double is supported"
+                )
+            _unit_info(param["units"])
+            _effective_h_convention(param)
+            entries.append(param)
+    names = [entry["name"] for entry in entries]
+    duplicates = [name for name in set(names) if names.count(name) > 1]
+    if duplicates:
+        raise ValueError(f"Duplicate parameter unit entries: {duplicates}")
+    return entries
+
+
 def merge_property_packages(paths: List[Path], key: str) -> List[Dict[str, Any]]:
     """Merge property packages, allowing only exact duplicate definitions."""
     merged: List[Dict[str, Any]] = []
@@ -1225,6 +1772,14 @@ def main():
     try:
         halo_props = merge_property_packages(halo_yaml_files, "halo_properties")
         galaxy_props = merge_property_packages(galaxy_yaml_files, "galaxy_properties")
+        core_meta = load_core_metadata()
+        reference_units = reference_units_from_core(core_meta)
+        catalog_info = normalize_catalog_contract(
+            halo_props, load_simulation_catalog_contract(), reference_units
+        )
+        attach_output_conversions(halo_props, reference_units, "halo")
+        attach_output_conversions(galaxy_props, reference_units, "galaxy")
+        parameter_units = load_parameter_units()
     except ValueError as e:
         print(f"VALIDATION ERROR: {e}", file=sys.stderr)
         sys.exit(1)
@@ -1250,6 +1805,26 @@ def main():
     write_file(
         GENERATED_DIR / "property_defs.h",
         generate_property_defs_h(halo_props, galaxy_props, yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "reference_units.h",
+        generate_reference_units_h(reference_units, yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "unit_registry.h",
+        generate_unit_registry_h(yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "tree_property_accessors.h",
+        generate_tree_property_accessors_h(halo_props, catalog_info, yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "read_tree_hdf5_properties.inc",
+        generate_read_tree_hdf5_properties_inc(catalog_info, yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "parameter_unit_conversions.h",
+        generate_parameter_unit_conversions_h(parameter_units, reference_units, yaml_hash),
     )
 
     # C initialization files
@@ -1288,7 +1863,7 @@ def main():
     )
     write_file(
         GENERATED_DIR / "output_schema_writer.inc",
-        generate_output_schema_writer(halo_props, galaxy_props, yaml_hash),
+        generate_output_schema_writer(halo_props, galaxy_props, reference_units, yaml_hash),
     )
 
     # Validation manifest for tests

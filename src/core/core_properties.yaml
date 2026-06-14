@@ -3,8 +3,41 @@
 # This file defines the halo tracking properties required by Mimic's
 # physics-agnostic processing model.
 #
-# For schema documentation, see:
-#   docs/developer/property-metadata-schema.md
+reference_units:
+  mass:
+    label: 1e10 Msun/h
+    dimension: mass
+    in_cgs: 1.989e43
+    h_convention: carried
+  length:
+    label: Mpc/h
+    dimension: length
+    in_cgs: 3.08568e24
+    h_convention: carried
+  velocity:
+    label: km/s
+    dimension: velocity
+    in_cgs: 1.0e5
+    h_convention: none
+  time:
+    # Derived from length/velocity, so it has no unit-registry label and is never
+    # used for metadata-driven conversion (time output fields must declare an
+    # explicit output_convert/output_transform). The generator computes its true
+    # magnitude and reports it honestly as in_cgs in output_schema.json.
+    label: code
+    dimension: time
+    derived_from: length/velocity
+    h_convention: carried
+
+required_inputs:
+  - { name: Descendant, role: tree_link }
+  - { name: FirstProgenitor, role: tree_link }
+  - { name: NextProgenitor, role: tree_link }
+  - { name: FirstHaloInFOFgroup, role: tree_link }
+  - { name: NextHaloInFOFgroup, role: tree_link }
+  - { name: SnapNum, role: index }
+  - { name: Len, role: count }
+  - { name: VirialMassInput, role: mass }
 
 halo_properties:
   # ===========================================================================
@@ -13,6 +46,7 @@ halo_properties:
 
   - name: SnapNum
     type: int
+    dimension: dimensionless
     units: dimensionless
     description: Snapshot number (index in simulation output)
     output: true
@@ -22,6 +56,7 @@ halo_properties:
 
   - name: Type
     type: int
+    dimension: dimensionless
     units: dimensionless
     description: Halo type (0=central, 1=satellite, 2=orphan)
     output: true
@@ -32,6 +67,7 @@ halo_properties:
 
   - name: CentralHalo
     type: int
+    dimension: dimensionless
     units: dimensionless
     description: Index of local Type 0/1 central halo for this subhalo slice (working variable, not output)
     output: false
@@ -39,6 +75,7 @@ halo_properties:
 
   - name: HaloNr
     type: int
+    dimension: dimensionless
     units: dimensionless
     description: Halo number in tree (internal index, not output)
     output: false
@@ -46,6 +83,7 @@ halo_properties:
 
   - name: UniqueGalaxyID
     type: long long
+    dimension: dimensionless
     units: dimensionless
     description: Persistent unique galaxy identifier across all snapshots (file*10^15 + tree*10^9 + creation_halonr)
     output: true
@@ -55,6 +93,7 @@ halo_properties:
 
   - name: UniqueCentralGalaxyID
     type: long long
+    dimension: dimensionless
     units: dimensionless
     description: Persistent UniqueGalaxyID of FOF host Type 0 central galaxy (equals UniqueGalaxyID if Type=0)
     output: true
@@ -65,6 +104,7 @@ halo_properties:
   - name: dT
     type: double  # Double precision: per-object substep dt derives from this, and float
                   # rounding of the interval perturbs every dt-scaled physics quantity
+    dimension: time
     units: Myr/h
     description: Time elapsed since progenitor snapshot (lookback time difference)
     output: true
@@ -81,6 +121,7 @@ halo_properties:
 
   - name: Len
     type: int
+    dimension: count
     units: particles
     description: Number of particles in halo
     output: true
@@ -91,6 +132,7 @@ halo_properties:
 
   - name: Mvir
     type: float
+    dimension: mass
     units: 1e10 Msun/h
     description: Virial mass (M200c definition)
     output: true
@@ -101,6 +143,7 @@ halo_properties:
 
   - name: deltaMvir
     type: float
+    dimension: mass
     units: 1e10 Msun/h
     description: Change in virial mass since last snapshot (internal, not output)
     output: true
@@ -111,6 +154,7 @@ halo_properties:
 
   - name: CentralMvir
     type: float
+    dimension: mass
     units: 1e10 Msun/h
     description: Virial mass of the central halo in this FoF group
     # Structural per-FoF-group constant (the input-catalog Mvir of the FOF
@@ -125,6 +169,7 @@ halo_properties:
 
   - name: Rvir
     type: float
+    dimension: length
     units: Mpc/h
     description: Virial radius (radius at which density is 200 * critical density)
     output: true
@@ -138,6 +183,7 @@ halo_properties:
 
   - name: Vvir
     type: float
+    dimension: velocity
     units: km/s
     description: Virial velocity (circular velocity at virial radius)
     output: true
@@ -155,6 +201,7 @@ halo_properties:
 
   - name: infallMvir
     type: float
+    dimension: mass
     units: 1e10 Msun/h
     description: Virial mass at infall (satellites only, 0 for centrals)
     output: true
@@ -168,6 +215,7 @@ halo_properties:
 
   - name: infallVvir
     type: float
+    dimension: velocity
     units: km/s
     description: Virial velocity at infall (satellites only, 0 for centrals)
     output: true
@@ -181,6 +229,7 @@ halo_properties:
 
   - name: infallVmax
     type: float
+    dimension: velocity
     units: km/s
     description: Maximum circular velocity at infall (satellites only, 0 for centrals)
     output: true

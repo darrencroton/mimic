@@ -167,8 +167,8 @@ int sham_assign_stellar_mass_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ShamGamma", sham_gamma, 0.0, 10.0, "high-mass slope");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamScatterDex", sham_scatter_dex, 0.0, 2.0,
                                     "stellar mass scatter");
-  LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamMinMpeak", sham_min_mpeak, 0.0, 1.0e8,
-                                    "minimum Mpeak in code units");
+  LOAD_AND_VALIDATE_RANGE_INCLUSIVE_INTERNAL("ShamMinMpeak", sham_min_mpeak, 0.0, 1.0e8,
+                                             "minimum Mpeak in internal mass units");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamMinVpeak", sham_min_vpeak, 0.0, 5000.0,
                                     "minimum Vpeak in km/s");
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamMaxStellarBaryonFraction",

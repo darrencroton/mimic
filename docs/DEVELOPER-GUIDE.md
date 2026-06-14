@@ -636,15 +636,11 @@ simulation:
     omega_matter: 0.25
     omega_lambda: 0.75
     hubble_h: 0.73
-  box_size: 62.5            # comoving side length in code length units (Mpc/h)
-  particle_mass: 0.0860657  # dark matter particle mass in code mass units (1e10 Msun/h)
-  units:
-    length_in_cm: 3.08568e+24    # 1 code length unit expressed in cm (1 Mpc/h here)
-    mass_in_g:    1.989e+43      # 1 code mass unit expressed in g (1e10 Msun/h here)
-    velocity_in_cm_per_s: 100000.0  # 1 code velocity unit in cm/s (1 km/s here)
+  box_size:      { value: 62.5,      units: Mpc/h,       h_convention: carried }
+  particle_mass: { value: 0.0860657, units: 1e10 Msun/h, h_convention: carried }
 ```
 
-The `simulation.units` block is not labeling — `init.c` derives all runtime unit conversions (time, density, pressure, energy, G) from these three values. Getting them wrong produces physically incorrect output with no error at runtime. The mini-Millennium example uses the standard `Mpc/h`, `1e10 Msun/h`, `km/s` convention.
+Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` derives runtime constants from generated reference-unit definitions, not from the simulation package. Simulation scalar values and catalog fields declare their own units and `h_convention`, and generated code (`src/include/generated/unit_registry.h`) converts them into the fixed reference basis at the reader boundary. A scalar may still be written as a bare number (e.g. `box_size: 62.5`), which is taken to be already in reference units.
 
 **Supported tree formats:**
 
@@ -671,7 +667,7 @@ These values drive all redshift and timestep calculations. Mimic counts snapshot
 
 ### halo_properties.yaml
 
-This file declares halo properties that come from the catalog and are specific to this simulation: positions, velocities, spin parameters, particle IDs, and similar catalog fields. It does not duplicate properties already in `src/core/core_properties.yaml`.
+This file declares how the simulation's on-disk catalog satisfies Mimic's core input contract and which catalog fields become output properties. `core_property_map` maps core-required roles such as `VirialMassInput` onto catalog properties. `catalog_properties` describes raw catalog fields, their `RawHalo` member or HDF5 dataset source, units, and `h_convention`. The output-facing `halo_properties` list contains simulation-owned catalog fields such as positions, velocities, spin parameters, and particle IDs.
 
 The generator includes exactly one simulation package at a time, selected with `SIMULATION=<name>`. Adding a new simulation package is not enough by itself; regenerate and rebuild with that selector so the executable, `struct Halo`, output schema, validation ranges, and module dependency checks all use the intended catalog properties.
 
@@ -1150,7 +1146,7 @@ Used throughout module `init()`, `process()`, and cleanup paths; see [Broken Mod
 
 ### Physical Constants
 
-Do not duplicate the physical constants table in documentation. The source of truth is `src/module_system/physical_constants.h`. Runtime-derived unit quantities are computed in `src/core/init.c` from `simulation.units` in the input YAML.
+Do not duplicate the physical constants table in documentation. The source of truth is `src/module_system/physical_constants.h`. Runtime-derived unit quantities are computed in `src/core/init.c` from generated fixed reference-unit metadata, while simulation catalog values are converted at the reader boundary.
 
 Used by [Adding a New Simulation](#adding-a-new-simulation) when defining catalog units and by model modules that need shared constants.
 

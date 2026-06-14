@@ -11,6 +11,7 @@ import random
 import numpy as np
 from figures import AXIS_LABEL_SIZE, setup_legend
 from matplotlib.ticker import MultipleLocator
+from output_schema import mass_to_msun
 from output_utils import (
     check_required_fields,
     save_and_close_figure,
@@ -62,6 +63,7 @@ def plot(
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
+    schema_units = metadata.get("schema_units", {})
 
     # Maximum number of points to plot (for better performance and readability)
     dilute = 7500
@@ -81,15 +83,17 @@ def plot(
     if len(w) > dilute:
         w = random.sample(list(w), dilute)
 
-    # Get halo mass in log10 Msun units
-    mvir = np.log10(galaxies.Mvir[w] * 1.0e10)
+    def mass_msun(field_name):
+        units = schema_units.get(field_name, "1e10 Msun/h")
+        return mass_to_msun(getattr(galaxies, field_name)[w], units, hubble_h)
 
-    # Get component masses in log10 Msun units
-    stellar_mass = np.log10(galaxies.StellarMass[w] * 1.0e10)
-    cold_gas = np.log10(np.maximum(galaxies.ColdGas[w] * 1.0e10, 1.0))  # Avoid log(0)
-    hot_gas = np.log10(np.maximum(galaxies.HotGas[w] * 1.0e10, 1.0))
-    ejected_gas = np.log10(np.maximum(galaxies.EjectedGas[w] * 1.0e10, 1.0))
-    ics = np.log10(np.maximum(galaxies.ICS[w] * 1.0e10, 1.0))
+    # Get masses in log10 physical Msun units
+    mvir = np.log10(mass_msun("Mvir"))
+    stellar_mass = np.log10(mass_msun("StellarMass"))
+    cold_gas = np.log10(np.maximum(mass_msun("ColdGas"), 1.0))  # Avoid log(0)
+    hot_gas = np.log10(np.maximum(mass_msun("HotGas"), 1.0))
+    ejected_gas = np.log10(np.maximum(mass_msun("EjectedGas"), 1.0))
+    ics = np.log10(np.maximum(mass_msun("ICS"), 1.0))
 
     # Print some debug information
     # Print some debug information if verbose mode is enabled

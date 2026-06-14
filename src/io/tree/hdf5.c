@@ -215,30 +215,7 @@ void load_tree_hdf5(int32_t treenr) {
   // To do so, we read the field into a buffer and then properly slot the field
   // into the RawHalo struct (InputTreeHalos).
 
-  /* Merger Tree Pointers */
-  READ_TREE_PROPERTY(Descendant, Descendant, READ_AS_INT, int);
-  READ_TREE_PROPERTY(FirstProgenitor, FirstProgenitor, READ_AS_INT, int);
-  READ_TREE_PROPERTY(NextProgenitor, NextProgenitor, READ_AS_INT, int);
-  READ_TREE_PROPERTY(FirstHaloInFOFgroup, FirstHaloInFOFgroup, READ_AS_INT, int);
-  READ_TREE_PROPERTY(NextHaloInFOFgroup, NextHaloInFOFgroup, READ_AS_INT, int);
-
-  /* Halo Properties */
-  READ_TREE_PROPERTY(Len, Len, READ_AS_INT, int);
-  READ_TREE_PROPERTY(M_Mean200, M_mean200, READ_AS_FLOAT, float);
-  READ_TREE_PROPERTY(Mvir, Mvir, READ_AS_FLOAT, float);
-  READ_TREE_PROPERTY(M_TopHat, M_TopHat, READ_AS_FLOAT, float);
-  READ_TREE_PROPERTY_MULTIPLEDIM(Pos, Pos, READ_AS_FLOAT, float);
-  READ_TREE_PROPERTY_MULTIPLEDIM(Vel, Vel, READ_AS_FLOAT, float);
-  READ_TREE_PROPERTY(VelDisp, VelDisp, READ_AS_FLOAT, float);
-  READ_TREE_PROPERTY(Vmax, Vmax, READ_AS_FLOAT, float);
-  READ_TREE_PROPERTY_MULTIPLEDIM(Spin, Spin, READ_AS_FLOAT, float);
-  READ_TREE_PROPERTY(MostBoundID, MostBoundID, READ_AS_LLONG, long long);
-
-  /* File Position Info */
-  READ_TREE_PROPERTY(SnapNum, SnapNum, READ_AS_INT, int);
-  READ_TREE_PROPERTY(FileNr, Filenr, READ_AS_INT, int);
-  READ_TREE_PROPERTY(SubhaloIndex, SubHaloIndex, READ_AS_INT, int);
-  READ_TREE_PROPERTY(SubHalfMass, SubHalfMass, READ_AS_FLOAT, float);
+#include "../../include/generated/read_tree_hdf5_properties.inc"
 
   free(buffer);
   free(buffer_multipledim);

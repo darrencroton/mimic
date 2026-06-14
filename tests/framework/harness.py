@@ -388,20 +388,19 @@ def read_param_file(param_file):
             a_list_path = REPO_ROOT / a_list_path
         params["LastSnapshotNr"] = str(final_snapshot_index_from_a_list(a_list_path))
 
+    def scalar_value(value):
+        if isinstance(value, dict):
+            return value.get("value", 0.0)
+        return value
+
     simulation_config = sim_config.get("simulation", config.get("simulation", {}))
     if simulation_config:
-        params["BoxSize"] = str(simulation_config.get("box_size", 0.0))
-        params["PartMass"] = str(simulation_config.get("particle_mass", 0.0))
+        params["BoxSize"] = str(scalar_value(simulation_config.get("box_size", 0.0)))
+        params["PartMass"] = str(scalar_value(simulation_config.get("particle_mass", 0.0)))
         if "cosmology" in simulation_config:
             params["Omega"] = str(simulation_config["cosmology"].get("omega_matter", 0.0))
             params["OmegaLambda"] = str(simulation_config["cosmology"].get("omega_lambda", 0.0))
             params["Hubble_h"] = str(simulation_config["cosmology"].get("hubble_h", 0.0))
-        if "units" in simulation_config:
-            params["UnitLength_in_cm"] = str(simulation_config["units"].get("length_in_cm", 0.0))
-            params["UnitMass_in_g"] = str(simulation_config["units"].get("mass_in_g", 0.0))
-            params["UnitVelocity_in_cm_per_s"] = str(
-                simulation_config["units"].get("velocity_in_cm_per_s", 0.0)
-            )
 
     return params
 

@@ -51,6 +51,13 @@
     }                                                                                              \
   } while (0)
 
+#define LOAD_PARAM_DOUBLE_INTERNAL(name, var)                                                      \
+  do {                                                                                             \
+    if (model_get_double_internal(name, &var) != 0) {                                              \
+      return -1;                                                                                   \
+    }                                                                                              \
+  } while (0)
+
 /**
  * @brief Load an int parameter (with automatic error handling)
  *
@@ -181,6 +188,12 @@
 #define LOAD_AND_VALIDATE_RANGE_INCLUSIVE(param, var, min, max, context)                           \
   do {                                                                                             \
     LOAD_PARAM_DOUBLE(param, var);                                                                 \
+    VALIDATE_RANGE_INCLUSIVE(param, var, min, max, context);                                       \
+  } while (0)
+
+#define LOAD_AND_VALIDATE_RANGE_INCLUSIVE_INTERNAL(param, var, min, max, context)                  \
+  do {                                                                                             \
+    LOAD_PARAM_DOUBLE_INTERNAL(param, var);                                                        \
     VALIDATE_RANGE_INCLUSIVE(param, var, min, max, context);                                       \
   } while (0)
 

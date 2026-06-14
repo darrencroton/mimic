@@ -1,0 +1,5 @@
+parameters:
+  - name: ShamMinMpeak
+    type: double
+    units: 1e10 Msun/h
+    h_convention: carried

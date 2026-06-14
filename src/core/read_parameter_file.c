@@ -26,6 +26,7 @@
 #include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
 #include "proto.h"
 #include "types.h"
+#include "generated/unit_registry.h" /* mimic_unit_label_cgs / mimic_unit_label_carried */
 
 #ifndef MIMIC_COMPILED_MODEL
 #error                                                                                             \
@@ -50,6 +51,8 @@ static void reject_unknown_keys(yaml_document_t *doc, yaml_node_t *mapping,
                                 size_t num_valid_keys);
 static int get_strict_int_value(yaml_node_t *node, const char *field_name);
 static double get_strict_double_value(yaml_node_t *node, const char *field_name);
+static double get_unit_scalar_value(yaml_document_t *doc, yaml_node_t *node, const char *field_name,
+                                    const char *reference_label);
 static void parse_output_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_input_section(yaml_document_t *doc, yaml_node_t *section);
 static void parse_model_section(yaml_document_t *doc, yaml_node_t *section);
@@ -434,6 +437,63 @@ static double get_strict_double_value(yaml_node_t *node, const char *field_name)
   return value;
 }
 
+static double unit_label_cgs(const char *label, const char *field_name) {
+  const double cgs = mimic_unit_label_cgs(label);
+  if (cgs < 0.0)
+    FATAL_ERROR("%s has unsupported units '%s'", field_name, label);
+  return cgs;
+}
+
+static double convert_unit_scalar(double value, const char *units, const char *h_convention,
+                                  const char *reference_label, const char *field_name) {
+  const double source_cgs = unit_label_cgs(units, field_name);
+  const double target_cgs = unit_label_cgs(reference_label, field_name);
+  double factor = source_cgs / target_cgs;
+
+  /* h_convention has already been validated to carried/none/free; the reference
+   * basis is identified by its (carried) label. */
+  const int source_carried = (strcmp(h_convention, "carried") == 0);
+  const int target_carried = mimic_unit_label_carried(reference_label);
+  if (source_carried != target_carried)
+    factor *= target_carried ? MimicConfig.Hubble_h : 1.0 / MimicConfig.Hubble_h;
+
+  return value * factor;
+}
+
+static double get_unit_scalar_value(yaml_document_t *doc, yaml_node_t *node, const char *field_name,
+                                    const char *reference_label) {
+  yaml_node_t *value_node, *units_node, *h_node;
+  const char *units, *h_convention;
+  static const char *const scalar_keys[] = {"value", "units", "h_convention"};
+
+  if (node->type != YAML_MAPPING_NODE) {
+    return get_strict_double_value(node, field_name);
+  }
+
+  reject_unknown_keys(doc, node, field_name, scalar_keys,
+                      sizeof(scalar_keys) / sizeof(scalar_keys[0]));
+  value_node = get_mapping_value(doc, node, "value");
+  units_node = get_mapping_value(doc, node, "units");
+  h_node = get_mapping_value(doc, node, "h_convention");
+
+  if (value_node == NULL || units_node == NULL) {
+    FATAL_ERROR("%s must provide value and units", field_name);
+  }
+
+  units = get_scalar_value(units_node);
+  h_convention = h_node ? get_scalar_value(h_node) : "none";
+  if (units == NULL || h_convention == NULL) {
+    FATAL_ERROR("%s units and h_convention must be scalar strings", field_name);
+  }
+  if (strcmp(h_convention, "carried") != 0 && strcmp(h_convention, "none") != 0 &&
+      strcmp(h_convention, "free") != 0) {
+    FATAL_ERROR("%s has invalid h_convention '%s'", field_name, h_convention);
+  }
+
+  return convert_unit_scalar(get_strict_double_value(value_node, field_name), units, h_convention,
+                             reference_label, field_name);
+}
+
 /**
  * @brief   Parse output section
  */
@@ -591,12 +651,11 @@ static void parse_model_section(yaml_document_t *doc, yaml_node_t *section) {
  * Parses simulation properties including cosmology and units subsections.
  */
 static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section) {
-  yaml_node_t *node, *cosmology, *units;
+  yaml_node_t *node, *cosmology;
   const char *str;
-  static const char *const valid_keys[] = {"name",     "config",        "cosmology",
-                                           "box_size", "particle_mass", "units"};
+  static const char *const valid_keys[] = {"name", "config", "cosmology", "box_size",
+                                           "particle_mass"};
   static const char *const cosmology_keys[] = {"omega_matter", "omega_lambda", "hubble_h"};
-  static const char *const units_keys[] = {"length_in_cm", "mass_in_g", "velocity_in_cm_per_s"};
 
   DEBUG_LOG("Parsing simulation section");
   reject_unknown_keys(doc, section, "simulation", valid_keys,
@@ -645,41 +704,15 @@ static void parse_simulation_section(yaml_document_t *doc, yaml_node_t *section)
 
   node = get_mapping_value(doc, section, "box_size");
   if (node) {
-    MimicConfig.BoxSize = get_strict_double_value(node, "simulation.box_size");
+    MimicConfig.BoxSize = get_unit_scalar_value(doc, node, "simulation.box_size", "Mpc/h");
     DEBUG_LOG("BoxSize = %g", MimicConfig.BoxSize);
   }
 
   node = get_mapping_value(doc, section, "particle_mass");
   if (node) {
-    MimicConfig.PartMass = get_strict_double_value(node, "simulation.particle_mass");
+    MimicConfig.PartMass =
+        get_unit_scalar_value(doc, node, "simulation.particle_mass", "1e10 Msun/h");
     DEBUG_LOG("PartMass = %g", MimicConfig.PartMass);
-  }
-
-  /* Parse units subsection */
-  units = get_mapping_value(doc, section, "units");
-  if (units) {
-    DEBUG_LOG("Parsing simulation.units subsection");
-    reject_unknown_keys(doc, units, "simulation.units", units_keys,
-                        sizeof(units_keys) / sizeof(units_keys[0]));
-
-    node = get_mapping_value(doc, units, "length_in_cm");
-    if (node) {
-      MimicConfig.UnitLength_in_cm = get_strict_double_value(node, "simulation.units.length_in_cm");
-      DEBUG_LOG("UnitLength_in_cm = %g", MimicConfig.UnitLength_in_cm);
-    }
-
-    node = get_mapping_value(doc, units, "mass_in_g");
-    if (node) {
-      MimicConfig.UnitMass_in_g = get_strict_double_value(node, "simulation.units.mass_in_g");
-      DEBUG_LOG("UnitMass_in_g = %g", MimicConfig.UnitMass_in_g);
-    }
-
-    node = get_mapping_value(doc, units, "velocity_in_cm_per_s");
-    if (node) {
-      MimicConfig.UnitVelocity_in_cm_per_s =
-          get_strict_double_value(node, "simulation.units.velocity_in_cm_per_s");
-      DEBUG_LOG("UnitVelocity_in_cm_per_s = %g", MimicConfig.UnitVelocity_in_cm_per_s);
-    }
   }
 }
 

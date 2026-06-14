@@ -2,9 +2,43 @@
 
 Version: 2.1
 Date: 2026-06-14
-Status: Approved design, ready for implementation
+Status: Implemented in working tree; Uchuu package still pending
 
 ---
+
+## Implementation Update
+
+This report's design has been implemented in the current working tree on 2026-06-14, with no Uchuu package added yet.
+
+The implementation follows the approved contract and uses visible carried-h labels for the fixed reference basis (`1e10 Msun/h`, `Mpc/h`, `km/s`). That keeps the human-facing label, `output_schema.json`, HDF5 `FieldMetadata`, and stored numeric values directly aligned. Where examples below use shorthand labels such as `1e10 Msun` or `Mpc` with `h_convention: carried`, read them as the same carried-h reference convention now written explicitly as `/h` in implemented metadata.
+
+Completed implementation points:
+
+- `src/core/core_properties.yaml` now declares `reference_units`, required core inputs, and dimensions for core-produced physical fields.
+- Simulation halo metadata now declares `core_property_map`, explicit catalog properties, source/raw/HDF5 names, units, and h conventions for both Millennium packages.
+- The generator now emits reference-unit constants, raw tree accessors/conversions, HDF5 read metadata, output conversion code, schema reference-unit metadata, and parameter-unit conversion helpers.
+- `set_units()` derives runtime constants from generated core reference units rather than `simulation.units`.
+- Runtime simulation config parsing now accepts explicit `{value, units, h_convention}` metadata for `box_size` and `particle_mass`; legacy scalar values remain accepted for compatibility, but the legacy `simulation.units` block is rejected.
+- Raw catalog values flow through generated accessors in payload copy-in and virial-mass fallback logic.
+- SHAM's `ShamMinMpeak` uses opt-in model-global `models/sham/parameter_units.yaml` plus `model_get_double_internal()`.
+- Plotting and scientific tests now consume reference-unit metadata from `output_schema.json` instead of hard-coded Millennium assumptions.
+- Run metadata no longer copies property YAML snapshots; provenance is through `output_schema.json`, HDF5 field metadata, copied run/simulation configs, snapshot list, Python example, and version metadata.
+
+Verification completed:
+
+- `make MODEL=sage16 SIMULATION=mini-millennium generate check-generated validate-modules`
+- `make MODEL=sage16 SIMULATION=millennium generate check-generated validate-modules`
+- `make MODEL=sham SIMULATION=mini-millennium generate check-generated validate-modules`
+- Restored default generated files with `make MODEL=sage16 SIMULATION=mini-millennium generate check-generated validate-modules`
+- `make`
+- `make check-format`
+- `make check-docs`
+- `mimic_venv/bin/python tests/integration/test_unit_contract_generation.py`
+- `make tests-scientific summary` (passed with the existing zero-value warning marker)
+- Delegated `make tests-unit` with log capture to `archive/test-logs/tests-unit-unit-contract.log` (exit code 0; one expected skip marker)
+- Delegated `make tests-integration` with log capture to `archive/test-logs/tests-integration-unit-contract.log` (exit code 0; no failing markers)
+
+Remaining work outside this implementation: confirm Uchuu's actual catalog fields, units, h convention, value ranges, and tree-reader format before adding an Uchuu simulation package.
 
 ## 1. Executive Summary
 
@@ -12,7 +46,7 @@ Mimic needs an explicit, enforced unit contract before additional simulations an
 
 The adopted design is:
 
-- **One fixed internal reference unit system** for all of Mimic, equal to today's effective code units: mass in `1e10 Msun`, length in `Mpc`, velocity in `km/s`, with little-h carried numerically in values (the Millennium/`Msun/h` convention). Core physics constants (`G`, `Hubble`, `RhoCrit`, etc.) are derived from this fixed basis and never vary by simulation. It is declared once, in core.
+- **One fixed internal reference unit system** for all of Mimic, equal to today's effective code units: mass in `1e10 Msun/h`, length in `Mpc/h`, velocity in `km/s`, with little-h carried numerically in mass and length values (the Millennium convention). Core physics constants (`G`, `Hubble`, `RhoCrit`, etc.) are derived from this fixed basis and never vary by simulation. It is declared once, in core.
 - **Conversion at the tree-reader boundary.** Each simulation declares its catalog field names, per-field unit labels, and h convention. Generated copy-in code converts each catalog value into reference units *as it is read*, folded into the field copy that already happens. Mimic never transcodes the dataset to disk.
 - **All core and model physics runs in reference units, unchanged.** Because the internal basis is fixed, every formula sees the same constants and the same-unit inputs for every simulation. There is no per-model "make physics unit-agnostic" audit. Millennium catalogs are an identity conversion, so existing output stays byte-identical to the upstream `sage-model` baseline by construction.
 - **Metadata-driven output.** Every output property declares (or inherits) its output unit label; generated code converts reference→label (identity when equal). The written value is in the labeled unit by construction, closing today's gap where the label and the value are produced by independent, unchecked code paths.
@@ -132,7 +166,7 @@ Every output property declares (or, for derived core fields, inherits) the unit 
 
 Parameters are **global to a run, not module-owned**: they are declared with values in the run YAML under `modules.parameters:`, read by name via `model_get_double/int/string()` from a global pool, and a single parameter may be used by several modules. Their unit metadata therefore belongs at model-global scope — not in `module_info.yaml` (which would duplicate the unit across every module that uses the parameter) and not in the run YAML (which is per-run and would repeat and risk drift).
 
-A model that has dimensional parameters needing conversion ships an opt-in `models/<model>/parameter_units.yaml`, listing only those parameters. Absent or empty (`parameters: []`) means every parameter stays raw exactly as today. A generated/shared accessor (`model_get_double_internal()` or equivalent) exposes the converted value; the raw accessors keep current behavior. Today the only dimensional parameter in the repo is SHAM's `ShamMinMpeak` (a mass threshold, currently converted inline as `mpeak * 1.0e10 / h` in `sham_assign_stellar_mass.c`); it is the first and currently only consumer. See Appendix A.3.
+A model that has dimensional parameters needing conversion ships an opt-in `models/<model>/parameter_units.yaml`, listing only those parameters. Absent or empty (`parameters: []`) means every parameter stays raw exactly as today. A generated/shared accessor (`model_get_double_internal()` or equivalent) exposes the converted value; the raw accessors keep current behavior. Today the only dimensional parameter wired through this path is SHAM's `ShamMinMpeak`, a mass threshold compared against galaxy peak mass. It is declared in `1e10 Msun/h`, which equals the reference mass unit, so its conversion factor is currently the identity — the migration exercises the opt-in machinery without changing behavior, and the path is ready for a future parameter declared in a non-reference unit (e.g. physical `Msun`). (The separate `mpeak * 1.0e10 / h` expression in `sham_assign_stellar_mass.c` converts the per-galaxy peak *mass* to physical solar masses for the stellar-mass-halo-mass relation; it is not a parameter conversion.) See Appendix A.3.
 
 ---
 

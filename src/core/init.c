@@ -30,6 +30,7 @@
 #include "globals.h"
 #include "error.h"
 #include "integration.h"
+#include "generated/reference_units.h"
 #include "module_system/physical_constants.h"
 #include "numeric.h"
 #include "proto.h"
@@ -75,6 +76,10 @@ void init(void) {
  * with other units derived from these base units.
  */
 void set_units(void) {
+  MimicConfig.UnitLength_in_cm = MIMIC_REF_UNIT_LENGTH_IN_CM;
+  MimicConfig.UnitMass_in_g = MIMIC_REF_UNIT_MASS_IN_G;
+  MimicConfig.UnitVelocity_in_cm_per_s = MIMIC_REF_UNIT_VELOCITY_IN_CM_PER_S;
+
   // Calculate derived units and store in MimicConfig
   MimicConfig.UnitTime_in_s = MimicConfig.UnitLength_in_cm / MimicConfig.UnitVelocity_in_cm_per_s;
   MimicConfig.UnitTime_in_Megayears = MimicConfig.UnitTime_in_s / SEC_PER_MEGAYEAR;

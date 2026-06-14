@@ -29,6 +29,7 @@
 #include "memory.h"
 #include "module_interface.h"
 #include "module_registry.h"
+#include "generated/parameter_unit_conversions.h"
 
 /** Maximum number of modules that can be registered */
 #define MAX_MODULES 32
@@ -1146,6 +1147,14 @@ int model_get_double(const char *param_name, double *out_value) {
 
   ERROR_LOG("Required model parameter '%s' not found in input file", param_name);
   return -1;
+}
+
+int model_get_double_internal(const char *param_name, double *out_value) {
+  if (model_get_double(param_name, out_value) != 0) {
+    return -1;
+  }
+  *out_value *= mimic_parameter_unit_factor(param_name);
+  return 0;
 }
 
 /**

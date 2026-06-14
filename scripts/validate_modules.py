@@ -39,6 +39,7 @@ from discovery import (
     rel,
     standalone_module_files,
 )
+from generate_properties import load_parameter_units
 
 # ==============================================================================
 # PATHS
@@ -691,6 +692,31 @@ def validate_dependencies(
     return valid
 
 
+def validate_parameter_units(valid_modules, results: ValidationResults) -> None:
+    """Validate model-global dimensional parameter metadata against module declarations."""
+    declared = set()
+    for _, module in valid_modules:
+        deps = module.get("dependencies", {})
+        for param in deps.get("parameters", []):
+            declared.add(param)
+
+    # Structural validation (types, units, h conventions, duplicates) is owned by
+    # the generator; reuse it so the two paths cannot drift.
+    try:
+        entries = load_parameter_units()
+    except ValueError as e:
+        results.add_error("parameter_units", 1, str(e))
+        return
+
+    for entry in entries:
+        if entry["name"] not in declared:
+            results.add_error(
+                "parameter_units",
+                3,
+                f"parameter '{entry['name']}' is not declared by any selected module",
+            )
+
+
 # ==============================================================================
 # MAIN VALIDATION FUNCTION
 # ==============================================================================
@@ -861,6 +887,8 @@ def main():
     if valid_modules:
         print("Validating cross-module dependencies...")
         validate_dependencies(valid_modules, property_metadata, results, args.verbose)
+        print("Validating parameter unit metadata...")
+        validate_parameter_units(valid_modules, results)
 
     # Print summary
     results.print_summary()

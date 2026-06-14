@@ -23,6 +23,7 @@
 #include "globals.h"
 #include "proto.h"
 #include "numeric.h"
+#include "generated/tree_property_accessors.h"
 
 /*
  * New halo objects (descendants with no progenitor galaxies) are created by the
@@ -50,10 +51,12 @@
  * particles × particle mass.
  */
 double get_virial_mass(int halonr) {
-  if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup && InputTreeHalos[halonr].Mvir >= 0.0)
-    return InputTreeHalos[halonr].Mvir; /* take spherical overdensity mass estimate */
+  const double virial_mass_input = mimic_tree_get_VirialMassInput(halonr);
+
+  if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup && virial_mass_input >= 0.0)
+    return virial_mass_input; /* take spherical overdensity mass estimate */
   else
-    return InputTreeHalos[halonr].Len * MimicConfig.PartMass;
+    return mimic_tree_get_Len(halonr) * MimicConfig.PartMass;
 }
 
 /**

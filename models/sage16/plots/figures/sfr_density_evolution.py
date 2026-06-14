@@ -74,7 +74,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         redshifts.append(redshift)
 
         # Extract hubble_h from metadata
-        hubble_h = metadata.get("hubble_h", 0.73)
+        hubble_h = metadata["hubble_h"]
 
         # Skip if volume is zero (no valid data)
         if volume == 0:

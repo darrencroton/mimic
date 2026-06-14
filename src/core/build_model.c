@@ -37,6 +37,7 @@
 #include "output_buffer.h"
 #include "proto.h"
 #include "types.h"
+#include "generated/tree_property_accessors.h"
 
 static int count_fof_subhalos(int first_fof_halo);
 static struct OutputBufferSegment *ensure_output_segment_scratch(int required);

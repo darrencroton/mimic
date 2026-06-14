@@ -60,7 +60,7 @@ except ImportError:
     SAGE_NATIVE_AVAILABLE = False
 # <<< SAGE-NATIVE-HDF5 <<<
 
-from output_schema import dtype_from_schema, load_schema
+from output_schema import dtype_from_schema, load_schema, units_from_schema
 
 # Import shared output utilities
 from output_utils import colour_enabled, error, warn
@@ -432,7 +432,6 @@ class MimicParameters:
             "cosmology",
             "box_size",
             "particle_mass",
-            "units",
         }
         if unknown_model_keys:
             keys = ", ".join(sorted(unknown_model_keys))
@@ -526,22 +525,19 @@ class MimicParameters:
                     self.params["NumOutputs"] = num_snapshots
 
         # Simulation section from simulation package
+        def scalar_value(value):
+            if isinstance(value, dict):
+                return value.get("value", 0.0)
+            return value
+
         simulation_config = sim_config.get("simulation", {})
         if simulation_config:
-            self.params["BoxSize"] = simulation_config.get("box_size", 0.0)
-            self.params["PartMass"] = simulation_config.get("particle_mass", 0.0)
+            self.params["BoxSize"] = scalar_value(simulation_config.get("box_size", 0.0))
+            self.params["PartMass"] = scalar_value(simulation_config.get("particle_mass", 0.0))
             if "cosmology" in simulation_config:
                 self.params["Omega"] = simulation_config["cosmology"].get("omega_matter", 0.0)
                 self.params["OmegaLambda"] = simulation_config["cosmology"].get("omega_lambda", 0.0)
                 self.params["Hubble_h"] = simulation_config["cosmology"].get("hubble_h", 0.0)
-            if "units" in simulation_config:
-                self.params["UnitLength_in_cm"] = simulation_config["units"].get(
-                    "length_in_cm", 0.0
-                )
-                self.params["UnitMass_in_g"] = simulation_config["units"].get("mass_in_g", 0.0)
-                self.params["UnitVelocity_in_cm_per_s"] = simulation_config["units"].get(
-                    "velocity_in_cm_per_s", 0.0
-                )
 
         # Modules section (for reference, though not used in plotting currently)
         if "modules" in config:
@@ -615,7 +611,7 @@ def scale_volume_by_file_fraction(box_size, params, good_files, verbose=False):
     return volume
 
 
-def build_metadata(hubble_h, box_size, volume, ngals, good_files, ntrees=0):
+def build_metadata(hubble_h, box_size, volume, ngals, good_files, ntrees=0, schema_units=None):
     """Assemble the (galaxies, volume, metadata) third element returned by the readers."""
     return {
         "hubble_h": hubble_h,
@@ -624,6 +620,7 @@ def build_metadata(hubble_h, box_size, volume, ngals, good_files, ntrees=0):
         "ntrees": ntrees,
         "ngals": ngals,
         "good_files": good_files,
+        "schema_units": schema_units or {},
     }
 
 
@@ -825,7 +822,16 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     galaxies = galaxies.view(np.recarray)
 
     volume = scale_volume_by_file_fraction(box_size, params, good_files, verbose)
-    metadata = build_metadata(hubble_h, box_size, volume, tot_ngals, good_files, ntrees=tot_ntrees)
+    schema_units = units_from_schema(load_schema(dir_path))
+    metadata = build_metadata(
+        hubble_h,
+        box_size,
+        volume,
+        tot_ngals,
+        good_files,
+        ntrees=tot_ntrees,
+        schema_units=schema_units,
+    )
 
     return galaxies, volume, metadata
 
@@ -968,7 +974,10 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
 
     # ntrees defaults to 0 — not tracked in HDF5 format.
     volume = scale_volume_by_file_fraction(box_size, params, good_files, verbose)
-    metadata = build_metadata(hubble_h, box_size, volume, tot_ngals, good_files)
+    schema_units = units_from_schema(load_schema(dir_path))
+    metadata = build_metadata(
+        hubble_h, box_size, volume, tot_ngals, good_files, schema_units=schema_units
+    )
 
     return galaxies, volume, metadata
 

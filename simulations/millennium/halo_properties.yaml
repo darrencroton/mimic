@@ -4,9 +4,41 @@
 # catalog-oriented output fields. They are not required for the generic Mimic
 # core processing model.
 
+core_property_map:
+  Descendant: Descendant
+  FirstProgenitor: FirstProgenitor
+  NextProgenitor: NextProgenitor
+  FirstHaloInFOFgroup: FirstHaloInFOFgroup
+  NextHaloInFOFgroup: NextHaloInFOFgroup
+  SnapNum: SnapNum
+  Len: Len
+  VirialMassInput: M_Crit200
+
+catalog_properties:
+  - { name: Descendant, type: int, units: dimensionless, raw_member: Descendant, hdf5_source: Descendant }
+  - { name: FirstProgenitor, type: int, units: dimensionless, raw_member: FirstProgenitor, hdf5_source: FirstProgenitor }
+  - { name: NextProgenitor, type: int, units: dimensionless, raw_member: NextProgenitor, hdf5_source: NextProgenitor }
+  - { name: FirstHaloInFOFgroup, type: int, units: dimensionless, raw_member: FirstHaloInFOFgroup, hdf5_source: FirstHaloInFOFgroup }
+  - { name: NextHaloInFOFgroup, type: int, units: dimensionless, raw_member: NextHaloInFOFgroup, hdf5_source: NextHaloInFOFgroup }
+  - { name: Len, type: int, units: particles, raw_member: Len, hdf5_source: Len }
+  - { name: M_Mean200, type: float, units: 1e10 Msun/h, h_convention: carried, raw_member: M_Mean200, hdf5_source: M_mean200 }
+  - { name: M_Crit200, type: float, units: 1e10 Msun/h, h_convention: carried, raw_member: Mvir, hdf5_source: Mvir }
+  - { name: M_TopHat, type: float, units: 1e10 Msun/h, h_convention: carried, raw_member: M_TopHat, hdf5_source: M_TopHat }
+  - { name: Pos, type: vec3_float, units: Mpc/h, h_convention: carried, raw_member: Pos, hdf5_source: Pos }
+  - { name: Vel, type: vec3_float, units: km/s, h_convention: none, raw_member: Vel, hdf5_source: Vel }
+  - { name: VelDisp, type: float, units: km/s, h_convention: none, raw_member: VelDisp, hdf5_source: VelDisp }
+  - { name: Vmax, type: float, units: km/s, h_convention: none, raw_member: Vmax, hdf5_source: Vmax }
+  - { name: Spin, type: vec3_float, units: dimensionless, raw_member: Spin, hdf5_source: Spin }
+  - { name: MostBoundID, type: long long, units: dimensionless, raw_member: MostBoundID, hdf5_source: MostBoundID }
+  - { name: SnapNum, type: int, units: dimensionless, raw_member: SnapNum, hdf5_source: SnapNum }
+  - { name: FileNr, type: int, units: dimensionless, raw_member: FileNr, hdf5_source: Filenr }
+  - { name: SubhaloIndex, type: int, units: dimensionless, raw_member: SubhaloIndex, hdf5_source: SubHaloIndex }
+  - { name: SubHalfMass, type: float, units: 1e10 Msun/h, h_convention: carried, raw_member: SubHalfMass, hdf5_source: SubHalfMass }
+
 halo_properties:
   - name: MostBoundID
     type: long long
+    source: MostBoundID
     units: dimensionless
     description: ID of most bound particle (original simulation halo ID)
     output: true
@@ -15,7 +47,9 @@ halo_properties:
 
   - name: Pos
     type: vec3_float
+    source: Pos
     units: Mpc/h
+    h_convention: carried
     description: 3D position vector (comoving coordinates)
     output: true
     init_source: copy_from_tree_array
@@ -24,7 +58,9 @@ halo_properties:
 
   - name: Vel
     type: vec3_float
+    source: Vel
     units: km/s
+    h_convention: none
     description: 3D velocity vector (peculiar velocity)
     output: true
     init_source: copy_from_tree_array
@@ -33,6 +69,7 @@ halo_properties:
 
   - name: Spin
     type: vec3_float
+    source: Spin
     units: dimensionless
     description: Dimensionless spin parameter (Bullock definition)
     output: true
@@ -42,7 +79,9 @@ halo_properties:
 
   - name: Vmax
     type: float
+    source: Vmax
     units: km/s
+    h_convention: none
     description: Maximum circular velocity
     output: true
     init_source: copy_from_tree
@@ -51,7 +90,9 @@ halo_properties:
 
   - name: VelDisp
     type: float
+    source: VelDisp
     units: km/s
+    h_convention: none
     description: Velocity dispersion
     output: true
     init_source: copy_from_tree

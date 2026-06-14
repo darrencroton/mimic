@@ -259,7 +259,7 @@ with h5py.File('model_000.hdf5', 'r') as f:
 
 ### Unit Conventions
 
-Mimic derives runtime code units from `simulation.units` in the active simulation package and writes output unit labels from property metadata. The shipped Millennium-family examples use these common conventions:
+Mimic uses a fixed internal reference unit basis and writes output unit labels from generated schema metadata. The active simulation package declares catalog field units in `halo_properties.yaml`; generated reader code converts those values into the internal reference basis. The shipped Millennium-family examples use these common output labels:
 
 - **Mass**: `1e10 Msun/h` (10^10 solar masses with Hubble parameter)
 - **Length**: `Mpc/h` (megaparsecs comoving with Hubble parameter)
@@ -272,7 +272,7 @@ h = 0.73  # From parameter file
 mass_physical_msun = halos['Mvir'] * 1e10 / h  # Convert to physical solar masses
 ```
 
-Do not assume these labels are universal for every simulation or model package. For run-level unit configuration, see the `simulation.units` section described in [docs/USER-GUIDE.md](../../docs/USER-GUIDE.md), and treat HDF5 `FieldMetadata` or `metadata/output_schema.json` as the source of truth for a completed run.
+Do not assume these labels are universal for every simulation or model package. Treat HDF5 `FieldMetadata` or `metadata/output_schema.json` as the source of truth for a completed run; `output_schema.py` exposes helpers for reading field labels (`units_from_schema`) and converting masses to physical solar masses (`mass_to_msun`).
 
 ## Adding New Plot Types
 

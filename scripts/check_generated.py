@@ -30,6 +30,7 @@ from discovery import (
     halo_property_files,
     model_property_files,
     module_metadata_files,
+    parameter_unit_files,
     rel,
     standalone_module_files,
 )
@@ -39,11 +40,16 @@ from discovery import (
 # ==============================================================================
 
 # Property YAML inputs
-PROPERTY_YAML_FILES = halo_property_files() + model_property_files()
+PROPERTY_YAML_FILES = halo_property_files() + model_property_files() + parameter_unit_files()
 
 # Property-generated files to check
 PROPERTY_GENERATED_FILES = [
     REPO_ROOT / "src" / "include" / "generated" / "property_defs.h",
+    REPO_ROOT / "src" / "include" / "generated" / "reference_units.h",
+    REPO_ROOT / "src" / "include" / "generated" / "unit_registry.h",
+    REPO_ROOT / "src" / "include" / "generated" / "tree_property_accessors.h",
+    REPO_ROOT / "src" / "include" / "generated" / "read_tree_hdf5_properties.inc",
+    REPO_ROOT / "src" / "include" / "generated" / "parameter_unit_conversions.h",
     REPO_ROOT / "src" / "include" / "generated" / "populate_halo_payload_from_tree.inc",
     REPO_ROOT / "src" / "include" / "generated" / "property_test_helpers.h",
     REPO_ROOT / "src" / "include" / "generated" / "copy_to_output.inc",

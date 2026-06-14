@@ -212,6 +212,14 @@ void register_all_modules(void);
 int model_get_double(const char *param_name, double *out_value);
 
 /**
+ * @brief   Get required model parameter as double converted to Mimic internal units
+ *
+ * Only parameters declared in the selected model package's parameter_units.yaml
+ * receive a conversion factor. All other parameters are returned unchanged.
+ */
+int model_get_double_internal(const char *param_name, double *out_value);
+
+/**
  * @brief   Get required model parameter as integer
  *
  * @param   param_name      Parameter name (e.g., "AGNrecipe")
