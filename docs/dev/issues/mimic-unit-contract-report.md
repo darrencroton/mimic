@@ -1,6 +1,6 @@
 # Mimic Unit Contract — Implementation Specification
 
-Version: 2.0
+Version: 2.1
 Date: 2026-06-14
 Status: Approved design, ready for implementation
 
@@ -12,11 +12,11 @@ Mimic needs an explicit, enforced unit contract before additional simulations an
 
 The adopted design is:
 
-- **One fixed internal reference unit system** for all of Mimic, equal to today's effective code units: mass in `1e10 Msun`, length in `Mpc`, velocity in `km/s`, with little-h carried numerically in values (the Millennium/`Msun/h` convention). Core physics constants (`G`, `Hubble`, `RhoCrit`, etc.) are derived from this fixed basis and never vary by simulation.
-- **Conversion at the tree-reader boundary.** Each simulation declares its native catalog units and its catalog→canonical field-name mapping. Generated copy-in code converts each catalog value into reference units *as it is read*, folded into the field copy that already happens. Mimic never transcodes the dataset to disk.
+- **One fixed internal reference unit system** for all of Mimic, equal to today's effective code units: mass in `1e10 Msun`, length in `Mpc`, velocity in `km/s`, with little-h carried numerically in values (the Millennium/`Msun/h` convention). Core physics constants (`G`, `Hubble`, `RhoCrit`, etc.) are derived from this fixed basis and never vary by simulation. It is declared once, in core.
+- **Conversion at the tree-reader boundary.** Each simulation declares its catalog field names, per-field unit labels, and h convention. Generated copy-in code converts each catalog value into reference units *as it is read*, folded into the field copy that already happens. Mimic never transcodes the dataset to disk.
 - **All core and model physics runs in reference units, unchanged.** Because the internal basis is fixed, every formula sees the same constants and the same-unit inputs for every simulation. There is no per-model "make physics unit-agnostic" audit. Millennium catalogs are an identity conversion, so existing output stays byte-identical to the upstream `sage-model` baseline by construction.
-- **Metadata-driven output.** Every output property declares its output unit label; generated code converts reference→label (identity when equal). The written value is in the labeled unit by construction, closing today's gap where the label and the value are produced by independent, unchecked code paths.
-- **Opt-in dimensional parameters.** A model parameter that must be compared against internal physical values declares optional `units`/`h` metadata on its existing `module_info.yaml` declaration; all other parameters stay raw exactly as today.
+- **Metadata-driven output.** Every output property declares (or inherits) its output unit label; generated code converts reference→label (identity when equal). The written value is in the labeled unit by construction, closing today's gap where the label and the value are produced by independent, unchecked code paths.
+- **Opt-in dimensional parameters.** Parameters are global to a run, not module-owned. A parameter that must be compared against internal physical values declares units in a model-global, opt-in `models/<model>/parameter_units.yaml`; all other parameters stay raw exactly as today.
 
 This delivers the user-facing goal — native catalogs in, scientist-readable model YAML, output labels that match values — while keeping the engineering small, keeping the hot path free of measurable cost, and preserving the existing baseline. It directly serves the vision: a physics-agnostic core, metadata as structural truth, reproducible output, and fast failure on invalid metadata.
 
@@ -40,8 +40,9 @@ Mimic already has unit metadata, runtime unit constants, output conversions, and
 - `simulation.units` is parsed into `MimicConfig.UnitLength_in_cm`, `UnitMass_in_g`, `UnitVelocity_in_cm_per_s` (`src/core/read_parameter_file.c`).
 - `set_units()` (`src/core/init.c:77`) derives `UnitTime_in_s`, `G`, `Hubble`, `RhoCrit`, `UnitDensity_in_cgs`, `UnitPressure_in_cgs`, `UnitEnergy_in_cgs`, `UnitCoolingRate_in_cgs` **from those parsed simulation units**. Today this is harmless only because the one simulation's units equal the values these formulas were tuned for.
 - Tree readers copy raw catalog values into a fixed-layout `struct RawHalo` (`src/include/types.h:8`); the generated copy-in (`src/include/generated/populate_halo_payload_from_tree.inc`) assumes catalog field names match Mimic's canonical names (`payload.Mvir = get_virial_mass(halonr)`, `payload.Pos[j] = InputTreeHalos[halonr].Pos[j]`, …).
+- Core-owned property metadata is split awkwardly: `src/core/core_properties.yaml` declares canonical fields **and** simulation-specific unit/range labels (e.g. `Mvir` as `1e10 Msun/h`), while the catalog field that *feeds* `Mvir` (`M_Crit200` in mini-Millennium) is implicit in the tree reader.
 - Property `units:` is required and written verbatim to HDF5 `FieldMetadata` and the binary `output_schema.json`, but it is **just a label**. The value path (`output_convert` expressions in `scripts/generate_properties.py:638-661,699-723`) and the label path (`generate_properties.py` HDF5 writer ~`812-901`, binary schema writer ~`990-1045`) never cross-check each other.
-- Model parameters are read raw via `model_get_double/int/string()` (`src/core/module_registry.c`); there is no parameter-unit metadata.
+- Model parameters are declared with values globally in the run YAML under `modules.parameters:` and read raw via `model_get_double/int/string()` (`src/core/module_registry.c:1140`). `module_info.yaml`'s `parameters:` list is only a per-module *usage* declaration consumed by `scripts/lint_parameter_usage.py`; the same parameter legitimately appears in several modules' lists. There is no parameter-unit metadata anywhere.
 
 The result: a new simulation or model can compile and run while silently mixing incompatible units, because nothing converts catalog values into a known basis and nothing enforces that an output label matches the value written.
 
@@ -57,10 +58,12 @@ Implementers must keep four distinct quantities separate. Conflating any pair is
 
 ### 3.1 Reference units vs. catalog units
 
-- **Reference units (fixed, internal):** the one basis all of Mimic computes in — `mass = 1e10 Msun`, `length = Mpc`, `velocity = km/s`, time derived. This is core-owned and identical for every simulation. All physics constants and all module formulas operate here.
-- **Catalog units (per-simulation, native):** the units a given simulation's tree files actually use on disk. Declared by the simulation package. Used **only** by the generator/reader to compute the catalog→reference conversion factors.
+- **Reference units (fixed, internal):** the one basis all of Mimic computes in — `mass = 1e10 Msun`, `length = Mpc`, `velocity = km/s`, time derived. This is core-owned, declared once, and identical for every simulation. All physics constants and all module formulas operate here.
+- **Catalog units (per-simulation, native):** the units a given simulation's tree files use on disk. Declared **per field** as unit labels in the simulation package (not as a global cgs block). A small unit registry resolves each label to cgs, so the catalog→reference conversion factor for a field is `registry_cgs(field_label) / registry_cgs(reference_label)`, with a factor of little-h applied only when the field's h convention differs from the reference convention.
 
-For Millennium catalogs, catalog units already equal reference units, so every conversion factor is exactly `1.0` and behavior is byte-identical to today.
+For Millennium catalogs, every field label already equals the reference unit, so every conversion factor is exactly `1.0` and behavior is byte-identical to today.
+
+Because the catalog scale is fully determined by per-field labels + the registry + the core reference units, the legacy global `simulation.units` cgs block (`length_in_cm`/`mass_in_g`/`velocity_in_cm_per_s`) is **redundant and is removed** (see §4.3). Per-field labels are also strictly more expressive: a catalog may mix units within one dimension (e.g. a mass in `Msun` and a rate in `Msun/yr`), which a single global scale cannot represent.
 
 ### 3.2 The value of little-h vs. the h convention
 
@@ -75,7 +78,7 @@ This separation is why "make SAGE simulation-agnostic" requires no formula audit
 
 ### 4.1 Reference unit system (core-owned)
 
-The core declares the fixed reference basis as metadata so it is structural truth, not a magic constant. Recommended location: a `reference_units:` block in core-owned metadata (e.g. the header of `src/core/core_properties.yaml` or a dedicated `src/core/reference_units.yaml`).
+The core declares the fixed reference basis as metadata so it is structural truth, not a magic constant. Recommended location: a `reference_units:` block in `src/core/core_properties.yaml` (see the example in Appendix A.1).
 
 ```yaml
 reference_units:
@@ -85,58 +88,51 @@ reference_units:
   # time is derived from length/velocity, as today
 ```
 
-`set_units()` must derive `G`, `Hubble`, `RhoCrit`, `UnitTime_in_s`, `UnitDensity_in_cgs`, `UnitPressure_in_cgs`, `UnitEnergy_in_cgs`, and `UnitCoolingRate_in_cgs` from this fixed reference basis — **not** from the selected simulation's catalog units. For Millennium this yields numerically identical constants to today (the reference values equal Millennium's `simulation.units`), preserving the byte-identical baseline.
+`set_units()` must derive `G`, `Hubble`, `RhoCrit`, `UnitTime_in_s`, `UnitDensity_in_cgs`, `UnitPressure_in_cgs`, `UnitEnergy_in_cgs`, and `UnitCoolingRate_in_cgs` from this fixed reference basis — **not** from any per-simulation catalog units. `read_parameter_file.c` no longer parses a `simulation.units` cgs block. For Millennium this yields numerically identical constants to today (the reference values equal Millennium's former `simulation.units`), preserving the byte-identical baseline.
 
 ### 4.2 Core property contract (core-owned)
 
-`src/core/core_properties.yaml` defines Mimic's canonical required halo/tree properties by **semantic role**, independent of any catalog's field names. For each canonical field it declares: name, C type/shape, role (tree-topology link, structural identifier, direct halo property, or derived core property), which core lifecycle stage creates/updates it, and whether it is required for processing, output, or both. It must **not** hard-code catalog field names or catalog-specific unit scales.
+`src/core/core_properties.yaml` is core machinery. **Users never edit it to add a simulation or a model.** It owns three things, none of which carry simulation-specific unit labels:
 
-Derived core properties (`Mvir`, `Rvir`, `Vvir`, `dT`) are computed by core helpers (`src/core/virial.c`) in reference units; their *output labels* are declared as in §4.4.
+1. **`reference_units`** — the fixed internal basis (§4.1).
+2. **Required inputs** — the canonical fields core needs the selected simulation to provide, declared by *role* only (tree-topology link, index, count, mass-input). No catalog names, no units. The simulation satisfies these via `core_property_map` (§4.3). This includes the merger-tree topology links (`Descendant`, `FirstProgenitor`, `NextProgenitor`, `FirstHaloInFOFgroup`, `NextHaloInFOFgroup`), which today are hand-coded in `src/include/types.h`; bringing them into metadata is part of this work.
+3. **Core-produced fields** — fields Mimic computes/stamps that are never read from disk:
+   - *Internal working state*, never output: `CentralHalo`, `HaloNr`.
+   - *Output identifiers*, simulation- and model-independent, dimensionless: `Type`, `UniqueGalaxyID`, `UniqueCentralGalaxyID`.
+   - *Derived/tracked physical fields*, output, with sim-dependent **dimension but no hard-coded unit label**: `Mvir`, `Rvir`, `Vvir`, `dT`, `deltaMvir`, `CentralMvir`, `infallMvir`, `infallVvir`, `infallVmax`. Core declares only their `dimension` (mass/length/velocity/time) and the core function that computes them (e.g. `get_virial_mass` in `src/core/virial.c`). Their output label defaults to the reference unit for that dimension; a simulation may override it (§4.4).
+
+Because core declares dimension rather than a fixed `1e10 Msun/h`-style label for derived fields, core is finally free of simulation-specific unit assumptions — resolving a long-standing defect.
 
 ### 4.3 Simulation contract (per-simulation, mandatory)
 
-`simulations/<simulation>/halo_properties.yaml` is the single source of truth for how a simulation satisfies the core contract. It is mandatory for every simulation package and contains:
+`simulations/<simulation>/halo_properties.yaml` is the single source of truth for everything about a simulation's on-disk halo catalog. It is mandatory for every simulation package and contains:
 
-1. A **field-name mapping** from canonical core fields to catalog source fields, with each mapped field's catalog units and h convention.
-2. Metadata for simulation-owned **optional** halo/catalog fields the model may use or output (e.g. `Pos`, `Vel`, `Spin`, `Vmax`, `VelDisp`), with catalog source, units, and h convention.
+1. **`core_property_map`** — the compulsory mapping that satisfies core's required inputs by naming the catalog column for each canonical role (e.g. `VirialMassInput: M_Crit200`). Each mapped name points at a real field defined in the `halo_properties` list below.
+2. **`halo_properties`** — every catalog field as represented on disk: its `source` (catalog column), `type`, `units` label, `h_convention`, whether it is `output`, and any output transform. The reader generates each field's catalog→reference conversion from `(units, h_convention)` + the registry. This list includes both the fields that satisfy core inputs (e.g. `SnapNum`, `Len`, the virial-mass-input column) and the simulation's own optional output fields (`Pos`, `Vel`, `Spin`, `Vmax`, `VelDisp`, `MostBoundID`).
 
-The native catalog cgs scale lives in `simulations/<simulation>/simulation_info.yaml` under `simulation.units` (its existing location), now interpreted strictly as the *catalog's native* scale used to compute conversion factors. Recommended mapping structure:
+The former global `simulation.units` cgs block is removed from `simulation_info.yaml`. Scalar quantities there that previously relied on the implicit global scale — `particle_mass` and `box_size` — gain explicit `units`/`h_convention` (see Appendix A.4). A worked `halo_properties.yaml` is in Appendix A.2.
 
-```yaml
-# simulations/<simulation>/halo_properties.yaml
-core_property_map:
-  # canonical_core_field: { source: <catalog field>, units/h for conversion }
-  Descendant:          { source: Descendant }            # topology link, no units
-  FirstProgenitor:     { source: FirstProgenitor }
-  FirstHaloInFOFgroup: { source: FirstHaloInFOFgroup }
-  SnapNum:             { source: SnapNum }
-  Len:                 { source: Len, units: particles }
-  MostBoundID:         { source: MostBoundID }
-  Mvir:                { source: M_Crit200, units: "1e10 Msun", h_convention: carried }
+Note the disambiguation the contract introduces: the catalog's spherical-overdensity mass column (`M_Crit200`) maps to the canonical role `VirialMassInput` and feeds `get_virial_mass`, which produces the core-owned derived output field `Mvir`. The old code conflated both under the name `Mvir`.
 
-halo_properties:        # optional, simulation-owned, output/model-facing
-  - name: Pos
-    source: Pos
-    type: vec3_float
-    units: "Mpc"
-    h_convention: carried
-    output: true
-    init_source: copy_from_tree_array
-```
+### 4.4 Output: ownership and labels
 
-The generator validates that the map satisfies every required core field before build/startup. The conversion factor for each mapped/optional field is computed from `(catalog unit in cgs) / (reference unit in cgs)` for its dimension, with an additional factor of little-h if the catalog and reference h conventions differ.
+Output metadata is the union of three sources, and a fresh team should expect all three to appear in an output file:
 
-### 4.4 Output labels (model- and simulation-owned)
+- **Core-produced fields** (§4.2.3) — the universal identifiers and the derived/tracked physical fields.
+- **Simulation catalog fields** (§4.3) — everything read from disk that is marked `output`.
+- **Model galaxy properties** (§4.5).
 
-Every output property declares the unit label it should be written in. The human-facing label is a free-form string (e.g. `1e10 Msun/h`, `Mpc/h`, `Msun`) — including the `/h` suffix when the value is h-carried — and is written verbatim to HDF5 `FieldMetadata` and the binary schema. The conversion math, however, is driven by the structured scale + `h_convention` fields, not by parsing that string, so the label and the value cannot silently diverge. Generated output code converts reference→label using those structured fields. When the label equals the reference unit, the conversion is identity and the value is written verbatim (preserving byte-identical Millennium output). Sentinels are preserved and never scaled unless explicitly declared physical. The existing `output_convert`/`output_transform` mechanism (used today for SFR, `log10(erg/s)` cooling/heating, Gyr times, and `dT`) is retained for genuinely custom or non-linear cases; metadata-driven conversion replaces only the linear unit conversions.
+Every output property declares (or, for derived core fields, inherits) the unit label it is written in. The human-facing label is a free-form string (e.g. `1e10 Msun/h`, `Mpc/h`, `Msun`) — including the `/h` suffix when the value is h-carried — and is written verbatim to HDF5 `FieldMetadata` and the binary schema. The conversion math, however, is driven by the structured scale + `h_convention` fields, not by parsing that string, so the label and the value cannot silently diverge. Generated output code converts reference→label using those structured fields. When the label equals the reference unit, the conversion is identity and the value is written verbatim (preserving byte-identical Millennium output). For derived core fields the output label defaults to the reference unit for the field's dimension; a simulation may override it (e.g. to output `Mvir` in `Msun` rather than `1e10 Msun/h`). Sentinels are preserved and never scaled unless explicitly declared physical. The existing `output_convert`/`output_transform` mechanism (used today for SFR, `log10(erg/s)` cooling/heating, Gyr times, and `dT`) is retained for genuinely custom or non-linear cases; metadata-driven conversion replaces only the linear unit conversions.
 
 ### 4.5 Model properties (model-owned)
 
-`models/<model>/model_properties.yaml` declares model-owned properties in model-facing/output units (the `units:`, `init_value:`, `range:`, `sentinels:`, output label). Where a model property has a physical dimension and a non-trivial `init_value`/`range`, generated code converts those into reference units for storage/processing and converts back for output. Properties whose `init_value` is `0.0`/sentinel (the common case in SAGE) need no input conversion.
+`models/<model>/model_properties.yaml` declares model-owned galaxy properties in model-facing/output units (the `units:`, `init_value:`, `range:`, `sentinels:`, output label). Where a model property has a physical dimension and a non-trivial `init_value`/`range`, generated code converts those into reference units for storage/processing and converts back for output. Properties whose `init_value` is `0.0`/sentinel (the common case in SAGE) need no input conversion.
 
-### 4.6 Parameters (model-owned, opt-in)
+### 4.6 Parameters (model-owned, opt-in, model-global)
 
-Model parameters stay raw by default and continue to flow through `model_get_double/int/string()`. A parameter that Mimic must compare against internal physical values declares optional `units`/`h` metadata **on its existing declaration in `module_info.yaml`** — no separate `parameter_units.yaml` file. A generated/shared accessor (`model_get_double_internal()` or equivalent) exposes the converted value; the raw accessors keep current behavior. Today the only dimensional parameter in the repo is SHAM's `ShamMinMpeak` (a mass threshold, currently converted inline as `mpeak * 1.0e10 / h` in `sham_assign_stellar_mass.c`); it is the first and currently only consumer.
+Parameters are **global to a run, not module-owned**: they are declared with values in the run YAML under `modules.parameters:`, read by name via `model_get_double/int/string()` from a global pool, and a single parameter may be used by several modules. Their unit metadata therefore belongs at model-global scope — not in `module_info.yaml` (which would duplicate the unit across every module that uses the parameter) and not in the run YAML (which is per-run and would repeat and risk drift).
+
+A model that has dimensional parameters needing conversion ships an opt-in `models/<model>/parameter_units.yaml`, listing only those parameters. Absent or empty (`parameters: []`) means every parameter stays raw exactly as today. A generated/shared accessor (`model_get_double_internal()` or equivalent) exposes the converted value; the raw accessors keep current behavior. Today the only dimensional parameter in the repo is SHAM's `ShamMinMpeak` (a mass threshold, currently converted inline as `mpeak * 1.0e10 / h` in `sham_assign_stellar_mass.c`); it is the first and currently only consumer. See Appendix A.3.
 
 ---
 
@@ -163,8 +159,8 @@ A "detect incompatible units and abort" approach is cheap and safe, but with Uch
 ### 5.4 What is deliberately not built
 
 - No general symbolic unit algebra — only a small registry of the labels Mimic actually uses (§7.3).
-- No `h_power`/`dimension` field sprinkled onto every internal property. The h convention is declared only where conversion happens (catalog mapping and output labels). Under the byte-identical constraint, internal values stay h-carried, so a universal internal `h_power` could only ever multiply by 1.
-- No separate `parameter_units.yaml` (folded into `module_info.yaml`, §4.6).
+- No `h_power`/`dimension` field sprinkled onto every internal property. The h convention is declared only where conversion happens (catalog field labels and output labels). Under the byte-identical constraint, internal values stay h-carried, so a universal internal `h_power` could only ever multiply by 1.
+- No parameter-unit metadata in `module_info.yaml`. Parameters are global, not module-owned (§4.6); their units live in a model-global `parameter_units.yaml`.
 - No model-physics "unit-agnostic" audit — unnecessary because internal == reference always.
 
 ---
@@ -188,34 +184,36 @@ The real optimization levers for Uchuu-scale data are streaming/forest-chunked r
 
 ### 7.1 Decouple reference units from catalog units
 
-- Introduce core-owned reference-unit metadata (§4.1).
-- Change `set_units()` (`src/core/init.c:77`) to derive constants from the reference basis. Keep `simulation.units` parsing in `read_parameter_file.c`, but its values now feed only the conversion-factor generator, not `set_units()`.
-- Convert `PartMass` (`simulation.particle_mass`) from catalog units into reference units before use in `get_virial_mass()` (`src/core/virial.c`). Identity for Millennium.
+- Introduce core-owned `reference_units` metadata (§4.1, Appendix A.1).
+- Change `set_units()` (`src/core/init.c:77`) to derive constants from the reference basis.
+- Remove the global `simulation.units` cgs block from `simulation_info.yaml`; remove its parsing from `read_parameter_file.c`. The catalog scale now comes from per-field labels + the registry.
+- Give `particle_mass` and `box_size` explicit `units`/`h_convention` in `simulation_info.yaml`; convert `particle_mass` into reference units before use in `get_virial_mass()` (`src/core/virial.c`). Identity for Millennium.
 
 ### 7.2 Core/simulation contract split and field-name mapping
 
-- `src/core/core_properties.yaml`: reduce to canonical required fields + derived core fields by semantic role; remove catalog-specific unit scales/ranges that belong to simulations.
-- `simulations/<simulation>/halo_properties.yaml`: add the mandatory `core_property_map` plus optional simulation-owned fields (§4.3).
-- `scripts/generate_properties.py`: load the core contract + simulation map; validate completeness; generate the canonical-field copy-in from `source` mappings; merge optional simulation-owned fields into the halo/output schema.
+- `src/core/core_properties.yaml`: restructure into `reference_units` + required-input contract + core-produced fields (internal, identifiers, derived-by-dimension). Remove all simulation-specific unit/range labels (§4.2, Appendix A.1).
+- `simulations/<simulation>/halo_properties.yaml`: add the mandatory `core_property_map` plus the full catalog `halo_properties` list with per-field labels (§4.3, Appendix A.2).
+- Bring the merger-tree topology links into the metadata system (they are currently hand-coded in `src/include/types.h`).
+- `scripts/generate_properties.py`: load the core contract + simulation map; validate completeness; generate the canonical-field copy-in from `source` mappings; merge catalog fields and core-produced fields into the halo/output schema.
 - `src/include/generated/populate_halo_payload_from_tree.inc`: now generated from the mapping rather than assuming name matches.
 - `src/include/types.h` / tree readers (`src/io/tree/binary.c`, `src/io/tree/hdf5.c`): the `RawHalo` layout and `READ_TREE_PROPERTY` calls become driven by the simulation's declared catalog fields. The first implementation may keep the existing `RawHalo` shape for LHaloTree inputs while making the mapping the source of truth.
 
 ### 7.3 Small unit registry and conversion-factor generation
 
-- Add a small explicit registry in the generator covering only the labels Mimic uses: mass (`Msun`, `1e10 Msun`), length (`cm`, `kpc`, `Mpc`), velocity (`cm/s`, `km/s`), time (`s`, `yr`, `Myr`, `Gyr`), energy/luminosity (`erg`, `erg/s`), the structural labels (`index`, `identifier`, `count`, `particles`), and the special labels (`dimensionless`, `dex`, `Internal`, `log10(...)`). Unknown labels fail validation.
+- Add a small explicit registry in the generator covering only the labels Mimic uses: mass (`Msun`, `1e10 Msun`), length (`cm`, `kpc`, `Mpc`), velocity (`cm/s`, `km/s`), time (`s`, `yr`, `Myr`, `Gyr`), energy/luminosity (`erg`, `erg/s`), the structural labels (`index`, `identifier`, `count`, `particles`), and the special labels (`dimensionless`, `dex`, `Internal`, `log10(...)`). The registry maps each label to cgs. Unknown labels fail validation.
 - For each dimensioned field, generate the catalog→reference factor (for input) and reference→label factor (for output), applying a factor of little-h only when h conventions differ.
 
 ### 7.4 Metadata-driven output
 
-- `scripts/generate_properties.py`: generate reference→label conversion for output properties from metadata; emit identity when label equals reference; retain manual `output_convert`/`output_transform` for custom/non-linear cases; preserve sentinels.
+- `scripts/generate_properties.py`: generate reference→label conversion for output properties from metadata; emit identity when label equals reference; default derived-core-field labels to the reference unit with optional simulation override; retain manual `output_convert`/`output_transform` for custom/non-linear cases; preserve sentinels.
 - Make the HDF5 `FieldMetadata` and binary schema writers emit the label that matches the generated conversion (so value == label by construction).
 - Add a **generation-time assertion**: any property whose output label differs from its reference unit must have a conversion (generated or manual); otherwise `make generate` fails.
 
 ### 7.5 Opt-in parameter units
 
-- `models/*/modules/*/module_info.yaml`: allow optional `units`/`h` on parameter declarations.
-- `scripts/discovery.py`, `scripts/validate_modules.py`, `scripts/lint_parameter_usage.py`: discover and validate parameter-unit metadata; cross-check against declared/used parameters.
-- Add one converted accessor (e.g. `model_get_double_internal()`); keep raw accessors unchanged. Migrate only `ShamMinMpeak` initially.
+- Add `models/<model>/parameter_units.yaml` (opt-in; absent/empty ⇒ all raw). See Appendix A.3.
+- `scripts/discovery.py`, `scripts/validate_modules.py`, `scripts/lint_parameter_usage.py`: discover and validate `parameter_units.yaml`; cross-check its entries against parameters actually declared in the run YAML and used by modules.
+- Add one converted accessor (e.g. `model_get_double_internal()`) in `src/core/module_registry.c`; keep raw accessors unchanged. Migrate only `ShamMinMpeak` initially.
 
 ---
 
@@ -237,7 +235,7 @@ This makes output trustworthy and de-duplicates conversions with no change to th
 
 ### Phase 3 — Reference basis and boundary conversion
 
-- Implement §7.1 and §7.3. `set_units()` derives from the reference basis; the reader converts catalog→reference at copy-in; `PartMass` converted. Millennium = identity factors = byte-identical. This is what lets Uchuu's different unit scale and h convention work.
+- Implement §7.1 and §7.3. `set_units()` derives from the reference basis; the global `simulation.units` block is removed; the reader converts catalog→reference at copy-in; `particle_mass` converted. Millennium = identity factors = byte-identical. This is what lets Uchuu's different unit scale and h convention work.
 
 ### Phase 4 — Metadata-driven output and model-property input conversion
 
@@ -258,10 +256,10 @@ Explicitly out of scope. Because internal == reference units for every simulatio
 Validation must fail before a long run when:
 
 - a simulation package lacks `halo_properties.yaml` or `simulation_info.yaml`;
-- a required core property has no simulation mapping, or a mapped `source` names a catalog field the selected tree reader cannot provide;
-- a physical property/field uses an unknown unit label or lacks a needed h convention;
+- a required core input has no `core_property_map` entry, or a mapped `source` names a catalog field the selected tree reader cannot provide;
+- a catalog field or output property uses an unknown unit label or lacks a needed h convention;
 - an output label differs from the reference unit but has no conversion (generation-time assertion);
-- a dimensional parameter requests conversion but lacks supported units, or `module_info.yaml` parameter-unit metadata references an unknown/unused parameter;
+- `parameter_units.yaml` references a parameter that is not declared in the run YAML or used by any module, or requests conversion with an unsupported unit;
 - a range/sentinel cannot be converted, or an output conversion is ambiguous.
 
 These checks live in `make generate`, `make validate-modules`, and startup validation as appropriate.
@@ -272,7 +270,7 @@ These checks live in `make generate`, `make validate-modules`, and startup valid
 
 These exist today and are addressed in Phase 1, independent of the engine:
 
-- **Hard-coded code-unit constant in the scientific test.** `tests/scientific/test_scientific.py:434` sets `G_CODE = 43.00710968931344` (and `C_LIGHT` at `:437`), valid only for Millennium units; the virial-relation check at `:449,467` would assert a wrong constant under other units. Compute `G` from the active reference/simulation units.
+- **Hard-coded code-unit constant in the scientific test.** `tests/scientific/test_scientific.py:434` sets `G_CODE = 43.00710968931344` (and `C_LIGHT` at `:437`), valid only for Millennium units; the virial-relation check at `:449,467` would assert a wrong constant under other units. Compute `G` from the active reference units.
 - **Inconsistent mass conversion in a plot.** `models/sage16/plots/figures/mass_reservoir_scatter.py:85-92` applies bare `* 1.0e10` (no `/ hubble_h`) while loading `hubble_h` at `:64` and ignoring it; every other figure divides by `hubble_h`. The masses in this plot are in a different unit than the rest, unflagged.
 - **Silent cosmology fallback.** `sfr_density_evolution.py` and `stellar_mass_density_evolution.py` default `hubble_h` to `0.73`/`0.7` if absent from metadata, silently assuming Millennium.
 - **Unused schema reader / duplicated conversions.** `plot/mimic-plot/output_schema.py:94` defines `units_from_schema()` but no figure or test calls it; 18 figures under `models/sage16/plots/figures/` hard-code `* 1.0e10` mass conversions. Centralize via a shared helper that reads the schema label.
@@ -281,26 +279,27 @@ These exist today and are addressed in Phase 1, independent of the engine:
 
 ## 11. Affected Code Areas
 
-- `src/core/read_parameter_file.c` — parses `simulation.units` (now catalog-native scale, feeds conversion generation only).
+- `src/core/read_parameter_file.c` — stop parsing the `simulation.units` cgs block; read `particle_mass`/`box_size` with their unit labels.
 - `src/core/init.c` (`set_units`) — derive constants from the fixed reference basis.
-- `src/core/virial.c` — virial helpers in reference units; convert `PartMass`.
-- `src/core/core_properties.yaml` — canonical core contract; add `reference_units` (or a dedicated core units file).
-- `src/include/types.h`, `src/io/tree/binary.c`, `src/io/tree/hdf5.c` — catalog field access driven by the simulation mapping.
+- `src/core/virial.c` — virial helpers in reference units; convert `particle_mass`; produce derived core fields.
+- `src/core/core_properties.yaml` — restructured into `reference_units` + required-input contract + core-produced fields (Appendix A.1).
+- `src/include/types.h`, `src/io/tree/binary.c`, `src/io/tree/hdf5.c` — catalog field access driven by the simulation mapping; topology links brought into metadata.
 - `scripts/generate_properties.py` — contract merge, mapping-driven copy-in, unit registry, conversion-factor generation, metadata-driven output, label/value assertion.
 - `src/include/generated/property_defs.h`, `src/include/generated/populate_halo_payload_from_tree.inc` — generated from the contract + mapping.
 - `src/io/output/util.c`, `src/io/output/hdf5.c`, `src/io/output/metadata_hdf5.c` — generated output values/metadata.
 - `plot/mimic-plot/output_schema.py` and `models/*/plots/**` — schema-aware reading; remove hard-coded conversions.
 - `src/core/module_registry.c` — converted parameter accessor.
-- `scripts/discovery.py`, `scripts/validate_modules.py`, `scripts/lint_parameter_usage.py` — parameter-unit discovery/validation.
-- `simulations/*/{simulation_info.yaml,halo_properties.yaml}` — catalog scale + mandatory `core_property_map` + optional fields.
-- `models/*/model_properties.yaml`, `models/*/modules/*/module_info.yaml` — model output labels, optional parameter units.
-- `tests/scientific/test_scientific.py` and baseline/unit/integration tests — compute unit-dependent constants from active units; protect Millennium parity.
+- `scripts/discovery.py`, `scripts/validate_modules.py`, `scripts/lint_parameter_usage.py` — `parameter_units.yaml` discovery/validation.
+- `simulations/*/simulation_info.yaml` — remove `units` cgs block; add labels to `particle_mass`/`box_size`.
+- `simulations/*/halo_properties.yaml` — `core_property_map` + full catalog field list with per-field labels (Appendix A.2).
+- `models/*/model_properties.yaml` — model output labels; `models/*/parameter_units.yaml` — opt-in dimensional parameter units (Appendix A.3).
+- `tests/scientific/test_scientific.py` and baseline/unit/integration tests — compute unit-dependent constants from reference units; protect Millennium parity.
 
 ---
 
 ## 12. Alignment with the Vision
 
-- **Physics-agnostic core:** unit conversion lives at the I/O boundary and in generated code; the core owns the reference basis and validation without depending on a model.
+- **Physics-agnostic core:** unit conversion lives at the I/O boundary and in generated code; the core owns the reference basis and validation without depending on a model, and no longer hard-codes simulation-specific unit labels.
 - **Runtime modularity:** model/simulation combinations stay selectable; unit compatibility becomes explicit and validated.
 - **Metadata as structural truth:** the reference basis, core contract, simulation mapping, output labels, and opt-in parameter units drive catalog mapping, conversion, output labels, defaults, ranges, and validation.
 - **One coherent processing model:** all internal processing uses the single reference unit system.
@@ -309,14 +308,137 @@ These exist today and are addressed in Phase 1, independent of the engine:
 
 ---
 
-## 13. Open Questions to Confirm with Uchuu's Real Numbers
+## 13. Open Questions and Items Flagged for Review
 
-- **Uchuu's catalog conventions:** confirm Uchuu's mass scale, length unit, and h convention (carried vs. free), and its catalog field names, to fill in `simulation_info.yaml` and `core_property_map`.
+To confirm with Uchuu's real numbers:
+
+- **Uchuu's catalog conventions:** confirm Uchuu's mass scale, length unit, and h convention (carried vs. free), and its catalog field names, to fill in `core_property_map` and the catalog field labels.
 - **Reference-basis precision:** confirm Uchuu's value ranges (very high-mass halos, fine mass resolution) stay within `float` after conversion into reference units. If any field's dynamic range is uncomfortable, widen that specific field to `double` — do not abandon the reference basis. Precision is a per-field type decision, not a reason to make internal units track the simulation.
 - **Tree format/reader:** confirm whether Uchuu trees use an existing reader (LHaloTree binary/HDF5) or need a new format reader; the field mapping must name fields the selected reader can provide.
+
+Flagged for review during planning:
+
+- **Can the copied property YAMLs be dropped from the run metadata directory?** Each run currently snapshots `core_properties.yaml`, `model_properties.yaml`, and the simulation `halo_properties.yaml` into `<output>/metadata/` for provenance (`src/core/main.c:write_run_metadata`), alongside the generated `output_schema.json`. Under this design the output's field-level self-description (name, units, description) lives entirely in `output_schema.json` (and the HDF5 `FieldMetadata`/`RunProperties`), and these YAML files become generation-time inputs whose output-relevant content the schema already captures. Their role is therefore changing. During planning, review whether copying them is still needed for provenance or is now redundant — and if redundant, omit them from the output. (A single combined output-metadata file was considered and set aside in favor of this review.)
 
 ---
 
 ## 14. Decision
 
-Adopt a single fixed internal reference unit system equal to today's effective code units, convert each simulation's catalog into reference units at the tree-reader boundary (never by transcoding the dataset), keep all core and model physics in reference units unchanged, drive output conversion and labels from metadata so the written value always matches its label, and make dimensional-parameter conversion opt-in on the existing module metadata. Treat the value of little-h as a per-simulation cosmological parameter and the catalog's h convention as a boundary-conversion concern. Preserve Millennium byte-identical output as the regression guardrail throughout. Keep the supported unit set small and fail loudly when metadata is insufficient.
+Adopt a single fixed internal reference unit system equal to today's effective code units, declared once in core, and convert each simulation's catalog into reference units at the tree-reader boundary (never by transcoding the dataset). Keep all core and model physics in reference units unchanged. Split metadata so core owns the required-input contract plus the fields it produces (by dimension, not simulation unit), and the simulation package owns its full on-disk catalog description plus the compulsory mapping; remove the redundant global `simulation.units` cgs block. Drive output conversion and labels from metadata so the written value always matches its label. Make dimensional-parameter conversion opt-in via a model-global `parameter_units.yaml`. Treat the value of little-h as a per-simulation cosmological parameter and the catalog's h convention as a boundary-conversion concern. Preserve Millennium byte-identical output as the regression guardrail throughout. Keep the supported unit set small and fail loudly when metadata is insufficient.
+
+---
+
+## Appendix A: Example Metadata Files
+
+Illustrative and abbreviated (entries trimmed with `...`); they show structure and new content, not the complete field set.
+
+### A.1 `src/core/core_properties.yaml` (core machinery — never edited per simulation)
+
+```yaml
+# Fixed internal reference unit system. set_units() derives G, Hubble, RhoCrit,
+# etc. from this. Declared once; identical for every simulation.
+reference_units:
+  mass:     { label: "1e10 Msun", in_g: 1.989e43,     h_convention: carried }
+  length:   { label: "Mpc",       in_cm: 3.08568e24,  h_convention: carried }
+  velocity: { label: "km/s",      in_cm_per_s: 1.0e5, h_convention: none }
+
+# Canonical fields core REQUIRES the simulation to provide (by role, no units,
+# no catalog names). Satisfied by core_property_map in halo_properties.yaml.
+required_inputs:
+  - { name: Descendant,          role: tree_link }
+  - { name: FirstProgenitor,     role: tree_link }
+  - { name: NextProgenitor,      role: tree_link }
+  - { name: FirstHaloInFOFgroup, role: tree_link }
+  - { name: NextHaloInFOFgroup,  role: tree_link }
+  - { name: SnapNum,             role: index }
+  - { name: Len,                 role: count }
+  - { name: VirialMassInput,     role: mass }   # catalog spherical-overdensity mass; feeds get_virial_mass
+
+# Core-produced fields (computed/stamped by Mimic, never read from disk).
+core_produced:
+  internal:            # working state, never output, never in metadata
+    - { name: CentralHalo, type: int }
+    - { name: HaloNr,      type: int }
+
+  identifiers:         # output, simulation- AND model-independent, dimensionless
+    - { name: Type,                  type: int,       description: "0=central,1=satellite,2=orphan" }
+    - { name: UniqueGalaxyID,        type: long long }
+    - { name: UniqueCentralGalaxyID, type: long long }
+
+  derived:             # output; dimension only — NO sim-specific unit label.
+                       # output label defaults to reference unit; sim may override.
+    - { name: Mvir,        type: float,  dimension: mass,     computed_by: get_virial_mass }
+    - { name: Rvir,        type: float,  dimension: length,   computed_by: get_virial_radius }
+    - { name: Vvir,        type: float,  dimension: velocity, computed_by: get_virial_velocity }
+    - { name: dT,          type: double, dimension: time }
+    - { name: deltaMvir,   type: float,  dimension: mass }
+    - { name: CentralMvir, type: float,  dimension: mass }
+    - { name: infallMvir,  type: float,  dimension: mass }
+    - { name: infallVvir,  type: float,  dimension: velocity }
+    # ... infallVmax ...
+```
+
+### A.2 `simulations/mini-millennium/halo_properties.yaml` (per simulation — user-owned)
+
+```yaml
+# Compulsory mapping: satisfy each core required-input role with a catalog column
+# (each value names a field defined in halo_properties below).
+core_property_map:
+  Descendant:          Descendant
+  FirstProgenitor:     FirstProgenitor
+  NextProgenitor:      NextProgenitor
+  FirstHaloInFOFgroup: FirstHaloInFOFgroup
+  NextHaloInFOFgroup:  NextHaloInFOFgroup
+  SnapNum:             SnapNum
+  Len:                 Len
+  VirialMassInput:     M_Crit200      # Uchuu would name a different column here
+
+# Every catalog field as represented on disk. `units` is the on-disk label and
+# `h_convention` whether little-h is carried; the reader generates catalog->reference
+# conversion from these. `output` (and any transform) controls how it is written.
+halo_properties:
+  - { name: SnapNum,     source: SnapNum,     type: int,        units: dimensionless, output: true }
+  - { name: Len,         source: Len,         type: int,        units: particles,     output: true }
+  - { name: M_Crit200,   source: M_Crit200,   type: float,      units: "1e10 Msun", h_convention: carried, output: false }
+  - { name: MostBoundID, source: MostBoundID, type: long long,  units: dimensionless, output: true }
+  - name: Pos
+    source: Pos
+    type: vec3_float
+    units: "Mpc"               # written label resolves to "Mpc/h" (h_convention: carried)
+    h_convention: carried
+    output: true
+  - { name: Vmax,    source: Vmax,    type: float, units: "km/s", output: true }
+  - { name: VelDisp, source: VelDisp, type: float, units: "km/s", output: true }
+  # ... Vel (vec3, km/s), Spin (vec3, dimensionless) ...
+```
+
+### A.3 `models/sham/parameter_units.yaml` (model — opt-in; absent/empty ⇒ all raw)
+
+```yaml
+# List ONLY dimensional parameters that Mimic must convert to reference units.
+# All others stay raw via model_get_double(), exactly as today.
+parameters:
+  - name: ShamMinMpeak
+    type: double
+    units: "1e10 Msun"
+    h_convention: carried
+    convert: true
+
+# A model with no dimensional parameters ships:
+#   parameters: []
+```
+
+### A.4 `simulations/mini-millennium/simulation_info.yaml` (units block removed)
+
+```yaml
+simulation:
+  cosmology:
+    omega_matter: 0.25
+    omega_lambda: 0.75
+    hubble_h: 0.73                                     # value of little-h (cosmology, not a unit)
+  box_size:      { value: 62.5,      units: "Mpc",      h_convention: carried }
+  particle_mass: { value: 0.0860657, units: "1e10 Msun", h_convention: carried }
+  # REMOVED: the former units: { length_in_cm, mass_in_g, velocity_in_cm_per_s }
+  # block. Reference units live in core; per-field labels + the unit registry
+  # define every catalog scale.
+```
