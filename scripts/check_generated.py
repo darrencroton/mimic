@@ -45,6 +45,7 @@ PROPERTY_YAML_FILES = halo_property_files() + model_property_files() + parameter
 # Property-generated files to check
 PROPERTY_GENERATED_FILES = [
     REPO_ROOT / "src" / "include" / "generated" / "property_defs.h",
+    REPO_ROOT / "src" / "include" / "generated" / "raw_halo_defs.h",
     REPO_ROOT / "src" / "include" / "generated" / "reference_units.h",
     REPO_ROOT / "src" / "include" / "generated" / "unit_registry.h",
     REPO_ROOT / "src" / "include" / "generated" / "tree_property_accessors.h",

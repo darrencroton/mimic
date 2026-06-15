@@ -176,7 +176,7 @@ Core data structures:
 
 | Structure | Role |
 | --- | --- |
-| `InputTreeHalos` / `struct RawHalo` | Immutable input merger tree data |
+| `InputTreeHalos` / `struct RawHalo` | Immutable input merger tree data (`struct RawHalo` is generated from the simulation's `halo_properties.yaml`) |
 | `FoFWorkspace` / `struct Halo` | Temporary processing workspace modified by modules |
 | `ProcessedHalos` / `struct Halo` | Tree-driver output buffer and processed progenitor state |
 | `OutputBufferSegment` | Driver-supplied range/snapshot metadata for shared output marshalling |
@@ -611,12 +611,22 @@ Every quantity entering from a catalog or a parameter declares its own units and
 
 The generator emits a linear conversion — a cgs scale factor, plus a factor of `MimicConfig.Hubble_h` where the source and target `h_convention` differ — into `src/include/generated/unit_registry.h`. Catalog fields are converted at the tree-reader boundary; output labels come from the reference basis, so a written value always matches its label. Millennium catalogs are already in the reference basis, so their conversion is the identity and output stays byte-identical.
 
-**Adding a catalog whose units differ from Millennium.** Declare the on-disk units in `catalog_properties`; the generator converts them. For example, a catalog storing masses in `Msun` (h-free) and positions in `Mpc` (h-free):
+**Adding a catalog whose units differ from Millennium.** Declare the on-disk units on the field's entry in the simulation's single `halo_properties` list (see [halo_properties.yaml](#halo_propertiesyaml)); the generator converts them. For example, a catalog storing the virial-mass column in `Msun` (h-free) under a different on-disk name, and positions in `Mpc` (h-free):
 
 ```yaml
-catalog_properties:
-  - { name: Mvir, type: float, units: Msun, h_convention: free, raw_member: Mvir, hdf5_source: Mvir }
-  - { name: Pos,  type: vec3_float, units: Mpc, h_convention: free, raw_member: Pos, hdf5_source: Pos }
+halo_properties:
+  - name: M_Crit200
+    source: Mass_200crit   # on-disk dataset/column name (defaults to `name`)
+    type: float
+    units: Msun
+    h_convention: free
+  - name: Pos
+    type: vec3_float
+    units: Mpc
+    h_convention: free
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
 ```
 
 The reader converts `Msun → 1e10 Msun/h` (× 1e-10 × `Hubble_h`) and `Mpc → Mpc/h` (× `Hubble_h`) on copy-in. No core or module code changes — only the catalog metadata.
@@ -721,28 +731,38 @@ These values drive all redshift and timestep calculations. Mimic counts snapshot
 
 ### halo_properties.yaml
 
-This file declares how the simulation's on-disk catalog satisfies Mimic's core input contract and which catalog fields become output properties. `core_property_map` maps core-required roles such as `VirialMassInput` onto catalog properties. `catalog_properties` describes raw catalog fields, their `RawHalo` member or HDF5 dataset source, units, and `h_convention`. The output-facing `halo_properties` list contains simulation-owned catalog fields such as positions, velocities, spin parameters, and particle IDs.
+This file is the single self-contained description of the simulation's on-disk halo catalog. It has two parts:
 
-The generator includes exactly one simulation package at a time, selected with `SIMULATION=<name>`. Adding a new simulation package is not enough by itself; regenerate and rebuild with that selector so the executable, `struct Halo`, output schema, validation ranges, and module dependency checks all use the intended catalog properties.
+- `core_property_map` maps each core required-input role (declared in `src/core/core_properties.yaml` under `required_inputs`, e.g. `HaloMass`, the tree links, `SnapNum`, `Len`) onto a field `name` in the list below.
+- `halo_properties` lists **every** field of the on-disk catalog record, **in on-disk order**. This one list is the source of truth for the generated `struct RawHalo` (the binary record layout) and the HDF5 reader. An entry that Mimic copies into a halo property and/or writes to output also carries `output`, `init_source`, `output_source`, `description`, and `range`; entries with none of those (tree links, the virial-mass input, unused accounting fields) are registered for a complete record but produce no halo property.
 
-- Property names must be unique within the selected `src/core/core_properties.yaml` + `simulations/<SIMULATION>/halo_properties.yaml` + `models/<MODEL>/model_properties.yaml` set. Incompatible duplicate names fail at generation time.
+Per-entry keys: `name` (the generated `RawHalo` member and Mimic-internal name), `source` (the on-disk dataset/column name, defaulting to `name` — declare it only when they differ), `type`, and, for dimensioned fields, `units` and `h_convention`. There is no separate `catalog_properties` list and no hand-written `raw_member`: the struct is generated from this list, so list order and types are the binary layout.
+
+The generator includes exactly one simulation package at a time, selected with `SIMULATION=<name>`. Adding a new simulation package is not enough by itself; regenerate and rebuild with that selector so the executable, `struct RawHalo`, `struct Halo`, output schema, validation ranges, and module dependency checks all use the intended catalog.
+
+- A field name must be unique within the selected `src/core/core_properties.yaml` + `simulations/<SIMULATION>/halo_properties.yaml` + `models/<MODEL>/model_properties.yaml` set. A name that is both an on-disk field and a core-owned halo property (e.g. `SnapNum`, `Len`) is bound by `core_property_map`, not duplicated as a separate halo property. Incompatible duplicate names fail at generation time.
 - After adding or editing the default simulation package, run `make generate` followed by `make`. For another simulation, run `make SIMULATION=<name> generate` followed by `make SIMULATION=<name>`; add `MODEL=<name>` too when pairing it with a non-default model.
 
-Property metadata schema is the same as for core halo properties:
-
 ```yaml
-halo_properties:
-  - name: MostBoundID
-    type: long long
-    units: dimensionless
-    description: ID of most bound particle
-    output: true
-    init_source: copy_from_tree
-    output_source: copy_direct
+core_property_map:
+  SnapNum: SnapNum
+  Len: Len
+  HaloMass: M_Crit200
+  # ... tree links ...
 
+halo_properties:
+  # catalog-only entry (registered for the on-disk record; not a halo property)
+  - name: M_Crit200
+    source: Mvir            # on-disk dataset name differs from the Mimic name
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+
+  # output halo property copied from the tree
   - name: Pos
     type: vec3_float
     units: Mpc/h
+    h_convention: carried
     description: 3D position vector (comoving)
     output: true
     init_source: copy_from_tree_array
@@ -1117,6 +1137,7 @@ Common optional fields:
 
 | Field | Meaning |
 | --- | --- |
+| `source` | (Simulation catalog fields) on-disk dataset/column name; defaults to `name`. Declare only when the on-disk name differs |
 | `dimension` | Physical dimension (`mass`, `length`, `velocity`, `time`, …); usually inferred from `units`. See [Units and the Reference Basis](#units-and-the-reference-basis) |
 | `h_convention` | Hubble-parameter convention: `carried`, `free`, or `none`; defaults to the registry value for `units` |
 | `init_source` | Initialization method; defaults differ by property category and generator context |

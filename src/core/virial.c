@@ -51,10 +51,10 @@
  * particles × particle mass.
  */
 double get_virial_mass(int halonr) {
-  const double virial_mass_input = mimic_tree_get_VirialMassInput(halonr);
+  const double halo_mass = mimic_tree_get_HaloMass(halonr);
 
-  if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup && virial_mass_input >= 0.0)
-    return virial_mass_input; /* take spherical overdensity mass estimate */
+  if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup && halo_mass >= 0.0)
+    return halo_mass; /* take spherical overdensity mass estimate */
   else
     return mimic_tree_get_Len(halonr) * MimicConfig.PartMass;
 }

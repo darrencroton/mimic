@@ -5,13 +5,9 @@
 
 model:
   name: sage16
-  path: models/sage16
-  model_properties: models/sage16/model_properties.yaml
 simulation:
-  name: test_mini-millennium
-  path: tests/data
+  name: mini-millennium
   config: tests/data/test_simulation.yaml
-  halo_properties: simulations/mini-millennium/halo_properties.yaml
 output:
   output_filename: model
   output_directory: ./tests/data/output/binary/
@@ -21,8 +17,6 @@ output:
 SubSteps: 1
 modules:
   parameters: {}
-plotting:
-  profile: models/sage16/plots/profiles/mini-millennium_plot_profile.yaml
 input:
   first_file: 0
   last_file: 0

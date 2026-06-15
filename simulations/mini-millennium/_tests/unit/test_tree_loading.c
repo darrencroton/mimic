@@ -185,14 +185,14 @@ int test_tree_data_validity(void) {
     struct RawHalo *h = &InputTreeHalos[i];
 
     /* Check for NaN/Inf in critical fields */
-    TEST_ASSERT(isfinite(h->Mvir), "Mvir should be finite");
+    TEST_ASSERT(isfinite(h->M_Crit200), "M_Crit200 should be finite");
     TEST_ASSERT(isfinite(h->Vmax), "Vmax should be finite");
     TEST_ASSERT(isfinite(h->Pos[0]), "Pos[0] should be finite");
     TEST_ASSERT(isfinite(h->Pos[1]), "Pos[1] should be finite");
     TEST_ASSERT(isfinite(h->Pos[2]), "Pos[2] should be finite");
 
     /* Check that masses are positive */
-    TEST_ASSERT(h->Mvir > 0, "Mvir should be positive");
+    TEST_ASSERT(h->M_Crit200 > 0, "M_Crit200 should be positive");
     TEST_ASSERT(h->Len > 0, "Len should be positive");
 
     /* Check snapshot number is reasonable */
@@ -207,7 +207,7 @@ int test_tree_data_validity(void) {
     struct RawHalo *h = &InputTreeHalos[0];
     printf("  Sample halo [0]:\n");
     printf("    SnapNum: %d\n", h->SnapNum);
-    printf("    Mvir: %.2e\n", h->Mvir);
+    printf("    M_Crit200: %.2e\n", h->M_Crit200);
     printf("    Vmax: %.2f\n", h->Vmax);
     printf("    Len: %d\n", h->Len);
   }

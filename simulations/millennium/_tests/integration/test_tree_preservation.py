@@ -229,10 +229,10 @@ def validate_copied_properties(input_halo, output_halo, halonr, input_halos, rto
     # If halonr == FirstHaloInFOFgroup AND Mvir >= 0.0, then Mvir is copied
     if output_halo.Type == 0:  # Central halo
         is_fof_central = halonr == input_halos[halonr].FirstHaloInFOFgroup
-        has_valid_mvir = input_halo["Mvir"] >= 0.0
+        has_valid_mvir = input_halo["M_Crit200"] >= 0.0
 
         if is_fof_central and has_valid_mvir:
-            in_val = input_halo["Mvir"]
+            in_val = input_halo["M_Crit200"]
             out_val = output_halo["Mvir"]
             if not np.isclose(in_val, out_val, rtol=rtol, atol=0):
                 rel_diff = abs(in_val - out_val) / (abs(in_val) + 1e-30)
@@ -441,7 +441,7 @@ def generate_markdown_report(
             halonr = in_idx
             if out_halo.Type == 0 and halonr < len(input_halos):
                 is_fof_central = halonr == input_halos[halonr].FirstHaloInFOFgroup
-                has_valid_mvir = in_halo["Mvir"] >= 0.0
+                has_valid_mvir = in_halo["M_Crit200"] >= 0.0
                 if is_fof_central and has_valid_mvir:
                     props_to_check.append(("Mvir", False, None))
 
@@ -505,14 +505,14 @@ def generate_markdown_report(
         md.write("**Statistics:**\n")
         md.write(f"- Len range: {np.min(unmatched_halos.Len)} - {np.max(unmatched_halos.Len)}\n")
         md.write(
-            f"- Mvir range: {np.min(unmatched_halos.Mvir):.3f} - {np.max(unmatched_halos.Mvir):.3f} (1e10 Msun/h)\n"
+            f"- Mvir range: {np.min(unmatched_halos.M_Crit200):.3f} - {np.max(unmatched_halos.M_Crit200):.3f} (1e10 Msun/h)\n"
         )
         md.write(
             f"- Vmax range: {np.min(unmatched_halos.Vmax):.2f} - {np.max(unmatched_halos.Vmax):.2f} (km/s)\n\n"
         )
 
         # Check patterns
-        mvir_zero_count = np.sum(unmatched_halos.Mvir == 0.0)
+        mvir_zero_count = np.sum(unmatched_halos.M_Crit200 == 0.0)
         if mvir_zero_count == len(unmatched_halos):
             md.write(
                 f"**Pattern detected:** All {mvir_zero_count} unmatched halos have Mvir=0.0\n\n"
@@ -526,7 +526,7 @@ def generate_markdown_report(
         for i, idx in enumerate(match_result["unmatched_input"][:100]):
             halo = input_halos[idx]
             md.write(
-                f"| {idx} | {halo.MostBoundID} | {halo.Len} | {halo.Mvir:.3f} | {halo.Vmax:.2f} | {halo.VelDisp:.2f} |\n"
+                f"| {idx} | {halo.MostBoundID} | {halo.Len} | {halo.M_Crit200:.3f} | {halo.Vmax:.2f} | {halo.VelDisp:.2f} |\n"
             )
 
         if len(unmatched_halos) > 100:
@@ -648,14 +648,14 @@ def test_tree_preservation_coverage():
             f"{YELLOW}    Len range: {np.min(unmatched_halos.Len)} - {np.max(unmatched_halos.Len)}{NC}"
         )
         print(
-            f"{YELLOW}    Mvir range: {np.min(unmatched_halos.Mvir):.3f} - {np.max(unmatched_halos.Mvir):.3f} (1e10 Msun/h){NC}"
+            f"{YELLOW}    Mvir range: {np.min(unmatched_halos.M_Crit200):.3f} - {np.max(unmatched_halos.M_Crit200):.3f} (1e10 Msun/h){NC}"
         )
         print(
             f"{YELLOW}    Vmax range: {np.min(unmatched_halos.Vmax):.2f} - {np.max(unmatched_halos.Vmax):.2f} (km/s){NC}"
         )
 
         # Check if all have Mvir=0.0
-        mvir_zero_count = np.sum(unmatched_halos.Mvir == 0.0)
+        mvir_zero_count = np.sum(unmatched_halos.M_Crit200 == 0.0)
         if mvir_zero_count == unmatched_input_count:
             print(
                 f"{YELLOW}    Note: All {mvir_zero_count} unmatched halos have Mvir=0.0 (invalid mass){NC}"
@@ -663,7 +663,7 @@ def test_tree_preservation_coverage():
             # Check if matched halos also have Mvir=0.0
             matched_indices = [idx for idx, _ in match_result["matched_pairs"]]
             matched_halos = input_halos[matched_indices]
-            matched_mvir_zero = np.sum(matched_halos.Mvir == 0.0)
+            matched_mvir_zero = np.sum(matched_halos.M_Crit200 == 0.0)
             print(f"{YELLOW}    Note: {matched_mvir_zero} matched halos also have Mvir=0.0{NC}")
             print(f"{YELLOW}    → Mvir=0.0 alone is NOT the filtering criterion{NC}")
 

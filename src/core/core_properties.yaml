@@ -28,14 +28,22 @@ reference_units:
     h_convention: carried
 
 required_inputs:
-  - { name: Descendant, role: tree_link }
-  - { name: FirstProgenitor, role: tree_link }
-  - { name: NextProgenitor, role: tree_link }
-  - { name: FirstHaloInFOFgroup, role: tree_link }
-  - { name: NextHaloInFOFgroup, role: tree_link }
-  - { name: SnapNum, role: index }
-  - { name: Len, role: count }
-  - { name: VirialMassInput, role: mass }
+  - name: Descendant
+    role: tree_link
+  - name: FirstProgenitor
+    role: tree_link
+  - name: NextProgenitor
+    role: tree_link
+  - name: FirstHaloInFOFgroup
+    role: tree_link
+  - name: NextHaloInFOFgroup
+    role: tree_link
+  - name: SnapNum
+    role: index
+  - name: Len
+    role: count
+  - name: HaloMass
+    role: mass
 
 halo_properties:
   # ===========================================================================

@@ -131,7 +131,7 @@ void load_tree_table_hdf5(int filenr) {
 
 #define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)                             \
   {                                                                                                \
-    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr, #hdf5_name);                    \
+    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr, hdf5_name);                     \
     status = read_dataset(dataset_name, type_int, buffer);                                         \
     if (status != EXIT_SUCCESS) {                                                                  \
       IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,                                  \
@@ -144,7 +144,7 @@ void load_tree_table_hdf5(int filenr) {
 
 #define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int, data_type)                 \
   {                                                                                                \
-    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr, #hdf5_name);                    \
+    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr, hdf5_name);                     \
     status = read_dataset(dataset_name, type_int, buffer_multipledim);                             \
     if (status != EXIT_SUCCESS) {                                                                  \
       IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,                                  \

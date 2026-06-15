@@ -1,11 +1,11 @@
 {
-  "git_commit": "f9ad241668d6569f0d31d7e7dd585d39efd36b90",
+  "git_commit": "60e6fbf8f8588cd9a63923791c3213f016da2524",
   "git_branch": "main",
-  "build_date": "Jun 11 2026",
-  "run_date": "2026-06-11T07:27:09Z",
+  "build_date": "Jun 15 2026",
+  "run_date": "2026-06-15T14:44:50Z",
   "parameters": {
-    "file_path": "build/generated/test_inputs/sage16/mini-millennium/simulations/mini-millennium/test_uniquegalid.yaml",
-    "parameter_md5_checksum": "50a43bb64c848540143b79415ff4b1ee"
+    "file_path": "/Users/dcroton/Local/git-repos/mimic/build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml",
+    "parameter_md5_checksum": "81573f19cd0a88493c085ca0ccc99825"
   },
   "compiler": "gcc 4.2.1",
   "system": "macOS 26.5.1 arm64",

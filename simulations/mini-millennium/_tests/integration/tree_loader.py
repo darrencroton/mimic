@@ -47,7 +47,7 @@ def get_tree_dtype():
             # Properties of halo (68 bytes)
             ("Len", np.int32),
             ("M_Mean200", np.float32),
-            ("Mvir", np.float32),
+            ("M_Crit200", np.float32),
             ("M_TopHat", np.float32),
             ("Pos", (np.float32, 3)),
             ("Vel", (np.float32, 3)),
@@ -101,8 +101,8 @@ def load_binary_tree(file_path):
         >>> halos, meta = load_binary_tree('tests/data/input/trees_063.0')
         >>> print(f"Loaded {meta['totNHalos']} halos from {meta['Ntrees']} trees")
         Loaded 175869 halos from 3432 trees
-        >>> print(f"First halo: Mvir={halos[0].Mvir:.3f}, Pos={halos[0].Pos}")
-        First halo: Mvir=12.345, Pos=[10.2 15.3 8.9]
+        >>> print(f"First halo: M_Crit200={halos[0].M_Crit200:.3f}, Pos={halos[0].Pos}")
+        First halo: M_Crit200=12.345, Pos=[10.2 15.3 8.9]
     """
     file_path = Path(file_path)
 
@@ -148,7 +148,7 @@ def load_binary_tree(file_path):
                 f"This may indicate struct size mismatch (expected {dtype.itemsize} bytes per halo)."
             )
 
-    # Convert to recarray for attribute access (halos.Mvir instead of halos['Mvir'])
+    # Convert to recarray for attribute access (halos.M_Crit200 instead of halos['M_Crit200'])
     halos = halos.view(np.recarray)
 
     # Create metadata dictionary

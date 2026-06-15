@@ -151,28 +151,6 @@ UNIT_REGISTRY = {
     "erg cm^3/s": {"dimension": "cooling_rate", "cgs": 1.0, "h_convention": "none"},
 }
 
-RAW_HALO_FIELDS = {
-    "Descendant": "int",
-    "FirstProgenitor": "int",
-    "NextProgenitor": "int",
-    "FirstHaloInFOFgroup": "int",
-    "NextHaloInFOFgroup": "int",
-    "Len": "int",
-    "M_Mean200": "float",
-    "Mvir": "float",
-    "M_TopHat": "float",
-    "Pos": "vec3_float",
-    "Vel": "vec3_float",
-    "VelDisp": "float",
-    "Vmax": "float",
-    "Spin": "vec3_float",
-    "MostBoundID": "long long",
-    "SnapNum": "int",
-    "FileNr": "int",
-    "SubhaloIndex": "int",
-    "SubHalfMass": "float",
-}
-
 # ==============================================================================
 # PATHS
 # ==============================================================================
@@ -322,10 +300,16 @@ def load_simulation_catalog_contract() -> Dict[str, Any]:
     if len(paths) != 1:
         raise ValueError("expected exactly one simulation halo_properties.yaml file")
     data = load_yaml_mapping(paths[0])
+    # The single self-contained `halo_properties` list is the on-disk catalog
+    # record: every field, in on-disk order, drives the generated struct RawHalo
+    # and the HDF5 reader. Entries that are also Mimic halo properties (those
+    # with a copy_from_tree* init_source) are folded into the halo-property set
+    # by main(); the rest are catalog-only (tree links, virial input, unused
+    # accounting fields).
     return {
         "path": paths[0],
         "core_property_map": data.get("core_property_map", {}),
-        "catalog_properties": data.get("catalog_properties", []),
+        "catalog_fields": data.get("halo_properties", []),
     }
 
 
@@ -453,32 +437,30 @@ def normalize_catalog_contract(
     """Validate catalog metadata and attach source/conversion info to halo props."""
 
     core_map = catalog_contract.get("core_property_map")
-    catalog_props = catalog_contract.get("catalog_properties")
+    catalog_props = catalog_contract.get("catalog_fields")
     if not isinstance(core_map, dict) or not isinstance(catalog_props, list):
         raise ValueError(
-            f"{rel(catalog_contract['path'])}: requires core_property_map and catalog_properties"
+            f"{rel(catalog_contract['path'])}: requires core_property_map and halo_properties"
         )
 
+    # The catalog list is the on-disk record: each entry becomes a struct RawHalo
+    # member named by `name`, read from the on-disk dataset `source` (default
+    # `name`). There is no separate hand-written struct to validate against.
     catalog_by_name: Dict[str, Dict[str, Any]] = {}
     for prop in catalog_props:
         name = prop.get("name")
         if not name:
             raise ValueError(f"{rel(catalog_contract['path'])}: catalog property missing name")
+        if not name.isidentifier():
+            raise ValueError(
+                f"Catalog property '{name}' must be a valid C identifier for struct RawHalo"
+            )
         if name in catalog_by_name:
             raise ValueError(f"Duplicate catalog property '{name}'")
-        raw_member = prop.get("raw_member", name)
-        if raw_member not in RAW_HALO_FIELDS:
-            raise ValueError(
-                f"Catalog property '{name}' maps to unknown RawHalo member '{raw_member}'"
-            )
-        expected_type = RAW_HALO_FIELDS[raw_member]
-        if prop.get("type") != expected_type:
-            raise ValueError(
-                f"Catalog property '{name}' type {prop.get('type')} does not match "
-                f"RawHalo.{raw_member} type {expected_type}"
-            )
+        if prop.get("type") not in TYPE_MAP:
+            raise ValueError(f"Catalog property '{name}' has unknown type '{prop.get('type')}'")
         _unit_info(prop.get("units", "dimensionless"))
-        catalog_by_name[name] = {**prop, "raw_member": raw_member}
+        catalog_by_name[name] = {**prop, "source": prop.get("source", name)}
 
     required_inputs = load_core_metadata().get("required_inputs", [])
     for required in required_inputs:
@@ -494,11 +476,17 @@ def normalize_catalog_contract(
         init_source = prop.get("init_source", "skip")
         if init_source not in {"copy_from_tree", "copy_from_tree_array"}:
             continue
-        source_name = prop.get("source") or core_map.get(prop["name"]) or prop["name"]
+        # A halo property is sourced from the catalog field of the same name (sim
+        # output fields are themselves catalog entries); a core property whose
+        # name is not a catalog field resolves through core_property_map.
+        if prop["name"] in catalog_by_name:
+            source_name = prop["name"]
+        else:
+            source_name = core_map.get(prop["name"], prop["name"])
         if source_name not in catalog_by_name:
             raise ValueError(
                 f"Halo property '{prop['name']}' copies from tree but source '{source_name}' "
-                "is not in catalog_properties"
+                "is not in the catalog (halo_properties list)"
             )
         source = catalog_by_name[source_name]
         if source["type"] != prop["type"]:
@@ -512,7 +500,7 @@ def normalize_catalog_contract(
             "h_convention", _effective_h_convention(prop)
         )
         prop["_catalog_source"] = source_name
-        prop["_raw_member"] = source["raw_member"]
+        prop["_raw_field"] = source_name
         prop["_input_convert"] = _linear_conversion_expr(
             source["units"],
             _effective_h_convention(source),
@@ -521,7 +509,7 @@ def normalize_catalog_contract(
             f"input {prop['name']}",
         )
 
-    virial_source_name = core_map["VirialMassInput"]
+    virial_source_name = core_map["HaloMass"]
     virial_source = catalog_by_name[virial_source_name]
     mass_ref = reference_units["mass"]
     return {
@@ -534,7 +522,7 @@ def normalize_catalog_contract(
                 _effective_h_convention(virial_source),
                 mass_ref["label"],
                 mass_ref["h_convention"],
-                "input VirialMassInput",
+                "input HaloMass",
             ),
         },
     }
@@ -848,14 +836,14 @@ def generate_tree_property_accessors_h(
     code += "#ifndef GENERATED_TREE_PROPERTY_ACCESSORS_H\n"
     code += "#define GENERATED_TREE_PROPERTY_ACCESSORS_H\n\n"
     code += '#include "globals.h"\n\n'
-    code += "static inline double mimic_tree_get_VirialMassInput(int halonr) {\n"
+    code += "static inline double mimic_tree_get_HaloMass(int halonr) {\n"
     virial_expr = _c_expr_with_conversion(
-        f"InputTreeHalos[halonr].{virial['raw_member']}", virial["_input_convert"]
+        f"InputTreeHalos[halonr].{virial['name']}", virial["_input_convert"]
     )
     code += f"  return (double)({virial_expr});\n"
     code += "}\n\n"
 
-    emitted = {"VirialMassInput"}
+    emitted = {"HaloMass"}
     for prop in halo_props:
         init_source = prop.get("init_source", "skip")
         if init_source not in {"copy_from_tree", "copy_from_tree_array"}:
@@ -863,18 +851,18 @@ def generate_tree_property_accessors_h(
         if prop["name"] in emitted:
             continue
         emitted.add(prop["name"])
-        raw_member = prop["_raw_member"]
+        raw_field = prop["_raw_field"]
         conv = prop.get("_input_convert", "1.0")
         type_info = TYPE_MAP[prop["type"]]
         c_type = type_info["c_type"]
         if type_info["is_array"]:
             code += f"static inline {c_type} mimic_tree_get_{prop['name']}_component(int halonr, int component) {{\n"
-            expr = _c_expr_with_conversion(f"InputTreeHalos[halonr].{raw_member}[component]", conv)
+            expr = _c_expr_with_conversion(f"InputTreeHalos[halonr].{raw_field}[component]", conv)
             code += f"  return ({c_type})({expr});\n"
             code += "}\n\n"
         else:
             code += f"static inline {c_type} mimic_tree_get_{prop['name']}(int halonr) {{\n"
-            expr = _c_expr_with_conversion(f"InputTreeHalos[halonr].{raw_member}", conv)
+            expr = _c_expr_with_conversion(f"InputTreeHalos[halonr].{raw_field}", conv)
             code += f"  return ({c_type})({expr});\n"
             code += "}\n\n"
 
@@ -899,12 +887,36 @@ def generate_read_tree_hdf5_properties_inc(
     code = generate_header(yaml_hash)
     code += "/* Requires READ_TREE_PROPERTY and READ_TREE_PROPERTY_MULTIPLEDIM macros. */\n\n"
     for prop in catalog_info["catalog_by_name"].values():
-        hdf5_source = prop.get("hdf5_source", prop["raw_member"])
+        # struct RawHalo member is `name`; on-disk dataset is `source` (default name).
+        member = prop["name"]
+        dataset = json.dumps(prop["source"])
         read_args = _read_type_for_catalog(prop)
         if TYPE_MAP[prop["type"]]["is_array"]:
-            code += f"READ_TREE_PROPERTY_MULTIPLEDIM({prop['raw_member']}, {hdf5_source}, {read_args});\n"
+            code += f"READ_TREE_PROPERTY_MULTIPLEDIM({member}, {dataset}, {read_args});\n"
         else:
-            code += f"READ_TREE_PROPERTY({prop['raw_member']}, {hdf5_source}, {read_args});\n"
+            code += f"READ_TREE_PROPERTY({member}, {dataset}, {read_args});\n"
+    return code
+
+
+def generate_raw_halo_defs_h(catalog_info: Dict[str, Dict[str, Any]], yaml_hash: str) -> str:
+    """Generate struct RawHalo, the on-disk merger-tree record.
+
+    The simulation's halo_properties list defines, in on-disk order, every field
+    of the catalog record. The binary reader reads this struct wholesale, so the
+    field order and types here are the binary file layout.
+    """
+    code = generate_header(yaml_hash)
+    code += "#ifndef GENERATED_RAW_HALO_DEFS_H\n"
+    code += "#define GENERATED_RAW_HALO_DEFS_H\n\n"
+    code += "/* Raw merger tree input structure read from treefiles */\n"
+    code += "struct RawHalo {\n"
+    for prop in catalog_info["catalog_by_name"].values():
+        type_info = TYPE_MAP[prop["type"]]
+        c_type = type_info["c_type"]
+        array_suffix = type_info.get("c_array", "")
+        code += f"  {c_type} {prop['name']}{array_suffix};\n"
+    code += "};\n\n"
+    code += "#endif /* GENERATED_RAW_HALO_DEFS_H */\n"
     return code
 
 
@@ -1688,27 +1700,27 @@ def load_parameter_units() -> List[Dict[str, Any]]:
     return entries
 
 
-def merge_property_packages(paths: List[Path], key: str) -> List[Dict[str, Any]]:
-    """Merge property packages, allowing only exact duplicate definitions."""
+def merge_property_lists(*lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merge in-memory property lists, allowing only exact duplicate definitions."""
     merged: List[Dict[str, Any]] = []
     by_name: Dict[str, Dict[str, Any]] = {}
-
-    for path in paths:
-        for prop in load_property_package(path, key):
+    for props in lists:
+        for prop in props:
             name = prop.get("name")
             if not name:
-                raise ValueError(f"{rel(path)}: property missing required field 'name'")
-
+                raise ValueError("property missing required field 'name'")
             existing_prop = by_name.get(name)
             if existing_prop is None:
                 by_name[name] = prop
                 merged.append(prop)
-                continue
-
-            if existing_prop != prop:
-                raise ValueError(f"Incompatible duplicate property '{name}' in {rel(path)}")
-
+            elif existing_prop != prop:
+                raise ValueError(f"Incompatible duplicate property '{name}'")
     return merged
+
+
+def merge_property_packages(paths: List[Path], key: str) -> List[Dict[str, Any]]:
+    """Merge property packages from files, allowing only exact duplicate definitions."""
+    return merge_property_lists(*(load_property_package(path, key) for path in paths))
 
 
 # ==============================================================================
@@ -1770,13 +1782,23 @@ def main():
 
     # Load YAML
     try:
-        halo_props = merge_property_packages(halo_yaml_files, "halo_properties")
+        core_halo_props = merge_property_packages(core_yaml_files, "halo_properties")
+        catalog_contract = load_simulation_catalog_contract()
+        catalog_list = catalog_contract["catalog_fields"]
+        # The single sim list is the on-disk catalog (drives struct RawHalo + the
+        # reader). Entries Mimic copies into halo properties (sim output fields)
+        # join the core halo properties; catalog-only entries (tree links, virial
+        # input, unused accounting fields) do not become halo properties.
+        sim_halo_props = [
+            prop
+            for prop in catalog_list
+            if prop.get("init_source") in ("copy_from_tree", "copy_from_tree_array")
+        ]
+        halo_props = merge_property_lists(core_halo_props, sim_halo_props)
         galaxy_props = merge_property_packages(galaxy_yaml_files, "galaxy_properties")
         core_meta = load_core_metadata()
         reference_units = reference_units_from_core(core_meta)
-        catalog_info = normalize_catalog_contract(
-            halo_props, load_simulation_catalog_contract(), reference_units
-        )
+        catalog_info = normalize_catalog_contract(halo_props, catalog_contract, reference_units)
         attach_output_conversions(halo_props, reference_units, "halo")
         attach_output_conversions(galaxy_props, reference_units, "galaxy")
         parameter_units = load_parameter_units()
@@ -1813,6 +1835,10 @@ def main():
     write_file(
         GENERATED_DIR / "unit_registry.h",
         generate_unit_registry_h(yaml_hash),
+    )
+    write_file(
+        GENERATED_DIR / "raw_halo_defs.h",
+        generate_raw_halo_defs_h(catalog_info, yaml_hash),
     )
     write_file(
         GENERATED_DIR / "tree_property_accessors.h",

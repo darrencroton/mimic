@@ -4,33 +4,11 @@
 #include "constants.h"
 #include "generated/property_defs.h"
 
-/* Raw merger tree input structure read from treefiles */
-struct RawHalo {
-  /* merger tree pointers */
-  int Descendant;
-  int FirstProgenitor;
-  int NextProgenitor;
-  int FirstHaloInFOFgroup;
-  int NextHaloInFOFgroup;
-
-  /* properties of halo */
-  int Len;
-  float M_Mean200, Mvir, M_TopHat; /* for mini-Millennium, Mvir=M_Crit200 */
-  float Pos[3];
-  float Vel[3];
-  float VelDisp;
-  float Vmax;
-  float Spin[3];
-  long long MostBoundID; /* for LHaloTrees, this is the ID of the most bound
-                            particle; for other mergertree codes, let this
-                            contain a unique haloid */
-
-  /* original position in simulation tree files */
-  int SnapNum;
-  int FileNr;
-  int SubhaloIndex;
-  float SubHalfMass;
-};
+/* struct RawHalo (the on-disk merger-tree record) is generated from the active
+ * simulation's halo_properties.yaml, in on-disk order, by
+ * scripts/generate_properties.py. The binary reader reads it wholesale, so its
+ * field order and types are the binary file layout. */
+#include "generated/raw_halo_defs.h"
 
 /* Enum for tree types */
 enum Valid_TreeTypes { genesis_lhalo_hdf5 = 0, lhalo_binary = 1, num_tree_types };

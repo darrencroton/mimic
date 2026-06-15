@@ -47,7 +47,7 @@ int test_virial_mass_from_mvir(void) {
 
   /* Create test halo with known Mvir */
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].Mvir = 100.0;            /* 10^12 Msun/h */
+  InputTreeHalos[0].M_Crit200 = 100.0;       /* 10^12 Msun/h */
   InputTreeHalos[0].FirstHaloInFOFgroup = 0; /* Central halo */
   InputTreeHalos[0].Len = 1000;
 
@@ -82,7 +82,7 @@ int test_virial_mass_zero_catalog_central(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].Mvir = 0.0;              /* Catalog edge case */
+  InputTreeHalos[0].M_Crit200 = 0.0;         /* Catalog edge case */
   InputTreeHalos[0].FirstHaloInFOFgroup = 0; /* Central halo */
   InputTreeHalos[0].Len = 500;               /* Would yield fallback 50.0 if used */
 
@@ -122,10 +122,10 @@ int test_virial_mass_from_particles(void) {
 
   /* Create satellite halo (not FirstHaloInFOFgroup) */
   InputTreeHalos = mymalloc_cat(2 * sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].Mvir = 100.0;
+  InputTreeHalos[0].M_Crit200 = 100.0;
   InputTreeHalos[0].FirstHaloInFOFgroup = 0;
 
-  InputTreeHalos[1].Mvir = -1.0;             /* Satellite - Mvir not available */
+  InputTreeHalos[1].M_Crit200 = -1.0;        /* Satellite - Mvir not available */
   InputTreeHalos[1].FirstHaloInFOFgroup = 0; /* Points to central */
   InputTreeHalos[1].Len = 500;
 
@@ -168,7 +168,7 @@ int test_virial_radius_calculation(void) {
 
   /* Create test halo at z=0 (snapshot 63) */
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].Mvir = 100.0; /* 10^12 Msun/h */
+  InputTreeHalos[0].M_Crit200 = 100.0; /* 10^12 Msun/h */
   InputTreeHalos[0].FirstHaloInFOFgroup = 0;
   InputTreeHalos[0].SnapNum = 63; /* z=0 */
 
@@ -184,11 +184,11 @@ int test_virial_radius_calculation(void) {
   TEST_ASSERT(rvir < 10.0, "Virial radius should be reasonable (< 10 Mpc/h)");
   TEST_ASSERT(isfinite(rvir), "Virial radius should be finite");
 
-  printf("  Mvir = %.2f (10^10 Msun/h) → Rvir = %.4f (Mpc/h) at z=0\n", InputTreeHalos[0].Mvir,
+  printf("  Mvir = %.2f (10^10 Msun/h) → Rvir = %.4f (Mpc/h) at z=0\n", InputTreeHalos[0].M_Crit200,
          rvir);
 
   /* Test scaling: Rvir ∝ Mvir^(1/3) */
-  InputTreeHalos[0].Mvir = 800.0; /* 8x mass */
+  InputTreeHalos[0].M_Crit200 = 800.0; /* 8x mass */
   double rvir_8x = get_virial_radius(0);
   double ratio = rvir_8x / rvir;
   TEST_ASSERT_DOUBLE_EQUAL(ratio, 2.0, 0.01,
@@ -223,7 +223,7 @@ int test_virial_velocity_calculation(void) {
 
   /* Create test halo */
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].Mvir = 100.0; /* 10^12 Msun/h */
+  InputTreeHalos[0].M_Crit200 = 100.0; /* 10^12 Msun/h */
   InputTreeHalos[0].FirstHaloInFOFgroup = 0;
   InputTreeHalos[0].SnapNum = 63; /* z=0 */
 
@@ -271,7 +271,7 @@ int test_virial_consistency_relations(void) {
   init();
 
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].Mvir = 100.0;
+  InputTreeHalos[0].M_Crit200 = 100.0;
   InputTreeHalos[0].FirstHaloInFOFgroup = 0;
   InputTreeHalos[0].SnapNum = 63;
 
@@ -281,7 +281,7 @@ int test_virial_consistency_relations(void) {
   double vvir1 = get_virial_velocity(0);
 
   /* Test 8x mass */
-  InputTreeHalos[0].Mvir = 800.0;
+  InputTreeHalos[0].M_Crit200 = 800.0;
   double vvir2 = get_virial_velocity(0);
 
   /* ===== VALIDATE ===== */
@@ -332,7 +332,7 @@ int test_virial_edge_cases(void) {
   /* ===== EXECUTE & VALIDATE ===== */
 
   /* Case 1: Zero mass halo (no particles, Mvir < 0) */
-  InputTreeHalos[0].Mvir = -1.0;
+  InputTreeHalos[0].M_Crit200 = -1.0;
   double mvir_zero = get_virial_mass(0);
   TEST_ASSERT_DOUBLE_EQUAL(mvir_zero, 0.0, 1e-6, "Zero particles should give zero mass");
 
@@ -349,7 +349,7 @@ int test_virial_edge_cases(void) {
          vvir_zero);
 
   /* Case 3: Very small but non-zero mass */
-  InputTreeHalos[0].Mvir = 0.001; /* 10^7 Msun/h */
+  InputTreeHalos[0].M_Crit200 = 0.001; /* 10^7 Msun/h */
   double rvir_small = get_virial_radius(0);
   double vvir_small = get_virial_velocity(0);
 
