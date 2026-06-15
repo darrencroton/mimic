@@ -27,6 +27,7 @@ Common tasks:
 - Adding a module: [Creating Physics Modules](#creating-physics-modules)
 - Choosing a processing mode: [Processing Modes and Phases](#processing-modes-and-phases)
 - Adding a property: [Property System](#property-system)
+- Working with units (different from Millennium): [Units and the Reference Basis](#units-and-the-reference-basis)
 - Loading parameters: [Parameters](#parameters)
 - Adding a simulation: [Adding a New Simulation](#adding-a-new-simulation)
 - Wiring event-triggered modules: [Events](#events)
@@ -591,6 +592,53 @@ output_function_arg: "g, g->infallMvir"
 
 Property metadata is the source of truth for output fields and unit labels. Do not maintain manual exhaustive property tables in prose documentation unless they are generated or deliberately illustrative. For the metadata field reference, see [Property Metadata Schema](#property-metadata-schema).
 
+### Units and the Reference Basis
+
+Mimic runs entirely in one fixed internal reference basis, declared once in `src/core/core_properties.yaml` under `reference_units`:
+
+| Dimension | Reference unit | `h_convention` |
+| --- | --- | --- |
+| mass | `1e10 Msun/h` | `carried` |
+| length | `Mpc/h` | `carried` |
+| velocity | `km/s` | `none` |
+| time | derived (`length/velocity`) | `carried` |
+
+Every quantity entering from a catalog or a parameter declares its own units and is converted into this basis at the boundary, so internal code and output never have to ask which simulation produced a value. Three metadata fields drive conversion:
+
+- `units` — a label from the unit registry in `scripts/generate_properties.py` (e.g. `Mpc`, `Mpc/h`, `Msun`, `1e10 Msun/h`, `km/s`).
+- `dimension` — `mass`, `length`, `velocity`, `time`, `dimensionless`, `count`, and so on. Usually inferred from `units`; declare it explicitly only when the label is ambiguous.
+- `h_convention` — whether the value carries the Hubble parameter: `carried` (h folded in, e.g. `Mpc/h`), `free` (h divided out / physical, e.g. `Mpc`), or `none` (h-independent, e.g. `km/s`). Defaults to the registry value for the label.
+
+The generator emits a linear conversion — a cgs scale factor, plus a factor of `MimicConfig.Hubble_h` where the source and target `h_convention` differ — into `src/include/generated/unit_registry.h`. Catalog fields are converted at the tree-reader boundary; output labels come from the reference basis, so a written value always matches its label. Millennium catalogs are already in the reference basis, so their conversion is the identity and output stays byte-identical.
+
+**Adding a catalog whose units differ from Millennium.** Declare the on-disk units in `catalog_properties`; the generator converts them. For example, a catalog storing masses in `Msun` (h-free) and positions in `Mpc` (h-free):
+
+```yaml
+catalog_properties:
+  - { name: Mvir, type: float, units: Msun, h_convention: free, raw_member: Mvir, hdf5_source: Mvir }
+  - { name: Pos,  type: vec3_float, units: Mpc, h_convention: free, raw_member: Pos, hdf5_source: Pos }
+```
+
+The reader converts `Msun → 1e10 Msun/h` (× 1e-10 × `Hubble_h`) and `Mpc → Mpc/h` (× `Hubble_h`) on copy-in. No core or module code changes — only the catalog metadata.
+
+**Parameters with units.** A model parameter that is dimensional, rather than already in reference units, is declared in `models/<MODEL>/parameter_units.yaml` and loaded with the `*_INTERNAL` parameter macros, which convert it into the reference basis on load. A parameter not listed there is taken to be already in reference units.
+
+```yaml
+# models/<MODEL>/parameter_units.yaml
+parameters:
+  - name: MyMassThreshold
+    type: double
+    units: 1e10 Msun/h
+    h_convention: carried
+```
+
+```c
+LOAD_AND_VALIDATE_RANGE_INCLUSIVE_INTERNAL("MyMassThreshold", my_threshold, 0.0, 1.0e8,
+                                           "mass threshold in internal units");
+```
+
+If you need a unit label the registry does not yet know, add it to `UNIT_REGISTRY` in `scripts/generate_properties.py` with its cgs magnitude and `h_convention`; generation fails loudly on unknown labels rather than guessing.
+
 ### HDF5 Output Writer
 
 `src/io/output/hdf5.c` writes each output snapshot as a single compound `Galaxies` table (one row per `struct HaloOutput`), matching the binary record layout so both formats share `prepare_halo_for_output()`.
@@ -636,11 +684,17 @@ simulation:
     omega_matter: 0.25
     omega_lambda: 0.75
     hubble_h: 0.73
-  box_size:      { value: 62.5,      units: Mpc/h,       h_convention: carried }
-  particle_mass: { value: 0.0860657, units: 1e10 Msun/h, h_convention: carried }
+  box_size:
+    value: 62.5
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0860657
+    units: 1e10 Msun/h
+    h_convention: carried
 ```
 
-Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` derives runtime constants from generated reference-unit definitions, not from the simulation package. Simulation scalar values and catalog fields declare their own units and `h_convention`, and generated code (`src/include/generated/unit_registry.h`) converts them into the fixed reference basis at the reader boundary. A scalar may still be written as a bare number (e.g. `box_size: 62.5`), which is taken to be already in reference units.
+Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` derives runtime constants from generated reference-unit definitions, not from the simulation package. Simulation scalar values and catalog fields declare their own units and `h_convention`, and generated code (`src/include/generated/unit_registry.h`) converts them into the fixed reference basis at the reader boundary. A scalar may still be written as a bare number (e.g. `box_size: 62.5`), which is taken to be already in reference units. For how units, dimensions, and `h_convention` are declared and converted, see [Units and the Reference Basis](#units-and-the-reference-basis).
 
 **Supported tree formats:**
 
@@ -1063,6 +1117,8 @@ Common optional fields:
 
 | Field | Meaning |
 | --- | --- |
+| `dimension` | Physical dimension (`mass`, `length`, `velocity`, `time`, …); usually inferred from `units`. See [Units and the Reference Basis](#units-and-the-reference-basis) |
+| `h_convention` | Hubble-parameter convention: `carried`, `free`, or `none`; defaults to the registry value for `units` |
 | `init_source` | Initialization method; defaults differ by property category and generator context |
 | `output_source` | Output method; defaults to direct halo copy or galaxy-property copy when omitted |
 | `init_value` | Default value or tree field, depending on `init_source` |
@@ -1114,6 +1170,10 @@ Used by [Parameters](#parameters).
 | `LOAD_AND_VALIDATE_RANGE_EXCLUSIVE(...)` | Load double and validate |
 | `LOAD_AND_VALIDATE_RANGE_INCLUSIVE(...)` | Load double and validate |
 | `LOAD_AND_VALIDATE_OPTION(...)` | Load int and validate |
+| `LOAD_PARAM_DOUBLE_INTERNAL(name, var)` | Load a double declared in `parameter_units.yaml`, converting it into the reference basis |
+| `LOAD_AND_VALIDATE_RANGE_INCLUSIVE_INTERNAL(...)` | Load such a double and validate, in reference units |
+
+The `*_INTERNAL` variants convert a parameter from its declared units (in `models/<MODEL>/parameter_units.yaml`) into the fixed internal reference basis on load; see [Units and the Reference Basis](#units-and-the-reference-basis).
 
 ### Memory Categories
 

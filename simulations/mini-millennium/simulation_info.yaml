@@ -13,5 +13,11 @@ simulation:
     omega_matter: 0.25
     omega_lambda: 0.75
     hubble_h: 0.73
-  box_size: { value: 62.5, units: Mpc/h, h_convention: carried }
-  particle_mass: { value: 0.0860657, units: 1e10 Msun/h, h_convention: carried }
+  box_size:
+    value: 62.5
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0860657
+    units: 1e10 Msun/h
+    h_convention: carried

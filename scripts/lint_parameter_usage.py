@@ -40,10 +40,12 @@ def find_parameter_calls(c_file: Path) -> Dict[str, str]:
     """
     Find all parameter usage in a C file.
 
-    Detects both old-style model_get_* calls and new helper macros:
-    - model_get_double/int/string("ParamName", ...)
-    - LOAD_PARAM_DOUBLE/INT/STRING("ParamName", ...)
-    - LOAD_AND_VALIDATE_*("ParamName", ...)
+    Detects both old-style model_get_* calls and new helper macros, including
+    the reference-unit *_INTERNAL variants that convert declared parameter units
+    into the internal reference basis:
+    - model_get_double/int/string[_internal]("ParamName", ...)
+    - LOAD_PARAM_DOUBLE/INT/STRING[_INTERNAL]("ParamName", ...)
+    - LOAD_AND_VALIDATE_*[_INTERNAL]("ParamName", ...)
     - VALIDATE_*("ParamName", ...)
 
     Returns dict mapping parameter name to type (double, int, string, or "unknown").
@@ -56,22 +58,22 @@ def find_parameter_calls(c_file: Path) -> Dict[str, str]:
 
     params = {}
 
-    # Pattern 1: model_get_TYPE("PARAM_NAME", ...)
-    pattern1 = r'model_get_(double|int|string)\s*\(\s*"(\w+)"'
+    # Pattern 1: model_get_TYPE[_internal]("PARAM_NAME", ...)
+    pattern1 = r'model_get_(double|int|string)(?:_internal)?\s*\(\s*"(\w+)"'
     for match in re.finditer(pattern1, content):
         param_type = match.group(1)
         param_name = match.group(2)
         params[param_name] = param_type
 
-    # Pattern 2: LOAD_PARAM_TYPE("PARAM_NAME", ...)
-    pattern2 = r'LOAD_PARAM_(DOUBLE|INT|STRING)\s*\(\s*"(\w+)"'
+    # Pattern 2: LOAD_PARAM_TYPE[_INTERNAL]("PARAM_NAME", ...)
+    pattern2 = r'LOAD_PARAM_(DOUBLE|INT|STRING)(?:_INTERNAL)?\s*\(\s*"(\w+)"'
     for match in re.finditer(pattern2, content):
         param_type = match.group(1).lower()
         param_name = match.group(2)
         params[param_name] = param_type
 
-    # Pattern 3: LOAD_AND_VALIDATE_RANGE_*("PARAM_NAME", ...)
-    pattern3 = r'LOAD_AND_VALIDATE_RANGE_(?:EXCLUSIVE|INCLUSIVE)\s*\(\s*"(\w+)"'
+    # Pattern 3: LOAD_AND_VALIDATE_RANGE_*[_INTERNAL]("PARAM_NAME", ...)
+    pattern3 = r'LOAD_AND_VALIDATE_RANGE_(?:EXCLUSIVE|INCLUSIVE)(?:_INTERNAL)?\s*\(\s*"(\w+)"'
     for match in re.finditer(pattern3, content):
         param_name = match.group(1)
         params[param_name] = "double"  # Range validation is for doubles

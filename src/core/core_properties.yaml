@@ -20,10 +20,8 @@ reference_units:
     in_cgs: 1.0e5
     h_convention: none
   time:
-    # Derived from length/velocity, so it has no unit-registry label and is never
-    # used for metadata-driven conversion (time output fields must declare an
-    # explicit output_convert/output_transform). The generator computes its true
-    # magnitude and reports it honestly as in_cgs in output_schema.json.
+    # Derived from length/velocity; carries no registry label and is never
+    # registry-converted (time output fields declare their own output_convert).
     label: code
     dimension: time
     derived_from: length/velocity

@@ -1,5 +1,11 @@
+# Opt-in dimensional units for SHAM model parameters.
+#
+# A parameter listed here is converted from its declared units into the fixed
+# internal reference basis when loaded through the *_INTERNAL parameter macros.
+# Parameters not listed are taken to be already in reference units.
+
 parameters:
-  - name: ShamMinMpeak
+  - name: ShamMinMpeak       # minimum peak halo mass for SHAM stellar-mass assignment
     type: double
     units: 1e10 Msun/h
     h_convention: carried
