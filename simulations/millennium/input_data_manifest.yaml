@@ -1,7 +1,0 @@
-name: millennium
-tree_type: lhalo_binary
-required_files:
-  - path: ./simulations/millennium/snapshots/
-    description: Millennium LHaloTree files (512 files, trees_063.0 through trees_063.511)
-  - path: simulations/millennium/millennium.a_list
-    description: Snapshot scale factor list

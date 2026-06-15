@@ -673,7 +673,6 @@ simulations/my_sim/
   halo_properties.yaml      required — catalog halo fields beyond the core set
   snapshots/                required — tree data directory or symlink to local data
   plot_profile.yaml         optional — simulation-specific plotting defaults
-  input_data_manifest.yaml  optional — lists required data files for setup scripts
   README.md                 optional — human description of this simulation package
 ```
 
