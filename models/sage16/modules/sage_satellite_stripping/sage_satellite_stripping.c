@@ -77,14 +77,15 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *hal
       -1.0 * (halo_baryon_frac * halo->Mvir - total_baryons) / (double)ctx->num_substeps;
 
   if (strippedGas > 0.0) {
-    /* SAGE parity: strip_from_satellite (model_infall.c:106-118) computes the
-     * metal transfer from the UNCLAMPED gas, clamps gas and metals
-     * independently, and credits the central with clamped-gas * metallicity.
-     * When the metallicity cap is active (MetalsHotGas >= HotGas) and the gas
-     * clamp engages, this destroys metals — an inherited SAGE bug adopted for
-     * byte parity. Read docs/dev/issues/
-     * sage-satellite-stripping-metal-asymmetry.md before changing anything
-     * here; a fix requires regenerating the physics baseline. */
+    /* Symmetric metal transfer: the central is credited with exactly the
+     * strippedMetals debited from the satellite, so metals are conserved in
+     * every clamp regime. Stock SAGE strip_from_satellite
+     * (model_infall.c:106-118) instead credits clamped-gas * metallicity, which
+     * destroys metals when the metallicity cap is active (MetalsHotGas >=
+     * HotGas, so Z = 1) and the gas clamp engages. That is a genuine
+     * conservation bug; Mimic fixes it. The fix is byte-identical to the SAGE
+     * physics baseline on mini-Millennium because the cap branch never fires
+     * there (verified by the physics baseline gate). */
     const double metallicity = mimic_get_metallicity(sat_gal->HotGas, sat_gal->MetalsHotGas);
     double strippedMetals = strippedGas * metallicity;
 
@@ -94,12 +95,12 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *hal
     if (strippedMetals > sat_gal->MetalsHotGas)
       strippedMetals = sat_gal->MetalsHotGas;
 
-    // Transfer gas and metals from satellite to central (SAGE parity:
-    // double-precision products accumulated into the float reservoirs)
+    // Transfer the same gas and metal quantities out of the satellite and into
+    // the central (double-precision values accumulated into float reservoirs).
     sat_gal->HotGas -= strippedGas;
     sat_gal->MetalsHotGas -= strippedMetals;
     cen_gal->HotGas += strippedGas;
-    cen_gal->MetalsHotGas += strippedGas * metallicity;
+    cen_gal->MetalsHotGas += strippedMetals;
   }
 
   return 0;

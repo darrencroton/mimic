@@ -293,6 +293,80 @@ int test_metal_conservation(void) {
 }
 
 /**
+ * @test    test_metal_conservation_all_regimes
+ * @brief   Satellite metal loss must equal central metal gain in every clamp
+ *          regime, including constructed unphysical M > G states where the
+ *          metallicity cap (Z = 1) is active.
+ *
+ * Regression guard for the inherited SAGE metal-destruction bug (fixed
+ * 2026-06-16). The pre-fix code credited the central with clamped-gas *
+ * metallicity, destroying metals in the two capped-Z rows below; the fix
+ * credits the central with the same strippedMetals debited from the satellite,
+ * conserving metals everywhere.
+ */
+int test_metal_conservation_all_regimes(void) {
+  printf("  Testing: Metal conservation across all clamp regimes...\n");
+
+  /* Each row drives a distinct branch of the stripping transfer. With
+   * num_substeps = 1 and only HotGas + StellarMass carrying baryons, the
+   * unclamped strip demand is s = HotGas + StellarMass - bf*Mvir. G = HotGas,
+   * M = MetalsHotGas. The last two rows construct M >= G so Z is capped at 1. */
+  struct {
+    const char *label;
+    float hot;     /* G */
+    float metals;  /* M */
+    float stellar; /* bumps the strip demand without touching G or M */
+    double bf;
+    double mvir;
+  } cases[] = {
+      /* No clamp: s = 5 <= G = 10, Z = M/G < 1 */
+      {"no-clamp", 10.0f, 0.2f, 0.0f, 0.5, 10.0},
+      /* Gas clamp, normal Z: s = 20 > G = 10, M < G */
+      {"gas-clamp normal-Z", 10.0f, 0.2f, 20.0f, 0.5, 20.0},
+      /* Cap active, both clamps: s = 10 > M = 3 >= G = 2, Z = 1 */
+      {"cap both-clamps", 2.0f, 3.0f, 10.0f, 0.2, 10.0},
+      /* Cap active, gas clamp only: M = 10 >= s = 5 > G = 2, Z = 1 */
+      {"cap gas-clamp-only", 2.0f, 10.0f, 5.0f, 0.2, 10.0},
+  };
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    init_memory_system(0);
+    struct ModuleContext ctx = create_test_context(1);
+
+    struct GalaxyData cen_gal = create_test_galaxy(100.0f, 2.0f, 50.0f, 20.0f);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+
+    struct GalaxyData sat_gal =
+        create_test_galaxy(cases[i].hot, cases[i].metals, cases[i].stellar, 0.0f);
+    sat_gal.HaloBaryonFraction = cases[i].bf;
+    struct Halo satellite = create_test_halo(1, cases[i].mvir, &sat_gal);
+
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, satellite};
+
+    float sat_metals_before = sat_gal.MetalsHotGas;
+    float cen_metals_before = cen_gal.MetalsHotGas;
+
+    int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
+    TEST_ASSERT(result == 0, "Process should succeed");
+
+    float sat_lost = sat_metals_before - halos[1].galaxy->MetalsHotGas;
+    float cen_gained = halos[0].galaxy->MetalsHotGas - cen_metals_before;
+
+    if (!FLOAT_EQ(sat_lost, cen_gained, 1e-4)) {
+      printf("%s✗ FAIL: metals not conserved in regime '%s' "
+             "(satellite lost %.6f, central gained %.6f)%s\n",
+             RED, cases[i].label, sat_lost, cen_gained, NC);
+      printf("  at %s:%d\n", __FILE__, __LINE__);
+      failed++;
+      return 1;
+    }
+  }
+
+  TEST_PASS;
+}
+
+/**
  * @test    test_metallicity_preservation
  * @brief   Metallicity should be preserved during stripping
  */
@@ -567,6 +641,7 @@ int main(void) {
   test_stripping_when_above_threshold();
   test_mass_conservation();
   test_metal_conservation();
+  test_metal_conservation_all_regimes();
   test_metallicity_preservation();
   test_zero_hot_gas_no_stripping();
   test_clamping_to_available_gas();
