@@ -26,7 +26,7 @@
 #include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
 #include "proto.h"
 #include "types.h"
-#include "generated/unit_registry.h" /* mimic_unit_label_cgs / mimic_unit_label_carried */
+#include "generated/unit_registry.h" /* mimic_unit_label_cgs / mimic_unit_label_h_convention */
 
 #ifndef MIMIC_COMPILED_MODEL
 #error                                                                                             \
@@ -444,18 +444,31 @@ static double unit_label_cgs(const char *label, const char *field_name) {
   return cgs;
 }
 
+static const char *unit_label_h_convention(const char *label, const char *field_name) {
+  const char *h_convention = mimic_unit_label_h_convention(label);
+  if (h_convention == NULL)
+    FATAL_ERROR("%s has unsupported units '%s'", field_name, label);
+  return h_convention;
+}
+
 static double convert_unit_scalar(double value, const char *units, const char *h_convention,
                                   const char *reference_label, const char *field_name) {
   const double source_cgs = unit_label_cgs(units, field_name);
   const double target_cgs = unit_label_cgs(reference_label, field_name);
+  const char *target_h_convention = unit_label_h_convention(reference_label, field_name);
   double factor = source_cgs / target_cgs;
 
-  /* h_convention has already been validated to carried/none/free; the reference
-   * basis is identified by its (carried) label. */
-  const int source_carried = (strcmp(h_convention, "carried") == 0);
-  const int target_carried = mimic_unit_label_carried(reference_label);
-  if (source_carried != target_carried)
-    factor *= target_carried ? MimicConfig.Hubble_h : 1.0 / MimicConfig.Hubble_h;
+  if (strcmp(h_convention, target_h_convention) != 0) {
+    if (strcmp(h_convention, "none") == 0 || strcmp(target_h_convention, "none") == 0) {
+      FATAL_ERROR("%s cannot convert between h-independent and h-dependent conventions",
+                  field_name);
+    }
+
+    if (strcmp(target_h_convention, "carried") == 0)
+      factor *= MimicConfig.Hubble_h;
+    else
+      factor /= MimicConfig.Hubble_h;
+  }
 
   return value * factor;
 }
@@ -481,8 +494,12 @@ static double get_unit_scalar_value(yaml_document_t *doc, yaml_node_t *node, con
   }
 
   units = get_scalar_value(units_node);
-  h_convention = h_node ? get_scalar_value(h_node) : "none";
-  if (units == NULL || h_convention == NULL) {
+  if (units == NULL) {
+    FATAL_ERROR("%s units must be a scalar string", field_name);
+  }
+
+  h_convention = h_node ? get_scalar_value(h_node) : unit_label_h_convention(units, field_name);
+  if (h_convention == NULL) {
     FATAL_ERROR("%s units and h_convention must be scalar strings", field_name);
   }
   if (strcmp(h_convention, "carried") != 0 && strcmp(h_convention, "none") != 0 &&

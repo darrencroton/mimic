@@ -326,19 +326,27 @@ def _effective_h_convention(meta: Dict[str, Any]) -> str:
             raise ValueError(
                 f"Invalid h_convention '{explicit}' for '{meta.get('name', meta.get('label', '?'))}'"
             )
-        return "free" if explicit == "none" else explicit
+        return explicit
     label = meta.get("units") or meta.get("label")
     return _unit_info(label).get("h_convention", "none")
 
 
 def _h_factor_expr(target_h: str, source_h: str) -> str:
-    target = "carried" if target_h == "carried" else "free"
-    source = "carried" if source_h == "carried" else "free"
-    if target == source:
+    if target_h == source_h:
         return "1.0"
-    if target == "carried":
+
+    if target_h == "none" or source_h == "none":
+        raise ValueError(
+            f"cannot convert between h-independent and h-dependent conventions "
+            f"(source={source_h}, target={target_h})"
+        )
+
+    if target_h == "carried" and source_h == "free":
         return "MimicConfig.Hubble_h"
-    return "1.0 / MimicConfig.Hubble_h"
+    if target_h == "free" and source_h == "carried":
+        return "1.0 / MimicConfig.Hubble_h"
+
+    raise ValueError(f"unsupported h_convention conversion source={source_h}, target={target_h}")
 
 
 def _linear_conversion_expr(
@@ -814,6 +822,14 @@ def generate_unit_registry_h(yaml_hash: str) -> str:
     for label in carried:
         code += f'  if (strcmp(label, "{label}") == 0)\n    return 1;\n'
     code += "  return 0;\n"
+    code += "}\n\n"
+    code += "/* h_convention for a unit label, or NULL if the label is unknown. */\n"
+    code += "static inline const char *mimic_unit_label_h_convention(const char *label) {\n"
+    for label in sorted(UNIT_REGISTRY):
+        convention = UNIT_REGISTRY[label]["h_convention"]
+        code += f'  if (strcmp(label, "{label}") == 0)\n'
+        code += f'    return "{convention}";\n'
+    code += "  return NULL;\n"
     code += "}\n\n"
     code += "#endif /* GENERATED_UNIT_REGISTRY_H */\n"
     return code
