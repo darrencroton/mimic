@@ -550,14 +550,14 @@ gal->MyNewProperty = current + delta;
 
 ### Transport Properties
 
-Use `role: transport` for inter-module scratch fields that are not intended as persistent output. Document producer and consumer modules in the metadata comment.
+Inter-module scratch fields are simply `output: false` with `init_repeat: true`: not written to output, and reset each substep so a stale value never leaks into the next halo. There is no dedicated `role` key — that combination *is* the transport contract. Record the producer and consumer modules in the optional free-text `notes` field (purely documentary; the generator ignores it).
 
 ```yaml
 - name: CoolingGas
   type: float
   units: "1e10 Msun/h"
   description: "Gas mass cooling from hot to cold this substep"
-  role: transport
+  notes: "Transport scratch buffer: written by sage_calculate_cooling_budget; consumed by sage_apply_cooling."
   output: false
   init_source: default
   init_value: 0.0
@@ -603,10 +603,9 @@ Mimic runs entirely in one fixed internal reference basis, declared once in `src
 | velocity | `km/s` | `none` |
 | time | derived (`length/velocity`) | `carried` |
 
-Every quantity entering from a catalog or a parameter declares its own units and is converted into this basis at the boundary, so internal code and output never have to ask which simulation produced a value. Three metadata fields drive conversion:
+Every quantity entering from a catalog or a parameter declares its own units and is converted into this basis at the boundary, so internal code and output never have to ask which simulation produced a value. Two metadata fields drive conversion:
 
-- `units` — a label from the unit registry in `scripts/generate_properties.py` (e.g. `Mpc`, `Mpc/h`, `Msun`, `1e10 Msun/h`, `km/s`).
-- `dimension` — `mass`, `length`, `velocity`, `time`, `dimensionless`, `count`, and so on. Usually inferred from `units`; declare it explicitly only when the label is ambiguous.
+- `units` — a label from the unit registry in `scripts/generate_properties.py` (e.g. `Mpc`, `Mpc/h`, `Msun`, `1e10 Msun/h`, `km/s`). The label is the single source of dimensional truth: the registry maps each label to its dimension (`mass`, `length`, `velocity`, `time`, `dimensionless`, `count`, …) and default `h_convention`.
 - `h_convention` — whether the value carries the Hubble parameter: `carried` (h folded in, e.g. `Mpc/h`), `free` (h divided out / physical, e.g. `Mpc`), or `none` (h-independent, e.g. `km/s`). Defaults to the registry value for the label.
 
 The generator emits a linear conversion — a cgs scale factor, plus a factor of `MimicConfig.Hubble_h` where source and target are both h-dependent but differ between `carried` and `free` — into `src/include/generated/unit_registry.h`. Catalog fields are converted at the tree-reader boundary; output labels come from the reference basis, so a written value always matches its label. Values with `h_convention: none` are h-independent and cannot be converted to or from h-dependent conventions. Millennium catalogs are already in the reference basis, so their conversion is the identity and output stays byte-identical.
@@ -735,7 +734,7 @@ This file is the single self-contained description of the simulation's on-disk h
 
 An entry that satisfies a core required-input role declares `provides_core_role`, using a role from `src/core/core_properties.yaml` under `required_inputs` (for example `HaloMass`, the tree links, `SnapNum`, or `Len`). The generator emits `mimic_tree_get_<Role>()` accessors from those bindings, and core tree traversal uses those accessors rather than hard-coded catalog member names. An entry that Mimic copies into a halo property and/or writes to output also carries `output`, `init_source`, `output_source`, `description`, and `range`; entries with none of those (tree links, the virial-mass input, unused accounting fields) are registered for a complete record but produce no halo property.
 
-Per-entry keys: `name` (the generated `RawHalo` member and Mimic-internal name), `source` (the on-disk dataset/column name, defaulting to `name` — declare it only when they differ), `type`, and, for dimensioned fields, `units` and `h_convention`. Use `mimic_usage: unused` for fields that are read to preserve the complete record layout but do not feed core roles, halo properties, model processing, or output; the generator rejects `unused` if the field is also wired into processing. Use `interpreted_as` when a raw catalog field feeds an effective Mimic property through core policy rather than being copied directly. For example, Millennium `M_Crit200` provides the `HaloMass` role and is interpreted as output `Mvir` for FoF centrals when non-negative; otherwise core falls back to `Len * particle_mass`. Tree-link, index, and count roles must bind to scalar integer catalog fields; mass roles must bind to scalar numeric fields. There is no separate `catalog_properties` list and no hand-written `raw_member`: the struct is generated from this list, so list order and types are the binary layout.
+Per-entry keys: `name` (the generated `RawHalo` member and Mimic-internal name), `source` (the on-disk dataset/column name, defaulting to `name` — declare it only when they differ), `type`, and, for dimensioned fields, `units` and `h_convention`. Use `mimic_usage: unused` for fields that are read to preserve the complete record layout but do not feed core roles, halo properties, model processing, or output; the generator rejects `unused` if the field is also wired into processing. When a raw catalog field feeds an effective Mimic property through core policy rather than being copied directly, record that policy in the optional free-text `notes` field (documentary only; the generator does not parse or enforce it — the policy itself lives in C core). For example, Millennium `M_Crit200` provides the `HaloMass` role and is interpreted as output `Mvir` for FoF centrals when non-negative; otherwise core falls back to `Len * particle_mass`. Tree-link, index, and count roles must bind to scalar integer catalog fields; mass roles must bind to scalar numeric fields. There is no separate `catalog_properties` list and no hand-written `raw_member`: the struct is generated from this list, so list order and types are the binary layout.
 
 The generator includes exactly one simulation package at a time, selected with `SIMULATION=<name>`. Adding a new simulation package is not enough by itself; regenerate and rebuild with that selector so the executable, `struct RawHalo`, `struct Halo`, output schema, validation ranges, and module dependency checks all use the intended catalog.
 
@@ -752,9 +751,7 @@ halo_properties:
     h_convention: carried
     description: Catalog spherical-overdensity halo mass, M200c
     provides_core_role: HaloMass
-    interpreted_as:
-      property: Mvir
-      rule: Used for FoF centrals when non-negative; otherwise Mimic uses Len * particle_mass.
+    notes: "Interpreted as output Mvir for FoF centrals when non-negative; otherwise core uses Len * particle_mass. Policy lives in C core, not enforced by this field."
 
   # catalog-only field that Mimic reads but does not use
   - name: M_TopHat
@@ -1143,7 +1140,6 @@ Common optional fields:
 | Field | Meaning |
 | --- | --- |
 | `source` | (Simulation catalog fields) on-disk dataset/column name; defaults to `name`. Declare only when the on-disk name differs |
-| `dimension` | Physical dimension (`mass`, `length`, `velocity`, `time`, …); usually inferred from `units`. See [Units and the Reference Basis](#units-and-the-reference-basis) |
 | `h_convention` | Hubble-parameter convention: `carried`, `free`, or `none`; defaults to the registry value for `units` |
 | `init_source` | Initialization method; defaults differ by property category and generator context |
 | `output_source` | Output method; defaults to direct halo copy or galaxy-property copy when omitted |
@@ -1153,9 +1149,9 @@ Common optional fields:
 | `output_transform` | Output transform such as `log10` |
 | `output_function` | Helper function for recalculated output |
 | `output_function_arg` | Arguments passed to helper function |
-| `range` | Validation range used by tests |
-| `sentinels` | Values exempt from range checks |
-| `role` | Semantic role such as `transport` |
+| `range` | Validation range used by tests (output properties only) |
+| `sentinels` | Values exempt from range checks and from output unit conversion / transforms (output properties only) |
+| `notes` | Free-text developer notes (provenance, core-policy descriptions); not parsed or enforced by the generator |
 
 ### ModuleContext Fields
 

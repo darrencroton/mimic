@@ -36,13 +36,12 @@ The `test_fixture` module fixes this by providing a stable, minimal test module 
 - Pipeline execution
 - Error handling
 
-**Example (C unit test)**:
+**Example (C unit test)**: add the module to a user-named substep phase with the
+`test_phase_add()` helper from `tests/framework/test_phase_config.h` (the fixed
+`pre_timestep`/`post_timestep` phases are set directly on `MimicConfig`).
 ```c
-/* Configure test_fixture module in phase_1 */
-MimicConfig.phase_1 = mymalloc_cat(sizeof(struct PhaseModuleConfig), MEM_UTILITY);
-MimicConfig.phase_1[0].module_name = strdup("test_fixture");
-MimicConfig.phase_1[0].processing_mode = PROCESSING_MODE_BY_GALAXY;
-MimicConfig.num_phase_1 = 1;
+/* Run test_fixture once per galaxy in a named substep phase */
+test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
 MimicConfig.SubSteps = 1;
 
 /* Configure module parameters */
@@ -51,10 +50,11 @@ strcpy(MimicConfig.ModuleParams[0].param_name, "DummyParameter");
 strcpy(MimicConfig.ModuleParams[0].value, "2.5");
 ```
 
-**Example (Python integration test)**:
+**Example (Python integration test)**: phases are user-named keys in
+`phase_config` (`pre_timestep`/`post_timestep` are the only reserved names).
 ```python
 param_file = create_test_param_file(
-    phase_config={"phase_1": [("test_fixture", "process_by_galaxy")]},
+    phase_config={"galaxy_physics": [("test_fixture", "process_by_galaxy")]},
     model_params={"TestFixtureDummyParameter": "2.5"}
 )
 ```

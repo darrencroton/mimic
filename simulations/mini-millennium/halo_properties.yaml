@@ -4,7 +4,7 @@
 # `struct RawHalo` and the HDF5 tree reader.
 #
 # Entry keys: name, source (if on-disk name differs), type, units,
-# h_convention, provides_core_role, interpreted_as, mimic_usage, description,
+# h_convention, provides_core_role, notes, mimic_usage, description,
 # output, init_source, output_source, range.
 #
 # Required core roles (src/core/core_properties.yaml required_inputs):
@@ -69,9 +69,7 @@ halo_properties:
     h_convention: carried
     description: Catalog spherical-overdensity halo mass, M200c
     provides_core_role: HaloMass
-    interpreted_as:
-      property: Mvir
-      rule: Used for FoF centrals when non-negative; otherwise Mimic uses Len * particle_mass.
+    notes: "Interpreted as output Mvir for FoF centrals when non-negative; otherwise core uses Len * particle_mass. Policy lives in C core, not enforced by this field."
 
   - name: M_TopHat
     type: float

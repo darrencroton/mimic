@@ -266,11 +266,12 @@ models/
 │   ├── modules/  SAGE physics modules and module-local tests
 │   ├── shared/   SAGE-local helper APIs
 │   └── plots/    SAGE plotting figures and profiles
-└── sham/
-    ├── input/    SHAM run parameter YAML files
-    ├── model_properties.yaml
-    ├── modules/  SHAM physics modules and module-local tests
-    └── plots/    SHAM plotting figures and profiles
+├── sham/
+│   ├── input/    SHAM run parameter YAML files
+│   ├── model_properties.yaml
+│   ├── modules/  SHAM physics modules and module-local tests
+│   └── plots/    SHAM plotting figures and profiles
+└── halos-only/   Empty pipeline: halo tracking only, no galaxy physics
 
 simulations/
 ├── mini-millennium/    mini-Millennium metadata, halo properties, and snapshot lists

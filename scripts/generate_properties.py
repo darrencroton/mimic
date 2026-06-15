@@ -552,7 +552,7 @@ def normalize_catalog_contract(
                 f"Halo property '{prop['name']}' type {prop['type']} does not match "
                 f"catalog source '{source_name}' type {source['type']}"
             )
-        dimension = prop.get("dimension") or _unit_info(prop["units"])["dimension"]
+        dimension = _unit_info(prop["units"])["dimension"]
         target_unit = reference_units.get(dimension, {}).get("label", prop["units"])
         target_h = reference_units.get(dimension, {}).get(
             "h_convention", _effective_h_convention(prop)
@@ -597,9 +597,7 @@ def attach_output_conversions(
         if "output_convert" in prop or "output_transform" in prop:
             _unit_info(prop.get("units", "dimensionless"))
             continue
-        dimension = (
-            prop.get("dimension") or _unit_info(prop.get("units", "dimensionless"))["dimension"]
-        )
+        dimension = _unit_info(prop.get("units", "dimensionless"))["dimension"]
         if dimension == "time":
             # Time output fields are written verbatim: either the producing module
             # already stores them in their label unit (e.g. ShamOrphanAge in Myr/h)
