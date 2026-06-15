@@ -53,7 +53,7 @@
 double get_virial_mass(int halonr) {
   const double halo_mass = mimic_tree_get_HaloMass(halonr);
 
-  if (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup && halo_mass >= 0.0)
+  if (halonr == mimic_tree_get_FirstHaloInFOFgroup(halonr) && halo_mass >= 0.0)
     return halo_mass; /* take spherical overdensity mass estimate */
   else
     return mimic_tree_get_Len(halonr) * MimicConfig.PartMass;
@@ -112,7 +112,7 @@ double get_virial_radius(int halonr) {
    * conventions). */
   double zplus1, hubble_of_z_sq, rhocrit, fac;
 
-  zplus1 = 1 + MimicConfig.ZZ[InputTreeHalos[halonr].SnapNum];
+  zplus1 = 1 + MimicConfig.ZZ[mimic_tree_get_SnapNum(halonr)];
   hubble_of_z_sq = MimicConfig.Hubble * MimicConfig.Hubble *
                    (MimicConfig.Omega * zplus1 * zplus1 * zplus1 +
                     (1 - MimicConfig.Omega - MimicConfig.OmegaLambda) * zplus1 * zplus1 +

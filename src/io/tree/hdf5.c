@@ -36,6 +36,7 @@
 #include "proto.h"
 #include "tree/hdf5.h"
 #include "types.h"
+#include "generated/tree_property_accessors.h"
 
 // Local Variables //
 static hid_t hdf5_file = -1;
@@ -224,7 +225,7 @@ void load_tree_hdf5(int32_t treenr) {
   int32_t i;
   for (i = 0; i < 20; ++i) {
     DEBUG_LOG("halo %d: Descendant %d FirstProg %d x %.4f y %.4f z %.4f", i,
-              InputTreeHalos[i].Descendant, InputTreeHalos[i].FirstProgenitor,
+              mimic_tree_get_Descendant(i), mimic_tree_get_FirstProgenitor(i),
               InputTreeHalos[i].Pos[0], InputTreeHalos[i].Pos[1], InputTreeHalos[i].Pos[2]);
   }
   // Debug exit point

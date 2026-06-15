@@ -1,8 +1,10 @@
 # Mimic Core Properties Metadata
 #
 # This file defines the halo tracking properties required by Mimic's
-# physics-agnostic processing model.
+# physics-agnostic processing model. DANGER ZONE! Don't touch!
 #
+# See: docs/DEVELOPER-GUIDE.md for complete schema documentation
+
 reference_units:
   mass:
     label: 1e10 Msun/h
@@ -20,30 +22,20 @@ reference_units:
     in_cgs: 1.0e5
     h_convention: none
   time:
-    # Derived from length/velocity; carries no registry label and is never
-    # registry-converted (time output fields declare their own output_convert).
     label: code
     dimension: time
     derived_from: length/velocity
     h_convention: carried
 
 required_inputs:
-  - name: Descendant
-    role: tree_link
-  - name: FirstProgenitor
-    role: tree_link
-  - name: NextProgenitor
-    role: tree_link
-  - name: FirstHaloInFOFgroup
-    role: tree_link
-  - name: NextHaloInFOFgroup
-    role: tree_link
-  - name: SnapNum
-    role: index
-  - name: Len
-    role: count
-  - name: HaloMass
-    role: mass
+  - { name: Descendant, role: tree_link }
+  - { name: FirstProgenitor, role: tree_link }
+  - { name: NextProgenitor, role: tree_link }
+  - { name: FirstHaloInFOFgroup, role: tree_link }
+  - { name: NextHaloInFOFgroup, role: tree_link }
+  - { name: SnapNum, role: index }
+  - { name: Len, role: count }
+  - { name: HaloMass, role: mass }
 
 halo_properties:
   # ===========================================================================
@@ -162,10 +154,7 @@ halo_properties:
     type: float
     dimension: mass
     units: 1e10 Msun/h
-    description: Virial mass of the central halo in this FoF group
-    # Structural per-FoF-group constant (the input-catalog Mvir of the FOF
-    # central), stamped onto every workspace member by the driver before physics
-    # and copied straight to output.
+    description: Virial mass of the FoF central halo stamped onto every workspace member
     output: true
     init_source: default
     init_value: 0.0

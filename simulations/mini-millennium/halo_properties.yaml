@@ -1,61 +1,58 @@
 # mini-Millennium Halo Catalog Properties
 #
-# Single self-contained description of the simulation's on-disk halo catalog.
-# Every field present in the catalog record is listed here, in on-disk order;
-# this list is the source of truth for the generated `struct RawHalo` (binary
-# layout) and the HDF5 tree reader.
+# Complete on-disk halo catalog record, in file order. This list generates
+# `struct RawHalo` and the HDF5 tree reader.
 #
-# Per-entry keys:
-#   name         Mimic-internal field name (the generated RawHalo member).
-#   source       On-disk dataset/column name; defaults to `name`. Declare it
-#                only when the on-disk name differs from `name`.
-#   type         C type (must match the on-disk record for binary catalogs).
-#   units        On-disk unit label (registry-resolved); for dimensioned fields.
-#   h_convention On-disk little-h convention for dimensioned fields.
+# Entry keys: name, source (if on-disk name differs), type, units,
+# h_convention, provides_core_role, interpreted_as, mimic_usage, description,
+# output, init_source, output_source, range.
 #
-# A field that Mimic copies into a halo property and/or writes to output also
-# declares `output`, `init_source`, `output_source`, `description`, and `range`.
-# Fields with none of those (tree links, the virial-mass input, and unused
-# accounting fields) are registered for a complete on-disk record but produce no
-# halo property. `core_property_map` binds each core required-input role to a
-# field below; see src/core/core_properties.yaml `required_inputs`.
-
-core_property_map:
-  Descendant: Descendant
-  FirstProgenitor: FirstProgenitor
-  NextProgenitor: NextProgenitor
-  FirstHaloInFOFgroup: FirstHaloInFOFgroup
-  NextHaloInFOFgroup: NextHaloInFOFgroup
-  SnapNum: SnapNum
-  Len: Len
-  HaloMass: M_Crit200
+# Required core roles (src/core/core_properties.yaml required_inputs):
+# Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
+# NextHaloInFOFgroup, SnapNum, Len, HaloMass.
+#
+# `mimic_usage: unused` marks fields read only to preserve the catalog layout.
+#
+# See: docs/DEVELOPER-GUIDE.md for complete schema documentation
 
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---
   - name: Descendant
     type: int
     units: dimensionless
+    description: Index of the descendant halo in this tree, or -1 if none
+    provides_core_role: Descendant
 
   - name: FirstProgenitor
     type: int
     units: dimensionless
+    description: Index of the first progenitor halo in this tree, or -1 if none
+    provides_core_role: FirstProgenitor
 
   - name: NextProgenitor
     type: int
     units: dimensionless
+    description: Index of the next progenitor halo linked to the same descendant, or -1 if none
+    provides_core_role: NextProgenitor
 
   - name: FirstHaloInFOFgroup
     type: int
     units: dimensionless
+    description: Index of the first halo in this FoF group
+    provides_core_role: FirstHaloInFOFgroup
 
   - name: NextHaloInFOFgroup
     type: int
     units: dimensionless
+    description: Index of the next halo in this FoF group, or -1 if none
+    provides_core_role: NextHaloInFOFgroup
 
   # --- particle count (core required input) ---
   - name: Len
     type: int
     units: particles
+    description: Number of particles in the catalog halo
+    provides_core_role: Len
 
   # --- catalog masses ---
   - name: M_Mean200
@@ -63,17 +60,24 @@ halo_properties:
     type: float
     units: 1e10 Msun/h
     h_convention: carried
+    mimic_usage: unused
 
   - name: M_Crit200
     source: Mvir
     type: float
     units: 1e10 Msun/h
     h_convention: carried
+    description: Catalog spherical-overdensity halo mass, M200c
+    provides_core_role: HaloMass
+    interpreted_as:
+      property: Mvir
+      rule: Used for FoF centrals when non-negative; otherwise Mimic uses Len * particle_mass.
 
   - name: M_TopHat
     type: float
     units: 1e10 Msun/h
     h_convention: carried
+    mimic_usage: unused
 
   # --- output halo properties (copied from the tree) ---
   - name: Pos
@@ -137,19 +141,24 @@ halo_properties:
   - name: SnapNum
     type: int
     units: dimensionless
+    description: Snapshot number (index in simulation output)
+    provides_core_role: SnapNum
 
   # --- catalog bookkeeping fields (registered for a complete on-disk record) ---
   - name: FileNr
     source: Filenr
     type: int
     units: dimensionless
+    mimic_usage: unused
 
   - name: SubhaloIndex
     source: SubHaloIndex
     type: int
     units: dimensionless
+    mimic_usage: unused
 
   - name: SubHalfMass
     type: float
     units: 1e10 Msun/h
     h_convention: carried
+    mimic_usage: unused

@@ -300,15 +300,20 @@ def load_simulation_catalog_contract() -> Dict[str, Any]:
     if len(paths) != 1:
         raise ValueError("expected exactly one simulation halo_properties.yaml file")
     data = load_yaml_mapping(paths[0])
+    if "core_property_map" in data:
+        raise ValueError(
+            f"{rel(paths[0])}: core_property_map has been replaced by per-field "
+            "provides_core_role entries"
+        )
     # The single self-contained `halo_properties` list is the on-disk catalog
     # record: every field, in on-disk order, drives the generated struct RawHalo
     # and the HDF5 reader. Entries that are also Mimic halo properties (those
     # with a copy_from_tree* init_source) are folded into the halo-property set
     # by main(); the rest are catalog-only (tree links, virial input, unused
-    # accounting fields).
+    # accounting fields). Catalog entries may declare `provides_core_role` to
+    # satisfy one of src/core/core_properties.yaml `required_inputs`.
     return {
         "path": paths[0],
-        "core_property_map": data.get("core_property_map", {}),
         "catalog_fields": data.get("halo_properties", []),
     }
 
@@ -444,17 +449,15 @@ def normalize_catalog_contract(
 ) -> Dict[str, Dict[str, Any]]:
     """Validate catalog metadata and attach source/conversion info to halo props."""
 
-    core_map = catalog_contract.get("core_property_map")
     catalog_props = catalog_contract.get("catalog_fields")
-    if not isinstance(core_map, dict) or not isinstance(catalog_props, list):
-        raise ValueError(
-            f"{rel(catalog_contract['path'])}: requires core_property_map and halo_properties"
-        )
+    if not isinstance(catalog_props, list):
+        raise ValueError(f"{rel(catalog_contract['path'])}: requires halo_properties list")
 
     # The catalog list is the on-disk record: each entry becomes a struct RawHalo
     # member named by `name`, read from the on-disk dataset `source` (default
     # `name`). There is no separate hand-written struct to validate against.
     catalog_by_name: Dict[str, Dict[str, Any]] = {}
+    inline_core_map: Dict[str, str] = {}
     for prop in catalog_props:
         name = prop.get("name")
         if not name:
@@ -468,16 +471,63 @@ def normalize_catalog_contract(
         if prop.get("type") not in TYPE_MAP:
             raise ValueError(f"Catalog property '{name}' has unknown type '{prop.get('type')}'")
         _unit_info(prop.get("units", "dimensionless"))
+
+        mimic_usage = prop.get("mimic_usage")
+        if mimic_usage is not None:
+            if mimic_usage != "unused":
+                raise ValueError(
+                    f"Catalog property '{name}' has unknown mimic_usage '{mimic_usage}'"
+                )
+            if prop.get("provides_core_role") or prop.get("init_source") or prop.get("output"):
+                raise ValueError(
+                    f"Catalog property '{name}' cannot be mimic_usage=unused while feeding "
+                    "core roles, halo properties, or output"
+                )
+
         catalog_by_name[name] = {**prop, "source": prop.get("source", name)}
 
+        core_role = prop.get("provides_core_role")
+        if core_role is not None:
+            if not isinstance(core_role, str) or not core_role:
+                raise ValueError(
+                    f"Catalog property '{name}' has invalid provides_core_role '{core_role}'"
+                )
+            if core_role in inline_core_map:
+                raise ValueError(f"Core role '{core_role}' is provided by multiple catalog fields")
+            inline_core_map[core_role] = name
+
+    core_map = inline_core_map
+
     required_inputs = load_core_metadata().get("required_inputs", [])
+    required_names = {required.get("name") for required in required_inputs}
+    for role in inline_core_map:
+        if role not in required_names:
+            raise ValueError(f"Catalog field provides unknown core role '{role}'")
+
     for required in required_inputs:
         name = required.get("name")
         if name not in core_map:
-            raise ValueError(f"core_property_map missing required input '{name}'")
+            raise ValueError(
+                f"{rel(catalog_contract['path'])}: no halo_properties entry provides required "
+                f"core role '{name}'. Add provides_core_role: {name} to the matching catalog "
+                "field; required roles are listed in src/core/core_properties.yaml required_inputs."
+            )
         if core_map[name] not in catalog_by_name:
             raise ValueError(
-                f"core_property_map.{name} references unknown catalog property '{core_map[name]}'"
+                f"core role '{name}' references unknown catalog property '{core_map[name]}'"
+            )
+        source = catalog_by_name[core_map[name]]
+        source_type = source["type"]
+        role_kind = required.get("role")
+        if role_kind in {"tree_link", "index", "count"} and source_type != "int":
+            raise ValueError(
+                f"core role '{name}' requires an int catalog field, "
+                f"but '{core_map[name]}' has type '{source_type}'"
+            )
+        if role_kind == "mass" and source_type not in {"float", "double"}:
+            raise ValueError(
+                f"core role '{name}' requires a scalar numeric catalog field, "
+                f"but '{core_map[name]}' has type '{source_type}'"
             )
 
     for prop in halo_props:
@@ -486,7 +536,7 @@ def normalize_catalog_contract(
             continue
         # A halo property is sourced from the catalog field of the same name (sim
         # output fields are themselves catalog entries); a core property whose
-        # name is not a catalog field resolves through core_property_map.
+        # name is not a catalog field resolves through inline provides_core_role.
         if prop["name"] in catalog_by_name:
             source_name = prop["name"]
         else:
@@ -522,7 +572,8 @@ def normalize_catalog_contract(
     mass_ref = reference_units["mass"]
     return {
         "catalog_by_name": catalog_by_name,
-        "core_property_map": core_map,
+        "core_role_map": core_map,
+        "required_inputs": required_inputs,
         "virial_mass_input": {
             **virial_source,
             "_input_convert": _linear_conversion_expr(
@@ -852,14 +903,24 @@ def generate_tree_property_accessors_h(
     code += "#ifndef GENERATED_TREE_PROPERTY_ACCESSORS_H\n"
     code += "#define GENERATED_TREE_PROPERTY_ACCESSORS_H\n\n"
     code += '#include "globals.h"\n\n'
-    code += "static inline double mimic_tree_get_HaloMass(int halonr) {\n"
-    virial_expr = _c_expr_with_conversion(
-        f"InputTreeHalos[halonr].{virial['name']}", virial["_input_convert"]
-    )
-    code += f"  return (double)({virial_expr});\n"
-    code += "}\n\n"
 
-    emitted = {"HaloMass"}
+    emitted = set()
+    for required in catalog_info["required_inputs"]:
+        role_name = required["name"]
+        source_name = catalog_info["core_role_map"][role_name]
+        source = catalog_info["catalog_by_name"][source_name]
+        raw_expr = f"InputTreeHalos[halonr].{source['name']}"
+        if role_name == "HaloMass":
+            c_type = "double"
+            expr = _c_expr_with_conversion(raw_expr, virial["_input_convert"])
+        else:
+            c_type = TYPE_MAP[source["type"]]["c_type"]
+            expr = raw_expr
+        code += f"static inline {c_type} mimic_tree_get_{role_name}(int halonr) {{\n"
+        code += f"  return ({c_type})({expr});\n"
+        code += "}\n\n"
+        emitted.add(role_name)
+
     for prop in halo_props:
         init_source = prop.get("init_source", "skip")
         if init_source not in {"copy_from_tree", "copy_from_tree_array"}:

@@ -609,7 +609,7 @@ Every quantity entering from a catalog or a parameter declares its own units and
 - `dimension` — `mass`, `length`, `velocity`, `time`, `dimensionless`, `count`, and so on. Usually inferred from `units`; declare it explicitly only when the label is ambiguous.
 - `h_convention` — whether the value carries the Hubble parameter: `carried` (h folded in, e.g. `Mpc/h`), `free` (h divided out / physical, e.g. `Mpc`), or `none` (h-independent, e.g. `km/s`). Defaults to the registry value for the label.
 
-The generator emits a linear conversion — a cgs scale factor, plus a factor of `MimicConfig.Hubble_h` where the source and target `h_convention` differ — into `src/include/generated/unit_registry.h`. Catalog fields are converted at the tree-reader boundary; output labels come from the reference basis, so a written value always matches its label. Millennium catalogs are already in the reference basis, so their conversion is the identity and output stays byte-identical.
+The generator emits a linear conversion — a cgs scale factor, plus a factor of `MimicConfig.Hubble_h` where source and target are both h-dependent but differ between `carried` and `free` — into `src/include/generated/unit_registry.h`. Catalog fields are converted at the tree-reader boundary; output labels come from the reference basis, so a written value always matches its label. Values with `h_convention: none` are h-independent and cannot be converted to or from h-dependent conventions. Millennium catalogs are already in the reference basis, so their conversion is the identity and output stays byte-identical.
 
 **Adding a catalog whose units differ from Millennium.** Declare the on-disk units on the field's entry in the simulation's single `halo_properties` list (see [halo_properties.yaml](#halo_propertiesyaml)); the generator converts them. For example, a catalog storing the virial-mass column in `Msun` (h-free) under a different on-disk name, and positions in `Mpc` (h-free):
 
@@ -620,6 +620,7 @@ halo_properties:
     type: float
     units: Msun
     h_convention: free
+    provides_core_role: HaloMass
   - name: Pos
     type: vec3_float
     units: Mpc
@@ -731,25 +732,18 @@ These values drive all redshift and timestep calculations. Mimic counts snapshot
 
 ### halo_properties.yaml
 
-This file is the single self-contained description of the simulation's on-disk halo catalog. It has two parts:
+This file is the single self-contained description of the simulation's on-disk halo catalog. Its `halo_properties` list contains **every** field of the on-disk catalog record, **in on-disk order**. This one list is the source of truth for the generated `struct RawHalo` (the binary record layout) and the HDF5 reader.
 
-- `core_property_map` maps each core required-input role (declared in `src/core/core_properties.yaml` under `required_inputs`, e.g. `HaloMass`, the tree links, `SnapNum`, `Len`) onto a field `name` in the list below.
-- `halo_properties` lists **every** field of the on-disk catalog record, **in on-disk order**. This one list is the source of truth for the generated `struct RawHalo` (the binary record layout) and the HDF5 reader. An entry that Mimic copies into a halo property and/or writes to output also carries `output`, `init_source`, `output_source`, `description`, and `range`; entries with none of those (tree links, the virial-mass input, unused accounting fields) are registered for a complete record but produce no halo property.
+An entry that satisfies a core required-input role declares `provides_core_role`, using a role from `src/core/core_properties.yaml` under `required_inputs` (for example `HaloMass`, the tree links, `SnapNum`, or `Len`). The generator emits `mimic_tree_get_<Role>()` accessors from those bindings, and core tree traversal uses those accessors rather than hard-coded catalog member names. An entry that Mimic copies into a halo property and/or writes to output also carries `output`, `init_source`, `output_source`, `description`, and `range`; entries with none of those (tree links, the virial-mass input, unused accounting fields) are registered for a complete record but produce no halo property.
 
-Per-entry keys: `name` (the generated `RawHalo` member and Mimic-internal name), `source` (the on-disk dataset/column name, defaulting to `name` — declare it only when they differ), `type`, and, for dimensioned fields, `units` and `h_convention`. There is no separate `catalog_properties` list and no hand-written `raw_member`: the struct is generated from this list, so list order and types are the binary layout.
+Per-entry keys: `name` (the generated `RawHalo` member and Mimic-internal name), `source` (the on-disk dataset/column name, defaulting to `name` — declare it only when they differ), `type`, and, for dimensioned fields, `units` and `h_convention`. Use `mimic_usage: unused` for fields that are read to preserve the complete record layout but do not feed core roles, halo properties, model processing, or output; the generator rejects `unused` if the field is also wired into processing. Use `interpreted_as` when a raw catalog field feeds an effective Mimic property through core policy rather than being copied directly. For example, Millennium `M_Crit200` provides the `HaloMass` role and is interpreted as output `Mvir` for FoF centrals when non-negative; otherwise core falls back to `Len * particle_mass`. Tree-link, index, and count roles must bind to scalar integer catalog fields; mass roles must bind to scalar numeric fields. There is no separate `catalog_properties` list and no hand-written `raw_member`: the struct is generated from this list, so list order and types are the binary layout.
 
 The generator includes exactly one simulation package at a time, selected with `SIMULATION=<name>`. Adding a new simulation package is not enough by itself; regenerate and rebuild with that selector so the executable, `struct RawHalo`, `struct Halo`, output schema, validation ranges, and module dependency checks all use the intended catalog.
 
-- A field name must be unique within the selected `src/core/core_properties.yaml` + `simulations/<SIMULATION>/halo_properties.yaml` + `models/<MODEL>/model_properties.yaml` set. A name that is both an on-disk field and a core-owned halo property (e.g. `SnapNum`, `Len`) is bound by `core_property_map`, not duplicated as a separate halo property. Incompatible duplicate names fail at generation time.
+- A field name must be unique within the selected `src/core/core_properties.yaml` + `simulations/<SIMULATION>/halo_properties.yaml` + `models/<MODEL>/model_properties.yaml` set. A name that is both an on-disk field and a core-owned halo property (e.g. `SnapNum`, `Len`) is bound by `provides_core_role`, not duplicated as a separate halo property. Incompatible duplicate names fail at generation time.
 - After adding or editing the default simulation package, run `make generate` followed by `make`. For another simulation, run `make SIMULATION=<name> generate` followed by `make SIMULATION=<name>`; add `MODEL=<name>` too when pairing it with a non-default model.
 
 ```yaml
-core_property_map:
-  SnapNum: SnapNum
-  Len: Len
-  HaloMass: M_Crit200
-  # ... tree links ...
-
 halo_properties:
   # catalog-only entry (registered for the on-disk record; not a halo property)
   - name: M_Crit200
@@ -757,6 +751,18 @@ halo_properties:
     type: float
     units: 1e10 Msun/h
     h_convention: carried
+    description: Catalog spherical-overdensity halo mass, M200c
+    provides_core_role: HaloMass
+    interpreted_as:
+      property: Mvir
+      rule: Used for FoF centrals when non-negative; otherwise Mimic uses Len * particle_mass.
+
+  # catalog-only field that Mimic reads but does not use
+  - name: M_TopHat
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+    mimic_usage: unused
 
   # output halo property copied from the tree
   - name: Pos

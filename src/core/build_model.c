@@ -74,25 +74,25 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
 
   HaloAux[halonr].DoneFlag = 1;
 
-  prog = InputTreeHalos[halonr].FirstProgenitor;
+  prog = mimic_tree_get_FirstProgenitor(halonr);
   while (prog >= 0) {
     if (HaloAux[prog].DoneFlag == 0)
       build_halo_tree(prog, tree, filenr, depth + 1);
-    prog = InputTreeHalos[prog].NextProgenitor;
+    prog = mimic_tree_get_NextProgenitor(prog);
   }
 
-  fofhalo = InputTreeHalos[halonr].FirstHaloInFOFgroup;
+  fofhalo = mimic_tree_get_FirstHaloInFOFgroup(halonr);
   if (HaloAux[fofhalo].HaloFlag == 0) {
     HaloAux[fofhalo].HaloFlag = 1;
     while (fofhalo >= 0) {
-      prog = InputTreeHalos[fofhalo].FirstProgenitor;
+      prog = mimic_tree_get_FirstProgenitor(fofhalo);
       while (prog >= 0) {
         if (HaloAux[prog].DoneFlag == 0)
           build_halo_tree(prog, tree, filenr, depth + 1);
-        prog = InputTreeHalos[prog].NextProgenitor;
+        prog = mimic_tree_get_NextProgenitor(prog);
       }
 
-      fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
+      fofhalo = mimic_tree_get_NextHaloInFOFgroup(fofhalo);
     }
   }
 
@@ -102,7 +102,7 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
   // ahead and construct all halos for the subhalos in this FOF halo, and
   // evolve them in time.
 
-  fofhalo = InputTreeHalos[halonr].FirstHaloInFOFgroup;
+  fofhalo = mimic_tree_get_FirstHaloInFOFgroup(halonr);
   if (HaloAux[fofhalo].HaloFlag == 1) {
     ngal = 0;
     HaloAux[fofhalo].HaloFlag = 2;
@@ -125,24 +125,24 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
        * value still reaches output unchanged and the shared marshaller no
        * longer needs to know about this field.
        */
-      float central_mvir = (float)get_virial_mass(InputTreeHalos[source_halo].FirstHaloInFOFgroup);
+      float central_mvir = (float)get_virial_mass(mimic_tree_get_FirstHaloInFOFgroup(source_halo));
       for (int p = workspace_start; p < ngal; p++) {
         FoFWorkspace[p].CentralMvir = central_mvir;
       }
 
       segments[segment_index].source_id = source_halo;
-      segments[segment_index].snapshot_number = InputTreeHalos[source_halo].SnapNum;
+      segments[segment_index].snapshot_number = mimic_tree_get_SnapNum(source_halo);
       segments[segment_index].workspace_start = workspace_start;
       segments[segment_index].workspace_count = ngal - workspace_start;
       segments[segment_index].output_first = -1;
       segments[segment_index].output_count = 0;
       segment_index++;
 
-      fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
+      fofhalo = mimic_tree_get_NextHaloInFOFgroup(fofhalo);
     }
 
     /* Tree driver: run physics, then marshal the workspace to output. */
-    process_halo_evolution(InputTreeHalos[halonr].FirstHaloInFOFgroup, ngal);
+    process_halo_evolution(mimic_tree_get_FirstHaloInFOFgroup(halonr), ngal);
 
     struct OutputBuffer output_buffer = {ProcessedHalos, NumProcessedHalos, MaxProcessedHalos};
     marshal_workspace_to_output_buffer(FoFWorkspace, &output_buffer, segments, segment_index);
@@ -178,8 +178,8 @@ int find_most_massive_progenitor(int halonr) {
   int prog, first_occupied, lenoccmax;
 
   lenoccmax = 0;
-  first_occupied = InputTreeHalos[halonr].FirstProgenitor;
-  prog = InputTreeHalos[halonr].FirstProgenitor;
+  first_occupied = mimic_tree_get_FirstProgenitor(halonr);
+  prog = mimic_tree_get_FirstProgenitor(halonr);
 
   if (prog >= 0)
     if (HaloAux[prog].NHalos > 0)
@@ -188,11 +188,11 @@ int find_most_massive_progenitor(int halonr) {
   // Find most massive progenitor that contains an actual object
   // Maybe FirstProgenitor never was FirstHaloInFOFGroup and thus has no object
   while (prog >= 0) {
-    if (lenoccmax != -1 && InputTreeHalos[prog].Len > lenoccmax && HaloAux[prog].NHalos > 0) {
-      lenoccmax = InputTreeHalos[prog].Len;
+    if (lenoccmax != -1 && mimic_tree_get_Len(prog) > lenoccmax && HaloAux[prog].NHalos > 0) {
+      lenoccmax = mimic_tree_get_Len(prog);
       first_occupied = prog;
     }
-    prog = InputTreeHalos[prog].NextProgenitor;
+    prog = mimic_tree_get_NextProgenitor(prog);
   }
 
   return first_occupied;
@@ -225,11 +225,11 @@ int find_most_massive_progenitor(int halonr) {
  */
 static int count_progenitor_galaxies(int halonr) {
   int count = 0;
-  int prog = InputTreeHalos[halonr].FirstProgenitor;
+  int prog = mimic_tree_get_FirstProgenitor(halonr);
 
   while (prog >= 0) {
     count += HaloAux[prog].NHalos;
-    prog = InputTreeHalos[prog].NextProgenitor;
+    prog = mimic_tree_get_NextProgenitor(prog);
   }
 
   return count;
@@ -309,7 +309,7 @@ static int count_fof_subhalos(int first_fof_halo) {
 
   while (fofhalo >= 0) {
     count++;
-    fofhalo = InputTreeHalos[fofhalo].NextHaloInFOFgroup;
+    fofhalo = mimic_tree_get_NextHaloInFOFgroup(fofhalo);
   }
 
   return count;
@@ -340,7 +340,7 @@ void free_tree_driver_scratch(void) {
 static void gather_progenitor_galaxies(int halonr, int first_occupied,
                                        struct InheritanceProgenitorGalaxy *progenitors) {
   int index = 0;
-  int prog = InputTreeHalos[halonr].FirstProgenitor;
+  int prog = mimic_tree_get_FirstProgenitor(halonr);
 
   while (prog >= 0) {
     for (int i = 0; i < HaloAux[prog].NHalos; i++) {
@@ -351,7 +351,7 @@ static void gather_progenitor_galaxies(int halonr, int first_occupied,
       index++;
     }
 
-    prog = InputTreeHalos[prog].NextProgenitor;
+    prog = mimic_tree_get_NextProgenitor(prog);
   }
 }
 
@@ -387,7 +387,7 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
 
   nprogenitors = count_progenitor_galaxies(halonr);
   required = ngalstart + nprogenitors;
-  if (nprogenitors == 0 && halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup) {
+  if (nprogenitors == 0 && halonr == mimic_tree_get_FirstHaloInFOFgroup(halonr)) {
     required++;
   }
   ensure_fof_workspace_capacity(required);
@@ -397,7 +397,7 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
     gather_progenitor_galaxies(halonr, first_occupied, progenitors);
   }
 
-  current_snap = InputTreeHalos[halonr].SnapNum;
+  current_snap = mimic_tree_get_SnapNum(halonr);
   descendant.halo_nr = halonr;
   descendant.current_snap = current_snap;
   descendant.current_time = Age[current_snap];
@@ -405,7 +405,7 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
   descendant.virial_mass = get_virial_mass(halonr);
   descendant.virial_radius = get_virial_radius(halonr);
   descendant.virial_velocity = get_virial_velocity(halonr);
-  descendant.is_fof_central = (halonr == InputTreeHalos[halonr].FirstHaloInFOFgroup);
+  descendant.is_fof_central = (halonr == mimic_tree_get_FirstHaloInFOFgroup(halonr));
   descendant.unique_galaxy_id = make_unique_galaxy_id(halonr, tree, filenr);
   descendant.halo_payload = make_halo_init_payload(halonr);
 
@@ -423,7 +423,7 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
  * @param   centralgal   Index of central galaxy in FoFWorkspace
  */
 static void setup_module_context(struct ModuleContext *ctx, int halonr, int centralgal) {
-  int snap = InputTreeHalos[halonr].SnapNum;
+  int snap = mimic_tree_get_SnapNum(halonr);
 
   /* Snapshot information */
   ctx->redshift = MimicConfig.ZZ[snap];
