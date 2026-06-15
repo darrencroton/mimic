@@ -30,7 +30,7 @@ galaxy_properties:
     type: double  # SAGE parity: infallingGas is a double local in SAGE's evolve loop
     units: 1e10 Msun/h
     description: Cosmological gas infalling onto galaxy this snapshot
-    notes: "Transport scratch buffer: written by sage_prepare_infall_budget (pre_timestep); read by sage_apply_infall (galaxy_physics)."
+    notes: Transport scratch buffer written by sage_prepare_infall_budget (pre_timestep); read by sage_apply_infall (galaxy_physics).
     output: false
     init_source: default
     init_value: 0.0
@@ -42,7 +42,7 @@ galaxy_properties:
     type: double  # SAGE parity: coolingGas is a double local through SAGE's cooling chain
     units: 1e10 Msun/h
     description: Gas mass cooling from hot to cold this substep
-    notes: "Transport scratch buffer: written by sage_calculate_cooling_budget; read/modified by sage_radio_mode_heating; consumed by sage_apply_cooling."
+    notes: Transport scratch buffer written by sage_calculate_cooling_budget; read/modified by sage_radio_mode_heating; consumed by sage_apply_cooling.
     output: false
     init_source: default
     init_value: 0.0
@@ -124,7 +124,7 @@ galaxy_properties:
     type: double  # SAGE parity: stars is a double local in SAGE
     units: 1e10 Msun/h
     description: New stars formed this timestep
-    notes: "Transport scratch buffer: written by sage_calculate_star_formation; read by sage_calculate_supernova_feedback and sage_apply_star_formation_supernova."
+    notes: Transport scratch buffer written by sage_calculate_star_formation; read by sage_calculate_supernova_feedback and sage_apply_star_formation_supernova.
     output: false
     init_source: default
     init_value: 0.0
@@ -250,7 +250,7 @@ galaxy_properties:
     type: double  # SAGE parity: reheated_mass is a double local in SAGE
     units: 1e10 Msun/h
     description: Gas mass to be reheated by supernova feedback this timestep
-    notes: "Transport scratch buffer: written by sage_calculate_supernova_feedback; consumed by sage_apply_star_formation_supernova."
+    notes: Transport scratch buffer written by sage_calculate_supernova_feedback; consumed by sage_apply_star_formation_supernova.
     output: false
     init_source: default
     init_value: 0.0
@@ -262,7 +262,7 @@ galaxy_properties:
     type: double  # SAGE parity: ejected_mass is a double local in SAGE
     units: 1e10 Msun/h
     description: Gas mass to be ejected by supernova feedback this timestep
-    notes: "Transport scratch buffer: written by sage_calculate_supernova_feedback; consumed by sage_apply_star_formation_supernova."
+    notes: Transport scratch buffer written by sage_calculate_supernova_feedback; consumed by sage_apply_star_formation_supernova.
     output: false
     init_source: default
     init_value: 0.0
@@ -302,7 +302,7 @@ galaxy_properties:
     type: double  # SAGE parity: rcool is a double local passed into do_AGN_heating
     units: Mpc/h
     description: Cooling radius calculated this substep
-    notes: "Transport scratch buffer: written by sage_calculate_cooling_budget; read by sage_apply_cooling."
+    notes: Transport scratch buffer written by sage_calculate_cooling_budget; read by sage_apply_cooling.
     output: false
     init_source: default
     init_value: 0.0
@@ -314,7 +314,7 @@ galaxy_properties:
     type: double  # SAGE parity: lambda is a double local in SAGE's cooling_recipe
     units: erg cm^3/s
     description: Metallicity-dependent cooling function Lambda(T,Z) from Sutherland & Dopita (1993)
-    notes: "Transport scratch buffer: written by sage_calculate_cooling_budget; diagnostic output only (output: false)."
+    notes: Transport scratch buffer written by sage_calculate_cooling_budget; diagnostic only, never written to output.
     output: false
     init_source: default
     init_value: 0.0
@@ -409,7 +409,7 @@ galaxy_properties:
     type: double  # SAGE parity: unstable_gas_fraction is a double local in SAGE
     units: dimensionless
     description: Fraction of cold gas that is unstable (0.0-1.0)
-    notes: "Transport scratch buffer: written by sage_disk_instability; read by sage_quasar_mode and sage_starburst_feedback; reset to 0.0 each substep (init_repeat)."
+    notes: Transport scratch buffer written by sage_disk_instability; read by sage_quasar_mode and sage_starburst_feedback; reset to 0.0 each substep (init_repeat).
     output: false
     init_source: default
     init_value: 0.0

@@ -4,14 +4,15 @@
 # `struct RawHalo` and the HDF5 tree reader.
 #
 # Entry keys: name, source (if on-disk name differs), type, units,
-# h_convention, provides_core_role, notes, mimic_usage, description,
+# h_convention, provides_core_role, notes, description,
 # output, init_source, output_source, range.
 #
 # Required core roles (src/core/core_properties.yaml required_inputs):
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
 # NextHaloInFOFgroup, SnapNum, Len, HaloMass.
 #
-# `mimic_usage: unused` marks fields read only to preserve the catalog layout.
+# Fields with no output/role/init are read only to preserve the catalog
+# layout; an inert `notes` line records that for the reader.
 #
 # See: docs/DEVELOPER-GUIDE.md for complete schema documentation
 
@@ -60,7 +61,7 @@ halo_properties:
     type: float
     units: 1e10 Msun/h
     h_convention: carried
-    mimic_usage: unused
+    notes: Unused catalog field, read only to preserve the on-disk record layout.
 
   - name: M_Crit200
     source: Mvir
@@ -69,13 +70,13 @@ halo_properties:
     h_convention: carried
     description: Catalog spherical-overdensity halo mass, M200c
     provides_core_role: HaloMass
-    notes: "Interpreted as output Mvir for FoF centrals when non-negative; otherwise core uses Len * particle_mass. Policy lives in C core, not enforced by this field."
+    notes: Interpreted as output Mvir for FoF centrals when non-negative; otherwise core uses Len times particle_mass. Policy lives in C core, not enforced by this field.
 
   - name: M_TopHat
     type: float
     units: 1e10 Msun/h
     h_convention: carried
-    mimic_usage: unused
+    notes: Unused catalog field, read only to preserve the on-disk record layout.
 
   # --- output halo properties (copied from the tree) ---
   - name: Pos
@@ -147,16 +148,16 @@ halo_properties:
     source: Filenr
     type: int
     units: dimensionless
-    mimic_usage: unused
+    notes: Unused catalog field, read only to preserve the on-disk record layout.
 
   - name: SubhaloIndex
     source: SubHaloIndex
     type: int
     units: dimensionless
-    mimic_usage: unused
+    notes: Unused catalog field, read only to preserve the on-disk record layout.
 
   - name: SubHalfMass
     type: float
     units: 1e10 Msun/h
     h_convention: carried
-    mimic_usage: unused
+    notes: Unused catalog field, read only to preserve the on-disk record layout.

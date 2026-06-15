@@ -734,7 +734,7 @@ This file is the single self-contained description of the simulation's on-disk h
 
 An entry that satisfies a core required-input role declares `provides_core_role`, using a role from `src/core/core_properties.yaml` under `required_inputs` (for example `HaloMass`, the tree links, `SnapNum`, or `Len`). The generator emits `mimic_tree_get_<Role>()` accessors from those bindings, and core tree traversal uses those accessors rather than hard-coded catalog member names. An entry that Mimic copies into a halo property and/or writes to output also carries `output`, `init_source`, `output_source`, `description`, and `range`; entries with none of those (tree links, the virial-mass input, unused accounting fields) are registered for a complete record but produce no halo property.
 
-Per-entry keys: `name` (the generated `RawHalo` member and Mimic-internal name), `source` (the on-disk dataset/column name, defaulting to `name` — declare it only when they differ), `type`, and, for dimensioned fields, `units` and `h_convention`. Use `mimic_usage: unused` for fields that are read to preserve the complete record layout but do not feed core roles, halo properties, model processing, or output; the generator rejects `unused` if the field is also wired into processing. When a raw catalog field feeds an effective Mimic property through core policy rather than being copied directly, record that policy in the optional free-text `notes` field (documentary only; the generator does not parse or enforce it — the policy itself lives in C core). For example, Millennium `M_Crit200` provides the `HaloMass` role and is interpreted as output `Mvir` for FoF centrals when non-negative; otherwise core falls back to `Len * particle_mass`. Tree-link, index, and count roles must bind to scalar integer catalog fields; mass roles must bind to scalar numeric fields. There is no separate `catalog_properties` list and no hand-written `raw_member`: the struct is generated from this list, so list order and types are the binary layout.
+Per-entry keys: `name` (the generated `RawHalo` member and Mimic-internal name), `source` (the on-disk dataset/column name, defaulting to `name` — declare it only when they differ), `type`, and, for dimensioned fields, `units` and `h_convention`. A field with no `output`, `provides_core_role`, or `init_source` is read only to preserve the complete on-disk record layout and produces no halo property; record that (or any other developer note) in the optional free-text `notes` field. `notes` is documentary only — the generator does not parse or enforce it. When a raw catalog field feeds an effective Mimic property through core policy rather than being copied directly, note that policy too. For example, Millennium `M_Crit200` provides the `HaloMass` role and is interpreted as output `Mvir` for FoF centrals when non-negative; otherwise core falls back to `Len * particle_mass` (policy lives in C core). Tree-link, index, and count roles must bind to scalar integer catalog fields; mass roles must bind to scalar numeric fields. There is no separate `catalog_properties` list and no hand-written `raw_member`: the struct is generated from this list, so list order and types are the binary layout.
 
 The generator includes exactly one simulation package at a time, selected with `SIMULATION=<name>`. Adding a new simulation package is not enough by itself; regenerate and rebuild with that selector so the executable, `struct RawHalo`, `struct Halo`, output schema, validation ranges, and module dependency checks all use the intended catalog.
 
@@ -751,14 +751,14 @@ halo_properties:
     h_convention: carried
     description: Catalog spherical-overdensity halo mass, M200c
     provides_core_role: HaloMass
-    notes: "Interpreted as output Mvir for FoF centrals when non-negative; otherwise core uses Len * particle_mass. Policy lives in C core, not enforced by this field."
+    notes: Interpreted as output Mvir for FoF centrals when non-negative; otherwise core uses Len times particle_mass. Policy lives in C core, not enforced by this field.
 
   # catalog-only field that Mimic reads but does not use
   - name: M_TopHat
     type: float
     units: 1e10 Msun/h
     h_convention: carried
-    mimic_usage: unused
+    notes: Unused catalog field, read only to preserve the on-disk record layout.
 
   # output halo property copied from the tree
   - name: Pos

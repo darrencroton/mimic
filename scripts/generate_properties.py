@@ -472,18 +472,6 @@ def normalize_catalog_contract(
             raise ValueError(f"Catalog property '{name}' has unknown type '{prop.get('type')}'")
         _unit_info(prop.get("units", "dimensionless"))
 
-        mimic_usage = prop.get("mimic_usage")
-        if mimic_usage is not None:
-            if mimic_usage != "unused":
-                raise ValueError(
-                    f"Catalog property '{name}' has unknown mimic_usage '{mimic_usage}'"
-                )
-            if prop.get("provides_core_role") or prop.get("init_source") or prop.get("output"):
-                raise ValueError(
-                    f"Catalog property '{name}' cannot be mimic_usage=unused while feeding "
-                    "core roles, halo properties, or output"
-                )
-
         catalog_by_name[name] = {**prop, "source": prop.get("source", name)}
 
         core_role = prop.get("provides_core_role")
