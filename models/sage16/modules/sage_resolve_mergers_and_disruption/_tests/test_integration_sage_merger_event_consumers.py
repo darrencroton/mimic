@@ -18,7 +18,11 @@ REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
+    BLUE,
+    GREEN,
     MIMIC_EXE,
+    NC,
+    RED,
     TestSkipped,
     create_test_param_file,
     load_binary_halos,
@@ -265,11 +269,6 @@ def test_starburst_consumer_receives_merger_events():
 
 def main():
     """Run the immediate merger event integration suite."""
-    BLUE = "\033[1;34m"
-    GREEN = "\033[0;32m"
-    RED = "\033[0;31m"
-    NC = "\033[0m"
-
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"{BLUE}Test Suite: {Path(__file__).name}{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")

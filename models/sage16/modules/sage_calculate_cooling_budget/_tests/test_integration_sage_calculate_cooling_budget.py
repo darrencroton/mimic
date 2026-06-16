@@ -28,7 +28,12 @@ import numpy as np
 # Add test framework to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../../../tests"))
 from framework import (
+    BLUE,
+    GREEN,
     MIMIC_EXE,
+    NC,
+    RED,
+    YELLOW,
     TestSkipped,
     harness,
     result_error,
@@ -36,13 +41,6 @@ from framework import (
     result_pass,
     result_skip,
 )
-
-# ANSI color codes (module-level constants)
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
 
 
 class TestSageCoolingIntegration:

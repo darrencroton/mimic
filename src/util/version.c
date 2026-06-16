@@ -102,11 +102,6 @@ static void get_compiler_info(char *compiler_buffer, size_t size) {
 /**
  * @brief   Copies a string into a fixed buffer, truncating if necessary
  *
- * Intentional truncation has no clean expression via snprintf("%s", ...):
- * GCC's -Wformat-truncation fires whenever the source string's statically
- * traced maximum length exceeds the destination size, regardless of which
- * copy function is used. A plain bounded memcpy sidesteps the check.
- *
  * @param   dst       Destination buffer
  * @param   dst_size  Size of the destination buffer
  * @param   src       Source string

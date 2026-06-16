@@ -19,13 +19,6 @@
 # Detect compiler failures even when piping to tee for logs
 set -o pipefail
 
-# Color codes for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 # Counters
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -42,6 +35,7 @@ TEST_FAILURES_FILE="${REPO_ROOT}/build/.test_failures"
 # runner; standalone runs fall back to the shared project defaults. Exported so
 # the generation scripts below see the same selection.
 . "${REPO_ROOT}/scripts/lib/defaults.sh"
+. "${REPO_ROOT}/scripts/lib/colors.sh"
 MODEL="${MODEL:-$DEFAULT_MODEL}"
 SIMULATION="${SIMULATION:-$DEFAULT_SIMULATION}"
 export MODEL SIMULATION

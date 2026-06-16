@@ -14,7 +14,11 @@ REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
+    BLUE,
+    GREEN,
     MIMIC_EXE,
+    NC,
+    RED,
     TestSkipped,
     create_test_param_file,
     result_error,
@@ -103,11 +107,11 @@ def test_full_halo_only_module_rejects_process_per_event():
 
 
 def main():
-    print(f"\033[1;34m{'=' * 60}\033[0m")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print(
-        f"\033[1;34mTest Suite: Processing Mode Contracts (test_integration_processing_mode_contracts.py)\033[0m"
+        f"{BLUE}Test Suite: Processing Mode Contracts (test_integration_processing_mode_contracts.py){NC}"
     )
-    print(f"\033[1;34m{'=' * 60}\033[0m")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
     tests = [
@@ -143,22 +147,22 @@ def main():
             failed += 1
 
     print()
-    print(f"\033[1;34m{'=' * 60}\033[0m")
-    print(f"\033[1;34mTest Summary\033[0m")
-    print(f"\033[1;34m{'=' * 60}\033[0m")
+    print(f"{BLUE}{'=' * 60}{NC}")
+    print(f"{BLUE}Test Summary{NC}")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print(f"Passed:  {passed}")
     if skipped:
         print(f"Skipped: {skipped}")
     print(f"Failed:  {failed}")
     print(f"Total:   {passed + failed + skipped}")
-    print(f"\033[1;34m{'=' * 60}\033[0m")
+    print(f"{BLUE}{'=' * 60}{NC}")
     print()
 
     if failed == 0:
-        print(f"\033[0;32m✓ All tests passed!\033[0m")
+        print(f"{GREEN}✓ All tests passed!{NC}")
         return 0
     else:
-        print(f"\033[0;31m✗ {failed} test(s) failed\033[0m")
+        print(f"{RED}✗ {failed} test(s) failed{NC}")
         return 1
 
 

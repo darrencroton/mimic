@@ -621,8 +621,12 @@ generate-test-registry:
 # Test Targets
 # -----------------------------------------------------------------------------
 
+# Colour: source scripts/lib/colors.sh per shell invocation, print via printf
+# (echo's \033 handling is shell-dependent; printf's is portable).
+
 define RUN_PYTHON_TEST_REGISTRY
-	@FAILED=0; \
+	@. scripts/lib/colors.sh; \
+	FAILED=0; \
 	FAILED_TESTS=""; \
 	if [ "$(TEST_SUMMARY)" != "1" ]; then \
 		echo "Running $(1) tests from registry..."; \
@@ -630,7 +634,7 @@ define RUN_PYTHON_TEST_REGISTRY
 	for test in $$(grep -v '^#' build/generated/$(2)_tests.txt | grep -v '^$$'); do \
 		if [ "$(TEST_SUMMARY)" != "1" ]; then \
 			echo ""; \
-			echo "\033[0;34mRunning: $$test\033[0m"; \
+			printf "$${BLUE}Running: %s$${NC}\n" "$$test"; \
 			if ! $(PYTHON) $$test; then \
 				FAILED=1; \
 				FAILED_TESTS="$$FAILED_TESTS $$test"; \
@@ -662,15 +666,15 @@ define RUN_PYTHON_TEST_REGISTRY
 			failure="$(2): $$test"; \
 			grep -qxF "$$failure" build/.test_failures 2>/dev/null || echo "$$failure" >> build/.test_failures; \
 		done; \
-		echo "\033[0;31m=== TLDR: $(3) TESTS FAILED ===\033[0m"; \
-		echo "\033[0;31mFailed tests:\033[0m"; \
+		printf "$${RED}=== TLDR: $(3) TESTS FAILED ===$${NC}\n"; \
+		printf "$${RED}Failed tests:$${NC}\n"; \
 		for test in $$FAILED_TESTS; do \
 			echo "  - $$test"; \
 		done; \
 		echo ""; \
 		exit 1; \
 	else \
-		echo "\033[0;32m=== TLDR: ALL $(3) TESTS PASSED ===\033[0m"; \
+		printf "$${GREEN}=== TLDR: ALL $(3) TESTS PASSED ===$${NC}\n"; \
 		echo ""; \
 	fi
 endef
@@ -714,11 +718,12 @@ endef
 
 tests:
 	@echo "Cleaning and building once for all tests..."
-	@output_file=$$(mktemp); \
+	@. scripts/lib/colors.sh; \
+	output_file=$$(mktemp); \
 	if ! { $(MAKE) clean && $(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) generate-test-registry; } > "$$output_file" 2>&1; then \
 		cat "$$output_file"; \
 		rm -f "$$output_file"; \
-		echo "\033[0;31mERROR: test preamble (clean / generate-test-registry) failed — output above\033[0m"; \
+		printf "$${RED}ERROR: test preamble (clean / generate-test-registry) failed — output above$${NC}\n"; \
 		exit 1; \
 	fi; \
 	rm -f "$$output_file"
@@ -734,17 +739,18 @@ tests:
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-integration || { grep -q '^integration:' build/.test_failures 2>/dev/null || grep -qx integration build/.test_failures 2>/dev/null || echo "integration" >> build/.test_failures; true; }
 	@$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests-scientific || { grep -q '^scientific:' build/.test_failures 2>/dev/null || grep -qx scientific build/.test_failures 2>/dev/null || echo "scientific" >> build/.test_failures; true; }
 	@if [ "$(TEST_SUMMARY)" = "1" ]; then echo ""; else echo ""; echo ""; fi
-	@if [ -f build/.test_failures ]; then \
-		echo "\033[0;31m############################################################\033[0m"; \
-		echo "\033[0;31m=== TLDR: FAILED TESTS/SUITES ===\033[0m"; \
+	@. scripts/lib/colors.sh; \
+	if [ -f build/.test_failures ]; then \
+		printf "$${RED}############################################################$${NC}\n"; \
+		printf "$${RED}=== TLDR: FAILED TESTS/SUITES ===$${NC}\n"; \
 		while IFS= read -r failure; do \
 			echo "  - $$failure"; \
 		done < build/.test_failures; \
-		echo "\033[0;31m############################################################\033[0m"; \
+		printf "$${RED}############################################################$${NC}\n"; \
 	else \
-		echo "\033[0;32m############################################################\033[0m"; \
-		echo "\033[0;32m=== TLDR: ALL UNIT, INTEGRATION, SCIENTIFIC TESTS PASSED ===\033[0m"; \
-		echo "\033[0;32m############################################################\033[0m"; \
+		printf "$${GREEN}############################################################$${NC}\n"; \
+		printf "$${GREEN}=== TLDR: ALL UNIT, INTEGRATION, SCIENTIFIC TESTS PASSED ===$${NC}\n"; \
+		printf "$${GREEN}############################################################$${NC}\n"; \
 	fi
 	@echo ""
 	@if [ -f build/.test_failures ]; then \
@@ -754,9 +760,10 @@ tests:
 
 tests-unit:
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
-	@echo "\033[0;34m============================================================\033[0m"
-	@echo "\033[0;34mRUNNING UNIT TESTS\033[0m"
-	@echo "\033[0;34m============================================================\033[0m"
+	@. scripts/lib/colors.sh; \
+	printf "$${BLUE}============================================================$${NC}\n"; \
+	printf "$${BLUE}RUNNING UNIT TESTS$${NC}\n"; \
+	printf "$${BLUE}============================================================$${NC}\n"
 	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
 	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@cd tests/unit && MIMIC_RECORD_TEST_FAILURES=1 ./run_tests.sh
@@ -766,9 +773,10 @@ tests-unit:
 define RUN_PYTHON_TIER
 	$(call RUN_SUMMARY_AWARE,$(MAKE) MODEL=$(MODEL) SIMULATION=$(SIMULATION) TEST_BUILD=yes generate validate-build $(EXEC),build $(1) test executable)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
-	@echo "\033[0;34m============================================================\033[0m"
-	@echo "\033[0;34mRUNNING $(2) TESTS\033[0m"
-	@echo "\033[0;34m============================================================\033[0m"
+	@. scripts/lib/colors.sh; \
+	printf "$${BLUE}============================================================$${NC}\n"; \
+	printf "$${BLUE}RUNNING $(2) TESTS$${NC}\n"; \
+	printf "$${BLUE}============================================================$${NC}\n"
 	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
 	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi

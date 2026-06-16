@@ -14,15 +14,18 @@ with the marker protocol (markers.py) only through their outcome:
 This keeps the protocol's one-marker-per-test contract intact.
 """
 
+import os
+import sys
+
 from .markers import TestSkipped, result_error, result_fail, result_pass, result_skip, result_warn
 
-# ANSI color codes for test output (single home for the constants previously
-# re-declared at the top of every test file).
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
+# Suppress color when stdout is not a terminal or NO_COLOR is set (mirrors scripts/console.py).
+_COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+BLUE = "\033[1;34m" if _COLOR else ""
+GREEN = "\033[0;32m" if _COLOR else ""
+RED = "\033[0;31m" if _COLOR else ""
+YELLOW = "\033[1;33m" if _COLOR else ""
+NC = "\033[0m" if _COLOR else ""
 
 
 def _first_line(exc):

@@ -58,8 +58,13 @@ REPO_ROOT = find_repo_root(Path(__file__).resolve())
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
+    BLUE,
+    GREEN,
     MIMIC_EXE,
+    NC,
+    RED,
     TEST_DATA_DIR,
+    YELLOW,
     ensure_output_dirs,
     read_param_file,
     run_mimic,
@@ -68,13 +73,6 @@ from framework import (
 
 # Ensure output directories exist
 ensure_output_dirs()
-
-# ANSI color codes (module-level constants)
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
 
 
 def load_hdf5_halos(output_file):

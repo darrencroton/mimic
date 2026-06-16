@@ -59,8 +59,13 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from framework import (
+    BLUE,
+    GREEN,
     MIMIC_EXE,
+    NC,
+    RED,
     TEST_DATA_DIR,
+    YELLOW,
     ensure_output_dirs,
     input_tree_file_for_run,
     load_binary_halos,
@@ -73,13 +78,6 @@ from tree_loader import get_halos_by_snapshot, load_binary_tree
 
 # Ensure output directories exist
 ensure_output_dirs()
-
-# ANSI color codes (module-level constants)
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
 
 
 def match_halos_snapshot63(input_halos, output_halos, snapshot=63):

@@ -44,7 +44,12 @@ import numpy as np
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
+    BLUE,
+    GREEN,
     MIMIC_EXE,
+    NC,
+    RED,
+    YELLOW,
     TestSkipped,
     check_no_memory_leaks,
     create_test_param_file,
@@ -55,13 +60,6 @@ from framework import (
     result_skip,
     run_mimic,
 )
-
-# ANSI color codes
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-NC = "\033[0m"
-
 
 # ========================================================================
 # LIFECYCLE TESTS

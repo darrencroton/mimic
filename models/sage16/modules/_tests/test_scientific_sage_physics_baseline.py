@@ -38,7 +38,12 @@ sys.path.insert(0, str(REPO_ROOT / "tests" / "integration"))
 from framework import (
     BASELINE_ATOL_DEFAULT,
     BASELINE_RTOL_DEFAULT,
+    BLUE,
+    GREEN,
     MIMIC_EXE,
+    NC,
+    RED,
+    YELLOW,
     TestSkipped,
     baseline_rtol,
     compiled_model,
@@ -52,12 +57,6 @@ from framework import (
     skip_non_default_baseline,
 )
 from test_output_formats import compare_halos_comprehensive
-
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
 
 INPUT = (
     REPO_ROOT / "models" / "sage16" / "modules" / "_tests" / "input" / "test_physics_binary.yaml"

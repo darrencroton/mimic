@@ -38,7 +38,12 @@ REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
+    BLUE,
+    GREEN,
     MIMIC_EXE,
+    NC,
+    RED,
+    YELLOW,
     TestSkipped,
     create_test_param_file,
     load_binary_halos,
@@ -48,13 +53,6 @@ from framework import (
     result_skip,
     run_mimic,
 )
-
-# ANSI color codes
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
 
 
 def test_module_loads():

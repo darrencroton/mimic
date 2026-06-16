@@ -37,18 +37,19 @@ MIMIC_EXE = REPO_ROOT / "mimic"
 
 # Add tests directory to path to import framework
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import core_input_file, load_binary_halos
+from framework import (
+    BLUE,
+    GREEN,
+    NC,
+    RED,
+    YELLOW,
+    core_input_file,
+    load_binary_halos,
+)
 
 # Test state
 temp_dir = None
 ref_param_file = None
-
-# ANSI color codes (module-level constants)
-BLUE = "\033[1;34m"
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
 
 
 def run_mimic(param_file):
