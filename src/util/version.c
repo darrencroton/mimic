@@ -144,7 +144,7 @@ static int get_system_info(char *system_buffer, size_t size) {
             if (end)
               *end = '\0';
           }
-          strncpy(distro_name, value, sizeof(distro_name) - 1);
+          snprintf(distro_name, sizeof(distro_name), "%s", value);
           /* Remove newline if present */
           char *nl = strchr(distro_name, '\n');
           if (nl)
@@ -158,7 +158,7 @@ static int get_system_info(char *system_buffer, size_t size) {
             if (end)
               *end = '\0';
           }
-          strncpy(distro_version, value, sizeof(distro_version) - 1);
+          snprintf(distro_version, sizeof(distro_version), "%s", value);
           /* Remove newline if present */
           char *nl = strchr(distro_version, '\n');
           if (nl)
@@ -201,11 +201,11 @@ static int get_username(char *user_buffer, size_t size) {
 
   if (pw == NULL) {
     ERROR_LOG("Failed to get username");
-    strncpy(user_buffer, "unknown", size);
+    snprintf(user_buffer, size, "%s", "unknown");
     return 1;
   }
 
-  strncpy(user_buffer, pw->pw_name, size);
+  snprintf(user_buffer, size, "%s", pw->pw_name);
   return 0;
 }
 

@@ -88,8 +88,11 @@ void load_tree_table_hdf5(int filenr) {
 
   struct METADATA_NAMES metadata_names;
 
-  snprintf(buf, MAX_STRING_LEN, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
-           filenr, MimicConfig.TreeExtension);
+  int path_len = snprintf(buf, sizeof(buf), "%s/%s.%d%s", MimicConfig.SimulationDir,
+                          MimicConfig.TreeName, filenr, MimicConfig.TreeExtension);
+  if (path_len < 0 || (size_t)path_len >= sizeof(buf)) {
+    FATAL_ERROR("Tree file path too long (%d chars, max %zu)", path_len, sizeof(buf) - 1);
+  }
   hdf5_file = H5Fopen(buf, H5F_ACC_RDONLY, H5P_DEFAULT);
 
   if (hdf5_file < 0) {
