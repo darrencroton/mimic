@@ -27,8 +27,8 @@ extern char *ThisNode;
  *
  * 1. InputTreeHalos (struct RawHalo*) - IMMUTABLE INPUT
  *    - Source: Read from merger tree files (binary or HDF5)
- *    - Lifetime: Per-tree (allocated in load_tree(), freed in
- * free_halos_and_tree())
+ *    - Lifetime: Per-tree (allocated in load_unit(), freed in
+ * free_unit_halos())
  *    - Ownership: Read-only reference to simulation data
  *    - Size: InputTreeNHalos[treenr] elements
  *    - Purpose: Provides immutable snapshot of halo properties from simulation
@@ -44,8 +44,8 @@ extern char *ThisNode;
  *
  * 3. ProcessedHalos (struct Halo*) - TREE-DRIVER OUTPUT BUFFER
  *    - Source: Final halos copied from FoFWorkspace after physics execution
- *    - Lifetime: Per-tree (allocated in load_tree(), freed in
- * free_halos_and_tree())
+ *    - Lifetime: Per-tree (allocated in load_unit(), freed in
+ * free_unit_halos())
  *    - Ownership: Tree-driver output buffer, indexed by NumProcessedHalos
  *    - Size: MaxProcessedHalos elements (initial estimate; grows via myrealloc_cat
  *      if orphan halos cause output count to exceed the initial allocation)
@@ -61,7 +61,7 @@ extern char *ThisNode;
  *    - Memory: Allocated via mymalloc_cat(..., MEM_HALOS)
  *
  * Allocation Pattern (per tree):
- *   load_tree():
+ *   load_unit():
  *     InputTreeHalos = mymalloc_cat(InputTreeNHalos[treenr] * sizeof(RawHalo), MEM_TREES)
  *     HaloAux        = mymalloc_cat(InputTreeNHalos[treenr] * sizeof(HaloAuxData), MEM_HALOS)
  *     ProcessedHalos = mymalloc_cat(MaxProcessedHalos * sizeof(Halo), MEM_HALOS)
@@ -73,7 +73,7 @@ extern char *ThisNode;
  *       build_halo_tree syncs ProcessedHalos and MaxProcessedHalos back from the
  *       OutputBuffer struct after each marshal call
  *
- *   free_halos_and_tree():
+ *   free_unit_halos():
  *     galaxy_pool_reset()   // reclaim all galaxy slots for the next tree
  *     myfree(FoFWorkspace)   // frees the final (possibly grown) pointer
  *     myfree(ProcessedHalos) // frees the final (possibly grown) pointer
@@ -84,7 +84,7 @@ extern char *ThisNode;
  * not by individual halos. Inheritance allocates each workspace galaxy from the
  * pool; the output-buffer marshaller transfers surviving halos (and their galaxy
  * pointers) into ProcessedHalos by struct copy; the pool's slots stay valid
- * because chunks never move. No per-halo galaxy frees occur — free_halos_and_tree()
+ * because chunks never move. No per-halo galaxy frees occur — free_unit_halos()
  * resets the pool in one step, which is why the same galaxy pointer can be held
  * by both a FoFWorkspace and a ProcessedHalos slot without any double-free risk.
  */

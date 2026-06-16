@@ -6,9 +6,9 @@
 
 // Proto-Types //
 
-void load_tree_table_hdf5(int filenr);
-void load_tree_hdf5(int treenr);
-void close_hdf5_file(void);
+void open_partition_hdf5(int output_id);
+void load_unit_hdf5(int unit);
+void close_partition_hdf5(void);
 
 #endif
 #endif

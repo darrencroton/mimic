@@ -9,20 +9,37 @@
  * registry.c). The core dispatches through these function pointers instead of
  * switching on a format enum, so adding a format is a single registry entry
  * plus its implementation file -- no edits to the core read path.
+ *
+ * The core driver iterates the input as *partitions* of *units*. A partition is
+ * the unit of output: the core opens one set of output files per partition,
+ * names them by the partition's output id, and finalizes them when the
+ * partition is done. A unit is one independently processed merger structure
+ * within a partition. For the L-Halo readers a partition is one input file and
+ * a unit is one tree, and the per-file helpers below supply the partition
+ * enumeration. Because that enumeration comes from the reader, a reader can map
+ * partitions onto the input differently without touching the core loop.
  */
 struct TreeReader {
   const char *name;           /* tree_type string in the input YAML */
-  const char *file_extension; /* appended after TreeName.<filenr>, e.g. ".hdf5" */
+  const char *file_extension; /* appended after TreeName.<output_id>, e.g. ".hdf5" */
 
-  /* Read tree-table metadata for one input file (Ntrees and per-tree halo
-     counts) and retain the open file handle for subsequent load_tree calls. */
-  void (*load_tree_table)(int filenr);
+  /* Number of partitions to iterate. The driver applies the MPI stride over the
+     partition index, so this returns the full count, not a per-task share. */
+  int (*num_partitions)(void);
 
-  /* Load every halo of one tree from the open file into InputTreeHalos. */
-  void (*load_tree)(int treenr);
+  /* Output id for a partition: the value used in output file names and unique
+     galaxy ids (the filenr-equivalent). */
+  int (*partition_output_id)(int partition);
 
-  /* Close the open input file. */
-  void (*close_file)(void);
+  /* Open partition `output_id` and read its unit table (Ntrees and per-unit
+     halo counts), retaining the open handle for subsequent load_unit calls. */
+  void (*open_partition)(int output_id);
+
+  /* Load every halo of one unit from the open partition into InputTreeHalos. */
+  void (*load_unit)(int unit);
+
+  /* Close the open partition. */
+  void (*close_partition)(void);
 };
 
 /**
@@ -33,5 +50,13 @@ struct TreeReader {
  *          non-HDF5 builds).
  */
 const struct TreeReader *tree_reader_lookup(const char *name);
+
+/**
+ * Per-file partition model shared by the L-Halo readers: one partition per
+ * input file across the configured FirstFile..LastFile range, with the output
+ * id equal to the file number. Defined in tree/interface.c.
+ */
+int tree_partition_per_file_count(void);
+int tree_partition_per_file_output_id(int partition);
 
 #endif /* IO_TREE_READER_H */

@@ -14,9 +14,9 @@
  * - Easier extensibility for future enhancements
  *
  * Key functions:
- * - load_tree_table_hdf5(): Reads tree metadata from an HDF5 file
- * - load_tree_hdf5(): Loads a specific tree's halo data
- * - close_hdf5_file(): Closes the HDF5 file
+ * - open_partition_hdf5(): Reads tree metadata from an HDF5 file
+ * - load_unit_hdf5(): Loads a specific tree's halo data
+ * - close_partition_hdf5(): Closes the HDF5 file
  * - read_attribute_int(): Helper for reading integer attributes
  * - read_dataset(): Helper for reading datasets of various types
  */
@@ -65,7 +65,7 @@ static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void
 /**
  * @brief   Loads merger tree metadata from an HDF5 file
  *
- * @param   filenr    File number to load
+ * @param   output_id    Output id of the partition (the L-Halo filenr)
  *
  * This function opens and reads the metadata from an HDF5 merger tree file.
  * It extracts:
@@ -80,7 +80,7 @@ static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void
  * The function supports different HDF5 schemas through the fill_metadata_names
  * helper function, which determines the attribute names based on the tree type.
  */
-void load_tree_table_hdf5(int filenr) {
+void open_partition_hdf5(int output_id) {
 
   char buf[MAX_STRING_LEN + 1];
   int32_t totNHalos, i;
@@ -89,7 +89,7 @@ void load_tree_table_hdf5(int filenr) {
   struct METADATA_NAMES metadata_names;
 
   int path_len = snprintf(buf, sizeof(buf), "%s/%s.%d%s", MimicConfig.SimulationDir,
-                          MimicConfig.TreeName, filenr, MimicConfig.TreeExtension);
+                          MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
   if (path_len < 0 || (size_t)path_len >= sizeof(buf)) {
     FATAL_ERROR("Tree file path too long (%d chars, max %zu)", path_len, sizeof(buf) - 1);
   }
@@ -135,11 +135,11 @@ void load_tree_table_hdf5(int filenr) {
 
 #define READ_TREE_PROPERTY(field_name, hdf5_name, type_int, data_type)                             \
   {                                                                                                \
-    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr, hdf5_name);                     \
+    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", unit, hdf5_name);                       \
     status = read_dataset(dataset_name, type_int, buffer);                                         \
     if (status != EXIT_SUCCESS) {                                                                  \
       IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,                                  \
-                     "Failed to read property for tree %d", treenr);                               \
+                     "Failed to read property for tree %d", unit);                                 \
     }                                                                                              \
     for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {                                   \
       InputTreeHalos[halo_idx].field_name = ((data_type *)buffer)[halo_idx];                       \
@@ -148,11 +148,11 @@ void load_tree_table_hdf5(int filenr) {
 
 #define READ_TREE_PROPERTY_MULTIPLEDIM(field_name, hdf5_name, type_int, data_type)                 \
   {                                                                                                \
-    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", treenr, hdf5_name);                     \
+    snprintf(dataset_name, MAX_STRING_LEN, "tree_%03d/%s", unit, hdf5_name);                       \
     status = read_dataset(dataset_name, type_int, buffer_multipledim);                             \
     if (status != EXIT_SUCCESS) {                                                                  \
       IO_FATAL_ERROR(IO_ERROR_HDF5, "read_dataset", dataset_name,                                  \
-                     "Failed to read property for tree %d", treenr);                               \
+                     "Failed to read property for tree %d", unit);                                 \
     }                                                                                              \
     for (halo_idx = 0; halo_idx < NHalos_ThisTree; ++halo_idx) {                                   \
       for (dim = 0; dim < NDIM; ++dim) {                                                           \
@@ -180,7 +180,7 @@ void load_tree_table_hdf5(int filenr) {
  * The halos are stored in the global Halo array for processing by the
  * Mimic framework.
  */
-void load_tree_hdf5(int treenr) {
+void load_unit_hdf5(int unit) {
 
   char dataset_name[MAX_STRING_LEN + 1];
   int32_t NHalos_ThisTree, status, halo_idx, dim;
@@ -193,11 +193,11 @@ void load_tree_hdf5(int treenr) {
 
   if (hdf5_file < 0) {
     IO_FATAL_ERROR(IO_ERROR_HDF5, "read_tree", NULL,
-                   "HDF5 file not open when reading tree %d (handle=%lld)", treenr,
+                   "HDF5 file not open when reading tree %d (handle=%lld)", unit,
                    (long long)hdf5_file);
   }
 
-  NHalos_ThisTree = InputTreeNHalos[treenr];
+  NHalos_ThisTree = InputTreeNHalos[unit];
 
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * NHalos_ThisTree, MEM_TREES);
 
@@ -205,14 +205,14 @@ void load_tree_hdf5(int treenr) {
   if (buffer == NULL) {
     FATAL_ERROR("Memory allocation failed for HDF5 buffer: tree %d, %d halos, "
                 "%zu bytes",
-                treenr, NHalos_ThisTree, NHalos_ThisTree * sizeof(*buffer));
+                unit, NHalos_ThisTree, NHalos_ThisTree * sizeof(*buffer));
   }
 
   buffer_multipledim = calloc(NHalos_ThisTree * NDIM, sizeof(*(buffer_multipledim)));
   if (buffer_multipledim == NULL) {
     FATAL_ERROR("Memory allocation failed for HDF5 multidim buffer: tree %d, "
                 "%d halos, %zu bytes",
-                treenr, NHalos_ThisTree, NHalos_ThisTree * NDIM * sizeof(*buffer_multipledim));
+                unit, NHalos_ThisTree, NHalos_ThisTree * NDIM * sizeof(*buffer_multipledim));
   }
 
   // We now need to read in all the halo fields for this tree.
@@ -249,7 +249,7 @@ void load_tree_hdf5(int treenr) {
  * Proper file closure is important to ensure all data is flushed to
  * disk and to free associated HDF5 resources.
  */
-void close_hdf5_file(void) {
+void close_partition_hdf5(void) {
   if (hdf5_file >= 0) {
     H5Fclose(hdf5_file);
     hdf5_file = -1;
@@ -257,14 +257,16 @@ void close_hdf5_file(void) {
 }
 
 /* L-Halo-tree HDF5 merger trees: per-tree groups (tree_NNN/<field>) with a
-   /Header carrying Ntrees/totNHalos/InputTreeNHalos. Registered in
-   tree/registry.c. */
+   /Header carrying Ntrees/totNHalos/InputTreeNHalos. One partition per input
+   file, one unit per tree; see tree/registry.c. */
 const struct TreeReader LHaloHDF5Reader = {
     .name = "lhalo_hdf5",
     .file_extension = ".hdf5",
-    .load_tree_table = load_tree_table_hdf5,
-    .load_tree = load_tree_hdf5,
-    .close_file = close_hdf5_file,
+    .num_partitions = tree_partition_per_file_count,
+    .partition_output_id = tree_partition_per_file_output_id,
+    .open_partition = open_partition_hdf5,
+    .load_unit = load_unit_hdf5,
+    .close_partition = close_partition_hdf5,
 };
 
 // Local Functions //

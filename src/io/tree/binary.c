@@ -13,9 +13,9 @@
  * newer formats like HDF5.
  *
  * Key functions:
- * - load_tree_table_binary(): Reads tree metadata from a binary file
- * - load_tree_binary(): Loads a specific tree's halo data
- * - close_binary_file(): Closes the binary file
+ * - open_partition_binary(): Reads tree metadata from a binary file
+ * - load_unit_binary(): Loads a specific tree's halo data
+ * - close_partition_binary(): Closes the binary file
  */
 
 #include <assert.h>
@@ -52,7 +52,7 @@ static FILE *load_fd;
 /**
  * @brief   Loads merger tree metadata from a binary file
  *
- * @param   filenr    File number to load
+ * @param   output_id    Output id of the partition (the L-Halo filenr)
  *
  * This function opens and reads the metadata from a binary merger tree file.
  * It extracts:
@@ -64,15 +64,15 @@ static FILE *load_fd;
  * starting index of each tree in the file. This information is used
  * later when loading individual trees.
  */
-void load_tree_table_binary(int filenr) {
+void open_partition_binary(int output_id) {
   int i, totNHalos;
   char buf[MAX_BUF_SIZE + 1];
 
   // Open the file
-  snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName, filenr,
-           MimicConfig.TreeExtension);
+  snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
+           output_id, MimicConfig.TreeExtension);
   if (!(load_fd = fopen(buf, "r"))) {
-    FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf, filenr);
+    FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf, output_id);
   }
 
   // Read the tree metadata (legacy headerless format, host endianness assumed)
@@ -112,23 +112,23 @@ void load_tree_table_binary(int filenr) {
  * 1. Allocates memory for the halos in this tree
  * 2. Reads the halo data from the file into the allocated memory
  *
- * The function assumes that load_tree_table_binary() has already been
+ * The function assumes that open_partition_binary() has already been
  * called to load the tree metadata and that the file is properly positioned
  * for reading.
  *
  * The halos are stored in the global Halo array for processing by the
  * Mimic framework.
  */
-void load_tree_binary(int treenr) {
+void load_unit_binary(int unit) {
 
   // must have an FD
   assert(load_fd);
 
-  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * InputTreeNHalos[treenr], MEM_TREES);
+  InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * InputTreeNHalos[unit], MEM_TREES);
   // Use direct fread to avoid our problematic wrapper
-  if (fread(InputTreeHalos, sizeof(struct RawHalo), InputTreeNHalos[treenr], load_fd) !=
-      (size_t)InputTreeNHalos[treenr]) {
-    FATAL_ERROR("Failed to read halo data for tree %d", treenr);
+  if (fread(InputTreeHalos, sizeof(struct RawHalo), InputTreeNHalos[unit], load_fd) !=
+      (size_t)InputTreeNHalos[unit]) {
+    FATAL_ERROR("Failed to read halo data for tree %d", unit);
   }
 }
 
@@ -143,20 +143,22 @@ void load_tree_binary(int treenr) {
  * to close it, and sets the file handle to NULL after closing to
  * prevent multiple close attempts.
  */
-void close_binary_file(void) {
+void close_partition_binary(void) {
   if (load_fd) {
     fclose(load_fd);
     load_fd = NULL;
   }
 }
 
-/* L-Halo binary merger trees: the traditional headerless binary catalog.
-   Registered in tree/registry.c. */
+/* L-Halo binary merger trees: the traditional headerless binary catalog. One
+   partition per input file, one unit per tree; see tree/registry.c. */
 const struct TreeReader LHaloBinaryReader = {
     .name = "lhalo_binary",
     .file_extension = "",
-    .load_tree_table = load_tree_table_binary,
-    .load_tree = load_tree_binary,
-    .close_file = close_binary_file,
+    .num_partitions = tree_partition_per_file_count,
+    .partition_output_id = tree_partition_per_file_output_id,
+    .open_partition = open_partition_binary,
+    .load_unit = load_unit_binary,
+    .close_partition = close_partition_binary,
 };
 // Local Functions //

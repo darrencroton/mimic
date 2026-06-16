@@ -3,7 +3,7 @@
 
 // Proto-Types //
 
-void load_tree_table_binary(int filenr);
-void load_tree_binary(int treenr);
-void close_binary_file(void);
+void open_partition_binary(int output_id);
+void load_unit_binary(int unit);
+void close_partition_binary(void);
 #endif

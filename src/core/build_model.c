@@ -45,9 +45,10 @@ static struct OutputBufferSegment *ensure_output_segment_scratch(int required);
 /**
  * @brief   Recursively constructs halos by traversing the merger tree
  *
- * @param   halonr    Index of the current halo in the Halo array
- * @param   tree      Index of the current merger tree
- * @param   depth     Current recursion depth (starts at 0)
+ * @param   halonr               Index of the current halo in the Halo array
+ * @param   unit                 Index of the current unit (merger tree)
+ * @param   partition_output_id  Output id of the partition (filenr-equivalent)
+ * @param   depth                Current recursion depth (starts at 0)
  *
  * This function traverses the merger tree in a depth-first manner to ensure
  * that halos are constructed from their progenitors before being evolved.
@@ -62,14 +63,14 @@ static struct OutputBufferSegment *ensure_output_segment_scratch(int required);
  * chronological order, preserving the flow of mass and properties from
  * high redshift to low redshift.
  */
-void build_halo_tree(int halonr, int tree, int filenr, int depth) {
+void build_halo_tree(int halonr, int unit, int partition_output_id, int depth) {
   int prog, fofhalo, ngal;
 
   /* Check recursion depth */
   if (depth > MimicConfig.MaxTreeDepth) {
     FATAL_ERROR("Tree recursion depth (%d) exceeds MaxTreeDepth (%d) for halo "
                 "%d in tree %d",
-                depth, MimicConfig.MaxTreeDepth, halonr, tree);
+                depth, MimicConfig.MaxTreeDepth, halonr, unit);
   }
 
   HaloAux[halonr].DoneFlag = 1;
@@ -77,7 +78,7 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
   prog = mimic_tree_get_FirstProgenitor(halonr);
   while (prog >= 0) {
     if (HaloAux[prog].DoneFlag == 0)
-      build_halo_tree(prog, tree, filenr, depth + 1);
+      build_halo_tree(prog, unit, partition_output_id, depth + 1);
     prog = mimic_tree_get_NextProgenitor(prog);
   }
 
@@ -88,7 +89,7 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
       prog = mimic_tree_get_FirstProgenitor(fofhalo);
       while (prog >= 0) {
         if (HaloAux[prog].DoneFlag == 0)
-          build_halo_tree(prog, tree, filenr, depth + 1);
+          build_halo_tree(prog, unit, partition_output_id, depth + 1);
         prog = mimic_tree_get_NextProgenitor(prog);
       }
 
@@ -114,7 +115,7 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
     while (fofhalo >= 0) {
       int workspace_start = ngal;
       int source_halo = fofhalo;
-      ngal = join_progenitor_halos(fofhalo, ngal, tree, filenr);
+      ngal = join_progenitor_halos(fofhalo, ngal, unit, partition_output_id);
 
       /*
        * Stamp the FoF-central catalog virial mass onto every member of this
@@ -261,12 +262,12 @@ static void ensure_fof_workspace_capacity(int required) {
   }
 }
 
-static long long make_unique_galaxy_id(int halonr, int tree, int filenr) {
+static long long make_unique_galaxy_id(int halonr, int unit, int partition_output_id) {
   long long file_mul_fac = (MimicConfig.LastFile >= 10000) ? (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
-  long long tree_mul = TREE_MUL_FAC * tree;
-  long long file_mul = file_mul_fac * filenr;
+  long long unit_mul = TREE_MUL_FAC * unit;
+  long long partition_mul = file_mul_fac * partition_output_id;
 
-  return (long long)halonr + tree_mul + file_mul;
+  return (long long)halonr + unit_mul + partition_mul;
 }
 
 /*
@@ -379,7 +380,7 @@ static void gather_progenitor_galaxies(int halonr, int first_occupied,
  * The function ensures proper inheritance of object properties while
  * maintaining the hierarchy of central and satellite halos.
  */
-int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
+int join_progenitor_halos(int halonr, int ngalstart, int unit, int partition_output_id) {
   int current_snap, first_occupied, ngal, nprogenitors, required;
   struct InheritanceDescendant descendant;
   struct InheritanceProgenitorGalaxy *progenitors = NULL;
@@ -408,7 +409,7 @@ int join_progenitor_halos(int halonr, int ngalstart, int tree, int filenr) {
   descendant.virial_radius = get_virial_radius(halonr);
   descendant.virial_velocity = get_virial_velocity(halonr);
   descendant.is_fof_central = (halonr == mimic_tree_get_FirstHaloInFOFgroup(halonr));
-  descendant.unique_galaxy_id = make_unique_galaxy_id(halonr, tree, filenr);
+  descendant.unique_galaxy_id = make_unique_galaxy_id(halonr, unit, partition_output_id);
   descendant.halo_payload = make_halo_init_payload(halonr);
 
   ngal = inherit_descendant_halos(FoFWorkspace, ngalstart, MaxFoFWorkspace, &descendant,

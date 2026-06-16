@@ -7,9 +7,9 @@
 #include "memory.h"
 
 /* Tree driver (src/core/build_model.c) */
-void build_halo_tree(int halonr, int tree, int filenr, int depth);
+void build_halo_tree(int halonr, int unit, int partition_output_id, int depth);
 void process_halo_evolution(int halonr, int ngal);
-int join_progenitor_halos(int halonr, int nstart, int tree, int filenr);
+int join_progenitor_halos(int halonr, int nstart, int unit, int partition_output_id);
 int find_most_massive_progenitor(int halonr);
 void free_tree_driver_scratch(void);
 

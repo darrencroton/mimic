@@ -36,6 +36,7 @@
 #include "galaxy_pool.h"
 #include "globals.h"
 #include "tree/interface.h"
+#include "tree/reader.h"
 #include "run_log.h"
 
 #include "output/hdf5.h"
@@ -156,19 +157,19 @@ static void clear_current_output_paths(void) {
   current_output_path_count = 0;
 }
 
-static void set_current_output_paths(int filenr) {
+static void set_current_output_paths(int output_id) {
   clear_current_output_paths();
 
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
-    output_path_hdf5(current_output_paths[0], MAX_PATH_BUF_SIZE, filenr);
+    output_path_hdf5(current_output_paths[0], MAX_PATH_BUF_SIZE, output_id);
     current_output_path_count = 1;
     return;
   }
 #endif
 
   for (int n = 0; n < MimicConfig.NOUT; n++) {
-    output_path_binary(current_output_paths[n], MAX_PATH_BUF_SIZE, filenr, n);
+    output_path_binary(current_output_paths[n], MAX_PATH_BUF_SIZE, output_id, n);
   }
   current_output_path_count = MimicConfig.NOUT;
 }
@@ -186,12 +187,12 @@ static int count_existing_current_outputs(void) {
   return existing;
 }
 
-static void claim_current_output_paths(int filenr) {
+static void claim_current_output_paths(int output_id) {
   for (int i = 0; i < current_output_path_count; i++) {
     FILE *fd = fopen(current_output_paths[i], "w");
     if (fd == NULL) {
       FATAL_ERROR("Failed to claim output file '%s' for filenr %d", current_output_paths[i],
-                  filenr);
+                  output_id);
     }
     fclose(fd);
   }
@@ -342,87 +343,88 @@ static LogLevel parse_cli(int *argc, char **argv) {
 }
 
 /**
- * @brief   Process every tree of one input file and finalize its output
+ * @brief   Process every unit of one partition and finalize its output
  *
- * Loads the tree table, creates the output files, runs the depth-first tree
- * driver over every tree, writes the processed halos, and finalizes the
- * format-specific output for this filenr.
+ * Opens the partition, creates its output files, runs the depth-first tree
+ * driver over every unit, writes the processed halos, and finalizes the
+ * format-specific output. For the L-Halo readers a partition is one input file
+ * (named by its output id) and a unit is one tree.
  */
-static void process_file(int filenr) {
-  int treenr, halonr;
+static void process_partition(int output_id) {
+  int unit, halonr;
 
-  /* Load the tree table and create this filenr's output files */
-  FileNum = filenr;
-  load_tree_table(filenr);
-  prepare_output_files(filenr);
+  /* Open the partition and create its output files */
+  FileNum = output_id;
+  open_partition(output_id);
+  prepare_output_files(output_id);
 
-  for (treenr = 0; treenr < Ntrees; treenr++) {
+  for (unit = 0; unit < Ntrees; unit++) {
     /* Stop cleanly if the CPU time limit signal was received (batch systems) */
     if (gotXCPU) {
-      FATAL_ERROR("Received SIGXCPU (CPU time limit) — stopping before tree %d of file %d", treenr,
-                  filenr);
+      FATAL_ERROR("Received SIGXCPU (CPU time limit) — stopping before tree %d of file %d", unit,
+                  output_id);
     }
 
     /* Log progress periodically */
-    if (treenr % TREE_PROGRESS_INTERVAL == 0) {
+    if (unit % TREE_PROGRESS_INTERVAL == 0) {
 #ifdef MPI
       INFO_LOG("  Processing task %d | node %s | file %i | tree %i of %i", ThisTask, ThisNode,
-               filenr, treenr, Ntrees);
+               output_id, unit, Ntrees);
 #else
-      INFO_LOG("  Processing file %i | tree %i of %i", filenr, treenr, Ntrees);
+      INFO_LOG("  Processing file %i | tree %i of %i", output_id, unit, Ntrees);
 #endif
     }
 
-    /* Set the current tree ID and load the tree */
-    TreeID = treenr;
-    load_tree(treenr);
+    /* Set the current unit ID and load the unit */
+    TreeID = unit;
+    load_unit(unit);
 
-    /* Reset the per-tree output-buffer count */
+    /* Reset the per-unit output-buffer count */
     NumProcessedHalos = 0;
 
-    /* Construct objects for each unprocessed halo in the tree */
-    for (halonr = 0; halonr < InputTreeNHalos[treenr]; halonr++)
+    /* Construct objects for each unprocessed halo in the unit */
+    for (halonr = 0; halonr < InputTreeNHalos[unit]; halonr++)
       if (HaloAux[halonr].DoneFlag == 0)
-        build_halo_tree(halonr, treenr, filenr, 0);
+        build_halo_tree(halonr, unit, output_id, 0);
 
     /* Save the processed halos (format depends on OutputFormat parameter) */
 #ifdef HDF5
     if (MimicConfig.OutputFormat == output_hdf5) {
-      save_halos_hdf5(filenr, treenr);
+      save_halos_hdf5(output_id, unit);
     } else {
-      save_halos(filenr, treenr);
+      save_halos(output_id, unit);
     }
 #else
-    save_halos(filenr, treenr);
+    save_halos(output_id, unit);
 #endif
-    free_halos_and_tree();
+    free_unit_halos();
   }
 
   /* Finalize output files (format depends on OutputFormat parameter) */
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
-    /* Flush any buffered halos accumulated across trees for this file */
-    flush_hdf5_buffers(filenr);
+    /* Flush any buffered halos accumulated across units for this partition */
+    flush_hdf5_buffers(output_id);
 
     /* Write metadata attributes for each output snapshot */
     for (int n = 0; n < MimicConfig.NOUT; n++) {
-      write_hdf5_attrs(n, filenr);
+      write_hdf5_attrs(n, output_id);
     }
 
     /* Close the HDF5 file */
     if (HDF5_current_file_id >= 0) {
       DEBUG_LOG("Closing HDF5 file (ID %lld) for filenr %d", (long long)HDF5_current_file_id,
-                filenr);
+                output_id);
       H5Fclose(HDF5_current_file_id);
       HDF5_current_file_id = -1;
     }
   } else {
-    finalize_halo_file(filenr);
+    finalize_halo_file(output_id);
   }
 #else
-  finalize_halo_file(filenr);
+  finalize_halo_file(output_id);
 #endif
-  free_tree_table();
+  close_partition();
 }
 
 /**
@@ -460,7 +462,6 @@ static void write_run_metadata(const char *param_file) {
 }
 
 int main(int argc, char **argv) {
-  int filenr;
   struct sigaction current_XCPU;
 
   FILE *fd;
@@ -564,22 +565,26 @@ int main(int argc, char **argv) {
   }
 #endif
 
-  /* Main loop to process merger tree files */
+  /* Main loop to process input partitions (one per input file for L-Halo) */
   log_phase_banner(PHASE_TREE_PROCESSING);
   /* Enable rate limiting for DEBUG_LOG during tree processing to prevent
    * runaway output from loops over thousands of trees/halos */
   enable_debug_log_rate_limiting();
+  const struct TreeReader *reader = MimicConfig.reader;
+  const int npartitions = reader->num_partitions();
 #ifdef MPI
-  /* In MPI mode, distribute files across processors using stride of NTask */
-  for (filenr = MimicConfig.FirstFile + ThisTask; filenr <= MimicConfig.LastFile; filenr += NTask)
+  /* In MPI mode, distribute partitions across processors using stride of NTask */
+  for (int partition = ThisTask; partition < npartitions; partition += NTask)
 #else
-  /* In serial mode, process all files sequentially */
-  for (filenr = MimicConfig.FirstFile; filenr <= MimicConfig.LastFile; filenr++)
+  /* In serial mode, process all partitions sequentially */
+  for (int partition = 0; partition < npartitions; partition++)
 #endif
   {
+    const int output_id = reader->partition_output_id(partition);
+
     /* Construct tree filename and check if it exists */
     snprintf(tree_path, MAX_PATH_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
-             MimicConfig.TreeName, filenr, MimicConfig.TreeExtension);
+             MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
     if (!(fd = fopen(tree_path, "r"))) {
       INFO_LOG("Missing tree %s ... skipping", tree_path);
       continue; // tree file does not exist, move along
@@ -590,30 +595,30 @@ int main(int argc, char **argv) {
      * is set). Binary output is complete only if every requested snapshot file
      * exists; a partial set is usually an interrupted run and should fail fast
      * rather than silently skip or overwrite a subset under --skip. */
-    set_current_output_paths(filenr);
+    set_current_output_paths(output_id);
     int existing_outputs = count_existing_current_outputs();
     if (!MimicConfig.OverwriteOutputFiles) {
       if (existing_outputs == current_output_path_count) {
-        INFO_LOG("Output for filenr %d already exists ... skipping", filenr);
+        INFO_LOG("Output for filenr %d already exists ... skipping", output_id);
         clear_current_output_paths();
         continue;
       }
       if (existing_outputs > 0) {
         FATAL_ERROR("Partial output exists for filenr %d (%d of %d files). Remove the partial "
                     "files or rerun without --skip.",
-                    filenr, existing_outputs, current_output_path_count);
+                    output_id, existing_outputs, current_output_path_count);
       }
     }
 
-    /* Create output files to mark that this filenr is being processed */
-    claim_current_output_paths(filenr);
+    /* Create output files to mark that this partition is being processed */
+    claim_current_output_paths(output_id);
 
-    process_file(filenr);
+    process_partition(output_id);
 
-    /* This filenr's output is complete; nothing to unlink on later failure */
+    /* This partition's output is complete; nothing to unlink on later failure */
     clear_current_output_paths();
 
-    INFO_LOG("%sCompleted file %d%s", mimic_color_green(), filenr, mimic_color_reset());
+    INFO_LOG("%sCompleted file %d%s", mimic_color_green(), output_id, mimic_color_reset());
   }
 
   /* Disable rate limiting for DEBUG_LOG after tree processing completes */
