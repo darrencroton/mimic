@@ -176,6 +176,59 @@ int test_multiple_segments_accumulate_into_one_buffer(void) {
   return TEST_PASS;
 }
 
+/*
+ * Push more non-Type-3 halos than the initial capacity so that myrealloc_cat is
+ * exercised. Uses a heap-backed buffer (mymalloc_cat) as required by the contract;
+ * checks capacity grew, all halos landed at correct indices, and segment metadata
+ * is correct across the growth boundary.
+ */
+int test_buffer_grows_when_capacity_exceeded(void) {
+  init_memory_system(0);
+  initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+
+  const int initial_capacity = 2;
+  struct Halo *heap_halos = mymalloc_cat(initial_capacity * sizeof(struct Halo), MEM_HALOS);
+  memset(heap_halos, 0, initial_capacity * sizeof(struct Halo));
+
+  struct OutputBuffer buffer = {heap_halos, 0, initial_capacity};
+  struct OutputBufferSegment segments[2] = {
+      {.source_id = 10,
+       .snapshot_number = 4,
+       .workspace_start = 0,
+       .workspace_count = 3,
+       .output_first = -1,
+       .output_count = -1},
+      {.source_id = 11,
+       .snapshot_number = 4,
+       .workspace_start = 3,
+       .workspace_count = 2,
+       .output_first = -1,
+       .output_count = -1},
+  };
+
+  struct Halo workspace[5];
+  for (int i = 0; i < 5; i++)
+    init_halo(&workspace[i], i % 2, i); /* alternating Type 0/1, none Type 3 */
+
+  marshal_workspace_to_output_buffer(workspace, &buffer, segments, 2);
+
+  TEST_ASSERT(buffer.count == 5, "All 5 halos should be present after growth");
+  TEST_ASSERT(buffer.capacity > initial_capacity, "Buffer capacity should have grown");
+  TEST_ASSERT(segments[0].output_first == 0, "First segment output_first should be 0");
+  TEST_ASSERT(segments[0].output_count == 3, "First segment should contribute 3 halos");
+  TEST_ASSERT(segments[1].output_first == 3,
+              "Second segment output_first must reflect running count after growth");
+  TEST_ASSERT(segments[1].output_count == 2, "Second segment should contribute 2 halos");
+  for (int i = 0; i < 5; i++) {
+    TEST_ASSERT(buffer.halos[i].SnapNum == 4, "Each output halo should carry the segment snapshot");
+    TEST_ASSERT(buffer.halos[i].HaloNr == i, "Output halo order should be preserved");
+  }
+
+  myfree(buffer.halos);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -189,6 +242,7 @@ int main(void) {
   TEST_RUN(test_skips_type3_and_clears_galaxy_pointer);
   TEST_RUN(test_empty_segment_records_zero_count);
   TEST_RUN(test_multiple_segments_accumulate_into_one_buffer);
+  TEST_RUN(test_buffer_grows_when_capacity_exceeded);
 
   TEST_SUMMARY();
   return TEST_RESULT();

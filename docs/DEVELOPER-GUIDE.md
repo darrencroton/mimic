@@ -185,6 +185,29 @@ Core data structures:
 
 Galaxy inheritance copies previous processed galaxy state into the current workspace, resets snapshot-scoped properties marked `init_repeat: true`, and updates halo properties from driver-supplied descendant data. After physics execution, the shared output-buffer marshaller copies surviving workspace entries into the driver-owned output buffer and frees Type 3 entries.
 
+### Per-Tree Memory Lifecycle
+
+Four arrays are allocated per tree and freed together by `free_halos_and_tree()` after output is written:
+
+| Global | Category | Lifetime note |
+| --- | --- | --- |
+| `InputTreeHalos` | `MEM_TREES` | Fixed size: `InputTreeNHalos[treenr]` entries; immutable after load |
+| `HaloAux` | `MEM_HALOS` | Fixed size: parallel to `InputTreeHalos`; tracks per-halo processing flags |
+| `FoFWorkspace` | `MEM_HALOS` | Grows dynamically via `myrealloc_cat` as deep or wide FoF groups are encountered |
+| `ProcessedHalos` | `MEM_HALOS` | Grows dynamically via `myrealloc_cat`; see below |
+
+`GalaxyData` is not in this table because it is pool-managed: `galaxy_pool_alloc()` hands out slots from a per-tree chunk pool, and the whole pool is reset in one call at the end of the tree rather than per-halo.
+
+**Why `ProcessedHalos` must grow**
+
+`ProcessedHalos` accumulates every marshalled output halo across all snapshot intervals for the entire tree. Each time a FoF group is processed, `marshal_workspace_to_output_buffer` appends the surviving workspace entries. The initial allocation is `MAXHALOFAC (5) × InputTreeNHalos`, but this is only an estimate. Orphan halos (Type 2) persist across snapshots and produce one new output record per snapshot they survive; in deep simulations with many snapshots (e.g., full Millennium at 64 snapshots), a single catalog subhalo that disappears early can generate dozens of output records. The actual count therefore scales with simulation depth and cannot be bounded by a fixed multiple of the tree input size.
+
+`marshal_workspace_to_output_buffer` grows the buffer using the same factor / minimum / cap policy as `FoFWorkspace` (`HALO_ARRAY_GROWTH_FACTOR`, `MIN_HALO_ARRAY_GROWTH`, `MAX_HALO_ARRAY_SIZE`). After each marshal call, `build_halo_tree` syncs the global `ProcessedHalos` pointer and `MaxProcessedHalos` back from the `OutputBuffer` struct. `myfree(ProcessedHalos)` in `free_halos_and_tree()` correctly frees the final (possibly grown) allocation because the custom allocator tracks the pointer through every `myrealloc_cat` call.
+
+**OutputBuffer contract**
+
+`marshal_workspace_to_output_buffer` takes a `struct OutputBuffer *`. The `halos` field must be a tracked heap allocation (`mymalloc_cat` or `myrealloc_cat`); passing a stack array will produce a fatal error on overflow because the allocator cannot find a stack address in its tracking table. After the call, callers must read back `buffer->halos` and `buffer->capacity` if they mirror those values in globals.
+
 ### Module Lifecycle
 
 Every runtime module implements three functions named after the module:

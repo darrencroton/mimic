@@ -47,8 +47,8 @@ extern char *ThisNode;
  *    - Lifetime: Per-tree (allocated in load_tree(), freed in
  * free_halos_and_tree())
  *    - Ownership: Tree-driver output buffer, indexed by NumProcessedHalos
- *    - Size: MaxProcessedHalos elements (initial estimate; marshalling asserts
- *      that the estimate is large enough)
+ *    - Size: MaxProcessedHalos elements (initial estimate; grows via myrealloc_cat
+ *      if orphan halos cause output count to exceed the initial allocation)
  *    - Purpose: Stores all processed halos for current tree until output
  *    - Memory: Allocated via mymalloc_cat(..., MEM_HALOS)
  *
@@ -62,16 +62,21 @@ extern char *ThisNode;
  *
  * Allocation Pattern (per tree):
  *   load_tree():
- *     InputTreeHalos = mymalloc_cat(InputTreeNHalos[treenr] * sizeof(RawHalo),
- * MEM_TREES) HaloAux = mymalloc_cat(InputTreeNHalos[treenr] *
- * sizeof(HaloAuxData), MEM_HALOS) ProcessedHalos =
- * mymalloc_cat(MaxProcessedHalos * sizeof(Halo), MEM_HALOS) FoFWorkspace =
- * mymalloc_cat(MaxFoFWorkspace * sizeof(Halo), MEM_HALOS)
+ *     InputTreeHalos = mymalloc_cat(InputTreeNHalos[treenr] * sizeof(RawHalo), MEM_TREES)
+ *     HaloAux        = mymalloc_cat(InputTreeNHalos[treenr] * sizeof(HaloAuxData), MEM_HALOS)
+ *     ProcessedHalos = mymalloc_cat(MaxProcessedHalos * sizeof(Halo), MEM_HALOS)
+ *     FoFWorkspace   = mymalloc_cat(MaxFoFWorkspace   * sizeof(Halo), MEM_HALOS)
+ *
+ *   During tree processing:
+ *     FoFWorkspace   may grow via myrealloc_cat (see ensure_fof_workspace_capacity)
+ *     ProcessedHalos may grow via myrealloc_cat (see marshal_workspace_to_output_buffer);
+ *       build_halo_tree syncs ProcessedHalos and MaxProcessedHalos back from the
+ *       OutputBuffer struct after each marshal call
  *
  *   free_halos_and_tree():
  *     galaxy_pool_reset()   // reclaim all galaxy slots for the next tree
- *     myfree(FoFWorkspace)
- *     myfree(ProcessedHalos)
+ *     myfree(FoFWorkspace)   // frees the final (possibly grown) pointer
+ *     myfree(ProcessedHalos) // frees the final (possibly grown) pointer
  *     myfree(HaloAux)
  *     myfree(InputTreeHalos)
  *

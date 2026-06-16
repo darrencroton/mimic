@@ -147,6 +147,8 @@ void build_halo_tree(int halonr, int tree, int filenr, int depth) {
     struct OutputBuffer output_buffer = {ProcessedHalos, NumProcessedHalos, MaxProcessedHalos};
     marshal_workspace_to_output_buffer(FoFWorkspace, &output_buffer, segments, segment_index);
     NumProcessedHalos = output_buffer.count;
+    ProcessedHalos = output_buffer.halos;
+    MaxProcessedHalos = output_buffer.capacity;
 
     for (int i = 0; i < segment_index; i++) {
       HaloAux[segments[i].source_id].FirstHalo = segments[i].output_first;

@@ -5,7 +5,9 @@
 
 #include <assert.h>
 
+#include "constants.h"
 #include "error.h"
+#include "memory.h"
 #include "output_buffer.h"
 
 static void validate_segment(const struct OutputBufferSegment *segment) {
@@ -39,9 +41,18 @@ void marshal_workspace_to_output_buffer(struct Halo *workspace, struct OutputBuf
       }
 
       if (buffer->count >= buffer->capacity) {
-        FATAL_ERROR("Output buffer capacity exceeded while marshalling source "
-                    "%d (%d >= %d)",
-                    segment->source_id, buffer->count, buffer->capacity);
+        /* Growth arithmetic mirrors ensure_fof_workspace_capacity in build_model.c. */
+        int new_capacity = (int)(buffer->capacity * HALO_ARRAY_GROWTH_FACTOR);
+        if (new_capacity - buffer->capacity < MIN_HALO_ARRAY_GROWTH)
+          new_capacity = buffer->capacity + MIN_HALO_ARRAY_GROWTH;
+        if (new_capacity > MAX_HALO_ARRAY_SIZE)
+          new_capacity = MAX_HALO_ARRAY_SIZE;
+        if (new_capacity <= buffer->capacity)
+          FATAL_ERROR("ProcessedHalos cannot grow beyond %d elements (source %d)",
+                      MAX_HALO_ARRAY_SIZE, segment->source_id);
+        buffer->halos =
+            myrealloc_cat(buffer->halos, (size_t)new_capacity * sizeof(struct Halo), MEM_HALOS);
+        buffer->capacity = new_capacity;
       }
 
       workspace[p].SnapNum = segment->snapshot_number;
