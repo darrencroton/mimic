@@ -83,7 +83,7 @@ int test_tree_table_loading(void) {
 
   /* ===== EXECUTE ===== */
   int filenr = 0;
-  load_tree_table(filenr, lhalo_binary);
+  load_tree_table(filenr);
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(Ntrees > 0, "Should have at least one tree");
@@ -94,7 +94,7 @@ int test_tree_table_loading(void) {
   }
 
   /* ===== CLEANUP ===== */
-  free_tree_table(lhalo_binary);
+  free_tree_table();
   teardown_test();
 
   return TEST_PASS;
@@ -110,11 +110,11 @@ int test_tree_table_loading(void) {
 int test_tree_data_loading(void) {
   /* ===== SETUP ===== */
   setup_test();
-  load_tree_table(0, lhalo_binary);
+  load_tree_table(0);
 
   /* ===== EXECUTE ===== */
   TEST_ASSERT(Ntrees > 0, "Need at least one tree for this test");
-  load_tree(0, lhalo_binary);
+  load_tree(0);
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(InputTreeHalos != NULL, "InputTreeHalos should be allocated");
@@ -125,7 +125,7 @@ int test_tree_data_loading(void) {
 
   /* ===== CLEANUP ===== */
   free_halos_and_tree();
-  free_tree_table(lhalo_binary);
+  free_tree_table();
   teardown_test();
 
   return TEST_PASS;
@@ -141,10 +141,10 @@ int test_tree_data_loading(void) {
 int test_tree_halo_count(void) {
   /* ===== SETUP ===== */
   setup_test();
-  load_tree_table(0, lhalo_binary);
+  load_tree_table(0);
 
   /* ===== EXECUTE ===== */
-  load_tree(0, lhalo_binary);
+  load_tree(0);
 
   /* ===== VALIDATE ===== */
   int nhalo = InputTreeNHalos[0];
@@ -155,7 +155,7 @@ int test_tree_halo_count(void) {
 
   /* ===== CLEANUP ===== */
   free_halos_and_tree();
-  free_tree_table(lhalo_binary);
+  free_tree_table();
   teardown_test();
 
   return TEST_PASS;
@@ -171,8 +171,8 @@ int test_tree_halo_count(void) {
 int test_tree_data_validity(void) {
   /* ===== SETUP ===== */
   setup_test();
-  load_tree_table(0, lhalo_binary);
-  load_tree(0, lhalo_binary);
+  load_tree_table(0);
+  load_tree(0);
 
   /* ===== EXECUTE & VALIDATE ===== */
   int nhalo = InputTreeNHalos[0];
@@ -214,7 +214,7 @@ int test_tree_data_validity(void) {
 
   /* ===== CLEANUP ===== */
   free_halos_and_tree();
-  free_tree_table(lhalo_binary);
+  free_tree_table();
   teardown_test();
 
   return TEST_PASS;
@@ -271,12 +271,12 @@ int test_invalid_file_handling(void) {
 int test_tree_cleanup(void) {
   /* ===== SETUP ===== */
   setup_test();
-  load_tree_table(0, lhalo_binary);
-  load_tree(0, lhalo_binary);
+  load_tree_table(0);
+  load_tree(0);
 
   /* ===== EXECUTE ===== */
   free_halos_and_tree();
-  free_tree_table(lhalo_binary);
+  free_tree_table();
 
   /* ===== VALIDATE ===== */
   teardown_test();

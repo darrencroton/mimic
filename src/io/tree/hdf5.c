@@ -35,6 +35,7 @@
 #include "globals.h"
 #include "proto.h"
 #include "tree/hdf5.h"
+#include "tree/reader.h"
 #include "types.h"
 #include "generated/tree_property_accessors.h"
 
@@ -54,8 +55,7 @@ enum ReadDatatype { READ_AS_INT = 0, READ_AS_FLOAT = 1, READ_AS_LLONG = 2 };
 
 // Local Proto-Types //
 
-static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
-                                   enum Valid_TreeTypes my_TreeType);
+static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names);
 static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
                                   int *attribute);
 static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void *buffer);
@@ -99,9 +99,9 @@ void load_tree_table_hdf5(int filenr) {
     FATAL_ERROR("Failed to open HDF5 tree file '%s'", buf);
   }
 
-  status = fill_metadata_names(&metadata_names, MimicConfig.TreeType);
+  status = fill_metadata_names(&metadata_names);
   if (status != EXIT_SUCCESS) {
-    FATAL_ERROR("Failed to fill metadata names for tree type %d", MimicConfig.TreeType);
+    FATAL_ERROR("Failed to fill HDF5 tree metadata names");
   }
 
   status = read_attribute_int(hdf5_file, "/Header", metadata_names.name_NTrees, &Ntrees);
@@ -180,7 +180,7 @@ void load_tree_table_hdf5(int filenr) {
  * The halos are stored in the global Halo array for processing by the
  * Mimic framework.
  */
-void load_tree_hdf5(int32_t treenr) {
+void load_tree_hdf5(int treenr) {
 
   char dataset_name[MAX_STRING_LEN + 1];
   int32_t NHalos_ThisTree, status, halo_idx, dim;
@@ -256,51 +256,36 @@ void close_hdf5_file(void) {
   }
 }
 
+/* L-Halo-tree HDF5 merger trees: per-tree groups (tree_NNN/<field>) with a
+   /Header carrying Ntrees/totNHalos/InputTreeNHalos. Registered in
+   tree/registry.c. */
+const struct TreeReader LHaloHDF5Reader = {
+    .name = "lhalo_hdf5",
+    .file_extension = ".hdf5",
+    .load_tree_table = load_tree_table_hdf5,
+    .load_tree = load_tree_hdf5,
+    .close_file = close_hdf5_file,
+};
+
 // Local Functions //
 
 /**
- * @brief   Fills in the metadata attribute names based on tree type
+ * @brief   Fills in the L-Halo HDF5 metadata attribute names
  *
  * @param   metadata_names    Pointer to metadata names structure to fill
- * @param   my_TreeType       Type of merger tree format
- * @return  EXIT_SUCCESS on success, EXIT_FAILURE on error
+ * @return  EXIT_SUCCESS on success
  *
- * This function determines the correct HDF5 attribute names to use
- * for reading tree metadata based on the tree type. Different tree
- * formats may use different naming conventions for the same data.
- *
- * Currently supports:
- * - genesis_lhalo_hdf5: The standard Genesis L-Galaxies HDF5 format
- *
- * The function returns an error if an unsupported tree type is specified.
+ * These are the per-file header attributes of the L-Halo-tree HDF5 layout:
+ * the tree count, the total halo count, and the per-tree halo counts.
  */
-static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names,
-                                   enum Valid_TreeTypes my_TreeType) {
-
-  switch (my_TreeType) {
-
-  case genesis_lhalo_hdf5:
-
-    snprintf(metadata_names->name_NTrees, MAX_STRING_LEN,
-             "Ntrees"); // Total number of trees within the file.
-    snprintf(metadata_names->name_totNHalos, MAX_STRING_LEN,
-             "totNHalos"); // Total number of halos within the file.
-    snprintf(metadata_names->name_InputTreeNHalos, MAX_STRING_LEN,
-             "InputTreeNHalos"); // Number of halos per tree within the file.
-    return EXIT_SUCCESS;
-
-  case lhalo_binary:
-    ERROR_LOG("If the file is binary then this function should never be "
-              "called. Something's gone wrong...");
-    return EXIT_FAILURE;
-
-  default:
-    FATAL_ERROR("Tree type %d has not been included in the switch statement for "
-                "fill_metadata_names in io/tree_hdf5.c. Please add it there.",
-                my_TreeType);
-  }
-
-  return EXIT_FAILURE;
+static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names) {
+  snprintf(metadata_names->name_NTrees, MAX_STRING_LEN,
+           "Ntrees"); // Total number of trees within the file.
+  snprintf(metadata_names->name_totNHalos, MAX_STRING_LEN,
+           "totNHalos"); // Total number of halos within the file.
+  snprintf(metadata_names->name_InputTreeNHalos, MAX_STRING_LEN,
+           "InputTreeNHalos"); // Number of halos per tree within the file.
+  return EXIT_SUCCESS;
 }
 
 /**

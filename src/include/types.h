@@ -10,9 +10,6 @@
  * field order and types are the binary file layout. */
 #include "generated/raw_halo_defs.h"
 
-/* Enum for tree types */
-enum Valid_TreeTypes { genesis_lhalo_hdf5 = 0, lhalo_binary = 1, num_tree_types };
-
 /* Enum for output formats */
 enum Valid_OutputFormats { output_binary = 0, output_hdf5 = 1, num_output_formats };
 
@@ -20,6 +17,10 @@ enum Valid_OutputFormats { output_binary = 0, output_hdf5 = 1, num_output_format
  * which uses enum ProcessingMode from module_interface.h) */
 struct PhaseModuleConfig;
 struct ModulePhaseConfig;
+
+/* Active merger-tree reader, resolved from tree_type at config time
+ * (defined in tree/reader.h, registered in tree/registry.c). */
+struct TreeReader;
 
 /* Configuration structure to hold global parameters */
 struct MimicConfig {
@@ -87,8 +88,8 @@ struct MimicConfig {
   double G;
   double Hubble;
 
-  /* Tree type */
-  enum Valid_TreeTypes TreeType;
+  /* Active merger-tree reader (resolved from tree_type) */
+  const struct TreeReader *reader;
 
   /* Output format */
   enum Valid_OutputFormats OutputFormat;

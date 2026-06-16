@@ -733,9 +733,9 @@ Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` deri
 | `tree_type` value | Format |
 | --- | --- |
 | `lhalo_binary` | Standard LHaloTree binary format (Springel et al.) |
-| `genesis_lhalo_hdf5` | Genesis L-Galaxies HDF5 format |
+| `lhalo_hdf5` | LHaloTree HDF5 layout (per-tree `tree_NNN/<field>` groups) |
 
-To add support for a different catalog format, implement `load_tree_table_*()` and `load_tree_*()` in `src/io/tree/`, register the new format in the `Valid_TreeTypes` enum in `src/include/types.h`, and add dispatch cases to `src/io/tree/interface.c`.
+To add support for a different catalog format, implement its `load_tree_table`/`load_tree`/`close_file` functions in `src/io/tree/`, define a `struct TreeReader` for it (see `src/io/tree/reader.h`), and append one row to the registry table in `src/io/tree/registry.c`. The core read path does not change.
 
 ### Snapshot Scale Factor List
 

@@ -33,6 +33,7 @@
 #include "globals.h"
 #include "tree/interface.h"
 #include "tree/binary.h"
+#include "tree/reader.h"
 #include "types.h"
 #include "error.h"
 
@@ -63,7 +64,7 @@ static FILE *load_fd;
  * starting index of each tree in the file. This information is used
  * later when loading individual trees.
  */
-void load_tree_table_binary(int32_t filenr) {
+void load_tree_table_binary(int filenr) {
   int i, totNHalos;
   char buf[MAX_BUF_SIZE + 1];
 
@@ -118,7 +119,7 @@ void load_tree_table_binary(int32_t filenr) {
  * The halos are stored in the global Halo array for processing by the
  * Mimic framework.
  */
-void load_tree_binary(int32_t treenr) {
+void load_tree_binary(int treenr) {
 
   // must have an FD
   assert(load_fd);
@@ -148,4 +149,14 @@ void close_binary_file(void) {
     load_fd = NULL;
   }
 }
+
+/* L-Halo binary merger trees: the traditional headerless binary catalog.
+   Registered in tree/registry.c. */
+const struct TreeReader LHaloBinaryReader = {
+    .name = "lhalo_binary",
+    .file_extension = "",
+    .load_tree_table = load_tree_table_binary,
+    .load_tree = load_tree_binary,
+    .close_file = close_binary_file,
+};
 // Local Functions //

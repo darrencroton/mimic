@@ -33,48 +33,28 @@
 #include "types.h"
 #include "proto.h"
 #include "tree/interface.h"
+#include "tree/reader.h"
 #include "error.h"
-
-#include "tree/binary.h"
-#ifdef HDF5
-#include "tree/hdf5.h"
-#endif
 
 /**
  * @brief   Loads merger tree metadata for one input file
  *
  * @param   filenr       Current file number being processed
- * @param   my_TreeType  Type of merger tree format to load
  *
  * This function loads the table of merger trees from the specified file
  * and initializes data structures for processing these trees. It:
  *
- * 1. Calls the appropriate format-specific loader based on tree type
+ * 1. Calls the format-specific loader through the active reader
  * 2. Allocates memory for tracking objects per tree for each output snapshot
  * 3. Initializes per-snapshot halo counters
  *
- * The function supports different tree formats (binary, HDF5) through a
- * dispatching mechanism to format-specific implementations.
+ * The format-specific loader is selected once at configuration time
+ * (MimicConfig.reader); see tree/registry.c.
  */
-void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
+void load_tree_table(int filenr) {
   int i, n;
 
-  switch (my_TreeType) {
-#ifdef HDF5
-  case genesis_lhalo_hdf5:
-    load_tree_table_hdf5(filenr);
-    break;
-#endif
-
-  case lhalo_binary:
-    load_tree_table_binary(filenr);
-    break;
-
-  default:
-    FATAL_ERROR("Unsupported tree type %d in load_tree_table(). Please add "
-                "support in core_io_tree.c",
-                my_TreeType);
-  }
+  MimicConfig.reader->load_tree_table(filenr);
 
   for (n = 0; n < MimicConfig.NOUT; n++) {
     InputHalosPerSnap[n] = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
@@ -88,20 +68,18 @@ void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType) {
 /**
  * @brief   Frees memory allocated for the merger tree table
  *
- * @param   my_TreeType  Type of merger tree format being used
- *
  * This function releases all memory allocated for the merger tree metadata.
  * It frees:
  *
  * 1. Arrays tracking objects per tree for each output snapshot
  * 2. The array of first halo indices for each tree
  * 3. The array of halo counts per tree
- * 4. Format-specific resources (e.g., closing file handles)
+ * 4. Format-specific resources (the open input file handle)
  *
  * The function ensures proper cleanup of resources after processing
  * is complete, preventing memory leaks.
  */
-void free_tree_table(enum Valid_TreeTypes my_TreeType) {
+void free_tree_table(void) {
   int n;
 
   for (n = MimicConfig.NOUT - 1; n >= 0; n--) {
@@ -115,37 +93,19 @@ void free_tree_table(enum Valid_TreeTypes my_TreeType) {
   myfree(InputTreeNHalos);
   InputTreeNHalos = NULL;
 
-  // Don't forget to free the open file handle
-
-  switch (my_TreeType) {
-#ifdef HDF5
-  case genesis_lhalo_hdf5:
-    close_hdf5_file();
-    break;
-#endif
-
-  case lhalo_binary:
-    close_binary_file();
-    break;
-
-  default:
-    FATAL_ERROR("Unsupported tree type %d in free_tree_table(). Please add "
-                "support in core_io_tree.c",
-                my_TreeType);
-  }
+  /* Close the open input file handle. */
+  MimicConfig.reader->close_file();
 }
 
 /**
  * @brief   Loads a specific merger tree into memory
  *
- * @param   filenr       Current file number being processed
  * @param   treenr       Index of the tree to load
- * @param   my_TreeType  Type of merger tree format to load
  *
  * This function loads a single merger tree from the input file and allocates
  * memory for processing its halos. It:
  *
- * 1. Calls the appropriate format-specific loader based on tree type
+ * 1. Calls the format-specific loader through the active reader
  * 2. Calculates the maximum number of objects for this tree
  * 3. Allocates memory for halo auxiliary data
  * 4. Allocates memory for halo data structures
@@ -155,25 +115,10 @@ void free_tree_table(enum Valid_TreeTypes my_TreeType) {
  * ensuring efficient memory usage while providing sufficient space for the
  * objects that will be created during processing.
  */
-void load_tree(int treenr, enum Valid_TreeTypes my_TreeType) {
+void load_tree(int treenr) {
   int32_t i;
 
-  switch (my_TreeType) {
-
-#ifdef HDF5
-  case genesis_lhalo_hdf5:
-    load_tree_hdf5(treenr);
-    break;
-#endif
-  case lhalo_binary:
-    load_tree_binary(treenr);
-    break;
-
-  default:
-    FATAL_ERROR("Unsupported tree type %d in load_tree(). Please add support "
-                "in core_io_tree.c",
-                my_TreeType);
-  }
+  MimicConfig.reader->load_tree(treenr);
 
   /*
    * LIFECYCLE: Allocation Phase

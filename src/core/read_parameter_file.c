@@ -25,6 +25,7 @@
 #include "memory.h"          /* For mymalloc_cat, myfree */
 #include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
 #include "proto.h"
+#include "tree/reader.h" /* tree_reader_lookup, struct TreeReader */
 #include "types.h"
 #include "generated/unit_registry.h" /* mimic_unit_label_cgs / mimic_unit_label_h_convention */
 
@@ -610,18 +611,17 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
 
   node = get_mapping_value(doc, section, "tree_type");
   if (node && (str = get_scalar_value(node))) {
-    if (strcasecmp(str, "lhalo_binary") == 0) {
-      MimicConfig.TreeType = lhalo_binary;
-    } else if (strcasecmp(str, "genesis_lhalo_hdf5") == 0) {
-#ifndef HDF5
-      ERROR_LOG("TreeType '%s' requires HDF5 support", str);
-      FATAL_ERROR("Recompile with HDF5 enabled (default) or remove USE-HDF5=no");
-#else
-      MimicConfig.TreeType = genesis_lhalo_hdf5;
-      strncpy(MimicConfig.TreeExtension, ".hdf5", MAX_STRING_LEN - 1);
-#endif
+    const struct TreeReader *reader = tree_reader_lookup(str);
+    if (reader == NULL) {
+      FATAL_ERROR("Unknown tree_type '%s'. Valid types are registered in "
+                  "src/io/tree/registry.c; HDF5-based types also require an "
+                  "HDF5-enabled build (do not pass USE-HDF5=no).",
+                  str);
     }
-    DEBUG_LOG("TreeType = %s", str);
+    MimicConfig.reader = reader;
+    strncpy(MimicConfig.TreeExtension, reader->file_extension, MAX_STRING_LEN - 1);
+    MimicConfig.TreeExtension[MAX_STRING_LEN - 1] = '\0';
+    DEBUG_LOG("tree_type = %s", str);
   }
 
   node = get_mapping_value(doc, section, "simulation_dir");
@@ -1154,6 +1154,10 @@ static void validate_and_postprocess(void) {
   }
   if (strlen(MimicConfig.TreeName) == 0) {
     ERROR_LOG("Required parameter 'input.tree_name' missing");
+    errors++;
+  }
+  if (MimicConfig.reader == NULL) {
+    ERROR_LOG("Required parameter 'input.tree_type' missing or unrecognised");
     errors++;
   }
   if (strlen(MimicConfig.FileWithSnapList) == 0) {

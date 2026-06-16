@@ -4,22 +4,23 @@
 /**
  * @brief   Load a specific merger tree from file
  * @param   treenr      Tree number to load
- * @param   TreeType    Type of tree format (binary, HDF5, etc.)
+ *
+ * Dispatches through the active reader (MimicConfig.reader).
  */
-void load_tree(int treenr, enum Valid_TreeTypes TreeType);
+void load_tree(int treenr);
 
 /**
  * @brief   Load merger tree metadata table from file
  * @param   filenr      File number to load
- * @param   my_TreeType Type of tree format (binary, HDF5, etc.)
+ *
+ * Dispatches through the active reader (MimicConfig.reader).
  */
-void load_tree_table(int filenr, enum Valid_TreeTypes my_TreeType);
+void load_tree_table(int filenr);
 
 /**
- * @brief   Free merger tree metadata table
- * @param   my_TreeType Type of tree format (binary, HDF5, etc.)
+ * @brief   Free merger tree metadata table and close the input file
  */
-void free_tree_table(enum Valid_TreeTypes my_TreeType);
+void free_tree_table(void);
 
 /**
  * @brief   Free all halo and tree memory

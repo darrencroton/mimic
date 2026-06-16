@@ -3,7 +3,7 @@
 
 // Proto-Types //
 
-void load_tree_table_binary(int32_t filenr);
-void load_tree_binary(int32_t treenr);
+void load_tree_table_binary(int filenr);
+void load_tree_binary(int treenr);
 void close_binary_file(void);
 #endif

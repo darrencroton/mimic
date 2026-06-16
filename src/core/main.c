@@ -353,7 +353,7 @@ static void process_file(int filenr) {
 
   /* Load the tree table and create this filenr's output files */
   FileNum = filenr;
-  load_tree_table(filenr, MimicConfig.TreeType);
+  load_tree_table(filenr);
   prepare_output_files(filenr);
 
   for (treenr = 0; treenr < Ntrees; treenr++) {
@@ -375,7 +375,7 @@ static void process_file(int filenr) {
 
     /* Set the current tree ID and load the tree */
     TreeID = treenr;
-    load_tree(treenr, MimicConfig.TreeType);
+    load_tree(treenr);
 
     /* Reset the per-tree output-buffer count */
     NumProcessedHalos = 0;
@@ -422,7 +422,7 @@ static void process_file(int filenr) {
 #else
   finalize_halo_file(filenr);
 #endif
-  free_tree_table(MimicConfig.TreeType);
+  free_tree_table();
 }
 
 /**

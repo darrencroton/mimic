@@ -19,6 +19,7 @@
 #include "error.h"
 #include "hdf5_internal.h"
 #include "module_registry.h" /* for_each_phase, event-contract enumeration */
+#include "tree/reader.h"     /* struct TreeReader (MimicConfig.reader->name) */
 
 static void copy_hdf5_string(char dest[MAX_STRING_LEN], const char *src) {
   if (src == NULL) {
@@ -582,18 +583,8 @@ void store_run_properties(hid_t master_file_id) {
     }
   }
 
-  /* TreeType enum requires special handling (enum -> string conversion) */
-  const char *tree_type_str;
-  switch (MimicConfig.TreeType) {
-  case lhalo_binary:
-    tree_type_str = "lhalo_binary";
-    break;
-  case genesis_lhalo_hdf5:
-    tree_type_str = "genesis_lhalo_hdf5";
-    break;
-  default:
-    tree_type_str = "unknown";
-  }
+  /* Record the active reader's format name (see tree/registry.c) */
+  const char *tree_type_str = MimicConfig.reader->name;
   attribute_id =
       H5Acreate(props_group_id, "TreeType", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, tree_type_str);
