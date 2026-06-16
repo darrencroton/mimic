@@ -1175,12 +1175,6 @@ static void validate_and_postprocess(void) {
 
   /* Post-process parameters */
 
-  /* Add trailing slash to OutputDir */
-  int len = strlen(MimicConfig.OutputDir);
-  if (len > 0 && MimicConfig.OutputDir[len - 1] != '/') {
-    strcat(MimicConfig.OutputDir, "/");
-  }
-
   read_snap_list();
   validate_output_snapshots();
 
