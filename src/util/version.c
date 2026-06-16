@@ -95,8 +95,28 @@ static void get_compiler_info(char *compiler_buffer, size_t size) {
   snprintf(compiler_buffer, size, "clang %d.%d.%d", __clang_major__, __clang_minor__,
            __clang_patchlevel__);
 #else
-  strncpy(compiler_buffer, "unknown", size);
+  snprintf(compiler_buffer, size, "%s", "unknown");
 #endif
+}
+
+/**
+ * @brief   Copies a string into a fixed buffer, truncating if necessary
+ *
+ * Intentional truncation has no clean expression via snprintf("%s", ...):
+ * GCC's -Wformat-truncation fires whenever the source string's statically
+ * traced maximum length exceeds the destination size, regardless of which
+ * copy function is used. A plain bounded memcpy sidesteps the check.
+ *
+ * @param   dst       Destination buffer
+ * @param   dst_size  Size of the destination buffer
+ * @param   src       Source string
+ */
+static void copy_truncated(char *dst, size_t dst_size, const char *src) {
+  size_t len = strlen(src);
+  if (len >= dst_size)
+    len = dst_size - 1;
+  memcpy(dst, src, len);
+  dst[len] = '\0';
 }
 
 /**
@@ -112,7 +132,7 @@ static int get_system_info(char *system_buffer, size_t size) {
 
   if (uname(&system_info) != 0) {
     ERROR_LOG("Failed to get system information");
-    strncpy(system_buffer, "unknown", size);
+    snprintf(system_buffer, size, "%s", "unknown");
     return 1;
   }
 
@@ -144,7 +164,7 @@ static int get_system_info(char *system_buffer, size_t size) {
             if (end)
               *end = '\0';
           }
-          snprintf(distro_name, sizeof(distro_name), "%s", value);
+          copy_truncated(distro_name, sizeof(distro_name), value);
           /* Remove newline if present */
           char *nl = strchr(distro_name, '\n');
           if (nl)
@@ -158,7 +178,7 @@ static int get_system_info(char *system_buffer, size_t size) {
             if (end)
               *end = '\0';
           }
-          snprintf(distro_version, sizeof(distro_version), "%s", value);
+          copy_truncated(distro_version, sizeof(distro_version), value);
           /* Remove newline if present */
           char *nl = strchr(distro_version, '\n');
           if (nl)
@@ -229,7 +249,7 @@ static int calculate_file_md5_checksum(const char *filepath, char *digest_buffer
 
   if (execute_command(command, digest_buffer, size) != 0) {
     ERROR_LOG("Failed to calculate digest for file: %s", filepath);
-    strncpy(digest_buffer, "unavailable", size);
+    snprintf(digest_buffer, size, "%s", "unavailable");
     return 1;
   }
 
