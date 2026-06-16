@@ -1,0 +1,50 @@
+# Mimic SHAM on Millennium Run Configuration
+
+model:
+  name: sham
+
+simulation:
+  name: millennium
+
+input:
+  # Deliberate subset of the 512 Millennium tree files (0-511, see
+  # simulation_info.yaml): enough to check the model without the run time
+  # of the full volume. Raise last_file for production runs.
+  first_file: 0
+  last_file: 15
+
+output:
+  output_filename: sham
+  output_directory: output/sham-millennium
+  output_format: hdf5                               # Select binary or hdf5
+  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]   # Leave empty for all snapshots
+
+SubSteps: 1
+
+modules:
+
+  pre_timestep:
+
+  # SHAM has no per-substep middle phases; abundance matching runs once in
+  # post_timestep. A 'phases:' block would be added here if a model needed one.
+
+  post_timestep:
+    - sham_assign_stellar_mass: process_full_halo
+
+  parameters:
+    # Moster et al. (2013) z=0 double-power-law SMHM parameters.
+    ShamLogM1: 11.590
+    ShamN: 0.0351
+    ShamBeta: 1.376
+    ShamGamma: 0.608
+
+    # Reddick et al.-style SHAM scatter scale; deterministic per galaxy ID.
+    ShamUseScatter: 1
+    ShamScatterDex: 0.20
+
+    # Millennium particle mass matches mini-Millennium (8.6e8 Msun/h); same
+    # resolution cuts apply. Orphan budget is conservative for the full volume.
+    ShamMinMpeak: 0.10
+    ShamMinVpeak: 80.0
+    ShamMaxStellarBaryonFraction: 0.17
+    ShamOrphanMaxAgeMyr: 3000.0

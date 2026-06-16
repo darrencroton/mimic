@@ -1,0 +1,25 @@
+# Mimic halos-only Millennium Run Configuration
+
+model:
+  name: halos-only
+
+simulation:
+  name: millennium
+
+input:
+  # Deliberate subset of the 512 Millennium tree files (0-511, see
+  # simulation_info.yaml): enough to check halo tracking without the run time
+  # of the full volume. Raise last_file for production runs.
+  first_file: 0
+  last_file: 15
+
+output:
+  output_filename: halos
+  output_directory: output/halos-only-millennium
+  output_format: hdf5
+  snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
+
+SubSteps: 1
+
+modules:
+  parameters: {}
