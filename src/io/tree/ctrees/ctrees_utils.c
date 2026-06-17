@@ -177,7 +177,11 @@ int64_t read_locations(const char *filename, const int64_t ntrees, struct locati
               "`%s'\n",
               locations->fileid, ntrees_found, filename, buffer);
       const size_t fileid = locations->fileid;
-      if (fileid > files_fd->nallocated) {
+      /* Grow until fileid is in range. Mimic fix vs the sage upstream, which used
+         `if (fileid > nallocated)` and doubled once: that both missed
+         fileid == nallocated (the first out-of-bounds index) and could fall short
+         when fileid exceeded 2*nallocated. A loop with `>=` is exact. */
+      while (fileid >= files_fd->nallocated) {
         numfiles_allocated *= 2;
         int *new_fd =
             myrealloc_cat(files_fd->fd, numfiles_allocated * sizeof(files_fd->fd[0]), MEM_IO);
@@ -190,20 +194,18 @@ int64_t read_locations(const char *filename, const int64_t ntrees, struct locati
         for (uint32_t i = files_fd->nallocated; i < numfiles_allocated; i++) {
           files_fd->fd[i] = -1;
           files_fd->numtrees_per_file[i] = 0;
-        };
+        }
         files_fd->nallocated = numfiles_allocated;
       }
-      XRETURN(fileid < files_fd->nallocated, EXIT_FAILURE,
-              "Error: Trying to open fileid = %zu but only %u"
-              " files can be opened (need to malloc) \n",
-              fileid, files_fd->nallocated);
 
       /* file has not been opened yet - let's open this file */
       if (files_fd->fd[fileid] < 0) {
         char treefilename[2 * MAX_STRING_LEN];
         snprintf(treefilename, 2 * MAX_STRING_LEN, "%s/%s", dirname, linebuf);
         files_fd->fd[fileid] = open(treefilename, O_RDONLY);
-        XRETURN(files_fd->fd[fileid] > 0, -FILE_NOT_FOUND, "Error: Could not open file `%s'\n",
+        /* `>= 0`, not the sage `> 0`: open() returning fd 0 is a valid descriptor
+           (only possible if stdin was closed) and must not be treated as failure. */
+        XRETURN(files_fd->fd[fileid] >= 0, -FILE_NOT_FOUND, "Error: Could not open file `%s'\n",
                 treefilename);
         files_fd->numfiles++;
       }
@@ -268,8 +270,9 @@ static int compare_locations_fid_file_offset(const void *l1, const void *l2) {
     /* The trees are in the same forest. Check filename */
     const int file_id_cmp = (aa->fileid == bb->fileid) ? 0 : ((aa->fileid < bb->fileid) ? -1 : 1);
     if (file_id_cmp == 0) {
-      /* trees are in same file -> sort by offset */
-      return (aa->offset < bb->offset) ? -1 : 1;
+      /* trees are in same file -> sort by offset. Return 0 (not the sage `1`) on
+         equal offsets so the comparator is a valid strict-weak ordering. */
+      return (aa->offset < bb->offset) ? -1 : (aa->offset > bb->offset ? 1 : 0);
     } else {
       return file_id_cmp;
     }

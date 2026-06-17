@@ -14,12 +14,14 @@
 
 /* Format readers, each defined in its implementation file. */
 extern const struct TreeReader LHaloBinaryReader;
+extern const struct TreeReader CTreesAsciiReader;
 #ifdef HDF5
 extern const struct TreeReader LHaloHDF5Reader;
 #endif
 
 static const struct TreeReader *const reader_table[] = {
     &LHaloBinaryReader,
+    &CTreesAsciiReader,
 #ifdef HDF5
     &LHaloHDF5Reader,
 #endif

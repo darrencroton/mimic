@@ -428,6 +428,44 @@ static void process_partition(int output_id) {
 }
 
 /**
+ * @brief   Claim and process one output partition, honoring --skip
+ *
+ * @param   output_id  Output id of the partition (filenr for per-file readers,
+ *                      task id for per-task readers)
+ * @return  1 if the partition was processed, 0 if it was skipped because its
+ *          output already exists.
+ *
+ * A partial output set (some but not all of a partition's files exist) is fatal
+ * under --skip: it usually marks an interrupted run that should not be silently
+ * completed or overwritten in part.
+ */
+static int claim_and_process_partition(int output_id) {
+  set_current_output_paths(output_id);
+  int existing_outputs = count_existing_current_outputs();
+  if (!MimicConfig.OverwriteOutputFiles) {
+    if (existing_outputs == current_output_path_count) {
+      INFO_LOG("Output for filenr %d already exists ... skipping", output_id);
+      clear_current_output_paths();
+      return 0;
+    }
+    if (existing_outputs > 0) {
+      FATAL_ERROR("Partial output exists for filenr %d (%d of %d files). Remove the partial "
+                  "files or rerun without --skip.",
+                  output_id, existing_outputs, current_output_path_count);
+    }
+  }
+
+  /* Create output files to mark that this partition is being processed */
+  claim_current_output_paths(output_id);
+
+  process_partition(output_id);
+
+  /* This partition's output is complete; nothing to unlink on later failure */
+  clear_current_output_paths();
+  return 1;
+}
+
+/**
  * @brief   Snapshot the run configuration and provenance next to the output
  *
  * Copies the run file and every referenced package file to the output metadata
@@ -571,54 +609,43 @@ int main(int argc, char **argv) {
    * runaway output from loops over thousands of trees/halos */
   enable_debug_log_rate_limiting();
   const struct TreeReader *reader = MimicConfig.reader;
-  const int npartitions = reader->num_partitions();
+  if (reader->partition_model == PARTITION_PER_TASK) {
+    /* Each task owns exactly one output partition (its forest chunk); the reader
+     * performs the per-task forest split inside open_partition keyed on the
+     * ThisTask/NTask globals. There is no per-file stride and no per-file
+     * existence check — the ctrees index files are validated when opened. */
+    const int output_id = ThisTask; /* 0 in serial builds */
+    if (claim_and_process_partition(output_id)) {
+      INFO_LOG("%sCompleted task chunk %d%s", mimic_color_green(), output_id, mimic_color_reset());
+    }
+  } else {
+    /* PARTITION_PER_FILE: one partition per input file, strided across tasks. */
+    const int npartitions = reader->num_partitions();
 #ifdef MPI
-  /* In MPI mode, distribute partitions across processors using stride of NTask */
-  for (int partition = ThisTask; partition < npartitions; partition += NTask)
+    /* In MPI mode, distribute partitions across processors using stride of NTask */
+    for (int partition = ThisTask; partition < npartitions; partition += NTask)
 #else
-  /* In serial mode, process all partitions sequentially */
-  for (int partition = 0; partition < npartitions; partition++)
+    /* In serial mode, process all partitions sequentially */
+    for (int partition = 0; partition < npartitions; partition++)
 #endif
-  {
-    const int output_id = reader->partition_output_id(partition);
+    {
+      const int output_id = reader->partition_output_id(partition);
 
-    /* Construct tree filename and check if it exists */
-    snprintf(tree_path, MAX_PATH_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
-             MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
-    if (!(fd = fopen(tree_path, "r"))) {
-      INFO_LOG("Missing tree %s ... skipping", tree_path);
-      continue; // tree file does not exist, move along
-    } else
-      fclose(fd);
+      /* Construct tree filename and check if it exists */
+      snprintf(tree_path, MAX_PATH_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
+               MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
+      if (!(fd = fopen(tree_path, "r"))) {
+        INFO_LOG("Missing tree %s ... skipping", tree_path);
+        continue; // tree file does not exist, move along
+      } else
+        fclose(fd);
 
-    /* Check if output already exists (to avoid reprocessing unless overwrite
-     * is set). Binary output is complete only if every requested snapshot file
-     * exists; a partial set is usually an interrupted run and should fail fast
-     * rather than silently skip or overwrite a subset under --skip. */
-    set_current_output_paths(output_id);
-    int existing_outputs = count_existing_current_outputs();
-    if (!MimicConfig.OverwriteOutputFiles) {
-      if (existing_outputs == current_output_path_count) {
-        INFO_LOG("Output for filenr %d already exists ... skipping", output_id);
-        clear_current_output_paths();
-        continue;
-      }
-      if (existing_outputs > 0) {
-        FATAL_ERROR("Partial output exists for filenr %d (%d of %d files). Remove the partial "
-                    "files or rerun without --skip.",
-                    output_id, existing_outputs, current_output_path_count);
+      /* Check if output already exists (avoid reprocessing unless overwrite is
+       * set) and process this partition. */
+      if (claim_and_process_partition(output_id)) {
+        INFO_LOG("%sCompleted file %d%s", mimic_color_green(), output_id, mimic_color_reset());
       }
     }
-
-    /* Create output files to mark that this partition is being processed */
-    claim_current_output_paths(output_id);
-
-    process_partition(output_id);
-
-    /* This partition's output is complete; nothing to unlink on later failure */
-    clear_current_output_paths();
-
-    INFO_LOG("%sCompleted file %d%s", mimic_color_green(), output_id, mimic_color_reset());
   }
 
   /* Disable rate limiting for DEBUG_LOG after tree processing completes */

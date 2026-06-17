@@ -8,8 +8,13 @@
 /* Global configuration structure */
 extern struct MimicConfig MimicConfig;
 
+/* MPI rank and task count. Declared for every build so the per-task tree
+   readers can split work uniformly: serial builds leave these at their zero
+   defaults (ThisTask == 0, NTask == 0) and readers treat NTask <= 0 as one task.
+   Only MPI builds set them (in main()). */
+extern int ThisTask, NTask;
 #ifdef MPI
-extern int ThisTask, NTask, nodeNameLen;
+extern int nodeNameLen;
 extern char *ThisNode;
 #endif
 

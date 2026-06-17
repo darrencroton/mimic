@@ -1,10 +1,10 @@
 /**
  * @file    test_ctrees_support.c
- * @brief   Unit tests for the vendored Consistent-Trees support code.
+ * @brief   Unit tests for the Consistent-Trees support code and ASCII reader.
  *
- * These exercise the format-independent ctrees helpers in isolation so the
- * vendored code is not dead while it is still unwired by the tree driver
- * (Phase 4). Coverage:
+ * These exercise the format-independent ctrees helpers and the reader-owned
+ * value conventions in isolation (no simulation package or end-to-end run is
+ * required). Coverage:
  *   - parse_header_ctrees: column-name matching + ascending column sort, with a
  *     requested-but-absent column correctly dropped (parse_ctrees.h).
  *   - read_forests / read_locations / assign_forest_ids /
@@ -12,8 +12,10 @@
  *     locations.dat + tree file (ctrees_utils.c).
  *   - fix_flybys / fix_upid / assign_mergertree_indices reconstructing L-Halo
  *     merger pointers for a small hand-built forest (ctrees_utils.c).
- *   - distribute_weighted_forests_over_ntasks + uniform fallback partitioning a
- *     forest list across MPI tasks (forest_utils.c).
+ *   - forest distribution across MPI tasks, including the surplus-task and
+ *     weighted-no-negative edges fixed when wiring the reader (forest_utils.c).
+ *   - the ASCII reader's Consistent-Trees -> L-Halo conventions and the
+ *     halo_data -> RawHalo bridge (read_ctrees_ascii.c).
  *
  * @date    2026-06-17
  */
@@ -21,11 +23,15 @@
 #include "../framework/test_framework.h"
 
 #include "error.h"
+#include "globals.h"
 #include "memory.h"
 #include "tree/ctrees/ctrees_compat.h"
 #include "tree/ctrees/ctrees_utils.h"
 #include "tree/ctrees/forest_utils.h"
 #include "tree/ctrees/parse_ctrees.h"
+#include "tree/read_ctrees_ascii.h"
+
+#include <math.h>
 
 #include <fcntl.h>
 #include <stdint.h>
@@ -423,6 +429,211 @@ int test_find_start_and_end_filenum(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test  test_distribute_forests_surplus_tasks
+ * When there are more tasks than forests the uniform splitter must still produce
+ * a contiguous complete cover, handing the surplus high-rank tasks empty ranges
+ * (never a negative count), and must reject an out-of-range task id. Exercises
+ * the ThisTask >= NTasks guard fix.
+ */
+int test_distribute_forests_surplus_tasks(void) {
+  init_memory_system(0);
+
+  const int64_t totnforests = 2;
+  const int ntasks = 4;
+  int64_t starts[4], counts[4];
+  for (int t = 0; t < ntasks; t++) {
+    int rc = distribute_forests_over_ntasks(totnforests, ntasks, t, &counts[t], &starts[t]);
+    TEST_ASSERT(rc == EXIT_SUCCESS, "uniform distribution should succeed for every valid task");
+  }
+  TEST_ASSERT(check_partition(ntasks, starts, counts, totnforests),
+              "surplus-task partition should be a contiguous complete cover");
+  TEST_ASSERT(counts[0] == 1 && counts[1] == 1 && counts[2] == 0 && counts[3] == 0,
+              "two forests over four tasks should give {1,1,0,0}");
+
+  /* ThisTask == NTasks is out of the [0, NTasks) range and must be rejected. */
+  int64_t bad_count = -99, bad_start = -99;
+  int rc = distribute_forests_over_ntasks(totnforests, ntasks, ntasks, &bad_count, &bad_start);
+  TEST_ASSERT(rc == EXIT_FAILURE, "task id equal to NTasks must be rejected");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_weighted_distribution_no_negative
+ * With the cost concentrated in one forest and more tasks than the weighting can
+ * fill, the trailing task(s) must receive an empty (zero) range rather than the
+ * sentinel -1 count. Exercises the weighted-path -1 clamp.
+ */
+int test_weighted_distribution_no_negative(void) {
+  init_memory_system(0);
+
+  const int64_t totnforests = 2;
+  const int64_t nhalos_per_forest[2] = {1000, 1}; /* cost concentrated in forest 0 */
+  const int ntasks = 3;
+
+  int64_t starts[3], counts[3];
+  for (int t = 0; t < ntasks; t++) {
+    int rc =
+        distribute_weighted_forests_over_ntasks(totnforests, nhalos_per_forest, quadratic_in_nhalos,
+                                                2.0, ntasks, t, &counts[t], &starts[t]);
+    TEST_ASSERT(rc == EXIT_SUCCESS, "weighted distribution should succeed for every valid task");
+    TEST_ASSERT(counts[t] >= 0, "no task may receive a negative forest count");
+  }
+  TEST_ASSERT(check_partition(ntasks, starts, counts, totnforests),
+              "weighted surplus partition should be a contiguous complete cover");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_convert_ctrees_conventions
+ * Pins the reader-owned Consistent-Trees -> L-Halo conventions: spin normalised
+ * by the native Mvir, Len derived from native Mvir and the particle mass, the id
+ * carried into MostBoundID, and the merger pointers sentinel-initialised.
+ */
+int test_convert_ctrees_conventions(void) {
+  init_memory_system(0);
+
+  MimicConfig.PartMass = 0.1; /* 1e10 Msun/h per particle -> clean Len arithmetic */
+
+  struct halo_data h;
+  memset(&h, 0, sizeof(h));
+  h.Mvir = 1.0e12f; /* native Msun/h */
+  h.Spin[0] = 1.0e12f;
+  h.Spin[1] = 5.0e11f;
+  h.Spin[2] = 0.0f;
+
+  struct additional_info info;
+  memset(&info, 0, sizeof(info));
+  info.id = 42;
+
+  convert_ctrees_to_lht(&h, &info, 1);
+
+  TEST_ASSERT(fabsf(h.Spin[0] - 1.0f) <= 1.0e-4f, "Spin_x should be normalised to J/Mvir = 1.0");
+  TEST_ASSERT(fabsf(h.Spin[1] - 0.5f) <= 1.0e-4f, "Spin_y should be normalised to J/Mvir = 0.5");
+  TEST_ASSERT(fabsf(h.Spin[2] - 0.0f) <= 1.0e-4f, "Spin_z should be normalised to 0.0");
+
+  /* Len = round(Mvir * 1e-10 / PartMass) = round(1e12 * 1e-10 / 0.1) = 1000. */
+  TEST_ASSERT(h.Len >= 999 && h.Len <= 1001, "Len should be ~1000 particles");
+  TEST_ASSERT(h.MostBoundID == 42, "MostBoundID should carry the ctrees id");
+  TEST_ASSERT(h.Descendant == -1 && h.FirstProgenitor == -1 && h.NextProgenitor == -1,
+              "merger pointers should be sentinel-initialised");
+  TEST_ASSERT(h.FirstHaloInFOFgroup == -1 && h.NextHaloInFOFgroup == -1,
+              "FOF pointers should be sentinel-initialised");
+
+  /* Mvir itself is left NATIVE (scaling is the accessor's job, not the reader's). */
+  TEST_ASSERT(fabsf(h.Mvir - 1.0e12f) <= 1.0e6f,
+              "Mvir must remain native (un-scaled) in the reader");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_bridge_to_rawhalo
+ * Checks the halo_data -> RawHalo bridge copies every contracted field, including
+ * the native Mvir into the HaloMass-providing M_Crit200 slot.
+ */
+int test_bridge_to_rawhalo(void) {
+  init_memory_system(0);
+
+  struct halo_data h;
+  memset(&h, 0, sizeof(h));
+  h.Descendant = 3;
+  h.FirstProgenitor = 4;
+  h.NextProgenitor = 5;
+  h.FirstHaloInFOFgroup = 6;
+  h.NextHaloInFOFgroup = 7;
+  h.Len = 1234;
+  h.Mvir = 8.5e11f;
+  h.Pos[0] = 1.0f;
+  h.Pos[1] = 2.0f;
+  h.Pos[2] = 3.0f;
+  h.Vel[0] = -10.0f;
+  h.Vel[1] = 20.0f;
+  h.Vel[2] = -30.0f;
+  h.Spin[0] = 0.01f;
+  h.Spin[1] = 0.02f;
+  h.Spin[2] = 0.03f;
+  h.VelDisp = 111.0f;
+  h.Vmax = 222.0f;
+  h.MostBoundID = 99887766;
+  h.SnapNum = 17;
+
+  struct RawHalo out;
+  memset(&out, 0, sizeof(out));
+  bridge_halo_data_to_rawhalo(&out, &h);
+
+  TEST_ASSERT(out.Descendant == 3 && out.FirstProgenitor == 4 && out.NextProgenitor == 5,
+              "merger pointers should bridge through");
+  TEST_ASSERT(out.FirstHaloInFOFgroup == 6 && out.NextHaloInFOFgroup == 7,
+              "FOF pointers should bridge through");
+  TEST_ASSERT(out.Len == 1234, "Len should bridge through");
+  TEST_ASSERT(out.M_Crit200 == 8.5e11f, "native Mvir should land in the M_Crit200 (HaloMass) slot");
+  TEST_ASSERT(out.Pos[0] == 1.0f && out.Pos[1] == 2.0f && out.Pos[2] == 3.0f,
+              "position should bridge through");
+  TEST_ASSERT(out.Vel[0] == -10.0f && out.Vel[1] == 20.0f && out.Vel[2] == -30.0f,
+              "velocity should bridge through");
+  TEST_ASSERT(out.Spin[0] == 0.01f && out.Spin[1] == 0.02f && out.Spin[2] == 0.03f,
+              "spin should bridge through");
+  TEST_ASSERT(out.VelDisp == 111.0f && out.Vmax == 222.0f, "VelDisp/Vmax should bridge through");
+  TEST_ASSERT(out.MostBoundID == 99887766, "MostBoundID should bridge through");
+  TEST_ASSERT(out.SnapNum == 17, "SnapNum should bridge through");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test  test_sort_locations_offset_tie
+ * Sorts locations whose (forestid, fileid, offset) keys are equal in pairs. The
+ * comparator fix returns 0 on an offset tie (a valid strict-weak ordering), so
+ * the sort must produce a valid permutation (every treeid present exactly once)
+ * with the forests correctly grouped and ordered.
+ *
+ * Note: two of the deliberate ctrees-helper fixes are NOT unit-tested here and
+ * are instead validated end-to-end (see docs/dev/CTREES-UCHUU-VALIDATION.md):
+ *   - read_locations' file-array realloc boundary (fileid >= nallocated) needs a
+ *     perfect-cube file count above 2000 (13^3 = 2197 files) to trigger;
+ *   - the open()-returns-fd-0 acceptance (`>= 0`) is effectively unreachable in
+ *     read_locations because its own fopen() of locations.dat claims fd 0 first
+ *     whenever stdin is closed, so the tree open() never receives fd 0.
+ */
+int test_sort_locations_offset_tie(void) {
+  init_memory_system(0);
+
+  const int64_t n = 4;
+  struct locations_with_forests loc[4];
+  memset(loc, 0, sizeof(loc));
+  /* Two forests, each with two trees tied on (fileid, offset). */
+  loc[0] = (struct locations_with_forests){.forestid = 5, .treeid = 100, .fileid = 0, .offset = 0};
+  loc[1] = (struct locations_with_forests){.forestid = 5, .treeid = 101, .fileid = 0, .offset = 0};
+  loc[2] = (struct locations_with_forests){.forestid = 2, .treeid = 102, .fileid = 1, .offset = 8};
+  loc[3] = (struct locations_with_forests){.forestid = 2, .treeid = 103, .fileid = 1, .offset = 8};
+
+  sort_locations_on_fid_file_offset(n, loc);
+
+  /* Forest 2 sorts before forest 5; forests stay grouped. */
+  TEST_ASSERT(loc[0].forestid == 2 && loc[1].forestid == 2, "forest 2 should sort first");
+  TEST_ASSERT(loc[2].forestid == 5 && loc[3].forestid == 5, "forest 5 should sort second");
+
+  /* No element lost or duplicated by the equal-key path. */
+  int seen[4] = {0, 0, 0, 0};
+  for (int64_t i = 0; i < n; i++) {
+    const int t = (int)loc[i].treeid - 100;
+    TEST_ASSERT(t >= 0 && t < 4, "treeids should be preserved by the sort");
+    seen[t]++;
+  }
+  TEST_ASSERT(seen[0] == 1 && seen[1] == 1 && seen[2] == 1 && seen[3] == 1,
+              "every treeid should appear exactly once after the tie-key sort");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -438,6 +649,11 @@ int main(void) {
   TEST_RUN(test_forest_topology_reconstruction);
   TEST_RUN(test_find_start_and_end_filenum);
   TEST_RUN(test_weighted_forest_distribution);
+  TEST_RUN(test_distribute_forests_surplus_tasks);
+  TEST_RUN(test_weighted_distribution_no_negative);
+  TEST_RUN(test_convert_ctrees_conventions);
+  TEST_RUN(test_bridge_to_rawhalo);
+  TEST_RUN(test_sort_locations_offset_tie);
 
   TEST_SUMMARY();
   return TEST_RESULT();

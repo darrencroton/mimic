@@ -155,6 +155,7 @@ void close_partition_binary(void) {
 const struct TreeReader LHaloBinaryReader = {
     .name = "lhalo_binary",
     .file_extension = "",
+    .partition_model = PARTITION_PER_FILE,
     .num_partitions = tree_partition_per_file_count,
     .partition_output_id = tree_partition_per_file_output_id,
     .open_partition = open_partition_binary,

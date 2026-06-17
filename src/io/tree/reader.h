@@ -14,31 +14,51 @@
  * the unit of output: the core opens one set of output files per partition,
  * names them by the partition's output id, and finalizes them when the
  * partition is done. A unit is one independently processed merger structure
- * within a partition. For the L-Halo readers a partition is one input file and
- * a unit is one tree, and the per-file helpers below supply the partition
- * enumeration. Because that enumeration comes from the reader, a reader can map
- * partitions onto the input differently without touching the core loop.
+ * within a partition.
+ *
+ * Two partition models are supported (see the driver loop in core/main.c):
+ *
+ * - PARTITION_PER_FILE: a partition is one input file and a unit is one tree.
+ *   The driver strides partitions across MPI tasks; the per-file helpers below
+ *   supply the partition enumeration (num_partitions / partition_output_id).
+ *   Both L-Halo readers use this model.
+ *
+ * - PARTITION_PER_TASK: each MPI task owns exactly one output partition, and a
+ *   unit is one forest. open_partition performs the per-task forest split keyed
+ *   on the ThisTask/NTask globals, so there is no per-file stride and the driver
+ *   does not call num_partitions / partition_output_id (they are NULL). The
+ *   Consistent-Trees readers use this model.
  */
+enum TreePartitionModel {
+  PARTITION_PER_FILE = 0, /* one partition per input file (L-Halo) */
+  PARTITION_PER_TASK = 1, /* one partition per MPI task (Consistent-Trees) */
+};
+
 struct TreeReader {
   const char *name;           /* tree_type string in the input YAML */
   const char *file_extension; /* appended after TreeName.<output_id>, e.g. ".hdf5" */
 
+  /* How the driver maps partitions onto the input (see enum above). */
+  enum TreePartitionModel partition_model;
+
+  /* PARTITION_PER_FILE only (NULL for PARTITION_PER_TASK readers): */
   /* Number of partitions to iterate. The driver applies the MPI stride over the
      partition index, so this returns the full count, not a per-task share. */
   int (*num_partitions)(void);
-
   /* Output id for a partition: the value used in output file names and unique
      galaxy ids (the filenr-equivalent). */
   int (*partition_output_id)(int partition);
 
   /* Open partition `output_id` and read its unit table (Ntrees and per-unit
-     halo counts), retaining the open handle for subsequent load_unit calls. */
+     halo counts), retaining the open handle for subsequent load_unit calls. For
+     PARTITION_PER_TASK readers `output_id` is the task id and this also performs
+     the per-task forest split. */
   void (*open_partition)(int output_id);
 
   /* Load every halo of one unit from the open partition into InputTreeHalos. */
   void (*load_unit)(int unit);
 
-  /* Close the open partition. */
+  /* Close the open partition (and release any per-partition scaffolding). */
   void (*close_partition)(void);
 };
 

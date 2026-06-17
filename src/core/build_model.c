@@ -36,6 +36,7 @@
 #include "numeric.h"
 #include "output_buffer.h"
 #include "proto.h"
+#include "tree/reader.h"
 #include "types.h"
 #include "generated/tree_property_accessors.h"
 
@@ -263,7 +264,17 @@ static void ensure_fof_workspace_capacity(int required) {
 }
 
 static long long make_unique_galaxy_id(int halonr, int unit, int partition_output_id) {
-  long long file_mul_fac = (MimicConfig.LastFile >= 10000) ? (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
+  /* PARTITION_PER_TASK readers number partitions by MPI task rank (small), not by
+     file index, so the L-Halo "many files" stride reduction must NOT apply — the
+     per-task forest-count bound the reader asserts assumes the full
+     FILENR_MUL_FAC stride. PARTITION_PER_FILE keeps the exact original stride, so
+     L-Halo galaxy ids (and output bytes) are unchanged. */
+  long long file_mul_fac;
+  if (MimicConfig.reader->partition_model == PARTITION_PER_TASK) {
+    file_mul_fac = FILENR_MUL_FAC;
+  } else {
+    file_mul_fac = (MimicConfig.LastFile >= 10000) ? (FILENR_MUL_FAC / 10) : FILENR_MUL_FAC;
+  }
   long long unit_mul = TREE_MUL_FAC * unit;
   long long partition_mul = file_mul_fac * partition_output_id;
 

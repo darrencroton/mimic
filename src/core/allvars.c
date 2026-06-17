@@ -56,8 +56,11 @@ int *InputHalosPerSnap[ABSOLUTEMAXSNAPS];
 int *InputTreeNHalos;
 int *InputTreeFirstHalo;
 
+/* ThisTask/NTask exist in every build (see globals.h); only MPI builds set them
+   and use the MPI-only node-name fields. */
+int ThisTask, NTask;
 #ifdef MPI
-int ThisTask, NTask, nodeNameLen;
+int nodeNameLen;
 char *ThisNode;
 #endif
 

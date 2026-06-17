@@ -22,10 +22,11 @@ compute_forest_cost_from_nhalos(const enum Valid_Forest_Distribution_Schemes for
 
 int distribute_forests_over_ntasks(const int64_t totnforests, const int NTasks, const int ThisTask,
                                    int64_t *nforests_thistask, int64_t *start_forestnum_thistask) {
-  if (ThisTask > NTasks || ThisTask < 0 || NTasks < 1) {
+  /* `>=`, not the sage `>`: ThisTask is a 0-based rank in [0, NTasks). */
+  if (ThisTask >= NTasks || ThisTask < 0 || NTasks < 1) {
     fprintf(
         stderr,
-        "Error: ThisTask = %d and NTasks = %d must satisfy i) ThisTask < NTasks, ii) ThisTask > "
+        "Error: ThisTask = %d and NTasks = %d must satisfy i) ThisTask < NTasks, ii) ThisTask >= "
         "0 and iii) NTasks >= 1\n",
         ThisTask, NTasks);
     return EXIT_FAILURE;
@@ -129,10 +130,11 @@ int distribute_weighted_forests_over_ntasks(
     const enum Valid_Forest_Distribution_Schemes forest_weighting, const double power_law_index,
     const int NTasks, const int ThisTask, int64_t *nforests_thistask,
     int64_t *start_forestnum_thistask) {
-  if (ThisTask > NTasks || ThisTask < 0 || NTasks < 1) {
+  /* `>=`, not the sage `>`: ThisTask is a 0-based rank in [0, NTasks). */
+  if (ThisTask >= NTasks || ThisTask < 0 || NTasks < 1) {
     fprintf(
         stderr,
-        "Error: ThisTask = %d and NTasks = %d must satisfy i) ThisTask < NTasks, ii) ThisTask > "
+        "Error: ThisTask = %d and NTasks = %d must satisfy i) ThisTask < NTasks, ii) ThisTask >= "
         "0 and iii) NTasks >= 1\n",
         ThisTask, NTasks);
     return EXIT_FAILURE;
@@ -238,6 +240,14 @@ int distribute_weighted_forests_over_ntasks(
     const int remaining_ntasks = NTasks - currtask;
     target_cost_per_task = remaining_cost / remaining_ntasks;
     curr_cost_target = cost_so_far + target_cost_per_task;
+  }
+
+  /* If this task's cost target was reached before any forest range was assigned
+     to it (the weighting concentrated the cost on lower-ranked tasks), it stays
+     -1 from initialisation. Give it an explicit empty range rather than leaking a
+     negative count to the caller. sage left this as -1. */
+  if (nforests_this_task < 0) {
+    nforests_this_task = 0;
   }
 
   /* Now fill up the destination */

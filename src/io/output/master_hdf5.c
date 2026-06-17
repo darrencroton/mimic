@@ -14,9 +14,11 @@
 
 #include "proto.h"
 #include "error.h"
+#include "globals.h"
 #include "hdf5_internal.h"
 #include "output/hdf5.h"
 #include "output/util.h"
+#include "tree/reader.h"
 
 void write_master_file(void) {
 
@@ -53,6 +55,20 @@ void write_master_file(void) {
   DEBUG_LOG("Creating master HDF5 file '%s'", master_file);
   master_file_id = H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
+  /* Output partitions are named by their output id. For PARTITION_PER_FILE that
+     is the input file range FirstFile..LastFile; for PARTITION_PER_TASK each MPI
+     task writes one partition numbered by its rank (0..NTask-1), so the master
+     must scan task ids, not the simulation file range. Missing ids are skipped
+     below via the access() check. */
+  int first_output_id, last_output_id;
+  if (MimicConfig.reader->partition_model == PARTITION_PER_TASK) {
+    first_output_id = 0;
+    last_output_id = ((NTask > 0) ? NTask : 1) - 1;
+  } else {
+    first_output_id = MimicConfig.FirstFile;
+    last_output_id = MimicConfig.LastFile;
+  }
+
   // Loop through each snapshot.
   for (n = 0; n < MimicConfig.NOUT; n++) {
 
@@ -75,8 +91,8 @@ void write_master_file(void) {
 
     H5Gclose(group_id);
 
-    // Loop through each file for this snapshot.
-    for (filenr = MimicConfig.FirstFile; filenr <= MimicConfig.LastFile; filenr++) {
+    // Loop through each output partition for this snapshot.
+    for (filenr = first_output_id; filenr <= last_output_id; filenr++) {
       /* Skip file numbers that produced no output (e.g. missing input tree
        * files), so the master file never links to nonexistent files. */
       output_path_hdf5(target_file, sizeof(target_file), filenr);
