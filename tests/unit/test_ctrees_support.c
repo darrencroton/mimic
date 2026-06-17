@@ -16,8 +16,15 @@
  *     weighted-no-negative edges fixed when wiring the reader (forest_utils.c).
  *   - the ASCII reader's Consistent-Trees -> L-Halo conventions and the
  *     halo_data -> RawHalo bridge (read_ctrees_ascii.c).
+ *   - the value conventions shared by both readers (spin/Len without touching the
+ *     file-supplied id/pointers), used by the HDF5 reader (read_ctrees_common.h).
  *
- * @date    2026-06-17
+ * The HDF5 reader's HDF5-dependent paths (file/group I/O, weighted setup) are
+ * validated end-to-end against a real dataset (see CTREES-UCHUU-VALIDATION.md),
+ * not here: the unit harness is a non-HDF5 build, mirroring the L-Halo HDF5
+ * reader, which is likewise excluded from these tests.
+ *
+ * @date    2026-06-18
  */
 
 #include "../framework/test_framework.h"
@@ -533,6 +540,51 @@ int test_convert_ctrees_conventions(void) {
 }
 
 /**
+ * @test  test_apply_value_conventions_shared
+ * Pins the conventions shared by both ctrees readers (read_ctrees_common.h):
+ * spin normalised by the native Mvir and Len from native Mvir / particle mass.
+ * Unlike convert_ctrees_to_lht (ASCII), it must NOT touch MostBoundID or the
+ * merger pointers — the HDF5 reader supplies those from the file, so this helper
+ * has to leave them untouched.
+ */
+int test_apply_value_conventions_shared(void) {
+  init_memory_system(0);
+
+  MimicConfig.PartMass = 0.1; /* 1e10 Msun/h per particle -> clean Len arithmetic */
+
+  struct halo_data h;
+  memset(&h, 0, sizeof(h));
+  h.Mvir = 1.0e12f; /* native Msun/h */
+  h.Spin[0] = 1.0e12f;
+  h.Spin[1] = 5.0e11f;
+  h.Spin[2] = 0.0f;
+  /* Fields the HDF5 path fills from file; the shared helper must leave them. */
+  h.MostBoundID = 555;
+  h.Descendant = 9;
+  h.FirstProgenitor = 8;
+  h.NextHaloInFOFgroup = 7;
+
+  apply_ctrees_value_conventions(&h, 1);
+
+  TEST_ASSERT(fabsf(h.Spin[0] - 1.0f) <= 1.0e-4f, "Spin_x should be normalised to J/Mvir = 1.0");
+  TEST_ASSERT(fabsf(h.Spin[1] - 0.5f) <= 1.0e-4f, "Spin_y should be normalised to J/Mvir = 0.5");
+  TEST_ASSERT(fabsf(h.Spin[2] - 0.0f) <= 1.0e-4f, "Spin_z should be normalised to 0.0");
+  TEST_ASSERT(h.Len >= 999 && h.Len <= 1001, "Len should be ~1000 particles");
+
+  /* The shared helper must not overwrite the file-supplied id or pointers. */
+  TEST_ASSERT(h.MostBoundID == 555, "shared conventions must not touch MostBoundID");
+  TEST_ASSERT(h.Descendant == 9 && h.FirstProgenitor == 8 && h.NextHaloInFOFgroup == 7,
+              "shared conventions must not touch the merger pointers");
+
+  /* Mvir itself is left NATIVE (scaling is the accessor's job, not the reader's). */
+  TEST_ASSERT(fabsf(h.Mvir - 1.0e12f) <= 1.0e6f,
+              "Mvir must remain native (un-scaled) in the reader");
+
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
  * @test  test_bridge_to_rawhalo
  * Checks the halo_data -> RawHalo bridge copies every contracted field, including
  * the native Mvir into the HaloMass-providing M_Crit200 slot.
@@ -652,6 +704,7 @@ int main(void) {
   TEST_RUN(test_distribute_forests_surplus_tasks);
   TEST_RUN(test_weighted_distribution_no_negative);
   TEST_RUN(test_convert_ctrees_conventions);
+  TEST_RUN(test_apply_value_conventions_shared);
   TEST_RUN(test_bridge_to_rawhalo);
   TEST_RUN(test_sort_locations_offset_tie);
 

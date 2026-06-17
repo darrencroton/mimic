@@ -297,6 +297,10 @@ static LogLevel parse_cli(int *argc, char **argv) {
   MimicConfig.OverwriteOutputFiles = 1;
   MimicConfig.HDF5CompressionLevel = 0; // Off by default; enabled via --compress
   MimicConfig.MaxTreeDepth = 500;       // Typical trees: 50-100 levels
+  /* Consistent-Trees forest distribution defaults (only the ctrees readers use
+     them): split forests uniformly; the exponent applies to the power schemes. */
+  MimicConfig.ForestDistributionScheme = 0; // uniform_in_forests
+  MimicConfig.Exponent_Forest_Dist_Scheme = 0.7;
 
   for (int i = 1; i < *argc; i++) {
     if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {

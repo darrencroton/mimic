@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> /* strcasecmp */
 #include <yaml.h>
 
 #include "config.h"
@@ -25,7 +26,8 @@
 #include "memory.h"          /* For mymalloc_cat, myfree */
 #include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
 #include "proto.h"
-#include "tree/reader.h" /* tree_reader_lookup, struct TreeReader */
+#include "tree/ctrees/ctrees_compat.h" /* enum Valid_Forest_Distribution_Schemes */
+#include "tree/reader.h"               /* tree_reader_lookup, struct TreeReader */
 #include "types.h"
 #include "generated/unit_registry.h" /* mimic_unit_label_cgs / mimic_unit_label_h_convention */
 
@@ -580,12 +582,34 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
 /**
  * @brief   Parse input section
  */
+/* Map a forest_distribution_scheme string to its enum value, or -1 if unknown.
+ * Used only by the consistent_trees_* readers' per-task forest load balancing. */
+static int forest_distribution_scheme_from_string(const char *s) {
+  if (strcasecmp(s, "uniform") == 0)
+    return uniform_in_forests;
+  if (strcasecmp(s, "linear") == 0)
+    return linear_in_nhalos;
+  if (strcasecmp(s, "quadratic") == 0)
+    return quadratic_in_nhalos;
+  if (strcasecmp(s, "exponent") == 0)
+    return exponent_in_nhalos;
+  if (strcasecmp(s, "generic_power") == 0)
+    return generic_power_in_nhalos;
+  return -1;
+}
+
 static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node;
   const char *str;
-  static const char *const valid_keys[] = {"first_file",    "last_file",      "tree_name",
-                                           "tree_type",     "simulation_dir", "snapshot_list_file",
-                                           "max_tree_depth"};
+  static const char *const valid_keys[] = {"first_file",
+                                           "last_file",
+                                           "tree_name",
+                                           "tree_type",
+                                           "simulation_dir",
+                                           "snapshot_list_file",
+                                           "max_tree_depth",
+                                           "forest_distribution_scheme",
+                                           "exponent_forest_dist_scheme"};
 
   DEBUG_LOG("Parsing input section");
   reject_unknown_keys(doc, section, "input", valid_keys,
@@ -640,6 +664,28 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
   if (node) {
     MimicConfig.MaxTreeDepth = get_strict_int_value(node, "input.max_tree_depth");
     DEBUG_LOG("MaxTreeDepth = %d", MimicConfig.MaxTreeDepth);
+  }
+
+  /* Consistent-Trees forest -> MPI-task load balancing (ignored by other
+     readers). The ASCII reader splits forests uniformly regardless; the HDF5
+     reader can weight by per-forest halo count. */
+  node = get_mapping_value(doc, section, "forest_distribution_scheme");
+  if (node && (str = get_scalar_value(node))) {
+    const int scheme = forest_distribution_scheme_from_string(str);
+    if (scheme < 0) {
+      FATAL_ERROR("Unknown forest_distribution_scheme '%s'. Valid values are uniform, linear, "
+                  "quadratic, exponent, generic_power.",
+                  str);
+    }
+    MimicConfig.ForestDistributionScheme = scheme;
+    DEBUG_LOG("ForestDistributionScheme = %s (%d)", str, scheme);
+  }
+
+  node = get_mapping_value(doc, section, "exponent_forest_dist_scheme");
+  if (node) {
+    MimicConfig.Exponent_Forest_Dist_Scheme =
+        get_strict_double_value(node, "input.exponent_forest_dist_scheme");
+    DEBUG_LOG("Exponent_Forest_Dist_Scheme = %g", MimicConfig.Exponent_Forest_Dist_Scheme);
   }
 }
 

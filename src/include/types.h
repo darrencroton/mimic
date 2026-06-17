@@ -64,6 +64,14 @@ struct MimicConfig {
   /* tree traversal */
   int MaxTreeDepth; // Maximum recursion depth (default: 500)
 
+  /* Consistent-Trees forest -> MPI-task load balancing (only consulted by the
+   * consistent_trees_* readers). ForestDistributionScheme holds an
+   * enum Valid_Forest_Distribution_Schemes value (defined in the ctrees adapter
+   * tree/ctrees/ctrees_compat.h; stored as int here so this core header stays
+   * independent of the vendored ctrees code). */
+  int ForestDistributionScheme;       // default: 0 (uniform_in_forests)
+  double Exponent_Forest_Dist_Scheme; // power-law index for the power schemes
+
   /* output parameters */
   int NOUT;
   int ListOutputSnaps[ABSOLUTEMAXSNAPS];

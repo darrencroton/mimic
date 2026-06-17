@@ -17,6 +17,7 @@ extern const struct TreeReader LHaloBinaryReader;
 extern const struct TreeReader CTreesAsciiReader;
 #ifdef HDF5
 extern const struct TreeReader LHaloHDF5Reader;
+extern const struct TreeReader CTreesHDF5Reader;
 #endif
 
 static const struct TreeReader *const reader_table[] = {
@@ -24,6 +25,7 @@ static const struct TreeReader *const reader_table[] = {
     &CTreesAsciiReader,
 #ifdef HDF5
     &LHaloHDF5Reader,
+    &CTreesHDF5Reader,
 #endif
 };
 

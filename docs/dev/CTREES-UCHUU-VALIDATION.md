@@ -1,9 +1,12 @@
 # Consistent-Trees (Uchuu) reader validation
 
-Status: **draft, ASCII (Phase 5a) only.** The HDF5 reader section is a placeholder
-to be completed in Phase 5b. This document is the checklist for importing a real
-Consistent-Trees dataset (e.g. Uchuu) and validating Mimic's ctrees readers
-end-to-end once the data is available on the run machine.
+Status: **ASCII (Phase 5a) and forests-HDF5 (Phase 5b).** This document is the
+checklist for importing a real Consistent-Trees dataset (e.g. Uchuu) and
+validating Mimic's ctrees readers end-to-end once the data is available on the
+run machine. The ASCII reader (`consistent_trees_ascii`) reads the Rockstar
+`forests.list` + `locations.dat` + `tree_i_j_k.dat` output; the HDF5 reader
+(`consistent_trees_hdf5`, HDF5 builds only) reads the forests-HDF5 packaging
+produced by uchuutools.
 
 ## What is and isn't in the repository
 
@@ -59,16 +62,27 @@ the `Pos` units against the actual dataset packaging before trusting positions.
 input:
   first_file: 0
   last_file: <num tree files - 1>
-  tree_name: tree_0_0_0.dat        # the header-bearing first tree file
+  tree_name: tree_0_0_0.dat        # ASCII: the header-bearing first tree file
   tree_type: consistent_trees_ascii
   simulation_dir: simulations/<name>/snapshots
   snapshot_list_file: simulations/<name>/<name>.a_list
+  # Optional, ctrees only — forest -> MPI-task load balancing. ASCII always
+  # splits uniformly; the HDF5 reader honours these (see §4):
+  forest_distribution_scheme: uniform      # uniform|linear|quadratic|exponent|generic_power
+  exponent_forest_dist_scheme: 0.7         # only used by exponent/generic_power
 
 simulation:
   cosmology: { omega_matter: <Uchuu>, omega_lambda: <Uchuu>, hubble_h: <Uchuu> }
   box_size:      { value: <Uchuu>, units: Mpc/h, h_convention: carried }
   particle_mass: { value: <Uchuu>, units: 1e10 Msun/h, h_convention: carried }
 ```
+
+For the **HDF5** reader use `tree_type: consistent_trees_hdf5` and set
+`tree_name` + the package's tree-file extension so that
+`simulation_dir/tree_name<ext>` resolves to the forests-HDF5 metadata/data file
+(the reader derives the extension from the registered reader, currently `.h5`).
+`first_file`/`last_file` select the inclusive range of `File<n>` groups to
+process; they must lie within the dataset's `/Nfiles`.
 
 ### 1c. `<name>.a_list` and `snapshots/`
 
@@ -119,29 +133,97 @@ for full physics.
       2000 (e.g. 13³ = 2197), confirm it loads — this exercises the
       `read_locations` realloc-boundary fix. (sage mis-handled exactly this.)
 
-## 4. HDF5 reader validation — _to be completed in Phase 5b_
+## 4. HDF5 reader validation (forests-HDF5)
 
-Placeholder. After the `consistent_trees_hdf5` reader lands, extend this section
-with: the forest-HDF5 dataset layout expected, the weighted MPI forest
-distribution keys (`num_simulation_tree_files`, `forest_distribution_scheme`,
-`exponent_forest_dist_scheme`), `snap_num`/`snap_idx` detection, and the same
-unit/topology/parity checks as §3 plus a cross-check that ASCII and HDF5 readers
-produce identical galaxies for a dataset available in both forms.
+The `consistent_trees_hdf5` reader (`src/io/tree/read_ctrees_hdf5.c`, HDF5 builds
+only) reads the forests-HDF5 packaging written by uchuutools. Unlike the ASCII
+reader, the merger-tree pointers are already in the file, so there is **no
+topology reconstruction** — the reader maps a per-task forest range onto the
+input files, reads each forest's contiguous halo slab, applies the shared value
+conventions (spin/Len on native `Mvir`), and bridges into `RawHalo`.
 
-## 5. Known constraints (ASCII, Phase 5a)
+### 4a. Expected dataset layout
 
-- **Galaxy-id bounds.** Unique ids are
-  `halonr + TREE_MUL_FAC·forestnr_local + FILENR_MUL_FAC·ThisTask`. The reader
+A single forests-HDF5 file (`simulation_dir/tree_name<ext>`) with:
+
+- root attributes `/Nfiles` (`int64`) and `/TotNforests` (`int64`);
+- a group `File<n>` per file `n` carrying attributes `Nforests` (`int64`),
+  `contiguous-halo-props` (`int8`, must be `1` — array-of-structs is not
+  supported), and a `simulation_params` group with `Omega_M`, `Omega_L`,
+  `hubble`, `Boxsize` (all `double`) — these are checked against the simulation
+  package (`numpy.allclose` tolerances: abs `1e-8`, rel `1e-5`) and a mismatch is
+  fatal;
+- a compound dataset `File<n>/ForestInfo` with at least `ForestNhalos` (`int64`,
+  read for weighted distribution) and the per-forest `foresthalosoffset` /
+  `forestnhalos` slab descriptors;
+- a group `File<n>/Forests` with one dataset per halo field:
+  `Descendant`, `FirstProgenitor`, `NextProgenitor`, `FirstHaloInFOFgroup`,
+  `NextHaloInFOFgroup` (`int64`); `Mvir`, `x`, `y`, `z`, `vrms`, `vmax`, `vx`,
+  `vy`, `vz`, `Jx`, `Jy`, `Jz` (`double`); `id` (`int64`); and the snapshot
+  field as **`Snap_num`** (older ctrees, integer) or **`Snap_idx`** (newer/Uchuu,
+  integer — or `double` if the converter mis-typed it). The reader auto-detects
+  the snapshot field name and on-disk type.
+
+Only the fields the `RawHalo` bridge consumes are read; `M200b`/`M200c` are not
+read because the bridge does not carry them.
+
+### 4b. Weighted MPI forest distribution
+
+The forests-HDF5 metadata exposes per-forest halo counts up front, so the HDF5
+reader can balance MPI load by **cost** rather than forest count. Configure it in
+the package `input:` section (§1b):
+
+- `forest_distribution_scheme`: `uniform` (default), `linear` (cost = nhalos),
+  `quadratic` (nhalos²), `exponent` (nhalos^⌊exp⌋), or `generic_power`
+  (pow(nhalos, exp)). `uniform` skips reading `ForestNhalos` entirely.
+- `exponent_forest_dist_scheme`: the exponent for the two power schemes (default
+  `0.7`; ignored otherwise).
+
+The ASCII reader ignores these and always splits uniformly (it cannot know
+per-forest halo counts before loading). Galaxy-id bounds are identical to ASCII
+(see §5): `unit` = task-local forest index, `output_id` = `ThisTask`, full
+`FILENR_MUL_FAC` stride.
+
+### 4c. Validation checklist
+
+- [ ] **Smoke run (serial):** `tree_type: consistent_trees_hdf5` completes and
+      writes one output partition (`ThisTask=0`).
+- [ ] **MPI run + scheme sweep:** `mpirun -np N` writes `N` partitions; rerun
+      with `forest_distribution_scheme: linear` and confirm the per-task forest
+      ranges shift toward equal halo counts while the union still covers all
+      forests exactly once.
+- [ ] **Cosmology guard:** corrupt one `simulation_params` value and confirm the
+      reader aborts with the file-vs-package mismatch message.
+- [ ] **Snapshot field:** confirm `Snap_num`/`Snap_idx` auto-detection picks the
+      present field and the right integer/double type (`SnapNum` looks sane).
+- [ ] **Same unit/topology checks as §3:** halo-count sanity, mass round-trip
+      (`Mvir × 1e-10`), positions in `[0, box_size]` (declare `Pos` units to
+      match the dataset — Uchuu HDF5 may store kpc/h, unlike Rockstar ASCII's
+      Mpc/h), `Len`, `Spin = J/Mvir`, galaxy-id uniqueness.
+- [ ] **ASCII vs HDF5 cross-check:** for a dataset available in both forms, the
+      two readers must produce the same galaxies (same halo counts, masses,
+      positions, and topology), since both bridge to the identical `RawHalo`
+      contract via the shared conventions.
+
+## 5. Known constraints
+
+- **Galaxy-id bounds (both readers).** Unique ids are
+  `halonr + TREE_MUL_FAC·forestnr_local + FILENR_MUL_FAC·ThisTask`. Each reader
   FATALs if a task is assigned ≥ `FILENR_MUL_FAC/TREE_MUL_FAC` (1e6) forests or a
   forest has ≥ `TREE_MUL_FAC` (1e9) halos; keep `NTask` below ~9000 to avoid
   64-bit overflow of the task term. Run with enough MPI tasks for very large
   datasets.
-- **One file descriptor per tree file.** The reader raises `RLIMIT_NOFILE` to the
-  hard limit and holds one fd per `tree_i_j_k.dat`; extremely large file counts
-  are bounded by the OS hard limit.
-- **Uniform distribution only.** ASCII does not expose per-forest halo counts
-  before loading, so forests are split uniformly by count. Weighted
-  (halo-count-cost) distribution arrives with the HDF5 reader (5b).
+- **One file descriptor per tree file (ASCII).** The ASCII reader raises
+  `RLIMIT_NOFILE` to the hard limit and holds one fd per `tree_i_j_k.dat`;
+  extremely large file counts are bounded by the OS hard limit. (The HDF5 reader
+  holds one open `File<n>` group per file in its task's range instead.)
+- **Distribution scheme.** ASCII does not expose per-forest halo counts before
+  loading, so it always splits uniformly by forest count. The HDF5 reader honours
+  `forest_distribution_scheme` / `exponent_forest_dist_scheme` (§4b) and can
+  weight by halo-count cost.
+- **Contiguous (SOA) layout only (HDF5).** The HDF5 reader requires
+  `contiguous-halo-props == 1`; the array-of-structs packaging is not supported
+  (it aborts), matching sage-model.
 - **RawHalo field-name coupling.** The reader references the `RawHalo` field names
   in §1a directly; a simulation package built with this reader must declare them.
   (Other simulation packages in the repo already do, so the shared build stays

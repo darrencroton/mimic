@@ -57,6 +57,7 @@
 #include "tree/ctrees/forest_utils.h"
 #include "tree/ctrees/parse_ctrees.h"
 #include "tree/read_ctrees_ascii.h"
+#include "tree/read_ctrees_common.h"
 #include "tree/reader.h"
 
 /* The one open partition (this task's forest chunk). One reader instance per
@@ -75,24 +76,15 @@ struct ctrees_ascii_partition {
 };
 static struct ctrees_ascii_partition CT;
 
-/* Galaxy-id uniqueness bounds. ids are halonr + TREE_MUL_FAC*forestnr_local +
-   FILENR_MUL_FAC*ThisTask. make_unique_galaxy_id() uses the full FILENR_MUL_FAC
-   stride for PARTITION_PER_TASK readers (it does not apply the L-Halo many-files
-   reduction), so for ids to stay collision free a forest must have fewer than
-   TREE_MUL_FAC halos, a task fewer than FILENR_MUL_FAC/TREE_MUL_FAC forests, and
-   the task term FILENR_MUL_FAC*ThisTask must not overflow int64. */
-#define CTREES_MAX_FORESTS_PER_TASK (FILENR_MUL_FAC / TREE_MUL_FAC)
-#define CTREES_MAX_TASK_ID (LLONG_MAX / FILENR_MUL_FAC)
-
 /**
- * @brief   Apply the Consistent-Trees -> L-Halo conventions to one tree's halos.
+ * @brief   Shared Consistent-Trees -> L-Halo value conventions (both readers).
  *
- * Operates on the NATIVE Mvir (Msun/h). Mass and position unit scaling is
- * deliberately left to the generated reference-unit accessors; only the
- * order-dependent conventions and the pre-topology link sentinels live here.
+ * Operates on the NATIVE Mvir (Msun/h): spin normalisation (J / Mvir) and the
+ * particle-count estimate (round(Mvir * 1e-10 / particle_mass)). Mass and
+ * position unit scaling is deliberately left to the generated reference-unit
+ * accessors. Declared in read_ctrees_common.h; the HDF5 reader calls this too.
  */
-void convert_ctrees_to_lht(struct halo_data *halos, const struct additional_info *info,
-                           const int64_t nhalos) {
+void apply_ctrees_value_conventions(struct halo_data *halos, const int64_t nhalos) {
   for (int64_t i = 0; i < nhalos; i++) {
     const float mvir_native = halos[i].Mvir;
 
@@ -112,7 +104,21 @@ void convert_ctrees_to_lht(struct halo_data *halos, const struct additional_info
     } else {
       halos[i].Len = 0;
     }
+  }
+}
 
+/**
+ * @brief   Apply the full Consistent-Trees ASCII -> L-Halo conventions.
+ *
+ * The shared value conventions (spin, Len) plus the ASCII-only steps: carry the
+ * ctrees halo id through as MostBoundID and seed the pre-topology link sentinels
+ * (the HDF5 reader reads both id and merger pointers straight from file, so it
+ * does not need these).
+ */
+void convert_ctrees_to_lht(struct halo_data *halos, const struct additional_info *info,
+                           const int64_t nhalos) {
+  apply_ctrees_value_conventions(halos, nhalos);
+  for (int64_t i = 0; i < nhalos; i++) {
     /* Carry the Rockstar/ctrees halo id through as the most-bound id. */
     halos[i].MostBoundID = info[i].id;
 
