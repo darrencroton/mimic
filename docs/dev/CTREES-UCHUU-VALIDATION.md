@@ -232,3 +232,25 @@ per-forest halo counts before loading). Galaxy-id bounds are identical to ASCII
   every tree file listed in `locations.dat`; it does not consult `first_file`/
   `last_file` at runtime. Output partitions and the HDF5 master file are numbered
   by MPI task rank (`0..NTask-1`), not by the file range.
+
+## 6. Deferred: add an in-repo integration test (`tests/integration/test_ctrees.py`)
+
+There is **no** automated integration test for the ctrees readers yet, because the
+repository ships no ctrees fixture (the format is simulation-agnostic and no Uchuu
+data lives in-tree). The readers are exercised by the unit tests on their
+format-independent helpers (`tests/unit/test_ctrees_support.c`) and end-to-end by
+the checklists above against a real dataset.
+
+**To do once a small ctrees fixture exists** (a trimmed `tree_i_j_k.dat` set for
+ASCII, and/or a minimal forests-HDF5 file for HDF5 — small enough to commit):
+
+- [ ] Add `tests/integration/test_ctrees.py` driving a tiny run through each
+      reader and asserting halo counts, the mass round-trip (`Mvir × 1e-10`),
+      positions within `[0, box_size]`, `Len`/`Spin` conventions, and galaxy-id
+      uniqueness — the §3/§4c checks, automated.
+- [ ] If both ASCII and HDF5 fixtures are available, assert the two readers
+      produce identical galaxies (the §4c cross-check).
+- [ ] Emit the structured `MIMIC_RESULT:` markers (see `tests/framework/markers.py`)
+      so the test participates in `make tests-integration summary`.
+- [ ] Register the fixture under a simulation package's `_tests/` so the test runs
+      only when that package is the selected `SIMULATION`.

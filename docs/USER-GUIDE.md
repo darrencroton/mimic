@@ -348,7 +348,30 @@ Swapping the simulation under a fixed model is a workflow in its own right, not 
 
 ## Working With Your Catalogue
 
-### Formats
+### Input Tree Formats
+
+The input merger-tree format is set by `input.tree_type`. It normally lives in the simulation package's `simulation_info.yaml` (it is a property of the catalogue), but like any `input` key it can be overridden per run. The value names a format, not a simulation — the same reader serves any catalogue written in that format:
+
+| `tree_type` | Format | Build |
+| --- | --- | --- |
+| `lhalo_binary` | LHaloTree binary (Springel et al.) | any |
+| `lhalo_hdf5` | LHaloTree HDF5 (per-tree `tree_NNN/<field>` groups) | HDF5 build |
+| `consistent_trees_ascii` | Consistent-Trees / Rockstar ASCII (`forests.list` + `locations.dat` + `tree_i_j_k.dat`) | any |
+| `consistent_trees_hdf5` | Consistent-Trees forests-HDF5 (uchuutools) | HDF5 build |
+
+The HDF5-based readers are only available when Mimic is built with HDF5 (the default; see [Build Options](#build-options)). Selecting one in a `USE-HDF5=no` build stops with a clear configuration error.
+
+The two Consistent-Trees readers parallelise by distributing *forests* across MPI tasks, with one output file per task. Two optional `input` keys tune that distribution; both are ignored by the L-Halo readers, and `forest_distribution_scheme` is honoured only by `consistent_trees_hdf5` (the ASCII reader cannot know per-forest halo counts before loading, so it always splits forests evenly by count):
+
+```yaml
+input:
+  forest_distribution_scheme: uniform   # uniform | linear | quadratic | exponent | generic_power
+  exponent_forest_dist_scheme: 0.7      # exponent for the exponent/generic_power schemes
+```
+
+`uniform` (the default) gives every task an equal number of forests. The other schemes weight by per-forest halo count to balance work — `linear` by `nhalos`, `quadratic` by `nhalos²`, `exponent` by `nhalos` raised to the integer part of `exponent_forest_dist_scheme` (repeated multiplication, so a fractional value is truncated), and `generic_power` by `pow(nhalos, exponent_forest_dist_scheme)` (fractional exponents allowed) — so tasks receive a comparable total halo load rather than a comparable forest count.
+
+### Output Formats
 
 Select the output format in the run file:
 

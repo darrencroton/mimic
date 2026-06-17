@@ -16,11 +16,12 @@ This guide is for contributors and researchers modifying Mimic internals: writin
 6. [Parameters](#parameters)
 7. [Property System](#property-system)
 8. [Adding a New Simulation](#adding-a-new-simulation)
-9. [Testing](#testing)
-10. [Development Workflow](#development-workflow)
-11. [Debugging](#debugging)
-12. [Reference](#reference)
-13. [Documentation Directory](#documentation-directory)
+9. [Adding a Tree Reader](#adding-a-tree-reader)
+10. [Testing](#testing)
+11. [Development Workflow](#development-workflow)
+12. [Debugging](#debugging)
+13. [Reference](#reference)
+14. [Documentation Directory](#documentation-directory)
 
 Common tasks:
 
@@ -30,6 +31,7 @@ Common tasks:
 - Working with units (different from Millennium): [Units and the Reference Basis](#units-and-the-reference-basis)
 - Loading parameters: [Parameters](#parameters)
 - Adding a simulation: [Adding a New Simulation](#adding-a-new-simulation)
+- Adding a tree input format: [Adding a Tree Reader](#adding-a-tree-reader)
 - Wiring event-triggered modules: [Events](#events)
 - Running tests: [Testing](#testing)
 - Day-to-day development (including regenerating code): [Development Workflow](#development-workflow)
@@ -730,12 +732,14 @@ Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` deri
 
 **Supported tree formats:**
 
-| `tree_type` value | Format |
-| --- | --- |
-| `lhalo_binary` | Standard LHaloTree binary format (Springel et al.) |
-| `lhalo_hdf5` | LHaloTree HDF5 layout (per-tree `tree_NNN/<field>` groups) |
+| `tree_type` value | Format | Build |
+| --- | --- | --- |
+| `lhalo_binary` | Standard LHaloTree binary format (Springel et al.) | any |
+| `lhalo_hdf5` | LHaloTree HDF5 layout (per-tree `tree_NNN/<field>` groups) | HDF5 |
+| `consistent_trees_ascii` | Consistent-Trees / Rockstar ASCII output (`forests.list` + `locations.dat` + `tree_i_j_k.dat`) | any |
+| `consistent_trees_hdf5` | Consistent-Trees forests-HDF5 packaging (uchuutools) | HDF5 |
 
-To add support for a different catalog format, implement its `load_tree_table`/`load_tree`/`close_file` functions in `src/io/tree/`, define a `struct TreeReader` for it (see `src/io/tree/reader.h`), and append one row to the registry table in `src/io/tree/registry.c`. The core read path does not change.
+`tree_type` selects a format, not a simulation: the same reader serves any simulation whose catalogue is written in that format. The HDF5-based readers are only present in an HDF5-enabled build; selecting one in a `USE-HDF5=no` build is a fatal configuration error. To add a format of your own, see [Adding a Tree Reader](#adding-a-tree-reader) — it is a self-contained reader file plus one registry row, with no changes to the core read path.
 
 ### Snapshot Scale Factor List
 
@@ -861,6 +865,65 @@ make MODEL=sage16 SIMULATION=my_sim generate
 make MODEL=sage16 SIMULATION=my_sim
 ./mimic models/sage16/input/my_sim.yaml
 ```
+
+---
+
+## Adding a Tree Reader
+
+A tree reader teaches Mimic to read a new on-disk merger-tree *format*. It is independent of [Adding a New Simulation](#adding-a-new-simulation): a simulation package describes one catalogue (its cosmology, units, snapshot list, and `RawHalo` fields), while a reader describes how any catalogue stored in a given format is parsed into Mimic's halo structures. One reader serves every simulation written in its format.
+
+Readers are registry-driven. Adding one is a self-contained implementation file plus a single row in `src/io/tree/registry.c`; the core read path in `src/io/tree/interface.c` and the driver loop in `src/core/main.c` never change.
+
+### The reader interface
+
+Each format defines exactly one `struct TreeReader` (declared in `src/io/tree/reader.h`). The core dispatches through its function pointers rather than switching on a format enum:
+
+```c
+struct TreeReader {
+  const char *name;           /* tree_type string in the run YAML */
+  const char *file_extension; /* reader-owned filename suffix, e.g. ".hdf5" */
+
+  enum TreePartitionModel partition_model; /* PARTITION_PER_FILE or PARTITION_PER_TASK */
+
+  /* PARTITION_PER_FILE only (NULL for PARTITION_PER_TASK): */
+  int (*num_partitions)(void);
+  int (*partition_output_id)(int partition);
+
+  void (*open_partition)(int output_id); /* open + read the unit table */
+  void (*load_unit)(int unit);           /* read one unit into InputTreeHalos */
+  void (*close_partition)(void);         /* release per-partition scaffolding */
+};
+```
+
+The vtable is deliberately minimal — fields exist only because a wired reader uses them. Do not add speculative callbacks; fold setup/teardown into `open_partition`/`close_partition`.
+
+### Partition and unit model
+
+The core iterates the input as **partitions** of **units**. A partition is the unit of output: the driver opens one set of output files per partition, names them by the partition's `output_id`, and finalises them when the partition is done. A unit is one independently processed merger structure within a partition. Two partition models are supported, declared in `partition_model`:
+
+| Model | Partition | Unit | Output id | Example |
+| --- | --- | --- | --- | --- |
+| `PARTITION_PER_FILE` | one input file | one tree | file number | both L-Halo readers |
+| `PARTITION_PER_TASK` | one MPI task | one forest | `ThisTask` | both Consistent-Trees readers |
+
+- **`PARTITION_PER_FILE`**: the driver strides partitions across MPI tasks. Supply the enumeration via the shared helpers `tree_partition_per_file_count()` / `tree_partition_per_file_output_id()` (in `interface.c`) as your `num_partitions` / `partition_output_id`. `open_partition(output_id)` opens file `output_id` and reads its tree table.
+- **`PARTITION_PER_TASK`**: each task owns exactly one output partition, so `num_partitions` / `partition_output_id` are `NULL` and the driver derives the output id from `ThisTask`. `open_partition(ThisTask)` performs the per-task forest split (keyed on the `ThisTask`/`NTask` globals) and reads that task's forest table. This is the model for catalogues that are not partitioned into independent files on disk.
+
+### Where the partition model is observed outside the reader
+
+Two pieces of the core key on `partition_model`; a new reader inherits both by setting the field correctly, with no further edits:
+
+- **Unique galaxy ids** — `make_unique_galaxy_id()` in `src/core/build_model.c` uses the full `FILENR_MUL_FAC` stride on the output id for `PARTITION_PER_TASK` (it does not apply the L-Halo many-files reduction, because a per-task output id is a task rank, not a file number).
+- **HDF5 master file** — `write_master_file()` in `src/io/output/master_hdf5.c` scans `0..NTask-1` for `PARTITION_PER_TASK` and `FirstFile..LastFile` for `PARTITION_PER_FILE`, so per-task outputs are all collected.
+
+### Steps
+
+1. Create `src/io/tree/read_<format>.c` (and a `.h` only if it exposes a shared seam). Implement the callbacks and define one `const struct TreeReader <Format>Reader = { ... }`. Bridge the format's halo records into the generated `struct RawHalo` by field name; let the generated reference-unit accessors apply unit conversion at the boundary (declare native units in the simulation package, not in reader code).
+2. Append one row to `reader_table[]` in `src/io/tree/registry.c`. If the reader requires HDF5, guard both the `extern` declaration and the table entry with `#ifdef HDF5` so non-HDF5 builds simply do not register it (`tree_reader_lookup` then returns `NULL` and the run fails fast with a clear message).
+3. If the reader pulls in `src/io/tree/<format>/*.c` support code that compiles in every build, keep it warning-clean under `-Wall -Wextra -Wshadow -Wformat-security -Wundef` and exercise it from `tests/unit/` so nothing is dead. Note that the unit harness is a non-HDF5 build: an HDF5-only reader's `.c` is excluded from `tests/unit/run_tests.sh` (as `hdf5.c` and `read_ctrees_hdf5.c` already are), and its HDF5 paths are validated end-to-end against a real dataset.
+4. A new *format* needs no run-YAML changes beyond `tree_type`. A new format only needs a simulation package once you have a concrete catalogue to read with it.
+
+The Consistent-Trees readers (`src/io/tree/read_ctrees_ascii.c`, `read_ctrees_hdf5.c`, with the shared seam `read_ctrees_common.h`) are the worked reference for a `PARTITION_PER_TASK` reader, including forest load-balancing and the `RawHalo` bridge.
 
 ---
 

@@ -35,8 +35,12 @@ enum TreePartitionModel {
 };
 
 struct TreeReader {
-  const char *name;           /* tree_type string in the input YAML */
-  const char *file_extension; /* appended after TreeName.<output_id>, e.g. ".hdf5" */
+  const char *name; /* tree_type string in the input YAML */
+  /* Reader-owned filename suffix copied into MimicConfig.TreeExtension. The
+     L-Halo readers append it after TreeName.<output_id> (one file per output
+     partition); the ctrees-HDF5 reader appends it directly to TreeName (a single
+     metadata file). E.g. ".hdf5" / ".h5". */
+  const char *file_extension;
 
   /* How the driver maps partitions onto the input (see enum above). */
   enum TreePartitionModel partition_model;
