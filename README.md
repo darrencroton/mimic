@@ -39,8 +39,7 @@ From a fresh clone to your first galaxy catalogue and plots:
 git clone https://github.com/darrencroton/mimic.git
 cd mimic
 ./scripts/first_run.sh    # creates directories, downloads mini-Millennium tree data, sets up Python env
-
-make                       # builds the default model + simulation packages (currently sage16 + mini-Millennium)
+make                      # builds the default model + simulation packages (currently sage16 + mini-Millennium)
 ./mimic models/sage16/input/sage16_mini-millennium.yaml
 ```
 
