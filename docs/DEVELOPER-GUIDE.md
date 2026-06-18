@@ -189,7 +189,7 @@ Galaxy inheritance copies previous processed galaxy state into the current works
 
 ### Per-Tree Memory Lifecycle
 
-Four arrays are allocated per tree and freed together by `free_halos_and_tree()` after output is written:
+Four arrays are allocated per unit and freed together by `free_unit_halos()` after output is written:
 
 | Global | Category | Lifetime note |
 | --- | --- | --- |
@@ -204,7 +204,7 @@ Four arrays are allocated per tree and freed together by `free_halos_and_tree()`
 
 `ProcessedHalos` accumulates every marshalled output halo across all snapshot intervals for the entire tree. Each time a FoF group is processed, `marshal_workspace_to_output_buffer` appends the surviving workspace entries. The initial allocation is `MAXHALOFAC (5) × InputTreeNHalos`, but this is only an estimate. Orphan halos (Type 2) persist across snapshots and produce one new output record per snapshot they survive; in deep simulations with many snapshots (e.g., full Millennium at 64 snapshots), a single catalog subhalo that disappears early can generate dozens of output records. The actual count therefore scales with simulation depth and cannot be bounded by a fixed multiple of the tree input size.
 
-`marshal_workspace_to_output_buffer` grows the buffer using the same factor / minimum / cap policy as `FoFWorkspace` (`HALO_ARRAY_GROWTH_FACTOR`, `MIN_HALO_ARRAY_GROWTH`, `MAX_HALO_ARRAY_SIZE`). After each marshal call, `build_halo_tree` syncs the global `ProcessedHalos` pointer and `MaxProcessedHalos` back from the `OutputBuffer` struct. `myfree(ProcessedHalos)` in `free_halos_and_tree()` correctly frees the final (possibly grown) allocation because the custom allocator tracks the pointer through every `myrealloc_cat` call.
+`marshal_workspace_to_output_buffer` grows the buffer using the same factor / minimum / cap policy as `FoFWorkspace` (`HALO_ARRAY_GROWTH_FACTOR`, `MIN_HALO_ARRAY_GROWTH`, `MAX_HALO_ARRAY_SIZE`). After each marshal call, `build_halo_tree` syncs the global `ProcessedHalos` pointer and `MaxProcessedHalos` back from the `OutputBuffer` struct. `myfree(ProcessedHalos)` in `free_unit_halos()` correctly frees the final (possibly grown) allocation because the custom allocator tracks the pointer through every `myrealloc_cat` call.
 
 **OutputBuffer contract**
 

@@ -11,7 +11,7 @@ void load_unit(int unit);
 
 /**
  * @brief   Open a partition and load its unit (tree) metadata table
- * @param   output_id   Output id of the partition (filenr for per-file readers)
+ * @param   output_id   Output id of the partition
  *
  * Dispatches through the active reader (MimicConfig.reader).
  */

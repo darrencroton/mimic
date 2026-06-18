@@ -99,12 +99,30 @@ void apply_ctrees_value_conventions(struct halo_data *halos, const int64_t nhalo
     /* Approximate particle count from native Mvir and the simulation particle
        mass (PartMass is 1e10 Msun/h; Mvir is Msun/h). */
     if (MimicConfig.PartMass > 0.0) {
-      const float len_particles = (float)((double)mvir_native * 1e-10 / MimicConfig.PartMass);
-      halos[i].Len = (int)roundf(len_particles);
+      const double len_particles = (double)mvir_native * 1e-10 / MimicConfig.PartMass;
+      if (!isfinite(len_particles) || len_particles < 0.0 || len_particles > (double)INT_MAX) {
+        FATAL_ERROR("Consistent-Trees: halo %" PRId64 " has invalid derived particle count %.17g "
+                    "(Mvir=%g, PartMass=%g)",
+                    i, len_particles, (double)mvir_native, MimicConfig.PartMass);
+      }
+      halos[i].Len = (int)round(len_particles);
     } else {
       halos[i].Len = 0;
     }
   }
+}
+
+static int validate_ctrees_snapshot_range(const struct halo_data *halos, const int64_t nhalos,
+                                          const char *context) {
+  for (int64_t i = 0; i < nhalos; i++) {
+    if (halos[i].SnapNum < 0 || halos[i].SnapNum > MimicConfig.LastSnapshotNr) {
+      fprintf(stderr,
+              "Error: %s halo %" PRId64 " has SnapNum=%d outside configured range [0, %d]\n",
+              context, i, halos[i].SnapNum, MimicConfig.LastSnapshotNr);
+      return EXIT_FAILURE;
+    }
+  }
+  return EXIT_SUCCESS;
 }
 
 /**
@@ -432,6 +450,10 @@ static void load_unit_ctrees_ascii(int unit) {
   }
   if (assign_mergertree_indices(totnhalos, halos, info, max_snapnum) != EXIT_SUCCESS) {
     FATAL_ERROR("assign_mergertree_indices failed for Consistent-Trees forest %d", unit);
+  }
+  if (validate_ctrees_snapshot_range(halos, totnhalos, "Consistent-Trees ASCII") != EXIT_SUCCESS) {
+    FATAL_ERROR("Consistent-Trees forest %d has a snapshot outside the configured snapshot list",
+                unit);
   }
   myfree(info);
 

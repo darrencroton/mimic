@@ -15,9 +15,6 @@
  * They operate on the fixed ctrees-local `struct halo_data` (see ctrees_compat.h),
  * NOT on the per-simulation generated `struct RawHalo`; the reader bridges the
  * two at the package boundary.
- *
- * Unwired in Phase 4: compiled and unit-tested in isolation, but not yet called
- * by the tree driver. The Phase-5 ctrees reader wires them in.
  */
 
 #include <stdint.h>

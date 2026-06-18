@@ -8,7 +8,7 @@
  * allocation/deallocation of tree-related data structures.
  *
  * Key functions:
- * - open_partition(): Loads unit metadata for one partition (input file)
+ * - open_partition(): Loads unit metadata for one output partition
  * - load_unit(): Loads a specific merger tree into memory
  * - close_partition(): Frees partition metadata and closes the input file
  * - free_unit_halos(): Cleans up the current unit's halo data structures
@@ -41,7 +41,7 @@
 /**
  * @brief   Open a partition and load its unit (tree) metadata
  *
- * @param   output_id    Output id of the partition (filenr for per-file readers)
+ * @param   output_id    Output id of the partition
  *
  * This function opens the partition and loads its table of units (merger
  * trees), then initializes data structures for processing them. It:

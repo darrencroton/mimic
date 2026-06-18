@@ -18,11 +18,8 @@
  *     halo_data -> RawHalo bridge (read_ctrees_ascii.c).
  *   - the value conventions shared by both readers (spin/Len without touching the
  *     file-supplied id/pointers), used by the HDF5 reader (read_ctrees_common.h).
- *
- * The HDF5 reader's HDF5-dependent paths (file/group I/O, weighted setup) are
- * validated end-to-end against a real dataset (see CTREES-UCHUU-VALIDATION.md),
- * not here: the unit harness is a non-HDF5 build, mirroring the L-Halo HDF5
- * reader, which is likewise excluded from these tests.
+ *   - HDF5-specific validation is covered separately by test_ctrees_hdf5_reader
+ *     when HDF5 development headers/libraries are available.
  *
  * @date    2026-06-18
  */
@@ -405,6 +402,69 @@ int test_read_single_tree_rows(void) {
 }
 
 /**
+ * @test  test_parse_rejects_malformed_numeric_tokens
+ * Verifies malformed ASCII numbers fail at parse time instead of silently
+ * becoming zero, clamped values, or truncated integers.
+ */
+int test_parse_rejects_malformed_numeric_tokens(void) {
+  init_memory_system(0);
+
+  double *scale_arr = mymalloc_cat(sizeof(double), MEM_TREES);
+  int64_t *id_arr = mymalloc_cat(sizeof(int64_t), MEM_TREES);
+  int32_t *snap_arr = mymalloc_cat(sizeof(int32_t), MEM_TREES);
+
+  struct base_ptr_info base;
+  memset(&base, 0, sizeof(base));
+  base.num_base_ptrs = 3;
+  base.base_ptrs[0] = (void **)&scale_arr;
+  base.base_ptrs[1] = (void **)&id_arr;
+  base.base_ptrs[2] = (void **)&snap_arr;
+  base.base_element_size[0] = sizeof(double);
+  base.base_element_size[1] = sizeof(int64_t);
+  base.base_element_size[2] = sizeof(int32_t);
+  base.nallocated = 1;
+
+  struct ctrees_column_to_ptr column_info;
+  memset(&column_info, 0, sizeof(column_info));
+  column_info.ncols = 3;
+  column_info.column_number[0] = 0;
+  column_info.field_types[0] = F64;
+  column_info.base_ptr_idx[0] = 0;
+  column_info.column_number[1] = 1;
+  column_info.field_types[1] = I64;
+  column_info.base_ptr_idx[1] = 1;
+  column_info.column_number[2] = 2;
+  column_info.field_types[2] = I32;
+  column_info.base_ptr_idx[2] = 2;
+
+  base.N = 0;
+  TEST_ASSERT(parse_line_ctrees("abc 1 2", &column_info, &base) != EXIT_SUCCESS,
+              "non-numeric float token must fail");
+  TEST_ASSERT(base.N == 0, "failed parse must not advance row count");
+
+  base.N = 0;
+  TEST_ASSERT(parse_line_ctrees("1.0 2.5 3", &column_info, &base) != EXIT_SUCCESS,
+              "fractional integer token must fail");
+  TEST_ASSERT(base.N == 0, "failed integer parse must not advance row count");
+
+  base.N = 0;
+  TEST_ASSERT(parse_line_ctrees("1.0 2 2147483648", &column_info, &base) != EXIT_SUCCESS,
+              "int32 overflow must fail");
+  TEST_ASSERT(base.N == 0, "failed overflow parse must not advance row count");
+
+  base.N = 0;
+  TEST_ASSERT(parse_line_ctrees("1.0 2 3", &column_info, &base) == EXIT_SUCCESS,
+              "valid strict numeric row should pass");
+  TEST_ASSERT(base.N == 1, "successful parse should advance row count");
+
+  myfree(scale_arr);
+  myfree(id_arr);
+  myfree(snap_arr);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
  * @test  test_find_start_and_end_filenum
  * Maps a contiguous forest range onto the input files that contain it.
  */
@@ -698,6 +758,7 @@ int main(void) {
   TEST_RUN(test_parse_header_column_mapping);
   TEST_RUN(test_read_forests_and_locations);
   TEST_RUN(test_read_single_tree_rows);
+  TEST_RUN(test_parse_rejects_malformed_numeric_tokens);
   TEST_RUN(test_forest_topology_reconstruction);
   TEST_RUN(test_find_start_and_end_filenum);
   TEST_RUN(test_weighted_forest_distribution);

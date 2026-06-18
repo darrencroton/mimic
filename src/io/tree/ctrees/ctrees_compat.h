@@ -17,7 +17,7 @@
  *   Field names such as `Mvir` differ between simulation catalogs, and these
  *   files are compiled in every build, so they must not depend on a particular
  *   catalog's generated layout. The reader bridges `halo_data` -> `RawHalo` for
- *   the consistent-trees simulation package (see read_ctrees_*.c).
+ *   any simulation package that uses a Consistent-Trees reader.
  * - XRETURN stays a return-code macro so the vendored error-propagation
  *   structure is preserved verbatim; the reader boundary turns a failed return
  *   into a Mimic FATAL_ERROR.
@@ -75,16 +75,6 @@ enum ctrees_error_types {
 /* Names used unprefixed by the vendored code (kept identical to upstream). */
 #define FILE_NOT_FOUND CTREES_FILE_NOT_FOUND
 #define INVALID_VALUE_READ_FROM_FILE CTREES_INVALID_VALUE_READ_FROM_FILE
-
-/* Forest load-balancing cost schemes (mirrors sage-model core_allvars.h). */
-enum Valid_Forest_Distribution_Schemes {
-  uniform_in_forests = 0,      /* every forest has equal cost */
-  linear_in_nhalos = 1,        /* cost = nhalos */
-  quadratic_in_nhalos = 2,     /* cost = nhalos^2 */
-  exponent_in_nhalos = 3,      /* cost = nhalos^exponent */
-  generic_power_in_nhalos = 4, /* cost = pow(nhalos, exponent) */
-  num_forest_weight_types
-};
 
 /* Guard-and-return on a failed expression, logging context to stderr. Mirrors
    sage-model macros.h XRETURN: the vendored functions return error codes that

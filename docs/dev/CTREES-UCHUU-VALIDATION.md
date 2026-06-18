@@ -11,7 +11,7 @@ produced by uchuutools.
 ## What is and isn't in the repository
 
 **Consistent-Trees is a tree *format*, not a simulation.** Mimic ships the
-*readers* (`consistent_trees_ascii`, and `consistent_trees_hdf5` after 5b) and the
+*readers* (`consistent_trees_ascii` and `consistent_trees_hdf5`) and the
 format-independent topology/parsing helpers under `src/io/tree/ctrees/`. It does
 **not** ship a `simulations/consistent-trees` package, because the cosmology,
 particle mass, box size, file count and snapshot list are properties of a specific

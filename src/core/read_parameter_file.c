@@ -26,8 +26,8 @@
 #include "memory.h"          /* For mymalloc_cat, myfree */
 #include "module_registry.h" /* For PhaseModuleConfig and LoopMode */
 #include "proto.h"
-#include "tree/ctrees/ctrees_compat.h" /* enum Valid_Forest_Distribution_Schemes */
-#include "tree/reader.h"               /* tree_reader_lookup, struct TreeReader */
+#include "tree/forest_distribution.h" /* forest_distribution_scheme_from_string */
+#include "tree/reader.h"              /* tree_reader_lookup, struct TreeReader */
 #include "types.h"
 #include "generated/unit_registry.h" /* mimic_unit_label_cgs / mimic_unit_label_h_convention */
 
@@ -582,22 +582,6 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
 /**
  * @brief   Parse input section
  */
-/* Map a forest_distribution_scheme string to its enum value, or -1 if unknown.
- * Used only by the consistent_trees_* readers' per-task forest load balancing. */
-static int forest_distribution_scheme_from_string(const char *s) {
-  if (strcasecmp(s, "uniform") == 0)
-    return uniform_in_forests;
-  if (strcasecmp(s, "linear") == 0)
-    return linear_in_nhalos;
-  if (strcasecmp(s, "quadratic") == 0)
-    return quadratic_in_nhalos;
-  if (strcasecmp(s, "exponent") == 0)
-    return exponent_in_nhalos;
-  if (strcasecmp(s, "generic_power") == 0)
-    return generic_power_in_nhalos;
-  return -1;
-}
-
 static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node;
   const char *str;

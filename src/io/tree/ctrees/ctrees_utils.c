@@ -122,13 +122,18 @@ int64_t read_locations(const char *filename, const int64_t ntrees, struct locati
      of lines, ignoring the first header line. */
 
   char dirname[MAX_STRING_LEN];
-  memset(dirname, '\0', MAX_STRING_LEN);
-  memcpy(dirname, filename, strlen(filename));
-  for (int i = MAX_STRING_LEN - 2; i >= 0; i--) {
-    if (dirname[i] == '/') {
-      dirname[i] = '\0';
-      break;
-    }
+  const char *last_slash = strrchr(filename, '/');
+  if (last_slash == NULL) {
+    snprintf(dirname, sizeof(dirname), ".");
+  } else if (last_slash == filename) {
+    snprintf(dirname, sizeof(dirname), "/");
+  } else {
+    const size_t dirname_len = (size_t)(last_slash - filename);
+    XRETURN(dirname_len < sizeof(dirname), -EXIT_FAILURE,
+            "Directory component of `%s` is too long for MAX_STRING_LEN=%d\n", filename,
+            MAX_STRING_LEN);
+    memcpy(dirname, filename, dirname_len);
+    dirname[dirname_len] = '\0';
   }
 
   struct filenames_and_fd *files_fd = filenames_and_fd;
@@ -159,7 +164,7 @@ int64_t read_locations(const char *filename, const int64_t ntrees, struct locati
       XRETURN(ntrees_found < ntrees, -EXIT_FAILURE,
               "ntrees=%" PRId64 " should be less than ntrees_found=%" PRId64 "\n", ntrees,
               ntrees_found);
-      const int nitems = sscanf(buffer, "%" SCNd64 " %d %" SCNd64 "%s", &locations->treeid,
+      const int nitems = sscanf(buffer, "%" SCNd64 " %d %" SCNd64 " %1023s", &locations->treeid,
                                 &locations->fileid, &locations->offset, linebuf);
       XRETURN(nitems == nitems_expected, -EXIT_FAILURE,
               "Expected to parse %d items but the scanf produced %d items instead.\n"
@@ -167,14 +172,13 @@ int64_t read_locations(const char *filename, const int64_t ntrees, struct locati
               nitems_expected, nitems, buffer);
 
       XRETURN(locations->offset >= 0, -INVALID_VALUE_READ_FROM_FILE,
-              "offset=%" PRId64 " for ntree =%" PRId64 " must be positive.\nFile = `%s'\nbuffer = "
-              "`%s'\n",
+              "offset=%" PRId64 " for ntree =%" PRId64
+              " must be non-negative.\nFile = `%s'\nbuffer = `%s'\n",
               locations->offset, ntrees_found, filename, buffer);
 
       XRETURN(locations->fileid >= 0, -INVALID_VALUE_READ_FROM_FILE,
               "locations->fileid=%d for ntree =%" PRId64
-              " must be positive.\nFile = `%s'\nbuffer = "
-              "`%s'\n",
+              " must be non-negative.\nFile = `%s'\nbuffer = `%s'\n",
               locations->fileid, ntrees_found, filename, buffer);
       const size_t fileid = locations->fileid;
       /* Grow until fileid is in range. Mimic fix vs the sage upstream, which used
@@ -201,7 +205,10 @@ int64_t read_locations(const char *filename, const int64_t ntrees, struct locati
       /* file has not been opened yet - let's open this file */
       if (files_fd->fd[fileid] < 0) {
         char treefilename[2 * MAX_STRING_LEN];
-        snprintf(treefilename, 2 * MAX_STRING_LEN, "%s/%s", dirname, linebuf);
+        const int nprinted =
+            snprintf(treefilename, sizeof(treefilename), "%s/%s", dirname, linebuf);
+        XRETURN(nprinted >= 0 && (size_t)nprinted < sizeof(treefilename), -EXIT_FAILURE,
+                "Resolved tree filename is too long: dirname=`%s`, file=`%s`\n", dirname, linebuf);
         files_fd->fd[fileid] = open(treefilename, O_RDONLY);
         /* `>= 0`, not the sage `> 0`: open() returning fd 0 is a valid descriptor
            (only possible if stdin was closed) and must not be treated as failure. */

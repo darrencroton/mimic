@@ -51,11 +51,11 @@
 
 #define MAX_PATH_BUF_SIZE (3 * MAX_STRING_LEN + 25)
 
-/* Output paths of the filenr currently being processed. Set before the filenr
- * is claimed, cleared once it completes, and unlinked by bye() if the program
- * exits with a failure in between, so a crash never leaves partial output files
- * behind and never deletes completed ones. Binary output has one path per
- * requested snapshot; HDF5 output has one path per filenr. */
+/* Output paths of the partition currently being processed. Set before the
+ * partition is claimed, cleared once it completes, and unlinked by bye() if the
+ * program exits with a failure in between, so a crash never leaves partial
+ * output files behind and never deletes completed ones. Binary output has one
+ * path per requested snapshot; HDF5 output has one path per partition. */
 static char current_output_paths[ABSOLUTEMAXSNAPS][MAX_PATH_BUF_SIZE + 1];
 static int current_output_path_count = 0;
 static int exitfail = 1; /* Flag indicating whether program exit was due to failure */
@@ -191,7 +191,7 @@ static void claim_current_output_paths(int output_id) {
   for (int i = 0; i < current_output_path_count; i++) {
     FILE *fd = fopen(current_output_paths[i], "w");
     if (fd == NULL) {
-      FATAL_ERROR("Failed to claim output file '%s' for filenr %d", current_output_paths[i],
+      FATAL_ERROR("Failed to claim output file '%s' for partition %d", current_output_paths[i],
                   output_id);
     }
     fclose(fd);
@@ -417,7 +417,7 @@ static void process_partition(int output_id) {
 
     /* Close the HDF5 file */
     if (HDF5_current_file_id >= 0) {
-      DEBUG_LOG("Closing HDF5 file (ID %lld) for filenr %d", (long long)HDF5_current_file_id,
+      DEBUG_LOG("Closing HDF5 file (ID %lld) for partition %d", (long long)HDF5_current_file_id,
                 output_id);
       H5Fclose(HDF5_current_file_id);
       HDF5_current_file_id = -1;
@@ -448,12 +448,12 @@ static int claim_and_process_partition(int output_id) {
   int existing_outputs = count_existing_current_outputs();
   if (!MimicConfig.OverwriteOutputFiles) {
     if (existing_outputs == current_output_path_count) {
-      INFO_LOG("Output for filenr %d already exists ... skipping", output_id);
+      INFO_LOG("Output for partition %d already exists ... skipping", output_id);
       clear_current_output_paths();
       return 0;
     }
     if (existing_outputs > 0) {
-      FATAL_ERROR("Partial output exists for filenr %d (%d of %d files). Remove the partial "
+      FATAL_ERROR("Partial output exists for partition %d (%d of %d files). Remove the partial "
                   "files or rerun without --skip.",
                   output_id, existing_outputs, current_output_path_count);
     }

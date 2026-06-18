@@ -10,22 +10,25 @@
  * per-forest cost (halo count raised to a configurable power), and maps a task's
  * forest range back onto the input files it must read.
  *
- * Unwired in Phase 4: compiled and unit-tested in isolation; the Phase-5 ctrees
- * reader uses these during its per-task setup.
+ * The Consistent-Trees readers use these during per-task setup; the ASCII reader
+ * uses uniform splitting, while the HDF5 reader can weight by per-forest halo
+ * count.
  */
 
 #include <stdint.h>
 
 #include "tree/ctrees/ctrees_compat.h"
+#include "tree/forest_distribution.h"
 
 int distribute_forests_over_ntasks(const int64_t totnforests, const int NTasks, const int ThisTask,
                                    int64_t *nforests_thistask, int64_t *start_forestnum_thistask);
 
-int distribute_weighted_forests_over_ntasks(
-    const int64_t totnforests, const int64_t *nhalos_per_forest,
-    const enum Valid_Forest_Distribution_Schemes forest_weighting, const double power_law_index,
-    const int NTasks, const int ThisTask, int64_t *nforests_thistask,
-    int64_t *start_forestnum_thistask);
+int distribute_weighted_forests_over_ntasks(const int64_t totnforests,
+                                            const int64_t *nhalos_per_forest,
+                                            const enum ForestDistributionScheme forest_weighting,
+                                            const double power_law_index, const int NTasks,
+                                            const int ThisTask, int64_t *nforests_thistask,
+                                            int64_t *start_forestnum_thistask);
 
 int find_start_and_end_filenum(const int64_t start_forestnum, const int64_t end_forestnum,
                                const int64_t *totnforests_per_file, const int64_t totnforests,

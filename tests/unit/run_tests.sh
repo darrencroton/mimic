@@ -23,6 +23,7 @@ set -o pipefail
 TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
+SKIPPED_TESTS=0
 COMPILE_ERRORS=0
 FAILED_TEST_NAMES=""
 
@@ -136,7 +137,35 @@ CC="${CC:-gcc}"
 YAML_CFLAGS="$(pkg-config --cflags yaml-0.1 2>/dev/null || echo '')"
 YAML_LDFLAGS="$(pkg-config --libs yaml-0.1 2>/dev/null || echo '-lyaml')"
 CFLAGS="-Wall -Wextra -I. -I${SRC_DIR} -I${SRC_DIR}/include -I${SRC_DIR}/include/generated -I${SRC_DIR}/util -I${SRC_DIR}/core -I${SRC_DIR}/io -I${SRC_DIR}/module_system -Imodels -I${MODEL_ROOT} -Ibuild/generated -Itests -g -O0 -DMIMIC_COMPILED_MODEL=\"${MODEL}\" -DMIMIC_COMPILED_MODEL_PATH=\"${MODEL_ROOT}\" -DMIMIC_COMPILED_SIMULATION=\"${SIMULATION}\" ${YAML_CFLAGS}"
+CFLAGS="${CFLAGS} -DMIMIC_TEST_BUILD"
 LDFLAGS="-lm ${YAML_LDFLAGS}"
+
+HDF5_AVAILABLE=0
+HDF5_CFLAGS=""
+HDF5_LDFLAGS=""
+if pkg-config --exists hdf5 2>/dev/null; then
+    HDF5_AVAILABLE=1
+    HDF5_CFLAGS="$(pkg-config --cflags hdf5 2>/dev/null)"
+    HDF5_LDFLAGS="$(pkg-config --libs-only-L hdf5 2>/dev/null) -lhdf5_hl $(pkg-config --libs-only-l hdf5 2>/dev/null)"
+else
+    BREW_HDF5="$(command -v brew >/dev/null 2>&1 && brew --prefix hdf5 2>/dev/null || true)"
+    if [ -n "$BREW_HDF5" ] && [ -f "$BREW_HDF5/include/hdf5.h" ]; then
+        HDF5_AVAILABLE=1
+        HDF5_CFLAGS="-I${BREW_HDF5}/include"
+        HDF5_LDFLAGS="-L${BREW_HDF5}/lib -lhdf5_hl -lhdf5"
+    elif [ -f /usr/include/hdf5.h ]; then
+        HDF5_AVAILABLE=1
+        HDF5_LDFLAGS="-lhdf5_hl -lhdf5"
+    elif [ -f /usr/include/hdf5/serial/hdf5.h ]; then
+        HDF5_AVAILABLE=1
+        HDF5_CFLAGS="-I/usr/include/hdf5/serial"
+        HDF5_LDFLAGS="-L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5_hl -lhdf5"
+    elif [ -f /usr/local/include/hdf5.h ]; then
+        HDF5_AVAILABLE=1
+        HDF5_CFLAGS="-I/usr/local/include"
+        HDF5_LDFLAGS="-L/usr/local/lib -lhdf5_hl -lhdf5"
+    fi
+fi
 
 # Source files needed for tests (non-main files)
 UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c"
@@ -261,10 +290,27 @@ compile_and_run_test() {
         module_include="-I${module_dir}"
     fi
 
+    local test_cflags="$CFLAGS"
+    local test_ldflags="$LDFLAGS"
+    local extra_sources=""
+    if [ "$test_name" = "test_ctrees_hdf5_reader" ]; then
+        if [ "$HDF5_AVAILABLE" != "1" ]; then
+            echo "MIMIC_RESULT: SKIP ${test_display} -- HDF5 development library not available"
+            if ! summary_enabled; then
+                echo -e "${YELLOW}– Skipping ${test_name}: HDF5 development library not available${NC}"
+            fi
+            SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
+            return 0
+        fi
+        test_cflags="${test_cflags} -DHDF5 ${HDF5_CFLAGS}"
+        test_ldflags="${test_ldflags} ${HDF5_LDFLAGS}"
+        extra_sources="${SRC_DIR}/io/tree/read_ctrees_hdf5.c"
+    fi
+
     # Compile the test file and link the pre-built shared objects
     local compile_log="${BUILD_DIR}/${test_name}.compile.log"
     if summary_enabled; then
-        if ! $CC $CFLAGS $module_include $test_file $SHARED_OBJS -o $test_exe $LDFLAGS > "$compile_log" 2>&1; then
+        if ! $CC $test_cflags $module_include $test_file $extra_sources $SHARED_OBJS -o $test_exe $test_ldflags > "$compile_log" 2>&1; then
             echo "MIMIC_RESULT: ERROR ${test_display} -- compilation failed"
             cat "$compile_log"
             COMPILE_ERRORS=$((COMPILE_ERRORS + 1))
@@ -274,7 +320,7 @@ compile_and_run_test() {
         fi
     else
         echo -e "${BLUE}Compiling ${test_name}...${NC}"
-        if ! $CC $CFLAGS $module_include $test_file $SHARED_OBJS -o $test_exe $LDFLAGS 2>&1 | tee "$compile_log"; then
+        if ! $CC $test_cflags $module_include $test_file $extra_sources $SHARED_OBJS -o $test_exe $test_ldflags 2>&1 | tee "$compile_log"; then
             echo -e "${RED}✗ Compilation failed for ${test_name}${NC}"
             echo "  See ${compile_log} for details"
             COMPILE_ERRORS=$((COMPILE_ERRORS + 1))
@@ -353,6 +399,10 @@ if summary_enabled; then
         echo -n " compile_errors="
         echo -en "${YELLOW}${COMPILE_ERRORS}${NC}"
     fi
+    if [ $SKIPPED_TESTS -gt 0 ]; then
+        echo -n " skipped="
+        echo -en "${YELLOW}${SKIPPED_TESTS}${NC}"
+    fi
     echo ""
 else
     echo ""
@@ -368,6 +418,9 @@ else
     fi
     if [ $COMPILE_ERRORS -gt 0 ]; then
         echo -e "Compile errors: ${YELLOW}$COMPILE_ERRORS${NC}"
+    fi
+    if [ $SKIPPED_TESTS -gt 0 ]; then
+        echo -e "Skipped:        ${YELLOW}$SKIPPED_TESTS${NC}"
     fi
     if [ $FAILED_TESTS -gt 0 ]; then
         echo -e "${RED}Failed tests:${NC}"

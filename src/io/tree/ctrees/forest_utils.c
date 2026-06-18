@@ -3,10 +3,10 @@
  * @brief   Forest-to-MPI-task distribution for Consistent-Trees.
  *
  * Ported from sage-model (io/forest_utils.c) with minimal edits: the include of
- * sage's core_allvars.h is replaced by the ctrees_compat.h seam (which supplies
- * the cost-scheme enum and the XRETURN macro). These functions allocate nothing
- * and the error/log output is left on stderr to match the rest of the vendored
- * ctrees code, easing future re-syncs with upstream.
+ * sage's core_allvars.h is replaced by Mimic's reader-option and ctrees-compat
+ * seams. These functions allocate nothing and the error/log output is left on
+ * stderr to match the rest of the vendored ctrees code, easing future re-syncs
+ * with upstream.
  */
 
 #include <inttypes.h>
@@ -17,7 +17,7 @@
 #include "tree/ctrees/forest_utils.h"
 
 static inline double
-compute_forest_cost_from_nhalos(const enum Valid_Forest_Distribution_Schemes forest_weighting,
+compute_forest_cost_from_nhalos(const enum ForestDistributionScheme forest_weighting,
                                 const int64_t nhalos, const double exponent);
 
 int distribute_forests_over_ntasks(const int64_t totnforests, const int NTasks, const int ThisTask,
@@ -70,7 +70,7 @@ int distribute_forests_over_ntasks(const int64_t totnforests, const int NTasks, 
 }
 
 static inline double
-compute_forest_cost_from_nhalos(const enum Valid_Forest_Distribution_Schemes forest_weighting,
+compute_forest_cost_from_nhalos(const enum ForestDistributionScheme forest_weighting,
                                 const int64_t nhalos, const double exponent) {
   /* Strategy for load-balancing across MPI tasks*/
   double cost;
@@ -125,11 +125,12 @@ compute_forest_cost_from_nhalos(const enum Valid_Forest_Distribution_Schemes for
   return cost;
 }
 
-int distribute_weighted_forests_over_ntasks(
-    const int64_t totnforests, const int64_t *nhalos_per_forest,
-    const enum Valid_Forest_Distribution_Schemes forest_weighting, const double power_law_index,
-    const int NTasks, const int ThisTask, int64_t *nforests_thistask,
-    int64_t *start_forestnum_thistask) {
+int distribute_weighted_forests_over_ntasks(const int64_t totnforests,
+                                            const int64_t *nhalos_per_forest,
+                                            const enum ForestDistributionScheme forest_weighting,
+                                            const double power_law_index, const int NTasks,
+                                            const int ThisTask, int64_t *nforests_thistask,
+                                            int64_t *start_forestnum_thistask) {
   /* `>=`, not the sage `>`: ThisTask is a 0-based rank in [0, NTasks). */
   if (ThisTask >= NTasks || ThisTask < 0 || NTasks < 1) {
     fprintf(

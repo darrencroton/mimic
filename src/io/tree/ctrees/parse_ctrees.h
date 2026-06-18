@@ -18,8 +18,11 @@
   rather than returning NULL. Header-only: all functions are `static inline`.
 */
 
+#include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <limits.h>
+#include <math.h>
 #include <stddef.h> /* for offsetof macro*/
 #include <stdint.h>
 #include <stdio.h>
@@ -157,6 +160,56 @@ static inline int reallocate_base_ptrs(struct base_ptr_info *base_info, const in
   }
   base_info->nallocated = new_N;
   return EXIT_SUCCESS;
+}
+
+static inline int parse_ctrees_token_to_dest(const char *token, const enum parse_numeric_types type,
+                                             void *dest) {
+  char *endptr = NULL;
+  errno = 0;
+
+  switch (type) {
+  case F32: {
+    const float tmp = strtof(token, &endptr);
+    if (endptr == token || *endptr != '\0' || errno == ERANGE || !isfinite(tmp)) {
+      fprintf(stderr, "Error: token `%s` is not a finite float32 value\n", token);
+      return EXIT_FAILURE;
+    }
+    *((float *)dest) = tmp;
+    return EXIT_SUCCESS;
+  }
+  case F64: {
+    const double tmp = strtod(token, &endptr);
+    if (endptr == token || *endptr != '\0' || errno == ERANGE || !isfinite(tmp)) {
+      fprintf(stderr, "Error: token `%s` is not a finite float64 value\n", token);
+      return EXIT_FAILURE;
+    }
+    *((double *)dest) = tmp;
+    return EXIT_SUCCESS;
+  }
+  case I32: {
+    const long long tmp = strtoll(token, &endptr, 10);
+    if (endptr == token || *endptr != '\0' || errno == ERANGE || tmp < INT32_MIN ||
+        tmp > INT32_MAX) {
+      fprintf(stderr, "Error: token `%s` is not an int32 value\n", token);
+      return EXIT_FAILURE;
+    }
+    *((int32_t *)dest) = (int32_t)tmp;
+    return EXIT_SUCCESS;
+  }
+  case I64: {
+    const long long tmp = strtoll(token, &endptr, 10);
+    if (endptr == token || *endptr != '\0' || errno == ERANGE) {
+      fprintf(stderr, "Error: token `%s` is not an int64 value\n", token);
+      return EXIT_FAILURE;
+    }
+    *((int64_t *)dest) = (int64_t)tmp;
+    return EXIT_SUCCESS;
+  }
+  default:
+    fprintf(stderr, "Error: Unknown value for parse type = %d\n", type);
+    fprintf(stderr, "Known values are in the range : [%d, %d)\n", I32, num_numeric_types);
+    return EXIT_FAILURE;
+  }
 }
 
 static inline int parse_header_ctrees(char (*column_names)[PARSE_CTREES_MAX_COLNAME_LEN],
@@ -334,6 +387,10 @@ static inline int parse_line_ctrees(const char *linebuf,
   int icol = -1;
   char *tofree, *string;
   tofree = string = strdup(linebuf);
+  if (string == NULL) {
+    fprintf(stderr, "Error: Could not duplicate ctrees data line `%s`\n", linebuf);
+    return EXIT_FAILURE;
+  }
   char *token = NULL;
   for (int i = 0; i < column_info->ncols; i++) {
     const int wanted_col = column_info->column_number[i];
@@ -379,39 +436,17 @@ static inline int parse_line_ctrees(const char *linebuf,
       }
       icol++;
     }
-    PARSE_CTREES_XASSERT(token != NULL && token[0] != '\0' && icol == wanted_col, EXIT_FAILURE,
-                         "Error: token=`%s` should have valid non-zero numeric value at this "
-                         "stage.\n"
-                         "And the parsed col = %d should be equal to the requested column = %d\n",
-                         token, icol, wanted_col);
+    if (token == NULL || token[0] == '\0' || icol != wanted_col) {
+      fprintf(stderr,
+              "Error: expected a numeric token for requested column %d but parsed column %d in "
+              "line `%s`\n",
+              wanted_col, icol, linebuf);
+      free(tofree);
+      return EXIT_FAILURE;
+    }
 
-    switch (wanted_type) {
-    case F32: {
-      float tmp = strtof(token, NULL);
-      *((float *)dest) = tmp;
-      break;
-    }
-    case F64: {
-      double tmp = strtod(token, NULL);
-      *((double *)dest) = tmp;
-      break;
-    }
-    case I32: {
-      int32_t tmp = (int32_t)strtol(token, NULL, 10);
-      *((int32_t *)dest) = tmp;
-      break;
-    }
-    case I64: {
-      int64_t tmp = (int64_t)strtoll(token, NULL, 10);
-      *((int64_t *)dest) = tmp;
-      break;
-    }
-    default:
-      /* On any error the reader boundary converts this return into FATAL_ERROR,
-         so transient parser allocations are reclaimed at process exit (faithful
-         to the sage upstream, which likewise does not free here). */
-      fprintf(stderr, "Error: Unknown value for parse type = %d\n", wanted_type);
-      fprintf(stderr, "Known values are in the range : [%d, %d)\n", I32, num_numeric_types);
+    if (parse_ctrees_token_to_dest(token, wanted_type, dest) != EXIT_SUCCESS) {
+      free(tofree);
       return EXIT_FAILURE;
     }
   }
