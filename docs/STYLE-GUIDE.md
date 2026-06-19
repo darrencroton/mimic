@@ -257,7 +257,7 @@ This rule keeps structural truth in one place and matches Mimic's metadata-first
 
 ## Codebase Sweep Checklist
 
-Use this checklist for a wider consistency pass. Prefer focused edits, but do not skip real cleanup just because the existing file already has a poor local pattern.
+Use this checklist for any wider consistency passes. Prefer focused edits, but do not skip real cleanup just because the existing file already has a poor local pattern.
 
 1. Run `./scripts/beautify.sh` and treat formatter output as mechanical.
 2. Find files with missing or misleading file/module docstrings.
