@@ -1,8 +1,8 @@
 # Mimic Dual-Driver Plan
 
-**Status:** Proposed architecture and migration plan. Phases 1–3 are reclassified as v1.0 work (see below) and are DONE. The pre-v1.0 optimisation/review sweep over the restructured core is also complete. Phase 0 remains optional/deferred and must not gate v1.0; Phases 4+ follow v1.0.
-**Date:** 2026-06-19 (revised ordering 2026-06-05; Phase 2 completed 2026-06-06; Phase 3 completed 2026-06-06; pathway/status refreshed 2026-06-19)
-**Context:** Read `MIMIC-DEVELOPMENT-PATHWAY.md` first. **Current ordering:** the core-modularisation phases (1–3) landed as v1.0 work and the release sweep has since been completed. Only the snapshot reader and driver (Phases 4–7) start after v1.0 is tagged and its baseline refreshed. Phase 0 is a small optional dispatcher seam that may be taken before v1.0 only if it remains behaviour-preserving and does not delay release validation. The phase definitions, gates, and architecture in this document are otherwise unchanged.
+**Status:** Proposed architecture and migration plan. Phases 0–3 are v1.0 work and are DONE; the pre-v1.0 optimisation/review sweep over the restructured core is also complete. Phases 4+ follow v1.0.
+**Date:** 2026-06-19 (revised ordering 2026-06-05; Phase 0 completed 2026-06-19; Phase 2 completed 2026-06-06; Phase 3 completed 2026-06-06; pathway/status refreshed 2026-06-19)
+**Context:** Read `MIMIC-DEVELOPMENT-PATHWAY.md` first. **Current ordering:** the core-modularisation phases (1–3), the Phase 0 dispatch seam, and the release sweep have landed as v1.0 work. Only the snapshot reader and driver (Phases 4–7) start after v1.0 is tagged and its baseline refreshed. The phase definitions, gates, and architecture in this document are otherwise unchanged.
 
 ---
 
@@ -98,15 +98,15 @@ The inheritance science was extracted in Phase 2 into `src/core/inheritance.c` (
 
 Each phase before the snapshot driver is behaviour-preserving for the existing tree-ordered run and is gated against the regression baseline.
 
-**Ordering (current).** Phases 1–3 are complete v1.0 work, and the final review-and-optimisation sweep over that structure is complete. Phase 0 is optional at v1.0 — it is the only purely snapshot-driver-anticipatory step — and may still be done last or deferred without gating the release. Phases 4–7 (snapshot reader and driver) begin after the v1.0 tag, gated against the refreshed tagged-v1.0 baseline. The short version of the rationale: Phases 1–3 are core modularisation shared by every forward direction (snapshot driver and model builder alike), while Phase 0 is mostly future dispatch clarity. The current release sequence and Phase 0 recommendation live in `MIMIC-DEVELOPMENT-PATHWAY.md`.
+**Ordering (current).** Phases 0–3 are complete v1.0 work, and the final review-and-optimisation sweep over that structure is complete. Phases 4–7 (snapshot reader and driver) begin after the v1.0 tag, gated against the refreshed tagged-v1.0 baseline. The short version of the rationale: Phases 1–3 are core modularisation shared by every forward direction (snapshot driver and model builder alike), while Phase 0 establishes the processing-order dispatch seam needed before a second driver can be added. The current release sequence lives in `MIMIC-DEVELOPMENT-PATHWAY.md`.
 
-**Reading the gates below.** Phase 1–3 gates are historical and have passed. Where a Phase 4–7 gate says "the v1.0 baseline", read it as the refreshed tagged-v1.0 baseline. If Phase 0 is taken before tagging, it should be exact-output behaviour-preserving against the current release-candidate baseline.
+**Reading the gates below.** Phase 0–3 gates are historical and have passed. Where a Phase 4–7 gate says "the v1.0 baseline", read it as the refreshed tagged-v1.0 baseline.
 
 ### Phase 0: Driver Dispatch Seam
 
 Add `input.processing_order` configuration and a driver dispatcher with only the tree driver wired initially. Extract the current file/tree lifecycle into `run_tree_driver()`. The default remains `tree_ordered`.
 
-**Ordering note:** Phase 0 is the only purely snapshot-driver-anticipatory step in the 0–3 group — with a single driver it adds an indirection that nothing in v1.0 exercises. It is therefore optional for v1.0: do it last (after Phases 1–3) and trivially, or defer it until the snapshot-driver work begins, and do not let it gate the v1.0 tag. Phases 1–3, by contrast, are core modularisation that belongs in v1.0 regardless of whether a second driver is ever built.
+**Status: DONE — verified behaviour-preserving.** The implementation added `input.processing_order` as the processing-driver selector, keeps `input.tree_type` as the reader-format selector, dispatches through `run_processing_driver()`, isolates the existing tree lifecycle in `run_tree_driver()`, declares all current readers as `INPUT_PROCESSING_ORDER_TREE`, and fails fast for `snapshot_ordered` until the snapshot driver exists. It passed drift audit, code review after fixing the one redundant-error finding, full `make tests`, and a regular `sage16` + `mini-millennium` run.
 
 **Gate:** standard checks and tests pass; binary/HDF5 output is byte-identical to the v1.0 baseline.
 
@@ -199,7 +199,7 @@ Add MPI/domain decomposition and cross-domain communication for snapshot-global 
 
 ### Sequencing Notes
 
-Phases 1–3 ship value on their own — cleaner separation with no behaviour change — and de-risk everything after, which is exactly why they are now v1.0 work rather than post-v1.0 work (see the revised ordering above and the pathway rationale). Phase 0 is optional at v1.0 and snapshot-driver-anticipatory; sequence it last or defer it.
+Phases 1–3 ship value on their own — cleaner separation with no behaviour change — and de-risk everything after, which is exactly why they are now v1.0 work rather than post-v1.0 work (see the revised ordering above and the pathway rationale). Phase 0 has also landed as v1.0 work, establishing the processing-order dispatch seam while leaving snapshot-reader and snapshot-driver behaviour for later phases.
 
 Phase 2 was the linchpin and the project's highest-risk refactor; it is now green and proven behaviour-preserving. The snapshot driver (Phase 5) still must not start until v1.0 is tagged and the tagged baseline is fixed.
 
