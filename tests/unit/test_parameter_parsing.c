@@ -14,13 +14,16 @@
 
 #include "../../src/include/proto.h"
 #include "../../src/include/types.h"
+#include "../../src/io/tree/reader.h"
 #include "../../src/util/error.h"
 #include "../../src/util/memory.h"
 #include "../framework/test_framework.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 /* Test statistics (required for TEST_RUN macro) */
 static int passed = 0;
@@ -46,6 +49,60 @@ static void setup_test(void) {
  */
 static void teardown_test(void) { check_memory_leaks(); }
 
+static int is_input_section_header(const char *line) {
+  const char *cursor = line;
+  while (*cursor == ' ' || *cursor == '\t') {
+    cursor++;
+  }
+  if (strncmp(cursor, "input:", strlen("input:")) != 0) {
+    return 0;
+  }
+  cursor += strlen("input:");
+  while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') {
+    cursor++;
+  }
+  return *cursor == '\0';
+}
+
+static int write_processing_order_fixture(char *path, size_t path_size,
+                                          const char *processing_order) {
+  FILE *src;
+  FILE *dst;
+  char line[1024];
+  int wrote_processing_order = 0;
+
+  if (mkdir("archive", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+  if (mkdir("archive/test-fixtures", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+
+  snprintf(path, path_size, "archive/test-fixtures/test_processing_order_%s.yaml",
+           processing_order);
+  src = fopen(test_binary_param_file(), "r");
+  if (src == NULL) {
+    return -1;
+  }
+  dst = fopen(path, "w");
+  if (dst == NULL) {
+    fclose(src);
+    return -1;
+  }
+
+  while (fgets(line, sizeof(line), src) != NULL) {
+    fputs(line, dst);
+    if (!wrote_processing_order && is_input_section_header(line)) {
+      fprintf(dst, "  processing_order: %s\n", processing_order);
+      wrote_processing_order = 1;
+    }
+  }
+
+  fclose(dst);
+  fclose(src);
+  return wrote_processing_order ? 0 : -1;
+}
+
 /**
  * @test    test_basic_parsing
  * @brief   Test that parameter file can be parsed without errors
@@ -62,6 +119,60 @@ int test_basic_parsing(void) {
 
   /* ===== VALIDATE ===== */
   printf("  ✓ Parameter file parsed successfully\n");
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_default_processing_order
+ * @brief   Test that omitted input.processing_order defaults to tree_ordered
+ */
+int test_default_processing_order(void) {
+  /* ===== SETUP ===== */
+  setup_test();
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(test_binary_param_file());
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_TREE,
+              "Default processing_order should be tree_ordered");
+
+  printf("  processing_order: %s\n",
+         input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_explicit_tree_ordered_processing_order
+ * @brief   Test that explicit input.processing_order=tree_ordered parses successfully
+ */
+int test_explicit_tree_ordered_processing_order(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  TEST_ASSERT(write_processing_order_fixture(fixture_path, sizeof(fixture_path), "tree_ordered") ==
+                  0,
+              "Should create explicit tree_ordered fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_TREE,
+              "Explicit processing_order should be tree_ordered");
+
+  printf("  explicit processing_order: %s\n",
+         input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
 
   /* ===== CLEANUP ===== */
   teardown_test();
@@ -242,6 +353,8 @@ int main(void) {
 
   /* Run all test cases */
   TEST_RUN(test_basic_parsing);
+  TEST_RUN(test_default_processing_order);
+  TEST_RUN(test_explicit_tree_ordered_processing_order);
   TEST_RUN(test_integer_parameters);
   TEST_RUN(test_float_parameters);
   TEST_RUN(test_string_parameters);

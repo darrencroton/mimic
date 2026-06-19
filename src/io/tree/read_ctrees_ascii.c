@@ -490,6 +490,7 @@ const struct TreeReader CTreesAsciiReader = {
     .name = "consistent_trees_ascii",
     .file_extension = "",
     .partition_model = PARTITION_PER_TASK,
+    .processing_order = INPUT_PROCESSING_ORDER_TREE,
     .num_partitions = NULL,
     .partition_output_id = NULL,
     .open_partition = open_partition_ctrees_ascii,

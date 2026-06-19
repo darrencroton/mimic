@@ -350,7 +350,7 @@ Swapping the simulation under a fixed model is a workflow in its own right, not 
 
 ### Input Tree Formats
 
-The input merger-tree format is set by `input.tree_type`. It normally lives in the simulation package's `simulation_info.yaml` (it is a property of the catalogue), but like any `input` key it can be overridden per run. The value names a format, not a simulation — the same reader serves any catalogue written in that format:
+Mimic separates the on-disk reader format from the processing driver. The input merger-tree format is set by `input.tree_type`. It normally lives in the simulation package's `simulation_info.yaml` (it is a property of the catalogue), but like any `input` key it can be overridden per run. The value names a format, not a simulation — the same reader serves any catalogue written in that format:
 
 | `tree_type` | Format | Build |
 | --- | --- | --- |
@@ -360,6 +360,14 @@ The input merger-tree format is set by `input.tree_type`. It normally lives in t
 | `consistent_trees_hdf5` | Consistent-Trees forests-HDF5 (uchuutools) | HDF5 build |
 
 The HDF5-based readers are only available when Mimic is built with HDF5 (the default; see [Build Options](#build-options)). Selecting one in a `USE-HDF5=no` build stops with a clear configuration error.
+
+The processing driver is selected separately with `input.processing_order`. It defaults to `tree_ordered`, so existing run files and simulation packages do not need to set it. `snapshot_ordered` is a recognized future value, but Mimic v1.0 fails fast with a clear not-implemented error because the snapshot-ordered driver is not available yet.
+
+```yaml
+input:
+  tree_type: lhalo_binary          # reader format
+  processing_order: tree_ordered   # processing driver; optional default
+```
 
 The two Consistent-Trees readers parallelise by distributing *forests* across MPI tasks, with one output file per task. Two optional `input` keys tune that distribution; both are ignored by the L-Halo readers, and `forest_distribution_scheme` is honoured only by `consistent_trees_hdf5` (the ASCII reader cannot know per-forest halo counts before loading, so it always splits forests evenly by count):
 

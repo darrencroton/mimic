@@ -263,6 +263,7 @@ const struct TreeReader LHaloHDF5Reader = {
     .name = "lhalo_hdf5",
     .file_extension = ".hdf5",
     .partition_model = PARTITION_PER_FILE,
+    .processing_order = INPUT_PROCESSING_ORDER_TREE,
     .num_partitions = tree_partition_per_file_count,
     .partition_output_id = tree_partition_per_file_output_id,
     .open_partition = open_partition_hdf5,

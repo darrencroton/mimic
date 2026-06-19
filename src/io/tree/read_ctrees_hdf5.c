@@ -981,6 +981,7 @@ const struct TreeReader CTreesHDF5Reader = {
     .name = "consistent_trees_hdf5",
     .file_extension = ".h5",
     .partition_model = PARTITION_PER_TASK,
+    .processing_order = INPUT_PROCESSING_ORDER_TREE,
     .num_partitions = NULL,
     .partition_output_id = NULL,
     .open_partition = open_partition_ctrees_hdf5,

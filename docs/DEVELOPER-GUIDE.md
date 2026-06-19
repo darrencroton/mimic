@@ -710,6 +710,7 @@ input:
   last_file: 7              # index of the last tree file (inclusive)
   tree_name: trees_063      # base filename prefix (without file-number suffix)
   tree_type: lhalo_binary   # format; see Supported Tree Formats below
+  processing_order: tree_ordered  # optional; processing driver selector
   simulation_dir: ./simulations/my_sim/snapshots/
   snapshot_list_file: simulations/my_sim/my_sim.a_list
 
@@ -739,7 +740,7 @@ Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` deri
 | `consistent_trees_ascii` | Consistent-Trees / Rockstar ASCII output (`forests.list` + `locations.dat` + `tree_i_j_k.dat`) | any |
 | `consistent_trees_hdf5` | Consistent-Trees forests-HDF5 packaging (uchuutools) | HDF5 |
 
-`tree_type` selects a format, not a simulation: the same reader serves any simulation whose catalogue is written in that format. The HDF5-based readers are only present in an HDF5-enabled build; selecting one in a `USE-HDF5=no` build is a fatal configuration error. To add a format of your own, see [Adding a Tree Reader](#adding-a-tree-reader) — it is a self-contained reader file plus one registry row, with no changes to the core read path.
+`tree_type` selects a format, not a simulation: the same reader serves any simulation whose catalogue is written in that format. The HDF5-based readers are only present in an HDF5-enabled build; selecting one in a `USE-HDF5=no` build is a fatal configuration error. `processing_order` selects the processing driver independently of the reader format. It defaults to `tree_ordered`; `snapshot_ordered` is reserved for the future snapshot driver and fails fast in v1.0. To add a format of your own, see [Adding a Tree Reader](#adding-a-tree-reader) — it is a self-contained reader file plus one registry row, with no changes to the core read path.
 
 ### Snapshot Scale Factor List
 
@@ -884,6 +885,7 @@ struct TreeReader {
   const char *file_extension; /* reader-owned filename suffix, e.g. ".hdf5" */
 
   enum TreePartitionModel partition_model; /* PARTITION_PER_FILE or PARTITION_PER_TASK */
+  enum InputProcessingOrder processing_order; /* currently INPUT_PROCESSING_ORDER_TREE */
 
   /* PARTITION_PER_FILE only (NULL for PARTITION_PER_TASK): */
   int (*num_partitions)(void);
@@ -921,7 +923,7 @@ Two pieces of the core key on `partition_model`; a new reader inherits both by s
 1. Create `src/io/tree/read_<format>.c` (and a `.h` only if it exposes a shared seam). Implement the callbacks and define one `const struct TreeReader <Format>Reader = { ... }`. Bridge the format's halo records into the generated `struct RawHalo` by field name; let the generated reference-unit accessors apply unit conversion at the boundary (declare native units in the simulation package, not in reader code).
 2. Append one row to `reader_table[]` in `src/io/tree/registry.c`. If the reader requires HDF5, guard both the `extern` declaration and the table entry with `#ifdef HDF5` so non-HDF5 builds simply do not register it (`tree_reader_lookup` then returns `NULL` and the run fails fast with a clear message).
 3. If the reader pulls in `src/io/tree/<format>/*.c` support code that compiles in every build, keep it warning-clean under `-Wall -Wextra -Wshadow -Wformat-security -Wundef` and exercise it from `tests/unit/` so nothing is dead. Note that the unit harness is a non-HDF5 build: an HDF5-only reader's `.c` is excluded from `tests/unit/run_tests.sh` (as `hdf5.c` and `read_ctrees_hdf5.c` already are), and its HDF5 paths are validated end-to-end against a real dataset.
-4. A new *format* needs no run-YAML changes beyond `tree_type`. A new format only needs a simulation package once you have a concrete catalogue to read with it.
+4. A new *format* needs no run-YAML changes beyond `tree_type` when it feeds the existing `tree_ordered` driver. Set `.processing_order = INPUT_PROCESSING_ORDER_TREE` in the reader initializer. A future snapshot reader must use the snapshot-ordering contract and driver added by that later phase rather than overloading `tree_type`.
 
 The Consistent-Trees readers (`src/io/tree/read_ctrees_ascii.c`, `read_ctrees_hdf5.c`, with the shared seam `read_ctrees_common.h`) are the worked reference for a `PARTITION_PER_TASK` reader, including forest load-balancing and the `RawHalo` bridge.
 

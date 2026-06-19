@@ -470,6 +470,78 @@ static int claim_and_process_partition(int output_id) {
 }
 
 /**
+ * @brief   Run the existing tree-ordered processing driver.
+ */
+static void run_tree_driver(void) {
+  FILE *fd;
+  char tree_path[MAX_PATH_BUF_SIZE + 1];
+
+  /* Main loop to process input partitions (one per input file for L-Halo) */
+  log_phase_banner(PHASE_TREE_PROCESSING);
+  /* Enable rate limiting for DEBUG_LOG during tree processing to prevent
+   * runaway output from loops over thousands of trees/halos */
+  enable_debug_log_rate_limiting();
+  const struct TreeReader *reader = MimicConfig.reader;
+  if (reader->partition_model == PARTITION_PER_TASK) {
+    /* Each task owns exactly one output partition (its forest chunk); the reader
+     * performs the per-task forest split inside open_partition keyed on the
+     * ThisTask/NTask globals. There is no per-file stride and no per-file
+     * existence check -- the ctrees index files are validated when opened. */
+    const int output_id = ThisTask; /* 0 in serial builds */
+    if (claim_and_process_partition(output_id)) {
+      INFO_LOG("%sCompleted task chunk %d%s", mimic_color_green(), output_id, mimic_color_reset());
+    }
+  } else {
+    /* PARTITION_PER_FILE: one partition per input file, strided across tasks. */
+    const int npartitions = reader->num_partitions();
+#ifdef MPI
+    /* In MPI mode, distribute partitions across processors using stride of NTask */
+    for (int partition = ThisTask; partition < npartitions; partition += NTask)
+#else
+    /* In serial mode, process all partitions sequentially */
+    for (int partition = 0; partition < npartitions; partition++)
+#endif
+    {
+      const int output_id = reader->partition_output_id(partition);
+
+      /* Construct tree filename and check if it exists */
+      snprintf(tree_path, MAX_PATH_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
+               MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
+      if (!(fd = fopen(tree_path, "r"))) {
+        INFO_LOG("Missing tree %s ... skipping", tree_path);
+        continue; // tree file does not exist, move along
+      } else
+        fclose(fd);
+
+      /* Check if output already exists (avoid reprocessing unless overwrite is
+       * set) and process this partition. */
+      if (claim_and_process_partition(output_id)) {
+        INFO_LOG("%sCompleted file %d%s", mimic_color_green(), output_id, mimic_color_reset());
+      }
+    }
+  }
+
+  /* Disable rate limiting for DEBUG_LOG after tree processing completes */
+  disable_debug_log_rate_limiting();
+}
+
+/**
+ * @brief   Dispatch to the processing driver selected by input.processing_order.
+ */
+static void run_processing_driver(void) {
+  switch ((enum InputProcessingOrder)MimicConfig.ProcessingOrder) {
+  case INPUT_PROCESSING_ORDER_TREE:
+    run_tree_driver();
+    return;
+  case INPUT_PROCESSING_ORDER_SNAPSHOT:
+    FATAL_ERROR("The snapshot-ordered driver is not implemented yet");
+  }
+
+  FATAL_ERROR("Unknown input.processing_order '%s'",
+              input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
+}
+
+/**
  * @brief   Snapshot the run configuration and provenance next to the output
  *
  * Copies the run file and every referenced package file to the output metadata
@@ -505,9 +577,6 @@ static void write_run_metadata(const char *param_file) {
 
 int main(int argc, char **argv) {
   struct sigaction current_XCPU;
-
-  FILE *fd;
-  char tree_path[MAX_PATH_BUF_SIZE + 1];
 
 #ifdef MPI
   /* Initialize MPI environment */
@@ -607,53 +676,7 @@ int main(int argc, char **argv) {
   }
 #endif
 
-  /* Main loop to process input partitions (one per input file for L-Halo) */
-  log_phase_banner(PHASE_TREE_PROCESSING);
-  /* Enable rate limiting for DEBUG_LOG during tree processing to prevent
-   * runaway output from loops over thousands of trees/halos */
-  enable_debug_log_rate_limiting();
-  const struct TreeReader *reader = MimicConfig.reader;
-  if (reader->partition_model == PARTITION_PER_TASK) {
-    /* Each task owns exactly one output partition (its forest chunk); the reader
-     * performs the per-task forest split inside open_partition keyed on the
-     * ThisTask/NTask globals. There is no per-file stride and no per-file
-     * existence check — the ctrees index files are validated when opened. */
-    const int output_id = ThisTask; /* 0 in serial builds */
-    if (claim_and_process_partition(output_id)) {
-      INFO_LOG("%sCompleted task chunk %d%s", mimic_color_green(), output_id, mimic_color_reset());
-    }
-  } else {
-    /* PARTITION_PER_FILE: one partition per input file, strided across tasks. */
-    const int npartitions = reader->num_partitions();
-#ifdef MPI
-    /* In MPI mode, distribute partitions across processors using stride of NTask */
-    for (int partition = ThisTask; partition < npartitions; partition += NTask)
-#else
-    /* In serial mode, process all partitions sequentially */
-    for (int partition = 0; partition < npartitions; partition++)
-#endif
-    {
-      const int output_id = reader->partition_output_id(partition);
-
-      /* Construct tree filename and check if it exists */
-      snprintf(tree_path, MAX_PATH_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
-               MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
-      if (!(fd = fopen(tree_path, "r"))) {
-        INFO_LOG("Missing tree %s ... skipping", tree_path);
-        continue; // tree file does not exist, move along
-      } else
-        fclose(fd);
-
-      /* Check if output already exists (avoid reprocessing unless overwrite is
-       * set) and process this partition. */
-      if (claim_and_process_partition(output_id)) {
-        INFO_LOG("%sCompleted file %d%s", mimic_color_green(), output_id, mimic_color_reset());
-      }
-    }
-  }
-
-  /* Disable rate limiting for DEBUG_LOG after tree processing completes */
-  disable_debug_log_rate_limiting();
+  run_processing_driver();
 
   /* Final output phase banner and any format-specific aggregation */
 #ifdef HDF5

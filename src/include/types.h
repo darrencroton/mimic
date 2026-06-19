@@ -62,7 +62,8 @@ struct MimicConfig {
                             // applies a fixed deflate level. Set via --compress.
 
   /* tree traversal */
-  int MaxTreeDepth; // Maximum recursion depth (default: 500)
+  int MaxTreeDepth;    // Maximum recursion depth (default: 500)
+  int ProcessingOrder; // enum InputProcessingOrder from tree/reader.h
 
   /* Forest -> MPI-task load balancing for forest-oriented readers. Values are
    * enum ForestDistributionScheme (tree/forest_distribution.h), stored as int so

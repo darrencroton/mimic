@@ -38,7 +38,7 @@ The important architectural outcome is that Mimic is no longer just a single har
 - `PARTITION_PER_FILE` for L-Halo binary/HDF5 inputs, where one output partition corresponds to one input file and a unit is one tree.
 - `PARTITION_PER_TASK` for Consistent-Trees ASCII/HDF5 inputs, where one output partition corresponds to one MPI task and a unit is one forest.
 
-That reader generalisation is not Phase 0 by itself. It removed much of the old file-loop coupling, but it did not add an explicit top-level driver dispatcher, a `TreeFormat`/input-ordering field, or validation that maps ordering to driver. Those are the remaining Phase 0 pieces.
+That reader generalisation was not Phase 0 by itself. It removed much of the old file-loop coupling, but it did not add an explicit top-level driver dispatcher, an input-ordering field, or validation that maps ordering to driver. Phase 0 now adds that seam with `input.processing_order`.
 
 ---
 
@@ -50,7 +50,7 @@ That reader generalisation is not Phase 0 by itself. It removed much of the old 
 
 3. **Run final release hygiene.** After the real-data reader validation is clean, run the generated-code, metadata, docs, format/lint, and relevant test gates. At minimum this means `make check-generated`, `make validate-modules`, `make check-docs`, `make check-format`, and the standard test tiers in summary/logged form. Any non-zero exit code is a release blocker.
 
-4. **Decide whether to take Phase 0 before the tag.** Phase 0 is now a small dispatcher/validation seam rather than a broad lifecycle extraction. It is still snapshot-driver-anticipatory and should not gate v1.0. If taken before v1.0, it should be one behaviour-preserving commit that extracts the existing tree loop into `run_tree_driver()`, adds an explicit input-ordering/default (`tree_ordered`), rejects unsupported ordering/reader combinations, and keeps all existing tree outputs byte-identical. If that cannot stay small, defer it.
+4. **Decide whether to take Phase 0 before the tag.** Phase 0 is now a small dispatcher/validation seam rather than a broad lifecycle extraction. It is still snapshot-driver-anticipatory and should not gate v1.0. If taken before v1.0, it should be one behaviour-preserving commit that extracts the existing tree loop into `run_tree_driver()`, adds `input.processing_order` with default `tree_ordered`, rejects unsupported ordering/reader combinations, and keeps all existing tree outputs byte-identical. If that cannot stay small, defer it.
 
 5. **Tag v1.0 and refresh the release baseline.** After validation and final gates, tag v1.0 and record the tagged baseline as the forward reference for behaviour-preserving work. From that point, the tagged-v1.0 baseline protects later Phase 0/4–7 work if Phase 0 was deferred, and all snapshot-driver work if Phase 0 was included.
 
@@ -62,11 +62,11 @@ That reader generalisation is not Phase 0 by itself. It removed much of the old 
 
 ## Phase 0 Assessment
 
-Phase 0 in `MIMIC-DUAL-DRIVER-PLAN.md` originally meant adding `TreeFormat`, a driver dispatcher, and a tree-driver wrapper while only the tree driver existed. The current codebase already did part of the adjacent work for another reason: `src/io/tree/reader.h` defines a reader registry and partition model, `src/io/tree/registry.c` resolves `input.tree_type`, and `src/core/main.c` dispatches between reader-owned partition strategies.
+Phase 0 in `MIMIC-DUAL-DRIVER-PLAN.md` originally meant adding an input-ordering selector, a driver dispatcher, and a tree-driver wrapper while only the tree driver existed. The current codebase already did part of the adjacent work for another reason: `src/io/tree/reader.h` defines a reader registry and partition model, `src/io/tree/registry.c` resolves `input.tree_type`, and `src/core/main.c` dispatches between reader-owned partition strategies.
 
 The remaining Phase 0 work is therefore:
 
-- Add an explicit input ordering concept, probably `input.tree_format` or the plan's `TreeFormat`, defaulting to `tree_ordered`.
+- Add an explicit input ordering concept, implemented as `input.processing_order`, defaulting to `tree_ordered`.
 - Extract the current processing loop in `main.c` into `run_tree_driver()` without changing its behaviour.
 - Add a small dispatcher that selects `run_tree_driver()` for `tree_ordered` and fails fast for `snapshot_ordered` until that driver exists.
 - Validate that every registered current reader is tree-ordered; do not infer snapshot capability from `tree_type`.

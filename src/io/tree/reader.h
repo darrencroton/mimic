@@ -34,6 +34,21 @@ enum TreePartitionModel {
   PARTITION_PER_TASK = 1, /* one partition per MPI task (Consistent-Trees) */
 };
 
+enum InputProcessingOrder {
+  INPUT_PROCESSING_ORDER_TREE = 0,
+  INPUT_PROCESSING_ORDER_SNAPSHOT = 1,
+};
+
+static inline const char *input_processing_order_name(enum InputProcessingOrder order) {
+  switch (order) {
+  case INPUT_PROCESSING_ORDER_TREE:
+    return "tree_ordered";
+  case INPUT_PROCESSING_ORDER_SNAPSHOT:
+    return "snapshot_ordered";
+  }
+  return "unknown";
+}
+
 struct TreeReader {
   const char *name; /* tree_type string in the input YAML */
   /* Reader-owned filename suffix copied into MimicConfig.TreeExtension. The
@@ -44,6 +59,9 @@ struct TreeReader {
 
   /* How the driver maps partitions onto the input (see enum above). */
   enum TreePartitionModel partition_model;
+
+  /* Processing-order driver this reader feeds. Current readers are tree ordered. */
+  enum InputProcessingOrder processing_order;
 
   /* PARTITION_PER_FILE only (NULL for PARTITION_PER_TASK readers): */
   /* Number of partitions to iterate. The driver applies the MPI stride over the

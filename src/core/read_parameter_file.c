@@ -65,6 +65,7 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section);
 static void validate_and_postprocess(void);
 static void parse_simulation_config_file(const char *fname);
 static void validate_output_snapshots(void);
+static enum InputProcessingOrder parse_processing_order(const char *value);
 static void resolve_config_path(const char *path, const char *param_file, char *resolved,
                                 size_t resolved_size);
 static int file_exists_readable(const char *path);
@@ -272,6 +273,20 @@ static int file_exists_readable(const char *path) {
   }
   fclose(fh);
   return 1;
+}
+
+static enum InputProcessingOrder parse_processing_order(const char *value) {
+  if (strcasecmp(value, "tree_ordered") == 0) {
+    return INPUT_PROCESSING_ORDER_TREE;
+  }
+  if (strcasecmp(value, "snapshot_ordered") == 0) {
+    return INPUT_PROCESSING_ORDER_SNAPSHOT;
+  }
+
+  FATAL_ERROR("Unknown input.processing_order '%s'. Valid values are tree_ordered, "
+              "snapshot_ordered.",
+              value);
+  return INPUT_PROCESSING_ORDER_TREE; /* unreachable */
 }
 
 /**
@@ -589,6 +604,7 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
                                            "last_file",
                                            "tree_name",
                                            "tree_type",
+                                           "processing_order",
                                            "simulation_dir",
                                            "snapshot_list_file",
                                            "max_tree_depth",
@@ -630,6 +646,13 @@ static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
     strncpy(MimicConfig.TreeExtension, reader->file_extension, MAX_STRING_LEN - 1);
     MimicConfig.TreeExtension[MAX_STRING_LEN - 1] = '\0';
     DEBUG_LOG("tree_type = %s", str);
+  }
+
+  node = get_mapping_value(doc, section, "processing_order");
+  if (node && (str = get_scalar_value(node))) {
+    MimicConfig.ProcessingOrder = parse_processing_order(str);
+    DEBUG_LOG("processing_order = %s",
+              input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
   }
 
   node = get_mapping_value(doc, section, "simulation_dir");
@@ -1188,6 +1211,17 @@ static void validate_and_postprocess(void) {
   }
   if (MimicConfig.reader == NULL) {
     ERROR_LOG("Required parameter 'input.tree_type' missing or unrecognised");
+    errors++;
+  } else if (MimicConfig.ProcessingOrder == INPUT_PROCESSING_ORDER_SNAPSHOT) {
+    ERROR_LOG("The snapshot-ordered driver is not implemented yet");
+    errors++;
+  } else if (MimicConfig.reader->processing_order !=
+             (enum InputProcessingOrder)MimicConfig.ProcessingOrder) {
+    ERROR_LOG("Reader '%s' is compatible with processing_order '%s', but "
+              "input.processing_order is '%s'",
+              MimicConfig.reader->name,
+              input_processing_order_name(MimicConfig.reader->processing_order),
+              input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
     errors++;
   }
   if (strlen(MimicConfig.FileWithSnapList) == 0) {

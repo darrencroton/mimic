@@ -29,7 +29,8 @@ Rather than bolt a global stage onto the tree driver, the input ordering, the dr
 Mimic reads exactly one input ordering per run, declared in the input YAML:
 
 ```yaml
-TreeFormat: tree_ordered      # or: snapshot_ordered
+input:
+  processing_order: tree_ordered      # or: snapshot_ordered
 ```
 
 Startup validation must fail fast if the declared ordering, reader, and selected driver do not match. There is no internal auto-detection and no internal conversion.
@@ -87,7 +88,7 @@ This maps where today's tree-coupled behaviour lives and what happens to each fi
 | `src/io/tree/binary.c`, `hdf5.c` | Tree-ordered readers | Stay (tree driver) |
 | `src/io/output/*`, HDF5 writers, generated schema | Output schema + writers | Stay; feed from a driver-neutral buffer |
 | `src/include/globals.h` | Global state (config, units, `Age`/`ZZ`, halo arrays, registry) | Stays as default instance; candidate for handle encapsulation (Phase 6) |
-| `src/core/read_parameter_file.c`, `init.c` | Config + init | Extend: add `TreeFormat`, fail fast on mismatch |
+| `src/core/read_parameter_file.c`, `init.c` | Config + init | Extend: add `input.processing_order`, fail fast on mismatch |
 
 The inheritance science was extracted in Phase 2 into `src/core/inheritance.c` (see the Phase 2 Status block). The output-buffer copy/free rules were extracted in Phase 3 into `src/core/output_buffer.c`. `build_model.c` now retains only tree-driver traversal/gather, tree-specific context setup, and translation between tree halo ids and output-buffer segment ranges.
 
@@ -103,7 +104,7 @@ Each phase before the snapshot driver is behaviour-preserving for the existing t
 
 ### Phase 0: Driver Dispatch Seam
 
-Add `TreeFormat` configuration and a driver dispatcher with only the tree driver wired initially. Extract the current file/tree lifecycle into `run_tree_driver()`. The default remains `tree_ordered`.
+Add `input.processing_order` configuration and a driver dispatcher with only the tree driver wired initially. Extract the current file/tree lifecycle into `run_tree_driver()`. The default remains `tree_ordered`.
 
 **Ordering note:** Phase 0 is the only purely snapshot-driver-anticipatory step in the 0–3 group — with a single driver it adds an indirection that nothing in v1.0 exercises. It is therefore optional for v1.0: do it last (after Phases 1–3) and trivially, or defer it until the snapshot-driver work begins, and do not let it gate the v1.0 tag. Phases 1–3, by contrast, are core modularisation that belongs in v1.0 regardless of whether a second driver is ever built.
 
@@ -223,7 +224,7 @@ Long-running test output should be captured under `archive/test-logs/`, exit cod
 
 ## Definition of Done
 
-- `TreeFormat` selects a validated driver and fails fast on mismatches.
+- `input.processing_order` selects a validated driver and fails fast on mismatches.
 - The tree driver remains byte-identical to the v1.0 migration baseline through all behaviour-preserving phases.
 - The snapshot driver runs end to end and matches the tree driver on cross-converted inputs for ordinary FoF-scoped physics.
 - The shared inheritance service, physics execution engine, and output buffer are driver-neutral.
