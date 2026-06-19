@@ -48,16 +48,25 @@ int sage_resolve_mergers_and_disruption_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ThresholdSatDisruption", THRESHOLD_SAT_DISRUPTION, 0.0, 1000.0,
                                     "halo-to-baryonic mass ratio threshold");
 
-  /* sage_initialise_merger_clock must precede this module in pre_timestep so that
-   * all satellites have a valid MergTime before the first substep runs. Without it,
-   * satellites carry the sentinel value (999.9) from the tree load and the runtime
-   * check below will error mid-run on the first satellite encountered. */
+  /* sage_initialise_merger_clock must be in pre_timestep so all satellites have a valid
+   * MergTime before any substep runs. When both modules are in pre_timestep together,
+   * the clock must also precede the resolver within that phase; a substep-placed resolver
+   * is always safe because pre_timestep runs before all substep phases. */
   if (!module_configured_in_phase("sage_initialise_merger_clock", MimicConfig.pre_timestep,
                                   MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO)) {
     ERROR_LOG("sage_resolve_mergers_and_disruption requires sage_initialise_merger_clock "
               "in pre_timestep as process_full_halo — satellites carry the sentinel "
               "MergTime (%.1f) from the tree load without it",
               SAGE_MERGTIME_UNSET_THRESHOLD);
+    return -1;
+  }
+  if (module_configured_in_phase("sage_resolve_mergers_and_disruption", MimicConfig.pre_timestep,
+                                 MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO) &&
+      !module_precedes_in_phase("sage_initialise_merger_clock",
+                                "sage_resolve_mergers_and_disruption", MimicConfig.pre_timestep,
+                                MimicConfig.num_pre_timestep)) {
+    ERROR_LOG("sage_resolve_mergers_and_disruption requires sage_initialise_merger_clock "
+              "to precede it in pre_timestep — clock comes after the resolver");
     return -1;
   }
 
