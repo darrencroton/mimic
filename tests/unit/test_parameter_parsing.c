@@ -64,6 +64,53 @@ static int is_input_section_header(const char *line) {
   return *cursor == '\0';
 }
 
+/**
+ * @brief   Write a fixture that injects extra content immediately under the modules: header.
+ *
+ * Copies the canonical test YAML line-by-line; after the bare "modules:" header,
+ * appends extra_content (caller must include newlines and correct YAML indentation).
+ * Used to produce fixtures with explicit null/tilde phase values without duplicating the
+ * full config.
+ */
+static int write_null_phase_fixture(char *path, size_t path_size, const char *label,
+                                    const char *extra_content) {
+  FILE *src;
+  FILE *dst;
+  char line[1024];
+  int injected = 0;
+
+  if (mkdir("archive", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+  if (mkdir("archive/test-fixtures", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+
+  snprintf(path, path_size, "archive/test-fixtures/test_null_phase_%s.yaml", label);
+  src = fopen(test_binary_param_file(), "r");
+  if (src == NULL) {
+    return -1;
+  }
+  dst = fopen(path, "w");
+  if (dst == NULL) {
+    fclose(src);
+    return -1;
+  }
+
+  while (fgets(line, sizeof(line), src) != NULL) {
+    fputs(line, dst);
+    if (!injected && strncmp(line, "modules:", 8) == 0 &&
+        (line[8] == '\n' || line[8] == '\r' || line[8] == '\0')) {
+      fputs(extra_content, dst);
+      injected = 1;
+    }
+  }
+
+  fclose(dst);
+  fclose(src);
+  return injected ? 0 : -1;
+}
+
 static int write_processing_order_fixture(char *path, size_t path_size,
                                           const char *processing_order) {
   FILE *src;
@@ -337,6 +384,152 @@ int test_snapshot_list(void) {
 }
 
 /**
+ * @test    test_null_pre_timestep
+ * @brief   pre_timestep: null is accepted as an empty phase (no modules)
+ *
+ * Regression: before the null-scalar fix, explicit YAML null produced
+ * "must be a sequence" instead of treating the phase as empty.
+ */
+int test_null_pre_timestep(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  TEST_ASSERT(write_null_phase_fixture(fixture_path, sizeof(fixture_path), "pre_null",
+                                       "  pre_timestep: null\n") == 0,
+              "Should create pre_timestep: null fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT_EQUAL(MimicConfig.num_pre_timestep, 0, "pre_timestep: null should yield 0 modules");
+  TEST_ASSERT(MimicConfig.pre_timestep == NULL, "pre_timestep: null pointer should be NULL");
+
+  printf("  pre_timestep: null → %d modules\n", MimicConfig.num_pre_timestep);
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_tilde_post_timestep
+ * @brief   post_timestep: ~ (YAML tilde null) is accepted as an empty phase
+ *
+ * Regression: ~ is the compact YAML null form; the parser must treat it
+ * identically to the explicit "null" keyword.
+ */
+int test_tilde_post_timestep(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  TEST_ASSERT(write_null_phase_fixture(fixture_path, sizeof(fixture_path), "post_tilde",
+                                       "  post_timestep: ~\n") == 0,
+              "Should create post_timestep: ~ fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT_EQUAL(MimicConfig.num_post_timestep, 0, "post_timestep: ~ should yield 0 modules");
+  TEST_ASSERT(MimicConfig.post_timestep == NULL, "post_timestep: ~ pointer should be NULL");
+
+  printf("  post_timestep: ~ → %d modules\n", MimicConfig.num_post_timestep);
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_null_phases_block
+ * @brief   phases: null is accepted as no substep phases
+ *
+ * Regression: a null phases block must be treated identically to an absent
+ * phases key — zero substep phases, no crash.
+ */
+int test_null_phases_block(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  TEST_ASSERT(write_null_phase_fixture(fixture_path, sizeof(fixture_path), "phases_null",
+                                       "  phases: null\n") == 0,
+              "Should create phases: null fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT_EQUAL(MimicConfig.num_substep_phases, 0,
+                    "phases: null should yield 0 substep phases");
+  TEST_ASSERT(MimicConfig.substep_phases == NULL,
+              "phases: null substep_phases pointer should be NULL");
+
+  printf("  phases: null → %d substep phases\n", MimicConfig.num_substep_phases);
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_null_named_phase
+ * @brief   A named substep phase set to null is accepted with 0 modules
+ *
+ * Regression: the original bug triggered when named phases had a null value.
+ * The phase must be recorded (name preserved) but with 0 modules and a NULL
+ * modules pointer.
+ */
+int test_null_named_phase(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  TEST_ASSERT(write_null_phase_fixture(fixture_path, sizeof(fixture_path), "named_null",
+                                       "  phases:\n    physics: null\n") == 0,
+              "Should create phases.physics: null fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT_EQUAL(MimicConfig.num_substep_phases, 1,
+                    "Named null phase should still be registered as a phase");
+  TEST_ASSERT(MimicConfig.substep_phases != NULL,
+              "substep_phases array should be allocated for a named phase");
+  TEST_ASSERT_EQUAL(MimicConfig.substep_phases[0].num_modules, 0,
+                    "Named null phase should have 0 modules");
+  TEST_ASSERT(MimicConfig.substep_phases[0].modules == NULL,
+              "Named null phase modules pointer should be NULL");
+  TEST_ASSERT_STRING_EQUAL(MimicConfig.substep_phases[0].name, "physics",
+                           "Named null phase name should be preserved");
+
+  printf("  phases.physics: null → phase '%s' with %d modules\n",
+         MimicConfig.substep_phases[0].name, MimicConfig.substep_phases[0].num_modules);
+
+  /* ===== CLEANUP ===== */
+  /* parse_modules_section allocates substep_phases via mymalloc and the phase name
+   * via strdup; free both so check_memory_leaks() stays clean. */
+  free(MimicConfig.substep_phases[0].name);
+  myfree(MimicConfig.substep_phases);
+  MimicConfig.substep_phases = NULL;
+  MimicConfig.num_substep_phases = 0;
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
  * @brief   Main test runner
  *
  * Executes all test cases and reports results.
@@ -360,6 +553,10 @@ int main(void) {
   TEST_RUN(test_string_parameters);
   TEST_RUN(test_cosmology_parameters);
   TEST_RUN(test_snapshot_list);
+  TEST_RUN(test_null_pre_timestep);
+  TEST_RUN(test_tilde_post_timestep);
+  TEST_RUN(test_null_phases_block);
+  TEST_RUN(test_null_named_phase);
 
   /* Print summary and return result */
   TEST_SUMMARY();

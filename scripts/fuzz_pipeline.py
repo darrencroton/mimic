@@ -439,8 +439,8 @@ def replay_seed(
     log_dir: Path,
     timeout: int,
     strict: bool = False,
-) -> None:
-    """Replay a single seed and print the full config and output."""
+) -> str:
+    """Replay a single seed and print the full config and output. Returns status string."""
     with tempfile.TemporaryDirectory(prefix="mimic_fuzz_out_") as output_dir:
         config = generate_config(seed, base_config, all_modules, Path(output_dir))
 
@@ -466,6 +466,8 @@ def replay_seed(
     if status == "FAIL":
         failure_dir = save_failure(log_dir, seed, config, stdout, stderr, reason)
         print(f"saved → {failure_dir}")
+
+    return status
 
 
 # ---------------------------------------------------------------------------
@@ -551,8 +553,10 @@ def main() -> None:
     # Single-seed replay mode
     if args.seed is not None:
         print()
-        replay_seed(args.seed, base_config, all_modules, log_dir, args.timeout, strict=args.strict)
-        return
+        status = replay_seed(
+            args.seed, base_config, all_modules, log_dir, args.timeout, strict=args.strict
+        )
+        sys.exit(1 if status == "FAIL" else 0)
 
     # Determine stop conditions
     deadline: Optional[datetime] = None
@@ -613,6 +617,7 @@ def main() -> None:
     if fails:
         print(f"Failures saved to: {log_dir / 'failures'}")
         print(f"Replay a failure:  python3 scripts/fuzz_pipeline.py --seed <seed>")
+    sys.exit(1 if fails > 0 else 0)
 
 
 if __name__ == "__main__":
