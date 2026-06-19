@@ -66,6 +66,7 @@ The documentation follows your journey:
 | *How do I use Mimic for my science?* | **[User Guide](docs/USER-GUIDE.md)** — workflows for running simulations, configuring physics, reading outputs, and plotting, plus troubleshooting |
 | *How do I extend or modify Mimic?* | **[Developer Guide](docs/DEVELOPER-GUIDE.md)** — architecture, writing physics modules, the property system, adding simulations, and testing |
 | *Why is it designed this way?* | **[Vision](docs/VISION.md)** — the architectural principles and design boundaries |
+| *What style should contributions follow?* | **[Style Guide](docs/STYLE-GUIDE.md)** — naming, comments, documentation, metadata, tests, and review conventions |
 
 Useful entry points along the way:
 
@@ -81,7 +82,7 @@ Cite the references for the model package you use in your research — each pack
 
 ## Contributing
 
-Contributions are welcome — new physics modules, new model packages, new simulation support, or framework improvements. Start with the [Developer Guide](docs/DEVELOPER-GUIDE.md) for coding standards and the development workflow, and the [Vision](docs/VISION.md) document for the architectural principles new code should follow. All changes should come with tests — see [tests/README.md](tests/README.md).
+Contributions are welcome — new physics modules, new model packages, new simulation support, or framework improvements. Start with the [Developer Guide](docs/DEVELOPER-GUIDE.md) for development workflow, the [Style Guide](docs/STYLE-GUIDE.md) for coding and documentation conventions, and the [Vision](docs/VISION.md) document for the architectural principles new code should follow. All changes should come with tests — see [tests/README.md](tests/README.md).
 
 ## License and Contact
 

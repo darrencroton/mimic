@@ -134,6 +134,7 @@ For implementation details, see [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md#architec
 - [README.md](../README.md): project overview and shortest path to a first result
 - [USER-GUIDE.md](USER-GUIDE.md): installation, run configuration, output analysis, plotting, and troubleshooting
 - [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md): extending models, modules, simulations, properties, tests, and generated metadata
+- [STYLE-GUIDE.md](STYLE-GUIDE.md): naming, comments, documentation, metadata, tests, and review conventions
 - [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): detailed plotting manual
 - [tests/README.md](../tests/README.md): test-suite quick reference
 - `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references

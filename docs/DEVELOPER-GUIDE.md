@@ -1054,6 +1054,7 @@ Keep documentation close to the decision it supports:
 | `docs/VISION.md` | Stable architecture principles and boundaries |
 | `docs/USER-GUIDE.md` | User workflows, configuration, output, plotting, and troubleshooting |
 | `docs/DEVELOPER-GUIDE.md` | Extension workflows, APIs, metadata, tests, and development practices |
+| `docs/STYLE-GUIDE.md` | Naming, comments, documentation, metadata, tests, and review conventions |
 | `models/<model>/modules/<module>/README.md` | Module-local physics contract, dependencies, parameters, events, and tests |
 | Metadata and generated output | Exhaustive field lists, unit labels, module registries, and event IDs |
 
@@ -1327,6 +1328,7 @@ Used by [Adding a New Simulation](#adding-a-new-simulation) when defining catalo
 - [README.md](../README.md): project overview and shortest path to a first result
 - [VISION.md](VISION.md): architectural principles and design boundaries
 - [USER-GUIDE.md](USER-GUIDE.md): installation, run configuration, output analysis, plotting, and troubleshooting
+- [STYLE-GUIDE.md](STYLE-GUIDE.md): naming, comments, documentation, metadata, tests, and review conventions
 - [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): detailed plotting manual
 - [tests/README.md](../tests/README.md): test-suite quick reference
 - `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references

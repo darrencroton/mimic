@@ -88,6 +88,15 @@ Selective flags (only when you need them for a specific reason):
 
 ## Code Style
 
+Follow `docs/STYLE-GUIDE.md` for naming, comments, documentation, metadata, tests, generated-code boundaries, logging, and review conventions. The formatter owns mechanical layout; the style guide owns human readability and consistency.
+
+Before finishing any task that touched code, tests, metadata, or docs, do an explicit style sweep over the files you changed:
+
+- Re-read the touched diff and check it against `docs/STYLE-GUIDE.md`.
+- Fix sub-par local style in touched files when it is in scope, even if that style predates your change.
+- Do not expand into unrelated whole-repo style cleanup unless the user asked for a sweep.
+- In the final response, state that the style sweep was done, or explain any remaining style issue and why it was not changed.
+
 ### C
 - 2-space indent, LLVM base style, 100-character line limit — enforced by `.clang-format` in the repo root; editors discover it automatically
 - **Never hand-edit files under `*/generated/`** — they are produced by `make generate` and will be overwritten; the formatter excludes them automatically
