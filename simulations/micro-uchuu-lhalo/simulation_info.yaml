@@ -1,0 +1,30 @@
+# micro-Uchuu Simulation Metadata — L-Halo binary format
+#
+# Data on NT at /fred/oz214/simulations/uchuu/U100/lhalo-binary-mergertree/.
+# `snapshots/` here is a symlink to that directory; see snapshots.txt.
+# Files: Uchuu100_Planck_lhalo_binary.{0..3} (4 files, ~2.2 GB total).
+# These were converted from the Consistent-Trees ASCII trees by sage-model
+# and contain the same 440,651 forests and 22,580,924 halos as the ctrees
+# datasets. The 26-field L-Halo struct layout is identical to mini-Millennium.
+
+input:
+  first_file: 0
+  last_file: 3
+  tree_name: Uchuu100_Planck_lhalo_binary
+  tree_type: lhalo_binary
+  simulation_dir: simulations/micro-uchuu-lhalo/snapshots
+  snapshot_list_file: simulations/micro-uchuu-lhalo/micro-uchuu.a_list
+
+simulation:
+  cosmology:
+    omega_matter: 0.3089
+    omega_lambda: 0.6911
+    hubble_h: 0.6774
+  box_size:
+    value: 100.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0325
+    units: 1e10 Msun/h
+    h_convention: carried

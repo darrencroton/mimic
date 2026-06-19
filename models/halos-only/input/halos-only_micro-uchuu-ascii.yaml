@@ -1,0 +1,18 @@
+# Mimic halos-only micro-Uchuu (Consistent-Trees ASCII) Run Configuration
+
+model:
+  name: halos-only
+
+simulation:
+  name: micro-uchuu-ascii
+
+output:
+  output_filename: halos
+  output_directory: output/halos-only-micro-uchuu-ascii
+  output_format: hdf5
+  snapshot_list: [49]                  # z=0 snapshot only (fast validation run)
+
+SubSteps: 1
+
+modules:
+  parameters: {}

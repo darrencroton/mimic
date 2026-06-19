@@ -233,24 +233,121 @@ per-forest halo counts before loading). Galaxy-id bounds are identical to ASCII
   `last_file` at runtime. Output partitions and the HDF5 master file are numbered
   by MPI task rank (`0..NTask-1`), not by the file range.
 
-## 6. Deferred: add an in-repo integration test (`tests/integration/test_ctrees.py`)
+## 6. micro-Uchuu on NT: dataset survey and compatibility assessment
 
-There is **no** automated integration test for the ctrees readers yet, because the
-repository ships no ctrees fixture (the format is simulation-agnostic and no Uchuu
-data lives in-tree). The readers are exercised by the unit tests on their
-format-independent helpers (`tests/unit/test_ctrees_support.c`) and end-to-end by
-the checklists above against a real dataset.
+The files below are on `dcroton@nt.swin.edu.au`. Access is via key-based SSH. All oz214 datasets represent the **genuine micro-Uchuu cosmology** (Planck 2015: Ω_M=0.3089, Ω_Λ=0.6911, h=0.6774, box=100 Mpc/h, m_p=0.0325×10¹⁰ M☉/h, 50 snapshots from a=0.06688 to a=0.99951). The oz004 files use a different cosmology and must not be used as micro-Uchuu.
 
-**To do once a small ctrees fixture exists** (a trimmed `tree_i_j_k.dat` set for
-ASCII, and/or a minimal forests-HDF5 file for HDF5 — small enough to commit):
+The name `microuchuu` in par files is a symlink: `/fred/oz214/simulations/uchuu/microuchuu → U100`.
 
-- [ ] Add `tests/integration/test_ctrees.py` driving a tiny run through each
-      reader and asserting halo counts, the mass round-trip (`Mvir × 1e-10`),
-      positions within `[0, box_size]`, `Len`/`Spin` conventions, and galaxy-id
-      uniqueness — the §3/§4c checks, automated.
-- [ ] If both ASCII and HDF5 fixtures are available, assert the two readers
-      produce identical galaxies (the §4c cross-check).
-- [ ] Emit the structured `MIMIC_RESULT:` markers (see `tests/framework/markers.py`)
-      so the test participates in `make tests-integration summary`.
-- [ ] Register the fixture under a simulation package's `_tests/` so the test runs
-      only when that package is the selected `SIMULATION`.
+### 6a. Dataset identity — the cosmology trap
+
+The oz004 tree file (`/fred/oz004/msinha/simulations/uchuu_suite/U100/trees/tree_0_0_0.dat`) has a header reading `Omega_M = 0.307115; h0 = 0.677700` and the companion par file refers to "Uchuu100_MDPL2". These do not match Uchuu's published Planck 2015 cosmology. The oz004 dataset predates the oz214 one, has the same file sizes and forest/halo counts, and appears to be a precursor or mis-labelled variant. **Do not use it for micro-Uchuu work.**
+
+All five oz214 datasets below are the **same underlying trees** (440,651 forests, 22,580,924 halos, 561,266 trees) packaged in different formats. Halo counts are cross-verified to agree across every format.
+
+### 6b. Available formats and compatibility
+
+| # | Location (on NT, under `/fred/oz214/simulations/uchuu/U100/`) | Format | Size | Mimic tree_type | Compatible? |
+|---|---|---|---|---|---|
+| 1 | `mergertrees/MicroUchuu_mergertree_info.h5` + `MicroUchuu_mergertree.h5` | uchuutools forests-HDF5 | 1.2KB + 13GB | `consistent_trees_hdf5` | **Yes** |
+| 2 | `mergertrees/MicroUchuu_mergertree_released.h5` | old flat uchuutools HDF5 | 3.5GB | — | **No** — missing `Nfiles`/`File<n>` structure |
+| 3 | `mergertrees/ascii_trees/MicroUchuu.trees` (+ index files) | Consistent-Trees ASCII | 11GB | `consistent_trees_ascii` | **Yes** |
+| 4 | `mergertrees/ascii_trees/forest.h5` + `forest_0-3.h5` | uchuutools forests-HDF5, 4-file | 1.4KB + 4×3.1GB | `consistent_trees_hdf5` | **Yes** |
+| 5 | `lhalo-binary-mergertree/Uchuu100_Planck_lhalo_binary.{0..3}` | L-Halo binary | 4×~570MB | `lhalo_binary` | **Yes** (converted from #3) |
+
+**Not compatible (#2):** `MicroUchuu_mergertree_released.h5` has Uchuu-correct cosmology and the same data but uses the old flat uchuutools layout (all data at `/Forests/`, no `/Nfiles` root attribute, no `File<n>` groups). Mimic's `consistent_trees_hdf5` reader expects the `File<n>` group structure. Reading it would require a new reader variant; it can be ignored in favour of #1.
+
+**Derived dataset (#5):** The lhalo-binary files were converted from the ASCII trees (#3) using sage-model. They carry the same halos, confirmed by matching total count (22,580,924). The par file left in that directory (`consistent_trees_hdf5`) is a run artefact and does not describe the binary files.
+
+**4-file set (#4) vs single pair (#1):** Both are uchuutools forests-HDF5 with identical total counts. #4 was built from the local ASCII trees (#3); #1 was built directly from the original trees on the production machine. #1 is the more authoritative source. Use #4 if you want to exercise multi-file MPI splitting with `first_file`/`last_file`.
+
+### 6c. Key HDF5 structural notes (for format #1 and #4)
+
+- **Info/data split.** The 1.2KB info file (`MicroUchuu_mergertree_info.h5`) is an HDF5 container whose `File0/Forests/*` datasets are virtual/external references into the companion 13GB data file (`MicroUchuu_mergertree.h5`). Both files must be co-located; h5py follows the links transparently. Point `tree_name` at the info file only.
+- **`File<n>` attributes present:** `Nforests`, `Nhalos`, `contiguous-halo-props=True`, plus all metadata attributes required by the reader.
+- **`simulation_params` group** is present under `File0/` with `Omega_M`, `Omega_L`, `hubble`, `Boxsize`. The cosmology guard check will compare these against the simulation package values.
+- **Snapshot field:** `Snap_num` (int64) — the older Consistent-Trees field name, not `Snap_idx`. The reader auto-detects this correctly.
+- **ForestInfo** compound dtype: `ForestID`, `ForestHalosOffset`, `ForestNhalos`, `ForestNtrees` (all int64). `ForestNhalos` is present and enables weighted MPI forest distribution.
+- **4-file variant (#4):** `forest.h5` declares `Nfiles=4`. Each `File<n>` group in the info file links to `forest_<n>.h5` in the same directory. Set `first_file=0`, `last_file=3`.
+
+### 6d. Simulation packages — created
+
+Three simulation packages covering formats #1, #3, and #5 have been created in the repository. Each is self-contained with `simulation_info.yaml`, `halo_properties.yaml`, `micro-uchuu.a_list`, `plot_profile.yaml`, `README.md`, `snapshots.txt` (NT path and `ln -s` command), and `_tests/integration/test_reader_smoke.py` (skips when data is unavailable):
+
+| Package directory | Format | tree_type |
+|---|---|---|
+| `simulations/micro-uchuu-hdf5/` | uchuutools forests-HDF5 (format #1) | `consistent_trees_hdf5` |
+| `simulations/micro-uchuu-ascii/` | Consistent-Trees ASCII (format #3) | `consistent_trees_ascii` |
+| `simulations/micro-uchuu-lhalo/` | L-Halo binary (format #5) | `lhalo_binary` |
+
+To activate a package, create the `snapshots/` symlink (see each package's `snapshots.txt`) and build:
+
+```bash
+# HDF5 reader
+ln -s /fred/oz214/simulations/uchuu/U100/mergertrees simulations/micro-uchuu-hdf5/snapshots
+make MODEL=halos-only SIMULATION=micro-uchuu-hdf5 -j$(nproc)
+./mimic models/halos-only/input/halos-only_micro-uchuu-hdf5.yaml
+
+# ASCII reader
+ln -s /fred/oz214/simulations/uchuu/U100/mergertrees/ascii_trees simulations/micro-uchuu-ascii/snapshots
+make MODEL=halos-only SIMULATION=micro-uchuu-ascii -j$(nproc)
+./mimic models/halos-only/input/halos-only_micro-uchuu-ascii.yaml
+
+# L-Halo binary reader
+ln -s /fred/oz214/simulations/uchuu/U100/lhalo-binary-mergertree simulations/micro-uchuu-lhalo/snapshots
+make MODEL=halos-only SIMULATION=micro-uchuu-lhalo -j$(nproc)
+./mimic models/halos-only/input/halos-only_micro-uchuu-lhalo.yaml
+```
+
+**Key `halo_properties.yaml` difference:** The ctrees packages (`micro-uchuu-hdf5`, `micro-uchuu-ascii`) declare `M_Crit200` with `units: Msun/h` (native ctrees units). The lhalo package uses `units: 1e10 Msun/h` (same as mini-Millennium). This means the generated reference-unit accessor for ctrees applies the `× 1e-10` conversion automatically, while the lhalo package stores the pre-converted value directly.
+
+Format #4 (4-file HDF5) is not yet a separate package. To test it, point a copy of `micro-uchuu-hdf5/simulation_info.yaml` at `ascii_trees/forest.h5` with `first_file: 0`, `last_file: 3`.
+
+### 6e. Scale factor list
+
+The authoritative scale factor list for all micro-Uchuu formats is at `/fred/oz214/simulations/uchuu/U100/Uchuu100_scalefactor.txt` (50 lines, a=0.06688 to a=0.99951, one value per line). This matches snapshot numbers 1–50 embedded in the tree files (`Snap_num` field runs 49 at z=0 down to 0 at the earliest snapshot, so the list index and snap number are offset by 1).
+
+The oz004 file `u400_planck2016_50.a_list` uses different scale factor values and must not be substituted.
+
+### 6f. `halo_properties.yaml` field mapping reminder
+
+When creating the `simulations/micro-uchuu/halo_properties.yaml`, see §1a for the required `RawHalo` fields. For micro-Uchuu:
+
+- `M_Crit200` sources from `Mvir` in native Msun/h → declare units `Msun/h` so the reference-unit accessor applies `× 1e-10`.
+- `Pos` is in **Mpc/h** (confirmed from ASCII header `X/Y/Z: Halo position (Mpc/h comoving)`; applies to all three formats since they derive from the same source).
+- `Spin` is the scalar spin parameter stored in the `Spin` field (not a J-vector); the reader-normalised `Spin = J/Mvir_native` convention in §1a applies to J-vector fields — verify which the ASCII reader path uses when bridging `Spin` to `RawHalo`.
+- The `Len` field is reader-computed: `round(Mvir_native / particle_mass)` where `particle_mass = 0.0325 × 10¹⁰ M☉/h` (from `simulation_info.yaml`).
+
+---
+
+## 7. Integration tests
+
+### 7a. Per-package smoke tests (created, skip until data available)
+
+Each simulation package ships `_tests/integration/test_reader_smoke.py`. These tests use the framework `TestSkipped` protocol and skip cleanly when:
+
+- The compiled `SIMULATION` doesn't match the package (wrong build).
+- `snapshots/` symlink is absent (data not on this machine).
+- The Mimic executable is not built.
+
+When data is available, the smoke tests run a halos-only z=0 pass and assert:
+- Mimic exits 0.
+- Output contains >100,000 halos (sanity floor for the full micro-Uchuu dataset).
+
+Run them:
+```bash
+make MODEL=halos-only SIMULATION=micro-uchuu-hdf5 tests-integration
+make MODEL=halos-only SIMULATION=micro-uchuu-ascii tests-integration
+make MODEL=halos-only SIMULATION=micro-uchuu-lhalo tests-integration
+```
+
+### 7b. Deferred: cross-format parity test (`tests/integration/test_ctrees.py`)
+
+There is no automated cross-reader integration test yet. The readers are exercised by the unit tests on their format-independent helpers (`tests/unit/test_ctrees_support.c`) and end-to-end by the checklists in §3/§4c against a real dataset.
+
+**To do once the simulation packages are running on NT:**
+
+- [ ] Add `tests/integration/test_ctrees.py` asserting the per-format checklist items (halo count, mass round-trip `Mvir × 1e-10`, positions within `[0, box_size]`, `Len`/`Spin` conventions, galaxy-id uniqueness) automatically — the §3/§4c checks, automated.
+- [ ] Assert ASCII (`micro-uchuu-ascii`) and HDF5 (`micro-uchuu-hdf5`) output identical galaxies: same total halo count, identical `MostBoundID` sets at z=0, mass/position agreement within float precision. This is the §4c cross-check.
+- [ ] Emit structured `MIMIC_RESULT:` markers so the test participates in `make tests-integration summary`.
+- [ ] Gate the test on data availability with `TestSkipped` (same pattern as the per-package smoke tests).

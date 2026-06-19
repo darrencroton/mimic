@@ -1,0 +1,9 @@
+NT path: /fred/oz214/simulations/uchuu/U100/mergertrees/ascii_trees
+
+Key files in this directory:
+  forests.list          (440,651 forest/tree ids)
+  locations.dat         (symlink to MicroUchuu.locations.dat)
+  tree_0_0_0.dat        (symlink to MicroUchuu.trees, ~44 GB monolithic ASCII tree)
+
+Create the snapshots symlink with:
+  ln -s /fred/oz214/simulations/uchuu/U100/mergertrees/ascii_trees simulations/micro-uchuu-ascii/snapshots
