@@ -62,6 +62,39 @@ static inline void test_phase_add(const char *phase_name, const char *module_nam
 }
 
 /**
+ * @brief   Append one entry to MimicConfig.pre_timestep.
+ *
+ * Allocates the pre_timestep array on first call. Tests that fail before
+ * module_system_init() succeeds must call test_free_pre_timestep() in teardown.
+ * Tests that reach module_system_cleanup() have pre_timestep freed automatically.
+ */
+static inline void test_pre_timestep_add(const char *module_name, enum ProcessingMode mode) {
+  if (MimicConfig.pre_timestep == NULL) {
+    MimicConfig.pre_timestep =
+        mymalloc_cat(TEST_PHASE_MODULE_CAP * sizeof(struct PhaseModuleConfig), MEM_UTILITY);
+    MimicConfig.num_pre_timestep = 0;
+  }
+  int i = MimicConfig.num_pre_timestep++;
+  MimicConfig.pre_timestep[i].module_name = strdup(module_name);
+  MimicConfig.pre_timestep[i].processing_mode = mode;
+}
+
+/**
+ * @brief   Free MimicConfig.pre_timestep built by test_pre_timestep_add().
+ *          Safe to call when none were built.
+ */
+static inline void test_free_pre_timestep(void) {
+  if (MimicConfig.pre_timestep == NULL)
+    return;
+  for (int i = 0; i < MimicConfig.num_pre_timestep; i++) {
+    free((void *)MimicConfig.pre_timestep[i].module_name);
+  }
+  myfree(MimicConfig.pre_timestep);
+  MimicConfig.pre_timestep = NULL;
+  MimicConfig.num_pre_timestep = 0;
+}
+
+/**
  * @brief   Free substep phases built by test_phase_add(), matching the runtime
  *          cleanup's allocation strategy. Safe to call when none were built.
  */

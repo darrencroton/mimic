@@ -8,6 +8,7 @@
 
 #include "../../../../tests/framework/parity_trace.h"
 #include "../../../../tests/framework/test_framework.h"
+#include "../../../../tests/framework/test_phase_config.h"
 #include "core/module_interface.h"
 #include "include/globals.h"
 #include "include/types.h"
@@ -141,6 +142,7 @@ static void record_immediate_action(const char *action, int source_index, int ta
 }
 
 static int init_parity_modules(void) {
+  test_pre_timestep_add("sage_initialise_merger_clock", PROCESSING_MODE_FULL_HALO);
   if (sage_resolve_mergers_and_disruption_init() != 0) {
     return -1;
   }
@@ -152,6 +154,7 @@ static int init_parity_modules(void) {
 static void cleanup_parity_modules(void) {
   sage_resolve_mergers_and_disruption_set_action_hook(NULL);
   sage_resolve_mergers_and_disruption_cleanup();
+  test_free_pre_timestep();
   active_trace = NULL;
 }
 

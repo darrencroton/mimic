@@ -48,12 +48,17 @@ int sage_resolve_mergers_and_disruption_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("ThresholdSatDisruption", THRESHOLD_SAT_DISRUPTION, 0.0, 1000.0,
                                     "halo-to-baryonic mass ratio threshold");
 
-  /* Dependency advisory: sage_initialise_merger_clock should be in pre_timestep */
+  /* sage_initialise_merger_clock must precede this module in pre_timestep so that
+   * all satellites have a valid MergTime before the first substep runs. Without it,
+   * satellites carry the sentinel value (999.9) from the tree load and the runtime
+   * check below will error mid-run on the first satellite encountered. */
   if (!module_configured_in_phase("sage_initialise_merger_clock", MimicConfig.pre_timestep,
                                   MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO)) {
-    WARNING_LOG("sage_resolve_mergers_and_disruption: sage_initialise_merger_clock "
-                "is not configured in pre_timestep — MergTime values from tree "
-                "load may be stale; not always wrong, but suspicious");
+    ERROR_LOG("sage_resolve_mergers_and_disruption requires sage_initialise_merger_clock "
+              "in pre_timestep as process_full_halo — satellites carry the sentinel "
+              "MergTime (%.1f) from the tree load without it",
+              SAGE_MERGTIME_UNSET_THRESHOLD);
+    return -1;
   }
 
   INFO_LOG("SAGE merger/disruption resolver initialized");

@@ -306,16 +306,18 @@ int test_dep_apply_sfn_warns_no_prescriptions(void) {
 }
 
 /**
- * @test    test_dep_resolve_mergers_warns_no_clock
- * @brief   sage_resolve_mergers_and_disruption without merger clock emits WARNING (WARNING)
+ * @test    test_dep_resolve_mergers_errors_no_clock
+ * @brief   sage_resolve_mergers_and_disruption without sage_initialise_merger_clock fails (ERROR)
+ *
+ * Without sage_initialise_merger_clock in pre_timestep, satellites arrive with the
+ * sentinel MergTime (999.0) and the module would crash mid-run. Init must catch this.
  */
-int test_dep_resolve_mergers_warns_no_clock(void) {
+int test_dep_resolve_mergers_errors_no_clock(void) {
   reset_config();
   init_memory_system(0);
   ensure_modules_registered();
 
-  /* sage_resolve_mergers_and_disruption in satellite_mergers with no sage_initialise_merger_clock
-   */
+  /* sage_resolve_mergers_and_disruption in satellite_mergers; no sage_initialise_merger_clock */
   test_phase_add("satellite_mergers", "sage_resolve_mergers_and_disruption",
                  PROCESSING_MODE_FULL_HALO);
   MimicConfig.SubSteps = 1;
@@ -327,12 +329,16 @@ int test_dep_resolve_mergers_warns_no_clock(void) {
   set_log_output(old_out);
   const char *log = read_captured_log(capture);
 
-  TEST_ASSERT(result == 0, "sage_resolve_mergers without merger clock should warn but not fail");
+  TEST_ASSERT(result != 0,
+              "sage_resolve_mergers without sage_initialise_merger_clock must fail init");
   TEST_ASSERT(strstr(log, "sage_initialise_merger_clock") != NULL,
-              "WARNING about missing merger clock must be logged");
+              "ERROR about missing merger clock must be logged");
 
   fclose(capture);
-  module_system_cleanup();
+  if (result == 0) {
+    module_system_cleanup();
+  }
+  test_free_substep_phases();
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -383,6 +389,9 @@ int test_dep_starburst_warns_no_quasar_mode(void) {
   init_memory_system(0);
   ensure_modules_registered();
 
+  /* pre_timestep: merger clock required by sage_resolve_mergers_and_disruption */
+  test_pre_timestep_add("sage_initialise_merger_clock", PROCESSING_MODE_FULL_HALO);
+
   /* galaxy_physics: disk instability trigger writer */
   test_phase_add("galaxy_physics", "sage_disk_instability", PROCESSING_MODE_BY_GALAXY);
 
@@ -432,7 +441,7 @@ int main(void) {
   TEST_RUN(test_dep_sf_missing_apply_error);
   TEST_RUN(test_dep_sn_missing_apply_error);
   TEST_RUN(test_dep_apply_sfn_warns_no_prescriptions);
-  TEST_RUN(test_dep_resolve_mergers_warns_no_clock);
+  TEST_RUN(test_dep_resolve_mergers_errors_no_clock);
   TEST_RUN(test_dep_starburst_warns_no_disk_instability);
   TEST_RUN(test_dep_starburst_warns_no_quasar_mode);
 

@@ -20,6 +20,12 @@ module layer:
 - Emits its merger event (declared under `events.emits` in `module_info.yaml`)
   consumed by modules such as `sage_quasar_mode` and `sage_starburst_feedback`
 
+## Ordering
+
+**Enforced at init (fails with ERROR if violated):**
+
+1. `sage_initialise_merger_clock` must be in `pre_timestep` as `process_full_halo` — without it, satellites carry the sentinel `MergTime` value (999.9) from the tree load and the module hard-errors on the first satellite it encounters at runtime.
+
 ## Notes
 
 This module is intentionally metadata-driven and module-local. Processing-mode

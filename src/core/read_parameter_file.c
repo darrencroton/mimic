@@ -49,6 +49,7 @@
 /* Helper functions for DOM navigation */
 static yaml_node_t *get_mapping_value(yaml_document_t *doc, yaml_node_t *mapping, const char *key);
 static const char *get_scalar_value(yaml_node_t *node);
+static int is_yaml_null(const yaml_node_t *node);
 static void reject_unknown_keys(yaml_document_t *doc, yaml_node_t *mapping,
                                 const char *section_name, const char *const *valid_keys,
                                 size_t num_valid_keys);
@@ -228,6 +229,22 @@ static const char *get_scalar_value(yaml_node_t *node) {
     return NULL;
   }
   return (const char *)node->data.scalar.value;
+}
+
+/**
+ * @brief   Return 1 if node represents a YAML null value.
+ *
+ * Covers absent keys (NULL pointer), bare keys with no value (empty scalar),
+ * and the explicit YAML null representations "null" and "~". All are
+ * semantically equivalent to "no value" and should be treated identically.
+ */
+static int is_yaml_null(const yaml_node_t *node) {
+  if (!node)
+    return 1;
+  if (node->type != YAML_SCALAR_NODE)
+    return 0;
+  const char *val = (const char *)node->data.scalar.value;
+  return !val || val[0] == '\0' || strcmp(val, "null") == 0 || strcmp(val, "~") == 0;
 }
 
 /**
@@ -850,19 +867,17 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
     return 0; /* Empty phase is valid */
   }
 
-  /* Handle scalar nodes (happens when phase has only comments in YAML) */
+  /* Handle scalar nodes: bare keys with no value, explicit "null" / "~", or
+   * all modules commented out all produce a scalar node that means empty. */
   if (phase_node->type == YAML_SCALAR_NODE) {
-    const char *value = (const char *)phase_node->data.scalar.value;
-    if (!value || strlen(value) == 0) {
-      /* Empty scalar - treat as empty phase (common when all modules commented
-       * out) */
-      DEBUG_LOG("Phase '%s' is empty (all modules commented out)", phase_name);
+    if (is_yaml_null(phase_node)) {
+      DEBUG_LOG("Phase '%s' is empty (null or all modules commented out)", phase_name);
       *config = NULL;
       *num_modules = 0;
       return 0;
     }
-    /* Non-empty scalar is an error */
-    ERROR_LOG("Phase '%s' must be a sequence (found scalar: '%s')", phase_name, value);
+    ERROR_LOG("Phase '%s' must be a sequence (found scalar: '%s')", phase_name,
+              (const char *)phase_node->data.scalar.value);
     return -1;
   }
 
@@ -1074,7 +1089,7 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
     FATAL_ERROR("Failed to allocate substep phase array");
   }
 
-  if (phases_node != NULL) {
+  if (phases_node != NULL && !is_yaml_null(phases_node)) {
     if (phases_node->type != YAML_MAPPING_NODE) {
       FATAL_ERROR("modules.phases must be a mapping of phase_name -> module list");
     }

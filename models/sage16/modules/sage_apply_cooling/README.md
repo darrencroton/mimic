@@ -8,6 +8,12 @@ Commits the cooling budget calculated earlier in `galaxy_physics` by transferrin
 - Expected phase: `galaxy_physics`, after `sage_calculate_cooling_budget` and any cooling modifiers such as `sage_radio_mode_heating`
 - Receives one galaxy at a time; skips invalid galaxies according to the module implementation
 
+## Ordering
+
+**Enforced at init (fails with ERROR if violated):**
+
+1. `sage_calculate_cooling_budget` must precede this module in the same substep phase — `CoolingGas` will be zero without it and no gas is transferred.
+
 ## Properties
 
 - Reads: `Type`, `dT`, `Vvir`, `HotGas`, `MetalsHotGas`, `CoolingGas`
