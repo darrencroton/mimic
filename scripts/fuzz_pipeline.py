@@ -9,6 +9,18 @@ and ERROR/FATAL lines in output; scientific correctness of output is not evaluat
 The empty pipeline (zero modules, halos-only) is always a valid configuration and
 duplicate modules are allowed by design, so neither is treated as an error.
 
+Two sampling modes are available:
+
+  random (default): modules are independently selected, assigned to random
+  phases, and shuffled. This is best for stressing Mimic's validation boundary.
+
+  valid-subset: modules are selected from the canonical model/simulation run
+  file, kept in their canonical phase and relative order, filtered to non-event
+  processing modes, then closed over known hard model-specific dependency
+  contracts. This produces random larger pipelines that should pass structural
+  ordering validation. "Valid" here means structurally executable under the
+  encoded ordering contracts, not scientifically complete or recommended.
+
 Two failure modes (controlled by --strict):
 
   Default (non-strict): module-ordering validation errors are counted separately as
@@ -26,6 +38,7 @@ Usage:
     python3 scripts/fuzz_pipeline.py --runs 500             # stop after 500 runs
     python3 scripts/fuzz_pipeline.py --hours 24             # stop after 24 hours
     python3 scripts/fuzz_pipeline.py --seed 1234567890      # replay one specific seed
+    python3 scripts/fuzz_pipeline.py --sampling valid-subset # random valid canonical subsets
     python3 scripts/fuzz_pipeline.py --strict               # treat all errors as failures
     python3 scripts/fuzz_pipeline.py --model sage16 --simulation mini-millennium
     python3 scripts/fuzz_pipeline.py --help
@@ -51,7 +64,7 @@ import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 try:
     import yaml
@@ -73,6 +86,10 @@ FUZZ_SUBSTEPS = 1
 # Only fuzz non-event modes. process_per_event requires a matching producer in
 # the same phase; excluding it keeps config generation simple and self-consistent.
 NON_EVENT_MODES = frozenset({"process_full_halo", "process_by_galaxy"})
+
+# Supported config generation modes.
+SAMPLING_RANDOM = "random"
+SAMPLING_VALID_SUBSET = "valid-subset"
 
 # Pool of names for randomly generated substep phases.
 _PHASE_NAME_POOL = [
@@ -266,6 +283,260 @@ def generate_config(
     }
 
 
+# ---------------------------------------------------------------------------
+# Valid-subset config generation
+# ---------------------------------------------------------------------------
+
+
+CanonicalEntry = Tuple[str, str, str]
+
+
+def _module_entry_items(entries: Iterable[Any]) -> Iterable[Tuple[str, str]]:
+    """Yield (module_name, mode) from YAML module-entry dictionaries."""
+    for entry in entries or []:
+        if not isinstance(entry, dict) or len(entry) != 1:
+            continue
+        name, mode = next(iter(entry.items()))
+        if isinstance(name, str) and isinstance(mode, str):
+            yield name, mode
+
+
+def _canonical_non_event_entries(
+    base_config: Dict[str, Any], all_modules: List[Dict[str, Any]]
+) -> List[CanonicalEntry]:
+    """Flatten the canonical input pipeline into eligible non-event entries.
+
+    A canonical entry is one concrete occurrence of a module in the base run
+    file: (phase_name, module_name, processing_mode). An entry is eligible when
+    the module is fuzz-discoverable and the occurrence uses one of the fuzzer's
+    non-event modes. Event consumers are deliberately excluded because they
+    require same-phase producer wiring and event-contract handling that the
+    current fuzzer keeps out of scope.
+
+    The valid-subset sampler intentionally draws from the model package's
+    canonical run file and preserves its phase/order. This keeps scientific
+    ordering explicit in user configuration, matching the architecture vision,
+    while still producing randomized subsets for stress testing.
+    """
+    eligible_modes = {m["name"]: set(m["modes"]) for m in all_modules}
+    modules = base_config.get("modules") or {}
+    result: List[CanonicalEntry] = []
+
+    for name, mode in _module_entry_items(modules.get("pre_timestep") or []):
+        if mode in eligible_modes.get(name, set()):
+            result.append(("pre_timestep", name, mode))
+
+    for phase_name, entries in (modules.get("phases") or {}).items():
+        for name, mode in _module_entry_items(entries or []):
+            if mode in eligible_modes.get(name, set()):
+                result.append((phase_name, name, mode))
+
+    for name, mode in _module_entry_items(modules.get("post_timestep") or []):
+        if mode in eligible_modes.get(name, set()):
+            result.append(("post_timestep", name, mode))
+
+    if not result:
+        sys.exit(
+            "ERROR: --sampling valid-subset requires the base config to contain "
+            "at least one non-event fuzzable module"
+        )
+
+    return result
+
+
+def _add_if_canonical(
+    selected: Set[CanonicalEntry],
+    canonical_set: Set[CanonicalEntry],
+    phase: str,
+    name: str,
+    mode: str,
+) -> bool:
+    """Add a required module only when the canonical pipeline contains it."""
+    entry = (phase, name, mode)
+    if entry in canonical_set and entry not in selected:
+        selected.add(entry)
+        return True
+    return False
+
+
+def _close_sage16_dependencies(
+    selected: Set[CanonicalEntry], canonical_entries: List[CanonicalEntry]
+) -> None:
+    """Mutate selected entries to satisfy known hard SAGE16 ordering contracts.
+
+    These are the module-init contracts that otherwise dominate fully random
+    dense fuzz runs. The order itself is not solved here; it remains the
+    canonical order from the run file.
+    """
+    canonical_set = set(canonical_entries)
+
+    while True:
+        changed = False
+        selected_names = {name for _, name, _ in selected}
+
+        if "sage_apply_infall" in selected_names:
+            changed |= _add_if_canonical(
+                selected,
+                canonical_set,
+                "pre_timestep",
+                "sage_prepare_infall_budget",
+                "process_full_halo",
+            )
+
+        if "sage_apply_cooling" in selected_names:
+            changed |= _add_if_canonical(
+                selected,
+                canonical_set,
+                "galaxy_physics",
+                "sage_calculate_cooling_budget",
+                "process_by_galaxy",
+            )
+
+        if (
+            "sage_calculate_star_formation" in selected_names
+            or "sage_calculate_supernova_feedback" in selected_names
+        ):
+            changed |= _add_if_canonical(
+                selected,
+                canonical_set,
+                "galaxy_physics",
+                "sage_apply_star_formation_supernova",
+                "process_by_galaxy",
+            )
+
+        if "sage_resolve_mergers_and_disruption" in selected_names:
+            changed |= _add_if_canonical(
+                selected,
+                canonical_set,
+                "pre_timestep",
+                "sage_initialise_merger_clock",
+                "process_full_halo",
+            )
+
+        if not changed:
+            return
+
+
+def _close_known_dependencies(
+    model: str, selected: Set[CanonicalEntry], canonical_entries: List[CanonicalEntry]
+) -> None:
+    """Apply model-specific dependency closure for valid-subset sampling.
+
+    Dependency closure adds required canonical entries when a selected module
+    has a hard startup contract on another module being present. It does not
+    invent phases or reorder modules; if a required entry is absent from the
+    canonical pipeline, it is not added. That keeps this mode a subset sampler,
+    not a generic dependency solver.
+    """
+    if model == "sage16":
+        _close_sage16_dependencies(selected, canonical_entries)
+
+
+def _entries_by_phase(
+    selected: Set[CanonicalEntry], canonical_entries: List[CanonicalEntry]
+) -> Dict[str, List[Tuple[str, str]]]:
+    """Return selected entries grouped by phase in canonical order."""
+    grouped: Dict[str, List[Tuple[str, str]]] = {}
+    for phase, name, mode in canonical_entries:
+        if (phase, name, mode) in selected:
+            grouped.setdefault(phase, []).append((name, mode))
+    return grouped
+
+
+def _build_config_from_phase_entries(
+    base_config: Dict[str, Any],
+    output_dir: Path,
+    grouped: Dict[str, List[Tuple[str, str]]],
+) -> Dict[str, Any]:
+    """Build a fuzz run config from grouped phase entries."""
+    modules_block: Dict[str, Any] = {}
+
+    pre_entries = _slot_entries(grouped.get("pre_timestep", []))
+    if pre_entries is not None:
+        modules_block["pre_timestep"] = pre_entries
+
+    phases_block: Dict[str, Any] = {}
+    for phase_name, entries in grouped.items():
+        if phase_name in ("pre_timestep", "post_timestep"):
+            continue
+        phase_entries = _slot_entries(entries)
+        if phase_entries is not None:
+            phases_block[phase_name] = phase_entries
+    if phases_block:
+        modules_block["phases"] = phases_block
+
+    post_entries = _slot_entries(grouped.get("post_timestep", []))
+    if post_entries is not None:
+        modules_block["post_timestep"] = post_entries
+
+    modules_block["parameters"] = (base_config.get("modules") or {}).get("parameters")
+
+    return {
+        "model": base_config["model"],
+        "simulation": base_config["simulation"],
+        "output": {
+            "output_filename": "fuzz",
+            "output_directory": str(output_dir),
+            "output_format": "binary",
+            "snapshot_list": FUZZ_SNAPSHOT_LIST,
+        },
+        "SubSteps": FUZZ_SUBSTEPS,
+        "modules": modules_block,
+    }
+
+
+def generate_valid_subset_config(
+    seed: int,
+    model: str,
+    base_config: Dict[str, Any],
+    all_modules: List[Dict[str, Any]],
+    output_dir: Path,
+) -> Dict[str, Any]:
+    """Generate a random dependency-closed subset of the canonical pipeline.
+
+    "Valid subset" means:
+    - every module entry comes from the canonical base config;
+    - selected entries keep their canonical lifecycle phase and relative order;
+    - only non-event processing modes are included;
+    - known hard dependency contracts for the model are closed by adding the
+      canonical prerequisite entries.
+
+    The result is intended to pass Mimic's structural ordering checks while
+    still varying which chunks of the canonical physics pipeline execute. It may
+    still produce scientifically incomplete pipelines or module warnings.
+    """
+    rng = random.Random(seed)
+    canonical_entries = _canonical_non_event_entries(base_config, all_modules)
+
+    # Bias toward larger valid pipelines while still sampling empty/sparse cases.
+    density_roll = rng.random()
+    if density_roll < 0.05:
+        density = 0.0
+    elif density_roll < 0.20:
+        density = 1.0
+    else:
+        density = rng.uniform(0.45, 0.95)
+
+    selected = {entry for entry in canonical_entries if rng.random() < density}
+    _close_known_dependencies(model, selected, canonical_entries)
+    grouped = _entries_by_phase(selected, canonical_entries)
+    return _build_config_from_phase_entries(base_config, output_dir, grouped)
+
+
+def generate_fuzz_config(
+    seed: int,
+    model: str,
+    base_config: Dict[str, Any],
+    all_modules: List[Dict[str, Any]],
+    output_dir: Path,
+    sampling: str,
+) -> Dict[str, Any]:
+    """Dispatch to the selected fuzz config generator."""
+    if sampling == SAMPLING_VALID_SUBSET:
+        return generate_valid_subset_config(seed, model, base_config, all_modules, output_dir)
+    return generate_config(seed, base_config, all_modules, output_dir)
+
+
 def _count_modules(config: Dict[str, Any]) -> int:
     """Count total module entries in a fuzz config."""
     modules = config.get("modules") or {}
@@ -393,16 +664,20 @@ def _append_summary(summary_log: Path, line: str) -> None:
 
 def run_one(
     seed: int,
+    model: str,
     base_config: Dict[str, Any],
     all_modules: List[Dict[str, Any]],
     log_dir: Path,
     timeout: int,
     summary_log: Optional[Path] = None,
     strict: bool = False,
+    sampling: str = SAMPLING_RANDOM,
 ) -> str:
     """Run one fuzz iteration. Returns 'PASS', 'VALIDATION', or 'FAIL'."""
     with tempfile.TemporaryDirectory(prefix="mimic_fuzz_out_") as output_dir:
-        config = generate_config(seed, base_config, all_modules, Path(output_dir))
+        config = generate_fuzz_config(
+            seed, model, base_config, all_modules, Path(output_dir), sampling
+        )
         t0 = time.monotonic()
         exit_code, stdout, stderr = run_mimic(config, timeout)
         elapsed = time.monotonic() - t0
@@ -434,15 +709,19 @@ def run_one(
 
 def replay_seed(
     seed: int,
+    model: str,
     base_config: Dict[str, Any],
     all_modules: List[Dict[str, Any]],
     log_dir: Path,
     timeout: int,
     strict: bool = False,
+    sampling: str = SAMPLING_RANDOM,
 ) -> str:
     """Replay a single seed and print the full config and output. Returns status string."""
     with tempfile.TemporaryDirectory(prefix="mimic_fuzz_out_") as output_dir:
-        config = generate_config(seed, base_config, all_modules, Path(output_dir))
+        config = generate_fuzz_config(
+            seed, model, base_config, all_modules, Path(output_dir), sampling
+        )
 
         print(f"=== Config for seed={seed} ===")
         print(yaml.dump(config, default_flow_style=False, sort_keys=False))
@@ -521,6 +800,16 @@ def main() -> None:
         action="store_true",
         help="Treat ordering validation rejections as failures (default: count them separately)",
     )
+    parser.add_argument(
+        "--sampling",
+        choices=(SAMPLING_RANDOM, SAMPLING_VALID_SUBSET),
+        default=SAMPLING_RANDOM,
+        help=(
+            "Config sampling strategy: 'random' scatters modules freely; "
+            "'valid-subset' samples dependency-closed subsets of the canonical "
+            "input pipeline (default: random)"
+        ),
+    )
     args = parser.parse_args()
 
     if not MIMIC_BIN.exists():
@@ -532,11 +821,11 @@ def main() -> None:
     print(f"Mimic pipeline fuzzer")
     print(f"  model        : {args.model}")
     print(f"  simulation   : {args.simulation}")
-    print(
-        f"  modules      : {len(all_modules)} fuzzable ({', '.join(m['name'] for m in all_modules)})"
-    )
+    module_names = ", ".join(m["name"] for m in all_modules)
+    print(f"  modules      : {len(all_modules)} fuzzable ({module_names})")
     print(f"  snapshot     : {FUZZ_SNAPSHOT_LIST}  substeps: {FUZZ_SUBSTEPS}")
     print(f"  timeout      : {args.timeout}s per run")
+    print(f"  sampling     : {args.sampling}")
 
     log_dir = Path(args.log_dir) if args.log_dir else REPO_ROOT / "archive" / "fuzz-logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -554,7 +843,14 @@ def main() -> None:
     if args.seed is not None:
         print()
         status = replay_seed(
-            args.seed, base_config, all_modules, log_dir, args.timeout, strict=args.strict
+            args.seed,
+            args.model,
+            base_config,
+            all_modules,
+            log_dir,
+            args.timeout,
+            strict=args.strict,
+            sampling=args.sampling,
         )
         sys.exit(1 if status == "FAIL" else 0)
 
@@ -585,12 +881,14 @@ def main() -> None:
             seed = random.randint(0, 2**32 - 1)
             status = run_one(
                 seed,
+                args.model,
                 base_config,
                 all_modules,
                 log_dir,
                 args.timeout,
                 summary_log,
                 strict=args.strict,
+                sampling=args.sampling,
             )
 
             runs_done += 1
