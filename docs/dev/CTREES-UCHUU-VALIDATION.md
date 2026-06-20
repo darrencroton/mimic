@@ -1,12 +1,14 @@
 # Consistent-Trees (Uchuu) reader validation
 
-Status: **ASCII (Phase 5a) and forests-HDF5 (Phase 5b).** This document is the
-checklist for importing a real Consistent-Trees dataset (e.g. Uchuu) and
-validating Mimic's ctrees readers end-to-end once the data is available on the
-run machine. The ASCII reader (`consistent_trees_ascii`) reads the Rockstar
-`forests.list` + `locations.dat` + `tree_i_j_k.dat` output; the HDF5 reader
-(`consistent_trees_hdf5`, HDF5 builds only) reads the forests-HDF5 packaging
-produced by uchuutools.
+Status: **micro-Uchuu validated for halos-only and SAGE16 across ASCII, forests-HDF5, and L-Halo.** This document records the import evidence, retained format policy, and operator notes for moving from micro-Uchuu into mini/full Uchuu package assessment. The ASCII reader (`consistent_trees_ascii`) reads the Rockstar `forests.list` + `locations.dat` + `tree_i_j_k.dat` output; the HDF5 reader (`consistent_trees_hdf5`, HDF5 builds only) reads the forests-HDF5 packaging produced by uchuutools.
+
+## Current outcome
+
+The three micro-Uchuu packages have been run with the `halos-only` model and validated against the same underlying oz214 U100 trees. The outputs agree exactly for `SnapNum < 49`. The `SnapNum == 49` difference is understood and documented as the Consistent-Trees ASCII `fix_flybys()` policy: ASCII demotes final-snapshot flyby FoF groups to satellites, while HDF5 and L-Halo preserve them as independent centrals. This is expected behaviour, not an unresolved reader issue.
+
+The three micro-Uchuu packages have also been run with `sage16`. All three SAGE16 runs complete, the scientific plots look reasonable, the baseline remains acceptable after the disk-instability transfer-boundary fix, and the test suite is green.
+
+Keep all three micro-Uchuu formats while mini-Uchuu and full Uchuu imports are surveyed. There is no single default format across the whole Uchuu suite. The preferred format is tier-specific: micro-Uchuu will eventually prefer its L-Halo binary package, full Uchuu currently has no L-Halo package, and mini-Uchuu packaging is still being assessed. Use the micro-Uchuu packages as policy and workflow fixtures while choosing the best valid packaging at each larger tier.
 
 ## What is and isn't in the repository
 
@@ -100,7 +102,9 @@ make MODEL=<model> SIMULATION=<name> USE-MPI=yes -j$(nproc)
 `<model>` can be `halos-only` for a pure tree-tracking sanity pass, or `sage16`
 for full physics.
 
-## 3. ASCII reader validation checklist
+## 3. ASCII reader validation protocol
+
+This checklist was exercised for micro-Uchuu during the halo-only validation pass and is retained as the import protocol for future Consistent-Trees ASCII datasets. It is not an open micro-Uchuu blocker.
 
 - [ ] **Smoke run (serial):** a small subset completes and writes one output
       partition (`./mimic --quiet simulations/<name>/...run.yaml`). Serial uses
@@ -130,7 +134,7 @@ for full physics.
       2000 (e.g. 13³ = 2197), confirm it loads — this exercises the
       `read_locations` realloc-boundary fix. (sage mis-handled exactly this.)
 
-## 4. HDF5 reader validation (forests-HDF5)
+## 4. HDF5 reader validation protocol (forests-HDF5)
 
 The `consistent_trees_hdf5` reader (`src/io/tree/read_ctrees_hdf5.c`, HDF5 builds
 only) reads the forests-HDF5 packaging written by uchuutools. Unlike the ASCII
@@ -183,6 +187,8 @@ per-forest halo counts before loading). Galaxy-id bounds are identical to ASCII
 
 ### 4c. Validation checklist
 
+This checklist was exercised for micro-Uchuu during the halo-only validation pass and is retained as the import protocol for future forests-HDF5 datasets. It is not an open micro-Uchuu blocker.
+
 - [ ] **Smoke run (serial):** `tree_type: consistent_trees_hdf5` completes and
       writes one output partition (`ThisTask=0`).
 - [ ] **MPI run + scheme sweep:** `mpirun -np N` writes `N` partitions; rerun
@@ -222,11 +228,11 @@ This behaviour was ported from sage-model's ctrees reader and is intentional for
 |--------|--------|--------|--------|-------|
 | ctrees ASCII | 440,651 | 116,657 | 629,026 | 1,186,334 |
 | L-Halo binary | 496,374 | 61,295 | 629,026 | 1,186,695 |
-| ctrees HDF5 | expected ≈ lhalo | | | |
+| ctrees HDF5 | validated; follows L-Halo final-snapshot topology policy | | | |
 
 The 55,362 halos that are Type 1 in ASCII but Type 0 in lhalo/hdf5 are the flyby FoF groups. They span the full mass range (0.065–23,880 × 10¹⁰ M☉/h) and represent ~10–25% of what would be Type 0 in each mass bin. The halo mass function plot (Type 0 only) is therefore systematically lower in ASCII at snap49 relative to the other two formats. A further 361 halos present in lhalo at snap49 are absent from ASCII at snap49; most appear at earlier ASCII output snapshots or non-output snapshots.
 
-The ctrees HDF5 reader reads `FirstHaloInFOFgroup`/`NextHaloInFOFgroup` directly from pre-stored uchuutools columns and does not call `fix_flybys`, so its z=0 output is expected to agree with L-Halo (the §4c cross-check should confirm this once the data is available).
+The ctrees HDF5 reader reads `FirstHaloInFOFgroup`/`NextHaloInFOFgroup` directly from pre-stored uchuutools columns and does not call `fix_flybys`, so its z=0 output follows the same final-snapshot topology policy as L-Halo rather than the ASCII `fix_flybys` policy.
 
 **Model-specific impacts:**
 
@@ -370,13 +376,18 @@ make MODEL=halos-only SIMULATION=micro-uchuu-ascii tests-integration
 make MODEL=halos-only SIMULATION=micro-uchuu-lhalo tests-integration
 ```
 
-### 7b. Deferred: cross-format parity test (`tests/integration/test_ctrees.py`)
+### 7b. Cross-format validation status
 
-There is no automated cross-reader integration test yet. The readers are exercised by the unit tests on their format-independent helpers (`tests/unit/test_ctrees_support.c`) and end-to-end by the checklists in §3/§4c against a real dataset.
+Do not add a standing cross-format integration gate for micro-Uchuu at this stage. The real-data halo-only validation has already established exact agreement for `SnapNum < 49`, and `SnapNum == 49` is governed by the documented ASCII flyby policy. The package-local smoke tests remain useful because they verify that each retained package can still load and produce non-trivial output when the data symlink is available.
 
-**To do once the simulation packages are running on NT:**
+If a future reader change, converter change, or mini/full Uchuu packaging decision reopens format-equivalence risk, add a targeted integration test then. It should emit structured `MIMIC_RESULT:` markers, gate on data availability with `TestSkipped`, and compare only the specific format contract being changed.
 
-- [ ] Add `tests/integration/test_ctrees.py` asserting the per-format checklist items (halo count, mass round-trip `Mvir × 1e-10`, positions within `[0, box_size]`, `Len`/`Spin` conventions, galaxy-id uniqueness) automatically — the §3/§4c checks, automated.
-- [ ] Assert ASCII (`micro-uchuu-ascii`) and HDF5 (`micro-uchuu-hdf5`) output identical galaxies: same total halo count, identical `MostBoundID` sets at z=0, mass/position agreement within float precision. This is the §4c cross-check.
-- [ ] Emit structured `MIMIC_RESULT:` markers so the test participates in `make tests-integration summary`.
-- [ ] Gate the test on data availability with `TestSkipped` (same pattern as the per-package smoke tests).
+## 8. SAGE16 micro-Uchuu validation status
+
+- [x] `sage16_micro-uchuu-lhalo.yaml` runs successfully; this remains the preferred micro-Uchuu production path while L-Halo is available at this tier.
+- [x] `sage16_micro-uchuu-hdf5.yaml` runs successfully as the main non-L-Halo reader check.
+- [x] `sage16_micro-uchuu-ascii.yaml` runs successfully as a compatibility/provenance check; interpret `SnapNum == 49` Type 0/Type 1 differences through the `fix_flybys()` policy.
+- [x] Scientific plots from the SAGE16 micro-Uchuu runs look reasonable.
+- [x] Baseline and tests are green after the disk-instability transfer-boundary fix.
+- [ ] For future scientific comparison across the three formats, compare `SnapNum < 49` directly. At `SnapNum == 49`, compare total counts and physics sanity, not Type 0-only halo mass functions between ASCII and the other formats.
+- [ ] Before release tagging, run the normal final gates from `MIMIC-DEVELOPMENT-PATHWAY.md`: generated-code, metadata, docs, format/lint, and relevant test tiers.

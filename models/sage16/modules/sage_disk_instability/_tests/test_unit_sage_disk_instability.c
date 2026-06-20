@@ -29,6 +29,7 @@
  *   - test_unstable_disk_stars_only: Stars-only disk (triggers NOT set)
  *   - test_zero_vmax: Zero virial velocity
  *   - test_zero_disk_radius: Zero disk radius
+ *   - test_full_disk_transfer_clamps_to_available_mass: Full disk transfer boundary
  *   - test_bulge_exceeds_stellar_mass: Safety constraint
  *   - test_metals_bulge_exceeds_stellar_metals: Metal safety constraint
  *   - test_disk_factor_sensitivity: Parameter affects results
@@ -707,6 +708,48 @@ int test_zero_disk_radius(void) {
 }
 
 /**
+ * @test    test_full_disk_transfer_clamps_to_available_mass
+ * @brief   Test full stellar disk transfer at the bulge/stellar boundary
+ *
+ * Expected: Bulge and bulge metals snap exactly to the available total reservoirs
+ * Validates: Transfer capping prevents tolerance-level component overshoot
+ */
+int test_full_disk_transfer_clamps_to_available_mass(void) {
+  /* ===== SETUP ===== */
+  setup_module_for_physics_test(3.0);
+
+  struct Halo test_halo = create_test_halo(0.0, 5.0e-4f, 1.3544e-4f, 5.0e-5f, 0.03f);
+  test_halo.galaxy->MetalsStellarMass = 2.8763e-8f;
+  test_halo.galaxy->MetalsBulgeMass = 1.0e-8f;
+
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.params = &MimicConfig;
+  ctx.central_galaxy = &test_halo;
+
+  /* ===== EXECUTE ===== */
+  int result = sage_disk_instability_process(&ctx, &test_halo, 1);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(result == 0, "Full disk transfer should complete");
+  TEST_ASSERT(test_halo.galaxy->BulgeMass <= test_halo.galaxy->StellarMass,
+              "BulgeMass should not exceed StellarMass after full disk transfer");
+  TEST_ASSERT(test_halo.galaxy->MetalsBulgeMass <= test_halo.galaxy->MetalsStellarMass,
+              "MetalsBulgeMass should not exceed MetalsStellarMass after full disk transfer");
+  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->BulgeMass, test_halo.galaxy->StellarMass, 1e-10,
+                           "Full disk transfer should leave all stars in bulge");
+  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->MetalsBulgeMass, test_halo.galaxy->MetalsStellarMass,
+                           1e-12, "Full disk transfer should leave all stellar metals in bulge");
+
+  /* ===== CLEANUP ===== */
+  free_test_halo(&test_halo);
+  module_system_cleanup();
+  check_memory_leaks();
+
+  return TEST_PASS;
+}
+
+/**
  * @test    test_bulge_exceeds_stellar_mass
  * @brief   Test that safety constraint prevents BulgeMass > StellarMass
  *
@@ -868,6 +911,7 @@ int main(void) {
   printf("\n%s=== Edge Case Tests ===%s\n", BLUE, NC);
   TEST_RUN(test_zero_vmax);
   TEST_RUN(test_zero_disk_radius);
+  TEST_RUN(test_full_disk_transfer_clamps_to_available_mass);
   TEST_RUN(test_bulge_exceeds_stellar_mass);
   TEST_RUN(test_metals_bulge_exceeds_stellar_metals);
 
