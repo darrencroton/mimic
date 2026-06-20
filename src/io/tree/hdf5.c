@@ -82,7 +82,7 @@ static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void
  */
 void open_partition_hdf5(int output_id) {
 
-  char buf[MAX_STRING_LEN + 1];
+  char buf[3 * MAX_STRING_LEN + 15];
   int32_t totNHalos, i;
   int32_t status;
 

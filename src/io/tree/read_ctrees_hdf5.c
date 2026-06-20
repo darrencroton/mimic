@@ -617,9 +617,14 @@ static int setup_forests_io_ctrees_hdf5(const int thistask, const int ntasks) {
           "last_file\n",
           firstfile, lastfile);
 
-  char metadata_fname[2 * MAX_STRING_LEN + 1];
-  snprintf(metadata_fname, sizeof(metadata_fname), "%s/%s%s", MimicConfig.SimulationDir,
-           MimicConfig.TreeName, MimicConfig.TreeExtension);
+  char metadata_fname[3 * MAX_STRING_LEN + 2];
+  int meta_path_len =
+      snprintf(metadata_fname, sizeof(metadata_fname), "%s/%s%s", MimicConfig.SimulationDir,
+               MimicConfig.TreeName, MimicConfig.TreeExtension);
+  if (meta_path_len < 0 || (size_t)meta_path_len >= sizeof(metadata_fname)) {
+    FATAL_ERROR("Metadata file path too long (%d chars, max %zu)", meta_path_len,
+                sizeof(metadata_fname) - 1);
+  }
   CTH.meta_fd = H5Fopen(metadata_fname, H5F_ACC_RDONLY, H5P_DEFAULT);
   XRETURN(CTH.meta_fd >= 0, CT_H5_ERR, "Error: Could not open metadata file '%s'\n",
           metadata_fname);
