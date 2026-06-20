@@ -1,0 +1,31 @@
+# Full Uchuu Simulation Package — uchuutools forests-HDF5
+
+This package runs Mimic against the full Uchuu merger trees in uchuutools forests-HDF5 format (`consistent_trees_hdf5` reader). Full Uchuu is the largest tier of the Uchuu suite: 2000 Mpc/h box, ~3.22 billion forests, ~181.5 billion halos across all 50 snapshots.
+
+- `simulation_info.yaml`: tree input paths, snapshot list path, cosmology, units, box size, and particle mass
+- `halo_properties.yaml`: RawHalo field contract for the ctrees HDF5 reader (M_Crit200 in native Msun/h; see file header for unit conventions and the float64 Snap_idx note)
+- `uchuu.a_list`: 50 snapshot scale factors (a=0.06686 to a=0.99998)
+- `snapshots/`: symlink to the tree data directory — see `snapshots.txt` for the NT path and `ln -s` command
+- `plot_profile.yaml`: simulation-specific plotting axis limits and defaults
+- `_tests/`: integration test scaffolding (runs once the symlink and data are in place)
+
+**Data files required in `snapshots/`:**
+
+2001 HDF5 files (37 TB total):
+```
+mergertree_info.h5          (110 KB index file — set as tree_name)
+mergertree_0.h5             (~44 GB, File0: 1.53M forests)
+mergertree_1.h5
+...
+mergertree_1999.h5
+```
+
+All files must remain co-located. Each `File<n>` group in `mergertree_info.h5` is an HDF5 ExternalLink to the root of `mergertree_N.h5`; the HDF5 library resolves the link transparently using relative paths.
+
+**HDF5 external link architecture:** This dataset uses ExternalLinks (not VDS virtual datasets as in `simulations/micro-uchuu-hdf5/`). The C HDF5 library follows external links automatically, but this has not yet been verified with Mimic's C reader. SAGE ran successfully with this format. Run a halos-only smoke test before any production use.
+
+**MPI requirements:** 3.22 billion forests at the 1M forest/task galaxy-id limit requires at minimum ~3,220 MPI tasks. The `forest_distribution_scheme: linear` setting weights forests by halo count for better MPI load balance across the highly unequal forest sizes.
+
+**Mirror maintenance:** `halo_properties.yaml` follows the `simulations/micro-uchuu-hdf5/` RawHalo contract. When changing the ctrees HDF5 field schema, apply the same change there. Only the `Pos` range differs between them.
+
+See `docs/dev/CTREES-UCHUU-VALIDATION.md §8` for the full dataset survey, HDF5 structural analysis, and compatibility check.

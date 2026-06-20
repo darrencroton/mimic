@@ -1,23 +1,19 @@
 #!/usr/bin/env python3
 """
-micro-Uchuu ASCII Reader Smoke Test
+micro-Uchuu L-Halo Binary Reader Smoke Test
 
-Validates: consistent_trees_ascii reader can load the micro-Uchuu ASCII trees
-(forests.list + locations.dat + tree_0_0_0.dat) and produce sensible halo output.
+Validates: lhalo_binary reader can load the micro-Uchuu L-Halo binary files
+(4 files, ~2.2 GB) and produce sensible halo output.
 
 Skips automatically when:
-  - SIMULATION != micro-uchuu-ascii (wrong compiled package)
+  - SIMULATION != micro-uchuu (wrong compiled package)
   - snapshots/ symlink is missing (data not yet available locally)
   - Mimic executable is not built
 
-Note: The ASCII tree is ~44 GB. This test runs on the full dataset (one MPI task
-handles its uniform forest slice). For a quick check on a subset, consider
-pointing simulation_dir at a pre-sliced copy of the ASCII trees.
-
 Run with:
-  python3 simulations/micro-uchuu-ascii/_tests/integration/test_reader_smoke.py
+  python3 simulations/micro-uchuu/_tests/integration/test_reader_smoke.py
 or (when the compilation is set up):
-  make SIMULATION=micro-uchuu-ascii MODEL=halos-only tests-integration
+  make SIMULATION=micro-uchuu MODEL=halos-only tests-integration
 """
 
 import sys
@@ -32,9 +28,9 @@ def find_repo_root(start):
 
 
 REPO_ROOT = find_repo_root(Path(__file__).resolve())
-SIM_DIR = REPO_ROOT / "simulations" / "micro-uchuu-ascii"
-PARAM_FILE = REPO_ROOT / "models" / "halos-only" / "input" / "halos-only_micro-uchuu-ascii.yaml"
-OUTPUT_DIR = REPO_ROOT / "output" / "halos-only-micro-uchuu-ascii"
+SIM_DIR = REPO_ROOT / "simulations" / "micro-uchuu"
+PARAM_FILE = REPO_ROOT / "models" / "halos-only" / "input" / "halos-only_micro-uchuu.yaml"
+OUTPUT_DIR = REPO_ROOT / "output" / "halos-only-micro-uchuu"
 Z0_SNAPSHOT_GROUP = "Snap049"
 
 sys.path.insert(0, str(REPO_ROOT / "tests"))
@@ -44,25 +40,25 @@ from framework import MIMIC_EXE, TestSkipped, compiled_simulation, run_mimic, ru
 
 def _require_simulation():
     sim = compiled_simulation()
-    if sim != "micro-uchuu-ascii":
-        raise TestSkipped(f"compiled simulation is {sim!r}, not micro-uchuu-ascii")
+    if sim != "micro-uchuu":
+        raise TestSkipped(f"compiled simulation is {sim!r}, not micro-uchuu")
 
 
 def _require_snapshots():
     snapshots = SIM_DIR / "snapshots"
     if not snapshots.exists():
         raise TestSkipped(
-            f"snapshots/ not present — create symlink: ln -s /fred/oz214/simulations/uchuu/U100/mergertrees/ascii_trees {snapshots}"
+            f"snapshots/ not present — create symlink: ln -s /fred/oz214/simulations/uchuu/U100/lhalo-binary-mergertree {snapshots}"
         )
 
 
 def _require_exe():
     if not MIMIC_EXE.exists():
-        raise TestSkipped("Mimic not built — run: make SIMULATION=micro-uchuu-ascii")
+        raise TestSkipped("Mimic not built — run: make SIMULATION=micro-uchuu")
 
 
-def test_ascii_reader_loads():
-    """Run halos-only on snapshot 49 (z=0) via the ASCII reader; expect exit 0."""
+def test_lhalo_reader_loads():
+    """Run halos-only on snapshot 49 (z=0) via the L-Halo binary reader; expect exit 0."""
     _require_simulation()
     _require_snapshots()
     _require_exe()
@@ -71,7 +67,7 @@ def test_ascii_reader_loads():
     assert rc == 0, f"Mimic exited {rc}\nstdout:\n{stdout}\nstderr:\n{stderr}"
 
 
-def test_ascii_reader_halo_count():
+def test_lhalo_reader_halo_count():
     """Output must contain a non-trivial number of halos at z=0."""
     _require_simulation()
     _require_snapshots()
@@ -98,7 +94,7 @@ def test_ascii_reader_halo_count():
 if __name__ == "__main__":
     sys.exit(
         run_test_suite(
-            [test_ascii_reader_loads, test_ascii_reader_halo_count],
-            "micro-Uchuu ASCII reader smoke (test_reader_smoke.py)",
+            [test_lhalo_reader_loads, test_lhalo_reader_halo_count],
+            "micro-Uchuu L-Halo binary reader smoke (test_reader_smoke.py)",
         )
     )

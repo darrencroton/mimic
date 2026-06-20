@@ -1,0 +1,168 @@
+# mini-Uchuu Halo Catalog Properties — L-Halo binary format
+#
+# Complete on-disk halo catalog record in file order, for the L-Halo binary
+# files converted from the mini-Uchuu Consistent-Trees ASCII trees by sage-model.
+# The 26-field struct layout is byte-identical to micro-uchuu and
+# mini-Millennium; only cosmology, box size, and position range differ.
+#
+# Entry keys: name, source (if on-disk name differs), type, units,
+# h_convention, provides_core_role, notes, description,
+# output, init_source, output_source, range.
+#
+# Required core roles (src/core/core_properties.yaml required_inputs):
+# Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
+# NextHaloInFOFgroup, SnapNum, Len, HaloMass.
+#
+# Fields with no output/role/init are read only to preserve the catalog
+# layout; an inert `notes` line records that for the reader.
+#
+# Mirror maintenance: keep this file in sync with micro-uchuu and
+# mini-millennium when changing the lhalo field schema.
+#
+# See: docs/dev/CTREES-UCHUU-VALIDATION.md for the full validation checklist
+
+halo_properties:
+  # --- merger-tree topology links (consumed directly by the core driver) ---
+  - name: Descendant
+    type: int
+    units: dimensionless
+    description: Index of the descendant halo in this tree, or -1 if none
+    provides_core_role: Descendant
+
+  - name: FirstProgenitor
+    type: int
+    units: dimensionless
+    description: Index of the first progenitor halo in this tree, or -1 if none
+    provides_core_role: FirstProgenitor
+
+  - name: NextProgenitor
+    type: int
+    units: dimensionless
+    description: Index of the next progenitor linked to the same descendant, or -1 if none
+    provides_core_role: NextProgenitor
+
+  - name: FirstHaloInFOFgroup
+    type: int
+    units: dimensionless
+    description: Index of the first halo in this FoF group
+    provides_core_role: FirstHaloInFOFgroup
+
+  - name: NextHaloInFOFgroup
+    type: int
+    units: dimensionless
+    description: Index of the next halo in this FoF group, or -1 if none
+    provides_core_role: NextHaloInFOFgroup
+
+  # --- particle count (core required input) ---
+  - name: Len
+    type: int
+    units: particles
+    description: Number of particles in the catalog halo
+    provides_core_role: Len
+
+  # --- catalog masses ---
+  - name: M_Mean200
+    source: M_mean200
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+    notes: Unused catalog field, read only to preserve the on-disk record layout
+
+  - name: M_Crit200
+    source: Mvir
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+    description: Catalog spherical-overdensity halo mass, M200c
+    provides_core_role: HaloMass
+    notes: Interpreted as output Mvir for FoF centrals when non-negative; otherwise core uses Len times particle_mass; policy lives in C core, not enforced by this field
+
+  - name: M_TopHat
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+    notes: Unused catalog field, read only to preserve the on-disk record layout
+
+  # --- output halo properties (copied from the tree) ---
+  - name: Pos
+    type: vec3_float
+    units: Mpc/h
+    h_convention: carried
+    description: 3D position vector (comoving coordinates)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [0.0, 400.0]
+
+  - name: Vel
+    type: vec3_float
+    units: km/s
+    h_convention: none
+    description: 3D velocity vector (peculiar velocity)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [-5000.0, 5000.0]
+
+  - name: VelDisp
+    type: float
+    units: km/s
+    h_convention: none
+    description: Velocity dispersion
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+    range: [0.0, 5000.0]
+
+  - name: Vmax
+    type: float
+    units: km/s
+    h_convention: none
+    description: Maximum circular velocity
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+    range: [10.0, 5000.0]
+
+  - name: Spin
+    type: vec3_float
+    units: dimensionless
+    description: Dimensionless spin parameter (Bullock definition)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [-20.0, 20.0]
+
+  - name: MostBoundID
+    type: long long
+    units: dimensionless
+    description: ID of most bound particle (Rockstar halo id from ctrees conversion)
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+
+  # --- snapshot index (core required input; core owns the halo property) ---
+  - name: SnapNum
+    type: int
+    units: dimensionless
+    description: Snapshot number (index in simulation output)
+    provides_core_role: SnapNum
+
+  # --- catalog bookkeeping fields (registered for a complete on-disk record) ---
+  - name: FileNr
+    source: Filenr
+    type: int
+    units: dimensionless
+    notes: Unused catalog field, read only to preserve the on-disk record layout
+
+  - name: SubhaloIndex
+    source: SubHaloIndex
+    type: int
+    units: dimensionless
+    notes: Unused catalog field, read only to preserve the on-disk record layout
+
+  - name: SubHalfMass
+    type: float
+    units: 1e10 Msun/h
+    h_convention: carried
+    notes: Unused catalog field, read only to preserve the on-disk record layout

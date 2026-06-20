@@ -1,18 +1,20 @@
-# Mimic SAGE on micro-Uchuu Run Configuration - L-Halo binary
+# Mimic SAGE on Full Uchuu Run Configuration - uchuutools forests-HDF5
 #
-# Preferred micro-Uchuu production path while this tier has a valid L-Halo package.
-# This is not a suite-wide Uchuu default; mini/full Uchuu choose their best valid
-# packaging independently.
+# Primary (and only practical) format for full Uchuu. Serial run covers
+# File0 only (~1.53M forests). Production science runs require MPI with
+# at least ~3,220 tasks (1M forest/task galaxy-id limit; target 4000-6000).
+# Verify the HDF5 ExternalLink reader path with a halos-only smoke run
+# before the first SAGE production run.
 
 model:
   name: sage16
 
 simulation:
-  name: micro-uchuu-lhalo
+  name: uchuu
 
 output:
   output_filename: model
-  output_directory: output/sage16-micro-uchuu-lhalo
+  output_directory: output/sage16-uchuu
   output_format: hdf5
   snapshot_list: [49, 28, 23, 16, 12, 10, 8, 7]
 

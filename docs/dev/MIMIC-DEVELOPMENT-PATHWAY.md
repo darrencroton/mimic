@@ -1,7 +1,7 @@
 # Mimic Development Pathway
 
 **Status:** Active planning index for `docs/dev/`.
-**Date:** 2026-06-19
+**Date:** 2026-06-20
 **Scope:** Defines the current release position, active planning documents, source-of-truth boundaries, and near-term sequence for Mimic v1.0 and the first post-v1.0 architecture choices.
 
 ---
@@ -46,7 +46,7 @@ That reader generalisation was not Phase 0 by itself. It removed much of the old
 
 1. **Keep the completed v1.0 sweep closed.** Treat the optimisation/review sweep as done, not as a continuing umbrella for unrelated cleanup. New fixes before v1.0 should be release blockers, validation fallout, or narrowly scoped polish from final gates.
 
-2. **Keep `CTREES-UCHUU-VALIDATION.md` current.** The repository has the readers, unit/helper coverage, three validated micro-Uchuu simulation packages (`micro-uchuu-hdf5`, `micro-uchuu-ascii`, `micro-uchuu-lhalo`), and SAGE16 input files for all three retained formats. The real-data halos-only runs have validated exact agreement for `SnapNum < 49`; the `SnapNum == 49` ASCII difference is understood as the intentional `fix_flybys` policy. The real-data SAGE16 runs complete across all three formats and produce reasonable scientific plots. Keep all three micro-Uchuu formats while mini-Uchuu and full Uchuu imports are assessed. There is no suite-wide default format: choose the best supported packaging at each tier. For micro-Uchuu, L-Halo binary is the preferred long-term package; full Uchuu currently has no L-Halo package, and mini-Uchuu packaging is still being surveyed.
+2. **Keep `CTREES-UCHUU-VALIDATION.md` current.** The repository has the readers, unit/helper coverage, and simulation packages for the full Uchuu suite: `micro-uchuu` (L-Halo binary, preferred) and `micro-uchuu-hdf5` (forests-HDF5, cross-validation) for micro-Uchuu; `mini-uchuu` (L-Halo binary) for mini-Uchuu; `uchuu` (forests-HDF5) for full Uchuu. The micro-Uchuu ASCII package is archived. The real-data halos-only runs have validated exact agreement for `SnapNum < 49`; the `SnapNum == 49` difference between ASCII and L-Halo/HDF5 is understood as the intentional `fix_flybys` policy. The real-data SAGE16 runs complete for all active micro-Uchuu packages and produce reasonable scientific plots. mini-Uchuu and full Uchuu packages are created; smoke tests pending data symlinks on NT. There is no suite-wide default format: choose the best supported packaging at each tier.
 
 3. **Run final release hygiene.** The current micro-Uchuu SAGE16 validation and disk-instability transfer-boundary fix have passed baseline and test checks. Before tagging, run the generated-code, metadata, docs, format/lint, and relevant test gates one final time in the release environment. At minimum this means `make check-generated`, `make validate-modules`, `make check-docs`, `make check-format`, and the standard test tiers in summary/logged form. Any non-zero exit code is a release blocker.
 

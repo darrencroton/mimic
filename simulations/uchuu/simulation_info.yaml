@@ -1,0 +1,37 @@
+# Full Uchuu Simulation Metadata — uchuutools forests-HDF5 format
+#
+# Data on NT at /fred/oz214/simulations/uchuu/U2000/mergertree/.
+# `snapshots/` here is a symlink to that directory; see snapshots.txt.
+# Entry point: mergertree_info.h5 (110 KB index). Each File<n> group in the
+# info file is an HDF5 ExternalLink to "/" of mergertree_N.h5 (~44 GB each).
+# All 2001 files (info + 2000 data files, 37 TB total) must remain co-located;
+# set tree_name to the info file only.
+#
+# Snap_idx is stored as float64 (not integer) — the reader auto-detects this.
+# Positions are in Mpc/h. M_Crit200 is native Mvir in Msun/h.
+#
+# MPI scale: 3.22 billion forests requires at least ~3,220 tasks (1M/task limit).
+# Use linear distribution scheme to balance the very unequal forest sizes.
+
+input:
+  first_file: 0
+  last_file: 1999
+  tree_name: mergertree_info.h5
+  tree_type: consistent_trees_hdf5
+  simulation_dir: simulations/uchuu/snapshots
+  snapshot_list_file: simulations/uchuu/uchuu.a_list
+  forest_distribution_scheme: linear     # weight by ForestNhalos for MPI load balance
+
+simulation:
+  cosmology:
+    omega_matter: 0.3089
+    omega_lambda: 0.6911
+    hubble_h: 0.6774
+  box_size:
+    value: 2000.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0325
+    units: 1e10 Msun/h
+    h_convention: carried

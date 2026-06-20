@@ -12,8 +12,8 @@ input:
   last_file: 3
   tree_name: Uchuu100_Planck_lhalo_binary
   tree_type: lhalo_binary
-  simulation_dir: simulations/micro-uchuu-lhalo/snapshots
-  snapshot_list_file: simulations/micro-uchuu-lhalo/micro-uchuu.a_list
+  simulation_dir: simulations/micro-uchuu/snapshots
+  snapshot_list_file: simulations/micro-uchuu/micro-uchuu.a_list
 
 simulation:
   cosmology:

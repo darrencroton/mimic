@@ -1,19 +1,16 @@
-# micro-Uchuu Halo Catalog Properties — Consistent-Trees ASCII format
+# Full Uchuu Halo Catalog Properties — uchuutools forests-HDF5 format
 #
-# Defines the RawHalo contract for the consistent_trees_ascii reader. The reader
+# Defines the RawHalo contract for the consistent_trees_hdf5 reader. The reader
 # bridges Consistent-Trees columns into RawHalo by field name via
-# bridge_halo_data_to_rawhalo() in read_ctrees_ascii.c. Only the fields that
-# bridge writes are declared here; there is no on-disk struct to pad out with
-# bookkeeping fields.
+# bridge_halo_data_to_rawhalo() (shared with the ASCII reader). Only the fields
+# that bridge writes are declared here; there is no on-disk struct to pad out
+# with bookkeeping fields.
 #
-# This file is structurally identical to micro-uchuu-hdf5/halo_properties.yaml
-# because both readers use the same bridge and the same RawHalo contract. The
-# two simulation packages exist so the ctrees_hdf5 and ctrees_ascii readers can
-# be cross-checked against the same underlying Uchuu halos.
-#
-# Key unit difference from the L-Halo binary format: M_Crit200 carries the
-# native ctrees Mvir in Msun/h (not 1e10 Msun/h); the generated reference-unit
-# accessor applies the ×1e-10 conversion. Positions are already in Mpc/h.
+# Key unit difference from L-Halo binary: M_Crit200 carries the native ctrees
+# Mvir in Msun/h (not 1e10 Msun/h); the generated reference-unit accessor
+# applies the ×1e-10 conversion. Positions are in Mpc/h (confirmed from column
+# header: "#X/Y/Z: Halo position (Mpc/h comoving)"). Snap_idx is stored as
+# float64 in this dataset; the reader auto-detects and handles the float type.
 # Spin is dimensionless J/Mvir after apply_ctrees_value_conventions().
 # Len is derived: round(Mvir * 1e-10 / particle_mass).
 #
@@ -21,7 +18,11 @@
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
 # NextHaloInFOFgroup, SnapNum, Len, HaloMass.
 #
-# See: docs/dev/CTREES-UCHUU-VALIDATION.md for the full validation checklist
+# Mirror maintenance: keep this file in sync with micro-uchuu-hdf5 when
+# changing the ctrees RawHalo contract. Only the Pos range differs.
+#
+# See: docs/dev/CTREES-UCHUU-VALIDATION.md §8 for the full survey and
+# compatibility check for this dataset.
 
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---
@@ -79,7 +80,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    range: [0.0, 100.0]
+    range: [0.0, 2000.0]
 
   - name: Vel
     type: vec3_float

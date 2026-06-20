@@ -1,17 +1,18 @@
-# Mimic SAGE on micro-Uchuu Run Configuration - Consistent-Trees ASCII
+# Mimic SAGE on mini-Uchuu Run Configuration - L-Halo binary
 #
-# Retained as a compatibility/provenance path. At SnapNum 49, interpret
-# central/satellite differences through the documented ASCII fix_flybys policy.
+# Preferred mini-Uchuu production path. L-Halo binary is the recommended
+# format for this tier (92 GB, 128 files). No forests-HDF5 packaging exists
+# for mini-Uchuu on NT.
 
 model:
   name: sage16
 
 simulation:
-  name: micro-uchuu-ascii
+  name: mini-uchuu
 
 output:
   output_filename: model
-  output_directory: output/sage16-micro-uchuu-ascii
+  output_directory: output/sage16-mini-uchuu
   output_format: hdf5
   snapshot_list: [49, 28, 23, 16, 12, 10, 8, 7]
 

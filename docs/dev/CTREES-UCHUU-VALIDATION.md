@@ -1,6 +1,6 @@
 # Consistent-Trees (Uchuu) reader validation
 
-Status: **micro-Uchuu validated for halos-only and SAGE16 across ASCII, forests-HDF5, and L-Halo.** This document records the import evidence, retained format policy, and operator notes for moving from micro-Uchuu into mini/full Uchuu package assessment. The ASCII reader (`consistent_trees_ascii`) reads the Rockstar `forests.list` + `locations.dat` + `tree_i_j_k.dat` output; the HDF5 reader (`consistent_trees_hdf5`, HDF5 builds only) reads the forests-HDF5 packaging produced by uchuutools.
+Status: **micro-Uchuu validated for halos-only and SAGE16 across ASCII, forests-HDF5, and L-Halo. mini-Uchuu (`simulations/mini-uchuu/`) and full Uchuu (`simulations/uchuu/`) packages created; smoke tests pending data symlinks.** This document records the import evidence, retained format policy, and operator notes for the Uchuu suite. The ASCII reader (`consistent_trees_ascii`) reads the Rockstar `forests.list` + `locations.dat` + `tree_i_j_k.dat` output; the HDF5 reader (`consistent_trees_hdf5`, HDF5 builds only) reads the forests-HDF5 packaging produced by uchuutools.
 
 ## Current outcome
 
@@ -8,7 +8,7 @@ The three micro-Uchuu packages have been run with the `halos-only` model and val
 
 The three micro-Uchuu packages have also been run with `sage16`. All three SAGE16 runs complete, the scientific plots look reasonable, the baseline remains acceptable after the disk-instability transfer-boundary fix, and the test suite is green.
 
-Keep all three micro-Uchuu formats while mini-Uchuu and full Uchuu imports are surveyed. There is no single default format across the whole Uchuu suite. The preferred format is tier-specific: micro-Uchuu will eventually prefer its L-Halo binary package, full Uchuu currently has no L-Halo package, and mini-Uchuu packaging is still being assessed. Use the micro-Uchuu packages as policy and workflow fixtures while choosing the best valid packaging at each larger tier.
+Keep the two active micro-Uchuu formats (`micro-uchuu` L-Halo and `micro-uchuu-hdf5` forests-HDF5) for cross-format validation; the ASCII package is archived. There is no single default format across the whole Uchuu suite. The preferred format is tier-specific: micro-Uchuu prefers its L-Halo binary package (`simulations/micro-uchuu/`); mini-Uchuu prefers L-Halo binary (`simulations/mini-uchuu/`, 92 GB, 128 files); full Uchuu has no practical L-Halo package (12 TB) and the forests-HDF5 package is the primary format (`simulations/uchuu/`, 37 TB, 2001 files). See §7–8 for the full mini/full Uchuu survey and §10 for SAGE16 micro-Uchuu validation status.
 
 ## What is and isn't in the repository
 
@@ -312,8 +312,8 @@ Three simulation packages covering formats #1, #3, and #5 have been created in t
 | Package directory | Format | tree_type |
 |---|---|---|
 | `simulations/micro-uchuu-hdf5/` | uchuutools forests-HDF5 (format #1) | `consistent_trees_hdf5` |
-| `simulations/micro-uchuu-ascii/` | Consistent-Trees ASCII (format #3) | `consistent_trees_ascii` |
-| `simulations/micro-uchuu-lhalo/` | L-Halo binary (format #5) | `lhalo_binary` |
+| `simulations/micro-uchuu/` | L-Halo binary (format #5) | `lhalo_binary` |
+| ~~`simulations/micro-uchuu-ascii/`~~ | *(archived — Consistent-Trees ASCII)* | — |
 
 To activate a package, create the `snapshots/` symlink (see each package's `snapshots.txt`) and build:
 
@@ -323,18 +323,18 @@ ln -s /fred/oz214/simulations/uchuu/U100/mergertrees simulations/micro-uchuu-hdf
 make MODEL=halos-only SIMULATION=micro-uchuu-hdf5 -j$(nproc)
 ./mimic models/halos-only/input/halos-only_micro-uchuu-hdf5.yaml
 
-# ASCII reader
-ln -s /fred/oz214/simulations/uchuu/U100/mergertrees/ascii_trees simulations/micro-uchuu-ascii/snapshots
-make MODEL=halos-only SIMULATION=micro-uchuu-ascii -j$(nproc)
-./mimic models/halos-only/input/halos-only_micro-uchuu-ascii.yaml
+# L-Halo binary reader (preferred)
+ln -s /fred/oz214/simulations/uchuu/U100/lhalo-binary-mergertree simulations/micro-uchuu/snapshots
+make MODEL=halos-only SIMULATION=micro-uchuu -j$(nproc)
+./mimic models/halos-only/input/halos-only_micro-uchuu.yaml
 
-# L-Halo binary reader
-ln -s /fred/oz214/simulations/uchuu/U100/lhalo-binary-mergertree simulations/micro-uchuu-lhalo/snapshots
-make MODEL=halos-only SIMULATION=micro-uchuu-lhalo -j$(nproc)
-./mimic models/halos-only/input/halos-only_micro-uchuu-lhalo.yaml
+# ASCII reader (archived; kept for reference only)
+# ln -s /fred/oz214/simulations/uchuu/U100/mergertrees/ascii_trees simulations/micro-uchuu-ascii/snapshots
+# make MODEL=halos-only SIMULATION=micro-uchuu-ascii -j$(nproc)
+# ./mimic models/halos-only/input/halos-only_micro-uchuu-ascii.yaml
 ```
 
-**Key `halo_properties.yaml` difference:** The ctrees packages (`micro-uchuu-hdf5`, `micro-uchuu-ascii`) declare `M_Crit200` with `units: Msun/h` (native ctrees units). The lhalo package uses `units: 1e10 Msun/h` (same as mini-Millennium). This means the generated reference-unit accessor for ctrees applies the `× 1e-10` conversion automatically, while the lhalo package stores the pre-converted value directly.
+**Key `halo_properties.yaml` difference:** `micro-uchuu-hdf5` declares `M_Crit200` with `units: Msun/h` (native ctrees units). The L-Halo package (`micro-uchuu`) uses `units: 1e10 Msun/h` (same as mini-Millennium). This means the generated reference-unit accessor for ctrees applies the `× 1e-10` conversion automatically, while the lhalo package stores the pre-converted value directly.
 
 Format #4 (4-file HDF5) is not yet a separate package. To test it, point a copy of `micro-uchuu-hdf5/simulation_info.yaml` at `ascii_trees/forest.h5` with `first_file: 0`, `last_file: 3`.
 
@@ -355,7 +355,173 @@ When creating the `simulations/micro-uchuu/halo_properties.yaml`, see §1a for t
 
 ---
 
-## 7. Integration tests
+## 7. mini-Uchuu (U400) on NT: dataset survey and import guidance
+
+Surveyed 2026-06-20. All oz214 U400 datasets have the correct mini-Uchuu cosmology (Planck 2015: Ω_M=0.3089, Ω_Λ=0.6911, h=0.6774, box=400 Mpc/h, m_p=0.0325×10¹⁰ M☉/h, 50 snapshots from a=0.066964 to a=0.999887). Scale factor list: `/fred/oz214/simulations/uchuu/U400/Uchuu400_scalefactor.txt`.
+
+**Note on oz004 U400:** `/fred/oz004/msinha/simulations/uchuu_suite/U400/` is a separate physical directory from oz214 (different inodes). The oz004 ASCII trees are byte-identical to oz214 (confirmed by matching `locations.dat` first entry: `1827183127 340 3665 tree_5_2_4.dat`). These were an earlier copy; prefer oz214.
+
+### 7a. Dataset inventory — mini-Uchuu
+
+| # | Location (on NT) | Format | Files | Size | Compatible? |
+|---|---|---|---|---|---|
+| 1 | `/fred/oz214/simulations/uchuu/U400/lhalo-binary-mergertree/Uchuu400_Planck_lhalo_binary.{0..127}` | L-Halo binary (SAGE) | 128 files | 92 GB | **Yes** — `lhalo_binary` |
+| 2 | `/fred/oz214/simulations/uchuu/U400/mergertree/` | Consistent-Trees ASCII | 512 `.trees` files + 512 `tree_*.dat` symlinks | ~360 GB | **Yes** — `consistent_trees_ascii` |
+| 3 | oz004 `/fred/oz004/.../Uchuu400Planck2016_C50/tree_*.dat` | Consistent-Trees ASCII (identical data) | 512 files (no symlinks) | same | **Redundant** — prefer oz214 format #2 |
+| 4 | oz004 `/fred/oz004/.../Uchuu400Planck2016_C50/lhalo/lhalotree.bin.{0..511}` | Genesis L-Halo binary | 512 + 4 index files | 95 GB | **No** — genesis format, incompatible with `lhalo_binary` reader |
+
+**No forests-HDF5 (uchuutools) packaging exists for mini-Uchuu on NT.** If needed, it must be generated from the ASCII trees.
+
+### 7b. Format details
+
+**L-Halo binary (#1):** Standard SAGE `lhalo_binary` format; binary header confirmed (file 0: ntrees=201,900, tothalos=13,234,924). The `miniuchuu.par` left in the directory is a SAGE conversion run artefact pointing at the ASCII trees — ignore it. 128 files are numbered `Uchuu400_Planck_lhalo_binary.0` through `.127`.
+
+**Consistent-Trees ASCII (#2):** Actual files are named `MiniUchuu_i_j_k.trees`; `tree_i_j_k.dat` are symlinks (created Oct 2021). The reader finds them transparently via the standard `tree_0_0_0.dat` naming. `forests.list` → `MiniUchuu.forests`, `locations.dat` → `MiniUchuu.locations`. Forests/trees count: ~33.5 million. 512 files form a perfect 8×8×8 cube (reader validates this). Snapshot field: `Snap_num` (older ctrees name; reader auto-detects). Positions in Mpc/h (confirmed from column header).
+
+**Genesis lhalo (#4):** Files named `lhalotree.bin.N` with auxiliary `forests.bin`, `locations.bin`, `lhalotree_offsets.dat`, `output_order_forests.dat`. This is the genesis/Meraxes L-Halo variant with forest-indexed offsets. Not supported by Mimic's `lhalo_binary` reader (different file structure and no offset-index files). Do not use.
+
+### 7c. Recommended packages for mini-Uchuu
+
+**Primary (created):** `lhalo_binary` (format #1). Same format and particle mass as micro-Uchuu L-Halo; 92 GB is compact enough for development and science use. Package: `simulations/mini-uchuu/`.
+
+**Secondary (not yet created):** `consistent_trees_ascii` (format #2). Provides ASCII reader coverage at mini-Uchuu scale. 512-file perfect cube satisfies the reader's cube-count validation. Package would be `simulations/mini-uchuu-ascii/`.
+
+The HDF5 package (if created later) would follow the uchuutools generation and packaging from the ASCII trees, following the same pattern as micro-Uchuu HDF5.
+
+### 7d. Simulation package parameters — mini-Uchuu
+
+Both packages use the same cosmology block as micro-Uchuu; only box size, file count, and a_list path differ.
+
+**L-Halo binary (`mini-uchuu`):**
+```yaml
+input:
+  tree_type: lhalo_binary
+  first_file: 0
+  last_file: 127
+  tree_name: Uchuu400_Planck_lhalo_binary
+  simulation_dir: simulations/mini-uchuu/snapshots
+  snapshot_list_file: simulations/mini-uchuu/mini-uchuu.a_list
+
+simulation:
+  cosmology: { omega_matter: 0.3089, omega_lambda: 0.6911, hubble_h: 0.6774 }
+  box_size: { value: 400.0, units: Mpc/h, h_convention: carried }
+  particle_mass: { value: 0.0325, units: 1e10 Msun/h, h_convention: carried }
+```
+Snapshots symlink: `ln -s /fred/oz214/simulations/uchuu/U400/lhalo-binary-mergertree simulations/mini-uchuu/snapshots`
+
+**Consistent-Trees ASCII (`mini-uchuu-ascii`, not yet created):**
+```yaml
+input:
+  tree_type: consistent_trees_ascii
+  tree_name: tree_0_0_0.dat
+  first_file: 0
+  last_file: 511
+  simulation_dir: simulations/mini-uchuu-ascii/snapshots
+  snapshot_list_file: simulations/mini-uchuu-ascii/mini-uchuu.a_list
+
+simulation:
+  cosmology: { omega_matter: 0.3089, omega_lambda: 0.6911, hubble_h: 0.6774 }
+  box_size: { value: 400.0, units: Mpc/h, h_convention: carried }
+  particle_mass: { value: 0.0325, units: 1e10 Msun/h, h_convention: carried }
+```
+Snapshots symlink: `ln -s /fred/oz214/simulations/uchuu/U400/mergertree simulations/mini-uchuu-ascii/snapshots`
+
+**`halo_properties.yaml` notes:** Follow the same `M_Crit200` unit convention as the corresponding micro-Uchuu package. The lhalo package declares `units: 1e10 Msun/h` (pre-converted, matching mini-Millennium). The ASCII package declares `units: Msun/h` (native ctrees, triggers `×1e-10` in the accessor). See §6d of this document.
+
+**a_list:** Use the 50-line file at `/fred/oz214/simulations/uchuu/U400/Uchuu400_scalefactor.txt` (a=0.066964 to 0.999887). The scale factor values are numerically identical to those in the oz004 `u400_planck2016_50.a_list` (different precision in text, same values). The oz214 file is the authoritative source.
+
+---
+
+## 8. Full Uchuu (U2000) on NT: dataset survey and import guidance
+
+Surveyed 2026-06-20. The full Uchuu simulation uses the same Planck 2015 cosmology as micro- and mini-Uchuu (Ω_M=0.3089, Ω_Λ=0.6911, h=0.6774), box=2000 Mpc/h, m_p=0.0325×10¹⁰ M☉/h, 50 snapshots from a=0.06686 to a=0.99998. Scale factor list: `/fred/oz214/simulations/uchuu/U2000/Uchuu_scalefactor.txt`. Total content: 3.22 billion forests, 181.5 billion halos (across all snapshots).
+
+**Identity note:** `/fred/oz004/msinha/simulations/uchuu_suite/U2000/U2000/` and `/fred/oz214/simulations/uchuu/U2000/` are the same physical directory (same inode: 144121735233534152). There is only one copy of the full Uchuu data on NT. The oz004 path is an alias; use the oz214 path in all package configs.
+
+### 8a. Dataset inventory — full Uchuu
+
+| # | Location (on NT, under `/fred/oz214/simulations/uchuu/U2000/`) | Format | Files | Size | Compatible? |
+|---|---|---|---|---|---|
+| 1 | `mergertree/mergertree_info.h5` + `mergertree_{0..1999}.h5` | uchuutools forests-HDF5 (external link) | 2001 files | 37 TB | **Yes** — `consistent_trees_hdf5` |
+| 2 | `lhalo-binary-mergertree/Uchuu2000_Planck.{0..383}` | L-Halo binary (SAGE) | 384 files | 12 TB | **Yes** — `lhalo_binary` (impractical) |
+
+No ASCII consistent-trees packaging for full Uchuu exists on NT.
+
+### 8b. HDF5 format details (format #1)
+
+The `mergertree_info.h5` file (110 KB) is the reader entry point. Its root attributes:
+
+| Attribute | Value |
+|---|---|
+| `Nfiles` | 2000 |
+| `TotNforests` | 3,217,129,029 |
+| `TotNhalos` | 181,519,165,491 |
+| `TotNtrees` | 4,196,910,478 |
+
+**External link architecture.** Each `File<n>` group in `mergertree_info.h5` is an HDF5 ExternalLink pointing to `/` (the root) of `mergertree_N.h5`. This differs from micro-Uchuu, where `File0/Forests/*` datasets are HDF5 virtual datasets (VDS) inside the info file. For full Uchuu, `File0` in the info file *is* the root of `mergertree_0.h5` — resolved transparently by the HDF5 library. Each data file (`mergertree_N.h5`, ~44 GB each) has `ForestInfo`, `Forests`, `TreeInfo`, and `simulation_params` at its root. All 2001 files must remain co-located; the relative path `mergertree_N.h5` is embedded in the ExternalLink.
+
+**Reader compatibility check:**
+
+| Attribute / field | Expected | Actual | Status |
+|---|---|---|---|
+| Root `Nfiles` | present | `int64`, 2000 | ✓ |
+| Root `TotNforests` | present | `int64`, 3.22B | ✓ |
+| `File<n>/contiguous-halo-props` | `1` | `True` | ✓ |
+| `File<n>/simulation_params` | Omega_M/Omega_L/hubble/Boxsize | all present, correct values | ✓ |
+| `File<n>/ForestInfo` compound dtype | 4 × int64 (32 bytes) | `ForestID`, `ForestHalosOffset`, `ForestNhalos`, `ForestNtrees` (32 bytes) | ✓ |
+| `File<n>/Forests/Descendant` etc. | all required fields | present | ✓ |
+| Snapshot field | `Snap_num` or `Snap_idx` | `Snap_idx` as `float64` | ✓ (auto-detected, reader handles float64) |
+| Positions | declared in pkg | Mpc/h (confirmed from column header) | declare Mpc/h |
+| Mass units | Msun/h (native ctrees) | values ~10¹² Msun/h (e.g. 3.098×10¹²) | ✓ — declare `Msun/h` |
+| External links (C reader) | not yet tested with Mimic | SAGE C reader ran successfully (galaxies exist) | **unverified with Mimic — run smoke test first** |
+
+### 8c. L-Halo binary details (format #2)
+
+128-file count confirmed (0–383 via `sort -V`). Binary header for file 0: ntrees=8,377,941, tothalos=474,763,089 — standard SAGE lhalo format. Total 12 TB (avg ~31 GB/file, file 0 is 47 GB). The `uchuu.par` in the lhalo directory is a run artefact pointing at the HDF5 trees — ignore it.
+
+This format is compatible with Mimic's `lhalo_binary` reader but is not practical for development or regular science use. The HDF5 format is preferred at this tier.
+
+### 8d. Recommended packages for full Uchuu
+
+**Primary (created):** `consistent_trees_hdf5` (format #1). Package: `simulations/uchuu/`. Verify external link resolution with a Mimic smoke run before any production use.
+
+**Not recommended for regular use:** `lhalo_binary` (format #2). 12 TB and 384 files. Only create `simulations/uchuu-lhalo/` if a specific science case requires it and adequate storage is available.
+
+### 8e. Simulation package parameters — full Uchuu
+
+**HDF5 (`uchuu`):**
+```yaml
+input:
+  tree_type: consistent_trees_hdf5
+  tree_name: mergertree_info.h5
+  first_file: 0
+  last_file: 1999
+  simulation_dir: simulations/uchuu/snapshots
+  snapshot_list_file: simulations/uchuu/uchuu.a_list
+  forest_distribution_scheme: linear      # weight by halo count; 3.2B forests need balance
+
+simulation:
+  cosmology: { omega_matter: 0.3089, omega_lambda: 0.6911, hubble_h: 0.6774 }
+  box_size: { value: 2000.0, units: Mpc/h, h_convention: carried }
+  particle_mass: { value: 0.0325, units: 1e10 Msun/h, h_convention: carried }
+```
+Snapshots symlink: `ln -s /fred/oz214/simulations/uchuu/U2000/mergertree simulations/uchuu/snapshots`
+
+**`halo_properties.yaml`:** Follow the same `M_Crit200` unit convention as `micro-uchuu-hdf5` (declare `units: Msun/h`, not `1e10 Msun/h`). Position units: Mpc/h. Snapshot field: `Snap_idx` (auto-detected).
+
+**a_list:** Use the 50-line file at `/fred/oz214/simulations/uchuu/U2000/Uchuu_scalefactor.txt` (a=0.06686 to 0.99998). **Note:** the scale factor values for full Uchuu differ slightly from micro-Uchuu (0.06686 vs 0.06688) and mini-Uchuu (0.06686 vs 0.066964). Each tier needs its own a_list.
+
+### 8f. MPI scale constraints for full Uchuu
+
+- Galaxy-id formula: `halonr + TREE_MUL_FAC·forestnr_local + FILENR_MUL_FAC·ThisTask`
+- Maximum forests per task: `FILENR_MUL_FAC / TREE_MUL_FAC = 1,000,000`
+- Full Uchuu has 3.22 billion forests → minimum ~3,220 MPI tasks to stay within bounds
+- Maximum tasks: ~9,000 before the task-ID term causes 64-bit overflow
+- Plan production runs in the range of 3,220–9,000 tasks; 4,000–6,000 is a practical target
+
+---
+
+## 9. Integration tests
 
 ### 7a. Per-package smoke tests (created, skip until data available)
 
@@ -372,8 +538,9 @@ When data is available, the smoke tests run a halos-only z=0 pass and assert:
 Run them:
 ```bash
 make MODEL=halos-only SIMULATION=micro-uchuu-hdf5 tests-integration
-make MODEL=halos-only SIMULATION=micro-uchuu-ascii tests-integration
-make MODEL=halos-only SIMULATION=micro-uchuu-lhalo tests-integration
+make MODEL=halos-only SIMULATION=micro-uchuu tests-integration
+make MODEL=halos-only SIMULATION=mini-uchuu tests-integration
+make MODEL=halos-only SIMULATION=uchuu tests-integration
 ```
 
 ### 7b. Cross-format validation status
@@ -382,11 +549,11 @@ Do not add a standing cross-format integration gate for micro-Uchuu at this stag
 
 If a future reader change, converter change, or mini/full Uchuu packaging decision reopens format-equivalence risk, add a targeted integration test then. It should emit structured `MIMIC_RESULT:` markers, gate on data availability with `TestSkipped`, and compare only the specific format contract being changed.
 
-## 8. SAGE16 micro-Uchuu validation status
+## 10. SAGE16 micro-Uchuu validation status
 
-- [x] `sage16_micro-uchuu-lhalo.yaml` runs successfully; this remains the preferred micro-Uchuu production path while L-Halo is available at this tier.
+- [x] `sage16_micro-uchuu.yaml` runs successfully; this is the preferred micro-Uchuu production path.
 - [x] `sage16_micro-uchuu-hdf5.yaml` runs successfully as the main non-L-Halo reader check.
-- [x] `sage16_micro-uchuu-ascii.yaml` runs successfully as a compatibility/provenance check; interpret `SnapNum == 49` Type 0/Type 1 differences through the `fix_flybys()` policy.
+- [x] `sage16_micro-uchuu-ascii.yaml` ran successfully (now archived; interpret `SnapNum == 49` Type 0/Type 1 differences through the `fix_flybys()` policy).
 - [x] Scientific plots from the SAGE16 micro-Uchuu runs look reasonable.
 - [x] Baseline and tests are green after the disk-instability transfer-boundary fix.
 - [ ] For future scientific comparison across the three formats, compare `SnapNum < 49` directly. At `SnapNum == 49`, compare total counts and physics sanity, not Type 0-only halo mass functions between ASCII and the other formats.

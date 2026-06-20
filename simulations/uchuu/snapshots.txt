@@ -1,0 +1,20 @@
+NT path: /fred/oz214/simulations/uchuu/U2000/mergertree
+
+Both the index file and all 2000 data files must be present in this directory
+(37 TB total):
+
+  mergertree_info.h5          (110 KB index; each File<n> group is an HDF5
+                               ExternalLink to "/" of the corresponding data file)
+  mergertree_0.h5             (~44 GB data for File0 — 1.53M forests, 83M halos)
+  mergertree_1.h5
+  ...
+  mergertree_1999.h5
+
+Set tree_name: mergertree_info.h5. The HDF5 library resolves ExternalLinks
+transparently; all 2001 files must remain co-located.
+
+Note: uchuu.par in the lhalo-binary-mergertree directory is unrelated; the
+mergertree directory contains only HDF5 tree files plus download metadata.
+
+Create the snapshots symlink with:
+  ln -s /fred/oz214/simulations/uchuu/U2000/mergertree simulations/uchuu/snapshots
