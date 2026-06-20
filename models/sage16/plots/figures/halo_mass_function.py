@@ -15,13 +15,13 @@ from matplotlib.ticker import MultipleLocator
 from output_utils import (
     calculate_mass_function,
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
 )
 
 # Physical limits for halo mass functions
-HALO_MASS_MIN = 10.0  # log10(Msun) - below resolution limit
 HALO_MASS_MAX = 16.0  # log10(Msun) - above cluster scale
 BINWIDTH_DEX = 0.1  # Standard bin width in dex
 PLOT_XLIM = (10.0, 15.0)  # Plot x-axis limits
@@ -67,6 +67,10 @@ def plot(
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
 
+    mass_min, mass_max, y_min, y_max = get_profile_axes(
+        params, "halo_mass_function", PLOT_XLIM, PLOT_YLIM, log_y=True
+    )
+
     # Prepare data - select halos (Type 0 = central galaxies = halos) with valid masses
     w = np.where((galaxies.Type == 0) & (galaxies.Mvir > 0.0))[0]
 
@@ -82,12 +86,12 @@ def plot(
 
     # Calculate halo mass function
     xaxis, hmf = calculate_mass_function(
-        mass, volume, hubble_h, BINWIDTH_DEX, HALO_MASS_MIN, HALO_MASS_MAX
+        mass, volume, hubble_h, BINWIDTH_DEX, mass_min, HALO_MASS_MAX
     )
 
     # Print debugging info
     if verbose:
-        print(f"  mi={HALO_MASS_MIN}, ma={HALO_MASS_MAX}")
+        print(f"  mi={mass_min}, ma={HALO_MASS_MAX}")
         print(f"  min mass={min(mass)}, max mass={max(mass)}")
         print(f"  volume={volume}, hubble_h={hubble_h}")
         print(f"  Number of halos: {len(w)}")
@@ -97,8 +101,8 @@ def plot(
 
     # Customize the plot
     ax.set_yscale("log")
-    ax.set_xlim(*PLOT_XLIM)
-    ax.set_ylim(*PLOT_YLIM)
+    ax.set_xlim(mass_min, mass_max)
+    ax.set_ylim(y_min, y_max)
     ax.xaxis.set_minor_locator(MultipleLocator(BINWIDTH_DEX))
 
     # Set labels with larger font sizes

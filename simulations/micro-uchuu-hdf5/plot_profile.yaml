@@ -9,3 +9,4 @@ axes:
     ylim: [0.0, 100.0]
   halo_mass_function:
     xmin: 9.0
+    ymax: -0.6

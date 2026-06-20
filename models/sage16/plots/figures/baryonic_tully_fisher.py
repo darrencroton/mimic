@@ -15,7 +15,12 @@ import numpy as np
 # Local application imports
 from figures import AXIS_LABEL_SIZE, get_baryonic_mass_label, get_vmax_label, setup_legend
 from matplotlib.ticker import MultipleLocator
-from output_utils import check_required_fields, save_and_close_figure, setup_figure
+from output_utils import (
+    check_required_fields,
+    get_profile_axes,
+    save_and_close_figure,
+    setup_figure,
+)
 
 
 def plot(
@@ -64,6 +69,10 @@ def plot(
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
 
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "baryonic_tully_fisher", (1.4, 2.6), (8.0, 12.0)
+    )
+
     # Select Sb/c galaxies (Type=0 and bulge/total ratio between 0.1 and 0.5)
     # First filter for non-zero stellar mass to avoid division by zero
     valid_mass = (
@@ -108,8 +117,8 @@ def plot(
     ax.set_xlabel(get_vmax_label(), fontsize=AXIS_LABEL_SIZE)
 
     # Set the axis limits and minor ticks
-    ax.set_xlim(1.4, 2.6)
-    ax.set_ylim(8.0, 12.0)
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
     ax.xaxis.set_minor_locator(MultipleLocator(0.05))
     ax.yaxis.set_minor_locator(MultipleLocator(0.25))
 

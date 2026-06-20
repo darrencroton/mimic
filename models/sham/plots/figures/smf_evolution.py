@@ -19,6 +19,7 @@ from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_field_has_values,
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_evolution_snapshot,
@@ -74,6 +75,10 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     whichimf = 1  # Default to Chabrier
     if "WhichIMF" in params:
         whichimf = int(params["WhichIMF"])
+
+    mass_min, mass_max, y_min, y_max = get_profile_axes(
+        params, "stellar_mass_function", (8.0, 12.5), (1.0e-6, 1.0e-1), log_y=True
+    )
 
     # Set up binning
     binwidth = 0.1
@@ -258,8 +263,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         ma = np.floor(max(mass)) + 1
 
         # Force reasonable limits for stellar masses
-        mi = max(mi, 8.0)
-        ma = min(ma, 12.5)
+        mi = max(mi, mass_min)
+        ma = min(ma, mass_max)
 
         nbins = int((ma - mi) / binwidth)
 
@@ -279,8 +284,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Customize the plot
     ax.set_yscale("log")
-    ax.set_xlim(8.0, 12.5)
-    ax.set_ylim(1.0e-6, 1.0e-1)
+    ax.set_xlim(mass_min, mass_max)
+    ax.set_ylim(y_min, y_max)
     ax.xaxis.set_minor_locator(MultipleLocator(0.1))
 
     ax.set_ylabel(get_mass_function_labels(), fontsize=AXIS_LABEL_SIZE)

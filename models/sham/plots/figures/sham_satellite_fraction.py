@@ -5,6 +5,7 @@
 import numpy as np
 from output_utils import (
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -21,7 +22,7 @@ def plot(
     verbose=False,
 ):
     """Plot satellite fraction as a function of SHAM stellar mass."""
-    del volume, params
+    del volume
 
     success, _, msg = check_required_fields(
         galaxies,
@@ -65,8 +66,11 @@ def plot(
     )
     ax.set_xlabel(r"log$_{10}$ M$_*$ [M$_{\odot}$]")
     ax.set_ylabel("Satellite fraction")
-    ax.set_xlim(8.0, 12.2)
-    ax.set_ylim(0.0, 1.0)
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "sham_satellite_fraction", (8.0, 12.2), (0.0, 1.0)
+    )
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
     ax.grid(True, color="0.9", lw=0.8)
 
     if verbose:

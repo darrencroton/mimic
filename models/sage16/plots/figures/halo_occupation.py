@@ -11,6 +11,7 @@ from figures import AXIS_LABEL_SIZE, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -57,6 +58,10 @@ def plot(
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
+
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "halo_occupation", (10.0, 15.0), (0.1, 100.0)
+    )
 
     # Only use galaxies with non-zero Mvir
     valid_galaxies = np.where(galaxies.Mvir > 0.0)[0]
@@ -189,8 +194,8 @@ def plot(
     ax.xaxis.set_minor_locator(MultipleLocator(0.1))
 
     # Set axis limits
-    ax.set_xlim(10.0, 15.0)
-    ax.set_ylim(0.1, 100.0)
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
     setup_legend(ax, loc="upper left")

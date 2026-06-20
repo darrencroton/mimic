@@ -12,6 +12,7 @@ from matplotlib.ticker import MultipleLocator
 from output_utils import (
     calculate_mass_function,
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
 )
@@ -56,6 +57,10 @@ def plot(
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
 
+    mass_min, mass_max, y_min, y_max = get_profile_axes(
+        params, "baryonic_mass_function", (8.0, 12.5), (1.0e-6, 1.0e-1), log_y=True
+    )
+
     whichimf = 1  # Default to Chabrier
     if "WhichIMF" in params:
         whichimf = int(params["WhichIMF"])
@@ -99,8 +104,8 @@ def plot(
 
     # Customize the plot
     ax.set_yscale("log")
-    ax.set_xlim(8.0, 12.5)
-    ax.set_ylim(1.0e-6, 1.0e-1)
+    ax.set_xlim(mass_min, mass_max)
+    ax.set_ylim(y_min, y_max)
     ax.xaxis.set_minor_locator(MultipleLocator(0.1))
 
     ax.set_ylabel(get_mass_function_labels(), fontsize=AXIS_LABEL_SIZE)

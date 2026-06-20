@@ -303,3 +303,39 @@ def calculate_mass_function(mass_array, volume, hubble_h, binwidth=0.1, mi=None,
     yaxis = counts / volume * hubble_h**3 / binwidth
 
     return xaxis, yaxis
+
+
+def get_profile_axes(params, plot_key, xlim_default, ylim_default, log_y=False):
+    """
+    Read axis limits for a named plot from the active plot profile.
+
+    Looks up axes.<plot_key> in the profile and returns (x_min, x_max, y_min, y_max),
+    falling back to xlim_default and ylim_default when keys are absent.
+
+    x values (xmin, xmax) are always used directly.
+
+    y values (ymin, ymax) depend on log_y:
+      log_y=True  — profile stores log10 of the limit (e.g. -6.0 → 1e-6). Use for
+                    plots with a logarithmic y axis (mass functions, number densities).
+      log_y=False — profile stores the limit directly. Use for linear y-axis plots.
+
+    Args:
+        params: Mimic params dict containing PlotProfile.
+        plot_key: Profile key under axes (e.g. "halo_mass_function").
+        xlim_default: (x_min, x_max) fallback tuple.
+        ylim_default: (y_min, y_max) fallback tuple (linear values, regardless of log_y).
+        log_y: Whether y profile values are log10-encoded (default False).
+
+    Returns:
+        (x_min, x_max, y_min, y_max) as floats ready for ax.set_xlim / ax.set_ylim.
+    """
+    axes = (params.get("PlotProfile") or {}).get("axes", {}).get(plot_key, {})
+    x_min = axes.get("xmin", xlim_default[0])
+    x_max = axes.get("xmax", xlim_default[1])
+    if log_y:
+        y_min = 10 ** axes.get("ymin", np.log10(ylim_default[0]))
+        y_max = 10 ** axes.get("ymax", np.log10(ylim_default[1]))
+    else:
+        y_min = axes.get("ymin", ylim_default[0])
+        y_max = axes.get("ymax", ylim_default[1])
+    return x_min, x_max, y_min, y_max

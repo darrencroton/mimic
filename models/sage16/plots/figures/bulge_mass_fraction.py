@@ -10,6 +10,7 @@ import numpy as np
 from figures import AXIS_LABEL_SIZE, get_stellar_mass_label, setup_legend
 from output_utils import (
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -129,9 +130,12 @@ def plot(
     ax.set_xlabel(get_stellar_mass_label(), fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel(r"Stellar Mass Fraction", fontsize=AXIS_LABEL_SIZE)
 
-    # Set axis limits - matching the original plot
-    ax.set_xlim(mass_range[0], mass_range[bins - 1])
-    ax.set_ylim(0.0, 1.05)
+    # Set axis limits
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "bulge_mass_fraction", (mass_range[0], mass_range[bins - 1]), (0.0, 1.05)
+    )
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
     setup_legend(ax, loc="upper right")

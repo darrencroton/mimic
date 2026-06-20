@@ -17,13 +17,13 @@ from output_utils import (
     calculate_mass_function,
     check_field_has_values,
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
 )
 
 # Physical limits for stellar mass functions
-STELLAR_MASS_MIN = 8.0  # log10(Msun) - minimum resolved stellar mass
 STELLAR_MASS_MAX = 13.0  # log10(Msun) - maximum stellar mass
 BINWIDTH_DEX = 0.1  # Standard bin width in dex
 PLOT_XLIM = (8.0, 12.5)  # Plot x-axis limits
@@ -59,6 +59,10 @@ def plot(
     """
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
+
+    mass_min, mass_max, y_min, y_max = get_profile_axes(
+        params, "stellar_mass_function", PLOT_XLIM, PLOT_YLIM, log_y=True
+    )
 
     # Get WhichIMF from the parameters if available
     whichimf = 1  # Default to Chabrier
@@ -107,12 +111,12 @@ def plot(
 
     # Calculate mass function
     xaxis, smf = calculate_mass_function(
-        mass, volume, hubble_h, BINWIDTH_DEX, STELLAR_MASS_MIN, STELLAR_MASS_MAX
+        mass, volume, hubble_h, BINWIDTH_DEX, mass_min, STELLAR_MASS_MAX
     )
 
     # Print debugging info
     if verbose:
-        print(f"  mi={STELLAR_MASS_MIN}, ma={STELLAR_MASS_MAX}")
+        print(f"  mi={mass_min}, ma={STELLAR_MASS_MAX}")
         print(f"  min mass={min(mass)}, max mass={max(mass)}")
         print(f"  volume={volume}, hubble_h={hubble_h}")
         print(f"  whichimf={whichimf}")
@@ -127,14 +131,14 @@ def plot(
         w_red = np.where(ssfr < 10.0**SSFR_CUT)[0]
         mass_red = mass[w_red]
         _, smf_red = calculate_mass_function(
-            mass_red, volume, hubble_h, BINWIDTH_DEX, STELLAR_MASS_MIN, STELLAR_MASS_MAX
+            mass_red, volume, hubble_h, BINWIDTH_DEX, mass_min, STELLAR_MASS_MAX
         )
 
         # Blue galaxies (star-forming)
         w_blue = np.where(ssfr >= 10.0**SSFR_CUT)[0]
         mass_blue = mass[w_blue]
         _, smf_blue = calculate_mass_function(
-            mass_blue, volume, hubble_h, BINWIDTH_DEX, STELLAR_MASS_MIN, STELLAR_MASS_MAX
+            mass_blue, volume, hubble_h, BINWIDTH_DEX, mass_min, STELLAR_MASS_MAX
         )
 
         # Plot red and blue galaxy populations
@@ -217,8 +221,8 @@ def plot(
 
     # Customize the plot
     ax.set_yscale("log")
-    ax.set_xlim(*PLOT_XLIM)
-    ax.set_ylim(*PLOT_YLIM)
+    ax.set_xlim(mass_min, mass_max)
+    ax.set_ylim(y_min, y_max)
     ax.xaxis.set_minor_locator(MultipleLocator(BINWIDTH_DEX))
 
     # Set labels with larger font sizes

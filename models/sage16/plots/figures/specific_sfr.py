@@ -20,6 +20,7 @@ from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_field_has_values,
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -83,6 +84,10 @@ def plot(
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
 
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "specific_sfr", (8.0, 12.0), (-14.0, -8.0)
+    )
+
     # Select galaxies with sufficient stellar mass
     w = np.where(galaxies.StellarMass > 0.01)[0]
 
@@ -128,8 +133,8 @@ def plot(
     ax.set_xlabel(get_stellar_mass_label(), fontsize=AXIS_LABEL_SIZE)
 
     # Set the axis limits and minor ticks
-    ax.set_xlim(8.0, 12.0)
-    ax.set_ylim(-14.0, -8.0)
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
     ax.xaxis.set_minor_locator(MultipleLocator(0.5))
     ax.yaxis.set_minor_locator(MultipleLocator(0.5))
 

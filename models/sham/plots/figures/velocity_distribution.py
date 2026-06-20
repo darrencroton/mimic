@@ -9,7 +9,12 @@ This module generates a plot showing the distribution of galaxy velocities.
 import numpy as np
 from figures import AXIS_LABEL_SIZE, setup_legend
 from matplotlib.ticker import MultipleLocator
-from output_utils import check_required_fields, save_and_close_figure, setup_figure
+from output_utils import (
+    check_required_fields,
+    get_profile_axes,
+    save_and_close_figure,
+    setup_figure,
+)
 
 
 def plot(
@@ -52,8 +57,11 @@ def plot(
     hubble_h = metadata["hubble_h"]
 
     # Set up histogram binning
-    bin_min = -40.0
-    bin_max = 40.0
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "velocity_distribution", (-40.0, 40.0), (1e-5, 0.5), log_y=True
+    )
+    bin_min = x_min
+    bin_max = x_max
     bin_width = 0.5
     nbins = int((bin_max - bin_min) / bin_width)
 
@@ -144,7 +152,7 @@ def plot(
 
     # Set axis limits
     ax.set_xlim(bin_min, bin_max)
-    ax.set_ylim(1e-5, 0.5)
+    ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
     setup_legend(ax, loc="upper left")

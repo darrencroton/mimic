@@ -14,6 +14,7 @@ from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_field_has_values,
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -81,6 +82,8 @@ def plot(
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
+
+    x_min, x_max, y_min, y_max = get_profile_axes(params, "metallicity", (8.0, 12.0), (8.0, 9.5))
 
     # Get WhichIMF from parameters
     whichimf = 1  # Default to Chabrier
@@ -167,8 +170,8 @@ def plot(
     ax.yaxis.set_minor_locator(MultipleLocator(0.1))
 
     # Set axis limits - matching the original plot
-    ax.set_xlim(8.0, 12.0)
-    ax.set_ylim(8.0, 9.5)
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
     setup_legend(ax, loc="lower right")

@@ -13,7 +13,13 @@ Optional: StellarMass, ColdGas, HotGas, EjectedGas, ICS, BlackHoleMass
 import numpy as np
 from figures import AXIS_LABEL_SIZE, setup_legend
 from matplotlib.ticker import MaxNLocator, MultipleLocator
-from output_utils import check_required_fields, save_and_close_figure, setup_figure, warn
+from output_utils import (
+    check_required_fields,
+    get_profile_axes,
+    save_and_close_figure,
+    setup_figure,
+    warn,
+)
 
 
 def plot(
@@ -289,9 +295,13 @@ def plot(
     ax.xaxis.set_minor_locator(MultipleLocator(0.5))
     ax.yaxis.set_minor_locator(MaxNLocator(10))
 
-    # Set axis limits - matching the original plot
-    ax.set_xlim(10.8, 15.0)
-    ax.set_ylim(0.0, max(0.23, max(mean_baryon_fraction) * 1.1))
+    # Set axis limits
+    y_max_data = max(0.23, max(mean_baryon_fraction) * 1.1)
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "baryon_fraction", (10.8, 15.0), (0.0, y_max_data)
+    )
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
     leg = setup_legend(ax, loc="upper right")

@@ -13,6 +13,7 @@ from matplotlib.ticker import MultipleLocator
 from output_utils import (
     calculate_mass_function,
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
 )
@@ -55,6 +56,10 @@ def plot(
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
 
+    mass_min, mass_max, y_min, y_max = get_profile_axes(
+        params, "cold_gas_function", (8.0, 12.5), (1.0e-6, 1.0e-1), log_y=True
+    )
+
     # Set up binning
     binwidth = 0.1  # mass function histogram bin width
 
@@ -72,16 +77,12 @@ def plot(
     # Convert cold gas mass to log scale (ColdGas is in units of 10^10 Msun/h)
     mass = np.log10(galaxies.ColdGas[w] * 1.0e10 / hubble_h)
 
-    # Force some reasonable limits for gas masses
-    mi = 8.0  # Don't go below 10^8 Msun
-    ma = 12.5  # Don't go above 10^12.5 Msun
-
     # Calculate cold gas mass function
-    xaxis, cgmf = calculate_mass_function(mass, volume, hubble_h, binwidth, mi, ma)
+    xaxis, cgmf = calculate_mass_function(mass, volume, hubble_h, binwidth, mass_min, mass_max)
 
     # Print debugging info
     if verbose:
-        print(f"  mi={mi}, ma={ma}")
+        print(f"  mi={mass_min}, ma={mass_max}")
         print(f"  min mass={min(mass)}, max mass={max(mass)}")
         print(f"  volume={volume}, hubble_h={hubble_h}")
         print(f"  Number of galaxies: {len(w)}")
@@ -91,8 +92,8 @@ def plot(
 
     # Customize the plot
     ax.set_yscale("log")
-    ax.set_xlim(8.0, 12.5)
-    ax.set_ylim(1.0e-6, 1.0e-1)
+    ax.set_xlim(mass_min, mass_max)
+    ax.set_ylim(y_min, y_max)
     ax.xaxis.set_minor_locator(MultipleLocator(0.1))
 
     # Set labels with larger font sizes

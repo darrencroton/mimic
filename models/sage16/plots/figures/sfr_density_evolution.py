@@ -13,6 +13,7 @@ from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_field_has_values,
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     warn,
@@ -63,6 +64,10 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
         warn(
             f"StarFormationRate field has no non-zero values in sample snapshot - plot may be empty: {msg}"
         )
+
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "sfr_density_evolution", (0.0, 8.0), (-3.0, -0.4)
+    )
 
     # Calculate SFR density for each snapshot BEFORE creating figure
     sfr_density = []
@@ -197,8 +202,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.xaxis.set_minor_locator(MultipleLocator(1))
     ax.yaxis.set_minor_locator(MultipleLocator(0.5))
 
-    ax.set_xlim(0.0, 8.0)
-    ax.set_ylim(-3.0, -0.4)
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
     setup_legend(ax, loc="upper right")

@@ -12,6 +12,7 @@ from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_field_has_values,
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
 )
@@ -60,6 +61,10 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     whichimf = 1  # Default to Chabrier
     if "WhichIMF" in params:
         whichimf = int(params["WhichIMF"])
+
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "stellar_mass_density_evolution", (0.0, 8.0), (6.5, 9.0)
+    )
 
     # Observational data from various sources
     # SMD observations from Marchesini+ 2009, h=0.7
@@ -264,8 +269,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     ax.xaxis.set_minor_locator(MultipleLocator(0.5))
     ax.yaxis.set_minor_locator(MultipleLocator(0.1))
 
-    ax.set_xlim(0.0, 8.0)
-    ax.set_ylim(6.5, 9.0)
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
     setup_legend(ax, loc="upper right")

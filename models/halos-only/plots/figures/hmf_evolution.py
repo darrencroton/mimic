@@ -21,6 +21,7 @@ from output_utils import (
     calculate_mass_function,
     check_field_has_values,
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_evolution_snapshot,
@@ -119,6 +120,10 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
     if len(target_snapshots) == 0:
         return None, "No snapshots found matching target redshifts for HMF evolution plot"
 
+    mass_min, mass_max, y_min, y_max = get_profile_axes(
+        params, "halo_mass_function", PLOT_XLIM, PLOT_YLIM, log_y=True
+    )
+
     # NOW create the figure (only after all validation passed)
     fig, ax = setup_figure()
 
@@ -144,7 +149,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
         # Calculate mass function
         xaxis, hmf = calculate_mass_function(
-            mass, volume, hubble_h, BINWIDTH_DEX, HALO_MASS_MIN, HALO_MASS_MAX
+            mass, volume, hubble_h, BINWIDTH_DEX, mass_min, HALO_MASS_MAX
         )
 
         # Plot the histogram
@@ -159,8 +164,8 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     # Customize the plot
     ax.set_yscale("log")
-    ax.set_xlim(*PLOT_XLIM)
-    ax.set_ylim(*PLOT_YLIM)
+    ax.set_xlim(mass_min, mass_max)
+    ax.set_ylim(y_min, y_max)
     ax.xaxis.set_minor_locator(MultipleLocator(BINWIDTH_DEX))
 
     ax.set_ylabel(get_mass_function_labels(), fontsize=AXIS_LABEL_SIZE)

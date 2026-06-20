@@ -13,6 +13,7 @@ from figures import AXIS_LABEL_SIZE, get_stellar_mass_label, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -60,6 +61,8 @@ def plot(
 
     # Extract necessary metadata
     hubble_h = metadata["hubble_h"]
+
+    x_min, x_max, y_min, y_max = get_profile_axes(params, "gas_fraction", (8.0, 12.0), (0.0, 1.0))
 
     # Maximum number of points to plot (for better performance and readability)
     dilute = 7500
@@ -121,8 +124,8 @@ def plot(
     ax.yaxis.set_minor_locator(MultipleLocator(0.05))
 
     # Set axis limits - matching the original plot
-    ax.set_xlim(8.0, 12.0)
-    ax.set_ylim(0.0, 1.0)
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
     setup_legend(ax, loc="upper right")

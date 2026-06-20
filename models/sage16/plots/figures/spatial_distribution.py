@@ -98,6 +98,10 @@ def plot(
     # Add a small buffer around the box for the plot
     buffer = box_size * 0.1
 
+    _prof = (params.get("PlotProfile") or {}).get("axes", {}).get("spatial_distribution", {})
+    plot_xlim = _prof.get("xlim", [0.0 - buffer, box_size + buffer])
+    plot_ylim = _prof.get("ylim", [0.0 - buffer, box_size + buffer])
+
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"  Number of galaxies plotted: {len(w)}")
@@ -108,22 +112,22 @@ def plot(
     axes[0].scatter(xx, yy, marker="o", s=0.3, c="k", alpha=0.5)
     axes[0].set_xlabel(r"X [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
     axes[0].set_ylabel(r"Y [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
-    axes[0].set_xlim(0.0 - buffer, box_size + buffer)
-    axes[0].set_ylim(0.0 - buffer, box_size + buffer)
+    axes[0].set_xlim(plot_xlim[0], plot_xlim[1])
+    axes[0].set_ylim(plot_ylim[0], plot_ylim[1])
 
     # Plot X-Z projection
     axes[1].scatter(xx, zz, marker="o", s=0.3, c="k", alpha=0.5)
     axes[1].set_xlabel(r"X [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
     axes[1].set_ylabel(r"Z [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
-    axes[1].set_xlim(0.0 - buffer, box_size + buffer)
-    axes[1].set_ylim(0.0 - buffer, box_size + buffer)
+    axes[1].set_xlim(plot_xlim[0], plot_xlim[1])
+    axes[1].set_ylim(plot_ylim[0], plot_ylim[1])
 
     # Plot Y-Z projection
     axes[2].scatter(yy, zz, marker="o", s=0.3, c="k", alpha=0.5)
     axes[2].set_xlabel(r"Y [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
     axes[2].set_ylabel(r"Z [h$^{-1}$ Mpc]", fontsize=AXIS_LABEL_SIZE)
-    axes[2].set_xlim(0.0 - buffer, box_size + buffer)
-    axes[2].set_ylim(0.0 - buffer, box_size + buffer)
+    axes[2].set_xlim(plot_xlim[0], plot_xlim[1])
+    axes[2].set_ylim(plot_ylim[0], plot_ylim[1])
 
     # Adjust layout
     plt.tight_layout()

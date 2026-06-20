@@ -7,6 +7,7 @@ import numpy as np
 from figures import setup_plot_fonts
 from output_utils import (
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     validate_filtered_data,
 )
@@ -38,7 +39,7 @@ def plot(
     verbose=False,
 ):
     """Plot SHAM-assigned stellar mass against Mpeak and Vpeak."""
-    del volume, params
+    del volume
 
     success, _, msg = check_required_fields(
         galaxies,
@@ -91,8 +92,11 @@ def plot(
     axes[0].fill_between(xmid[good], p16[good], p84[good], color="#0173b2", alpha=0.18, lw=0)
     axes[0].set_xlabel(r"log$_{10}$ M$_{\rm peak}$ [M$_{\odot}$]")
     axes[0].set_ylabel(r"log$_{10}$ M$_*$ [M$_{\odot}$]")
-    axes[0].set_xlim(10.0, 15.0)
-    axes[0].set_ylim(7.5, 12.2)
+    x_min_0, x_max_0, y_min_0, y_max_0 = get_profile_axes(
+        params, "sham_stellar_halo_mpeak", (10.0, 15.0), (7.5, 12.2)
+    )
+    axes[0].set_xlim(x_min_0, x_max_0)
+    axes[0].set_ylim(y_min_0, y_max_0)
     axes[0].legend(frameon=False, loc="lower right")
 
     axes[1].scatter(
@@ -118,8 +122,11 @@ def plot(
     axes[1].fill_between(xmid[good], p16[good], p84[good], color="#0173b2", alpha=0.18, lw=0)
     axes[1].set_xlabel(r"log$_{10}$ V$_{\rm peak}$ [km/s]")
     axes[1].set_ylabel(r"log$_{10}$ M$_*$ [M$_{\odot}$]")
-    axes[1].set_xlim(1.7, 3.5)
-    axes[1].set_ylim(7.5, 12.2)
+    x_min_1, x_max_1, y_min_1, y_max_1 = get_profile_axes(
+        params, "sham_stellar_halo_vpeak", (1.7, 3.5), (7.5, 12.2)
+    )
+    axes[1].set_xlim(x_min_1, x_max_1)
+    axes[1].set_ylim(y_min_1, y_max_1)
 
     return (
         save_and_close_figure(fig, output_dir, "ShamStellarHaloRelation", output_format, verbose),

@@ -14,6 +14,7 @@ from matplotlib.ticker import MultipleLocator
 from output_schema import mass_to_msun
 from output_utils import (
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -117,12 +118,14 @@ def plot(
     ax.xaxis.set_minor_locator(MultipleLocator(0.5))
     ax.yaxis.set_minor_locator(MultipleLocator(0.5))
 
-    # Set axis limits - matching the original plot
-    x_min = max(10.0, min(mvir) - 0.5)
-    x_max = min(14.0, max(mvir) + 0.5)
-    y_min = max(7.5, min(min(stellar_mass), min(cold_gas), min(hot_gas)) - 0.5)
-    y_max = min(12.5, max(max(stellar_mass), max(cold_gas), max(hot_gas)) + 0.5)
-
+    # Set axis limits
+    x_min_data = max(10.0, min(mvir) - 0.5)
+    x_max_data = min(14.0, max(mvir) + 0.5)
+    y_min_data = max(7.5, min(min(stellar_mass), min(cold_gas), min(hot_gas)) - 0.5)
+    y_max_data = min(12.5, max(max(stellar_mass), max(cold_gas), max(hot_gas)) + 0.5)
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "mass_reservoir_scatter", (x_min_data, x_max_data), (y_min_data, y_max_data)
+    )
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
 

@@ -11,6 +11,7 @@ from figures import AXIS_LABEL_SIZE, setup_legend
 from matplotlib.ticker import MaxNLocator, MultipleLocator
 from output_utils import (
     check_required_fields,
+    get_profile_axes,
     save_and_close_figure,
     setup_figure,
     validate_filtered_data,
@@ -143,9 +144,11 @@ def plot(
     ax.yaxis.set_minor_locator(MaxNLocator(10))
 
     # Set axis limits
-    ax.set_xlim(0.0, 0.25)
-    y_max = max(counts) * 1.1
-    ax.set_ylim(0, y_max)
+    x_min, x_max, y_min, y_max = get_profile_axes(
+        params, "spin_distribution", (0.0, 0.25), (0.0, max(counts) * 1.1)
+    )
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
 
     # Add consistently styled legend
     setup_legend(ax, loc="upper right")
