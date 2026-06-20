@@ -33,9 +33,9 @@ def makefile_default(variable: str, fallback: str) -> str:
 
 DEFAULT_MODEL = makefile_default("DEFAULT_MODEL", "sage16")
 # Simulation selected when neither SIMULATION nor SIM is set in the environment.
-# Read from DEFAULT_SIMULATION in the Makefile. The Makefile always exports
-# SIMULATION when it invokes these helpers, so this default only applies to
-# standalone script runs.
+# Read from DEFAULT_SIMULATION in the Makefile. The Makefile explicitly prefixes
+# MODEL and SIMULATION when invoking these helpers, so this default only applies
+# to standalone script runs outside of make.
 DEFAULT_SIMULATION = makefile_default("DEFAULT_SIMULATION", "mini-millennium")
 
 

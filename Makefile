@@ -626,6 +626,7 @@ generate-test-registry:
 
 define RUN_PYTHON_TEST_REGISTRY
 	@. scripts/lib/colors.sh; \
+	export MODEL='$(MODEL)' SIMULATION='$(SIMULATION)'; \
 	FAILED=0; \
 	FAILED_TESTS=""; \
 	if [ "$(TEST_SUMMARY)" != "1" ]; then \
@@ -764,8 +765,8 @@ tests-unit:
 	printf "$${BLUE}============================================================$${NC}\n"; \
 	printf "$${BLUE}RUNNING UNIT TESTS$${NC}\n"; \
 	printf "$${BLUE}============================================================$${NC}\n"
-	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
-	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
+	$(call RUN_SUMMARY_AWARE,MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
+	$(call RUN_SUMMARY_AWARE,MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@cd tests/unit && MIMIC_RECORD_TEST_FAILURES=1 ./run_tests.sh
 
 # One canned recipe for the Python test tiers: $(1) registry name (also the
@@ -777,8 +778,8 @@ define RUN_PYTHON_TIER
 	printf "$${BLUE}============================================================$${NC}\n"; \
 	printf "$${BLUE}RUNNING $(2) TESTS$${NC}\n"; \
 	printf "$${BLUE}============================================================$${NC}\n"
-	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
-	$(call RUN_SUMMARY_AWARE,$(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
+	$(call RUN_SUMMARY_AWARE,MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) scripts/generate_test_registry.py --strict,generate-test-registry)
+	$(call RUN_SUMMARY_AWARE,MODEL='$(MODEL)' SIMULATION='$(SIMULATION)' $(PYTHON) scripts/generate_test_inputs.py,generate-test-inputs)
 	@if [ "$(TEST_SUMMARY)" != "1" ]; then echo ""; fi
 	$(call RUN_PYTHON_TEST_REGISTRY,$(1),$(1),$(3))
 endef

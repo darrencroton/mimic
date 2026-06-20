@@ -193,6 +193,22 @@ Summary mode filters structured markers directly: pass markers are suppressed, w
 cd tests && python -c "from framework import load_binary_halos; print(load_binary_halos.__doc__)"
 ```
 
+### Writing Integration Tests
+
+Integration tests live in one of three locations depending on what they test:
+
+| Location | Tests | Valid for |
+|---|---|---|
+| `tests/integration/test_*.py` | Core framework behavior (execution order, substeps, processing modes) | Any MODEL/SIMULATION — use `test_fixture` module |
+| `models/<model>/modules/_tests/test_*.py` | Model-specific physics | Only the owning MODEL |
+| `simulations/<sim>/_tests/integration/test_*.py` | Simulation reader behavior | Only the owning SIMULATION — skip when data unavailable |
+
+**Model-neutral tests** (in `tests/integration/`): Use `("test_fixture", "process_full_halo")` or `("test_fixture", "process_by_galaxy")` as the module in `create_test_param_file()`. `test_fixture` is included in every test build (`TEST_BUILD=yes`) regardless of MODEL. These tests must NOT skip based on model — they pass with any MODEL/SIMULATION. Always pass `model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1}` (required by `test_fixture.init()`).
+
+**Model-specific tests**: Use your module name in `phase_config` instead of `test_fixture`. The model name validation in `read_parameter_file.c` enforces that the test only runs when the correct MODEL is compiled.
+
+**`create_test_param_file()` context**: Generates a run file for the currently compiled MODEL/SIMULATION, reading from `build/generated/test_inputs/<MODEL>/<SIMULATION>/core/test_binary.yaml`. The Makefile test runner exports `MODEL` and `SIMULATION` to Python subprocesses. To run a test directly outside make, set them explicitly: `MODEL=halos-only SIMULATION=mini-millennium python3 tests/integration/test_foo.py`.
+
 ### Plotting Tests
 
 ```bash
