@@ -10,7 +10,7 @@ output:
   output_filename: halos
   output_directory: output/halos-only-micro-uchuu-ascii
   output_format: hdf5
-  snapshot_list: [49]                  # z=0 snapshot only (fast validation run)
+  snapshot_list: [49, 28, 23, 16, 12, 10, 8, 7]
 
 SubSteps: 1
 
