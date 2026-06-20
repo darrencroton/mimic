@@ -30,6 +30,8 @@ def find_repo_root(start):
 REPO_ROOT = find_repo_root(Path(__file__).resolve())
 SIM_DIR = REPO_ROOT / "simulations" / "micro-uchuu-lhalo"
 PARAM_FILE = REPO_ROOT / "models" / "halos-only" / "input" / "halos-only_micro-uchuu-lhalo.yaml"
+OUTPUT_DIR = REPO_ROOT / "output" / "halos-only-micro-uchuu-lhalo"
+Z0_SNAPSHOT_GROUP = "Snap049"
 
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
@@ -73,15 +75,17 @@ def test_lhalo_reader_halo_count():
 
     import h5py
 
-    out_dir = REPO_ROOT / "output" / "halos-only-micro-uchuu-lhalo"
-    output_files = sorted(out_dir.glob("halos_z0.000_*"))
-    assert output_files, f"No output files found in {out_dir}"
+    output_files = sorted(OUTPUT_DIR.glob("halos_*.hdf5"))
+    output_files = [path for path in output_files if path.name != "halos.hdf5"]
+    assert output_files, f"No output files found in {OUTPUT_DIR}"
 
     total_halos = 0
-    for f in output_files:
-        with h5py.File(f, "r") as hf:
-            if "Halos" in hf:
-                total_halos += hf["Halos/HaloMass"].shape[0]
+    for output_file in output_files:
+        with h5py.File(output_file, "r") as hf:
+            assert Z0_SNAPSHOT_GROUP in hf, f"{Z0_SNAPSHOT_GROUP} missing from {output_file}"
+            galaxies = hf[Z0_SNAPSHOT_GROUP].get("Galaxies")
+            assert galaxies is not None, f"{Z0_SNAPSHOT_GROUP}/Galaxies missing from {output_file}"
+            total_halos += galaxies.shape[0]
 
     # micro-Uchuu has ~440k forests; at z=0 expect hundreds of thousands of halos
     assert total_halos > 100_000, f"Unexpectedly low halo count: {total_halos}"
