@@ -20,4 +20,8 @@ Both `MicroUchuu_mergertree_info.h5` (1.2 KB index) and `MicroUchuu_mergertree.h
 
 **Mirror maintenance:** `halo_properties.yaml` and `micro-uchuu.a_list` are intentional mirrors of the `micro-uchuu-ascii` package (both use the ctrees RawHalo contract). Keep them in sync. The lhalo package uses a different field set (26-field L-Halo struct) and is not mirrored.
 
+**Known z=0 behaviour difference from the ascii format:**
+
+The Consistent-Trees ASCII reader applies a `fix_flybys()` step that collapses multiple z=0 FoF groups within a ctrees forest into one, demoting the non-dominant ones from Type 0 (central) to Type 1 (satellite) and negating their `MostBoundID`. This reader reads `FirstHaloInFOFgroup` and `NextHaloInFOFgroup` directly from the pre-stored uchuutools columns and does not apply that fix, so flyby FoF groups appear as independent Type 0 centrals — consistent with the lhalo format. At snap49 (z=0) approximately 55,362 halos are therefore Type 1 in the ascii output but Type 0 here. All snapshots before snap49 are byte-identical between the three formats. See `simulations/micro-uchuu-ascii/README.md` and `docs/dev/CTREES-UCHUU-VALIDATION.md §5` for the full analysis.
+
 See `docs/dev/CTREES-UCHUU-VALIDATION.md` for the full investigation report, format notes, and validation checklist.

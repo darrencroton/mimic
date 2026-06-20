@@ -22,4 +22,18 @@ This package runs Mimic against the micro-Uchuu merger trees in Consistent-Trees
 
 **Mirror maintenance:** `halo_properties.yaml` and `micro-uchuu.a_list` are intentional mirrors of the `micro-uchuu-hdf5` package (both use the ctrees RawHalo contract). Keep them in sync. The lhalo package uses a different field set (26-field L-Halo struct) and is not mirrored.
 
-See `docs/dev/CTREES-UCHUU-VALIDATION.md` for the full investigation report, format notes, and validation checklist.
+**Known z=0 behaviour difference from lhalo and hdf5 formats:**
+
+The Consistent-Trees ASCII reader calls `fix_flybys()` (`src/io/tree/ctrees/ctrees_utils.c`) during forest topology reconstruction. At the final snapshot (snap49, z=0), a ctrees forest can contain multiple FoF groups — halos that share a forest because they had a close flyby interaction at some earlier time but never merged. `fix_flybys` picks the most massive z=0 FoF group as the sole central and demotes all others to satellites by modifying their host-pointer before `FirstHaloInFOFgroup` is computed. It also negates their `MostBoundID` as a flyby marker, which propagates into the output HDF5.
+
+In the micro-Uchuu dataset this affects approximately 55,362 halos at snap49 (around 12.5% of forests contain at least one flyby FoF group). The effect is strictly confined to snap49: at all earlier snapshots, each flyby halo's progenitor chain carries its original FoF-central topology and all three readers produce identical output.
+
+The L-Halo binary and HDF5 readers do not apply this fix. The L-Halo binary was produced by sage-model per ctrees tree (one L-Halo tree per z=0 FoF root), so flyby halos naturally appear as Type 0 centrals. The HDF5 reader reads pre-stored uchuutools topology columns directly and also preserves them as centrals.
+
+Practical consequences:
+- **Halo mass function at z=0:** this reader produces ~10–25% fewer Type 0 halos per mass bin at snap49 relative to lhalo/hdf5. The total halo count and shape are correct; the normalization reflects the flyby reclassification.
+- **MostBoundID:** the 55,362 demoted halos carry a negated `MostBoundID` in the output. This does not affect `UniqueGalaxyID` or `UniqueCentralGalaxyID` (neither depends on MostBoundID), and sage16 modules do not use MostBoundID. The SHAM model uses MostBoundID in its RNG seed, so SHAM stellar masses for flyby halos will differ from the lhalo/hdf5 outputs.
+- **sage16 physics:** flyby halos at z=0 pass through one timestep of satellite physics (Type 1 code path) instead of central physics. Their progenitor histories at all earlier snapshots are unaffected. This matches sage-model's own ctrees ASCII behaviour.
+- **Cross-format comparison:** restrict snap49 comparisons to total halo counts (all types) or use snap48. All snapshots before snap49 are byte-identical across the three formats.
+
+See `docs/dev/CTREES-UCHUU-VALIDATION.md §5` for the full analysis and numbers.

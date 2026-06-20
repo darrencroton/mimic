@@ -26,4 +26,8 @@ Uchuu100_Planck_lhalo_binary.3
 
 **Mirror maintenance:** `halo_properties.yaml` follows the `simulations/mini-millennium/` layout (same 26-field L-Halo struct). When changing the lhalo field schema, apply the same change to mini-millennium and the Millennium packages. The ctrees packages (hdf5, ascii) use a different, smaller RawHalo and are not mirrored here.
 
+**Known z=0 behaviour difference from the ascii format:**
+
+The Consistent-Trees ASCII reader applies a `fix_flybys()` step that collapses multiple z=0 FoF groups within a ctrees forest into one, demoting the non-dominant ones from Type 0 (central) to Type 1 (satellite) and negating their `MostBoundID`. This reader does not do that — the L-Halo binary was produced per ctrees tree (one L-Halo tree per z=0 FoF root), so flyby FoF groups naturally appear as independent Type 0 centrals. At snap49 (z=0) approximately 55,362 halos are therefore Type 1 in the ascii output but Type 0 here. All snapshots before snap49 are byte-identical between the three formats. See `simulations/micro-uchuu-ascii/README.md` and `docs/dev/CTREES-UCHUU-VALIDATION.md §5` for the full analysis.
+
 See `docs/dev/CTREES-UCHUU-VALIDATION.md` for the full investigation report, format notes, and validation checklist.

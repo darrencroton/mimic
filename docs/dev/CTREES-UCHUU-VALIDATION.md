@@ -200,12 +200,44 @@ per-forest halo counts before loading). Galaxy-id bounds are identical to ASCII
       (`Mvir × 1e-10`), positions in `[0, box_size]` (declare `Pos` units to
       match the dataset — Uchuu HDF5 may store kpc/h, unlike Rockstar ASCII's
       Mpc/h), `Len`, `Spin = J/Mvir`, galaxy-id uniqueness.
-- [ ] **ASCII vs HDF5 cross-check:** for a dataset available in both forms, the
-      two readers must produce the same galaxies (same halo counts, masses,
-      positions, and topology), since both bridge to the identical `RawHalo`
-      contract via the shared conventions.
+- [ ] **ASCII vs HDF5 cross-check:** for a dataset available in both forms, target
+      a snapshot **before z=0** (e.g. snap48) for the identity check. At snap49
+      (z=0) the ASCII reader applies `fix_flybys` (see §5) and will produce ~55K
+      fewer Type 0 halos than HDF5; this is expected behaviour, not a reader bug.
+      At all earlier snapshots both readers bridge to the identical `RawHalo`
+      contract and must produce byte-identical halo counts, masses, positions, and
+      topology.
 
 ## 5. Known constraints
+
+### fix_flybys: z=0 FoF topology differs between ASCII and HDF5/L-Halo
+
+The Consistent-Trees ASCII reader calls `fix_flybys()` (`src/io/tree/ctrees/ctrees_utils.c:318`) as part of per-forest topology reconstruction, immediately before `fix_upid` and `assign_mergertree_indices`. A ctrees *forest* groups together merger trees that are linked by flyby interactions — halos that passed within each other's virial radii at some point without merging. At z=0 (the maximum snapshot in each forest), such a forest can contain several independent FoF groups (`pid == -1` in the ctrees data). `fix_flybys` picks the most massive of these and demotes all others to satellites by:
+
+1. Setting their `pid` to the most massive z=0 FoF halo's id, wiring them into that halo's FoF group via `FirstHaloInFOFgroup`/`NextHaloInFOFgroup`.
+2. Negating their `MostBoundID` as an inline flyby marker (this propagates through `bridge_halo_data_to_rawhalo` into the output HDF5).
+
+This behaviour was ported from sage-model's ctrees reader and is intentional for SAGE-family galaxy physics, where each forest is expected to map to a single central galaxy at z=0. It is confined strictly to the maximum snapshot: progenitor chains at all earlier snapshots are unaffected and produce identical output across all three formats.
+
+**Observed numbers for micro-Uchuu (halos-only, snap49):**
+
+| Format | Type 0 | Type 1 | Type 2 | Total |
+|--------|--------|--------|--------|-------|
+| ctrees ASCII | 440,651 | 116,657 | 629,026 | 1,186,334 |
+| L-Halo binary | 496,374 | 61,295 | 629,026 | 1,186,695 |
+| ctrees HDF5 | expected ≈ lhalo | | | |
+
+The 55,362 halos that are Type 1 in ASCII but Type 0 in lhalo/hdf5 are the flyby FoF groups. They span the full mass range (0.065–23,880 × 10¹⁰ M☉/h) and represent ~10–25% of what would be Type 0 in each mass bin. The halo mass function plot (Type 0 only) is therefore systematically lower in ASCII at snap49 relative to the other two formats. A further 361 halos present in lhalo at snap49 are absent from ASCII at snap49; most appear at earlier ASCII output snapshots or non-output snapshots.
+
+The ctrees HDF5 reader reads `FirstHaloInFOFgroup`/`NextHaloInFOFgroup` directly from pre-stored uchuutools columns and does not call `fix_flybys`, so its z=0 output is expected to agree with L-Halo (the §4c cross-check should confirm this once the data is available).
+
+**Model-specific impacts:**
+
+- `UniqueGalaxyID` and `UniqueCentralGalaxyID` are not affected (they are computed from halo index and partition number, not `MostBoundID`).
+- sage16 modules do not use `MostBoundID`; physics is unchanged for those modules. Flyby halos at z=0 receive one timestep of satellite physics (Type 1 code path) in ASCII. Their full progenitor histories at earlier snapshots are unaffected.
+- The SHAM model seeds its RNG from `MostBoundID`. Negated values for flyby halos produce different stellar mass draws; SHAM outputs for those halos will differ between ASCII and lhalo/hdf5.
+
+**Cross-format comparison guidance:** snap49 total halo counts (all types) or any snapshot before snap49 are safe to compare across all three formats. Restrict Type 0 / halo mass function comparisons to pre-z=0 snapshots when checking ASCII against hdf5 or lhalo.
 
 - **Galaxy-id bounds (both readers).** Unique ids are
   `halonr + TREE_MUL_FAC·forestnr_local + FILENR_MUL_FAC·ThisTask`. Each reader
