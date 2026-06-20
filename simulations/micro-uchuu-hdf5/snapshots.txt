@@ -1,8 +1,0 @@
-NT path: /fred/oz214/simulations/uchuu/U100/mergertrees
-
-Both files must be present in this directory:
-  MicroUchuu_mergertree_info.h5   (1.2 KB index; points to data file via HDF5 external links)
-  MicroUchuu_mergertree.h5        (13 GB uchuutools forests-HDF5 data)
-
-Create the snapshots symlink with:
-  ln -s /fred/oz214/simulations/uchuu/U100/mergertrees simulations/micro-uchuu-hdf5/snapshots
