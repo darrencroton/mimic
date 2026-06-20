@@ -11,7 +11,7 @@ This package runs Mimic against the micro-Uchuu merger trees in uchuutools fores
 
 **Data files required in `snapshots/`:**
 
-Both `MicroUchuu_mergertree_info.h5` (1.2 KB index) and `MicroUchuu_mergertree.h5` (13 GB data) must be present. The reader is pointed at the info file; HDF5 external links transparently resolve into the data file.
+Both `MicroUchuu_mergertree_info.h5` (1.2 KB index) and `MicroUchuu_mergertree.h5` (13 GB data) must be present. The package sets `tree_name: MicroUchuu_mergertree_info.h5`; HDF5 external links transparently resolve into the data file.
 
 **Cross-validation siblings:**
 

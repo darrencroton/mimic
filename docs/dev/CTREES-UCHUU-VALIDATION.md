@@ -77,10 +77,7 @@ simulation:
   particle_mass: { value: <Uchuu>, units: 1e10 Msun/h, h_convention: carried }
 ```
 
-For the **HDF5** reader use `tree_type: consistent_trees_hdf5` and set
-`tree_name` + the package's tree-file extension so that
-`simulation_dir/tree_name<ext>` resolves to the forests-HDF5 metadata/data file
-(the reader derives the extension from the registered reader, currently `.h5`).
+For the **HDF5** reader use `tree_type: consistent_trees_hdf5` and set `tree_name` to the full metadata filename, including its extension. The reader opens `simulation_dir/tree_name` directly, so `.h5`, `.hdf5`, or any other valid HDF5 filename is accepted.
 `first_file`/`last_file` select the inclusive range of `File<n>` groups to
 process; they must lie within the dataset's `/Nfiles`.
 
@@ -144,7 +141,7 @@ conventions (spin/Len on native `Mvir`), and bridges into `RawHalo`.
 
 ### 4a. Expected dataset layout
 
-A single forests-HDF5 file (`simulation_dir/tree_name<ext>`) with:
+A single forests-HDF5 file (`simulation_dir/tree_name`) with:
 
 - root attributes `/Nfiles` (`int64`) and `/TotNforests` (`int64`);
 - a group `File<n>` per file `n` carrying attributes `Nforests` (`int64`),
@@ -295,7 +292,7 @@ All five oz214 datasets below are the **same underlying trees** (440,651 forests
 
 ### 6c. Key HDF5 structural notes (for format #1 and #4)
 
-- **Info/data split.** The 1.2KB info file (`MicroUchuu_mergertree_info.h5`) is an HDF5 container whose `File0/Forests/*` datasets are virtual/external references into the companion 13GB data file (`MicroUchuu_mergertree.h5`). Both files must be co-located; h5py follows the links transparently. Point `tree_name` at the info file only.
+- **Info/data split.** The 1.2KB info file (`MicroUchuu_mergertree_info.h5`) is an HDF5 container whose `File0/Forests/*` datasets are virtual/external references into the companion 13GB data file (`MicroUchuu_mergertree.h5`). Both files must be co-located; h5py follows the links transparently. Set `tree_name: MicroUchuu_mergertree_info.h5`.
 - **`File<n>` attributes present:** `Nforests`, `Nhalos`, `contiguous-halo-props=True`, plus all metadata attributes required by the reader.
 - **`simulation_params` group** is present under `File0/` with `Omega_M`, `Omega_L`, `hubble`, `Boxsize`. The cosmology guard check will compare these against the simulation package values.
 - **Snapshot field:** `Snap_num` (int64) — the older Consistent-Trees field name, not `Snap_idx`. The reader auto-detects this correctly.

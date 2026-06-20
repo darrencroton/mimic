@@ -361,6 +361,8 @@ Mimic separates the on-disk reader format from the processing driver. The input 
 
 The HDF5-based readers are only available when Mimic is built with HDF5 (the default; see [Build Options](#build-options)). Selecting one in a `USE-HDF5=no` build stops with a clear configuration error.
 
+`input.tree_name` is reader-specific. `lhalo_binary` is the prefix before the numbered file suffix (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` are literal filenames under `input.simulation_dir`, including any extension. `lhalo_hdf5` uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder, for example `trees_063.%d.hdf5`.
+
 The processing driver is selected separately with `input.processing_order`. It defaults to `tree_ordered`, so existing run files and simulation packages do not need to set it. `snapshot_ordered` is a recognized future value, but Mimic v1.0 fails fast with a clear not-implemented error because the snapshot-ordered driver is not available yet.
 
 ```yaml

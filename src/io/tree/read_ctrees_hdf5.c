@@ -618,9 +618,8 @@ static int setup_forests_io_ctrees_hdf5(const int thistask, const int ntasks) {
           firstfile, lastfile);
 
   char metadata_fname[3 * MAX_STRING_LEN + 2];
-  int meta_path_len =
-      snprintf(metadata_fname, sizeof(metadata_fname), "%s/%s%s", MimicConfig.SimulationDir,
-               MimicConfig.TreeName, MimicConfig.TreeExtension);
+  int meta_path_len = snprintf(metadata_fname, sizeof(metadata_fname), "%s/%s",
+                               MimicConfig.SimulationDir, MimicConfig.TreeName);
   if (meta_path_len < 0 || (size_t)meta_path_len >= sizeof(metadata_fname)) {
     FATAL_ERROR("Metadata file path too long (%d chars, max %zu)", meta_path_len,
                 sizeof(metadata_fname) - 1);
@@ -984,11 +983,12 @@ static void close_partition_ctrees_hdf5(void) {
    PARTITION_PER_TASK readers (the driver derives the output id from ThisTask). */
 const struct TreeReader CTreesHDF5Reader = {
     .name = "consistent_trees_hdf5",
-    .file_extension = ".h5",
+    .file_extension = "",
     .partition_model = PARTITION_PER_TASK,
     .processing_order = INPUT_PROCESSING_ORDER_TREE,
     .num_partitions = NULL,
     .partition_output_id = NULL,
+    .format_partition_path = NULL,
     .open_partition = open_partition_ctrees_hdf5,
     .load_unit = load_unit_ctrees_hdf5,
     .close_partition = close_partition_ctrees_hdf5,

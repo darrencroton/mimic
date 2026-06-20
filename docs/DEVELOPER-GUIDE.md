@@ -742,6 +742,8 @@ Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` deri
 
 `tree_type` selects a format, not a simulation: the same reader serves any simulation whose catalogue is written in that format. The HDF5-based readers are only present in an HDF5-enabled build; selecting one in a `USE-HDF5=no` build is a fatal configuration error. `processing_order` selects the processing driver independently of the reader format. It defaults to `tree_ordered`; `snapshot_ordered` is reserved for the future snapshot driver and fails fast in v1.0. To add a format of your own, see [Adding a Tree Reader](#adding-a-tree-reader) — it is a self-contained reader file plus one registry row, with no changes to the core read path.
 
+`tree_name` is interpreted by the selected reader. `lhalo_binary` uses it as the prefix before the file number (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` use it as a literal filename under `simulation_dir`, including any extension. `lhalo_hdf5` also uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder such as `trees_063.%d.hdf5`.
+
 ### Snapshot Scale Factor List
 
 The `.a_list` file contains one scale factor per line, ordered from earliest to latest snapshot (increasing `a`, decreasing redshift). Mimic derives the last valid snapshot index from this file, so a file with 64 entries defines snapshots `0..63`:
@@ -882,7 +884,7 @@ Each format defines exactly one `struct TreeReader` (declared in `src/io/tree/re
 ```c
 struct TreeReader {
   const char *name;           /* tree_type string in the run YAML */
-  const char *file_extension; /* reader-owned filename suffix, e.g. ".hdf5" */
+  const char *file_extension; /* optional fixed suffix for legacy readers */
 
   enum TreePartitionModel partition_model; /* PARTITION_PER_FILE or PARTITION_PER_TASK */
   enum InputProcessingOrder processing_order; /* currently INPUT_PROCESSING_ORDER_TREE */
@@ -890,6 +892,7 @@ struct TreeReader {
   /* PARTITION_PER_FILE only (NULL for PARTITION_PER_TASK): */
   int (*num_partitions)(void);
   int (*partition_output_id)(int partition);
+  void (*format_partition_path)(char *buf, size_t size, int output_id);
 
   void (*open_partition)(int output_id); /* open + read the unit table */
   void (*load_unit)(int unit);           /* read one unit into InputTreeHalos */

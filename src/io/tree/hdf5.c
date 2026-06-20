@@ -55,6 +55,7 @@ enum ReadDatatype { READ_AS_INT = 0, READ_AS_FLOAT = 1, READ_AS_LLONG = 2 };
 
 // Local Proto-Types //
 
+static void format_lhalo_hdf5_partition_path(char *buf, size_t size, int output_id);
 static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names);
 static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
                                   int *attribute);
@@ -88,11 +89,7 @@ void open_partition_hdf5(int output_id) {
 
   struct METADATA_NAMES metadata_names;
 
-  int path_len = snprintf(buf, sizeof(buf), "%s/%s.%d%s", MimicConfig.SimulationDir,
-                          MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
-  if (path_len < 0 || (size_t)path_len >= sizeof(buf)) {
-    FATAL_ERROR("Tree file path too long (%d chars, max %zu)", path_len, sizeof(buf) - 1);
-  }
+  format_lhalo_hdf5_partition_path(buf, sizeof(buf), output_id);
   hdf5_file = H5Fopen(buf, H5F_ACC_RDONLY, H5P_DEFAULT);
 
   if (hdf5_file < 0) {
@@ -256,16 +253,47 @@ void close_partition_hdf5(void) {
   }
 }
 
+static void format_lhalo_hdf5_partition_path(char *buf, size_t size, int output_id) {
+  char filename[2 * MAX_STRING_LEN + 32];
+  const char *slot = strstr(MimicConfig.TreeName, "%d");
+
+  if (slot != NULL) {
+    const int prefix_len = (int)(slot - MimicConfig.TreeName);
+    int filename_len = snprintf(filename, sizeof(filename), "%.*s%d%s", prefix_len,
+                                MimicConfig.TreeName, output_id, slot + 2);
+    if (filename_len < 0 || (size_t)filename_len >= sizeof(filename)) {
+      FATAL_ERROR("L-Halo HDF5 tree filename too long (%d chars, max %zu)", filename_len,
+                  sizeof(filename) - 1);
+    }
+  } else {
+    if (MimicConfig.FirstFile != MimicConfig.LastFile) {
+      FATAL_ERROR("lhalo_hdf5 with multiple input files requires input.tree_name to include a "
+                  "%%d file-number placeholder, e.g. trees_063.%%d.hdf5");
+    }
+    int filename_len = snprintf(filename, sizeof(filename), "%s", MimicConfig.TreeName);
+    if (filename_len < 0 || (size_t)filename_len >= sizeof(filename)) {
+      FATAL_ERROR("L-Halo HDF5 tree filename too long (%d chars, max %zu)", filename_len,
+                  sizeof(filename) - 1);
+    }
+  }
+
+  int path_len = snprintf(buf, size, "%s/%s", MimicConfig.SimulationDir, filename);
+  if (path_len < 0 || (size_t)path_len >= size) {
+    FATAL_ERROR("Tree file path too long (%d chars, max %zu)", path_len, size - 1);
+  }
+}
+
 /* L-Halo-tree HDF5 merger trees: per-tree groups (tree_NNN/<field>) with a
    /Header carrying Ntrees/totNHalos/InputTreeNHalos. One partition per input
    file, one unit per tree; see tree/registry.c. */
 const struct TreeReader LHaloHDF5Reader = {
     .name = "lhalo_hdf5",
-    .file_extension = ".hdf5",
+    .file_extension = "",
     .partition_model = PARTITION_PER_FILE,
     .processing_order = INPUT_PROCESSING_ORDER_TREE,
     .num_partitions = tree_partition_per_file_count,
     .partition_output_id = tree_partition_per_file_output_id,
+    .format_partition_path = format_lhalo_hdf5_partition_path,
     .open_partition = open_partition_hdf5,
     .load_unit = load_unit_hdf5,
     .close_partition = close_partition_hdf5,

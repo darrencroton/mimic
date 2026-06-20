@@ -505,8 +505,12 @@ static void run_tree_driver(void) {
       const int output_id = reader->partition_output_id(partition);
 
       /* Construct tree filename and check if it exists */
-      snprintf(tree_path, MAX_PATH_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
-               MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
+      if (reader->format_partition_path != NULL) {
+        reader->format_partition_path(tree_path, sizeof(tree_path), output_id);
+      } else {
+        snprintf(tree_path, MAX_PATH_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
+                 MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
+      }
       if (!(fd = fopen(tree_path, "r"))) {
         INFO_LOG("Missing tree %s ... skipping", tree_path);
         continue; // tree file does not exist, move along

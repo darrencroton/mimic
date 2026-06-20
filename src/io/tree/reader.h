@@ -1,6 +1,8 @@
 #ifndef IO_TREE_READER_H
 #define IO_TREE_READER_H
 
+#include <stddef.h>
+
 /**
  * @file    tree/reader.h
  * @brief   Format-agnostic merger-tree reader interface.
@@ -51,10 +53,9 @@ static inline const char *input_processing_order_name(enum InputProcessingOrder 
 
 struct TreeReader {
   const char *name; /* tree_type string in the input YAML */
-  /* Reader-owned filename suffix copied into MimicConfig.TreeExtension. The
-     L-Halo readers append it after TreeName.<output_id> (one file per output
-     partition); the ctrees-HDF5 reader appends it directly to TreeName (a single
-     metadata file). E.g. ".hdf5" / ".h5". */
+  /* Reader-owned filename suffix copied into MimicConfig.TreeExtension. Only
+     readers with a fixed filename suffix should set this; readers whose
+     tree_name is a literal filename or filename pattern leave it empty. */
   const char *file_extension;
 
   /* How the driver maps partitions onto the input (see enum above). */
@@ -70,6 +71,11 @@ struct TreeReader {
   /* Output id for a partition: the value used in output file names and unique
      galaxy ids (the filenr-equivalent). */
   int (*partition_output_id)(int partition);
+  /* Optional PARTITION_PER_FILE path formatter. If NULL, the driver uses the
+     legacy L-Halo binary path: <simulation_dir>/<tree_name>.<output_id><ext>.
+     Readers whose tree_name is a literal filename or filename pattern should
+     provide this rather than relying on file_extension. */
+  void (*format_partition_path)(char *buf, size_t size, int output_id);
 
   /* Open partition `output_id` and read its unit table (Ntrees and per-unit
      halo counts), retaining the open handle for subsequent load_unit calls. For

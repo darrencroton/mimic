@@ -4,7 +4,7 @@
 # `snapshots/` here is a symlink to that directory; see snapshots.txt.
 # Both MicroUchuu_mergertree_info.h5 (1.2 KB index) and
 # MicroUchuu_mergertree.h5 (13 GB data) must be present in that directory.
-# The reader is pointed at the index file; HDF5 external links transparently
+# `tree_name` is the full index filename. HDF5 external links transparently
 # resolve into the data file.
 
 input:
