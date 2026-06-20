@@ -32,6 +32,7 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+#include "error.h"
 #include "memory.h"
 #include "third_party/sglib.h"
 #include "tree/ctrees/ctrees_compat.h"
@@ -135,8 +136,7 @@ static inline int *match_column_name(const char (*wanted_columns)[PARSE_CTREES_M
     for (int j = 0; j < totncols; j++) {
       const char *file_colname = names[j];
       if (strcasecmp(wanted_colname, file_colname) == 0) {
-        fprintf(stderr, "Found `%s` in column # %d as with name `%s`\n", wanted_colname, j,
-                file_colname);
+        DEBUG_LOG("Found `%s` in column # %d as with name `%s`", wanted_colname, j, file_colname);
         columns[i] = j;
         nfound++;
         found = 1;
@@ -144,10 +144,10 @@ static inline int *match_column_name(const char (*wanted_columns)[PARSE_CTREES_M
       }
     }
     if (found == 0) {
-      fprintf(stderr, "Did not find requested column `%s'\n", wanted_colname);
+      DEBUG_LOG("Did not find requested column `%s'", wanted_colname);
     }
   }
-  fprintf(stderr, "Found %d columns out of the requested %d\n", nfound, nwanted);
+  DEBUG_LOG("Found %d columns out of the requested %d", nfound, nwanted);
   return columns;
 }
 
