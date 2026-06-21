@@ -6,6 +6,11 @@ model:
 simulation:
   name: mini-uchuu
 
+input:
+  # Subset of the 127 mini-Uchuu tree files
+  first_file: 0
+  last_file: 3
+
 output:
   output_filename: halos
   output_directory: output/halos-only-mini-uchuu

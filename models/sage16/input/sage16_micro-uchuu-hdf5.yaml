@@ -1,7 +1,4 @@
 # Mimic SAGE on micro-Uchuu Run Configuration - uchuutools forests-HDF5
-#
-# Retained as the main non-L-Halo micro-Uchuu reader check while mini/full Uchuu
-# packaging is surveyed.
 
 model:
   name: sage16

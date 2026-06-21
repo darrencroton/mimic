@@ -1,13 +1,15 @@
 # Mimic halos-only Full Uchuu (uchuutools forests-HDF5) Run Configuration
-#
-# Serial run covers File0 only (~1.53M forests, ~83M halos). For a complete
-# run use MPI with at least ~3,220 tasks (1M forest/task galaxy-id limit).
 
 model:
   name: halos-only
 
 simulation:
   name: uchuu
+
+input:
+  # Subset of the 2000 full Uchuu tree files
+  first_file: 0
+  last_file: 0
 
 output:
   output_filename: halos

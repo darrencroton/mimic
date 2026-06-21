@@ -1,8 +1,4 @@
 # Mimic SAGE on micro-Uchuu Run Configuration - L-Halo binary
-#
-# Preferred micro-Uchuu production path while this tier has a valid L-Halo package.
-# This is not a suite-wide Uchuu default; mini/full Uchuu choose their best valid
-# packaging independently.
 
 model:
   name: sage16

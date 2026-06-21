@@ -1,14 +1,15 @@
 # Mimic SAGE on mini-Uchuu Run Configuration - L-Halo binary
-#
-# Preferred mini-Uchuu production path. L-Halo binary is the recommended
-# format for this tier (92 GB, 128 files). No forests-HDF5 packaging exists
-# for mini-Uchuu on NT.
 
 model:
   name: sage16
 
 simulation:
   name: mini-uchuu
+
+input:
+  # Subset of the 127 mini-Uchuu tree files
+  first_file: 0
+  last_file: 3
 
 output:
   output_filename: model

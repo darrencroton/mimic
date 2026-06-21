@@ -1,16 +1,15 @@
 # Mimic SAGE on Full Uchuu Run Configuration - uchuutools forests-HDF5
-#
-# Primary (and only practical) format for full Uchuu. Serial run covers
-# File0 only (~1.53M forests). Production science runs require MPI with
-# at least ~3,220 tasks (1M forest/task galaxy-id limit; target 4000-6000).
-# Verify the HDF5 ExternalLink reader path with a halos-only smoke run
-# before the first SAGE production run.
 
 model:
   name: sage16
 
 simulation:
   name: uchuu
+
+input:
+  # Subset of the 2000 full Uchuu tree files
+  first_file: 0
+  last_file: 0
 
 output:
   output_filename: model
