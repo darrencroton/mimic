@@ -494,6 +494,7 @@ const struct TreeReader CTreesAsciiReader = {
     .num_partitions = NULL,
     .partition_output_id = NULL,
     .format_partition_path = NULL,
+    .count_partition_trees = NULL,
     .open_partition = open_partition_ctrees_ascii,
     .load_unit = load_unit_ctrees_ascii,
     .close_partition = close_partition_ctrees_ascii,

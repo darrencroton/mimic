@@ -60,6 +60,7 @@ static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names);
 static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
                                   int *attribute);
 static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void *buffer);
+static int64_t count_partition_trees_hdf5(int output_id);
 
 // External Functions //
 
@@ -283,6 +284,37 @@ static void format_lhalo_hdf5_partition_path(char *buf, size_t size, int output_
   }
 }
 
+static int64_t count_partition_trees_hdf5(int output_id) {
+  char buf[3 * MAX_STRING_LEN + 15];
+  int ntrees;
+  int32_t status;
+  struct METADATA_NAMES metadata_names;
+
+  format_lhalo_hdf5_partition_path(buf, sizeof(buf), output_id);
+  hid_t count_file = H5Fopen(buf, H5F_ACC_RDONLY, H5P_DEFAULT);
+  if (count_file < 0) {
+    FATAL_ERROR("Failed to open HDF5 tree file '%s'", buf);
+  }
+
+  status = fill_metadata_names(&metadata_names);
+  if (status != EXIT_SUCCESS) {
+    H5Fclose(count_file);
+    FATAL_ERROR("Failed to fill HDF5 tree metadata names");
+  }
+
+  status = read_attribute_int(count_file, "/Header", metadata_names.name_NTrees, &ntrees);
+  if (status != EXIT_SUCCESS) {
+    H5Fclose(count_file);
+    FATAL_ERROR("Error %d while reading NTrees attribute from file '%s'", status, buf);
+  }
+  H5Fclose(count_file);
+
+  if (ntrees < 0) {
+    FATAL_ERROR("HDF5 tree file '%s' reports negative NTrees=%d", buf, ntrees);
+  }
+  return (int64_t)ntrees;
+}
+
 /* L-Halo-tree HDF5 merger trees: per-tree groups (tree_NNN/<field>) with a
    /Header carrying Ntrees/totNHalos/InputTreeNHalos. One partition per input
    file, one unit per tree; see tree/registry.c. */
@@ -294,6 +326,7 @@ const struct TreeReader LHaloHDF5Reader = {
     .num_partitions = tree_partition_per_file_count,
     .partition_output_id = tree_partition_per_file_output_id,
     .format_partition_path = format_lhalo_hdf5_partition_path,
+    .count_partition_trees = count_partition_trees_hdf5,
     .open_partition = open_partition_hdf5,
     .load_unit = load_unit_hdf5,
     .close_partition = close_partition_hdf5,

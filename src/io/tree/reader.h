@@ -2,6 +2,7 @@
 #define IO_TREE_READER_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 /**
  * @file    tree/reader.h
@@ -76,6 +77,10 @@ struct TreeReader {
      Readers whose tree_name is a literal filename or filename pattern should
      provide this rather than relying on file_extension. */
   void (*format_partition_path)(char *buf, size_t size, int output_id);
+  /* Count units in a present partition without staging per-unit metadata or
+     holding an open handle. Required for PARTITION_PER_FILE readers so the core
+     can build run-scoped global forest offsets; NULL for PARTITION_PER_TASK. */
+  int64_t (*count_partition_trees)(int output_id);
 
   /* Open partition `output_id` and read its unit table (Ntrees and per-unit
      halo counts), retaining the open handle for subsequent load_unit calls. For

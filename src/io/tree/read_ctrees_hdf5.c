@@ -989,6 +989,7 @@ const struct TreeReader CTreesHDF5Reader = {
     .num_partitions = NULL,
     .partition_output_id = NULL,
     .format_partition_path = NULL,
+    .count_partition_trees = NULL,
     .open_partition = open_partition_ctrees_hdf5,
     .load_unit = load_unit_ctrees_hdf5,
     .close_partition = close_partition_ctrees_hdf5,
