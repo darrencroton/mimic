@@ -3,7 +3,9 @@
  * @brief   Terminal progress bar implementation (see progress.h).
  */
 
+#include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -24,6 +26,48 @@
 /* Completion marker appended to the finished live bar (in place of a separate
  * "Completed file" line). Modern terminals render the check-mark emoji. */
 #define PROGRESS_DONE_MARK "- completed \xE2\x9C\x85"
+
+/* Hide/show the terminal cursor while the live bar is active.
+ * An atexit handler guarantees the cursor is restored on abnormal exit. */
+static int cursor_hidden = 0;
+
+static void restore_cursor_atexit(void) {
+  if (cursor_hidden) {
+    fputs("\x1b[?25h", stdout);
+    fflush(stdout);
+    cursor_hidden = 0;
+  }
+}
+
+/* Signal handler: restore cursor then re-raise so the shell sees the signal. */
+static void signal_restore_cursor(int sig) {
+  restore_cursor_atexit();
+  signal(sig, SIG_DFL);
+  raise(sig);
+}
+
+static void hide_cursor(void) {
+  if (cursor_hidden)
+    return;
+  static int atexit_registered = 0;
+  if (!atexit_registered) {
+    atexit(restore_cursor_atexit);
+    signal(SIGINT, signal_restore_cursor);
+    signal(SIGTERM, signal_restore_cursor);
+    atexit_registered = 1;
+  }
+  fputs("\x1b[?25l", stdout);
+  fflush(stdout);
+  cursor_hidden = 1;
+}
+
+static void show_cursor(void) {
+  if (!cursor_hidden)
+    return;
+  fputs("\x1b[?25h", stdout);
+  fflush(stdout);
+  cursor_hidden = 0;
+}
 
 /* Monotonic wall-clock seconds; falls back to 0 if the clock is unavailable. */
 static double now_seconds(void) {
@@ -80,14 +124,20 @@ int progress_bar_format(char *buf, size_t n, int64_t cur, int64_t total, double 
   const char *green = use_color ? "\x1b[92m" : "";
   const char *reset = use_color ? "\x1b[0m" : "";
 
-  /* Build the bar interior: filled cells (coloured) then empty cells. */
+  /* Build the bar interior: arrow shaft (coloured) then empty cells.
+   * In-flight: dashes + arrowhead (e.g. "----->   ").
+   * Complete:  all dashes (e.g. "----------"). */
   char bar[PROGRESS_BAR_WIDTH * 2 + 32];
   size_t bpos = 0;
   int safe_filled = filled <= PROGRESS_BAR_WIDTH ? filled : PROGRESS_BAR_WIDTH;
   int safe_width = width <= PROGRESS_BAR_WIDTH ? width : PROGRESS_BAR_WIDTH;
+  int complete = (safe_filled >= safe_width);
   bpos += (size_t)snprintf(bar + bpos, sizeof(bar) - bpos, "%s", green);
-  for (int i = 0; i < safe_filled && bpos < sizeof(bar) - 1; i++)
-    bar[bpos++] = '#';
+  int shaft = complete ? safe_filled : (safe_filled > 0 ? safe_filled - 1 : 0);
+  for (int i = 0; i < shaft && bpos < sizeof(bar) - 1; i++)
+    bar[bpos++] = '-';
+  if (!complete && safe_filled > 0 && bpos < sizeof(bar) - 1)
+    bar[bpos++] = '>';
   bpos += (size_t)snprintf(bar + bpos, sizeof(bar) - bpos, "%s", reset);
   for (int i = safe_filled; i < safe_width && bpos < sizeof(bar) - 1; i++)
     bar[bpos++] = ' ';
@@ -107,6 +157,8 @@ void progress_bar_init(ProgressBar *pb, int64_t total, int context_id) {
   pb->last_refresh = 0.0;
   pb->min_refresh = PROGRESS_MIN_REFRESH;
   pb->live = progress_display_active();
+  if (pb->live)
+    hide_cursor();
 }
 
 int progress_display_active(void) {
@@ -171,4 +223,5 @@ void progress_bar_finish(ProgressBar *pb) {
                       MimicLogUseColor, label);
   fprintf(stdout, "\r%s %s  \n", line, PROGRESS_DONE_MARK);
   fflush(stdout);
+  show_cursor();
 }
