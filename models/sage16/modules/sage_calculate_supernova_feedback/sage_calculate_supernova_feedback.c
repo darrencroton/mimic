@@ -70,7 +70,7 @@ int sage_calculate_supernova_feedback_init(void) {
   EnergySNcode = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
   EtaSNcode = ETA_SN * (MimicConfig.UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
 
-  INFO_LOG("SAGE supernova feedback module initialized");
+  VERBOSE_LOG("SAGE supernova feedback module initialized");
   VERBOSE_LOG("  FeedbackReheatingEpsilon = %.3f", FEEDBACK_REHEATING_EPSILON);
   VERBOSE_LOG("  FeedbackEjectionEfficiency = %.3f", FEEDBACK_EJECTION_EFFICIENCY);
   VERBOSE_LOG("  EnergySNcode = %.6e (from ENERGY_SN physical constant)", EnergySNcode);

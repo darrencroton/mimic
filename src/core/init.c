@@ -182,8 +182,8 @@ void read_snap_list(void) {
 #ifdef MPI
   if (ThisTask == 0)
 #endif
-    INFO_LOG("Found %d defined times in snaplist (snapshots 0..%d)", MimicConfig.Snaplistlen,
-             MimicConfig.LastSnapshotNr);
+    VERBOSE_LOG("Found %d defined times in snaplist (snapshots 0..%d)", MimicConfig.Snaplistlen,
+                MimicConfig.LastSnapshotNr);
 }
 
 /**

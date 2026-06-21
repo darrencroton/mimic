@@ -66,7 +66,7 @@ int sage_apply_metal_enrichment_init(void) {
     return -1;
   }
 
-  INFO_LOG("SAGE metal enrichment module initialized");
+  VERBOSE_LOG("SAGE metal enrichment module initialized");
   VERBOSE_LOG("  Yield = %.4f", YIELD);
   VERBOSE_LOG("  FracZleaveDisk = %.3f", FRAC_Z_LEAVE_DISK);
 

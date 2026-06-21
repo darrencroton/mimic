@@ -32,7 +32,7 @@ int sage_reincorporation_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ReIncorporationFactor", REINCORPORATION_FACTOR, 0.0, 10.0,
                                     "reincorporation efficiency factor");
 
-  INFO_LOG("SAGE reincorporation module initialized");
+  VERBOSE_LOG("SAGE reincorporation module initialized");
   VERBOSE_LOG("  ReIncorporationFactor = %.3f", REINCORPORATION_FACTOR);
   VERBOSE_LOG("  Critical velocity = %.2f km/s", 445.48 * REINCORPORATION_FACTOR);
 

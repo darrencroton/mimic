@@ -156,7 +156,7 @@ int sage_starburst_feedback_init(void) {
   EnergySNcode = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
   EtaSNcode = ETA_SN * (MimicConfig.UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
 
-  INFO_LOG("SAGE starburst feedback module initialized");
+  VERBOSE_LOG("SAGE starburst feedback module initialized");
   VERBOSE_LOG("  FeedbackReheatingEpsilon = %.3f", FEEDBACK_REHEATING_EPSILON);
   VERBOSE_LOG("  FeedbackEjectionEfficiency = %.3f", FEEDBACK_EJECTION_EFFICIENCY);
   VERBOSE_LOG("  RecycleFraction = %.3f", RECYCLE_FRACTION);

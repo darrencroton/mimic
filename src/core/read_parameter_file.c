@@ -129,7 +129,7 @@ static void yaml_file_close(struct YamlFile *yf) {
 void read_parameter_file(const char *fname) {
   struct YamlFile yf;
 
-  INFO_LOG("Reading YAML parameter file: %s", fname);
+  VERBOSE_LOG("Reading YAML parameter file: %s", fname);
 
   yaml_file_open(&yf, fname, "parameter file");
   yaml_document_t *document = &yf.document;
@@ -827,7 +827,7 @@ static void parse_plotting_section(yaml_document_t *doc, yaml_node_t *section) {
 static void parse_simulation_config_file(const char *fname) {
   struct YamlFile yf;
 
-  INFO_LOG("Reading simulation config file: %s", fname);
+  VERBOSE_LOG("Reading simulation config file: %s", fname);
 
   yaml_file_open(&yf, fname, "simulation config file");
   yaml_document_t *document = &yf.document;
@@ -1109,13 +1109,13 @@ static void parse_modules_section(yaml_document_t *doc, yaml_node_t *section) {
     MimicConfig.substep_phases = NULL;
   }
 
-  INFO_LOG("Multi-phase pipeline configured:");
-  INFO_LOG("  pre_timestep: %d module(s)", MimicConfig.num_pre_timestep);
+  VERBOSE_LOG("Multi-phase pipeline configured:");
+  VERBOSE_LOG("  pre_timestep: %d module(s)", MimicConfig.num_pre_timestep);
   for (int p = 0; p < MimicConfig.num_substep_phases; p++) {
-    INFO_LOG("  %s: %d module(s)", MimicConfig.substep_phases[p].name,
-             MimicConfig.substep_phases[p].num_modules);
+    VERBOSE_LOG("  %s: %d module(s)", MimicConfig.substep_phases[p].name,
+                MimicConfig.substep_phases[p].num_modules);
   }
-  INFO_LOG("  post_timestep: %d module(s)", MimicConfig.num_post_timestep);
+  VERBOSE_LOG("  post_timestep: %d module(s)", MimicConfig.num_post_timestep);
 
   /* Parse parameters subsection */
   parameters = get_mapping_value(doc, section, "parameters");
@@ -1267,10 +1267,10 @@ static void validate_and_postprocess(void) {
     total_modules += MimicConfig.substep_phases[p].num_modules;
   }
   int total_phases = MimicConfig.num_substep_phases + 2; /* pre + post */
-  INFO_LOG("Configuration: %d output snapshots, %d module instances across %d "
-           "phases",
-           MimicConfig.NOUT, total_modules, total_phases);
-  INFO_LOG("SubSteps: %d", MimicConfig.SubSteps);
+  VERBOSE_LOG("Configuration: %d output snapshots, %d module instances across %d "
+              "phases",
+              MimicConfig.NOUT, total_modules, total_phases);
+  VERBOSE_LOG("SubSteps: %d", MimicConfig.SubSteps);
 }
 
 /**
@@ -1282,7 +1282,7 @@ static void validate_output_snapshots(void) {
     for (int i = 0; i < MimicConfig.NOUT; i++) {
       MimicConfig.ListOutputSnaps[i] = i;
     }
-    INFO_LOG("All %d snapshots selected for output (empty snapshot_list)", MimicConfig.NOUT);
+    VERBOSE_LOG("All %d snapshots selected for output (empty snapshot_list)", MimicConfig.NOUT);
     return;
   }
 

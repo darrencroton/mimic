@@ -513,7 +513,7 @@ static void log_phase_size_visitor(const char *phase_name, struct PhaseModuleCon
                                    int num_modules, void *userdata) {
   (void)modules;
   (void)userdata;
-  INFO_LOG("  %s: %d module(s)", phase_name, num_modules);
+  VERBOSE_LOG("  %s: %d module(s)", phase_name, num_modules);
 }
 
 static void validate_modes_visitor(const char *phase_name, struct PhaseModuleConfig *modules,
@@ -543,7 +543,7 @@ static void validate_events_visitor(const char *phase_name, struct PhaseModuleCo
 int module_system_init(void) {
   int validation_failed = 0;
 
-  INFO_LOG("Initializing multi-phase module system");
+  VERBOSE_LOG("Initializing multi-phase module system");
 
   /* Build execution pipeline by collecting all unique modules across phases */
   num_pipeline_modules = 0;
@@ -551,30 +551,30 @@ int module_system_init(void) {
 
   if (num_pipeline_modules == 0) {
     INFO_LOG("No modules configured (physics-free mode)");
-    INFO_LOG("SubSteps = %d", MimicConfig.SubSteps);
+    VERBOSE_LOG("SubSteps = %d", MimicConfig.SubSteps);
     return 0;
   }
 
-  INFO_LOG("Pipeline configuration:");
-  INFO_LOG("  SubSteps: %d", MimicConfig.SubSteps);
+  VERBOSE_LOG("Pipeline configuration:");
+  VERBOSE_LOG("  SubSteps: %d", MimicConfig.SubSteps);
   for_each_phase(log_phase_size_visitor, NULL);
-  INFO_LOG("  Total unique modules: %d", num_pipeline_modules);
+  VERBOSE_LOG("  Total unique modules: %d", num_pipeline_modules);
 
   /* Validate processing mode configurations */
-  INFO_LOG("Validating module processing mode configurations...");
+  VERBOSE_LOG("Validating module processing mode configurations...");
   for_each_phase(validate_modes_visitor, &validation_failed);
   if (validation_failed) {
     return -1;
   }
-  INFO_LOG("Processing mode validation passed");
+  VERBOSE_LOG("Processing mode validation passed");
 
   /* Validate event subscription contracts for each phase */
-  INFO_LOG("Validating event subscription contracts...");
+  VERBOSE_LOG("Validating event subscription contracts...");
   for_each_phase(validate_events_visitor, &validation_failed);
   if (validation_failed) {
     return -1;
   }
-  INFO_LOG("Event subscription validation passed");
+  VERBOSE_LOG("Event subscription validation passed");
 
   /* Initialize all modules in pipeline order */
   for (int i = 0; i < num_pipeline_modules; i++) {
@@ -588,7 +588,7 @@ int module_system_init(void) {
     }
   }
 
-  INFO_LOG("Module system initialized successfully");
+  VERBOSE_LOG("Module system initialized successfully");
   return 0;
 }
 
@@ -993,16 +993,18 @@ static void free_phase_configuration(void) {
   MimicConfig.num_post_timestep = 0;
 }
 
+int module_system_pipeline_count(void) { return num_pipeline_modules; }
+
 int module_system_cleanup(void) {
   int result = 0;
 
   if (num_pipeline_modules == 0) {
     free_phase_configuration();
-    INFO_LOG("Module system cleanup complete (no modules were enabled)");
+    VERBOSE_LOG("Module system cleanup complete (no modules were enabled)");
     return 0;
   }
 
-  INFO_LOG("Cleaning up %d module(s)", num_pipeline_modules);
+  VERBOSE_LOG("Cleaning up %d module(s)", num_pipeline_modules);
 
   // Cleanup in reverse order
   for (int i = num_pipeline_modules - 1; i >= 0; i--) {
@@ -1020,7 +1022,7 @@ int module_system_cleanup(void) {
   free_phase_configuration();
   num_pipeline_modules = 0;
 
-  INFO_LOG("Module system cleanup complete");
+  VERBOSE_LOG("Module system cleanup complete");
   return result;
 }
 

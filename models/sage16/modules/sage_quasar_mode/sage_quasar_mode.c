@@ -52,7 +52,7 @@ int sage_quasar_mode_init(void) {
     return -1;
   }
 
-  INFO_LOG("SAGE quasar-mode AGN feedback initialized");
+  VERBOSE_LOG("SAGE quasar-mode AGN feedback initialized");
   VERBOSE_LOG("  BlackHoleGrowthRate = %.4f", BLACK_HOLE_GROWTH_RATE);
   VERBOSE_LOG("  QuasarModeEfficiency = %.3f", QUASAR_MODE_EFFICIENCY);
 

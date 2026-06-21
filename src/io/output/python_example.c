@@ -279,7 +279,7 @@ void write_python_example(const char *output_dir) {
   PY("    main()");
 
   fclose(fh);
-  INFO_LOG("Python example written to %s/example_Mvir_Len_plot.py", output_dir);
+  VERBOSE_LOG("Python example written to %s/example_Mvir_Len_plot.py", output_dir);
 }
 
 #undef PY

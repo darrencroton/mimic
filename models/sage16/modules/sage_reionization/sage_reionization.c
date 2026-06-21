@@ -101,7 +101,7 @@ int sage_reionization_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                     "cosmic baryon fraction must be physical");
 
-  INFO_LOG("SAGE reionization module initialized");
+  VERBOSE_LOG("SAGE reionization module initialized");
   VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);
   VERBOSE_LOG("  Physics: HaloBaryonFraction = GlobalBaryonFraction * f_reion(Mvir, z)");
 

@@ -47,6 +47,8 @@ void set_log_level(LogLevel min_level);
 LogLevel get_log_level(void);
 void set_verbose_format(int enable);
 int get_verbose_format(void);
+void set_verbose_prefix(int enable);
+int get_verbose_prefix(void);
 void enable_debug_log_rate_limiting(void);
 void disable_debug_log_rate_limiting(void);
 int is_debug_log_rate_limiting_enabled(void);

@@ -34,7 +34,7 @@ int sage_apply_infall_init(void) {
     return -1;
   }
 
-  INFO_LOG("SAGE apply infall module initialized");
+  VERBOSE_LOG("SAGE apply infall module initialized");
   return 0;
 }
 

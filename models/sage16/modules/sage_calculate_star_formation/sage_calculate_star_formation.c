@@ -47,7 +47,7 @@ int sage_calculate_star_formation_init(void) {
     return -1;
   }
 
-  INFO_LOG("SAGE star formation module initialized");
+  VERBOSE_LOG("SAGE star formation module initialized");
   VERBOSE_LOG("  SfrEfficiency = %.4f", SFR_EFFICIENCY);
   VERBOSE_LOG("  StarFormingDiskFactor = %.2f (from config)", STAR_FORMING_DISK_FACTOR);
 

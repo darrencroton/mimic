@@ -7,7 +7,7 @@
 /* HDF5 configuration */
 #ifdef HDF5
 #include <hdf5.h>
-#define MODELNAME "MIMIC"
+#define MODELNAME "Mimic"
 #endif
 
 /* Global configuration structure - the single source of truth for run

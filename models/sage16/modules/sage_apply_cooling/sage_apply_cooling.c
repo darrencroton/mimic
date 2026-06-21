@@ -62,7 +62,7 @@ int sage_apply_cooling_init(void) {
     return -1;
   }
 
-  INFO_LOG("SAGE apply cooling module initialized");
+  VERBOSE_LOG("SAGE apply cooling module initialized");
   return 0;
 }
 

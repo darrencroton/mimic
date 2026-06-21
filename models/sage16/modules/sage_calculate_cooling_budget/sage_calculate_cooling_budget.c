@@ -93,7 +93,7 @@ int sage_calculate_cooling_budget_init(void) {
     return -1;
   }
 
-  INFO_LOG("SAGE calculate cooling budget module initialized");
+  VERBOSE_LOG("SAGE calculate cooling budget module initialized");
   return 0;
 }
 

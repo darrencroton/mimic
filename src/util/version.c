@@ -326,6 +326,6 @@ int create_version_metadata(const char *output_dir, const char *parameter_file) 
 
   fclose(metadata_file);
 
-  INFO_LOG("Version metadata saved to %s", metadata_path);
+  VERBOSE_LOG("Version metadata saved to %s", metadata_path);
   return 0;
 }

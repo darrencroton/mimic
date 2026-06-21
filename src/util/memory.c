@@ -104,7 +104,7 @@ void init_memory_system(unsigned long max_blocks) {
   memset(CategorySizes, 0, sizeof(CategorySizes));
   MemorySystemInitialized = 1;
 
-  INFO_LOG("Memory management system initialized with capacity for %lu blocks", MaxBlocks);
+  VERBOSE_LOG("Memory management system initialized with capacity for %lu blocks", MaxBlocks);
 }
 
 /**
@@ -531,7 +531,7 @@ void check_memory_leaks(void) {
       }
     }
   } else {
-    INFO_LOG("No memory leaks detected");
+    VERBOSE_LOG("No memory leaks detected");
   }
 }
 

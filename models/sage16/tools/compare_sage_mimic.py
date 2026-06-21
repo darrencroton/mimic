@@ -425,7 +425,7 @@ def load_mimic(directory, snapshot):
 
     files = _mimic_output_files(directory)
     if not files:
-        raise FileNotFoundError(f"No MIMIC model_*.hdf5 or model.hdf5 files in {directory}")
+        raise FileNotFoundError(f"No Mimic model_*.hdf5 or model.hdf5 files in {directory}")
 
     records = []
     files_loaded = []
@@ -437,7 +437,7 @@ def load_mimic(directory, snapshot):
         if expected_dtype is None:
             expected_dtype = data.dtype
         elif data.dtype != expected_dtype:
-            raise ValueError(f"MIMIC schema mismatch in {source}")
+            raise ValueError(f"Mimic schema mismatch in {source}")
         if len(data) == 0:
             return False
         records.append(data)
@@ -515,7 +515,7 @@ def match_galaxies(sage_data, mimic_data):
         msg
         for msg in (
             _duplicate_id_summary(sage_ids, "SAGE SimulationHaloIndex"),
-            _duplicate_id_summary(mimic_ids, "MIMIC MostBoundID"),
+            _duplicate_id_summary(mimic_ids, "Mimic MostBoundID"),
         )
         if msg is not None
     ]
@@ -592,7 +592,7 @@ def build_comparison_tasks(sage_data, mimic_data, sage_idx, mimic_idx):
     sage_field_names = set(sage_data.keys())
 
     def _sent(label, sage_arr, mimic_arr):
-        """Return repeated-value diagnostic counts for SAGE and MIMIC.
+        """Return repeated-value diagnostic counts for SAGE and Mimic.
         Returns empty dicts for fields excluded from repeated-value diagnostics."""
         if label in REPEATED_VALUE_EXCLUDE_FIELDS:
             return {}, {}
@@ -1023,7 +1023,7 @@ def print_property_result(label, mapping, stats, high_tol, low_tol):
         for val, cnt in sorted(sage_sc.items(), key=lambda x: -x[1]):
             print(f"      SAGE  : {val:<+20.6g}  {cnt:>6,} galaxies  ({100.0*cnt/n:.1f}%)")
         for val, cnt in sorted(mimic_sc.items(), key=lambda x: -x[1]):
-            print(f"      MIMIC : {val:<+20.6g}  {cnt:>6,} galaxies  ({100.0*cnt/n:.1f}%)")
+            print(f"      Mimic : {val:<+20.6g}  {cnt:>6,} galaxies  ({100.0*cnt/n:.1f}%)")
 
     if stats["top_10"]:
         print(
@@ -1062,7 +1062,7 @@ def print_repeated_value_overview(all_stats, n_matched):
         for val, cnt in s.get("sage_sentinel_counts", {}).items():
             rows.append((s["label"], "SAGE", val, cnt))
         for val, cnt in s.get("mimic_sentinel_counts", {}).items():
-            rows.append((s["label"], "MIMIC", val, cnt))
+            rows.append((s["label"], "Mimic", val, cnt))
 
     if not rows:
         print("  No repeated values detected.")
@@ -1091,7 +1091,7 @@ def print_problem_galaxy_summary(problem_galaxies):
         return
 
     print("  Ranked by low-tolerance discrepancy count, then high-tolerance count.")
-    print("  MatchID is SAGE SimulationHaloIndex and MIMIC MostBoundID.")
+    print("  MatchID is SAGE SimulationHaloIndex and Mimic MostBoundID.")
     print()
     for rank, row in enumerate(problem_galaxies, 1):
         sage_loc = (
@@ -1108,7 +1108,7 @@ def print_problem_galaxy_summary(problem_galaxies):
             f"MaxRelDiff={row['max_rdiff']:.3e}"
         )
         print(f"      SAGE : {sage_loc}")
-        print(f"      MIMIC: {mimic_loc}")
+        print(f"      Mimic: {mimic_loc}")
         if row["low_props"]:
             print(f"      Low-tol discrepant properties : {', '.join(row['low_props'])}")
         if row["high_only_props"]:
@@ -1135,15 +1135,15 @@ def print_loading_failure(error):
         mimic_snaps = available_mimic_snapshots(MIMIC_DIR)
     except (OSError, ValueError) as exc:
         mimic_snaps = []
-        print(f"  MIMIC snapshots    : unavailable ({exc})")
+        print(f"  Mimic snapshots    : unavailable ({exc})")
     else:
-        print(f"  MIMIC snapshots    : {_format_snapshot_list(mimic_snaps)}")
+        print(f"  Mimic snapshots    : {_format_snapshot_list(mimic_snaps)}")
 
     mimic_config = _mimic_metadata_config(MIMIC_DIR)
     snapshot_line = _snapshot_list_line(mimic_config)
     if snapshot_line:
-        print(f"  MIMIC config       : {mimic_config}")
-        print(f"  MIMIC snapshot_list: {snapshot_line}")
+        print(f"  Mimic config       : {mimic_config}")
+        print(f"  Mimic snapshot_list: {snapshot_line}")
 
     common = sorted(set(sage_snaps) & set(mimic_snaps))
     print(f"  Common snapshots   : {_format_snapshot_list(common)}")
@@ -1165,11 +1165,11 @@ def print_loading_failure(error):
 
 def main():
     print(SEP_MAJOR)
-    print(bold("  SAGE vs MIMIC Galaxy Comparison"))
+    print(bold("  SAGE vs Mimic Galaxy Comparison"))
     print(f"  Snapshot : {SNAPSHOT}")
     print(f"  High tol : {HIGH_TOLERANCE:.0e}   Low tol : {LOW_TOLERANCE:.0e}")
     print(f"  SAGE dir : {SAGE_DIR}")
-    print(f"  MIMIC dir: {MIMIC_DIR}")
+    print(f"  Mimic dir: {MIMIC_DIR}")
     print(SEP_MAJOR)
 
     # -------------------------------------------------------------------------
@@ -1187,9 +1187,9 @@ def main():
     mimic_total = len(mimic_data)
 
     print(f"  SAGE  files: {sage_files}")
-    print(f"  MIMIC files: {mimic_files}")
+    print(f"  Mimic files: {mimic_files}")
     print(f"  SAGE  total galaxies : {sage_total:,}")
-    print(f"  MIMIC total galaxies : {mimic_total:,}")
+    print(f"  Mimic total galaxies : {mimic_total:,}")
 
     # -------------------------------------------------------------------------
     # 2. Galaxy count check
@@ -1204,7 +1204,7 @@ def main():
         count_ok = True
     else:
         print(
-            f"  {yellow('⚠ DISCREPANCY')}  SAGE={sage_total:,}  MIMIC={mimic_total:,}  diff={count_diff:+d}"
+            f"  {yellow('⚠ DISCREPANCY')}  SAGE={sage_total:,}  Mimic={mimic_total:,}  diff={count_diff:+d}"
         )
         count_ok = False
 
@@ -1231,7 +1231,7 @@ def main():
         if len(sage_only) > 20:
             print(f"      ... and {len(sage_only) - 20} more")
     if mimic_only:
-        print(f"    {yellow('⚠ IN MIMIC ONLY')} ({len(mimic_only)}):")
+        print(f"    {yellow('⚠ IN Mimic ONLY')} ({len(mimic_only)}):")
         mimic_id_map = {int(v): i for i, v in enumerate(mimic_data["MostBoundID"])}
         print(f"      {'HaloID':>12s}  {'Mvir':>10s}  {'x':>10s}  {'y':>10s}  {'z':>10s}")
         for hid in mimic_only[:20]:
@@ -1272,12 +1272,12 @@ def main():
         )
 
     if sage_unmatched:
-        print(f"\n  {yellow('SAGE fields with no MIMIC equivalent')} ({len(sage_unmatched)}):")
+        print(f"\n  {yellow('SAGE fields with no Mimic equivalent')} ({len(sage_unmatched)}):")
         for f in sage_unmatched:
             print(f"    - {f}")
 
     if mimic_unmatched:
-        print(f"\n  {yellow('MIMIC fields with no SAGE equivalent')} ({len(mimic_unmatched)}):")
+        print(f"\n  {yellow('Mimic fields with no SAGE equivalent')} ({len(mimic_unmatched)}):")
         for f in mimic_unmatched:
             print(f"    - {f}")
 
@@ -1286,7 +1286,7 @@ def main():
         f"{', '.join(sorted(SAGE_SKIP_FIELDS))}"
     )
     print(
-        f"  Skipped MIMIC fields ({len(MIMIC_SKIP_FIELDS)}): "
+        f"  Skipped Mimic fields ({len(MIMIC_SKIP_FIELDS)}): "
         f"{', '.join(sorted(MIMIC_SKIP_FIELDS))}"
     )
 
@@ -1369,12 +1369,12 @@ def main():
 
     print(f"\n  Galaxy counts")
     print(f"    SAGE total            : {sage_total:,}")
-    print(f"    MIMIC total           : {mimic_total:,}")
+    print(f"    Mimic total           : {mimic_total:,}")
     print(
         f"    Matched               : {n_matched:,}/{sage_total:,}  ({100.0*n_matched/max(sage_total,1):.4f}% of SAGE)"
     )
     print(f"    SAGE-only (unmatched) : {len(sage_only)}")
-    print(f"    MIMIC-only (unmatched): {len(mimic_only)}")
+    print(f"    Mimic-only (unmatched): {len(mimic_only)}")
     count_status = (
         PASS_STR
         if count_ok and not sage_only and not mimic_only
@@ -1395,7 +1395,7 @@ def main():
         + (f"  ({', '.join(sage_unmatched)})" if sage_unmatched else "")
     )
     print(
-        f"    MIMIC unmatched fields: {len(mimic_unmatched)}"
+        f"    Mimic unmatched fields: {len(mimic_unmatched)}"
         + (f"  ({', '.join(mimic_unmatched)})" if mimic_unmatched else "")
     )
 
@@ -1450,7 +1450,7 @@ def main():
             f"Tree:Halo={_maybe_int(worst['sage_tree_index'])}:{_maybe_int(worst['sage_halo_index'])}"
         )
         print(
-            f"      Worst MIMIC IDs     : UniqueGalaxyID={_maybe_int(worst['mimic_unique_id'])}, "
+            f"      Worst Mimic IDs     : UniqueGalaxyID={_maybe_int(worst['mimic_unique_id'])}, "
             f"MostBoundID={_maybe_int(worst['mimic_most_bound_id'])}"
         )
     else:

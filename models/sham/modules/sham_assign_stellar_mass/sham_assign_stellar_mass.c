@@ -179,7 +179,7 @@ int sham_assign_stellar_mass_init(void) {
   LOAD_AND_VALIDATE_OPTION("ShamUseScatter", sham_use_scatter, 1,
                            "0=off, 1=deterministic log-normal scatter");
 
-  INFO_LOG("SHAM stellar mass assignment initialized");
+  VERBOSE_LOG("SHAM stellar mass assignment initialized");
   VERBOSE_LOG("  SHMR: logM1=%.3f N=%.4f beta=%.3f gamma=%.3f scatter=%.3f dex", sham_log_m1,
               sham_n, sham_beta, sham_gamma, sham_scatter_dex);
   return 0;

@@ -257,7 +257,7 @@ static void write_output_schema_metadata(const char *metadata_dir) {
 #include "../include/generated/output_schema_writer.inc"
 
   fclose(schema_file);
-  INFO_LOG("Output schema metadata saved to %s", schema_path);
+  VERBOSE_LOG("Output schema metadata saved to %s", schema_path);
 }
 
 /**
@@ -326,9 +326,10 @@ static LogLevel parse_cli(int *argc, char **argv) {
       set_verbose_format(1);
       i = remove_arg(argv, argc, i);
     } else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--debug") == 0) {
-      // Enable debug level logging with verbose formatting
+      // Enable debug level logging with timestamp/file:line context prefix
       log_level = LOG_LEVEL_DEBUG;
       set_verbose_format(1);
+      set_verbose_prefix(1);
       i = remove_arg(argv, argc, i);
     } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
       log_level = LOG_LEVEL_WARNING;
@@ -573,7 +574,7 @@ static void write_run_metadata(const char *param_file) {
    * needed by mimic-plot.py, which reads it from the run YAML directly. */
   write_output_schema_metadata(metadata_dir);
   write_python_example(MimicConfig.OutputDir);
-  INFO_LOG("Run configuration and referenced package files copied to %s", metadata_dir);
+  VERBOSE_LOG("Run configuration and referenced package files copied to %s", metadata_dir);
 
   // Create version metadata file
   if (create_version_metadata(MimicConfig.OutputDir, param_file) != 0) {
@@ -638,7 +639,7 @@ int main(int argc, char **argv) {
 
   /* Log startup information */
   DEBUG_LOG("Starting Mimic with verbosity level: %s", get_log_level_name(log_level));
-  INFO_LOG("Mimic physics-agnostic galaxy evolution framework starting up");
+  VERBOSE_LOG("Mimic physics-agnostic galaxy evolution framework starting up");
 
   /* Log detailed command line arguments at debug level */
   DEBUG_LOG("Command line argument count: %d", argc);
@@ -649,16 +650,19 @@ int main(int argc, char **argv) {
   /* Read parameter file and initialize simulation */
   read_parameter_file(argv[1]);
   init();
-  INFO_LOG("Simulation directory : %s", MimicConfig.SimulationDir);
-  INFO_LOG("Output directory     : %s", MimicConfig.OutputDir);
-  INFO_LOG("Tree file range      : %d .. %d", MimicConfig.FirstFile, MimicConfig.LastFile);
+  VERBOSE_LOG("Simulation directory : %s", MimicConfig.SimulationDir);
+  VERBOSE_LOG("Output directory     : %s", MimicConfig.OutputDir);
+  VERBOSE_LOG("Tree file range      : %d .. %d", MimicConfig.FirstFile, MimicConfig.LastFile);
 #ifdef HDF5
-  INFO_LOG("Output format        : %s",
-           MimicConfig.OutputFormat == output_hdf5 ? "HDF5" : "Binary");
+  VERBOSE_LOG("Output format        : %s",
+              MimicConfig.OutputFormat == output_hdf5 ? "HDF5" : "Binary");
 #else
-  INFO_LOG("Output format        : Binary");
+  VERBOSE_LOG("Output format        : Binary");
 #endif
-  INFO_LOG("Snapshots requested  : %d", MimicConfig.NOUT);
+  VERBOSE_LOG("Snapshots requested  : %d", MimicConfig.NOUT);
+  if (!get_verbose_format()) {
+    INFO_LOG("Mimic configuration completed");
+  }
 
   if (ensure_directory_exists(MimicConfig.OutputDir) != 0) {
     FATAL_ERROR("Failed to create output directory '%s'", MimicConfig.OutputDir);
@@ -666,18 +670,21 @@ int main(int argc, char **argv) {
 
   /* Register and initialize galaxy physics modules */
   log_phase_banner(PHASE_MODULE_PIPELINE);
-  INFO_LOG("Initializing galaxy physics module system");
+  VERBOSE_LOG("Initializing galaxy physics module system");
   register_all_modules(); /* Physics-agnostic: core doesn't know which modules
                              exist */
   if (module_system_init() != 0) {
     ERROR_LOG("Module system initialization failed");
     myexit(1);
   }
+  if (!get_verbose_format() && module_system_pipeline_count() > 0) {
+    INFO_LOG("All modules initialised");
+  }
 
   /* Initialize HDF5 output system if HDF5 format is selected */
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
-    INFO_LOG("Initializing HDF5 output system");
+    VERBOSE_LOG("Initializing HDF5 output system");
     calc_hdf5_props();
   }
 #endif
@@ -687,22 +694,22 @@ int main(int argc, char **argv) {
   /* Final output phase banner and any format-specific aggregation */
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
-    /* HDF5: create master file aggregating per-file outputs */
     log_phase_banner(PHASE_OUTPUT);
-    INFO_LOG("Creating master HDF5 file");
+    VERBOSE_LOG("Creating master HDF5 file");
     write_master_file();
     free_hdf5_ids();
   } else
 #endif
   {
-    /* Binary: all files already written; just mark output phase */
     log_phase_banner(PHASE_OUTPUT);
-    INFO_LOG("Finalizing binary output files");
+    VERBOSE_LOG("Finalizing binary output files");
   }
 
-  /* Report memory usage before cleanup */
-  INFO_LOG("Memory usage at completion:");
-  print_memory_brief();
+  /* Report memory usage before cleanup (verbose/debug only) */
+  if (get_verbose_format()) {
+    INFO_LOG("Memory usage at completion:");
+    print_memory_brief();
+  }
 
   /* Clean up allocated memory */
 
@@ -710,7 +717,7 @@ int main(int argc, char **argv) {
   myfree(Age_base);
 
   /* Cleanup galaxy physics modules */
-  INFO_LOG("Cleaning up galaxy physics module system");
+  VERBOSE_LOG("Cleaning up galaxy physics module system");
   module_system_cleanup();
 
   /* Release the run-persistent inheritance gather scratch buffer */
@@ -726,10 +733,13 @@ int main(int argc, char **argv) {
 
   /* Snapshot the run configuration and provenance next to the output */
   write_run_metadata(argv[1]);
+  if (!get_verbose_format()) {
+    INFO_LOG("Output written to %s/", MimicConfig.OutputDir);
+  }
 
   /* Set exit status to success */
   log_phase_banner(PHASE_SHUTDOWN);
-  INFO_LOG("MIMIC completed successfully");
+  INFO_LOG("Mimic completed successfully");
   exitfail = 0;
   return 0;
 }

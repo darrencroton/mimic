@@ -42,7 +42,7 @@ int sage_disk_instability_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("StarFormingDiskFactor", STAR_FORMING_DISK_FACTOR, 0.0, 10.0,
                                     "star forming disk factor");
 
-  INFO_LOG("SAGE disk instability module initialized");
+  VERBOSE_LOG("SAGE disk instability module initialized");
   VERBOSE_LOG("  StarFormingDiskFactor = %.2f", STAR_FORMING_DISK_FACTOR);
   return 0;
 }

@@ -70,7 +70,7 @@ int sage_resolve_mergers_and_disruption_init(void) {
     return -1;
   }
 
-  INFO_LOG("SAGE merger/disruption resolver initialized");
+  VERBOSE_LOG("SAGE merger/disruption resolver initialized");
   VERBOSE_LOG("  ThresholdMajorMerger = %.3f", THRESHOLD_MAJOR_MERGER);
   VERBOSE_LOG("  ThresholdSatDisruption = %.3f", THRESHOLD_SAT_DISRUPTION);
   return 0;

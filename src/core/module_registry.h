@@ -178,6 +178,13 @@ void execute_module_pipeline(struct ModuleContext *ctx, struct Halo *halos, int 
 int module_system_cleanup(void);
 
 /**
+ * @brief   Return the number of unique modules in the active pipeline
+ *
+ * Valid after module_system_init() has been called. Returns 0 in physics-free mode.
+ */
+int module_system_pipeline_count(void);
+
+/**
  * @brief   Register all available physics modules
  *
  * Registers all physics modules that are compiled into the current build.

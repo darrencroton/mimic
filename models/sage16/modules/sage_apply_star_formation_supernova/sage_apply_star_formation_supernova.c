@@ -77,7 +77,7 @@ int sage_apply_star_formation_supernova_init(void) {
                 "(SAGE parity loss; metals will be under-produced)");
   }
 
-  INFO_LOG("SAGE SF/SN apply step module initialized");
+  VERBOSE_LOG("SAGE SF/SN apply step module initialized");
   VERBOSE_LOG("  RecycleFraction = %.3f", RECYCLE_FRACTION);
 
   return 0;

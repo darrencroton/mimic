@@ -79,7 +79,7 @@ check_required_properties = None
 
 
 def print_banner(param_file, quiet=False):
-    """Print a coloured MIMIC PLOT ASCII banner and basic run context."""
+    """Print a coloured Mimic PLOT ASCII banner and basic run context."""
 
     if colour_enabled():
         reset = "\x1b[0m"
@@ -111,7 +111,7 @@ def print_banner(param_file, quiet=False):
             f"{yellow}/_/  /_/ /___/ /_/  /_/ /___/  \\____/      /_/     /_____/ \\____/  /_/     {bold}{reset}\n"
         )
 
-    print(f"{bold}MIMIC Galaxy Evolution Plotting Tool{reset}")
+    print(f"{bold}Mimic Galaxy Evolution Plotting Tool{reset}")
     print(f"Parameter file : {param_file}")
 
 

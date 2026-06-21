@@ -59,8 +59,11 @@ static LogLevel current_log_level = LOG_LEVEL_INFO;
 // and debug
 static FILE *log_output = NULL;
 
-// Verbose format flag: adds context (timestamp, file, line) to messages
+// Verbose format flag: enables VERBOSE_LOG emission (--verbose and --debug)
 static int verbose_format = 0;
+
+// Verbose prefix flag: adds timestamp/file:line context to messages (--debug only)
+static int verbose_prefix = 0;
 
 // Debug log rate limiting flag: only enabled during intensive processing phases
 static int debug_log_rate_limiting_enabled = 0;
@@ -193,6 +196,9 @@ void set_verbose_format(int enable) { verbose_format = enable; }
  */
 int get_verbose_format(void) { return verbose_format; }
 
+void set_verbose_prefix(int enable) { verbose_prefix = enable; }
+int get_verbose_prefix(void) { return verbose_prefix; }
+
 /**
  * @brief   Enables rate limiting for DEBUG_LOG output
  *
@@ -272,8 +278,8 @@ static void emit_log(LogLevel level, const char *file, int line, const char *pre
   }
 
   /* Print header - format depends on verbosity setting */
-  if (verbose_format) {
-    /* Verbose format: add context (timestamp, level, file:line) */
+  if (verbose_prefix) {
+    /* Debug format: add context (timestamp, level, file:line) */
     time_t now;
     char time_str[9];
     time(&now);

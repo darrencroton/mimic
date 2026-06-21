@@ -23,7 +23,7 @@
 
 /* Completion marker appended to the finished live bar (in place of a separate
  * "Completed file" line). Modern terminals render the check-mark emoji. */
-#define PROGRESS_DONE_MARK "\xE2\x9C\x85"
+#define PROGRESS_DONE_MARK "- completed \xE2\x9C\x85"
 
 /* Monotonic wall-clock seconds; falls back to 0 if the clock is unavailable. */
 static double now_seconds(void) {

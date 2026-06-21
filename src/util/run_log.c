@@ -17,7 +17,7 @@ void log_run_header(const char *param_file, LogLevel log_level) {
   const char *bold = MimicLogUseColor ? "\x1b[1m" : "";
   const char *reset = MimicLogUseColor ? "\x1b[0m" : "";
 
-  /* Optional per-line colours for the ASCII MIMIC banner */
+  /* Optional per-line colours for the ASCII Mimic banner */
   const char *c1 = MimicLogUseColor ? "\x1b[95m" : ""; // bright magenta
   const char *c2 = MimicLogUseColor ? "\x1b[94m" : ""; // bright blue
   const char *c3 = MimicLogUseColor ? "\x1b[96m" : ""; // bright cyan
@@ -38,8 +38,8 @@ void log_run_header(const char *param_file, LogLevel log_level) {
     fprintf(stdout, "%s/_/  /_/ /___/ /_/  /_/ /___/  \\____/   %s%s\n\n", c5, bold, reset);
   }
 
-  fprintf(stdout, "%sMIMIC Galaxy Evolution Framework%s\n", bold, reset);
-  fprintf(stdout, "%sCommit%s  : %s (%s)\n", bold, reset, GIT_COMMIT, GIT_BRANCH);
+  fprintf(stdout, "%sMimic Galaxy Evolution Framework%s\n", bold, reset);
+  fprintf(stdout, "Commit  : %s (%s)\n", GIT_COMMIT, GIT_BRANCH);
   fprintf(stdout, "Started : %s\n", time_str);
   if (param_file != NULL) {
     fprintf(stdout, "Config  : %s\n", param_file);
@@ -47,25 +47,32 @@ void log_run_header(const char *param_file, LogLevel log_level) {
 }
 
 void log_phase_banner(MimicPhase phase) {
-  /* Check if we're in quiet mode */
   LogLevel current_level = get_log_level();
   int is_quiet = (current_level >= LOG_LEVEL_WARNING);
 
-  const char *bold_cyan = MimicLogUseColor ? "\x1b[1;36m" : "";
-  const char *reset = MimicLogUseColor ? "\x1b[0m" : "";
-
-  /* In quiet mode, show simple "Running..." / "Completed" messages */
   if (is_quiet) {
     if (phase == PHASE_TREE_PROCESSING) {
       fprintf(stdout, "\nMimic is running ...\n");
     } else if (phase == PHASE_SHUTDOWN) {
-      fprintf(stdout, "Mimic has completed (check the config file for details)\n\n");
+      fprintf(stdout, "Mimic has completed (check the config file for details)\n");
     }
-    /* Skip other phase banners in quiet mode */
     return;
   }
 
-  /* Normal mode: show full banners */
+  /* Plain INFO mode: minimal output with spacing only */
+  if (!get_verbose_format()) {
+    if (phase == PHASE_TREE_PROCESSING) {
+      fprintf(stdout, "\nProcessing trees:\n");
+    } else if (phase == PHASE_OUTPUT) {
+      fprintf(stdout, "\n");
+    }
+    return;
+  }
+
+  /* Verbose/debug mode: full section banners */
+  const char *bold_cyan = MimicLogUseColor ? "\x1b[1;36m" : "";
+  const char *reset = MimicLogUseColor ? "\x1b[0m" : "";
+
   const char *label = "";
   switch (phase) {
   case PHASE_CONFIG:
