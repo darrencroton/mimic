@@ -4,6 +4,7 @@
 #include "constants.h"
 #include "types.h"
 #include <stdio.h>
+#include <stdint.h>
 
 /* Global configuration structure */
 extern struct MimicConfig MimicConfig;
@@ -126,6 +127,7 @@ extern double *Age_base;
 /* tree and file information */
 extern int TreeID;
 extern int FileNum;
+extern int64_t GlobalForestOffset;
 
 /* HDF5 specific globals */
 #ifdef HDF5
