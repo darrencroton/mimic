@@ -20,9 +20,6 @@
 #
 # Mirror maintenance: keep this file in sync with micro-uchuu-hdf5 when
 # changing the ctrees RawHalo contract. Only the Pos range differs.
-#
-# See: docs/dev/CTREES-UCHUU-VALIDATION.md §8 for the full survey and
-# compatibility check for this dataset.
 
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---

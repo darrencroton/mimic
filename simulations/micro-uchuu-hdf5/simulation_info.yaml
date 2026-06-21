@@ -1,7 +1,6 @@
 # micro-Uchuu Simulation Metadata — uchuutools forests-HDF5 format
 #
-# Data on NT at /fred/oz214/simulations/uchuu/U100/mergertrees/.
-# `snapshots/` here is a symlink to that directory.
+# `snapshots/` is a symlink to your local copy of the tree data directory.
 # Both MicroUchuu_mergertree_info.h5 (1.2 KB index) and
 # MicroUchuu_mergertree.h5 (13 GB data) must be present in that directory.
 # `tree_name` is the full index filename. HDF5 external links transparently

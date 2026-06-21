@@ -15,8 +15,6 @@
 # Required core roles (src/core/core_properties.yaml required_inputs):
 # Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
 # NextHaloInFOFgroup, SnapNum, Len, HaloMass.
-#
-# See: docs/dev/CTREES-UCHUU-VALIDATION.md for the full validation checklist
 
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---

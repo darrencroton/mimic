@@ -1,7 +1,6 @@
 # mini-Uchuu Simulation Metadata — L-Halo binary format
 #
-# Data on NT at /fred/oz214/simulations/uchuu/U400/lhalo-binary-mergertree/.
-# `snapshots/` here is a symlink to that directory.
+# `snapshots/` is a symlink to your local copy of the tree data directory.
 # Files: Uchuu400_Planck_lhalo_binary.{0..127} (128 files, ~92 GB total).
 # Converted from the Consistent-Trees ASCII trees by sage-model. The 26-field
 # L-Halo struct layout is identical to micro-uchuu and mini-Millennium.

@@ -18,8 +18,6 @@
 #
 # Mirror maintenance: keep this file in sync with micro-uchuu and
 # mini-millennium when changing the lhalo field schema.
-#
-# See: docs/dev/CTREES-UCHUU-VALIDATION.md for the full validation checklist
 
 halo_properties:
   # --- merger-tree topology links (consumed directly by the core driver) ---
