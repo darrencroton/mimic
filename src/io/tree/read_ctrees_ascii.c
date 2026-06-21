@@ -64,6 +64,7 @@
    process, so a file-static record is sufficient and mirrors the L-Halo readers'
    single open file handle. */
 struct ctrees_ascii_partition {
+  int64_t start_forestnum;                  /* global first forest assigned to this task */
   int64_t nforests;                         /* units in this partition (== global Ntrees) */
   int64_t ntrees_this_task;                 /* total trees across this task's forests */
   int64_t *ntrees_per_forest;               /* [nforests] number of trees in each forest */
@@ -285,6 +286,12 @@ static void open_partition_ctrees_ascii(int output_id) {
       prev_forestid = locations[i].forestid;
     }
   }
+  /* Keep the encoding-capacity failure distinct from the older int staging limit. */
+  if (!mimic_unique_galaxy_id_total_forests_valid(totnforests)) {
+    FATAL_ERROR("Consistent-Trees total forest count %" PRId64
+                " exceeds the UniqueGalaxyID encoding limit of %" PRId64,
+                totnforests, mimic_unique_galaxy_id_max_forests());
+  }
   if (totnforests >= INT_MAX) {
     FATAL_ERROR("Consistent-Trees forest count %" PRId64 " cannot be indexed by a 32-bit int",
                 totnforests);
@@ -302,6 +309,8 @@ static void open_partition_ctrees_ascii(int output_id) {
                 "of %lld; run with more MPI tasks",
                 thistask, nforests_this_task, (long long)CTREES_MAX_FORESTS_PER_TASK);
   }
+  CT.start_forestnum = start_forestnum;
+  GlobalForestOffset = CT.start_forestnum;
   const int64_t end_forestnum = start_forestnum + nforests_this_task;
 
   /* Locate this task's contiguous tree range [start_treenum, start+ntrees). */

@@ -86,6 +86,7 @@ struct ctrees_hdf5_partition {
   int totnfiles;             /* lastfile + 1 (indexable by file number) */
   int start_filenum;         /* first/last file this task reads from */
   int end_filenum;
+  int64_t start_forestnum;              /* global first forest assigned to this task */
   int64_t nforests;                     /* units (forests) on this task */
   int32_t *forest_filenum;              /* [nforests] file holding each forest */
   int64_t *forest_treenr_in_file;       /* [nforests] tree row of each forest in its file */
@@ -666,6 +667,7 @@ static int setup_forests_io_ctrees_hdf5(const int thistask, const int ntasks) {
   for (int64_t i = 0; i < totnfiles; i++) {
     totnforests_per_file[i] = 0;
   }
+  const int64_t max_unique_id_forests = mimic_unique_galaxy_id_max_forests();
   int64_t totnforests = 0;
   for (int ifile = firstfile; ifile <= lastfile; ifile++) {
     char file_group_name[MAX_STRING_LEN];
@@ -678,11 +680,18 @@ static int setup_forests_io_ctrees_hdf5(const int thistask, const int ntasks) {
     XRETURN(nforests_this_file >= 1, CT_H5_ERR,
             "Error: file %d reports %" PRId64 " forests (expected >= 1)\n", ifile,
             nforests_this_file);
+    XRETURN(nforests_this_file <= LLONG_MAX - totnforests, CT_H5_ERR,
+            "Error: Consistent-Trees total forest count would overflow int64 after file %d\n",
+            ifile);
     totnforests_per_file[ifile] = nforests_this_file;
     totnforests += nforests_this_file;
   }
   XRETURN(totnforests >= 1, CT_H5_ERR, "Error: total forest count %" PRId64 " must be >= 1\n",
           totnforests);
+  XRETURN(mimic_unique_galaxy_id_total_forests_valid(totnforests), CT_H5_ERR,
+          "Error: Consistent-Trees total forest count %" PRId64
+          " exceeds the UniqueGalaxyID encoding limit of %" PRId64 "\n",
+          totnforests, max_unique_id_forests);
   if (totnforests >= INT_MAX) {
     XRETURN(0, CT_H5_ERR, "Error: forest count %" PRId64 " cannot be indexed by a 32-bit int\n",
             totnforests);
@@ -714,6 +723,8 @@ static int setup_forests_io_ctrees_hdf5(const int thistask, const int ntasks) {
           "of %lld; run with more MPI tasks\n",
           thistask, nforests_this_task, (long long)CTREES_MAX_FORESTS_PER_TASK);
 
+  CTH.start_forestnum = start_forestnum;
+  GlobalForestOffset = CTH.start_forestnum;
   CTH.nforests = nforests_this_task;
   Ntrees = (int)nforests_this_task;
 

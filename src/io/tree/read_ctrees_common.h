@@ -25,16 +25,15 @@
 #include <stdint.h>
 
 #include "constants.h"                 /* FILENR_MUL_FAC, TREE_MUL_FAC */
+#include "galaxy_id.h"                 /* UniqueGalaxyID capacity helper */
 #include "tree/ctrees/ctrees_compat.h" /* struct halo_data */
 #include "types.h"                     /* struct RawHalo */
 
-/* Galaxy-id uniqueness bounds. ids are halonr + TREE_MUL_FAC*forestnr_local +
-   FILENR_MUL_FAC*ThisTask. make_unique_galaxy_id() uses the full FILENR_MUL_FAC
-   stride for PARTITION_PER_TASK readers (it does not apply the L-Halo many-files
-   reduction), so for ids to stay collision free a forest must have fewer than
-   TREE_MUL_FAC halos, a task fewer than FILENR_MUL_FAC/TREE_MUL_FAC forests, and
-   the task term FILENR_MUL_FAC*ThisTask must not overflow int64. Shared by both
-   Consistent-Trees readers. */
+/* Current old-formula ctrees bounds. make_unique_galaxy_id() still uses
+   halonr + TREE_MUL_FAC*forestnr_local + FILENR_MUL_FAC*ThisTask until the
+   activation slice, so these guards remain in force for now. Both ctrees
+   readers also validate the run's total forest count with the shared
+   UniqueGalaxyID helper before publishing GlobalForestOffset. */
 #define CTREES_MAX_FORESTS_PER_TASK (FILENR_MUL_FAC / TREE_MUL_FAC)
 #define CTREES_MAX_TASK_ID (LLONG_MAX / FILENR_MUL_FAC)
 
