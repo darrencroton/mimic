@@ -20,11 +20,11 @@
 static int passed = 0;
 static int failed = 0;
 
-/* Count occurrences of a '#' fill characters inside the rendered bar. */
-static int count_char(const char *s, char c) {
+/* Count filled bar cells: dash shaft ('-') plus arrowhead ('>'). */
+static int count_filled(const char *s) {
   int n = 0;
   for (; *s; s++)
-    if (*s == c)
+    if (*s == '-' || *s == '>')
       n++;
   return n;
 }
@@ -40,17 +40,17 @@ int test_bounds(void) {
   progress_bar_format(buf, sizeof(buf), 0, 100, 0.0, 30, 0, "file 1");
   TEST_ASSERT(strstr(buf, "  0%") != NULL, "0/100 should report 0%");
   TEST_ASSERT(strstr(buf, "(0/100)") != NULL, "count should be (0/100)");
-  TEST_ASSERT(count_char(buf, '#') == 0, "0% should have no filled cells");
+  TEST_ASSERT(count_filled(buf) == 0, "0% should have no filled cells");
 
   /* Half */
   progress_bar_format(buf, sizeof(buf), 50, 100, 1.0, 30, 0, "file 1");
   TEST_ASSERT(strstr(buf, " 50%") != NULL, "50/100 should report 50%");
-  TEST_ASSERT(count_char(buf, '#') == 15, "50% of width 30 should fill 15 cells");
+  TEST_ASSERT(count_filled(buf) == 15, "50% of width 30 should fill 15 cells");
 
   /* Full */
   progress_bar_format(buf, sizeof(buf), 100, 100, 2.0, 30, 0, "file 1");
   TEST_ASSERT(strstr(buf, "100%") != NULL, "100/100 should report 100%");
-  TEST_ASSERT(count_char(buf, '#') == 30, "100% should fill the whole width");
+  TEST_ASSERT(count_filled(buf) == 30, "100% should fill the whole width");
 
   return TEST_PASS;
 }
