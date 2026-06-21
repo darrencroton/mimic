@@ -58,8 +58,9 @@ make USE-HDF5=no
 # With MPI support for parallel processing
 make USE-MPI=yes
 
-# Parallel build (faster — uses all cores)
-make -j$(nproc)
+# Parallel build (faster — choose a local core count)
+make -j$(sysctl -n hw.ncpu)  # macOS
+make -j$(nproc)              # Linux
 
 # Clean build artifacts
 make clean
@@ -111,7 +112,11 @@ models/
 
 simulations/
 ├── mini-millennium/    mini-Millennium metadata, halo properties, and snapshot lists
-└── millennium/         full Millennium metadata (tree data not bundled; symlink your own)
+├── millennium/         full Millennium metadata (tree data not bundled; symlink your own)
+├── micro-uchuu/        micro-Uchuu L-Halo binary package
+├── micro-uchuu-hdf5/   micro-Uchuu Consistent-Trees HDF5 package
+├── mini-uchuu/         mini-Uchuu package
+└── uchuu/              full Uchuu Consistent-Trees HDF5 package
 
 build/generated/     Build-time generated files (git_version.h, test lists, module registry)
 tests/               Unit, integration, and scientific tests
@@ -159,7 +164,7 @@ plot/mimic-plot/     Plotting system (registry is model-local; sage16 ships 18 s
 
 ## Testing
 
-**Test templates:** `tests/framework/c_unit_test_template.c`, `python_integration_test_template.py`, `python_scientific_test_template.py` — start from these when writing new tests. See the `mimic-tests` skill for tier selection, location rules, and registration.
+**Test templates:** `tests/framework/c_unit_test_template.c`, `tests/framework/python_integration_test_template.py`, `tests/framework/python_scientific_test_template.py` — start from these when writing new tests. See the `mimic-tests` skill for tier selection, location rules, and registration.
 
 Long-running tests should be captured to a log file; check the exit code explicitly:
 

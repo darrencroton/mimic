@@ -28,7 +28,7 @@ models/<model>/plots/
 
 ## Running Plots
 
-Always activate the virtual environment first:
+Build Mimic with the same model set as the parameter file before plotting; the available plot registry is model-local. Always activate the virtual environment first:
 
 ```bash
 source mimic_venv/bin/activate

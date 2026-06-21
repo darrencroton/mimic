@@ -49,7 +49,7 @@ valgrind --leak-check=full --track-origins=yes \
   ./mimic models/sage16/input/sage16_mini-millennium.yaml
 ```
 
-Module-owned allocations via `mymalloc_cat(size, MEM_GALAXIES, "label")` must be paired with `myfree(ptr)` in `cleanup()`. The allocator flags any category with outstanding allocations at shutdown.
+Module-owned allocations via `mymalloc_cat(size, MEM_GALAXIES)` must be paired with `myfree(ptr)` in `cleanup()`. The allocator flags any category with outstanding allocations at shutdown.
 
 ## OutputBuffer
 

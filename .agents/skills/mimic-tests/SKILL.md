@@ -73,7 +73,7 @@ Use the module name in `phase_config` instead of `test_fixture`. The model name 
 static int passed = 0;
 static int failed = 0;
 
-static void test_my_function(void) {
+static int test_my_function(void) {
   // SETUP
   // ...
 
@@ -85,16 +85,22 @@ static void test_my_function(void) {
 
   // CLEANUP
   // ...
+  return TEST_PASS;
+}
+
+static int test_requires_unavailable_feature(void) {
+  return TEST_SKIP_WITH("requires unavailable feature");
 }
 
 int main(void) {
   TEST_RUN(test_my_function);
-  // TEST_SKIP_WITH("reason") — if the test cannot run in this configuration
-  return failed > 0 ? 1 : 0;
+  TEST_RUN(test_requires_unavailable_feature);
+  TEST_SUMMARY();
+  return TEST_RESULT();
 }
 ```
 
-`TEST_RUN` emits `MIMIC_RESULT: PASS/FAIL` automatically. `TEST_SKIP_WITH("reason")` emits a SKIP and returns from main.
+`TEST_RUN` emits `MIMIC_RESULT: PASS/FAIL/SKIP` automatically. A C test function returns `TEST_PASS`, `TEST_FAIL`, or `TEST_SKIP_WITH("reason")`; `main()` returns `TEST_RESULT()`.
 
 ## Python Test Pattern
 

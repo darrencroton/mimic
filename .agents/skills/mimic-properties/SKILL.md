@@ -25,8 +25,9 @@ Full reference: `docs/DEVELOPER-GUIDE.md` (property system section) and `scripts
   output: true                # required: whether written to output files
 
   # Common optional fields:
-  init_source: zero           # how to initialise each timestep: zero, inherit, copy, none
-  init_repeat: false          # true = carry value forward without reinitialising (transport property)
+  init_source: default        # default | copy_from_tree | copy_from_tree_array | calculate | skip
+  init_value: 0.0             # required when init_source: default
+  init_repeat: false          # galaxy only; true = reset at snapshot boundary, not every substep
   output_source: galaxy_property  # see Output Source below
   output_convert: 1.0         # multiply by this scalar on output
   h_convention: carried       # carried | free | none — see Unit Conventions
@@ -55,8 +56,13 @@ A property that carries inter-module state without being output:
 
 ```yaml
 - name: CoolingGas
+  type: double
+  units: 1e10 Msun/h
+  description: Gas mass cooling from hot to cold this substep
   output: false
-  init_repeat: true           # value persists across timesteps until explicitly overwritten
+  init_source: default
+  init_value: 0.0
+  init_repeat: true           # reset at snapshot boundary, then persist across substeps
 ```
 
 ## Unit Conventions
@@ -70,11 +76,12 @@ Mimic uses fixed reference units: `Mpc/h`, `1e10 Msun/h`, `km/s`.
 
 ## Catalog Properties and Core Role Binding
 
-Catalog properties that the core requires (e.g. `Mvir`, `Vvir`) must be bound via `provides_core_role`:
+Catalog properties that the core requires must be bound via `provides_core_role`; required roles are listed in `src/core/core_properties.yaml` under `required_inputs`.
 
 ```yaml
-- name: Mvir_200c
-  provides_core_role: Mvir    # binds this catalog field to the Mvir core accessor
+- name: M_Crit200
+  source: Mvir
+  provides_core_role: HaloMass    # binds this catalog field to the core halo-mass role
 ```
 
 This allows simulation packages to rename columns without breaking core code.

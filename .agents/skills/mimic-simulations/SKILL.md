@@ -20,6 +20,8 @@ simulations/<sim>/
   snapshots -> /path/to/data   # symlink to actual tree data
 ```
 
+Current simulation packages include `mini-millennium`, `millennium`, `micro-uchuu`, `micro-uchuu-hdf5`, `mini-uchuu`, and `uchuu`.
+
 ## simulation_info.yaml
 
 ```yaml
@@ -46,7 +48,7 @@ simulation:
     h_convention: carried
 ```
 
-`tree_type` selects the reader format. Current registered readers: `lhalo_binary`, `lhalo_hdf5`. Do not conflate `tree_type` with `processing_order` — they are orthogonal.
+`tree_type` selects the reader format. Current registered readers are `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, and `consistent_trees_hdf5`; HDF5 readers require an HDF5-enabled build. Do not conflate `tree_type` with `processing_order` — they are orthogonal.
 
 ## halo_properties.yaml
 
