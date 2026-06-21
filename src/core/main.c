@@ -19,6 +19,7 @@
  */
 
 #include <inttypes.h>
+#include <limits.h>
 #include <math.h>
 #include <signal.h>
 #include <stddef.h>
@@ -33,6 +34,7 @@
 #endif
 
 #include "config.h"
+#include "galaxy_id.h"
 #include "proto.h"
 #include "galaxy_pool.h"
 #include "globals.h"
@@ -390,7 +392,7 @@ static void process_partition(int output_id) {
     /* Construct objects for each unprocessed halo in the unit */
     for (halonr = 0; halonr < InputTreeNHalos[unit]; halonr++)
       if (HaloAux[halonr].DoneFlag == 0)
-        build_halo_tree(halonr, unit, output_id, 0);
+        build_halo_tree(halonr, unit, 0);
 
     /* Save the processed halos (format depends on OutputFormat parameter) */
 #ifdef HDF5
@@ -518,7 +520,15 @@ static int64_t *build_partition_file_offsets(const struct TreeReader *reader,
       FATAL_ERROR("Tree reader '%s' reported negative tree count %" PRId64 " for partition %d",
                   reader->name, partition_trees, output_id);
     }
+    if (partition_trees > LLONG_MAX - total_forests) {
+      FATAL_ERROR("L-Halo total forest count would overflow int64 after partition %d", output_id);
+    }
     total_forests += partition_trees;
+    if (!mimic_unique_galaxy_id_total_forests_valid(total_forests)) {
+      FATAL_ERROR("L-Halo total forest count %" PRId64
+                  " exceeds the UniqueGalaxyID encoding limit of %" PRId64,
+                  total_forests, mimic_unique_galaxy_id_max_forests());
+    }
   }
 
   return offsets;

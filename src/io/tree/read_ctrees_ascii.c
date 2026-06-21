@@ -233,13 +233,6 @@ static void open_partition_ctrees_ascii(int output_id) {
   const int thistask = ThisTask;
   const int ntasks = (NTask > 0) ? NTask : 1; /* serial builds leave NTask == 0 */
 
-  /* The unique-galaxy-id task term is FILENR_MUL_FAC*ThisTask; guard the int64
-     overflow before any work. */
-  if ((long long)thistask > CTREES_MAX_TASK_ID) {
-    FATAL_ERROR("MPI task id %d exceeds the unique-galaxy-id task limit of %lld", thistask,
-                (long long)CTREES_MAX_TASK_ID);
-  }
-
   /* One descriptor per tree file: raise the soft open-file limit to the hard
      limit (a documented scaling constraint of the ctrees ASCII layout). */
   struct rlimit rlp;
@@ -303,11 +296,6 @@ static void open_partition_ctrees_ascii(int output_id) {
                                      &start_forestnum) != EXIT_SUCCESS) {
     FATAL_ERROR("Failed to distribute %" PRId64 " Consistent-Trees forests across %d tasks",
                 totnforests, ntasks);
-  }
-  if (nforests_this_task >= CTREES_MAX_FORESTS_PER_TASK) {
-    FATAL_ERROR("Task %d was assigned %" PRId64 " forests, at or above the unique-galaxy-id limit "
-                "of %lld; run with more MPI tasks",
-                thistask, nforests_this_task, (long long)CTREES_MAX_FORESTS_PER_TASK);
   }
   CT.start_forestnum = start_forestnum;
   GlobalForestOffset = CT.start_forestnum;

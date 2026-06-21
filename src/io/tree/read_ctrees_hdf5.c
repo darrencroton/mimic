@@ -718,10 +718,6 @@ static int setup_forests_io_ctrees_hdf5(const int thistask, const int ntasks) {
   if (nhalos_per_forest != NULL) {
     myfree(nhalos_per_forest);
   }
-  XRETURN(nforests_this_task < CTREES_MAX_FORESTS_PER_TASK, CT_H5_ERR,
-          "Error: task %d was assigned %" PRId64 " forests, at or above the unique-galaxy-id limit "
-          "of %lld; run with more MPI tasks\n",
-          thistask, nforests_this_task, (long long)CTREES_MAX_FORESTS_PER_TASK);
 
   CTH.start_forestnum = start_forestnum;
   GlobalForestOffset = CTH.start_forestnum;
@@ -854,13 +850,6 @@ static void open_partition_ctrees_hdf5(int output_id) {
 
   memset(&CTH, 0, sizeof(CTH));
   CTH.meta_fd = -1;
-
-  /* The unique-galaxy-id task term is FILENR_MUL_FAC*ThisTask; guard the int64
-     overflow before any work. */
-  if ((long long)thistask > CTREES_MAX_TASK_ID) {
-    FATAL_ERROR("MPI task id %d exceeds the unique-galaxy-id task limit of %lld", thistask,
-                (long long)CTREES_MAX_TASK_ID);
-  }
 
   if (setup_forests_io_ctrees_hdf5(thistask, ntasks) != EXIT_SUCCESS) {
     FATAL_ERROR("Failed to set up the Consistent-Trees HDF5 reader on task %d", thistask);

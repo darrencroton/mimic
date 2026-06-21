@@ -13,7 +13,8 @@
  *   - the halo_data -> RawHalo bridge;
  *   - the order-dependent value conventions applied on the NATIVE Mvir (spin
  *     normalisation and the particle-count estimate);
- *   - the galaxy-id uniqueness bounds the readers assert.
+ *   - the shared UniqueGalaxyID capacity helper used before publishing
+ *     GlobalForestOffset.
  *
  * Implementations live in read_ctrees_ascii.c (the always-compiled, unit-tested
  * ctrees reader translation unit); the HDF5 reader links against them. Unit
@@ -21,21 +22,11 @@
  * is handled downstream by the generated reference-unit accessors.
  */
 
-#include <limits.h>
 #include <stdint.h>
 
-#include "constants.h"                 /* FILENR_MUL_FAC, TREE_MUL_FAC */
 #include "galaxy_id.h"                 /* UniqueGalaxyID capacity helper */
 #include "tree/ctrees/ctrees_compat.h" /* struct halo_data */
 #include "types.h"                     /* struct RawHalo */
-
-/* Current old-formula ctrees bounds. make_unique_galaxy_id() still uses
-   halonr + TREE_MUL_FAC*forestnr_local + FILENR_MUL_FAC*ThisTask until the
-   activation slice, so these guards remain in force for now. Both ctrees
-   readers also validate the run's total forest count with the shared
-   UniqueGalaxyID helper before publishing GlobalForestOffset. */
-#define CTREES_MAX_FORESTS_PER_TASK (FILENR_MUL_FAC / TREE_MUL_FAC)
-#define CTREES_MAX_TASK_ID (LLONG_MAX / FILENR_MUL_FAC)
 
 /* Apply the Consistent-Trees -> L-Halo value conventions in place, operating on
    the NATIVE Mvir: spin normalisation (Spin /= Mvir) and the particle-count
