@@ -106,7 +106,7 @@ void initialize_error_handling(LogLevel min_level, FILE *output_file) {
   set_log_output(output_file);
 
   // Log that the error handling system has been initialized
-  INFO_LOG("Error handling system initialized. Log level set to %s", level_names[min_level]);
+  INFO_LOG("Error handling system initialized: log level %s", level_names[min_level]);
 }
 
 /**

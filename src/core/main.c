@@ -678,7 +678,7 @@ int main(int argc, char **argv) {
     myexit(1);
   }
   if (!get_verbose_format() && module_system_pipeline_count() > 0) {
-    INFO_LOG("All modules initialised");
+    INFO_LOG("All physics modules initialised");
   }
 
   /* Initialize HDF5 output system if HDF5 format is selected */
