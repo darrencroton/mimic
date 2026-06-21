@@ -1,7 +1,7 @@
 # micro-Uchuu Simulation Metadata — L-Halo binary format
 #
 # Data on NT at /fred/oz214/simulations/uchuu/U100/lhalo-binary-mergertree/.
-# `snapshots/` here is a symlink to that directory; see snapshots.txt.
+# `snapshots/` here is a symlink to that directory.
 # Files: Uchuu100_Planck_lhalo_binary.{0..3} (4 files, ~2.2 GB total).
 # These were converted from the Consistent-Trees ASCII trees by sage-model
 # and contain the same 440,651 forests and 22,580,924 halos as the ctrees

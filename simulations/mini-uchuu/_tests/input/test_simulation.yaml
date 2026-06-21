@@ -1,0 +1,23 @@
+# Test mini-Uchuu L-Halo Binary Simulation Metadata
+
+input:
+  first_file: 0
+  last_file: 0
+  tree_name: Uchuu400_test_lhalo_binary
+  tree_type: lhalo_binary
+  simulation_dir: simulations/mini-uchuu/_tests/data
+  snapshot_list_file: simulations/mini-uchuu/mini-uchuu.a_list
+
+simulation:
+  cosmology:
+    omega_matter: 0.3089
+    omega_lambda: 0.6911
+    hubble_h: 0.6774
+  box_size:
+    value: 400.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0325
+    units: 1e10 Msun/h
+    h_convention: carried

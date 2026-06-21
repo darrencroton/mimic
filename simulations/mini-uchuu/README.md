@@ -5,9 +5,9 @@ This package runs Mimic against the mini-Uchuu merger trees in L-Halo binary for
 - `simulation_info.yaml`: tree input paths, snapshot list path, cosmology, units, box size, and particle mass
 - `halo_properties.yaml`: 26-field L-Halo struct, identical layout to `simulations/micro-uchuu/` and `simulations/mini-millennium/` (only cosmology, box size, and position range differ)
 - `mini-uchuu.a_list`: 50 snapshot scale factors (a=0.066964 to a=0.999887)
-- `snapshots/`: symlink to the tree data directory — see `snapshots.txt` for the NT path and `ln -s` command
+- `snapshots/`: symlink to the tree data directory (`/fred/oz214/simulations/uchuu/U400/lhalo-binary-mergertree` on NT)
 - `plot_profile.yaml`: simulation-specific plotting axis limits and defaults
-- `_tests/`: integration test scaffolding (runs once the symlink and data are in place)
+- `_tests/`: integration test scaffolding, including a tiny synthetic L-Halo binary fixture for fast core and reader smoke tests
 
 **Data files required in `snapshots/`:**
 
@@ -24,3 +24,5 @@ Uchuu400_Planck_lhalo_binary.127
 **Preferred format for this tier:** L-Halo binary is the preferred mini-Uchuu production format (92 GB, compact and validated format). No forests-HDF5 packaging exists for mini-Uchuu on NT. See `docs/dev/CTREES-UCHUU-VALIDATION.md §7` for the full dataset survey.
 
 See `docs/dev/CTREES-UCHUU-VALIDATION.md` for validation protocols and the NT dataset survey.
+
+**Production-scale smoke:** default integration tests use the tiny fixture and do not touch the 92 GB production catalog. To smoke-test the mounted production files explicitly, build for this package and run `./mimic models/halos-only/input/halos-only_mini-uchuu.yaml`.

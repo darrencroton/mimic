@@ -5,9 +5,9 @@ This package runs Mimic against the micro-Uchuu merger trees in uchuutools fores
 - `simulation_info.yaml`: tree input paths, snapshot list path, cosmology, units, box size, and particle mass
 - `halo_properties.yaml`: RawHalo field contract for the ctrees readers (see file header for the key unit difference from L-Halo binary: M_Crit200 in native Msun/h)
 - `micro-uchuu.a_list`: 50 snapshot scale factors (a=0.06688 to a=0.99951)
-- `snapshots/`: symlink to the tree data directory — see `snapshots.txt` for the NT path and `ln -s` command
+- `snapshots/`: symlink to the tree data directory (`/fred/oz214/simulations/uchuu/U100/mergertrees` on NT)
 - `plot_profile.yaml`: simulation-specific plotting axis limits and defaults
-- `_tests/`: integration test scaffolding (runs once the symlink and data are in place)
+- `_tests/`: integration test scaffolding, including a tiny synthetic forests-HDF5 fixture for fast core and reader smoke tests
 
 **Data files required in `snapshots/`:**
 
@@ -24,3 +24,5 @@ Both `MicroUchuu_mergertree_info.h5` (1.2 KB index) and `MicroUchuu_mergertree.h
 The Consistent-Trees ASCII reader applies a `fix_flybys()` step that collapses multiple z=0 FoF groups within a ctrees forest into one, demoting the non-dominant ones from Type 0 (central) to Type 1 (satellite) and negating their `MostBoundID`. This reader reads `FirstHaloInFOFgroup` and `NextHaloInFOFgroup` directly from the pre-stored uchuutools columns and does not apply that fix, so flyby FoF groups appear as independent Type 0 centrals — consistent with the L-Halo format. At snap49 (z=0) approximately 55,362 halos are therefore Type 1 in ASCII output but Type 0 here. All snapshots before snap49 are byte-identical between L-Halo and HDF5 formats. See `docs/dev/CTREES-UCHUU-VALIDATION.md §5` for the full analysis.
 
 See `docs/dev/CTREES-UCHUU-VALIDATION.md` for the full investigation report, format notes, and validation checklist.
+
+**Production-scale smoke:** default integration tests use the tiny fixture and do not touch the 13 GB production catalog. To smoke-test the mounted production files explicitly, build for this package and run `./mimic models/halos-only/input/halos-only_micro-uchuu-hdf5.yaml`.

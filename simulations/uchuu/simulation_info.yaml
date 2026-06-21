@@ -1,7 +1,7 @@
 # Full Uchuu Simulation Metadata — uchuutools forests-HDF5 format
 #
 # Data on NT at /fred/oz214/simulations/uchuu/U2000/mergertree/.
-# `snapshots/` here is a symlink to that directory; see snapshots.txt.
+# `snapshots/` here is a symlink to that directory.
 # Entry point: mergertree_info.h5 (110 KB index). Each File<n> group in the
 # info file is an HDF5 ExternalLink to "/" of mergertree_N.h5 (~44 GB each).
 # All 2001 files (info + 2000 data files, 37 TB total) must remain co-located;

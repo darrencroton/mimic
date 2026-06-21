@@ -307,7 +307,7 @@ All five oz214 datasets below are the **same underlying trees** (440,651 forests
 
 ### 6d. Simulation packages — created
 
-Three simulation packages covering formats #1, #3, and #5 have been created in the repository. Each is self-contained with `simulation_info.yaml`, `halo_properties.yaml`, `micro-uchuu.a_list`, `plot_profile.yaml`, `README.md`, `snapshots.txt` (NT path and `ln -s` command), and `_tests/integration/test_reader_smoke.py` (skips when data is unavailable):
+Three simulation packages covering formats #1, #3, and #5 have been created in the repository. Each is self-contained with `simulation_info.yaml`, `halo_properties.yaml`, `micro-uchuu.a_list`, `plot_profile.yaml`, `README.md`, and `_tests/integration/test_reader_smoke.py`. Default integration tests use package-local fixtures; production data paths are documented in each package README and `simulation_info.yaml`.
 
 | Package directory | Format | tree_type |
 |---|---|---|
@@ -315,7 +315,7 @@ Three simulation packages covering formats #1, #3, and #5 have been created in t
 | `simulations/micro-uchuu/` | L-Halo binary (format #5) | `lhalo_binary` |
 | ~~`simulations/micro-uchuu-ascii/`~~ | *(archived — Consistent-Trees ASCII)* | — |
 
-To activate a package, create the `snapshots/` symlink (see each package's `snapshots.txt`) and build:
+To activate a package against production data, create the package's `snapshots/` symlink and build:
 
 ```bash
 # HDF5 reader

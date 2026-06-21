@@ -1,0 +1,24 @@
+# Test full-Uchuu HDF5 Simulation Metadata
+
+input:
+  first_file: 0
+  last_file: 0
+  tree_name: mergertree_info.h5
+  tree_type: consistent_trees_hdf5
+  simulation_dir: simulations/uchuu/_tests/data
+  snapshot_list_file: simulations/uchuu/uchuu.a_list
+  forest_distribution_scheme: linear
+
+simulation:
+  cosmology:
+    omega_matter: 0.3089
+    omega_lambda: 0.6911
+    hubble_h: 0.6774
+  box_size:
+    value: 2000.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0325
+    units: 1e10 Msun/h
+    h_convention: carried

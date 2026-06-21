@@ -53,8 +53,9 @@ def test_simulation_config(simulation_root: Path, simulation: str) -> str:
     against the selected simulation package.
 
     mini-Millennium has a shared single-file mini-catalog under tests/data/.
-    All other simulations fall back to the production simulation_info.yaml;
-    the generated run YAML then applies input: overrides to cap the file range.
+    Simulations without package-local fixtures fall back to production
+    simulation_info.yaml; generated run YAML then applies input overrides to
+    cap the file range. Production-scale packages should provide a fixture here.
     """
     package_test_config = simulation_root / "_tests" / "input" / "test_simulation.yaml"
     if package_test_config.is_file():
