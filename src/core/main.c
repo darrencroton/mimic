@@ -38,6 +38,7 @@
 #include "tree/interface.h"
 #include "tree/reader.h"
 #include "run_log.h"
+#include "progress.h"
 
 #include "output/hdf5.h"
 #include "output/python_example.h"
@@ -362,6 +363,11 @@ static void process_partition(int output_id) {
   open_partition(output_id);
   prepare_output_files(output_id);
 
+  /* Live progress bar over the trees in this file (falls back to periodic log
+   * lines when output is redirected or running multi-rank under MPI). */
+  ProgressBar progress;
+  progress_bar_init(&progress, Ntrees, output_id);
+
   for (unit = 0; unit < Ntrees; unit++) {
     /* Stop cleanly if the CPU time limit signal was received (batch systems) */
     if (gotXCPU) {
@@ -369,15 +375,7 @@ static void process_partition(int output_id) {
                   output_id);
     }
 
-    /* Log progress periodically */
-    if (unit % TREE_PROGRESS_INTERVAL == 0) {
-#ifdef MPI
-      INFO_LOG("  Processing task %d | node %s | file %i | tree %i of %i", ThisTask, ThisNode,
-               output_id, unit, Ntrees);
-#else
-      INFO_LOG("  Processing file %i | tree %i of %i", output_id, unit, Ntrees);
-#endif
-    }
+    progress_bar_update(&progress, unit);
 
     /* Set the current unit ID and load the unit */
     TreeID = unit;
@@ -403,6 +401,8 @@ static void process_partition(int output_id) {
 #endif
     free_unit_halos();
   }
+
+  progress_bar_finish(&progress);
 
   /* Finalize output files (format depends on OutputFormat parameter) */
 #ifdef HDF5
@@ -488,7 +488,8 @@ static void run_tree_driver(void) {
      * ThisTask/NTask globals. There is no per-file stride and no per-file
      * existence check -- the ctrees index files are validated when opened. */
     const int output_id = ThisTask; /* 0 in serial builds */
-    if (claim_and_process_partition(output_id)) {
+    if (claim_and_process_partition(output_id) && !progress_display_active()) {
+      /* In live mode the progress bar already shows completion in place. */
       INFO_LOG("%sCompleted task chunk %d%s", mimic_color_green(), output_id, mimic_color_reset());
     }
   } else {
@@ -519,7 +520,8 @@ static void run_tree_driver(void) {
 
       /* Check if output already exists (avoid reprocessing unless overwrite is
        * set) and process this partition. */
-      if (claim_and_process_partition(output_id)) {
+      if (claim_and_process_partition(output_id) && !progress_display_active()) {
+        /* In live mode the progress bar already shows completion in place. */
         INFO_LOG("%sCompleted file %d%s", mimic_color_green(), output_id, mimic_color_reset());
       }
     }

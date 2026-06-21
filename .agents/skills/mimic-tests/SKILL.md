@@ -40,6 +40,8 @@ tests:
 
 Test manifests are written to `build/generated/` (not `tests/`) by `make generate`.
 
+Model-neutral C unit tests live directly in `tests/unit/test_*.c` and are auto-discovered (globbed) by the registry generator — no `module_info.yaml` entry. If such a test exercises a `src/` file that is not already linked, add that file to the shared-source lists in `tests/unit/run_tests.sh` (`UTIL_SRCS` / `CORE_SRCS` / `IO_SRCS`), including any transitive dependency it needs to resolve at link time.
+
 ## Model-Neutral Integration Tests
 
 Use `test_fixture` when the test must pass for any MODEL/SIMULATION:
