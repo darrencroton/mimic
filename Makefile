@@ -290,7 +290,7 @@ endif
 # -----------------------------------------------------------------------------
 # Python Configuration (for tests and code generation)
 # -----------------------------------------------------------------------------
-PYTHON := $(shell if [ -f mimic_venv/bin/python3 ]; then echo mimic_venv/bin/python3; else echo python3; fi)
+PYTHON := $(shell if [ -f mimic_venv/bin/python3 ] && echo "$${VIRTUAL_ENV:-}" | grep -q "mimic_venv"; then echo mimic_venv/bin/python3; else echo python3; fi)
 CLANG_FORMAT := $(shell if [ -f mimic_venv/bin/clang-format ]; then echo mimic_venv/bin/clang-format; else echo clang-format; fi)
 TEST_SUMMARY ?= $(if $(filter summary,$(MAKECMDGOALS)),1,0)
 export TEST_SUMMARY
