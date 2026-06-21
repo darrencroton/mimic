@@ -200,7 +200,9 @@ Documentation should help users and developers understand the active contract, n
 - Keep developer docs focused on ownership boundaries, extension points, contracts, and validation.
 - Module READMEs should document processing contract, ordering constraints, properties, parameters, and relevant scientific notes.
 - Simulation READMEs should document data provenance, units, snapshot lists, fixtures, and maintenance notes.
-- Markdown prose should not be manually hard-wrapped.
+- Markdown prose should not be manually hard-wrapped — write full paragraphs as single long lines; editors and rendered views soft-wrap automatically.
+- Code blocks and YAML/shell examples within Markdown follow the 100-character guideline; keep them readable without horizontal scrolling.
+- Apply these rules to all `.md` files: project docs, READMEs, and skill files.
 
 When code, metadata, and docs disagree, fix the source of truth first. Usually that means metadata or code, then generated artifacts, then documentation.
 

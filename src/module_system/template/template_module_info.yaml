@@ -88,4 +88,4 @@ module:
   # COMPILATION REQUIREMENTS (special cases only)
   # ============================================================================
 
-  compilation_requires: []              # Optional: Required features ["hdf5", "mpi", "gsl"]
+  compilation_requires: []              # Optional: Required features ["HDF5", "MPI", "GSL"] — uppercase only

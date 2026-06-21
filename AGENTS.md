@@ -24,7 +24,7 @@ For new repository clones, use the automated setup script:
 # Basic compilation
 make
 
-# Note: Property code auto-regenerates during `make` when YAML changes
+# Note: Property code auto-regenerates during `make` when YAML changes.
 # MODEL selects the model set and SIMULATION selects the simulation/catalog
 # property package. They default to DEFAULT_MODEL (sage16) and DEFAULT_SIMULATION
 # (mini-millennium) in the Makefile, so plain `make` builds the defaults; override
@@ -32,6 +32,9 @@ make
 # missing (renamed/removed), make fails loudly with "Unknown MODEL" or
 # "Unknown SIMULATION" rather than mis-building. Mimic builds one model set and
 # one simulation package at a time.
+#
+# IMPORTANT: use the same MODEL/SIMULATION pair for generate, validate-modules,
+# tests, and make. Mixing selectors produces silently inconsistent output.
 
 # Show build configuration (library detection, compiler, enabled features)
 make info
@@ -67,53 +70,73 @@ make tidy
 
 ---
 
-## Code Formatting
+## Code Architecture
 
-**Always run before committing:**
+For comprehensive details see `docs/DEVELOPER-GUIDE.md` (architecture, module development, API reference) and `docs/USER-GUIDE.md` (configuration, pipeline setup, output formats). Architecture planning documents live in `docs/dev/` — consult these before making structural changes.
 
-```bash
-./scripts/beautify.sh
+Standalone modules (a single `.c` file directly under `models/<model>/modules/`) are valid for prototyping. Convert to a directory module (its own subdirectory with `module_info.yaml`) once tests, metadata, events, or `compilation_requires` matter. See the `mimic-modules` skill for the full module development workflow.
+
+### Directory Structure
+
+```
+src/
+├── core/          Core execution (main, init, build_model, parameter reading)
+│   └── core_properties.yaml    Core halo property metadata (auto-generates C code)
+├── io/
+│   ├── tree/      Tree readers (binary, HDF5 formats)
+│   └── output/    Output writers (binary, HDF5)
+├── util/          Utilities (memory, error, numeric, version, I/O)
+├── module_system/ Framework infrastructure (do not modify)
+│   ├── physical_constants.h  Universal physical constants (G, c, Z_sun, etc.)
+│   ├── output_helpers.h      Output formatting utilities
+│   ├── generated/            Auto-generated module registration
+│   ├── template/             Template for creating new modules
+│   └── test_fixture/         Infrastructure testing module
+└── include/       Headers (types, globals, constants)
+    └── generated/ Auto-generated property code and model parameter validation
+
+models/
+├── sage16/
+│   ├── input/    SAGE run parameter YAML files
+│   ├── model_properties.yaml
+│   ├── modules/  SAGE physics modules and module-local tests
+│   ├── shared/   SAGE-local helper APIs
+│   └── plots/    SAGE plotting figures and profiles
+├── sham/
+│   ├── input/    SHAM run parameter YAML files
+│   ├── model_properties.yaml
+│   ├── modules/  SHAM physics modules and module-local tests
+│   └── plots/    SHAM plotting figures and profiles
+└── halos-only/   Empty pipeline: halo tracking only, no galaxy physics
+
+simulations/
+├── mini-millennium/    mini-Millennium metadata, halo properties, and snapshot lists
+└── millennium/         full Millennium metadata (tree data not bundled; symlink your own)
+
+build/generated/     Build-time generated files (git_version.h, test lists, module registry)
+tests/               Unit, integration, and scientific tests
+plot/mimic-plot/     Plotting system (registry is model-local; sage16 ships 18 snapshot + 4 evolution plots)
+  ├── tests/         Plotting system tests (unit and integration)
+  └── output_schema.py  Run-local schema reader for binary outputs
 ```
 
-This formats all C and Python files in one pass. Run the full formatter regardless of which languages you touched — commits often span both, and CI (`make check-format`) checks both.
+### Key Concepts
 
-Selective flags (only when you need them for a specific reason):
+**Halo Data Structures:** tree input/gather → `FoFWorkspace` (processing workspace) → shared output buffer → binary/HDF5 writers. The tree driver backs the output buffer with `ProcessedHalos`, which also provides already-processed progenitor state.
 
-```bash
-./scripts/beautify.sh --c-only    # C only (clang-format)
-./scripts/beautify.sh --py-only   # Python only (black + isort)
-```
+**Property System:** Properties are defined in YAML (`src/core/core_properties.yaml`, `simulations/<SIMULATION>/halo_properties.yaml`, `models/<MODEL>/model_properties.yaml`) and generated via `make MODEL=<name> SIMULATION=<name> generate` into C structs, init/output logic, HDF5 metadata writers, and run-local binary output schemas.
 
----
+**Model/Simulation Boundary:** Mimic compiles one model set and one simulation property package at a time via `MODEL=<name>` and `SIMULATION=<name>`. Run files declare `model.name` and `simulation.name`; Mimic derives package paths and property metadata paths from `models/<model>/` and `simulations/<simulation>/`. A model package must be self-contained for running and plotting: run parameter YAML files, properties, modules, model-local `shared/` helpers, tests, and plot figures should live under `models/<model>/`. A simulation package owns catalog halo properties and tree-format fixtures under `simulations/<simulation>/`. To mix modules from different model families, create a new model package and reconcile property names, parameter names, units, dependencies, tests, and plots there.
 
-## Code Style
+**Reader/Driver Boundary:** `input.tree_type` selects the on-disk merger-tree reader format. `input.processing_order` selects the processing driver and defaults to `tree_ordered`; `snapshot_ordered` is recognized but fails fast until the snapshot driver exists. Current registered readers declare `tree_ordered` compatibility; do not overload `tree_type` with processing-order meaning.
 
-Follow `docs/STYLE-GUIDE.md` for naming, comments, documentation, metadata, tests, generated-code boundaries, logging, and review conventions. The formatter owns mechanical layout; the style guide owns human readability and consistency.
+**Module System:** Runtime-configurable physics modules execute through fixed optional `pre_timestep`/`post_timestep` lifecycle phases plus ordered user-named substep phases under `modules.phases:`. Supported processing modes are `PROCESSING_MODE_FULL_HALO`, `PROCESSING_MODE_PER_EVENT`, and `PROCESSING_MODE_BY_GALAXY`. Module lifecycle: `init()` → `process()` → `cleanup()`.
 
-Before finishing any task that touched code, tests, metadata, or docs, do an explicit style sweep over the files you changed:
+**Parameters:** Model parameters come from the input YAML and are accessed via typed getters (`model_get_double()`, `model_get_int()`, `model_get_string()`), with module-local validation in each module `init()`.
 
-- Re-read the touched diff and check it against `docs/STYLE-GUIDE.md`.
-- Fix sub-par local style in touched files when it is in scope, even if that style predates your change.
-- Do not expand into unrelated whole-repo style cleanup unless the user asked for a sweep.
-- In the final response, state that the style sweep was done, or explain any remaining style issue and why it was not changed.
+**Memory:** Custom allocator with leak detection and categorised tracking (`MEM_GALAXIES`, `MEM_HALOS`, `MEM_TREES`, `MEM_IO`, `MEM_UTILITY`).
 
-### C
-- 2-space indent, LLVM base style, 100-character line limit — enforced by `.clang-format` in the repo root; editors discover it automatically
-- **Never hand-edit files under `*/generated/`** — they are produced by `make generate` and will be overwritten; the formatter excludes them automatically
-- Code must compile clean under `-Wall -Wextra -Wshadow -Wformat-security -Wundef`; do not introduce new warnings
-- Comments explain **why**, not what — one short line maximum; `@file`/`@brief` Doxygen headers are fine on public API files
-
-### Python
-- black (line-length 100) + isort (profile black) — configuration in `pyproject.toml`
-- Scripts must run under Python 3.9+
-
-### Line length
-C and Python both use **100 characters**. Let the formatter decide when a line is borderline.
-
-### Checking without modifying (what CI runs)
-```bash
-make check-format
-```
+**Output:** Binary/HDF5 structure documented in `docs/USER-GUIDE.md#output`.
 
 ---
 
@@ -135,6 +158,8 @@ make check-format
 ---
 
 ## Testing
+
+**Test templates:** `tests/framework/c_unit_test_template.c`, `python_integration_test_template.py`, `python_scientific_test_template.py` — start from these when writing new tests. See the `mimic-tests` skill for tier selection, location rules, and registration.
 
 Long-running tests should be captured to a log file; check the exit code explicitly:
 
@@ -193,148 +218,55 @@ Summary mode filters structured markers directly: pass markers are suppressed, w
 cd tests && python -c "from framework import load_binary_halos; print(load_binary_halos.__doc__)"
 ```
 
-### Writing Integration Tests
+---
 
-Integration tests live in one of three locations depending on what they test:
+## Code Style
 
-| Location | Tests | Valid for |
-|---|---|---|
-| `tests/integration/test_*.py` | Core framework behavior (execution order, substeps, processing modes) | Any MODEL/SIMULATION — use `test_fixture` module |
-| `models/<model>/modules/_tests/test_*.py` | Model-specific physics | Only the owning MODEL |
-| `simulations/<sim>/_tests/integration/test_*.py` | Simulation reader behavior | Only the owning SIMULATION — skip when data unavailable |
+Follow `docs/STYLE-GUIDE.md` for naming, comments, documentation, metadata, tests, generated-code boundaries, logging, and review conventions. The formatter owns mechanical layout; the style guide owns human readability and consistency.
 
-**Model-neutral tests** (in `tests/integration/`): Use `("test_fixture", "process_full_halo")` or `("test_fixture", "process_by_galaxy")` as the module in `create_test_param_file()`. `test_fixture` is included in every test build (`TEST_BUILD=yes`) regardless of MODEL. These tests must NOT skip based on model — they pass with any MODEL/SIMULATION. Always pass `model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1}` (required by `test_fixture.init()`).
+### C
+- 2-space indent, LLVM base style, 100-character line limit — enforced by `.clang-format` in the repo root; editors discover it automatically
+- **Never hand-edit files under `*/generated/`** — they are produced by `make generate` and will be overwritten; the formatter excludes them automatically
+- Code must compile clean under `-Wall -Wextra -Wshadow -Wformat-security -Wundef`; do not introduce new warnings
+- Comments explain **why**, not what — one short line maximum; `@file`/`@brief` Doxygen headers are fine on public API files
+- `// SAGE parity:` comments mark code that intentionally mirrors legacy SAGE behaviour — do not "fix" without checking the parity baseline first
+- Universal physical constants (G, c, Z_sun, etc.) must come from `src/module_system/physical_constants.h`; model-specific scientific constants belong in model-local shared headers
+- Never use `printf` in module code — use `DEBUG_LOG`, `VERBOSE_LOG`, `INFO_LOG`, `WARNING_LOG`, `ERROR_LOG`, or `FATAL_ERROR` from `src/util/error.h`
 
-**Model-specific tests**: Use your module name in `phase_config` instead of `test_fixture`. The model name validation in `read_parameter_file.c` enforces that the test only runs when the correct MODEL is compiled.
+### Python
+- black (line-length 100) + isort (profile black) — configuration in `pyproject.toml`
+- Scripts must run under Python 3.9+
 
-**`create_test_param_file()` context**: Generates a run file for the currently compiled MODEL/SIMULATION, reading from `build/generated/test_inputs/<MODEL>/<SIMULATION>/core/test_binary.yaml`. The Makefile test runner exports `MODEL` and `SIMULATION` to Python subprocesses. To run a test directly outside make, set them explicitly: `MODEL=halos-only SIMULATION=mini-millennium python3 tests/integration/test_foo.py`.
+### Markdown
+- Prose must not be manually hard-wrapped — write full paragraphs as single long lines; editors and rendered views soft-wrap automatically
+- The 100-character guideline applies to code blocks and YAML/shell examples within Markdown; keep examples readable without horizontal scrolling
+- Applies to all `.md` files in the repository: docs, READMEs, and skill files
 
-### Plotting Tests
+### Line length
+C and Python both use **100 characters**, enforced by the formatter. Markdown code blocks follow the same guideline manually.
 
+### Checking without modifying (what CI runs)
 ```bash
-# Activate virtual environment first
-source mimic_venv/bin/activate
-
-# Plotting unit tests
-cd plot/mimic-plot/tests
-python3 test_validation_helpers.py
-
-# Plotting integration tests
-./test_plotting.sh
-
-# Generate all plots (18 snapshot + 4 evolution)
-cd ..
-python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml
-
-# Generate specific plots
-python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml --plots=halo_mass_function,spin_distribution
-
-# Snapshot-only or evolution-only
-python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml --snapshot-plots
-python mimic-plot.py --param-file=../../models/sage16/input/sage16_mini-millennium.yaml --evolution-plots
-
-# Works from any directory
-cd ../..
-python plot/mimic-plot/mimic-plot.py --param-file=models/sage16/input/sage16_mini-millennium.yaml --plots=halo_mass_function
-
-deactivate
+make check-format
 ```
+
+---
+
+## Pre-Commit Checklist
+
+Before committing any change, complete all three steps and report the outcome in your final response:
+
+1. **Format** — run `./scripts/beautify.sh`. Run the full formatter regardless of which languages you touched; CI (`make check-format`) checks both C and Python.
+
+2. **Style sweep** — re-read the diff against `docs/STYLE-GUIDE.md`. Fix sub-par local style in touched files even if that style predates your change. Do not expand into whole-repo cleanup. State that the sweep was done, or explain any remaining issue.
+
+3. **Skill sweep** — for any task that touched modules, tests, properties, simulations, plots, or core architecture, review each relevant `.claude/skills/mimic-*` skill file. Update, correct, or add content that is now stale or missing; remove content that is no longer accurate. State that the sweep was done, or note any skill needing a larger update.
 
 ---
 
 ## Benchmarking
 
-```bash
-# Run performance benchmark (default uses models/sage16/input/sage16_mini-millennium.yaml)
-./scripts/benchmark_mimic.sh
-
-# With options
-make MODEL=sage16 SIMULATION=mini-millennium generate-test-inputs
-./scripts/benchmark_mimic.sh --param-file build/generated/test_inputs/sage16/mini-millennium/core/test_binary.yaml
-./scripts/benchmark_mimic.sh --verbose
-MAKE_FLAGS="USE-HDF5=no" ./scripts/benchmark_mimic.sh
-MPI_RUN_COMMAND="mpirun -np 4" MAKE_FLAGS="USE-MPI=yes" ./scripts/benchmark_mimic.sh
-
-# Results saved to benchmarks/ (gitignored)
-diff benchmarks/baseline_YYYYMMDD_HHMMSS.json benchmarks/baseline_YYYYMMDD_HHMMSS.json
-```
-
----
-
-## Code Architecture
-
-For comprehensive details see `docs/DEVELOPER-GUIDE.md` (architecture, module development, API reference) and `docs/USER-GUIDE.md` (configuration, pipeline setup, output formats).
-
-### Directory Structure
-
-```
-src/
-├── core/          Core execution (main, init, build_model, parameter reading)
-│   └── core_properties.yaml    Core halo property metadata (auto-generates C code)
-├── io/
-│   ├── tree/      Tree readers (binary, HDF5 formats)
-│   └── output/    Output writers (binary, HDF5)
-├── util/          Utilities (memory, error, numeric, version, I/O)
-├── module_system/ Framework infrastructure (do not modify)
-│   ├── physical_constants.h  Universal physical constants (G, c, Z_sun, etc.)
-│   ├── output_helpers.h      Output formatting utilities
-│   ├── generated/            Auto-generated module registration
-│   ├── template/             Template for creating new modules
-│   └── test_fixture/         Infrastructure testing module
-└── include/       Headers (types, globals, constants)
-    └── generated/ Auto-generated property code and model parameter validation
-
-models/
-├── sage16/
-│   ├── input/    SAGE run parameter YAML files
-│   ├── model_properties.yaml
-│   ├── modules/  SAGE physics modules and module-local tests
-│   ├── shared/   SAGE-local helper APIs
-│   └── plots/    SAGE plotting figures and profiles
-├── sham/
-│   ├── input/    SHAM run parameter YAML files
-│   ├── model_properties.yaml
-│   ├── modules/  SHAM physics modules and module-local tests
-│   └── plots/    SHAM plotting figures and profiles
-└── halos-only/   Empty pipeline: halo tracking only, no galaxy physics
-
-simulations/
-├── mini-millennium/    mini-Millennium metadata, halo properties, and snapshot lists
-└── millennium/         full Millennium metadata (tree data not bundled; symlink your own)
-
-build/generated/     Build-time generated files (git_version.h, test lists)
-tests/               Unit, integration, and scientific tests
-  └── generated/     Auto-generated test metadata
-plot/mimic-plot/     Plotting system (registry is model-local; sage16 ships 18 snapshot + 4 evolution plots)
-  ├── tests/         Plotting system tests (unit and integration)
-  └── output_schema.py  Run-local schema reader for binary outputs
-```
-
-### Key Concepts
-
-**Halo Data Structures:** tree input/gather → `FoFWorkspace` (processing workspace) → shared output buffer → binary/HDF5 writers. The tree driver currently backs the output buffer with `ProcessedHalos`, which also provides already-processed progenitor state. Structs: `struct Halo`, `struct GalaxyData`, `struct HaloOutput`, `struct OutputBufferSegment`.
-
-**Property System:** Properties are defined in YAML (`src/core/core_properties.yaml`, `simulations/<SIMULATION>/halo_properties.yaml`, `models/<MODEL>/model_properties.yaml`) and generated via `make MODEL=<name> SIMULATION=<name> generate` into C structs, init/output logic, HDF5 metadata writers, and run-local binary output schemas.
-
-**Model/Simulation Boundary:** Mimic compiles one model set and one simulation property package at a time via `MODEL=<name>` and `SIMULATION=<name>`. Run files declare `model.name` and `simulation.name`; Mimic derives package paths and property metadata paths from `models/<model>/` and `simulations/<simulation>/`. A model package must be self-contained for running and plotting: run parameter YAML files, properties, modules, model-local `shared/` helpers, tests, and plot figures should live under `models/<model>/`. A simulation package owns catalog halo properties and tree-format fixtures under `simulations/<simulation>/`. To mix modules from different model families, create a new model package and reconcile property names, parameter names, units, dependencies, tests, and plots there.
-
-**Reader/Driver Boundary:** `input.tree_type` selects the on-disk merger-tree reader format. `input.processing_order` selects the processing driver and defaults to `tree_ordered`; `snapshot_ordered` is recognized but fails fast until the snapshot driver exists. Current registered readers declare `tree_ordered` compatibility; do not overload `tree_type` with processing-order meaning.
-
-**Module System:** Runtime-configurable physics modules execute through fixed optional `pre_timestep`/`post_timestep` lifecycle phases plus ordered user-named substep phases under `modules.phases:`. Supported processing modes are `PROCESSING_MODE_FULL_HALO`, `PROCESSING_MODE_PER_EVENT`, and `PROCESSING_MODE_BY_GALAXY`. Module lifecycle: `init()` → `process()` → `cleanup()`.
-
-**Parameters:** Model parameters come from the input YAML and are accessed via typed getters (`model_get_double()`, `model_get_int()`, `model_get_string()`), with module-local validation in each module `init()`.
-
-**Core Execution Flow:**
-1. `load_tree_table()` — Load tree metadata
-2. `build_halo_tree()` — Construct halo tracking structures
-3. `process_halo_evolution()` — Execute multi-phase pipeline
-4. `marshal_workspace_to_output_buffer()` — Copy surviving workspace halos into the driver-owned output buffer
-5. `save_halos()` — Write to binary or HDF5 output
-6. `free_halos_and_tree()` — Cleanup memory
-
-**Memory:** Custom allocator with leak detection and categorised tracking (`MEM_GALAXIES`, `MEM_HALOS`, `MEM_TREES`, `MEM_IO`, `MEM_UTILITY`).
-
-**Output:** Binary/HDF5 structure documented in `docs/USER-GUIDE.md#output`.
+See `./scripts/benchmark_mimic.sh --help`; results are saved to `benchmarks/` (gitignored). For analysis guidance, see `docs/DEVELOPER-GUIDE.md`.
 
 ---
 
@@ -343,3 +275,7 @@ plot/mimic-plot/     Plotting system (registry is model-local; sage16 ships 18 s
 - **docs/VISION.md** — Architectural principles and design philosophy
 - **docs/USER-GUIDE.md** — Complete user guide (installation, configuration, running simulations)
 - **docs/DEVELOPER-GUIDE.md** — Complete developer guide (architecture, modules, testing)
+- **docs/dev/** — Architecture planning documents; consult before structural changes
+- **`.claude/skills/mimic-*`** — Project-local skills for modules, tests, properties, plots, simulations, and debugging; load when working in those domains
+- `models/<model>/README.md` — model-package science scope, module pipeline, parameters, plots, and references
+- `simulations/<simulation>/README.md` — simulation-package data, units, snapshot lists, and maintenance notes
