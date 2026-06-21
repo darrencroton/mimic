@@ -260,7 +260,7 @@ Before committing any change, complete all three steps and report the outcome in
 
 2. **Style sweep** — re-read the diff against `docs/STYLE-GUIDE.md`. Fix sub-par local style in touched files even if that style predates your change. Do not expand into whole-repo cleanup. State that the sweep was done, or explain any remaining issue.
 
-3. **Skill sweep** — for any task that touched modules, tests, properties, simulations, plots, or core architecture, review each relevant `.claude/skills/mimic-*` skill file. Update, correct, or add content that is now stale or missing; remove content that is no longer accurate. State that the sweep was done, or note any skill needing a larger update.
+3. **Skill sweep** — for any task that touched modules, tests, properties, simulations, plots, or core architecture, review each relevant `.agents/skills/mimic-*` skill file. Update, correct, or add content that is now stale or missing; remove content that is no longer accurate. State that the sweep was done, or note any skill needing a larger update.
 
 ---
 
@@ -276,6 +276,6 @@ See `./scripts/benchmark_mimic.sh --help`; results are saved to `benchmarks/` (g
 - **docs/USER-GUIDE.md** — Complete user guide (installation, configuration, running simulations)
 - **docs/DEVELOPER-GUIDE.md** — Complete developer guide (architecture, modules, testing)
 - **docs/dev/** — Architecture planning documents; consult before structural changes
-- **`.claude/skills/mimic-*`** — Project-local skills for modules, tests, properties, plots, simulations, and debugging; load when working in those domains
+- **`.agents/skills/mimic-*`** — Project-local skills for modules, tests, properties, plots, simulations, and debugging; load when working in those domains
 - `models/<model>/README.md` — model-package science scope, module pipeline, parameters, plots, and references
 - `simulations/<simulation>/README.md` — simulation-package data, units, snapshot lists, and maintenance notes
