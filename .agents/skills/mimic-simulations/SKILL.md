@@ -119,3 +119,5 @@ Always use the same `MODEL`/`SIMULATION` pair for generate, validate-modules, te
 ## Tree Reader Selection
 
 `input.tree_type` in `simulation_info.yaml` selects the reader. Adding support for a new tree format requires a new reader in `src/io/tree/` — see `docs/DEVELOPER-GUIDE.md` for the `TreeReader` vtable contract.
+
+`consistent_trees_hdf5` is the high-throughput forests-HDF5 path for Uchuu-style catalogues. It caches task-range `ForestInfo`, keeps per-file `Forests/<field>` handles open during the partition, validates field schema at cache-open time, and uses a fixed `CTREES_READ_WINDOW_BYTES` read window (`128 MiB` per rank) for normal forests. Forests larger than the window use the cached-handle direct read path. Treat the window as an internal bounded-memory constant, not simulation metadata or a run-YAML parameter.

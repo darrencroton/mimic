@@ -744,6 +744,8 @@ Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` deri
 
 `tree_name` is interpreted by the selected reader. `lhalo_binary` uses it as the prefix before the file number (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` use it as a literal filename under `simulation_dir`, including any extension. `lhalo_hdf5` also uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder such as `trees_063.%d.hdf5`.
 
+The `consistent_trees_hdf5` reader is the reference high-throughput HDF5 input path. It caches task-range `ForestInfo`, opens each per-file `Forests/<field>` dataset once for the partition lifetime, validates field extents and datatypes at cache-open time, and serves normal forests from a fixed `CTREES_READ_WINDOW_BYTES` slab window (`128 MiB` per rank). Forests larger than the window use the same cached-handle direct read primitive, so the persistent window stays bounded. Do not add run-YAML knobs or whole-file slab buffering for this path without a new plan and validation gate.
+
 ### Snapshot Scale Factor List
 
 The `.a_list` file contains one scale factor per line, ordered from earliest to latest snapshot (increasing `a`, decreasing redshift). Mimic derives the last valid snapshot index from this file, so a file with 64 entries defines snapshots `0..63`:

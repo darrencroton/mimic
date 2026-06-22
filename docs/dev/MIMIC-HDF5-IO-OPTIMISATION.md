@@ -1,20 +1,21 @@
-# Mimic HDF5 I/O Optimisation — Findings and Recommendations
+# Mimic HDF5 I/O Optimisation — Implementation Record
 
-**Status:** Recommendations for team review (pre-v1.0). Not yet implemented.
+**Status:** Implemented (Slices 1–3) on `feature/hdf5-io-optimisation`.
 **Date:** 2026-06-22
+**Implementation plan:** `docs/dev/MIMIC-HDF5-IO-OPTIMISATION-PLAN.md`
 **Scope:** Read performance of the Consistent-Trees forests-HDF5 reader (`src/io/tree/read_ctrees_hdf5.c`), with secondary notes on the L-Halo HDF5 reader and the HDF5 output writer. Anchored to `docs/VISION.md` §5 (bounded memory), §6 (format-agnostic I/O and reproducible output), and §7 (validation and fast failure).
 
 ---
 
 ## Executive summary
 
-The forests-HDF5 reader is many times slower than the L-Halo *binary* reader on the same trees, and the cause is **not** the partition model — it is the reader's I/O pattern. For every forest it reopens each halo-field dataset from scratch (`H5Dopen → H5Dget_space → H5Dget_type → hyperslab → H5Dread → close ×N`), ~19 times per forest. On a micro-Uchuu-scale workload that is millions of dataset open/close cycles.
+The forests-HDF5 reader was many times slower than the L-Halo *binary* reader on the same trees, and the cause was **not** the partition model — it was the reader's I/O pattern. For every forest it reopened each halo-field dataset from scratch (`H5Dopen → H5Dget_space → H5Dget_type → hyperslab → H5Dread → close ×N`), ~19 times per forest. On a micro-Uchuu-scale workload that meant millions of dataset open/close cycles.
 
 A direct micro-benchmark (below) shows that **keeping the field dataset handles open across forests within a file is ~18× faster**, and reading each field's contiguous slab once and slicing in memory is **~48× faster**, with no change to output values.
 
-The on-disk organisation (SOA, contiguous, field datasets shared across all forests in a file) is already well suited to fast reading; the reader simply does not exploit it. sage-model has the identical per-forest reopen pattern, so there is no faster recipe to copy from sage — this is a genuine improvement opportunity beyond the upstream code.
+The on-disk organisation (SOA, contiguous, field datasets shared across all forests in a file) is already well suited to fast reading; before this work the reader simply did not exploit it. sage-model has the identical per-forest reopen pattern, so there was no faster recipe to copy from sage — this was a genuine improvement opportunity beyond the upstream code.
 
-**Headline recommendation:** adopt persistent per-file dataset handles (Tier 1) as the v1.0 read-path fix. It is low-risk, byte-identical, and captures the bulk of the win. Treat bulk-slab reads (Tier 2) as an optional follow-on with a bounded buffer.
+**Implemented outcome:** the reader now uses a task-range `ForestInfo` cache, persistent per-file field dataset handles, and a bounded bulk-slab read window. The window is fixed at `CTREES_READ_WINDOW_BYTES = 128 MiB` per rank, with forests larger than the window read through the cached-handle direct path. Slice validation showed byte-identical output on the ctrees fixtures and a debug smoke run with no allocator leaks; no NT scale timing was gathered during the implementation slices.
 
 ---
 
@@ -32,9 +33,9 @@ The absolute numbers are h5py, not the C reader, but the *ratios* are representa
 
 ---
 
-## Root cause
+## Original root cause
 
-In `read_ctrees_hdf5.c`, `read_contiguous_forest_ctrees_h5()` is called once per forest and, through the `CT_READ_FOREST_ARRAY` macro (`ct_read_forest_array()`), for **each** of the ~19 fields it:
+Before the optimisation, `read_contiguous_forest_ctrees_h5()` was called once per forest and, through the `CT_READ_FOREST_ARRAY` macro (`ct_read_forest_array()`), for **each** of the ~19 fields it:
 
 1. `H5Dopen2` the field dataset,
 2. `H5Dget_space` + validate extent,
@@ -46,34 +47,39 @@ In `read_ctrees_hdf5.c`, `read_contiguous_forest_ctrees_h5()` is called once per
 
 Steps 1, 2, 5 and the closes are **invariant across forests** — the dataset, its filespace extent, and its datatype do not change within a file. Only the hyperslab offset/count and the destination buffer change per forest. Repeating the invariant work per forest is the entire overhead.
 
-Separately, `load_unit_ctrees_hdf5()` reads the forest's `ForestInfo` row with a **per-forest** `H5Dopen2 + hyperslab + H5Dread + close` on the `ForestInfo` dataset. `ForestInfo` is small and read entirely up front for the weighted distribution path anyway; it should be read once per file and indexed in memory.
+Separately, `load_unit_ctrees_hdf5()` read the forest's `ForestInfo` row with a **per-forest** `H5Dopen2 + hyperslab + H5Dread + close` on the `ForestInfo` dataset. `ForestInfo` is small and was already read up front for the weighted distribution path, making it a good target for once-per-file caching.
 
 `sage-code/sage-model/io/read_tree_consistentrees_hdf5.c` uses the same `READ_PARTIAL_FOREST_ARRAY` macro per field per forest — i.e. **sage shares the anti-pattern**. sage's `buffered_io.c` is a user-space write buffer for *binary* output (`save_gals_binary.c`) only; it is not an HDF5 read technique. So there is no sage recipe to import here.
 
 ---
 
-## Recommendations
+## Implemented read path
 
-### Tier 1 — Persistent per-file dataset handles (recommended for v1.0)
+### Slice 1 — Task-range `ForestInfo` cache
 
-Open each `Forests/<field>` dataset (and cache its filespace and datatype) **once** when the file's `Forests` group is opened, store the handles in the partition state alongside the existing `h5_forests_group[]`, and in the per-forest read only do `H5Sselect_hyperslab` + `H5Sset_extent`/`H5Screate_simple` (memspace) + `H5Dread`. Read `ForestInfo` once per file into an in-memory array and index it by tree row.
+`ForestInfo` is read once per task-range file during `setup_forests_io_ctrees_hdf5()` and stored as `CTH.forestinfo_cache[filenum][row]`. `load_unit_ctrees_hdf5()` now obtains each forest's `(ForestHalosOffset, ForestNhalos)` from that cache rather than reopening the `ForestInfo` dataset per forest. The global weighted-distribution pass still reads the minimal `ForestNhalos` vector separately because it runs before the task file range is known.
 
-- **Expected gain:** ~18× on the read path (benchmark strategy B).
-- **Memory cost:** negligible — a fixed set of open dataset/space/type handles per file in the task's range (the reader already holds one `Forests` group handle per file).
-- **Risk:** low. Output values are unchanged (same reads, same conversions). Keep the existing extent/datatype/size validations — perform them once per file at open time instead of once per forest, which also makes a schema mismatch fail *before* the forest loop starts (better fast-failure, §7).
-- **Determinism:** unchanged; identical bytes out.
+### Slice 2 — Persistent per-file field handles
 
-This is the clean, vision-aligned v1.0 fix and should be done regardless of whether Tier 2 follows.
+The reader now defines a single field table for the 18 fixed fields plus the runtime-detected snapshot field and opens each `Forests/<field>` dataset once per task-range file. Each cached field handle stores the dataset, filespace, datatype, element size, and extent. Schema-level extent/type/size validation happens when the cache opens, so malformed files fail before the forest loop. The per-forest direct read primitive remains live for forests larger than the read window.
 
-### Tier 2 — Bulk contiguous-slab reads (optional follow-on)
+### Slice 3 — Bounded bulk-slab read window
 
-Because each task processes a **contiguous** forest range and forests are stored contiguously by halo offset, a task's halos form one contiguous slab `[start_offset, end_offset)` in every field dataset. Read each field for the whole slab (or for a bounded sub-slab window) in a single `H5Dread`, then hand each forest its sub-range from memory.
+Normal forests are served from a bounded SOA read window. The window buffer is allocated as `CTREES_H5_FIELD_COUNT × capacity_halos × 8` bytes in `MEM_IO`, where `capacity_halos = CTREES_READ_WINDOW_BYTES / (CTREES_H5_FIELD_COUNT × 8)`. With the current 19-field table and a 128 MiB per-rank budget, the window holds roughly 883k halo rows per field. When the requested forest is outside the current window, the reader refills by issuing one `H5Dread` per field over the next contiguous halo slab, then assigns the forest's subrange from memory. Per-forest link validation, snapshot validation, and `apply_ctrees_value_conventions()` still run per forest.
 
-- **Expected gain:** a further ~2.7× over Tier 1 (benchmark strategy C; ~48× over current).
-- **Memory cost:** must be **bounded** to honour Vision §5. A whole-file slab for full Uchuu (~91 M halos/file × 19 fields × 8 B ≈ 14 GB) is too large to hold at once. Read in fixed-size windows (e.g. a few hundred MB of halos across all fields), refilling as the forest cursor advances. This keeps memory bounded by the window, not by file size.
-- **Risk:** medium — introduces a windowing buffer and its accounting (`MEM_IO`/`MEM_TREES`). Justified only if Tier 1 proves insufficient for production full-Uchuu walltime.
+Forests larger than `capacity_halos` use the cached-handle direct primitive rather than the window, preserving the hard window bound. This is not a compatibility fallback; it is the required bounded-memory branch for unusually large forests that must be materialised as `halo_data` anyway.
 
-### On-disk organisation — keep as-is
+### Implementation constants and memory
+
+- `CTREES_READ_WINDOW_BYTES`: fixed 128 MiB per rank.
+- Window storage: `MEM_IO`, freed in `close_partition_ctrees_hdf5()`.
+- Task-range `ForestInfo` cache: `MEM_IO`, 32 bytes per forest row in the task's files.
+- Field handle cache: fixed HDF5 dataset/filespace/datatype handles per field per task-range file.
+- Giant-forest path: reuses the cached-handle direct read and does not enlarge the persistent window.
+
+---
+
+## On-disk organisation — unchanged
 
 The forests-HDF5 SOA layout (one contiguous dataset per field, shared across all forests in a file, `contiguous-halo-props == 1`) is already near-optimal for slab reads: contiguous storage means each hyperslab is a direct seek+read with no chunk-cache involvement. **Do not chunk or compress the tree *input*** for read speed — chunking would add cache pressure and decompression cost to what are currently direct reads. No on-disk format change is recommended; the fix is entirely in the reader.
 
@@ -100,30 +106,35 @@ This is the HDF5 equivalent of sage's binary `buffered_io`. The only future tuna
 ## Vision alignment
 
 - **§6 Format-agnostic I/O / reproducible output:** pure performance change behind the existing reader seam; output schema, values, and IDs are untouched. Strongly aligned.
-- **§5 Bounded memory:** Tier 1 adds only a fixed handle set. Tier 2 must use a bounded window, not a whole-file buffer — this is the explicit constraint on Tier 2.
-- **§7 Validation and fast failure:** move the per-field extent/type/size checks to file-open time so a malformed/schema-mismatched file fails before the forest loop, not mid-stream. Net improvement.
+- **§5 Bounded memory:** persistent memory is bounded by task-range metadata plus one fixed 128 MiB per-rank read window; no whole-file slab is retained.
+- **§7 Validation and fast failure:** per-field extent/type/size checks now happen at field-cache open time, so malformed/schema-mismatched files fail before the forest loop, not mid-stream. Net improvement.
 - **Determinism:** unchanged; the read order and values are identical, so cross-format identity gates still hold.
 
 ---
 
-## Files that would be touched (Tier 1)
+## Implementation surface
 
 | File | Change |
 |---|---|
-| `src/io/tree/read_ctrees_hdf5.c` | Add cached per-file field dataset handles (+ filespace/datatype) to `struct ctrees_hdf5_partition`; open them when each `Forests` group is opened; rewrite `ct_read_forest_array`/`read_contiguous_forest_ctrees_h5` to reuse handles and only reselect the hyperslab; read `ForestInfo` once per file and index in `load_unit`; close handles in `close_partition_ctrees_hdf5`. |
-| `tests/unit/test_ctrees_support.c` | Extend the existing forest-read/slab tests to cover the cached-handle path (the `MIMIC_TEST_BUILD` entry points already exercise reads against a fixture). |
-| `docs/dev/CTREES-UCHUU-VALIDATION.md` | Note the read-path optimisation in the reader description (§4). |
+| `src/io/tree/read_ctrees_hdf5.c` | Added task-range `ForestInfo` cache, per-file field handle cache, fixed 128 MiB per-rank read window, direct giant-forest branch, and cache/window cleanup. |
+| `src/io/tree/read_ctrees_hdf5.h` | Exposed narrow `MIMIC_TEST_BUILD` hooks for cache/window tests. |
+| `tests/unit/test_ctrees_hdf5_reader.c` | Added coverage for `ForestInfo` cache validation, field-cache schema validation, window refill, and giant-forest direct-path behaviour. |
+| `docs/dev/CTREES-UCHUU-VALIDATION.md` | Records the reader description and validation gates, including cached handles and windowed reads. |
+| `docs/USER-GUIDE.md`, `docs/DEVELOPER-GUIDE.md` | Added reader-memory notes explaining that the 128 MiB per-rank read window is internal, not a run-YAML option. |
+| `.agents/skills/mimic-simulations/SKILL.md`, `.agents/skills/mimic-debug/SKILL.md` | Updated project-local skill guidance for cached handles, the bounded read window, and expected `MEM_IO` debug accounting. |
+| External auto-memory entry | Updated the local `mimic-hdf5-io-optimisation` memory record and index to mark the optimisation implemented. |
 
-No generated files, no property/schema changes, no output changes.
+No generated files, property schemas, output schemas, run YAML parameters, or on-disk tree formats changed.
 
 ---
 
-## Validation plan
+## Validation performed
 
-- **Byte-identical output gate:** run the local output-format baseline and the ctrees fixtures (`simulations/uchuu/_tests/data/`, `simulations/micro-uchuu-hdf5/_tests/data/`) before/after; require exact identity (Vision baseline contract).
-- **Unit:** `tests/unit/run_tests.sh test_ctrees_support` against the bundled fixtures.
-- **Scale check (NT, optional):** time a `halos-only` micro-Uchuu-HDF5 pass before/after on `dcroton@nt.swin.edu.au` (the 13 GB / ~440k-forest dataset) to confirm the real-world speedup. Avoid full Uchuu for timing (~1 hr/file).
-- **Memory:** confirm `MEM_IO`/`MEM_TREES` accounting and no leaks under a debug run; for Tier 2, confirm peak stays within the configured window.
+- **Build/generated:** `make MODEL=halos-only SIMULATION=micro-uchuu-hdf5`, `make MODEL=halos-only SIMULATION=micro-uchuu-hdf5 check-generated`, and `make MODEL=halos-only SIMULATION=micro-uchuu-hdf5 validate-modules` passed after Slice 3.
+- **Unit:** `MODEL=halos-only SIMULATION=micro-uchuu-hdf5 tests/unit/run_tests.sh test_ctrees_hdf5_reader` passed with 7 tests, and `MODEL=halos-only SIMULATION=micro-uchuu-hdf5 tests/unit/run_tests.sh test_ctrees_support` passed with 13 tests.
+- **Byte-identical output gate:** Snap payload comparison against the Slice 2 baseline commit passed for `micro-uchuu-hdf5` and `uchuu` fixtures after Slice 3.
+- **Memory/debug:** `./mimic --debug build/generated/test_inputs/halos-only/micro-uchuu-hdf5/simulations/micro-uchuu-hdf5/test_hdf5.yaml` passed with no allocator leaks and peak memory about 129.23 MB, consistent with the 128 MiB read window plus normal run overhead.
+- **Scale check:** not gathered during the implementation slices. The benchmark ratios above remain the planning evidence for the expected read-path speedup; a production NT timing can be added later if needed.
 
 ---
 
