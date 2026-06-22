@@ -26,6 +26,8 @@ int ctrees_hdf5_test_read_forestinfo_cache(const char *filename, int64_t expecte
                                            int64_t row, int64_t *halosoffset, int64_t *nhalos);
 int ctrees_hdf5_test_validate_forest_slab(const char *filename, int64_t halosoffset,
                                           int64_t nhalos);
+int ctrees_hdf5_test_open_field_cache(const char *filename, const char *snap_field_name,
+                                      int8_t snap_field_is_double);
 int ctrees_hdf5_test_read_forest(const char *filename, const char *snap_field_name,
                                  int8_t snap_field_is_double, int64_t halosoffset, int64_t nhalos,
                                  struct halo_data *halos);

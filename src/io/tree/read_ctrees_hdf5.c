@@ -76,15 +76,76 @@ struct ctrees_forestinfo {
   int64_t forestntrees;
 };
 
+enum ctrees_hdf5_field_id {
+  CTREES_H5_FIELD_DESCENDANT = 0,
+  CTREES_H5_FIELD_FIRST_PROGENITOR,
+  CTREES_H5_FIELD_NEXT_PROGENITOR,
+  CTREES_H5_FIELD_FIRST_FOF,
+  CTREES_H5_FIELD_NEXT_FOF,
+  CTREES_H5_FIELD_MVIR,
+  CTREES_H5_FIELD_X,
+  CTREES_H5_FIELD_Y,
+  CTREES_H5_FIELD_Z,
+  CTREES_H5_FIELD_VRMS,
+  CTREES_H5_FIELD_VMAX,
+  CTREES_H5_FIELD_ID,
+  CTREES_H5_FIELD_SNAP,
+  CTREES_H5_FIELD_VX,
+  CTREES_H5_FIELD_VY,
+  CTREES_H5_FIELD_VZ,
+  CTREES_H5_FIELD_JX,
+  CTREES_H5_FIELD_JY,
+  CTREES_H5_FIELD_JZ,
+  CTREES_H5_FIELD_COUNT
+};
+
+static const char *const CTREES_H5_FIXED_FIELD_NAMES[CTREES_H5_FIELD_COUNT] = {
+    [CTREES_H5_FIELD_DESCENDANT] = "Descendant",
+    [CTREES_H5_FIELD_FIRST_PROGENITOR] = "FirstProgenitor",
+    [CTREES_H5_FIELD_NEXT_PROGENITOR] = "NextProgenitor",
+    [CTREES_H5_FIELD_FIRST_FOF] = "FirstHaloInFOFgroup",
+    [CTREES_H5_FIELD_NEXT_FOF] = "NextHaloInFOFgroup",
+    [CTREES_H5_FIELD_MVIR] = "Mvir",
+    [CTREES_H5_FIELD_X] = "x",
+    [CTREES_H5_FIELD_Y] = "y",
+    [CTREES_H5_FIELD_Z] = "z",
+    [CTREES_H5_FIELD_VRMS] = "vrms",
+    [CTREES_H5_FIELD_VMAX] = "vmax",
+    [CTREES_H5_FIELD_ID] = "id",
+    [CTREES_H5_FIELD_SNAP] = NULL,
+    [CTREES_H5_FIELD_VX] = "vx",
+    [CTREES_H5_FIELD_VY] = "vy",
+    [CTREES_H5_FIELD_VZ] = "vz",
+    [CTREES_H5_FIELD_JX] = "Jx",
+    [CTREES_H5_FIELD_JY] = "Jy",
+    [CTREES_H5_FIELD_JZ] = "Jz",
+};
+
+struct ctrees_hdf5_field_handle {
+  hid_t dataset;
+  hid_t filespace;
+  hid_t datatype;
+  hsize_t extent;
+  size_t element_size;
+  char name[MAX_STRING_LEN];
+};
+
+struct ctrees_hdf5_field_cache {
+  struct ctrees_hdf5_field_handle fields[CTREES_H5_FIELD_COUNT];
+  hsize_t halo_extent;
+  int is_open;
+};
+
 /* The one open partition (this task's forest chunk). One reader instance per
    process, so a file-static record is sufficient (mirrors the other readers). */
 struct ctrees_hdf5_partition {
-  hid_t meta_fd;             /* the forests-HDF5 metadata/data file */
-  hid_t *h5_file_groups;     /* [totnfiles] "File%d" groups (per-file) */
-  hid_t *h5_forests_group;   /* [totnfiles] "File%d/Forests" groups */
-  int8_t *contig_halo_props; /* [totnfiles] 1 = halos stored contiguously (SOA) */
-  int totnfiles;             /* lastfile + 1 (indexable by file number) */
-  int start_filenum;         /* first/last file this task reads from */
+  hid_t meta_fd;                               /* the forests-HDF5 metadata/data file */
+  hid_t *h5_file_groups;                       /* [totnfiles] "File%d" groups (per-file) */
+  hid_t *h5_forests_group;                     /* [totnfiles] "File%d/Forests" groups */
+  struct ctrees_hdf5_field_cache *field_cache; /* [totnfiles] cached SOA field handles */
+  int8_t *contig_halo_props;                   /* [totnfiles] 1 = halos stored contiguously (SOA) */
+  int totnfiles;                               /* lastfile + 1 (indexable by file number) */
+  int start_filenum;                           /* first/last file this task reads from */
   int end_filenum;
   int64_t start_forestnum;                     /* global first forest assigned to this task */
   int64_t nforests;                            /* units (forests) on this task */
@@ -141,46 +202,124 @@ static int ct_h5_get_1d_extent(hid_t h5_fspace, const char *dataset_name, hsize_
   return EXIT_SUCCESS;
 }
 
-static int ct_h5_validate_1d_hyperslab(hid_t h5_fspace, const char *dataset_name,
-                                       const hsize_t offset, const hsize_t count) {
-  hsize_t length = 0;
-  if (ct_h5_get_1d_extent(h5_fspace, dataset_name, &length) != EXIT_SUCCESS) {
-    return CT_H5_ERR;
+static void init_field_cache_ctrees_hdf5(struct ctrees_hdf5_field_cache *cache) {
+  cache->halo_extent = 0;
+  cache->is_open = 0;
+  for (int ifield = 0; ifield < CTREES_H5_FIELD_COUNT; ifield++) {
+    cache->fields[ifield].dataset = -1;
+    cache->fields[ifield].filespace = -1;
+    cache->fields[ifield].datatype = -1;
+    cache->fields[ifield].extent = 0;
+    cache->fields[ifield].element_size = 0;
+    cache->fields[ifield].name[0] = '\0';
+  }
+}
+
+static void close_one_field_cache_ctrees_hdf5(struct ctrees_hdf5_field_cache *cache) {
+  for (int ifield = 0; ifield < CTREES_H5_FIELD_COUNT; ifield++) {
+    struct ctrees_hdf5_field_handle *field = &cache->fields[ifield];
+    if (field->datatype >= 0) {
+      H5Tclose(field->datatype);
+      field->datatype = -1;
+    }
+    if (field->filespace >= 0) {
+      H5Sclose(field->filespace);
+      field->filespace = -1;
+    }
+    if (field->dataset >= 0) {
+      H5Dclose(field->dataset);
+      field->dataset = -1;
+    }
+  }
+  cache->is_open = 0;
+}
+
+static void free_field_cache_ctrees_hdf5(void) {
+  if (CTH.field_cache == NULL) {
+    return;
+  }
+  for (int ifile = 0; ifile < CTH.totnfiles; ifile++) {
+    close_one_field_cache_ctrees_hdf5(&CTH.field_cache[ifile]);
+  }
+  myfree(CTH.field_cache);
+  CTH.field_cache = NULL;
+}
+
+static const char *ctrees_hdf5_field_name(const enum ctrees_hdf5_field_id field_id) {
+  if (field_id == CTREES_H5_FIELD_SNAP) {
+    return CTH.snap_field_name;
+  }
+  return CTREES_H5_FIXED_FIELD_NAMES[field_id];
+}
+
+static int open_one_field_cache_ctrees_hdf5(struct ctrees_hdf5_field_cache *cache,
+                                            hid_t h5_forests_group, const int ifile) {
+  hsize_t expected_extent = 0;
+  for (int ifield = 0; ifield < CTREES_H5_FIELD_COUNT; ifield++) {
+    struct ctrees_hdf5_field_handle *field = &cache->fields[ifield];
+    const char *field_name = ctrees_hdf5_field_name((enum ctrees_hdf5_field_id)ifield);
+    XRETURN(field_name != NULL && field_name[0] != '\0', CT_H5_ERR,
+            "Error: field %d has no dataset name for file %d\n", ifield, ifile);
+    snprintf(field->name, sizeof(field->name), "%s", field_name);
+
+    field->dataset = H5Dopen2(h5_forests_group, field->name, H5P_DEFAULT);
+    if (field->dataset < 0) {
+      fprintf(stderr, "Error: Could not open dataset '%s' in file %d\n", field->name, ifile);
+      return CT_H5_ERR;
+    }
+    field->filespace = H5Dget_space(field->dataset);
+    if (field->filespace < 0) {
+      fprintf(stderr, "Error: Could not get filespace for '%s' in file %d\n", field->name, ifile);
+      return CT_H5_ERR;
+    }
+    if (ct_h5_get_1d_extent(field->filespace, field->name, &field->extent) != EXIT_SUCCESS) {
+      return CT_H5_ERR;
+    }
+    if (ifield == 0) {
+      expected_extent = field->extent;
+    } else if (field->extent != expected_extent) {
+      fprintf(stderr, "Error: file %d dataset '%s' has length %llu but '%s' has length %llu\n",
+              ifile, field->name, (unsigned long long)field->extent, cache->fields[0].name,
+              (unsigned long long)expected_extent);
+      return CT_H5_ERR;
+    }
+
+    field->datatype = H5Dget_type(field->dataset);
+    if (field->datatype < 0) {
+      fprintf(stderr, "Error: Could not get datatype for '%s' in file %d\n", field->name, ifile);
+      return CT_H5_ERR;
+    }
+    field->element_size = H5Tget_size(field->datatype);
+    if (field->element_size != sizeof(int64_t)) {
+      fprintf(stderr,
+              "Error: file %d dataset '%s' is %zu bytes on disk but the reader expects 8 bytes\n",
+              ifile, field->name, field->element_size);
+      return CT_H5_ERR;
+    }
   }
 
-  XRETURN(offset <= length && count <= length - offset, CT_H5_ERR,
-          "Error: dataset '%s' length is %llu but requested slab [offset=%llu, count=%llu)\n",
-          dataset_name, (unsigned long long)length, (unsigned long long)offset,
-          (unsigned long long)count);
+  cache->halo_extent = expected_extent;
+  cache->is_open = 1;
   return EXIT_SUCCESS;
 }
 
-static int ct_h5_get_dataset_length(hid_t h5_group, const char *dataset_name, hsize_t *length) {
-  int status = CT_H5_ERR;
-  hid_t h5_dset = -1;
-  hid_t h5_fspace = -1;
-
-  h5_dset = H5Dopen2(h5_group, dataset_name, H5P_DEFAULT);
-  if (h5_dset < 0) {
-    fprintf(stderr, "Error: Could not open dataset '%s'\n", dataset_name);
-    goto cleanup;
+static int open_field_cache_ctrees_hdf5(const int start_filenum, const int end_filenum) {
+  CTH.field_cache = mymalloc_cat(CTH.totnfiles * sizeof(*CTH.field_cache), MEM_IO);
+  for (int ifile = 0; ifile < CTH.totnfiles; ifile++) {
+    init_field_cache_ctrees_hdf5(&CTH.field_cache[ifile]);
   }
-  h5_fspace = H5Dget_space(h5_dset);
-  if (h5_fspace < 0) {
-    fprintf(stderr, "Error: Could not get filespace for '%s'\n", dataset_name);
-    goto cleanup;
-  }
-  status = ct_h5_get_1d_extent(h5_fspace, dataset_name, length);
 
-cleanup:
-  if (h5_fspace >= 0)
-    H5Sclose(h5_fspace);
-  if (h5_dset >= 0)
-    H5Dclose(h5_dset);
-  return status;
+  for (int ifile = start_filenum; ifile <= end_filenum; ifile++) {
+    if (open_one_field_cache_ctrees_hdf5(&CTH.field_cache[ifile], CTH.h5_forests_group[ifile],
+                                         ifile) != EXIT_SUCCESS) {
+      free_field_cache_ctrees_hdf5();
+      return CT_H5_ERR;
+    }
+  }
+  return EXIT_SUCCESS;
 }
 
-static int validate_ctrees_hdf5_forest_slab(hid_t h5_forests_group, const int64_t halosoffset,
+static int validate_ctrees_hdf5_forest_slab(const hsize_t halo_extent, const int64_t halosoffset,
                                             const int64_t nhalos, const int unit,
                                             const int filenum) {
   XRETURN(nhalos >= 0, CT_H5_ERR,
@@ -197,84 +336,65 @@ static int validate_ctrees_hdf5_forest_slab(hid_t h5_forests_group, const int64_
           "Error: forest %d in file %d has negative halo offset %" PRId64 "\n", unit, filenum,
           halosoffset);
 
-  hsize_t mvir_length = 0;
-  if (ct_h5_get_dataset_length(h5_forests_group, "Mvir", &mvir_length) != EXIT_SUCCESS) {
-    return CT_H5_ERR;
-  }
   const hsize_t offset = (hsize_t)halosoffset;
   const hsize_t count = (hsize_t)nhalos;
-  XRETURN(offset <= mvir_length && count <= mvir_length - offset, CT_H5_ERR,
+  XRETURN(offset <= halo_extent && count <= halo_extent - offset, CT_H5_ERR,
           "Error: forest %d in file %d requests halo slab [offset=%" PRId64 ", count=%" PRId64
           ") but Mvir has length %llu\n",
-          unit, filenum, halosoffset, nhalos, (unsigned long long)mvir_length);
+          unit, filenum, halosoffset, nhalos, (unsigned long long)halo_extent);
   return EXIT_SUCCESS;
 }
 
-/* Read a contiguous hyperslab of one forests-group dataset into a flat buffer,
-   verifying the on-disk element size matches the destination type. Adapted from
-   sage's READ_PARTIAL_FOREST_ARRAY with cleanup on testable failures. */
-static int ct_read_forest_array(hid_t file_group, const char *field_name, const hsize_t offset,
+/* Read a contiguous hyperslab from one cached forests-group dataset into a flat buffer. */
+static int ct_read_forest_array(const struct ctrees_hdf5_field_handle *field, const hsize_t offset,
                                 const hsize_t count, void *buffer, const size_t dst_size) {
   int status = CT_H5_ERR;
-  hid_t h5_dset = -1;
-  hid_t h5_fspace = -1;
   hid_t h5_memspace = -1;
-  hid_t h5_dtype = -1;
 
-  h5_dset = H5Dopen2(file_group, field_name, H5P_DEFAULT);
-  if (h5_dset < 0) {
-    fprintf(stderr, "Error: Could not open dataset '%s'\n", field_name);
+  if (field == NULL || field->dataset < 0 || field->filespace < 0 || field->datatype < 0) {
+    fprintf(stderr, "Error: cached HDF5 field handle is not open\n");
     goto cleanup;
   }
-  h5_fspace = H5Dget_space(h5_dset);
-  if (h5_fspace < 0) {
-    fprintf(stderr, "Error: Could not get filespace for '%s'\n", field_name);
+  if (offset > field->extent || count > field->extent - offset) {
+    fprintf(stderr,
+            "Error: dataset '%s' length is %llu but requested slab [offset=%llu, "
+            "count=%llu)\n",
+            field->name, (unsigned long long)field->extent, (unsigned long long)offset,
+            (unsigned long long)count);
     goto cleanup;
   }
-  if (ct_h5_validate_1d_hyperslab(h5_fspace, field_name, offset, count) != EXIT_SUCCESS) {
-    fprintf(stderr, "Error: invalid hyperslab for '%s'\n", field_name);
-    goto cleanup;
-  }
-  if (H5Sselect_hyperslab(h5_fspace, H5S_SELECT_SET, &offset, NULL, &count, NULL) < 0) {
-    fprintf(stderr, "Error: Could not select hyperslab for '%s'\n", field_name);
+  if (H5Sselect_hyperslab(field->filespace, H5S_SELECT_SET, &offset, NULL, &count, NULL) < 0) {
+    fprintf(stderr, "Error: Could not select hyperslab for '%s'\n", field->name);
     goto cleanup;
   }
   h5_memspace = H5Screate_simple(1, &count, NULL);
   if (h5_memspace < 0) {
-    fprintf(stderr, "Error: Could not create memspace for '%s'\n", field_name);
+    fprintf(stderr, "Error: Could not create memspace for '%s'\n", field->name);
     goto cleanup;
   }
-  h5_dtype = H5Dget_type(h5_dset);
-  if (h5_dtype < 0) {
-    fprintf(stderr, "Error: Could not get datatype for '%s'\n", field_name);
-    goto cleanup;
-  }
-  if (dst_size != H5Tget_size(h5_dtype)) {
+  if (dst_size != field->element_size) {
     fprintf(stderr, "Error: dataset '%s' is %zu bytes on disk but the destination is %zu bytes\n",
-            field_name, H5Tget_size(h5_dtype), dst_size);
+            field->name, field->element_size, dst_size);
     goto cleanup;
   }
-  if (H5Dread(h5_dset, h5_dtype, h5_memspace, h5_fspace, H5P_DEFAULT, buffer) < 0) {
-    fprintf(stderr, "Error: Could not read dataset '%s'\n", field_name);
+  if (H5Dread(field->dataset, field->datatype, h5_memspace, field->filespace, H5P_DEFAULT, buffer) <
+      0) {
+    fprintf(stderr, "Error: Could not read dataset '%s'\n", field->name);
     goto cleanup;
   }
   status = EXIT_SUCCESS;
 
 cleanup:
-  if (h5_dtype >= 0)
-    H5Tclose(h5_dtype);
   if (h5_memspace >= 0)
     H5Sclose(h5_memspace);
-  if (h5_fspace >= 0)
-    H5Sclose(h5_fspace);
-  if (h5_dset >= 0)
-    H5Dclose(h5_dset);
   return status;
 }
 
-#define CT_READ_FOREST_ARRAY(file_group, field_name, p_offset, p_count, buffer, dst_type)          \
+#define CT_FIELD(cache, field_id) (&(cache)->fields[(field_id)])
+
+#define CT_READ_FOREST_ARRAY(cache, field_id, p_offset, p_count, buffer, dst_type)                 \
   do {                                                                                             \
-    status = ct_read_forest_array(file_group, field_name, *(p_offset), *(p_count), buffer,         \
+    status = ct_read_forest_array(CT_FIELD(cache, field_id), *(p_offset), *(p_count), buffer,      \
                                   sizeof(dst_type));                                               \
     if (status != EXIT_SUCCESS)                                                                    \
       goto cleanup;                                                                                \
@@ -296,27 +416,29 @@ cleanup:
     }                                                                                              \
   }
 
-#define CT_READ_ASSIGN_SINGLE(fg, fn, off, cnt, buf, bdt, dst, field)                              \
+#define CT_READ_ASSIGN_SINGLE(cache, field_id, off, cnt, buf, bdt, dst, field)                     \
   {                                                                                                \
-    CT_READ_FOREST_ARRAY(fg, fn, off, cnt, buf, bdt);                                              \
+    CT_READ_FOREST_ARRAY(cache, field_id, off, cnt, buf, bdt);                                     \
     CT_ASSIGN_SINGLE(buf, bdt, dst, field);                                                        \
   }
 
-#define CT_READ_ASSIGN_MULTI(fg, fn, off, cnt, buf, bdt, dst, field, dim)                          \
+#define CT_READ_ASSIGN_MULTI(cache, field_id, off, cnt, buf, bdt, dst, field, dim)                 \
   {                                                                                                \
-    CT_READ_FOREST_ARRAY(fg, fn, off, cnt, buf, bdt);                                              \
+    CT_READ_FOREST_ARRAY(cache, field_id, off, cnt, buf, bdt);                                     \
     CT_ASSIGN_MULTI(buf, bdt, dst, field, dim);                                                    \
   }
 
-#define CT_READ_ASSIGN_SNAP_INT(fg, fn, off, cnt, buf, dst)                                        \
+#define CT_READ_ASSIGN_SNAP_INT(cache, off, cnt, buf, dst)                                         \
   {                                                                                                \
-    CT_READ_FOREST_ARRAY(fg, fn, off, cnt, buf, int64_t);                                          \
+    const struct ctrees_hdf5_field_handle *macro_field = CT_FIELD(cache, CTREES_H5_FIELD_SNAP);    \
+    CT_READ_FOREST_ARRAY(cache, CTREES_H5_FIELD_SNAP, off, cnt, buf, int64_t);                     \
     int64_t *macro_x = (int64_t *)buf;                                                             \
     for (hsize_t mi = 0; mi < nhalos; mi++) {                                                      \
       const int64_t macro_v = macro_x[mi];                                                         \
       if (!(macro_v >= 0 && macro_v <= INT_MAX && macro_v <= MimicConfig.LastSnapshotNr)) {        \
-        fprintf(stderr, "Error: snapshot field '%s'[%llu] = %lld is outside [0, %d]\n", fn,        \
-                (unsigned long long)mi, (long long)macro_v, MimicConfig.LastSnapshotNr);           \
+        fprintf(stderr, "Error: snapshot field '%s'[%llu] = %lld is outside [0, %d]\n",            \
+                macro_field->name, (unsigned long long)mi, (long long)macro_v,                     \
+                MimicConfig.LastSnapshotNr);                                                       \
         status = CT_H5_ERR;                                                                        \
         goto cleanup;                                                                              \
       }                                                                                            \
@@ -324,16 +446,17 @@ cleanup:
     }                                                                                              \
   }
 
-#define CT_READ_ASSIGN_SNAP_DOUBLE(fg, fn, off, cnt, buf, dst)                                     \
+#define CT_READ_ASSIGN_SNAP_DOUBLE(cache, off, cnt, buf, dst)                                      \
   {                                                                                                \
-    CT_READ_FOREST_ARRAY(fg, fn, off, cnt, buf, double);                                           \
+    const struct ctrees_hdf5_field_handle *macro_field = CT_FIELD(cache, CTREES_H5_FIELD_SNAP);    \
+    CT_READ_FOREST_ARRAY(cache, CTREES_H5_FIELD_SNAP, off, cnt, buf, double);                      \
     double *macro_x = (double *)buf;                                                               \
     for (hsize_t mi = 0; mi < nhalos; mi++) {                                                      \
       const double macro_v = macro_x[mi];                                                          \
       if (!(isfinite(macro_v) && floor(macro_v) == macro_v && macro_v >= 0.0 &&                    \
             macro_v <= (double)INT_MAX && macro_v <= (double)MimicConfig.LastSnapshotNr)) {        \
         fprintf(stderr, "Error: snapshot field '%s'[%llu] = %.17g is not an integer in [0, %d]\n", \
-                fn, (unsigned long long)mi, macro_v, MimicConfig.LastSnapshotNr);                  \
+                macro_field->name, (unsigned long long)mi, macro_v, MimicConfig.LastSnapshotNr);   \
         status = CT_H5_ERR;                                                                        \
         goto cleanup;                                                                              \
       }                                                                                            \
@@ -346,15 +469,17 @@ cleanup:
    [0, nhalos). The core uses these links as array indices during traversal, so a
    wrapped or out-of-range value from a malformed/schema-mismatched file would be
    an out-of-bounds access; fail fast instead of narrowing blindly. */
-#define CT_READ_ASSIGN_LINK(fg, fn, off, cnt, buf, dst, field)                                     \
+#define CT_READ_ASSIGN_LINK(cache, field_id, off, cnt, buf, dst, field)                            \
   {                                                                                                \
-    CT_READ_FOREST_ARRAY(fg, fn, off, cnt, buf, int64_t);                                          \
+    const struct ctrees_hdf5_field_handle *macro_field = CT_FIELD(cache, field_id);                \
+    CT_READ_FOREST_ARRAY(cache, field_id, off, cnt, buf, int64_t);                                 \
     int64_t *macro_x = (int64_t *)buf;                                                             \
     for (hsize_t mi = 0; mi < nhalos; mi++) {                                                      \
       const int64_t macro_v = macro_x[mi];                                                         \
       if (!(macro_v >= -1 && macro_v < (int64_t)nhalos)) {                                         \
-        fprintf(stderr, "Error: merger link '%s'[%llu] = %lld is outside [-1, %llu)\n", fn,        \
-                (unsigned long long)mi, (long long)macro_v, (unsigned long long)nhalos);           \
+        fprintf(stderr, "Error: merger link '%s'[%llu] = %lld is outside [-1, %llu)\n",            \
+                macro_field->name, (unsigned long long)mi, (long long)macro_v,                     \
+                (unsigned long long)nhalos);                                                       \
         status = CT_H5_ERR;                                                                        \
         goto cleanup;                                                                              \
       }                                                                                            \
@@ -366,8 +491,8 @@ cleanup:
    bridge consumes are read (the array-of-structs packaging is not supported, as
    in sage). The five merger links are read int64 and validated forest-local
    before narrowing to halo_data's int fields (see CT_READ_ASSIGN_LINK). */
-static int read_contiguous_forest_ctrees_h5(hid_t h5_forests_group, const hsize_t nhalos,
-                                            const hsize_t halosoffset, const char *snap_field_name,
+static int read_contiguous_forest_ctrees_h5(struct ctrees_hdf5_field_cache *field_cache,
+                                            const hsize_t nhalos, const hsize_t halosoffset,
                                             const int8_t snap_field_is_double,
                                             struct halo_data *halos) {
   if (nhalos == 0) {
@@ -377,54 +502,55 @@ static int read_contiguous_forest_ctrees_h5(hid_t h5_forests_group, const hsize_
   int status = EXIT_SUCCESS;
   void *buffer = mymalloc_cat(nhalos * sizeof(double), MEM_IO); /* double is the widest field */
 
-  CT_READ_ASSIGN_LINK(h5_forests_group, "Descendant", &halosoffset, &nhalos, buffer, halos,
+  CT_READ_ASSIGN_LINK(field_cache, CTREES_H5_FIELD_DESCENDANT, &halosoffset, &nhalos, buffer, halos,
                       Descendant);
-  CT_READ_ASSIGN_LINK(h5_forests_group, "FirstProgenitor", &halosoffset, &nhalos, buffer, halos,
-                      FirstProgenitor);
-  CT_READ_ASSIGN_LINK(h5_forests_group, "NextProgenitor", &halosoffset, &nhalos, buffer, halos,
-                      NextProgenitor);
-  CT_READ_ASSIGN_LINK(h5_forests_group, "FirstHaloInFOFgroup", &halosoffset, &nhalos, buffer, halos,
+  CT_READ_ASSIGN_LINK(field_cache, CTREES_H5_FIELD_FIRST_PROGENITOR, &halosoffset, &nhalos, buffer,
+                      halos, FirstProgenitor);
+  CT_READ_ASSIGN_LINK(field_cache, CTREES_H5_FIELD_NEXT_PROGENITOR, &halosoffset, &nhalos, buffer,
+                      halos, NextProgenitor);
+  CT_READ_ASSIGN_LINK(field_cache, CTREES_H5_FIELD_FIRST_FOF, &halosoffset, &nhalos, buffer, halos,
                       FirstHaloInFOFgroup);
-  CT_READ_ASSIGN_LINK(h5_forests_group, "NextHaloInFOFgroup", &halosoffset, &nhalos, buffer, halos,
+  CT_READ_ASSIGN_LINK(field_cache, CTREES_H5_FIELD_NEXT_FOF, &halosoffset, &nhalos, buffer, halos,
                       NextHaloInFOFgroup);
 
-  CT_READ_ASSIGN_SINGLE(h5_forests_group, "Mvir", &halosoffset, &nhalos, buffer, double, halos,
-                        Mvir); /* native Msun/h; accessor scales */
+  CT_READ_ASSIGN_SINGLE(field_cache, CTREES_H5_FIELD_MVIR, &halosoffset, &nhalos, buffer, double,
+                        halos, Mvir); /* native Msun/h; accessor scales */
 
-  CT_READ_ASSIGN_MULTI(h5_forests_group, "x", &halosoffset, &nhalos, buffer, double, halos, Pos, 0);
-  CT_READ_ASSIGN_MULTI(h5_forests_group, "y", &halosoffset, &nhalos, buffer, double, halos, Pos, 1);
-  CT_READ_ASSIGN_MULTI(h5_forests_group, "z", &halosoffset, &nhalos, buffer, double, halos, Pos, 2);
+  CT_READ_ASSIGN_MULTI(field_cache, CTREES_H5_FIELD_X, &halosoffset, &nhalos, buffer, double, halos,
+                       Pos, 0);
+  CT_READ_ASSIGN_MULTI(field_cache, CTREES_H5_FIELD_Y, &halosoffset, &nhalos, buffer, double, halos,
+                       Pos, 1);
+  CT_READ_ASSIGN_MULTI(field_cache, CTREES_H5_FIELD_Z, &halosoffset, &nhalos, buffer, double, halos,
+                       Pos, 2);
 
-  CT_READ_ASSIGN_SINGLE(h5_forests_group, "vrms", &halosoffset, &nhalos, buffer, double, halos,
-                        VelDisp);
-  CT_READ_ASSIGN_SINGLE(h5_forests_group, "vmax", &halosoffset, &nhalos, buffer, double, halos,
-                        Vmax);
-  CT_READ_ASSIGN_SINGLE(h5_forests_group, "id", &halosoffset, &nhalos, buffer, int64_t, halos,
-                        MostBoundID); /* the carried-through ctrees halo id */
+  CT_READ_ASSIGN_SINGLE(field_cache, CTREES_H5_FIELD_VRMS, &halosoffset, &nhalos, buffer, double,
+                        halos, VelDisp);
+  CT_READ_ASSIGN_SINGLE(field_cache, CTREES_H5_FIELD_VMAX, &halosoffset, &nhalos, buffer, double,
+                        halos, Vmax);
+  CT_READ_ASSIGN_SINGLE(field_cache, CTREES_H5_FIELD_ID, &halosoffset, &nhalos, buffer, int64_t,
+                        halos, MostBoundID); /* the carried-through ctrees halo id */
 
   if (snap_field_is_double) {
-    CT_READ_ASSIGN_SNAP_DOUBLE(h5_forests_group, snap_field_name, &halosoffset, &nhalos, buffer,
-                               halos);
+    CT_READ_ASSIGN_SNAP_DOUBLE(field_cache, &halosoffset, &nhalos, buffer, halos);
   } else {
-    CT_READ_ASSIGN_SNAP_INT(h5_forests_group, snap_field_name, &halosoffset, &nhalos, buffer,
-                            halos);
+    CT_READ_ASSIGN_SNAP_INT(field_cache, &halosoffset, &nhalos, buffer, halos);
   }
 
-  CT_READ_ASSIGN_MULTI(h5_forests_group, "vx", &halosoffset, &nhalos, buffer, double, halos, Vel,
-                       0);
-  CT_READ_ASSIGN_MULTI(h5_forests_group, "vy", &halosoffset, &nhalos, buffer, double, halos, Vel,
-                       1);
-  CT_READ_ASSIGN_MULTI(h5_forests_group, "vz", &halosoffset, &nhalos, buffer, double, halos, Vel,
-                       2);
+  CT_READ_ASSIGN_MULTI(field_cache, CTREES_H5_FIELD_VX, &halosoffset, &nhalos, buffer, double,
+                       halos, Vel, 0);
+  CT_READ_ASSIGN_MULTI(field_cache, CTREES_H5_FIELD_VY, &halosoffset, &nhalos, buffer, double,
+                       halos, Vel, 1);
+  CT_READ_ASSIGN_MULTI(field_cache, CTREES_H5_FIELD_VZ, &halosoffset, &nhalos, buffer, double,
+                       halos, Vel, 2);
 
   /* Spin holds the angular momentum J here; apply_ctrees_value_conventions
      normalises it by the native Mvir afterwards. */
-  CT_READ_ASSIGN_MULTI(h5_forests_group, "Jx", &halosoffset, &nhalos, buffer, double, halos, Spin,
-                       0);
-  CT_READ_ASSIGN_MULTI(h5_forests_group, "Jy", &halosoffset, &nhalos, buffer, double, halos, Spin,
-                       1);
-  CT_READ_ASSIGN_MULTI(h5_forests_group, "Jz", &halosoffset, &nhalos, buffer, double, halos, Spin,
-                       2);
+  CT_READ_ASSIGN_MULTI(field_cache, CTREES_H5_FIELD_JX, &halosoffset, &nhalos, buffer, double,
+                       halos, Spin, 0);
+  CT_READ_ASSIGN_MULTI(field_cache, CTREES_H5_FIELD_JY, &halosoffset, &nhalos, buffer, double,
+                       halos, Spin, 1);
+  CT_READ_ASSIGN_MULTI(field_cache, CTREES_H5_FIELD_JZ, &halosoffset, &nhalos, buffer, double,
+                       halos, Spin, 2);
 
 cleanup:
   myfree(buffer);
@@ -670,6 +796,61 @@ static int read_nhalos_per_forest(const int firstfile, const int lastfile,
 }
 
 #ifdef MIMIC_TEST_BUILD
+static int ctrees_hdf5_test_open_file0_forests(const char *filename, hid_t *file,
+                                               hid_t *forests_group) {
+  *file = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+  if (*file < 0) {
+    return CT_H5_ERR;
+  }
+  *forests_group = H5Gopen(*file, "File0/Forests", H5P_DEFAULT);
+  if (*forests_group < 0) {
+    H5Fclose(*file);
+    *file = -1;
+    return CT_H5_ERR;
+  }
+  return EXIT_SUCCESS;
+}
+
+static int ctrees_hdf5_test_prepare_field_cache(const char *filename, const char *snap_field_name,
+                                                const int8_t snap_field_is_double, hid_t *file,
+                                                hid_t *forests_group) {
+  memset(&CTH, 0, sizeof(CTH));
+  CTH.totnfiles = 1;
+  if (ctrees_hdf5_test_open_file0_forests(filename, file, forests_group) != EXIT_SUCCESS) {
+    memset(&CTH, 0, sizeof(CTH));
+    return CT_H5_ERR;
+  }
+  CTH.h5_forests_group = mymalloc_cat(sizeof(*CTH.h5_forests_group), MEM_IO);
+  CTH.h5_forests_group[0] = *forests_group;
+  snprintf(CTH.snap_field_name, sizeof(CTH.snap_field_name), "%s", snap_field_name);
+  CTH.snap_field_is_double = snap_field_is_double;
+  const int status = open_field_cache_ctrees_hdf5(0, 0);
+  if (status != EXIT_SUCCESS) {
+    free_field_cache_ctrees_hdf5();
+    myfree(CTH.h5_forests_group);
+    H5Gclose(*forests_group);
+    H5Fclose(*file);
+    *forests_group = -1;
+    *file = -1;
+    memset(&CTH, 0, sizeof(CTH));
+  }
+  return status;
+}
+
+static void ctrees_hdf5_test_close_field_cache(hid_t file, hid_t forests_group) {
+  free_field_cache_ctrees_hdf5();
+  if (CTH.h5_forests_group != NULL) {
+    myfree(CTH.h5_forests_group);
+  }
+  if (forests_group >= 0) {
+    H5Gclose(forests_group);
+  }
+  if (file >= 0) {
+    H5Fclose(file);
+  }
+  memset(&CTH, 0, sizeof(CTH));
+}
+
 int ctrees_hdf5_test_read_nhalos_per_forest(const char *filename, const int64_t expected_nforests,
                                             int64_t *nhalos_per_forest) {
   hid_t file = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
@@ -731,40 +912,46 @@ int ctrees_hdf5_test_read_forestinfo_cache(const char *filename, const int64_t e
 
 int ctrees_hdf5_test_validate_forest_slab(const char *filename, const int64_t halosoffset,
                                           const int64_t nhalos) {
-  hid_t file = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
-  if (file < 0) {
+  hid_t file = -1;
+  hid_t forests_group = -1;
+  if (ctrees_hdf5_test_prepare_field_cache(filename, "Snap_idx", 0, &file, &forests_group) !=
+      EXIT_SUCCESS) {
     return CT_H5_ERR;
   }
-  hid_t forests_group = H5Gopen(file, "File0/Forests", H5P_DEFAULT);
-  if (forests_group < 0) {
-    H5Fclose(file);
-    return CT_H5_ERR;
+  const int status =
+      validate_ctrees_hdf5_forest_slab(CTH.field_cache[0].halo_extent, halosoffset, nhalos, 0, 0);
+  ctrees_hdf5_test_close_field_cache(file, forests_group);
+  return status;
+}
+
+int ctrees_hdf5_test_open_field_cache(const char *filename, const char *snap_field_name,
+                                      const int8_t snap_field_is_double) {
+  hid_t file = -1;
+  hid_t forests_group = -1;
+  const int status = ctrees_hdf5_test_prepare_field_cache(
+      filename, snap_field_name, snap_field_is_double, &file, &forests_group);
+  if (status == EXIT_SUCCESS) {
+    ctrees_hdf5_test_close_field_cache(file, forests_group);
   }
-  const int status = validate_ctrees_hdf5_forest_slab(forests_group, halosoffset, nhalos, 0, 0);
-  H5Gclose(forests_group);
-  H5Fclose(file);
   return status;
 }
 
 int ctrees_hdf5_test_read_forest(const char *filename, const char *snap_field_name,
                                  const int8_t snap_field_is_double, const int64_t halosoffset,
                                  const int64_t nhalos, struct halo_data *halos) {
-  hid_t file = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
-  if (file < 0) {
+  hid_t file = -1;
+  hid_t forests_group = -1;
+  if (ctrees_hdf5_test_prepare_field_cache(filename, snap_field_name, snap_field_is_double, &file,
+                                           &forests_group) != EXIT_SUCCESS) {
     return CT_H5_ERR;
   }
-  hid_t forests_group = H5Gopen(file, "File0/Forests", H5P_DEFAULT);
-  if (forests_group < 0) {
-    H5Fclose(file);
-    return CT_H5_ERR;
-  }
-  int status = validate_ctrees_hdf5_forest_slab(forests_group, halosoffset, nhalos, 0, 0);
+  int status =
+      validate_ctrees_hdf5_forest_slab(CTH.field_cache[0].halo_extent, halosoffset, nhalos, 0, 0);
   if (status == EXIT_SUCCESS) {
-    status = read_contiguous_forest_ctrees_h5(forests_group, (hsize_t)nhalos, (hsize_t)halosoffset,
-                                              snap_field_name, snap_field_is_double, halos);
+    status = read_contiguous_forest_ctrees_h5(&CTH.field_cache[0], (hsize_t)nhalos,
+                                              (hsize_t)halosoffset, snap_field_is_double, halos);
   }
-  H5Gclose(forests_group);
-  H5Fclose(file);
+  ctrees_hdf5_test_close_field_cache(file, forests_group);
   return status;
 }
 #endif /* MIMIC_TEST_BUILD */
@@ -1036,6 +1223,9 @@ static int setup_forests_io_ctrees_hdf5(const int thistask, const int ntasks) {
   if (detect_snap_field(CTH.h5_forests_group[start_filenum]) != EXIT_SUCCESS) {
     return CT_H5_ERR;
   }
+  if (open_field_cache_ctrees_hdf5(start_filenum, end_filenum) != EXIT_SUCCESS) {
+    return CT_H5_ERR;
+  }
 
   return EXIT_SUCCESS;
 }
@@ -1090,7 +1280,11 @@ static void load_unit_ctrees_hdf5(int unit) {
   const struct ctrees_forestinfo *finfo = &CTH.forestinfo_cache[filenum][treenr_in_file];
   const int64_t halosoffset = finfo->foresthalosoffset;
   const int64_t nhalos = finfo->forestnhalos;
-  if (validate_ctrees_hdf5_forest_slab(CTH.h5_forests_group[filenum], halosoffset, nhalos, unit,
+  if (CTH.field_cache == NULL || !CTH.field_cache[filenum].is_open) {
+    FATAL_ERROR("Consistent-Trees HDF5: missing cached field handles for file %d", filenum);
+  }
+  struct ctrees_hdf5_field_cache *field_cache = &CTH.field_cache[filenum];
+  if (validate_ctrees_hdf5_forest_slab(field_cache->halo_extent, halosoffset, nhalos, unit,
                                        filenum) != EXIT_SUCCESS) {
     FATAL_ERROR("Consistent-Trees HDF5: invalid forest %d metadata (nhalos=%" PRId64
                 ", offset=%" PRId64 ") in file %d",
@@ -1099,9 +1293,9 @@ static void load_unit_ctrees_hdf5(int unit) {
 
   struct halo_data *halos =
       mymalloc_cat(sizeof(struct halo_data) * (nhalos > 0 ? nhalos : 1), MEM_TREES);
-  if (nhalos > 0 && read_contiguous_forest_ctrees_h5(
-                        CTH.h5_forests_group[filenum], (hsize_t)nhalos, (hsize_t)halosoffset,
-                        CTH.snap_field_name, CTH.snap_field_is_double, halos) != EXIT_SUCCESS) {
+  if (nhalos > 0 &&
+      read_contiguous_forest_ctrees_h5(field_cache, (hsize_t)nhalos, (hsize_t)halosoffset,
+                                       CTH.snap_field_is_double, halos) != EXIT_SUCCESS) {
     FATAL_ERROR("Consistent-Trees HDF5: could not read forest %d (nhalos=%" PRId64
                 ", offset=%" PRId64 ") from file %d",
                 unit, nhalos, halosoffset, filenum);
@@ -1120,6 +1314,7 @@ static void load_unit_ctrees_hdf5(int unit) {
 
 /** @brief Close this task's partition: close groups/file, free scaffolding. */
 static void close_partition_ctrees_hdf5(void) {
+  free_field_cache_ctrees_hdf5();
   free_forestinfo_cache_ctrees_hdf5();
   if (CTH.h5_forests_group != NULL) {
     for (int i = 0; i < CTH.totnfiles; i++) {

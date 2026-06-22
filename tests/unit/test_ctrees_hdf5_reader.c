@@ -145,8 +145,9 @@ static int write_double_dataset(hid_t group, const char *name, const double *val
   return status;
 }
 
-static int write_minimal_forests_file(const char *path, int snap_as_double, double snap_double,
-                                      int64_t snap_int) {
+static int write_minimal_forests_file_with_options(const char *path, int snap_as_double,
+                                                   double snap_double, int64_t snap_int,
+                                                   int mismatched_mvir_length) {
   hid_t file = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
   if (file < 0)
     return -1;
@@ -156,6 +157,7 @@ static int write_minimal_forests_file(const char *path, int snap_as_double, doub
   const int64_t link[1] = {-1};
   const int64_t id[1] = {42};
   const double scalar[1] = {1.0};
+  const double mvir_mismatched[2] = {1.0, 2.0};
   int status = 0;
 
   const char *links[] = {"Descendant", "FirstProgenitor", "NextProgenitor", "FirstHaloInFOFgroup",
@@ -163,8 +165,10 @@ static int write_minimal_forests_file(const char *path, int snap_as_double, doub
   for (size_t i = 0; i < sizeof(links) / sizeof(links[0]); i++) {
     status |= write_i64_dataset(forests, links[i], link, n);
   }
-  const char *doubles[] = {"Mvir", "x",  "y",  "z",  "vrms", "vmax",
-                           "vx",   "vy", "vz", "Jx", "Jy",   "Jz"};
+  const hsize_t mvir_n = mismatched_mvir_length ? n + 1 : n;
+  status |= write_double_dataset(forests, "Mvir", mismatched_mvir_length ? mvir_mismatched : scalar,
+                                 mvir_n);
+  const char *doubles[] = {"x", "y", "z", "vrms", "vmax", "vx", "vy", "vz", "Jx", "Jy", "Jz"};
   for (size_t i = 0; i < sizeof(doubles) / sizeof(doubles[0]); i++) {
     status |= write_double_dataset(forests, doubles[i], scalar, n);
   }
@@ -183,6 +187,11 @@ static int write_minimal_forests_file(const char *path, int snap_as_double, doub
     H5Gclose(file0);
   H5Fclose(file);
   return status;
+}
+
+static int write_minimal_forests_file(const char *path, int snap_as_double, double snap_double,
+                                      int64_t snap_int) {
+  return write_minimal_forests_file_with_options(path, snap_as_double, snap_double, snap_int, 0);
 }
 
 int test_forestinfo_length_and_counts_are_validated(void) {
@@ -272,6 +281,29 @@ int test_forest_slab_bounds_are_validated(void) {
   return TEST_PASS;
 }
 
+int test_field_cache_validates_schema_at_open(void) {
+  init_memory_system(0);
+  char dir_template[] = "/tmp/mimic_ctrees_h5_fields_XXXXXX";
+  TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
+
+  char path[512];
+  snprintf(path, sizeof(path), "%s/trees.h5", dir_template);
+  TEST_ASSERT(write_minimal_forests_file(path, 0, 0.0, 0) == 0,
+              "should write valid Forests datasets");
+  TEST_ASSERT(ctrees_hdf5_test_open_field_cache(path, "Snap_idx", 0) == EXIT_SUCCESS,
+              "valid field handles should open and validate once");
+
+  TEST_ASSERT(write_minimal_forests_file_with_options(path, 0, 0.0, 0, 1) == 0,
+              "should rewrite Forests datasets with a mismatched Mvir extent");
+  TEST_ASSERT(ctrees_hdf5_test_open_field_cache(path, "Snap_idx", 0) != EXIT_SUCCESS,
+              "field extent mismatch must fail during cache setup");
+
+  unlink(path);
+  rmdir(dir_template);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int test_snapshot_values_are_strict(void) {
   init_memory_system(0);
   MimicConfig.LastSnapshotNr = 10;
@@ -317,6 +349,7 @@ int main(void) {
   TEST_RUN(test_forestinfo_length_and_counts_are_validated);
   TEST_RUN(test_forestinfo_cache_reads_members_by_name);
   TEST_RUN(test_forest_slab_bounds_are_validated);
+  TEST_RUN(test_field_cache_validates_schema_at_open);
   TEST_RUN(test_snapshot_values_are_strict);
 
   TEST_SUMMARY();
