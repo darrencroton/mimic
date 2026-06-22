@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "generated_by": "scripts/generate_properties.py",
-  "source_md5": "7753bc31a66051673fb9c812813d386f",
+  "source_md5": "40b86c60fde2ca9598cd3d84123b6498",
   "model": "sage16",
   "model_path": "models/sage16",
   "reference_units": {
     "mass": {"label": "1e10 Msun/h", "h_convention": "carried", "in_cgs": 1.9890000000000001e+43},
     "length": {"label": "Mpc/h", "h_convention": "carried", "in_cgs": 3.0856799999999997e+24},
-    "velocity": {"label": "km/s", "h_convention": "free", "in_cgs": 100000},
+    "velocity": {"label": "km/s", "h_convention": "none", "in_cgs": 100000},
     "time": {"label": "code", "h_convention": "carried", "in_cgs": 3.0856799999999996e+19}
   },
   "record": {
@@ -51,7 +51,7 @@
       "offset": 8,
       "size": 8,
       "units": "dimensionless",
-      "description": "Persistent unique galaxy identifier across all snapshots (file*10^15 + tree*10^9 + creation_halonr)"
+      "description": "Persistent run-scoped unique galaxy identifier across all snapshots (creation_halonr + 10^9 * forestnr_global)"
     },
     {
       "name": "UniqueCentralGalaxyID",
@@ -111,7 +111,7 @@
       "offset": 40,
       "size": 4,
       "units": "1e10 Msun/h",
-      "description": "Change in virial mass since last snapshot (internal, not output)"
+      "description": "Change in virial mass since last snapshot"
     },
     {
       "name": "CentralMvir",
@@ -123,7 +123,7 @@
       "offset": 44,
       "size": 4,
       "units": "1e10 Msun/h",
-      "description": "Virial mass of the central halo in this FoF group"
+      "description": "Virial mass of the FoF central halo stamped onto every workspace member"
     },
     {
       "name": "Rvir",

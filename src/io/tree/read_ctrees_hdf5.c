@@ -688,6 +688,7 @@ static int setup_forests_io_ctrees_hdf5(const int thistask, const int ntasks) {
   }
   XRETURN(totnforests >= 1, CT_H5_ERR, "Error: total forest count %" PRId64 " must be >= 1\n",
           totnforests);
+  /* Defensive for future int64 staging; the 32-bit staging limit is binding today. */
   XRETURN(mimic_unique_galaxy_id_total_forests_valid(totnforests), CT_H5_ERR,
           "Error: Consistent-Trees total forest count %" PRId64
           " exceeds the UniqueGalaxyID encoding limit of %" PRId64 "\n",

@@ -279,7 +279,7 @@ static void open_partition_ctrees_ascii(int output_id) {
       prev_forestid = locations[i].forestid;
     }
   }
-  /* Keep the encoding-capacity failure distinct from the older int staging limit. */
+  /* Defensive for future int64 staging; the 32-bit staging limit is binding today. */
   if (!mimic_unique_galaxy_id_total_forests_valid(totnforests)) {
     FATAL_ERROR("Consistent-Trees total forest count %" PRId64
                 " exceeds the UniqueGalaxyID encoding limit of %" PRId64,

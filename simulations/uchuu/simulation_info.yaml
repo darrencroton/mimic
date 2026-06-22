@@ -9,8 +9,9 @@
 # Snap_idx is stored as float64 (not integer) — the reader auto-detects this.
 # Positions are in Mpc/h. M_Crit200 is native Mvir in Msun/h.
 #
-# MPI scale: 3.22 billion forests requires at least ~3,220 tasks (1M/task limit).
-# Use linear distribution scheme to balance the very unequal forest sizes.
+# MPI scale: choose task count for memory, walltime, filesystem throughput, and
+# load balance. Use linear distribution scheme to balance the very unequal
+# forest sizes.
 
 input:
   first_file: 0

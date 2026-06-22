@@ -24,7 +24,7 @@ All files must remain co-located. Each `File<n>` group in `mergertree_info.h5` i
 
 **HDF5 external link architecture:** This dataset uses ExternalLinks (not VDS virtual datasets as in `simulations/micro-uchuu-hdf5/`). The package-local fixture exercises this layout: `mergertree_info.h5` links `File0` to `/` of `mergertree_0.h5`, with contiguous halo properties under `Forests/` and `Snap_idx` stored as `float64`. Run an explicit halos-only smoke test before any production use so the mounted 37 TB catalog is checked in place.
 
-**MPI requirements:** 3.22 billion forests at the 1M forest/task galaxy-id limit requires at minimum ~3,220 MPI tasks. The `forest_distribution_scheme: linear` setting weights forests by halo count for better MPI load balance across the highly unequal forest sizes.
+**MPI requirements:** Choose MPI size for memory, walltime, filesystem throughput, and load balance across the approximately 3.22 billion-forest input set. The `forest_distribution_scheme: linear` setting weights forests by halo count for better balance across the highly unequal forest sizes.
 
 **Mirror maintenance:** `halo_properties.yaml` follows the `simulations/micro-uchuu-hdf5/` RawHalo contract. When changing the ctrees HDF5 field schema, apply the same change there. Only the `Pos` range differs between them.
 

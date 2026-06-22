@@ -893,6 +893,7 @@ struct TreeReader {
   int (*num_partitions)(void);
   int (*partition_output_id)(int partition);
   void (*format_partition_path)(char *buf, size_t size, int output_id);
+  int64_t (*count_partition_trees)(int output_id);
 
   void (*open_partition)(int output_id); /* open + read the unit table */
   void (*load_unit)(int unit);           /* read one unit into InputTreeHalos */
@@ -911,14 +912,15 @@ The core iterates the input as **partitions** of **units**. A partition is the u
 | `PARTITION_PER_FILE` | one input file | one tree | file number | both L-Halo readers |
 | `PARTITION_PER_TASK` | one MPI task | one forest | `ThisTask` | both Consistent-Trees readers |
 
-- **`PARTITION_PER_FILE`**: the driver strides partitions across MPI tasks. Supply the enumeration via the shared helpers `tree_partition_per_file_count()` / `tree_partition_per_file_output_id()` (in `interface.c`) as your `num_partitions` / `partition_output_id`. `open_partition(output_id)` opens file `output_id` and reads its tree table.
-- **`PARTITION_PER_TASK`**: each task owns exactly one output partition, so `num_partitions` / `partition_output_id` are `NULL` and the driver derives the output id from `ThisTask`. `open_partition(ThisTask)` performs the per-task forest split (keyed on the `ThisTask`/`NTask` globals) and reads that task's forest table. This is the model for catalogues that are not partitioned into independent files on disk.
+- **`PARTITION_PER_FILE`**: the driver strides partitions across MPI tasks. Supply the enumeration via the shared helpers `tree_partition_per_file_count()` / `tree_partition_per_file_output_id()` (in `interface.c`) as your `num_partitions` / `partition_output_id`. Implement `count_partition_trees(output_id)` as an allocation-free header read so the driver can build the run-scoped global forest-offset table before processing. `open_partition(output_id)` opens file `output_id` and reads its tree table.
+- **`PARTITION_PER_TASK`**: each task owns exactly one output partition, so `num_partitions`, `partition_output_id`, and `count_partition_trees` are `NULL` and the driver derives the output id from `ThisTask`. `open_partition(ThisTask)` performs the per-task forest split (keyed on the `ThisTask`/`NTask` globals), publishes `GlobalForestOffset`, and reads that task's forest table. This is the model for catalogues that are not partitioned into independent files on disk.
 
 ### Where the partition model is observed outside the reader
 
-Two pieces of the core key on `partition_model`; a new reader inherits both by setting the field correctly, with no further edits:
+Three pieces of the core key on `partition_model`; a new reader inherits them by setting the field correctly and supplying the matching callbacks:
 
-- **Unique galaxy ids** — `make_unique_galaxy_id()` in `src/core/build_model.c` uses the full `FILENR_MUL_FAC` stride on the output id for `PARTITION_PER_TASK` (it does not apply the L-Halo many-files reduction, because a per-task output id is a task rank, not a file number).
+- **Unique galaxy ids** — `make_unique_galaxy_id()` in `src/core/build_model.c` encodes `halonr + TREE_MUL_FAC * forestnr_global`, where `forestnr_global = GlobalForestOffset + unit`. `PARTITION_PER_FILE` readers get `GlobalForestOffset` from the driver's prefix-sum scan over present files; `PARTITION_PER_TASK` readers set it from their global forest-distribution start. Partition ids and MPI task ranks are not part of the identity.
+- **Per-file offset scan** — `run_tree_driver()` calls `count_partition_trees(output_id)` for every present `PARTITION_PER_FILE` input file before processing so missing files keep the existing skip semantics and present files receive contiguous run-scoped offsets.
 - **HDF5 master file** — `write_master_file()` in `src/io/output/master_hdf5.c` scans `0..NTask-1` for `PARTITION_PER_TASK` and `FirstFile..LastFile` for `PARTITION_PER_FILE`, so per-task outputs are all collected.
 
 ### Steps

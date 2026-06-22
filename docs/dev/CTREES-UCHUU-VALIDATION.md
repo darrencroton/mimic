@@ -124,9 +124,7 @@ This checklist was exercised for micro-Uchuu during the halo-only validation pas
 - [ ] **Topology spot-check:** pick one forest; confirm the FoF grouping
       (`FirstHaloInFOFgroup`/`NextHaloInFOFgroup`) and `Descendant`/
       `FirstProgenitor` chains against the raw `pid`/`upid`/`desc_id` columns.
-- [ ] **Galaxy-id uniqueness:** no duplicate `UniqueGalaxyID` across tasks. The
-      reader asserts the bounds it relies on (see §5); if it FATALs asking for
-      more tasks, increase `-np`.
+- [ ] **Galaxy-id uniqueness:** no duplicate `UniqueGalaxyID` across tasks. Confirm the readers publish run-scoped global forest offsets and satisfy the shared total-forest and per-forest halo bounds; size MPI runs for load balance and memory.
 - [ ] **Scientific parity:** halo mass function / counts vs sage-model on the
       *same* dataset. Expect agreement where sage is correct; positions should
       agree with sage *after* sage's kpc/h→Mpc/h fix (Mimic does it via metadata).
@@ -180,10 +178,7 @@ the package `input:` section (§1b):
 - `exponent_forest_dist_scheme`: the exponent for the two power schemes (default
   `0.7`; ignored otherwise).
 
-The ASCII reader ignores these and always splits uniformly (it cannot know
-per-forest halo counts before loading). Galaxy-id bounds are identical to ASCII
-(see §5): `unit` = task-local forest index, `output_id` = `ThisTask`, full
-`FILENR_MUL_FAC` stride.
+The ASCII reader ignores these and always splits uniformly (it cannot know per-forest halo counts before loading). Galaxy-id bounds are reader-independent: `UniqueGalaxyID = halonr + TREE_MUL_FAC·forestnr_global`, where `forestnr_global` is the run-scoped forest index published by the reader before processing begins.
 
 ### 4c. Validation checklist
 
@@ -236,18 +231,13 @@ The ctrees HDF5 reader reads `FirstHaloInFOFgroup`/`NextHaloInFOFgroup` directly
 
 **Model-specific impacts:**
 
-- `UniqueGalaxyID` and `UniqueCentralGalaxyID` are not affected (they are computed from halo index and partition number, not `MostBoundID`).
+- `UniqueGalaxyID` and `UniqueCentralGalaxyID` are not affected (they are computed from halo index and run-scoped global forest index, not `MostBoundID`).
 - sage16 modules do not use `MostBoundID`; physics is unchanged for those modules. Flyby halos at z=0 receive one timestep of satellite physics (Type 1 code path) in ASCII. Their full progenitor histories at earlier snapshots are unaffected.
 - The SHAM model seeds its RNG from `MostBoundID`. Negated values for flyby halos produce different stellar mass draws; SHAM outputs for those halos will differ between ASCII and lhalo/hdf5.
 
 **Cross-format comparison guidance:** snap49 total halo counts (all types) or any snapshot before snap49 are safe to compare across all three formats. Restrict Type 0 / halo mass function comparisons to pre-z=0 snapshots when checking ASCII against hdf5 or lhalo.
 
-- **Galaxy-id bounds (both readers).** Unique ids are
-  `halonr + TREE_MUL_FAC·forestnr_local + FILENR_MUL_FAC·ThisTask`. Each reader
-  FATALs if a task is assigned ≥ `FILENR_MUL_FAC/TREE_MUL_FAC` (1e6) forests or a
-  forest has ≥ `TREE_MUL_FAC` (1e9) halos; keep `NTask` below ~9000 to avoid
-  64-bit overflow of the task term. Run with enough MPI tasks for very large
-  datasets.
+- **Galaxy-id bounds (both readers).** Unique ids are `halonr + TREE_MUL_FAC·forestnr_global`. Each reader FATALs if the selected run has more forests than the shared int64 encoding capacity or if any forest has ≥ `TREE_MUL_FAC` (1e9) halos. Size MPI runs for memory, walltime, and load balance.
 - **One file descriptor per tree file (ASCII).** The ASCII reader raises
   `RLIMIT_NOFILE` to the hard limit and holds one fd per `tree_i_j_k.dat`;
   extremely large file counts are bounded by the OS hard limit. (The HDF5 reader
@@ -511,13 +501,13 @@ Snapshots symlink: `ln -s /fred/oz214/simulations/uchuu/U2000/mergertree simulat
 
 **a_list:** Use the 50-line file at `/fred/oz214/simulations/uchuu/U2000/Uchuu_scalefactor.txt` (a=0.06686 to 0.99998). **Note:** the scale factor values for full Uchuu differ slightly from micro-Uchuu (0.06686 vs 0.06688) and mini-Uchuu (0.06686 vs 0.066964). Each tier needs its own a_list.
 
-### 8f. MPI scale constraints for full Uchuu
+### 8f. MPI scale planning for full Uchuu
 
-- Galaxy-id formula: `halonr + TREE_MUL_FAC·forestnr_local + FILENR_MUL_FAC·ThisTask`
-- Maximum forests per task: `FILENR_MUL_FAC / TREE_MUL_FAC = 1,000,000`
-- Full Uchuu has 3.22 billion forests → minimum ~3,220 MPI tasks to stay within bounds
-- Maximum tasks: ~9,000 before the task-ID term causes 64-bit overflow
-- Plan production runs in the range of 3,220–9,000 tasks; 4,000–6,000 is a practical target
+- Galaxy-id formula: `halonr + TREE_MUL_FAC·forestnr_global`
+- Encoding capacity: the selected run must satisfy `total_forests <= LLONG_MAX / TREE_MUL_FAC`; with the current `TREE_MUL_FAC = 10^9`, the practical ceiling is about 9.22 billion run-scoped forests.
+- Full Uchuu has approximately 3.22 billion forests, within the current ID capacity.
+- Plan production MPI sizes from memory, walltime, file-system throughput, and load balance.
+- Preserve the open Shin-Uchuu question separately: if a future dataset has a forest with ≥ `TREE_MUL_FAC` halos, measure the maximum halos per forest before changing the multiplier.
 
 ---
 

@@ -512,6 +512,7 @@ static int64_t *build_partition_file_offsets(const struct TreeReader *reader,
     offsets[partition] = total_forests;
 
     if (!tree_partition_file_exists(reader, output_id, tree_path, sizeof(tree_path))) {
+      /* Preserve skip semantics: missing files do not consume forest-id space. */
       continue;
     }
 
