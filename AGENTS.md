@@ -233,6 +233,7 @@ Follow `docs/STYLE-GUIDE.md` for naming, comments, documentation, metadata, test
 - 2-space indent, LLVM base style, 100-character line limit — enforced by `.clang-format` in the repo root; editors discover it automatically
 - **Never hand-edit files under `*/generated/`** — they are produced by `make generate` and will be overwritten; the formatter excludes them automatically
 - Code must compile clean under `-Wall -Wextra -Wshadow -Wformat-security -Wundef`; do not introduce new warnings
+- Write C that is correct under both macOS Clang and Linux GCC/mpicc, not just warning-free on the local machine; for example, bounded `snprintf` uses must either have a provably large destination or an explicit truncation/overflow policy so `-Wformat-truncation` does not recur on supercomputer builds
 - Comments explain **why**, not what — one short line maximum; `@file`/`@brief` Doxygen headers are fine on public API files
 - `// SAGE parity:` comments mark code that intentionally mirrors legacy SAGE behaviour — do not "fix" without checking the parity baseline first
 - Universal physical constants (G, c, Z_sun, etc.) must come from `src/module_system/physical_constants.h`; model-specific scientific constants belong in model-local shared headers

@@ -22,6 +22,9 @@
 /* Default inner width of the bar and minimum seconds between live redraws. */
 #define PROGRESS_BAR_WIDTH 30
 #define PROGRESS_MIN_REFRESH 0.1
+#define PROGRESS_TIME_MAX_HOURS 999999LL
+#define PROGRESS_TIME_MAX_SECONDS ((PROGRESS_TIME_MAX_HOURS * 3600LL) + 3599LL)
+#define PROGRESS_TIME_STR_LEN 32
 
 /* Completion marker appended to the finished live bar (in place of a separate
  * "Completed file" line). Modern terminals render the check-mark emoji. */
@@ -79,16 +82,23 @@ static double now_seconds(void) {
 
 /* Format a duration as M:SS, or H:MM:SS once it reaches an hour. */
 static void format_hms(char *buf, size_t n, double seconds) {
-  if (seconds < 0.0 || seconds != seconds) /* clamp negatives and NaN */
+  /* Keep the field compact and avoid undefined casts for NaN/inf/huge values. */
+  if (!(seconds >= 0.0))
     seconds = 0.0;
-  long total = (long)(seconds + 0.5);
-  long h = total / 3600;
-  long m = (total % 3600) / 60;
-  long s = total % 60;
+  if (seconds > (double)PROGRESS_TIME_MAX_SECONDS)
+    seconds = (double)PROGRESS_TIME_MAX_SECONDS;
+
+  long long total = (long long)(seconds + 0.5);
+  if (total > PROGRESS_TIME_MAX_SECONDS)
+    total = PROGRESS_TIME_MAX_SECONDS;
+
+  long long h = total / 3600;
+  long long m = (total % 3600) / 60;
+  long long s = total % 60;
   if (h > 0)
-    snprintf(buf, n, "%ld:%02ld:%02ld", h, m, s);
+    snprintf(buf, n, "%lld:%02lld:%02lld", h, m, s);
   else
-    snprintf(buf, n, "%ld:%02ld", m, s);
+    snprintf(buf, n, "%lld:%02lld", m, s);
 }
 
 int progress_bar_format(char *buf, size_t n, int64_t cur, int64_t total, double elapsed, int width,
@@ -116,8 +126,8 @@ int progress_bar_format(char *buf, size_t n, int64_t cur, int64_t total, double 
   if (total > 0 && cur > 0 && cur < total)
     eta = elapsed * (double)(total - cur) / (double)cur;
 
-  char elapsed_str[16];
-  char eta_str[16];
+  char elapsed_str[PROGRESS_TIME_STR_LEN];
+  char eta_str[PROGRESS_TIME_STR_LEN];
   format_hms(elapsed_str, sizeof(elapsed_str), elapsed);
   format_hms(eta_str, sizeof(eta_str), eta);
 

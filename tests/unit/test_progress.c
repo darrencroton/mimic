@@ -97,6 +97,20 @@ int test_eta_and_elapsed(void) {
 }
 
 /**
+ * @test    test_large_elapsed_clamps
+ * @brief   Extremely large elapsed values saturate to a bounded display field
+ */
+int test_large_elapsed_clamps(void) {
+  char buf[256];
+
+  progress_bar_format(buf, sizeof(buf), 100, 100, 1e300, 30, 0, "f");
+  TEST_ASSERT(strstr(buf, "elapsed 999999:59:59") != NULL,
+              "huge elapsed time should clamp to the maximum display value");
+
+  return TEST_PASS;
+}
+
+/**
  * @test    test_color_gating
  * @brief   ANSI escapes appear only when colour is requested
  */
@@ -139,6 +153,7 @@ int main(void) {
   TEST_RUN(test_bounds);
   TEST_RUN(test_label_and_counts);
   TEST_RUN(test_eta_and_elapsed);
+  TEST_RUN(test_large_elapsed_clamps);
   TEST_RUN(test_color_gating);
   TEST_RUN(test_zero_total);
 
