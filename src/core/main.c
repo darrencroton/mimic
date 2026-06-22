@@ -751,12 +751,25 @@ int main(int argc, char **argv) {
 
   run_processing_driver();
 
+#ifdef MPI
+  /* Every rank must finish and close its per-task output files before rank 0
+     re-opens them to build the master file: HDF5 takes a file lock on open, so
+     an unsynchronized master write races the owning ranks and fails with
+     "unable to lock file" (errno 11) on locking filesystems. */
+  MPI_Barrier(MPI_COMM_WORLD);
+#endif
+
   /* Final output phase banner and any format-specific aggregation */
 #ifdef HDF5
   if (MimicConfig.OutputFormat == output_hdf5) {
     log_phase_banner(PHASE_OUTPUT);
-    VERBOSE_LOG("Creating master HDF5 file");
-    write_master_file();
+    /* The master file is a single shared file of links across every output
+       partition, so only rank 0 writes it (after the barrier above). The
+       per-rank field-metadata arrays are freed on all ranks. */
+    if (ThisTask == 0) {
+      VERBOSE_LOG("Creating master HDF5 file");
+      write_master_file();
+    }
     free_hdf5_ids();
   } else
 #endif

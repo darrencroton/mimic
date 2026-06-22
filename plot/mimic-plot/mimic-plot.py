@@ -935,29 +935,34 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
             if verbose:
                 print(f"Read {tot_ngals} halos from master file")
     else:
-        # Fall back to individual files
+        # Fall back to individual partition files (no master file present).
+        # Output partitions are numbered by output id, which differs by reader:
+        # PARTITION_PER_FILE (L-Halo) numbers them by input file, PARTITION_PER_TASK
+        # (Consistent-Trees) by MPI task. Enumerate whatever model_*.hdf5 partitions
+        # actually exist rather than assuming the input file range maps to output
+        # file numbers (which would miss per-task partitions when NTask differs from
+        # the input file count).
         if verbose:
-            print(f"Master file not found, reading individual files...")
+            print(f"Master file not found, reading individual partition files...")
+
+        partition_files = sorted(glob.glob(os.path.join(dir_path, f"{base_name}_*.hdf5")))
 
         file_iterator = (
-            tqdm(range(first_file, last_file + 1), desc="Reading HDF5 files")
-            if verbose
-            else range(first_file, last_file + 1)
+            tqdm(partition_files, desc="Reading HDF5 files") if verbose else partition_files
         )
 
-        for fnr in file_iterator:
-            fname = os.path.join(dir_path, f"{base_name}_{fnr:03d}.hdf5")
-
-            if not os.path.isfile(fname):
-                continue
-
+        for fname in file_iterator:
             halos = hdf5_reader.read_hdf5_snapshot(fname, snapshot_num)
             if halos is not None:
                 galaxies_list.append(halos)
                 tot_ngals += len(halos)
-                good_files += 1
                 if verbose:
                     print(f"Read {len(halos)} halos from {fname}")
+
+        # The processed volume fraction depends on the input files actually read
+        # (first_file..last_file), not the number of output partitions (which is the
+        # task count for PARTITION_PER_TASK). Match the master-file path's convention.
+        good_files = last_file - first_file + 1
 
     if not galaxies_list:
         error_msg = "No halos found in HDF5 files"
