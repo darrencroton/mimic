@@ -1,7 +1,7 @@
 # Mimic Development Pathway
 
 **Status:** Active planning index for `docs/dev/`.
-**Date:** 2026-06-20
+**Date:** 2026-06-22
 **Scope:** Defines the current release position, active planning documents, source-of-truth boundaries, and near-term sequence for Mimic v1.0 and the first post-v1.0 architecture choices.
 
 ---
@@ -12,7 +12,7 @@ This document is the entry point for the development plans in `docs/dev/`. It re
 
 The direction remains consistent with `docs/VISION.md`: Mimic is a physics-agnostic galaxy evolution framework with runtime-configurable physics modules. The core now has the main v1.0 architecture intended by the dual-driver pre-work: a shared physics-execution engine, a format-neutral inheritance service, a driver-neutral output-buffer path, a reader registry, a reader-provided partition/unit model, metadata-driven catalog units, and enough test and documentation infrastructure to make release decisions mechanically defensible.
 
-The pre-v1.0 optimisation and review sweep that was previously listed here as the next blocker is complete. Phase 0 of the dual-driver plan is also complete: Mimic now has an explicit `input.processing_order` selector, a top-level processing-driver dispatcher, the existing tree lifecycle extracted into `run_tree_driver()`, and fail-fast validation for the future `snapshot_ordered` driver. The remaining v1.0 work is now final hygiene before tagging: the real-data micro-Uchuu halo-only and SAGE16 validation is recorded in `CTREES-UCHUU-VALIDATION.md`, all three SAGE16 micro-Uchuu run files exist, the SAGE16 runs have completed successfully across the retained formats, and baseline/tests are green after the disk-instability transfer-boundary fix.
+The pre-v1.0 optimisation and review sweep that was previously listed here as the next blocker is complete. Phase 0 of the dual-driver plan is also complete: Mimic now has an explicit `input.processing_order` selector, a top-level processing-driver dispatcher, the existing tree lifecycle extracted into `run_tree_driver()`, and fail-fast validation for the future `snapshot_ordered` driver. The galaxy-ID encoding redesign is also complete: `UniqueGalaxyID` is now based on run-scoped global forest identity rather than MPI task or file partition identity, and the implementation has passed its full gate. The Uchuu import work is signed off: the micro-Uchuu, mini-Uchuu, and full Uchuu simulation packages have all been imported, run, and validated successfully. The remaining v1.0 work is a focused style sweep before release, followed by the final release gates and tag.
 
 ---
 
@@ -21,17 +21,16 @@ The pre-v1.0 optimisation and review sweep that was previously listed here as th
 | Document | Status | Role | Becomes actionable when |
 |---|---|---|---|
 | `MIMIC-DEVELOPMENT-PATHWAY.md` | Active | Planning index and release sequence | Now |
-| `CTREES-UCHUU-VALIDATION.md` | Active v1.0 release evidence | Real-data validation record for the Consistent-Trees ASCII, forests-HDF5, and L-Halo micro-Uchuu packages, including Uchuu packaging, unit/topology conventions, SAGE16 run status, and format-retention policy while mini/full Uchuu imports are assessed | Now; keep current as the import evidence record |
 | `MIMIC-DUAL-DRIVER-PLAN.md` | Partially active | Architecture and phased migration for tree-ordered and snapshot-ordered drivers, plus a physics-only embedded engine | Phases 0–3 are DONE for v1.0. Phases 4–7 begin only after v1.0 is tagged and its baseline is refreshed |
 | `MIMIC-MODEL-BUILDER-PLAN.md` | Aspirational planning brief | Long-term requirements for assisted, gate-driven model construction | Post-v1.0 and after a working science-gate prototype exists; builds on the v1.0 core seams and does not strictly require the snapshot driver |
 
-Archived predecessor documents are retained under `archive/dev-plans/` for traceability, but the active planning package is the table above.
+Archived predecessor and closeout documents are retained under `archive/dev-plans/` for traceability, but the active planning package is the table above. The completed galaxy-ID implementation plan, galaxy-ID redesign record, Uchuu validation record, and closeout handoff are historical evidence, not active planning inputs.
 
 ---
 
 ## Current Release Position
 
-The v1.0 architecture and quality sweep are now substantially complete. The commits from `f4c0b86` through `HEAD` include the work that this pathway previously described as open: code formatting and style enforcement, HDF5 writer buffering and compression support, full-Millennium package/test applicability work, galaxy-pool memory scaling, dynamic `ProcessedHalos` growth, source/model/tests/plot/scripts review batches, SAGE parity and baseline refreshes, framework-first documentation cleanup, metadata-driven catalog unit contracts, reader registry and reader-provided partition/unit dispatch, and wired Consistent-Trees ASCII and forests-HDF5 readers.
+The v1.0 architecture and quality sweep are now substantially complete. The commits from `f4c0b86` through `HEAD` include the work that this pathway previously described as open: code formatting and style enforcement, HDF5 writer buffering and compression support, full-Millennium package/test applicability work, galaxy-pool memory scaling, dynamic `ProcessedHalos` growth, source/model/tests/plot/scripts review batches, SAGE parity and baseline refreshes, framework-first documentation cleanup, metadata-driven catalog unit contracts, reader registry and reader-provided partition/unit dispatch, wired Consistent-Trees ASCII and forests-HDF5 readers, and run-scoped global-forest `UniqueGalaxyID` encoding.
 
 The important architectural outcome is that Mimic is no longer just a single hard-coded L-Halo file loop. It still has only one implemented processing driver, but that driver is explicitly selected as `tree_ordered` through `input.processing_order` and now consumes reader-declared partition models:
 
@@ -40,15 +39,22 @@ The important architectural outcome is that Mimic is no longer just a single har
 
 That reader generalisation was not Phase 0 by itself. It removed much of the old file-loop coupling, and Phase 0 has now added the missing input-ordering seam with `input.processing_order`, top-level dispatch through `run_processing_driver()`, and explicit validation that current readers feed the `tree_ordered` driver.
 
+The current release-candidate state is:
+
+- `UniqueGalaxyID` is encoded from `halonr + TREE_MUL_FAC * forestnr_global`, where `forestnr_global` is run-scoped and independent of MPI rank, task count, or input partition number.
+- `micro-uchuu`, `mini-uchuu`, and `uchuu` are imported, runnable, and validated. The retained package choices are tier-specific: micro-Uchuu keeps L-Halo binary as the preferred production path plus forests-HDF5 for cross-validation; mini-Uchuu uses L-Halo binary; full Uchuu uses forests-HDF5.
+- The historical Consistent-Trees ASCII micro-Uchuu validation remains useful as archived evidence of reader behaviour and the final-snapshot `fix_flybys` topology policy, but it is no longer an active v1.0 work item.
+- The next task before v1.0 is a focused style sweep, not another architecture or optimisation pass.
+
 ---
 
 ## Intended Sequence
 
-1. **Keep the completed v1.0 sweep closed.** Treat the optimisation/review sweep as done, not as a continuing umbrella for unrelated cleanup. New fixes before v1.0 should be release blockers, validation fallout, or narrowly scoped polish from final gates.
+1. **Run the pre-release style sweep.** Re-read the current diff and release-critical surfaces against `docs/STYLE-GUIDE.md`, fix local style problems in touched or release-facing files, run `./scripts/beautify.sh`, and keep the sweep narrow. This is the next task before v1.0.
 
-2. **Keep `CTREES-UCHUU-VALIDATION.md` current.** The repository has the readers, unit/helper coverage, and simulation packages for the full Uchuu suite: `micro-uchuu` (L-Halo binary, preferred) and `micro-uchuu-hdf5` (forests-HDF5, cross-validation) for micro-Uchuu; `mini-uchuu` (L-Halo binary) for mini-Uchuu; `uchuu` (forests-HDF5) for full Uchuu. The micro-Uchuu ASCII package is archived. The real-data halos-only runs have validated exact agreement for `SnapNum < 49`; the `SnapNum == 49` difference between ASCII and L-Halo/HDF5 is understood as the intentional `fix_flybys` policy. The real-data SAGE16 runs complete for all active micro-Uchuu packages and produce reasonable scientific plots. mini-Uchuu and full Uchuu packages are created; smoke tests pending data symlinks on NT. There is no suite-wide default format: choose the best supported packaging at each tier.
+2. **Keep the completed v1.0 sweep closed.** Treat the optimisation/review sweep, galaxy-ID work, and Uchuu import/validation work as done, not as continuing umbrellas for unrelated cleanup. New fixes before v1.0 should be release blockers, style-sweep fallout, or narrowly scoped polish from final gates.
 
-3. **Run final release hygiene.** The current micro-Uchuu SAGE16 validation and disk-instability transfer-boundary fix have passed baseline and test checks. Before tagging, run the generated-code, metadata, docs, format/lint, and relevant test gates one final time in the release environment. At minimum this means `make check-generated`, `make validate-modules`, `make check-docs`, `make check-format`, and the standard test tiers in summary/logged form. Any non-zero exit code is a release blocker.
+3. **Run final release gates.** After the style sweep, run the generated-code, metadata, docs, format/lint, and relevant test gates one final time in the release environment. At minimum this means `make check-generated`, `make validate-modules`, `make check-docs`, `make check-format`, and the standard test tiers in summary/logged form. Any non-zero exit code is a release blocker.
 
 4. **Keep Phase 0 closed.** Phase 0 landed as a behaviour-preserving dispatcher/validation seam: `input.processing_order` defaults to `tree_ordered`, the existing tree loop is isolated in `run_tree_driver()`, current readers declare tree-driver compatibility, and `snapshot_ordered` fails fast until the later snapshot-driver phases exist. Do not expand Phase 0 into snapshot reader or snapshot driver work before v1.0.
 
@@ -71,6 +77,16 @@ Phase 0 in `MIMIC-DUAL-DRIVER-PLAN.md` meant adding an input-ordering selector, 
 - Current readers declare `INPUT_PROCESSING_ORDER_TREE` compatibility, preserving the existing L-Halo and Consistent-Trees partition semantics.
 
 The implementation passed drift audit, code review after fixing the one redundant-error finding, full `make tests`, and a regular `sage16` + `mini-millennium` run. Treat Phase 0 as closed for v1.0; the next dual-driver work is Phases 4–7 after the v1.0 tag and tagged-baseline refresh.
+
+## Completed Closeouts
+
+The following work is signed off and archived under `archive/dev-plans/`:
+
+- Galaxy-ID encoding implementation plan and redesign record: the active code uses run-scoped global forest identity, and the old partition-term ID scheme is retired.
+- Uchuu validation record: micro-Uchuu, mini-Uchuu, and full Uchuu have all been imported, run, and validated. The archived record remains useful for dataset provenance, format notes, and historical Consistent-Trees ASCII comparison details.
+- Galaxy-ID handoff: the implementation handoff records the completed slice sequence, validation commands, and review outcomes.
+
+Do not reopen these closeouts as active v1.0 planning documents. If future work needs a detail from them, cite the archived record and create a new narrowly scoped active plan.
 
 ---
 
