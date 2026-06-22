@@ -194,6 +194,80 @@ static int write_minimal_forests_file(const char *path, int snap_as_double, doub
   return write_minimal_forests_file_with_options(path, snap_as_double, snap_double, snap_int, 0);
 }
 
+static int write_sequence_forests_file(const char *path) {
+  hid_t file = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  if (file < 0)
+    return -1;
+  hid_t file0 = H5Gcreate2(file, "File0", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t forests = H5Gcreate2(file0, "Forests", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  const hsize_t n = 5;
+  const int64_t descendant[5] = {1, -1, -1, -1, -1};
+  const int64_t first_progenitor[5] = {-1, -1, -1, -1, -1};
+  const int64_t next_progenitor[5] = {-1, -1, -1, -1, -1};
+  const int64_t first_fof[5] = {1, -1, -1, -1, -1};
+  const int64_t next_fof[5] = {-1, -1, -1, -1, -1};
+  const int64_t id[5] = {100, 101, 102, 103, 104};
+  const int64_t snap[5] = {0, 1, 2, 3, 4};
+  const double mvir[5] = {10.0, 11.0, 12.0, 13.0, 14.0};
+  const double x[5] = {20.0, 21.0, 22.0, 23.0, 24.0};
+  const double y[5] = {30.0, 31.0, 32.0, 33.0, 34.0};
+  const double z[5] = {40.0, 41.0, 42.0, 43.0, 44.0};
+  const double vrms[5] = {50.0, 51.0, 52.0, 53.0, 54.0};
+  const double vmax[5] = {60.0, 61.0, 62.0, 63.0, 64.0};
+  const double vx[5] = {70.0, 71.0, 72.0, 73.0, 74.0};
+  const double vy[5] = {80.0, 81.0, 82.0, 83.0, 84.0};
+  const double vz[5] = {90.0, 91.0, 92.0, 93.0, 94.0};
+  const double jx[5] = {1000.0, 1001.0, 1002.0, 1003.0, 1004.0};
+  const double jy[5] = {2000.0, 2001.0, 2002.0, 2003.0, 2004.0};
+  const double jz[5] = {3000.0, 3001.0, 3002.0, 3003.0, 3004.0};
+  int status = 0;
+
+  status |= write_i64_dataset(forests, "Descendant", descendant, n);
+  status |= write_i64_dataset(forests, "FirstProgenitor", first_progenitor, n);
+  status |= write_i64_dataset(forests, "NextProgenitor", next_progenitor, n);
+  status |= write_i64_dataset(forests, "FirstHaloInFOFgroup", first_fof, n);
+  status |= write_i64_dataset(forests, "NextHaloInFOFgroup", next_fof, n);
+  status |= write_double_dataset(forests, "Mvir", mvir, n);
+  status |= write_double_dataset(forests, "x", x, n);
+  status |= write_double_dataset(forests, "y", y, n);
+  status |= write_double_dataset(forests, "z", z, n);
+  status |= write_double_dataset(forests, "vrms", vrms, n);
+  status |= write_double_dataset(forests, "vmax", vmax, n);
+  status |= write_i64_dataset(forests, "id", id, n);
+  status |= write_i64_dataset(forests, "Snap_idx", snap, n);
+  status |= write_double_dataset(forests, "vx", vx, n);
+  status |= write_double_dataset(forests, "vy", vy, n);
+  status |= write_double_dataset(forests, "vz", vz, n);
+  status |= write_double_dataset(forests, "Jx", jx, n);
+  status |= write_double_dataset(forests, "Jy", jy, n);
+  status |= write_double_dataset(forests, "Jz", jz, n);
+
+  if (forests >= 0)
+    H5Gclose(forests);
+  if (file0 >= 0)
+    H5Gclose(file0);
+  H5Fclose(file);
+  return status;
+}
+
+static int assert_sequence_halo(const struct halo_data *halo, int source_index) {
+  TEST_ASSERT(halo->Mvir == 10.0 + source_index, "Mvir should come from the requested slab");
+  TEST_ASSERT(halo->Pos[0] == 20.0 + source_index, "x should come from the requested slab");
+  TEST_ASSERT(halo->Pos[1] == 30.0 + source_index, "y should come from the requested slab");
+  TEST_ASSERT(halo->Pos[2] == 40.0 + source_index, "z should come from the requested slab");
+  TEST_ASSERT(halo->VelDisp == 50.0 + source_index, "vrms should come from the requested slab");
+  TEST_ASSERT(halo->Vmax == 60.0 + source_index, "vmax should come from the requested slab");
+  TEST_ASSERT(halo->MostBoundID == 100 + source_index, "id should come from the requested slab");
+  TEST_ASSERT(halo->SnapNum == source_index, "Snap_idx should come from the requested slab");
+  TEST_ASSERT(halo->Vel[0] == 70.0 + source_index, "vx should come from the requested slab");
+  TEST_ASSERT(halo->Vel[1] == 80.0 + source_index, "vy should come from the requested slab");
+  TEST_ASSERT(halo->Vel[2] == 90.0 + source_index, "vz should come from the requested slab");
+  TEST_ASSERT(halo->Spin[0] == 1000.0 + source_index, "Jx should come from the requested slab");
+  TEST_ASSERT(halo->Spin[1] == 2000.0 + source_index, "Jy should come from the requested slab");
+  TEST_ASSERT(halo->Spin[2] == 3000.0 + source_index, "Jz should come from the requested slab");
+  return TEST_PASS;
+}
+
 int test_forestinfo_length_and_counts_are_validated(void) {
   init_memory_system(0);
   char dir_template[] = "/tmp/mimic_ctrees_h5_info_XXXXXX";
@@ -336,6 +410,62 @@ int test_snapshot_values_are_strict(void) {
   return TEST_PASS;
 }
 
+int test_window_refills_across_sequential_forests(void) {
+  init_memory_system(0);
+  MimicConfig.LastSnapshotNr = 10;
+
+  char dir_template[] = "/tmp/mimic_ctrees_h5_window_XXXXXX";
+  TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
+
+  char path[512];
+  snprintf(path, sizeof(path), "%s/trees.h5", dir_template);
+  TEST_ASSERT(write_sequence_forests_file(path) == 0, "should write sequence Forests datasets");
+
+  struct halo_data first[2];
+  struct halo_data second[2];
+  TEST_ASSERT(ctrees_hdf5_test_read_two_forests_windowed(path, "Snap_idx", 0, 0, 2, first, 3, 2,
+                                                         second) == EXIT_SUCCESS,
+              "two window-sized forests should read across a forced refill");
+  TEST_ASSERT(assert_sequence_halo(&first[0], 0) == TEST_PASS,
+              "first forest should start at source halo 0");
+  TEST_ASSERT(assert_sequence_halo(&first[1], 1) == TEST_PASS,
+              "first forest should include source halo 1");
+  TEST_ASSERT(assert_sequence_halo(&second[0], 3) == TEST_PASS,
+              "second forest should start at source halo 3 after refill");
+  TEST_ASSERT(assert_sequence_halo(&second[1], 4) == TEST_PASS,
+              "second forest should include source halo 4 after refill");
+
+  unlink(path);
+  rmdir(dir_template);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+int test_giant_forest_uses_direct_read_path(void) {
+  init_memory_system(0);
+  MimicConfig.LastSnapshotNr = 10;
+
+  char dir_template[] = "/tmp/mimic_ctrees_h5_giant_XXXXXX";
+  TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
+
+  char path[512];
+  snprintf(path, sizeof(path), "%s/trees.h5", dir_template);
+  TEST_ASSERT(write_sequence_forests_file(path) == 0, "should write sequence Forests datasets");
+
+  struct halo_data halos[3];
+  TEST_ASSERT(ctrees_hdf5_test_read_forest(path, "Snap_idx", 0, 0, 3, halos) == EXIT_SUCCESS,
+              "forest larger than the test window should use the direct read path");
+  TEST_ASSERT(assert_sequence_halo(&halos[0], 0) == TEST_PASS,
+              "giant direct path should read source halo 0");
+  TEST_ASSERT(assert_sequence_halo(&halos[2], 2) == TEST_PASS,
+              "giant direct path should read source halo 2");
+
+  unlink(path);
+  rmdir(dir_template);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   H5Eset_auto2(H5E_DEFAULT, NULL, NULL);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -351,6 +481,8 @@ int main(void) {
   TEST_RUN(test_forest_slab_bounds_are_validated);
   TEST_RUN(test_field_cache_validates_schema_at_open);
   TEST_RUN(test_snapshot_values_are_strict);
+  TEST_RUN(test_window_refills_across_sequential_forests);
+  TEST_RUN(test_giant_forest_uses_direct_read_path);
 
   TEST_SUMMARY();
   return TEST_RESULT();

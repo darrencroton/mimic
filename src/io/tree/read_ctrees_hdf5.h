@@ -31,6 +31,12 @@ int ctrees_hdf5_test_open_field_cache(const char *filename, const char *snap_fie
 int ctrees_hdf5_test_read_forest(const char *filename, const char *snap_field_name,
                                  int8_t snap_field_is_double, int64_t halosoffset, int64_t nhalos,
                                  struct halo_data *halos);
+int ctrees_hdf5_test_read_two_forests_windowed(const char *filename, const char *snap_field_name,
+                                               int8_t snap_field_is_double,
+                                               int64_t first_halosoffset, int64_t first_nhalos,
+                                               struct halo_data *first_halos,
+                                               int64_t second_halosoffset, int64_t second_nhalos,
+                                               struct halo_data *second_halos);
 
 #endif /* HDF5 && MIMIC_TEST_BUILD */
 
