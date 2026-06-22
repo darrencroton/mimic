@@ -12,7 +12,9 @@ This document is the entry point for the development plans in `docs/dev/`. It re
 
 The direction remains consistent with `docs/VISION.md`: Mimic is a physics-agnostic galaxy evolution framework with runtime-configurable physics modules. The core now has the main v1.0 architecture intended by the dual-driver pre-work: a shared physics-execution engine, a format-neutral inheritance service, a driver-neutral output-buffer path, a reader registry, a reader-provided partition/unit model, metadata-driven catalog units, and enough test and documentation infrastructure to make release decisions mechanically defensible.
 
-The pre-v1.0 optimisation and review sweep that was previously listed here as the next blocker is complete. Phase 0 of the dual-driver plan is also complete: Mimic now has an explicit `input.processing_order` selector, a top-level processing-driver dispatcher, the existing tree lifecycle extracted into `run_tree_driver()`, and fail-fast validation for the future `snapshot_ordered` driver. The galaxy-ID encoding redesign is also complete: `UniqueGalaxyID` is now based on run-scoped global forest identity rather than MPI task or file partition identity, and the implementation has passed its full gate. The Uchuu import work is signed off: the micro-Uchuu, mini-Uchuu, and full Uchuu simulation packages have all been imported, run, and validated successfully. The remaining v1.0 work is a focused style sweep before release, followed by the final release gates and tag.
+The pre-v1.0 optimisation and review sweep that was previously listed here as the next blocker is complete. Phase 0 of the dual-driver plan is also complete: Mimic now has an explicit `input.processing_order` selector, a top-level processing-driver dispatcher, the existing tree lifecycle extracted into `run_tree_driver()`, and fail-fast validation for the future `snapshot_ordered` driver. The galaxy-ID encoding redesign is also complete: `UniqueGalaxyID` is now based on run-scoped global forest identity rather than MPI task or file partition identity, and the implementation has passed its full gate. The Uchuu import work is signed off: the micro-Uchuu, mini-Uchuu, and full Uchuu simulation packages have all been imported, run, and validated successfully.
+
+The next substantive work item is the HDF5 read-path optimisation recorded in `MIMIC-HDF5-IO-OPTIMISATION.md`: the Consistent-Trees forests-HDF5 reader reopens every halo-field dataset per forest, which a micro-benchmark shows is roughly 18× slower than holding the per-file dataset handles open (and ~48× with bounded bulk-slab reads). It is a byte-identical, vision-aligned read-path fix and is the recommended pre-v1.0 performance work. After it lands, the remaining v1.0 work is a focused style sweep, followed by the final release gates and tag.
 
 ---
 
@@ -21,6 +23,7 @@ The pre-v1.0 optimisation and review sweep that was previously listed here as th
 | Document | Status | Role | Becomes actionable when |
 |---|---|---|---|
 | `MIMIC-DEVELOPMENT-PATHWAY.md` | Active | Planning index and release sequence | Now |
+| `MIMIC-HDF5-IO-OPTIMISATION.md` | Active | Findings and recommendations for forests-HDF5 read performance (persistent per-file dataset handles; optional bounded bulk-slab reads) | Now; the recommended next implementation work before the pre-release style sweep |
 | `MIMIC-DUAL-DRIVER-PLAN.md` | Partially active | Architecture and phased migration for tree-ordered and snapshot-ordered drivers, plus a physics-only embedded engine | Phases 0–3 are DONE for v1.0. Phases 4–7 begin only after v1.0 is tagged and its baseline is refreshed |
 | `MIMIC-MODEL-BUILDER-PLAN.md` | Aspirational planning brief | Long-term requirements for assisted, gate-driven model construction | Post-v1.0 and after a working science-gate prototype exists; builds on the v1.0 core seams and does not strictly require the snapshot driver |
 
@@ -50,19 +53,21 @@ The current release-candidate state is:
 
 ## Intended Sequence
 
-1. **Run the pre-release style sweep.** Re-read the current diff and release-critical surfaces against `docs/STYLE-GUIDE.md`, fix local style problems in touched or release-facing files, run `./scripts/beautify.sh`, and keep the sweep narrow. This is the next task before v1.0.
+1. **Implement the HDF5 read-path optimisation.** Follow `MIMIC-HDF5-IO-OPTIMISATION.md`: land Tier 1 (persistent per-file dataset handles, `ForestInfo` read once per file) as the byte-identical read-path fix, gated by the output baseline and the ctrees unit tests. Treat Tier 2 (bounded bulk-slab reads) as an optional follow-on only if Tier 1 walltime is insufficient. This is the next task before v1.0.
 
-2. **Keep the completed v1.0 sweep closed.** Treat the optimisation/review sweep, galaxy-ID work, and Uchuu import/validation work as done, not as continuing umbrellas for unrelated cleanup. New fixes before v1.0 should be release blockers, style-sweep fallout, or narrowly scoped polish from final gates.
+2. **Run the pre-release style sweep.** Re-read the current diff and release-critical surfaces against `docs/STYLE-GUIDE.md`, fix local style problems in touched or release-facing files, run `./scripts/beautify.sh`, and keep the sweep narrow.
 
-3. **Run final release gates.** After the style sweep, run the generated-code, metadata, docs, format/lint, and relevant test gates one final time in the release environment. At minimum this means `make check-generated`, `make validate-modules`, `make check-docs`, `make check-format`, and the standard test tiers in summary/logged form. Any non-zero exit code is a release blocker.
+3. **Keep the completed v1.0 sweep closed.** Treat the optimisation/review sweep, galaxy-ID work, and Uchuu import/validation work as done, not as continuing umbrellas for unrelated cleanup. New fixes before v1.0 should be release blockers, the HDF5 read optimisation, style-sweep fallout, or narrowly scoped polish from final gates.
 
-4. **Keep Phase 0 closed.** Phase 0 landed as a behaviour-preserving dispatcher/validation seam: `input.processing_order` defaults to `tree_ordered`, the existing tree loop is isolated in `run_tree_driver()`, current readers declare tree-driver compatibility, and `snapshot_ordered` fails fast until the later snapshot-driver phases exist. Do not expand Phase 0 into snapshot reader or snapshot driver work before v1.0.
+4. **Run final release gates.** After the style sweep, run the generated-code, metadata, docs, format/lint, and relevant test gates one final time in the release environment. At minimum this means `make check-generated`, `make validate-modules`, `make check-docs`, `make check-format`, and the standard test tiers in summary/logged form. Any non-zero exit code is a release blocker.
 
-5. **Tag v1.0 and refresh the release baseline.** After validation and final gates, tag v1.0 and record the tagged baseline as the forward reference for behaviour-preserving work. From that point, the tagged-v1.0 baseline protects all later snapshot-reader and snapshot-driver work.
+5. **Keep Phase 0 closed.** Phase 0 landed as a behaviour-preserving dispatcher/validation seam: `input.processing_order` defaults to `tree_ordered`, the existing tree loop is isolated in `run_tree_driver()`, current readers declare tree-driver compatibility, and `snapshot_ordered` fails fast until the later snapshot-driver phases exist. Do not expand Phase 0 into snapshot reader or snapshot driver work before v1.0.
 
-6. **Choose the next major direction post-v1.0.** The snapshot driver and the model builder are now a real choice. The snapshot driver builds on the shared execution/inheritance/output seams plus the reader/partition generalisation; the model builder builds on the same stable module interfaces, generated metadata, deterministic physics contracts, and validation gates. Scientific priority should decide the order.
+6. **Tag v1.0 and refresh the release baseline.** After validation and final gates, tag v1.0 and record the tagged baseline as the forward reference for behaviour-preserving work. From that point, the tagged-v1.0 baseline protects all later snapshot-reader and snapshot-driver work.
 
-7. **Review `docs/VISION.md` only after new behaviour exists.** The current v1.0 work remains consistent with the existing vision. Do not pre-emptively edit the vision for dual-driver or model-builder behaviour. Once the snapshot driver passes its identity gate, review the vision narrowly for per-driver memory bounds, determinism as an invariant, and a pointer to the implemented dual-driver architecture.
+7. **Choose the next major direction post-v1.0.** The snapshot driver and the model builder are now a real choice. The snapshot driver builds on the shared execution/inheritance/output seams plus the reader/partition generalisation; the model builder builds on the same stable module interfaces, generated metadata, deterministic physics contracts, and validation gates. Scientific priority should decide the order.
+
+8. **Review `docs/VISION.md` only after new behaviour exists.** The current v1.0 work remains consistent with the existing vision. Do not pre-emptively edit the vision for dual-driver or model-builder behaviour. Once the snapshot driver passes its identity gate, review the vision narrowly for per-driver memory bounds, determinism as an invariant, and a pointer to the implemented dual-driver architecture.
 
 ---
 
