@@ -28,7 +28,7 @@
 
 /* Completion marker appended to the finished live bar (in place of a separate
  * "Completed file" line). Modern terminals render the check-mark emoji. */
-#define PROGRESS_DONE_MARK "- completed \xE2\x9C\x85"
+#define PROGRESS_DONE_MARK "- COMPLETED"
 
 /* Hide/show the terminal cursor while the live bar is active.
  * An atexit handler guarantees the cursor is restored on abnormal exit. */
