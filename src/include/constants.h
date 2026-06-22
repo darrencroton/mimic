@@ -34,8 +34,7 @@
 #define TREE_PROGRESS_INTERVAL 10000 /* Log progress every N trees */
 
 /* UniqueGalaxyID encoding constants */
-#define TREE_MUL_FAC (1000000000LL)         /* Tree multiplier: 10^9 */
-#define FILENR_MUL_FAC (1000000000000000LL) /* File multiplier: 10^15 */
+#define TREE_MUL_FAC (1000000000LL) /* Global forest multiplier: 10^9 */
 
 /* Memory allocation parameters */
 #define HALO_ARRAY_GROWTH_FACTOR 1.5    /* Factor to grow arrays by (1.5 = 50% growth) */

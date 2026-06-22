@@ -271,10 +271,16 @@ static int check_partition(int ntasks, const int64_t *starts, const int64_t *cou
   int64_t expected_start = 0;
   int64_t sum = 0;
   for (int t = 0; t < ntasks; t++) {
+    if (starts[t] < 0 || starts[t] > totnforests) {
+      return 0;
+    }
     if (starts[t] != expected_start) {
       return 0;
     }
     if (counts[t] < 0) {
+      return 0;
+    }
+    if (counts[t] > totnforests - starts[t]) {
       return 0;
     }
     expected_start += counts[t];
@@ -517,6 +523,8 @@ int test_distribute_forests_surplus_tasks(void) {
               "surplus-task partition should be a contiguous complete cover");
   TEST_ASSERT(counts[0] == 1 && counts[1] == 1 && counts[2] == 0 && counts[3] == 0,
               "two forests over four tasks should give {1,1,0,0}");
+  TEST_ASSERT(starts[0] == 0 && starts[1] == 1 && starts[2] == 2 && starts[3] == 2,
+              "surplus-task starts should be global contiguous offsets");
 
   /* ThisTask == NTasks is out of the [0, NTasks) range and must be rejected. */
   int64_t bad_count = -99, bad_start = -99;

@@ -18,6 +18,8 @@
  * - bye(): Performs cleanup on program exit
  */
 
+#include <inttypes.h>
+#include <limits.h>
 #include <math.h>
 #include <signal.h>
 #include <stddef.h>
@@ -32,9 +34,11 @@
 #endif
 
 #include "config.h"
+#include "galaxy_id.h"
 #include "proto.h"
 #include "galaxy_pool.h"
 #include "globals.h"
+#include "memory.h"
 #include "tree/interface.h"
 #include "tree/reader.h"
 #include "run_log.h"
@@ -388,7 +392,7 @@ static void process_partition(int output_id) {
     /* Construct objects for each unprocessed halo in the unit */
     for (halonr = 0; halonr < InputTreeNHalos[unit]; halonr++)
       if (HaloAux[halonr].DoneFlag == 0)
-        build_halo_tree(halonr, unit, output_id, 0);
+        build_halo_tree(halonr, unit, 0);
 
     /* Save the processed halos (format depends on OutputFormat parameter) */
 #ifdef HDF5
@@ -470,11 +474,71 @@ static int claim_and_process_partition(int output_id) {
   return 1;
 }
 
+static void format_tree_partition_path(const struct TreeReader *reader, char *tree_path,
+                                       size_t tree_path_size, int output_id) {
+  if (reader->format_partition_path != NULL) {
+    reader->format_partition_path(tree_path, tree_path_size, output_id);
+  } else {
+    snprintf(tree_path, tree_path_size, "%s/%s.%d%s", MimicConfig.SimulationDir,
+             MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
+  }
+}
+
+static int tree_partition_file_exists(const struct TreeReader *reader, int output_id,
+                                      char *tree_path, size_t tree_path_size) {
+  FILE *fd;
+
+  format_tree_partition_path(reader, tree_path, tree_path_size, output_id);
+  if (!(fd = fopen(tree_path, "r"))) {
+    return 0;
+  }
+
+  fclose(fd);
+  return 1;
+}
+
+static int64_t *build_partition_file_offsets(const struct TreeReader *reader,
+                                             const int npartitions) {
+  char tree_path[MAX_PATH_BUF_SIZE + 1];
+  int64_t total_forests = 0;
+  int64_t *offsets = mymalloc_cat(sizeof(*offsets) * npartitions, MEM_TREES);
+
+  if (reader->count_partition_trees == NULL) {
+    FATAL_ERROR("Tree reader '%s' cannot count per-file partitions", reader->name);
+  }
+
+  for (int partition = 0; partition < npartitions; partition++) {
+    const int output_id = reader->partition_output_id(partition);
+    offsets[partition] = total_forests;
+
+    if (!tree_partition_file_exists(reader, output_id, tree_path, sizeof(tree_path))) {
+      /* Preserve skip semantics: missing files do not consume forest-id space. */
+      continue;
+    }
+
+    const int64_t partition_trees = reader->count_partition_trees(output_id);
+    if (partition_trees < 0) {
+      FATAL_ERROR("Tree reader '%s' reported negative tree count %" PRId64 " for partition %d",
+                  reader->name, partition_trees, output_id);
+    }
+    if (partition_trees > LLONG_MAX - total_forests) {
+      FATAL_ERROR("L-Halo total forest count would overflow int64 after partition %d", output_id);
+    }
+    total_forests += partition_trees;
+    if (!mimic_unique_galaxy_id_total_forests_valid(total_forests)) {
+      FATAL_ERROR("L-Halo total forest count %" PRId64
+                  " exceeds the UniqueGalaxyID encoding limit of %" PRId64,
+                  total_forests, mimic_unique_galaxy_id_max_forests());
+    }
+  }
+
+  return offsets;
+}
+
 /**
  * @brief   Run the existing tree-ordered processing driver.
  */
 static void run_tree_driver(void) {
-  FILE *fd;
   char tree_path[MAX_PATH_BUF_SIZE + 1];
 
   /* Main loop to process input partitions (one per input file for L-Halo) */
@@ -496,6 +560,7 @@ static void run_tree_driver(void) {
   } else {
     /* PARTITION_PER_FILE: one partition per input file, strided across tasks. */
     const int npartitions = reader->num_partitions();
+    int64_t *global_forest_offsets = build_partition_file_offsets(reader, npartitions);
 #ifdef MPI
     /* In MPI mode, distribute partitions across processors using stride of NTask */
     for (int partition = ThisTask; partition < npartitions; partition += NTask)
@@ -507,25 +572,20 @@ static void run_tree_driver(void) {
       const int output_id = reader->partition_output_id(partition);
 
       /* Construct tree filename and check if it exists */
-      if (reader->format_partition_path != NULL) {
-        reader->format_partition_path(tree_path, sizeof(tree_path), output_id);
-      } else {
-        snprintf(tree_path, MAX_PATH_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir,
-                 MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
-      }
-      if (!(fd = fopen(tree_path, "r"))) {
+      if (!tree_partition_file_exists(reader, output_id, tree_path, sizeof(tree_path))) {
         INFO_LOG("Missing tree %s ... skipping", tree_path);
         continue; // tree file does not exist, move along
-      } else
-        fclose(fd);
+      }
 
       /* Check if output already exists (avoid reprocessing unless overwrite is
        * set) and process this partition. */
+      GlobalForestOffset = global_forest_offsets[partition];
       if (claim_and_process_partition(output_id) && !progress_display_active()) {
         /* In live mode the progress bar already shows completion in place. */
         INFO_LOG("%sCompleted file %d%s", mimic_color_green(), output_id, mimic_color_reset());
       }
     }
+    myfree(global_forest_offsets);
   }
 
   /* Disable rate limiting for DEBUG_LOG after tree processing completes */

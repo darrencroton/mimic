@@ -9,7 +9,7 @@ Scope: Physics-free mode (no modules), snapshots 62 and 63
 UniqueGalaxyID Design (from halo_properties.yaml):
   - Every new galaxy gets a unique UniqueGalaxyID
   - UniqueGalaxyID is carried forward across all snapshots
-  - Formula: file*10^12 + tree*10^6 + creation_halonr
+  - Formula: creation_halonr + 10^9 * forestnr_global
   - Without mergers, every galaxy should exist in all future snapshots
 
 Test Strategy:

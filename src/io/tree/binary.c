@@ -49,6 +49,29 @@ static FILE *load_fd;
 #define MAX_BUF_SIZE (3 * MAX_STRING_LEN + 40)
 #endif
 
+static int64_t count_partition_trees_binary(int output_id) {
+  int ntrees;
+  char buf[MAX_BUF_SIZE + 1];
+
+  snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
+           output_id, MimicConfig.TreeExtension);
+
+  FILE *fd = fopen(buf, "r");
+  if (fd == NULL) {
+    FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf, output_id);
+  }
+  if (fread(&ntrees, sizeof(int), 1, fd) != 1) {
+    fclose(fd);
+    FATAL_ERROR("Failed to read Ntrees from file '%s'", buf);
+  }
+  fclose(fd);
+
+  if (ntrees < 0) {
+    FATAL_ERROR("Binary tree file '%s' reports negative Ntrees=%d", buf, ntrees);
+  }
+  return (int64_t)ntrees;
+}
+
 /**
  * @brief   Loads merger tree metadata from a binary file
  *
@@ -160,6 +183,7 @@ const struct TreeReader LHaloBinaryReader = {
     .num_partitions = tree_partition_per_file_count,
     .partition_output_id = tree_partition_per_file_output_id,
     .format_partition_path = NULL,
+    .count_partition_trees = count_partition_trees_binary,
     .open_partition = open_partition_binary,
     .load_unit = load_unit_binary,
     .close_partition = close_partition_binary,

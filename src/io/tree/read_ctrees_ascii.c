@@ -64,6 +64,7 @@
    process, so a file-static record is sufficient and mirrors the L-Halo readers'
    single open file handle. */
 struct ctrees_ascii_partition {
+  int64_t start_forestnum;                  /* global first forest assigned to this task */
   int64_t nforests;                         /* units in this partition (== global Ntrees) */
   int64_t ntrees_this_task;                 /* total trees across this task's forests */
   int64_t *ntrees_per_forest;               /* [nforests] number of trees in each forest */
@@ -232,13 +233,6 @@ static void open_partition_ctrees_ascii(int output_id) {
   const int thistask = ThisTask;
   const int ntasks = (NTask > 0) ? NTask : 1; /* serial builds leave NTask == 0 */
 
-  /* The unique-galaxy-id task term is FILENR_MUL_FAC*ThisTask; guard the int64
-     overflow before any work. */
-  if ((long long)thistask > CTREES_MAX_TASK_ID) {
-    FATAL_ERROR("MPI task id %d exceeds the unique-galaxy-id task limit of %lld", thistask,
-                (long long)CTREES_MAX_TASK_ID);
-  }
-
   /* One descriptor per tree file: raise the soft open-file limit to the hard
      limit (a documented scaling constraint of the ctrees ASCII layout). */
   struct rlimit rlp;
@@ -285,6 +279,12 @@ static void open_partition_ctrees_ascii(int output_id) {
       prev_forestid = locations[i].forestid;
     }
   }
+  /* Defensive for future int64 staging; the 32-bit staging limit is binding today. */
+  if (!mimic_unique_galaxy_id_total_forests_valid(totnforests)) {
+    FATAL_ERROR("Consistent-Trees total forest count %" PRId64
+                " exceeds the UniqueGalaxyID encoding limit of %" PRId64,
+                totnforests, mimic_unique_galaxy_id_max_forests());
+  }
   if (totnforests >= INT_MAX) {
     FATAL_ERROR("Consistent-Trees forest count %" PRId64 " cannot be indexed by a 32-bit int",
                 totnforests);
@@ -297,11 +297,8 @@ static void open_partition_ctrees_ascii(int output_id) {
     FATAL_ERROR("Failed to distribute %" PRId64 " Consistent-Trees forests across %d tasks",
                 totnforests, ntasks);
   }
-  if (nforests_this_task >= CTREES_MAX_FORESTS_PER_TASK) {
-    FATAL_ERROR("Task %d was assigned %" PRId64 " forests, at or above the unique-galaxy-id limit "
-                "of %lld; run with more MPI tasks",
-                thistask, nforests_this_task, (long long)CTREES_MAX_FORESTS_PER_TASK);
-  }
+  CT.start_forestnum = start_forestnum;
+  GlobalForestOffset = CT.start_forestnum;
   const int64_t end_forestnum = start_forestnum + nforests_this_task;
 
   /* Locate this task's contiguous tree range [start_treenum, start+ntrees). */
@@ -494,6 +491,7 @@ const struct TreeReader CTreesAsciiReader = {
     .num_partitions = NULL,
     .partition_output_id = NULL,
     .format_partition_path = NULL,
+    .count_partition_trees = NULL,
     .open_partition = open_partition_ctrees_ascii,
     .load_unit = load_unit_ctrees_ascii,
     .close_partition = close_partition_ctrees_ascii,

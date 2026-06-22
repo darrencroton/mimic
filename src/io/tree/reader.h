@@ -2,6 +2,7 @@
 #define IO_TREE_READER_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 /**
  * @file    tree/reader.h
@@ -68,19 +69,26 @@ struct TreeReader {
   /* Number of partitions to iterate. The driver applies the MPI stride over the
      partition index, so this returns the full count, not a per-task share. */
   int (*num_partitions)(void);
-  /* Output id for a partition: the value used in output file names and unique
-     galaxy ids (the filenr-equivalent). */
+  /* Output id for a partition: the value used in output file names. Galaxy ids
+     use the run-scoped GlobalForestOffset plus unit index instead. */
   int (*partition_output_id)(int partition);
   /* Optional PARTITION_PER_FILE path formatter. If NULL, the driver uses the
      legacy L-Halo binary path: <simulation_dir>/<tree_name>.<output_id><ext>.
      Readers whose tree_name is a literal filename or filename pattern should
      provide this rather than relying on file_extension. */
   void (*format_partition_path)(char *buf, size_t size, int output_id);
+  /* Count units in a present partition without staging per-unit metadata or
+     holding an open handle. Required for PARTITION_PER_FILE readers so the core
+     can build run-scoped global forest offsets; NULL for PARTITION_PER_TASK.
+     Implementations must match format_partition_path, or the default path when
+     format_partition_path is NULL. */
+  int64_t (*count_partition_trees)(int output_id);
 
   /* Open partition `output_id` and read its unit table (Ntrees and per-unit
      halo counts), retaining the open handle for subsequent load_unit calls. For
      PARTITION_PER_TASK readers `output_id` is the task id and this also performs
-     the per-task forest split. */
+     the per-task forest split; those readers must publish GlobalForestOffset for
+     the assigned global start before returning. */
   void (*open_partition)(int output_id);
 
   /* Load every halo of one unit from the open partition into InputTreeHalos. */

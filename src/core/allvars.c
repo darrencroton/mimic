@@ -71,3 +71,4 @@ double *Age_base;
 /* Current tree/file indices, read by model modules building unique IDs */
 int TreeID;
 int FileNum;
+int64_t GlobalForestOffset = 0;
