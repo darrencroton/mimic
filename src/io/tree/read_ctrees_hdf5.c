@@ -86,12 +86,14 @@ struct ctrees_hdf5_partition {
   int totnfiles;             /* lastfile + 1 (indexable by file number) */
   int start_filenum;         /* first/last file this task reads from */
   int end_filenum;
-  int64_t start_forestnum;              /* global first forest assigned to this task */
-  int64_t nforests;                     /* units (forests) on this task */
-  int32_t *forest_filenum;              /* [nforests] file holding each forest */
-  int64_t *forest_treenr_in_file;       /* [nforests] tree row of each forest in its file */
-  char snap_field_name[MAX_STRING_LEN]; /* "Snap_num" (older) or "Snap_idx" (newer) */
-  int8_t snap_field_is_double;          /* 1 if the snap field is stored as float */
+  int64_t start_forestnum;                     /* global first forest assigned to this task */
+  int64_t nforests;                            /* units (forests) on this task */
+  int32_t *forest_filenum;                     /* [nforests] file holding each forest */
+  int64_t *forest_treenr_in_file;              /* [nforests] tree row of each forest in its file */
+  struct ctrees_forestinfo **forestinfo_cache; /* [totnfiles][file forest row] */
+  int64_t *forestinfo_cache_nrows;             /* [totnfiles] cached rows per file */
+  char snap_field_name[MAX_STRING_LEN];        /* "Snap_num" (older) or "Snap_idx" (newer) */
+  int8_t snap_field_is_double;                 /* 1 if the snap field is stored as float */
 };
 static struct ctrees_hdf5_partition CTH;
 
@@ -429,9 +431,167 @@ cleanup:
   return status;
 }
 
+static int validate_forestinfo_cache_row_ctrees_hdf5(const struct ctrees_forestinfo *finfo,
+                                                     const int64_t row, const int ifile) {
+  XRETURN(finfo->forestnhalos >= 0, CT_H5_ERR,
+          "Error: file %d ForestInfo row %" PRId64 " has negative ForestNhalos=%" PRId64 "\n",
+          ifile, row, finfo->forestnhalos);
+  XRETURN(finfo->forestnhalos < INT_MAX, CT_H5_ERR,
+          "Error: file %d ForestInfo row %" PRId64 " has %" PRId64
+          " halos, above the int index limit\n",
+          ifile, row, finfo->forestnhalos);
+  XRETURN(finfo->forestnhalos < TREE_MUL_FAC, CT_H5_ERR,
+          "Error: file %d ForestInfo row %" PRId64 " has %" PRId64
+          " halos, at or above the unique-galaxy-id limit of %lld\n",
+          ifile, row, finfo->forestnhalos, (long long)TREE_MUL_FAC);
+  XRETURN(finfo->foresthalosoffset >= 0, CT_H5_ERR,
+          "Error: file %d ForestInfo row %" PRId64 " has negative ForestHalosOffset=%" PRId64 "\n",
+          ifile, row, finfo->foresthalosoffset);
+  return EXIT_SUCCESS;
+}
+
+static hid_t create_forestinfo_memory_type_ctrees_hdf5(void) {
+  hid_t dtype = H5Tcreate(H5T_COMPOUND, sizeof(struct ctrees_forestinfo));
+  if (dtype < 0) {
+    return -1;
+  }
+  if (H5Tinsert(dtype, "ForestID", HOFFSET(struct ctrees_forestinfo, forestid), H5T_NATIVE_INT64) <
+          0 ||
+      H5Tinsert(dtype, "ForestHalosOffset", HOFFSET(struct ctrees_forestinfo, foresthalosoffset),
+                H5T_NATIVE_INT64) < 0 ||
+      H5Tinsert(dtype, "ForestNhalos", HOFFSET(struct ctrees_forestinfo, forestnhalos),
+                H5T_NATIVE_INT64) < 0 ||
+      H5Tinsert(dtype, "ForestNTrees", HOFFSET(struct ctrees_forestinfo, forestntrees),
+                H5T_NATIVE_INT64) < 0) {
+    H5Tclose(dtype);
+    return -1;
+  }
+  return dtype;
+}
+
+static void free_forestinfo_cache_ctrees_hdf5(void) {
+  if (CTH.forestinfo_cache != NULL) {
+    for (int i = 0; i < CTH.totnfiles; i++) {
+      if (CTH.forestinfo_cache[i] != NULL) {
+        myfree(CTH.forestinfo_cache[i]);
+      }
+    }
+    myfree(CTH.forestinfo_cache);
+    CTH.forestinfo_cache = NULL;
+  }
+  if (CTH.forestinfo_cache_nrows != NULL) {
+    myfree(CTH.forestinfo_cache_nrows);
+    CTH.forestinfo_cache_nrows = NULL;
+  }
+}
+
+static int load_forestinfo_cache_ctrees_hdf5(const int start_filenum, const int end_filenum,
+                                             const int64_t *totnforests_per_file) {
+  CTH.forestinfo_cache = mymalloc_cat(CTH.totnfiles * sizeof(*CTH.forestinfo_cache), MEM_IO);
+  CTH.forestinfo_cache_nrows =
+      mymalloc_cat(CTH.totnfiles * sizeof(*CTH.forestinfo_cache_nrows), MEM_IO);
+  for (int i = 0; i < CTH.totnfiles; i++) {
+    CTH.forestinfo_cache[i] = NULL;
+    CTH.forestinfo_cache_nrows[i] = 0;
+  }
+
+  for (int ifile = start_filenum; ifile <= end_filenum; ifile++) {
+    int file_status = CT_H5_ERR;
+    hid_t finfo_dset = -1;
+    hid_t finfo_fspace = -1;
+    hid_t finfo_memspace = -1;
+    hid_t finfo_file_dtype = -1;
+    hid_t finfo_mem_dtype = -1;
+    const int64_t nforests_this_file = totnforests_per_file[ifile];
+    XRETURN(nforests_this_file >= 1, CT_H5_ERR,
+            "Error: file %d reports %" PRId64 " forests (expected >= 1)\n", ifile,
+            nforests_this_file);
+
+    finfo_dset = H5Dopen2(CTH.h5_file_groups[ifile], "ForestInfo", H5P_DEFAULT);
+    if (finfo_dset < 0) {
+      fprintf(stderr, "Error: Could not open 'ForestInfo' in file %d\n", ifile);
+      goto forestinfo_cache_cleanup;
+    }
+    finfo_fspace = H5Dget_space(finfo_dset);
+    if (finfo_fspace < 0) {
+      fprintf(stderr, "Error: Could not get 'ForestInfo' space in file %d\n", ifile);
+      goto forestinfo_cache_cleanup;
+    }
+    hsize_t finfo_length = 0;
+    if (ct_h5_get_1d_extent(finfo_fspace, "ForestInfo", &finfo_length) != EXIT_SUCCESS) {
+      goto forestinfo_cache_cleanup;
+    }
+    if ((hsize_t)nforests_this_file != finfo_length) {
+      fprintf(stderr,
+              "Error: file %d reports %" PRId64 " forests but 'ForestInfo' contains %llu rows\n",
+              ifile, nforests_this_file, (unsigned long long)finfo_length);
+      goto forestinfo_cache_cleanup;
+    }
+    finfo_file_dtype = H5Dget_type(finfo_dset);
+    if (finfo_file_dtype < 0) {
+      fprintf(stderr, "Error: Could not get 'ForestInfo' datatype in file %d\n", ifile);
+      goto forestinfo_cache_cleanup;
+    }
+    const size_t dtype_size = H5Tget_size(finfo_file_dtype);
+    if (dtype_size != sizeof(struct ctrees_forestinfo)) {
+      fprintf(stderr,
+              "Error: file %d 'ForestInfo' record is %zu bytes on disk but the reader expects %zu "
+              "(4 x int64); dataset layout mismatch\n",
+              ifile, dtype_size, sizeof(struct ctrees_forestinfo));
+      goto forestinfo_cache_cleanup;
+    }
+    finfo_mem_dtype = create_forestinfo_memory_type_ctrees_hdf5();
+    if (finfo_mem_dtype < 0) {
+      fprintf(stderr, "Error: Could not create cached 'ForestInfo' memory datatype for file %d\n",
+              ifile);
+      goto forestinfo_cache_cleanup;
+    }
+
+    const hsize_t count = (hsize_t)nforests_this_file;
+    finfo_memspace = H5Screate_simple(1, &count, NULL);
+    if (finfo_memspace < 0) {
+      fprintf(stderr, "Error: Could not create cached 'ForestInfo' memspace for file %d\n", ifile);
+      goto forestinfo_cache_cleanup;
+    }
+    CTH.forestinfo_cache[ifile] =
+        mymalloc_cat(count * sizeof(*CTH.forestinfo_cache[ifile]), MEM_IO);
+    if (H5Dread(finfo_dset, finfo_mem_dtype, finfo_memspace, finfo_fspace, H5P_DEFAULT,
+                CTH.forestinfo_cache[ifile]) < 0) {
+      fprintf(stderr, "Error: Could not read cached 'ForestInfo' rows in file %d\n", ifile);
+      goto forestinfo_cache_cleanup;
+    }
+    for (int64_t row = 0; row < nforests_this_file; row++) {
+      if (validate_forestinfo_cache_row_ctrees_hdf5(&CTH.forestinfo_cache[ifile][row], row,
+                                                    ifile) != EXIT_SUCCESS) {
+        goto forestinfo_cache_cleanup;
+      }
+    }
+    CTH.forestinfo_cache_nrows[ifile] = nforests_this_file;
+    file_status = EXIT_SUCCESS;
+
+  forestinfo_cache_cleanup:
+    if (finfo_mem_dtype >= 0)
+      H5Tclose(finfo_mem_dtype);
+    if (finfo_file_dtype >= 0)
+      H5Tclose(finfo_file_dtype);
+    if (finfo_memspace >= 0)
+      H5Sclose(finfo_memspace);
+    if (finfo_fspace >= 0)
+      H5Sclose(finfo_fspace);
+    if (finfo_dset >= 0)
+      H5Dclose(finfo_dset);
+    if (file_status != EXIT_SUCCESS) {
+      return CT_H5_ERR;
+    }
+  }
+  return EXIT_SUCCESS;
+}
+
 /* Read the per-forest halo counts (the "ForestNhalos" member of each file's
    "ForestInfo" compound dataset) into nhalos_per_forest, used only when the
-   forest distribution is weighted. Returns EXIT_SUCCESS or CT_H5_ERR. */
+   forest distribution is weighted. Loading uses the full task-range ForestInfo
+   cache built after distribution; this global pass deliberately stays minimal.
+   Returns EXIT_SUCCESS or CT_H5_ERR. */
 static int read_nhalos_per_forest(const int firstfile, const int lastfile,
                                   const int64_t *totnforests_per_file, int64_t *nhalos_per_forest) {
   int64_t written = 0;
@@ -528,6 +688,41 @@ int ctrees_hdf5_test_read_nhalos_per_forest(const char *filename, const int64_t 
   const int64_t totnforests_per_file[1] = {expected_nforests};
   const int status = read_nhalos_per_forest(0, 0, totnforests_per_file, nhalos_per_forest);
 
+  H5Gclose(file_group);
+  H5Fclose(file);
+  memset(&CTH, 0, sizeof(CTH));
+  return status;
+}
+
+int ctrees_hdf5_test_read_forestinfo_cache(const char *filename, const int64_t expected_nforests,
+                                           const int64_t row, int64_t *halosoffset,
+                                           int64_t *nhalos) {
+  hid_t file = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+  if (file < 0) {
+    return CT_H5_ERR;
+  }
+  hid_t file_group = H5Gopen(file, "File0", H5P_DEFAULT);
+  if (file_group < 0) {
+    H5Fclose(file);
+    return CT_H5_ERR;
+  }
+
+  memset(&CTH, 0, sizeof(CTH));
+  CTH.totnfiles = 1;
+  hid_t file_groups[1] = {file_group};
+  CTH.h5_file_groups = file_groups;
+  const int64_t totnforests_per_file[1] = {expected_nforests};
+  int status = load_forestinfo_cache_ctrees_hdf5(0, 0, totnforests_per_file);
+  if (status == EXIT_SUCCESS) {
+    if (row < 0 || row >= CTH.forestinfo_cache_nrows[0]) {
+      status = CT_H5_ERR;
+    } else {
+      *halosoffset = CTH.forestinfo_cache[0][row].foresthalosoffset;
+      *nhalos = CTH.forestinfo_cache[0][row].forestnhalos;
+    }
+  }
+
+  free_forestinfo_cache_ctrees_hdf5();
   H5Gclose(file_group);
   H5Fclose(file);
   memset(&CTH, 0, sizeof(CTH));
@@ -787,6 +982,11 @@ static int setup_forests_io_ctrees_hdf5(const int thistask, const int ntasks) {
     }
   }
 
+  if (load_forestinfo_cache_ctrees_hdf5(start_filenum, end_filenum, totnforests_per_file) !=
+      EXIT_SUCCESS) {
+    return CT_H5_ERR;
+  }
+
   myfree(start_forestnum_to_process_per_file);
   myfree(num_forests_to_process_per_file);
   myfree(totnforests_per_file);
@@ -873,50 +1073,23 @@ static void load_unit_ctrees_hdf5(int unit) {
                 CTH.start_filenum, CTH.end_filenum);
   }
 
-  /* Read this forest's halo offset and count from the file's ForestInfo. */
   if (treenr_in_file < 0) {
     FATAL_ERROR("Consistent-Trees HDF5: forest %d maps to negative row %" PRId64 " in file %d",
                 unit, treenr_in_file, filenum);
   }
-  struct ctrees_forestinfo finfo;
-  const hsize_t count = 1, treerow = (hsize_t)treenr_in_file;
-  hid_t h5_file_group = CTH.h5_file_groups[filenum];
-  {
-    hid_t h5_dset = H5Dopen2(h5_file_group, "ForestInfo", H5P_DEFAULT);
-    if (h5_dset < 0) {
-      FATAL_ERROR("Consistent-Trees HDF5: could not open 'ForestInfo' in file %d", filenum);
-    }
-    hid_t h5_fspace = H5Dget_space(h5_dset);
-    hid_t h5_memspace = H5Screate_simple(1, &count, NULL);
-    hsize_t forestinfo_length = 0;
-    if (h5_fspace < 0 || h5_memspace < 0 ||
-        ct_h5_get_1d_extent(h5_fspace, "ForestInfo", &forestinfo_length) != EXIT_SUCCESS ||
-        (hsize_t)treenr_in_file >= forestinfo_length ||
-        H5Sselect_hyperslab(h5_fspace, H5S_SELECT_SET, &treerow, NULL, &count, NULL) < 0) {
-      FATAL_ERROR("Consistent-Trees HDF5: could not select 'ForestInfo' row %" PRId64 " in file %d",
-                  treenr_in_file, filenum);
-    }
-    const hid_t h5_dtype = H5Dget_type(h5_dset);
-    /* Read with the file's compound type into a fixed four-int64 struct; guard
-       against a larger/relaid-out on-disk record overrunning the stack buffer
-       (the read uses the file datatype, so its size must match exactly). */
-    if (H5Tget_size(h5_dtype) != sizeof(struct ctrees_forestinfo)) {
-      FATAL_ERROR("Consistent-Trees HDF5: 'ForestInfo' record in file %d is %zu bytes on disk but "
-                  "the reader expects %zu (4 x int64); dataset layout mismatch",
-                  filenum, H5Tget_size(h5_dtype), sizeof(struct ctrees_forestinfo));
-    }
-    if (H5Dread(h5_dset, h5_dtype, h5_memspace, h5_fspace, H5P_DEFAULT, &finfo) < 0) {
-      FATAL_ERROR("Consistent-Trees HDF5: could not read 'ForestInfo' row %" PRId64 " in file %d",
-                  treenr_in_file, filenum);
-    }
-    H5Tclose(h5_dtype);
-    H5Sclose(h5_memspace);
-    H5Sclose(h5_fspace);
-    H5Dclose(h5_dset);
+  if (CTH.forestinfo_cache == NULL || CTH.forestinfo_cache_nrows == NULL ||
+      CTH.forestinfo_cache[filenum] == NULL) {
+    FATAL_ERROR("Consistent-Trees HDF5: missing cached 'ForestInfo' rows for file %d", filenum);
+  }
+  if (treenr_in_file >= CTH.forestinfo_cache_nrows[filenum]) {
+    FATAL_ERROR("Consistent-Trees HDF5: forest %d maps to row %" PRId64
+                " outside cached 'ForestInfo' rows [0, %" PRId64 ") in file %d",
+                unit, treenr_in_file, CTH.forestinfo_cache_nrows[filenum], filenum);
   }
 
-  const int64_t halosoffset = finfo.foresthalosoffset;
-  const int64_t nhalos = finfo.forestnhalos;
+  const struct ctrees_forestinfo *finfo = &CTH.forestinfo_cache[filenum][treenr_in_file];
+  const int64_t halosoffset = finfo->foresthalosoffset;
+  const int64_t nhalos = finfo->forestnhalos;
   if (validate_ctrees_hdf5_forest_slab(CTH.h5_forests_group[filenum], halosoffset, nhalos, unit,
                                        filenum) != EXIT_SUCCESS) {
     FATAL_ERROR("Consistent-Trees HDF5: invalid forest %d metadata (nhalos=%" PRId64
@@ -947,6 +1120,7 @@ static void load_unit_ctrees_hdf5(int unit) {
 
 /** @brief Close this task's partition: close groups/file, free scaffolding. */
 static void close_partition_ctrees_hdf5(void) {
+  free_forestinfo_cache_ctrees_hdf5();
   if (CTH.h5_forests_group != NULL) {
     for (int i = 0; i < CTH.totnfiles; i++) {
       if (CTH.h5_forests_group[i] >= 0) {

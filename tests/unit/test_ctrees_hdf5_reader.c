@@ -46,6 +46,17 @@ static hid_t create_forestinfo_type(void) {
   return dtype;
 }
 
+static hid_t create_reordered_forestinfo_file_type(void) {
+  hid_t dtype = H5Tcreate(H5T_COMPOUND, sizeof(struct test_forestinfo));
+  if (dtype < 0)
+    return -1;
+  H5Tinsert(dtype, "ForestNhalos", 0, H5T_NATIVE_INT64);
+  H5Tinsert(dtype, "ForestHalosOffset", sizeof(int64_t), H5T_NATIVE_INT64);
+  H5Tinsert(dtype, "ForestID", 2 * sizeof(int64_t), H5T_NATIVE_INT64);
+  H5Tinsert(dtype, "ForestNTrees", 3 * sizeof(int64_t), H5T_NATIVE_INT64);
+  return dtype;
+}
+
 static int write_forestinfo_file(const char *path, const struct test_forestinfo *rows,
                                  hsize_t nrows) {
   hid_t file = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
@@ -66,6 +77,36 @@ static int write_forestinfo_file(const char *path, const struct test_forestinfo 
     H5Sclose(space);
   if (dtype >= 0)
     H5Tclose(dtype);
+  if (file0 >= 0)
+    H5Gclose(file0);
+  H5Fclose(file);
+  return status;
+}
+
+static int write_reordered_forestinfo_file(const char *path, const struct test_forestinfo *rows,
+                                           hsize_t nrows) {
+  hid_t file = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  if (file < 0)
+    return -1;
+  hid_t file0 = H5Gcreate2(file, "File0", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t file_dtype = create_reordered_forestinfo_file_type();
+  hid_t mem_dtype = create_forestinfo_type();
+  hid_t space = H5Screate_simple(1, &nrows, NULL);
+  hid_t dset =
+      H5Dcreate2(file0, "ForestInfo", file_dtype, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  int status = 0;
+  if (file0 < 0 || file_dtype < 0 || mem_dtype < 0 || space < 0 || dset < 0 ||
+      H5Dwrite(dset, mem_dtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, rows) < 0) {
+    status = -1;
+  }
+  if (dset >= 0)
+    H5Dclose(dset);
+  if (space >= 0)
+    H5Sclose(space);
+  if (mem_dtype >= 0)
+    H5Tclose(mem_dtype);
+  if (file_dtype >= 0)
+    H5Tclose(file_dtype);
   if (file0 >= 0)
     H5Gclose(file0);
   H5Fclose(file);
@@ -161,10 +202,47 @@ int test_forestinfo_length_and_counts_are_validated(void) {
   TEST_ASSERT(ctrees_hdf5_test_read_nhalos_per_forest(path, 1, nhalos) != EXIT_SUCCESS,
               "mismatched Nforests and ForestInfo length must fail");
 
+  int64_t halosoffset = -1, cached_nhalos = -1;
+  TEST_ASSERT(ctrees_hdf5_test_read_forestinfo_cache(path, 2, 1, &halosoffset, &cached_nhalos) ==
+                  EXIT_SUCCESS,
+              "task ForestInfo cache should accept matching rows");
+  TEST_ASSERT(halosoffset == 3 && cached_nhalos == 4,
+              "task ForestInfo cache should preserve offset and count by row");
+  TEST_ASSERT(ctrees_hdf5_test_read_forestinfo_cache(path, 1, 0, &halosoffset, &cached_nhalos) !=
+                  EXIT_SUCCESS,
+              "task ForestInfo cache should reject mismatched row count");
+
   const struct test_forestinfo negative_row[1] = {{0, 0, -1, 1}};
   TEST_ASSERT(write_forestinfo_file(path, negative_row, 1) == 0, "should rewrite ForestInfo");
   TEST_ASSERT(ctrees_hdf5_test_read_nhalos_per_forest(path, 1, nhalos) != EXIT_SUCCESS,
               "negative ForestNhalos must fail");
+  TEST_ASSERT(ctrees_hdf5_test_read_forestinfo_cache(path, 1, 0, &halosoffset, &cached_nhalos) !=
+                  EXIT_SUCCESS,
+              "task ForestInfo cache should reject negative ForestNhalos at setup");
+
+  unlink(path);
+  rmdir(dir_template);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+int test_forestinfo_cache_reads_members_by_name(void) {
+  init_memory_system(0);
+  char dir_template[] = "/tmp/mimic_ctrees_h5_info_order_XXXXXX";
+  TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
+
+  char path[512];
+  snprintf(path, sizeof(path), "%s/trees.h5", dir_template);
+  const struct test_forestinfo rows[1] = {{101, 7, 5, 1}};
+  TEST_ASSERT(write_reordered_forestinfo_file(path, rows, 1) == 0,
+              "should write reordered ForestInfo members");
+
+  int64_t halosoffset = -1, cached_nhalos = -1;
+  TEST_ASSERT(ctrees_hdf5_test_read_forestinfo_cache(path, 1, 0, &halosoffset, &cached_nhalos) ==
+                  EXIT_SUCCESS,
+              "task ForestInfo cache should accept reordered members");
+  TEST_ASSERT(halosoffset == 7 && cached_nhalos == 5,
+              "task ForestInfo cache should map ForestInfo members by name");
 
   unlink(path);
   rmdir(dir_template);
@@ -237,6 +315,7 @@ int main(void) {
   printf("%s", NC);
 
   TEST_RUN(test_forestinfo_length_and_counts_are_validated);
+  TEST_RUN(test_forestinfo_cache_reads_members_by_name);
   TEST_RUN(test_forest_slab_bounds_are_validated);
   TEST_RUN(test_snapshot_values_are_strict);
 
