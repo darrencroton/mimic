@@ -19,16 +19,17 @@
  */
 
 /**
- * @brief Progress bar state for one input file (partition).
+ * @brief Progress bar state for one partition (or a global run).
  */
 typedef struct ProgressBar {
-  int64_t total;       // denominator (number of trees in the file)
+  int64_t total;       // denominator (total work items)
   int64_t current;     // last reported position
-  int context_id;      // output/file id, shown in both the bar and fallback logs
+  char label[128];     // prefix shown in the bar and fallback log lines
   double start_time;   // monotonic seconds captured at init
   double last_refresh; // monotonic seconds of the last live redraw
   double min_refresh;  // minimum seconds between live redraws
   int live;            // 1 = draw an in-place bar; 0 = periodic-line fallback
+  int last_log_pct;    // last percentage threshold logged (fallback only)
 } ProgressBar;
 
 /**
@@ -37,11 +38,12 @@ typedef struct ProgressBar {
  * Captures the start time and decides whether to render a live bar (TTY,
  * single rank, not quiet) or fall back to periodic log lines.
  *
- * @param pb         Bar to initialise.
- * @param total      Total number of work items (trees) in this file.
- * @param context_id Output/file id used in the label and fallback messages.
+ * @param pb     Bar to initialise.
+ * @param total  Total number of work items.
+ * @param label  Short prefix shown in the bar and fallback log lines (may be
+ *               empty but not NULL).
  */
-void progress_bar_init(ProgressBar *pb, int64_t total, int context_id);
+void progress_bar_init(ProgressBar *pb, int64_t total, const char *label);
 
 /**
  * @brief Whether a live bar will be drawn for the current run (TTY, single

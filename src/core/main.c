@@ -359,8 +359,13 @@ static LogLevel parse_cli(int *argc, char **argv) {
  * driver over every unit, writes the processed halos, and finalizes the
  * format-specific output. For the L-Halo readers a partition is one input file
  * (named by its output id) and a unit is one tree.
+ *
+ * @param ext_bar   External (global) progress bar to update, or NULL to create
+ *                  a local bar that covers this partition only.
+ * @param tree_base Offset within ext_bar for this partition's first unit.
+ *                  Ignored when ext_bar is NULL.
  */
-static void process_partition(int output_id) {
+static void process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_base) {
   int unit, halonr;
 
   /* Open the partition and create its output files */
@@ -368,10 +373,19 @@ static void process_partition(int output_id) {
   open_partition(output_id);
   prepare_output_files(output_id);
 
-  /* Live progress bar over the trees in this file (falls back to periodic log
-   * lines when output is redirected or running multi-rank under MPI). */
-  ProgressBar progress;
-  progress_bar_init(&progress, Ntrees, output_id);
+  /* Use the caller's global bar, or create a local one for this partition. */
+  ProgressBar local_bar;
+  ProgressBar *bar = ext_bar;
+  if (bar == NULL) {
+    char label[128] = "";
+#ifdef MPI
+    if (NTask > 1)
+      snprintf(label, sizeof(label), "task %d of %d on %s", ThisTask, NTask, ThisNode);
+#endif
+    progress_bar_init(&local_bar, Ntrees, label);
+    bar = &local_bar;
+    tree_base = 0;
+  }
 
   for (unit = 0; unit < Ntrees; unit++) {
     /* Stop cleanly if the CPU time limit signal was received (batch systems) */
@@ -380,7 +394,7 @@ static void process_partition(int output_id) {
                   output_id);
     }
 
-    progress_bar_update(&progress, unit);
+    progress_bar_update(bar, tree_base + unit);
 
     /* Set the current unit ID and load the unit */
     TreeID = unit;
@@ -407,7 +421,8 @@ static void process_partition(int output_id) {
     free_unit_halos();
   }
 
-  progress_bar_finish(&progress);
+  if (ext_bar == NULL)
+    progress_bar_finish(bar);
 
   /* Finalize output files (format depends on OutputFormat parameter) */
 #ifdef HDF5
@@ -441,6 +456,8 @@ static void process_partition(int output_id) {
  *
  * @param   output_id  Output id of the partition (filenr for per-file readers,
  *                      task id for per-task readers)
+ * @param   ext_bar    External progress bar to update, or NULL for a local one.
+ * @param   tree_base  Offset within ext_bar for this partition's first unit.
  * @return  1 if the partition was processed, 0 if it was skipped because its
  *          output already exists.
  *
@@ -448,7 +465,7 @@ static void process_partition(int output_id) {
  * under --skip: it usually marks an interrupted run that should not be silently
  * completed or overwritten in part.
  */
-static int claim_and_process_partition(int output_id) {
+static int claim_and_process_partition(int output_id, ProgressBar *ext_bar, int64_t tree_base) {
   set_current_output_paths(output_id);
   int existing_outputs = count_existing_current_outputs();
   if (!MimicConfig.OverwriteOutputFiles) {
@@ -467,7 +484,7 @@ static int claim_and_process_partition(int output_id) {
   /* Create output files to mark that this partition is being processed */
   claim_current_output_paths(output_id);
 
-  process_partition(output_id);
+  process_partition(output_id, ext_bar, tree_base);
 
   /* This partition's output is complete; nothing to unlink on later failure */
   clear_current_output_paths();
@@ -497,8 +514,8 @@ static int tree_partition_file_exists(const struct TreeReader *reader, int outpu
   return 1;
 }
 
-static int64_t *build_partition_file_offsets(const struct TreeReader *reader,
-                                             const int npartitions) {
+static int64_t *build_partition_file_offsets(const struct TreeReader *reader, const int npartitions,
+                                             int64_t *total_out) {
   char tree_path[MAX_PATH_BUF_SIZE + 1];
   int64_t total_forests = 0;
   int64_t *offsets = mymalloc_cat(sizeof(*offsets) * npartitions, MEM_TREES);
@@ -532,6 +549,8 @@ static int64_t *build_partition_file_offsets(const struct TreeReader *reader,
     }
   }
 
+  if (total_out)
+    *total_out = total_forests;
   return offsets;
 }
 
@@ -541,50 +560,83 @@ static int64_t *build_partition_file_offsets(const struct TreeReader *reader,
 static void run_tree_driver(void) {
   char tree_path[MAX_PATH_BUF_SIZE + 1];
 
-  /* Main loop to process input partitions (one per input file for L-Halo) */
   log_phase_banner(PHASE_TREE_PROCESSING);
   /* Enable rate limiting for DEBUG_LOG during tree processing to prevent
-   * runaway output from loops over thousands of trees/halos */
+   * runaway output from loops over thousands of trees/halos. */
   enable_debug_log_rate_limiting();
   const struct TreeReader *reader = MimicConfig.reader;
+
+  /* Banner: remind the user of what was configured before any bar output. */
+  const int nfiles = MimicConfig.LastFile - MimicConfig.FirstFile + 1;
+#ifdef MPI
+  if (NTask > 1) {
+    INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d) across %d tasks", nfiles,
+             nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile, NTask);
+  } else {
+    INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d)", nfiles,
+             nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile);
+  }
+#else
+  INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d)", nfiles,
+           nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile);
+#endif
+
   if (reader->partition_model == PARTITION_PER_TASK) {
     /* Each task owns exactly one output partition (its forest chunk); the reader
      * performs the per-task forest split inside open_partition keyed on the
      * ThisTask/NTask globals. There is no per-file stride and no per-file
-     * existence check -- the ctrees index files are validated when opened. */
+     * existence check -- the ctrees index files are validated when opened.
+     * process_partition creates a local bar: empty label in serial, "task N of M"
+     * in MPI. */
     const int output_id = ThisTask; /* 0 in serial builds */
-    if (claim_and_process_partition(output_id) && !progress_display_active()) {
+    if (claim_and_process_partition(output_id, NULL, 0) && !progress_display_active()) {
       /* In live mode the progress bar already shows completion in place. */
       INFO_LOG("%sCompleted task %d%s", mimic_color_green(), output_id, mimic_color_reset());
     }
   } else {
-    /* PARTITION_PER_FILE: one partition per input file, strided across tasks. */
+    /* PARTITION_PER_FILE: one partition per input file, strided across tasks.
+     * Serial: one global bar spans all files so the user sees a single unified
+     * counter.  MPI: each rank creates a local bar (label "task N of M") per
+     * file it handles; all output is the bar-format fallback log lines. */
     const int npartitions = reader->num_partitions();
-    int64_t *global_forest_offsets = build_partition_file_offsets(reader, npartitions);
-#ifdef MPI
-    /* In MPI mode, distribute partitions across processors using stride of NTask */
-    for (int partition = ThisTask; partition < npartitions; partition += NTask)
-#else
-    /* In serial mode, process all partitions sequentially */
-    for (int partition = 0; partition < npartitions; partition++)
-#endif
-    {
-      const int output_id = reader->partition_output_id(partition);
+    int64_t total_trees = 0;
+    int64_t *global_forest_offsets =
+        build_partition_file_offsets(reader, npartitions, &total_trees);
 
-      /* Construct tree filename and check if it exists */
+#ifdef MPI
+    /* MPI: distribute partitions across ranks using a stride of NTask; each
+     * rank uses a per-partition local bar (no global bar needed). */
+    for (int partition = ThisTask; partition < npartitions; partition += NTask) {
+      const int output_id = reader->partition_output_id(partition);
       if (!tree_partition_file_exists(reader, output_id, tree_path, sizeof(tree_path))) {
         INFO_LOG("Missing tree %s ... skipping", tree_path);
-        continue; // tree file does not exist, move along
+        continue;
       }
-
-      /* Check if output already exists (avoid reprocessing unless overwrite is
-       * set) and process this partition. */
       GlobalForestOffset = global_forest_offsets[partition];
-      if (claim_and_process_partition(output_id) && !progress_display_active()) {
-        /* In live mode the progress bar already shows completion in place. */
-        INFO_LOG("%sCompleted file %d%s", mimic_color_green(), output_id, mimic_color_reset());
+      if (claim_and_process_partition(output_id, NULL, 0) && !progress_display_active()) {
+        INFO_LOG("%sCompleted input file %d%s", mimic_color_green(), output_id,
+                 mimic_color_reset());
       }
     }
+#else
+    /* Serial: one global bar across all files; tree_base for each partition is
+     * its cumulative-tree offset, which build_partition_file_offsets already
+     * stores in global_forest_offsets[partition]. */
+    ProgressBar global_bar;
+    progress_bar_init(&global_bar, total_trees, "");
+
+    for (int partition = 0; partition < npartitions; partition++) {
+      const int output_id = reader->partition_output_id(partition);
+      if (!tree_partition_file_exists(reader, output_id, tree_path, sizeof(tree_path))) {
+        INFO_LOG("Missing tree %s ... skipping", tree_path);
+        continue;
+      }
+      GlobalForestOffset = global_forest_offsets[partition];
+      claim_and_process_partition(output_id, &global_bar, global_forest_offsets[partition]);
+    }
+    progress_bar_finish(&global_bar);
+#endif
+
     myfree(global_forest_offsets);
   }
 

@@ -10,7 +10,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "constants.h" /* TREE_PROGRESS_INTERVAL */
 #include "error.h"
 #include "progress.h"
 #include "run_log.h" /* MimicLogUseColor, ANSI helpers */
@@ -20,8 +19,10 @@
 #endif
 
 /* Default inner width of the bar and minimum seconds between live redraws. */
-#define PROGRESS_BAR_WIDTH 30
+#define PROGRESS_BAR_WIDTH 50
 #define PROGRESS_MIN_REFRESH 0.1
+/* Fallback log: emit a bar line every this many percentage points. */
+#define PROGRESS_LOG_PCT_STEP 5
 #define PROGRESS_TIME_MAX_HOURS 999999LL
 #define PROGRESS_TIME_MAX_SECONDS ((PROGRESS_TIME_MAX_HOURS * 3600LL) + 3599LL)
 #define PROGRESS_TIME_STR_LEN 32
@@ -145,7 +146,7 @@ int progress_bar_format(char *buf, size_t n, int64_t cur, int64_t total, double 
   bpos += (size_t)snprintf(bar + bpos, sizeof(bar) - bpos, "%s", green);
   int shaft = complete ? safe_filled : (safe_filled > 0 ? safe_filled - 1 : 0);
   for (int i = 0; i < shaft && bpos < sizeof(bar) - 1; i++)
-    bar[bpos++] = '-';
+    bar[bpos++] = '~';
   if (!complete && safe_filled > 0 && bpos < sizeof(bar) - 1)
     bar[bpos++] = '>';
   bpos += (size_t)snprintf(bar + bpos, sizeof(bar) - bpos, "%s", reset);
@@ -159,14 +160,16 @@ int progress_bar_format(char *buf, size_t n, int64_t cur, int64_t total, double 
                   elapsed_str, eta_str);
 }
 
-void progress_bar_init(ProgressBar *pb, int64_t total, int context_id) {
+void progress_bar_init(ProgressBar *pb, int64_t total, const char *label) {
   pb->total = total;
   pb->current = 0;
-  pb->context_id = context_id;
+  strncpy(pb->label, label ? label : "", sizeof(pb->label) - 1);
+  pb->label[sizeof(pb->label) - 1] = '\0';
   pb->start_time = now_seconds();
   pb->last_refresh = 0.0;
   pb->min_refresh = PROGRESS_MIN_REFRESH;
   pb->live = progress_display_active();
+  pb->last_log_pct = -PROGRESS_LOG_PCT_STEP;
   if (pb->live)
     hide_cursor();
 }
@@ -183,13 +186,10 @@ int progress_display_active(void) {
 /* Draw the in-place bar to stdout. A short trailing pad clears any leftover
  * characters from a previous, longer line (e.g. a shrinking ETA). */
 static void draw_live(ProgressBar *pb) {
-  char label[24];
-  snprintf(label, sizeof(label), "file %d", pb->context_id);
-
   char line[256];
   double elapsed = now_seconds() - pb->start_time;
   progress_bar_format(line, sizeof(line), pb->current, pb->total, elapsed, PROGRESS_BAR_WIDTH,
-                      MimicLogUseColor, label);
+                      MimicLogUseColor, pb->label);
   fprintf(stdout, "\r%s   ", line);
   fflush(stdout);
 }
@@ -206,32 +206,34 @@ void progress_bar_update(ProgressBar *pb, int64_t current) {
     return;
   }
 
-  /* Fallback: periodic log lines, matching the historical message text. */
-  if (current % TREE_PROGRESS_INTERVAL == 0) {
-#ifdef MPI
-    INFO_LOG("  Processing task %d | node %s | file %i | tree %lld of %lld", ThisTask, ThisNode,
-             pb->context_id, (long long)current, (long long)pb->total);
-#else
-    INFO_LOG("  Processing file %i | tree %lld of %lld", pb->context_id, (long long)current,
-             (long long)pb->total);
-#endif
+  /* Fallback: emit a bar-format log line at every PROGRESS_LOG_PCT_STEP % boundary. */
+  int pct = (pb->total > 0) ? (int)(100LL * current / pb->total) : 100;
+  if (pct > 100)
+    pct = 100;
+  if (pct >= pb->last_log_pct + PROGRESS_LOG_PCT_STEP) {
+    pb->last_log_pct = pct - (pct % PROGRESS_LOG_PCT_STEP);
+    char line[256];
+    double elapsed = now_seconds() - pb->start_time;
+    progress_bar_format(line, sizeof(line), current, pb->total, elapsed, PROGRESS_BAR_WIDTH,
+                        MimicLogUseColor, pb->label);
+    INFO_LOG("%s", line);
   }
 }
 
 void progress_bar_finish(ProgressBar *pb) {
-  if (!pb->live)
-    return;
-
-  /* Finalise the bar in place with a completion marker, replacing the separate
-   * "Completed file" line (which is kept only for the non-live fallback). */
   pb->current = pb->total;
-  char label[24];
-  snprintf(label, sizeof(label), "file %d", pb->context_id);
   char line[256];
   double elapsed = now_seconds() - pb->start_time;
   progress_bar_format(line, sizeof(line), pb->current, pb->total, elapsed, PROGRESS_BAR_WIDTH,
-                      MimicLogUseColor, label);
-  fprintf(stdout, "\r%s %s  \n", line, PROGRESS_DONE_MARK);
-  fflush(stdout);
-  show_cursor();
+                      MimicLogUseColor, pb->label);
+
+  if (pb->live) {
+    /* Overwrite the live bar in place with a completion marker. */
+    fprintf(stdout, "\r%s %s  \n", line, PROGRESS_DONE_MARK);
+    fflush(stdout);
+    show_cursor();
+  } else if (pb->last_log_pct < 100) {
+    /* Fallback: emit a final 100% bar line if the last interval didn't reach it. */
+    INFO_LOG("%s %s", line, PROGRESS_DONE_MARK);
+  }
 }

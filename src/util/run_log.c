@@ -62,7 +62,7 @@ void log_phase_banner(MimicPhase phase) {
   /* Plain INFO mode: minimal output with spacing only */
   if (!get_verbose_format()) {
     if (phase == PHASE_TREE_PROCESSING) {
-      fprintf(stdout, "\nProcessing trees:\n");
+      fprintf(stdout, "\n");
     } else if (phase == PHASE_OUTPUT) {
       fprintf(stdout, "\n");
     }

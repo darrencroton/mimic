@@ -144,7 +144,7 @@ Look in `output/sage16-mini-millennium/plots/` for the stellar mass function, ba
 
 `--compress` trades a little CPU for roughly half the HDF5 file size and changes only the on-disk byte layout, not the stored values. It has no effect on binary output. Leave it off unless disk space is a constraint.
 
-During tree processing Mimic shows a live progress bar (percentage, elapsed time, and ETA) for each input file when standard output is an interactive terminal, marking each finished file with a ✅ in place. When output is redirected to a file or pipe, or when running under MPI with more than one rank, it falls back to periodic log lines plus a per-file "Completed file" line instead of an in-place bar, keeping captured logs and multi-rank output clean. `--quiet` suppresses the progress display entirely.
+During tree processing Mimic prints a banner line summarising the configured input file range, then shows a single unified live progress bar (percentage, elapsed time, and ETA) spanning all input files when standard output is an interactive terminal, marking completion with "- COMPLETED" in place. When output is redirected to a file or pipe, or when running under MPI with more than one rank, it falls back to bar-format log lines at every 5% boundary plus a "Completed input file" checkpoint per file instead of an in-place bar, keeping captured logs and multi-rank output clean. `--quiet` suppresses the progress display entirely.
 
 Example debugging invocation:
 
