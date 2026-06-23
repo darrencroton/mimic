@@ -20,11 +20,11 @@
 static int passed = 0;
 static int failed = 0;
 
-/* Count filled bar cells: dash shaft ('-') plus arrowhead ('>'). */
+/* Count filled bar cells: tilde shaft ('~') plus arrowhead ('>'). */
 static int count_filled(const char *s) {
   int n = 0;
   for (; *s; s++)
-    if (*s == '-' || *s == '>')
+    if (*s == '~' || *s == '>')
       n++;
   return n;
 }
