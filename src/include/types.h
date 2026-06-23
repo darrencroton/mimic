@@ -1,6 +1,8 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#include <stdint.h>
+
 #include "constants.h"
 #include "generated/property_defs.h"
 
@@ -9,6 +11,9 @@
  * scripts/generate_properties.py. The binary reader reads it wholesale, so its
  * field order and types are the binary file layout. */
 #include "generated/raw_halo_defs.h"
+
+#define MIMIC_DEFAULT_TARGET_FILE_SIZE (4LL * 1024LL * 1024LL * 1024LL)
+#define MIMIC_DEFAULT_FORESTS_PER_FILE 0LL
 
 /* Enum for output formats */
 enum Valid_OutputFormats { output_binary = 0, output_hdf5 = 1, num_output_formats };
@@ -72,6 +77,8 @@ struct MimicConfig {
   double Exponent_Forest_Dist_Scheme; // power-law index for the power schemes
 
   /* output parameters */
+  int64_t TargetFileSize;
+  int64_t ForestsPerFile;
   int NOUT;
   int ListOutputSnaps[ABSOLUTEMAXSNAPS];
   double ZZ[ABSOLUTEMAXSNAPS];

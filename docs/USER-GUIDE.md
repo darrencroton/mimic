@@ -396,6 +396,14 @@ output:
 
 HDF5 is self-documenting and portable — field names, units, and run provenance travel inside the file. Binary is compact and fast; Mimic writes `metadata/output_schema.json` beside every run so binary readers can reconstruct the exact record layout used by that executable. The bundled `example_Mvir_Len_plot.py` in each output directory is a ready-to-run Python example configured for the exact output that was just written. If you move or sync binary outputs elsewhere, keep the `metadata/` directory with them.
 
+Consistent-Trees chunked output is configured with two optional output keys. `target_file_size` is a soft byte target for HDF5 chunk planning and defaults to 4294967296 bytes (4 GiB). `forests_per_file` defaults to 0, which means derive chunks from `target_file_size`; when set above 0, it gives an exact deterministic forest count per output chunk. These keys are parsed and recorded in HDF5 run metadata; they do not affect output layout until chunk planning is wired into the Consistent-Trees readers.
+
+```yaml
+output:
+  target_file_size: 4294967296  # soft target in bytes
+  forests_per_file: 0           # 0 = derive from target_file_size
+```
+
 ### Units and Schema
 
 The output schema is generated at build time from three property metadata files:
