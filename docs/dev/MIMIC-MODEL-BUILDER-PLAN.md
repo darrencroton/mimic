@@ -2,7 +2,7 @@
 
 **Status:** Long-term planning brief, not an implementation plan.
 **Date:** 2026-06-05
-**Context:** This work is downstream of Mimic v1.0, the dual-driver migration, and a working science-gate prototype.
+**Context:** This work is downstream of Mimic v1.0 and a working science-gate prototype. The current brief is conservative about waiting for the dual-driver migration; after v1.0 is tagged, re-review whether the model builder should wait for the snapshot driver or proceed from the stable v1.0 module, metadata, and validation seams.
 
 ---
 
@@ -24,6 +24,8 @@ The model builder is not ready to implement. It becomes actionable only after:
 - The team has reviewed which orchestration and model-serving tools are appropriate at that time.
 
 Until those conditions hold, this document is a requirements brief and design checklist.
+
+Before promoting this brief to an implementation RFC, refresh it against the tagged v1.0 baseline and any pre-v1.0 chunked-output changes. Do not revise tactical tooling or workflow details now based on work that has not landed.
 
 ---
 

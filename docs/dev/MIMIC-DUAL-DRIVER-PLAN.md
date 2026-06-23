@@ -2,7 +2,7 @@
 
 **Status:** Proposed architecture and migration plan. Phases 0–3 are v1.0 work and are DONE; the pre-v1.0 optimisation/review sweep over the restructured core is also complete. Phases 4+ follow v1.0.
 **Date:** 2026-06-19 (revised ordering 2026-06-05; Phase 0 completed 2026-06-19; Phase 2 completed 2026-06-06; Phase 3 completed 2026-06-06; pathway/status refreshed 2026-06-19)
-**Context:** Read `MIMIC-DEVELOPMENT-PATHWAY.md` first. **Current ordering:** the core-modularisation phases (1–3), the Phase 0 dispatch seam, and the release sweep have landed as v1.0 work. Only the snapshot reader and driver (Phases 4–7) start after v1.0 is tagged and its baseline refreshed. The phase definitions, gates, and architecture in this document are otherwise unchanged.
+**Context:** Read `MIMIC-DEVELOPMENT-PATHWAY.md` first. **Current ordering:** the core-modularisation phases (1–3), the Phase 0 dispatch seam, and the release sweep have landed as v1.0 work. Only the snapshot reader and driver (Phases 4–7) start after v1.0 is tagged and its baseline refreshed. Before starting Phase 4, re-review this plan against the final tagged v1.0 tree-driver baseline, especially any Consistent-Trees partitioning, output identity, and reader-interface details changed by the pre-v1.0 chunked-output work. The phase definitions, gates, and architecture in this document are otherwise unchanged.
 
 ---
 
@@ -98,7 +98,7 @@ The inheritance science was extracted in Phase 2 into `src/core/inheritance.c` (
 
 Each phase before the snapshot driver is behaviour-preserving for the existing tree-ordered run and is gated against the regression baseline.
 
-**Ordering (current).** Phases 0–3 are complete v1.0 work, and the final review-and-optimisation sweep over that structure is complete. Phases 4–7 (snapshot reader and driver) begin after the v1.0 tag, gated against the refreshed tagged-v1.0 baseline. The short version of the rationale: Phases 1–3 are core modularisation shared by every forward direction (snapshot driver and model builder alike), while Phase 0 establishes the processing-order dispatch seam needed before a second driver can be added. The current release sequence lives in `MIMIC-DEVELOPMENT-PATHWAY.md`.
+**Ordering (current).** Phases 0–3 are complete v1.0 work, and the final review-and-optimisation sweep over that structure is complete. Phases 4–7 (snapshot reader and driver) begin after the v1.0 tag, gated against the refreshed tagged-v1.0 baseline. The short version of the rationale: Phases 1–3 are core modularisation shared by every forward direction (snapshot driver and model builder alike), while Phase 0 establishes the processing-order dispatch seam needed before a second driver can be added. The current release sequence lives in `MIMIC-DEVELOPMENT-PATHWAY.md`; refresh this plan's concrete current-state assumptions after v1.0 rather than editing them speculatively before the remaining pre-v1.0 work lands.
 
 **Reading the gates below.** Phase 0–3 gates are historical and have passed. Where a Phase 4–7 gate says "the v1.0 baseline", read it as the refreshed tagged-v1.0 baseline.
 
