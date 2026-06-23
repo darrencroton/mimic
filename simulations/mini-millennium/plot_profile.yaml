@@ -7,5 +7,3 @@ axes:
   spatial_distribution:
     xlim: [0.0, 62.5]
     ylim: [0.0, 62.5]
-  halo_mass_function:
-    xmin: 9.0
