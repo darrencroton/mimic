@@ -4,9 +4,8 @@
  *
  * Ported from sage-model (io/forest_utils.c) with minimal edits: the include of
  * sage's core_allvars.h is replaced by Mimic's reader-option and ctrees-compat
- * seams. These functions allocate nothing and the error/log output is left on
- * stderr to match the rest of the vendored ctrees code, easing future re-syncs
- * with upstream.
+ * seams. Error-path fprintf calls are retained from the upstream vendored code;
+ * diagnostic messages use DEBUG_LOG so they respect the configured log level.
  */
 
 #include <inttypes.h>
@@ -15,6 +14,7 @@
 #include <stdlib.h>
 
 #include "tree/ctrees/forest_utils.h"
+#include "util/error.h"
 
 static inline double
 compute_forest_cost_from_nhalos(const enum ForestDistributionScheme forest_weighting,
@@ -205,10 +205,9 @@ int distribute_weighted_forests_over_ntasks(const int64_t totnforests,
        The +1 is because the ThisTask needs to process this i'th
        forest (i.e., inclusive range of [start_forestnum, i])
       */
-      fprintf(stderr,
-              "[LOG]: Assigning forest-range = [%" PRId64 ", %" PRId64 "] (containing %" PRId64
-              " halos) to ThisTask = %d\n",
-              start_forestnum, i, nhalos_curr_task, ThisTask);
+      DEBUG_LOG("Assigning forest-range = [%" PRId64 ", %" PRId64 "] (containing %" PRId64
+                " halos) to ThisTask = %d",
+                start_forestnum, i, nhalos_curr_task, ThisTask);
       nforests_this_task = i - start_forestnum + 1;
       break;
     }
@@ -225,14 +224,12 @@ int distribute_weighted_forests_over_ntasks(const int64_t totnforests,
       /* There is no '+1' here because the last forest index is (totnforests - 1)
          MS: 15/01/2020 */
       nhalos_curr_task = totnhalos - nhalos_so_far;
-      fprintf(stderr,
-              "[LOG]: Assigning all remaining forests to last task. Remaining cost = %g (ideal "
-              "target cost = %g)\n",
-              total_cost_across_all_forests - cost_so_far, target_cost_per_task);
-      fprintf(stderr,
-              "[LOG]: Assigning forest-range = [%" PRId64 ", %" PRId64 "] (containing %" PRId64
-              " halos) to ThisTask = %d\n",
-              start_forestnum, totnforests - 1, nhalos_curr_task, ThisTask);
+      DEBUG_LOG("Assigning all remaining forests to last task. Remaining cost = %g (ideal "
+                "target cost = %g)",
+                total_cost_across_all_forests - cost_so_far, target_cost_per_task);
+      DEBUG_LOG("Assigning forest-range = [%" PRId64 ", %" PRId64 "] (containing %" PRId64
+                " halos) to ThisTask = %d",
+                start_forestnum, totnforests - 1, nhalos_curr_task, ThisTask);
       nforests_this_task = totnforests - start_forestnum;
       break;
     }
