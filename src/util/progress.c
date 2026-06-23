@@ -135,19 +135,17 @@ int progress_bar_format(char *buf, size_t n, int64_t cur, int64_t total, double 
   const char *green = use_color ? "\x1b[92m" : "";
   const char *reset = use_color ? "\x1b[0m" : "";
 
-  /* Build the bar interior: arrow shaft (coloured) then empty cells.
-   * In-flight: dashes + arrowhead (e.g. "----->   ").
-   * Complete:  all dashes (e.g. "----------"). */
+  /* Build the bar interior: tilde shaft plus arrowhead, then empty cells.
+   * The arrowhead '>' is always the leading edge, including at 100%. */
   char bar[PROGRESS_BAR_WIDTH * 2 + 32];
   size_t bpos = 0;
   int safe_filled = filled <= PROGRESS_BAR_WIDTH ? filled : PROGRESS_BAR_WIDTH;
   int safe_width = width <= PROGRESS_BAR_WIDTH ? width : PROGRESS_BAR_WIDTH;
-  int complete = (safe_filled >= safe_width);
   bpos += (size_t)snprintf(bar + bpos, sizeof(bar) - bpos, "%s", green);
-  int shaft = complete ? safe_filled : (safe_filled > 0 ? safe_filled - 1 : 0);
+  int shaft = safe_filled > 0 ? safe_filled - 1 : 0;
   for (int i = 0; i < shaft && bpos < sizeof(bar) - 1; i++)
     bar[bpos++] = '~';
-  if (!complete && safe_filled > 0 && bpos < sizeof(bar) - 1)
+  if (safe_filled > 0 && bpos < sizeof(bar) - 1)
     bar[bpos++] = '>';
   bpos += (size_t)snprintf(bar + bpos, sizeof(bar) - bpos, "%s", reset);
   for (int i = safe_filled; i < safe_width && bpos < sizeof(bar) - 1; i++)
