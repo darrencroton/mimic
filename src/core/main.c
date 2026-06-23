@@ -555,7 +555,7 @@ static void run_tree_driver(void) {
     const int output_id = ThisTask; /* 0 in serial builds */
     if (claim_and_process_partition(output_id) && !progress_display_active()) {
       /* In live mode the progress bar already shows completion in place. */
-      INFO_LOG("%sCompleted task chunk %d%s", mimic_color_green(), output_id, mimic_color_reset());
+      INFO_LOG("%sCompleted task %d%s", mimic_color_green(), output_id, mimic_color_reset());
     }
   } else {
     /* PARTITION_PER_FILE: one partition per input file, strided across tasks. */
