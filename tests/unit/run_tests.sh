@@ -169,7 +169,7 @@ fi
 
 # Source files needed for tests (non-main files)
 UTIL_SRCS="${SRC_DIR}/util/memory.c ${SRC_DIR}/util/error.c ${SRC_DIR}/util/numeric.c ${SRC_DIR}/util/version.c ${SRC_DIR}/util/integration.c ${SRC_DIR}/util/io.c ${SRC_DIR}/util/run_log.c ${SRC_DIR}/util/progress.c"
-CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/virial.c ${SRC_DIR}/core/inheritance.c ${SRC_DIR}/core/output_buffer.c ${SRC_DIR}/core/galaxy_pool.c"
+CORE_SRCS="${SRC_DIR}/core/allvars.c ${SRC_DIR}/core/read_parameter_file.c ${SRC_DIR}/core/init.c ${SRC_DIR}/core/tree_driver.c ${SRC_DIR}/core/virial.c ${SRC_DIR}/core/inheritance.c ${SRC_DIR}/core/output_buffer.c ${SRC_DIR}/core/galaxy_pool.c"
 IO_SRCS="${SRC_DIR}/io/tree/interface.c ${SRC_DIR}/io/tree/binary.c ${SRC_DIR}/io/tree/registry.c ${SRC_DIR}/io/tree/chunk_plan.c ${SRC_DIR}/io/tree/read_ctrees_ascii.c ${SRC_DIR}/io/tree/ctrees/ctrees_utils.c ${SRC_DIR}/io/tree/ctrees/forest_utils.c ${SRC_DIR}/io/output/util.c ${SRC_DIR}/io/output/binary.c"
 TEST_STUBS="${TEST_DIR}/test_stubs.c"
 
@@ -293,7 +293,8 @@ compile_and_run_test() {
     local test_cflags="$CFLAGS"
     local test_ldflags="$LDFLAGS"
     local extra_sources=""
-    if [ "$test_name" = "test_ctrees_hdf5_reader" ]; then
+    if [ "$test_name" = "test_ctrees_hdf5_reader" ] || \
+       [ "$test_name" = "test_master_hdf5_partitions" ]; then
         if [ "$HDF5_AVAILABLE" != "1" ]; then
             echo "MIMIC_RESULT: SKIP ${test_display} -- HDF5 development library not available"
             if ! summary_enabled; then
@@ -304,7 +305,11 @@ compile_and_run_test() {
         fi
         test_cflags="${test_cflags} -DHDF5 ${HDF5_CFLAGS}"
         test_ldflags="${test_ldflags} ${HDF5_LDFLAGS}"
-        extra_sources="${SRC_DIR}/io/tree/read_ctrees_hdf5.c"
+        if [ "$test_name" = "test_ctrees_hdf5_reader" ]; then
+            extra_sources="${SRC_DIR}/io/tree/read_ctrees_hdf5.c"
+        else
+            extra_sources="${SRC_DIR}/io/output/master_hdf5.c"
+        fi
     fi
 
     # Compile the test file and link the pre-built shared objects

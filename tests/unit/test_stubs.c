@@ -13,6 +13,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "globals.h"
+
 /**
  * @brief   Test version of myexit - just call exit()
  *
@@ -22,4 +24,12 @@
 void myexit(int signum) {
   printf("Test exiting with code %d\n", signum);
   exit(signum);
+}
+
+void build_halo_tree(int halonr, int unit, int depth) {
+  (void)unit;
+  (void)depth;
+  if (HaloAux != NULL) {
+    HaloAux[halonr].DoneFlag = 1;
+  }
 }

@@ -49,9 +49,10 @@ static FILE *load_fd;
 #define MAX_BUF_SIZE (3 * MAX_STRING_LEN + 40)
 #endif
 
-static int64_t count_partition_trees_binary(int output_id) {
+static int64_t count_partition_units_binary(int partition) {
   int ntrees;
   char buf[MAX_BUF_SIZE + 1];
+  const int output_id = tree_partition_per_file_output_id(partition);
 
   snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
            output_id, MimicConfig.TreeExtension);
@@ -182,8 +183,9 @@ const struct TreeReader LHaloBinaryReader = {
     .processing_order = INPUT_PROCESSING_ORDER_TREE,
     .num_partitions = tree_partition_per_file_count,
     .partition_output_id = tree_partition_per_file_output_id,
+    .partition_exists = tree_partition_per_file_exists,
     .format_partition_path = NULL,
-    .count_partition_trees = count_partition_trees_binary,
+    .count_partition_units = count_partition_units_binary,
     .open_partition = open_partition_binary,
     .load_unit = load_unit_binary,
     .close_partition = close_partition_binary,

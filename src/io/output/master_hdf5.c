@@ -22,19 +22,12 @@
 
 void write_master_file(void) {
 
-  /*
-   * Generate a 'master' file that holds soft links to the data in all of the
-   * standard output files.
-   *
-   * Known minor inefficiency: this function re-opens each per-filenr HDF5
-   * file to read its TotHalosPerSnap attribute. The value was in memory
-   * during processing but is reset between files; caching it would need a 2D
-   * global for a one-time post-processing read, so the simple re-read wins.
-   */
+  /* Generate a master file that holds external links to every existing output
+   * partition and copies per-snapshot halo totals into the linked groups. */
 
-  int filenr, n, ngal_in_file, ngal_in_core;
+  int filenr, n, ngal_in_core;
   char master_file[2 * MAX_STRING_LEN + 50], target_file[2 * MAX_STRING_LEN + 50];
-  char target_group[100], source_ds[100];
+  char relative_target_file[MAX_STRING_LEN + 50], target_group[100], source_ds[100];
   hid_t master_file_id, dataset_id, attribute_id, dataspace_id, group_id, target_file_id;
   herr_t status;
   hsize_t dims;
@@ -55,28 +48,28 @@ void write_master_file(void) {
   DEBUG_LOG("Creating master HDF5 file '%s'", master_file);
   master_file_id = H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
-  /* Output partitions are named by their output id. For PARTITION_PER_FILE that
-     is the input file range FirstFile..LastFile; for PARTITION_PER_TASK each MPI
-     task writes one partition numbered by its rank (0..NTask-1), so the master
-     must scan task ids, not the simulation file range. Missing ids are skipped
-     below via the access() check. */
-  int first_output_id, last_output_id;
-  if (MimicConfig.reader->partition_model == PARTITION_PER_TASK) {
-    first_output_id = 0;
-    last_output_id = ((NTask > 0) ? NTask : 1) - 1;
-  } else {
-    first_output_id = MimicConfig.FirstFile;
-    last_output_id = MimicConfig.LastFile;
+  const int master_uses_reader_enumeration =
+      MimicConfig.reader->partition_model != PARTITION_PER_TASK;
+  if (master_uses_reader_enumeration && MimicConfig.reader->prepare_run != NULL) {
+    MimicConfig.reader->prepare_run();
   }
 
-  // Loop through each snapshot.
-  for (n = 0; n < MimicConfig.NOUT; n++) {
+  int npartitions;
+  if (MimicConfig.reader->partition_model == PARTITION_PER_TASK) {
+    npartitions = ((NTask > 0) ? NTask : 1);
+  } else {
+    if (MimicConfig.reader->num_partitions == NULL ||
+        MimicConfig.reader->partition_output_id == NULL) {
+      FATAL_ERROR("Tree reader '%s' cannot enumerate HDF5 master partitions",
+                  MimicConfig.reader->name);
+    }
+    npartitions = MimicConfig.reader->num_partitions();
+  }
 
-    // Create a group to hold this snapshot's data
+  for (n = 0; n < MimicConfig.NOUT; n++) {
     sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
     group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 
-    // Save the redshift of this snapshot as an attribute
     dims = 1;
     dataspace_id = H5Screate_simple(1, &dims, NULL);
     attribute_id =
@@ -90,54 +83,63 @@ void write_master_file(void) {
      * not duplicated per snapshot group. */
 
     H5Gclose(group_id);
+  }
 
-    // Loop through each output partition for this snapshot.
-    for (filenr = first_output_id; filenr <= last_output_id; filenr++) {
-      /* Skip file numbers that produced no output (e.g. missing input tree
-       * files), so the master file never links to nonexistent files. */
-      output_path_hdf5(target_file, sizeof(target_file), filenr);
-      if (access(target_file, F_OK) != 0) {
-        INFO_LOG("Skipping master-file links for missing output file %s", target_file);
-        continue;
-      }
+  for (int partition = 0; partition < npartitions; partition++) {
+    filenr = MimicConfig.reader->partition_model == PARTITION_PER_TASK
+                 ? partition
+                 : MimicConfig.reader->partition_output_id(partition);
 
-      // Create a group to hold this snapshot's data
+    if (MimicConfig.reader->partition_model == PARTITION_ENUMERATED &&
+        MimicConfig.reader->partition_exists != NULL &&
+        !MimicConfig.reader->partition_exists(partition)) {
+      INFO_LOG("Skipping master-file links for missing input partition %d", partition);
+      continue;
+    }
+
+    output_path_hdf5(target_file, sizeof(target_file), filenr);
+    if (access(target_file, F_OK) != 0) {
+      INFO_LOG("Skipping master-file links for missing output file %s", target_file);
+      continue;
+    }
+
+    target_file_id = H5Fopen(target_file, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (target_file_id < 0) {
+      FATAL_ERROR("Failed to open output file '%s' while building master file", target_file);
+    }
+
+    sprintf(relative_target_file, "%s_%03d.hdf5", MimicConfig.OutputFileBaseName, filenr);
+
+    for (n = 0; n < MimicConfig.NOUT; n++) {
       sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
       group_id = H5Gcreate(master_file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
       H5Gclose(group_id);
 
-      ngal_in_file = 0;
-      // Generate the *relative* path to the actual output file.
-      sprintf(target_file, "%s_%03d.hdf5", MimicConfig.OutputFileBaseName, filenr);
-
-      // Create a dataset which will act as the soft link to the output
       sprintf(target_group, "Snap%03d/File%03d/Galaxies", MimicConfig.ListOutputSnaps[n], filenr);
       sprintf(source_ds, "Snap%03d/Galaxies", MimicConfig.ListOutputSnaps[n]);
       DEBUG_LOG("Creating external DS link - %s", target_group);
-      status = H5Lcreate_external(target_file, source_ds, master_file_id, target_group, H5P_DEFAULT,
-                                  H5P_DEFAULT);
+      status = H5Lcreate_external(relative_target_file, source_ds, master_file_id, target_group,
+                                  H5P_DEFAULT, H5P_DEFAULT);
       if (status < 0) {
         FATAL_ERROR("Failed to create external link for Galaxies in master file");
       }
 
-      // Create a dataset which will act as the soft link to the array storing
-      // the number of objects per tree for this file.
       sprintf(target_group, "Snap%03d/File%03d/TreeHalosPerSnap", MimicConfig.ListOutputSnaps[n],
               filenr);
       sprintf(source_ds, "Snap%03d/TreeHalosPerSnap", MimicConfig.ListOutputSnaps[n]);
       DEBUG_LOG("Creating external DS link - %s", target_group);
-      status = H5Lcreate_external(target_file, source_ds, master_file_id, target_group, H5P_DEFAULT,
-                                  H5P_DEFAULT);
+      status = H5Lcreate_external(relative_target_file, source_ds, master_file_id, target_group,
+                                  H5P_DEFAULT, H5P_DEFAULT);
       if (status < 0) {
         FATAL_ERROR("Failed to create external link for TreeHalosPerSnap in "
                     "master file");
       }
 
-      // Increment the total number of objects for this file.
-      output_path_hdf5(target_file, sizeof(target_file), filenr);
-      target_file_id = H5Fopen(target_file, H5F_ACC_RDONLY, H5P_DEFAULT);
       sprintf(source_ds, "Snap%03d/Galaxies", MimicConfig.ListOutputSnaps[n]);
       dataset_id = H5Dopen(target_file_id, source_ds, H5P_DEFAULT);
+      if (dataset_id < 0) {
+        FATAL_ERROR("Failed to open dataset '%s' from file '%s'", source_ds, target_file);
+      }
       attribute_id = H5Aopen(dataset_id, "TotHalosPerSnap", H5P_DEFAULT);
       status = H5Aread(attribute_id, H5T_NATIVE_INT, &ngal_in_core);
       if (status < 0) {
@@ -145,21 +147,24 @@ void write_master_file(void) {
       }
       H5Aclose(attribute_id);
       H5Dclose(dataset_id);
-      H5Fclose(target_file_id);
-      ngal_in_file += ngal_in_core;
 
-      // Save the total number of objects in this file.
       dims = 1;
       dataspace_id = H5Screate_simple(1, &dims, NULL);
       sprintf(target_group, "Snap%03d/File%03d", MimicConfig.ListOutputSnaps[n], filenr);
       group_id = H5Gopen(master_file_id, target_group, H5P_DEFAULT);
       attribute_id = H5Acreate(group_id, "TotHalosPerSnap", H5T_NATIVE_INT, dataspace_id,
                                H5P_DEFAULT, H5P_DEFAULT);
-      H5Awrite(attribute_id, H5T_NATIVE_INT, &ngal_in_file);
+      H5Awrite(attribute_id, H5T_NATIVE_INT, &ngal_in_core);
       H5Aclose(attribute_id);
       H5Gclose(group_id);
       H5Sclose(dataspace_id);
     }
+
+    H5Fclose(target_file_id);
+  }
+
+  if (master_uses_reader_enumeration && MimicConfig.reader->teardown_run != NULL) {
+    MimicConfig.reader->teardown_run();
   }
 
 #ifdef GITREF_STR
