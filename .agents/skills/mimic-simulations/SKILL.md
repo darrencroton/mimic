@@ -20,7 +20,7 @@ simulations/<sim>/
   snapshots -> /path/to/data   # symlink to actual tree data
 ```
 
-Current simulation packages include `mini-millennium`, `millennium`, `micro-uchuu`, `micro-uchuu-hdf5`, `mini-uchuu`, and `uchuu`.
+Current simulation packages include `mini-millennium`, `millennium`, `micro-uchuu`, `micro-uchuu-hdf5`, `micro-uchuu-ascii`, `mini-uchuu`, and `uchuu`.
 
 ## simulation_info.yaml
 

@@ -261,11 +261,11 @@ Until Slice 7 lands, this plan targets the **manageable-file-size** problem for 
 
 ---
 
-## Slice 6: ctrees ASCII — chunk-by-forest-count (graceful degradation); **fixture precursor required**
+## Slice 6: ctrees ASCII — chunk-by-forest-count (graceful degradation)
 
 ### Intended Change
 - `consistent_trees_ascii` is a live required reader for the upcoming Shin-Uchuu simulation; this slice replaces only its output partitioning model, not the reader or its registration.
-- **Precursor task (blocking):** create a minimal `consistent_trees_ascii` test fixture (a tiny `simulations/<...>` package or `_tests/input` run file) — **none exists today** (`micro-uchuu` is `lhalo_binary`). Without it Slice 6 cannot be validated.
+- **Fixture precursor: RESOLVED.** The `simulations/micro-uchuu-ascii/` package has been restored (restored from archive 2026-06-25). The production ASCII tree data is mounted at `/Volumes/Internal/data/uchuu/microuchuu/micro-uchuu-ascii` (11 GB, 561,266 forests) via the `snapshots/` symlink. This is the test vehicle for Slice 6 — no separate tiny synthetic fixture is needed because the ASCII reader has no HDF5-style random-access fixture format; the integration test skips gracefully when the data is not mounted. The existing `_tests/integration/test_reader_smoke.py` validates the reader loads and produces sensible halo counts; Slice 6 adds a new `test_ascii_chunks.py` that sets `forests_per_file` and validates chunk file count and `UniqueGalaxyID` set identity.
 - Apply the Slice 4/5 pattern to `src/io/tree/read_ctrees_ascii.c`: one-time prepare for global forest counts (it already computes `totnforests` at runtime, `src/io/tree/read_ctrees_ascii.c:275-290`), chunk enumeration by **forest count** (`output.forests_per_file`; ASCII cannot pre-count *halos*, so there is no `target_file_size` proxy), `PARTITION_ENUMERATED` hooks, `open_partition(chunk_id)` staging one chunk's forests, **uniform** per-chunk cost (LPT degrades to round-robin — no regression vs today's uniform ASCII split).
 - **Define the default-config behavior:** because ASCII cannot derive a chunk count from `target_file_size`, an ASCII run with `output.forests_per_file == 0` (the global default) must **fatal at startup with a clear message** instructing the user to set `output.forests_per_file` for the `consistent_trees_ascii` reader. (Do not silently fall back to one-chunk-per-task — that reintroduces the original problem.) Add a test for this fatal path.
 
@@ -274,22 +274,22 @@ Until Slice 7 lands, this plan targets the **manageable-file-size** problem for 
 - Behaviour that must not change: galaxy-ID set identical across `NTask`; ASCII still cannot byte-balance (documented).
 
 ### Authorized Surface
-- Files: **new** tiny ctrees ASCII fixture; `src/io/tree/read_ctrees_ascii.c` (+ `.h`), `src/io/tree/read_ctrees_common.h` (shared staging only if factored).
-- Tests: ASCII reader unit/integration tests against the new fixture.
+- Files: `src/io/tree/read_ctrees_ascii.c` (+ `.h`), `src/io/tree/read_ctrees_common.h` (shared staging only if factored), **new** `simulations/micro-uchuu-ascii/_tests/integration/test_ascii_chunks.py`.
+- Tests: ASCII reader integration tests against `simulations/micro-uchuu-ascii/` (skip when data not mounted).
 
 ### Explicit Non-Goals
 - No size-weighted ASCII chunking (unsupported); no HDF5-reader/driver/master changes beyond Slices 3/5.
 
 ### Risk Flags
-- Risky surfaces touched: tree-reading correctness, galaxy-ID identity, MPI (ASCII), **new test fixture**.
+- Risky surfaces touched: tree-reading correctness, galaxy-ID identity, MPI (ASCII).
 - Approval needed: **yes**.
 
 ### Validation Plan
-- Integration: new ASCII fixture at `NTask = 1, 2` with small `forests_per_file`; identical galaxy-ID set + reproducible chunk contents across `NTask`.
+- Integration: `simulations/micro-uchuu-ascii/` at `NTask = 1` (and `NTask = 2` if MPI) with small `forests_per_file`; identical galaxy-ID set + reproducible chunk contents; file count = expected. Tests skip when data not mounted.
 - Commands: delegate `make tests-integration summary` + `make tests-unit summary`; `make check-format`.
 
 ### Rollback Path
-- Revert the ASCII reader (and keep or drop the fixture); ASCII returns to `PARTITION_PER_TASK` (still supported only until Slice 9 cleanup).
+- Revert the ASCII reader changes; ASCII returns to `PARTITION_PER_TASK` (still supported only until Slice 9 cleanup). The `simulations/micro-uchuu-ascii/` package stays (it is independent of the reader changes).
 
 ---
 

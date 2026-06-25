@@ -1,0 +1,139 @@
+# micro-Uchuu Halo Catalog Properties — Consistent-Trees ASCII format
+#
+# Defines the RawHalo contract for the consistent_trees_ascii reader. The reader
+# bridges Consistent-Trees columns into RawHalo by field name via
+# bridge_halo_data_to_rawhalo() in read_ctrees_ascii.c. Only the fields that
+# bridge writes are declared here; there is no on-disk struct to pad out with
+# bookkeeping fields.
+#
+# This file is structurally identical to micro-uchuu-hdf5/halo_properties.yaml
+# because both readers use the same bridge and the same RawHalo contract. The
+# two simulation packages exist so the ctrees_hdf5 and ctrees_ascii readers can
+# be cross-checked against the same underlying Uchuu halos.
+#
+# Key unit difference from the L-Halo binary format: M_Crit200 carries the
+# native ctrees Mvir in Msun/h (not 1e10 Msun/h); the generated reference-unit
+# accessor applies the ×1e-10 conversion. Positions are already in Mpc/h.
+# Spin is dimensionless J/Mvir after apply_ctrees_value_conventions().
+# Len is derived: round(Mvir * 1e-10 / particle_mass).
+#
+# Required core roles (src/core/core_properties.yaml required_inputs):
+# Descendant, FirstProgenitor, NextProgenitor, FirstHaloInFOFgroup,
+# NextHaloInFOFgroup, SnapNum, Len, HaloMass.
+#
+# Mirror maintenance: keep in sync with micro-uchuu-hdf5/halo_properties.yaml.
+# The L-Halo package (simulations/micro-uchuu/) uses a different field set
+# (26-field L-Halo struct) and is not mirrored here.
+
+halo_properties:
+  # --- merger-tree topology links (consumed directly by the core driver) ---
+  - name: Descendant
+    type: int
+    units: dimensionless
+    description: Index of the descendant halo in this forest, or -1 if none
+    provides_core_role: Descendant
+
+  - name: FirstProgenitor
+    type: int
+    units: dimensionless
+    description: Index of the first progenitor halo in this forest, or -1 if none
+    provides_core_role: FirstProgenitor
+
+  - name: NextProgenitor
+    type: int
+    units: dimensionless
+    description: Index of the next progenitor linked to the same descendant, or -1 if none
+    provides_core_role: NextProgenitor
+
+  - name: FirstHaloInFOFgroup
+    type: int
+    units: dimensionless
+    description: Index of the first halo in this FoF group
+    provides_core_role: FirstHaloInFOFgroup
+
+  - name: NextHaloInFOFgroup
+    type: int
+    units: dimensionless
+    description: Index of the next halo in this FoF group, or -1 if none
+    provides_core_role: NextHaloInFOFgroup
+
+  # --- particle count (derived by reader from Mvir / particle_mass) ---
+  - name: Len
+    type: int
+    units: particles
+    description: Particle count estimated from round(Mvir * 1e-10 / particle_mass)
+    provides_core_role: Len
+
+  # --- catalog mass (ctrees native Msun/h; accessor converts to 1e10 Msun/h) ---
+  - name: M_Crit200
+    type: float
+    units: Msun/h
+    h_convention: carried
+    description: Rockstar/Consistent-Trees Mvir (M200c), in native Msun/h
+    provides_core_role: HaloMass
+
+  # --- phase-space properties ---
+  - name: Pos
+    type: vec3_float
+    units: Mpc/h
+    h_convention: carried
+    description: 3D position vector (comoving coordinates)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [0.0, 100.0]
+
+  - name: Vel
+    type: vec3_float
+    units: km/s
+    h_convention: none
+    description: 3D velocity vector (peculiar velocity)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [-5000.0, 5000.0]
+
+  - name: Spin
+    type: vec3_float
+    units: dimensionless
+    description: Dimensionless spin (J/Mvir, applied by reader before bridging)
+    output: true
+    init_source: copy_from_tree_array
+    output_source: copy_direct_array
+    range: [-20.0, 20.0]
+
+  - name: VelDisp
+    type: float
+    units: km/s
+    h_convention: none
+    description: Velocity dispersion
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+    range: [0.0, 5000.0]
+
+  - name: Vmax
+    type: float
+    units: km/s
+    h_convention: none
+    description: Maximum circular velocity
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+    range: [10.0, 5000.0]
+
+  # --- halo identity ---
+  - name: MostBoundID
+    type: long long
+    units: dimensionless
+    description: Rockstar/Consistent-Trees halo id (carried through as unique identifier)
+    output: true
+    init_source: copy_from_tree
+    output_source: copy_direct
+
+  # --- snapshot index (core required input) ---
+  - name: SnapNum
+    type: int
+    units: dimensionless
+    description: Snapshot number (index in simulation output)
+    provides_core_role: SnapNum
