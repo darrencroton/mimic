@@ -101,6 +101,9 @@ python3 "$SCRIPT_DIR/test_snapshot_redshift_mapper.py"
 echo "Test 9: Validation helper unit tests"
 python3 "$SCRIPT_DIR/test_validation_helpers.py"
 
+echo "Test 10: Chunked output consumer unit tests"
+python3 "$SCRIPT_DIR/test_chunked_consumers.py"
+
 echo ""
 echo "=========================================="
 echo "All tests passed successfully!"

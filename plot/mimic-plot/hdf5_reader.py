@@ -10,6 +10,11 @@ import h5py
 import numpy as np
 
 
+def _file_group_sort_key(name):
+    suffix = name[4:] if name.startswith("File") else ""
+    return (0, int(suffix)) if suffix.isdigit() else (1, name)
+
+
 def read_hdf5_snapshot(filename, snapshot_num):
     """
     Read halos from a specific snapshot in an HDF5 file.
@@ -42,7 +47,7 @@ def read_hdf5_snapshot(filename, snapshot_num):
                 # Master file format - need to read from all File subgroups
                 # Iterate over actual File subgroups instead of assuming File000, File001, etc.
                 halos_list = []
-                for key in sorted(snap_group.keys()):
+                for key in sorted(snap_group.keys(), key=_file_group_sort_key):
                     if key.startswith("File"):
                         file_group = snap_group[key]
                         if "Galaxies" in file_group:

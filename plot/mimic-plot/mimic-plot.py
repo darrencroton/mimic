@@ -142,6 +142,57 @@ def get_dtype(output_path):
     return dtype_from_schema(load_schema(output_path), binary=True)
 
 
+def _numeric_suffix(value, prefix="", suffix=""):
+    """Return the numeric suffix in value, or None when it does not match."""
+    if prefix and not value.startswith(prefix):
+        return None
+    if suffix and not value.endswith(suffix):
+        return None
+
+    end = len(value) - len(suffix) if suffix else len(value)
+    token = value[len(prefix) : end]
+    return int(token) if token.isdigit() else None
+
+
+def _sort_paths_by_partition_id(paths, id_for_path):
+    """Return paths with numeric partition ids, sorted by id."""
+    keyed_paths = []
+    for path in paths:
+        partition_id = id_for_path(path)
+        if partition_id is not None:
+            keyed_paths.append((partition_id, path))
+    return [path for _, path in sorted(keyed_paths)]
+
+
+def _binary_partition_id(path, model_path):
+    prefix = f"{os.path.basename(model_path)}_"
+    return _numeric_suffix(os.path.basename(path), prefix=prefix)
+
+
+def _hdf5_partition_id(path, base_name):
+    prefix = f"{base_name}_"
+    return _numeric_suffix(os.path.basename(path), prefix=prefix, suffix=".hdf5")
+
+
+def _discover_binary_partition_files(model_path):
+    pattern = f"{model_path}_*"
+    return _sort_paths_by_partition_id(
+        glob.glob(pattern), lambda path: _binary_partition_id(path, model_path)
+    )
+
+
+def _discover_hdf5_partition_files(dir_path, base_name):
+    pattern = os.path.join(dir_path, f"{base_name}_*.hdf5")
+    return _sort_paths_by_partition_id(
+        glob.glob(pattern), lambda path: _hdf5_partition_id(path, base_name)
+    )
+
+
+def _tree_uses_enumerated_output(params):
+    tree_type = str(params.get("TreeType", "")).lower()
+    return tree_type.startswith("consistent_trees")
+
+
 def resolve_relative_path(path, param_file_path):
     """
     Resolve a run-configuration path relative to the Mimic repository root.
@@ -703,30 +754,22 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     dir_path = os.path.dirname(model_path)
     base_name = os.path.basename(model_path)
 
-    # First try exact file number pattern (model_z0.000_0, model_z0.000_1, etc.)
-    pattern1 = f"{model_path}_{first_file}"
-
-    # Then try generic pattern (model_z0.000_*)
-    pattern2 = os.path.join(dir_path, f"{base_name}_*")
+    pattern = os.path.join(dir_path, f"{base_name}_*")
+    enumerated_output = _tree_uses_enumerated_output(params)
 
     # Log the patterns we're trying
     if verbose:
-        print(f"  Trying exact pattern: {pattern1}")
-        print(f"  Trying generic pattern: {pattern2}")
+        print(f"  Trying output partition pattern: {pattern}")
 
-    # Try the exact pattern first
-    exact_files = glob.glob(pattern1)
-    if exact_files:
-        existing_files = exact_files
-        if verbose:
-            print(f"  Found file with exact pattern")
+    if enumerated_output:
+        files_to_read = _discover_binary_partition_files(model_path)
     else:
-        # Fall back to the generic pattern
-        existing_files = glob.glob(pattern2)
+        files_to_read = [f"{model_path}_{fnr}" for fnr in range(first_file, last_file + 1)]
 
+    existing_files = [path for path in files_to_read if os.path.isfile(path)]
     if existing_files:
         if verbose:
-            print(f"Found {len(existing_files)} files matching the pattern.")
+            print(f"Found {len(existing_files)} output partition file(s).")
             for f in existing_files[:5]:  # Show first 5 files
                 print(f"  {f}")
             if len(existing_files) > 5:
@@ -743,18 +786,12 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     good_files = 0
 
     if verbose:
-        print(f"Determining storage requirements for files {first_file} to {last_file}...")
+        print(f"Determining storage requirements for {len(files_to_read)} output partition(s)...")
 
     # First pass: Determine total number of galaxies
     # Only show progress bar when verbose is enabled
-    file_iterator = (
-        tqdm(range(first_file, last_file + 1), desc="Counting galaxies")
-        if verbose
-        else range(first_file, last_file + 1)
-    )
-    for fnr in file_iterator:
-        fname = f"{model_path}_{fnr}"
-
+    file_iterator = tqdm(files_to_read, desc="Counting galaxies") if verbose else files_to_read
+    for fname in file_iterator:
         if not os.path.isfile(fname):
             continue
 
@@ -788,14 +825,8 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     # Second pass: Read the galaxy data
     offset = 0
     # Only show progress bar when verbose is enabled
-    file_iterator = (
-        tqdm(range(first_file, last_file + 1), desc="Reading galaxies")
-        if verbose
-        else range(first_file, last_file + 1)
-    )
-    for fnr in file_iterator:
-        fname = f"{model_path}_{fnr}"
-
+    file_iterator = tqdm(files_to_read, desc="Reading galaxies") if verbose else files_to_read
+    for fname in file_iterator:
         if not os.path.isfile(fname) or os.path.getsize(fname) == 0:
             continue
 
@@ -821,14 +852,15 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     # Convert to recarray for attribute access
     galaxies = galaxies.view(np.recarray)
 
-    volume = scale_volume_by_file_fraction(box_size, params, good_files, verbose)
+    volume_files = last_file - first_file + 1 if enumerated_output else good_files
+    volume = scale_volume_by_file_fraction(box_size, params, volume_files, verbose)
     schema_units = units_from_schema(load_schema(dir_path))
     metadata = build_metadata(
         hubble_h,
         box_size,
         volume,
         tot_ngals,
-        good_files,
+        volume_files,
         ntrees=tot_ntrees,
         schema_units=schema_units,
     )
@@ -945,7 +977,7 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
         if verbose:
             print(f"Master file not found, reading individual partition files...")
 
-        partition_files = sorted(glob.glob(os.path.join(dir_path, f"{base_name}_*.hdf5")))
+        partition_files = _discover_hdf5_partition_files(dir_path, base_name)
 
         file_iterator = (
             tqdm(partition_files, desc="Reading HDF5 files") if verbose else partition_files
