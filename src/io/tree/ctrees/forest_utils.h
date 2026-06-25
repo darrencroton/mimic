@@ -30,6 +30,9 @@ int distribute_weighted_forests_over_ntasks(const int64_t totnforests,
                                             const int ThisTask, int64_t *nforests_thistask,
                                             int64_t *start_forestnum_thistask);
 
+double compute_forest_cost_from_nhalos(const enum ForestDistributionScheme forest_weighting,
+                                       int64_t nhalos, double exponent);
+
 int find_start_and_end_filenum(const int64_t start_forestnum, const int64_t end_forestnum,
                                const int64_t *totnforests_per_file, const int64_t totnforests,
                                const int firstfile, const int lastfile, const int ThisTask,

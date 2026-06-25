@@ -35,6 +35,7 @@
 #include "tree/ctrees/parse_ctrees.h"
 #include "tree/read_ctrees_ascii.h"
 
+#include <limits.h>
 #include <math.h>
 
 #include <fcntl.h>
@@ -563,6 +564,18 @@ int test_weighted_distribution_no_negative(void) {
   return TEST_PASS;
 }
 
+int test_forest_cost_quadratic_uses_double_before_multiply(void) {
+  const int64_t nhalos = 4000000000LL;
+  const double cost = compute_forest_cost_from_nhalos(quadratic_in_nhalos, nhalos, 0.0);
+
+  TEST_ASSERT(isfinite(cost), "quadratic forest cost should stay finite for large nhalos");
+  TEST_ASSERT(cost == (double)nhalos * (double)nhalos,
+              "quadratic forest cost should multiply in double precision");
+  TEST_ASSERT(cost > (double)LLONG_MAX, "test should exercise the int64 overflow regime");
+
+  return TEST_PASS;
+}
+
 /**
  * @test  test_convert_ctrees_conventions
  * Pins the reader-owned Consistent-Trees -> L-Halo conventions: spin normalised
@@ -772,6 +785,7 @@ int main(void) {
   TEST_RUN(test_weighted_forest_distribution);
   TEST_RUN(test_distribute_forests_surplus_tasks);
   TEST_RUN(test_weighted_distribution_no_negative);
+  TEST_RUN(test_forest_cost_quadratic_uses_double_before_multiply);
   TEST_RUN(test_convert_ctrees_conventions);
   TEST_RUN(test_apply_value_conventions_shared);
   TEST_RUN(test_bridge_to_rawhalo);

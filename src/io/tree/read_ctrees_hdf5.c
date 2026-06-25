@@ -4,12 +4,13 @@
  *
  * Reads the "forests-HDF5" packaging of Consistent-Trees output (e.g. the Uchuu
  * trees produced by uchuutools) and presents it to the core as the
- * partition/unit model: one partition per MPI task, one unit per forest. Unlike
- * the ASCII reader, the merger-tree pointers are already stored in the file, so
- * there is no topology reconstruction — this reader maps a per-task forest range
- * onto the input files, reads each forest's contiguous halo slab, applies the
- * shared Consistent-Trees -> L-Halo value conventions, and bridges the loaded
- * `struct halo_data` into the generated per-simulation `struct RawHalo`.
+ * partition/unit model: one output partition per planned forest chunk, one unit
+ * per forest. Unlike the ASCII reader, the merger-tree pointers are already
+ * stored in the file, so there is no topology reconstruction -- this reader maps
+ * a chunk forest range onto the input files, reads each forest's contiguous halo
+ * slab, applies the shared Consistent-Trees -> L-Halo value conventions, and
+ * bridges the loaded `struct halo_data` into the generated per-simulation
+ * `struct RawHalo`.
  *
  * Consistent-Trees is a FORMAT, not a simulation: this reader is
  * simulation-agnostic and reads SimulationDir / particle mass / cosmology from
@@ -57,6 +58,7 @@
 
 #include "tree/ctrees/ctrees_compat.h"
 #include "tree/ctrees/forest_utils.h"
+#include "tree/chunk_plan.h"
 #include "tree/forest_distribution.h"
 #include "tree/read_ctrees_common.h"
 #include "tree/read_ctrees_hdf5.h"
@@ -153,7 +155,9 @@ struct ctrees_hdf5_partition {
   int64_t totnforests;           /* global requested forest count */
   int64_t *nforests_per_file;    /* [totnfiles] run-scoped per-file forest counts */
   int64_t *first_forest_in_file; /* [totnfiles] global first forest in each file */
-  int64_t *nhalos_per_forest;    /* [totnforests] run-scoped distribution weights, if used */
+  int64_t *nhalos_per_forest;    /* [totnforests] run-scoped size/cost inputs */
+  struct ChunkPlan chunk_plan;   /* run-scoped output chunk ranges */
+  double *chunk_costs;           /* [chunk_plan.nchunks] run-scoped LPT costs */
 
   hid_t *h5_file_groups;                       /* [totnfiles] staged "File%d" groups */
   hid_t *h5_forests_group;                     /* [totnfiles] staged "File%d/Forests" groups */
@@ -916,10 +920,9 @@ static int load_forestinfo_cache_ctrees_hdf5(const int start_filenum, const int 
 }
 
 /* Read the per-forest halo counts (the "ForestNhalos" member of each file's
-   "ForestInfo" compound dataset) into nhalos_per_forest, used only when the
-   forest distribution is weighted. Loading uses the full task-range ForestInfo
-   cache built after distribution; this global pass deliberately stays minimal.
-   Returns EXIT_SUCCESS or CT_H5_ERR. */
+   "ForestInfo" compound dataset) into nhalos_per_forest, used for chunk sizing
+   and LPT cost. Loading uses the chunk-range ForestInfo cache built after
+   assignment; this global pass deliberately stays minimal. */
 static int read_nhalos_per_forest(const int firstfile, const int lastfile,
                                   const int64_t *totnforests_per_file, int64_t *nhalos_per_forest) {
   int64_t written = 0;
@@ -999,6 +1002,62 @@ static int read_nhalos_per_forest(const int firstfile, const int lastfile,
   return EXIT_SUCCESS;
 }
 
+static int build_chunk_plan_ctrees_hdf5(void) {
+  XRETURN(CTH.totnforests >= 1 && CTH.nhalos_per_forest != NULL, CT_H5_ERR,
+          "Error: Consistent-Trees HDF5 reader cannot build chunks before halo counts are read\n");
+
+  double *size_per_forest =
+      mymalloc_cat((size_t)CTH.totnforests * sizeof(*size_per_forest), MEM_IO);
+  for (int64_t i = 0; i < CTH.totnforests; i++) {
+    size_per_forest[i] = (double)CTH.nhalos_per_forest[i] * (double)sizeof(struct HaloOutput);
+  }
+
+  const int status = chunk_plan_build_boundaries(CTH.totnforests, size_per_forest,
+                                                 (double)MimicConfig.TargetFileSize,
+                                                 MimicConfig.ForestsPerFile, &CTH.chunk_plan);
+  myfree(size_per_forest);
+  XRETURN(status == 0, CT_H5_ERR,
+          "Error: failed to build Consistent-Trees HDF5 chunk plan (target_file_size=%" PRId64
+          ", forests_per_file=%" PRId64 ")\n",
+          MimicConfig.TargetFileSize, MimicConfig.ForestsPerFile);
+  XRETURN(CTH.chunk_plan.nchunks > 0, CT_H5_ERR,
+          "Error: Consistent-Trees HDF5 chunk planner emitted no chunks for %" PRId64 " forests\n",
+          CTH.totnforests);
+  XRETURN(CTH.chunk_plan.nchunks < INT_MAX, CT_H5_ERR,
+          "Error: Consistent-Trees HDF5 chunk count %" PRId64
+          " cannot be represented by the reader interface\n",
+          CTH.chunk_plan.nchunks);
+
+  CTH.chunk_costs = mymalloc_cat((size_t)CTH.chunk_plan.nchunks * sizeof(*CTH.chunk_costs), MEM_IO);
+  const enum ForestDistributionScheme scheme =
+      (enum ForestDistributionScheme)MimicConfig.ForestDistributionScheme;
+  for (int64_t chunk = 0; chunk < CTH.chunk_plan.nchunks; chunk++) {
+    const struct ChunkPlanRange *range = &CTH.chunk_plan.chunks[chunk];
+    double cost = 0.0;
+    for (int64_t i = 0; i < range->nforests; i++) {
+      const int64_t forest = range->start_forest + i;
+      const double forest_cost = compute_forest_cost_from_nhalos(
+          scheme, CTH.nhalos_per_forest[forest], MimicConfig.Exponent_Forest_Dist_Scheme);
+      XRETURN(forest_cost >= 0.0 && isfinite(forest_cost), CT_H5_ERR,
+              "Error: invalid Consistent-Trees HDF5 forest cost %g for forest %" PRId64 "\n",
+              forest_cost, forest);
+      cost += forest_cost;
+    }
+    CTH.chunk_costs[chunk] = cost;
+  }
+
+  DEBUG_LOG("Consistent-Trees HDF5 chunk plan: nchunks=%" PRId64 ", target_file_size=%" PRId64
+            ", forests_per_file=%" PRId64,
+            CTH.chunk_plan.nchunks, MimicConfig.TargetFileSize, MimicConfig.ForestsPerFile);
+  for (int64_t chunk = 0; chunk < CTH.chunk_plan.nchunks; chunk++) {
+    const struct ChunkPlanRange *range = &CTH.chunk_plan.chunks[chunk];
+    DEBUG_LOG("  chunk %" PRId64 ": forests [%" PRId64 ", %" PRId64 "), size_proxy=%g, cost=%g",
+              chunk, range->start_forest, range->start_forest + range->nforests, range->size,
+              CTH.chunk_costs[chunk]);
+  }
+  return EXIT_SUCCESS;
+}
+
 static int prepare_run_ctrees_hdf5_state(void);
 static int stage_range_ctrees_hdf5(int64_t start_forestnum, int64_t nforests, int thistask,
                                    int ntasks);
@@ -1054,6 +1113,11 @@ static void clear_staged_range_ctrees_hdf5(void) {
 static void teardown_run_ctrees_hdf5_state(void) {
   clear_staged_range_ctrees_hdf5();
 
+  if (CTH.chunk_costs != NULL) {
+    myfree(CTH.chunk_costs);
+    CTH.chunk_costs = NULL;
+  }
+  chunk_plan_free(&CTH.chunk_plan);
   if (CTH.nhalos_per_forest != NULL) {
     myfree(CTH.nhalos_per_forest);
     CTH.nhalos_per_forest = NULL;
@@ -1316,7 +1380,10 @@ int ctrees_hdf5_test_prepare_and_stage_ranges(const char *simulation_dir, const 
   snprintf(MimicConfig.TreeName, sizeof(MimicConfig.TreeName), "%s", tree_name);
   MimicConfig.FirstFile = 0;
   MimicConfig.LastFile = 2;
+  MimicConfig.TargetFileSize = 1024;
+  MimicConfig.ForestsPerFile = 0;
   MimicConfig.ForestDistributionScheme = uniform_in_forests;
+  MimicConfig.Exponent_Forest_Dist_Scheme = 0.0;
 
   if (prepare_run_ctrees_hdf5_state() != EXIT_SUCCESS) {
     teardown_run_ctrees_hdf5_state();
@@ -1337,6 +1404,42 @@ int ctrees_hdf5_test_prepare_and_stage_ranges(const char *simulation_dir, const 
   teardown_run_ctrees_hdf5_state();
   ctrees_hdf5_test_release_partition_globals();
   return status;
+}
+
+int ctrees_hdf5_test_prepare_chunk_plan(const char *simulation_dir, const char *tree_name,
+                                        const int64_t forests_per_file,
+                                        const int64_t target_file_size, const int max_chunks,
+                                        int64_t *starts, int64_t *counts, double *costs,
+                                        int *nchunks) {
+  memset(&CTH, 0, sizeof(CTH));
+  CTH.meta_fd = -1;
+  snprintf(MimicConfig.SimulationDir, sizeof(MimicConfig.SimulationDir), "%s", simulation_dir);
+  snprintf(MimicConfig.TreeName, sizeof(MimicConfig.TreeName), "%s", tree_name);
+  MimicConfig.FirstFile = 0;
+  MimicConfig.LastFile = 2;
+  MimicConfig.TargetFileSize = target_file_size;
+  MimicConfig.ForestsPerFile = forests_per_file;
+  MimicConfig.ForestDistributionScheme = linear_in_nhalos;
+  MimicConfig.Exponent_Forest_Dist_Scheme = 0.0;
+
+  if (prepare_run_ctrees_hdf5_state() != EXIT_SUCCESS) {
+    teardown_run_ctrees_hdf5_state();
+    return CT_H5_ERR;
+  }
+
+  if (nchunks != NULL) {
+    *nchunks = (int)CTH.chunk_plan.nchunks;
+  }
+  const int limit =
+      max_chunks < (int)CTH.chunk_plan.nchunks ? max_chunks : (int)CTH.chunk_plan.nchunks;
+  for (int i = 0; i < limit; i++) {
+    starts[i] = CTH.chunk_plan.chunks[i].start_forest;
+    counts[i] = CTH.chunk_plan.chunks[i].nforests;
+    costs[i] = CTH.chunk_costs[i];
+  }
+
+  teardown_run_ctrees_hdf5_state();
+  return EXIT_SUCCESS;
 }
 #endif /* MIMIC_TEST_BUILD */
 
@@ -1444,15 +1547,13 @@ static int prepare_run_ctrees_hdf5_state(void) {
             totnforests);
   }
 
-  /* Weighted distribution needs per-forest halo counts; uniform does not. */
-  const enum ForestDistributionScheme scheme =
-      (enum ForestDistributionScheme)MimicConfig.ForestDistributionScheme;
-  if (scheme != uniform_in_forests) {
-    CTH.nhalos_per_forest = mymalloc_cat(totnforests * sizeof(*CTH.nhalos_per_forest), MEM_IO);
-    if (read_nhalos_per_forest(firstfile, lastfile, CTH.nforests_per_file, CTH.nhalos_per_forest) !=
-        EXIT_SUCCESS) {
-      return CT_H5_ERR;
-    }
+  CTH.nhalos_per_forest = mymalloc_cat(totnforests * sizeof(*CTH.nhalos_per_forest), MEM_IO);
+  if (read_nhalos_per_forest(firstfile, lastfile, CTH.nforests_per_file, CTH.nhalos_per_forest) !=
+      EXIT_SUCCESS) {
+    return CT_H5_ERR;
+  }
+  if (build_chunk_plan_ctrees_hdf5() != EXIT_SUCCESS) {
+    return CT_H5_ERR;
   }
   return EXIT_SUCCESS;
 }
@@ -1510,7 +1611,7 @@ static int stage_range_ctrees_hdf5(const int64_t start_forestnum, const int64_t 
     InputTreeFirstHalo[i] = 0; /* each forest loads into a fresh InputTreeHalos */
   }
 
-  /* No forests for this task: nothing more to set up. */
+  /* No forests for this range: nothing more to set up. */
   if (nforests == 0) {
     CTH.start_filenum = CTH.firstfile;
     CTH.end_filenum = CTH.firstfile;
@@ -1541,7 +1642,7 @@ static int stage_range_ctrees_hdf5(const int64_t start_forestnum, const int64_t 
     return CT_H5_ERR;
   }
 
-  /* Map each task-local forest to its file and the tree row within that file. */
+  /* Map each chunk-local forest to its file and the tree row within that file. */
   int curr_filenum = start_filenum;
   int64_t end_forestnum_in_currfile =
       CTH.nforests_per_file[start_filenum] - start_forestnum_to_process_per_file[start_filenum];
@@ -1624,18 +1725,6 @@ static int stage_range_ctrees_hdf5(const int64_t start_forestnum, const int64_t 
   return EXIT_SUCCESS;
 }
 
-static int stage_current_task_ctrees_hdf5(const int thistask, const int ntasks) {
-  const enum ForestDistributionScheme scheme =
-      (enum ForestDistributionScheme)MimicConfig.ForestDistributionScheme;
-  int64_t nforests_this_task = 0, start_forestnum = 0;
-  if (distribute_weighted_forests_over_ntasks(
-          CTH.totnforests, CTH.nhalos_per_forest, scheme, MimicConfig.Exponent_Forest_Dist_Scheme,
-          ntasks, thistask, &nforests_this_task, &start_forestnum) != EXIT_SUCCESS) {
-    return CT_H5_ERR;
-  }
-  return stage_range_ctrees_hdf5(start_forestnum, nforests_this_task, thistask, ntasks);
-}
-
 static void prepare_run_ctrees_hdf5(void) {
   memset(&CTH, 0, sizeof(CTH));
   CTH.meta_fd = -1;
@@ -1648,18 +1737,60 @@ static void prepare_run_ctrees_hdf5(void) {
   }
 }
 
+static int num_partitions_ctrees_hdf5(void) { return (int)CTH.chunk_plan.nchunks; }
+
+static int partition_output_id_ctrees_hdf5(int partition) { return partition; }
+
+static int partition_exists_ctrees_hdf5(int partition) {
+  return partition >= 0 && (int64_t)partition < CTH.chunk_plan.nchunks;
+}
+
+static int64_t count_partition_units_ctrees_hdf5(int partition) {
+  if (!partition_exists_ctrees_hdf5(partition)) {
+    return -1;
+  }
+  return CTH.chunk_plan.chunks[partition].nforests;
+}
+
+static int64_t global_forest_offset_ctrees_hdf5(int partition) {
+  if (!partition_exists_ctrees_hdf5(partition)) {
+    FATAL_ERROR("Consistent-Trees HDF5: chunk id %d is outside [0, %" PRId64 ")", partition,
+                CTH.chunk_plan.nchunks);
+  }
+  return CTH.chunk_plan.chunks[partition].start_forest;
+}
+
+static double partition_cost_ctrees_hdf5(int partition) {
+  if (!partition_exists_ctrees_hdf5(partition)) {
+    FATAL_ERROR("Consistent-Trees HDF5: chunk id %d is outside [0, %" PRId64 ")", partition,
+                CTH.chunk_plan.nchunks);
+  }
+  return CTH.chunk_costs[partition];
+}
+
 /**
- * @brief   Open this task's partition: distribute forests and stage file lookups.
- * @param   output_id   The MPI task id (the per-task output partition id).
+ * @brief   Open one chunk partition and stage its forest range.
+ * @param   output_id   The global chunk id (also the output file id).
  */
 static void open_partition_ctrees_hdf5(int output_id) {
-  (void)output_id; /* equals ThisTask; the split below reads ThisTask/NTask */
-  const int thistask = ThisTask;
-  const int ntasks = (NTask > 0) ? NTask : 1; /* serial builds leave NTask == 0 */
+  if (!partition_exists_ctrees_hdf5(output_id)) {
+    FATAL_ERROR("Consistent-Trees HDF5: chunk id %d is outside [0, %" PRId64 ")", output_id,
+                CTH.chunk_plan.nchunks);
+  }
 
-  if (stage_current_task_ctrees_hdf5(thistask, ntasks) != EXIT_SUCCESS) {
+  const struct ChunkPlanRange *range = &CTH.chunk_plan.chunks[output_id];
+  if (range->nforests > INT_MAX) {
+    FATAL_ERROR("Consistent-Trees HDF5 chunk %d has %" PRId64
+                " forests, exceeding the 32-bit per-partition limit",
+                output_id, range->nforests);
+  }
+
+  const int thistask = ThisTask;
+  const int ntasks = (NTask > 0) ? NTask : 1;
+  if (stage_range_ctrees_hdf5(range->start_forest, range->nforests, thistask, ntasks) !=
+      EXIT_SUCCESS) {
     clear_staged_range_ctrees_hdf5();
-    FATAL_ERROR("Failed to set up the Consistent-Trees HDF5 reader on task %d", thistask);
+    FATAL_ERROR("Failed to set up Consistent-Trees HDF5 chunk %d on task %d", output_id, thistask);
   }
 }
 
@@ -1728,26 +1859,28 @@ static void load_unit_ctrees_hdf5(int unit) {
   myfree(halos);
 }
 
-/** @brief Close this task's partition: close groups/file, free scaffolding. */
+/** @brief Close this chunk partition: close groups/file, free scaffolding. */
 static void close_partition_ctrees_hdf5(void) { clear_staged_range_ctrees_hdf5(); }
 
 static void teardown_run_ctrees_hdf5(void) { teardown_run_ctrees_hdf5_state(); }
 
 /* Consistent-Trees forests-HDF5: forest-organised, merger pointers in-file. One
-   partition per MPI task, one unit per forest; weighted forest distribution. See
-   tree/registry.c. num_partitions/partition_output_id are unused for
-   PARTITION_PER_TASK readers (the driver derives the output id from ThisTask). */
+   output partition per planned chunk, one unit per forest; the driver assigns
+   chunks to MPI tasks using the published LPT costs. */
 const struct TreeReader CTreesHDF5Reader = {
     .name = "consistent_trees_hdf5",
     .file_extension = "",
-    .partition_model = PARTITION_PER_TASK,
+    .partition_model = PARTITION_ENUMERATED,
     .processing_order = INPUT_PROCESSING_ORDER_TREE,
     .prepare_run = prepare_run_ctrees_hdf5,
     .teardown_run = teardown_run_ctrees_hdf5,
-    .num_partitions = NULL,
-    .partition_output_id = NULL,
+    .num_partitions = num_partitions_ctrees_hdf5,
+    .partition_output_id = partition_output_id_ctrees_hdf5,
+    .partition_exists = partition_exists_ctrees_hdf5,
     .format_partition_path = NULL,
-    .count_partition_units = NULL,
+    .count_partition_units = count_partition_units_ctrees_hdf5,
+    .global_forest_offset = global_forest_offset_ctrees_hdf5,
+    .partition_cost = partition_cost_ctrees_hdf5,
     .open_partition = open_partition_ctrees_hdf5,
     .load_unit = load_unit_ctrees_hdf5,
     .close_partition = close_partition_ctrees_hdf5,

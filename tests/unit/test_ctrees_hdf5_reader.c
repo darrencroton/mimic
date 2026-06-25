@@ -642,6 +642,44 @@ int test_run_prepare_survives_repeated_range_staging(void) {
   return TEST_PASS;
 }
 
+int test_prepare_builds_chunk_plan_from_forest_counts(void) {
+  init_memory_system(0);
+  MimicConfig.LastSnapshotNr = 10;
+  MimicConfig.Omega = 0.3;
+  MimicConfig.OmegaLambda = 0.7;
+  MimicConfig.Hubble_h = 0.68;
+  MimicConfig.BoxSize = 50.0;
+
+  char dir_template[] = "/tmp/mimic_ctrees_h5_chunks_XXXXXX";
+  TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
+
+  const char *tree_name = "trees.h5";
+  char path[512];
+  snprintf(path, sizeof(path), "%s/%s", dir_template, tree_name);
+  TEST_ASSERT(write_multifile_forests_metadata(path) == 0,
+              "should write a multi-file forests-HDF5 metadata fixture");
+
+  int nchunks = 0;
+  int64_t starts[4] = {0};
+  int64_t counts[4] = {0};
+  double costs[4] = {0.0};
+  TEST_ASSERT(ctrees_hdf5_test_prepare_chunk_plan(dir_template, tree_name, 3, 1024, 4, starts,
+                                                  counts, costs, &nchunks) == EXIT_SUCCESS,
+              "run prepare should build a chunk plan from ForestInfo halo counts");
+
+  TEST_ASSERT(nchunks == 3, "seven forests with forests_per_file=3 should produce three chunks");
+  TEST_ASSERT(starts[0] == 0 && counts[0] == 3, "chunk 0 should cover forests [0, 3)");
+  TEST_ASSERT(starts[1] == 3 && counts[1] == 3, "chunk 1 should cover forests [3, 6)");
+  TEST_ASSERT(starts[2] == 6 && counts[2] == 1, "chunk 2 should cover forests [6, 7)");
+  TEST_ASSERT(costs[0] == 4.0 && costs[1] == 4.0 && costs[2] == 1.0,
+              "linear chunk costs should sum ForestNhalos over each chunk");
+
+  unlink(path);
+  rmdir(dir_template);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
 int main(void) {
   H5Eset_auto2(H5E_DEFAULT, NULL, NULL);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -660,6 +698,7 @@ int main(void) {
   TEST_RUN(test_window_refills_across_sequential_forests);
   TEST_RUN(test_giant_forest_uses_direct_read_path);
   TEST_RUN(test_run_prepare_survives_repeated_range_staging);
+  TEST_RUN(test_prepare_builds_chunk_plan_from_forest_counts);
 
   TEST_SUMMARY();
   return TEST_RESULT();

@@ -20,10 +20,10 @@ static int passed = 0, failed = 0;
  * two-term UniqueGalaxyID encoding.
  */
 int test_max_forest_count(void) {
-  const int64_t expected = LLONG_MAX / TREE_MUL_FAC;
+  const int64_t expected = (LLONG_MAX - (TREE_MUL_FAC - 1LL)) / TREE_MUL_FAC;
 
   TEST_ASSERT(mimic_unique_galaxy_id_max_forests() == expected,
-              "maximum forest count should be LLONG_MAX / TREE_MUL_FAC");
+              "maximum forest count should reserve space for the largest halo index");
   TEST_ASSERT(expected > 0, "maximum forest count should be positive");
 
   return TEST_PASS;
@@ -73,15 +73,17 @@ int test_component_validation_boundaries(void) {
 
 /**
  * @test  test_encoding_formula
- * Encodes valid components as halonr + TREE_MUL_FAC * forestnr_global.
+ * Encodes valid components as halonr + TREE_MUL_FAC * (forestnr_global + 1),
+ * reserving zero as a pure sentinel.
  */
 int test_encoding_formula(void) {
   const int64_t max_forests = mimic_unique_galaxy_id_max_forests();
-  const int64_t max_valid_id = max_forests * TREE_MUL_FAC - 1;
+  const int64_t max_valid_id = max_forests * TREE_MUL_FAC + TREE_MUL_FAC - 1;
 
-  TEST_ASSERT(mimic_encode_unique_galaxy_id(0, 0) == 0, "zero components should encode to zero");
-  TEST_ASSERT(mimic_encode_unique_galaxy_id(123, 456) == 456 * TREE_MUL_FAC + 123,
-              "non-zero components should use the two-term formula");
+  TEST_ASSERT(mimic_encode_unique_galaxy_id(0, 0) == TREE_MUL_FAC,
+              "first real galaxy should not encode to the zero sentinel");
+  TEST_ASSERT(mimic_encode_unique_galaxy_id(123, 456) == 457 * TREE_MUL_FAC + 123,
+              "non-zero components should use the one-based forest formula");
   TEST_ASSERT(mimic_encode_unique_galaxy_id(TREE_MUL_FAC - 1, max_forests - 1) == max_valid_id,
               "highest valid components should encode to the highest valid ID");
 

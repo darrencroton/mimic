@@ -22,6 +22,7 @@
 
 #include <hdf5.h>
 #include <hdf5_hl.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -417,6 +418,11 @@ void save_halos_hdf5(int filenr, int tree) {
 
       prepare_halo_for_output(&ProcessedHalos[i], &hdf5_wbuf[n][hdf5_wbuf_count[n]]);
       hdf5_wbuf_count[n]++;
+
+      if (TotHalosPerSnap[n] == INT_MAX || InputHalosPerSnap[n][tree] == INT_MAX) {
+        FATAL_ERROR("Halo counter overflow for output chunk %d at snapshot %d (tree %d)", filenr,
+                    MimicConfig.ListOutputSnaps[n], tree);
+      }
 
       /* Increment halo counters */
       TotHalosPerSnap[n]++;

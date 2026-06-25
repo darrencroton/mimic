@@ -142,10 +142,10 @@ def test_lhalo_two_file_prefix_offset_encoding():
         assert len(halos1) > 0, "file 1 output must exercise the second partition"
 
         forest_numbers0 = set(
-            int(value) for value in np.unique(halos0.UniqueGalaxyID // TREE_MUL_FAC)
+            int(value) - 1 for value in np.unique(halos0.UniqueGalaxyID // TREE_MUL_FAC)
         )
         forest_numbers1 = set(
-            int(value) for value in np.unique(halos1.UniqueGalaxyID // TREE_MUL_FAC)
+            int(value) - 1 for value in np.unique(halos1.UniqueGalaxyID // TREE_MUL_FAC)
         )
 
         assert forest_numbers0 == {

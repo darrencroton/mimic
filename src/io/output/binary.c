@@ -18,6 +18,7 @@
  */
 
 #include <math.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -134,6 +135,11 @@ void save_halos(int filenr, int tree) {
 
         /* Convert internal halo to output format */
         prepare_halo_for_output(&ProcessedHalos[i], &halo_output);
+
+        if (TotHalosPerSnap[n] == INT_MAX || InputHalosPerSnap[n][tree] == INT_MAX) {
+          FATAL_ERROR("Halo counter overflow for output chunk %d at snapshot %d (tree %d)", filenr,
+                      MimicConfig.ListOutputSnaps[n], tree);
+        }
 
         /* Write halo data to output file */
         size_t halo_size = sizeof(struct HaloOutput);

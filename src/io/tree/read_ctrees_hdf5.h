@@ -53,6 +53,10 @@ struct ctrees_hdf5_test_stage_probe {
 int ctrees_hdf5_test_prepare_and_stage_ranges(const char *simulation_dir, const char *tree_name,
                                               const int64_t starts[2], const int64_t counts[2],
                                               struct ctrees_hdf5_test_stage_probe probes[2]);
+int ctrees_hdf5_test_prepare_chunk_plan(const char *simulation_dir, const char *tree_name,
+                                        int64_t forests_per_file, int64_t target_file_size,
+                                        int max_chunks, int64_t *starts, int64_t *counts,
+                                        double *costs, int *nchunks);
 
 #endif /* HDF5 && MIMIC_TEST_BUILD */
 
