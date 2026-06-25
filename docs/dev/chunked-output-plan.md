@@ -293,6 +293,39 @@ Until Slice 7 lands, this plan targets the **manageable-file-size** problem for 
 
 ---
 
+## Pre-Slice 7 checkpoint: refresh intentional UniqueGalaxyID baselines
+
+### Intended Change
+- Refresh committed baseline outputs after the Slice 5 sentinel-reserving `UniqueGalaxyID` encoding change and the Slice 6 ASCII checkpoint, before starting Slice 7. This is a baseline maintenance checkpoint, not a numbered implementation slice.
+- First validate that the current outputs differ from the old baselines only in `UniqueGalaxyID` and `UniqueCentralGalaxyID`; all other compared fields must remain identical within the existing baseline tolerances.
+- After that validation is green, regenerate and commit the affected baseline files so `make tests` is green before the Slice 7 streaming/scale work begins. Detailed task steps live in `docs/dev/pre-slice-7-baseline-refresh.md`.
+
+### Acceptance Criteria
+- `tests/integration/test_output_formats.py` current binary/HDF5 outputs match their committed baselines for all compared fields except `UniqueGalaxyID` and `UniqueCentralGalaxyID` before refresh.
+- `models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py` current SAGE physics output matches its committed baseline for all fields except `UniqueGalaxyID` and `UniqueCentralGalaxyID` before refresh.
+- After refreshing the baseline files, both tests pass normally without excluding any fields.
+
+### Authorized Surface
+- Files: committed baseline artifacts under `tests/data/output/baseline/{binary,hdf5}/` and `models/sage16/modules/_tests/baseline/physics-binary/`.
+- Documentation: `docs/dev/pre-slice-7-baseline-refresh.md` and this plan note.
+
+### Explicit Non-Goals
+- No production code changes; no test weakening or permanent exclusion of the ID fields; no Slice 7 streaming/guard work.
+
+### Risk Flags
+- Risky surfaces touched: committed scientific/reference data.
+- Approval needed: yes, before committing refreshed baselines.
+
+### Validation Plan
+- Run the pre-refresh exclusion check described in `docs/dev/pre-slice-7-baseline-refresh.md`.
+- Refresh the baseline artifacts from freshly generated current outputs.
+- Rerun `python3 tests/integration/test_output_formats.py` and `python3 models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py`; both must pass normally.
+
+### Rollback Path
+- Revert the baseline-refresh commit; the old baselines return and the known ID-only failures recur.
+
+---
+
 ## Slice 7: Scale past the 32-bit forest-count limit — per-chunk guard + streaming planner
 
 ### Intended Change
