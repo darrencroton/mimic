@@ -116,6 +116,7 @@ def write_run(
     output_filename: str,
     snapshot_list: list[int],
     input_overrides: dict[str, Any] | None = None,
+    output_overrides: dict[str, Any] | None = None,
 ) -> None:
     config = dict(base)
     if input_overrides:
@@ -126,7 +127,18 @@ def write_run(
         "output_format": output_format,
         "snapshot_list": snapshot_list,
     }
+    if output_overrides:
+        config["output"].update(output_overrides)
     write_yaml(path, config, title)
+
+
+def generated_output_overrides(sim_config_rel: str) -> dict[str, Any]:
+    """Return test-only output keys needed by the selected simulation reader."""
+    config = yaml.safe_load((REPO_ROOT / sim_config_rel).read_text(encoding="utf-8"))
+    tree_type = (config.get("input") or {}).get("tree_type")
+    if tree_type == "consistent_trees_ascii":
+        return {"forests_per_file": 1000000}
+    return {}
 
 
 def generation_root(model: str, simulation: str) -> Path:
@@ -158,6 +170,7 @@ def generate() -> None:
     simulation = selected_simulation()
     output_root = generation_root(model, simulation)
     base = base_run_config(model, simulation)
+    output_overrides = generated_output_overrides(base["simulation"]["config"])
 
     # All test runs use a single tree file regardless of what simulation_info.yaml says.
     # This keeps tests fast and independent of local data availability.
@@ -176,6 +189,7 @@ def generate() -> None:
         output_filename="model",
         snapshot_list=[last_snap],
         input_overrides=test_input,
+        output_overrides=output_overrides,
     )
     write_run(
         output_root / "core" / "test_hdf5.yaml",
@@ -186,6 +200,7 @@ def generate() -> None:
         output_filename="model",
         snapshot_list=[last_snap],
         input_overrides=test_input,
+        output_overrides=output_overrides,
     )
 
     simulation_dir = output_root / "simulations" / simulation
@@ -198,6 +213,7 @@ def generate() -> None:
         output_filename="model",
         snapshot_list=[last_snap],
         input_overrides=test_input,
+        output_overrides=output_overrides,
     )
     write_run(
         simulation_dir / "test_hdf5.yaml",
@@ -208,6 +224,7 @@ def generate() -> None:
         output_filename="model",
         snapshot_list=[last_snap],
         input_overrides=test_input,
+        output_overrides=output_overrides,
     )
     write_run(
         simulation_dir / "test_uniquegalid.yaml",
@@ -218,6 +235,7 @@ def generate() -> None:
         output_filename="model_uniquegalid",
         snapshot_list=[last_snap - 1, last_snap],
         input_overrides=test_input,
+        output_overrides=output_overrides,
     )
 
     manifest = {

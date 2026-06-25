@@ -15,8 +15,12 @@ or (when the compilation is set up):
   make SIMULATION=micro-uchuu-ascii MODEL=halos-only tests-integration
 """
 
+import shutil
 import sys
+import tempfile
 from pathlib import Path
+
+import yaml
 
 
 def find_repo_root(start):
@@ -27,7 +31,6 @@ def find_repo_root(start):
 
 
 REPO_ROOT = find_repo_root(Path(__file__).resolve())
-OUTPUT_FILE = REPO_ROOT / "tests" / "data" / "output" / "hdf5" / "model_000.hdf5"
 Z0_SNAPSHOT_GROUP = "Snap049"
 EXPECTED_Z0_HALOS = 3  # fixture: 3 forests, each contributing one snap49 halo
 
@@ -54,12 +57,34 @@ def _require_exe():
         raise TestSkipped("Mimic not built — run: make SIMULATION=micro-uchuu-ascii")
 
 
+def _make_param(temp_dir, output_name):
+    with simulation_input_file("test_hdf5.yaml").open() as handle:
+        config = yaml.safe_load(handle)
+
+    output_dir = Path(temp_dir) / output_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    config["output"]["output_directory"] = str(output_dir)
+    # Keep this explicit so direct test runs still work if generated inputs are stale.
+    config["output"]["forests_per_file"] = 1000000
+
+    param_file = Path(temp_dir) / f"{output_name}.yaml"
+    with param_file.open("w") as handle:
+        yaml.dump(config, handle, default_flow_style=False, sort_keys=False)
+
+    return param_file, output_dir / "model_000.hdf5"
+
+
 def test_ascii_reader_loads():
     """Run halos-only on the tiny ASCII fixture; expect exit 0."""
     _require_simulation()
     _require_exe()
 
-    run_mimic_fresh(simulation_input_file("test_hdf5.yaml"), OUTPUT_FILE)
+    temp_dir = Path(tempfile.mkdtemp(prefix="mimic_ascii_smoke_"))
+    try:
+        param_file, output_file = _make_param(temp_dir, "load")
+        run_mimic_fresh(param_file, output_file)
+    finally:
+        shutil.rmtree(temp_dir)
 
 
 def test_ascii_reader_halo_count():
@@ -69,14 +94,19 @@ def test_ascii_reader_halo_count():
 
     import h5py
 
-    run_mimic_fresh(simulation_input_file("test_hdf5.yaml"), OUTPUT_FILE)
-    with h5py.File(OUTPUT_FILE, "r") as hf:
-        assert Z0_SNAPSHOT_GROUP in hf, f"{Z0_SNAPSHOT_GROUP} missing from {OUTPUT_FILE}"
-        galaxies = hf[Z0_SNAPSHOT_GROUP].get("Galaxies")
-        assert galaxies is not None, f"{Z0_SNAPSHOT_GROUP}/Galaxies missing from {OUTPUT_FILE}"
-        assert (
-            galaxies.shape[0] == EXPECTED_Z0_HALOS
-        ), f"Expected {EXPECTED_Z0_HALOS} output halos, found {galaxies.shape[0]}"
+    temp_dir = Path(tempfile.mkdtemp(prefix="mimic_ascii_smoke_"))
+    try:
+        param_file, output_file = _make_param(temp_dir, "count")
+        run_mimic_fresh(param_file, output_file)
+        with h5py.File(output_file, "r") as hf:
+            assert Z0_SNAPSHOT_GROUP in hf, f"{Z0_SNAPSHOT_GROUP} missing from {output_file}"
+            galaxies = hf[Z0_SNAPSHOT_GROUP].get("Galaxies")
+            assert galaxies is not None, f"{Z0_SNAPSHOT_GROUP}/Galaxies missing from {output_file}"
+            assert (
+                galaxies.shape[0] == EXPECTED_Z0_HALOS
+            ), f"Expected {EXPECTED_Z0_HALOS} output halos, found {galaxies.shape[0]}"
+    finally:
+        shutil.rmtree(temp_dir)
 
 
 if __name__ == "__main__":
