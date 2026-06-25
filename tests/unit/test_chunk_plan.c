@@ -8,6 +8,7 @@
 #include "../../src/util/error.h"
 
 #include <float.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,8 @@ static int assert_chunk(const struct ChunkPlan *plan, int64_t idx, int64_t start
   TEST_ASSERT_EQUAL(plan->chunks[idx].start_forest, start, "chunk start should match");
   TEST_ASSERT_EQUAL(plan->chunks[idx].nforests, nforests, "chunk length should match");
   TEST_ASSERT_DOUBLE_EQUAL(plan->chunks[idx].size, size, 1e-12, "chunk size should match");
+  TEST_ASSERT_DOUBLE_EQUAL(plan->chunks[idx].cost, size, 1e-12,
+                           "default chunk cost should match size");
   return TEST_PASS;
 }
 
@@ -157,6 +160,50 @@ int test_streaming_matches_full_array(void) {
   return TEST_PASS;
 }
 
+int test_streaming_costs_are_accumulated_independently(void) {
+  const double sizes[] = {6.0, 1.0, 1.0, 6.0};
+  const double costs[] = {1.0, 10.0, 100.0, 1000.0};
+  struct ChunkPlanBuilder builder;
+  struct ChunkPlan plan;
+
+  TEST_ASSERT(chunk_plan_builder_init(&builder, 6.0, 0) == 0, "streaming init should succeed");
+  TEST_ASSERT(chunk_plan_builder_add_file_with_cost(&builder, 4, sizes, costs) == 0,
+              "streaming cost feed should succeed");
+  TEST_ASSERT(chunk_plan_builder_finish(&builder, &plan) == 0, "streaming finish should succeed");
+
+  TEST_ASSERT_EQUAL(plan.nchunks, 3, "size budget should still drive boundaries");
+  TEST_ASSERT_DOUBLE_EQUAL(plan.chunks[0].size, 6.0, 1e-12, "first chunk size should match");
+  TEST_ASSERT_DOUBLE_EQUAL(plan.chunks[0].cost, 1.0, 1e-12, "first chunk cost should match");
+  TEST_ASSERT_DOUBLE_EQUAL(plan.chunks[1].size, 2.0, 1e-12, "middle chunk size should match");
+  TEST_ASSERT_DOUBLE_EQUAL(plan.chunks[1].cost, 110.0, 1e-12, "middle chunk cost should sum costs");
+  TEST_ASSERT_DOUBLE_EQUAL(plan.chunks[2].size, 6.0, 1e-12, "last chunk size should match");
+  TEST_ASSERT_DOUBLE_EQUAL(plan.chunks[2].cost, 1000.0, 1e-12, "last chunk cost should match");
+
+  chunk_plan_free(&plan);
+  return TEST_PASS;
+}
+
+int test_streaming_accepts_int64_forest_indices(void) {
+  const double sizes[] = {1.0, 1.0};
+  struct ChunkPlanBuilder builder;
+  struct ChunkPlan plan;
+  const int64_t mocked_start = (int64_t)INT_MAX + 7;
+
+  TEST_ASSERT(chunk_plan_builder_init(&builder, 10.0, 0) == 0, "streaming init should succeed");
+  builder.next_forest = mocked_start;
+  TEST_ASSERT(chunk_plan_builder_add_file(&builder, 2, sizes) == 0,
+              "mocked over-INT_MAX feed should succeed");
+  TEST_ASSERT(chunk_plan_builder_finish(&builder, &plan) == 0, "streaming finish should succeed");
+
+  TEST_ASSERT_EQUAL(plan.nchunks, 1, "mocked high-index forests should form one chunk");
+  TEST_ASSERT_EQUAL(plan.chunks[0].start_forest, mocked_start,
+                    "chunk start should preserve int64 forest index");
+  TEST_ASSERT_EQUAL(plan.chunks[0].nforests, 2, "chunk length should match");
+
+  chunk_plan_free(&plan);
+  return TEST_PASS;
+}
+
 int test_lpt_single_task_and_idle_tasks(void) {
   const double costs[] = {5.0, 4.0};
   int task_of_chunk[2] = {-1, -1};
@@ -215,6 +262,7 @@ int test_invalid_inputs_and_zero_chunk_assignment(void) {
   const double nonfinite_sizes[] = {NAN};
   const double valid_costs[] = {1.0};
   const double invalid_costs[] = {-1.0};
+  const double nonfinite_costs[] = {INFINITY};
   struct ChunkPlanBuilder builder;
   struct ChunkPlan plan;
   int task_of_chunk = -1;
@@ -236,6 +284,16 @@ int test_invalid_inputs_and_zero_chunk_assignment(void) {
               "full-array wrapper should reject negative forest sizes");
   TEST_ASSERT(chunk_plan_build_boundaries(1, nonfinite_sizes, 1.0, 0, &plan) != 0,
               "full-array wrapper should reject non-finite forest sizes");
+  TEST_ASSERT(chunk_plan_builder_init(&builder, 1.0, 0) == 0,
+              "builder init should succeed for invalid-cost checks");
+  TEST_ASSERT(chunk_plan_builder_add_file_with_cost(&builder, 1, valid_sizes, invalid_costs) != 0,
+              "streaming builder should reject negative forest costs");
+  chunk_plan_free(&builder.plan);
+  TEST_ASSERT(chunk_plan_builder_init(&builder, 1.0, 0) == 0,
+              "builder init should succeed for non-finite-cost checks");
+  TEST_ASSERT(chunk_plan_builder_add_file_with_cost(&builder, 1, valid_sizes, nonfinite_costs) != 0,
+              "streaming builder should reject non-finite forest costs");
+  chunk_plan_free(&builder.plan);
 
   TEST_ASSERT(chunk_plan_assign_lpt(0, NULL, 1, NULL) == 0,
               "zero-chunk LPT assignment should be valid");
@@ -266,6 +324,8 @@ int main(void) {
   TEST_RUN(test_even_chunking_and_no_empty_chunks);
   TEST_RUN(test_forests_per_file_override);
   TEST_RUN(test_streaming_matches_full_array);
+  TEST_RUN(test_streaming_costs_are_accumulated_independently);
+  TEST_RUN(test_streaming_accepts_int64_forest_indices);
   TEST_RUN(test_lpt_single_task_and_idle_tasks);
   TEST_RUN(test_lpt_tie_break_is_stable);
   TEST_RUN(test_lpt_makespan_bound_on_spiky_distribution);

@@ -331,6 +331,8 @@ static void teardown_run_ctrees_ascii_state(void) {
 }
 
 static int build_chunk_plan_ctrees_ascii(void) {
+  enum { CTREES_ASCII_CHUNK_PLAN_BATCH = 4096 };
+
   if (MimicConfig.ForestsPerFile <= 0) {
     fprintf(stderr,
             "Error: consistent_trees_ascii requires output.forests_per_file > 0 because ASCII "
@@ -342,15 +344,37 @@ static int build_chunk_plan_ctrees_ascii(void) {
     return EXIT_FAILURE;
   }
 
-  double *size_per_forest = mymalloc_cat((size_t)CT.totnforests * sizeof(*size_per_forest), MEM_IO);
-  for (int64_t i = 0; i < CT.totnforests; i++) {
-    size_per_forest[i] = 1.0;
+  struct ChunkPlanBuilder builder;
+  if (chunk_plan_builder_init(&builder, 1.0, MimicConfig.ForestsPerFile) != 0) {
+    fprintf(stderr,
+            "Error: failed to initialise Consistent-Trees ASCII chunk planner "
+            "(forests_per_file=%" PRId64 ")\n",
+            MimicConfig.ForestsPerFile);
+    return EXIT_FAILURE;
   }
 
-  const int status = chunk_plan_build_boundaries(CT.totnforests, size_per_forest, 1.0,
-                                                 MimicConfig.ForestsPerFile, &CT.chunk_plan);
-  myfree(size_per_forest);
-  if (status != 0) {
+  double unit_sizes[CTREES_ASCII_CHUNK_PLAN_BATCH];
+  for (int i = 0; i < CTREES_ASCII_CHUNK_PLAN_BATCH; i++) {
+    unit_sizes[i] = 1.0;
+  }
+
+  int64_t remaining = CT.totnforests;
+  while (remaining > 0) {
+    const int64_t batch =
+        remaining < CTREES_ASCII_CHUNK_PLAN_BATCH ? remaining : CTREES_ASCII_CHUNK_PLAN_BATCH;
+    if (chunk_plan_builder_add_file(&builder, batch, unit_sizes) != 0) {
+      chunk_plan_free(&builder.plan);
+      fprintf(stderr,
+              "Error: failed to feed Consistent-Trees ASCII chunk planner "
+              "(forests_per_file=%" PRId64 ")\n",
+              MimicConfig.ForestsPerFile);
+      return EXIT_FAILURE;
+    }
+    remaining -= batch;
+  }
+
+  if (chunk_plan_builder_finish(&builder, &CT.chunk_plan) != 0) {
+    chunk_plan_free(&builder.plan);
     fprintf(stderr,
             "Error: failed to build Consistent-Trees ASCII chunk plan "
             "(forests_per_file=%" PRId64 ")\n",
@@ -358,6 +382,7 @@ static int build_chunk_plan_ctrees_ascii(void) {
     return EXIT_FAILURE;
   }
   if (CT.chunk_plan.nchunks >= INT_MAX) {
+    chunk_plan_free(&CT.chunk_plan);
     fprintf(stderr,
             "Error: Consistent-Trees ASCII chunk count %" PRId64
             " cannot be represented by the reader interface\n",
@@ -443,19 +468,11 @@ static int prepare_run_ctrees_ascii_state(void) {
     }
   }
   CT.totnforests = totnforests;
-  /* Defensive for future int64 staging; the 32-bit staging limit is binding today. */
   if (!mimic_unique_galaxy_id_total_forests_valid(totnforests)) {
     fprintf(stderr,
             "Error: Consistent-Trees total forest count %" PRId64
             " exceeds the UniqueGalaxyID encoding limit of %" PRId64 "\n",
             totnforests, mimic_unique_galaxy_id_max_forests());
-    free_unowned_files_fd_ctrees_ascii(&files_fd);
-    return EXIT_FAILURE;
-  }
-  if (totnforests >= INT_MAX) {
-    fprintf(stderr,
-            "Error: Consistent-Trees forest count %" PRId64 " cannot be indexed by a 32-bit int\n",
-            totnforests);
     free_unowned_files_fd_ctrees_ascii(&files_fd);
     return EXIT_FAILURE;
   }

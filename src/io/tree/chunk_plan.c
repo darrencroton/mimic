@@ -10,7 +10,7 @@
 #include <string.h>
 
 static int chunk_plan_append(struct ChunkPlan *plan, int64_t start_forest, int64_t nforests,
-                             double size) {
+                             double size, double cost) {
   if (nforests <= 0)
     return -1;
 
@@ -33,6 +33,7 @@ static int chunk_plan_append(struct ChunkPlan *plan, int64_t start_forest, int64
   plan->chunks[plan->nchunks].start_forest = start_forest;
   plan->chunks[plan->nchunks].nforests = nforests;
   plan->chunks[plan->nchunks].size = size;
+  plan->chunks[plan->nchunks].cost = cost;
   plan->nchunks++;
   return 0;
 }
@@ -42,11 +43,12 @@ static int chunk_plan_emit_current(struct ChunkPlanBuilder *builder) {
     return 0;
 
   if (chunk_plan_append(&builder->plan, builder->current_start, builder->current_nforests,
-                        builder->current_size) != 0)
+                        builder->current_size, builder->current_cost) != 0)
     return -1;
 
   builder->current_nforests = 0;
   builder->current_size = 0.0;
+  builder->current_cost = 0.0;
   return 0;
 }
 
@@ -67,6 +69,12 @@ int chunk_plan_builder_init(struct ChunkPlanBuilder *builder, double size_budget
 
 int chunk_plan_builder_add_file(struct ChunkPlanBuilder *builder, int64_t nforests,
                                 const double *size_per_forest) {
+  return chunk_plan_builder_add_file_with_cost(builder, nforests, size_per_forest, NULL);
+}
+
+int chunk_plan_builder_add_file_with_cost(struct ChunkPlanBuilder *builder, int64_t nforests,
+                                          const double *size_per_forest,
+                                          const double *cost_per_forest) {
   if (builder == NULL || nforests < 0)
     return -1;
   if (nforests > 0 && size_per_forest == NULL)
@@ -74,7 +82,10 @@ int chunk_plan_builder_add_file(struct ChunkPlanBuilder *builder, int64_t nfores
 
   for (int64_t i = 0; i < nforests; i++) {
     const double forest_size = size_per_forest[i];
+    const double forest_cost = cost_per_forest != NULL ? cost_per_forest[i] : forest_size;
     if (!isfinite(forest_size) || forest_size < 0.0)
+      return -1;
+    if (!isfinite(forest_cost) || forest_cost < 0.0)
       return -1;
 
     if (builder->forests_per_file_override > 0) {
@@ -91,6 +102,7 @@ int chunk_plan_builder_add_file(struct ChunkPlanBuilder *builder, int64_t nfores
       builder->current_start = builder->next_forest;
     builder->current_nforests++;
     builder->current_size += forest_size;
+    builder->current_cost += forest_cost;
     builder->next_forest++;
 
     if (builder->forests_per_file_override == 0 && forest_size > builder->size_budget &&

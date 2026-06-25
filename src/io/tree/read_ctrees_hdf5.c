@@ -155,7 +155,6 @@ struct ctrees_hdf5_partition {
   int64_t totnforests;           /* global requested forest count */
   int64_t *nforests_per_file;    /* [totnfiles] run-scoped per-file forest counts */
   int64_t *first_forest_in_file; /* [totnfiles] global first forest in each file */
-  int64_t *nhalos_per_forest;    /* [totnforests] run-scoped size/cost inputs */
   struct ChunkPlan chunk_plan;   /* run-scoped output chunk ranges */
   double *chunk_costs;           /* [chunk_plan.nchunks] run-scoped LPT costs */
 
@@ -919,107 +918,162 @@ static int load_forestinfo_cache_ctrees_hdf5(const int start_filenum, const int 
   return EXIT_SUCCESS;
 }
 
-/* Read the per-forest halo counts (the "ForestNhalos" member of each file's
-   "ForestInfo" compound dataset) into nhalos_per_forest, used for chunk sizing
-   and LPT cost. Loading uses the chunk-range ForestInfo cache built after
-   assignment; this global pass deliberately stays minimal. */
+/* Read the per-forest halo counts (the "ForestNhalos" member of one file's
+   "ForestInfo" compound dataset) into a caller-owned per-file buffer. */
+static int read_nhalos_for_file(const int ifile, const int64_t nforests_this_file,
+                                int64_t *nhalos_per_forest) {
+  int file_status = CT_H5_ERR;
+  hid_t finfo_dset = -1;
+  hid_t finfo_fspace = -1;
+  hid_t finfo_memspace = -1;
+  hid_t nhalos_dtype = -1;
+  char dataset_name[MAX_STRING_LEN];
+
+  snprintf(dataset_name, sizeof(dataset_name), "File%d/ForestInfo", ifile);
+  finfo_dset = H5Dopen2(CTH.meta_fd, dataset_name, H5P_DEFAULT);
+  if (finfo_dset < 0) {
+    fprintf(stderr, "Error: Could not open 'ForestInfo' in file %d\n", ifile);
+    goto forestinfo_cleanup;
+  }
+  finfo_fspace = H5Dget_space(finfo_dset);
+  if (finfo_fspace < 0) {
+    fprintf(stderr, "Error: Could not get 'ForestInfo' space in file %d\n", ifile);
+    goto forestinfo_cleanup;
+  }
+  hsize_t finfo_length = 0;
+  if (ct_h5_get_1d_extent(finfo_fspace, "ForestInfo", &finfo_length) != EXIT_SUCCESS) {
+    goto forestinfo_cleanup;
+  }
+  if ((hsize_t)nforests_this_file != finfo_length) {
+    fprintf(stderr,
+            "Error: file %d reports %" PRId64 " forests but 'ForestInfo' contains %llu rows\n",
+            ifile, nforests_this_file, (unsigned long long)finfo_length);
+    goto forestinfo_cleanup;
+  }
+  const hsize_t count = (hsize_t)nforests_this_file;
+  finfo_memspace = H5Screate_simple(1, &count, NULL);
+  if (finfo_memspace < 0) {
+    fprintf(stderr, "Error: Could not create 'ForestInfo' memspace\n");
+    goto forestinfo_cleanup;
+  }
+  nhalos_dtype = H5Tcreate(H5T_COMPOUND, sizeof(int64_t));
+  if (nhalos_dtype < 0) {
+    fprintf(stderr, "Error: Could not create compound type (file %d)\n", ifile);
+    goto forestinfo_cleanup;
+  }
+  if (H5Tinsert(nhalos_dtype, "ForestNhalos", 0, H5T_NATIVE_INT64) < 0) {
+    fprintf(stderr, "Error: Could not insert 'ForestNhalos' field (file %d)\n", ifile);
+    goto forestinfo_cleanup;
+  }
+  if (H5Dread(finfo_dset, nhalos_dtype, finfo_memspace, finfo_fspace, H5P_DEFAULT,
+              nhalos_per_forest) < 0) {
+    fprintf(stderr, "Error: Could not read 'ForestNhalos' (file %d)\n", ifile);
+    goto forestinfo_cleanup;
+  }
+  for (int64_t i = 0; i < nforests_this_file; i++) {
+    if (nhalos_per_forest[i] < 0) {
+      fprintf(stderr,
+              "Error: file %d ForestInfo row %" PRId64 " has negative ForestNhalos=%" PRId64 "\n",
+              ifile, i, nhalos_per_forest[i]);
+      goto forestinfo_cleanup;
+    }
+  }
+  file_status = EXIT_SUCCESS;
+
+forestinfo_cleanup:
+  if (nhalos_dtype >= 0)
+    H5Tclose(nhalos_dtype);
+  if (finfo_memspace >= 0)
+    H5Sclose(finfo_memspace);
+  if (finfo_fspace >= 0)
+    H5Sclose(finfo_fspace);
+  if (finfo_dset >= 0)
+    H5Dclose(finfo_dset);
+  return file_status;
+}
+
+#ifdef MIMIC_TEST_BUILD
 static int read_nhalos_per_forest(const int firstfile, const int lastfile,
                                   const int64_t *totnforests_per_file, int64_t *nhalos_per_forest) {
   int64_t written = 0;
   for (int ifile = firstfile; ifile <= lastfile; ifile++) {
-    int file_status = CT_H5_ERR;
-    hid_t finfo_dset = -1;
-    hid_t finfo_fspace = -1;
-    hid_t finfo_memspace = -1;
-    hid_t nhalos_dtype = -1;
     const int64_t nforests_this_file = totnforests_per_file[ifile];
-    char dataset_name[MAX_STRING_LEN];
-    snprintf(dataset_name, sizeof(dataset_name), "File%d/ForestInfo", ifile);
-    finfo_dset = H5Dopen2(CTH.meta_fd, dataset_name, H5P_DEFAULT);
-    if (finfo_dset < 0) {
-      fprintf(stderr, "Error: Could not open 'ForestInfo' in file %d\n", ifile);
-      goto forestinfo_cleanup;
-    }
-    finfo_fspace = H5Dget_space(finfo_dset);
-    if (finfo_fspace < 0) {
-      fprintf(stderr, "Error: Could not get 'ForestInfo' space in file %d\n", ifile);
-      goto forestinfo_cleanup;
-    }
-    hsize_t finfo_length = 0;
-    if (ct_h5_get_1d_extent(finfo_fspace, "ForestInfo", &finfo_length) != EXIT_SUCCESS) {
-      goto forestinfo_cleanup;
-    }
-    if ((hsize_t)nforests_this_file != finfo_length) {
-      fprintf(stderr,
-              "Error: file %d reports %" PRId64 " forests but 'ForestInfo' contains %llu rows\n",
-              ifile, nforests_this_file, (unsigned long long)finfo_length);
-      goto forestinfo_cleanup;
-    }
-    const hsize_t count = (hsize_t)nforests_this_file;
-    finfo_memspace = H5Screate_simple(1, &count, NULL);
-    if (finfo_memspace < 0) {
-      fprintf(stderr, "Error: Could not create 'ForestInfo' memspace\n");
-      goto forestinfo_cleanup;
-    }
-    nhalos_dtype = H5Tcreate(H5T_COMPOUND, sizeof(int64_t));
-    if (nhalos_dtype < 0) {
-      fprintf(stderr, "Error: Could not create compound type (file %d)\n", ifile);
-      goto forestinfo_cleanup;
-    }
-    if (H5Tinsert(nhalos_dtype, "ForestNhalos", 0, H5T_NATIVE_INT64) < 0) {
-      fprintf(stderr, "Error: Could not insert 'ForestNhalos' field (file %d)\n", ifile);
-      goto forestinfo_cleanup;
-    }
-    if (H5Dread(finfo_dset, nhalos_dtype, finfo_memspace, finfo_fspace, H5P_DEFAULT,
-                &nhalos_per_forest[written]) < 0) {
-      fprintf(stderr, "Error: Could not read 'ForestNhalos' (file %d)\n", ifile);
-      goto forestinfo_cleanup;
-    }
-    for (int64_t i = 0; i < nforests_this_file; i++) {
-      if (nhalos_per_forest[written + i] < 0) {
-        fprintf(stderr,
-                "Error: file %d ForestInfo row %" PRId64 " has negative ForestNhalos=%" PRId64 "\n",
-                ifile, i, nhalos_per_forest[written + i]);
-        goto forestinfo_cleanup;
-      }
-    }
-    file_status = EXIT_SUCCESS;
-
-  forestinfo_cleanup:
-    if (nhalos_dtype >= 0)
-      H5Tclose(nhalos_dtype);
-    if (finfo_memspace >= 0)
-      H5Sclose(finfo_memspace);
-    if (finfo_fspace >= 0)
-      H5Sclose(finfo_fspace);
-    if (finfo_dset >= 0)
-      H5Dclose(finfo_dset);
-    if (file_status != EXIT_SUCCESS) {
+    if (read_nhalos_for_file(ifile, nforests_this_file, &nhalos_per_forest[written]) !=
+        EXIT_SUCCESS) {
       return CT_H5_ERR;
     }
     written += nforests_this_file;
   }
   return EXIT_SUCCESS;
 }
+#endif
 
 static int build_chunk_plan_ctrees_hdf5(void) {
-  XRETURN(CTH.totnforests >= 1 && CTH.nhalos_per_forest != NULL, CT_H5_ERR,
-          "Error: Consistent-Trees HDF5 reader cannot build chunks before halo counts are read\n");
+  XRETURN(
+      CTH.totnforests >= 1 && CTH.nforests_per_file != NULL, CT_H5_ERR,
+      "Error: Consistent-Trees HDF5 reader cannot build chunks before forest counts are read\n");
 
-  double *size_per_forest =
-      mymalloc_cat((size_t)CTH.totnforests * sizeof(*size_per_forest), MEM_IO);
-  for (int64_t i = 0; i < CTH.totnforests; i++) {
-    size_per_forest[i] = (double)CTH.nhalos_per_forest[i] * (double)sizeof(struct HaloOutput);
+  struct ChunkPlanBuilder builder;
+  XRETURN(chunk_plan_builder_init(&builder, (double)MimicConfig.TargetFileSize,
+                                  MimicConfig.ForestsPerFile) == 0,
+          CT_H5_ERR,
+          "Error: failed to initialise Consistent-Trees HDF5 chunk planner "
+          "(target_file_size=%" PRId64 ", forests_per_file=%" PRId64 ")\n",
+          MimicConfig.TargetFileSize, MimicConfig.ForestsPerFile);
+
+  const enum ForestDistributionScheme scheme =
+      (enum ForestDistributionScheme)MimicConfig.ForestDistributionScheme;
+  for (int ifile = CTH.firstfile; ifile <= CTH.lastfile; ifile++) {
+    const int64_t nforests_this_file = CTH.nforests_per_file[ifile];
+    if ((uint64_t)nforests_this_file > (uint64_t)(SIZE_MAX / sizeof(double))) {
+      fprintf(stderr, "Error: file %d has too many forests to stage planning buffers\n", ifile);
+      chunk_plan_free(&builder.plan);
+      return CT_H5_ERR;
+    }
+
+    int64_t *nhalos_per_forest =
+        mymalloc_cat((size_t)nforests_this_file * sizeof(*nhalos_per_forest), MEM_IO);
+    double *size_per_forest =
+        mymalloc_cat((size_t)nforests_this_file * sizeof(*size_per_forest), MEM_IO);
+    double *cost_per_forest =
+        mymalloc_cat((size_t)nforests_this_file * sizeof(*cost_per_forest), MEM_IO);
+
+    int file_status = read_nhalos_for_file(ifile, nforests_this_file, nhalos_per_forest);
+    for (int64_t i = 0; file_status == EXIT_SUCCESS && i < nforests_this_file; i++) {
+      size_per_forest[i] = (double)nhalos_per_forest[i] * (double)sizeof(struct HaloOutput);
+      cost_per_forest[i] = compute_forest_cost_from_nhalos(scheme, nhalos_per_forest[i],
+                                                           MimicConfig.Exponent_Forest_Dist_Scheme);
+      if (cost_per_forest[i] < 0.0 || !isfinite(cost_per_forest[i])) {
+        fprintf(stderr,
+                "Error: invalid Consistent-Trees HDF5 forest cost %g for forest %" PRId64 "\n",
+                cost_per_forest[i], CTH.first_forest_in_file[ifile] + i);
+        file_status = CT_H5_ERR;
+      }
+    }
+    if (file_status == EXIT_SUCCESS &&
+        chunk_plan_builder_add_file_with_cost(&builder, nforests_this_file, size_per_forest,
+                                              cost_per_forest) != 0) {
+      fprintf(stderr, "Error: failed to feed file %d into Consistent-Trees HDF5 chunk planner\n",
+              ifile);
+      file_status = CT_H5_ERR;
+    }
+
+    myfree(cost_per_forest);
+    myfree(size_per_forest);
+    myfree(nhalos_per_forest);
+    if (file_status != EXIT_SUCCESS) {
+      chunk_plan_free(&builder.plan);
+      return CT_H5_ERR;
+    }
   }
 
-  const int status = chunk_plan_build_boundaries(CTH.totnforests, size_per_forest,
-                                                 (double)MimicConfig.TargetFileSize,
-                                                 MimicConfig.ForestsPerFile, &CTH.chunk_plan);
-  myfree(size_per_forest);
-  XRETURN(status == 0, CT_H5_ERR,
-          "Error: failed to build Consistent-Trees HDF5 chunk plan (target_file_size=%" PRId64
-          ", forests_per_file=%" PRId64 ")\n",
-          MimicConfig.TargetFileSize, MimicConfig.ForestsPerFile);
+  if (chunk_plan_builder_finish(&builder, &CTH.chunk_plan) != 0) {
+    chunk_plan_free(&builder.plan);
+    XRETURN(0, CT_H5_ERR,
+            "Error: failed to build Consistent-Trees HDF5 chunk plan (target_file_size=%" PRId64
+            ", forests_per_file=%" PRId64 ")\n",
+            MimicConfig.TargetFileSize, MimicConfig.ForestsPerFile);
+  }
   XRETURN(CTH.chunk_plan.nchunks > 0, CT_H5_ERR,
           "Error: Consistent-Trees HDF5 chunk planner emitted no chunks for %" PRId64 " forests\n",
           CTH.totnforests);
@@ -1029,21 +1083,9 @@ static int build_chunk_plan_ctrees_hdf5(void) {
           CTH.chunk_plan.nchunks);
 
   CTH.chunk_costs = mymalloc_cat((size_t)CTH.chunk_plan.nchunks * sizeof(*CTH.chunk_costs), MEM_IO);
-  const enum ForestDistributionScheme scheme =
-      (enum ForestDistributionScheme)MimicConfig.ForestDistributionScheme;
   for (int64_t chunk = 0; chunk < CTH.chunk_plan.nchunks; chunk++) {
     const struct ChunkPlanRange *range = &CTH.chunk_plan.chunks[chunk];
-    double cost = 0.0;
-    for (int64_t i = 0; i < range->nforests; i++) {
-      const int64_t forest = range->start_forest + i;
-      const double forest_cost = compute_forest_cost_from_nhalos(
-          scheme, CTH.nhalos_per_forest[forest], MimicConfig.Exponent_Forest_Dist_Scheme);
-      XRETURN(forest_cost >= 0.0 && isfinite(forest_cost), CT_H5_ERR,
-              "Error: invalid Consistent-Trees HDF5 forest cost %g for forest %" PRId64 "\n",
-              forest_cost, forest);
-      cost += forest_cost;
-    }
-    CTH.chunk_costs[chunk] = cost;
+    CTH.chunk_costs[chunk] = range->cost;
   }
 
   DEBUG_LOG("Consistent-Trees HDF5 chunk plan: nchunks=%" PRId64 ", target_file_size=%" PRId64
@@ -1118,10 +1160,6 @@ static void teardown_run_ctrees_hdf5_state(void) {
     CTH.chunk_costs = NULL;
   }
   chunk_plan_free(&CTH.chunk_plan);
-  if (CTH.nhalos_per_forest != NULL) {
-    myfree(CTH.nhalos_per_forest);
-    CTH.nhalos_per_forest = NULL;
-  }
   if (CTH.first_forest_in_file != NULL) {
     myfree(CTH.first_forest_in_file);
     CTH.first_forest_in_file = NULL;
@@ -1441,6 +1479,23 @@ int ctrees_hdf5_test_prepare_chunk_plan(const char *simulation_dir, const char *
   teardown_run_ctrees_hdf5_state();
   return EXIT_SUCCESS;
 }
+
+int ctrees_hdf5_test_rejects_oversized_stage_range(void) {
+  int64_t nforests_per_file[1] = {(int64_t)INT_MAX + 1};
+
+  memset(&CTH, 0, sizeof(CTH));
+  CTH.meta_fd = 0;
+  CTH.nforests_per_file = nforests_per_file;
+  CTH.totnforests = (int64_t)INT_MAX + 1;
+
+  const int status = stage_range_ctrees_hdf5(0, (int64_t)INT_MAX + 1, 0, 1);
+
+  CTH.nforests_per_file = NULL;
+  CTH.meta_fd = -1;
+  clear_staged_range_ctrees_hdf5();
+  memset(&CTH, 0, sizeof(CTH));
+  return status != EXIT_SUCCESS ? EXIT_SUCCESS : CT_H5_ERR;
+}
 #endif /* MIMIC_TEST_BUILD */
 
 /* Detect the snapshot-number field and its on-disk type. Older Consistent-Trees
@@ -1537,21 +1592,11 @@ static int prepare_run_ctrees_hdf5_state(void) {
   CTH.totnforests = totnforests;
   XRETURN(totnforests >= 1, CT_H5_ERR, "Error: total forest count %" PRId64 " must be >= 1\n",
           totnforests);
-  /* Defensive for future int64 staging; the 32-bit staging limit is binding today. */
   XRETURN(mimic_unique_galaxy_id_total_forests_valid(totnforests), CT_H5_ERR,
           "Error: Consistent-Trees total forest count %" PRId64
           " exceeds the UniqueGalaxyID encoding limit of %" PRId64 "\n",
           totnforests, max_unique_id_forests);
-  if (totnforests >= INT_MAX) {
-    XRETURN(0, CT_H5_ERR, "Error: forest count %" PRId64 " cannot be indexed by a 32-bit int\n",
-            totnforests);
-  }
 
-  CTH.nhalos_per_forest = mymalloc_cat(totnforests * sizeof(*CTH.nhalos_per_forest), MEM_IO);
-  if (read_nhalos_per_forest(firstfile, lastfile, CTH.nforests_per_file, CTH.nhalos_per_forest) !=
-      EXIT_SUCCESS) {
-    return CT_H5_ERR;
-  }
   if (build_chunk_plan_ctrees_hdf5() != EXIT_SUCCESS) {
     return CT_H5_ERR;
   }
@@ -1594,6 +1639,10 @@ static int stage_range_ctrees_hdf5(const int64_t start_forestnum, const int64_t 
           CT_H5_ERR,
           "Error: requested forest range [%" PRId64 ", %" PRId64 ") outside [0, %" PRId64 ")\n",
           start_forestnum, start_forestnum + nforests, CTH.totnforests);
+  XRETURN(nforests <= INT_MAX, CT_H5_ERR,
+          "Error: Consistent-Trees HDF5 chunk has %" PRId64
+          " forests, exceeding the 32-bit per-partition limit\n",
+          nforests);
 
   CTH.start_forestnum = start_forestnum;
   GlobalForestOffset = CTH.start_forestnum;

@@ -680,6 +680,12 @@ int test_prepare_builds_chunk_plan_from_forest_counts(void) {
   return TEST_PASS;
 }
 
+int test_stage_rejects_oversized_chunk(void) {
+  TEST_ASSERT(ctrees_hdf5_test_rejects_oversized_stage_range() == EXIT_SUCCESS,
+              "HDF5 staging should reject chunks above the 32-bit per-partition limit");
+  return TEST_PASS;
+}
+
 int main(void) {
   H5Eset_auto2(H5E_DEFAULT, NULL, NULL);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -699,6 +705,7 @@ int main(void) {
   TEST_RUN(test_giant_forest_uses_direct_read_path);
   TEST_RUN(test_run_prepare_survives_repeated_range_staging);
   TEST_RUN(test_prepare_builds_chunk_plan_from_forest_counts);
+  TEST_RUN(test_stage_rejects_oversized_chunk);
 
   TEST_SUMMARY();
   return TEST_RESULT();

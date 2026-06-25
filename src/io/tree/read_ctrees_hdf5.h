@@ -57,6 +57,7 @@ int ctrees_hdf5_test_prepare_chunk_plan(const char *simulation_dir, const char *
                                         int64_t forests_per_file, int64_t target_file_size,
                                         int max_chunks, int64_t *starts, int64_t *counts,
                                         double *costs, int *nchunks);
+int ctrees_hdf5_test_rejects_oversized_stage_range(void);
 
 #endif /* HDF5 && MIMIC_TEST_BUILD */
 

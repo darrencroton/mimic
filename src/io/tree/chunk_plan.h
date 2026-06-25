@@ -16,6 +16,7 @@ struct ChunkPlanRange {
   int64_t start_forest;
   int64_t nforests;
   double size;
+  double cost;
 };
 
 struct ChunkPlan {
@@ -32,6 +33,7 @@ struct ChunkPlanBuilder {
   int64_t current_start;
   int64_t current_nforests;
   double current_size;
+  double current_cost;
 };
 
 int chunk_plan_builder_init(struct ChunkPlanBuilder *builder, double size_budget,
@@ -39,6 +41,9 @@ int chunk_plan_builder_init(struct ChunkPlanBuilder *builder, double size_budget
 /* If add_file or finish fails after partial input, call chunk_plan_free(&builder->plan). */
 int chunk_plan_builder_add_file(struct ChunkPlanBuilder *builder, int64_t nforests,
                                 const double *size_per_forest);
+int chunk_plan_builder_add_file_with_cost(struct ChunkPlanBuilder *builder, int64_t nforests,
+                                          const double *size_per_forest,
+                                          const double *cost_per_forest);
 int chunk_plan_builder_finish(struct ChunkPlanBuilder *builder, struct ChunkPlan *plan);
 int chunk_plan_build_boundaries(int64_t nforests, const double *size_per_forest, double size_budget,
                                 int64_t forests_per_file_override, struct ChunkPlan *plan);
