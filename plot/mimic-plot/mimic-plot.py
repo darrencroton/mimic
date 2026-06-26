@@ -969,11 +969,10 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
     else:
         # Fall back to individual partition files (no master file present).
         # Output partitions are numbered by output id, which differs by reader:
-        # PARTITION_PER_FILE (L-Halo) numbers them by input file, PARTITION_PER_TASK
-        # (Consistent-Trees) by MPI task. Enumerate whatever model_*.hdf5 partitions
-        # actually exist rather than assuming the input file range maps to output
-        # file numbers (which would miss per-task partitions when NTask differs from
-        # the input file count).
+        # PARTITION_PER_FILE (L-Halo) numbers them by input file, while
+        # PARTITION_ENUMERATED (Consistent-Trees) numbers them by global chunk id.
+        # Enumerate whatever model_*.hdf5 partitions actually exist rather than
+        # assuming the input file range maps to output file numbers.
         if verbose:
             print(f"Master file not found, reading individual partition files...")
 
@@ -992,8 +991,8 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
                     print(f"Read {len(halos)} halos from {fname}")
 
         # The processed volume fraction depends on the input files actually read
-        # (first_file..last_file), not the number of output partitions (which is the
-        # task count for PARTITION_PER_TASK). Match the master-file path's convention.
+        # (first_file..last_file), not the number of output partitions. Match the
+        # master-file path's convention.
         good_files = last_file - first_file + 1
 
     if not galaxies_list:

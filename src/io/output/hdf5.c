@@ -419,14 +419,7 @@ void save_halos_hdf5(int filenr, int tree) {
       prepare_halo_for_output(&ProcessedHalos[i], &hdf5_wbuf[n][hdf5_wbuf_count[n]]);
       hdf5_wbuf_count[n]++;
 
-      if (TotHalosPerSnap[n] == INT_MAX || InputHalosPerSnap[n][tree] == INT_MAX) {
-        FATAL_ERROR("Halo counter overflow for output chunk %d at snapshot %d (tree %d)", filenr,
-                    MimicConfig.ListOutputSnaps[n], tree);
-      }
-
-      /* Increment halo counters */
-      TotHalosPerSnap[n]++;
-      InputHalosPerSnap[n][tree]++;
+      output_increment_halo_counters_checked(filenr, n, MimicConfig.ListOutputSnaps[n], tree);
 
       if (hdf5_wbuf_count[n] == HDF5_WRITE_BUFFER_RECORDS) {
         flush_hdf5_buffer(n, filenr);

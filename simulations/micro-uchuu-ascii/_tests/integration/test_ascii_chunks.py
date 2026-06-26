@@ -47,10 +47,24 @@ def _require_ready():
         raise TestSkipped("Mimic not built -- run: make SIMULATION=micro-uchuu-ascii")
 
 
-def _make_param(temp_dir, output_name, forests_per_file=None):
+def _make_param(temp_dir, output_name, forests_per_file=None, simulation_forests_per_file=100000):
     with simulation_input_file("test_hdf5.yaml").open() as handle:
         config = yaml.safe_load(handle)
 
+    with (
+        REPO_ROOT / "simulations/micro-uchuu-ascii/_tests/input/test_simulation.yaml"
+    ).open() as handle:
+        simulation_config = yaml.safe_load(handle)
+    if simulation_forests_per_file is None:
+        simulation_config.pop("output", None)
+    else:
+        simulation_config.setdefault("output", {})["forests_per_file"] = simulation_forests_per_file
+
+    simulation_config_path = Path(temp_dir) / f"{output_name}_simulation.yaml"
+    with simulation_config_path.open("w") as handle:
+        yaml.dump(simulation_config, handle, default_flow_style=False, sort_keys=False)
+
+    config["simulation"]["config"] = str(simulation_config_path)
     output_dir = Path(temp_dir) / output_name
     output_dir.mkdir(parents=True, exist_ok=True)
     config["output"]["output_directory"] = str(output_dir)
@@ -83,7 +97,7 @@ def _load_hdf5_union(output_dir):
 def _canonical(records):
     order = np.argsort(records["UniqueGalaxyID"])
     records = records[order]
-    fields = ["UniqueGalaxyID", "MostBoundID", "SnapNum", "Mvir", "Len"]
+    fields = records.dtype.names
     return {field: records[field] for field in fields}
 
 
@@ -91,6 +105,7 @@ def _assert_same_records(actual, expected):
     assert np.all(actual["UniqueGalaxyID"] != 0), "chunked output must not emit sentinel ID 0"
     actual_data = _canonical(actual)
     expected_data = _canonical(expected)
+    assert actual_data.keys() == expected_data.keys(), "chunked and baseline schemas differ"
     for field, expected_values in expected_data.items():
         actual_values = actual_data[field]
         if np.issubdtype(expected_values.dtype, np.floating):
@@ -122,7 +137,9 @@ def test_ascii_requires_forests_per_file():
 
     temp_dir = Path(tempfile.mkdtemp(prefix="mimic_ascii_chunks_"))
     try:
-        param_file, _output_dir = _make_param(temp_dir, "missing_forests_per_file")
+        param_file, _output_dir = _make_param(
+            temp_dir, "missing_forests_per_file", simulation_forests_per_file=None
+        )
         returncode, stdout, stderr = run_mimic(param_file)
         combined = f"{stdout}\n{stderr}"
         assert returncode != 0, "ASCII run without forests_per_file should fail"

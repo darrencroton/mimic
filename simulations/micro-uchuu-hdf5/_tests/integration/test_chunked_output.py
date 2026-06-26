@@ -51,6 +51,9 @@ def _make_param(ref_name, temp_dir, output_format, forests_per_file, output_name
     with simulation_input_file(ref_name).open() as handle:
         config = yaml.safe_load(handle)
 
+    config["simulation"][
+        "config"
+    ] = "simulations/micro-uchuu-hdf5/_tests/input/test_simulation.yaml"
     output_dir = Path(temp_dir) / output_name
     output_dir.mkdir(parents=True, exist_ok=True)
     config["output"]["output_directory"] = str(output_dir)
@@ -92,7 +95,7 @@ def _load_binary_union(output_dir):
 def _canonical(records):
     order = np.argsort(records["UniqueGalaxyID"])
     records = records[order]
-    fields = ["UniqueGalaxyID", "MostBoundID", "SnapNum", "Mvir", "Len"]
+    fields = records.dtype.names
     return {field: records[field] for field in fields}
 
 
@@ -100,12 +103,30 @@ def _assert_same_records(actual, expected):
     assert np.all(actual["UniqueGalaxyID"] != 0), "chunked output must not emit sentinel ID 0"
     actual_data = _canonical(actual)
     expected_data = _canonical(expected)
+    assert actual_data.keys() == expected_data.keys(), "chunked and baseline schemas differ"
     for field, expected_values in expected_data.items():
         actual_values = actual_data[field]
         if np.issubdtype(expected_values.dtype, np.floating):
             np.testing.assert_allclose(actual_values, expected_values)
         else:
             np.testing.assert_array_equal(actual_values, expected_values)
+
+
+def _assert_master_links(output_dir, chunk_count):
+    import h5py
+
+    master_file = output_dir / "model.hdf5"
+    assert master_file.exists(), f"HDF5 master file not created: {master_file}"
+    with h5py.File(master_file, "r") as handle:
+        assert SNAP_GROUP in handle, f"{SNAP_GROUP} missing from {master_file}"
+        snap_group = handle[SNAP_GROUP]
+        for chunk_id in range(chunk_count):
+            file_group_name = f"File{chunk_id:03d}"
+            assert file_group_name in snap_group, f"{SNAP_GROUP}/{file_group_name} missing"
+            for dataset_name in ("Galaxies", "TreeHalosPerSnap"):
+                link_path = f"{SNAP_GROUP}/{file_group_name}/{dataset_name}"
+                link = handle.get(link_path, getlink=True)
+                assert isinstance(link, h5py.ExternalLink), f"{link_path} is not an external link"
 
 
 def test_chunked_hdf5_and_binary_match_single_chunk_hdf5():
@@ -132,6 +153,7 @@ def test_chunked_hdf5_and_binary_match_single_chunk_hdf5():
         assert (
             len(hdf5_files) == FIXTURE_NFORESTS
         ), f"expected one HDF5 chunk per fixture forest, got {hdf5_files}"
+        _assert_master_links(chunked_hdf5_dir, FIXTURE_NFORESTS)
         _assert_same_records(chunked_hdf5, baseline)
 
         run_mimic_fresh(chunked_binary_param)

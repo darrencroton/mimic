@@ -136,11 +136,6 @@ void save_halos(int filenr, int tree) {
         /* Convert internal halo to output format */
         prepare_halo_for_output(&ProcessedHalos[i], &halo_output);
 
-        if (TotHalosPerSnap[n] == INT_MAX || InputHalosPerSnap[n][tree] == INT_MAX) {
-          FATAL_ERROR("Halo counter overflow for output chunk %d at snapshot %d (tree %d)", filenr,
-                      MimicConfig.ListOutputSnaps[n], tree);
-        }
-
         /* Write halo data to output file */
         size_t halo_size = sizeof(struct HaloOutput);
         nwritten = fwrite(&halo_output, halo_size, 1, save_fd[n]);
@@ -151,9 +146,7 @@ void save_halos(int filenr, int tree) {
                       i, tree, filenr, MimicConfig.ListOutputSnaps[n]);
         }
 
-        /* Increment halo counters right after successful write */
-        TotHalosPerSnap[n]++;
-        InputHalosPerSnap[n][tree]++;
+        output_increment_halo_counters_checked(filenr, n, MimicConfig.ListOutputSnaps[n], tree);
       }
     }
   }
