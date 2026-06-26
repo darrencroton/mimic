@@ -22,6 +22,9 @@ input:
   snapshot_list_file: simulations/uchuu/uchuu.a_list
   forest_distribution_scheme: linear     # weight by ForestNhalos for MPI load balance
 
+output:
+  target_file_size_mb: 16384            # 16 GiB; tuned for 37 TB production catalogue on HPC parallel filesystems
+
 simulation:
   cosmology:
     omega_matter: 0.3089

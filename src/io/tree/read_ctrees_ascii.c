@@ -336,7 +336,7 @@ static int build_chunk_plan_ctrees_ascii(void) {
   if (MimicConfig.ForestsPerFile <= 0) {
     fprintf(stderr,
             "Error: consistent_trees_ascii requires output.forests_per_file > 0 because ASCII "
-            "catalogues cannot derive chunk sizes from output.target_file_size\n");
+            "catalogues cannot derive chunk sizes from output.target_file_size_mb\n");
     return EXIT_FAILURE;
   }
   if (CT.totnforests <= 0) {
@@ -413,7 +413,7 @@ static int prepare_run_ctrees_ascii_state(void) {
   if (MimicConfig.ForestsPerFile <= 0) {
     fprintf(stderr,
             "Error: consistent_trees_ascii requires output.forests_per_file > 0 because ASCII "
-            "catalogues cannot derive chunk sizes from output.target_file_size\n");
+            "catalogues cannot derive chunk sizes from output.target_file_size_mb\n");
     return EXIT_FAILURE;
   }
 

@@ -715,7 +715,7 @@ input:
   snapshot_list_file: simulations/my_sim/my_sim.a_list
 
 output:
-  target_file_size: 4294967296  # optional soft HDF5 chunk target in bytes
+  target_file_size_mb: 4096     # optional soft HDF5 chunk target in MiB (4 GiB default)
   forests_per_file: 0           # optional exact forest-count chunk size
 
 simulation:
@@ -735,7 +735,7 @@ simulation:
 
 Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` derives runtime constants from generated reference-unit definitions, not from the simulation package. Simulation scalar values and catalog fields declare their own units and `h_convention`, and generated code (`src/include/generated/unit_registry.h`) converts them into the fixed reference basis at the reader boundary. A scalar may still be written as a bare number (e.g. `box_size: 62.5`), which is taken to be already in reference units. For how units, dimensions, and `h_convention` are declared and converted, see [Units and the Reference Basis](#units-and-the-reference-basis).
 
-Only catalogue-scale output planning defaults belong in `simulation_info.yaml`: `output.target_file_size` and `output.forests_per_file`. They are defaults because large Consistent-Trees catalogues impose the chunking requirement regardless of which model runs on them. Run files may override those two keys, while output paths, output format, and snapshot selection remain run-file settings. `consistent_trees_ascii` cannot derive chunk sizes from `target_file_size`, so ASCII simulation packages that use chunked output should set a positive `forests_per_file` default.
+Only catalogue-scale output planning defaults belong in `simulation_info.yaml`: `output.target_file_size_mb` and `output.forests_per_file`. They are defaults because large Consistent-Trees catalogues impose the chunking requirement regardless of which model runs on them. Run files may override those two keys, while output paths, output format, and snapshot selection remain run-file settings. `consistent_trees_ascii` cannot derive chunk sizes from `target_file_size_mb`, so ASCII simulation packages that use chunked output should set a positive `forests_per_file` default.
 
 **Supported tree formats:**
 
@@ -840,7 +840,7 @@ input:
   last_file: 0  # process only the first file
 ```
 
-Any `input:` key in the run file takes precedence over the same key in `simulation_info.yaml`. The same precedence applies to `output.target_file_size` and `output.forests_per_file`; other `output:` keys are intentionally run-owned and are not valid in simulation metadata.
+Any `input:` key in the run file takes precedence over the same key in `simulation_info.yaml`. The same precedence applies to `output.target_file_size_mb` and `output.forests_per_file`; other `output:` keys are intentionally run-owned and are not valid in simulation metadata.
 
 ### Optional: plot_profile.yaml
 

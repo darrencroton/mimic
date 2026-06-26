@@ -15,6 +15,9 @@ input:
   snapshot_list_file: simulations/micro-uchuu-hdf5/micro-uchuu.a_list
   forest_distribution_scheme: linear     # weight by ForestNhalos for MPI load balance
 
+output:
+  target_file_size_mb: 4096             # 4 GiB; appropriate for this ~13 GB single-file catalogue
+
 simulation:
   cosmology:
     omega_matter: 0.3089

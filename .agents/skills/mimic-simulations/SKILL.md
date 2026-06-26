@@ -34,7 +34,7 @@ input:
   snapshot_list_file: simulations/mini-millennium/mini-millennium.a_list
 
 output:
-  target_file_size: 4294967296  # optional soft HDF5 chunk target in bytes
+  target_file_size_mb: 4096     # optional soft HDF5 chunk target in MiB (4 GiB default)
   forests_per_file: 0           # optional exact forest-count chunk size
 
 simulation:
@@ -54,7 +54,7 @@ simulation:
 
 `tree_type` selects the reader format. Current registered readers are `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, and `consistent_trees_hdf5`; HDF5 readers require an HDF5-enabled build. Do not conflate `tree_type` with `processing_order` — they are orthogonal.
 
-Only `output.target_file_size` and `output.forests_per_file` are valid in simulation metadata. They are catalogue-scale chunking defaults and may be overridden by a run file. Output paths, output format, and snapshot lists are run-file concerns. `consistent_trees_ascii` cannot derive chunks from `target_file_size`, so ASCII simulation packages should set a positive `forests_per_file` default.
+Only `output.target_file_size_mb` and `output.forests_per_file` are valid in simulation metadata. They are catalogue-scale chunking defaults and may be overridden by a run file. Output paths, output format, and snapshot lists are run-file concerns. `consistent_trees_ascii` cannot derive chunks from `target_file_size_mb`, so ASCII simulation packages should set a positive `forests_per_file` default.
 
 ## halo_properties.yaml
 

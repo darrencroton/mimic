@@ -582,9 +582,9 @@ static double get_unit_scalar_value(yaml_document_t *doc, yaml_node_t *node, con
 static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node;
   const char *str;
-  static const char *const valid_keys[] = {"output_filename",  "output_directory",
-                                           "output_format",    "snapshot_list",
-                                           "target_file_size", "forests_per_file"};
+  static const char *const valid_keys[] = {"output_filename",     "output_directory",
+                                           "output_format",       "snapshot_list",
+                                           "target_file_size_mb", "forests_per_file"};
 
   DEBUG_LOG("Parsing output section");
   reject_unknown_keys(doc, section, "output", valid_keys,
@@ -617,13 +617,14 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
     DEBUG_LOG("OutputFormat = %s", str);
   }
 
-  node = get_mapping_value(doc, section, "target_file_size");
+  node = get_mapping_value(doc, section, "target_file_size_mb");
   if (node) {
-    MimicConfig.TargetFileSize = get_strict_int64_value(node, "output.target_file_size");
-    if (MimicConfig.TargetFileSize <= 0) {
-      FATAL_ERROR("output.target_file_size must be positive");
+    int64_t mb = get_strict_int64_value(node, "output.target_file_size_mb");
+    if (mb <= 0) {
+      FATAL_ERROR("output.target_file_size_mb must be positive");
     }
-    DEBUG_LOG("TargetFileSize = %" PRId64, MimicConfig.TargetFileSize);
+    MimicConfig.TargetFileSize = mb * 1024LL * 1024LL;
+    DEBUG_LOG("TargetFileSize = %" PRId64 " (from %" PRId64 " MB)", MimicConfig.TargetFileSize, mb);
   }
 
   node = get_mapping_value(doc, section, "forests_per_file");
@@ -668,19 +669,21 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
  */
 static void parse_simulation_output_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node;
-  static const char *const valid_keys[] = {"target_file_size", "forests_per_file"};
+  static const char *const valid_keys[] = {"target_file_size_mb", "forests_per_file"};
 
   DEBUG_LOG("Parsing simulation output defaults");
   reject_unknown_keys(doc, section, "simulation output defaults", valid_keys,
                       sizeof(valid_keys) / sizeof(valid_keys[0]));
 
-  node = get_mapping_value(doc, section, "target_file_size");
+  node = get_mapping_value(doc, section, "target_file_size_mb");
   if (node) {
-    MimicConfig.TargetFileSize = get_strict_int64_value(node, "output.target_file_size");
-    if (MimicConfig.TargetFileSize <= 0) {
-      FATAL_ERROR("output.target_file_size must be positive");
+    int64_t mb = get_strict_int64_value(node, "output.target_file_size_mb");
+    if (mb <= 0) {
+      FATAL_ERROR("output.target_file_size_mb must be positive");
     }
-    DEBUG_LOG("Simulation TargetFileSize default = %" PRId64, MimicConfig.TargetFileSize);
+    MimicConfig.TargetFileSize = mb * 1024LL * 1024LL;
+    DEBUG_LOG("Simulation TargetFileSize default = %" PRId64 " (from %" PRId64 " MB)",
+              MimicConfig.TargetFileSize, mb);
   }
 
   node = get_mapping_value(doc, section, "forests_per_file");

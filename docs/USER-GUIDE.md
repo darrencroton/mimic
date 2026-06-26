@@ -314,7 +314,7 @@ input:
   last_file: 0
 ```
 
-`simulation_info.yaml` may also define catalogue-scale output chunking defaults with `output.target_file_size` and `output.forests_per_file`. A run file can override those two keys in its own `output:` section. Output destination, format, and snapshot list remain run-file settings.
+`simulation_info.yaml` may also define catalogue-scale output chunking defaults with `output.target_file_size_mb` and `output.forests_per_file`. A run file can override those two keys in its own `output:` section. Output destination, format, and snapshot list remain run-file settings.
 
 **Run with MPI** after building with MPI support — Mimic parallelizes over tree files:
 
@@ -398,12 +398,12 @@ output:
 
 HDF5 is self-documenting and portable — field names, units, and run provenance travel inside the file. Binary is compact and fast; Mimic writes `metadata/output_schema.json` beside every run so binary readers can reconstruct the exact record layout used by that executable. The bundled `example_Mvir_Len_plot.py` in each output directory is a ready-to-run Python example configured for the exact output that was just written. If you move or sync binary outputs elsewhere, keep the `metadata/` directory with them.
 
-Consistent-Trees chunked output is configured with two optional output keys. `target_file_size` is a soft byte target for HDF5 chunk planning and defaults to 4294967296 bytes (4 GiB). The planner estimates chunk size from input halo counts, so processed output can be larger when model physics creates orphans or when HDF5 compression and metadata change on-disk size. `forests_per_file` defaults to 0, which means derive chunks from `target_file_size`; when set above 0, it gives an exact deterministic forest count per output chunk. These keys may live in `simulation_info.yaml` when the catalogue size requires a shared default across models, and the run file can override them. ASCII Consistent-Trees catalogues cannot estimate chunk sizes from `target_file_size`, so `consistent_trees_ascii` requires `forests_per_file > 0` before processing starts. Existing chunks are resumable with `--skip`; a partial chunk is rejected so reruns do not mix complete and incomplete partition files.
+Consistent-Trees chunked output is configured with two optional output keys. `target_file_size_mb` is a soft size target in MiB (1024² bytes) for HDF5 chunk planning and defaults to 4096 (4 GiB). The planner estimates chunk size from input halo counts, so processed output can be larger when model physics creates orphans or when HDF5 compression and metadata change on-disk size. `forests_per_file` defaults to 0, which means derive chunks from `target_file_size_mb`; when set above 0, it gives an exact deterministic forest count per output chunk. These keys may live in `simulation_info.yaml` when the catalogue size requires a shared default across models, and the run file can override them. ASCII Consistent-Trees catalogues cannot estimate chunk sizes from `target_file_size_mb`, so `consistent_trees_ascii` requires `forests_per_file > 0` before processing starts. Existing chunks are resumable with `--skip`; a partial chunk is rejected so reruns do not mix complete and incomplete partition files.
 
 ```yaml
 output:
-  target_file_size: 4294967296  # soft target in bytes
-  forests_per_file: 0           # 0 = derive from target_file_size
+  target_file_size_mb: 4096  # soft target in MiB (4 GiB)
+  forests_per_file: 0        # 0 = derive from target_file_size_mb
 ```
 
 ### Units and Schema

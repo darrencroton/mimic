@@ -246,7 +246,7 @@ static int write_simulation_output_fixture(char *run_path, size_t run_path_size,
                "  snapshot_list_file: simulations/mini-millennium/mini-millennium.a_list\n"
                "\n"
                "output:\n"
-               "  target_file_size: 4294967300\n"
+               "  target_file_size_mb: 4096\n"
                "  forests_per_file: 2468\n"
                "\n"
                "simulation:\n"
@@ -285,7 +285,7 @@ static int write_simulation_output_fixture(char *run_path, size_t run_path_size,
     }
 
     if (include_run_override && !injected_run_override && is_output_section_header(line)) {
-      fputs("  target_file_size: 4294967400\n"
+      fputs("  target_file_size_mb: 8192\n"
             "  forests_per_file: 1357\n",
             dst);
       injected_run_override = 1;
@@ -609,7 +609,7 @@ int test_output_chunking_parameters(void) {
   install_output_chunking_defaults_for_test();
 
   TEST_ASSERT(write_output_chunking_fixture(fixture_path, sizeof(fixture_path), "valid",
-                                            "  target_file_size: 4294967297\n"
+                                            "  target_file_size_mb: 5120\n"
                                             "  forests_per_file: 12345\n") == 0,
               "Should create output chunking fixture");
 
@@ -617,8 +617,8 @@ int test_output_chunking_parameters(void) {
   read_parameter_file(fixture_path);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4294967297LL,
-                    "target_file_size should accept values above INT_MAX");
+  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 5120LL * 1024 * 1024,
+                    "target_file_size_mb should convert MB to bytes");
   TEST_ASSERT_EQUAL(MimicConfig.ForestsPerFile, 12345LL, "forests_per_file should parse as int64");
 
   printf("  target_file_size parsed: %lld\n", (long long)MimicConfig.TargetFileSize);
@@ -638,7 +638,7 @@ int test_output_chunking_accepts_zero_forests(void) {
   install_output_chunking_defaults_for_test();
 
   TEST_ASSERT(write_output_chunking_fixture(fixture_path, sizeof(fixture_path), "zero_forests",
-                                            "  target_file_size: 4294967296\n"
+                                            "  target_file_size_mb: 4096\n"
                                             "  forests_per_file: 0\n") == 0,
               "Should create zero forests_per_file fixture");
 
@@ -646,8 +646,8 @@ int test_output_chunking_accepts_zero_forests(void) {
   read_parameter_file(fixture_path);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4294967296LL,
-                    "target_file_size should parse with forests_per_file zero");
+  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4096LL * 1024 * 1024,
+                    "target_file_size_mb should parse with forests_per_file zero");
   TEST_ASSERT_EQUAL(MimicConfig.ForestsPerFile, 0LL, "forests_per_file should accept zero");
 
   printf("  target_file_size parsed: %lld\n", (long long)MimicConfig.TargetFileSize);
@@ -675,8 +675,8 @@ int test_simulation_output_chunking_defaults_and_run_override(void) {
   read_parameter_file(simulation_default_path);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4294967300LL,
-                    "simulation output.target_file_size should set the default");
+  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4096LL * 1024 * 1024,
+                    "simulation output.target_file_size_mb should set the default");
   TEST_ASSERT_EQUAL(MimicConfig.ForestsPerFile, 2468LL,
                     "simulation output.forests_per_file should set the default");
 
@@ -698,8 +698,8 @@ int test_simulation_output_chunking_defaults_and_run_override(void) {
   read_parameter_file(run_override_path);
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4294967400LL,
-                    "run output.target_file_size should override the simulation default");
+  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 8192LL * 1024 * 1024,
+                    "run output.target_file_size_mb should override the simulation default");
   TEST_ASSERT_EQUAL(MimicConfig.ForestsPerFile, 1357LL,
                     "run output.forests_per_file should override the simulation default");
 
@@ -724,37 +724,37 @@ int test_output_chunking_rejects_bad_values(void) {
   install_output_chunking_defaults_for_test();
 
   TEST_ASSERT(write_output_chunking_fixture(negative_path, sizeof(negative_path), "negative",
-                                            "  target_file_size: -1\n") == 0,
-              "Should create negative target_file_size fixture");
+                                            "  target_file_size_mb: -1\n") == 0,
+              "Should create negative target_file_size_mb fixture");
   TEST_ASSERT(write_output_chunking_fixture(zero_target_path, sizeof(zero_target_path), "zero",
-                                            "  target_file_size: 0\n") == 0,
-              "Should create zero target_file_size fixture");
+                                            "  target_file_size_mb: 0\n") == 0,
+              "Should create zero target_file_size_mb fixture");
   TEST_ASSERT(write_output_chunking_fixture(negative_forests_path, sizeof(negative_forests_path),
                                             "negative_forests", "  forests_per_file: -1\n") == 0,
               "Should create negative forests_per_file fixture");
   TEST_ASSERT(write_output_chunking_fixture(garbage_target_path, sizeof(garbage_target_path),
-                                            "garbage_target", "  target_file_size: 4x\n") == 0,
-              "Should create garbage target_file_size fixture");
+                                            "garbage_target", "  target_file_size_mb: 4x\n") == 0,
+              "Should create garbage target_file_size_mb fixture");
   TEST_ASSERT(write_output_chunking_fixture(garbage_forests_path, sizeof(garbage_forests_path),
                                             "garbage_forests", "  forests_per_file: 12x\n") == 0,
               "Should create garbage forests_per_file fixture");
 
   /* ===== EXECUTE / VALIDATE ===== */
   int negative_target_result = read_parameter_file_should_fatal(negative_path);
-  TEST_ASSERT(negative_target_result != -1, "Negative target_file_size child should not crash");
-  TEST_ASSERT(negative_target_result == 1, "Negative target_file_size should fatal");
+  TEST_ASSERT(negative_target_result != -1, "Negative target_file_size_mb child should not crash");
+  TEST_ASSERT(negative_target_result == 1, "Negative target_file_size_mb should fatal");
 
   int zero_target_result = read_parameter_file_should_fatal(zero_target_path);
-  TEST_ASSERT(zero_target_result != -1, "Zero target_file_size child should not crash");
-  TEST_ASSERT(zero_target_result == 1, "Zero target_file_size should fatal");
+  TEST_ASSERT(zero_target_result != -1, "Zero target_file_size_mb child should not crash");
+  TEST_ASSERT(zero_target_result == 1, "Zero target_file_size_mb should fatal");
 
   int negative_forests_result = read_parameter_file_should_fatal(negative_forests_path);
   TEST_ASSERT(negative_forests_result != -1, "Negative forests_per_file child should not crash");
   TEST_ASSERT(negative_forests_result == 1, "Negative forests_per_file should fatal");
 
   int garbage_target_result = read_parameter_file_should_fatal(garbage_target_path);
-  TEST_ASSERT(garbage_target_result != -1, "Garbage target_file_size child should not crash");
-  TEST_ASSERT(garbage_target_result == 1, "Garbage target_file_size should fatal");
+  TEST_ASSERT(garbage_target_result != -1, "Garbage target_file_size_mb child should not crash");
+  TEST_ASSERT(garbage_target_result == 1, "Garbage target_file_size_mb should fatal");
 
   int garbage_forests_result = read_parameter_file_should_fatal(garbage_forests_path);
   TEST_ASSERT(garbage_forests_result != -1, "Garbage forests_per_file child should not crash");
