@@ -28,8 +28,8 @@
 #define PROGRESS_TIME_STR_LEN 32
 
 /* Completion marker appended to the finished live bar (in place of a separate
- * "Completed file" line). Modern terminals render the check-mark emoji. */
-#define PROGRESS_DONE_MARK "- COMPLETED"
+ * "Completed file" line). */
+#define PROGRESS_DONE_MARK "✓"
 
 /* Hide/show the terminal cursor while the live bar is active.
  * An atexit handler guarantees the cursor is restored on abnormal exit. */
