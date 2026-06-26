@@ -492,13 +492,16 @@ void run_tree_driver(void) {
 #ifdef MPI
     const int ntasks = effective_task_count();
     if (ntasks > 1) {
-      INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d) across %d tasks", nfiles,
-               nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile, ntasks);
+      INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d) → %d output file%s across "
+               "%d tasks",
+               nfiles, nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile, nfiles,
+               nfiles == 1 ? "" : "s", ntasks);
     } else
 #endif
     {
-      INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d)", nfiles,
-               nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile);
+      INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d) → %d output file%s",
+               nfiles, nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile, nfiles,
+               nfiles == 1 ? "" : "s");
     }
   }
 
