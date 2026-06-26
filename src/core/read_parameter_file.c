@@ -661,6 +661,39 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
 }
 
 /**
+ * @brief   Parse simulation-owned output defaults.
+ *
+ * Simulation metadata may provide catalogue-scale chunking defaults, but output
+ * destinations, formats, and snapshot selections remain run-file concerns.
+ */
+static void parse_simulation_output_section(yaml_document_t *doc, yaml_node_t *section) {
+  yaml_node_t *node;
+  static const char *const valid_keys[] = {"target_file_size", "forests_per_file"};
+
+  DEBUG_LOG("Parsing simulation output defaults");
+  reject_unknown_keys(doc, section, "simulation output defaults", valid_keys,
+                      sizeof(valid_keys) / sizeof(valid_keys[0]));
+
+  node = get_mapping_value(doc, section, "target_file_size");
+  if (node) {
+    MimicConfig.TargetFileSize = get_strict_int64_value(node, "output.target_file_size");
+    if (MimicConfig.TargetFileSize <= 0) {
+      FATAL_ERROR("output.target_file_size must be positive");
+    }
+    DEBUG_LOG("Simulation TargetFileSize default = %" PRId64, MimicConfig.TargetFileSize);
+  }
+
+  node = get_mapping_value(doc, section, "forests_per_file");
+  if (node) {
+    MimicConfig.ForestsPerFile = get_strict_int64_value(node, "output.forests_per_file");
+    if (MimicConfig.ForestsPerFile < 0) {
+      FATAL_ERROR("output.forests_per_file must be non-negative");
+    }
+    DEBUG_LOG("Simulation ForestsPerFile default = %" PRId64, MimicConfig.ForestsPerFile);
+  }
+}
+
+/**
  * @brief   Parse input section
  */
 static void parse_input_section(yaml_document_t *doc, yaml_node_t *section) {
@@ -884,6 +917,10 @@ static void parse_simulation_config_file(const char *fname) {
   yaml_node_t *section = get_mapping_value(document, yf.root, "input");
   if (section)
     parse_input_section(document, section);
+
+  section = get_mapping_value(document, yf.root, "output");
+  if (section)
+    parse_simulation_output_section(document, section);
 
   section = get_mapping_value(document, yf.root, "simulation");
   if (section)

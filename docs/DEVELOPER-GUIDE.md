@@ -692,7 +692,7 @@ A simulation package lives under `simulations/<name>/` and provides the merger t
 
 ```text
 simulations/my_sim/
-  simulation_info.yaml      required — catalog paths, cosmology, units, box size
+  simulation_info.yaml      required — catalog paths, cosmology, units, box size, chunking defaults
   my_sim.a_list             required — one scale factor per line per snapshot
   halo_properties.yaml      required — catalog halo fields beyond the core set
   snapshots/                required — tree data directory or symlink to local data
@@ -714,6 +714,10 @@ input:
   simulation_dir: ./simulations/my_sim/snapshots/
   snapshot_list_file: simulations/my_sim/my_sim.a_list
 
+output:
+  target_file_size: 4294967296  # optional soft HDF5 chunk target in bytes
+  forests_per_file: 0           # optional exact forest-count chunk size
+
 simulation:
   cosmology:
     omega_matter: 0.25
@@ -731,6 +735,8 @@ simulation:
 
 Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` derives runtime constants from generated reference-unit definitions, not from the simulation package. Simulation scalar values and catalog fields declare their own units and `h_convention`, and generated code (`src/include/generated/unit_registry.h`) converts them into the fixed reference basis at the reader boundary. A scalar may still be written as a bare number (e.g. `box_size: 62.5`), which is taken to be already in reference units. For how units, dimensions, and `h_convention` are declared and converted, see [Units and the Reference Basis](#units-and-the-reference-basis).
 
+Only catalogue-scale output planning defaults belong in `simulation_info.yaml`: `output.target_file_size` and `output.forests_per_file`. They are defaults because large Consistent-Trees catalogues impose the chunking requirement regardless of which model runs on them. Run files may override those two keys, while output paths, output format, and snapshot selection remain run-file settings. `consistent_trees_ascii` cannot derive chunk sizes from `target_file_size`, so ASCII simulation packages that use chunked output should set a positive `forests_per_file` default.
+
 **Supported tree formats:**
 
 | `tree_type` value | Format | Build |
@@ -744,7 +750,7 @@ Core reference units are fixed in `src/core/core_properties.yaml`; `init.c` deri
 
 `tree_name` is interpreted by the selected reader. `lhalo_binary` uses it as the prefix before the file number (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` use it as a literal filename under `simulation_dir`, including any extension. `lhalo_hdf5` also uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder such as `trees_063.%d.hdf5`.
 
-The `consistent_trees_hdf5` reader is the reference high-throughput HDF5 input path. It caches task-range `ForestInfo`, opens each per-file `Forests/<field>` dataset once for the partition lifetime, validates field extents and datatypes at cache-open time, and serves normal forests from a fixed `CTREES_READ_WINDOW_BYTES` slab window (`128 MiB` per rank). Forests larger than the window use the same cached-handle direct read primitive, so the persistent window stays bounded. Do not add run-YAML knobs or whole-file slab buffering for this path without a new plan and validation gate.
+The `consistent_trees_hdf5` reader is the reference high-throughput HDF5 input path. It caches chunk-range `ForestInfo`, opens each per-file `Forests/<field>` dataset once for the partition lifetime, validates field extents and datatypes at cache-open time, and serves normal forests from a fixed `CTREES_READ_WINDOW_BYTES` slab window (`128 MiB` per rank). Forests larger than the window use the same cached-handle direct read primitive, so the persistent window stays bounded. Do not add run-YAML knobs or whole-file slab buffering for this path without a new plan and validation gate.
 
 ### Snapshot Scale Factor List
 
@@ -834,7 +840,7 @@ input:
   last_file: 0  # process only the first file
 ```
 
-Any `input:` key in the run file takes precedence over the same key in `simulation_info.yaml`.
+Any `input:` key in the run file takes precedence over the same key in `simulation_info.yaml`. The same precedence applies to `output.target_file_size` and `output.forests_per_file`; other `output:` keys are intentionally run-owned and are not valid in simulation metadata.
 
 ### Optional: plot_profile.yaml
 
@@ -888,10 +894,10 @@ struct TreeReader {
   const char *name;           /* tree_type string in the run YAML */
   const char *file_extension; /* optional fixed suffix for legacy readers */
 
-  enum TreePartitionModel partition_model; /* PARTITION_PER_FILE or PARTITION_PER_TASK */
+  enum TreePartitionModel partition_model; /* per-file, enumerated, or legacy per-task */
   enum InputProcessingOrder processing_order; /* currently INPUT_PROCESSING_ORDER_TREE */
 
-  /* PARTITION_PER_FILE only (NULL for PARTITION_PER_TASK): */
+  /* PARTITION_PER_FILE and PARTITION_ENUMERATED readers: */
   int (*num_partitions)(void);
   int (*partition_output_id)(int partition);
   void (*format_partition_path)(char *buf, size_t size, int output_id);
@@ -907,38 +913,40 @@ The vtable is deliberately minimal — fields exist only because a wired reader 
 
 ### Partition and unit model
 
-The core iterates the input as **partitions** of **units**. A partition is the unit of output: the driver opens one set of output files per partition, names them by the partition's `output_id`, and finalises them when the partition is done. A unit is one independently processed merger structure within a partition. Two partition models are supported, declared in `partition_model`:
+The core iterates the input as **partitions** of **units**. A partition is the unit of output: the driver opens one set of output files per partition, names them by the partition's `output_id`, and finalises them when the partition is done. A unit is one independently processed merger structure within a partition. Current readers use these partition models:
 
 | Model | Partition | Unit | Output id | Example |
 | --- | --- | --- | --- | --- |
 | `PARTITION_PER_FILE` | one input file | one tree | file number | both L-Halo readers |
-| `PARTITION_PER_TASK` | one MPI task | one forest | `ThisTask` | both Consistent-Trees readers |
+| `PARTITION_ENUMERATED` | reader-defined chunk | one tree/forest | chunk or reader id | both Consistent-Trees readers |
+| `PARTITION_PER_TASK` | one MPI task | one forest | `ThisTask` | legacy compatibility path; do not use for new readers |
 
 - **`PARTITION_PER_FILE`**: the driver strides partitions across MPI tasks. Supply the enumeration via the shared helpers `tree_partition_per_file_count()` / `tree_partition_per_file_output_id()` (in `interface.c`) as your `num_partitions` / `partition_output_id`. Implement `count_partition_trees(output_id)` as an allocation-free header read so the driver can build the run-scoped global forest-offset table before processing. `open_partition(output_id)` opens file `output_id` and reads its tree table.
-- **`PARTITION_PER_TASK`**: each task owns exactly one output partition, so `num_partitions`, `partition_output_id`, and `count_partition_trees` are `NULL` and the driver derives the output id from `ThisTask`. `open_partition(ThisTask)` performs the per-task forest split (keyed on the `ThisTask`/`NTask` globals), publishes `GlobalForestOffset`, and reads that task's forest table. This is the model for catalogues that are not partitioned into independent files on disk.
+- **`PARTITION_ENUMERATED`**: the reader publishes a deterministic list of output partitions and costs. The driver assigns those partitions to MPI tasks, but output ids remain the reader's partition ids and therefore do not depend on `NTask`. The Consistent-Trees readers use this for chunked output.
+- **`PARTITION_PER_TASK`**: legacy compatibility path where each task owns exactly one output partition and the output id is `ThisTask`. It remains only until the chunked-output cleanup removes the old ctrees per-task model; new readers should not use it.
 
 ### Where the partition model is observed outside the reader
 
 Three pieces of the core key on `partition_model`; a new reader inherits them by setting the field correctly and supplying the matching callbacks:
 
-- **Unique galaxy ids** — `make_unique_galaxy_id()` in `src/core/build_model.c` encodes `halonr + TREE_MUL_FAC * forestnr_global`, where `forestnr_global = GlobalForestOffset + unit`. `PARTITION_PER_FILE` readers get `GlobalForestOffset` from the driver's prefix-sum scan over present files; `PARTITION_PER_TASK` readers set it from their global forest-distribution start. Partition ids and MPI task ranks are not part of the identity.
+- **Unique galaxy ids** — `make_unique_galaxy_id()` in `src/core/build_model.c` encodes `halonr + TREE_MUL_FAC * forestnr_global`, where `forestnr_global = GlobalForestOffset + unit`. `PARTITION_PER_FILE` readers get `GlobalForestOffset` from the driver's prefix-sum scan over present files; `PARTITION_ENUMERATED` readers publish chunk offsets; legacy `PARTITION_PER_TASK` readers set it from their global forest-distribution start. Partition ids and MPI task ranks are not part of the identity.
 - **Per-file offset scan** — `run_tree_driver()` calls `count_partition_trees(output_id)` for every present `PARTITION_PER_FILE` input file before processing so missing files keep the existing skip semantics and present files receive contiguous run-scoped offsets.
-- **HDF5 master file** — `write_master_file()` in `src/io/output/master_hdf5.c` scans `0..NTask-1` for `PARTITION_PER_TASK` and `FirstFile..LastFile` for `PARTITION_PER_FILE`, so per-task outputs are all collected.
+- **HDF5 master file** — `write_master_file()` asks enumerable readers for their partition ids and still handles the legacy `PARTITION_PER_TASK` path until that code is removed.
 
 ### Steps
 
 1. Create `src/io/tree/read_<format>.c` (and a `.h` only if it exposes a shared seam). Implement the callbacks and define one `const struct TreeReader <Format>Reader = { ... }`. Bridge the format's halo records into the generated `struct RawHalo` by field name; let the generated reference-unit accessors apply unit conversion at the boundary (declare native units in the simulation package, not in reader code).
 2. Append one row to `reader_table[]` in `src/io/tree/registry.c`. If the reader requires HDF5, guard both the `extern` declaration and the table entry with `#ifdef HDF5` so non-HDF5 builds simply do not register it (`tree_reader_lookup` then returns `NULL` and the run fails fast with a clear message).
-3. If the reader pulls in `src/io/tree/<format>/*.c` support code that compiles in every build, keep it warning-clean under `-Wall -Wextra -Wshadow -Wformat-security -Wundef` and exercise it from `tests/unit/` so nothing is dead. Note that the unit harness is a non-HDF5 build: an HDF5-only reader's `.c` is excluded from `tests/unit/run_tests.sh` (as `hdf5.c` and `read_ctrees_hdf5.c` already are), and its HDF5 paths are validated end-to-end against a real dataset.
+3. If the reader pulls in `src/io/tree/<format>/*.c` support code that compiles in every build, keep it warning-clean under `-Wall -Wextra -Wshadow -Wformat-security -Wundef` and exercise it from `tests/unit/` so nothing is dead. The unit harness enables HDF5 reader sources when HDF5 development libraries are available, while HDF5 integration paths are still validated end-to-end against real or fixture datasets.
 4. A new *format* needs no run-YAML changes beyond `tree_type` when it feeds the existing `tree_ordered` driver. Set `.processing_order = INPUT_PROCESSING_ORDER_TREE` in the reader initializer. A future snapshot reader must use the snapshot-ordering contract and driver added by that later phase rather than overloading `tree_type`.
 
-The Consistent-Trees readers (`src/io/tree/read_ctrees_ascii.c`, `read_ctrees_hdf5.c`, with the shared seam `read_ctrees_common.h`) are the worked reference for a `PARTITION_PER_TASK` reader, including forest load-balancing and the `RawHalo` bridge.
+The Consistent-Trees readers (`src/io/tree/read_ctrees_ascii.c`, `read_ctrees_hdf5.c`) are the worked reference for `PARTITION_ENUMERATED` chunked readers, including forest load-balancing and the `RawHalo` bridge.
 
 ---
 
 ## Testing
 
-Mimic uses three test tiers. Every tier runs the core tests, selected-simulation tests under `simulations/<SIMULATION>/_tests/`, and tests declared by the selected model package. Empty generated lists are valid; if a simulation or model has no tests in a tier, that tier still runs the core tests and exits successfully. Unit and integration tiers can each take about three minutes; scientific validation is usually shorter, around tens of seconds for the shipped configuration. The quick-reference version of this section is [tests/README.md](../tests/README.md).
+Mimic uses three test tiers. Every tier runs the core tests, selected-simulation tests under `simulations/<SIMULATION>/_tests/`, and, for full-validation simulations, tests declared by the selected model package. Empty generated lists are valid; if a simulation or model has no tests in a tier, that tier still runs the core tests and exits successfully. Unit and integration tiers can each take about three minutes; scientific validation is usually shorter, around tens of seconds for the shipped configuration. The quick-reference version of this section is [tests/README.md](../tests/README.md).
 
 | Tier | Command | Scope |
 | --- | --- | --- |

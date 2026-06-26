@@ -8,6 +8,9 @@ input:
   simulation_dir: simulations/micro-uchuu-ascii/_tests/data
   snapshot_list_file: simulations/micro-uchuu-ascii/micro-uchuu.a_list
 
+output:
+  forests_per_file: 100000
+
 simulation:
   cosmology:
     omega_matter: 0.3089

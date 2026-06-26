@@ -95,7 +95,7 @@ def regenerate_output():
     global _regenerated_output
     if _regenerated_output is None:
         output_dir = TEST_DATA_DIR / "output" / "binary"
-        output_file = output_dir / "model_z0.000_0"  # snapshot 63 is z=0
+        output_file = output_dir / "model_z0.000_0"  # last snapshot is z≈0 for all supported sims
 
         param_file = core_input_file("test_binary.yaml")
         run_mimic_fresh(param_file, output_file)

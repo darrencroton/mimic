@@ -38,10 +38,42 @@ DEFAULT_MODEL = makefile_default("DEFAULT_MODEL", "sage16")
 # to standalone script runs outside of make.
 DEFAULT_SIMULATION = makefile_default("DEFAULT_SIMULATION", "mini-millennium")
 
+FULL_MODEL_TEST_SIMULATIONS = frozenset(
+    {
+        "mini-millennium",
+        "micro-uchuu",
+        "micro-uchuu-hdf5",
+        "micro-uchuu-ascii",
+    }
+)
+
+PRODUCTION_TEST_CONFIG_SIMULATIONS = frozenset(
+    {
+        "micro-uchuu",
+        "micro-uchuu-hdf5",
+        "micro-uchuu-ascii",
+    }
+)
+
 
 def rel(path: Path) -> str:
     """Return a repository-relative path string."""
     return str(path.relative_to(REPO_ROOT))
+
+
+def selected_simulation() -> str:
+    """Return the simulation package selected by environment or Makefile default."""
+    return os.environ.get("SIMULATION") or os.environ.get("SIM") or DEFAULT_SIMULATION
+
+
+def full_model_tests_enabled(simulation: str | None = None) -> bool:
+    """Whether the selected simulation should run the full selected-model test suite."""
+    return (simulation or selected_simulation()) in FULL_MODEL_TEST_SIMULATIONS
+
+
+def production_test_config_enabled(simulation: str | None = None) -> bool:
+    """Whether generated tests should use the package's production simulation_info.yaml."""
+    return (simulation or selected_simulation()) in PRODUCTION_TEST_CONFIG_SIMULATIONS
 
 
 def existing(paths: Iterable[Path]) -> List[Path]:
@@ -84,7 +116,7 @@ def live_simulation_roots() -> List[Path]:
     or by setting the ``SIMULATION``/``SIM`` environment variable when invoking
     helper scripts directly. Defaults to :data:`DEFAULT_SIMULATION`.
     """
-    selected = os.environ.get("SIMULATION") or os.environ.get("SIM") or DEFAULT_SIMULATION
+    selected = selected_simulation()
     if not selected:
         return []
     simulations_dir = REPO_ROOT / "simulations"

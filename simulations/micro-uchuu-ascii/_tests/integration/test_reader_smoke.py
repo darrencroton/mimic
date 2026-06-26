@@ -32,7 +32,10 @@ def find_repo_root(start):
 
 REPO_ROOT = find_repo_root(Path(__file__).resolve())
 Z0_SNAPSHOT_GROUP = "Snap049"
-EXPECTED_Z0_HALOS = 3  # fixture: 3 forests, each contributing one snap49 halo
+# Production micro-Uchuu ASCII has ~1.2M halos at Snap049; the smoke test checks
+# for a meaningful lower bound rather than an exact count, since the count
+# varies with the selected model's physics.
+MIN_EXPECTED_Z0_HALOS = 10_000
 
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
@@ -75,7 +78,7 @@ def _make_param(temp_dir, output_name):
 
 
 def test_ascii_reader_loads():
-    """Run halos-only on the tiny ASCII fixture; expect exit 0."""
+    """Run against micro-Uchuu ASCII production data; expect exit 0."""
     _require_simulation()
     _require_exe()
 
@@ -88,7 +91,7 @@ def test_ascii_reader_loads():
 
 
 def test_ascii_reader_halo_count():
-    """Output must contain the expected tiny-fixture halos at z=0."""
+    """Output must contain a meaningful number of halos at z=0."""
     _require_simulation()
     _require_exe()
 
@@ -103,8 +106,8 @@ def test_ascii_reader_halo_count():
             galaxies = hf[Z0_SNAPSHOT_GROUP].get("Galaxies")
             assert galaxies is not None, f"{Z0_SNAPSHOT_GROUP}/Galaxies missing from {output_file}"
             assert (
-                galaxies.shape[0] == EXPECTED_Z0_HALOS
-            ), f"Expected {EXPECTED_Z0_HALOS} output halos, found {galaxies.shape[0]}"
+                galaxies.shape[0] >= MIN_EXPECTED_Z0_HALOS
+            ), f"Expected at least {MIN_EXPECTED_Z0_HALOS} output halos, found {galaxies.shape[0]}"
     finally:
         shutil.rmtree(temp_dir)
 

@@ -24,7 +24,12 @@ from pathlib import Path
 
 import yaml
 from console import NC, RED, YELLOW, print_error, print_warning
-from discovery import REPO_ROOT, live_simulation_roots, module_metadata_files
+from discovery import (
+    REPO_ROOT,
+    full_model_tests_enabled,
+    live_simulation_roots,
+    module_metadata_files,
+)
 
 
 def core_unit_tests(repo_root):
@@ -144,6 +149,12 @@ def generate_test_registry(strict: bool = False):
             continue
 
         modules_found.append(module_name)
+
+        if (
+            module_info_file.relative_to(repo_root).parts[0] == "models"
+            and not full_model_tests_enabled()
+        ):
+            continue
 
         # Get test declarations
         tests = metadata.get("module", {}).get("tests", {})

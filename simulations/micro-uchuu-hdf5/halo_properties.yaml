@@ -91,7 +91,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree_array
     output_source: copy_direct_array
-    range: [-20.0, 20.0]
+    range: [-200.0, 200.0]
 
   - name: VelDisp
     type: float

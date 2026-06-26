@@ -13,6 +13,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef HDF5
+#include <hdf5.h>
+#endif
+
 #include "globals.h"
 
 /**
@@ -33,3 +37,7 @@ void build_halo_tree(int halonr, int unit, int depth) {
     HaloAux[halonr].DoneFlag = 1;
   }
 }
+
+#ifdef HDF5
+void __attribute__((weak)) store_run_properties(hid_t master_file_id) { (void)master_file_id; }
+#endif
