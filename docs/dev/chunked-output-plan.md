@@ -1,6 +1,6 @@
 # Implementation Plan — Chunked Output for Consistent-Trees (Solution A)
 
-**Status:** plan-first artifact, not yet implemented.
+**Status:** completed on `feature/chunked-output-plan`.
 **Author context:** follows the output-workflow analysis of 2026-06-23. Implements "Solution A" with **LPT (Largest-Processing-Time greedy) as the default chunk→task assignment**.
 **External review:** critiqued by Codex GPT-5.5 (read-only, `xhigh`) on 2026-06-23 against the live codebase; verified findings folded in (see "Review corrections" below).
 **Branch:** create a dedicated feature branch before Slice 1; do not work on `main`.
@@ -438,30 +438,57 @@ Until Slice 7 lands, this plan targets the **manageable-file-size** problem for 
 
 ---
 
-## Next Chat Prompt (Mode A — Assisted)
+## Completion record
 
-```md
-Plan file: docs/dev/chunked-output-plan.md
-Slices this session: Slice 1 (then stop for checkpoint)
+This plan is complete. The implementation landed on `feature/chunked-output-plan` as a checkpointed sequence of commits:
 
-Read the full plan file first. If a selected slice receipt is incomplete or the plan state is unclear, stop and tell me before coding.
+| Commit | Scope |
+|---|---|
+| `c5bd2ed9 Add chunk planning helpers` | Slice 1 chunk planner and unit coverage. |
+| `c99bcb06 Add inert chunk output config knobs` | Slice 2 `output.target_file_size` / `output.forests_per_file` parsing and metadata persistence. |
+| `82bca35b Add enumerated partition driver contract` | Slice 3 `PARTITION_ENUMERATED`, driver extraction, lifecycle hooks, and synthetic-reader coverage. |
+| `8f3965b9 Refactor ctrees HDF5 staging lifecycle` | Slice 4 HDF5 run-scoped prepare and chunk-scoped staging refactor. |
+| `fa33473c Switch ctrees HDF5 to chunk partitions` | Slice 5 HDF5 ctrees chunk enumeration, LPT assignment, binary/HDF5 writer guards, and nonzero galaxy-id sentinel cleanup. |
+| `84a4516c Restore micro-uchuu-ascii simulation package (pre-Slice-6)` | Slice 6 fixture precursor for ASCII ctrees validation. |
+| `2733f776 Add ASCII forest-count chunking` | Slice 6 ASCII ctrees forest-count chunk enumeration and integration coverage. |
+| `bb97e563 Refresh baselines for intentional Slice 5 UniqueGalaxyID encoding change` | Pre-Slice 7 baseline refresh for the deliberate ID encoding contract change. |
+| `47035d97 Scale ctrees chunk planning past int forest counts` | Slice 7 streaming/two-pass planning and over-`INT_MAX` forest-count support. |
+| `48168d13 Fix chunked output consumers` | Slice 8 plotting, HDF5 master reader, and generated example consumer updates. |
+| `45d47b3c Fix test inputs, property ranges, and micro-uchuu validation for chunked output` | Follow-up validation fixes for chunked-output test inputs and ranges. |
+| `00a507c5 Removing snapshot 48 from sage16 micro-uchuu input files` | Follow-up micro-Uchuu input adjustment for validated chunked-output runs. |
+| `8be9309f Retire per-task partition model` | Slice 9 removal of `PARTITION_PER_TASK`, docs updates, skill sweep, and development-pathway update. |
 
-Work on the current feature branch for this plan; if none exists, create one and tell me the name.
+### Final state
 
-Use ai-orchestrator as the controlling skill. Keep the implementation local; delegate per that skill's guidance when independence or context economy helps — primarily hostile drift-audit, independent code-review, and long-running tests.
+- Both Consistent-Trees readers use reader-enumerated chunk partitions. Output ids are deterministic chunk ids, independent of `NTask`; MPI affects assignment, not output layout.
+- `PARTITION_PER_TASK` has been removed from live source. The remaining partition models are `PARTITION_PER_FILE` for input-file-backed readers and `PARTITION_ENUMERATED` for reader-defined output partitions.
+- Chunk planning is deterministic and uses LPT greedy assignment with stable tie-breaks by ascending chunk id. Each rank processes assigned chunks in ascending chunk-id order.
+- HDF5 ctrees derives chunk boundaries from the soft `output.target_file_size` estimate or exact `output.forests_per_file`; ASCII ctrees requires a positive `output.forests_per_file`.
+- `UniqueGalaxyID` reserves `0` as a true sentinel; real galaxy IDs are invariant under chunking and MPI task count.
+- The over-`INT_MAX` global forest-count guard has been replaced by per-chunk bounds and streaming planning, while per-partition output counters remain guarded.
+- Binary/HDF5 plotting and generated example consumers discover and numerically sort chunk partition ids.
+- `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md` now treats `chunked-output-plan.md` as completed implementation history and points to `docs/dev/mimic-style-sweep-plan.md` as the next active pre-v1.0 plan.
 
-For each selected slice, in plan order:
-1. Restate the frozen contract (authorized surface + non-goals) from the plan.
-2. If the slice's Risk Flags mark approval-needed, stop and get my approval before coding.
-3. Apply scoped-implementation against the slice contract.
-4. Apply drift-audit. Report the authorization gate result before any quality review.
-5. If the gate passes, apply code-review. If it fails, fix the drift and re-audit.
-6. Surface drift and review findings to me, fix them, then re-run the relevant gate.
-7. Ask me before committing. On my approval, commit that slice with the commit skill.
+### Final validation
 
-After the selected slice(s) are committed, use handoff to record state and the next slice to resume from. Do not continue past the selected slice(s).
+- `./scripts/beautify.sh`: passed.
+- `make -j$(sysctl -n hw.ncpu)`: passed.
+- `make USE-MPI=yes -j$(sysctl -n hw.ncpu)`: passed after a serialized rerun; the first attempt was invalid because it ran concurrently with the default build and raced shared build stamp files.
+- Delegated `make tests summary`: passed with exit code 0; unit tests 40/40 passed, integration tests passed, and scientific tests passed. Non-pass markers were one expected skip (`test_unknown_module_error`, requires process isolation and is covered elsewhere) and one pre-existing warning (`test_zero_values`, three fields with zero values).
+- `make check-docs`: passed.
+- `make validate-modules`: passed.
+- `make check-format`: passed.
+- `make check-generated`: passed.
+- `git diff --check`: passed.
+- `rg PARTITION_PER_TASK src/`: no matches.
+- Live source, tests, user docs, developer docs, and relevant `mimic-simulations` / `mimic-debug` skills were swept for stale per-task partition vocabulary; no matches remain.
 
-Confirm before starting: plan file read, selected slice(s), branch, and the first slice.
-```
+### Authorization and review summary
 
-> Nine slices. Slices 2–7 are **approval-needed** (public config + wide-int parsing + metadata schema; shared API + driver + MPI; data correctness; galaxy-ID identity; new fixtures; scale/streaming + encoding-limit guard). Run them one at a time in Mode A with a checkpoint between each. Slices 8–9 may batch if their tests are green. Slice 6 has a **blocking precursor**: create a ctrees ASCII fixture first. **Slice 7 is the scalability slice** that lifts the 32-bit forest-count limit (full Uchuu/Shin-Uchuu); it depends on Slices 5–6.
+- Every numbered slice was implemented under its frozen contract with drift-audit before quality review. Approval-needed slices were executed one at a time.
+- Final Slice 9 drift audit first returned `PASS WITH RISKS` because the dead driver branch had moved from the plan’s old `src/core/main.c` anchor into `src/core/tree_driver.c`; re-audit accepted this as a plan-anchor gap and returned `PASS`.
+- Final code review produced only P3 stale-comment/contract-consistency findings; they were fixed and review converged with no material findings.
+
+### Next action
+
+Do not continue this plan slice-by-slice. The next active pre-v1.0 work is the style sweep in `docs/dev/mimic-style-sweep-plan.md`, followed by final release gates and v1.0 tagging.
