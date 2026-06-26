@@ -277,7 +277,7 @@ static int claim_and_process_partition(int output_id, ProgressBar *ext_bar, int6
   int existing_outputs = count_existing_current_outputs();
   if (!MimicConfig.OverwriteOutputFiles) {
     if (existing_outputs == current_output_path_count) {
-      INFO_LOG("Output for partition %d already exists ... skipping", output_id);
+      INFO_LOG("Output file %d already exists ... skipping", output_id);
       tree_driver_clear_current_output_paths();
       return 0;
     }
@@ -438,8 +438,7 @@ static void run_enumerated_driver(const struct TreeReader *reader) {
     const int output_id = reader->partition_output_id(partition);
     GlobalForestOffset = reader->global_forest_offset(partition);
     if (claim_and_process_partition(output_id, NULL, 0) && !progress_display_active()) {
-      INFO_LOG("%sCompleted output partition %d%s", mimic_color_green(), output_id,
-               mimic_color_reset());
+      INFO_LOG("%sCompleted output file %d%s", mimic_color_green(), output_id, mimic_color_reset());
     }
   }
 #else
@@ -471,14 +470,21 @@ void run_tree_driver(void) {
   const struct TreeReader *reader = MimicConfig.reader;
 
   if (reader->partition_model == PARTITION_ENUMERATED) {
+    const int nfiles = MimicConfig.LastFile - MimicConfig.FirstFile + 1;
+    const int noutputs = reader->num_partitions();
 #ifdef MPI
     const int ntasks = effective_task_count();
     if (ntasks > 1) {
-      INFO_LOG("Processing enumerated output partitions across %d tasks", ntasks);
+      INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d) → %d output file%s across "
+               "%d tasks",
+               nfiles, nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile,
+               noutputs, noutputs == 1 ? "" : "s", ntasks);
     } else
 #endif
     {
-      INFO_LOG("Processing enumerated output partitions");
+      INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d) → %d output file%s",
+               nfiles, nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile,
+               noutputs, noutputs == 1 ? "" : "s");
     }
   } else {
     const int nfiles = MimicConfig.LastFile - MimicConfig.FirstFile + 1;
