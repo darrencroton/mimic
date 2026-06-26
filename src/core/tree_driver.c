@@ -420,6 +420,24 @@ static void run_enumerated_driver(const struct TreeReader *reader) {
     FATAL_ERROR("Tree reader '%s' reported negative partition count %d", reader->name, npartitions);
   }
 
+  {
+    const int nfiles = MimicConfig.LastFile - MimicConfig.FirstFile + 1;
+#ifdef MPI
+    const int ntasks = effective_task_count();
+    if (ntasks > 1) {
+      INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d) → %d output file%s across "
+               "%d tasks",
+               nfiles, nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile,
+               npartitions, npartitions == 1 ? "" : "s", ntasks);
+    } else
+#endif
+    {
+      INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d) → %d output file%s",
+               nfiles, nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile,
+               npartitions, npartitions == 1 ? "" : "s");
+    }
+  }
+
   const int ntasks = effective_task_count();
   const int this_task = current_task_id();
   if (this_task >= ntasks) {
@@ -469,24 +487,7 @@ void run_tree_driver(void) {
   enable_debug_log_rate_limiting();
   const struct TreeReader *reader = MimicConfig.reader;
 
-  if (reader->partition_model == PARTITION_ENUMERATED) {
-    const int nfiles = MimicConfig.LastFile - MimicConfig.FirstFile + 1;
-    const int noutputs = reader->num_partitions();
-#ifdef MPI
-    const int ntasks = effective_task_count();
-    if (ntasks > 1) {
-      INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d) → %d output file%s across "
-               "%d tasks",
-               nfiles, nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile,
-               noutputs, noutputs == 1 ? "" : "s", ntasks);
-    } else
-#endif
-    {
-      INFO_LOG("Processing %d input file%s (first_file=%d, last_file=%d) → %d output file%s",
-               nfiles, nfiles == 1 ? "" : "s", MimicConfig.FirstFile, MimicConfig.LastFile,
-               noutputs, noutputs == 1 ? "" : "s");
-    }
-  } else {
+  if (reader->partition_model != PARTITION_ENUMERATED) {
     const int nfiles = MimicConfig.LastFile - MimicConfig.FirstFile + 1;
 #ifdef MPI
     const int ntasks = effective_task_count();
