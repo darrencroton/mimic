@@ -11,7 +11,7 @@ Full reference: `docs/DEVELOPER-GUIDE.md` (simulation packages section) and `sim
 
 ```
 simulations/<sim>/
-  simulation_info.yaml         # cosmology, box size, input paths, tree type
+  simulation_info.yaml         # cosmology, box size, input paths, tree type, chunking defaults
   halo_properties.yaml         # on-disk halo catalog field definitions (in file order)
   <sim>.a_list                 # snapshot scale factors, one per line
   plot_profile.yaml            # optional: simulation-specific plot profile (model-local profiles take precedence)
@@ -20,7 +20,7 @@ simulations/<sim>/
   snapshots -> /path/to/data   # symlink to actual tree data
 ```
 
-Current simulation packages include `mini-millennium`, `millennium`, `micro-uchuu`, `micro-uchuu-hdf5`, `mini-uchuu`, and `uchuu`.
+Current simulation packages include `mini-millennium`, `millennium`, `micro-uchuu`, `micro-uchuu-hdf5`, `micro-uchuu-ascii`, `mini-uchuu`, and `uchuu`.
 
 ## simulation_info.yaml
 
@@ -32,6 +32,10 @@ input:
   tree_type: lhalo_binary       # selects the on-disk tree reader
   simulation_dir: simulations/mini-millennium/snapshots
   snapshot_list_file: simulations/mini-millennium/mini-millennium.a_list
+
+output:
+  target_file_size: 4294967296  # optional soft HDF5 chunk target in bytes
+  forests_per_file: 0           # optional exact forest-count chunk size
 
 simulation:
   cosmology:
@@ -49,6 +53,8 @@ simulation:
 ```
 
 `tree_type` selects the reader format. Current registered readers are `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, and `consistent_trees_hdf5`; HDF5 readers require an HDF5-enabled build. Do not conflate `tree_type` with `processing_order` — they are orthogonal.
+
+Only `output.target_file_size` and `output.forests_per_file` are valid in simulation metadata. They are catalogue-scale chunking defaults and may be overridden by a run file. Output paths, output format, and snapshot lists are run-file concerns. `consistent_trees_ascii` cannot derive chunks from `target_file_size`, so ASCII simulation packages should set a positive `forests_per_file` default.
 
 ## halo_properties.yaml
 
@@ -86,6 +92,16 @@ Required core roles that must be bound (via `provides_core_role`): `Descendant`,
 - `source`: use when the on-disk column name differs from the desired property name.
 - Fields with no `output`, `provides_core_role`, or `init` are read to preserve byte layout; add a `notes` line explaining this.
 
+## Property Range Calibration
+
+`halo_properties.yaml` and `src/core/core_properties.yaml` define `range:` bounds used by `test_scientific.py::test_physical_ranges`. Ranges that are calibrated to mini-Millennium will fail for real catalogs:
+
+- **ctrees `Len`**: derived as `round(Mvir * 1e-10 / particle_mass)` — low-mass Uchuu halos can have Len 1–19, well below the mini-Millennium minimum of 20. Core `Len` range must start at 1.
+- **`deltaMvir`**: Uchuu cluster halos have extreme accretion events (observed: −14820 to +1604 in units of 1e10 Msun/h). Widen the core range to `[-20000.0, 5000.0]`.
+- **ctrees `Spin`**: dimensionless J/Mvir after reader normalisation. Uchuu observed range is roughly ±100. Set simulation range to `[-200.0, 200.0]` for all ctrees packages.
+
+Never widen ranges silently — always confirm the observed extremes from a real run before adjusting.
+
 ## Snapshot List
 
 `<sim>.a_list`: one scale factor per line, in time order (earliest first). The reader maps snapshot indices to these scale factors.
@@ -120,4 +136,4 @@ Always use the same `MODEL`/`SIMULATION` pair for generate, validate-modules, te
 
 `input.tree_type` in `simulation_info.yaml` selects the reader. Adding support for a new tree format requires a new reader in `src/io/tree/` — see `docs/DEVELOPER-GUIDE.md` for the `TreeReader` vtable contract.
 
-`consistent_trees_hdf5` is the high-throughput forests-HDF5 path for Uchuu-style catalogues. It caches task-range `ForestInfo`, keeps per-file `Forests/<field>` handles open during the partition, validates field schema at cache-open time, and uses a fixed `CTREES_READ_WINDOW_BYTES` read window (`128 MiB` per rank) for normal forests. Forests larger than the window use the cached-handle direct read path. Treat the window as an internal bounded-memory constant, not simulation metadata or a run-YAML parameter.
+`consistent_trees_hdf5` is the high-throughput forests-HDF5 path for Uchuu-style catalogues. It caches chunk-range `ForestInfo`, keeps per-file `Forests/<field>` handles open during the partition, validates field schema at cache-open time, and uses a fixed `CTREES_READ_WINDOW_BYTES` read window (`128 MiB` per rank) for normal forests. Forests larger than the window use the cached-handle direct read path. Treat the window as an internal bounded-memory constant, not simulation metadata or a run-YAML parameter.

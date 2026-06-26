@@ -38,6 +38,27 @@ int ctrees_hdf5_test_read_two_forests_windowed(const char *filename, const char 
                                                int64_t second_halosoffset, int64_t second_nhalos,
                                                struct halo_data *second_halos);
 
+struct ctrees_hdf5_test_stage_probe {
+  int ntrees;
+  int start_filenum;
+  int end_filenum;
+  int first_unit_filenum;
+  int64_t first_unit_treenr_in_file;
+  int has_active_field_cache;
+  int stale_file0_cache_present;
+  int64_t global_forest_offset;
+  int run_counts_available;
+};
+
+int ctrees_hdf5_test_prepare_and_stage_ranges(const char *simulation_dir, const char *tree_name,
+                                              const int64_t starts[2], const int64_t counts[2],
+                                              struct ctrees_hdf5_test_stage_probe probes[2]);
+int ctrees_hdf5_test_prepare_chunk_plan(const char *simulation_dir, const char *tree_name,
+                                        int64_t forests_per_file, int64_t target_file_size,
+                                        int max_chunks, int64_t *starts, int64_t *counts,
+                                        double *costs, int *nchunks);
+int ctrees_hdf5_test_rejects_oversized_stage_range(void);
+
 #endif /* HDF5 && MIMIC_TEST_BUILD */
 
 #endif /* IO_TREE_READ_CTREES_HDF5_H */

@@ -1,0 +1,12 @@
+simulation:
+  name: micro-uchuu
+  box_size: 100.0
+  particle_mass: 0.0325
+
+axes:
+  spatial_distribution:
+    xlim: [0.0, 100.0]
+    ylim: [0.0, 100.0]
+  halo_mass_function:
+    xmin: 9.0
+    ymax: -0.6

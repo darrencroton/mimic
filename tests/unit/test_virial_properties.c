@@ -15,6 +15,7 @@
 #include "../framework/test_framework.h"
 #include "../../src/include/types.h"
 #include "../../src/include/proto.h"
+#include "../../src/include/generated/tree_property_accessors.h"
 #include "../../src/util/memory.h"
 #include "../../src/util/error.h"
 
@@ -45,21 +46,27 @@ int test_virial_mass_from_mvir(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 
-  /* Create test halo with known Mvir */
+  /* Set M_Crit200 deliberately different from Len * PartMass so the two paths
+   * return distinguishable results regardless of the unit convention. */
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
-  InputTreeHalos[0].M_Crit200 = 100.0;       /* 10^12 Msun/h */
-  InputTreeHalos[0].FirstHaloInFOFgroup = 0; /* Central halo */
-  InputTreeHalos[0].Len = 1000;
+  InputTreeHalos[0].M_Crit200 = 100.0;       /* catalog mass in native units */
+  InputTreeHalos[0].FirstHaloInFOFgroup = 0; /* central halo — should take catalog path */
+  InputTreeHalos[0].Len = 1;                 /* Len * PartMass = 0.1 ≪ any sane catalog mass */
 
   MimicConfig.PartMass = 0.1; /* Particle mass in 10^10 Msun/h */
 
   /* ===== EXECUTE ===== */
   double mvir = get_virial_mass(0);
+  double catalog_path = mimic_tree_get_HaloMass(0);
+  double fallback_path = InputTreeHalos[0].Len * MimicConfig.PartMass;
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(mvir, 100.0, 1e-6, "Virial mass should match Mvir for central halo");
+  TEST_ASSERT_DOUBLE_EQUAL(mvir, catalog_path, 1e-12,
+                           "Central halo should return catalog mass, not particle fallback");
+  TEST_ASSERT(fabs(mvir - fallback_path) > 1e-6,
+              "Catalog path must differ from fallback — adjust Len if this fires");
 
-  printf("  Mvir from catalog: %.2f (10^10 Msun/h)\n", mvir);
+  printf("  Mvir from catalog: %g (10^10 Msun/h, fallback would be %.2f)\n", mvir, fallback_path);
 
   /* ===== CLEANUP ===== */
   myfree(InputTreeHalos);
@@ -166,11 +173,11 @@ int test_virial_radius_calculation(void) {
   read_parameter_file(test_binary_param_file());
   init(); /* Initializes cosmology and ZZ[] array */
 
-  /* Create test halo at z=0 (snapshot 63) */
+  /* Create test halo at the final snapshot */
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
   InputTreeHalos[0].M_Crit200 = 100.0; /* 10^12 Msun/h */
   InputTreeHalos[0].FirstHaloInFOFgroup = 0;
-  InputTreeHalos[0].SnapNum = 63; /* z=0 */
+  InputTreeHalos[0].SnapNum = MimicConfig.LastSnapshotNr;
 
   /* ===== EXECUTE ===== */
   double rvir = get_virial_radius(0);
@@ -184,8 +191,7 @@ int test_virial_radius_calculation(void) {
   TEST_ASSERT(rvir < 10.0, "Virial radius should be reasonable (< 10 Mpc/h)");
   TEST_ASSERT(isfinite(rvir), "Virial radius should be finite");
 
-  printf("  Mvir = %.2f (10^10 Msun/h) → Rvir = %.4f (Mpc/h) at z=0\n", InputTreeHalos[0].M_Crit200,
-         rvir);
+  printf("  Mvir = %.2f (10^10 Msun/h) → Rvir = %.4f (Mpc/h) at z=0\n", get_virial_mass(0), rvir);
 
   /* Test scaling: Rvir ∝ Mvir^(1/3) */
   InputTreeHalos[0].M_Crit200 = 800.0; /* 8x mass */
@@ -225,7 +231,7 @@ int test_virial_velocity_calculation(void) {
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
   InputTreeHalos[0].M_Crit200 = 100.0; /* 10^12 Msun/h */
   InputTreeHalos[0].FirstHaloInFOFgroup = 0;
-  InputTreeHalos[0].SnapNum = 63; /* z=0 */
+  InputTreeHalos[0].SnapNum = MimicConfig.LastSnapshotNr;
 
   /* ===== EXECUTE ===== */
   double vvir = get_virial_velocity(0);
@@ -273,7 +279,7 @@ int test_virial_consistency_relations(void) {
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
   InputTreeHalos[0].M_Crit200 = 100.0;
   InputTreeHalos[0].FirstHaloInFOFgroup = 0;
-  InputTreeHalos[0].SnapNum = 63;
+  InputTreeHalos[0].SnapNum = MimicConfig.LastSnapshotNr;
 
   /* ===== EXECUTE ===== */
   double mvir1 = get_virial_mass(0);
@@ -324,7 +330,7 @@ int test_virial_edge_cases(void) {
 
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo), MEM_HALOS);
   InputTreeHalos[0].FirstHaloInFOFgroup = 0;
-  InputTreeHalos[0].SnapNum = 63;
+  InputTreeHalos[0].SnapNum = MimicConfig.LastSnapshotNr;
   InputTreeHalos[0].Len = 0; /* No particles */
 
   MimicConfig.PartMass = 0.1;

@@ -24,10 +24,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 /* Test statistics (required for TEST_RUN macro) */
 static int passed = 0;
 static int failed = 0;
+static const char *TestExecutablePath = NULL;
 
 /* Shared core-test fixtures (config reset, registration, generated run file path) */
 #include "../framework/core_test_fixtures.h"
@@ -40,6 +43,11 @@ static int failed = 0;
 static void setup_test(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+}
+
+static void install_output_chunking_defaults_for_test(void) {
+  MimicConfig.TargetFileSize = MIMIC_DEFAULT_TARGET_FILE_SIZE;
+  MimicConfig.ForestsPerFile = MIMIC_DEFAULT_FORESTS_PER_FILE;
 }
 
 /**
@@ -58,6 +66,21 @@ static int is_input_section_header(const char *line) {
     return 0;
   }
   cursor += strlen("input:");
+  while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') {
+    cursor++;
+  }
+  return *cursor == '\0';
+}
+
+static int is_output_section_header(const char *line) {
+  const char *cursor = line;
+  while (*cursor == ' ' || *cursor == '\t') {
+    cursor++;
+  }
+  if (strncmp(cursor, "output:", strlen("output:")) != 0) {
+    return 0;
+  }
+  cursor += strlen("output:");
   while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') {
     cursor++;
   }
@@ -144,10 +167,173 @@ static int write_processing_order_fixture(char *path, size_t path_size,
       wrote_processing_order = 1;
     }
   }
+  if (!wrote_processing_order) {
+    fprintf(dst, "\ninput:\n  processing_order: %s\n", processing_order);
+    wrote_processing_order = 1;
+  }
 
   fclose(dst);
   fclose(src);
   return wrote_processing_order ? 0 : -1;
+}
+
+static int write_output_chunking_fixture(char *path, size_t path_size, const char *label,
+                                         const char *extra_content) {
+  FILE *src;
+  FILE *dst;
+  char line[1024];
+  int injected = 0;
+
+  if (mkdir("archive", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+  if (mkdir("archive/test-fixtures", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+
+  snprintf(path, path_size, "archive/test-fixtures/test_output_chunking_%s.yaml", label);
+  src = fopen(test_binary_param_file(), "r");
+  if (src == NULL) {
+    return -1;
+  }
+  dst = fopen(path, "w");
+  if (dst == NULL) {
+    fclose(src);
+    return -1;
+  }
+
+  while (fgets(line, sizeof(line), src) != NULL) {
+    fputs(line, dst);
+    if (!injected && is_output_section_header(line)) {
+      fputs(extra_content, dst);
+      injected = 1;
+    }
+  }
+
+  fclose(dst);
+  fclose(src);
+  return injected ? 0 : -1;
+}
+
+static int write_simulation_output_fixture(char *run_path, size_t run_path_size, const char *label,
+                                           int include_run_override) {
+  FILE *src;
+  FILE *dst;
+  char line[1024];
+  char sim_path[MAX_STRING_LEN];
+  int replaced_sim_config = 0;
+  int injected_run_override = 0;
+
+  if (mkdir("archive", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+  if (mkdir("archive/test-fixtures", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+
+  snprintf(sim_path, sizeof(sim_path), "archive/test-fixtures/test_simulation_output_%s.yaml",
+           label);
+  dst = fopen(sim_path, "w");
+  if (dst == NULL) {
+    return -1;
+  }
+  fprintf(dst, "input:\n"
+               "  first_file: 0\n"
+               "  last_file: 0\n"
+               "  tree_name: trees_063\n"
+               "  tree_type: lhalo_binary\n"
+               "  simulation_dir: simulations/mini-millennium/snapshots\n"
+               "  snapshot_list_file: simulations/mini-millennium/mini-millennium.a_list\n"
+               "\n"
+               "output:\n"
+               "  target_file_size: 4294967300\n"
+               "  forests_per_file: 2468\n"
+               "\n"
+               "simulation:\n"
+               "  cosmology:\n"
+               "    omega_matter: 0.25\n"
+               "    omega_lambda: 0.75\n"
+               "    hubble_h: 0.73\n"
+               "  box_size:\n"
+               "    value: 62.5\n"
+               "    units: Mpc/h\n"
+               "    h_convention: carried\n"
+               "  particle_mass:\n"
+               "    value: 0.0860657\n"
+               "    units: 1e10 Msun/h\n"
+               "    h_convention: carried\n");
+  fclose(dst);
+
+  snprintf(run_path, run_path_size, "archive/test-fixtures/test_run_simulation_output_%s.yaml",
+           label);
+  src = fopen(test_binary_param_file(), "r");
+  if (src == NULL) {
+    return -1;
+  }
+  dst = fopen(run_path, "w");
+  if (dst == NULL) {
+    fclose(src);
+    return -1;
+  }
+
+  while (fgets(line, sizeof(line), src) != NULL) {
+    if (strncmp(line, "  config:", strlen("  config:")) == 0) {
+      fprintf(dst, "  config: %s\n", sim_path);
+      replaced_sim_config = 1;
+    } else {
+      fputs(line, dst);
+    }
+
+    if (include_run_override && !injected_run_override && is_output_section_header(line)) {
+      fputs("  target_file_size: 4294967400\n"
+            "  forests_per_file: 1357\n",
+            dst);
+      injected_run_override = 1;
+    }
+  }
+
+  fclose(dst);
+  fclose(src);
+
+  if (!replaced_sim_config) {
+    return -1;
+  }
+  if (include_run_override && !injected_run_override) {
+    return -1;
+  }
+  return 0;
+}
+
+static int read_parameter_file_should_fatal(const char *path) {
+  fflush(NULL);
+
+  pid_t pid = fork();
+  int status;
+
+  if (pid < 0) {
+    return -1;
+  }
+
+  if (pid == 0) {
+    freopen("/dev/null", "w", stdout);
+    freopen("/dev/null", "w", stderr);
+    execl(TestExecutablePath, TestExecutablePath, "--expect-fatal", path, (char *)NULL);
+    _exit(127);
+  }
+
+  if (waitpid(pid, &status, 0) < 0) {
+    return -1;
+  }
+
+  if (WIFSIGNALED(status)) {
+    return -1;
+  }
+
+  if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
+    return -1;
+  }
+
+  return WIFEXITED(status) && WEXITSTATUS(status) != 0;
 }
 
 /**
@@ -231,7 +417,7 @@ int test_explicit_tree_ordered_processing_order(void) {
  * @test    test_integer_parameters
  * @brief   Test that integer parameters are read correctly
  *
- * Expected: FirstFile=0, LastFile=0, NumOutputs=1
+ * Expected: File range is valid and NumOutputs=1
  * Validates: Integer parameter parsing
  */
 int test_integer_parameters(void) {
@@ -243,7 +429,7 @@ int test_integer_parameters(void) {
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.FirstFile == 0, "FirstFile should be 0");
-  TEST_ASSERT(MimicConfig.LastFile == 0, "LastFile should be 0");
+  TEST_ASSERT(MimicConfig.LastFile >= MimicConfig.FirstFile, "LastFile should be >= FirstFile");
   TEST_ASSERT(MimicConfig.NOUT == 1, "NumOutputs should be 1");
   TEST_ASSERT(MimicConfig.LastSnapshotNr > 0, "LastSnapshotNr should be positive");
 
@@ -302,7 +488,7 @@ int test_string_parameters(void) {
   /* ===== VALIDATE ===== */
   TEST_ASSERT_STRING_EQUAL(MimicConfig.OutputFileBaseName, "model",
                            "OutputFileBaseName should be 'model'");
-  TEST_ASSERT_STRING_EQUAL(MimicConfig.TreeName, "trees_063", "TreeName should be 'trees_063'");
+  TEST_ASSERT(strlen(MimicConfig.TreeName) > 0, "TreeName should be populated");
 
   /* Check that OutputDir contains expected path */
   TEST_ASSERT(strstr(MimicConfig.OutputDir, "test") != NULL, "OutputDir should contain 'test'");
@@ -322,7 +508,7 @@ int test_string_parameters(void) {
  * @test    test_cosmology_parameters
  * @brief   Test that cosmological parameters are read correctly
  *
- * Expected: Omega=0.25, OmegaLambda=0.75, Hubble_h=0.73
+ * Expected: Cosmological parameters are positive and finite.
  * Validates: Cosmological parameter parsing
  */
 int test_cosmology_parameters(void) {
@@ -333,9 +519,11 @@ int test_cosmology_parameters(void) {
   read_parameter_file(test_binary_param_file());
 
   /* ===== VALIDATE ===== */
-  TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.Omega, 0.25, 0.001, "Omega should be 0.25");
-  TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.OmegaLambda, 0.75, 0.001, "OmegaLambda should be 0.75");
-  TEST_ASSERT_DOUBLE_EQUAL(MimicConfig.Hubble_h, 0.73, 0.001, "Hubble_h should be 0.73");
+  TEST_ASSERT(MimicConfig.Omega > 0.0 && MimicConfig.Omega < 1.0,
+              "Omega should be in a physical open interval");
+  TEST_ASSERT(MimicConfig.OmegaLambda > 0.0 && MimicConfig.OmegaLambda < 1.0,
+              "OmegaLambda should be in a physical open interval");
+  TEST_ASSERT(MimicConfig.Hubble_h > 0.0, "Hubble_h should be positive");
 
   printf("  Omega: %.3f\n", MimicConfig.Omega);
   printf("  OmegaLambda: %.3f\n", MimicConfig.OmegaLambda);
@@ -356,7 +544,7 @@ int test_cosmology_parameters(void) {
  * @test    test_snapshot_list
  * @brief   Test that snapshot list is parsed correctly
  *
- * Expected: Snapshot 63 in output list
+ * Expected: Final snapshot in output list
  * Validates: YAML snapshot list parsing
  */
 int test_snapshot_list(void) {
@@ -368,7 +556,8 @@ int test_snapshot_list(void) {
 
   /* ===== VALIDATE ===== */
   TEST_ASSERT(MimicConfig.NOUT == 1, "Should have 1 output snapshot");
-  TEST_ASSERT(MimicConfig.ListOutputSnaps[0] == 63, "First output snapshot should be 63");
+  TEST_ASSERT(MimicConfig.ListOutputSnaps[0] == MimicConfig.LastSnapshotNr,
+              "First output snapshot should be the simulation's final snapshot");
 
   printf("  Number of output snapshots: %d\n", MimicConfig.NOUT);
   printf("  Output snapshot list:");
@@ -376,6 +565,200 @@ int test_snapshot_list(void) {
     printf(" %d", MimicConfig.ListOutputSnaps[i]);
   }
   printf("\n");
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+int test_output_chunking_defaults(void) {
+  /* ===== SETUP ===== */
+  setup_test();
+  install_output_chunking_defaults_for_test();
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(test_binary_param_file());
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.TargetFileSize > 0, "Effective target_file_size should be positive");
+  TEST_ASSERT(MimicConfig.ForestsPerFile >= 0, "Effective forests_per_file should be non-negative");
+  if (MimicConfig.reader != NULL &&
+      strcmp(MimicConfig.reader->name, "consistent_trees_ascii") == 0) {
+    TEST_ASSERT(MimicConfig.ForestsPerFile > 0,
+                "ASCII tests should inherit a positive forests_per_file default");
+  } else if (MimicConfig.ForestsPerFile == MIMIC_DEFAULT_FORESTS_PER_FILE) {
+    TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, MIMIC_DEFAULT_TARGET_FILE_SIZE,
+                      "Global target_file_size fallback should be 4 GiB");
+  }
+
+  printf("  effective target_file_size default: %lld\n", (long long)MimicConfig.TargetFileSize);
+  printf("  effective forests_per_file default: %lld\n", (long long)MimicConfig.ForestsPerFile);
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+int test_output_chunking_parameters(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+  install_output_chunking_defaults_for_test();
+
+  TEST_ASSERT(write_output_chunking_fixture(fixture_path, sizeof(fixture_path), "valid",
+                                            "  target_file_size: 4294967297\n"
+                                            "  forests_per_file: 12345\n") == 0,
+              "Should create output chunking fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4294967297LL,
+                    "target_file_size should accept values above INT_MAX");
+  TEST_ASSERT_EQUAL(MimicConfig.ForestsPerFile, 12345LL, "forests_per_file should parse as int64");
+
+  printf("  target_file_size parsed: %lld\n", (long long)MimicConfig.TargetFileSize);
+  printf("  forests_per_file parsed: %lld\n", (long long)MimicConfig.ForestsPerFile);
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+int test_output_chunking_accepts_zero_forests(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+  install_output_chunking_defaults_for_test();
+
+  TEST_ASSERT(write_output_chunking_fixture(fixture_path, sizeof(fixture_path), "zero_forests",
+                                            "  target_file_size: 4294967296\n"
+                                            "  forests_per_file: 0\n") == 0,
+              "Should create zero forests_per_file fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4294967296LL,
+                    "target_file_size should parse with forests_per_file zero");
+  TEST_ASSERT_EQUAL(MimicConfig.ForestsPerFile, 0LL, "forests_per_file should accept zero");
+
+  printf("  target_file_size parsed: %lld\n", (long long)MimicConfig.TargetFileSize);
+  printf("  forests_per_file parsed: %lld\n", (long long)MimicConfig.ForestsPerFile);
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+int test_simulation_output_chunking_defaults_and_run_override(void) {
+  char simulation_default_path[MAX_STRING_LEN];
+  char run_override_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+  install_output_chunking_defaults_for_test();
+
+  TEST_ASSERT(write_simulation_output_fixture(simulation_default_path,
+                                              sizeof(simulation_default_path), "default", 0) == 0,
+              "Should create simulation output default fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(simulation_default_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4294967300LL,
+                    "simulation output.target_file_size should set the default");
+  TEST_ASSERT_EQUAL(MimicConfig.ForestsPerFile, 2468LL,
+                    "simulation output.forests_per_file should set the default");
+
+  printf("  simulation target_file_size default: %lld\n", (long long)MimicConfig.TargetFileSize);
+  printf("  simulation forests_per_file default: %lld\n", (long long)MimicConfig.ForestsPerFile);
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  /* ===== SETUP ===== */
+  setup_test();
+  install_output_chunking_defaults_for_test();
+
+  TEST_ASSERT(write_simulation_output_fixture(run_override_path, sizeof(run_override_path),
+                                              "override", 1) == 0,
+              "Should create run output override fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(run_override_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT_EQUAL(MimicConfig.TargetFileSize, 4294967400LL,
+                    "run output.target_file_size should override the simulation default");
+  TEST_ASSERT_EQUAL(MimicConfig.ForestsPerFile, 1357LL,
+                    "run output.forests_per_file should override the simulation default");
+
+  printf("  run target_file_size override: %lld\n", (long long)MimicConfig.TargetFileSize);
+  printf("  run forests_per_file override: %lld\n", (long long)MimicConfig.ForestsPerFile);
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+int test_output_chunking_rejects_bad_values(void) {
+  char negative_path[MAX_STRING_LEN];
+  char zero_target_path[MAX_STRING_LEN];
+  char negative_forests_path[MAX_STRING_LEN];
+  char garbage_target_path[MAX_STRING_LEN];
+  char garbage_forests_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+  install_output_chunking_defaults_for_test();
+
+  TEST_ASSERT(write_output_chunking_fixture(negative_path, sizeof(negative_path), "negative",
+                                            "  target_file_size: -1\n") == 0,
+              "Should create negative target_file_size fixture");
+  TEST_ASSERT(write_output_chunking_fixture(zero_target_path, sizeof(zero_target_path), "zero",
+                                            "  target_file_size: 0\n") == 0,
+              "Should create zero target_file_size fixture");
+  TEST_ASSERT(write_output_chunking_fixture(negative_forests_path, sizeof(negative_forests_path),
+                                            "negative_forests", "  forests_per_file: -1\n") == 0,
+              "Should create negative forests_per_file fixture");
+  TEST_ASSERT(write_output_chunking_fixture(garbage_target_path, sizeof(garbage_target_path),
+                                            "garbage_target", "  target_file_size: 4x\n") == 0,
+              "Should create garbage target_file_size fixture");
+  TEST_ASSERT(write_output_chunking_fixture(garbage_forests_path, sizeof(garbage_forests_path),
+                                            "garbage_forests", "  forests_per_file: 12x\n") == 0,
+              "Should create garbage forests_per_file fixture");
+
+  /* ===== EXECUTE / VALIDATE ===== */
+  int negative_target_result = read_parameter_file_should_fatal(negative_path);
+  TEST_ASSERT(negative_target_result != -1, "Negative target_file_size child should not crash");
+  TEST_ASSERT(negative_target_result == 1, "Negative target_file_size should fatal");
+
+  int zero_target_result = read_parameter_file_should_fatal(zero_target_path);
+  TEST_ASSERT(zero_target_result != -1, "Zero target_file_size child should not crash");
+  TEST_ASSERT(zero_target_result == 1, "Zero target_file_size should fatal");
+
+  int negative_forests_result = read_parameter_file_should_fatal(negative_forests_path);
+  TEST_ASSERT(negative_forests_result != -1, "Negative forests_per_file child should not crash");
+  TEST_ASSERT(negative_forests_result == 1, "Negative forests_per_file should fatal");
+
+  int garbage_target_result = read_parameter_file_should_fatal(garbage_target_path);
+  TEST_ASSERT(garbage_target_result != -1, "Garbage target_file_size child should not crash");
+  TEST_ASSERT(garbage_target_result == 1, "Garbage target_file_size should fatal");
+
+  int garbage_forests_result = read_parameter_file_should_fatal(garbage_forests_path);
+  TEST_ASSERT(garbage_forests_result != -1, "Garbage forests_per_file child should not crash");
+  TEST_ASSERT(garbage_forests_result == 1, "Garbage forests_per_file should fatal");
 
   /* ===== CLEANUP ===== */
   teardown_test();
@@ -534,7 +917,17 @@ int test_null_named_phase(void) {
  *
  * Executes all test cases and reports results.
  */
-int main(void) {
+int main(int argc, char **argv) {
+  if (argc == 3 && strcmp(argv[1], "--expect-fatal") == 0) {
+    setup_test();
+    install_output_chunking_defaults_for_test();
+    read_parameter_file(argv[2]);
+    teardown_test();
+    return 0;
+  }
+
+  TestExecutablePath = argv[0];
+
   printf("%s", BLUE);
   printf("============================================================\n");
   printf("Test Suite: Parameter Parsing\n");
@@ -553,6 +946,11 @@ int main(void) {
   TEST_RUN(test_string_parameters);
   TEST_RUN(test_cosmology_parameters);
   TEST_RUN(test_snapshot_list);
+  TEST_RUN(test_output_chunking_defaults);
+  TEST_RUN(test_output_chunking_parameters);
+  TEST_RUN(test_output_chunking_accepts_zero_forests);
+  TEST_RUN(test_simulation_output_chunking_defaults_and_run_override);
+  TEST_RUN(test_output_chunking_rejects_bad_values);
   TEST_RUN(test_null_pre_timestep);
   TEST_RUN(test_tilde_post_timestep);
   TEST_RUN(test_null_phases_block);

@@ -23,6 +23,8 @@ static void reset_tree_config(const char *simulation_dir) {
   snprintf(MimicConfig.SimulationDir, sizeof(MimicConfig.SimulationDir), "%s", simulation_dir);
   snprintf(MimicConfig.TreeName, sizeof(MimicConfig.TreeName), "%s", "tiny_trees");
   MimicConfig.TreeExtension[0] = '\0';
+  MimicConfig.FirstFile = 7;
+  MimicConfig.LastFile = 7;
 
   Ntrees = -777;
   InputTreeNHalos = NULL;
@@ -57,11 +59,11 @@ static int write_lhalo_binary_header(const char *simulation_dir, int output_id, 
 }
 
 /**
- * @test  test_lhalo_binary_count_partition_trees
+ * @test  test_lhalo_binary_count_partition_units
  * Reads only the binary header tree count and leaves open-partition globals
  * untouched.
  */
-int test_lhalo_binary_count_partition_trees(void) {
+int test_lhalo_binary_count_partition_units(void) {
   char dir_template[] = "/tmp/mimic_tree_counts_XXXXXX";
   char *dir = mkdtemp(dir_template);
   TEST_ASSERT(dir != NULL, "mkdtemp should create a temp directory");
@@ -72,9 +74,9 @@ int test_lhalo_binary_count_partition_trees(void) {
               "should write a tiny L-Halo binary header");
   reset_tree_config(dir);
 
-  TEST_ASSERT(LHaloBinaryReader.count_partition_trees != NULL,
+  TEST_ASSERT(LHaloBinaryReader.count_partition_units != NULL,
               "L-Halo binary reader should expose a count callback");
-  TEST_ASSERT_EQUAL(LHaloBinaryReader.count_partition_trees(output_id), ntrees,
+  TEST_ASSERT_EQUAL(LHaloBinaryReader.count_partition_units(0), ntrees,
                     "count callback should return Ntrees from the header");
   TEST_ASSERT_EQUAL(Ntrees, -777, "count callback should not stage Ntrees globally");
   TEST_ASSERT(InputTreeNHalos == NULL, "count callback should not allocate InputTreeNHalos");
@@ -95,7 +97,7 @@ int main(void) {
   printf("============================================================\n");
   printf("%s\n", NC);
 
-  TEST_RUN(test_lhalo_binary_count_partition_trees);
+  TEST_RUN(test_lhalo_binary_count_partition_units);
 
   TEST_SUMMARY();
   return TEST_RESULT();

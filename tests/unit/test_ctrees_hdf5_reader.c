@@ -145,6 +145,38 @@ static int write_double_dataset(hid_t group, const char *name, const double *val
   return status;
 }
 
+static int write_scalar_attr(hid_t object, const char *name, hid_t type, const void *value) {
+  hid_t space = H5Screate(H5S_SCALAR);
+  hid_t attr = H5Acreate2(object, name, type, space, H5P_DEFAULT, H5P_DEFAULT);
+  int status = 0;
+  if (space < 0 || attr < 0 || H5Awrite(attr, type, value) < 0) {
+    status = -1;
+  }
+  if (attr >= 0)
+    H5Aclose(attr);
+  if (space >= 0)
+    H5Sclose(space);
+  return status;
+}
+
+static int write_simulation_params_group(hid_t file_group) {
+  hid_t params = H5Gcreate2(file_group, "simulation_params", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if (params < 0)
+    return -1;
+
+  int status = 0;
+  const double omega_m = 0.3;
+  const double omega_l = 0.7;
+  const double hubble = 0.68;
+  const double boxsize = 50.0;
+  status |= write_scalar_attr(params, "Omega_M", H5T_NATIVE_DOUBLE, &omega_m);
+  status |= write_scalar_attr(params, "Omega_L", H5T_NATIVE_DOUBLE, &omega_l);
+  status |= write_scalar_attr(params, "hubble", H5T_NATIVE_DOUBLE, &hubble);
+  status |= write_scalar_attr(params, "Boxsize", H5T_NATIVE_DOUBLE, &boxsize);
+  H5Gclose(params);
+  return status;
+}
+
 static int write_minimal_forests_file_with_options(const char *path, int snap_as_double,
                                                    double snap_double, int64_t snap_int,
                                                    int mismatched_mvir_length) {
@@ -185,6 +217,97 @@ static int write_minimal_forests_file_with_options(const char *path, int snap_as
     H5Gclose(forests);
   if (file0 >= 0)
     H5Gclose(file0);
+  H5Fclose(file);
+  return status;
+}
+
+static int write_sequence_fields_to_group(hid_t forests, int64_t base_id, hsize_t n) {
+  if (n > 4) {
+    return -1;
+  }
+  int64_t link[4] = {-1, -1, -1, -1};
+  int64_t id[4];
+  int64_t snap[4];
+  double values[4];
+  int status = 0;
+  for (hsize_t i = 0; i < n; i++) {
+    id[i] = base_id + (int64_t)i;
+    snap[i] = (int64_t)i;
+    values[i] = 10.0 + (double)base_id + (double)i;
+  }
+
+  const char *links[] = {"Descendant", "FirstProgenitor", "NextProgenitor", "FirstHaloInFOFgroup",
+                         "NextHaloInFOFgroup"};
+  for (size_t i = 0; i < sizeof(links) / sizeof(links[0]); i++) {
+    status |= write_i64_dataset(forests, links[i], link, n);
+  }
+  status |= write_double_dataset(forests, "Mvir", values, n);
+  const char *doubles[] = {"x", "y", "z", "vrms", "vmax", "vx", "vy", "vz", "Jx", "Jy", "Jz"};
+  for (size_t i = 0; i < sizeof(doubles) / sizeof(doubles[0]); i++) {
+    status |= write_double_dataset(forests, doubles[i], values, n);
+  }
+  status |= write_i64_dataset(forests, "id", id, n);
+  status |= write_i64_dataset(forests, "Snap_idx", snap, n);
+  return status;
+}
+
+static int write_file_group_with_forests(hid_t file, int filenum,
+                                         const struct test_forestinfo *rows, hsize_t nrows,
+                                         hsize_t nhalos) {
+  char group_name[32];
+  snprintf(group_name, sizeof(group_name), "File%d", filenum);
+  hid_t file_group = H5Gcreate2(file, group_name, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t forests = file_group >= 0
+                      ? H5Gcreate2(file_group, "Forests", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT)
+                      : -1;
+  hid_t dtype = create_forestinfo_type();
+  hid_t space = H5Screate_simple(1, &nrows, NULL);
+  hid_t dset = file_group >= 0 ? H5Dcreate2(file_group, "ForestInfo", dtype, space, H5P_DEFAULT,
+                                            H5P_DEFAULT, H5P_DEFAULT)
+                               : -1;
+  int status = 0;
+  const int64_t nforests = (int64_t)nrows;
+  const int8_t contig = 1;
+
+  if (file_group < 0 || forests < 0 || dtype < 0 || space < 0 || dset < 0 ||
+      H5Dwrite(dset, dtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, rows) < 0) {
+    status = -1;
+  }
+  if (status == 0) {
+    status |= write_scalar_attr(file_group, "Nforests", H5T_NATIVE_INT64, &nforests);
+    status |= write_scalar_attr(file_group, "contiguous-halo-props", H5T_NATIVE_INT8, &contig);
+    status |= write_simulation_params_group(file_group);
+    status |= write_sequence_fields_to_group(forests, (int64_t)filenum * 100, nhalos);
+  }
+
+  if (dset >= 0)
+    H5Dclose(dset);
+  if (space >= 0)
+    H5Sclose(space);
+  if (dtype >= 0)
+    H5Tclose(dtype);
+  if (forests >= 0)
+    H5Gclose(forests);
+  if (file_group >= 0)
+    H5Gclose(file_group);
+  return status;
+}
+
+static int write_multifile_forests_metadata(const char *path) {
+  hid_t file = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  if (file < 0)
+    return -1;
+
+  int status = 0;
+  const int64_t nfiles = 3;
+  status |= write_scalar_attr(file, "Nfiles", H5T_NATIVE_INT64, &nfiles);
+  const struct test_forestinfo file0[2] = {{0, 0, 1, 1}, {1, 1, 2, 1}};
+  const struct test_forestinfo file1[3] = {{2, 0, 1, 1}, {3, 1, 1, 1}, {4, 2, 2, 1}};
+  const struct test_forestinfo file2[2] = {{5, 0, 1, 1}, {6, 1, 1, 1}};
+  status |= write_file_group_with_forests(file, 0, file0, 2, 3);
+  status |= write_file_group_with_forests(file, 1, file1, 3, 4);
+  status |= write_file_group_with_forests(file, 2, file2, 2, 2);
+
   H5Fclose(file);
   return status;
 }
@@ -466,6 +589,103 @@ int test_giant_forest_uses_direct_read_path(void) {
   return TEST_PASS;
 }
 
+int test_run_prepare_survives_repeated_range_staging(void) {
+  init_memory_system(0);
+  MimicConfig.LastSnapshotNr = 10;
+  MimicConfig.Omega = 0.3;
+  MimicConfig.OmegaLambda = 0.7;
+  MimicConfig.Hubble_h = 0.68;
+  MimicConfig.BoxSize = 50.0;
+
+  char dir_template[] = "/tmp/mimic_ctrees_h5_stage_XXXXXX";
+  TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
+
+  const char *tree_name = "trees.h5";
+  char path[512];
+  snprintf(path, sizeof(path), "%s/%s", dir_template, tree_name);
+  TEST_ASSERT(write_multifile_forests_metadata(path) == 0,
+              "should write a multi-file forests-HDF5 metadata fixture");
+
+  const int64_t starts[2] = {1, 5};
+  const int64_t counts[2] = {1, 2};
+  struct ctrees_hdf5_test_stage_probe probes[2];
+  TEST_ASSERT(ctrees_hdf5_test_prepare_and_stage_ranges(dir_template, tree_name, starts, counts,
+                                                        probes) == EXIT_SUCCESS,
+              "run prepare should support repeated non-adjacent range staging");
+
+  TEST_ASSERT(probes[0].ntrees == 1, "first staged range should expose one forest");
+  TEST_ASSERT(probes[0].global_forest_offset == 1,
+              "first staged range should publish its global forest offset");
+  TEST_ASSERT(probes[0].start_filenum == 0 && probes[0].end_filenum == 0,
+              "first staged range should touch only file 0");
+  TEST_ASSERT(probes[0].first_unit_filenum == 0 && probes[0].first_unit_treenr_in_file == 1,
+              "first staged range should map to file 0 row 1");
+  TEST_ASSERT(probes[0].has_active_field_cache, "first staged file should have open field handles");
+
+  TEST_ASSERT(probes[1].ntrees == 2, "second staged range should expose two forests");
+  TEST_ASSERT(probes[1].global_forest_offset == 5,
+              "second staged range should publish its global forest offset");
+  TEST_ASSERT(probes[1].start_filenum == 2 && probes[1].end_filenum == 2,
+              "second staged range should touch only file 2");
+  TEST_ASSERT(probes[1].first_unit_filenum == 2 && probes[1].first_unit_treenr_in_file == 0,
+              "second staged range should map to file 2 row 0");
+  TEST_ASSERT(probes[1].has_active_field_cache,
+              "second staged file should rebuild its field handles");
+  TEST_ASSERT(!probes[1].stale_file0_cache_present,
+              "second staging should not retain file 0 field handles");
+  TEST_ASSERT(probes[0].run_counts_available && probes[1].run_counts_available,
+              "run-scoped forest counts should survive across stage/unstage");
+
+  unlink(path);
+  rmdir(dir_template);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+int test_prepare_builds_chunk_plan_from_forest_counts(void) {
+  init_memory_system(0);
+  MimicConfig.LastSnapshotNr = 10;
+  MimicConfig.Omega = 0.3;
+  MimicConfig.OmegaLambda = 0.7;
+  MimicConfig.Hubble_h = 0.68;
+  MimicConfig.BoxSize = 50.0;
+
+  char dir_template[] = "/tmp/mimic_ctrees_h5_chunks_XXXXXX";
+  TEST_ASSERT(create_dir(dir_template) == 0, "mkdtemp should create a temp directory");
+
+  const char *tree_name = "trees.h5";
+  char path[512];
+  snprintf(path, sizeof(path), "%s/%s", dir_template, tree_name);
+  TEST_ASSERT(write_multifile_forests_metadata(path) == 0,
+              "should write a multi-file forests-HDF5 metadata fixture");
+
+  int nchunks = 0;
+  int64_t starts[4] = {0};
+  int64_t counts[4] = {0};
+  double costs[4] = {0.0};
+  TEST_ASSERT(ctrees_hdf5_test_prepare_chunk_plan(dir_template, tree_name, 3, 1024, 4, starts,
+                                                  counts, costs, &nchunks) == EXIT_SUCCESS,
+              "run prepare should build a chunk plan from ForestInfo halo counts");
+
+  TEST_ASSERT(nchunks == 3, "seven forests with forests_per_file=3 should produce three chunks");
+  TEST_ASSERT(starts[0] == 0 && counts[0] == 3, "chunk 0 should cover forests [0, 3)");
+  TEST_ASSERT(starts[1] == 3 && counts[1] == 3, "chunk 1 should cover forests [3, 6)");
+  TEST_ASSERT(starts[2] == 6 && counts[2] == 1, "chunk 2 should cover forests [6, 7)");
+  TEST_ASSERT(costs[0] == 4.0 && costs[1] == 4.0 && costs[2] == 1.0,
+              "linear chunk costs should sum ForestNhalos over each chunk");
+
+  unlink(path);
+  rmdir(dir_template);
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+int test_stage_rejects_oversized_chunk(void) {
+  TEST_ASSERT(ctrees_hdf5_test_rejects_oversized_stage_range() == EXIT_SUCCESS,
+              "HDF5 staging should reject chunks above the 32-bit per-partition limit");
+  return TEST_PASS;
+}
+
 int main(void) {
   H5Eset_auto2(H5E_DEFAULT, NULL, NULL);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -483,6 +703,9 @@ int main(void) {
   TEST_RUN(test_snapshot_values_are_strict);
   TEST_RUN(test_window_refills_across_sequential_forests);
   TEST_RUN(test_giant_forest_uses_direct_read_path);
+  TEST_RUN(test_run_prepare_survives_repeated_range_staging);
+  TEST_RUN(test_prepare_builds_chunk_plan_from_forest_counts);
+  TEST_RUN(test_stage_rejects_oversized_chunk);
 
   TEST_SUMMARY();
   return TEST_RESULT();

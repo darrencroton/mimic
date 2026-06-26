@@ -17,15 +17,74 @@ from framework import (  # noqa: E402
     MIMIC_EXE,
     TEST_DATA_DIR,
     TestSkipped,
+    core_input_file,
     create_test_param_file,
     load_binary_halos,
     resolve_sim_config_path,
+    run_mimic,
     run_mimic_fresh,
     run_test_suite,
 )
 
 TREE_MUL_FAC = 1_000_000_000
 OLD_FILE_STRIDE = 1_000_000_000_000_000
+
+
+def _tree_type_for_param(param_file):
+    with Path(param_file).open() as handle:
+        run_config = yaml.safe_load(handle)
+    sim_config_path = resolve_sim_config_path(run_config["simulation"]["config"], param_file)
+    with sim_config_path.open() as handle:
+        sim_config = yaml.safe_load(handle)
+    return sim_config["input"]["tree_type"]
+
+
+def _numeric_partition_key(path):
+    return int(path.name.rsplit("_", 1)[1])
+
+
+def test_selected_simulation_unique_ids_are_unique():
+    """The selected simulation's binary output must not contain duplicate real galaxy IDs."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+
+    param_file, output_dir, temp_dir = create_test_param_file(
+        "uniquegalid_selected_simulation",
+        output_format="binary",
+    )
+
+    try:
+        returncode, stdout, stderr = run_mimic(param_file)
+        assert (
+            returncode == 0
+        ), f"Mimic execution failed (rc={returncode})\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+
+        output_files = sorted(output_dir.glob("model_z*_*"), key=_numeric_partition_key)
+        assert output_files, f"No binary output partitions found in {output_dir}"
+
+        seen = set()
+        total_ids = 0
+        for output_file in output_files:
+            halos, _ = load_binary_halos(output_file)
+            ids = halos.UniqueGalaxyID.astype(np.int64, copy=False)
+            assert len(ids) > 0, f"{output_file} should contain output halos"
+            assert np.all(ids > 0), "UniqueGalaxyID 0 is reserved as a sentinel"
+
+            unique_ids = np.unique(ids)
+            assert len(unique_ids) == len(ids), f"Duplicate UniqueGalaxyID values in {output_file}"
+
+            overlap = seen.intersection(int(value) for value in unique_ids)
+            assert (
+                not overlap
+            ), f"Duplicate UniqueGalaxyID values across partitions: {sorted(overlap)[:5]}"
+            seen.update(int(value) for value in unique_ids)
+            total_ids += len(ids)
+
+        assert (
+            len(seen) == total_ids
+        ), "Global UniqueGalaxyID set size should match output row count"
+    finally:
+        shutil.rmtree(temp_dir)
 
 
 def _load_lhalo_binary_bytes(source_path):
@@ -113,6 +172,8 @@ def test_lhalo_two_file_prefix_offset_encoding():
     """File 1 IDs use file 0's tree-count prefix, not the old file-number stride."""
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
+    if _tree_type_for_param(core_input_file("test_binary.yaml")) != "lhalo_binary":
+        raise TestSkipped("L-Halo prefix-offset fixture requires a lhalo_binary build")
 
     temp_dir = Path(tempfile.mkdtemp(prefix="mimic_unique_id_"))
     try:
@@ -142,10 +203,10 @@ def test_lhalo_two_file_prefix_offset_encoding():
         assert len(halos1) > 0, "file 1 output must exercise the second partition"
 
         forest_numbers0 = set(
-            int(value) for value in np.unique(halos0.UniqueGalaxyID // TREE_MUL_FAC)
+            int(value) - 1 for value in np.unique(halos0.UniqueGalaxyID // TREE_MUL_FAC)
         )
         forest_numbers1 = set(
-            int(value) for value in np.unique(halos1.UniqueGalaxyID // TREE_MUL_FAC)
+            int(value) - 1 for value in np.unique(halos1.UniqueGalaxyID // TREE_MUL_FAC)
         )
 
         assert forest_numbers0 == {
@@ -164,7 +225,10 @@ def test_lhalo_two_file_prefix_offset_encoding():
 
 def main():
     return run_test_suite(
-        [test_lhalo_two_file_prefix_offset_encoding],
+        [
+            test_selected_simulation_unique_ids_are_unique,
+            test_lhalo_two_file_prefix_offset_encoding,
+        ],
         "UniqueGalaxyID Encoding (test_unique_galaxy_id_encoding.py)",
     )
 

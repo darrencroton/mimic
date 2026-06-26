@@ -16,10 +16,6 @@
 #include "tree/ctrees/forest_utils.h"
 #include "util/error.h"
 
-static inline double
-compute_forest_cost_from_nhalos(const enum ForestDistributionScheme forest_weighting,
-                                const int64_t nhalos, const double exponent);
-
 int distribute_forests_over_ntasks(const int64_t totnforests, const int NTasks, const int ThisTask,
                                    int64_t *nforests_thistask, int64_t *start_forestnum_thistask) {
   /* `>=`, not the sage `>`: ThisTask is a 0-based rank in [0, NTasks). */
@@ -69,9 +65,8 @@ int distribute_forests_over_ntasks(const int64_t totnforests, const int NTasks, 
   return EXIT_SUCCESS;
 }
 
-static inline double
-compute_forest_cost_from_nhalos(const enum ForestDistributionScheme forest_weighting,
-                                const int64_t nhalos, const double exponent) {
+double compute_forest_cost_from_nhalos(const enum ForestDistributionScheme forest_weighting,
+                                       const int64_t nhalos, const double exponent) {
   /* Strategy for load-balancing across MPI tasks*/
   double cost;
   switch (forest_weighting) {
@@ -85,7 +80,7 @@ compute_forest_cost_from_nhalos(const enum ForestDistributionScheme forest_weigh
     break;
 
   case quadratic_in_nhalos:
-    cost = nhalos * nhalos;
+    cost = (double)nhalos * (double)nhalos;
     break;
 
   case exponent_in_nhalos: {

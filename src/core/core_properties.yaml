@@ -113,7 +113,7 @@ halo_properties:
     output: true
     init_source: copy_from_tree
     output_source: copy_direct
-    range: [20, 1000000000]  # Resolution limit (20 particles) to maximum
+    range: [1, 1000000000]  # minimum 1; 0 is sentinel for Type 2 orphans
     sentinels: [0]  # Type 2 orphans
 
   - name: Mvir
@@ -134,7 +134,7 @@ halo_properties:
     init_source: default
     init_value: 0.0
     output_source: copy_direct
-    range: [-1000.0, 1000.0]  # plus/minus 10^13 Msun/h
+    range: [-20000.0, 20000.0]  # symmetric wide bounds to accommodate Uchuu-scale mass swings
 
   - name: CentralMvir
     type: float

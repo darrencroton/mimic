@@ -55,6 +55,7 @@ from framework import (
     ensure_output_dirs,
     load_binary_halos,
     run_mimic_fresh,
+    run_test_suite,
     simulation_input_file,
 )
 
@@ -494,66 +495,15 @@ def test_uniquegalid_physical_evolution():
 
 def main():
     """Main test runner."""
-    # Print test suite header
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: UniqueGalaxyID Validation (test_unique_galaxy_id.py){NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-    print(f"Repository root: {REPO_ROOT}")
-    print(f"Mimic executable: {MIMIC_EXE}")
-    print()
-    print("Testing UniqueGalaxyID design:")
-    print("  - Every new galaxy gets a unique UniqueGalaxyID")
-    print("  - UniqueGalaxyID persists across all snapshots")
-    print("  - Without mergers, all galaxies exist through final snapshot")
-    print()
-
-    if not MIMIC_EXE.exists():
-        print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
-        print("Build it first with: make")
-        return 1
-
-    tests = [
-        test_uniquegalid_uniqueness_snapshot62,
-        test_uniquegalid_persistence,
-        test_uniquegalid_uniqueness_snapshot63,
-        test_uniquegalid_physical_evolution,
-    ]
-
-    passed = 0
-    failed = 0
-
-    for test in tests:
-        try:
-            test()
-            print(f"{GREEN}✓ PASS: {test.__name__}{NC}")
-            passed += 1
-        except AssertionError as e:
-            print(f"{RED}✗ FAIL: {test.__name__}{NC}")
-            print(f"{RED}  {e}{NC}")
-            failed += 1
-        except Exception as e:
-            print(f"{RED}✗ ERROR: {test.__name__}{NC}")
-            print(f"{RED}  {e}{NC}")
-            failed += 1
-
-    # Print summary
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    return run_test_suite(
+        [
+            test_uniquegalid_uniqueness_snapshot62,
+            test_uniquegalid_persistence,
+            test_uniquegalid_uniqueness_snapshot63,
+            test_uniquegalid_physical_evolution,
+        ],
+        "UniqueGalaxyID Validation (test_unique_galaxy_id.py)",
+    )
 
 
 if __name__ == "__main__":

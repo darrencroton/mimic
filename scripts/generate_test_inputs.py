@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from discovery import REPO_ROOT, makefile_default, rel
+from discovery import REPO_ROOT, makefile_default, production_test_config_enabled, rel
 
 OUTPUT_ROOT = REPO_ROOT / "build" / "generated" / "test_inputs"
 
@@ -47,7 +47,9 @@ def require_dir(path: Path, label: str) -> Path:
 def test_simulation_config(simulation_root: Path, simulation: str) -> str:
     """Return a test-sized simulation config path for fast test runs.
 
-    A simulation package may provide a test-sized simulation metadata file at
+    Full-validation micro-Uchuu packages use their production simulation
+    metadata so the model test suite exercises the shipped reader paths. Other
+    simulation packages may provide a test-sized simulation metadata file at
     simulations/<simulation>/_tests/input/test_simulation.yaml. This keeps fast
     core/model tests independent of production catalog size while still compiling
     against the selected simulation package.
@@ -57,6 +59,11 @@ def test_simulation_config(simulation_root: Path, simulation: str) -> str:
     simulation_info.yaml; generated run YAML then applies input overrides to
     cap the file range. Production-scale packages should provide a fixture here.
     """
+    production_config = simulation_root / "simulation_info.yaml"
+    if production_test_config_enabled(simulation):
+        require_file(production_config, "simulation config")
+        return rel(production_config)
+
     package_test_config = simulation_root / "_tests" / "input" / "test_simulation.yaml"
     if package_test_config.is_file():
         return rel(package_test_config)
@@ -65,7 +72,6 @@ def test_simulation_config(simulation_root: Path, simulation: str) -> str:
     if simulation == "mini-millennium" and shared_mini_millennium_config.is_file():
         return rel(shared_mini_millennium_config)
 
-    production_config = simulation_root / "simulation_info.yaml"
     require_file(production_config, "simulation config")
     return rel(production_config)
 
@@ -116,6 +122,7 @@ def write_run(
     output_filename: str,
     snapshot_list: list[int],
     input_overrides: dict[str, Any] | None = None,
+    output_overrides: dict[str, Any] | None = None,
 ) -> None:
     config = dict(base)
     if input_overrides:
@@ -126,6 +133,8 @@ def write_run(
         "output_format": output_format,
         "snapshot_list": snapshot_list,
     }
+    if output_overrides:
+        config["output"].update(output_overrides)
     write_yaml(path, config, title)
 
 
@@ -159,8 +168,12 @@ def generate() -> None:
     output_root = generation_root(model, simulation)
     base = base_run_config(model, simulation)
 
-    # All test runs use a single tree file regardless of what simulation_info.yaml says.
-    # This keeps tests fast and independent of local data availability.
+    # All generated test runs cap the file range to a single file so tests stay
+    # fast regardless of how many files the production catalogue has. For
+    # full-validation micro-Uchuu packages, the simulation_info.yaml provides
+    # the production paths and tree format; the single-file cap keeps run time
+    # bounded. For other packages, this overrides the test fixture or production
+    # range to the same single-file limit.
     test_input = {"first_file": 0, "last_file": 0}
 
     # Snapshot indices derive from the selected simulation's a_list (last and

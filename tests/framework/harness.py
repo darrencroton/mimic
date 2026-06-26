@@ -425,8 +425,8 @@ def create_test_param_file(
     output_name,
     phase_config=None,
     model_params=None,
-    first_file=0,
-    last_file=0,
+    first_file=None,
+    last_file=None,
     ref_param_file=None,
     temp_dir=None,
     output_format=None,
@@ -453,8 +453,8 @@ def create_test_param_file(
                             Each tuple is (module_name, processing_mode) where processing_mode is
                             'process_full_halo', 'process_per_event', or 'process_by_galaxy'
         model_params (dict): Dict of {parameter_name: value} for modules.parameters section
-        first_file (int): First file to process (default: 0)
-        last_file (int): Last file to process (default: 0)
+        first_file (int): First file to process (default: keep reference simulation config)
+        last_file (int): Last file to process (default: keep reference simulation config)
         ref_param_file (str or Path): Reference YAML parameter file
                                       (default: generated core test_binary.yaml)
         temp_dir (str or Path): Temporary directory for outputs (default: create new)
@@ -515,8 +515,10 @@ def create_test_param_file(
     sim_config_path = resolve_sim_config_path(config["simulation"]["config"], ref_param_file)
     with open(sim_config_path, "r") as f:
         sim_config = yaml.safe_load(f)
-    sim_config["input"]["first_file"] = first_file
-    sim_config["input"]["last_file"] = last_file
+    if first_file is not None:
+        sim_config["input"]["first_file"] = first_file
+    if last_file is not None:
+        sim_config["input"]["last_file"] = last_file
 
     generated_sim_config = Path(temp_dir) / f"{output_name}_simulation.yaml"
     with open(generated_sim_config, "w") as f:

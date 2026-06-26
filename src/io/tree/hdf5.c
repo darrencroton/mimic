@@ -60,7 +60,7 @@ static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names);
 static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
                                   int *attribute);
 static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void *buffer);
-static int64_t count_partition_trees_hdf5(int output_id);
+static int64_t count_partition_units_hdf5(int partition);
 
 // External Functions //
 
@@ -284,11 +284,12 @@ static void format_lhalo_hdf5_partition_path(char *buf, size_t size, int output_
   }
 }
 
-static int64_t count_partition_trees_hdf5(int output_id) {
+static int64_t count_partition_units_hdf5(int partition) {
   char buf[3 * MAX_STRING_LEN + 15];
   int ntrees;
   int32_t status;
   struct METADATA_NAMES metadata_names;
+  const int output_id = tree_partition_per_file_output_id(partition);
 
   format_lhalo_hdf5_partition_path(buf, sizeof(buf), output_id);
   hid_t count_file = H5Fopen(buf, H5F_ACC_RDONLY, H5P_DEFAULT);
@@ -325,8 +326,9 @@ const struct TreeReader LHaloHDF5Reader = {
     .processing_order = INPUT_PROCESSING_ORDER_TREE,
     .num_partitions = tree_partition_per_file_count,
     .partition_output_id = tree_partition_per_file_output_id,
+    .partition_exists = tree_partition_per_file_exists,
     .format_partition_path = format_lhalo_hdf5_partition_path,
-    .count_partition_trees = count_partition_trees_hdf5,
+    .count_partition_units = count_partition_units_hdf5,
     .open_partition = open_partition_hdf5,
     .load_unit = load_unit_hdf5,
     .close_partition = close_partition_hdf5,

@@ -1,0 +1,26 @@
+# Test micro-Uchuu ASCII Simulation Metadata
+
+input:
+  first_file: 0
+  last_file: 0
+  tree_name: tree_0_0_0.dat
+  tree_type: consistent_trees_ascii
+  simulation_dir: simulations/micro-uchuu-ascii/_tests/data
+  snapshot_list_file: simulations/micro-uchuu-ascii/micro-uchuu.a_list
+
+output:
+  forests_per_file: 100000
+
+simulation:
+  cosmology:
+    omega_matter: 0.3089
+    omega_lambda: 0.6911
+    hubble_h: 0.6774
+  box_size:
+    value: 100.0
+    units: Mpc/h
+    h_convention: carried
+  particle_mass:
+    value: 0.0325
+    units: 1e10 Msun/h
+    h_convention: carried

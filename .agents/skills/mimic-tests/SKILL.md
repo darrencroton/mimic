@@ -42,6 +42,10 @@ Test manifests are written to `build/generated/` (not `tests/`) by `make generat
 
 Model-neutral C unit tests live directly in `tests/unit/test_*.c` and are auto-discovered (globbed) by the registry generator — no `module_info.yaml` entry. If such a test exercises a `src/` file that is not already linked, add that file to the shared-source lists in `tests/unit/run_tests.sh` (`UTIL_SRCS` / `CORE_SRCS` / `IO_SRCS`), including any transitive dependency it needs to resolve at link time.
 
+Full selected-model test registration is enabled for `mini-millennium`, `micro-uchuu`, `micro-uchuu-hdf5`, and `micro-uchuu-ascii`. Larger simulations run core and selected-simulation tests only; they should use compact fixtures and rely on the default plus micro-Uchuu validation matrix for full model physics coverage.
+
+Generated test inputs always embed `first_file: 0, last_file: 0` so test runs process a single tree partition regardless of how many files the production catalogue has. For the three micro-Uchuu packages the production `simulation_info.yaml` is used as the simulation config (so tests exercise the real L-Halo binary, Consistent-Trees HDF5, and Consistent-Trees ASCII reader paths), but the single-file cap still applies. Other simulations should provide `simulations/<sim>/_tests/input/test_simulation.yaml` fixtures when production data is too large or not reliably mounted.
+
 ## Model-Neutral Integration Tests
 
 Use `test_fixture` when the test must pass for any MODEL/SIMULATION:

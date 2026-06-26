@@ -11,6 +11,7 @@
  */
 
 #include <math.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -50,6 +51,16 @@ void prepare_output_files(int filenr) {
   }
 #endif
   create_binary_output_files(filenr);
+}
+
+void output_increment_halo_counters_checked(int filenr, int snap_index, int snap_num, int tree) {
+  if (TotHalosPerSnap[snap_index] == INT_MAX || InputHalosPerSnap[snap_index][tree] == INT_MAX) {
+    FATAL_ERROR("Halo counter overflow for output chunk %d at snapshot %d (tree %d)", filenr,
+                snap_num, tree);
+  }
+
+  TotHalosPerSnap[snap_index]++;
+  InputHalosPerSnap[snap_index][tree]++;
 }
 
 /**

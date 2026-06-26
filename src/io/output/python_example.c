@@ -117,6 +117,21 @@ void write_python_example(const char *output_dir) {
   PY("    print()");
   PY("");
   PY("");
+  PY("def partition_sort_key(path):");
+  PY("    \"\"\"Sort Mimic partition paths by numeric output id.\"\"\"");
+  PY("    name = Path(path).name");
+  PY("    if name.endswith(\".hdf5\"):");
+  PY("        name = name[:-5]");
+  PY("    suffix = name.rsplit(\"_\", 1)[-1]");
+  PY("    return (0, int(suffix)) if suffix.isdigit() else (1, str(path))");
+  PY("");
+  PY("");
+  PY("def file_group_sort_key(name):");
+  PY("    \"\"\"Sort HDF5 master FileNNN groups by numeric output id.\"\"\"");
+  PY("    suffix = name[4:] if name.startswith(\"File\") else \"\"");
+  PY("    return (0, int(suffix)) if suffix.isdigit() else (1, name)");
+  PY("");
+  PY("");
 
   /* ---- reader: format-specific ---- */
   PY("# ---------------------------------------------------------------------------");
@@ -146,8 +161,8 @@ void write_python_example(const char *output_dir) {
     PY("        if \"Galaxies\" in snap:");
     PY("            return np.array(snap[\"Galaxies\"][:])");
     PY("        chunks = [np.array(snap[k][\"Galaxies\"][:])");
-    PY("                  for k in sorted(snap.keys()) if k.startswith(\"File\") and \"Galaxies\" "
-       "in snap[k]]");
+    PY("                  for k in sorted(snap.keys(), key=file_group_sort_key)");
+    PY("                  if k.startswith(\"File\") and \"Galaxies\" in snap[k]]");
     PY("        return np.concatenate(chunks) if chunks else None");
     PY("");
     PY("    master = OUTPUT_DIR / f\"{OUTPUT_FILENAME}.hdf5\"");
@@ -159,7 +174,8 @@ void write_python_example(const char *output_dir) {
     PY("            return data.view(np.recarray)");
     PY("");
     PY("    parts = []");
-    PY("    for path in sorted(OUTPUT_DIR.glob(f\"{OUTPUT_FILENAME}_*.hdf5\")):");
+    PY("    for path in sorted(OUTPUT_DIR.glob(f\"{OUTPUT_FILENAME}_*.hdf5\"),");
+    PY("                       key=partition_sort_key):");
     PY("        with h5py.File(path, \"r\") as hf:");
     PY("            chunk = from_file(hf)");
     PY("        if chunk is not None:");
@@ -200,7 +216,7 @@ void write_python_example(const char *output_dir) {
     PY("    \"\"\"");
     PY("    dtype   = build_dtype(schema)");
     PY("    pattern = str(OUTPUT_DIR / f\"{OUTPUT_FILENAME}_z{SNAPSHOT_Z:.3f}_*\")");
-    PY("    files   = sorted(glob.glob(pattern))");
+    PY("    files   = sorted(glob.glob(pattern), key=partition_sort_key)");
     PY("    if not files:");
     PY("        sys.exit(f\"No binary files found: {pattern}\")");
     PY("    parts = []");

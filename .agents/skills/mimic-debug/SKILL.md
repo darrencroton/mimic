@@ -51,7 +51,7 @@ valgrind --leak-check=full --track-origins=yes \
 
 Module-owned allocations via `mymalloc_cat(size, MEM_GALAXIES)` must be paired with `myfree(ptr)` in `cleanup()`. The allocator flags any category with outstanding allocations at shutdown.
 
-For `consistent_trees_hdf5` runs, expect `MEM_IO` to include the fixed `CTREES_READ_WINDOW_BYTES` slab window (`128 MiB` per rank) plus task-range `ForestInfo` and HDF5 field-cache scaffolding. A debug run should still report zero outstanding allocations after `close_partition_ctrees_hdf5()` frees the read window, field cache, and `ForestInfo` cache.
+For `consistent_trees_hdf5` runs, expect `MEM_IO` to include the fixed `CTREES_READ_WINDOW_BYTES` slab window (`128 MiB` per rank) plus chunk-range `ForestInfo` and HDF5 field-cache scaffolding. A debug run should still report zero outstanding allocations after `close_partition_ctrees_hdf5()` frees the read window, field cache, and `ForestInfo` cache.
 
 ## OutputBuffer
 

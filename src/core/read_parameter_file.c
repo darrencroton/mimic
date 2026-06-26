@@ -10,6 +10,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <math.h>
@@ -54,6 +55,7 @@ static void reject_unknown_keys(yaml_document_t *doc, yaml_node_t *mapping,
                                 const char *section_name, const char *const *valid_keys,
                                 size_t num_valid_keys);
 static int get_strict_int_value(yaml_node_t *node, const char *field_name);
+static int64_t get_strict_int64_value(yaml_node_t *node, const char *field_name);
 static double get_strict_double_value(yaml_node_t *node, const char *field_name);
 static double get_unit_scalar_value(yaml_document_t *doc, yaml_node_t *node, const char *field_name,
                                     const char *reference_label);
@@ -445,6 +447,34 @@ static int get_strict_int_value(yaml_node_t *node, const char *field_name) {
 }
 
 /**
+ * @brief   Get scalar value as int64_t, rejecting malformed input.
+ */
+static int64_t get_strict_int64_value(yaml_node_t *node, const char *field_name) {
+  const char *str = get_scalar_value(node);
+  char *endptr;
+  long long value;
+
+  if (str == NULL) {
+    FATAL_ERROR("%s must be an integer scalar", field_name);
+  }
+
+  errno = 0;
+  value = strtoll(str, &endptr, 10);
+  if (str == endptr || errno != 0) {
+    FATAL_ERROR("%s must be a valid 64-bit integer", field_name);
+  }
+
+  while (isspace((unsigned char)*endptr)) {
+    endptr++;
+  }
+  if (*endptr != '\0') {
+    FATAL_ERROR("%s must be a valid 64-bit integer", field_name);
+  }
+
+  return (int64_t)value;
+}
+
+/**
  * @brief   Get scalar value as double, rejecting malformed input.
  */
 static double get_strict_double_value(yaml_node_t *node, const char *field_name) {
@@ -552,8 +582,9 @@ static double get_unit_scalar_value(yaml_document_t *doc, yaml_node_t *node, con
 static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
   yaml_node_t *node;
   const char *str;
-  static const char *const valid_keys[] = {"output_filename", "output_directory", "output_format",
-                                           "snapshot_list"};
+  static const char *const valid_keys[] = {"output_filename",  "output_directory",
+                                           "output_format",    "snapshot_list",
+                                           "target_file_size", "forests_per_file"};
 
   DEBUG_LOG("Parsing output section");
   reject_unknown_keys(doc, section, "output", valid_keys,
@@ -586,6 +617,24 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
     DEBUG_LOG("OutputFormat = %s", str);
   }
 
+  node = get_mapping_value(doc, section, "target_file_size");
+  if (node) {
+    MimicConfig.TargetFileSize = get_strict_int64_value(node, "output.target_file_size");
+    if (MimicConfig.TargetFileSize <= 0) {
+      FATAL_ERROR("output.target_file_size must be positive");
+    }
+    DEBUG_LOG("TargetFileSize = %" PRId64, MimicConfig.TargetFileSize);
+  }
+
+  node = get_mapping_value(doc, section, "forests_per_file");
+  if (node) {
+    MimicConfig.ForestsPerFile = get_strict_int64_value(node, "output.forests_per_file");
+    if (MimicConfig.ForestsPerFile < 0) {
+      FATAL_ERROR("output.forests_per_file must be non-negative");
+    }
+    DEBUG_LOG("ForestsPerFile = %" PRId64, MimicConfig.ForestsPerFile);
+  }
+
   /* Parse snapshot list array */
   node = get_mapping_value(doc, section, "snapshot_list");
   if (node) {
@@ -608,6 +657,39 @@ static void parse_output_section(yaml_document_t *doc, yaml_node_t *section) {
     }
     MimicConfig.NOUT = idx;
     DEBUG_LOG("NumOutputs inferred from snapshot_list = %d", MimicConfig.NOUT);
+  }
+}
+
+/**
+ * @brief   Parse simulation-owned output defaults.
+ *
+ * Simulation metadata may provide catalogue-scale chunking defaults, but output
+ * destinations, formats, and snapshot selections remain run-file concerns.
+ */
+static void parse_simulation_output_section(yaml_document_t *doc, yaml_node_t *section) {
+  yaml_node_t *node;
+  static const char *const valid_keys[] = {"target_file_size", "forests_per_file"};
+
+  DEBUG_LOG("Parsing simulation output defaults");
+  reject_unknown_keys(doc, section, "simulation output defaults", valid_keys,
+                      sizeof(valid_keys) / sizeof(valid_keys[0]));
+
+  node = get_mapping_value(doc, section, "target_file_size");
+  if (node) {
+    MimicConfig.TargetFileSize = get_strict_int64_value(node, "output.target_file_size");
+    if (MimicConfig.TargetFileSize <= 0) {
+      FATAL_ERROR("output.target_file_size must be positive");
+    }
+    DEBUG_LOG("Simulation TargetFileSize default = %" PRId64, MimicConfig.TargetFileSize);
+  }
+
+  node = get_mapping_value(doc, section, "forests_per_file");
+  if (node) {
+    MimicConfig.ForestsPerFile = get_strict_int64_value(node, "output.forests_per_file");
+    if (MimicConfig.ForestsPerFile < 0) {
+      FATAL_ERROR("output.forests_per_file must be non-negative");
+    }
+    DEBUG_LOG("Simulation ForestsPerFile default = %" PRId64, MimicConfig.ForestsPerFile);
   }
 }
 
@@ -835,6 +917,10 @@ static void parse_simulation_config_file(const char *fname) {
   yaml_node_t *section = get_mapping_value(document, yf.root, "input");
   if (section)
     parse_input_section(document, section);
+
+  section = get_mapping_value(document, yf.root, "output");
+  if (section)
+    parse_simulation_output_section(document, section);
 
   section = get_mapping_value(document, yf.root, "simulation");
   if (section)

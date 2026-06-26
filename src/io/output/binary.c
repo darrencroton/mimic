@@ -18,6 +18,7 @@
  */
 
 #include <math.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -145,9 +146,7 @@ void save_halos(int filenr, int tree) {
                       i, tree, filenr, MimicConfig.ListOutputSnaps[n]);
         }
 
-        /* Increment halo counters right after successful write */
-        TotHalosPerSnap[n]++;
-        InputHalosPerSnap[n][tree]++;
+        output_increment_halo_counters_checked(filenr, n, MimicConfig.ListOutputSnaps[n], tree);
       }
     }
   }

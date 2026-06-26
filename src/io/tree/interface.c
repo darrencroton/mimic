@@ -78,6 +78,30 @@ int tree_partition_per_file_count(void) { return MimicConfig.LastFile - MimicCon
 
 int tree_partition_per_file_output_id(int partition) { return MimicConfig.FirstFile + partition; }
 
+static void format_tree_partition_path(const struct TreeReader *reader, char *tree_path,
+                                       size_t tree_path_size, int output_id) {
+  if (reader->format_partition_path != NULL) {
+    reader->format_partition_path(tree_path, tree_path_size, output_id);
+  } else {
+    snprintf(tree_path, tree_path_size, "%s/%s.%d%s", MimicConfig.SimulationDir,
+             MimicConfig.TreeName, output_id, MimicConfig.TreeExtension);
+  }
+}
+
+int tree_partition_per_file_exists(int partition) {
+  FILE *fd;
+  char tree_path[3 * MAX_STRING_LEN + 26];
+  const int output_id = tree_partition_per_file_output_id(partition);
+
+  format_tree_partition_path(MimicConfig.reader, tree_path, sizeof(tree_path), output_id);
+  if (!(fd = fopen(tree_path, "r"))) {
+    return 0;
+  }
+
+  fclose(fd);
+  return 1;
+}
+
 /**
  * @brief   Frees memory allocated for the merger tree table
  *

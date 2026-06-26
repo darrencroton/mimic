@@ -29,6 +29,10 @@ def find_repo_root(start):
 REPO_ROOT = find_repo_root(Path(__file__).resolve())
 OUTPUT_FILE = REPO_ROOT / "tests" / "data" / "output" / "hdf5" / "model_000.hdf5"
 Z0_SNAPSHOT_GROUP = "Snap049"
+# Production micro-Uchuu HDF5 has ~1M halos at Snap049; the smoke test checks
+# for a meaningful lower bound rather than an exact count, since the count
+# varies with the selected model's physics.
+MIN_EXPECTED_Z0_HALOS = 10_000
 
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
@@ -54,7 +58,7 @@ def _require_exe():
 
 
 def test_hdf5_reader_loads():
-    """Run halos-only on the tiny HDF5 fixture; expect exit 0."""
+    """Run against micro-Uchuu HDF5 production data; expect exit 0."""
     _require_simulation()
     _require_exe()
 
@@ -62,7 +66,7 @@ def test_hdf5_reader_loads():
 
 
 def test_hdf5_reader_halo_count():
-    """Output must contain the expected tiny-fixture halos at z=0."""
+    """Output must contain a meaningful number of halos at z=0."""
     _require_simulation()
     _require_exe()
 
@@ -73,7 +77,9 @@ def test_hdf5_reader_halo_count():
         assert Z0_SNAPSHOT_GROUP in hf, f"{Z0_SNAPSHOT_GROUP} missing from {OUTPUT_FILE}"
         galaxies = hf[Z0_SNAPSHOT_GROUP].get("Galaxies")
         assert galaxies is not None, f"{Z0_SNAPSHOT_GROUP}/Galaxies missing from {OUTPUT_FILE}"
-        assert galaxies.shape[0] == 4, f"Expected 4 output halos, found {galaxies.shape[0]}"
+        assert (
+            galaxies.shape[0] >= MIN_EXPECTED_Z0_HALOS
+        ), f"Expected at least {MIN_EXPECTED_Z0_HALOS} output halos, found {galaxies.shape[0]}"
 
 
 if __name__ == "__main__":

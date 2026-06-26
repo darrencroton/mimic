@@ -314,6 +314,8 @@ input:
   last_file: 0
 ```
 
+`simulation_info.yaml` may also define catalogue-scale output chunking defaults with `output.target_file_size` and `output.forests_per_file`. A run file can override those two keys in its own `output:` section. Output destination, format, and snapshot list remain run-file settings.
+
 **Run with MPI** after building with MPI support — Mimic parallelizes over tree files:
 
 ```bash
@@ -365,7 +367,7 @@ The HDF5-based readers are only available when Mimic is built with HDF5 (the def
 
 `input.tree_name` is reader-specific. `lhalo_binary` is the prefix before the numbered file suffix (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` are literal filenames under `input.simulation_dir`, including any extension. `lhalo_hdf5` uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder, for example `trees_063.%d.hdf5`.
 
-The `consistent_trees_hdf5` reader keeps memory bounded while reducing HDF5 call overhead: it caches task-range `ForestInfo`, keeps per-file field handles open for the partition lifetime, and reads normal forests through a fixed 128 MiB per-rank slab window. This is an internal reader detail, not a run-YAML option.
+The `consistent_trees_hdf5` reader keeps memory bounded while reducing HDF5 call overhead: it caches chunk-range `ForestInfo`, keeps per-file field handles open for the partition lifetime, and reads normal forests through a fixed 128 MiB per-rank slab window. This is an internal reader detail, not a run-YAML option.
 
 The processing driver is selected separately with `input.processing_order`. It defaults to `tree_ordered`, so existing run files and simulation packages do not need to set it. `snapshot_ordered` is a recognized future value, but Mimic v1.0 fails fast with a clear not-implemented error because the snapshot-ordered driver is not available yet.
 
@@ -375,7 +377,7 @@ input:
   processing_order: tree_ordered   # processing driver; optional default
 ```
 
-The two Consistent-Trees readers parallelise by distributing *forests* across MPI tasks, with one output file per task. Two optional `input` keys tune that distribution; both are ignored by the L-Halo readers, and `forest_distribution_scheme` is honoured only by `consistent_trees_hdf5` (the ASCII reader cannot know per-forest halo counts before loading, so it always splits forests evenly by count):
+The two Consistent-Trees readers enumerate output chunks from forest ranges, then assign those chunks across MPI tasks. Output file ids are chunk ids, independent of `NTask`, so serial and MPI runs produce the same chunk layout. Two optional `input` keys tune HDF5 chunk-cost estimation; both are ignored by the L-Halo readers, and `forest_distribution_scheme` is honoured only by `consistent_trees_hdf5` (the ASCII reader cannot know per-forest halo counts before loading, so its chunk costs are uniform):
 
 ```yaml
 input:
@@ -395,6 +397,14 @@ output:
 ```
 
 HDF5 is self-documenting and portable — field names, units, and run provenance travel inside the file. Binary is compact and fast; Mimic writes `metadata/output_schema.json` beside every run so binary readers can reconstruct the exact record layout used by that executable. The bundled `example_Mvir_Len_plot.py` in each output directory is a ready-to-run Python example configured for the exact output that was just written. If you move or sync binary outputs elsewhere, keep the `metadata/` directory with them.
+
+Consistent-Trees chunked output is configured with two optional output keys. `target_file_size` is a soft byte target for HDF5 chunk planning and defaults to 4294967296 bytes (4 GiB). The planner estimates chunk size from input halo counts, so processed output can be larger when model physics creates orphans or when HDF5 compression and metadata change on-disk size. `forests_per_file` defaults to 0, which means derive chunks from `target_file_size`; when set above 0, it gives an exact deterministic forest count per output chunk. These keys may live in `simulation_info.yaml` when the catalogue size requires a shared default across models, and the run file can override them. ASCII Consistent-Trees catalogues cannot estimate chunk sizes from `target_file_size`, so `consistent_trees_ascii` requires `forests_per_file > 0` before processing starts. Existing chunks are resumable with `--skip`; a partial chunk is rejected so reruns do not mix complete and incomplete partition files.
+
+```yaml
+output:
+  target_file_size: 4294967296  # soft target in bytes
+  forests_per_file: 0           # 0 = derive from target_file_size
+```
 
 ### Units and Schema
 

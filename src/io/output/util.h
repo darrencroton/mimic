@@ -40,6 +40,15 @@ void output_path_hdf5(char *buf, size_t size, int filenr);
 void prepare_output_files(int filenr);
 
 /**
+ * @brief   Increment per-file halo counters with the 32-bit output guard
+ *
+ * Output headers and HDF5 attributes currently store per-snapshot and per-tree
+ * halo counts as int. Fatal before incrementing if the next record would
+ * overflow that contract.
+ */
+void output_increment_halo_counters_checked(int filenr, int snap_index, int snap_num, int tree);
+
+/**
  * @brief Converts internal halo structure to output format
  *
  * This function transforms the internal halo representation (struct Halo)

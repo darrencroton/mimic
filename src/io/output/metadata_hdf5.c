@@ -54,9 +54,11 @@ void write_description_attr(hid_t obj_id, const char *text) {
  * This provides a generic, table-driven approach that maintains
  * core-physics separation (Vision Principle #1).
  */
+#define CONFIG_PARAM_INT64 4
+
 typedef struct {
   const char *name; /* HDF5 attribute name */
-  int type;         /* Parameter type (INT, DOUBLE, STRING) */
+  int type;         /* Parameter type (INT, INT64, DOUBLE, STRING) */
   void *address;    /* Pointer to MimicConfig field */
 } ConfigParamDescriptor;
 
@@ -537,6 +539,10 @@ void store_run_properties(hid_t master_file_id) {
       {"Hubble_h", DOUBLE, &MimicConfig.Hubble_h},
       {"PartMass", DOUBLE, &MimicConfig.PartMass},
 
+      /* Output chunking controls */
+      {"TargetFileSize", CONFIG_PARAM_INT64, &MimicConfig.TargetFileSize},
+      {"ForestsPerFile", CONFIG_PARAM_INT64, &MimicConfig.ForestsPerFile},
+
       /* Units */
       {"UnitVelocity_in_cm_per_s", DOUBLE, &MimicConfig.UnitVelocity_in_cm_per_s},
       {"UnitLength_in_cm", DOUBLE, &MimicConfig.UnitLength_in_cm},
@@ -564,6 +570,13 @@ void store_run_properties(hid_t master_file_id) {
       attribute_id = H5Acreate(props_group_id, config_params[i].name, H5T_NATIVE_INT, dataspace_id,
                                H5P_DEFAULT, H5P_DEFAULT);
       H5Awrite(attribute_id, H5T_NATIVE_INT, config_params[i].address);
+      H5Aclose(attribute_id);
+      break;
+
+    case CONFIG_PARAM_INT64:
+      attribute_id = H5Acreate(props_group_id, config_params[i].name, H5T_NATIVE_INT64,
+                               dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+      H5Awrite(attribute_id, H5T_NATIVE_INT64, config_params[i].address);
       H5Aclose(attribute_id);
       break;
 
