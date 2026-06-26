@@ -3,16 +3,12 @@
 
 /**
  * @file    tree/ctrees/forest_utils.h
- * @brief   Forest-to-MPI-task distribution for Consistent-Trees.
+ * @brief   Forest cost and range helpers for Consistent-Trees.
  *
- * Ported from sage-model (io/forest_utils.{c,h}) with minimal edits. Splits the
- * global list of forests across MPI tasks either uniformly or weighted by a
- * per-forest cost (halo count raised to a configurable power), and maps a task's
+ * Ported from sage-model (io/forest_utils.{c,h}) with minimal edits. Provides
+ * the legacy forest-distribution routines still covered by unit tests, the
+ * per-forest cost helper used for chunk LPT assignment, and helpers that map a
  * forest range back onto the input files it must read.
- *
- * The Consistent-Trees readers use these during per-task setup; the ASCII reader
- * uses uniform splitting, while the HDF5 reader can weight by per-forest halo
- * count.
  */
 
 #include <stdint.h>

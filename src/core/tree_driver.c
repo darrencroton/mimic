@@ -296,17 +296,6 @@ static int claim_and_process_partition(int output_id, ProgressBar *ext_bar, int6
   return 1;
 }
 
-static void run_per_task_driver(const struct TreeReader *reader) {
-  reader_prepare_run(reader);
-
-  const int output_id = current_task_id();
-  if (claim_and_process_partition(output_id, NULL, 0) && !progress_display_active()) {
-    INFO_LOG("%sCompleted task %d%s", mimic_color_green(), output_id, mimic_color_reset());
-  }
-
-  reader_teardown_run(reader);
-}
-
 static void run_per_file_driver(const struct TreeReader *reader) {
   REQUIRE_READER_HOOK(reader, num_partitions);
   REQUIRE_READER_HOOK(reader, partition_output_id);
@@ -507,9 +496,6 @@ void run_tree_driver(void) {
   }
 
   switch (reader->partition_model) {
-  case PARTITION_PER_TASK:
-    run_per_task_driver(reader);
-    break;
   case PARTITION_PER_FILE:
     run_per_file_driver(reader);
     break;

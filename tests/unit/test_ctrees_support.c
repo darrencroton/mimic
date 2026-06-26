@@ -265,7 +265,7 @@ int test_forest_topology_reconstruction(void) {
   return TEST_PASS;
 }
 
-/* Validate that a per-task partition is a contiguous, non-overlapping, complete
+/* Validate that N forest ranges form a contiguous, non-overlapping, complete
    cover of [0, totnforests). */
 static int check_partition(int ntasks, const int64_t *starts, const int64_t *counts,
                            int64_t totnforests) {

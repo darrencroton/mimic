@@ -19,18 +19,12 @@
  * partition is done. A unit is one independently processed merger structure
  * within a partition.
  *
- * Three partition models are supported (see the driver loop in core/tree_driver.c):
+ * Two partition models are supported (see the driver loop in core/tree_driver.c):
  *
  * - PARTITION_PER_FILE: a partition is one input file and a unit is one tree.
  *   The driver strides partitions across MPI tasks; the per-file helpers below
  *   supply the partition enumeration (num_partitions / partition_output_id).
  *   Both L-Halo readers use this model.
- *
- * - PARTITION_PER_TASK: each MPI task owns exactly one output partition, and a
- *   unit is one forest. open_partition performs the per-task forest split keyed
- *   on the ThisTask/NTask globals, so there is no per-file stride and the driver
- *   does not call num_partitions / partition_output_id (they are NULL). The
- *   Consistent-Trees readers use this model.
  *
  * - PARTITION_ENUMERATED: the reader publishes a global list of output
  *   partitions independent of MPI task count. The driver assigns partitions to
@@ -40,8 +34,7 @@
  */
 enum TreePartitionModel {
   PARTITION_PER_FILE = 0,   /* one partition per input file (L-Halo) */
-  PARTITION_PER_TASK = 1,   /* one partition per MPI task (Consistent-Trees) */
-  PARTITION_ENUMERATED = 2, /* reader-enumerated output partitions */
+  PARTITION_ENUMERATED = 1, /* reader-enumerated output partitions */
 };
 
 enum InputProcessingOrder {
@@ -78,16 +71,15 @@ struct TreeReader {
   void (*prepare_run)(void);
   void (*teardown_run)(void);
 
-  /* PARTITION_PER_FILE and PARTITION_ENUMERATED only (NULL for
-     PARTITION_PER_TASK readers): */
+  /* PARTITION_PER_FILE and PARTITION_ENUMERATED readers: */
   /* Number of partitions to iterate. The driver applies the MPI stride over the
      partition index, so this returns the full count, not a per-task share. */
   int (*num_partitions)(void);
   /* Output id for a partition: the value used in output file names. Galaxy ids
      use the run-scoped GlobalForestOffset plus unit index instead. */
   int (*partition_output_id)(int partition);
-  /* Whether a partition has input to process. Per-file readers usually check
-     for an input file; enumerated readers can use this to skip omitted chunks. */
+  /* Required existence check for a partition. Per-file readers check input files;
+     enumerated readers check reader-defined chunks. */
   int (*partition_exists)(int partition);
   /* Optional PARTITION_PER_FILE path formatter. If NULL, the driver uses the
      legacy L-Halo binary path: <simulation_dir>/<tree_name>.<output_id><ext>.
@@ -97,8 +89,7 @@ struct TreeReader {
   /* Count units in a present partition without staging per-unit metadata or
      holding an open handle. Required for PARTITION_PER_FILE readers so the core
      can build run-scoped global forest offsets; required for PARTITION_ENUMERATED
-     readers so serial progress can span assigned chunks. NULL for
-     PARTITION_PER_TASK. */
+     readers so serial progress can span assigned chunks. */
   int64_t (*count_partition_units)(int partition);
   /* Global forest offset for a reader-enumerated partition. Required for
      PARTITION_ENUMERATED readers; ignored for other models. */
@@ -108,10 +99,9 @@ struct TreeReader {
   double (*partition_cost)(int partition);
 
   /* Open partition `output_id` and read its unit table (Ntrees and per-unit
-     halo counts), retaining the open handle for subsequent load_unit calls. For
-     PARTITION_PER_TASK readers `output_id` is the task id and this also performs
-     the per-task forest split; those readers must publish GlobalForestOffset for
-     the assigned global start before returning. */
+     halo counts), retaining the open handle for subsequent load_unit calls.
+     Enumerated readers receive their partition output id here after the driver
+     has published the partition's GlobalForestOffset. */
   void (*open_partition)(int output_id);
 
   /* Load every halo of one unit from the open partition into InputTreeHalos. */

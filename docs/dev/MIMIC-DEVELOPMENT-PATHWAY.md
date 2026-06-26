@@ -1,7 +1,7 @@
 # Mimic Development Pathway
 
 **Status:** Active planning index for `docs/dev/`.
-**Date:** 2026-06-23
+**Date:** 2026-06-26
 **Scope:** Current plan ownership, release sequence, and source-of-truth boundaries for pre-v1.0 and first post-v1.0 work.
 
 ---
@@ -18,10 +18,11 @@ The architectural direction is still governed by `docs/VISION.md`: Mimic is a ph
 
 | Document | Status | Role | Actionability |
 |---|---|---|---|
-| `chunked-output-plan.md` | Active pre-v1.0 implementation plan | Replace Consistent-Trees per-task output with deterministic chunked enumerated output, including ctrees HDF5, ctrees ASCII, downstream consumers, docs, and removal of stale `PARTITION_PER_TASK` code | Current release-blocking architecture work; execute slice-by-slice with the approval gates in the plan |
-| `mimic-style-sweep-plan.md` | Active pre-v1.0 quality plan | Organise the release style sweep by ownership area while preserving scientific behaviour | Run after the chunked-output implementation has settled, then use final release gates |
+| `mimic-style-sweep-plan.md` | Active pre-v1.0 quality plan | Organise the release style sweep by ownership area while preserving scientific behaviour | Next pre-v1.0 work; run before final release gates |
 | `MIMIC-DUAL-DRIVER-PLAN.md` | Post-v1.0 architecture plan | Add snapshot-ordered reader/driver support and later distributed snapshot-global operations over the shared core seams | Re-review after v1.0 is tagged and the baseline is refreshed; do not start snapshot phases before then |
 | `MIMIC-MODEL-BUILDER-PLAN.md` | Post-v1.0 requirements brief | Preserve requirements for assisted, gate-driven model-package construction from scientific evidence | Re-review after v1.0 and before any implementation RFC; current text is a conservative brief, not an active build plan |
+
+`chunked-output-plan.md` is complete. It remains in `docs/dev/` as implementation history until archived, but durable current instructions now live in `docs/USER-GUIDE.md`, `docs/DEVELOPER-GUIDE.md`, the simulation/debug skills, and the code itself.
 
 Archived predecessor plans, validation records, and closeout handoffs are historical evidence, not active planning inputs. If future work needs a detail from them, cite the archived record and create a new narrow active plan rather than reopening a completed umbrella.
 
@@ -29,17 +30,15 @@ Archived predecessor plans, validation records, and closeout handoffs are histor
 
 ## Current Sequence
 
-1. **Implement chunked Consistent-Trees output.** Follow `chunked-output-plan.md` in slice order. The v1.0 end state must remove stale compatibility paths for the replaced ctrees per-task output model, keep `consistent_trees_ascii` live for Shin-Uchuu, and leave no ctrees assumption that output partition equals MPI task.
+1. **Run the pre-release style sweep.** Use `mimic-style-sweep-plan.md` now that the chunked-output implementation has landed, so the sweep sees the real v1.0 code shape. Keep edits focused on style, clarity, docs consistency, and release-facing quality; do not use the sweep as a new architecture bucket.
 
-2. **Run the pre-release style sweep.** Use `mimic-style-sweep-plan.md` after the chunking work settles, so the sweep sees the real v1.0 code shape. Keep edits focused on style, clarity, docs consistency, and release-facing quality; do not use the sweep as a new architecture bucket.
+2. **Run final release gates.** At minimum run `./scripts/beautify.sh`, `make check-format`, `make check-docs`, `make check-generated`, `make validate-modules`, and the relevant test tiers in logged/summary form. Any non-zero exit code is a release blocker.
 
-3. **Run final release gates.** At minimum run `./scripts/beautify.sh`, `make check-format`, `make check-docs`, `make check-generated`, `make validate-modules`, and the relevant test tiers in logged/summary form. Any non-zero exit code is a release blocker.
+3. **Tag v1.0 and refresh the baseline.** Record the tagged v1.0 output and test baseline as the forward reference for behaviour-preserving post-v1.0 work.
 
-4. **Tag v1.0 and refresh the baseline.** Record the tagged v1.0 output and test baseline as the forward reference for behaviour-preserving post-v1.0 work.
+4. **Re-review post-v1.0 plans before executing them.** The dual-driver and model-builder plans should be revised only after v1.0 is tagged, because the final chunked-output and style-sweep state should be the baseline they build on.
 
-5. **Re-review post-v1.0 plans before executing them.** The dual-driver and model-builder plans should be revised only after v1.0 is tagged, because the final chunked-output and style-sweep state should be the baseline they build on.
-
-6. **Choose the next major direction post-v1.0.** The snapshot driver and model builder share the same v1.0 core foundation, but their relative priority should be decided after the release based on scientific need, risk, and available validation gates.
+5. **Choose the next major direction post-v1.0.** The snapshot driver and model builder share the same v1.0 core foundation, but their relative priority should be decided after the release based on scientific need, risk, and available validation gates.
 
 ---
 

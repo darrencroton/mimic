@@ -433,7 +433,7 @@ int main(int argc, char **argv) {
   run_processing_driver();
 
 #ifdef MPI
-  /* Every rank must finish and close its per-task output files before rank 0
+  /* Every rank must finish and close its assigned output partitions before rank 0
      re-opens them to build the master file: HDF5 takes a file lock on open, so
      an unsynchronized master write races the owning ranks and fails with
      "unable to lock file" (errno 11) on locking filesystems. */

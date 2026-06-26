@@ -894,14 +894,17 @@ struct TreeReader {
   const char *name;           /* tree_type string in the run YAML */
   const char *file_extension; /* optional fixed suffix for legacy readers */
 
-  enum TreePartitionModel partition_model; /* per-file, enumerated, or legacy per-task */
+  enum TreePartitionModel partition_model; /* per-file or reader-enumerated */
   enum InputProcessingOrder processing_order; /* currently INPUT_PROCESSING_ORDER_TREE */
 
   /* PARTITION_PER_FILE and PARTITION_ENUMERATED readers: */
   int (*num_partitions)(void);
   int (*partition_output_id)(int partition);
+  int (*partition_exists)(int partition);
   void (*format_partition_path)(char *buf, size_t size, int output_id);
-  int64_t (*count_partition_trees)(int output_id);
+  int64_t (*count_partition_units)(int partition);
+  int64_t (*global_forest_offset)(int partition);
+  double (*partition_cost)(int partition);
 
   void (*open_partition)(int output_id); /* open + read the unit table */
   void (*load_unit)(int unit);           /* read one unit into InputTreeHalos */
@@ -919,19 +922,17 @@ The core iterates the input as **partitions** of **units**. A partition is the u
 | --- | --- | --- | --- | --- |
 | `PARTITION_PER_FILE` | one input file | one tree | file number | both L-Halo readers |
 | `PARTITION_ENUMERATED` | reader-defined chunk | one tree/forest | chunk or reader id | both Consistent-Trees readers |
-| `PARTITION_PER_TASK` | one MPI task | one forest | `ThisTask` | legacy compatibility path; do not use for new readers |
 
-- **`PARTITION_PER_FILE`**: the driver strides partitions across MPI tasks. Supply the enumeration via the shared helpers `tree_partition_per_file_count()` / `tree_partition_per_file_output_id()` (in `interface.c`) as your `num_partitions` / `partition_output_id`. Implement `count_partition_trees(output_id)` as an allocation-free header read so the driver can build the run-scoped global forest-offset table before processing. `open_partition(output_id)` opens file `output_id` and reads its tree table.
-- **`PARTITION_ENUMERATED`**: the reader publishes a deterministic list of output partitions and costs. The driver assigns those partitions to MPI tasks, but output ids remain the reader's partition ids and therefore do not depend on `NTask`. The Consistent-Trees readers use this for chunked output.
-- **`PARTITION_PER_TASK`**: legacy compatibility path where each task owns exactly one output partition and the output id is `ThisTask`. It remains only until the chunked-output cleanup removes the old ctrees per-task model; new readers should not use it.
+- **`PARTITION_PER_FILE`**: the driver strides partitions across MPI tasks. Supply the enumeration via the shared helpers `tree_partition_per_file_count()` / `tree_partition_per_file_output_id()` (in `interface.c`) as your `num_partitions` / `partition_output_id`. Implement `count_partition_units(partition)` as an allocation-free header read so the driver can build the run-scoped global forest-offset table before processing. `open_partition(output_id)` opens file `output_id` and reads its tree table.
+- **`PARTITION_ENUMERATED`**: the reader publishes a deterministic list of output partitions and costs. The driver assigns those partitions to MPI tasks, but output ids remain the reader's partition ids and therefore do not depend on `NTask`. The Consistent-Trees readers use this for chunked output: each partition is a forest-range chunk, `GlobalForestOffset` is the chunk's first global forest, and chunk ids drive output names and per-chunk resume.
 
 ### Where the partition model is observed outside the reader
 
 Three pieces of the core key on `partition_model`; a new reader inherits them by setting the field correctly and supplying the matching callbacks:
 
-- **Unique galaxy ids** — `make_unique_galaxy_id()` in `src/core/build_model.c` encodes `halonr + TREE_MUL_FAC * forestnr_global`, where `forestnr_global = GlobalForestOffset + unit`. `PARTITION_PER_FILE` readers get `GlobalForestOffset` from the driver's prefix-sum scan over present files; `PARTITION_ENUMERATED` readers publish chunk offsets; legacy `PARTITION_PER_TASK` readers set it from their global forest-distribution start. Partition ids and MPI task ranks are not part of the identity.
-- **Per-file offset scan** — `run_tree_driver()` calls `count_partition_trees(output_id)` for every present `PARTITION_PER_FILE` input file before processing so missing files keep the existing skip semantics and present files receive contiguous run-scoped offsets.
-- **HDF5 master file** — `write_master_file()` asks enumerable readers for their partition ids and still handles the legacy `PARTITION_PER_TASK` path until that code is removed.
+- **Unique galaxy ids** — `make_unique_galaxy_id()` in `src/core/build_model.c` encodes `halonr + TREE_MUL_FAC * forestnr_global`, where `forestnr_global = GlobalForestOffset + unit`. `PARTITION_PER_FILE` readers get `GlobalForestOffset` from the driver's prefix-sum scan over present files; `PARTITION_ENUMERATED` readers publish chunk offsets. Partition ids and MPI task ranks are not part of the identity.
+- **Per-file offset scan** — `run_tree_driver()` calls `count_partition_units(partition)` for every present `PARTITION_PER_FILE` input file before processing so missing files keep the existing skip semantics and present files receive contiguous run-scoped offsets.
+- **HDF5 master file** — `write_master_file()` asks readers for their partition ids, creates links to existing output files, and records per-snapshot totals from each partition file.
 
 ### Steps
 

@@ -48,23 +48,16 @@ void write_master_file(void) {
   DEBUG_LOG("Creating master HDF5 file '%s'", master_file);
   master_file_id = H5Fcreate(master_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
-  const int master_uses_reader_enumeration =
-      MimicConfig.reader->partition_model != PARTITION_PER_TASK;
-  if (master_uses_reader_enumeration && MimicConfig.reader->prepare_run != NULL) {
+  if (MimicConfig.reader->prepare_run != NULL) {
     MimicConfig.reader->prepare_run();
   }
 
-  int npartitions;
-  if (MimicConfig.reader->partition_model == PARTITION_PER_TASK) {
-    npartitions = ((NTask > 0) ? NTask : 1);
-  } else {
-    if (MimicConfig.reader->num_partitions == NULL ||
-        MimicConfig.reader->partition_output_id == NULL) {
-      FATAL_ERROR("Tree reader '%s' cannot enumerate HDF5 master partitions",
-                  MimicConfig.reader->name);
-    }
-    npartitions = MimicConfig.reader->num_partitions();
+  if (MimicConfig.reader->num_partitions == NULL ||
+      MimicConfig.reader->partition_output_id == NULL) {
+    FATAL_ERROR("Tree reader '%s' cannot enumerate HDF5 master partitions",
+                MimicConfig.reader->name);
   }
+  const int npartitions = MimicConfig.reader->num_partitions();
 
   for (n = 0; n < MimicConfig.NOUT; n++) {
     sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
@@ -86,12 +79,9 @@ void write_master_file(void) {
   }
 
   for (int partition = 0; partition < npartitions; partition++) {
-    filenr = MimicConfig.reader->partition_model == PARTITION_PER_TASK
-                 ? partition
-                 : MimicConfig.reader->partition_output_id(partition);
+    filenr = MimicConfig.reader->partition_output_id(partition);
 
     if (MimicConfig.reader->partition_model == PARTITION_ENUMERATED &&
-        MimicConfig.reader->partition_exists != NULL &&
         !MimicConfig.reader->partition_exists(partition)) {
       INFO_LOG("Skipping master-file links for missing input partition %d", partition);
       continue;
@@ -163,7 +153,7 @@ void write_master_file(void) {
     H5Fclose(target_file_id);
   }
 
-  if (master_uses_reader_enumeration && MimicConfig.reader->teardown_run != NULL) {
+  if (MimicConfig.reader->teardown_run != NULL) {
     MimicConfig.reader->teardown_run();
   }
 
