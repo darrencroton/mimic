@@ -101,6 +101,11 @@ Examples:
 - `src/io/output/hdf5.c` — file header states what the file *owns* (lifecycle, layout, schema source) rather than selling the format. Use this as the template for all output writer headers.
 Run: `make`, output-format and tree-reader tests as relevant.
 
+Status: ✓ Complete — 2026-06-27
+Style debt:
+- `src/io/tree/read_ctrees_ascii.c`: uses `fprintf(stderr, "Error: ...")` rather than Mimic logging macros — vendored pattern inherited from the Consistent-Trees parser; out-of-scope for a light-touch pass, flagged for a future ctrees-boundary audit.
+- `src/io/output/hdf5.c`: `// Create datatypes for different size arrays` comment and `array3f_tid` variable in `calc_hdf5_props()` — mild describe-the-code noise; left because the context (HDF5 type aliasing) is less obvious than the others removed.
+
 ---
 
 ### 5. Module System Infrastructure

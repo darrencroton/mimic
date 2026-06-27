@@ -7,11 +7,11 @@
  * linking. Field schema is driven by generated hdf5_field_definitions.inc.
  *
  * Key functions:
- * - calc_hdf5_props(): Defines the HDF5 table structure for halo properties
- * - prep_hdf5_file(): Creates and initializes an HDF5 output file
- * - write_hdf5_halo(): Writes a single halo to an HDF5 file
- * - write_hdf5_attrs(): Writes metadata attributes to an HDF5 file
- * - write_master_file(): Creates a master file with links to all output files
+ * - calc_hdf5_props(): field table setup from generated metadata
+ * - prep_hdf5_file(): per-filenr file/group/table creation
+ * - save_halos_hdf5() / flush_hdf5_buffers(): cross-tree write buffer
+ * - write_hdf5_attrs(): per-snapshot count attributes and per-tree dataset
+ * - write_master_file(): run-level master file with external links
  */
 
 #include <hdf5.h>
@@ -34,29 +34,15 @@
 #include "hdf5_internal.h"
 
 /**
- * @brief   Defines the HDF5 table structure for halo properties
+ * @brief   Set up the HDF5 table structure (field names, types, offsets) from generated metadata.
  *
- * This function sets up the HDF5 table structure for storing halo properties
- * in the output files. It:
- * 1. Defines the total number of halo properties to be saved
- * 2. Allocates memory for property metadata arrays
- * 3. Calculates memory offsets for each property in the halo_OUTPUT struct
- * 4. Defines field names and data types for each property
- *
- * The function handles all halo properties, including scalars (masses, rates)
- * and arrays (positions, velocities, spins). It configures the HDF5 table
- * to match the layout of the halo_OUTPUT struct for efficient I/O.
+ * Driven by hdf5_field_count.inc (sets HDF5_n_props) and hdf5_field_definitions.inc
+ * (populates HDF5_dst_offsets/sizes/field_names/field_types). Called once per run
+ * before any file is opened.
  */
 void calc_hdf5_props(void) {
-
-  /*
-   * Prepare an HDF5 to receive the output halo data.
-   * Here we store the data in an hdf5 table for easily appending new data.
-   */
-
   struct HaloOutput galout;
 
-  /* Size of a single halo entry */
   HDF5_dst_size = sizeof(struct HaloOutput);
 
   /* Create datatypes for different size arrays */
@@ -65,17 +51,13 @@ void calc_hdf5_props(void) {
 /* AUTO-GENERATED: Set property count and allocate arrays */
 #include "../../include/generated/hdf5_field_count.inc"
 
-  /* Allocate arrays for field metadata */
   HDF5_dst_offsets = mymalloc_cat(sizeof(size_t) * HDF5_n_props, MEM_IO);
   HDF5_dst_sizes = mymalloc_cat(sizeof(size_t) * HDF5_n_props, MEM_IO);
   HDF5_field_names = mymalloc_cat(sizeof(const char *) * HDF5_n_props, MEM_IO);
   HDF5_field_types = mymalloc_cat(sizeof(hid_t) * HDF5_n_props, MEM_IO);
 
-/* AUTO-GENERATED: Define all HDF5 fields from metadata
- * This replaces ~150 lines of manual field definitions */
 #include "../../include/generated/hdf5_field_definitions.inc"
 
-  /* Validate property count */
   if (i != HDF5_n_props) {
     FATAL_ERROR("HDF5 property count mismatch. Expected %d properties but "
                 "processed %d properties",
@@ -84,40 +66,16 @@ void calc_hdf5_props(void) {
 }
 
 /**
- * @brief   Creates and initializes an HDF5 output file
+ * @brief   Create a new HDF5 output file with one table per requested snapshot.
+ * @param   fname   Path to the output file.
  *
- * @param   fname   Path to the output file
- *
- * This function creates and initializes a new HDF5 file for halo output.
- * It:
- * 1. Creates the file with default HDF5 properties
- * 2. Creates a group for each output snapshot
- * 3. Creates a table within each group to store halo data
- * 4. Configures table properties like chunking for optimal performance
- *
- * The created file structure allows easy organization of objects by snapshot,
- * and efficient appending of new halo records as they are processed.
+ * Creates the file, one Snap{NNN} group per ListOutputSnaps entry, and an empty
+ * HDF5 table ("Galaxies") in each group. chunk_size=1000 (≈140 KB per chunk for
+ * HaloOutput) is a tuning constant; compression is controlled at runtime via
+ * MimicConfig.HDF5CompressionLevel (0 = off).
  */
 void prep_hdf5_file(char *fname) {
-
-  /*
-   * HDF5 chunk size for table storage (number of records per chunk).
-   *
-   * This is the single most important parameter for HDF5 I/O performance
-   * tuning. Current value: 1000 records ≈ 140 KB per chunk (for HaloOutput
-   * struct).
-   *
-   * Performance considerations:
-   * - Too small (<100): Excessive metadata overhead, poor sequential I/O
-   * - Too large (>10000): Wasted memory for partial chunk reads/writes
-   * - Recommended range: 10 KB - 1 MB per chunk
-   * - System-dependent: Optimal value varies with filesystem (NFS, Lustre,
-   * local)
-   *
-   * For advanced HPC tuning, this could be made configurable via parameter
-   * file. Current default (1000) provides good performance for typical use
-   * cases.
-   */
+  /* 1000 records ≈ 140 KB per chunk: sweet spot for sequential write throughput vs. overhead. */
   hsize_t chunk_size = 1000;
   int *fill_data = NULL;
   hid_t file_id, snap_group_id;
@@ -128,7 +86,6 @@ void prep_hdf5_file(char *fname) {
   DEBUG_LOG("Creating new HDF5 file '%s'", fname);
   file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
-  // Create a group for each output snapshot
   for (i_snap = 0; i_snap < MimicConfig.NOUT; i_snap++) {
     sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[i_snap]);
     snap_group_id = H5Gcreate(file_id, target_group, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
@@ -147,7 +104,6 @@ void prep_hdf5_file(char *fname) {
     H5Gclose(snap_group_id);
   }
 
-  // Close the HDF5 file.
   H5Fclose(file_id);
 }
 
@@ -173,38 +129,11 @@ void open_hdf5_output_file(int filenr) {
 }
 
 /**
- * @brief   Writes a single halo to an HDF5 file
- *
- * @param   halo_output   Pointer to halo data to write
- * @param   n               Snapshot index in ListOutputSnaps
- * @param   filenr          File number to write to
- *
- * This function writes a single halo to the appropriate HDF5 file.
- * It:
- * 1. Opens the target HDF5 file
- * 2. Navigates to the correct snapshot group
- * 3. Appends the halo record to the halo table
- * 4. Properly closes all HDF5 objects
- *
- * The function is designed to be called for each individual halo
- * as it is processed, enabling incremental output without requiring
- * all objects to be held in memory.
- */
-/**
- * @brief   Writes a batch of halos to an HDF5 file (OPTIMIZED)
- *
- * @param   halo_batch   Array of halos to write
- * @param   num_halos    Number of halos in the batch
- * @param   n            Snapshot index in ListOutputSnaps
- * @param   filenr       File number
- *
- * This function writes multiple halos to the HDF5 file in a single operation.
- * This is MUCH faster than writing halos one at a time because it:
- * - Opens the group once
- * - Writes all records in one HDF5 operation
- * - Closes the group once
- *
- * This reduces HDF5 overhead from O(N) to O(1) per batch.
+ * @brief   Append a batch of halos to the open HDF5 file.
+ * @param   halo_batch   Prepared HaloOutput records to append.
+ * @param   num_halos    Number of records in the batch.
+ * @param   n            Snapshot index into ListOutputSnaps.
+ * @param   filenr       File number (for error messages).
  */
 void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, int filenr) {
 
@@ -212,15 +141,13 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, 
   hid_t group_id;
   char target_group[100];
 
-  // Verify file is open
   if (HDF5_current_file_id < 0) {
     FATAL_ERROR("HDF5 file not open for writing (file_id = %lld)", (long long)HDF5_current_file_id);
   }
 
   if (num_halos <= 0)
-    return; /* Nothing to write */
+    return;
 
-  // Open the relevant group
   sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
   group_id = H5Gopen(HDF5_current_file_id, target_group, H5P_DEFAULT);
   if (group_id < 0) {
@@ -228,7 +155,6 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, 
                 MimicConfig.ListOutputSnaps[n], filenr);
   }
 
-  // Write entire batch at once
   status = H5TBappend_records(group_id, "Galaxies", num_halos, HDF5_dst_size, HDF5_dst_offsets,
                               HDF5_dst_sizes, halo_batch);
   if (status < 0) {
@@ -237,39 +163,24 @@ void write_hdf5_halo_batch(struct HaloOutput *halo_batch, int num_halos, int n, 
                 num_halos, MimicConfig.ListOutputSnaps[n], filenr);
   }
 
-  // Close only the group (file stays open)
-  H5Gclose(group_id);
+  H5Gclose(group_id); /* file handle stays open; closed by the driver after filenr is finalized */
 }
 
 /**
- * @brief   Writes metadata attributes to an HDF5 file
+ * @brief   Write per-snapshot count attributes and the per-tree halo count dataset.
+ * @param   n        Snapshot index into ListOutputSnaps.
+ * @param   filenr   File number (for error messages).
  *
- * @param   n          Snapshot index in ListOutputSnaps
- * @param   filenr     File number to write to
- *
- * This function writes metadata attributes to an HDF5 file after all
- * have been written. It:
- * 1. Opens the target HDF5 file
- * 2. Navigates to the correct snapshot group
- * 3. Adds attributes such as number of trees and number of objects
- * 4. Creates and writes the InputHalosPerSnap dataset (objects per tree)
- *
- * These attributes are essential for readers to understand the file structure
- * and for tools to navigate and process the halo data efficiently.
+ * Writes Ntrees and TotHalosPerSnap[n] as scalar attributes on Snap{NNN}/Galaxies, and
+ * TreeHalosPerSnap[0..Ntrees-1] as a dataset. On n==0, also writes RunProperties metadata.
  */
 void write_hdf5_attrs(int n, int filenr) {
-
-  /*
-   * Write the HDF5 file attributes.
-   * Uses the already-open HDF5_current_file_id for performance.
-   */
 
   herr_t status;
   hid_t dataset_id, attribute_id, dataspace_id, group_id;
   hsize_t dims;
   char target_group[100];
 
-  // Verify file is open
   if (HDF5_current_file_id < 0) {
     FATAL_ERROR("HDF5 file not open for writing attributes (file_id = %lld)",
                 (long long)HDF5_current_file_id);
@@ -281,17 +192,13 @@ void write_hdf5_attrs(int n, int filenr) {
     write_perfile_metadata(HDF5_current_file_id);
   }
 
-  // Open the relevant group
   sprintf(target_group, "Snap%03d", MimicConfig.ListOutputSnaps[n]);
   group_id = H5Gopen(HDF5_current_file_id, target_group, H5P_DEFAULT);
-
   dataset_id = H5Dopen(group_id, "Galaxies", H5P_DEFAULT);
 
-  // Create the data space for the attributes.
   dims = 1;
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
-  // Write the number of trees
   attribute_id =
       H5Acreate(dataset_id, "Ntrees", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   status = H5Awrite(attribute_id, H5T_NATIVE_INT, &Ntrees);
@@ -300,7 +207,6 @@ void write_hdf5_attrs(int n, int filenr) {
   }
   H5Aclose(attribute_id);
 
-  // Write the total number of objects.
   attribute_id = H5Acreate(dataset_id, "TotHalosPerSnap", H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT,
                            H5P_DEFAULT);
   status = H5Awrite(attribute_id, H5T_NATIVE_INT, &TotHalosPerSnap[n]);
@@ -309,10 +215,7 @@ void write_hdf5_attrs(int n, int filenr) {
   }
   H5Aclose(attribute_id);
 
-  // Close the scalar dataspace (reused below)
   H5Sclose(dataspace_id);
-
-  // Close the dataset
   H5Dclose(dataset_id);
 
   /* FieldMetadata is identical for every snapshot, so it is written once per
@@ -333,7 +236,6 @@ void write_hdf5_attrs(int n, int filenr) {
 
   write_description_attr(dataset_id, "Number of halos per merger tree at this snapshot");
 
-  // Write the halos per tree data
   status =
       H5Dwrite(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, InputHalosPerSnap[n]);
   if (status < 0) {
@@ -344,26 +246,15 @@ void write_hdf5_attrs(int n, int filenr) {
 
   H5Sclose(dataspace_id);
   H5Dclose(dataset_id);
-
-  // Close only the group (file stays open, closed in main.c)
-  H5Gclose(group_id);
+  H5Gclose(group_id); /* file handle stays open; closed by the driver after filenr is finalized */
 }
 
 /**
- * @brief   Saves output files for all requested snapshots using HDF5 format
+ * @brief   Buffer ProcessedHalos into the cross-tree write buffers for all output snapshots.
  *
- * @param   filenr    Current file number being processed
- * @param   tree      Current tree number being processed
- *
- * This function writes all halos for the current tree to their respective
- * HDF5 output files. It mirrors the functionality of save_halos() in the
- * binary output system but uses HDF5 format. For each output snapshot, it:
- *
- * 1. Counts halos per requested snapshot
- * 2. Converts internal halo structures to output format
- * 3. Writes halos to HDF5 files using write_hdf5_halo_batch()
- * 4. Updates halo counts for the file and tree
- *
+ * Halos accumulate in hdf5_wbuf[n] and are flushed to write_hdf5_halo_batch() only
+ * when a buffer fills or at end-of-file (flush_hdf5_buffers). See the cross-tree
+ * buffer comment below for the performance rationale.
  */
 /*
  * Cross-tree write buffer.
@@ -423,10 +314,6 @@ void save_halos_hdf5(int filenr, int tree) {
 }
 
 void free_hdf5_ids(void) {
-
-  /*
-   * Free any HDF5 objects which are still floating about at the end of the run.
-   */
   myfree(HDF5_field_types);
   myfree(HDF5_field_names);
   myfree(HDF5_dst_sizes);

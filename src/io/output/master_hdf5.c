@@ -21,10 +21,6 @@
 #include "tree/reader.h"
 
 void write_master_file(void) {
-
-  /* Generate a master file that holds external links to every existing output
-   * partition and copies per-snapshot halo totals into the linked groups. */
-
   int filenr, n, ngal_in_core;
   char master_file[2 * MAX_STRING_LEN + 50], target_file[2 * MAX_STRING_LEN + 50];
   char relative_target_file[MAX_STRING_LEN + 50], target_group[100], source_ds[100];
@@ -34,7 +30,6 @@ void write_master_file(void) {
   float redshift;
   int ret;
 
-  // Open the master file.
   ret = snprintf(master_file, sizeof(master_file), "%s/%s.hdf5", MimicConfig.OutputDir,
                  MimicConfig.OutputFileBaseName);
   if (ret < 0) {
@@ -158,7 +153,6 @@ void write_master_file(void) {
   }
 
 #ifdef GITREF_STR
-  // Save the git ref if requested
   char tempstr[45];
 
   dims = 1;
@@ -180,9 +174,7 @@ void write_master_file(void) {
   H5Sclose(dataspace_id);
 #endif
 
-  // Finally - store the properites of the run...
   store_run_properties(master_file_id);
 
-  // Close the master file.
   H5Fclose(master_file_id);
 }

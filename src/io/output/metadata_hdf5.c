@@ -48,11 +48,7 @@ void write_description_attr(hid_t obj_id, const char *text) {
 }
 
 /**
- * @brief   Configuration parameter descriptor for HDF5 output
- *
- * Local structure to define which MimicConfig fields to write to HDF5.
- * This provides a generic, table-driven approach that maintains
- * core-physics separation (Vision Principle #1).
+ * @brief   Table-driven descriptor mapping MimicConfig fields to HDF5 attributes.
  */
 #define CONFIG_PARAM_INT64 4
 
@@ -80,13 +76,11 @@ static void write_version_metadata(hid_t parent_group_id) {
  * follows the selected build directory (e.g. build/ or build/test/). */
 #include "git_version.h"
 
-  /* Create Version subgroup */
   version_group_id = H5Gcreate(parent_group_id, "Version", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   if (version_group_id < 0) {
     FATAL_ERROR("Failed to create Version subgroup in HDF5 file");
   }
 
-  /* Set up string type and dataspace */
   dataspace_id = H5Screate_simple(1, &dims, NULL);
   str_type = H5Tcopy(H5T_C_S1);
   status = H5Tset_size(str_type, 128);
@@ -94,64 +88,49 @@ static void write_version_metadata(hid_t parent_group_id) {
     FATAL_ERROR("Failed to set HDF5 string type size for version metadata");
   }
 
-  /* Write git commit SHA */
   attribute_id =
       H5Acreate(version_group_id, "git_commit", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, GIT_COMMIT);
   H5Aclose(attribute_id);
 
-  /* Write git branch */
   attribute_id =
       H5Acreate(version_group_id, "git_branch", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, GIT_BRANCH);
   H5Aclose(attribute_id);
 
-  /* Write git date */
   attribute_id =
       H5Acreate(version_group_id, "git_date", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, GIT_DATE);
   H5Aclose(attribute_id);
 
-  /* Write build date */
   attribute_id =
       H5Acreate(version_group_id, "build_date", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, BUILD_DATE);
   H5Aclose(attribute_id);
 
-  /* Write HDF5 format version (increment when output schema changes) */
+  /* Increment hdf5_format_version when the output schema changes. */
   const char *hdf5_format_version = "1.1";
   attribute_id = H5Acreate(version_group_id, "hdf5_format_version", str_type, dataspace_id,
                            H5P_DEFAULT, H5P_DEFAULT);
   H5Awrite(attribute_id, str_type, hdf5_format_version);
   H5Aclose(attribute_id);
 
-  /* Clean up */
   H5Sclose(dataspace_id);
   H5Tclose(str_type);
   H5Gclose(version_group_id);
 }
 
 /**
- * @brief   Writes runtime parameters to HDF5 file as compound dataset
+ * @brief   Write all model parameters to HDF5 as a (param_name, value) compound dataset.
+ * @param   parent_group_id   HDF5 group to create the Parameters dataset in.
  *
- * @param   parent_group_id   HDF5 group ID to create Parameters dataset in
- *
- * Creates a Parameters dataset containing all model parameters from the
- * input YAML file. Stores parameters as string key-value pairs, preserving
- * exact input values for perfect reproducibility.
- *
- * Vision Principle 1 (Physics-Agnostic Core): Iterates parameters generically
- * without knowledge of specific physics meanings.
- *
- * Vision Principle 4 (Single Source of Truth): Parameters are already validated
- * and stored in MimicConfig.ModelParams[] during input parsing.
+ * Iterates MimicConfig.ModelParams[] generically (no knowledge of specific physics meanings).
  */
 static void write_parameters_metadata(hid_t parent_group_id) {
   hid_t dataset_id, dataspace_id, rowtype;
   hsize_t dims;
   herr_t status;
 
-  /* Check if there are any parameters to write */
   if (MimicConfig.NumModelParams == 0) {
     DEBUG_LOG("No model parameters to write to HDF5");
     return;
@@ -169,14 +148,12 @@ static void write_parameters_metadata(hid_t parent_group_id) {
   dims = MimicConfig.NumModelParams;
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
-  /* Create dataset */
   dataset_id = H5Dcreate(parent_group_id, "Parameters", rowtype, dataspace_id, H5P_DEFAULT,
                          H5P_DEFAULT, H5P_DEFAULT);
   if (dataset_id < 0) {
     FATAL_ERROR("Failed to create Parameters dataset in HDF5 file");
   }
 
-  /* Write the parameter data directly from MimicConfig.ModelParams */
   status = H5Dwrite(dataset_id, rowtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, MimicConfig.ModelParams);
   if (status < 0) {
     FATAL_ERROR("Failed to write Parameters dataset to HDF5 file");
@@ -185,7 +162,6 @@ static void write_parameters_metadata(hid_t parent_group_id) {
   write_description_attr(
       dataset_id, "Runtime model parameters from input YAML file (modules.parameters section)");
 
-  /* Clean up */
   H5Dclose(dataset_id);
   H5Sclose(dataspace_id);
   H5Tclose(rowtype);
@@ -207,17 +183,15 @@ static void write_redshifts(hid_t parent_group_id) {
   herr_t status;
 
   /* Create dataspace for redshift array */
-  dims = MimicConfig.LastSnapshotNr + 1; /* E.g., 64 snapshots (0-63) */
+  dims = MimicConfig.LastSnapshotNr + 1;
   dataspace_id = H5Screate_simple(1, &dims, NULL);
 
-  /* Create dataset */
   dataset_id = H5Dcreate(parent_group_id, "Redshifts", H5T_NATIVE_DOUBLE, dataspace_id, H5P_DEFAULT,
                          H5P_DEFAULT, H5P_DEFAULT);
   if (dataset_id < 0) {
     FATAL_ERROR("Failed to create Redshifts dataset in HDF5 file");
   }
 
-  /* Write the redshift array from MimicConfig.ZZ */
   status = H5Dwrite(dataset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, MimicConfig.ZZ);
   if (status < 0) {
     FATAL_ERROR("Failed to write Redshifts dataset to HDF5 file");
@@ -225,7 +199,6 @@ static void write_redshifts(hid_t parent_group_id) {
 
   write_description_attr(dataset_id, "Redshift for each snapshot index (0 to LastSnapshotNr)");
 
-  /* Clean up */
   H5Dclose(dataset_id);
   H5Sclose(dataspace_id);
 }

@@ -2,12 +2,8 @@
  * @file    output/util.c
  * @brief   Shared utilities for output file writing (binary and HDF5)
  *
- * This file implements common functions used by both binary and HDF5 output
- * writers. By centralizing this logic, we eliminate code duplication and
- * ensure consistent behavior across output formats.
- *
- * Key functions:
- * - prepare_halo_for_output(): Converts internal halo format to output format
+ * Path formatters, counter helpers, and halo conversion shared by the
+ * binary and HDF5 output writers.
  */
 
 #include <math.h>
@@ -64,20 +60,9 @@ void output_increment_halo_counters_checked(int filenr, int snap_index, int snap
 }
 
 /**
- * @brief   Converts internal halo structure to output format
- *
- * @param   g         Pointer to the internal halo tracking structure
- * @param   o         Pointer to the output halo structure to be filled
- *
- * This function transforms the internal halo representation (struct Halo)
- * to the output format (struct HaloOutput). All properties are copied
- * automatically by the generated code.
- *
- * All properties (including UniqueGalaxyID, UniqueCentralGalaxyID, and MostBoundID) are
- * stored in struct Halo and copied automatically.
- *
- * This function is format-agnostic and used by both binary and HDF5 output
- * writers, ensuring consistent halo conversion across all output formats.
+ * @brief   Copy struct Halo fields into struct HaloOutput via generated copy_to_output.inc.
+ * @param   g   Source halo (internal tracking structure).
+ * @param   o   Destination halo output record (zeroed by caller).
  */
 void prepare_halo_for_output(const struct Halo *g, struct HaloOutput *o) {
 /* AUTO-GENERATED: Copy all properties from struct Halo to struct HaloOutput */

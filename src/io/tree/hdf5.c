@@ -39,10 +39,7 @@
 #include "types.h"
 #include "generated/tree_property_accessors.h"
 
-// Local Variables //
 static hid_t hdf5_file = -1;
-
-// Local Structs //
 
 struct METADATA_NAMES {
   char name_NTrees[MAX_STRING_LEN + 1];
@@ -53,8 +50,6 @@ struct METADATA_NAMES {
 /* How read_dataset() should interpret a dataset's elements */
 enum ReadDatatype { READ_AS_INT = 0, READ_AS_FLOAT = 1, READ_AS_LLONG = 2 };
 
-// Local Proto-Types //
-
 static void format_lhalo_hdf5_partition_path(char *buf, size_t size, int output_id);
 static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names);
 static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
@@ -62,25 +57,12 @@ static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *att
 static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void *buffer);
 static int64_t count_partition_units_hdf5(int partition);
 
-// External Functions //
-
 /**
- * @brief   Loads merger tree metadata from an HDF5 file
+ * @brief   Open the HDF5 partition file and read its /Header tree-count attributes.
+ * @param   output_id   Output id of the partition (the L-Halo filenr).
  *
- * @param   output_id    Output id of the partition (the L-Halo filenr)
- *
- * This function opens and reads the metadata from an HDF5 merger tree file.
- * It extracts:
- * 1. The number of trees in the file
- * 2. The total number of halos across all trees
- * 3. The number of halos in each individual tree
- *
- * It allocates memory for tree metadata arrays and calculates the
- * starting index of each tree in the file. This information is used
- * later when loading individual trees.
- *
- * The function supports different HDF5 schemas through the fill_metadata_names
- * helper function, which determines the attribute names based on the tree type.
+ * Reads NTrees, totNHalos, and InputTreeNHalos[NTrees] from the /Header group,
+ * then builds InputTreeFirstHalo[]. Leaves the file handle open for load_unit_hdf5.
  */
 void open_partition_hdf5(int output_id) {
 
@@ -161,33 +143,20 @@ void open_partition_hdf5(int output_id) {
   }
 
 /**
- * @brief   Loads a specific merger tree from an HDF5 file
+ * @brief   Load one tree's halo data from the open HDF5 file.
+ * @param   unit   Tree index within the open partition.
  *
- * @param   treenr    Index of the tree to load
- *
- * This function reads the halo data for a specific merger tree from
- * an already-opened HDF5 file. It:
- * 1. Allocates memory for the halos in this tree
- * 2. Allocates buffers for reading HDF5 datasets
- * 3. Reads and processes each halo property
- *
- * The function uses macros to simplify the repetitive task of reading
- * various properties from the HDF5 file. It handles both scalar properties
- * and multi-dimensional properties (like positions and velocities).
- *
- * The halos are stored in the global Halo array for processing by the
- * Mimic framework.
+ * Reads each property via READ_TREE_PROPERTY / READ_TREE_PROPERTY_MULTIPLEDIM into
+ * temporary buffers, then slots the values into InputTreeHalos[]. Property names and
+ * accessor types come from the generated read_tree_hdf5_properties.inc.
  */
 void load_unit_hdf5(int unit) {
 
   char dataset_name[MAX_STRING_LEN + 1];
   int32_t NHalos_ThisTree, status, halo_idx, dim;
 
-  double *buffer; // Buffer to hold the read HDF5 data.
-                  // The largest data-type will be double.
-
-  double *buffer_multipledim; // However also need a buffer three times as large
-                              // to hold data such as position/velocity.
+  double *buffer;             /* scalar-field read buffer (largest native type = double) */
+  double *buffer_multipledim; /* multidim-field buffer (3× size for position/velocity) */
 
   if (hdf5_file < 0) {
     IO_FATAL_ERROR(IO_ERROR_HDF5, "read_tree", NULL,
@@ -213,10 +182,6 @@ void load_unit_hdf5(int unit) {
                 unit, NHalos_ThisTree, NHalos_ThisTree * NDIM * sizeof(*buffer_multipledim));
   }
 
-  // We now need to read in all the halo fields for this tree.
-  // To do so, we read the field into a buffer and then properly slot the field
-  // into the RawHalo struct (InputTreeHalos).
-
 #include "../../include/generated/read_tree_hdf5_properties.inc"
 
   free(buffer);
@@ -237,16 +202,7 @@ void load_unit_hdf5(int unit) {
 #undef READ_TREE_PROPERTY
 #undef READ_TREE_PROPERTY_MULTIPLEDIM
 
-/**
- * @brief   Closes the HDF5 merger tree file
- *
- * This function closes the HDF5 file handle for the currently open
- * merger tree file. It's called when all trees have been processed
- * or when switching to a different file.
- *
- * Proper file closure is important to ensure all data is flushed to
- * disk and to free associated HDF5 resources.
- */
+/** @brief Close the open HDF5 partition file handle. */
 void close_partition_hdf5(void) {
   if (hdf5_file >= 0) {
     H5Fclose(hdf5_file);
@@ -334,8 +290,6 @@ const struct TreeReader LHaloHDF5Reader = {
     .close_partition = close_partition_hdf5,
 };
 
-// Local Functions //
-
 /**
  * @brief   Fills in the L-Halo HDF5 metadata attribute names
  *
@@ -346,30 +300,15 @@ const struct TreeReader LHaloHDF5Reader = {
  * the tree count, the total halo count, and the per-tree halo counts.
  */
 static int32_t fill_metadata_names(struct METADATA_NAMES *metadata_names) {
-  snprintf(metadata_names->name_NTrees, MAX_STRING_LEN,
-           "Ntrees"); // Total number of trees within the file.
-  snprintf(metadata_names->name_totNHalos, MAX_STRING_LEN,
-           "totNHalos"); // Total number of halos within the file.
-  snprintf(metadata_names->name_InputTreeNHalos, MAX_STRING_LEN,
-           "InputTreeNHalos"); // Number of halos per tree within the file.
+  snprintf(metadata_names->name_NTrees, MAX_STRING_LEN, "Ntrees");
+  snprintf(metadata_names->name_totNHalos, MAX_STRING_LEN, "totNHalos");
+  snprintf(metadata_names->name_InputTreeNHalos, MAX_STRING_LEN, "InputTreeNHalos");
   return EXIT_SUCCESS;
 }
 
 /**
- * @brief   Reads an integer attribute from an HDF5 file
- *
- * @param   my_hdf5_file    HDF5 file handle
- * @param   groupname       Path to the group containing the attribute
- * @param   attr_name       Name of the attribute to read
- * @param   attribute       Pointer to store the read attribute value(s)
- * @return  EXIT_SUCCESS on success, error code on failure
- *
- * This function reads an integer attribute from an HDF5 file. It handles
- * the HDF5 API calls to open, read, and close the attribute, providing
- * error handling and appropriate error messages.
- *
- * The function can read both scalar attributes and array attributes,
- * depending on the provided attribute pointer.
+ * @brief   Read a native-int attribute from an HDF5 group by name.
+ * @return  EXIT_SUCCESS on success, negative HDF5 error code on failure.
  */
 static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *attr_name,
                                   int *attribute) {
@@ -399,22 +338,8 @@ static int32_t read_attribute_int(hid_t my_hdf5_file, char *groupname, char *att
 }
 
 /**
- * @brief   Reads a dataset from an HDF5 file
- *
- * @param   dataset_name    Path and name of the dataset to read
- * @param   datatype        Type of data (0=int, 1=float, 2=long long)
- * @param   buffer          Buffer to store the read data
- * @return  EXIT_SUCCESS on success, error code on failure
- *
- * This function reads a dataset from the currently open HDF5 file (global
- * hdf5_file) into the provided buffer. It handles different data types
- * specified by the datatype parameter:
- * - 0: Integer data
- * - 1: Float data
- * - 2: Long long (64-bit integer) data
- *
- * The function provides error checking and appropriate error messages for
- * debugging purposes.
+ * @brief   Read a dataset from the currently open hdf5_file into buffer.
+ * @return  EXIT_SUCCESS on success, negative HDF5 error code on failure.
  */
 static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void *buffer) {
   hid_t dataset_id;
@@ -425,7 +350,6 @@ static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void
     return dataset_id;
   }
 
-  /* Read the dataset with error checking */
   herr_t status;
   if (datatype == READ_AS_INT) {
     status = H5Dread(dataset_id, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buffer);
@@ -445,7 +369,6 @@ static int32_t read_dataset(char *dataset_name, enum ReadDatatype datatype, void
     return status;
   }
 
-  /* Close the dataset to prevent resource leak */
   H5Dclose(dataset_id);
   return EXIT_SUCCESS;
 }

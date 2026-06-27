@@ -37,13 +37,7 @@
 #include "types.h"
 #include "error.h"
 
-// Local Variables //
-
 static FILE *load_fd;
-
-// Local Proto-Types //
-
-// External Functions //
 
 #ifndef MAX_BUF_SIZE
 #define MAX_BUF_SIZE (3 * MAX_STRING_LEN + 40)
@@ -74,32 +68,22 @@ static int64_t count_partition_units_binary(int partition) {
 }
 
 /**
- * @brief   Loads merger tree metadata from a binary file
+ * @brief   Open binary partition file and read its tree-count header.
+ * @param   output_id   Output id of the partition (the L-Halo filenr).
  *
- * @param   output_id    Output id of the partition (the L-Halo filenr)
- *
- * This function opens and reads the metadata from a binary merger tree file.
- * It extracts:
- * 1. The number of trees in the file
- * 2. The total number of halos across all trees
- * 3. The number of halos in each individual tree
- *
- * It allocates memory for tree metadata arrays and calculates the
- * starting index of each tree in the file. This information is used
- * later when loading individual trees.
+ * Reads the legacy headerless format (host endianness): Ntrees, totNHalos,
+ * then InputTreeNHalos[Ntrees]. Leaves the file open for subsequent load_unit_binary calls.
  */
 void open_partition_binary(int output_id) {
   int i, totNHalos;
   char buf[MAX_BUF_SIZE + 1];
 
-  // Open the file
   snprintf(buf, MAX_BUF_SIZE, "%s/%s.%d%s", MimicConfig.SimulationDir, MimicConfig.TreeName,
            output_id, MimicConfig.TreeExtension);
   if (!(load_fd = fopen(buf, "r"))) {
     FATAL_ERROR("Failed to open binary tree file '%s' (filenr %d)", buf, output_id);
   }
 
-  // Read the tree metadata (legacy headerless format, host endianness assumed)
   if (fread(&Ntrees, sizeof(int), 1, load_fd) != 1) {
     FATAL_ERROR("Failed to read Ntrees from file '%s'", buf);
   }
@@ -110,15 +94,12 @@ void open_partition_binary(int output_id) {
 
   DEBUG_LOG("Reading %d trees with %d total halos", Ntrees, totNHalos);
 
-  // Allocate arrays for tree data
   InputTreeNHalos = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
   InputTreeFirstHalo = mymalloc_cat(sizeof(int) * Ntrees, MEM_TREES);
-  // Read the number of halos per tree - using direct fread for now
   if (fread(InputTreeNHalos, sizeof(int), Ntrees, load_fd) != (size_t)Ntrees) {
     FATAL_ERROR("Failed to read tree halo counts from file '%s'", buf);
   }
 
-  // Calculate starting indices for each tree
   if (Ntrees > 0) {
     InputTreeFirstHalo[0] = 0;
     for (i = 1; i < Ntrees; i++)
@@ -127,46 +108,21 @@ void open_partition_binary(int output_id) {
 }
 
 /**
- * @brief   Loads a specific merger tree from a binary file
- *
- * @param   treenr    Index of the tree to load
- *
- * This function reads the halo data for a specific merger tree from
- * an already-opened binary file. It:
- * 1. Allocates memory for the halos in this tree
- * 2. Reads the halo data from the file into the allocated memory
- *
- * The function assumes that open_partition_binary() has already been
- * called to load the tree metadata and that the file is properly positioned
- * for reading.
- *
- * The halos are stored in the global Halo array for processing by the
- * Mimic framework.
+ * @brief   Load one tree's halo data from the open binary file.
+ * @param   unit   Tree index within the open partition.
  */
 void load_unit_binary(int unit) {
 
-  // must have an FD
   assert(load_fd);
 
   InputTreeHalos = mymalloc_cat(sizeof(struct RawHalo) * InputTreeNHalos[unit], MEM_TREES);
-  // Use direct fread to avoid our problematic wrapper
   if (fread(InputTreeHalos, sizeof(struct RawHalo), InputTreeNHalos[unit], load_fd) !=
       (size_t)InputTreeNHalos[unit]) {
     FATAL_ERROR("Failed to read halo data for tree %d", unit);
   }
 }
 
-/**
- * @brief   Closes the binary merger tree file
- *
- * This function closes the file handle for the currently open binary
- * merger tree file. It's called when all trees have been processed
- * or when switching to a different file.
- *
- * The function checks if the file is actually open before attempting
- * to close it, and sets the file handle to NULL after closing to
- * prevent multiple close attempts.
- */
+/** @brief Close the open binary partition file. */
 void close_partition_binary(void) {
   if (load_fd) {
     fclose(load_fd);
@@ -190,4 +146,3 @@ const struct TreeReader LHaloBinaryReader = {
     .load_unit = load_unit_binary,
     .close_partition = close_partition_binary,
 };
-// Local Functions //
