@@ -15,7 +15,14 @@ Each chat should:
 - Stay within the batch paths; note any out-of-scope findings in the summary instead of fixing them.
 - Run `./scripts/beautify.sh` before finishing.
 - Run the narrowest relevant validation/test command for the batch (listed under each batch below).
-- Report any style issue deliberately left unresolved.
+- **Before the final commit**, update this plan file — append the following to the batch section:
+
+```
+Status: ✓ Complete — YYYY-MM-DD
+Style debt: <bullet list of unresolved issues with file path and reason, or "none">
+```
+
+Include the plan update in the same commit as the style changes.
 
 ## Review Surface
 
@@ -44,6 +51,9 @@ Approx: 4 files.
 Goal: confirm the rules are clear and self-consistent before applying them to code. This batch does not sweep code — it verifies and tightens the rule documents themselves.
 Examples: `docs/STYLE-GUIDE.md` is the reference; `.clang-format` and `pyproject.toml` show the mechanical style configuration.
 Run: `make check-docs`.
+
+Status: ✓ Complete — 2026-06-27
+Style debt: none
 
 ---
 
@@ -263,26 +273,33 @@ After every group of batches, run `/code-review` on the accumulated diff of `sty
 Open a new Sonnet chat for each batch. Replace `[N]` with the batch number.
 
 ```
-You are applying the pre-v1.0 style sweep to Mimic — Batch [N].
+Batch: [paste number and name here, e.g. "2. Core Execution"]
+
+You are applying the pre-v1.0 style sweep to Mimic — the batch named above.
 
 Read before starting (in order):
 1. `docs/VISION.md` — one pass to anchor architecture ownership in mind
 2. `docs/STYLE-GUIDE.md` — full read; this is the rule set
-3. `docs/dev/mimic-style-sweep-plan.md` Batch [N] section — scope, focus, example files
+3. `docs/dev/mimic-style-sweep-plan.md` — find the section for this batch; read scope, focus, and example files
 
 Branch: `style/pre-v1.0-sweep`. Create off `main` if it doesn't exist; commit to it.
 
-Scope: paths listed under Batch [N] in the plan. Read the example files listed there before touching anything else.
+Scope: paths listed for this batch in the plan. Read the example files listed there before touching anything else.
 
 Pass: light touch only. Fix comments, docstrings, YAML descriptions, README accuracy, log message clarity, and naming inconsistencies in scope. Do not restructure code, rename functions, or change scientific behaviour. Stay within the batch paths; note any out-of-scope findings in your summary instead of fixing them.
 
 Run (in order):
 1. `./scripts/beautify.sh`
-2. The test/validation command listed under Batch [N] in the plan.
+2. The test/validation command listed for this batch in the plan.
 
 Summary: list every file changed, what was fixed, and any style debt deliberately left unresolved.
 
-Commit to `style/pre-v1.0-sweep` with a message listing changed files grouped by type.
+Update plan: append the following to this batch's section in `docs/dev/mimic-style-sweep-plan.md`:
+
+  Status: ✓ Complete — YYYY-MM-DD
+  Style debt: <bullet list of unresolved issues with file path and reason, or "none">
+
+Commit everything — style changes and plan update together — to `style/pre-v1.0-sweep`, with a message listing changed files grouped by type.
 ```
 
 ## Notes
