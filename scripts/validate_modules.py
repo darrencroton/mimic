@@ -247,7 +247,7 @@ def validate_required_fields(
 ) -> bool:
     """Validate that all required fields are present."""
 
-    # Minimal required fields - only name and processing mode!
+    # Minimal required fields — only name and processing mode.
     required_core = [
         "name",
         "supported_processing_modes",  # Required: how to execute the module

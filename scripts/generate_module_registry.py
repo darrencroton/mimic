@@ -10,9 +10,9 @@ Usage:
     MODEL=sage16 python3 scripts/generate_module_registry.py [--dry-run] [--verbose]
 
 Reads:
-    models/<MODEL>/module_info.yaml
     models/<MODEL>/shared/module_info.yaml
     models/<MODEL>/modules/*/module_info.yaml
+    src/module_system/test_*/module_info.yaml  (test builds only)
 
 Generates:
     src/module_system/generated/module_init.c      - Module registration code
@@ -814,7 +814,7 @@ def generate_module_init_c(
 
     # Header
     description = f"""To validate:
-  make MODEL={os.environ.get('MODEL', 'sage')} validate-modules"""
+  make MODEL={os.environ.get("MODEL") or "<MODEL>"} validate-modules"""
     header = generate_c_header(metadata_hash, description)
     lines.extend(header.splitlines())
     lines.append("")
@@ -1020,9 +1020,6 @@ def generate_module_init_c(
 
 
 # ==============================================================================
-
-
-# ==============================================================================
 # CODE GENERATION - module_sources.txt
 # ==============================================================================
 
@@ -1092,7 +1089,7 @@ def generate_hash_file(metadata_hash: str, output_path: Path, dry_run: bool = Fa
     lines.append("# Hash of all module metadata files for validation")
     lines.append("#")
     lines.append(f"# Source MD5: {metadata_hash}")
-    lines.append(f"# To regenerate: make MODEL={os.environ.get('MODEL', 'sage')} generate")
+    lines.append(f"# To regenerate: make MODEL={os.environ.get('MODEL') or '<MODEL>'} generate")
     lines.append("")
     lines.append(f"MODULE_HASH={metadata_hash}")
     lines.append("")

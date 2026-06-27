@@ -5,6 +5,17 @@ The test suite owns small fixture *recipes* by scope, but Mimic runtime
 validation requires concrete model and simulation package names in every run
 file. This script materializes those run files for the selected MODEL and
 SIMULATION under build/generated/test_inputs/.
+
+Usage:
+    MODEL=sage16 SIMULATION=mini-millennium python3 scripts/generate_test_inputs.py
+
+Generates:
+    build/generated/test_inputs/<MODEL>/<SIMULATION>/core/test_binary.yaml
+    build/generated/test_inputs/<MODEL>/<SIMULATION>/core/test_hdf5.yaml
+    build/generated/test_inputs/<MODEL>/<SIMULATION>/simulations/<SIMULATION>/test_binary.yaml
+    build/generated/test_inputs/<MODEL>/<SIMULATION>/simulations/<SIMULATION>/test_hdf5.yaml
+    build/generated/test_inputs/<MODEL>/<SIMULATION>/simulations/<SIMULATION>/test_uniquegalid.yaml
+    build/generated/test_inputs/<MODEL>/<SIMULATION>/manifest.json
 """
 
 from __future__ import annotations

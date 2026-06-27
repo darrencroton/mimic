@@ -28,9 +28,9 @@ SIM_CONFIG_FILE="simulations/mini-millennium/simulation_info.yaml"
 cd "$REPO_ROOT"
 
 if [[ ! -f "README.md" ]] || [[ ! -f "Makefile" ]] || [[ ! -d "src" ]]; then
-    echo "ERROR: This script must be run from the scripts/ directory in the Mimic repository."
-    echo "Current directory: $(pwd)"
-    echo "Please ensure you're running: ./scripts/first_run.sh"
+    echo "ERROR: Mimic repository root not found at: $REPO_ROOT"
+    echo "Expected README.md, Makefile, and src/ to exist there."
+    echo "Please run this script from within the Mimic repository: ./scripts/first_run.sh"
     exit 1
 fi
 

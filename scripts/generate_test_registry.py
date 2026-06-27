@@ -6,8 +6,8 @@ This script scans all module_info.yaml files and generates test manifests
 that allow the test runners to automatically discover and run module tests.
 
 Usage:
-    python scripts/generate_test_registry.py           # Warn on missing tests
-    python scripts/generate_test_registry.py --strict  # Fail on missing tests
+    python3 scripts/generate_test_registry.py           # Warn on missing tests
+    python3 scripts/generate_test_registry.py --strict  # Fail on missing tests
 
 Generates:
     build/generated/unit_tests.txt        - Unit test paths

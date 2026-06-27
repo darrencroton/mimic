@@ -732,11 +732,11 @@ def replay_seed(
 
     status, reason = classify(exit_code, stdout, stderr, strict=strict)
 
-    print(f"=== stdout ===")
+    print("=== stdout ===")
     print(stdout or "(empty)")
-    print(f"=== stderr ===")
+    print("=== stderr ===")
     print(stderr or "(empty)")
-    print(f"=== result ===")
+    print("=== result ===")
     print(
         f"exit_code={exit_code}  duration={elapsed:.2f}s  {status}"
         + (f"  -- {reason}" if reason else "")

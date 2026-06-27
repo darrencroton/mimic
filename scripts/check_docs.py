@@ -2,9 +2,16 @@
 """
 Documentation quality checks for Mimic.
 
+Usage:
+    python3 scripts/check_docs.py
+
 Checks:
 1. Internal Markdown links and anchors resolve.
 2. Review-only PONDER markers are absent from committed documentation.
+
+Exit codes:
+    0 - All checks passed
+    1 - One or more checks failed
 """
 
 from __future__ import annotations

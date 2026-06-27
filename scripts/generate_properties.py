@@ -1717,7 +1717,7 @@ def generate_validation_manifest(
                 for path in halo_property_files() + model_property_files() + test_property_files()
             ],
             "source_md5": yaml_hash,
-            "regenerate": f"make MODEL={os.environ.get('MODEL', 'sage')} generate",
+            "regenerate": f"make MODEL={os.environ.get('MODEL') or '<MODEL>'} generate",
         },
         "schema_version": 1,
         "properties": props,
@@ -1971,16 +1971,15 @@ def main():
     print()
     print("Generated files:")
     print("  C headers:       src/include/generated/property_defs.h")
-    print("  C init code:     src/include/generated/init_*_properties.inc")
+    print("  C init code:     src/include/generated/populate_halo_payload_from_tree.inc")
     print("  C output code:   src/include/generated/copy_to_output.inc")
     print("  HDF5 code:       src/include/generated/hdf5_*.inc")
     print("  Schema writer:   src/include/generated/output_schema_writer.inc")
     print()
     print("Next steps:")
     print("  1. Review generated files")
-    print("  2. Update source files to include generated code")
-    print("  3. Test compilation: make")
-    print(f"  4. Run validation: make MODEL={os.environ.get('MODEL', 'sage')} check-generated")
+    print(f"  2. Test compilation: make MODEL={os.environ.get('MODEL') or '<MODEL>'} generate")
+    print(f"  3. Run validation: make MODEL={os.environ.get('MODEL') or '<MODEL>'} check-generated")
     print()
 
 

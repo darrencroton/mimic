@@ -133,6 +133,11 @@ Examples:
 - `scripts/generate_properties.py` — module docstring template: one-line purpose, then `Usage:`, `Reads:`, `Generates:` sections; `REPO_ROOT`/`discovery` import pattern; `sys.exit(1)` on missing deps.
 Run: `make validate-modules`, `make check-generated` if generator-related files change.
 
+Status: ✓ Complete — 2026-06-27
+Style debt:
+- `scripts/beautify.sh`: uses `/tmp/black_errors.log` and `/tmp/isort_errors.log` for temp files — minor, these are cleaned up immediately after use and `/tmp` is the conventional choice for shell-script temp files; out-of-scope to change.
+- `scripts/benchmark_mimic.sh`: inline Python heredoc for YAML parsing is complex but load-bearing; the script overall is well-structured and all major style nits are absent.
+
 ---
 
 ### 7. Top-Level Test Framework
