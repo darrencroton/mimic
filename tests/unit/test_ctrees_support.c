@@ -70,8 +70,8 @@ static int write_text_file(const char *path, const char *contents) {
 }
 
 /**
- * @test  test_parse_header_column_mapping
- * Maps four requested columns (plus one absent column that must be dropped)
+ * @test    test_parse_header_column_mapping
+ * @brief   Maps four requested columns (plus one absent column that must be dropped)
  * onto a synthetic Consistent-Trees header and checks the resulting column
  * indices are exactly the matched positions in ascending order.
  */
@@ -123,8 +123,8 @@ int test_parse_header_column_mapping(void) {
 }
 
 /**
- * @test  test_read_forests_and_locations
- * Builds a one-file/one-tree forest index on disk and checks read_forests,
+ * @test    test_read_forests_and_locations
+ * @brief   Builds a one-file/one-tree forest index on disk and checks read_forests,
  * read_locations and assign_forest_ids agree on the forest id and tree layout.
  */
 int test_read_forests_and_locations(void) {
@@ -191,8 +191,8 @@ int test_read_forests_and_locations(void) {
 }
 
 /**
- * @test  test_forest_topology_reconstruction
- * Hand-builds a 3-halo forest (a z=0 central with one satellite and one earlier
+ * @test    test_forest_topology_reconstruction
+ * @brief   Hand-builds a 3-halo forest (a z=0 central with one satellite and one earlier
  * progenitor of the central) and checks fix_upid + assign_mergertree_indices
  * reconstruct the FOF grouping and Descendant/FirstProgenitor pointers.
  */
@@ -291,8 +291,8 @@ static int check_partition(int ntasks, const int64_t *starts, const int64_t *cou
 }
 
 /**
- * @test  test_weighted_forest_distribution
- * Checks the weighted and uniform forest distributions partition a forest list
+ * @test    test_weighted_forest_distribution
+ * @brief   Checks the weighted and uniform forest distributions partition a forest list
  * across MPI tasks into a contiguous, complete, non-overlapping cover.
  */
 int test_weighted_forest_distribution(void) {
@@ -329,8 +329,8 @@ int test_weighted_forest_distribution(void) {
 }
 
 /**
- * @test  test_read_single_tree_rows
- * Drives the row-ingestion path: parse_header_ctrees builds a column map, then
+ * @test    test_read_single_tree_rows
+ * @brief   Drives the row-ingestion path: parse_header_ctrees builds a column map, then
  * read_single_tree_ctrees (via parse_line_ctrees) reads the data rows of a
  * synthetic tree file into structure-of-arrays destinations.
  */
@@ -409,8 +409,8 @@ int test_read_single_tree_rows(void) {
 }
 
 /**
- * @test  test_parse_rejects_malformed_numeric_tokens
- * Verifies malformed ASCII numbers fail at parse time instead of silently
+ * @test    test_parse_rejects_malformed_numeric_tokens
+ * @brief   Verifies malformed ASCII numbers fail at parse time instead of silently
  * becoming zero, clamped values, or truncated integers.
  */
 int test_parse_rejects_malformed_numeric_tokens(void) {
@@ -472,8 +472,8 @@ int test_parse_rejects_malformed_numeric_tokens(void) {
 }
 
 /**
- * @test  test_find_start_and_end_filenum
- * Maps a contiguous forest range onto the input files that contain it.
+ * @test    test_find_start_and_end_filenum
+ * @brief   Maps a contiguous forest range onto the input files that contain it.
  */
 int test_find_start_and_end_filenum(void) {
   init_memory_system(0);
@@ -504,8 +504,8 @@ int test_find_start_and_end_filenum(void) {
 }
 
 /**
- * @test  test_distribute_forests_surplus_tasks
- * When there are more tasks than forests the uniform splitter must still produce
+ * @test    test_distribute_forests_surplus_tasks
+ * @brief   When there are more tasks than forests the uniform splitter must still produce
  * a contiguous complete cover, handing the surplus high-rank tasks empty ranges
  * (never a negative count), and must reject an out-of-range task id. Exercises
  * the ThisTask >= NTasks guard fix.
@@ -537,8 +537,8 @@ int test_distribute_forests_surplus_tasks(void) {
 }
 
 /**
- * @test  test_weighted_distribution_no_negative
- * With the cost concentrated in one forest and more tasks than the weighting can
+ * @test    test_weighted_distribution_no_negative
+ * @brief   With the cost concentrated in one forest and more tasks than the weighting can
  * fill, the trailing task(s) must receive an empty (zero) range rather than the
  * sentinel -1 count. Exercises the weighted-path -1 clamp.
  */
@@ -581,8 +581,8 @@ int test_forest_cost_quadratic_uses_double_before_multiply(void) {
 }
 
 /**
- * @test  test_convert_ctrees_conventions
- * Pins the reader-owned Consistent-Trees -> L-Halo conventions: spin normalised
+ * @test    test_convert_ctrees_conventions
+ * @brief   Pins the reader-owned Consistent-Trees -> L-Halo conventions: spin normalised
  * by the native Mvir, Len derived from native Mvir and the particle mass, the id
  * carried into MostBoundID, and the merger pointers sentinel-initialised.
  */
@@ -625,8 +625,8 @@ int test_convert_ctrees_conventions(void) {
 }
 
 /**
- * @test  test_apply_value_conventions_shared
- * Pins the conventions shared by both ctrees readers (read_ctrees_common.h):
+ * @test    test_apply_value_conventions_shared
+ * @brief   Pins the conventions shared by both ctrees readers (read_ctrees_common.h):
  * spin normalised by the native Mvir and Len from native Mvir / particle mass.
  * Unlike convert_ctrees_to_lht (ASCII), it must NOT touch MostBoundID or the
  * merger pointers — the HDF5 reader supplies those from the file, so this helper
@@ -670,8 +670,8 @@ int test_apply_value_conventions_shared(void) {
 }
 
 /**
- * @test  test_bridge_to_rawhalo
- * Checks the halo_data -> RawHalo bridge copies every contracted field, including
+ * @test    test_bridge_to_rawhalo
+ * @brief   Checks the halo_data -> RawHalo bridge copies every contracted field, including
  * the native Mvir into the HaloMass-providing M_Crit200 slot.
  */
 int test_bridge_to_rawhalo(void) {
@@ -725,8 +725,8 @@ int test_bridge_to_rawhalo(void) {
 }
 
 /**
- * @test  test_sort_locations_offset_tie
- * Sorts locations whose (forestid, fileid, offset) keys are equal in pairs. The
+ * @test    test_sort_locations_offset_tie
+ * @brief   Sorts locations whose (forestid, fileid, offset) keys are equal in pairs. The
  * comparator fix returns 0 on an offset tie (a valid strict-weak ordering), so
  * the sort must produce a valid permutation (every treeid present exactly once)
  * with the forests correctly grouped and ordered.

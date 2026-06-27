@@ -135,7 +135,7 @@ Run: `make validate-modules`, `make check-generated` if generator-related files 
 
 Status: ✓ Complete — 2026-06-27
 Style debt:
-- `scripts/beautify.sh`: uses `/tmp/black_errors.log` and `/tmp/isort_errors.log` for temp files — minor, these are cleaned up immediately after use and `/tmp` is the conventional choice for shell-script temp files; out-of-scope to change.
+- `scripts/beautify.sh`: used fixed `/tmp/black_errors.log` and `/tmp/isort_errors.log` paths for temp files; now uses `mktemp` plus `trap` cleanup. ✓ resolved — 2026-06-28
 - `scripts/benchmark_mimic.sh`: inline Python heredoc for YAML parsing is complex but load-bearing; the script overall is well-structured and all major style nits are absent.
 
 ---
@@ -153,8 +153,8 @@ Run: targeted C unit tests; full `make tests-unit summary` if changes are broad.
 
 Status: ✓ Complete — 2026-06-27
 Style debt:
-- `test_module_configuration.c` — `main()` calls `print_allocated()` directly instead of `check_memory_leaks()`; correcting this requires a code change (not style-only), so left for a separate cleanup pass.
-- `test_ctrees_support.c` and `test_galaxy_id_encoding.c` — `@test` docblocks use inline `@test  description` format instead of the canonical `@test` + `@brief` on separate lines; functionally equivalent but subtly inconsistent with the reference pattern.
+- `test_module_configuration.c` — `main()` called `print_allocated()` directly instead of `check_memory_leaks()`; now uses the standard leak-check helper. ✓ resolved — 2026-06-28
+- `test_ctrees_support.c` and `test_galaxy_id_encoding.c` — `@test` docblocks use inline `@test  description` format instead of the canonical `@test` + `@brief` on separate lines; functionally equivalent but subtly inconsistent with the reference pattern. ✓ resolved — 2026-06-28
 - Several static helper functions in unit test files (`write_lhalo_binary_header`, `assert_sequence_halo`, `configure_driver_defaults`, etc.) have no Doxygen; omitted because the style guide restricts comments to non-obvious WHY, and these names are self-documenting.
 - `test_module_configuration.c` — `set_test_fixture_params` helper has no `@brief`; left because it is file-internal and clearly named.
 
@@ -191,7 +191,7 @@ Run: `make MODEL=sage16 SIMULATION=mini-millennium validate-modules`.
 Status: ✓ Complete — 2026-06-28
 Style debt:
 - `model_properties.yaml` `MergTime.units: Internal` — not a standard unit value; the field is internal and sentinel-heavy so "Internal" is intentional, but ideally would be `Gyr/h` with a note that the value range is dominated by sentinel protocol. Left because changing the unit value risks confusing the generator or the output schema for internal fields.
-- `test_unit_metallicity.c` — `@test test_name` inline format (instead of `@test` + `@brief` on separate lines); already flagged as a known pattern in Batch 7 style debt; left consistent with that decision.
+- `test_unit_metallicity.c` — `@test test_name` inline format (instead of `@test` + `@brief` on separate lines); now follows the canonical unit-test docblock form. ✓ resolved — 2026-06-28
 
 ---
 

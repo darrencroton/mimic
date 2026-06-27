@@ -15,8 +15,8 @@
 static int passed = 0, failed = 0;
 
 /**
- * @test  test_max_forest_count
- * Reports the largest run-scoped forest count that cannot overflow the
+ * @test    test_max_forest_count
+ * @brief   Reports the largest run-scoped forest count that cannot overflow the
  * two-term UniqueGalaxyID encoding.
  */
 int test_max_forest_count(void) {
@@ -30,8 +30,8 @@ int test_max_forest_count(void) {
 }
 
 /**
- * @test  test_total_forest_validation_boundaries
- * Accepts zero and the capacity limit, then rejects negative and over-limit
+ * @test    test_total_forest_validation_boundaries
+ * @brief   Accepts zero and the capacity limit, then rejects negative and over-limit
  * total forest counts.
  */
 int test_total_forest_validation_boundaries(void) {
@@ -49,8 +49,8 @@ int test_total_forest_validation_boundaries(void) {
 }
 
 /**
- * @test  test_component_validation_boundaries
- * Enforces non-negative components, the maximum in-forest halo index, and the
+ * @test    test_component_validation_boundaries
+ * @brief   Enforces non-negative components, the maximum in-forest halo index, and the
  * maximum usable forest index.
  */
 int test_component_validation_boundaries(void) {
@@ -72,8 +72,8 @@ int test_component_validation_boundaries(void) {
 }
 
 /**
- * @test  test_encoding_formula
- * Encodes valid components as halonr + TREE_MUL_FAC * (forestnr_global + 1),
+ * @test    test_encoding_formula
+ * @brief   Encodes valid components as halonr + TREE_MUL_FAC * (forestnr_global + 1),
  * reserving zero as a pure sentinel.
  */
 int test_encoding_formula(void) {
@@ -91,8 +91,8 @@ int test_encoding_formula(void) {
 }
 
 /**
- * @test  test_global_forest_offset_default
- * New runtime state is available and starts at zero in the current slice.
+ * @test    test_global_forest_offset_default
+ * @brief   New runtime state is available and starts at zero in the current slice.
  */
 int test_global_forest_offset_default(void) {
   TEST_ASSERT(GlobalForestOffset == 0, "GlobalForestOffset should default to zero");

@@ -16,7 +16,7 @@ static int passed = 0;
 static int failed = 0;
 
 /**
- * @test test_metallicity_normal
+ * @test    test_metallicity_normal
  * @brief Test normal metallicity calculation
  *
  * Expected: Z = metals / gas for typical values
@@ -55,7 +55,7 @@ int test_metallicity_normal(void) {
 }
 
 /**
- * @test test_metallicity_zero_gas
+ * @test    test_metallicity_zero_gas
  * @brief Test metallicity with zero, tiny, or negative gas mass
  *
  * Expected: Returns 0.0 when gas <= 0.0 (SAGE parity: gas > 0 && metals > 0
@@ -84,7 +84,7 @@ int test_metallicity_zero_gas(void) {
 }
 
 /**
- * @test test_metallicity_zero_metals
+ * @test    test_metallicity_zero_metals
  * @brief Test metallicity with zero metals (primordial gas)
  *
  * Expected: Returns 0.0 for primordial (metal-free) gas
@@ -112,7 +112,7 @@ int test_metallicity_zero_metals(void) {
 }
 
 /**
- * @test test_metallicity_solar_reference
+ * @test    test_metallicity_solar_reference
  * @brief Test metallicity against solar reference value
  *
  * Expected: Solar metallicity Z_sun = 0.02 (commonly used value)
@@ -141,7 +141,7 @@ int test_metallicity_solar_reference(void) {
 }
 
 /**
- * @test test_metallicity_numerical_stability
+ * @test    test_metallicity_numerical_stability
  * @brief Test numerical stability with extreme values
  *
  * Expected: No NaN, Inf, or crashes with extreme inputs

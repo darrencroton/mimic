@@ -284,7 +284,7 @@ int main(void) {
 
   printf("\n");
   printf("Memory leak check:\n");
-  print_allocated();
+  check_memory_leaks();
 
   return TEST_RESULT();
 }

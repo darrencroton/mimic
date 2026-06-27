@@ -72,6 +72,10 @@ fi
 # shellcheck source=scripts/lib/colors.sh
 . "${ROOT_DIR}/scripts/lib/colors.sh"
 
+BLACK_ERRORS="$(mktemp "${TMPDIR:-/tmp}/mimic_black_errors.XXXXXX")"
+ISORT_ERRORS="$(mktemp "${TMPDIR:-/tmp}/mimic_isort_errors.XXXXXX")"
+trap 'rm -f "${BLACK_ERRORS}" "${ISORT_ERRORS}"' EXIT
+
 # Print banner
 echo -e "${YELLOW}=== Mimic Code Beautifier ===${NC}"
 
@@ -102,12 +106,12 @@ if $FORMAT_PY; then
     # Format with Black
     echo -n "Formatting Python code with Black... "
     if check_tool black "pip install black"; then
-        if black --quiet "${ROOT_DIR}" 2> /tmp/black_errors.log; then
+        if black --quiet "${ROOT_DIR}" 2> "${BLACK_ERRORS}"; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${RED}✗${NC}"
             echo -e "${RED}Black encountered errors:${NC}"
-            cat /tmp/black_errors.log
+            cat "${BLACK_ERRORS}"
         fi
     else
         echo -e "${RED}✗ (tool not found)${NC}"
@@ -116,12 +120,12 @@ if $FORMAT_PY; then
     # Sort imports with isort
     echo -n "Sorting Python imports with isort... "
     if check_tool isort "pip install isort"; then
-        if isort --profile black --quiet "${ROOT_DIR}" 2> /tmp/isort_errors.log; then
+        if isort --profile black --quiet "${ROOT_DIR}" 2> "${ISORT_ERRORS}"; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${RED}✗${NC}"
             echo -e "${RED}isort encountered errors:${NC}"
-            cat /tmp/isort_errors.log
+            cat "${ISORT_ERRORS}"
         fi
     else
         echo -e "${RED}✗ (tool not found)${NC}"
@@ -131,7 +135,7 @@ fi
 # Check if any errors occurred
 if $FORMAT_PY; then
     if command -v black &> /dev/null && command -v isort &> /dev/null; then
-        if [ -s /tmp/black_errors.log ] || [ -s /tmp/isort_errors.log ]; then
+        if [ -s "${BLACK_ERRORS}" ] || [ -s "${ISORT_ERRORS}" ]; then
             echo -e "${YELLOW}Some Python files could not be formatted. See errors above.${NC}"
             echo "Tip: For Python 2 files, consider converting to Python 3 with '2to3 -w filename.py'"
             echo "     or manually adding parentheses to print statements."
@@ -148,11 +152,8 @@ if $FORMAT_C && ! command -v clang-format &> /dev/null && [ "$FORMAT_PY" = true 
 fi
 
 if { $FORMAT_C && command -v clang-format &> /dev/null; } || \
-   { $FORMAT_PY && command -v black &> /dev/null && command -v isort &> /dev/null && [ ! -s /tmp/black_errors.log ] && [ ! -s /tmp/isort_errors.log ]; }; then
+   { $FORMAT_PY && command -v black &> /dev/null && command -v isort &> /dev/null && [ ! -s "${BLACK_ERRORS}" ] && [ ! -s "${ISORT_ERRORS}" ]; }; then
     echo -e "${GREEN}Formatting completed successfully for all available tools!${NC}"
 fi
-
-# Clean up temporary files
-rm -f /tmp/black_errors.log /tmp/isort_errors.log
 
 echo -e "${YELLOW}=== Formatting Complete ===${NC}"

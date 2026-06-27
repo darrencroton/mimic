@@ -1977,9 +1977,11 @@ def main():
     print("  Schema writer:   src/include/generated/output_schema_writer.inc")
     print()
     print("Next steps:")
+    model = os.environ.get("MODEL") or "<MODEL>"
+    simulation = os.environ.get("SIMULATION") or "<SIMULATION>"
     print("  1. Review generated files")
-    print(f"  2. Test compilation: make MODEL={os.environ.get('MODEL') or '<MODEL>'} generate")
-    print(f"  3. Run validation: make MODEL={os.environ.get('MODEL') or '<MODEL>'} check-generated")
+    print(f"  2. Test compilation: make MODEL={model} SIMULATION={simulation}")
+    print(f"  3. Run validation: make MODEL={model} SIMULATION={simulation} check-generated")
     print()
 
 
