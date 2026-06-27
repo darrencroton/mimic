@@ -1,3 +1,16 @@
+/**
+ * @file    inheritance.c
+ * @brief   Format-neutral descendant-galaxy inheritance service
+ *
+ * Builds a FoFWorkspace slice for one descendant subhalo from the driver-supplied
+ * progenitor list: deep-copies progenitor galaxies, applies descendant halo
+ * properties, promotes/demotes Type 0/1/2 as required, discards Type 3 strays,
+ * and creates a new central galaxy when no progenitor galaxy survives.
+ *
+ * This module is tree-format-agnostic. The caller (the driver gather step)
+ * owns all tree-index coupling and workspace capacity management.
+ */
+
 #include <assert.h>
 #include <string.h>
 

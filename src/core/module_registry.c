@@ -9,12 +9,12 @@
  * - registered_modules[]: All modules available (compile-time)
  * - execution_pipeline[]: Enabled modules in configured order (runtime)
  *
- * Vision Principle 1 (Physics-Agnostic Core): The registry treats all modules
+ * Physics-Agnostic Core (VISION.md §1): The registry treats all modules
  * identically through the Module interface, with zero knowledge of specific
  * physics implementations.
  *
- * Vision Principle 2 (Runtime Modularity): Module selection is configurable
- * at runtime without recompilation.
+ * Runtime Modularity (VISION.md §2): Module selection is configurable at
+ * runtime without recompilation.
  */
 
 #include <errno.h>
@@ -148,7 +148,6 @@ void module_registry_add(struct Module *module) {
     FATAL_ERROR("Module '%s' has NULL function pointers", module->name);
   }
 
-  // Check for duplicate names
   if (find_module_by_name(module->name) != NULL) {
     FATAL_ERROR("Module '%s' is already registered", module->name);
   }
@@ -1006,7 +1005,6 @@ int module_system_cleanup(void) {
 
   VERBOSE_LOG("Cleaning up %d module(s)", num_pipeline_modules);
 
-  // Cleanup in reverse order
   for (int i = num_pipeline_modules - 1; i >= 0; i--) {
     struct Module *mod = execution_pipeline[i];
     DEBUG_LOG("Cleaning up module: %s", mod->name);
@@ -1014,7 +1012,7 @@ int module_system_cleanup(void) {
     int cleanup_result = mod->cleanup();
     if (cleanup_result != 0) {
       ERROR_LOG("Module '%s' cleanup failed with code %d", mod->name, cleanup_result);
-      result = cleanup_result; // Continue cleanup but record failure
+      result = cleanup_result;
     }
     execution_pipeline[i] = NULL;
   }
@@ -1134,7 +1132,7 @@ static int parse_int_strict(const char *str, int *out, const char *param_name) {
  *
  * This enforces explicit model specification for reproducible science.
  *
- * Vision Principle 4 (Single Source of Truth): Input file is the truth for values.
+ * Single Source of Truth (VISION.md §3): Input file is the truth for values.
  *
  * @param   param_name   Parameter name (e.g., "BaryonFrac")
  * @param   out_value    Output pointer for double value
@@ -1165,7 +1163,7 @@ int model_get_double_internal(const char *param_name, double *out_value) {
  * Model parameters MUST be specified in the input YAML file.
  * NO defaults are used - parameters are REQUIRED.
  *
- * Vision Principle 4 (Single Source of Truth): Input file is the truth for values.
+ * Single Source of Truth (VISION.md §3): Input file is the truth for values.
  *
  * @param   param_name   Parameter name (e.g., "AGNrecipe")
  * @param   out_value    Output pointer for integer value
@@ -1188,7 +1186,7 @@ int model_get_int(const char *param_name, int *out_value) {
  * Model parameters MUST be specified in the input YAML file.
  * NO defaults are used - parameters are REQUIRED.
  *
- * Vision Principle 4 (Single Source of Truth): Input file is the truth for values.
+ * Single Source of Truth (VISION.md §3): Input file is the truth for values.
  *
  * @param   param_name   Parameter name
  * @param   out_value    Output buffer for string value

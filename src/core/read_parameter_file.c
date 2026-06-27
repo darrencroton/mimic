@@ -1062,17 +1062,6 @@ static int parse_phase_config(yaml_document_t *doc, yaml_node_t *phase_node,
 }
 
 /**
- * @brief   Parse multi-phase modules section
- *
- * Parses module configuration with multi-phase pipeline structure.
- * Model parameters are ALL physics parameters required by modules.
- * They must be explicitly specified - NO defaults are used.
- *
- * Vision Principle 2 (Runtime Modularity): Pipeline structure configured at
- * runtime. Vision Principle 4 (Single Source of Truth): Input file defines
- * complete model.
- */
-/**
  * @brief   Reject substep phase names that collide with reserved keys.
  *
  * @return  1 if the name is reserved, 0 otherwise

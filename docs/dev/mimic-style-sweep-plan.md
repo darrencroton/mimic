@@ -67,6 +67,12 @@ Examples:
 - `src/io/tree/interface.h` — compact per-function Doxygen (`@brief` only when the name is not self-explanatory; no prose padding).
 Run: `make`, targeted unit tests touching config/core if changed.
 
+Status: ✓ Complete — 2026-06-27
+Style debt:
+- `src/core/module_registry.c`: remaining `// Enable verbose formatting` and `// Enable debug level logging` comments in `parse_cli()` explain obvious behaviour; left because the block is in `main.c` not `module_registry.c` and belongs to a future main.c sweep pass (Batch 17 doc pass can cover it)
+- `src/core/module_registry.h` and `module_registry.c`: `register_all_modules()` Doxygen says "Implementation: Auto-generated from module metadata" — true but slightly misleading (the function body in module_init.c is generated, not the declaration). Left to avoid doc/code drift risk; will be cleaner once a generated-file audit is done.
+- `src/include/types.h`: inline `// Flag:` comments on remaining struct fields (e.g. `MaxTreeDepth`, `ProcessingOrder`, `ForestDistributionScheme`) were left in place because they carry non-obvious default values; no harm.
+
 ---
 
 ### 3. Utilities

@@ -1,6 +1,15 @@
 #ifndef CORE_OUTPUT_BUFFER_H
 #define CORE_OUTPUT_BUFFER_H
 
+/**
+ * @file    output_buffer.h
+ * @brief   Driver-neutral workspace-to-output-buffer marshalling
+ *
+ * marshal_workspace_to_output_buffer() transfers surviving workspace halos
+ * (excluding Type 3) into the driver-owned output buffer, growing it when
+ * needed, and fills each segment's output_first/output_count fields.
+ */
+
 #include "types.h"
 
 struct OutputBuffer {

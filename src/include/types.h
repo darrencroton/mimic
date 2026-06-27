@@ -60,11 +60,8 @@ struct MimicConfig {
   double Hubble_h;
 
   /* flags */
-  int OverwriteOutputFiles; // Flag: 1=overwrite (default), 0=skip existing
-                            // files
-  int HDF5CompressionLevel; // gzip compression for HDF5 galaxy output:
-                            // 0=off (default), nonzero=on. The HDF5 table API
-                            // applies a fixed deflate level. Set via --compress.
+  int OverwriteOutputFiles; /* 1=overwrite (default), 0=skip existing output files (--skip) */
+  int HDF5CompressionLevel; /* 0=off (default), nonzero=gzip on; set via --compress */
 
   /* tree traversal */
   int MaxTreeDepth;    // Maximum recursion depth (default: 500)

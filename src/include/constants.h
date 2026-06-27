@@ -2,7 +2,7 @@
 #define MIMIC_CONSTANTS_H
 
 /**
- * @file    mimic_constants.h
+ * @file    constants.h
  * @brief   Core infrastructure constants for Mimic framework
  *
  * This file contains constants for Mimic's core infrastructure including

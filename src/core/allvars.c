@@ -22,18 +22,16 @@
 #include "globals.h"
 #include "types.h"
 
-/*  Global configuration structure */
+/* Global configuration structure */
 struct MimicConfig MimicConfig;
 
-/*  halo data  */
+/* Halo data arrays */
 struct Halo *FoFWorkspace, *ProcessedHalos;
 
 struct RawHalo *InputTreeHalos;
 
-/*  auxiliary halo data  */
+/* Auxiliary halo data */
 struct HaloAuxData *HaloAux;
-
-/*  misc  */
 
 #ifdef HDF5
 size_t HDF5_dst_size;

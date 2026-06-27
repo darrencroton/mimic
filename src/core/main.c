@@ -200,27 +200,6 @@ static void write_output_schema_metadata(const char *metadata_dir) {
 }
 
 /**
- * @brief   Main program entry point
- *
- * @param   argc      Number of command-line arguments
- * @param   argv      Array of command-line argument strings
- * @return  Exit status code (0 for success)
- *
- * This function implements the main program flow:
- * 1. Initialize MPI if compiled with MPI support
- * 2. Process command-line arguments
- * 3. Set up signal handling for CPU time limits
- * 4. Initialize the error handling system
- * 5. Read parameter file and initialize simulation
- * 6. Process merger tree files in parallel (MPI) or serially
- * 7. For each tree:
- *    a. Load the merger tree
- *    b. Construct objects by walking the tree
- *    c. Save the resulting objects
- * 8. Perform cleanup and exit
- */
-
-/**
  * @brief   Parse command-line flags, leaving only the parameter file in argv
  *
  * Handles -h/--help (prints usage and exits), verbosity flags, --skip, and
@@ -323,6 +302,9 @@ static void write_run_metadata(const char *param_file) {
   }
 }
 
+/**
+ * @brief   Main program entry point: init → modules → processing driver → cleanup
+ */
 int main(int argc, char **argv) {
   struct sigaction current_XCPU;
 

@@ -1,7 +1,9 @@
 # Mimic Core Properties Metadata
 #
-# This file defines the halo tracking properties required by Mimic's
-# physics-agnostic processing model. DANGER ZONE! Don't touch!
+# Defines the halo tracking properties required by Mimic's physics-agnostic
+# processing model. Generated code in src/include/generated/ is produced from
+# this file by `make generate`. Edit here, then regenerate — never edit
+# generated files directly.
 #
 # See: docs/DEVELOPER-GUIDE.md for complete schema documentation
 

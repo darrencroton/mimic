@@ -6,11 +6,11 @@
  * must implement. Modules register themselves with the module registry and
  * are executed through a multi-phase pipeline with optional time sub-stepping.
  *
- * Vision Principle 1 (Physics-Agnostic Core): The core has zero knowledge of
+ * Physics-Agnostic Core (VISION.md §1): The core has zero knowledge of
  * specific physics implementations. Modules interact with core only through
  * this well-defined interface.
  *
- * Vision Principle 2 (Runtime Modularity): Module combinations and execution
+ * Runtime Modularity (VISION.md §2): Module combinations and execution
  * structure are configurable at runtime without recompilation.
  *
  * Multi-Phase Pipeline Architecture:

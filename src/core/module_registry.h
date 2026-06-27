@@ -5,16 +5,15 @@
  * This file provides the interface for registering galaxy physics modules
  * and executing them in a multi-phase pipeline with optional time sub-stepping.
  *
- * Vision Principle 1 (Physics-Agnostic Core): The registry manages modules
- * without knowing anything about their specific physics implementations.
+ * Physics-Agnostic Core (VISION.md §1): The registry manages modules without
+ * knowing anything about their specific physics implementations.
  *
- * Vision Principle 2 (Runtime Modularity): Pipeline structure is configured
- * at runtime via input YAML file, not hardcoded in module metadata.
+ * Runtime Modularity (VISION.md §2): Pipeline structure is configured at
+ * runtime via input YAML file, not hardcoded in module metadata.
  *
  * Multi-Phase Pipeline:
  * - Pre-timestep phase (once before substeps)
- * - Phase 1 (each substep, configurable processing mode)
- * - Phase 2 (each substep, configurable processing mode)
+ * - User-named substep phases (each substep, in input-YAML order)
  * - Post-timestep phase (once after substeps)
  *
  * Usage:
@@ -203,10 +202,8 @@ void register_all_modules(void);
  * MODEL PARAMETER ACCESS
  * ==============================================================================
  *
- * Model parameters MUST be explicitly specified in the input YAML file.
- * NO defaults are used.
- *
- * This enforces reproducible science: input file is complete model specification.
+ * Model parameters must be explicitly specified in the input YAML file; no
+ * defaults are used. This enforces reproducible science.
  */
 
 /**

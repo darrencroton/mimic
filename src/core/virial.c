@@ -1,15 +1,11 @@
 /**
  * @file    virial.c
- * @brief   Miscellaneous utility functions for halo tracking
- *
- * This file contains various utility functions used throughout the Mimic code
- * for halo initialization, property calculation, and basic operations.
- * It includes functions for calculating halo properties (mass, velocity,
- * radius) and initializing halo tracking structures.
+ * @brief   Virial property helpers for halo mass, velocity, and radius
  *
  * Key functions:
- * - init_halo): Initializes a new halo tracking object
- * - get_virial_mass/velocity/radius(): Calculate halo virial properties
+ * - get_virial_mass(): Catalog or particle-count mass for one halo
+ * - get_virial_velocity(): Circular velocity at the virial radius
+ * - get_virial_radius(): 200c virial radius from Mvir and ρcrit(z)
  */
 
 #include <assert.h>
@@ -41,14 +37,9 @@
  * @param   halonr  Index of the halo in the Halo array
  * @return  Virial mass in 10^10 Msun/h
  *
- * This function returns the virial mass of a halo, using the spherical
- * overdensity mass if available for central halos. For satellite subhalos
- * or when spherical overdensity mass is not available, it returns the mass
- * estimated from particle counts.
- *
- * For central halos (FirstHaloInFOFgroup), it uses the catalog Mvir when
- * non-negative (>= 0.0). Otherwise, it calculates mass as number of
- * particles × particle mass.
+ * Returns the catalog HaloMass for FOF centrals when it is non-negative
+ * (spherical-overdensity mass estimate from the halo finder). Falls back to
+ * Len * PartMass for subhalos and centrals without a valid HaloMass entry.
  */
 double get_virial_mass(int halonr) {
   const double halo_mass = mimic_tree_get_HaloMass(halonr);
