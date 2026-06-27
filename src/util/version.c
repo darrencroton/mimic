@@ -28,7 +28,6 @@
 
 /* No version number is defined for Mimic */
 
-/* Maximum length for various string buffers */
 #define MAX_CMD_LENGTH 1024
 #define MAX_OUTPUT_LENGTH 512
 
@@ -72,7 +71,6 @@ static int execute_command(const char *command, char *output, size_t size) {
     return 1;
   }
 
-  /* Remove trailing newline if present */
   size_t len = strlen(output);
   if (len > 0 && output[len - 1] == '\n') {
     output[len - 1] = '\0';
@@ -152,7 +150,6 @@ static int get_system_info(char *system_buffer, size_t size) {
       while (fgets(line, sizeof(line), os_release)) {
         if (strncmp(line, "NAME=", 5) == 0) {
           char *value = line + 5;
-          /* Remove quotes if present */
           if (value[0] == '"') {
             value++;
             char *end = strchr(value, '"');
@@ -160,13 +157,11 @@ static int get_system_info(char *system_buffer, size_t size) {
               *end = '\0';
           }
           copy_truncated(distro_name, sizeof(distro_name), value);
-          /* Remove newline if present */
           char *nl = strchr(distro_name, '\n');
           if (nl)
             *nl = '\0';
         } else if (strncmp(line, "VERSION_ID=", 11) == 0) {
           char *value = line + 11;
-          /* Remove quotes if present */
           if (value[0] == '"') {
             value++;
             char *end = strchr(value, '"');
@@ -174,7 +169,6 @@ static int get_system_info(char *system_buffer, size_t size) {
               *end = '\0';
           }
           copy_truncated(distro_version, sizeof(distro_version), value);
-          /* Remove newline if present */
           char *nl = strchr(distro_version, '\n');
           if (nl)
             *nl = '\0';
@@ -271,34 +265,24 @@ int create_version_metadata(const char *output_dir, const char *parameter_file) 
   char metadata_path[MAX_STRING_LEN + 50]; /* Extra space for the complete file path */
   FILE *metadata_file;
 
-  /* Buffers for various metadata values */
   char current_time[64];
   char compiler_info[MAX_OUTPUT_LENGTH];
   char system_info[MAX_OUTPUT_LENGTH];
   char username[MAX_OUTPUT_LENGTH];
   char parameter_digest[MAX_OUTPUT_LENGTH];
 
-  /* Get current date and time */
   get_current_datetime(current_time, sizeof(current_time));
-
-  /* Get compiler and system information */
   get_compiler_info(compiler_info, sizeof(compiler_info));
   get_system_info(system_info, sizeof(system_info));
-
-  /* Get username */
   get_username(username, sizeof(username));
-
-  /* Calculate parameter file MD5 checksum */
   calculate_file_md5_checksum(parameter_file, parameter_digest, sizeof(parameter_digest));
 
-  /* Make sure metadata directory exists */
   snprintf(metadata_dir, sizeof(metadata_dir), "%s/metadata", output_dir);
   if (ensure_directory_exists(metadata_dir) != 0) {
     ERROR_LOG("Failed to create metadata directory: %s", metadata_dir);
     return 1;
   }
 
-  /* Create metadata JSON file */
   snprintf(metadata_path, sizeof(metadata_path), "%s/version_info.json", metadata_dir);
   metadata_file = fopen(metadata_path, "w");
 

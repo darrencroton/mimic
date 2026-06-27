@@ -36,21 +36,9 @@
 
 /* ============================================================================
  * Logging System Global State
- * ============================================================================
- *
- * THREAD SAFETY: These global variables are NOT thread-safe.
- *
- * The current Mimic architecture uses MPI process-based parallelism where each
- * MPI process has its own separate memory space. Global variables are safe in
- * this model because there is no shared memory between processes.
- *
- * IMPORTANT: If migrating to shared-memory threading (OpenMP, pthreads, etc.),
- * these variables MUST be protected with mutexes to prevent race conditions
- * during concurrent logging operations.
- *
- * Affected functions: set_log_level(), set_log_output(), log_message()
- * ============================================================================
- */
+ * Not thread-safe: MPI rank-per-process isolation is safe under the current
+ * model. Add locking before any shared-memory migration.
+ * ============================================================================ */
 
 // Default log level: show everything except debug messages
 static LogLevel current_log_level = LOG_LEVEL_INFO;
@@ -97,15 +85,11 @@ static const char *io_error_names[] = {"NONE",
  * minimum log level and output destination. Messages below the minimum
  * level will be filtered out. If output_file is NULL, logs will be sent
  * to stdout for debug/info messages and stderr for warnings/errors.
- *
- * The function also logs an initialization message at INFO level to
- * confirm the system is working correctly.
  */
 void initialize_error_handling(LogLevel min_level, FILE *output_file) {
   set_log_level(min_level);
   set_log_output(output_file);
 
-  // Log that the error handling system has been initialized
   INFO_LOG("Error handling system initialized: log level %s", level_names[min_level]);
 }
 
@@ -113,13 +97,9 @@ void initialize_error_handling(LogLevel min_level, FILE *output_file) {
  * @brief   Gets the string representation of a log level
  *
  * @param   level    The log level to convert to string
- * @return  String representation of the log level
+ * @return  String representation (e.g., "WARNING"), or "UNKNOWN" if out of range
  *
- * This function converts a LogLevel enum value to its corresponding
- * string representation (e.g., LOG_LEVEL_ERROR -> "ERROR"). If the
- * level is outside the valid range, it returns "UNKNOWN".
- *
- * The returned string is statically allocated and should not be freed.
+ * The returned string is statically allocated and must not be freed.
  */
 const char *get_log_level_name(LogLevel level) {
   if (level < LOG_LEVEL_DEBUG || level > LOG_LEVEL_FATAL) {
@@ -132,13 +112,9 @@ const char *get_log_level_name(LogLevel level) {
  * @brief   Gets the string representation of an I/O error code
  *
  * @param   code    The I/O error code to convert to string
- * @return  String representation of the error code
+ * @return  String representation (e.g., "READ_FAILED"), or "UNKNOWN" if out of range
  *
- * This function converts an IOErrorCode enum value to its corresponding
- * string representation (e.g., IO_ERROR_READ_FAILED -> "READ_FAILED").
- * If the code is outside the valid range, it returns "UNKNOWN".
- *
- * The returned string is statically allocated and should not be freed.
+ * The returned string is statically allocated and must not be freed.
  */
 const char *get_io_error_name(IOErrorCode code) {
   if (code < IO_ERROR_NONE || code > IO_ERROR_HDF5) {
@@ -169,9 +145,6 @@ void set_log_level(LogLevel min_level) { current_log_level = min_level; }
  * @brief   Gets the current log level
  *
  * @return  Current minimum log level
- *
- * This function returns the current log level setting, allowing
- * other parts of the system to adjust their output accordingly.
  */
 LogLevel get_log_level(void) { return current_log_level; }
 
@@ -190,13 +163,24 @@ void set_verbose_format(int enable) { verbose_format = enable; }
  * @brief   Gets the current verbose format setting
  *
  * @return  1 if verbose format is enabled, 0 otherwise
- *
- * This function returns whether verbose formatting is currently enabled,
- * allowing other parts of the system to adjust their output accordingly.
  */
 int get_verbose_format(void) { return verbose_format; }
 
+/**
+ * @brief   Enables or disables the verbose log prefix
+ *
+ * @param   enable    1 to enable, 0 to disable
+ *
+ * When enabled, each log line gets a timestamp, level, and file:line prefix.
+ * Activated by --debug; implies verbose_format is also set.
+ */
 void set_verbose_prefix(int enable) { verbose_prefix = enable; }
+
+/**
+ * @brief   Gets the current verbose prefix setting
+ *
+ * @return  1 if the verbose prefix is enabled, 0 otherwise
+ */
 int get_verbose_prefix(void) { return verbose_prefix; }
 
 /**

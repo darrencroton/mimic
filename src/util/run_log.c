@@ -1,3 +1,8 @@
+/**
+ * @file    run_log.c
+ * @brief   Implementation of run-phase banners and the startup header
+ */
+
 #include <stdio.h>
 #include <time.h>
 

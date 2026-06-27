@@ -1,7 +1,6 @@
 /**
  * @file    io.h
  * @brief   Utility functions for file I/O operations
- * @author  Mimic Development Team
  */
 
 #ifndef UTIL_IO_H

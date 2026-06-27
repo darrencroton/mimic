@@ -1,23 +1,18 @@
+/**
+ * @file    numeric.h
+ * @brief   Safer floating-point comparisons and division for Mimic
+ *
+ * Provides is_zero, is_equal, is_greater, is_less, is_within, and safe_div
+ * helpers that handle NaN and epsilon-tolerance consistently. All comparison
+ * functions return false for NaN inputs (IEEE 754 standard).
+ */
+
 #ifndef UTIL_NUMERIC_H
 #define UTIL_NUMERIC_H
 
 #include "constants.h"
 #include <math.h>
 #include <stdbool.h>
-
-/**
- * @file    numeric.h
- * @brief   Utility functions for numerical stability and safer floating-point
- * operations
- *
- * This file provides utility functions to improve numerical stability in
- * the Mimic codebase by offering safer floating-point comparison operations,
- * division checks, and value validation functions. Using these utilities
- * instead of direct floating-point operations helps avoid common numerical
- * issues including NaN propagation.
- *
- * All comparison functions return false for NaN inputs (IEEE 754 standard).
- */
 
 /**
  * @brief   Checks if a value is effectively zero (within EPSILON_SMALL)

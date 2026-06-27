@@ -86,6 +86,9 @@ Examples:
 - `src/util/memory.c` — Doxygen header with key-functions list; tight section banner for global state (one or two lines explaining the non-obvious invariant, not a migration essay).
 Run: relevant unit tests, especially memory/error/numeric tests.
 
+Status: ✓ Complete — 2026-06-27
+Style debt: none
+
 ---
 
 ### 4. Tree and Output I/O

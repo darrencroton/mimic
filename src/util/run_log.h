@@ -1,3 +1,8 @@
+/**
+ * @file    run_log.h
+ * @brief   Run-phase banners, startup header, and ANSI colour helpers
+ */
+
 #ifndef RUN_LOG_H
 #define RUN_LOG_H
 

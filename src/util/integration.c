@@ -24,35 +24,29 @@
  */
 static void adaptive_simpson(integrand_func_t f, void *params, double a, double b, double tol,
                              int depth, int max_depth, double *result, double *error) {
-  // Calculate midpoint and evaluate function at three points
   double c = (a + b) / 2.0;
   double fa = f(a, params);
   double fb = f(b, params);
   double fc = f(c, params);
 
-  // Calculate Simpson's rule estimates for whole interval and halves
   double whole = (b - a) * (fa + 4.0 * fc + fb) / 6.0;
   double left = (c - a) * (fa + 4.0 * f((a + c) / 2.0, params) + fc) / 6.0;
   double right = (b - c) * (fc + 4.0 * f((c + b) / 2.0, params) + fb) / 6.0;
 
-  // Calculate the error estimate
   double est_error = fabs(left + right - whole);
 
-  // If error is small enough or at max depth, return result
   if (est_error <= tol || depth >= max_depth) {
-    *result = left + right; // More accurate than 'whole'
+    *result = left + right; /* More accurate than 'whole' */
     *error = est_error;
     return;
   }
 
-  // Otherwise, recursively integrate each half with half the tolerance
   double left_result, left_error;
   double right_result, right_error;
 
   adaptive_simpson(f, params, a, c, tol / 2.0, depth + 1, max_depth, &left_result, &left_error);
   adaptive_simpson(f, params, c, b, tol / 2.0, depth + 1, max_depth, &right_result, &right_error);
 
-  // Combine results
   *result = left_result + right_result;
   *error = left_error + right_error;
 }

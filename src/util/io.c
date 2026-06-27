@@ -1,7 +1,6 @@
 /**
  * @file    io.c
  * @brief   Utility functions for file I/O operations
- * @author  Mimic Development Team
  */
 
 #include <errno.h>
