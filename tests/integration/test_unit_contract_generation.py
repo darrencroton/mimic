@@ -67,6 +67,7 @@ def test_time_conversion_is_rejected():
 
 
 def _core_halo_props_and_reference_units():
+    """Return (merged halo property map, reference unit dict) from core metadata YAML files."""
     core_meta = load_core_metadata()
     return (
         merge_property_packages(core_property_files(), "halo_properties"),

@@ -35,7 +35,6 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 sys.path.insert(0, str(REPO_ROOT / "plot" / "mimic-plot"))
 
 from framework import (
-    BLUE,
     GREEN,
     MIMIC_EXE,
     NC,

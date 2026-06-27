@@ -27,18 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from framework import (
-    BLUE,
-    GREEN,
-    NC,
-    RED,
-    TestSkipped,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
-    run_test_suite,
-)
+from framework import run_test_suite
 from generate_module_registry import collect_event_info, validate_event_declarations
 
 # ---------------------------------------------------------------------------

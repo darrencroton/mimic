@@ -26,7 +26,6 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
     BASELINE_ATOL_DEFAULT,
     BASELINE_RTOL_DEFAULT,
-    BLUE,
     GREEN,
     MIMIC_EXE,
     NC,

@@ -123,8 +123,8 @@ tests/
 ├── unit/               # C unit tests
 ├── integration/        # Python integration tests
 ├── scientific/         # Core scientific validation tests
-├── framework/          # Shared test utilities
-│   └── data_loader.py  # Binary/HDF5 data loading
+├── framework/          # Shared test utilities (harness, markers, runner, data loader,
+│                       #   comparison helpers, C/Python test templates, and framework headers)
 ├── data/               # Shared mini simulation data, output fixtures, baselines
 └── generated/          # Auto-generated test metadata
 ```

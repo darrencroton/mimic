@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Integration coverage for run-scoped UniqueGalaxyID encoding."""
+"""
+UniqueGalaxyID Encoding Integration Tests
+
+Validates: run-scoped UniqueGalaxyID encoding is unique and uses the correct prefix-offset scheme
+
+Two contracts are checked:
+  - UniqueGalaxyID values are globally unique across all output partitions for the
+    selected simulation (no duplicates, no sentinel-zero values).
+  - For L-Halo binary runs with multiple input files, file-1 IDs use the tree-count
+    prefix from file 0, not the old file-number stride (TREE_MUL_FAC * file_nr).
+
+The second test applies only when the selected simulation uses lhalo_binary trees;
+it is skipped automatically for other tree types.
+"""
 
 import shutil
 import struct
@@ -26,11 +39,12 @@ from framework import (  # noqa: E402
     run_test_suite,
 )
 
-TREE_MUL_FAC = 1_000_000_000
-OLD_FILE_STRIDE = 1_000_000_000_000_000
+TREE_MUL_FAC = 1_000_000_000  # galaxy IDs within a tree occupy this stride
+OLD_FILE_STRIDE = 1_000_000_000_000_000  # pre-prefix-offset encoding: file_nr × this value
 
 
 def _tree_type_for_param(param_file):
+    """Return the tree_type string from the simulation config referenced by param_file."""
     with Path(param_file).open() as handle:
         run_config = yaml.safe_load(handle)
     sim_config_path = resolve_sim_config_path(run_config["simulation"]["config"], param_file)
@@ -40,6 +54,7 @@ def _tree_type_for_param(param_file):
 
 
 def _numeric_partition_key(path):
+    """Return the integer partition index from a binary output filename (e.g. model_z0.000_3 → 3)."""
     return int(path.name.rsplit("_", 1)[1])
 
 
@@ -88,6 +103,13 @@ def test_selected_simulation_unique_ids_are_unique():
 
 
 def _load_lhalo_binary_bytes(source_path):
+    """
+    Parse an L-Halo binary tree file into raw bytes plus header metadata.
+
+    Returns a dict with keys: data (raw bytes), counts (per-tree halo counts),
+    data_offset (byte offset to the first halo record), record_size (bytes per halo).
+    Raises ValueError if the file is too small or the header is inconsistent.
+    """
     data = source_path.read_bytes()
     if len(data) < 8:
         raise ValueError(f"L-Halo fixture is too small: {source_path}")
@@ -116,6 +138,17 @@ def _load_lhalo_binary_bytes(source_path):
 
 
 def _write_lhalo_partition(fixture, dest_path, tree_indices):
+    """
+    Write a subset of trees from a parsed fixture dict to an L-Halo binary file.
+
+    Args:
+        fixture: Dict returned by _load_lhalo_binary_bytes.
+        dest_path: Destination file path.
+        tree_indices: Indices (into fixture["counts"]) of the trees to include.
+
+    Returns:
+        int: Number of trees written.
+    """
     counts = fixture["counts"]
     selected_counts = [counts[index] for index in tree_indices]
     total_halos = sum(selected_counts)
@@ -136,6 +169,16 @@ def _write_lhalo_partition(fixture, dest_path, tree_indices):
 
 
 def _create_two_file_lhalo_fixture(input_dir):
+    """
+    Build a two-file L-Halo fixture in input_dir using the test data snapshot.
+
+    File 0 gets trees [0, 1]; file 1 gets tree [2].  The two-file split is
+    intentional: it exercises the cross-file prefix-offset encoding where file 1
+    starts at global_forest = file0_tree_count rather than file_nr × OLD_FILE_STRIDE.
+
+    Returns:
+        int: Number of trees written to file 0.
+    """
     input_dir.mkdir(parents=True, exist_ok=True)
     fixture = _load_lhalo_binary_bytes(TEST_DATA_DIR / "input" / "trees_063.0")
     file0_tree_count = _write_lhalo_partition(fixture, input_dir / "trees_063.0", [0, 1])
@@ -144,6 +187,12 @@ def _create_two_file_lhalo_fixture(input_dir):
 
 
 def _rewrite_simulation_config(param_file, input_dir):
+    """
+    Rewrite the simulation config referenced by param_file to use input_dir and lhalo_binary trees.
+
+    Patches first_file/last_file, tree_name, tree_type, and simulation_dir in the
+    simulation config in-place, then updates the run config to match.
+    """
     with param_file.open() as handle:
         run_config = yaml.safe_load(handle)
 

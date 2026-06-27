@@ -170,6 +170,12 @@ Examples:
 - `tests/scientific/test_scientific.py` — module docstring documents validation rules source (manifest path, how to regenerate); inline comments explain metadata-driven logic.
 Run: targeted scripts; full `make tests-integration summary` only when needed.
 
+Status: ✓ Complete — 2026-06-28
+Style debt:
+- `test_full_pipeline.py`: `test_stdout_content` asserts only that `"Mimic"` appears somewhere in combined output — very weak check. Strengthening it would require knowing stable log phrasing; left as a future functional improvement, not a style issue.
+- `test_galaxy_major_loop.py`, `test_phase_execution.py`, `test_processing_modes.py`, `test_substeps.py`: use `# ===== SETUP/EXECUTE/VALIDATE/CLEANUP =====` section banners inside Python test functions — pattern is internally consistent across these four files; diverges from `test_full_pipeline.py` reference but is not wrong. Left in place.
+- `test_module_pipeline.py`, `test_processing_order.py`: `TestSkipped` guards on `MIMIC_EXE.exists()` are in `main()` rather than per-test. Consistent with the local pattern; adding per-test guards is a functional change beyond the sweep scope.
+
 ---
 
 ### 9. SAGE Shared Helpers and Metadata

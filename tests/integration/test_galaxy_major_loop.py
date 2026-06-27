@@ -2,23 +2,18 @@
 """
 Galaxy-Major Loop Ordering Test
 
-Validates: Multiple PROCESSING_MODE_ALL modules execute in galaxy-major order
-Phase: Phase 3+ (Multi-Phase Pipeline)
+Validates: Multiple process_by_galaxy modules execute in galaxy-major order
 
-This test validates that when multiple modules with PROCESSING_MODE_ALL are
-configured in the same phase, they execute in galaxy-major order:
-  - Galaxy-major: For each galaxy: module1, module2, module3, ...
-  - NOT module-major: module1 for all galaxies, then module2 for all, ...
+This test validates that when multiple modules configured as process_by_galaxy
+run in the same phase, they execute in galaxy-major order:
+  - Galaxy-major: for each galaxy, all modules run before moving to the next
+  - NOT module-major: one module over all galaxies, then the next module
 
-Galaxy-major ordering provides better cache locality and matches SAGE
-execution pattern.
+Galaxy-major ordering provides cache locality and matches SAGE execution behaviour.
 
 Test cases:
   - test_multiple_modules_galaxy_major: Verify execution count pattern
-  - test_two_phase_modules_ordering: Verify phase execution before loop
-
-Author: Mimic Testing Team
-Date: 2025-12-09
+  - test_two_phase_modules_ordering: Verify phase execution before the substep loop
 """
 
 import shutil
@@ -29,18 +24,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
-    BLUE,
-    GREEN,
-    NC,
-    RED,
-    REPO_ROOT,
-    TestSkipped,
     create_test_param_file,
     parse_test_fixture_executions,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
     run_mimic,
     run_test_suite,
 )

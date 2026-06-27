@@ -24,21 +24,14 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
-    BLUE,
-    GREEN,
     MIMIC_EXE,
     NC,
     RED,
     REPO_ROOT,
     TEST_DATA_DIR,
-    TestSkipped,
     check_no_memory_leaks,
     core_input_file,
     ensure_output_dirs,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
     run_mimic,
     run_mimic_fresh,
     run_test_suite,

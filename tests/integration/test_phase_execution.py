@@ -21,18 +21,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from framework import (
-    BLUE,
-    GREEN,
-    NC,
-    RED,
-    REPO_ROOT,
-    TestSkipped,
     create_test_param_file,
     parse_test_fixture_executions,
-    result_error,
-    result_fail,
-    result_pass,
-    result_skip,
     run_mimic,
     run_test_suite,
 )

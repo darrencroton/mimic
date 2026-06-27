@@ -19,7 +19,12 @@ TEMP_DIR = None
 
 
 def processing_order_param_file(processing_order):
-    """Create a generated run file with a specific input.processing_order value."""
+    """
+    Return a run file path with input.processing_order set to the given string.
+
+    Generates a base test run file via create_test_param_file, rewrites
+    input.processing_order in the config, and writes a named YAML to TEMP_DIR.
+    """
     param_file, _output_dir, _ = create_test_param_file(
         output_name=f"processing_order_{processing_order}",
         first_file=0,
@@ -38,7 +43,12 @@ def processing_order_param_file(processing_order):
 
 
 def test_unknown_processing_order_fails_fast():
-    """Unknown processing_order values fail with the accepted values."""
+    """
+    Test that an unrecognised input.processing_order value fails at startup.
+
+    Expected: Non-zero exit; output includes the bad value name and "Valid values are tree_ordered, snapshot_ordered".
+    Validates: startup validation rejects unknown ordering strings with an actionable message.
+    """
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
 
@@ -52,7 +62,12 @@ def test_unknown_processing_order_fails_fast():
 
 
 def test_snapshot_ordered_reports_unimplemented_driver():
-    """snapshot_ordered is recognized but fails because no snapshot driver exists yet."""
+    """
+    Test that snapshot_ordered is recognised but fails because the driver is not yet implemented.
+
+    Expected: Non-zero exit; output includes "snapshot-ordered driver is not implemented yet".
+    Validates: The value is accepted by the parser but fast-fails before processing begins.
+    """
     if not MIMIC_EXE.exists():
         raise TestSkipped("Mimic not built")
 

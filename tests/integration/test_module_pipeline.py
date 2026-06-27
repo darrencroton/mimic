@@ -33,7 +33,12 @@ TEMP_DIR = None
 
 
 def test_physics_free_mode():
-    """Test physics-free mode (no modules enabled)."""
+    """
+    Test that Mimic runs correctly with no modules configured.
+
+    Expected: Exit code 0; log includes "No modules configured (physics-free mode)".
+    Validates: Empty module pipeline is valid and produces halo tracking output.
+    """
     # Create parameter file with no modules
     param_file, output_dir, _ = create_test_param_file(
         output_name="physics_free", first_file=0, last_file=0, temp_dir=TEMP_DIR
@@ -53,7 +58,12 @@ def test_physics_free_mode():
 
 
 def test_single_module_execution():
-    """Test single module execution in isolation."""
+    """
+    Test that a single module initialises and runs without errors.
+
+    Expected: Exit code 0; log confirms "Test fixture module initialized" with DummyParameter=2.5.
+    Validates: Module init/process/cleanup lifecycle functions correctly with one module.
+    """
     # Create parameter file with only test_fixture
     param_file, output_dir, _ = create_test_param_file(
         output_name="single_module",
@@ -79,7 +89,12 @@ def test_single_module_execution():
 
 
 def test_multiple_modules_execution():
-    """Test multiple module execution together."""
+    """
+    Test that the same module can appear more than once in a phase.
+
+    Expected: Exit code 0; DummyParameter and EnableLogging logged on each registration.
+    Validates: Module list allows repeated entries; no name-collision crash.
+    """
     # Create parameter file with test_fixture enabled twice (tests module list handling)
     param_file, output_dir, _ = create_test_param_file(
         output_name="multiple_modules",
@@ -111,7 +126,12 @@ def test_multiple_modules_execution():
 
 
 def test_custom_parameter_values():
-    """Test that custom parameter values are actually used."""
+    """
+    Test that non-default parameter values reach the module's init().
+
+    Expected: Exit code 0; log shows "DummyParameter = 3.140".
+    Validates: Parameter reader returns the value from the run YAML, not a compiled default.
+    """
     # Run with non-default dummy parameter
     param_file, output_dir, _ = create_test_param_file(
         output_name="custom_params",
@@ -136,7 +156,12 @@ def test_custom_parameter_values():
 
 
 def test_unknown_module_error():
-    """Test that unknown module names produce clear errors."""
+    """
+    Test that configuring an unregistered module name produces a clear startup error.
+
+    Expected: Non-zero exit; output contains "not registered" and lists "Available modules:".
+    Validates: Module registry lookup fails fast with an actionable diagnostic.
+    """
     # Create parameter file with invalid module
     param_file, output_dir, _ = create_test_param_file(
         output_name="unknown_module",
@@ -160,10 +185,12 @@ def test_unknown_module_error():
 
 
 def test_module_execution_order():
-    """Test that modules execute in the order specified in configured module phases.
+    """
+    Test that modules run in the order declared in the phase configuration.
 
-    Note: This test validates basic execution ordering infrastructure.
-    Model-specific dependency contracts live under models/<model>/modules/_tests/.
+    Expected: Exit code 0; module init log confirms the module was registered.
+    Validates: Basic pipeline ordering infrastructure; model-specific dependency
+    contracts live under models/<model>/modules/_tests/.
     """
     # Create parameter file with test_fixture
     param_file, output_dir, _ = create_test_param_file(
