@@ -2,23 +2,16 @@
  * @file    parameter_helpers.h
  * @brief   Helper macros for module parameter loading and validation
  *
- * Provides convenient macros for common parameter patterns:
- * - Loading parameters with automatic error handling
- * - Validating parameter ranges with optional physics context
- * - Combined load-and-validate for simple cases
- *
- * These macros reduce boilerplate while maintaining clarity and flexibility.
- *
- * Vision Principles:
- * - DRY: Eliminates repetitive error-handling code
- * - KISS: Simple macros for common patterns
- * - Type Safety: Compile-time type checking via function calls
+ * Provides macros for common parameter patterns: loading with automatic error
+ * handling, range validation with optional physics context, and combined
+ * load-and-validate for the simple case. Use the individual macros when custom
+ * validation logic is needed between loading and validation.
  *
  * Usage:
  *   #include "module_system/parameter_helpers.h"
  *
- * Author: Mimic Development Team
- * Date: 2025-12-02
+ * Location: src/module_system/parameter_helpers.h
+ * Framework infrastructure — do not modify unless adding universal parameter helpers.
  */
 
 #ifndef PARAMETER_HELPERS_H
@@ -51,6 +44,12 @@
     }                                                                                              \
   } while (0)
 
+/**
+ * @brief Load an internal double parameter (with automatic error handling)
+ *
+ * Uses `model_get_double_internal` for parameters not declared in the user-facing
+ * YAML (e.g. computed cosmology constants set during init). Returns -1 on failure.
+ */
 #define LOAD_PARAM_DOUBLE_INTERNAL(name, var)                                                      \
   do {                                                                                             \
     if (model_get_double_internal(name, &var) != 0) {                                              \
@@ -191,6 +190,14 @@
     VALIDATE_RANGE_INCLUSIVE(param, var, min, max, context);                                       \
   } while (0)
 
+/**
+ * @brief Load and validate an internal double parameter (inclusive range)
+ *
+ * Combines LOAD_PARAM_DOUBLE_INTERNAL and VALIDATE_RANGE_INCLUSIVE for internal
+ * parameters (set by init, not declared in the user-facing YAML).
+ *
+ * Range: min <= value <= max (inclusive bounds)
+ */
 #define LOAD_AND_VALIDATE_RANGE_INCLUSIVE_INTERNAL(param, var, min, max, context)                  \
   do {                                                                                             \
     LOAD_PARAM_DOUBLE_INTERNAL(param, var);                                                        \

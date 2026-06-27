@@ -13,9 +13,6 @@
  * - Parameter reading works
  * - Property access works
  * - No memory leaks
- *
- * @author  Mimic Development Team
- * @date    2025-11-13
  */
 
 #include "framework/test_framework.h"
@@ -37,7 +34,6 @@
 static int passed = 0;
 static int failed = 0;
 
-/* Track whether modules have been registered */
 static int modules_registered = 0;
 
 /* Test fixture: reset configuration state */

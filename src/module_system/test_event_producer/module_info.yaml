@@ -7,8 +7,7 @@
 # test_event_consumer_alpha and test_event_consumer_beta can verify
 # that routing delivers events only to subscribed consumers.
 #
-# Part of the dedicated event system test suite (see docs/EVENT-SYSTEM-IMPROVEMENTS.md
-# Phase 5). Kept separate from test_fixture to maintain single responsibility.
+# Kept separate from test_fixture to maintain single responsibility.
 
 module:
   name: test_event_producer

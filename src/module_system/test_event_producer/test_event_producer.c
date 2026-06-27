@@ -7,8 +7,6 @@
  * Emits a configurable number of test_event events per process() call so
  * that test_event_consumer_alpha and test_event_consumer_beta can verify
  * correct subscription routing and delivery.
- *
- * See docs/EVENT-SYSTEM-IMPROVEMENTS.md Phase 5 for the test strategy.
  */
 
 #include "module_system/generated/event_contracts.h"

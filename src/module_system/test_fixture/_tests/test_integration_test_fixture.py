@@ -19,9 +19,6 @@ Test cases:
   - test_parameter_configuration: DummyParameter configuration works
   - test_execution_completes: Module runs to completion
   - test_memory_safety: No memory leaks
-
-Author: Mimic Development Team
-Date: 2025-11-13
 """
 
 import os

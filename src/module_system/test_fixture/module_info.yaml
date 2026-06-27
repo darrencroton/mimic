@@ -10,8 +10,8 @@
 #
 # This maintains Vision Principle #1: Physics-Agnostic Core Infrastructure
 #
-# For schema documentation, see:
-#   docs/developer/module-metadata-schema.md
+# For metadata schema documentation, see:
+#   docs/DEVELOPER-GUIDE.md#module-metadata-schema
 
 module:
   # ===========================================================================

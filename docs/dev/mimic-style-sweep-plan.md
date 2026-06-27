@@ -118,6 +118,10 @@ Examples:
 - `tests/framework/test_framework.h` — framework header template: Doxygen file header with usage example; per-macro `@def`/`@brief`; short WHY comments on non-obvious framework invariants.
 Run: `make validate-modules`, module-system tests.
 
+Status: ✓ Complete — 2026-06-27
+Style debt:
+- `src/module_system/test_fixture/_tests/test_integration_test_fixture.py`: does not emit `MIMIC_RESULT:` structured markers — uses raw `assert` with a catch/count pattern that predates the marker system. Fixing this requires restructuring the test runner loop to import and call `result_pass`/`result_fail` from `tests/framework/markers.py`; left for Batch 8 (integration and scientific tests sweep).
+
 ---
 
 ### 6. Scripts and Generators

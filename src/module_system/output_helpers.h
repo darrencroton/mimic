@@ -1,25 +1,18 @@
-/*
- * Output Helper Functions
+/**
+ * @file    output_helpers.h
+ * @brief   Helper functions for metadata-driven property output conversion
  *
- * Purpose: Shared helper functions for property output logic
- * Location: src/module_system/output_helpers.h
- *
- * These functions provide reusable output logic patterns that would otherwise
- * require complex conditional expressions in property metadata. They maintain
- * core-physics separation by:
- * - Being shared infrastructure for metadata-driven output conversion
- * - Being referenced by name in property metadata (no hardcoded physics in core)
- * - Being auto-generated into output code via metadata
+ * These functions are referenced by name in property metadata (`output_function`)
+ * and called from auto-generated output code. They keep domain logic out of the
+ * generated core, preserving the physics-agnostic boundary.
  *
  * Usage in property metadata:
  *   output_source: recalculate
  *   output_function: function_name_from_this_file
  *   output_function_arg: "arguments"
  *
- * Architecture Notes:
- * - These functions access generated property metadata and galaxy state
- * - Auto-generated code in copy_to_output.inc calls these functions
- * - Core remains physics-agnostic; all domain logic lives here
+ * Location: src/module_system/output_helpers.h
+ * Framework infrastructure — do not modify unless adding universal output helpers.
  */
 
 #ifndef OUTPUT_HELPERS_H
@@ -54,26 +47,8 @@ struct Halo;
  *     output_function_arg: "g, g->infallMvir"
  */
 static inline float output_infall_property_or_zero(const struct Halo *g, float value) {
-  // Satellites: output actual infall property value
-  // Centrals: output 0.0 (no infall event)
   return (g->Type != 0) ? value : 0.0f;
 }
-
-/*
- * Additional Output Helpers
- *
- * Add new helper functions here as needed. Common patterns:
- * - Type-dependent properties (central vs satellite)
- * - Conditional calculations (merger-triggered properties)
- * - Property combinations (ratios, derived quantities)
- *
- * Guidelines:
- * 1. Keep functions simple and focused (single responsibility)
- * 2. Use inline for performance (these are called per-halo)
- * 3. Document the pattern and which properties use it
- * 4. Make functions testable (pure functions where possible)
- * 5. Use const pointers where appropriate
- */
 
 /**
  * @brief Output Rvir: recalculate current for Type 0/1, preserve for Type 2
@@ -84,8 +59,8 @@ static inline float output_infall_property_or_zero(const struct Halo *g, float v
  * Used by: Rvir property
  */
 static inline float output_rvir_conditional(const struct Halo *g) {
-  // Type 2 orphans: return preserved value (no current halo to calculate from)
-  // Type 0/1: recalculate current value (stored value is "maximum ever")
+  /* Type 2 orphans: preserve value from when the orphan had a subhalo;
+   * Type 0/1: recalculate current (stored value is "maximum ever") */
   return (g->Type == 2) ? g->Rvir : (float)get_virial_radius(g->HaloNr);
 }
 
@@ -98,8 +73,8 @@ static inline float output_rvir_conditional(const struct Halo *g) {
  * Used by: Vvir property
  */
 static inline float output_vvir_conditional(const struct Halo *g) {
-  // Type 2 orphans: return preserved value (no current halo to calculate from)
-  // Type 0/1: recalculate current value (stored value is "maximum ever")
+  /* Type 2 orphans: preserve value from when the orphan had a subhalo;
+   * Type 0/1: recalculate current (stored value is "maximum ever") */
   return (g->Type == 2) ? g->Vvir : (float)get_virial_velocity(g->HaloNr);
 }
 

@@ -12,18 +12,9 @@ This maintains **Vision Principle #1: Physics-Agnostic Core Infrastructure**.
 
 ## Architecture Rationale
 
-Infrastructure tests in `tests/unit/` and `tests/integration/` previously hardcoded production module names (`simple_cooling`, `simple_sfr`), creating an architectural violation:
+Infrastructure tests in `tests/unit/` and `tests/integration/` must not hardcode production module names. Doing so would violate the Physics-Agnostic Core principle: production module changes would break infrastructure tests, and archiving production modules would require updating core tests.
 
-- **Violated**: Physics-Agnostic Core principle
-- **Problem**: Production module changes broke infrastructure tests
-- **Problem**: Archiving production modules required updating core tests
-
-The `test_fixture` module fixes this by providing a stable, minimal test module that:
-
-- Provides a stable test interface
-- Has no real physics, so it remains agnostic to production science
-- Provides minimal functionality for testing infrastructure
-- Allows production modules to be archived without infrastructure test changes
+The `test_fixture` module provides a stable, physics-free module that keeps the module system contract testable without coupling infrastructure tests to any production physics implementation.
 
 ## Usage
 
@@ -88,8 +79,6 @@ The module performs minimal operations:
 1. **Init**: Reads parameters, logs configuration
 2. **Process**: Sets `TestDummyProperty = DummyParameter` on all galaxies
 3. **Cleanup**: No resources to free
-
-Total implementation: ~150 lines of well-documented code
 
 ## Related Documentation
 

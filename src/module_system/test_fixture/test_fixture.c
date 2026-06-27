@@ -14,9 +14,6 @@
  * - Infrastructure tests MUST use this fixture, not production modules
  * - This prevents production module changes from breaking infrastructure tests
  * - Maintains clean separation between core and physics
- *
- * @author  Mimic Development Team
- * @date    2025-11-13
  */
 
 #include <stdio.h>
@@ -60,7 +57,6 @@ static int execution_count = 0;
  * @return  0 on success, -1 on error
  */
 int test_fixture_init(void) {
-  // Read parameters from model_get_*() API system
   if (model_get_double("TestFixtureDummyParameter", &DUMMY_PARAMETER) != 0) {
     ERROR_LOG("Failed to read TestFixtureDummyParameter from model_parameters");
     return -1;
@@ -104,7 +100,6 @@ int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
     return 0; // Nothing to process
   }
 
-  // Increment execution counter
   execution_count++;
 
   if (ENABLE_LOGGING) {
@@ -121,20 +116,17 @@ int test_fixture_process(struct ModuleContext *ctx, struct Halo *halos, int ngal
     }
   }
 
-  // Process each halo in the FOF group
   for (int i = 0; i < ngal; i++) {
-    // Only process central galaxies
     if (halos[i].Type != 0) {
       continue;
     }
 
-    // Validate galaxy data is allocated
     if (halos[i].galaxy == NULL) {
       ERROR_LOG("Halo %d (Type=0) has NULL galaxy data", i);
       return -1;
     }
 
-    // Set dummy property (validates property system works)
+    /* Set dummy property — validates that the property system is wired correctly */
     halos[i].galaxy->TestDummyProperty = (float)DUMMY_PARAMETER;
 
     if (ENABLE_LOGGING) {
@@ -157,8 +149,6 @@ int test_fixture_cleanup(void) {
   if (ENABLE_LOGGING) {
     INFO_LOG("TEST_FIXTURE_CLEANUP: total_executions=%d", execution_count);
   }
-  // Reset execution counter for next run
-  execution_count = 0;
-  // No resources to free
+  execution_count = 0; /* reset for re-init safety */
   return 0;
 }
