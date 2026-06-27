@@ -391,6 +391,10 @@ static int assert_sequence_halo(const struct halo_data *halo, int source_index) 
   return TEST_PASS;
 }
 
+/**
+ * @test    test_forestinfo_length_and_counts_are_validated
+ * @brief   Mismatched ForestInfo row count and negative ForestNhalos are rejected
+ */
 int test_forestinfo_length_and_counts_are_validated(void) {
   init_memory_system(0);
   char dir_template[] = "/tmp/mimic_ctrees_h5_info_XXXXXX";
@@ -432,6 +436,10 @@ int test_forestinfo_length_and_counts_are_validated(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_forestinfo_cache_reads_members_by_name
+ * @brief   ForestInfo compound type is mapped by member name regardless of on-disk field order
+ */
 int test_forestinfo_cache_reads_members_by_name(void) {
   init_memory_system(0);
   char dir_template[] = "/tmp/mimic_ctrees_h5_info_order_XXXXXX";
@@ -456,6 +464,10 @@ int test_forestinfo_cache_reads_members_by_name(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_forest_slab_bounds_are_validated
+ * @brief   Negative offsets and slabs past the dataset extent are rejected
+ */
 int test_forest_slab_bounds_are_validated(void) {
   init_memory_system(0);
   char dir_template[] = "/tmp/mimic_ctrees_h5_slab_XXXXXX";
@@ -478,6 +490,10 @@ int test_forest_slab_bounds_are_validated(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_field_cache_validates_schema_at_open
+ * @brief   Field extent mismatches between datasets are caught when the cache is opened
+ */
 int test_field_cache_validates_schema_at_open(void) {
   init_memory_system(0);
   char dir_template[] = "/tmp/mimic_ctrees_h5_fields_XXXXXX";
@@ -501,6 +517,10 @@ int test_field_cache_validates_schema_at_open(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_snapshot_values_are_strict
+ * @brief   Fractional and out-of-range Snap_idx values are rejected at read time
+ */
 int test_snapshot_values_are_strict(void) {
   init_memory_system(0);
   MimicConfig.LastSnapshotNr = 10;
@@ -533,6 +553,10 @@ int test_snapshot_values_are_strict(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_window_refills_across_sequential_forests
+ * @brief   Slab window refills correctly when two sequential forests straddle the boundary
+ */
 int test_window_refills_across_sequential_forests(void) {
   init_memory_system(0);
   MimicConfig.LastSnapshotNr = 10;
@@ -564,6 +588,10 @@ int test_window_refills_across_sequential_forests(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_giant_forest_uses_direct_read_path
+ * @brief   A forest larger than the slab window triggers the direct (bypass) read path
+ */
 int test_giant_forest_uses_direct_read_path(void) {
   init_memory_system(0);
   MimicConfig.LastSnapshotNr = 10;
@@ -589,6 +617,10 @@ int test_giant_forest_uses_direct_read_path(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_run_prepare_survives_repeated_range_staging
+ * @brief   run_prepare supports non-adjacent range staging; field handles rebuild per file
+ */
 int test_run_prepare_survives_repeated_range_staging(void) {
   init_memory_system(0);
   MimicConfig.LastSnapshotNr = 10;
@@ -642,6 +674,10 @@ int test_run_prepare_survives_repeated_range_staging(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_prepare_builds_chunk_plan_from_forest_counts
+ * @brief   run_prepare builds a correct chunk plan from ForestInfo halo counts
+ */
 int test_prepare_builds_chunk_plan_from_forest_counts(void) {
   init_memory_system(0);
   MimicConfig.LastSnapshotNr = 10;
@@ -680,12 +716,17 @@ int test_prepare_builds_chunk_plan_from_forest_counts(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_stage_rejects_oversized_chunk
+ * @brief   Chunks exceeding the 32-bit per-partition halo limit are rejected at staging
+ */
 int test_stage_rejects_oversized_chunk(void) {
   TEST_ASSERT(ctrees_hdf5_test_rejects_oversized_stage_range() == EXIT_SUCCESS,
               "HDF5 staging should reject chunks above the 32-bit per-partition limit");
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   H5Eset_auto2(H5E_DEFAULT, NULL, NULL);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -694,7 +735,7 @@ int main(void) {
   printf("============================================================\n");
   printf("Test Suite: Consistent-Trees HDF5 Reader\n");
   printf("============================================================\n");
-  printf("%s", NC);
+  printf("%s\n", NC);
 
   TEST_RUN(test_forestinfo_length_and_counts_are_validated);
   TEST_RUN(test_forestinfo_cache_reads_members_by_name);

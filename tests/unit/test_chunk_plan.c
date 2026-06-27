@@ -77,6 +77,10 @@ static double optimal_makespan(const double *costs, int nchunks, int ntasks) {
   return best;
 }
 
+/**
+ * @test    test_size_budget_boundaries
+ * @brief   Size-budget planner emits correct chunks; oversized forest gets its own chunk
+ */
 int test_size_budget_boundaries(void) {
   const double sizes[] = {2.0, 11.0, 3.0, 4.0, 6.0};
   struct ChunkPlan plan;
@@ -92,6 +96,10 @@ int test_size_budget_boundaries(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_even_chunking_and_no_empty_chunks
+ * @brief   Even forest sizes produce equal chunks; the planner never emits empty chunks
+ */
 int test_even_chunking_and_no_empty_chunks(void) {
   const double sizes[] = {2.0, 2.0, 2.0, 2.0};
   struct ChunkPlan plan;
@@ -112,6 +120,10 @@ int test_even_chunking_and_no_empty_chunks(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_forests_per_file_override
+ * @brief   forests_per_file override ignores the size budget and groups by count
+ */
 int test_forests_per_file_override(void) {
   const double sizes[] = {100.0, 1.0, 1.0, 100.0, 1.0, 1.0, 100.0};
   struct ChunkPlan plan;
@@ -126,6 +138,10 @@ int test_forests_per_file_override(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_streaming_matches_full_array
+ * @brief   Streaming builder produces the same chunk plan as the full-array wrapper
+ */
 int test_streaming_matches_full_array(void) {
   const double all_sizes[] = {1.0, 2.0, 7.0, 3.0, 2.0, 8.0};
   const double first_file[] = {1.0, 2.0};
@@ -160,6 +176,10 @@ int test_streaming_matches_full_array(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_streaming_costs_are_accumulated_independently
+ * @brief   Per-forest costs accumulate independently of sizes; boundaries use size budget
+ */
 int test_streaming_costs_are_accumulated_independently(void) {
   const double sizes[] = {6.0, 1.0, 1.0, 6.0};
   const double costs[] = {1.0, 10.0, 100.0, 1000.0};
@@ -183,6 +203,10 @@ int test_streaming_costs_are_accumulated_independently(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_streaming_accepts_int64_forest_indices
+ * @brief   Forest indices above INT_MAX are preserved without truncation
+ */
 int test_streaming_accepts_int64_forest_indices(void) {
   const double sizes[] = {1.0, 1.0};
   struct ChunkPlanBuilder builder;
@@ -204,6 +228,10 @@ int test_streaming_accepts_int64_forest_indices(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_lpt_single_task_and_idle_tasks
+ * @brief   Single-task assignment routes all chunks to task 0; idle tasks receive none
+ */
 int test_lpt_single_task_and_idle_tasks(void) {
   const double costs[] = {5.0, 4.0};
   int task_of_chunk[2] = {-1, -1};
@@ -225,6 +253,10 @@ int test_lpt_single_task_and_idle_tasks(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_lpt_tie_break_is_stable
+ * @brief   Equal-cost chunks are assigned in deterministic round-robin order
+ */
 int test_lpt_tie_break_is_stable(void) {
   const double costs[] = {1.0, 1.0, 1.0, 1.0};
   int first[4] = {-1, -1, -1, -1};
@@ -242,6 +274,10 @@ int test_lpt_tie_break_is_stable(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_lpt_makespan_bound_on_spiky_distribution
+ * @brief   LPT makespan stays within 4/3 of optimal on a spiky nine-chunk distribution
+ */
 int test_lpt_makespan_bound_on_spiky_distribution(void) {
   const double costs[] = {20.0, 19.0, 13.0, 12.0, 11.0, 8.0, 7.0, 6.0, 4.0};
   int task_of_chunk[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
@@ -256,6 +292,10 @@ int test_lpt_makespan_bound_on_spiky_distribution(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_invalid_inputs_and_zero_chunk_assignment
+ * @brief   Invalid inputs are rejected; zero-chunk LPT assignment is accepted
+ */
 int test_invalid_inputs_and_zero_chunk_assignment(void) {
   const double valid_sizes[] = {1.0};
   const double invalid_sizes[] = {-1.0};
@@ -311,6 +351,7 @@ int test_invalid_inputs_and_zero_chunk_assignment(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");

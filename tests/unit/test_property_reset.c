@@ -31,6 +31,10 @@ static void setup_workspace(struct Halo *workspace, struct GalaxyData *galaxy) {
   FoFWorkspace[0].galaxy = galaxy;
 }
 
+/**
+ * @test    test_generated_metadata_available
+ * @brief   Generated property count constants are positive and accessible
+ */
 int test_generated_metadata_available(void) {
   init_memory_system(0);
 
@@ -50,6 +54,10 @@ int test_generated_metadata_available(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_generated_init_code_executes
+ * @brief   init_galaxy_defaults() resets all default-initialized galaxy properties
+ */
 int test_generated_init_code_executes(void) {
   init_memory_system(0);
 
@@ -70,6 +78,10 @@ int test_generated_init_code_executes(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_generated_reset_code_executes
+ * @brief   reset_galaxy_snapshot_accumulators() restores init_repeat properties to init values
+ */
 int test_generated_reset_code_executes(void) {
   init_memory_system(0);
 
@@ -95,15 +107,7 @@ int test_generated_reset_code_executes(void) {
   return TEST_PASS;
 }
 
-/* ========================================================================== */
-/* TEST SUITE MAIN                                                            */
-/* ========================================================================== */
-
-/**
- * @brief   Main test runner
- *
- * Executes all test cases and reports results.
- */
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");

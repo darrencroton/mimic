@@ -85,6 +85,10 @@ static void init_source_halo(struct Halo *halo, struct GalaxyData *galaxy, int t
   init_galaxy_defaults(galaxy);
 }
 
+/**
+ * @test    test_main_branch_deep_copy_and_reset
+ * @brief   Main branch inherit deep-copies galaxy data and resets snapshot accumulators
+ */
 int test_main_branch_deep_copy_and_reset(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -132,6 +136,10 @@ int test_main_branch_deep_copy_and_reset(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_satellite_transition_captures_infall
+ * @brief   Type 0→1 transition stamps infall Mvir, Vvir, and Vmax from the source halo
+ */
 int test_satellite_transition_captures_infall(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -164,6 +172,10 @@ int test_satellite_transition_captures_infall(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_orphan_conversion_and_local_central
+ * @brief   Non-main Type 0 source becomes a Type 2 orphan pointing to the subhalo-local central
+ */
 int test_orphan_conversion_and_local_central(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -203,6 +215,10 @@ int test_orphan_conversion_and_local_central(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_type3_skip_and_new_halo_creation
+ * @brief   All-Type-3 central progenitor slice creates a fresh Type 0 halo
+ */
 int test_type3_skip_and_new_halo_creation(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -238,6 +254,10 @@ int test_type3_skip_and_new_halo_creation(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_type2_preserved_without_orphan_retransition
+ * @brief   Existing Type 2 source is carried through unchanged without a re-orphan transition
+ */
 int test_type2_preserved_without_orphan_retransition(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -277,6 +297,10 @@ int test_type2_preserved_without_orphan_retransition(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_no_progenitor_central_creates_new_halo
+ * @brief   Central subhalo with no progenitors creates one new Type 0 halo
+ */
 int test_no_progenitor_central_creates_new_halo(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -303,6 +327,10 @@ int test_no_progenitor_central_creates_new_halo(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_no_progenitor_satellite_creates_none
+ * @brief   Satellite subhalo with no progenitors produces no halos
+ */
 int test_no_progenitor_satellite_creates_none(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -319,6 +347,7 @@ int test_no_progenitor_satellite_creates_none(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");

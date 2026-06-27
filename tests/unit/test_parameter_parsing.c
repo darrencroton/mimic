@@ -572,6 +572,10 @@ int test_snapshot_list(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_output_chunking_defaults
+ * @brief   Default chunking parameters are positive after parsing the canonical run file
+ */
 int test_output_chunking_defaults(void) {
   /* ===== SETUP ===== */
   setup_test();
@@ -601,6 +605,10 @@ int test_output_chunking_defaults(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_output_chunking_parameters
+ * @brief   target_file_size_mb converts to bytes and forests_per_file parses as int64
+ */
 int test_output_chunking_parameters(void) {
   char fixture_path[MAX_STRING_LEN];
 
@@ -630,6 +638,10 @@ int test_output_chunking_parameters(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_output_chunking_accepts_zero_forests
+ * @brief   forests_per_file: 0 is accepted and stored (size budget takes over)
+ */
 int test_output_chunking_accepts_zero_forests(void) {
   char fixture_path[MAX_STRING_LEN];
 
@@ -659,6 +671,10 @@ int test_output_chunking_accepts_zero_forests(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_simulation_output_chunking_defaults_and_run_override
+ * @brief   Simulation output defaults are applied; run-level output section overrides them
+ */
 int test_simulation_output_chunking_defaults_and_run_override(void) {
   char simulation_default_path[MAX_STRING_LEN];
   char run_override_path[MAX_STRING_LEN];
@@ -712,6 +728,10 @@ int test_simulation_output_chunking_defaults_and_run_override(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_output_chunking_rejects_bad_values
+ * @brief   Negative, zero-target, and non-numeric chunking parameters trigger a fatal
+ */
 int test_output_chunking_rejects_bad_values(void) {
   char negative_path[MAX_STRING_LEN];
   char zero_target_path[MAX_STRING_LEN];

@@ -242,6 +242,10 @@ static void cleanup_outputs(const int *filenrs, int nfiles) {
   rmdir(MimicConfig.OutputDir);
 }
 
+/**
+ * @test    test_enumerated_master_links_existing_partitions_only
+ * @brief   Master file links existing partitions and skips missing ones for enumerated readers
+ */
 static int test_enumerated_master_links_existing_partitions_only(void) {
   char dir_template[] = "/tmp/mimic_master_enum_XXXXXX";
   const int file10_totals[] = {4, 5};
@@ -294,6 +298,10 @@ static int test_enumerated_master_links_existing_partitions_only(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_per_file_master_links_match_lhalo_layout
+ * @brief   Per-file master links all partitions without lifecycle hooks for L-Halo readers
+ */
 static int test_per_file_master_links_match_lhalo_layout(void) {
   char dir_template[] = "/tmp/mimic_master_lhalo_XXXXXX";
   const int file0_totals[] = {3};
@@ -340,6 +348,7 @@ static int test_per_file_master_links_match_lhalo_layout(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 

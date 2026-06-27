@@ -43,6 +43,10 @@ static int slot_has_stamp(const struct GalaxyData *galaxy, int value) {
   return 1;
 }
 
+/**
+ * @test    test_alloc_beyond_block_cap_grows_and_is_stable
+ * @brief   Pool grows past the tracked-block cap; all slots remain stable and distinct
+ */
 int test_alloc_beyond_block_cap_grows_and_is_stable(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -90,6 +94,10 @@ int test_alloc_beyond_block_cap_grows_and_is_stable(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_destroy_then_realloc_starts_fresh
+ * @brief   Pool is usable from a clean state after destroy; lazy init works after destroy
+ */
 int test_destroy_then_realloc_starts_fresh(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -110,6 +118,7 @@ int test_destroy_then_realloc_starts_fresh(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");

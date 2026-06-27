@@ -174,13 +174,13 @@ def find_nonfinite(halos, max_examples=5):
 
 
 def assert_no_nans(halos):
-    """Assert that no float field contains NaN values (B7 asserting wrapper)."""
+    """Assert that no float field contains NaN values."""
     bad = validate_no_nans(halos)
     assert not bad, f"NaN values found: {bad}"
 
 
 def assert_no_infs(halos):
-    """Assert that no float field contains infinite values (B7 asserting wrapper)."""
+    """Assert that no float field contains infinite values."""
     bad = validate_no_infs(halos)
     assert not bad, f"Inf values found: {bad}"
 

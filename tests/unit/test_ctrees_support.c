@@ -564,6 +564,10 @@ int test_weighted_distribution_no_negative(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_forest_cost_quadratic_uses_double_before_multiply
+ * @brief   Quadratic cost promotes to double before multiply to avoid int64 overflow
+ */
 int test_forest_cost_quadratic_uses_double_before_multiply(void) {
   const int64_t nhalos = 4000000000LL;
   const double cost = compute_forest_cost_from_nhalos(quadratic_in_nhalos, nhalos, 0.0);
@@ -767,12 +771,13 @@ int test_sort_locations_offset_tie(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
   printf("Test Suite: Consistent-Trees Support Code\n");
   printf("============================================================\n");
-  printf("%s", NC);
+  printf("%s\n", NC);
 
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
 

@@ -23,6 +23,10 @@ static void init_halo(struct Halo *halo, int type, int halo_nr) {
   halo->CentralMvir = -1.0f;
 }
 
+/**
+ * @test    test_copies_non_type3_and_sets_segment_fields
+ * @brief   Non-Type-3 halos are copied and segment output_first/output_count are set
+ */
 int test_copies_non_type3_and_sets_segment_fields(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -62,6 +66,10 @@ int test_copies_non_type3_and_sets_segment_fields(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_skips_type3_and_clears_galaxy_pointer
+ * @brief   Type-3 halos are skipped and their galaxy pointer is cleared without freeing
+ */
 int test_skips_type3_and_clears_galaxy_pointer(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -98,6 +106,10 @@ int test_skips_type3_and_clears_galaxy_pointer(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_empty_segment_records_zero_count
+ * @brief   A segment with workspace_count 0 records output_count 0 and does not copy
+ */
 int test_empty_segment_records_zero_count(void) {
   init_memory_system(0);
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
@@ -126,7 +138,10 @@ int test_empty_segment_records_zero_count(void) {
   return TEST_PASS;
 }
 
-/*
+/**
+ * @test    test_multiple_segments_accumulate_into_one_buffer
+ * @brief   Multiple segments append into one buffer; output_first tracks the running count
+ *
  * The tree driver fills one shared buffer from several segments in sequence.
  * Each segment's output_first must pick up the running buffer count, including
  * across a Type-3 skip, so progenitor lookup (HaloAux ranges) stays correct.
@@ -176,11 +191,13 @@ int test_multiple_segments_accumulate_into_one_buffer(void) {
   return TEST_PASS;
 }
 
-/*
- * Push more non-Type-3 halos than the initial capacity so that myrealloc_cat is
- * exercised. Uses a heap-backed buffer (mymalloc_cat) as required by the contract;
- * checks capacity grew, all halos landed at correct indices, and segment metadata
- * is correct across the growth boundary.
+/**
+ * @test    test_buffer_grows_when_capacity_exceeded
+ * @brief   Exceeding initial capacity triggers realloc; all halos land at correct indices
+ *
+ * Uses a heap-backed buffer (mymalloc_cat) as required by the contract; checks
+ * capacity grew, all halos landed at correct indices, and segment metadata is
+ * correct across the growth boundary.
  */
 int test_buffer_grows_when_capacity_exceeded(void) {
   init_memory_system(0);
@@ -229,6 +246,7 @@ int test_buffer_grows_when_capacity_exceeded(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");

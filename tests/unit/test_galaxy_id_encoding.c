@@ -100,6 +100,7 @@ int test_global_forest_offset_default(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");

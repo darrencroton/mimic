@@ -1,3 +1,13 @@
+/**
+ * @file    parity_trace.h
+ * @brief   Execution trace buffer for parity-comparison tests.
+ *
+ * Provides a fixed-capacity string trace that two runs can fill independently
+ * and then compare with parity_trace_equal() to confirm identical execution
+ * paths. Useful for side-by-side testing of refactored code against a known-
+ * good baseline.
+ */
+
 #ifndef MIMIC_TESTS_PARITY_TRACE_H
 #define MIMIC_TESTS_PARITY_TRACE_H
 

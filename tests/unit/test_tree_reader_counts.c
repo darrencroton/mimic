@@ -90,6 +90,7 @@ int test_lhalo_binary_count_partition_units(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");

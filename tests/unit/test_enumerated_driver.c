@@ -165,6 +165,10 @@ static void remove_skip_fixture(const char *dir) {
   rmdir(dir);
 }
 
+/**
+ * @test    test_output_claim_forward_path_creates_and_clears_file
+ * @brief   Forward run creates the output file; completed output survives remove_incomplete
+ */
 static int test_output_claim_forward_path_creates_and_clears_file(void) {
   char dir_template[] = "/tmp/mimic_enumerated_driver_forward_XXXXXX";
   char output_path[512];
@@ -199,6 +203,10 @@ static int test_output_claim_forward_path_creates_and_clears_file(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_lpt_assignment_processes_current_task_in_ascending_order
+ * @brief   LPT assigns partitions to each task and processes them in ascending id order
+ */
 static int test_lpt_assignment_processes_current_task_in_ascending_order(void) {
   configure_driver_defaults();
   reset_synthetic_state();
@@ -228,6 +236,10 @@ static int test_lpt_assignment_processes_current_task_in_ascending_order(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_driver_opens_reader_output_ids
+ * @brief   Driver passes reader-supplied output ids to open_partition, not sequential indices
+ */
 static int test_driver_opens_reader_output_ids(void) {
   configure_driver_defaults();
   reset_synthetic_state();
@@ -249,6 +261,10 @@ static int test_driver_opens_reader_output_ids(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_missing_partition_has_zero_lpt_cost
+ * @brief   Missing partitions are treated as zero-cost so they do not skew LPT assignment
+ */
 static int test_missing_partition_has_zero_lpt_cost(void) {
   configure_driver_defaults();
   reset_synthetic_state();
@@ -274,6 +290,10 @@ static int test_missing_partition_has_zero_lpt_cost(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_idle_rank_runs_lifecycle_without_opening_partition
+ * @brief   Idle tasks call prepare/teardown but never open or close a partition
+ */
 static int test_idle_rank_runs_lifecycle_without_opening_partition(void) {
   configure_driver_defaults();
   reset_synthetic_state();
@@ -294,6 +314,10 @@ static int test_idle_rank_runs_lifecycle_without_opening_partition(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_skip_existing_output_preserves_lifecycle
+ * @brief   Skipping a pre-existing output file preserves prepare/teardown but skips open/close
+ */
 static int test_skip_existing_output_preserves_lifecycle(void) {
   char dir_template[] = "/tmp/mimic_enumerated_driver_XXXXXX";
   char output_path[512];
@@ -326,6 +350,7 @@ static int test_skip_existing_output_preserves_lifecycle(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
   init_memory_system(0);

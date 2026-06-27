@@ -4,6 +4,7 @@
  */
 
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -56,6 +57,10 @@ static int run_counter_increment_in_child(int total_count, int tree_count) {
   return WIFEXITED(status) && WEXITSTATUS(status) != 0;
 }
 
+/**
+ * @test    test_counter_increment_updates_total_and_tree_counts
+ * @brief   Incrementing once raises both the snapshot total and per-tree halo counters
+ */
 static int test_counter_increment_updates_total_and_tree_counts(void) {
   reset_counter_state(11, 5);
 
@@ -67,6 +72,10 @@ static int test_counter_increment_updates_total_and_tree_counts(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_counter_increment_fatals_at_total_int_limit
+ * @brief   Incrementing past INT_MAX on the snapshot total triggers a fatal
+ */
 static int test_counter_increment_fatals_at_total_int_limit(void) {
   int result = run_counter_increment_in_child(INT_MAX, 0);
 
@@ -76,6 +85,10 @@ static int test_counter_increment_fatals_at_total_int_limit(void) {
   return TEST_PASS;
 }
 
+/**
+ * @test    test_counter_increment_fatals_at_tree_int_limit
+ * @brief   Incrementing past INT_MAX on the per-tree counter triggers a fatal
+ */
 static int test_counter_increment_fatals_at_tree_int_limit(void) {
   int result = run_counter_increment_in_child(0, INT_MAX);
 
@@ -85,8 +98,15 @@ static int test_counter_increment_fatals_at_tree_int_limit(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   initialize_error_handling(LOG_LEVEL_WARNING, NULL);
+
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: Output Counters\n");
+  printf("============================================================\n");
+  printf("%s\n", NC);
 
   TEST_RUN(test_counter_increment_updates_total_and_tree_counts);
   TEST_RUN(test_counter_increment_fatals_at_total_int_limit);

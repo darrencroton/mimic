@@ -2,8 +2,6 @@
  * @file    test_module_configuration.c
  * @brief   Unit tests for multi-phase module configuration system
  *
- * Validates: Module registration, phase-based configuration, pipeline execution
- *
  * Validates module registration and multi-phase execution pipeline configuration.
  */
 
@@ -59,7 +57,7 @@ int test_module_registry_init(void) {
   /* Register test modules via register_all_modules() */
   ensure_modules_registered();
 
-  /* ===== VERIFY ===== */
+  /* ===== VALIDATE ===== */
   /* If we got here without crashing, registration succeeded */
   /* (Module registry is internal, so we can't directly inspect it) */
 
@@ -264,9 +262,7 @@ int test_single_phase_configuration(void) {
   return TEST_PASS;
 }
 
-/**
- * Main test runner
- */
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
@@ -274,10 +270,8 @@ int main(void) {
   printf("============================================================\n");
   printf("%s\n", NC);
 
-  /* Initialize memory system for tests */
   init_memory_system(0);
 
-  /* Run tests */
   TEST_RUN(test_module_registry_init);
   TEST_RUN(test_phase_configuration);
   TEST_RUN(test_physics_free_mode);
@@ -286,10 +280,8 @@ int main(void) {
   TEST_RUN(test_unknown_module_error);
   TEST_RUN(test_single_phase_configuration);
 
-  /* Print summary */
   TEST_SUMMARY();
 
-  /* Memory leak check */
   printf("\n");
   printf("Memory leak check:\n");
   print_allocated();

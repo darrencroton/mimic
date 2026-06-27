@@ -151,6 +151,13 @@ Examples:
 - `models/sage16/modules/sage_apply_cooling/_tests/test_unit_sage_apply_cooling.c` — unit test file template: Doxygen header listing all test cases; `SETUP` / `EXECUTE` / `VALIDATE` / `CLEANUP` section comments where they improve scanability.
 Run: targeted C unit tests; full `make tests-unit summary` if changes are broad.
 
+Status: ✓ Complete — 2026-06-27
+Style debt:
+- `test_module_configuration.c` — `main()` calls `print_allocated()` directly instead of `check_memory_leaks()`; correcting this requires a code change (not style-only), so left for a separate cleanup pass.
+- `test_ctrees_support.c` and `test_galaxy_id_encoding.c` — `@test` docblocks use inline `@test  description` format instead of the canonical `@test` + `@brief` on separate lines; functionally equivalent but subtly inconsistent with the reference pattern.
+- Several static helper functions in unit test files (`write_lhalo_binary_header`, `assert_sequence_halo`, `configure_driver_defaults`, etc.) have no Doxygen; omitted because the style guide restricts comments to non-obvious WHY, and these names are self-documenting.
+- `test_module_configuration.c` — `set_test_fixture_params` helper has no `@brief`; left because it is file-internal and clearly named.
+
 ---
 
 ### 8. Integration and Scientific Tests

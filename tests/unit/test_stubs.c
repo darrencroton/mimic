@@ -30,6 +30,7 @@ void myexit(int signum) {
   exit(signum);
 }
 
+/** @brief Stub: mark halo as processed without recursing into real tree-build logic. */
 void build_halo_tree(int halonr, int unit, int depth) {
   (void)unit;
   (void)depth;

@@ -375,12 +375,13 @@ int test_virial_edge_cases(void) {
   return TEST_PASS;
 }
 
+/** @brief Main test runner */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");
   printf("Test Suite: Virial Property Calculations\n");
   printf("============================================================\n");
-  printf("%s", NC);
+  printf("%s\n", NC);
 
   TEST_RUN(test_virial_mass_from_mvir);
   TEST_RUN(test_virial_mass_zero_catalog_central);
