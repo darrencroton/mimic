@@ -274,15 +274,15 @@ Run: `./scripts/beautify.sh`, `make check-format`, `make check-docs`, `make vali
 
 ## Code Review Checkpoints
 
-After every group of batches, run `/code-review` on the accumulated diff of `style/pre-v1.0-sweep` against `main`. This verifies consistency and drift before the sweep continues.
+After every group of batches, run a code review checkpoint on the accumulated diff of `style/pre-v1.0-sweep` against `main`. This verifies consistency and drift before the sweep continues, and clears accumulated style debt from completed batch sections.
 
-| After batch | Group swept | Review focus |
-| ---: | --- | --- |
-| 5 | All of `src/` | Comment quality, Doxygen contracts, enum descriptions, section banners |
-| 9 | Scripts, tests, SAGE shared/metadata | Python docstrings, YAML descriptions, marker discipline |
-| 13 | All SAGE modules | Module README/yaml/c consistency, ordering comment quality |
-| 17 | Plotting, SHAM, simulations, docs | Package conventions vs SAGE reference, doc accuracy |
-| 18 | Final integration | Full gate before main merge |
+| # | After batch | Group swept | Review focus |
+| ---: | ---: | --- | --- |
+| 1 | 5 | All of `src/` | Comment quality, Doxygen contracts, enum descriptions, section banners |
+| 2 | 9 | Scripts, tests, SAGE shared/metadata | Python docstrings, YAML descriptions, marker discipline |
+| 3 | 13 | All SAGE modules | Module README/yaml/c consistency, ordering comment quality |
+| 4 | 17 | Plotting, SHAM, simulations, docs | Package conventions vs SAGE reference, doc accuracy |
+| 5 | 18 | Final integration | Full gate before main merge |
 
 ---
 
@@ -319,6 +319,33 @@ Update plan: append the following to this batch's section in `docs/dev/mimic-sty
 
 Commit everything — style changes and plan update together — to `style/pre-v1.0-sweep`, with a message listing changed files grouped by type.
 ```
+
+## Code Review Prompt Template
+
+Open a new Sonnet chat at each checkpoint. Paste the checkpoint label from the `#` column of the table above, e.g. `"1 — after Batch 5: All of src/"`.
+
+```
+Checkpoint: [paste label, e.g. "1 — after Batch 5: All of src/"]
+
+You are running a style-sweep code review checkpoint for Mimic — the checkpoint named above.
+
+Read before starting:
+1. `docs/dev/mimic-style-sweep-plan.md` — find this checkpoint in the Code Review Checkpoints table; note which batches are covered and the review focus. Then read every covered batch section and collect all Style debt entries into a working list.
+2. `docs/STYLE-GUIDE.md` — refresh the rule set.
+
+Perform a /code-review of the accumulated diff on `style/pre-v1.0-sweep` against `main`, scoped to commits from the batches in this checkpoint group. Apply the review focus from the checkpoints table.
+
+After the review:
+1. Work through the style debt list — fix straightforward items clearly within the covered batch paths. Note any that need larger changes or belong to a future batch.
+2. If any files were changed, run `./scripts/beautify.sh` and the relevant narrow test command for the affected area.
+3. Run `make tests summary` to confirm no regressions.
+
+Update plan: in each covered batch section, mark resolved debt items with "✓ resolved — YYYY-MM-DD" inline. Leave unresolved items unchanged; add a brief note if the reason has changed.
+
+Commit any fixes and the plan update together to `style/pre-v1.0-sweep`, listing changed files grouped by type.
+```
+
+---
 
 ## Notes
 
