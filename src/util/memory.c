@@ -36,23 +36,9 @@ static const char *CategoryNames[] = {"Unknown", "Galaxies", "Halos", "Trees", "
 
 /* ============================================================================
  * Memory Tracking Global State
- * ============================================================================
- *
- * THREAD SAFETY: These global variables are NOT thread-safe.
- *
- * The current Mimic architecture uses MPI process-based parallelism where each
- * MPI process has its own separate memory space. Global variables are safe in
- * this model because there is no shared memory between processes.
- *
- * IMPORTANT: If migrating to shared-memory threading (OpenMP, pthreads, etc.),
- * these variables MUST be protected with mutexes or converted to thread-local
- * storage (TLS) to prevent race conditions. All functions that modify these
- * variables would require synchronization.
- *
- * Affected functions: mymalloc_cat(), myrealloc_cat(), myfree(), and all
- * memory tracking/reporting functions.
- * ============================================================================
- */
+ * Not thread-safe: MPI rank-per-process isolation makes this safe under the
+ * current model. Add locking before any shared-memory migration.
+ * ============================================================================ */
 
 /* Memory tracking variables */
 static unsigned long MaxBlocks = DEFAULT_MAX_MEMORY_BLOCKS;

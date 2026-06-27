@@ -5,13 +5,13 @@
 
 /* Memory categories for component-level tracking */
 typedef enum {
-  MEM_UNKNOWN = 0,
-  MEM_GALAXIES,
-  MEM_HALOS,
-  MEM_TREES,
-  MEM_IO,
-  MEM_UTILITY,
-  MEM_MAX_CATEGORY /* For bounds checking */
+  MEM_UNKNOWN = 0, /* Unclassified; used as default before category is known */
+  MEM_GALAXIES,    /* Galaxy struct allocations */
+  MEM_HALOS,       /* Halo workspace allocations */
+  MEM_TREES,       /* Merger-tree read buffers */
+  MEM_IO,          /* File I/O buffers and HDF5 scratch */
+  MEM_UTILITY,     /* Miscellaneous utility allocations */
+  MEM_MAX_CATEGORY /* Sentinel for bounds checking */
 } MemoryCategory;
 
 /* Memory reporting levels */

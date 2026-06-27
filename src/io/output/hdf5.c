@@ -2,15 +2,9 @@
  * @file    output/hdf5.c
  * @brief   Functions for saving halo data to HDF5 output files
  *
- * This file implements functionality for writing halo data to HDF5 format
- * output files. It handles the creation of HDF5 file structures, the definition
- * of halo property tables, and the writing of halo data and metadata.
- *
- * The HDF5 format provides several advantages over plain binary files:
- * - Self-describing data with attributes and metadata
- * - Better portability across different systems
- * - Built-in compression and chunking for efficient storage and access
- * - Support for direct access to specific data elements
+ * Owns the HDF5 output lifecycle: property table layout, file/group/dataset
+ * creation, per-chunk galaxy writes, run metadata attributes, and master-file
+ * linking. Field schema is driven by generated hdf5_field_definitions.inc.
  *
  * Key functions:
  * - calc_hdf5_props(): Defines the HDF5 table structure for halo properties
