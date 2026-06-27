@@ -1,13 +1,14 @@
+/**
+ * @file sage_constants.h
+ * @brief Shared SAGE model constants used across multiple physics modules
+ *
+ * Only literals that appear in more than one file belong here — single-site
+ * constants stay at their point of use. Values must not be changed without
+ * regenerating and verifying the byte-identical physics baseline.
+ */
+
 #ifndef MIMIC_SHARED_SAGE_CONSTANTS_H
 #define MIMIC_SHARED_SAGE_CONSTANTS_H
-
-/*
- * SAGE model constants that are shared across modules. Only literals that
- * appear in MORE THAN ONE file belong here — single-site constants stay at
- * their point of use with their explanatory comment. Values must never be
- * "tidied": they are SAGE output-parity constants verified by the
- * byte-identical physics baseline.
- */
 
 /*
  * MergTime sentinel protocol (galaxy property MergTime, init 999.9 in

@@ -1,3 +1,16 @@
+/**
+ * @file central_link.h
+ * @brief FoF central halo index resolution utilities for SAGE physics modules
+ *
+ * Helpers to resolve the Type 0 central galaxy index and merge/disruption target
+ * indices within a FoF workspace. Multiple modules use these to locate the central
+ * galaxy without duplicating the Type == 0 scan or the CentralHalo traversal.
+ *
+ * @note SAGE parity: CentralHalo traversal rules follow the merge-target logic in
+ *       SAGE's make_merger_galaxy() and the Type 2 orphan handling in
+ *       sage_resolve_mergers_and_disruption.
+ */
+
 #ifndef MIMIC_SHARED_CENTRAL_LINK_H
 #define MIMIC_SHARED_CENTRAL_LINK_H
 
@@ -5,7 +18,13 @@
 
 #include "types.h"
 
-/* Return the Type 0 FOF central index, or -1 if absent. */
+/**
+ * @brief Return the Type 0 FoF central index, or -1 if absent.
+ *
+ * @param halos  FoF workspace halo array
+ * @param ngal   Number of halos in the workspace
+ * @return Index of the Type 0 central, or -1 if not found
+ */
 static inline int mimic_find_fof_central_index(const struct Halo *halos, int ngal) {
   if (halos == NULL || ngal <= 0) {
     return -1;
@@ -20,10 +39,17 @@ static inline int mimic_find_fof_central_index(const struct Halo *halos, int nga
   return -1;
 }
 
-/*
- * Resolve per-SAGE-parity merge/disruption target.
- * - Type 2 satellites use their CentralHalo link when valid.
- * - All other types use the provided fallback (normally FOF Type 0).
+/**
+ * @brief Resolve the merge/disruption target index for a satellite (SAGE parity).
+ *
+ * Type 2 satellites use their CentralHalo link when valid; all other types use the
+ * provided fallback (normally the FoF Type 0 central).
+ *
+ * @param halos            FoF workspace halo array
+ * @param ngal             Number of halos in the workspace
+ * @param satellite_index  Index of the satellite being resolved
+ * @param fallback_index   Index to use when CentralHalo is absent or invalid
+ * @return Resolved target index, or -1 on invalid input
  */
 static inline int mimic_resolve_type2_target_index(const struct Halo *halos, int ngal,
                                                    int satellite_index, int fallback_index) {
@@ -47,14 +73,19 @@ static inline int mimic_resolve_type2_target_index(const struct Halo *halos, int
   return candidate;
 }
 
-/*
- * Resolve the immediate-ordering target used by SAGE's in-loop merger handler.
- * - First choose the ordinary live target (Type 1 -> FOF central, Type 2 ->
- *   CentralHalo when valid).
- * - If that chosen target has already been consumed in the same pass, redirect
- *   exactly one hop via the consumed target's CentralHalo.
- * - Do not recurse and do not replace the redirect hop with a generic FOF
- *   fallback.
+/**
+ * @brief Resolve the immediate merge target used by SAGE's in-loop merger handler.
+ *
+ * Selects the live target (Type 1 → FoF central; Type 2 → CentralHalo when valid).
+ * If that target has already been consumed (Type 3) in the same pass, one redirect
+ * hop through the consumed target's CentralHalo is applied. Does not recurse and
+ * does not fall back to the FoF central on a failed redirect.
+ *
+ * @param halos            FoF workspace halo array
+ * @param ngal             Number of halos in the workspace
+ * @param satellite_index  Index of the satellite being merged
+ * @param fallback_index   Index to use for Type 1 satellites (normally FoF Type 0)
+ * @return Resolved immediate target index, or -1 if resolution fails
  */
 static inline int mimic_resolve_immediate_target_index(const struct Halo *halos, int ngal,
                                                        int satellite_index, int fallback_index) {

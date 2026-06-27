@@ -19,7 +19,7 @@ References:
 ## Package Contents
 
 - `model_properties.yaml`: sage16 galaxy/model property metadata. Edit this when adding, removing, or changing model-owned galaxy properties, then run `make MODEL=sage16 generate`.
-- `input/`: User-facing run parameter YAML files for mini-Millennium and full Millennium.
+- `input/`: User-facing run parameter YAML files for all supported simulations: mini-Millennium, full Millennium, micro-Uchuu (L-Halo binary, HDF5 forests, ASCII), mini-Uchuu, and full Uchuu.
 - `modules/`: Runtime physics modules. Each production module has its own directory containing C source, `module_info.yaml`, README, and `_tests/` where applicable.
 - `modules/_tests/`: Shared cross-module tests for processing contracts and parity checks.
 - `shared/`: Model-local helper headers (physics kernels, parity helpers, shared constants). These are not framework APIs; copy or reimplement them in another model package if needed. Event contracts are generated from each module's `module_info.yaml`.

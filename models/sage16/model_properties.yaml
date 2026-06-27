@@ -367,14 +367,12 @@ galaxy_properties:
   - name: MergTime
     type: float
     units: Internal
-    description: Merger timescale (internal, not output)
+    description: Dynamical-friction merger timescale for satellite galaxies (code time units)
+    notes: Sentinel protocol in shared/sage_constants.h — values > 999.0 treated as unset, computed times capped at 998.0 to stay below the threshold
     output: false
     init_source: default
-    # Sentinel protocol (named constants in models/sage16/shared/sage_constants.h):
-    # 999.9 = unset (no merger clock assigned); values > 999.0 are treated as unset;
-    # computed times are capped at 998.0 so they stay below the unset threshold;
-    # -1.0 (and any value <= 0) forces an immediate merger.
     init_value: 999.9
+    sentinels: [999.9, -1.0]  # 999.9 = unset (no merger clock assigned); -1.0 = immediate merger
     range: [0.0, 1000.0]
 
   - name: TimeOfLastMajorMerger

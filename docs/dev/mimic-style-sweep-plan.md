@@ -188,6 +188,11 @@ Examples:
 - `simulations/mini-millennium/halo_properties.yaml` — YAML property template: `# --- topic ---` section dividers; every entry has `units`, `description`; inert fields carry `notes:` explaining why they are read-only; `h_convention` explicit where physical.
 Run: `make MODEL=sage16 SIMULATION=mini-millennium validate-modules`.
 
+Status: ✓ Complete — 2026-06-28
+Style debt:
+- `model_properties.yaml` `MergTime.units: Internal` — not a standard unit value; the field is internal and sentinel-heavy so "Internal" is intentional, but ideally would be `Gyr/h` with a note that the value range is dominated by sentinel protocol. Left because changing the unit value risks confusing the generator or the output schema for internal fields.
+- `test_unit_metallicity.c` — `@test test_name` inline format (instead of `@test` + `@brief` on separate lines); already flagged as a known pattern in Batch 7 style debt; left consistent with that decision.
+
 ---
 
 ### 10. SAGE Modules Batch A: Infall, Cooling, Reionization

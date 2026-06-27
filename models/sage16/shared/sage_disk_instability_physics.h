@@ -1,3 +1,16 @@
+/**
+ * @file sage_disk_instability_physics.h
+ * @brief Disk instability structural response kernel (Efstathiou 1982 criterion)
+ *
+ * Applies the disk-instability stability criterion: if the disk mass exceeds the
+ * critical mass for rotational support, the excess is transferred to the bulge.
+ * Returns the unstable gas fraction for use by sage_quasar_mode and
+ * sage_starburst_feedback in the same substep.
+ *
+ * @note Used by sage_disk_instability; result consumed by sage_quasar_mode and
+ *       sage_starburst_feedback via the UnstableDiskGasFraction transport property.
+ */
+
 #ifndef MIMIC_SHARED_SAGE_DISK_INSTABILITY_PHYSICS_H
 #define MIMIC_SHARED_SAGE_DISK_INSTABILITY_PHYSICS_H
 
@@ -6,9 +19,17 @@
 #include "types.h"
 #include "shared/metallicity.h"
 
-/*
- * Apply SAGE's disk-instability structural response to a live remnant and
- * return the unstable gas fraction for any same-context downstream physics.
+/**
+ * @brief Apply disk-instability structural response to a halo
+ *
+ * Computes the Efstathiou disk stability criterion and transfers unstable stellar
+ * and gas mass to the bulge. Returns the unstable cold gas fraction for downstream
+ * starburst and AGN modules.
+ *
+ * @param halo                    Halo containing the galaxy to update
+ * @param ctx                     Module context with gravitational constant G
+ * @param star_forming_disk_factor  Disk radius scale factor (StarFormingDiskFactor parameter)
+ * @return Unstable cold gas fraction [0.0, 1.0]; 0.0 if stable or invalid input
  */
 static inline double mimic_sage_apply_disk_instability(struct Halo *halo,
                                                        const struct ModuleContext *ctx,

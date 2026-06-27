@@ -1,18 +1,19 @@
+/**
+ * @file sage_starburst_physics.h
+ * @brief Collisional starburst kernel with SN feedback and metal enrichment
+ *
+ * Provides the starburst recipe shared by sage_starburst_feedback for both the
+ * disk-instability channel and the merger channel. For BH growth and quasar-mode
+ * wind see sage_agn_physics.h.
+ *
+ * @note Split from merger_physics.h; starburst/SN half only. Although
+ *       sage_starburst_feedback is currently the sole consumer, this header is
+ *       the architectural counterpart to sage_agn_physics.h — both halves of the
+ *       split belong here to keep the boundary symmetric.
+ */
+
 #ifndef MIMIC_SHARED_SAGE_STARBURST_PHYSICS_H
 #define MIMIC_SHARED_SAGE_STARBURST_PHYSICS_H
-
-/*
- * Starburst physics kernel: collisional starburst with SN feedback and metal enrichment.
- * Used by sage_starburst_feedback (disk-instability and merger channels).
- *
- * Split from merger_physics.h; starburst/SN half only.
- * For BH growth and quasar-mode wind see sage_agn_physics.h.
- *
- * Single-consumer note: sage_starburst_feedback is the sole consumer, but this
- * header lives in the model-local shared directory as the architectural counterpart to
- * sage_agn_physics.h. Both halves of the split belong here; consolidating one into the module would
- * leave an asymmetric split and complicate a future second consumer.
- */
 
 #include <math.h>
 
@@ -38,7 +39,14 @@ struct MimicStarburstParams {
 /**
  * @brief Apply collisional-starburst recipe for one event
  *
- * @param mode 1=disk instability (efficiency direct), 0=merger (Somerville scaling)
+ * @param efficiency_factor  Trigger efficiency (merger mass ratio or unstable disk fraction)
+ * @param gal                Galaxy receiving the starburst (may differ from central)
+ * @param central_gal        FoF central galaxy receiving reheated/ejected gas
+ * @param central_halo       FoF central halo (Vvir used for energy budget)
+ * @param mode               1 = disk instability (efficiency direct); 0 = merger (Somerville
+ * scaling)
+ * @param rate_dt            Timestep length for rate accumulation (Gyr/h; 0 skips rate update)
+ * @param p                  Model parameter bundle (see struct MimicStarburstParams)
  */
 static inline void
 mimic_apply_collisional_starburst(double efficiency_factor, struct GalaxyData *gal,

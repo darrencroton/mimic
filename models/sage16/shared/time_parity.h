@@ -1,3 +1,12 @@
+/**
+ * @file time_parity.h
+ * @brief Per-object substep timestep and midpoint time helpers for SAGE parity
+ *
+ * Provides substep dt and midpoint time calculation with strict boundary handling
+ * matching SAGE's initial-snapshot sentinel and multi-substep loop. Used by
+ * modules that accumulate rates or apply physics at substep midpoints.
+ */
+
 #ifndef MIMIC_SHARED_TIME_PARITY_H
 #define MIMIC_SHARED_TIME_PARITY_H
 
@@ -6,7 +15,7 @@
 #include "module_interface.h"
 #include "types.h"
 
-/*
+/**
  * Object-local timestep status for SAGE parity operations.
  * - OK: valid positive per-object timestep.
  * - SKIP_INITIAL: first-snapshot boundary object (SnapNum < 0, dT <= 0), no-op.
@@ -29,11 +38,16 @@ static inline const char *mimic_object_time_status_str(enum MimicObjectTimeStatu
   }
 }
 
-/*
- * Derive per-object substep dt = halo->dT / ctx->num_substeps with strict
- * boundary handling:
- * - SnapNum < 0 and dT <= 0: initial boundary sentinel (skip/no-op).
- * - Non-boundary dT <= 0: invalid state.
+/**
+ * @brief Derive per-object substep dt = halo->dT / ctx->num_substeps
+ *
+ * Strict boundary handling: SnapNum < 0 with dT <= 0 is the initial boundary sentinel
+ * (returns SKIP_INITIAL); non-boundary dT <= 0 is an invalid state (returns INVALID).
+ *
+ * @param halo    Halo with dT and SnapNum fields
+ * @param ctx     Module context with num_substeps
+ * @param dt_out  Output: substep dt (0.0 on non-OK status); must not be NULL
+ * @return Status indicating OK, SKIP_INITIAL, or INVALID
  */
 static inline enum MimicObjectTimeStatus
 mimic_object_substep_dt(const struct Halo *halo, const struct ModuleContext *ctx, double *dt_out) {
@@ -57,10 +71,16 @@ mimic_object_substep_dt(const struct Halo *halo, const struct ModuleContext *ctx
   return MIMIC_OBJECT_TIME_INVALID;
 }
 
-/*
- * Derive SAGE-equivalent per-object substep midpoint time:
- *   Age[obj] - (substep + 0.5) * (dT_obj / num_substeps)
- * with Age[obj] = ctx->time + halo->dT.
+/**
+ * @brief Derive SAGE-equivalent substep midpoint time
+ *
+ * Computes: Age[obj] - (substep + 0.5) * (dT_obj / num_substeps),
+ * where Age[obj] = ctx->time + halo->dT.
+ *
+ * @param halo      Halo with dT and SnapNum fields
+ * @param ctx       Module context with substep_number, num_substeps, and time
+ * @param time_out  Output: midpoint time (0.0 on non-OK status); must not be NULL
+ * @return Status indicating OK, SKIP_INITIAL, or INVALID
  */
 static inline enum MimicObjectTimeStatus mimic_object_substep_time(const struct Halo *halo,
                                                                    const struct ModuleContext *ctx,

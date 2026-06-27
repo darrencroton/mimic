@@ -1,13 +1,16 @@
+/**
+ * @file sage_agn_physics.h
+ * @brief AGN physics kernels: black hole growth and quasar-mode wind
+ *
+ * Provides BH accretion and quasar-mode wind helpers shared by sage_starburst_feedback
+ * (disk-instability channel) and sage_quasar_mode (merger channel).
+ *
+ * @note Split from merger_physics.h; BH/quasar half only.
+ *       For collisional starburst physics see sage_starburst_physics.h.
+ */
+
 #ifndef MIMIC_SHARED_SAGE_AGN_PHYSICS_H
 #define MIMIC_SHARED_SAGE_AGN_PHYSICS_H
-
-/*
- * AGN physics kernels: black hole growth and quasar-mode wind.
- * Used by sage_starburst_feedback and sage_quasar_mode.
- *
- * Split from merger_physics.h; BH/quasar half only.
- * For collisional starburst physics see sage_starburst_physics.h.
- */
 
 #include <math.h>
 
@@ -20,6 +23,9 @@
 /**
  * @brief Grow BH mass from a trigger efficiency (merger ratio or disk instability)
  *
+ * @param halo                  Central halo owning the galaxy
+ * @param efficiency_factor     Trigger efficiency (merger mass ratio or unstable disk fraction)
+ * @param black_hole_growth_rate  Model parameter controlling BH accretion efficiency
  * @return BH accretion mass for this event (1e10 Msun/h)
  */
 static inline double mimic_apply_black_hole_growth(struct Halo *halo, double efficiency_factor,
@@ -56,6 +62,11 @@ static inline double mimic_apply_black_hole_growth(struct Halo *halo, double eff
 
 /**
  * @brief Apply quasar-mode wind from BH accretion event
+ *
+ * @param halo                    Central halo owning the galaxy
+ * @param bh_accrete              BH accretion mass from this event (1e10 Msun/h)
+ * @param quasar_mode_efficiency  Model parameter controlling quasar wind energy
+ * @param ctx                     Module context carrying unit conversion factors
  */
 static inline void mimic_apply_quasar_mode_wind(struct Halo *halo, double bh_accrete,
                                                 double quasar_mode_efficiency,

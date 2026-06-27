@@ -55,46 +55,46 @@ modules:
       - sage_quasar_mode:               process_by_galaxy
       - sage_starburst_feedback:        process_by_galaxy
 
-      # Disk-SF metal yield - must follow the disk-instability chain (SAGE ordering)
+      # Disk-SF metal yield — must follow the disk-instability chain (SAGE ordering)
       - sage_apply_metal_enrichment:    process_by_galaxy
 
     satellite_mergers:
-      # Mergers and disruption - runs after all galaxy physics for the current substep
+      # Mergers and disruption — runs after all galaxy physics for the current substep
       # sage_resolve_mergers_and_disruption emits its merger event for downstream consumers
       - sage_resolve_mergers_and_disruption: process_full_halo
-      - sage_quasar_mode:               process_per_event
-      - sage_starburst_feedback:        process_per_event
+      - sage_quasar_mode:               process_per_event   # merger event consumer
+      - sage_starburst_feedback:        process_per_event   # merger event consumer
 
   post_timestep:
 
   parameters:
     # Reionisation
-    GlobalBaryonFraction: 0.17
+    GlobalBaryonFraction: 0.17          # Cosmic baryon fraction (Planck 2018)
 
     # Star Formation
-    SfrEfficiency: 0.05
-    StarFormingDiskFactor: 3.0
+    SfrEfficiency: 0.05                 # Star formation efficiency
+    StarFormingDiskFactor: 3.0          # Number of disc scale radii to form stars over
 
     # Supernova Feedback
-    FeedbackReheatingEpsilon: 3.0
-    FeedbackEjectionEfficiency: 0.3
+    FeedbackReheatingEpsilon: 3.0       # Reheating efficiency
+    FeedbackEjectionEfficiency: 0.3     # Ejection efficiency
 
     # Gas Reincorporation
-    ReIncorporationFactor: 0.15
+    ReIncorporationFactor: 0.15          # Reincorporation timescale factor
 
     # Cooling & AGN Feedback
-    AGNrecipe: 2
-    RadioModeEfficiency: 0.08
+    AGNrecipe: 2                        # AGN feedback mode (0=off, 1=empirical, 2=Bondi, 3=cold cloud)
+    RadioModeEfficiency: 0.08           # Radio-mode AGN feedback efficiency
 
     # Black Hole Growth
-    BlackHoleGrowthRate: 0.015
-    QuasarModeEfficiency: 0.005
+    BlackHoleGrowthRate: 0.015          # BH growth efficiency during mergers
+    QuasarModeEfficiency: 0.005         # Quasar-mode AGN feedback efficiency
 
     # Metals
-    RecycleFraction: 0.43
-    Yield: 0.025
-    FracZleaveDisk: 0.0
+    RecycleFraction: 0.43               # Instantaneous recycling fraction
+    Yield: 0.025                        # Metal yield per unit stellar mass
+    FracZleaveDisk: 0.0                 # Fraction of metals leaving disk
 
     # Mergers & Disruption
-    ThresholdMajorMerger: 0.3
-    ThresholdSatDisruption: 1.0
+    ThresholdMajorMerger: 0.3           # Mass ratio threshold for major mergers
+    ThresholdSatDisruption: 1.0         # Mvir-to-baryonic mass ratio threshold for sat merger/disruption

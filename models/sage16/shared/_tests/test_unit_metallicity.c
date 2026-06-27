@@ -1,13 +1,9 @@
 /**
  * @file test_unit_metallicity.c
- * @brief Unit tests for metallicity calculation utility
+ * @brief Unit tests for the shared metallicity calculation utility
  *
- * Tests the shared metallicity utility function for correctness,
- * edge cases, and numerical stability. This utility is used by
- * 6+ physics modules for safe metallicity calculations.
- *
- * @author Mimic Testing Team
- * @date 2025-11-23
+ * Validates mimic_get_metallicity for correctness, edge cases, and numerical stability.
+ * The utility is used by multiple physics modules for safe Z = M_metals / M_gas calculation.
  */
 
 #include "../../../../tests/framework/test_framework.h"
