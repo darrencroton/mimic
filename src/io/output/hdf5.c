@@ -45,7 +45,7 @@ void calc_hdf5_props(void) {
 
   HDF5_dst_size = sizeof(struct HaloOutput);
 
-  /* Create datatypes for different size arrays */
+  /* Shared by generated vector fields; closed during HDF5 output cleanup. */
   hid_t array3f_tid = H5Tarray_create(H5T_NATIVE_FLOAT, 1, (hsize_t[]){3});
 
 /* AUTO-GENERATED: Set property count and allocate arrays */

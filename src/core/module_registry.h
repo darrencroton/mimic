@@ -194,7 +194,7 @@ int module_system_pipeline_count(void);
  *
  * Must be called before module_system_init().
  *
- * Implementation: Auto-generated from module metadata in module_info.yaml files
+ * Implemented by the generated module-init source for the selected build.
  */
 void register_all_modules(void);
 

@@ -36,9 +36,11 @@ test_phase_add("galaxy_physics", "test_fixture", PROCESSING_MODE_BY_GALAXY);
 MimicConfig.SubSteps = 1;
 
 /* Configure module parameters */
-strcpy(MimicConfig.ModuleParams[0].module_name, "TestFixture");
-strcpy(MimicConfig.ModuleParams[0].param_name, "DummyParameter");
-strcpy(MimicConfig.ModuleParams[0].value, "2.5");
+snprintf(MimicConfig.ModelParams[0].param_name, MAX_STRING_LEN, "TestFixtureDummyParameter");
+snprintf(MimicConfig.ModelParams[0].value, MAX_STRING_LEN, "2.5");
+snprintf(MimicConfig.ModelParams[1].param_name, MAX_STRING_LEN, "TestFixtureEnableLogging");
+snprintf(MimicConfig.ModelParams[1].value, MAX_STRING_LEN, "0");
+MimicConfig.NumModelParams = 2;
 ```
 
 **Example (Python integration test)**: phases are user-named keys in

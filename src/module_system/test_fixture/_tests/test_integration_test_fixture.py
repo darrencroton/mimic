@@ -39,9 +39,9 @@ from framework import (
     GREEN,
     NC,
     RED,
-    YELLOW,
     core_input_file,
-    load_binary_halos,
+    result_error,
+    run_test_suite,
 )
 
 # Test state
@@ -115,16 +115,18 @@ def create_test_param_file(
     config["simulation"]["config"] = str(generated_sim_config)
 
     # Update module configuration - multi-phase pipeline format
-    # Put all modules in galaxy_physics with processing_mode=BY_GALAXY (test_fixture is a simple test module)
-    config["modules"]["pre_timestep"] = []
-    config["modules"]["galaxy_physics"] = []
-    config["modules"]["satellite_mergers"] = []
-    config["modules"]["post_timestep"] = []
+    config["modules"] = {
+        "pre_timestep": [],
+        "phases": {},
+        "post_timestep": [],
+    }
 
     for phase_name, modules in phase_config.items():
-        config["modules"][phase_name] = [
-            {module_name: processing_mode} for module_name, processing_mode in modules
-        ]
+        entries = [{module_name: processing_mode} for module_name, processing_mode in modules]
+        if phase_name in ("pre_timestep", "post_timestep"):
+            config["modules"][phase_name] = entries
+        else:
+            config["modules"]["phases"][phase_name] = entries
 
     # Add model_parameters (test_fixture needs TestFixtureDummyParameter and TestFixtureEnableLogging)
     config["modules"]["parameters"] = {
@@ -311,66 +313,28 @@ def test_memory_safety():
 
 
 def main():
-    """
-    Main test runner
-    """
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: Test Fixture Integration Tests{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
     tests = [
-        ("test_module_loads", test_module_loads),
-        ("test_parameter_configuration", test_parameter_configuration),
-        ("test_execution_completes", test_execution_completes),
-        ("test_memory_safety", test_memory_safety),
+        test_module_loads,
+        test_parameter_configuration,
+        test_execution_completes,
+        test_memory_safety,
     ]
-
-    passed = 0
-    failed = 0
 
     try:
         setup_module()
-
-        for test_name, test_func in tests:
-            try:
-                test_func()
-                passed += 1
-            except AssertionError as e:
-                print(f"{RED}✗ FAIL: {test_name}{NC}")
-                print(f"  {e}")
-                failed += 1
-            except Exception as e:
-                print(f"{RED}✗ ERROR: {test_name}{NC}")
-                print(f"  {e}")
-                failed += 1
-
-        teardown_module()
-
     except Exception as e:
-        print(f"{RED}Setup/teardown error: {e}{NC}")
+        result_error("test_fixture_integration_setup", str(e))
+        return 1
+
+    exit_code = run_test_suite(tests, "Test Fixture Integration Tests")
+
+    try:
         teardown_module()
+    except Exception as e:
+        result_error("test_fixture_integration_teardown", str(e))
         return 1
 
-    # Print summary
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed: {passed}")
-    print(f"Failed: {failed}")
-    print(f"Total:  {passed + failed}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        print()
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        print()
-        return 1
+    return exit_code
 
 
 if __name__ == "__main__":

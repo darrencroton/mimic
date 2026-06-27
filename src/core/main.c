@@ -242,11 +242,9 @@ static LogLevel parse_cli(int *argc, char **argv) {
              "(off by default)\n\n");
       exit(0);
     } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
-      // Enable verbose formatting (adds timestamp, file:line context)
       set_verbose_format(1);
       i = remove_arg(argv, argc, i);
     } else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--debug") == 0) {
-      // Enable debug level logging with timestamp/file:line context prefix
       log_level = LOG_LEVEL_DEBUG;
       set_verbose_format(1);
       set_verbose_prefix(1);

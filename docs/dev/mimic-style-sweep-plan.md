@@ -69,8 +69,8 @@ Run: `make`, targeted unit tests touching config/core if changed.
 
 Status: ✓ Complete — 2026-06-27
 Style debt:
-- `src/core/module_registry.c`: remaining `// Enable verbose formatting` and `// Enable debug level logging` comments in `parse_cli()` explain obvious behaviour; left because the block is in `main.c` not `module_registry.c` and belongs to a future main.c sweep pass (Batch 17 doc pass can cover it)
-- `src/core/module_registry.h` and `module_registry.c`: `register_all_modules()` Doxygen says "Implementation: Auto-generated from module metadata" — true but slightly misleading (the function body in module_init.c is generated, not the declaration). Left to avoid doc/code drift risk; will be cleaner once a generated-file audit is done.
+- `src/core/module_registry.c`: remaining `// Enable verbose formatting` and `// Enable debug level logging` comments in `parse_cli()` explain obvious behaviour; the block was in `src/core/main.c`, where the comments have been removed. ✓ resolved — 2026-06-27
+- `src/core/module_registry.h` and `module_registry.c`: `register_all_modules()` Doxygen says "Implementation: Auto-generated from module metadata" — true but slightly misleading (the function body in module_init.c is generated, not the declaration). The declaration now points to the generated module-init source without implying the header is generated. ✓ resolved — 2026-06-27
 - `src/include/types.h`: inline `// Flag:` comments on remaining struct fields (e.g. `MaxTreeDepth`, `ProcessingOrder`, `ForestDistributionScheme`) were left in place because they carry non-obvious default values; no harm.
 
 ---
@@ -104,7 +104,7 @@ Run: `make`, output-format and tree-reader tests as relevant.
 Status: ✓ Complete — 2026-06-27
 Style debt:
 - `src/io/tree/read_ctrees_ascii.c`: uses `fprintf(stderr, "Error: ...")` rather than Mimic logging macros — vendored pattern inherited from the Consistent-Trees parser; out-of-scope for a light-touch pass, flagged for a future ctrees-boundary audit.
-- `src/io/output/hdf5.c`: `// Create datatypes for different size arrays` comment and `array3f_tid` variable in `calc_hdf5_props()` — mild describe-the-code noise; left because the context (HDF5 type aliasing) is less obvious than the others removed.
+- `src/io/output/hdf5.c`: `// Create datatypes for different size arrays` comment and `array3f_tid` variable in `calc_hdf5_props()` — mild describe-the-code noise; the comment now states that the type is shared by generated vector fields and closed during HDF5 cleanup. ✓ resolved — 2026-06-27
 
 ---
 
@@ -120,7 +120,7 @@ Run: `make validate-modules`, module-system tests.
 
 Status: ✓ Complete — 2026-06-27
 Style debt:
-- `src/module_system/test_fixture/_tests/test_integration_test_fixture.py`: does not emit `MIMIC_RESULT:` structured markers — uses raw `assert` with a catch/count pattern that predates the marker system. Fixing this requires restructuring the test runner loop to import and call `result_pass`/`result_fail` from `tests/framework/markers.py`; left for Batch 8 (integration and scientific tests sweep).
+- `src/module_system/test_fixture/_tests/test_integration_test_fixture.py`: does not emit `MIMIC_RESULT:` structured markers — uses raw `assert` with a catch/count pattern that predates the marker system. The file now uses `run_test_suite()` so each case emits one structured marker. ✓ resolved — 2026-06-27
 
 ---
 
