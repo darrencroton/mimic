@@ -23,9 +23,12 @@ import unittest
 # Make the mimic-plot package importable from this tests/ subdirectory
 HERE = os.path.dirname(os.path.abspath(__file__))
 MIMIC_PLOT_DIR = os.path.dirname(HERE)
+REPO_ROOT = os.path.dirname(os.path.dirname(MIMIC_PLOT_DIR))
 sys.path.insert(0, MIMIC_PLOT_DIR)
+sys.path.insert(0, os.path.join(REPO_ROOT, "tests"))
 
 import numpy as np
+from framework import TestSkipped, run_test_suite
 from output_schema import dtype_from_schema, load_schema
 
 try:
@@ -73,6 +76,12 @@ SAGE_FIELDS_TEMPLATE = {
     "Spiny": np.float32,
     "Spinz": np.float32,
 }
+
+
+def _require_h5py():
+    """Skip the SAGE-native tests when the optional HDF5 dependency is absent."""
+    if not HAVE_H5PY:
+        raise TestSkipped("h5py not installed")
 
 
 def _populate_snap_group(group, n, snap, fnr, include_snapnum=True):
@@ -291,5 +300,39 @@ class TestSageMasterFileRead(unittest.TestCase):
             self.assertAlmostEqual(volume, 62.5**3, places=2)
 
 
+def test_rename_vector_sfr_snapnum_and_defaults():
+    """Run the per-rank field mapping and default-value test."""
+    _require_h5py()
+    TestSagePerRankRead(
+        "test_rename_vector_sfr_snapnum_and_defaults"
+    ).test_rename_vector_sfr_snapnum_and_defaults()
+
+
+def test_partial_read_volume_fraction():
+    """Run the per-rank partial-volume test."""
+    _require_h5py()
+    TestSagePerRankRead("test_partial_read_volume_fraction").test_partial_read_volume_fraction()
+
+
+def test_master_file_with_core_subgroups():
+    """Run the SAGE master-file layout test."""
+    _require_h5py()
+    TestSageMasterFileRead(
+        "test_master_file_with_core_subgroups"
+    ).test_master_file_with_core_subgroups()
+
+
+def main():
+    """Run this file's tests via the shared framework runner."""
+    return run_test_suite(
+        [
+            test_rename_vector_sfr_snapnum_and_defaults,
+            test_partial_read_volume_fraction,
+            test_master_file_with_core_subgroups,
+        ],
+        "SAGE Native HDF5 Reader (test_sage_native_hdf5.py)",
+    )
+
+
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    sys.exit(main())

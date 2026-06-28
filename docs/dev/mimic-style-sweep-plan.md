@@ -275,7 +275,7 @@ Run: plotting unit tests and selected plot generation.
 
 Status: ✓ Complete — 2026-06-28
 Style debt:
-- `plot/mimic-plot/tests/test_sage_native_hdf5.py` — uses `unittest.main()` instead of `run_test_suite()`; does not emit `MIMIC_RESULT:` markers; should be migrated to the framework pattern before v1.0.
+- `plot/mimic-plot/tests/test_sage_native_hdf5.py` — uses `unittest.main()` instead of `run_test_suite()`; does not emit `MIMIC_RESULT:` markers; should be migrated to the framework pattern before v1.0. ✓ resolved — 2026-06-28
 
 ---
 
@@ -293,7 +293,7 @@ Status: ✓ Complete — 2026-06-28
 Style debt:
 - `models/halos-only/modules/_tests/test_integration_halos_only_package.py`: `test_runtime_reports_physics_free_mode` fails when the executable is built with `MODEL=halos-only` because `create_test_param_file` generates a sage16-based run file. Pre-existing failure, unrelated to this sweep; needs `create_test_param_file` to accept a model override parameter.
 - `models/sham/model_properties.yaml` `ShamOrphanAge.units: Myr/h` — may be incorrect (orphan age is accumulated from `dT * UnitTime_in_s / SEC_PER_MEGAYEAR` which yields physical Myr, but `UnitTime_in_s` carries h-convention from `Mpc/h / (km/s)`); left in place pending a formal unit contract review.
-- Several plot figure files (`halo_mass_function.py`, `hmf_evolution.py`, `spin_distribution.py`, `velocity_distribution.py`, `spatial_distribution.py`) are duplicated verbatim between `models/sham/plots/figures/` and `models/halos-only/plots/figures/` — deduplication would require a shared model-neutral plot library, which is a structural change beyond sweep scope.
+- Several plot figure files (`halo_mass_function.py`, `hmf_evolution.py`, `spin_distribution.py`, `velocity_distribution.py`, `spatial_distribution.py`) are duplicated verbatim between `models/sham/plots/figures/` and `models/halos-only/plots/figures/` — deduplication would require a shared model-neutral plot library, which is a structural change beyond sweep scope. ✓ resolved — 2026-06-28; package-local plot duplication is expected and aligned with the model self-containment rule.
 
 ---
 
@@ -308,7 +308,7 @@ Run: simulation-local tests and metadata validation.
 
 Status: ✓ Complete — 2026-06-28
 Style debt:
-- `test_tree_preservation.py` and `test_satellite_spatial_distribution.py` (both packages): test functions use `if not MIMIC_EXE.exists(): return` (plain early return) rather than raising `TestSkipped`; `run_test_suite` therefore emits PASS instead of SKIP when the executable is absent. Pattern is shared with `test_unique_galaxy_id.py` and left consistent — changing to `TestSkipped` would be a functional change.
+- `test_tree_preservation.py` and `test_satellite_spatial_distribution.py` (both packages): test functions use `if not MIMIC_EXE.exists(): return` (plain early return) rather than raising `TestSkipped`; `run_test_suite` therefore emits PASS instead of SKIP when the executable is absent. The unavailable-executable and unavailable-HDF5 paths now raise `TestSkipped`. ✓ resolved — 2026-06-28
 - `test_invalid_file_handling` in both `test_tree_loading.c`: the test body never exercises actual file loading (FATAL_ERROR would exit the process); it validates error-handling infrastructure setup only. The multi-line comment explaining this constraint is 5 lines — above the one-line guideline — but carries a non-obvious WHY and was left in place.
 
 ---

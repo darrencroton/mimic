@@ -65,6 +65,7 @@ from framework import (
     RED,
     TEST_DATA_DIR,
     YELLOW,
+    TestSkipped,
     ensure_output_dirs,
     read_param_file,
     run_mimic,
@@ -207,8 +208,7 @@ def test_satellite_spatial_distribution():
     print("Testing satellite galaxy spatial distribution...")
 
     if not MIMIC_EXE.exists():
-        print("  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     # Check if HDF5 is supported
     param_file = simulation_input_file("test_hdf5.yaml")
@@ -228,8 +228,7 @@ def test_satellite_spatial_distribution():
     if returncode != 0:
         output = stdout + stderr
         if "requires HDF5" in output or "HDF5 support" in output or "Recompile with" in output:
-            print(f"  Skipping (Mimic not compiled with HDF5 support)")
-            return
+            raise TestSkipped("Mimic not compiled with HDF5 support")
         else:
             assert False, f"Mimic failed with code {returncode}\nSTDERR: {stderr}"
 
@@ -237,8 +236,7 @@ def test_satellite_spatial_distribution():
     try:
         import h5py  # noqa: F401
     except ImportError:
-        print(f"  Skipping (h5py not available)")
-        return
+        raise TestSkipped("h5py not available")
 
     # Load parameter file to get box_size
     print(f"  Loading parameter file: {param_file.relative_to(REPO_ROOT)}")

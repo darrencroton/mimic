@@ -66,6 +66,7 @@ from framework import (
     RED,
     TEST_DATA_DIR,
     YELLOW,
+    TestSkipped,
     ensure_output_dirs,
     input_tree_file_for_run,
     load_binary_halos,
@@ -585,8 +586,7 @@ def test_tree_preservation_coverage():
     print("Testing tree preservation coverage...")
 
     if not MIMIC_EXE.exists():
-        print("  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     param_file = simulation_input_file("test_binary.yaml")
 
@@ -698,8 +698,7 @@ def test_tree_preservation_properties():
     print("Testing tree preservation of copied properties...")
 
     if not MIMIC_EXE.exists():
-        print("  Skipping (Mimic not built)")
-        return
+        raise TestSkipped("Mimic not built")
 
     param_file = simulation_input_file("test_binary.yaml")
 
