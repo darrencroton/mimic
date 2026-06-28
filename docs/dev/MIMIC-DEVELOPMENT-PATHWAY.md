@@ -1,8 +1,8 @@
 # Mimic Development Pathway
 
 **Status:** Active planning index for `docs/dev/`.
-**Date:** 2026-06-26
-**Scope:** Current plan ownership, release sequence, and source-of-truth boundaries for pre-v1.0 and first post-v1.0 work.
+**Date:** 2026-06-28
+**Scope:** Current plan ownership, release sequence, and source-of-truth boundaries for the v1.0 release and first post-v1.0 work.
 
 ---
 
@@ -18,9 +18,10 @@ The architectural direction is still governed by `docs/VISION.md`: Mimic is a ph
 
 | Document | Status | Role | Actionability |
 |---|---|---|---|
-| `mimic-style-sweep-plan.md` | Active pre-v1.0 quality plan | Organise the release style sweep by ownership area while preserving scientific behaviour | Next pre-v1.0 work; run before final release gates |
 | `MIMIC-DUAL-DRIVER-PLAN.md` | Post-v1.0 architecture plan | Add snapshot-ordered reader/driver support and later distributed snapshot-global operations over the shared core seams | Re-review after v1.0 is tagged and the baseline is refreshed; do not start snapshot phases before then |
 | `MIMIC-MODEL-BUILDER-PLAN.md` | Post-v1.0 requirements brief | Preserve requirements for assisted, gate-driven model-package construction from scientific evidence | Re-review after v1.0 and before any implementation RFC; current text is a conservative brief, not an active build plan |
+
+The pre-v1.0 style sweep is complete and archived outside the tracked docs tree at `archive/dev-plans/mimic-style-sweep-plan.md`. Its final checkpoint, code review, and full `make tests` gate are green; Mimic is ready for the v1.0 tag and release once the completed sweep branch has landed on `main`.
 
 `chunked-output-plan.md` is complete. It remains in `docs/dev/` as implementation history until archived, but durable current instructions now live in `docs/USER-GUIDE.md`, `docs/DEVELOPER-GUIDE.md`, the simulation/debug skills, and the code itself.
 
@@ -30,15 +31,13 @@ Archived predecessor plans, validation records, and closeout handoffs are histor
 
 ## Current Sequence
 
-1. **Run the pre-release style sweep.** Use `mimic-style-sweep-plan.md` now that the chunked-output implementation has landed, so the sweep sees the real v1.0 code shape. Keep edits focused on style, clarity, docs consistency, and release-facing quality; do not use the sweep as a new architecture bucket.
+1. **Land the completed style-sweep branch on `main`.** The pre-release style sweep and review checkpoints are complete, the sweep plan has been archived, and the full test gate is green.
 
-2. **Run final release gates.** At minimum run `./scripts/beautify.sh`, `make check-format`, `make check-docs`, `make check-generated`, `make validate-modules`, and the relevant test tiers in logged/summary form. Any non-zero exit code is a release blocker.
+2. **Tag v1.0 and refresh the baseline.** Record the tagged v1.0 output and test baseline as the forward reference for behaviour-preserving post-v1.0 work.
 
-3. **Tag v1.0 and refresh the baseline.** Record the tagged v1.0 output and test baseline as the forward reference for behaviour-preserving post-v1.0 work.
+3. **Re-review post-v1.0 plans before executing them.** The dual-driver and model-builder plans should be revised only after v1.0 is tagged, because the final chunked-output and style-sweep state should be the baseline they build on.
 
-4. **Re-review post-v1.0 plans before executing them.** The dual-driver and model-builder plans should be revised only after v1.0 is tagged, because the final chunked-output and style-sweep state should be the baseline they build on.
-
-5. **Choose the next major direction post-v1.0.** The snapshot driver and model builder share the same v1.0 core foundation, but their relative priority should be decided after the release based on scientific need, risk, and available validation gates.
+4. **Choose the next major direction post-v1.0.** The snapshot driver and model builder share the same v1.0 core foundation, but their relative priority should be decided after the release based on scientific need, risk, and available validation gates.
 
 ---
 
