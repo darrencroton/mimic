@@ -130,7 +130,6 @@ def print_phase(title):
     print("=" * 63)
 
 
-# Halo data structure definition (read from run metadata)
 def get_dtype(output_path):
     """
     Return the NumPy dtype for Mimic binary halo data.
@@ -721,12 +720,10 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
         )
     # <<< SAGE-NATIVE-HDF5 <<<
 
-    # Detect output format from parameter file
     output_format = params.get("OutputFormat", "binary")
     if isinstance(output_format, str):
         output_format = output_format.lower()
 
-    # Handle HDF5 format
     if output_format == "hdf5":
         if not HDF5_AVAILABLE:
             error(
@@ -736,28 +733,19 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
             sys.exit(1)
 
         if verbose:
-            print(f"Using HDF5 format reader")
+            print("Using HDF5 format reader")
         return read_data_hdf5(model_path, first_file, last_file, params, verbose, quiet)
 
-    # For binary format (default)
     if verbose:
-        print(f"Using binary format reader")
-
-    # For volume calculation, we'll use the number of good files read
-    # No need for MaxTreeFiles parameter - we'll calculate based on actual files read
-
-    # Print the model path for debugging
-    if verbose:
+        print("Using binary format reader")
         print(f"Looking for galaxy files with base: {model_path}")
 
-    # Look for files matching the pattern in the same directory
     dir_path = os.path.dirname(model_path)
     base_name = os.path.basename(model_path)
 
     pattern = os.path.join(dir_path, f"{base_name}_*")
     enumerated_output = _tree_uses_enumerated_output(params)
 
-    # Log the patterns we're trying
     if verbose:
         print(f"  Trying output partition pattern: {pattern}")
 
@@ -777,10 +765,8 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     else:
         warn(f"No files found matching the pattern {base_name}_*")
 
-    # Get the galaxy data dtype
     galdesc = get_dtype(dir_path)
 
-    # Initialize variables
     tot_ntrees = 0
     tot_ngals = 0
     good_files = 0
@@ -788,8 +774,6 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
     if verbose:
         print(f"Determining storage requirements for {len(files_to_read)} output partition(s)...")
 
-    # First pass: Determine total number of galaxies
-    # Only show progress bar when verbose is enabled
     file_iterator = tqdm(files_to_read, desc="Counting galaxies") if verbose else files_to_read
     for fname in file_iterator:
         if not os.path.isfile(fname):
@@ -819,12 +803,9 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
             error(f"{error_msg}. Please check that the model files exist and are not empty.")
         raise FileNotFoundError(error_msg)
 
-    # Initialize the storage array
     galaxies = np.empty(tot_ngals, dtype=galdesc)
 
-    # Second pass: Read the galaxy data
     offset = 0
-    # Only show progress bar when verbose is enabled
     file_iterator = tqdm(files_to_read, desc="Reading galaxies") if verbose else files_to_read
     for fname in file_iterator:
         if not os.path.isfile(fname) or os.path.getsize(fname) == 0:
@@ -840,8 +821,6 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
                     print(f"Reading {ntotgals} galaxies from file: {fname}")
 
                 gg = np.fromfile(fin, galdesc, ntotgals)
-
-                # Slice the file array into the global array with a copy
                 galaxies[offset : offset + ntotgals] = gg[0:ntotgals].copy()
 
                 offset += ntotgals
@@ -849,7 +828,6 @@ def read_data(model_path, first_file, last_file, params=None, verbose=False, qui
             print(f"Error reading file {fname}: {e}")
             continue
 
-    # Convert to recarray for attribute access
     galaxies = galaxies.view(np.recarray)
 
     volume_files = last_file - first_file + 1 if enumerated_output else good_files
@@ -892,34 +870,26 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
     hubble_h = params["Hubble_h"]
     box_size = params["BoxSize"]
 
-    # Get the directory and base name
     dir_path = os.path.dirname(model_path)
     base_name = os.path.basename(model_path)
 
-    # Extract redshift string from model_path to determine which snapshot to read
-    # Model path format: /path/to/model_z1.386 or /path/to/model
+    # Extract redshift string (e.g. "_z1.386") from model_path to select snapshot.
     redshift_str = None
     if "_z" in base_name:
-        # Extract the redshift string (e.g., "_z1.386")
         parts = base_name.split("_z")
         redshift_str = f"_z{parts[1]}"
-        base_name = parts[0]  # Remove the redshift suffix for HDF5 filename
+        base_name = parts[0]
         if verbose:
             print(f"Extracted redshift string: {redshift_str}, base name: {base_name}")
 
-    # Map redshift string to snapshot number using SnapshotRedshiftMapper
-    # We need to import and use the mapper to find which snapshot corresponds to this redshift
     from snapshot_redshift_mapper import SnapshotRedshiftMapper
 
-    # Create mapper to find snapshot from redshift
-    # Note: param_file not available in this context, pass None
-    # Add quiet and verbose flags to params for mapper
+    # param_file not available here; pass None.
     mapper_params = params.copy()
     mapper_params["quiet"] = quiet
     mapper_params["verbose"] = verbose
     mapper = SnapshotRedshiftMapper(None, mapper_params, dir_path)
 
-    # Find the snapshot number that matches the redshift string
     snapshot_num = None
     if redshift_str:
         # Find matching snapshot in mapper's redshift_strs
@@ -933,9 +903,7 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
             print(f"Available redshift strings: {mapper.redshift_strs[:10]}...")
             sys.exit(1)
     else:
-        # No redshift suffix in model_path - use first snapshot from OutputSnapshots
-        # Note: OutputSnapshots order is defined by the parameter file.
-        # Typically listed in descending order (highest first), e.g., "-> 63 37 32..."
+        # No redshift suffix in model_path; use first OutputSnapshot.
         output_snapshots = params.get("OutputSnapshots", [])
         if output_snapshots:
             snapshot_num = output_snapshots[0]
@@ -948,14 +916,12 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
     if verbose:
         print(f"Reading snapshot {snapshot_num}")
 
-    # Try to find the master file first
     master_file = os.path.join(dir_path, f"{base_name}.hdf5")
 
     galaxies_list = []
     tot_ngals = 0
     good_files = 0
 
-    # Try master file first
     if os.path.exists(master_file):
         if verbose:
             print(f"Found master file: {master_file}")
@@ -1001,7 +967,6 @@ def read_data_hdf5(model_path, first_file, last_file, params, verbose=False, qui
             error(f"{error_msg}. Please check that the HDF5 files exist and contain data.")
         raise FileNotFoundError(error_msg)
 
-    # Concatenate all halos
     galaxies = np.concatenate(galaxies_list)
     galaxies = galaxies.view(np.recarray)
 

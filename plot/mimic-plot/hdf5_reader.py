@@ -57,7 +57,6 @@ def read_hdf5_snapshot(filename, snapshot_num):
                 if not halos_list:
                     return None
 
-                # Concatenate all files
                 return np.concatenate(halos_list)
 
     except (OSError, KeyError, ValueError) as e:

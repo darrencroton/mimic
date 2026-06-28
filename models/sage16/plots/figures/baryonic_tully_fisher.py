@@ -6,13 +6,9 @@ SAGE Baryonic Tully-Fisher Relationship Plot
 This module generates a baryonic Tully-Fisher plot from SAGE galaxy data.
 """
 
-# Standard library
 from random import sample, seed
 
-# Third-party packages
 import numpy as np
-
-# Local application imports
 from figures import AXIS_LABEL_SIZE, get_baryonic_mass_label, get_vmax_label, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (

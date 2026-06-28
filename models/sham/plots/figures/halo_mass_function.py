@@ -6,10 +6,7 @@ Mimic Halo Mass Function Plot
 This module generates a halo mass function plot from Mimic halo data.
 """
 
-# Third-party packages
 import numpy as np
-
-# Local application imports
 from figures import AXIS_LABEL_SIZE, get_halo_mass_label, get_mass_function_labels, setup_legend
 from matplotlib.ticker import MultipleLocator
 from output_utils import (
@@ -47,9 +44,7 @@ def plot(
         params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
-
-    verbose: Whether to print verbose output
-
+        verbose: Whether to print verbose output
 
     Returns:
         Tuple of (plot_path, skip_message):
@@ -74,7 +69,7 @@ def plot(
     # Prepare data - select halos (Type 0 = central galaxies = halos) with valid masses
     w = np.where((galaxies.Type == 0) & (galaxies.Mvir > 0.0))[0]
 
-    is_valid, skip_msg = validate_filtered_data(w, "Plot", verbose)
+    is_valid, skip_msg = validate_filtered_data(w, "Halo Mass Function", verbose)
     if not is_valid:
         return None, skip_msg
 

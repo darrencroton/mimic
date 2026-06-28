@@ -1,39 +1,27 @@
 #!/usr/bin/env python
 
 """
-==============================================================================
-SAGE-NATIVE-HDF5 reader (isolated add-on)
-==============================================================================
+SAGE-native HDF5 reader for mimic-plot (isolated add-on).
 
-Reads native sage-model (https://github.com/sage-home/sage-model) HDF5
-output and returns it in the same Mimic-shaped recarray that the rest of
-mimic-plot expects. Activated via `--input-format=sage-hdf5` on
-mimic-plot.py.
+Reads native sage-model (https://github.com/sage-home/sage-model) HDF5 output
+and returns it as the same Mimic-shaped recarray the rest of mimic-plot expects.
+Activated via ``--input-format=sage-hdf5`` on mimic-plot.py.
 
-Purpose
--------
-Allow direct comparison between native SAGE output and the Mimic SAGE port
-by running the same plotting code on both. Helpful for debugging the Mimic
-SAGE module set.
+Allows direct comparison between native SAGE output and the Mimic SAGE port by
+running the same plotting code on both.
 
-Native SAGE HDF5 layout reference
----------------------------------
-- Per-core files: `<base>_<file_num>.hdf5`
-- Snapshot groups: `Snap_<snap_num>` (no zero padding, e.g. `Snap_63`)
-- Each property is stored as a separate 1-D dataset within a snapshot group
-- Position/Velocity/Spin are stored as separate scalar components
-  (Posx/Posy/Posz, Velx/Vely/Velz, Spinx/Spiny/Spinz) rather than as
-  (N, 3) arrays
-- Galaxy SFR is split into `SfrDisk` + `SfrBulge`; Mimic uses a single
-  combined `StarFormationRate`
+Native SAGE HDF5 layout:
+- Per-core files: ``<base>_<file_num>.hdf5``
+- Snapshot groups: ``Snap_<snap_num>`` (no zero padding, e.g. ``Snap_63``)
+- Position/Velocity/Spin stored as separate x/y/z scalar components rather
+  than (N, 3) arrays
+- Galaxy SFR split into ``SfrDisk`` + ``SfrBulge``; Mimic uses a single
+  combined ``StarFormationRate``
 
-This module is intentionally self-contained. To remove SAGE-native support
-later:
-  1. Delete this file.
-  2. Remove the `>>> SAGE-NATIVE-HDF5 >>>` ... `<<< SAGE-NATIVE-HDF5 <<<`
-     blocks in `mimic-plot.py` (the `--input-format` argument, the import,
-     and the dispatch inside `read_data`).
-==============================================================================
+To remove SAGE-native support: delete this file and remove the
+``>>> SAGE-NATIVE-HDF5 >>>`` ... ``<<< SAGE-NATIVE-HDF5 <<<`` blocks in
+mimic-plot.py (the ``--input-format`` argument, the import, and the dispatch
+inside ``read_data``).
 """
 
 import glob

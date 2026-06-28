@@ -273,6 +273,10 @@ Examples:
 - `plot/mimic-plot/mimic-plot.py` — Python script docstring template: full CLI usage at the top (options table with defaults); structured option sections; `HDF5_AVAILABLE`/`SAGE_NATIVE_AVAILABLE` guarded-import pattern.
 Run: plotting unit tests and selected plot generation.
 
+Status: ✓ Complete — 2026-06-28
+Style debt:
+- `plot/mimic-plot/tests/test_sage_native_hdf5.py` — uses `unittest.main()` instead of `run_test_suite()`; does not emit `MIMIC_RESULT:` markers; should be migrated to the framework pattern before v1.0.
+
 ---
 
 ### 15. SHAM and Halos-Only Packages

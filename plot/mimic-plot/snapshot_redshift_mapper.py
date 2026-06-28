@@ -64,14 +64,12 @@ class SnapshotRedshiftMapper:
             output_dir: Path to Mimic output directory
         """
         self.param_file = param_file
-        self.params = params  # Can pass already parsed params
+        self.params = params
 
-        # Check that we have valid parameters
         if not params:
             print("Error: Parameter dictionary is required for SnapshotRedshiftMapper")
             sys.exit(1)
 
-        # Check for critical parameters
         required_params = ["OutputFileBaseName"]
         missing_params = [p for p in required_params if p not in params]
         if missing_params:
@@ -80,7 +78,6 @@ class SnapshotRedshiftMapper:
             )
             sys.exit(1)
 
-        # Set up the mapper
         self.output_dir = output_dir
         self.file_name_base = params["OutputFileBaseName"]
         self.snapshots = []  # Snapshot indices (0 to n-1)
@@ -115,7 +112,6 @@ class SnapshotRedshiftMapper:
         Returns:
             True if successful, False otherwise
         """
-        # Check if required parameters exist (params presence is guaranteed by __init__)
         required_params = ["FileWithSnapList"]
         missing_params = [p for p in required_params if p not in self.params]
         if missing_params:
@@ -124,10 +120,8 @@ class SnapshotRedshiftMapper:
             )
             return False
 
+        # Path is already resolved by MimicParameters.parse_yaml_file before being stored.
         a_list_file = self.params["FileWithSnapList"]
-
-        # The a_list_file path is already resolved by MimicParameters class
-        # No need for additional path manipulation
 
         if self.params.get("verbose", False):
             print(f"Using a_list file: {a_list_file}")
@@ -142,8 +136,7 @@ class SnapshotRedshiftMapper:
         try:
             expansion_factors = read_expansion_factors(a_list_file)
 
-            # Convert expansion factors to redshifts
-            # Formula: z = 1/a - 1
+            # z = 1/a - 1
             try:
                 redshifts = [1.0 / a - 1.0 for a in expansion_factors]
             except ZeroDivisionError:
@@ -153,16 +146,11 @@ class SnapshotRedshiftMapper:
                 print("Ensure all expansion factors are positive non-zero values")
                 return False
 
-            # Create the mapping - need to match snapshot numbers to redshifts
-            # Standard convention: line N in a_list file corresponds to snapshot N-1 (0-indexed)
-            # If a_list has 64 lines, snapshots are numbered 0-63
+            # Line N in a_list → snapshot N-1 (0-indexed); e.g. 64 lines → snapshots 0-63.
             num_snapshots = len(expansion_factors)
-
-            # Snapshot numbers are simply sequential indices: 0, 1, 2, ..., N-1
             self.snapshots = list(range(num_snapshots))
             self.params["LastSnapshotNr"] = num_snapshots - 1
 
-            # Ensure we have the same number of snapshots and redshifts
             if len(self.snapshots) != len(redshifts):
                 print(
                     f"Error: Mismatch between number of snapshots ({len(self.snapshots)}) and redshifts ({len(redshifts)})"
@@ -170,11 +158,7 @@ class SnapshotRedshiftMapper:
                 return False
 
             self.redshifts = redshifts
-
-            # Create formatted redshift strings for filenames
             self.redshift_strs = [f"_z{z:.3f}" for z in self.redshifts]
-
-            # Create file patterns
             self.redshift_file_patterns = [
                 f"{self.file_name_base}{self.redshift_strs[i]}" for i in range(len(self.snapshots))
             ]

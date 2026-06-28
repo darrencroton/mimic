@@ -114,7 +114,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
             if abs(closest[3]["redshift"] - target_z) <= tolerance:
                 target_snapshots.append(closest)
                 if verbose:
-                    warn(
+                    print(
                         f"Target z={target_z:.1f}: Using snapshot with z={closest[3]['redshift']:.3f}"
                     )
         elif verbose:
