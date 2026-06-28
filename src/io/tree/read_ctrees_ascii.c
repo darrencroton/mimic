@@ -125,9 +125,8 @@ static int validate_ctrees_snapshot_range(const struct halo_data *halos, const i
                                           const char *context) {
   for (int64_t i = 0; i < nhalos; i++) {
     if (halos[i].SnapNum < 0 || halos[i].SnapNum > MimicConfig.LastSnapshotNr) {
-      fprintf(stderr,
-              "Error: %s halo %" PRId64 " has SnapNum=%d outside configured range [0, %d]\n",
-              context, i, halos[i].SnapNum, MimicConfig.LastSnapshotNr);
+      ERROR_LOG("%s halo %" PRId64 " has SnapNum=%d outside configured range [0, %d]", context, i,
+                halos[i].SnapNum, MimicConfig.LastSnapshotNr);
       return EXIT_FAILURE;
     }
   }
@@ -334,22 +333,20 @@ static int build_chunk_plan_ctrees_ascii(void) {
   enum { CTREES_ASCII_CHUNK_PLAN_BATCH = 4096 };
 
   if (MimicConfig.ForestsPerFile <= 0) {
-    fprintf(stderr,
-            "Error: consistent_trees_ascii requires output.forests_per_file > 0 because ASCII "
-            "catalogues cannot derive chunk sizes from output.target_file_size_mb\n");
+    ERROR_LOG("consistent_trees_ascii requires output.forests_per_file > 0 because ASCII "
+              "catalogues cannot derive chunk sizes from output.target_file_size_mb");
     return EXIT_FAILURE;
   }
   if (CT.totnforests <= 0) {
-    fprintf(stderr, "Error: Consistent-Trees ASCII chunk planner needs at least one forest\n");
+    ERROR_LOG("Consistent-Trees ASCII chunk planner needs at least one forest");
     return EXIT_FAILURE;
   }
 
   struct ChunkPlanBuilder builder;
   if (chunk_plan_builder_init(&builder, 1.0, MimicConfig.ForestsPerFile) != 0) {
-    fprintf(stderr,
-            "Error: failed to initialise Consistent-Trees ASCII chunk planner "
-            "(forests_per_file=%" PRId64 ")\n",
-            MimicConfig.ForestsPerFile);
+    ERROR_LOG("failed to initialise Consistent-Trees ASCII chunk planner "
+              "(forests_per_file=%" PRId64 ")",
+              MimicConfig.ForestsPerFile);
     return EXIT_FAILURE;
   }
 
@@ -364,10 +361,9 @@ static int build_chunk_plan_ctrees_ascii(void) {
         remaining < CTREES_ASCII_CHUNK_PLAN_BATCH ? remaining : CTREES_ASCII_CHUNK_PLAN_BATCH;
     if (chunk_plan_builder_add_file(&builder, batch, unit_sizes) != 0) {
       chunk_plan_free(&builder.plan);
-      fprintf(stderr,
-              "Error: failed to feed Consistent-Trees ASCII chunk planner "
-              "(forests_per_file=%" PRId64 ")\n",
-              MimicConfig.ForestsPerFile);
+      ERROR_LOG("failed to feed Consistent-Trees ASCII chunk planner "
+                "(forests_per_file=%" PRId64 ")",
+                MimicConfig.ForestsPerFile);
       return EXIT_FAILURE;
     }
     remaining -= batch;
@@ -375,18 +371,16 @@ static int build_chunk_plan_ctrees_ascii(void) {
 
   if (chunk_plan_builder_finish(&builder, &CT.chunk_plan) != 0) {
     chunk_plan_free(&builder.plan);
-    fprintf(stderr,
-            "Error: failed to build Consistent-Trees ASCII chunk plan "
-            "(forests_per_file=%" PRId64 ")\n",
-            MimicConfig.ForestsPerFile);
+    ERROR_LOG("failed to build Consistent-Trees ASCII chunk plan "
+              "(forests_per_file=%" PRId64 ")",
+              MimicConfig.ForestsPerFile);
     return EXIT_FAILURE;
   }
   if (CT.chunk_plan.nchunks >= INT_MAX) {
     chunk_plan_free(&CT.chunk_plan);
-    fprintf(stderr,
-            "Error: Consistent-Trees ASCII chunk count %" PRId64
-            " cannot be represented by the reader interface\n",
-            CT.chunk_plan.nchunks);
+    ERROR_LOG("Consistent-Trees ASCII chunk count %" PRId64
+              " cannot be represented by the reader interface",
+              CT.chunk_plan.nchunks);
     return EXIT_FAILURE;
   }
 
@@ -411,9 +405,8 @@ static int prepare_run_ctrees_ascii_state(void) {
   int64_t *treeids = NULL, *forestids = NULL;
 
   if (MimicConfig.ForestsPerFile <= 0) {
-    fprintf(stderr,
-            "Error: consistent_trees_ascii requires output.forests_per_file > 0 because ASCII "
-            "catalogues cannot derive chunk sizes from output.target_file_size_mb\n");
+    ERROR_LOG("consistent_trees_ascii requires output.forests_per_file > 0 because ASCII "
+              "catalogues cannot derive chunk sizes from output.target_file_size_mb");
     return EXIT_FAILURE;
   }
 
@@ -425,9 +418,8 @@ static int prepare_run_ctrees_ascii_state(void) {
 
   const int64_t totntrees = read_forests(forests_file, &forestids, &treeids);
   if (totntrees < 0) {
-    fprintf(stderr,
-            "Error: failed to read Consistent-Trees forests file '%s' (status %" PRId64 ")\n",
-            forests_file, totntrees);
+    ERROR_LOG("failed to read Consistent-Trees forests file '%s' (status %" PRId64 ")",
+              forests_file, totntrees);
     return EXIT_FAILURE;
   }
   CT.totntrees = totntrees;
@@ -437,10 +429,9 @@ static int prepare_run_ctrees_ascii_state(void) {
 
   const int64_t nread = read_locations(locations_file, totntrees, CT.locations, &files_fd);
   if (nread != totntrees) {
-    fprintf(stderr,
-            "Error: Consistent-Trees locations '%s' lists %" PRId64
-            " trees but forests '%s' lists %" PRId64 "\n",
-            locations_file, nread, forests_file, totntrees);
+    ERROR_LOG("Consistent-Trees locations '%s' lists %" PRId64
+              " trees but forests '%s' lists %" PRId64 "",
+              locations_file, nread, forests_file, totntrees);
     myfree(treeids);
     myfree(forestids);
     free_unowned_files_fd_ctrees_ascii(&files_fd);
@@ -448,7 +439,7 @@ static int prepare_run_ctrees_ascii_state(void) {
   }
 
   if (assign_forest_ids(totntrees, CT.locations, forestids, treeids) != EXIT_SUCCESS) {
-    fprintf(stderr, "Error: failed to assign Consistent-Trees forest ids\n");
+    ERROR_LOG("failed to assign Consistent-Trees forest ids");
     myfree(treeids);
     myfree(forestids);
     free_unowned_files_fd_ctrees_ascii(&files_fd);
@@ -469,10 +460,9 @@ static int prepare_run_ctrees_ascii_state(void) {
   }
   CT.totnforests = totnforests;
   if (!mimic_unique_galaxy_id_total_forests_valid(totnforests)) {
-    fprintf(stderr,
-            "Error: Consistent-Trees total forest count %" PRId64
-            " exceeds the UniqueGalaxyID encoding limit of %" PRId64 "\n",
-            totnforests, mimic_unique_galaxy_id_max_forests());
+    ERROR_LOG("Consistent-Trees total forest count %" PRId64
+              " exceeds the UniqueGalaxyID encoding limit of %" PRId64 "",
+              totnforests, mimic_unique_galaxy_id_max_forests());
     free_unowned_files_fd_ctrees_ascii(&files_fd);
     return EXIT_FAILURE;
   }
@@ -494,10 +484,9 @@ static int prepare_run_ctrees_ascii_state(void) {
     }
   }
   if (iforest != totnforests - 1) {
-    fprintf(stderr,
-            "Error: Consistent-Trees forest bookkeeping mismatch: recovered %" PRId64
-            " forests, expected %" PRId64 "\n",
-            iforest + 1, totnforests);
+    ERROR_LOG("Consistent-Trees forest bookkeeping mismatch: recovered %" PRId64
+              " forests, expected %" PRId64 "",
+              iforest + 1, totnforests);
     free_unowned_files_fd_ctrees_ascii(&files_fd);
     return EXIT_FAILURE;
   }
@@ -518,21 +507,18 @@ static int stage_range_ctrees_ascii(const int64_t start_forestnum, const int64_t
   clear_staged_range_ctrees_ascii();
 
   if (CT.locations == NULL || CT.ntrees_per_global_forest == NULL) {
-    fprintf(stderr, "Error: Consistent-Trees ASCII reader was not prepared before staging\n");
+    ERROR_LOG("Consistent-Trees ASCII reader was not prepared before staging");
     return EXIT_FAILURE;
   }
   if (nforests < 0 || start_forestnum < 0 || start_forestnum > CT.totnforests - nforests) {
-    fprintf(stderr,
-            "Error: requested ASCII forest range [%" PRId64 ", %" PRId64 ") outside [0, %" PRId64
-            ")\n",
-            start_forestnum, start_forestnum + nforests, CT.totnforests);
+    ERROR_LOG("requested ASCII forest range [%" PRId64 ", %" PRId64 ") outside [0, %" PRId64 ")",
+              start_forestnum, start_forestnum + nforests, CT.totnforests);
     return EXIT_FAILURE;
   }
   if (nforests > INT_MAX) {
-    fprintf(stderr,
-            "Error: Consistent-Trees ASCII chunk has %" PRId64
-            " forests, exceeding the 32-bit per-partition limit\n",
-            nforests);
+    ERROR_LOG("Consistent-Trees ASCII chunk has %" PRId64
+              " forests, exceeding the 32-bit per-partition limit",
+              nforests);
     return EXIT_FAILURE;
   }
 
@@ -573,10 +559,8 @@ static int stage_range_ctrees_ascii(const int64_t start_forestnum, const int64_t
     for (int64_t i = 0; i < ntrees; i++) {
       const struct locations_with_forests *location = &CT.locations[start_treenum + i];
       if (location->fileid < 0 || location->fileid >= CT.numfiles) {
-        fprintf(stderr,
-                "Error: Consistent-Trees ASCII tree row %" PRId64
-                " has file id %d outside [0, %d)\n",
-                start_treenum + i, location->fileid, CT.numfiles);
+        ERROR_LOG("Consistent-Trees ASCII tree row %" PRId64 " has file id %d outside [0, %d)",
+                  start_treenum + i, location->fileid, CT.numfiles);
         clear_staged_tree_globals_ctrees_ascii();
         return EXIT_FAILURE;
       }
@@ -587,9 +571,8 @@ static int stage_range_ctrees_ascii(const int64_t start_forestnum, const int64_t
   }
 
   if (staged_tree != ntrees_this_chunk) {
-    fprintf(stderr,
-            "Error: Consistent-Trees ASCII staged %" PRId64 " trees but expected %" PRId64 "\n",
-            staged_tree, ntrees_this_chunk);
+    ERROR_LOG("Consistent-Trees ASCII staged %" PRId64 " trees but expected %" PRId64 "",
+              staged_tree, ntrees_this_chunk);
     clear_staged_tree_globals_ctrees_ascii();
     return EXIT_FAILURE;
   }

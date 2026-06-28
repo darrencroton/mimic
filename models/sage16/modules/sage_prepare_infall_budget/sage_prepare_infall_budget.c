@@ -14,6 +14,7 @@
 
 #include "constants.h"
 #include "error.h"
+#include "globals.h"
 #include "module_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "module_registry.h"
@@ -119,6 +120,19 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
 int sage_prepare_infall_budget_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                     "cosmic baryon fraction must be physical");
+
+  /* Ordering: sage_reionization is optional (HaloBaryonFraction falls back to
+     GlobalBaryonFraction when unset), but when configured in pre_timestep it must run
+     earlier so HaloBaryonFraction is set before the infall budget reads it. */
+  if (module_configured_in_phase("sage_reionization", MimicConfig.pre_timestep,
+                                 MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO) &&
+      !module_precedes_in_phase("sage_reionization", "sage_prepare_infall_budget",
+                                MimicConfig.pre_timestep, MimicConfig.num_pre_timestep)) {
+    ERROR_LOG("sage_prepare_infall_budget requires sage_reionization to run earlier in "
+              "pre_timestep — the infall budget would read HaloBaryonFraction before "
+              "reionization sets it");
+    return -1;
+  }
 
   VERBOSE_LOG("SAGE prepare infall budget module initialized");
   VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);

@@ -17,8 +17,8 @@ module:
       - FracZleaveDisk
 
   tests:
-    unit:
-    integration:
+    unit: _tests/test_unit_sage_apply_metal_enrichment.c
+    integration: _tests/test_integration_sage_apply_metal_enrichment.py
     scientific: []
 
   docs:

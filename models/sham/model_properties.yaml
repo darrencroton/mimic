@@ -127,3 +127,4 @@ galaxy_properties:
     output_source: galaxy_property
     range: [0.0, 20000.0]
     sentinels: [0.0]
+    notes: Accumulated as dT * UnitTime_in_s / SEC_PER_MEGAYEAR without dividing by Hubble_h, so it carries the h-convention (Myr/h), consistent with the simulation's h-scaled time units

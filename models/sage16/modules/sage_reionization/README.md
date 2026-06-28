@@ -10,7 +10,7 @@ Calculates the baryon suppression factor for each galaxy using the configured gl
 
 ## Ordering
 
-No ordering enforcement is applied in `init()`. This module should run first in `pre_timestep` — before `sage_prepare_infall_budget` and `sage_satellite_stripping` — so that `HaloBaryonFraction` is set before infall and stripping calculations.
+`init()` enforces ordering: when `sage_prepare_infall_budget` is also configured in `pre_timestep`, reionization must run before it, because reionization writes `HaloBaryonFraction` that the infall budget reads. Later-phase consumers such as `sage_satellite_stripping` (a substep phase) are structurally guaranteed to run after `pre_timestep`, so no explicit check is needed for them.
 
 ## Properties
 

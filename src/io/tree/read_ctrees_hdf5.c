@@ -321,12 +321,12 @@ static int open_one_field_cache_ctrees_hdf5(struct ctrees_hdf5_field_cache *cach
 
     field->dataset = H5Dopen2(h5_forests_group, field->name, H5P_DEFAULT);
     if (field->dataset < 0) {
-      fprintf(stderr, "Error: Could not open dataset '%s' in file %d\n", field->name, ifile);
+      ERROR_LOG("Could not open dataset '%s' in file %d", field->name, ifile);
       return CT_H5_ERR;
     }
     field->filespace = H5Dget_space(field->dataset);
     if (field->filespace < 0) {
-      fprintf(stderr, "Error: Could not get filespace for '%s' in file %d\n", field->name, ifile);
+      ERROR_LOG("Could not get filespace for '%s' in file %d", field->name, ifile);
       return CT_H5_ERR;
     }
     if (ct_h5_get_1d_extent(field->filespace, field->name, &field->extent) != EXIT_SUCCESS) {
@@ -335,22 +335,21 @@ static int open_one_field_cache_ctrees_hdf5(struct ctrees_hdf5_field_cache *cach
     if (ifield == 0) {
       expected_extent = field->extent;
     } else if (field->extent != expected_extent) {
-      fprintf(stderr, "Error: file %d dataset '%s' has length %llu but '%s' has length %llu\n",
-              ifile, field->name, (unsigned long long)field->extent, cache->fields[0].name,
-              (unsigned long long)expected_extent);
+      ERROR_LOG("file %d dataset '%s' has length %llu but '%s' has length %llu", ifile, field->name,
+                (unsigned long long)field->extent, cache->fields[0].name,
+                (unsigned long long)expected_extent);
       return CT_H5_ERR;
     }
 
     field->datatype = H5Dget_type(field->dataset);
     if (field->datatype < 0) {
-      fprintf(stderr, "Error: Could not get datatype for '%s' in file %d\n", field->name, ifile);
+      ERROR_LOG("Could not get datatype for '%s' in file %d", field->name, ifile);
       return CT_H5_ERR;
     }
     field->element_size = H5Tget_size(field->datatype);
     if (field->element_size != sizeof(int64_t)) {
-      fprintf(stderr,
-              "Error: file %d dataset '%s' is %zu bytes on disk but the reader expects 8 bytes\n",
-              ifile, field->name, field->element_size);
+      ERROR_LOG("file %d dataset '%s' is %zu bytes on disk but the reader expects 8 bytes", ifile,
+                field->name, field->element_size);
       return CT_H5_ERR;
     }
   }
@@ -409,34 +408,33 @@ static int ct_read_forest_array(const struct ctrees_hdf5_field_handle *field, co
   hid_t h5_memspace = -1;
 
   if (field == NULL || field->dataset < 0 || field->filespace < 0 || field->datatype < 0) {
-    fprintf(stderr, "Error: cached HDF5 field handle is not open\n");
+    ERROR_LOG("cached HDF5 field handle is not open");
     goto cleanup;
   }
   if (offset > field->extent || count > field->extent - offset) {
-    fprintf(stderr,
-            "Error: dataset '%s' length is %llu but requested slab [offset=%llu, "
-            "count=%llu)\n",
-            field->name, (unsigned long long)field->extent, (unsigned long long)offset,
-            (unsigned long long)count);
+    ERROR_LOG("dataset '%s' length is %llu but requested slab [offset=%llu, "
+              "count=%llu)",
+              field->name, (unsigned long long)field->extent, (unsigned long long)offset,
+              (unsigned long long)count);
     goto cleanup;
   }
   if (H5Sselect_hyperslab(field->filespace, H5S_SELECT_SET, &offset, NULL, &count, NULL) < 0) {
-    fprintf(stderr, "Error: Could not select hyperslab for '%s'\n", field->name);
+    ERROR_LOG("Could not select hyperslab for '%s'", field->name);
     goto cleanup;
   }
   h5_memspace = H5Screate_simple(1, &count, NULL);
   if (h5_memspace < 0) {
-    fprintf(stderr, "Error: Could not create memspace for '%s'\n", field->name);
+    ERROR_LOG("Could not create memspace for '%s'", field->name);
     goto cleanup;
   }
   if (dst_size != field->element_size) {
-    fprintf(stderr, "Error: dataset '%s' is %zu bytes on disk but the destination is %zu bytes\n",
-            field->name, field->element_size, dst_size);
+    ERROR_LOG("dataset '%s' is %zu bytes on disk but the destination is %zu bytes", field->name,
+              field->element_size, dst_size);
     goto cleanup;
   }
   if (H5Dread(field->dataset, field->datatype, h5_memspace, field->filespace, H5P_DEFAULT, buffer) <
       0) {
-    fprintf(stderr, "Error: Could not read dataset '%s'\n", field->name);
+    ERROR_LOG("Could not read dataset '%s'", field->name);
     goto cleanup;
   }
   status = EXIT_SUCCESS;
@@ -492,9 +490,8 @@ cleanup:
     for (hsize_t mi = 0; mi < nhalos; mi++) {                                                      \
       const int64_t macro_v = macro_x[mi];                                                         \
       if (!(macro_v >= 0 && macro_v <= INT_MAX && macro_v <= MimicConfig.LastSnapshotNr)) {        \
-        fprintf(stderr, "Error: snapshot field '%s'[%llu] = %lld is outside [0, %d]\n",            \
-                macro_field->name, (unsigned long long)mi, (long long)macro_v,                     \
-                MimicConfig.LastSnapshotNr);                                                       \
+        ERROR_LOG("snapshot field '%s'[%llu] = %lld is outside [0, %d]", macro_field->name,        \
+                  (unsigned long long)mi, (long long)macro_v, MimicConfig.LastSnapshotNr);         \
         status = CT_H5_ERR;                                                                        \
         goto cleanup;                                                                              \
       }                                                                                            \
@@ -510,8 +507,8 @@ cleanup:
       const double macro_v = macro_x[mi];                                                          \
       if (!(isfinite(macro_v) && floor(macro_v) == macro_v && macro_v >= 0.0 &&                    \
             macro_v <= (double)INT_MAX && macro_v <= (double)MimicConfig.LastSnapshotNr)) {        \
-        fprintf(stderr, "Error: snapshot field '%s'[%llu] = %.17g is not an integer in [0, %d]\n", \
-                macro_field->name, (unsigned long long)mi, macro_v, MimicConfig.LastSnapshotNr);   \
+        ERROR_LOG("snapshot field '%s'[%llu] = %.17g is not an integer in [0, %d]",                \
+                  macro_field->name, (unsigned long long)mi, macro_v, MimicConfig.LastSnapshotNr); \
         status = CT_H5_ERR;                                                                        \
         goto cleanup;                                                                              \
       }                                                                                            \
@@ -543,9 +540,8 @@ cleanup:
     for (hsize_t mi = 0; mi < nhalos; mi++) {                                                      \
       const int64_t macro_v = macro_x[mi];                                                         \
       if (!(macro_v >= -1 && macro_v < (int64_t)nhalos)) {                                         \
-        fprintf(stderr, "Error: merger link '%s'[%llu] = %lld is outside [-1, %llu)\n",            \
-                macro_field->name, (unsigned long long)mi, (long long)macro_v,                     \
-                (unsigned long long)nhalos);                                                       \
+        ERROR_LOG("merger link '%s'[%llu] = %lld is outside [-1, %llu)", macro_field->name,        \
+                  (unsigned long long)mi, (long long)macro_v, (unsigned long long)nhalos);         \
         status = CT_H5_ERR;                                                                        \
         goto cleanup;                                                                              \
       }                                                                                            \
@@ -840,12 +836,12 @@ static int load_forestinfo_cache_ctrees_hdf5(const int start_filenum, const int 
 
     finfo_dset = H5Dopen2(CTH.h5_file_groups[ifile], "ForestInfo", H5P_DEFAULT);
     if (finfo_dset < 0) {
-      fprintf(stderr, "Error: Could not open 'ForestInfo' in file %d\n", ifile);
+      ERROR_LOG("Could not open 'ForestInfo' in file %d", ifile);
       goto forestinfo_cache_cleanup;
     }
     finfo_fspace = H5Dget_space(finfo_dset);
     if (finfo_fspace < 0) {
-      fprintf(stderr, "Error: Could not get 'ForestInfo' space in file %d\n", ifile);
+      ERROR_LOG("Could not get 'ForestInfo' space in file %d", ifile);
       goto forestinfo_cache_cleanup;
     }
     hsize_t finfo_length = 0;
@@ -853,42 +849,39 @@ static int load_forestinfo_cache_ctrees_hdf5(const int start_filenum, const int 
       goto forestinfo_cache_cleanup;
     }
     if ((hsize_t)nforests_this_file != finfo_length) {
-      fprintf(stderr,
-              "Error: file %d reports %" PRId64 " forests but 'ForestInfo' contains %llu rows\n",
-              ifile, nforests_this_file, (unsigned long long)finfo_length);
+      ERROR_LOG("file %d reports %" PRId64 " forests but 'ForestInfo' contains %llu rows", ifile,
+                nforests_this_file, (unsigned long long)finfo_length);
       goto forestinfo_cache_cleanup;
     }
     finfo_file_dtype = H5Dget_type(finfo_dset);
     if (finfo_file_dtype < 0) {
-      fprintf(stderr, "Error: Could not get 'ForestInfo' datatype in file %d\n", ifile);
+      ERROR_LOG("Could not get 'ForestInfo' datatype in file %d", ifile);
       goto forestinfo_cache_cleanup;
     }
     const size_t dtype_size = H5Tget_size(finfo_file_dtype);
     if (dtype_size != sizeof(struct ctrees_forestinfo)) {
-      fprintf(stderr,
-              "Error: file %d 'ForestInfo' record is %zu bytes on disk but the reader expects %zu "
-              "(4 x int64); dataset layout mismatch\n",
-              ifile, dtype_size, sizeof(struct ctrees_forestinfo));
+      ERROR_LOG("file %d 'ForestInfo' record is %zu bytes on disk but the reader expects %zu "
+                "(4 x int64); dataset layout mismatch",
+                ifile, dtype_size, sizeof(struct ctrees_forestinfo));
       goto forestinfo_cache_cleanup;
     }
     finfo_mem_dtype = create_forestinfo_memory_type_ctrees_hdf5();
     if (finfo_mem_dtype < 0) {
-      fprintf(stderr, "Error: Could not create cached 'ForestInfo' memory datatype for file %d\n",
-              ifile);
+      ERROR_LOG("Could not create cached 'ForestInfo' memory datatype for file %d", ifile);
       goto forestinfo_cache_cleanup;
     }
 
     const hsize_t count = (hsize_t)nforests_this_file;
     finfo_memspace = H5Screate_simple(1, &count, NULL);
     if (finfo_memspace < 0) {
-      fprintf(stderr, "Error: Could not create cached 'ForestInfo' memspace for file %d\n", ifile);
+      ERROR_LOG("Could not create cached 'ForestInfo' memspace for file %d", ifile);
       goto forestinfo_cache_cleanup;
     }
     CTH.forestinfo_cache[ifile] =
         mymalloc_cat(count * sizeof(*CTH.forestinfo_cache[ifile]), MEM_IO);
     if (H5Dread(finfo_dset, finfo_mem_dtype, finfo_memspace, finfo_fspace, H5P_DEFAULT,
                 CTH.forestinfo_cache[ifile]) < 0) {
-      fprintf(stderr, "Error: Could not read cached 'ForestInfo' rows in file %d\n", ifile);
+      ERROR_LOG("Could not read cached 'ForestInfo' rows in file %d", ifile);
       goto forestinfo_cache_cleanup;
     }
     for (int64_t row = 0; row < nforests_this_file; row++) {
@@ -932,12 +925,12 @@ static int read_nhalos_for_file(const int ifile, const int64_t nforests_this_fil
   snprintf(dataset_name, sizeof(dataset_name), "File%d/ForestInfo", ifile);
   finfo_dset = H5Dopen2(CTH.meta_fd, dataset_name, H5P_DEFAULT);
   if (finfo_dset < 0) {
-    fprintf(stderr, "Error: Could not open 'ForestInfo' in file %d\n", ifile);
+    ERROR_LOG("Could not open 'ForestInfo' in file %d", ifile);
     goto forestinfo_cleanup;
   }
   finfo_fspace = H5Dget_space(finfo_dset);
   if (finfo_fspace < 0) {
-    fprintf(stderr, "Error: Could not get 'ForestInfo' space in file %d\n", ifile);
+    ERROR_LOG("Could not get 'ForestInfo' space in file %d", ifile);
     goto forestinfo_cleanup;
   }
   hsize_t finfo_length = 0;
@@ -945,36 +938,34 @@ static int read_nhalos_for_file(const int ifile, const int64_t nforests_this_fil
     goto forestinfo_cleanup;
   }
   if ((hsize_t)nforests_this_file != finfo_length) {
-    fprintf(stderr,
-            "Error: file %d reports %" PRId64 " forests but 'ForestInfo' contains %llu rows\n",
-            ifile, nforests_this_file, (unsigned long long)finfo_length);
+    ERROR_LOG("file %d reports %" PRId64 " forests but 'ForestInfo' contains %llu rows", ifile,
+              nforests_this_file, (unsigned long long)finfo_length);
     goto forestinfo_cleanup;
   }
   const hsize_t count = (hsize_t)nforests_this_file;
   finfo_memspace = H5Screate_simple(1, &count, NULL);
   if (finfo_memspace < 0) {
-    fprintf(stderr, "Error: Could not create 'ForestInfo' memspace\n");
+    ERROR_LOG("Could not create 'ForestInfo' memspace");
     goto forestinfo_cleanup;
   }
   nhalos_dtype = H5Tcreate(H5T_COMPOUND, sizeof(int64_t));
   if (nhalos_dtype < 0) {
-    fprintf(stderr, "Error: Could not create compound type (file %d)\n", ifile);
+    ERROR_LOG("Could not create compound type (file %d)", ifile);
     goto forestinfo_cleanup;
   }
   if (H5Tinsert(nhalos_dtype, "ForestNhalos", 0, H5T_NATIVE_INT64) < 0) {
-    fprintf(stderr, "Error: Could not insert 'ForestNhalos' field (file %d)\n", ifile);
+    ERROR_LOG("Could not insert 'ForestNhalos' field (file %d)", ifile);
     goto forestinfo_cleanup;
   }
   if (H5Dread(finfo_dset, nhalos_dtype, finfo_memspace, finfo_fspace, H5P_DEFAULT,
               nhalos_per_forest) < 0) {
-    fprintf(stderr, "Error: Could not read 'ForestNhalos' (file %d)\n", ifile);
+    ERROR_LOG("Could not read 'ForestNhalos' (file %d)", ifile);
     goto forestinfo_cleanup;
   }
   for (int64_t i = 0; i < nforests_this_file; i++) {
     if (nhalos_per_forest[i] < 0) {
-      fprintf(stderr,
-              "Error: file %d ForestInfo row %" PRId64 " has negative ForestNhalos=%" PRId64 "\n",
-              ifile, i, nhalos_per_forest[i]);
+      ERROR_LOG("file %d ForestInfo row %" PRId64 " has negative ForestNhalos=%" PRId64 "", ifile,
+                i, nhalos_per_forest[i]);
       goto forestinfo_cleanup;
     }
   }
@@ -1026,7 +1017,7 @@ static int build_chunk_plan_ctrees_hdf5(void) {
   for (int ifile = CTH.firstfile; ifile <= CTH.lastfile; ifile++) {
     const int64_t nforests_this_file = CTH.nforests_per_file[ifile];
     if ((uint64_t)nforests_this_file > (uint64_t)(SIZE_MAX / sizeof(double))) {
-      fprintf(stderr, "Error: file %d has too many forests to stage planning buffers\n", ifile);
+      ERROR_LOG("file %d has too many forests to stage planning buffers", ifile);
       chunk_plan_free(&builder.plan);
       return CT_H5_ERR;
     }
@@ -1044,17 +1035,15 @@ static int build_chunk_plan_ctrees_hdf5(void) {
       cost_per_forest[i] = compute_forest_cost_from_nhalos(scheme, nhalos_per_forest[i],
                                                            MimicConfig.Exponent_Forest_Dist_Scheme);
       if (cost_per_forest[i] < 0.0 || !isfinite(cost_per_forest[i])) {
-        fprintf(stderr,
-                "Error: invalid Consistent-Trees HDF5 forest cost %g for forest %" PRId64 "\n",
-                cost_per_forest[i], CTH.first_forest_in_file[ifile] + i);
+        ERROR_LOG("invalid Consistent-Trees HDF5 forest cost %g for forest %" PRId64 "",
+                  cost_per_forest[i], CTH.first_forest_in_file[ifile] + i);
         file_status = CT_H5_ERR;
       }
     }
     if (file_status == EXIT_SUCCESS &&
         chunk_plan_builder_add_file_with_cost(&builder, nforests_this_file, size_per_forest,
                                               cost_per_forest) != 0) {
-      fprintf(stderr, "Error: failed to feed file %d into Consistent-Trees HDF5 chunk planner\n",
-              ifile);
+      ERROR_LOG("failed to feed file %d into Consistent-Trees HDF5 chunk planner", ifile);
       file_status = CT_H5_ERR;
     }
 

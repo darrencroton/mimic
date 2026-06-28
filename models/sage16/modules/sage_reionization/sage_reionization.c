@@ -13,6 +13,7 @@
 
 #include "constants.h"
 #include "error.h"
+#include "globals.h"
 #include "module_system/parameter_helpers.h"
 #include "module_interface.h"
 #include "module_registry.h"
@@ -102,6 +103,18 @@ static double calculate_reionization_modifier(const struct ModuleContext *ctx, f
 int sage_reionization_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("GlobalBaryonFraction", GLOBAL_BARYON_FRAC, 0.0, 1.0,
                                     "cosmic baryon fraction must be physical");
+
+  /* Ordering: reionization writes HaloBaryonFraction, so it must run before any same-phase
+     consumer. sage_prepare_infall_budget is the pre_timestep consumer; later-phase consumers
+     (e.g. sage_satellite_stripping) are structurally guaranteed to run after pre_timestep. */
+  if (module_configured_in_phase("sage_prepare_infall_budget", MimicConfig.pre_timestep,
+                                 MimicConfig.num_pre_timestep, PROCESSING_MODE_FULL_HALO) &&
+      !module_precedes_in_phase("sage_reionization", "sage_prepare_infall_budget",
+                                MimicConfig.pre_timestep, MimicConfig.num_pre_timestep)) {
+    ERROR_LOG("sage_reionization must run before sage_prepare_infall_budget in pre_timestep — "
+              "it sets HaloBaryonFraction that the infall budget reads");
+    return -1;
+  }
 
   VERBOSE_LOG("SAGE reionization module initialized");
   VERBOSE_LOG("  GlobalBaryonFraction = %.4f", GLOBAL_BARYON_FRAC);

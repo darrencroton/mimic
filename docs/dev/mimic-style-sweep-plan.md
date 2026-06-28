@@ -103,7 +103,7 @@ Run: `make`, output-format and tree-reader tests as relevant.
 
 Status: ✓ Complete — 2026-06-27
 Style debt:
-- `src/io/tree/read_ctrees_ascii.c`: uses `fprintf(stderr, "Error: ...")` rather than Mimic logging macros — vendored pattern inherited from the Consistent-Trees parser; out-of-scope for a light-touch pass, flagged for a future ctrees-boundary audit.
+- `src/io/tree/read_ctrees_ascii.c`: used `fprintf(stderr, "Error: ...")` rather than Mimic logging macros — these are Mimic *seam* files (they include `error.h` and already use `DEBUG_LOG`), so the raw `fprintf` was an internal inconsistency, not a vendored pattern. The 51 error `fprintf(stderr, ...)` calls in both seam files (`read_ctrees_ascii.c`, `read_ctrees_hdf5.c`) now use `ERROR_LOG`; the genuinely vendored helpers under `src/io/tree/ctrees/` and the `XRETURN(..., CT_H5_ERR, ...)` macro pattern are left as the vendored boundary. ✓ resolved — 2026-06-28 (Batch 18)
 - `src/io/output/hdf5.c`: `// Create datatypes for different size arrays` comment and `array3f_tid` variable in `calc_hdf5_props()` — mild describe-the-code noise; the comment now states that the type is shared by generated vector fields and closed during HDF5 cleanup. ✓ resolved — 2026-06-27
 
 ---
@@ -172,7 +172,7 @@ Run: targeted scripts; full `make tests-integration summary` only when needed.
 
 Status: ✓ Complete — 2026-06-28
 Style debt:
-- `test_full_pipeline.py`: `test_stdout_content` asserts only that `"Mimic"` appears somewhere in combined output — very weak check. Strengthening it would require knowing stable log phrasing; left as a future functional improvement, not a style issue.
+- `test_full_pipeline.py`: `test_stdout_content` asserted only that `"Mimic"` appears somewhere in combined output — very weak. Strengthened to assert three run milestones that are stable across both default and verbose modes ("Mimic Galaxy Evolution Framework", "Processing 1 input file", "Mimic completed successfully"); the default-only configuration/output lines were deliberately avoided because `run_mimic()` runs with `--verbose`, which replaces them with section banners. ✓ resolved — 2026-06-28 (Batch 18)
 - `test_galaxy_major_loop.py`, `test_phase_execution.py`, `test_processing_modes.py`, `test_substeps.py`: use `# ===== SETUP/EXECUTE/VALIDATE/CLEANUP =====` section banners inside Python test functions — pattern is internally consistent across these four files; diverges from `test_full_pipeline.py` reference but is not wrong. Left in place.
 - `test_module_pipeline.py`, `test_processing_order.py`: `TestSkipped` guards on `MIMIC_EXE.exists()` are in `main()` rather than per-test. Consistent with the local pattern; adding per-test guards is a functional change beyond the sweep scope.
 
@@ -208,8 +208,8 @@ Run: module-owned unit/integration tests touched.
 
 Status: ✓ Complete — 2026-06-28
 Style debt:
-- `sage_prepare_infall_budget/README.md`: "Ordering" section added with soft note (no init() enforcement exists); could be strengthened by adding an init() check mirroring `sage_apply_infall`, but that is a functional change beyond sweep scope.
-- `sage_reionization/README.md`: same — ordering note is soft guidance, not enforced.
+- `sage_prepare_infall_budget/README.md`: "Ordering" section was a soft note (no init() enforcement). `init()` now enforces that `sage_reionization`, when configured in `pre_timestep`, precedes this module (reionization stays optional via the `HaloBaryonFraction` fallback). README updated to match. ✓ resolved — 2026-06-28 (Batch 18)
+- `sage_reionization/README.md`: `init()` now enforces that reionization precedes `sage_prepare_infall_budget` when both are in `pre_timestep`; later-phase consumers are structurally after `pre_timestep`. README updated to match. ✓ resolved — 2026-06-28 (Batch 18)
 - `sage_radio_mode_heating/README.md`: missing "Ordering" section — soft ordering guidance now records the budget dependency without implying runtime enforcement. ✓ resolved — 2026-06-28
 - `sage_calculate_cooling_budget/_tests/test_unit_sage_calculate_cooling_budget.c`: `test_module_registration` function uses a different structure (runs `init` inside the test rather than using `TEST_SKIP_WITH` guard) — pattern is load-bearing for the test logic; not a style issue to resolve without changing behavior.
 
@@ -225,7 +225,7 @@ Run: module-owned tests.
 
 Status: ✓ Complete — 2026-06-28
 Style debt:
-- `sage_apply_metal_enrichment/module_info.yaml`: `tests.unit` and `tests.integration` are blank (null) — no test files exist for this module. Left as-is; adding tests would be a functional change beyond sweep scope.
+- `sage_apply_metal_enrichment/module_info.yaml`: `tests.unit` and `tests.integration` were blank (null) — no test files existed. Added `_tests/test_unit_sage_apply_metal_enrichment.c` (11 cases: registration, init lifecycle, both ordering-rejection paths, above/below cold-gas-threshold yield split, NewStellarMass consumption, zero-stars, NULL galaxy, NULL central, invalid ngal) and `_tests/test_integration_sage_apply_metal_enrichment.py` (standalone load, parameter config, leak check, output properties), both wired into `module_info.yaml`. ✓ resolved — 2026-06-28 (Batch 18)
 - `sage_calculate_supernova_feedback/_tests/test_unit_sage_calculate_supernova_feedback.c`: file-header Doxygen uses markdown `**bold**` within C comment blocks — renders in some Doxygen toolchains but is non-standard; left in place as it is consistent within the file and harmless. ✓ resolved — 2026-06-28
 
 ---
@@ -291,8 +291,8 @@ Run: package-specific validation/tests where available.
 
 Status: ✓ Complete — 2026-06-28
 Style debt:
-- `models/halos-only/modules/_tests/test_integration_halos_only_package.py`: `test_runtime_reports_physics_free_mode` fails when the executable is built with `MODEL=halos-only` because `create_test_param_file` generates a sage16-based run file. Pre-existing failure, unrelated to this sweep; needs `create_test_param_file` to accept a model override parameter.
-- `models/sham/model_properties.yaml` `ShamOrphanAge.units: Myr/h` — may be incorrect (orphan age is accumulated from `dT * UnitTime_in_s / SEC_PER_MEGAYEAR` which yields physical Myr, but `UnitTime_in_s` carries h-convention from `Mpc/h / (km/s)`); left in place pending a formal unit contract review.
+- `models/halos-only/modules/_tests/test_integration_halos_only_package.py`: `test_runtime_reports_physics_free_mode` was flagged as failing under `MODEL=halos-only`. Verified under a fresh `MODEL=halos-only SIMULATION=mini-millennium` build: all three tests pass. The root cause was already fixed by intervening work — `create_test_param_file` resolves the MODEL-parameterised generated core input (so it produces a halos-only physics-free run file, not a sage16 one), and the test now raises `TestSkipped` when the executable is absent. ✓ resolved (verified, no change needed) — 2026-06-28 (Batch 18)
+- `models/sham/model_properties.yaml` `ShamOrphanAge.units: Myr/h` — verified correct: the value is accumulated as `dT * UnitTime_in_s / SEC_PER_MEGAYEAR` *without* dividing by `Hubble_h`, and `UnitTime_in_s = (Mpc/h)/(km/s)` carries the inverse-h factor, so the result is genuinely `Myr/h`. Added a `notes:` field documenting the h-convention origin to close the ambiguity. ✓ resolved — 2026-06-28 (Batch 18)
 - Several plot figure files (`halo_mass_function.py`, `hmf_evolution.py`, `spin_distribution.py`, `velocity_distribution.py`, `spatial_distribution.py`) are duplicated verbatim between `models/sham/plots/figures/` and `models/halos-only/plots/figures/` — deduplication would require a shared model-neutral plot library, which is a structural change beyond sweep scope. ✓ resolved — 2026-06-28; package-local plot duplication is expected and aligned with the model self-containment rule.
 
 ---
@@ -333,6 +333,16 @@ Style debt:
 Scope: repo-level status after all sweep batches.
 Goal: confirm the sweep is complete and consistent before tagging v1.0.
 Run: `./scripts/beautify.sh`, `make check-format`, `make check-docs`, `make validate-modules`, `make check-generated`, then `make tests summary`.
+
+Status: ✓ Complete — 2026-06-28
+Holistic pass: repo-wide light-touch scan found no new style debt — all gates (`check-format`, `check-docs`, `validate-modules`, `check-generated`) pass, no stray `TODO/FIXME` (only intentional `template_module.c` placeholders), no raw `printf` in module code. Batches 1–17 left the codebase consistent.
+Style debt resolved in this batch (user-approved decisions):
+- Batch 4 — converted 51 error `fprintf(stderr, ...)` calls in the ctrees Mimic-seam files (`read_ctrees_ascii.c`, `read_ctrees_hdf5.c`) to `ERROR_LOG`; vendored `ctrees/` subdir and `XRETURN`/`CT_H5_ERR` macro left as the vendored boundary.
+- Batch 10 — added `init()` ordering enforcement (via `module_precedes_in_phase`) to `sage_prepare_infall_budget` and `sage_reionization`, with READMEs updated; reionization stays optional through the `HaloBaryonFraction` fallback.
+- Batch 11 — added unit + integration tests for `sage_apply_metal_enrichment` and wired them into `module_info.yaml`.
+- Batch 15 — verified the halos-only integration test passes under `MODEL=halos-only` (no change needed); confirmed `ShamOrphanAge.units: Myr/h` is correct and added a `notes:` field documenting the h-convention.
+- Batch 8 — strengthened `test_full_pipeline.py::test_stdout_content` to assert stable INFO run milestones.
+Style debt deliberately left (acceptable, documented in their batch sections): Batch 2 `types.h` flag comments; Batch 6 `benchmark_mimic.sh` heredoc; Batch 7 self-documenting static test helpers; Batch 9 `MergTime.units: Internal`; Batch 13 fixture/raw-assert helper patterns; Batch 16 5-line WHY comment. None block v1.0.
 
 ---
 

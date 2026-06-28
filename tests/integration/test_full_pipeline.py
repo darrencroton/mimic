@@ -192,10 +192,15 @@ def test_output_loadable():
 
 def test_stdout_content():
     """
-    Test that Mimic produces expected output messages
+    Test that Mimic logs its key run milestones
 
-    Expected: Key progress messages in stdout
-    Validates: Execution flow and logging
+    Expected: startup, processing, and completion milestones in output
+    Validates: the run-lifecycle messages emitted in src/core/main.c and
+               src/core/tree_driver.c stay present and stable
+
+    Only milestones that appear in both default and verbose modes are checked,
+    because run_mimic() runs with --verbose (which replaces the default
+    configuration/output lines with section banners).
     """
     print("Testing stdout content...")
 
@@ -203,15 +208,15 @@ def test_stdout_content():
     returncode, stdout, stderr = run_mimic(param_file)
     assert returncode == 0, f"{RED}Mimic execution failed{NC}"
 
-    # Check for key messages
-    assert "Mimic" in stdout or "Mimic" in stderr, f"{RED}Should mention 'Mimic' in output{NC}"
-
-    # Check for processing messages
-    # (specific messages may vary, this is a basic check)
     output_combined = stdout + stderr
-    assert len(output_combined) > 0, f"{RED}Should produce some output{NC}"
+    for milestone in (
+        "Mimic Galaxy Evolution Framework",  # startup banner
+        "Processing 1 input file",  # tree driver begins
+        "Mimic completed successfully",  # clean completion
+    ):
+        assert milestone in output_combined, f"{RED}Missing run milestone: '{milestone}'{NC}"
 
-    print("  ✓ Stdout contains expected content")
+    print("  ✓ Stdout contains expected run milestones")
 
 
 def main():
