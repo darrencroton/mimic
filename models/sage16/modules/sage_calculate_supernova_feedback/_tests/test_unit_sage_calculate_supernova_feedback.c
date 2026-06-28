@@ -6,12 +6,12 @@
  *
  * This test suite validates both software quality and physics correctness:
  *
- * **Software Quality Tests**:
+ * Software quality tests:
  * - Module registration and initialization
  * - Parameter reading and validation (FeedbackReheatingEpsilon, FeedbackEjectionEfficiency)
  * - Memory safety (no leaks)
  *
- * **Physics Tests**:
+ * Physics tests:
  * - Reheating calculation (proportional to stars formed)
  * - Ejection calculation (energy-based, depends on central Vvir)
  * - Renormalization (scales stars and reheating when exceeding ColdGas)

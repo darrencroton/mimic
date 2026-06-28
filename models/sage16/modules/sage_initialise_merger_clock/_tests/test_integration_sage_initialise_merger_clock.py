@@ -36,12 +36,7 @@ from framework import (
 
 
 def test_module_loads():
-    """
-    Test that sage_initialise_merger_clock module loads and initializes successfully
-
-    Expected: Module initialization succeeds without errors
-    Validates: Module registration, initialization, and cleanup lifecycle
-    """
+    """Test module registration, initialization, and cleanup lifecycle."""
     print("Testing module load and initialization...")
 
     # ===== SETUP =====
@@ -74,12 +69,7 @@ def test_module_loads():
 
 
 def test_memory_safety():
-    """
-    Test that sage_initialise_merger_clock doesn't leak memory
-
-    Expected: No memory leak messages in output
-    Validates: Proper memory management in module
-    """
+    """Test that the module run does not report memory leaks."""
     print("Testing memory safety...")
 
     # ===== SETUP =====
@@ -109,12 +99,7 @@ def test_memory_safety():
 
 
 def test_output_properties_exist():
-    """
-    Test that MergTime property exists in output and is accessible from Python
-
-    Expected: MergTime exists in binary output
-    Validates: C-Python bindings for property access
-    """
+    """Test that required output properties are accessible from Python."""
     print("Testing output property existence...")
 
     # ===== SETUP =====
@@ -157,12 +142,7 @@ def test_output_properties_exist():
 
 
 def test_output_property_types():
-    """
-    Test that output properties have correct data types
-
-    Expected: Type is int32, Mvir/infallMvir are float32
-    Validates: Type safety in C-Python bindings
-    """
+    """Test binary output dtypes for the properties used by this module."""
     print("Testing output property types...")
 
     # ===== SETUP =====
@@ -202,12 +182,7 @@ def test_output_property_types():
 
 
 def test_output_sanity_checks():
-    """
-    Test that output values are in reasonable ranges
-
-    Expected: Non-negative masses, no NaN/Inf values
-    Validates: Module produces physically valid output
-    """
+    """Test that output values are finite and in basic physical ranges."""
     print("Testing output sanity checks...")
 
     # ===== SETUP =====
@@ -250,13 +225,7 @@ def test_output_sanity_checks():
 
 
 def test_data_flow_validation():
-    """
-    Test that module actually processes data (not just passes through unchanged)
-
-    Expected: Module executes and produces output with expected structure
-    Validates: Data flows through module correctly
-    Note: Doesn't validate physics, just that processing occurs
-    """
+    """Test that the module executes and produces structured output data."""
     print("Testing data flow validation...")
 
     # ===== SETUP =====
@@ -307,12 +276,7 @@ def test_data_flow_validation():
 
 
 def test_standalone_execution():
-    """
-    Test that sage_initialise_merger_clock runs standalone without dependencies
-
-    Expected: Module executes without requiring other physics modules
-    Validates: Module self-containment and independence
-    """
+    """Test that the module runs without other physics modules."""
     print("Testing standalone execution...")
 
     # ===== SETUP =====
@@ -347,12 +311,7 @@ def test_standalone_execution():
 
 
 def test_with_infall_module():
-    """
-    Test module works correctly when paired with infall properties module
-
-    Expected: When infall properties are set, satellites get MergTime calculated
-    Validates: Module integration with upstream modules
-    """
+    """Test behavior with the legacy infall-properties module when available."""
     print("Testing with infall module...")
 
     # ===== SETUP =====
@@ -376,11 +335,14 @@ def test_with_infall_module():
 
     # ===== VALIDATE =====
     if returncode != 0:
-        # sage_set_infall_properties might not exist, that's OK
-        print(f"  ⚠ sage_set_infall_properties not available (expected in some configurations)")
         shutil.rmtree(test_temp_dir)
-        print("  ✓ Tested (module not available)")
-        return
+        combined_output = f"{stdout}\n{stderr}"
+        unknown_module = "sage_set_infall_properties" in combined_output and (
+            "not registered" in combined_output or "Unknown module" in combined_output
+        )
+        if unknown_module:
+            raise TestSkipped("sage_set_infall_properties is not available in this model package")
+        assert False, f"Mimic should execute successfully\nStderr: {stderr}"
 
     output_file = output_dir / "model_z0.000_0"
     halos, metadata = load_binary_halos(str(output_file))
@@ -400,12 +362,7 @@ def test_with_infall_module():
 
 
 def main():
-    """
-    Main test runner
-
-    Executes all test cases and reports results.
-    Can be run directly or via pytest.
-    """
+    """Run all integration test cases with structured result markers."""
     print(f"{BLUE}{'=' * 60}{NC}")
     print(f"{BLUE}Test Suite: SAGE Calculate Merger Timescale Integration Tests{NC}")
     print(f"{BLUE}{'=' * 60}{NC}")

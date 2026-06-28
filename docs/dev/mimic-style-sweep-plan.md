@@ -210,7 +210,7 @@ Status: ✓ Complete — 2026-06-28
 Style debt:
 - `sage_prepare_infall_budget/README.md`: "Ordering" section added with soft note (no init() enforcement exists); could be strengthened by adding an init() check mirroring `sage_apply_infall`, but that is a functional change beyond sweep scope.
 - `sage_reionization/README.md`: same — ordering note is soft guidance, not enforced.
-- `sage_radio_mode_heating/README.md`: "Ordering" section not added — the module has no init() enforcement and the processing contract already states expected order. Adding a soft Ordering section would duplicate the contract without adding enforcement.
+- `sage_radio_mode_heating/README.md`: missing "Ordering" section — soft ordering guidance now records the budget dependency without implying runtime enforcement. ✓ resolved — 2026-06-28
 - `sage_calculate_cooling_budget/_tests/test_unit_sage_calculate_cooling_budget.c`: `test_module_registration` function uses a different structure (runs `init` inside the test rather than using `TEST_SKIP_WITH` guard) — pattern is load-bearing for the test logic; not a style issue to resolve without changing behavior.
 
 ---
@@ -226,7 +226,7 @@ Run: module-owned tests.
 Status: ✓ Complete — 2026-06-28
 Style debt:
 - `sage_apply_metal_enrichment/module_info.yaml`: `tests.unit` and `tests.integration` are blank (null) — no test files exist for this module. Left as-is; adding tests would be a functional change beyond sweep scope.
-- `sage_calculate_supernova_feedback/_tests/test_unit_sage_calculate_supernova_feedback.c`: file-header Doxygen uses markdown `**bold**` within C comment blocks — renders in some Doxygen toolchains but is non-standard; left in place as it is consistent within the file and harmless.
+- `sage_calculate_supernova_feedback/_tests/test_unit_sage_calculate_supernova_feedback.c`: file-header Doxygen uses markdown `**bold**` within C comment blocks — renders in some Doxygen toolchains but is non-standard; left in place as it is consistent within the file and harmless. ✓ resolved — 2026-06-28
 
 ---
 
@@ -241,7 +241,7 @@ Run: module-owned tests plus merger/event tests if touched.
 
 Status: ✓ Complete — 2026-06-28
 Style debt:
-- `test_integration_sage_initialise_merger_clock.py` — verbose per-function docstrings (`Expected:` / `Validates:` boilerplate) left as-is; not incorrect, low priority.
+- `test_integration_sage_initialise_merger_clock.py` — verbose per-function docstrings (`Expected:` / `Validates:` boilerplate) left as-is; not incorrect, low priority. ✓ resolved — 2026-06-28
 - `models/sage16/modules/sage_resolve_mergers_and_disruption/sage_merger_ops.h` — out of scope for per-file sweep (shared header with no issues), no changes needed.
 
 ---

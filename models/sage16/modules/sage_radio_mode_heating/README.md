@@ -10,7 +10,7 @@ Suppresses cooling through AGN radio-mode heating. The selected accretion/heatin
 
 ## Properties
 
-- Reads: `Type`, `HaloNr`, `SnapNum`, `dT`, `Mvir`, `Vvir`, `Rvir`, `CoolingGas`, `BlackHoleMass`, `HotGas`, `MetalsHotGas`, `CoolingLambda`, `Rcool`
+- Reads: `Type`, `HaloNr`, `SnapNum`, `dT`, `Mvir`, `Vvir`, `Rvir`, `CoolingGas`, `BlackHoleMass`, `HotGas`, `MetalsHotGas`, `CoolingLambda`, `Rheat`, `Rcool`
 - Writes: `CoolingGas`, `BlackHoleMass`, `HotGas`, `MetalsHotGas`, `Rheat`, `Heating`
 
 ## Parameters
@@ -18,6 +18,13 @@ Suppresses cooling through AGN radio-mode heating. The selected accretion/heatin
 - `RadioModeEfficiency`
 - `AGNrecipe`
 
+## Ordering
+
+**Advisory (no `init()` enforcement):**
+
+1. Run after `sage_calculate_cooling_budget` so `CoolingGas`, `CoolingLambda`, `Rcool`, and the previous `Rheat` are available.
+2. Run before `sage_apply_cooling` so the apply step commits the suppressed cooling budget rather than the raw cooling budget.
+
 ## Notes
 
-`CoolingGas` remains a transport budget after this module. Place `sage_apply_cooling` after radio-mode heating so it applies the suppressed cooling budget.
+`CoolingGas` remains a transport budget after this module.
