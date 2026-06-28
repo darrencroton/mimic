@@ -322,6 +322,10 @@ Examples:
 - `models/sage16/modules/sage_apply_cooling/README.md` — module README template: Processing Contract / Ordering / Properties / Parameters / Notes.
 Run: `make check-docs`.
 
+Status: ✓ Complete — 2026-06-28
+Style debt:
+- `docs/USER-GUIDE.md`, `tests/README.md`, `plot/mimic-plot/README.md`: Documentation Directory sections were missing the `STYLE-GUIDE.md` entry present in all other canonical docs (`docs/VISION.md`, `docs/DEVELOPER-GUIDE.md`). ✓ resolved — 2026-06-28
+
 ---
 
 ### 18. Final Integration Pass

@@ -585,6 +585,7 @@ The plotting system is organized around these key components:
 - [docs/VISION.md](../../docs/VISION.md): architectural principles and design boundaries
 - [docs/USER-GUIDE.md](../../docs/USER-GUIDE.md): installation, run configuration, output analysis, plotting, and troubleshooting
 - [docs/DEVELOPER-GUIDE.md](../../docs/DEVELOPER-GUIDE.md): extending models, modules, simulations, properties, tests, and generated metadata
+- [docs/STYLE-GUIDE.md](../../docs/STYLE-GUIDE.md): naming, comments, documentation, metadata, tests, and review conventions
 - [tests/README.md](../../tests/README.md): test-suite quick reference
 - `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references
 - `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes
