@@ -339,6 +339,7 @@ Holistic pass: repo-wide light-touch scan found no new style debt — all gates 
 Style debt resolved in this batch (user-approved decisions):
 - Batch 4 — converted 51 error `fprintf(stderr, ...)` calls in the ctrees Mimic-seam files (`read_ctrees_ascii.c`, `read_ctrees_hdf5.c`) to `ERROR_LOG`; vendored `ctrees/` subdir and `XRETURN`/`CT_H5_ERR` macro left as the vendored boundary.
 - Batch 10 — added `init()` ordering enforcement (via `module_precedes_in_phase`) to `sage_prepare_infall_budget` and `sage_reionization`, with READMEs updated; reionization stays optional through the `HaloBaryonFraction` fallback.
+- Code review follow-up — added `test_dep_prepare_infall_reionization_wrong_order_error` to `test_unit_sage_dependency_contracts.c` so the new pre-timestep ordering rejection is covered by the SAGE dependency-contract unit suite.
 - Batch 11 — added unit + integration tests for `sage_apply_metal_enrichment` and wired them into `module_info.yaml`.
 - Batch 15 — verified the halos-only integration test passes under `MODEL=halos-only` (no change needed); confirmed `ShamOrphanAge.units: Myr/h` is correct and added a `notes:` field documenting the h-convention.
 - Batch 8 — strengthened `test_full_pipeline.py::test_stdout_content` to assert stable INFO run milestones.

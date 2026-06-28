@@ -66,6 +66,8 @@ param_file = create_test_param_file(
 MODEL=sage16 SIMULATION=mini-millennium python3 tests/integration/test_foo.py
 ```
 
+Python harness helpers live in `tests/framework/harness.py` and are re-exported by `tests/framework/__init__.py`; there is no `tests/framework/mimic_test_helpers.py`.
+
 ## Model-Specific Integration Tests
 
 Use the module name in `phase_config` instead of `test_fixture`. The model name validation in `read_parameter_file.c` enforces the test only runs for the correct MODEL.

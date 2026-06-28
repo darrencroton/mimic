@@ -79,6 +79,42 @@ int test_dep_apply_infall_missing_prepare_error(void) {
 }
 
 /**
+ * @test    test_dep_prepare_infall_reionization_wrong_order_error
+ * @brief   sage_reionization must precede sage_prepare_infall_budget in pre_timestep (ERROR)
+ */
+int test_dep_prepare_infall_reionization_wrong_order_error(void) {
+  reset_config();
+  init_memory_system(0);
+  ensure_modules_registered();
+
+  /* Wrong order: infall would read HaloBaryonFraction before reionization writes it. */
+  test_pre_timestep_add("sage_prepare_infall_budget", PROCESSING_MODE_FULL_HALO);
+  test_pre_timestep_add("sage_reionization", PROCESSING_MODE_FULL_HALO);
+  MimicConfig.SubSteps = 1;
+  set_test_model_parameters();
+
+  FILE *capture = tmpfile();
+  FILE *old_out = set_log_output(capture);
+  int result = module_system_init();
+  set_log_output(old_out);
+  const char *log = read_captured_log(capture);
+
+  TEST_ASSERT(result != 0, "sage_prepare_infall_budget before sage_reionization must fail init");
+  TEST_ASSERT(strstr(log, "sage_reionization") != NULL,
+              "ERROR should name the required reionization predecessor");
+  TEST_ASSERT(strstr(log, "HaloBaryonFraction") != NULL,
+              "ERROR should explain the HaloBaryonFraction dependency");
+
+  fclose(capture);
+  if (result == 0) {
+    module_system_cleanup();
+  }
+  test_free_pre_timestep();
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
  * @test    test_dep_apply_cooling_wrong_order_error
  * @brief   sage_apply_cooling requires sage_calculate_cooling_budget to precede it (ERROR)
  */
@@ -433,6 +469,7 @@ int main(void) {
   init_memory_system(0);
 
   TEST_RUN(test_dep_apply_infall_missing_prepare_error);
+  TEST_RUN(test_dep_prepare_infall_reionization_wrong_order_error);
   TEST_RUN(test_dep_apply_cooling_wrong_order_error);
   TEST_RUN(test_dep_supernova_wrong_order_error);
   TEST_RUN(test_dep_apply_sfn_wrong_order_error);
