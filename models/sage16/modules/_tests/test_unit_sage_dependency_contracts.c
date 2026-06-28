@@ -446,10 +446,5 @@ int main(void) {
   TEST_RUN(test_dep_starburst_warns_no_quasar_mode);
 
   TEST_SUMMARY();
-
-  printf("\n");
-  printf("Memory leak check:\n");
-  print_allocated();
-
   return TEST_RESULT();
 }

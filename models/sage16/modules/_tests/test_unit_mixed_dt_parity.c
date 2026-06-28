@@ -33,8 +33,6 @@
  *   RADIO MODE HEATING TESTS:
  *   - test_mixed_dt_radio_mode_ignores_global: AGN heating uses halo->dT, not ctx->substep_dt
  *
- * @author  Mimic Development Team
- * @date    2026-03-07
  */
 
 #include "../../../tests/framework/test_framework.h"

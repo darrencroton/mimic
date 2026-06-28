@@ -14,11 +14,11 @@
 #
 # Tests can be listed in block format or inline:
 #   E.g. inline:
-#     unit: [_tests/test_unit_foo.c, _tests/test_unit_bar.c]
+#     unit: [test_unit_foo.c, test_unit_bar.c]
 #   E.g. block (recommended for readability):
 #     unit:
-#       - _tests/test_unit_foo.c
-#       - _tests/test_unit_bar.c
+#       - test_unit_foo.c
+#       - test_unit_bar.c
 #
 # See: docs/DEVELOPER-GUIDE.md for comprehensive testing guide
 

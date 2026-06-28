@@ -43,16 +43,16 @@ models/sage16/modules/_tests/test_scientific_my_module.py
 
 ### 2. Register in module_info.yaml
 
-Edit `models/sage16/modules/_tests/module_info.yaml`:
+Edit `models/sage16/modules/_tests/module_info.yaml` (paths are relative to this directory, so no `_tests/` prefix):
 
 ```yaml
 tests:
   unit:
-    - _tests/test_unit_my_module.c
+    - test_unit_my_module.c
   integration:
-    - _tests/test_integration_my_module.py
+    - test_integration_my_module.py
   scientific:
-    - _tests/test_scientific_my_module.py
+    - test_scientific_my_module.py
 ```
 
 ### 3. Regenerate Test Registry
@@ -80,86 +80,115 @@ make MODEL=sage16 tests-scientific
 ### Unit Test Template (C)
 
 ```c
-// test_unit_my_module.c
-#include <stdio.h>
-#include <assert.h>
-#include <math.h>
+/**
+ * @file    test_unit_my_module.c
+ * @brief   Cross-module tests for <what is being tested>
+ */
+#include "framework/test_framework.h"
+#include "modules/_tests/sage_test_fixtures.h"
 
-void test_my_physics_calculation(void) {
-    // Setup
-    double input = 100.0;
+int test_my_physics_calculation(void) {
+  /* SETUP */
+  init_memory_system(0);
+  reset_config();
+  set_test_model_parameters();
 
-    // Execute
-    double result = my_physics_function(input);
+  /* EXECUTE */
+  double result = my_physics_function(100.0);
 
-    // Verify
-    assert(fabs(result - expected) < 1e-6);
-    printf("test_my_physics_calculation passed\n");
+  /* VALIDATE */
+  TEST_ASSERT(result > 0.0, "Expected positive result");
+  TEST_ASSERT_DOUBLE_EQUAL(result, 42.0, 1e-6, "Result must match expected value");
+
+  /* CLEANUP */
+  check_memory_leaks();
+  return TEST_PASS;
 }
 
 int main(void) {
-    printf("Running my_module unit tests...\n");
-    test_my_physics_calculation();
-    printf("All tests passed!\n");
-    return 0;
+  printf("%s", BLUE);
+  printf("============================================================\n");
+  printf("Test Suite: My Module Tests\n");
+  printf("============================================================\n");
+  printf("%s\n", NC);
+
+  TEST_RUN(test_my_physics_calculation);
+
+  TEST_SUMMARY();
+  return TEST_RESULT();
 }
 ```
+
+See `tests/framework/c_unit_test_template.c` for the complete framework template.
 
 ### Integration Test Template (Python)
 
 ```python
 #!/usr/bin/env python3
-"""Integration test for my_module"""
+"""
+One-line description of what this test validates.
+"""
 
-import subprocess
-import h5py
-import numpy as np
-from pathlib import Path
 import sys
+from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
-from framework import core_input_file
 
-def test_my_module_integration():
-    """Test my_module in full pipeline"""
+from framework import (
+    BLUE, NC, MIMIC_EXE, TestSkipped,
+    result_error, result_fail, result_pass, result_skip,
+)
 
-    # Run Mimic
-    result = subprocess.run(
-        ['./mimic', str(core_input_file('test_hdf5.yaml'))],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True
-    )
 
-    # Verify success
-    assert result.returncode == 0, f"Mimic failed: {result.stderr}"
+def test_my_module_behavior():
+    """Test description — what contract is being verified."""
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+    # ... setup, run Mimic, assert on output ...
 
-    # Verify output
-    with h5py.File('output/test/model_000.hdf5', 'r') as f:
-        halos = f['Snap063/Galaxies'][:]
 
-        # Check property exists and is valid
-        assert 'MyProperty' in halos.dtype.names
-        assert np.all(halos['MyProperty'] >= 0.0)
+def main():
+    tests = [test_my_module_behavior]
 
-    print("Integration test passed")
+    if not MIMIC_EXE.exists():
+        for test in tests:
+            result_skip(test.__name__, "Mimic not built")
+        return 0
 
-if __name__ == '__main__':
-    test_my_module_integration()
+    passed = failed = 0
+    for test in tests:
+        try:
+            test()
+            result_pass(test.__name__)
+            passed += 1
+        except TestSkipped as e:
+            result_skip(test.__name__, str(e))
+        except AssertionError as e:
+            result_fail(test.__name__, str(e).splitlines()[0])
+            failed += 1
+        except Exception as e:
+            result_error(test.__name__, str(e).splitlines()[0])
+            failed += 1
+
+    return 0 if failed == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 ```
+
+See `tests/framework/python_integration_test_template.py` for the complete framework template.
 
 ---
 
 ## Test Discovery
 
-Tests are auto-discovered via `make MODEL=sage16 generate`, which:
+Tests are discovered via `make MODEL=sage16 generate`, which:
 
 1. Scans `module_info.yaml` for test declarations
 2. Generates test registries in `build/generated/`
 3. Test runners use these registries to find and execute tests
-
-**No manual registration needed** - just add to `module_info.yaml` and run `make MODEL=sage16 generate`.
 
 ---
 
@@ -171,16 +200,18 @@ models/sage16/modules/
 │   ├── README.md                    # This file
 │   ├── module_info.yaml             # Shared test registry
 │   ├── input/                       # Shared module-pipeline input fixtures
+│   ├── baseline/                    # Committed reference output for scientific tests
 │   ├── test_unit_*.c                # Shared unit tests
 │   ├── test_integration_*.py        # Shared integration tests
 │   └── test_scientific_*.py         # Shared scientific tests
-├── _archive/                        # Retired modules/tests
 └── my_directory_module/             # Runtime module (owns its own tests)
     ├── my_directory_module.c
     ├── module_info.yaml
     └── _tests/
         ├── test_unit_*.c
         └── test_integration_*.py
+
+Retired tests go to `archive/src-modules/_archive/` at the project root.
 ```
 
 ---
