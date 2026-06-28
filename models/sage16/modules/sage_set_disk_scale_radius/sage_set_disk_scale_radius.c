@@ -96,7 +96,6 @@ int sage_set_disk_scale_radius_process(struct ModuleContext *ctx __attribute__((
     if (halos[i].galaxy == NULL || halos[i].Type != 0) {
       continue;
     }
-    // Calculate disk scale radius from halo spin and virial properties
     halos[i].galaxy->DiskScaleRadius = calculate_disk_radius(
         halos[i].Spin[0], halos[i].Spin[1], halos[i].Spin[2], halos[i].Vvir, halos[i].Rvir);
 

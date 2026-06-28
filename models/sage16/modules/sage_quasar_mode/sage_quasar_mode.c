@@ -26,7 +26,10 @@
 #include "globals.h"
 #include "module_registry.h"
 
-// Module parameters
+// ============================================================================
+// MODULE PARAMETERS
+// ============================================================================
+
 static double BLACK_HOLE_GROWTH_RATE;
 static double QUASAR_MODE_EFFICIENCY;
 
@@ -107,7 +110,6 @@ int sage_quasar_mode_process(struct ModuleContext *ctx, struct Halo *halos, int 
     return 0;
   }
 
-  /* Disk-instability channel (by-galaxy path). */
   if (gal->UnstableDiskGasFraction > 0.0) {
     const double BHaccrete =
         mimic_apply_black_hole_growth(halo, gal->UnstableDiskGasFraction, BLACK_HOLE_GROWTH_RATE);

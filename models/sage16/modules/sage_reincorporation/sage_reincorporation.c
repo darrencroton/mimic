@@ -45,7 +45,7 @@ int sage_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos, 
   struct Halo *central_halo;
   struct GalaxyData *gal;
 
-  // Reincorporation follows SAGE: act on the FOF central only.
+  /* SAGE parity: acts on the FOF central only (model_infall.c reincorporate_gas). */
   if (ctx == NULL || halos == NULL || ngal <= 0 || ctx->central_galaxy == NULL) {
     return 0;
   }
@@ -79,7 +79,6 @@ int sage_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos, 
   // SN velocity 630 km/s → critical velocity = 630/sqrt(2) = 445.48 km/s
   const double Vcrit = 445.48 * REINCORPORATION_FACTOR;
 
-  // Reincorporation only occurs when Vvir > Vcrit
   if (Vvir <= Vcrit) {
     return 0;
   }
@@ -99,22 +98,18 @@ int sage_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos, 
   // Calculate reincorporation rate: (Vvir/Vcrit - 1) * M_eject / (Rvir/Vvir) * dt
   double reincorporated = (Vvir / Vcrit - 1.0) * gal->EjectedGas / (Rvir / Vvir) * dt_obj;
 
-  // Sanity check: reincorporation rate must be positive
   if (reincorporated < 0.0) {
     ERROR_LOG("Negative reincorporation: %.3e (Vvir=%.1f, Rvir=%.3f, EjectedGas=%.3e, dt=%.3e)",
               reincorporated, Vvir, Rvir, gal->EjectedGas, dt_obj);
     return -1;
   }
 
-  // Limit to available ejected mass
   if (reincorporated > gal->EjectedGas) {
     reincorporated = gal->EjectedGas;
   }
 
-  // Preserve metallicity during transfer
   const double metallicity = mimic_get_metallicity(gal->EjectedGas, gal->MetalsEjectedGas);
 
-  // Transfer from ejected to hot reservoir
   gal->EjectedGas -= reincorporated;
   gal->MetalsEjectedGas -= metallicity * reincorporated;
   gal->HotGas += reincorporated;

@@ -239,6 +239,11 @@ Examples:
 - `models/sage16/modules/sage_resolve_mergers_and_disruption/sage_resolve_mergers_and_disruption.c` — event-emitting module: parameter loading with `LOAD_AND_VALIDATE_RANGE_*`; ordering check in `init()` with a detailed `ERROR_LOG` message that explains the consequence of the missing module; static action-hook pattern.
 Run: module-owned tests plus merger/event tests if touched.
 
+Status: ✓ Complete — 2026-06-28
+Style debt:
+- `test_integration_sage_initialise_merger_clock.py` — verbose per-function docstrings (`Expected:` / `Validates:` boilerplate) left as-is; not incorrect, low priority.
+- `models/sage16/modules/sage_resolve_mergers_and_disruption/sage_merger_ops.h` — out of scope for per-file sweep (shared header with no issues), no changes needed.
+
 ---
 
 ### 13. SAGE Cross-Module Tests

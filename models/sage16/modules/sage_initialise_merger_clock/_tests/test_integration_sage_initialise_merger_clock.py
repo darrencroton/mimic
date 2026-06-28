@@ -1,46 +1,19 @@
 #!/usr/bin/env python3
 """
-SAGE Calculate Merger Timescale Module - Integration Test
+sage_initialise_merger_clock integration tests.
 
-Validates: C-Python bindings, data flow, and pipeline integration
-Phase: Phase 4.2 (SAGE Modular Refactoring)
-
-This test validates that the sage_initialise_merger_clock module correctly
-integrates with the Mimic pipeline and produces valid Python-accessible output:
-- Module loads and initializes correctly
-- Module executes without errors or memory leaks
-- C-Python bindings work (MergTime property accessible from Python)
-- Data flows through module (produces valid output)
-- Property types and ranges are correct
-
-NOTE: Physics validation (correctness of dynamical friction formula) is tested
-      in unit tests. These tests validate infrastructure and data flow only.
-
-Test cases:
-  - test_module_loads: Module registration and initialization
-  - test_memory_safety: No memory leaks
-  - test_output_properties_exist: MergTime property in output
-  - test_output_property_types: MergTime has correct dtype (float32)
-  - test_output_sanity_checks: MergTime values are reasonable
-  - test_data_flow_validation: Module processes satellites (not just passes through)
-  - test_standalone_execution: Module runs without other physics modules
-
-Author: Mimic Development Team
-Date: 2025-12-23
+Validates pipeline integration: module initialization, memory safety, output property
+existence and types, data flow, and standalone execution. Physics correctness is covered
+by the unit tests.
 """
 
-import os
 import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import numpy as np
 
-# Repository root and paths
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
-# Add tests directory to path to import framework
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 from framework import (
     BLUE,
@@ -48,7 +21,6 @@ from framework import (
     MIMIC_EXE,
     NC,
     RED,
-    YELLOW,
     TestSkipped,
     assert_no_infs,
     assert_no_nans,

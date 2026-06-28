@@ -17,6 +17,12 @@ Returns gas from the ejected reservoir to the hot reservoir in systems where rei
 
 - `ReIncorporationFactor`
 
+## Ordering
+
+**Advisory (no `init()` enforcement):**
+
+1. Run before cooling modules in the galaxy-physics phase so reincorporated gas participates in the same substep's hot-halo cooling calculation.
+
 ## Notes
 
-Run this before cooling so reincorporated gas can participate in the same substep's hot-halo physics.
+None.

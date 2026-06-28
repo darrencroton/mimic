@@ -64,15 +64,14 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *hal
   struct GalaxyData *sat_gal = halo->galaxy;
   struct GalaxyData *cen_gal = ctx->central_galaxy->galaxy;
 
-  // Use HaloBaryonFraction (set by sage_reionization), fallback to global if unset
+  /* HaloBaryonFraction set by sage_reionization; fall back to global parameter if unset. */
   const double halo_baryon_frac =
       (sat_gal->HaloBaryonFraction > 0.0f) ? sat_gal->HaloBaryonFraction : GLOBAL_BARYON_FRAC;
 
-  // Calculate total baryons in satellite
   const double total_baryons = sat_gal->StellarMass + sat_gal->ColdGas + sat_gal->HotGas +
                                sat_gal->EjectedGas + sat_gal->BlackHoleMass + sat_gal->ICS;
 
-  // Calculate amount to strip (distributed over substeps for stability)
+  /* strip demand distributed over substeps for numerical stability */
   double strippedGas =
       -1.0 * (halo_baryon_frac * halo->Mvir - total_baryons) / (double)ctx->num_substeps;
 
@@ -89,7 +88,6 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *hal
     const double metallicity = mimic_get_metallicity(sat_gal->HotGas, sat_gal->MetalsHotGas);
     double strippedMetals = strippedGas * metallicity;
 
-    // Limit to available hot gas and metals
     if (strippedGas > sat_gal->HotGas)
       strippedGas = sat_gal->HotGas;
     if (strippedMetals > sat_gal->MetalsHotGas)

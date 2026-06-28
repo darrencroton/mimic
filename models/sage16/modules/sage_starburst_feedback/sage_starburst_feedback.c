@@ -235,7 +235,6 @@ int sage_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *halo
     return 0;
   }
 
-  // Verify process_by_galaxy mode
   if (ngal != 1) {
     ERROR_LOG("sage_starburst_feedback expects ngal=1, got %d", ngal);
     return -1;
@@ -244,7 +243,6 @@ int sage_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *halo
   struct Halo *halo = &halos[0];
   struct GalaxyData *gal = halo->galaxy;
 
-  // Get central galaxy for feedback destination
   struct Halo *central_halo = NULL;
   struct GalaxyData *central_gal = NULL;
   if (halo->Type == 0) {
@@ -259,7 +257,6 @@ int sage_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *halo
     return 0;
   }
 
-  /* Disk-instability channel (by-galaxy path). */
   if (gal->UnstableDiskGasFraction > 0.0) {
     double disk_dt = 0.0;
     enum MimicObjectTimeStatus dt_status = mimic_object_substep_dt(halo, ctx, &disk_dt);

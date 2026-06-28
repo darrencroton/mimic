@@ -18,6 +18,12 @@ Computes disk scale radii from halo spin and virial properties for the FOF Type 
 
 None.
 
+## Ordering
+
+**Advisory (no `init()` enforcement):**
+
+1. Run in `pre_timestep`, before the substep baryonic physics phases — star formation and disk instability both read `DiskScaleRadius` during the substep. Satellite radii are not updated here; they retain the value from their last central phase (SAGE parity).
+
 ## Notes
 
-Disk radii are used by star formation and disk instability modules, so this should run in `pre_timestep`, before the substep baryonic physics phases. This matches SAGE's central-only radius update: satellites are not recomputed after infall.
+None.

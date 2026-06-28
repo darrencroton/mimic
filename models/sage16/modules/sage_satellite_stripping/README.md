@@ -17,6 +17,12 @@ Strips excess hot gas from Type 1 satellites and transfers stripped material to 
 
 - `GlobalBaryonFraction`
 
+## Ordering
+
+**Advisory (no `init()` enforcement):**
+
+1. Run before cooling modules in the galaxy-physics by-galaxy order. Stripped gas then waits in the central's hot reservoir until the next substep, matching SAGE's interleaved strip-before-cool sequence.
+
 ## Notes
 
 This module depends on reionization/infall context through `HaloBaryonFraction`. It runs as `process_by_galaxy` even though it mutates the FOF central, because SAGE strips each Type 1 satellite immediately before that satellite cools; the FOF central has usually already cooled in the same galaxy-major pass.

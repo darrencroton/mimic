@@ -48,7 +48,6 @@ int sage_disk_instability_init(void) {
 }
 
 int sage_disk_instability_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
-  // Verify process_by_galaxy mode
   if (ngal != 1) {
     ERROR_LOG("sage_disk_instability expects ngal=1, got %d", ngal);
     return -1;

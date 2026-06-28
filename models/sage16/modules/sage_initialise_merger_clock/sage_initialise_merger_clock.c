@@ -33,32 +33,21 @@ int sage_initialise_merger_clock_init(void) {
   return 0;
 }
 
-// Calculate merger timescale for satellites using dynamical friction formula.
-// Runs only when MergTime is still at the unset sentinel (> 999.0).
-//
-// SAGE parity note:
-// - Type 2 satellites with sentinel MergTime are forced to immediate merge
-//   (MergTime = 0.0), matching SAGE's Type 0->2 orphan transition handling.
-// - Dynamical friction timescale is computed for Type 1 satellites only.
 int sage_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo *halos, int ngal) {
   if (halos == NULL || ngal <= 0) {
     return 0;
   }
 
-  /* Find FOF central (Type 0) used as fallback target. */
   const int fof_central_idx = mimic_find_fof_central_index(halos, ngal);
   if (fof_central_idx == -1) {
-    return 0; // No central (shouldn't happen in normal FOF groups)
+    return 0;
   }
 
-  // Calculate merger timescale for Type 1/2 satellites that just became satellites
   for (int i = 0; i < ngal; i++) {
     if (halos[i].galaxy == NULL)
       continue;
 
-    // Reset MergTime for all Type 0 centrals to sentinel value
-    // This handles Type 1/2→0 transitions where satellites become centrals
-    // (e.g., original central disrupted, satellite promoted to central)
+    /* SAGE parity: reset MergTime for Type 1/2→0 promotions (satellite-to-central). */
     if (halos[i].Type == 0) {
       if (halos[i].galaxy->MergTime < SAGE_MERGTIME_UNSET_THRESHOLD) {
         DEBUG_LOG("Reset MergTime for central %d (Type→0 transition, was %.3f)", halos[i].HaloNr,
@@ -87,19 +76,17 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo 
 
     const struct Halo *central = &halos[target_idx];
 
-    // Calculate only once per satellite episode: skip if already set.
-    // SAGE parity uses MergTime sentinel state, not infallMvir sign.
+    // SAGE parity: sentinel state controls recalculation, not infallMvir sign.
     if (halos[i].galaxy->MergTime <= SAGE_MERGTIME_UNSET_THRESHOLD) {
       continue; // Already calculated
     }
 
-    // Coulomb logarithm from particle number ratio, log1p(x) is better than log(1 + x)
+    // log1p(N_cen/N_sat) — numerically better than log(1 + x) for small ratios
     // SAGE parity: use the satellite's actual Len (no floor); the Len >= 10
     // requirement is enforced in the merger-time condition below.
     const int sat_len = halos[i].Len;
     const double coulomb = (sat_len > 0) ? log1p((double)central->Len / (double)sat_len) : 0.0;
 
-    // Total satellite mass: dark matter + stars + cold gas
     const double SatelliteMass =
         halos[i].Mvir + halos[i].galaxy->StellarMass + halos[i].galaxy->ColdGas;
 
@@ -119,7 +106,6 @@ int sage_initialise_merger_clock_process(struct ModuleContext *ctx, struct Halo 
       mergtime = SAGE_MERGTIME_IMMEDIATE;
     }
 
-    // Apply ceiling for very long merger times
     if (mergtime >= SAGE_MERGTIME_UNSET_THRESHOLD) {
       mergtime = SAGE_MERGTIME_CEILING;
     }

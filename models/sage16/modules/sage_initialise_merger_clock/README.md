@@ -17,6 +17,12 @@ Initialises or updates merger clocks for satellites and handles reset behavior f
 
 None.
 
+## Ordering
+
+**Advisory (enforced at the resolver's `init()`, not here):**
+
+1. Must run in `pre_timestep` as `process_full_halo` before `sage_resolve_mergers_and_disruption`. Without this, satellites carry the sentinel `MergTime` value (999.9) from the tree load. The resolver hard-errors at `init()` if this module is absent from `pre_timestep`, and also checks ordering when both modules share the same phase.
+
 ## Notes
 
-Keep this module before merger resolution so `sage_resolve_mergers_and_disruption` sees current merger-clock values.
+None.
