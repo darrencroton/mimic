@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 """
-SAGE Stellar Mass Density Evolution Plot
+Mimic Stellar Mass Density Evolution Plot
 
-This module generates a plot of the stellar mass density evolution from SAGE galaxy data.
+This module generates a plot of the stellar mass density evolution from Mimic galaxy data.
 """
 
 import numpy as np
@@ -24,7 +24,7 @@ def plot(snapshots, params, output_dir="plots", output_format=".png", verbose=Fa
 
     Args:
         snapshots: Dictionary mapping snapshot numbers to tuples of (galaxies, volume, metadata)
-        params: Dictionary with SAGE parameters
+        params: Dictionary with Mimic parameters
         output_dir: Output directory for the plot
         output_format: File format for the output
 

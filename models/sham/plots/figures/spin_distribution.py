@@ -96,7 +96,6 @@ def plot(
     # NOW create the figure (only if validation passed)
     fig, ax = setup_figure()
 
-    # Print some debug information
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"  Number of galaxies with valid spin: {len(spin_parameter)}")

@@ -107,7 +107,6 @@ def plot(
     # Total number of galaxies for normalizing
     tot_gals = len(pos_x)
 
-    # Print some debug information
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"  Number of galaxies: {tot_gals}")

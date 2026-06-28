@@ -122,7 +122,6 @@ def plot(
     occupation_central = occupation_central[valid_halos]
     occupation_satellite = occupation_satellite[valid_halos]
 
-    # Print some debug information
     # Print some debug information if verbose mode is enabled
     if verbose:
         print(f"  Number of halos: {len(halo_mass)}")

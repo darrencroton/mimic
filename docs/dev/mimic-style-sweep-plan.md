@@ -289,6 +289,12 @@ Examples:
 - For README and module_info.yaml: use `models/sage16/modules/sage_apply_cooling/` as the structural reference.
 Run: package-specific validation/tests where available.
 
+Status: ✓ Complete — 2026-06-28
+Style debt:
+- `models/halos-only/modules/_tests/test_integration_halos_only_package.py`: `test_runtime_reports_physics_free_mode` fails when the executable is built with `MODEL=halos-only` because `create_test_param_file` generates a sage16-based run file. Pre-existing failure, unrelated to this sweep; needs `create_test_param_file` to accept a model override parameter.
+- `models/sham/model_properties.yaml` `ShamOrphanAge.units: Myr/h` — may be incorrect (orphan age is accumulated from `dT * UnitTime_in_s / SEC_PER_MEGAYEAR` which yields physical Myr, but `UnitTime_in_s` carries h-convention from `Mpc/h / (km/s)`); left in place pending a formal unit contract review.
+- Several plot figure files (`halo_mass_function.py`, `hmf_evolution.py`, `spin_distribution.py`, `velocity_distribution.py`, `spatial_distribution.py`) are duplicated verbatim between `models/sham/plots/figures/` and `models/halos-only/plots/figures/` — deduplication would require a shared model-neutral plot library, which is a structural change beyond sweep scope.
+
 ---
 
 ### 16. Simulation Packages

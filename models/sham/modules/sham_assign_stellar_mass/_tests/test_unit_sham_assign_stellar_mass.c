@@ -72,7 +72,10 @@ static double pivot_stellar_mass_code(void) {
   return TEST_SHAM_N * pow(10.0, TEST_LOG_M1) * TEST_HUBBLE_H / 1.0e10;
 }
 
-/* Module init/cleanup succeed through the full pipeline */
+/**
+ * @test   test_module_initialization
+ * @brief  Module init and cleanup succeed through the full pipeline
+ */
 int test_module_initialization(void) {
   init_memory_system(0);
   ensure_modules_registered();
@@ -88,7 +91,10 @@ int test_module_initialization(void) {
   return TEST_PASS;
 }
 
-/* Type 0/1 halos ratchet Mpeak/Vpeak up and never down; orphan age resets */
+/**
+ * @test   test_peak_proxy_tracking
+ * @brief  Type 0/1 halos ratchet Mpeak/Vpeak up and never down; orphan age resets on resolution
+ */
 int test_peak_proxy_tracking(void) {
   init_memory_system(0);
   init_module_with(0, 0.0, 0.17, 0.0);
@@ -120,7 +126,10 @@ int test_peak_proxy_tracking(void) {
   return TEST_PASS;
 }
 
-/* Without scatter, the pivot halo mass gives the analytic M* = N * M1 */
+/**
+ * @test   test_smhm_pivot_value
+ * @brief  Without scatter, the pivot halo mass gives the analytic M* = N * M1
+ */
 int test_smhm_pivot_value(void) {
   init_memory_system(0);
   init_module_with(0, 0.0, 1.0, 0.0); /* scatter off; cap above the expected value */
@@ -148,7 +157,10 @@ int test_smhm_pivot_value(void) {
   return TEST_PASS;
 }
 
-/* Halos below the Mpeak/Vpeak resolution thresholds get zero stellar mass */
+/**
+ * @test   test_below_thresholds_assigns_zero
+ * @brief  Halos below the Mpeak/Vpeak resolution thresholds receive zero stellar mass
+ */
 int test_below_thresholds_assigns_zero(void) {
   init_memory_system(0);
   init_module_with(0, 0.0, 0.17, 0.0); /* thresholds: Mpeak 0.10, Vpeak 80 km/s */
@@ -178,7 +190,10 @@ int test_below_thresholds_assigns_zero(void) {
   return TEST_PASS;
 }
 
-/* Scatter is deterministic per galaxy ID: same ID -> same M*, new ID -> different */
+/**
+ * @test   test_scatter_is_deterministic_per_galaxy
+ * @brief  Scatter is deterministic per galaxy ID: same ID gives same M*, different ID differs
+ */
 int test_scatter_is_deterministic_per_galaxy(void) {
   init_memory_system(0);
   init_module_with(1, 0.20, 1.0, 0.0);
@@ -214,7 +229,10 @@ int test_scatter_is_deterministic_per_galaxy(void) {
   return TEST_PASS;
 }
 
-/* The stellar baryon-fraction cap bounds M* by cap * Mpeak */
+/**
+ * @test   test_baryon_fraction_cap
+ * @brief  The stellar baryon-fraction cap bounds M* to cap * Mpeak
+ */
 int test_baryon_fraction_cap(void) {
   init_memory_system(0);
   const double cap_fraction = 0.001; /* far below the pivot's uncapped stellar fraction */
@@ -240,7 +258,10 @@ int test_baryon_fraction_cap(void) {
   return TEST_PASS;
 }
 
-/* Orphans age by dT and are removed (Type 3) once past the configured lifetime */
+/**
+ * @test   test_orphan_aging_and_removal
+ * @brief  Orphans accumulate age from dT and are removed (Type 3) once past the configured lifetime
+ */
 int test_orphan_aging_and_removal(void) {
   init_memory_system(0);
   const double max_age_myr = 500.0;
@@ -274,7 +295,10 @@ int test_orphan_aging_and_removal(void) {
   return TEST_PASS;
 }
 
-/* NULL-galaxy and Type-3 entries are skipped without touching state */
+/**
+ * @test   test_null_galaxy_and_type3_skipped
+ * @brief  NULL-galaxy and Type 3 entries are skipped without touching galaxy state
+ */
 int test_null_galaxy_and_type3_skipped(void) {
   init_memory_system(0);
   init_module_with(0, 0.0, 0.17, 0.0);
