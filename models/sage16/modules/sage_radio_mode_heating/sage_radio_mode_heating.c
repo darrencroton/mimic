@@ -202,7 +202,6 @@ static void do_AGN_heating(struct Halo *halo, struct ModuleContext *ctx, const d
 // ============================================================================
 
 int sage_radio_mode_heating_init(void) {
-  // Load and validate parameters
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("RadioModeEfficiency", RADIO_MODE_EFFICIENCY, 0.0, 1.0,
                                     "AGN radio mode heating efficiency");
   LOAD_AND_VALIDATE_OPTION("AGNrecipe", AGN_RECIPE_ON, 3,

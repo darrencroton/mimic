@@ -59,9 +59,8 @@ int sage_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, int
   // Calculate infall amount for this substep
   double infallingGas = galaxy->InfallingGas / (double)ctx->num_substeps;
 
-  // If the halo has lost mass, subtract baryons from the ejected mass first, then the hot gas
-  // (SAGE parity: add_infall_to_hot uses a float metallicity but double products,
-  // accumulated into the float reservoirs without intermediate float rounding)
+  // SAGE parity: add_infall_to_hot removes from ejected first, then hot; uses a float
+  // metallicity with double products accumulated into float reservoirs (no intermediate rounding)
   if (infallingGas < 0.0 && galaxy->EjectedGas > 0.0f) {
     const float metallicity = mimic_get_metallicity(galaxy->EjectedGas, galaxy->MetalsEjectedGas);
     galaxy->MetalsEjectedGas += infallingGas * metallicity;
@@ -79,7 +78,6 @@ int sage_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, int
     }
   }
 
-  // If the halo has lost mass, subtract hot metals mass next, then the hot gas
   if (infallingGas < 0.0 && galaxy->MetalsHotGas > 0.0f) {
     const float metallicity = mimic_get_metallicity(galaxy->HotGas, galaxy->MetalsHotGas);
     galaxy->MetalsHotGas += infallingGas * metallicity;
@@ -88,7 +86,6 @@ int sage_apply_infall_process(struct ModuleContext *ctx, struct Halo *halos, int
     }
   }
 
-  // Add (subtract) the ambient (enriched) infalling gas to the central galaxy hot component
   galaxy->HotGas += infallingGas;
   if (galaxy->HotGas < 0.0f) {
     galaxy->HotGas = 0.0f;

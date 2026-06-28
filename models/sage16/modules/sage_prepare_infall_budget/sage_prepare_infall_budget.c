@@ -31,7 +31,9 @@ static double GLOBAL_BARYON_FRAC;
 // HELPER FUNCTIONS
 // ============================================================================
 
-// Validate and clamp mass and metal components to ensure physical constraints
+/**
+ * @brief Clamp mass and metal components to ensure conservation and non-negativity
+ */
 static inline void validate_mass_metals(float *mass, float *metals) {
   if (*mass < 0.0f) {
     *mass = 0.0f;
@@ -44,9 +46,14 @@ static inline void validate_mass_metals(float *mass, float *metals) {
   }
 }
 
-// Calculate infalling gas mass for central galaxy. Computes gas accretion from
-// HaloBaryonFraction × Mvir minus current baryon content. Consolidates ejected gas
-// and intracluster stars from satellites to central, preserving metallicity.
+/**
+ * @brief Consolidate satellite ejected gas and ICS to the central; compute cosmological infall
+ *
+ * Returns HaloBaryonFraction × Mvir minus total baryon content across the FoF group.
+ * Satellite ejected gas and ICS are surrendered to the central before the infall
+ * calculation; hot gas is NOT consolidated (orphans cool their own hot reservoir
+ * independently until merging — SAGE parity).
+ */
 static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
   double tot_stellarMass = 0.0;
   double tot_BHMass = 0.0;
@@ -57,7 +64,6 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
   double tot_ICSMetals = 0.0;
   double tot_ejectedMetals = 0.0;
 
-  // Sum baryonic components across all galaxies and transfer satellite reservoirs
   for (int i = 0; i < ngal; i++) {
     if (halos[i].galaxy == NULL || halos[i].Type == 3) {
       continue;
@@ -99,7 +105,6 @@ static double infall_recipe(struct Halo *halos, int ngal, int central_idx) {
   central->MetalsICS = (float)tot_ICSMetals;
   validate_mass_metals(&central->ICS, &central->MetalsICS);
 
-  // Calculate infalling gas from HaloBaryonFraction
   const double infallingMass =
       central->HaloBaryonFraction * halos[central_idx].Mvir -
       (tot_stellarMass + tot_coldMass + tot_hotMass + tot_ejected + tot_BHMass + tot_ICS);
@@ -137,13 +142,12 @@ int sage_prepare_infall_budget_process(struct ModuleContext *ctx, struct Halo *h
     return -1;
   }
 
-  // Initialize HaloBaryonFraction to GlobalBaryonFraction if first time
+  // -1.0 sentinel: first snapshot for this central; fall back to GlobalBaryonFraction
   if (halos[central_idx].galaxy->HaloBaryonFraction == -1.0) {
     halos[central_idx].galaxy->HaloBaryonFraction = GLOBAL_BARYON_FRAC;
   }
 
-  // Calculate and store infalling mass (double property: SAGE keeps this as a
-  // double local through the whole snapshot interval)
+  // Double property: SAGE keeps InfallingGas as a double local through the whole snapshot interval
   const double infallingMass = infall_recipe(halos, ngal, central_idx);
   halos[central_idx].galaxy->InfallingGas = infallingMass;
 

@@ -27,8 +27,6 @@
  *   - test_zero_infall: Edge case with zero infall
  *   - test_no_central_galaxy: Edge case with no Type 0 central
  *
- * @author  Mimic Development Team
- * @date    2025-12-11
  */
 
 #include "../../../../tests/framework/test_framework.h"

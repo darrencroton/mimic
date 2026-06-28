@@ -27,8 +27,6 @@
  *   - test_no_satellites: Single central works
  *   - test_multiple_satellites: Multiple satellites consolidated
  *
- * @author  Mimic Development Team
- * @date    2025-12-17 (Refactored)
  */
 
 #include "../../../../tests/framework/test_framework.h"

@@ -86,7 +86,6 @@ static double cooling_recipe(struct Halo *halo, struct ModuleContext *ctx, const
 // ============================================================================
 
 int sage_calculate_cooling_budget_init(void) {
-  // Initialize cooling function tables from the active model package.
   if (cooling_tables_init(MIMIC_COMPILED_MODEL_PATH
                           "/modules/sage_calculate_cooling_budget/CoolFunctions") != 0) {
     ERROR_LOG("Failed to initialize cooling function tables");

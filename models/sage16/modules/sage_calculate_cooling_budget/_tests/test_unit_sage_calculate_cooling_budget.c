@@ -1,35 +1,23 @@
 /**
- * @file    test_unit_sage_calculate_cooling.c
- * @brief   Unit tests for sage_calculate_cooling module
+ * @file    test_unit_sage_calculate_cooling_budget.c
+ * @brief   Unit tests for sage_calculate_cooling_budget module
  *
- * Validates: Module lifecycle, cooling tables, interpolation, memory safety
- * Phase: Phase 4.2 (SAGE Physics Module Implementation)
+ * Validates: Module lifecycle, cooling tables, interpolation, memory safety.
+ * Core cooling physics (cooling_recipe) is tested indirectly via the process function in
+ * integration tests. Physics validation against SAGE is handled in scientific tests.
  *
- * This test validates software engineering aspects of the sage_calculate_cooling module:
- * - Module registration and initialization
- * - Cooling table loading and validation
- * - Temperature and metallicity interpolation (2D)
- * - Edge case handling (primordial gas, super-solar Z, extreme temps)
- * - Memory allocation and cleanup (no leaks)
- *
- * Test Organization:
- *   Suite 1: Cooling Tables (helper functions)
- *     - Table loading from disk
- *     - Temperature interpolation (1D)
- *     - Metallicity interpolation (2D)
- *     - Edge cases (primordial, super-solar, extreme temps)
+ * Test cases:
+ *   Suite 1: Cooling Tables
+ *     - test_cooling_tables_loading: All 8 metallicity tables load from disk
+ *     - test_temperature_interpolation: Temperature interpolation accuracy
+ *     - test_metallicity_interpolation: 2D metallicity-dependent interpolation
+ *     - test_primordial_gas_cooling: Zero-metallicity gas handled correctly
+ *     - test_super_solar_metallicity: Clamping to maximum table at high Z
+ *     - test_extreme_temperatures: Bounds enforcement outside table range
  *
  *   Suite 2: Module Integration
- *     - Module registration
- *     - Memory safety
- *
- * NOTE:
- * - Core physics (cooling_recipe) tested indirectly via process function in integration tests
- * - This module has NO runtime parameters (CoolFunctions path is hardcoded)
- * - Physics validation (comparison with SAGE) handled in scientific tests
- *
- * @author  Mimic Development Team
- * @date    2025-11-13 (Updated 2025-12-18)
+ *     - test_module_registration: Module registers successfully
+ *     - test_memory_safety: No memory leaks after init/cleanup cycle
  */
 
 #include "../../../../tests/framework/test_framework.h"
@@ -76,7 +64,7 @@ int test_module_registration(void) {
   }
 
   TEST_ASSERT(result == 0, "sage_cooling module should register successfully");
-  return 0;
+  return TEST_PASS;
 }
 
 /**
@@ -98,7 +86,7 @@ int test_cooling_tables_loading(void) {
   /* Clean up */
   cooling_tables_cleanup();
 
-  return 0;
+  return TEST_PASS;
 }
 
 /**
@@ -128,7 +116,7 @@ int test_temperature_interpolation(void) {
   TEST_ASSERT(lambda > 1e-26, "Cooling rate should not be too small");
 
   cooling_tables_cleanup();
-  return 0;
+  return TEST_PASS;
 }
 
 /**
@@ -165,7 +153,7 @@ int test_metallicity_interpolation(void) {
               "Solar metallicity should cool faster than primordial");
 
   cooling_tables_cleanup();
-  return 0;
+  return TEST_PASS;
 }
 
 /**
@@ -193,7 +181,7 @@ int test_primordial_gas_cooling(void) {
   TEST_ASSERT(isfinite(lambda), "Primordial cooling must be finite");
 
   cooling_tables_cleanup();
-  return 0;
+  return TEST_PASS;
 }
 
 /**
@@ -228,7 +216,7 @@ int test_super_solar_metallicity(void) {
   TEST_ASSERT(fabs(lambda - lambda_max) < 1e-30, "Super-solar should clamp to maximum table");
 
   cooling_tables_cleanup();
-  return 0;
+  return TEST_PASS;
 }
 
 /**
@@ -264,7 +252,7 @@ int test_extreme_temperatures(void) {
   TEST_ASSERT(isfinite(lambda_high), "High-T cooling must be finite");
 
   cooling_tables_cleanup();
-  return 0;
+  return TEST_PASS;
 }
 
 /**
@@ -292,10 +280,12 @@ int test_memory_safety(void) {
   /* Check for leaks */
   check_memory_leaks();
 
-  return 0;
+  return TEST_PASS;
 }
 
-/* Main test runner */
+/**
+ * @brief Main test runner — executes all sage_calculate_cooling_budget unit tests
+ */
 int main(void) {
   printf("%s", BLUE);
   printf("============================================================\n");

@@ -206,6 +206,13 @@ Examples:
 - `models/sage16/modules/sage_apply_cooling/module_info.yaml` — module YAML template: explicit `parameters: []` when none; complete dependency listing.
 Run: module-owned unit/integration tests touched.
 
+Status: ✓ Complete — 2026-06-28
+Style debt:
+- `sage_prepare_infall_budget/README.md`: "Ordering" section added with soft note (no init() enforcement exists); could be strengthened by adding an init() check mirroring `sage_apply_infall`, but that is a functional change beyond sweep scope.
+- `sage_reionization/README.md`: same — ordering note is soft guidance, not enforced.
+- `sage_radio_mode_heating/README.md`: "Ordering" section not added — the module has no init() enforcement and the processing contract already states expected order. Adding a soft Ordering section would duplicate the contract without adding enforcement.
+- `sage_calculate_cooling_budget/_tests/test_unit_sage_calculate_cooling_budget.c`: `test_module_registration` function uses a different structure (runs `init` inside the test rather than using `TEST_SKIP_WITH` guard) — pattern is load-bearing for the test logic; not a style issue to resolve without changing behavior.
+
 ---
 
 ### 11. SAGE Modules Batch B: Star Formation, Supernova, Metals

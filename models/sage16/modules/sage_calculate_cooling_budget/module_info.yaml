@@ -10,6 +10,9 @@ module:
 
   dependencies:
     properties:
+      - HaloNr
+      - SnapNum
+      - dT
       - HotGas
       - MetalsHotGas
       - CoolingGas

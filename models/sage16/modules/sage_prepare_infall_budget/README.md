@@ -8,10 +8,14 @@ Prepares the baryon infall budget for the current FoF system by consolidating sa
 - Expected phase: `pre_timestep`
 - Receives the full FoF workspace and writes the central infall budget
 
+## Ordering
+
+No ordering enforcement is applied in `init()`. This module should run in `pre_timestep` after `sage_reionization` so that `HaloBaryonFraction` is set before the infall budget is computed.
+
 ## Properties
 
-- Reads: `Type`, `Mvir`, `HaloBaryonFraction`, `StellarMass`, `BlackHoleMass`, `ColdGas`, `HotGas`, `MetalsHotGas`, `ICS`, `MetalsICS`, `EjectedGas`, `MetalsEjectedGas`
-- Writes: `HaloBaryonFraction`, `InfallingGas`, `HotGas`, `MetalsHotGas`, `ICS`, `MetalsICS`, `EjectedGas`, `MetalsEjectedGas`
+- Reads: `Type`, `Mvir`, `HaloBaryonFraction`, `StellarMass`, `BlackHoleMass`, `ColdGas`, `HotGas`, `ICS`, `MetalsICS`, `EjectedGas`, `MetalsEjectedGas`
+- Writes: `HaloBaryonFraction`, `InfallingGas`, `ICS`, `MetalsICS`, `EjectedGas`, `MetalsEjectedGas`
 
 ## Parameters
 

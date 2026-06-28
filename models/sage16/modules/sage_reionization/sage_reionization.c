@@ -29,8 +29,10 @@ static double GLOBAL_BARYON_FRAC;
 // HELPER FUNCTIONS
 // ============================================================================
 
-// Calculate reionization suppression factor for gas accretion.
-// Implements Gnedin (2000) model with Kravtsov et al. (2004) fitting formulas.
+/**
+ * @brief Reionization suppression factor using Gnedin (2000) model with Kravtsov et al. (2004)
+ *        fitting formulas; returns modifier in [0, 1] for scaling GlobalBaryonFraction
+ */
 static double calculate_reionization_modifier(const struct ModuleContext *ctx, float mvir) {
   // Alpha gives best fit to Gnedin data, Tvir = 10^4 K is virial temperature threshold
   const double alpha = 6.0;

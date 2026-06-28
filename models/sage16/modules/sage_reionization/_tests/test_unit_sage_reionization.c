@@ -29,8 +29,6 @@
  *   - test_redshift_dependence: Suppression varies with redshift
  *   - test_type3_halos_skipped: Type 3 halos are skipped
  *
- * @author  Mimic Development Team
- * @date    2025-12-17 (Refactored)
  */
 
 #include "../../tests/framework/test_framework.h"

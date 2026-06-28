@@ -31,8 +31,6 @@
  *   - test_module_initialization: Module lifecycle
  *   - test_memory_safety: No memory leaks
  *
- * @author  Mimic Development Team
- * @date    2025-12-18
  */
 
 #include "../../../../tests/framework/test_framework.h"
