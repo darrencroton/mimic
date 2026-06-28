@@ -3,7 +3,6 @@
  * @brief   Unit tests for merger tree loading
  *
  * Validates: Tree file reading and basic data structure integrity
- * Phase: Phase 2 (Testing Framework)
  *
  * This test validates that Mimic's tree loading system correctly:
  * - Loads tree table from file

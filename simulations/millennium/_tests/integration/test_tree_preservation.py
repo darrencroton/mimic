@@ -70,6 +70,7 @@ from framework import (
     input_tree_file_for_run,
     load_binary_halos,
     run_mimic_fresh,
+    run_test_suite,
     simulation_input_file,
 )
 
@@ -805,61 +806,13 @@ def test_tree_preservation_properties():
 
 def main():
     """Main test runner."""
-    # Print test suite header
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Suite: Tree Preservation (test_tree_preservation.py) {NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-    print(f"Repository root: {REPO_ROOT}")
-    print(f"Mimic executable: {MIMIC_EXE}")
-
-    if not MIMIC_EXE.exists():
-        print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
-        print("Build it first with: make")
-        return 1
-
-    tests = [
-        test_tree_preservation_coverage,
-        test_tree_preservation_properties,
-    ]
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for test in tests:
-        print()
-        try:
-            test()
-            print(f"{GREEN}✓ PASS: {test.__name__}{NC}")
-            passed += 1
-        except AssertionError as e:
-            print(f"{RED}✗ FAIL: {test.__name__}{NC}")
-            print(f"  {e}")
-            failed += 1
-        except Exception as e:
-            print(f"{RED}✗ ERROR: {test.__name__}{NC}")
-            print(f"  {e}")
-            failed += 1
-
-    # Print summary
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    print(f"Failed:  {failed}")
-    print(f"Skipped: {skipped}")
-    print(f"Total:   {passed + failed + skipped}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
+    return run_test_suite(
+        [
+            test_tree_preservation_coverage,
+            test_tree_preservation_properties,
+        ],
+        "Tree Preservation (test_tree_preservation.py)",
+    )
 
 
 if __name__ == "__main__":

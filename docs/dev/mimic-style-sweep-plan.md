@@ -306,6 +306,11 @@ Examples:
 - `simulations/mini-millennium/halo_properties.yaml` — the canonical reference for halo property YAML: `# --- topic ---` section dividers, `units`, `h_convention`, `provides_core_role`, `notes` on inert fields, `description` for every entry.
 Run: simulation-local tests and metadata validation.
 
+Status: ✓ Complete — 2026-06-28
+Style debt:
+- `test_tree_preservation.py` and `test_satellite_spatial_distribution.py` (both packages): test functions use `if not MIMIC_EXE.exists(): return` (plain early return) rather than raising `TestSkipped`; `run_test_suite` therefore emits PASS instead of SKIP when the executable is absent. Pattern is shared with `test_unique_galaxy_id.py` and left consistent — changing to `TestSkipped` would be a functional change.
+- `test_invalid_file_handling` in both `test_tree_loading.c`: the test body never exercises actual file loading (FATAL_ERROR would exit the process); it validates error-handling infrastructure setup only. The multi-line comment explaining this constraint is 5 lines — above the one-line guideline — but carries a non-obvious WHY and was left in place.
+
 ---
 
 ### 17. Project Documentation Final Pass

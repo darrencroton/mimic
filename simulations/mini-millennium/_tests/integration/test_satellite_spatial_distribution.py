@@ -68,6 +68,7 @@ from framework import (
     ensure_output_dirs,
     read_param_file,
     run_mimic,
+    run_test_suite,
     simulation_input_file,
 )
 
@@ -534,66 +535,10 @@ def test_satellite_spatial_distribution():
 
 def main():
     """Main test runner."""
-    # Print test suite header
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(
-        f"{BLUE}Test Suite: Satellite Spatial Distribution (test_satellite_spatial_distribution.py){NC}"
+    return run_test_suite(
+        [test_satellite_spatial_distribution],
+        "Satellite Spatial Distribution (test_satellite_spatial_distribution.py)",
     )
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-    print(f"Repository root: {REPO_ROOT}")
-    print(f"Mimic executable: {MIMIC_EXE}")
-    print()
-    print("Testing satellite galaxy spatial distribution:")
-    print("  - Satellites should be close to their central galaxy")
-    print("  - Distance > 3x Rvir: WARNING (unusual)")
-    print("  - Distance > 10x Rvir: FAIL (unphysical)")
-    print("  - Only tests halos > 10x Rvir from box boundaries")
-    print()
-
-    if not MIMIC_EXE.exists():
-        print(f"{RED}ERROR: Mimic executable not found: {MIMIC_EXE}{NC}")
-        print("Build it first with: make")
-        return 1
-
-    tests = [
-        test_satellite_spatial_distribution,
-    ]
-
-    passed = 0
-    failed = 0
-
-    for test in tests:
-        try:
-            test()
-            print(f"{GREEN}✓ PASS: {test.__name__}{NC}")
-            passed += 1
-        except AssertionError as e:
-            print(f"{RED}✗ FAIL: {test.__name__}{NC}")
-            print(f"{RED}  {e}{NC}")
-            failed += 1
-        except Exception as e:
-            print(f"{RED}✗ ERROR: {test.__name__}{NC}")
-            print(f"{RED}  {e}{NC}")
-            failed += 1
-
-    # Print summary
-    print()
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"{BLUE}Test Summary{NC}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print(f"Passed:  {passed}")
-    print(f"Failed:  {failed}")
-    print(f"Total:   {passed + failed}")
-    print(f"{BLUE}{'=' * 60}{NC}")
-    print()
-
-    if failed == 0:
-        print(f"{GREEN}✓ All tests passed!{NC}")
-        return 0
-    else:
-        print(f"{RED}✗ {failed} test(s) failed{NC}")
-        return 1
 
 
 if __name__ == "__main__":
