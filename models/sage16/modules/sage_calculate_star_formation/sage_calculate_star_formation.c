@@ -49,7 +49,7 @@ int sage_calculate_star_formation_init(void) {
 
   VERBOSE_LOG("SAGE star formation module initialized");
   VERBOSE_LOG("  SfrEfficiency = %.4f", SFR_EFFICIENCY);
-  VERBOSE_LOG("  StarFormingDiskFactor = %.2f (from config)", STAR_FORMING_DISK_FACTOR);
+  VERBOSE_LOG("  StarFormingDiskFactor = %.2f", STAR_FORMING_DISK_FACTOR);
 
   return 0;
 }
@@ -101,7 +101,6 @@ int sage_calculate_star_formation_process(struct ModuleContext *ctx, struct Halo
     stars = 0.0;
   }
 
-  // Store in NewStellarMass property for subsequent processing
   gal->NewStellarMass = stars;
 
   DEBUG_LOG("Type=%d: Calculated SF=%.3e, SFR=%.3e, ColdGas=%.3e, DiskScaleRadius=%.3e", halo->Type,

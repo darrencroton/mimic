@@ -99,10 +99,7 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx, struct 
 
   struct GalaxyData *gal = halo->galaxy;
 
-  // Read calculated star formation from previous module
   double stars = gal->NewStellarMass;
-
-  // Calculate initial feedback amounts
   double reheated_mass = FEEDBACK_REHEATING_EPSILON * stars;
 
   // Renormalization: Can't use more cold gas than is available
@@ -131,7 +128,6 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx, struct 
     ejected_mass = 0.0;
   }
 
-  // Store calculated feedback masses for subsequent processing
   gal->SupernovaReheatedMass = reheated_mass;
   gal->SupernovaEjectedMass = ejected_mass;
 

@@ -223,6 +223,11 @@ Focus: scientific comments, transport properties, parameter validation, no obvio
 Examples: same as Batch 10 (`sage_apply_cooling/` directory). For batch B the key discipline is that comments on physical quantities explain the formula or assumption, not just the variable name.
 Run: module-owned tests.
 
+Status: ✓ Complete — 2026-06-28
+Style debt:
+- `sage_apply_metal_enrichment/module_info.yaml`: `tests.unit` and `tests.integration` are blank (null) — no test files exist for this module. Left as-is; adding tests would be a functional change beyond sweep scope.
+- `sage_calculate_supernova_feedback/_tests/test_unit_sage_calculate_supernova_feedback.c`: file-header Doxygen uses markdown `**bold**` within C comment blocks — renders in some Doxygen toolchains but is non-standard; left in place as it is consistent within the file and harmless.
+
 ---
 
 ### 12. SAGE Modules Batch C: Mergers, Satellites, Disk/AGN

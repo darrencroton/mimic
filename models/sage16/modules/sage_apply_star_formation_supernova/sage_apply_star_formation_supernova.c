@@ -109,10 +109,8 @@ int sage_apply_star_formation_supernova_process(struct ModuleContext *ctx, struc
   const double reheated_mass = gal->SupernovaReheatedMass;
   double ejected_mass = gal->SupernovaEjectedMass;
 
-  // Skip if no star formation occurred (SAGE runs unconditionally, but with
-  // stars == 0 every update below is a no-op, so skipping only at exactly 0
-  // is equivalent; a larger epsilon here would drop real tiny SF events).
-  // NewStellarMass is left for sage_apply_metal_enrichment to consume.
+  // SAGE parity: skip only at exactly 0.0 — a larger epsilon would silently drop tiny SF events.
+  // NewStellarMass is preserved (not zeroed here) for sage_apply_metal_enrichment to consume.
   if (stars <= 0.0) {
     gal->SupernovaReheatedMass = 0.0;
     gal->SupernovaEjectedMass = 0.0;

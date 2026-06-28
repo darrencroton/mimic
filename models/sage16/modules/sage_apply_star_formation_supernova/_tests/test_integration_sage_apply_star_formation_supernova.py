@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SAGE Update Star Formation Supernova Module - Integration Test
+SAGE Apply Star Formation Supernova Module - Integration Test
 
 Validates: End-to-end physics correctness, conservation laws, parameter sensitivity
 

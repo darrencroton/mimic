@@ -28,9 +28,7 @@ Applies star-formation and supernova transport fields to the persistent galaxy r
 ## Parameters
 
 - `RecycleFraction`
-- `Yield`
-- `FracZleaveDisk`
 
 ## Notes
 
-This module consumes transport fields and should remain after the modules that calculate them. Disabling it means calculated star formation or feedback budgets are not committed to galaxy reservoirs.
+This module consumes transport fields and should remain after the modules that calculate them. Disabling it means calculated star formation or feedback budgets are not committed to galaxy reservoirs. `Yield` and `FracZleaveDisk` belong to `sage_apply_metal_enrichment`, which applies the disk-SF metal yield in a separate step after the disk-instability chain.

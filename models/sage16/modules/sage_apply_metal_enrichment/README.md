@@ -1,24 +1,24 @@
-# sage_apply_metal_enrichment
+# `sage_apply_metal_enrichment`
 
-Applies the instantaneous-recycling metal yield for stars formed in the disk this substep, exactly where original SAGE applies it.
+Applies the instantaneous-recycling metal yield for stars formed in the disk this substep, then consumes (zeroes) `NewStellarMass`.
 
-## Physics
+## Processing Contract
 
-For the (renormalised) disk star formation `stars = NewStellarMass` committed earlier in the substep by `sage_apply_star_formation_supernova`:
+- Supported mode: `process_by_galaxy`
+- Expected phase: `galaxy_physics`, after `sage_apply_star_formation_supernova` and after the disk-instability chain (`sage_disk_instability`, `sage_quasar_mode`, `sage_starburst_feedback`)
+- Receives one galaxy at a time and uses the FoF central for the metal ejection destination
 
-- If `ColdGas > 1e-8`: `MetalsColdGas += Yield * (1 - f_Z) * stars` and `central MetalsHotGas += Yield * f_Z * stars`, where `f_Z = FracZleaveDisk * exp(-Mvir_central / 30)` (Krumholz & Dekel 2011 Eq. 22).
-- Otherwise the full yield goes to the central's hot metals.
+## Ordering
 
-The module then consumes (zeroes) `NewStellarMass`.
+**Enforced at init (fails with ERROR if violated):**
 
-## Ordering (SAGE parity)
+1. `sage_apply_star_formation_supernova` must precede this module in the same substep phase — the yield is keyed to the stellar mass committed by that apply step.
+2. `sage_starburst_feedback` (by-galaxy channel) must precede this module — SAGE adds the disk-SF yield after `check_disk_instability()`, so the burst must see pre-enrichment metallicity.
 
-In SAGE's `starformation_and_feedback()` the yield is added **after** `check_disk_instability()`, so the disk-instability starburst must see the cold gas metallicity *without* this substep's disk-SF enrichment. This module therefore runs **after** `sage_disk_instability`, `sage_quasar_mode`, and `sage_starburst_feedback` in the `galaxy_physics` phase. Both orderings are enforced at init:
+## Properties
 
-1. `sage_apply_star_formation_supernova` must precede this module (the yield is keyed to the stellar mass it commits).
-2. `sage_starburst_feedback` (by-galaxy channel) must precede this module.
-
-The merger/starburst channel applies its own yield inside the burst kernel (`shared/sage_starburst_physics.h`), exactly as SAGE's `collisional_starburst_recipe()` does — this module only handles the quiescent disk-SF yield.
+- Reads: `Type`, `Mvir` (FoF central), `ColdGas`, `MetalsColdGas`, `NewStellarMass`
+- Writes: `MetalsColdGas`, `MetalsHotGas` (FoF central), `NewStellarMass` (zeroed after consuming)
 
 ## Parameters
 
@@ -26,6 +26,10 @@ The merger/starburst channel applies its own yield inside the burst kernel (`sha
 |-----------|-------------|
 | `Yield` | Metal yield per unit stellar mass formed |
 | `FracZleaveDisk` | Fraction of newly produced metals ejected directly to the hot halo |
+
+## Notes
+
+The metal split uses `f_Z = FracZleaveDisk * exp(-Mvir_central / 30)` (Krumholz & Dekel 2011 Eq. 22): if `ColdGas > 1e-8`, `MetalsColdGas += Yield * (1 - f_Z) * stars` and the central's `MetalsHotGas += Yield * f_Z * stars`; otherwise the full yield goes to the central's hot halo. The starburst channel applies its own yield inside the burst kernel (`shared/sage_starburst_physics.h`); this module only handles the quiescent disk-SF yield.
 
 ## References
 
