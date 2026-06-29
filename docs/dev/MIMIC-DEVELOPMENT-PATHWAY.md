@@ -1,8 +1,8 @@
 # Mimic Development Pathway
 
 **Status:** Active planning index for `docs/dev/`.
-**Date:** 2026-06-28
-**Scope:** Current plan ownership, release sequence, and source-of-truth boundaries for the v1.0 release and first post-v1.0 work.
+**Date:** 2026-06-29
+**Scope:** Current plan ownership, post-v1.0 sequence, and source-of-truth boundaries for work after the v1.0 production release.
 
 ---
 
@@ -18,10 +18,10 @@ The architectural direction is still governed by `docs/VISION.md`: Mimic is a ph
 
 | Document | Status | Role | Actionability |
 |---|---|---|---|
-| `MIMIC-DUAL-DRIVER-PLAN.md` | Post-v1.0 architecture plan | Add snapshot-ordered reader/driver support and later distributed snapshot-global operations over the shared core seams | Re-review after v1.0 is tagged and the baseline is refreshed; do not start snapshot phases before then |
-| `MIMIC-MODEL-BUILDER-PLAN.md` | Post-v1.0 requirements brief | Preserve requirements for assisted, gate-driven model-package construction from scientific evidence | Re-review after v1.0 and before any implementation RFC; current text is a conservative brief, not an active build plan |
+| `MIMIC-DUAL-DRIVER-PLAN.md` | Post-v1.0 architecture plan | Add snapshot-ordered reader/driver support and later distributed snapshot-global operations over the shared core seams | Re-review against the tagged v1.0 baseline before starting snapshot phases |
+| `MIMIC-MODEL-BUILDER-PLAN.md` | Post-v1.0 requirements brief | Preserve requirements for assisted, gate-driven model-package construction from scientific evidence | Re-review against the tagged v1.0 baseline before any implementation RFC; current text is a conservative brief, not an active build plan |
 
-The pre-v1.0 style sweep is complete and archived outside the tracked docs tree at `archive/dev-plans/mimic-style-sweep-plan.md`. Its final checkpoint, code review, and full `make tests` gate are green; Mimic is ready for the v1.0 tag and release once the completed sweep branch has landed on `main`.
+Mimic v1.0 is tagged and released from `main` as the first production baseline. The pre-v1.0 style sweep is complete and archived outside the tracked docs tree at `archive/dev-plans/mimic-style-sweep-plan.md`; its final checkpoint, code review, and full `make tests` gate were green before the release tag was cut.
 
 `chunked-output-plan.md` is complete. It remains in `docs/dev/` as implementation history until archived, but durable current instructions now live in `docs/USER-GUIDE.md`, `docs/DEVELOPER-GUIDE.md`, the simulation/debug skills, and the code itself.
 
@@ -31,13 +31,13 @@ Archived predecessor plans, validation records, and closeout handoffs are histor
 
 ## Current Sequence
 
-1. **Land the completed style-sweep branch on `main`.** The pre-release style sweep and review checkpoints are complete, the sweep plan has been archived, and the full test gate is green.
+1. **Treat v1.0 as the production baseline.** Use the tagged v1.0 release as the forward reference for behaviour-preserving post-v1.0 work.
 
-2. **Tag v1.0 and refresh the baseline.** Record the tagged v1.0 output and test baseline as the forward reference for behaviour-preserving post-v1.0 work.
+2. **Refresh active post-v1.0 plans before executing them.** The dual-driver and model-builder plans should be re-read against the tagged baseline before implementation starts.
 
-3. **Re-review post-v1.0 plans before executing them.** The dual-driver and model-builder plans should be revised only after v1.0 is tagged, because the final chunked-output and style-sweep state should be the baseline they build on.
+3. **Choose the next major direction.** The snapshot driver and model builder share the same v1.0 core foundation, but their relative priority should be decided based on scientific need, risk, and available validation gates.
 
-4. **Choose the next major direction post-v1.0.** The snapshot driver and model builder share the same v1.0 core foundation, but their relative priority should be decided after the release based on scientific need, risk, and available validation gates.
+4. **Create a narrow active implementation plan for the chosen direction.** Do not reopen completed umbrella plans; promote only the next actionable slice with acceptance criteria and validation gates.
 
 ---
 
