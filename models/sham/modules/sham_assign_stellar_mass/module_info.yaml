@@ -1,8 +1,10 @@
 module:
   name: sham_assign_stellar_mass
-  description: "Tracks Mpeak/Vpeak and assigns stellar mass from a monotonic SHAM-style stellar-to-halo mass relation with deterministic scatter."
-  supported_processing_modes:
-    - process_full_halo
+  description: >-
+    Tracks Mpeak/Vpeak and assigns stellar mass from a monotonic SHAM-style stellar-to-halo mass
+    relation with deterministic scatter.
+
+  supported_processing_modes: [process_full_halo]
 
   dependencies:
     properties:
@@ -39,4 +41,3 @@ module:
 
   docs:
     physics: README.md
-

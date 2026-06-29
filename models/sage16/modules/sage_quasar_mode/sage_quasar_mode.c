@@ -34,7 +34,7 @@ static double BLACK_HOLE_GROWTH_RATE;
 static double QUASAR_MODE_EFFICIENCY;
 
 // ============================================================================
-// MODULE LIFECYCLE
+// MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
 int sage_quasar_mode_init(void) {

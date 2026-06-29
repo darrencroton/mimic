@@ -35,7 +35,7 @@
 static double STAR_FORMING_DISK_FACTOR;
 
 // ============================================================================
-// MODULE LIFECYCLE
+// MODULE LIFECYCLE FUNCTIONS
 // ============================================================================
 
 int sage_disk_instability_init(void) {

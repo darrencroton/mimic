@@ -1,6 +1,7 @@
 module:
   name: sage_apply_cooling
-  description: "Transfers CoolingGas from the hot halo to the cold reservoir and tracks cooling energy"
+  description: >-
+    Transfers CoolingGas from the hot halo to the cold reservoir and tracks cooling energy
 
   supported_processing_modes: [process_by_galaxy]
 

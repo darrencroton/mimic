@@ -317,7 +317,7 @@ static int test_coulomb_logarithm(void) {
 
 /**
  * @test    test_small_satellite_immediate_merge
- * @brief   SAGE parity: satellites with Len < MinNumPartSatHalo (10) get
+ * @brief   SAGE parity: satellites with Len < MIN_NUM_PART_SAT_HALO (10) get
  *          mergtime = -1.0 (immediate merge), not a finite dynamical-friction
  *          clock. Satellites with Len >= 10 get a finite positive time.
  *          (SAGE model_mergers.c estimate_merging_time: the Len >= 10 condition.)

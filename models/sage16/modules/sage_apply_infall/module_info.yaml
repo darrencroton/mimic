@@ -1,6 +1,8 @@
 module:
   name: sage_apply_infall
-  description: "Distributes infalling gas to hot reservoir over substeps with metallicity tracking; acts on FOF central only"
+  description: >-
+    Distributes infalling gas to hot reservoir over substeps with metallicity tracking; acts on FOF
+    central only
 
   supported_processing_modes: [process_full_halo]
 

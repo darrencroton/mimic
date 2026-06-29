@@ -1,6 +1,8 @@
 module:
   name: sage_disk_instability
-  description: "Applies Mo, Mao & White (1998) disk stability criterion; transfers unstable stellar mass to bulge and sets UnstableDiskGasFraction trigger for downstream modules"
+  description: >-
+    Applies Mo, Mao & White (1998) disk stability criterion; transfers unstable stellar mass to
+    bulge and sets UnstableDiskGasFraction trigger for downstream modules
 
   supported_processing_modes: [process_by_galaxy]
 

@@ -31,8 +31,8 @@ static double FEEDBACK_EJECTION_EFFICIENCY;
 // MODULE-LOCAL CONSTANTS (converted from physical constants)
 // ============================================================================
 
-static double EnergySNcode;
-static double EtaSNcode;
+static double energy_sn_code;
+static double eta_sn_code;
 
 // ============================================================================
 // MODULE LIFECYCLE FUNCTIONS
@@ -67,14 +67,14 @@ int sage_calculate_supernova_feedback_init(void) {
   }
 
   // Convert physical constants to code units (module-local conversion)
-  EnergySNcode = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
-  EtaSNcode = ETA_SN * (MimicConfig.UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
+  energy_sn_code = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
+  eta_sn_code = ETA_SN * (MimicConfig.UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
 
   VERBOSE_LOG("SAGE supernova feedback module initialized");
   VERBOSE_LOG("  FeedbackReheatingEpsilon = %.3f", FEEDBACK_REHEATING_EPSILON);
   VERBOSE_LOG("  FeedbackEjectionEfficiency = %.3f", FEEDBACK_EJECTION_EFFICIENCY);
-  VERBOSE_LOG("  EnergySNcode = %.6e (from ENERGY_SN physical constant)", EnergySNcode);
-  VERBOSE_LOG("  EtaSNcode = %.6e (from ETA_SN physical constant)", EtaSNcode);
+  VERBOSE_LOG("  energy_sn_code = %.6e (from ENERGY_SN physical constant)", energy_sn_code);
+  VERBOSE_LOG("  eta_sn_code = %.6e (from ETA_SN physical constant)", eta_sn_code);
 
   return 0;
 }
@@ -118,10 +118,10 @@ int sage_calculate_supernova_feedback_process(struct ModuleContext *ctx, struct 
   double ejected_mass = 0.0;
   const double central_vvir = ctx->central_galaxy->Vvir;
   if (central_vvir > 0.0) {
-    ejected_mass =
-        (FEEDBACK_EJECTION_EFFICIENCY * (EtaSNcode * EnergySNcode) / (central_vvir * central_vvir) -
-         FEEDBACK_REHEATING_EPSILON) *
-        stars;
+    ejected_mass = (FEEDBACK_EJECTION_EFFICIENCY * (eta_sn_code * energy_sn_code) /
+                        (central_vvir * central_vvir) -
+                    FEEDBACK_REHEATING_EPSILON) *
+                   stars;
   }
 
   if (ejected_mass < 0.0) {

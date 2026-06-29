@@ -49,12 +49,25 @@ static double POST_MERGER_STAR_FORMING_DISK_FACTOR;
 static double POST_MERGER_BLACK_HOLE_GROWTH_RATE;
 static double POST_MERGER_QUASAR_MODE_EFFICIENCY;
 
-// Calculated from physical constants (converted to code units)
-static double EnergySNcode;
-static double EtaSNcode;
+// ============================================================================
+// MODULE-LOCAL CONSTANTS (converted from physical constants)
+// ============================================================================
+
+static double energy_sn_code;
+static double eta_sn_code;
 static bool POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED;
 static bool POST_MERGER_QUASAR_FOLLOWUP_ENABLED;
 
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * @brief Run SAGE's same-step minor-merger disk-instability follow-up when configured.
+ *
+ * The event halo is the live merger target after baryon transfer. Optional quasar
+ * follow-up mirrors SAGE's grow_black_hole() call before the collisional burst.
+ */
 static void maybe_apply_post_merger_disk_instability_followup(
     struct ModuleContext *ctx, struct Halo *event_halo, struct Halo *central_halo,
     double mass_ratio, double event_dt, const struct MimicStarburstParams *params) {
@@ -85,6 +98,10 @@ static void maybe_apply_post_merger_disk_instability_followup(
                                     central_halo, 1, event_dt, params);
   DEBUG_LOG("Post-merger disk instability follow-up (eff=%.3f)", unstable_gas_fraction);
 }
+
+// ============================================================================
+// MODULE LIFECYCLE FUNCTIONS
+// ============================================================================
 
 int sage_starburst_feedback_init(void) {
   LOAD_AND_VALIDATE_RANGE_EXCLUSIVE("FeedbackReheatingEpsilon", FEEDBACK_REHEATING_EPSILON, 0.0,
@@ -153,16 +170,16 @@ int sage_starburst_feedback_init(void) {
   }
 
   // Convert physical constants to code units (same as sage_calculate_supernova_feedback)
-  EnergySNcode = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
-  EtaSNcode = ETA_SN * (MimicConfig.UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
+  energy_sn_code = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
+  eta_sn_code = ETA_SN * (MimicConfig.UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
 
   VERBOSE_LOG("SAGE starburst feedback module initialized");
   VERBOSE_LOG("  FeedbackReheatingEpsilon = %.3f", FEEDBACK_REHEATING_EPSILON);
   VERBOSE_LOG("  FeedbackEjectionEfficiency = %.3f", FEEDBACK_EJECTION_EFFICIENCY);
   VERBOSE_LOG("  RecycleFraction = %.3f", RECYCLE_FRACTION);
   VERBOSE_LOG("  Yield = %.4f", YIELD);
-  VERBOSE_LOG("  EnergySNcode = %.6e (from ENERGY_SN physical constant)", EnergySNcode);
-  VERBOSE_LOG("  EtaSNcode = %.6e (from ETA_SN physical constant)", EtaSNcode);
+  VERBOSE_LOG("  energy_sn_code = %.6e (from ENERGY_SN physical constant)", energy_sn_code);
+  VERBOSE_LOG("  eta_sn_code = %.6e (from ETA_SN physical constant)", eta_sn_code);
   VERBOSE_LOG("  post-minor-merger disk instability follow-up = %s",
               POST_MERGER_DISK_INSTABILITY_RECHECK_ENABLED ? "enabled" : "disabled");
   VERBOSE_LOG("  post-minor-merger quasar follow-up = %s",
@@ -185,8 +202,8 @@ int sage_starburst_feedback_process(struct ModuleContext *ctx, struct Halo *halo
       .yield = YIELD,
       .frac_z_leave_disk = FRAC_Z_LEAVE_DISK,
       .threshold_major_merger = THRESHOLD_MAJOR_MERGER,
-      .energy_sn_code = EnergySNcode,
-      .eta_sn_code = EtaSNcode,
+      .energy_sn_code = energy_sn_code,
+      .eta_sn_code = eta_sn_code,
   };
 
   if (ctx->active_event != NULL) {

@@ -1,6 +1,9 @@
 module:
   name: sage_starburst_feedback
-  description: "Implements collisional starburst recipe (Somerville et al. 2001) from disk instability (process_by_galaxy) and merger events (process_per_event); includes optional post-minor-merger disk-instability follow-up"
+  description: >-
+    Implements collisional starburst recipe (Somerville et al. 2001) from disk instability
+    (process_by_galaxy) and merger events (process_per_event); includes optional
+    post-minor-merger disk-instability follow-up
 
   supported_processing_modes: [process_by_galaxy, process_per_event]
 

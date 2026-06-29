@@ -1,6 +1,8 @@
 module:
   name: sage_radio_mode_heating
-  description: "Implements AGN radio-mode feedback suppressing cooling via black hole accretion; supports empirical, Bondi-Hoyle, and cold-cloud accretion modes"
+  description: >-
+    Implements AGN radio-mode feedback suppressing cooling via black hole accretion; supports
+    empirical, Bondi-Hoyle, and cold-cloud accretion modes
 
   supported_processing_modes: [process_by_galaxy]
 

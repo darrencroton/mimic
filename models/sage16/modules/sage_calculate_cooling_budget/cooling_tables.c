@@ -18,11 +18,16 @@
 #include "numeric.h"
 #include "module_system/physical_constants.h"
 
-#define TABSIZE 91
+#define COOLING_TABLE_COUNT 8
+#define COOLING_TABLE_SIZE 91
 #define LOG_TEMP_MIN 4.0
 #define LOG_TEMP_MAX 8.5
 #define LOG_TEMP_STEP 0.05
-#define TEMP_INDEX_MAX (TABSIZE - 1)
+#define TEMP_INDEX_MAX (COOLING_TABLE_SIZE - 1)
+
+// ============================================================================
+// COOLING TABLE DATA
+// ============================================================================
 
 // Cooling function data files
 static const char *cooling_file_names[] = {
@@ -39,8 +44,12 @@ static const double metallicities_feh[8] = {-5.0, // primordial -> effectively -
 // from the [Fe/H] source so init/cleanup/init cycles cannot re-shift the table.
 static double metallicities[8];
 
-static double CoolRate[8][TABSIZE];
+static double cooling_rates[COOLING_TABLE_COUNT][COOLING_TABLE_SIZE];
 static int tables_initialized = 0;
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
 
 /**
  * @brief Linear interpolation in temperature for a single metallicity table
@@ -48,21 +57,27 @@ static int tables_initialized = 0;
 static double get_rate(int tab, double logTemp) {
   const double inv_dlogT = 1.0 / LOG_TEMP_STEP;
 
-  if (logTemp < LOG_TEMP_MIN)
+  if (logTemp < LOG_TEMP_MIN) {
     logTemp = LOG_TEMP_MIN;
+  }
 
   int index = (int)((logTemp - LOG_TEMP_MIN) * inv_dlogT);
-  if (index >= TEMP_INDEX_MAX)
+  if (index >= TEMP_INDEX_MAX) {
     index = TEMP_INDEX_MAX - 1;
+  }
 
   const double logTindex = LOG_TEMP_MIN + LOG_TEMP_STEP * index;
-  const double rate1 = CoolRate[tab][index];
-  const double rate2 = CoolRate[tab][index + 1];
+  const double rate1 = cooling_rates[tab][index];
+  const double rate2 = cooling_rates[tab][index + 1];
 
   const double rate = rate1 + (rate2 - rate1) * inv_dlogT * (logTemp - logTindex);
 
   return rate;
 }
+
+// ============================================================================
+// COOLING TABLE INTERFACE
+// ============================================================================
 
 /**
  * @brief Initialize and load cooling function tables from data files
@@ -75,13 +90,14 @@ int cooling_tables_init(const char *cool_functions_dir) {
     return 0;
   }
 
-  // Convert metallicities from [Fe/H] to absolute log(Z) by adding log10(Z_sun), Z_sun=0.02
-  const double log10_zsun = log10(0.02);
-  for (int i = 0; i < 8; i++)
+  // Convert metallicities from [Fe/H] to absolute log(Z) by adding log10(Z_sun).
+  const double log10_zsun = log10(Z_SUN);
+  for (int i = 0; i < COOLING_TABLE_COUNT; i++) {
     metallicities[i] = metallicities_feh[i] + log10_zsun;
+  }
 
   // Load each cooling function table
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < COOLING_TABLE_COUNT; i++) {
     snprintf(filepath, sizeof(filepath), "%s/%s", cool_functions_dir, cooling_file_names[i]);
 
     FILE *fd = fopen(filepath, "r");
@@ -92,8 +108,8 @@ int cooling_tables_init(const char *cool_functions_dir) {
       return -1;
     }
 
-    // Read all 91 temperature points - only need column 6 (sd_logLnorm)
-    for (int n = 0; n < TABSIZE; n++) {
+    // Read all temperature points - only need column 6 (sd_logLnorm)
+    for (int n = 0; n < COOLING_TABLE_SIZE; n++) {
       float sd_logLnorm;
       const int nitems = fscanf(fd, " %*f %*f %*f %*f %*f %f%*[^\n]", &sd_logLnorm);
 
@@ -103,7 +119,7 @@ int cooling_tables_init(const char *cool_functions_dir) {
         return -1;
       }
 
-      CoolRate[i][n] = sd_logLnorm;
+      cooling_rates[i][n] = sd_logLnorm;
     }
 
     fclose(fd);
@@ -125,16 +141,19 @@ double get_metaldependent_cooling_rate(double logTemp, double logZ) {
   }
 
   // Clamp metallicity to table range
-  if (logZ < metallicities[0])
+  if (logZ < metallicities[0]) {
     logZ = metallicities[0];
+  }
 
-  if (logZ > metallicities[7])
-    logZ = metallicities[7];
+  if (logZ > metallicities[COOLING_TABLE_COUNT - 1]) {
+    logZ = metallicities[COOLING_TABLE_COUNT - 1];
+  }
 
   // Find metallicity bracket: metallicities[i] <= logZ < metallicities[i+1]
   int i = 0;
-  while (logZ > metallicities[i + 1])
+  while (logZ > metallicities[i + 1]) {
     i++;
+  }
 
   // Get cooling rates at this temperature for bracketing metallicities
   const double rate1 = get_rate(i, logTemp);

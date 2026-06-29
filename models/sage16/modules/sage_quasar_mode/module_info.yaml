@@ -1,6 +1,8 @@
 module:
   name: sage_quasar_mode
-  description: "Implements Kauffmann & Haehnelt (2000) BH growth and energy-driven quasar winds; triggered by disk instability (process_by_galaxy) and merger events (process_per_event)"
+  description: >-
+    Implements Kauffmann & Haehnelt (2000) BH growth and energy-driven quasar winds; triggered by
+    disk instability (process_by_galaxy) and merger events (process_per_event)
 
   supported_processing_modes: [process_by_galaxy, process_per_event]
 

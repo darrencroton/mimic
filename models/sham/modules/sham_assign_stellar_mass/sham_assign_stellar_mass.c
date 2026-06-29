@@ -27,6 +27,10 @@
 
 #define TWO_PI 6.28318530717958647692
 
+// ============================================================================
+// MODULE PARAMETERS
+// ============================================================================
+
 static double sham_log_m1;
 static double sham_n;
 static double sham_beta;
@@ -38,8 +42,15 @@ static double sham_max_stellar_baryon_fraction;
 static double sham_orphan_max_age_myr;
 static int sham_use_scatter;
 
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
 static double max_double(double a, double b) { return (a > b) ? a : b; }
 
+/**
+ * @brief Stable integer mixer used to derive deterministic per-galaxy scatter.
+ */
 static uint64_t splitmix64(uint64_t x) {
   x += UINT64_C(0x9e3779b97f4a7c15);
   x = (x ^ (x >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
@@ -65,6 +76,9 @@ static double gaussian_from_key(uint64_t key) {
   return sqrt(-2.0 * log(u1)) * cos(TWO_PI * u2);
 }
 
+/**
+ * @brief Build a stable key for scatter from persistent IDs, with tree-local fallback.
+ */
 static uint64_t galaxy_key(const struct Halo *halo) {
   if (halo->UniqueGalaxyID != 0) {
     return (uint64_t)halo->UniqueGalaxyID;
@@ -89,6 +103,9 @@ static double moster_stellar_mass_msun(double halo_mass_msun) {
   return 2.0 * sham_n * halo_mass_msun / denominator;
 }
 
+/**
+ * @brief Track peak halo proxies and age Type 2 orphans in Myr.
+ */
 static void update_peak_proxies(struct Halo *halo) {
   struct GalaxyData *gal = halo->galaxy;
 
@@ -121,6 +138,9 @@ static void clear_assigned_galaxy_properties(struct GalaxyData *gal) {
   gal->ShamScatterDex = 0.0f;
 }
 
+/**
+ * @brief Assign stellar mass in Mimic code units from the configured SMHM relation.
+ */
 static void assign_stellar_mass(struct Halo *halo) {
   struct GalaxyData *gal = halo->galaxy;
   const double mpeak = gal->ShamMpeak;
@@ -132,6 +152,7 @@ static void assign_stellar_mass(struct Halo *halo) {
     return;
   }
 
+  // Mpeak is stored in 1e10 Msun/h; the Moster relation is evaluated in Msun.
   const double h = (MimicConfig.Hubble_h > 0.0) ? MimicConfig.Hubble_h : 1.0;
   const double halo_mass_msun = mpeak * 1.0e10 / h;
   const double unscattered_mstar_msun = moster_stellar_mass_msun(halo_mass_msun);
@@ -157,6 +178,10 @@ static void assign_stellar_mass(struct Halo *halo) {
   gal->StellarMass = (float)mstar_code;
   gal->ShamScatterDex = (float)scatter;
 }
+
+// ============================================================================
+// MODULE LIFECYCLE FUNCTIONS
+// ============================================================================
 
 int sham_assign_stellar_mass_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ShamLogM1", sham_log_m1, 8.0, 15.0,
@@ -211,4 +236,7 @@ int sham_assign_stellar_mass_process(struct ModuleContext *ctx, struct Halo *hal
   return 0;
 }
 
-int sham_assign_stellar_mass_cleanup(void) { return 0; }
+int sham_assign_stellar_mass_cleanup(void) {
+  VERBOSE_LOG("SHAM stellar mass assignment cleaned up");
+  return 0;
+}

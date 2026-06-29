@@ -24,12 +24,26 @@
 #include "module_registry.h"
 #include "types.h"
 
+// ============================================================================
+// MODULE PARAMETERS
+// ============================================================================
+
 static double THRESHOLD_MAJOR_MERGER;
 static double THRESHOLD_SAT_DISRUPTION;
+
+// ============================================================================
+// TEST HOOKS
+// ============================================================================
 
 static void (*action_hook)(const char *action, int source_index, int target_index,
                            double mass_ratio) = NULL;
 
+/**
+ * @brief Install a unit-test observer for immediate merger/disruption actions.
+ *
+ * Production code leaves this NULL. Cleanup clears the hook so tests cannot leak
+ * observer state across module lifecycles.
+ */
 void sage_resolve_mergers_and_disruption_set_action_hook(
     void (*hook)(const char *action, int source_index, int target_index, double mass_ratio)) {
   action_hook = hook;
@@ -41,6 +55,54 @@ static void record_action(const char *action, int source_index, int target_index
     action_hook(action, source_index, target_index, mass_ratio);
   }
 }
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+static int validate_immediate_merger_context(struct ModuleContext *ctx) {
+  if (ctx == NULL || ctx->num_substeps <= 0) {
+    ERROR_LOG("Invalid immediate merger context (ctx=%p, num_substeps=%d)", (void *)ctx,
+              (ctx != NULL) ? ctx->num_substeps : -1);
+    return -1;
+  }
+  return 0;
+}
+
+static int validate_immediate_target(struct Halo *halos, int ngal, int source_idx, int target_idx) {
+  if (target_idx < 0 || target_idx >= ngal || target_idx == source_idx ||
+      halos[target_idx].galaxy == NULL) {
+    ERROR_LOG("Invalid immediate merger target (satellite=%d, target=%d)", source_idx, target_idx);
+    return -1;
+  }
+  return 0;
+}
+
+static int emit_merger_event(struct ModuleContext *ctx, int source_idx, int target_idx,
+                             double mass_ratio, double source_dt) {
+  if (mass_ratio <= 0.0) {
+    return 0;
+  }
+
+  if (module_emit_event(ctx, SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER, source_idx,
+                        target_idx, mass_ratio, source_dt) != 0) {
+    ERROR_LOG("Failed to emit immediate merger event (source=%d, target=%d, ratio=%.6f)",
+              source_idx, target_idx, mass_ratio);
+    return -1;
+  }
+  return 0;
+}
+
+static void apply_disruption(struct Halo *source_halo, struct GalaxyData *target, int source_idx,
+                             int target_idx) {
+  mimic_sage_disruption_transfer(target, source_halo->galaxy);
+  source_halo->Type = 3;
+  record_action("disrupt", source_idx, target_idx, 0.0);
+}
+
+// ============================================================================
+// MODULE LIFECYCLE FUNCTIONS
+// ============================================================================
 
 int sage_resolve_mergers_and_disruption_init(void) {
   LOAD_AND_VALIDATE_RANGE_INCLUSIVE("ThresholdMajorMerger", THRESHOLD_MAJOR_MERGER, 0.0, 1.0,
@@ -76,16 +138,9 @@ int sage_resolve_mergers_and_disruption_init(void) {
   return 0;
 }
 
-int sage_resolve_mergers_and_disruption_cleanup(void) {
-  action_hook = NULL;
-  return 0;
-}
-
 int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struct Halo *halos,
                                                 int ngal) {
-  if (ctx == NULL || ctx->num_substeps <= 0) {
-    ERROR_LOG("Invalid immediate merger context (ctx=%p, num_substeps=%d)", (void *)ctx,
-              (ctx != NULL) ? ctx->num_substeps : -1);
+  if (validate_immediate_merger_context(ctx) != 0) {
     return -1;
   }
 
@@ -149,17 +204,13 @@ int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struc
     }
 
     const int target_idx = mimic_resolve_immediate_target_index(halos, ngal, i, fof_central_idx);
-    if (target_idx < 0 || target_idx >= ngal || target_idx == i ||
-        halos[target_idx].galaxy == NULL) {
-      ERROR_LOG("Invalid immediate merger target (satellite=%d, target=%d)", i, target_idx);
+    if (validate_immediate_target(halos, ngal, i, target_idx) != 0) {
       return -1;
     }
     struct GalaxyData *target = halos[target_idx].galaxy;
 
     if (satellite->MergTime > 0.0) {
-      mimic_sage_disruption_transfer(target, satellite);
-      halos[i].Type = 3;
-      record_action("disrupt", i, target_idx, 0.0);
+      apply_disruption(&halos[i], target, i, target_idx);
       continue;
     }
 
@@ -176,13 +227,8 @@ int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struc
 
     mimic_sage_merge_transfer(target, satellite);
 
-    if (mass_ratio > 0.0) {
-      if (module_emit_event(ctx, SAGE_RESOLVE_MERGERS_AND_DISRUPTION_EVENT_MERGER, i, target_idx,
-                            mass_ratio, source_dt) != 0) {
-        ERROR_LOG("Failed to emit immediate merger event (source=%d, target=%d, ratio=%.6f)", i,
-                  target_idx, mass_ratio);
-        return -1;
-      }
+    if (emit_merger_event(ctx, i, target_idx, mass_ratio, source_dt) != 0) {
+      return -1;
     }
 
     if (mass_ratio > 0.1) {
@@ -199,5 +245,11 @@ int sage_resolve_mergers_and_disruption_process(struct ModuleContext *ctx, struc
     record_action("merge", i, target_idx, mass_ratio);
   }
 
+  return 0;
+}
+
+int sage_resolve_mergers_and_disruption_cleanup(void) {
+  action_hook = NULL;
+  VERBOSE_LOG("SAGE merger/disruption resolver cleaned up");
   return 0;
 }

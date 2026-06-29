@@ -56,8 +56,8 @@ static struct PhaseModuleConfig sn_physics_pipeline[2];
 static struct ModulePhaseConfig sn_substep_phase;
 
 /* Physics constants (computed during init) */
-static double EnergySNcode_test;
-static double EtaSNcode_test;
+static double energy_sn_code_test;
+static double eta_sn_code_test;
 
 // ============================================================================
 // TEST FIXTURES AND HELPERS
@@ -116,7 +116,7 @@ static void setup_test_halo(struct Halo *halo, struct GalaxyData *galaxy, int ty
 /**
  * @brief   Initialize test physics constants
  *
- * Computes EnergySNcode and EtaSNcode the same way the module does.
+ * Computes the SN code-unit constants the same way the module does.
  * Also sets global unit conversion variables required by the module.
  */
 static void init_test_constants(void) {
@@ -136,8 +136,8 @@ static void init_test_constants(void) {
                                   (MimicConfig.UnitTime_in_s * MimicConfig.UnitTime_in_s);
 
   /* Unit conversions (from module initialization) */
-  EnergySNcode_test = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
-  EtaSNcode_test = ETA_SN * (MimicConfig.UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
+  energy_sn_code_test = ENERGY_SN / MimicConfig.UnitEnergy_in_cgs * MimicConfig.Hubble_h;
+  eta_sn_code_test = ETA_SN * (MimicConfig.UnitMass_in_g / SOLAR_MASS) / MimicConfig.Hubble_h;
 
   /* Minimal pipeline config: the SN dependency check requires the apply step
    * to be visible in MimicConfig even when init is called directly. */
@@ -514,7 +514,7 @@ int test_ejection_calculation(void) {
 
   /* Calculate expected ejection */
   double energy_term =
-      test_eta * (EtaSNcode_test * EnergySNcode_test) / (central_vvir * central_vvir);
+      test_eta * (eta_sn_code_test * energy_sn_code_test) / (central_vvir * central_vvir);
   double expected_ejected = (energy_term - test_epsilon) * new_stars;
 
   /* Ejection can be negative (clamped to zero) */

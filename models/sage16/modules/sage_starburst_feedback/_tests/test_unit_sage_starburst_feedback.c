@@ -93,7 +93,7 @@ extern int sage_starburst_feedback_cleanup(void);
  *
  * CRITICAL: The module uses global unit variables (MimicConfig.UnitEnergy_in_cgs,
  * MimicConfig.UnitMass_in_g) to convert physical constants to code units. These must be initialized
- * before calling sage_starburst_feedback_init() or EnergySNcode/EtaSNcode will be garbage.
+ * before calling sage_starburst_feedback_init() or the SN code-unit constants will be garbage.
  */
 static void init_unit_constants(void) {
   /* Standard cosmological unit system */
@@ -115,7 +115,7 @@ static void reset_config(void) {
   memset(&MimicConfig, 0, sizeof(MimicConfig));
   init_unit_constants(); /* Always initialize unit constants after reset */
 
-  /* Set Hubble_h before module init - required for EnergySNcode/EtaSNcode calculation */
+  /* Set Hubble_h before module init - required for SN code-unit constant calculation */
   MimicConfig.Hubble_h = 0.73;
   MimicConfig.UnitVelocity_in_cm_per_s = 1.0e5; /* 1 km/s */
 }

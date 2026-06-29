@@ -1,6 +1,7 @@
 module:
   name: sage_reincorporation
-  description: "Returns ejected gas to hot halo in massive systems (Vvir > Vcrit); acts on FOF central only"
+  description: >-
+    Returns ejected gas to hot halo in massive systems (Vvir > Vcrit); acts on FOF central only
 
   supported_processing_modes: [process_full_halo]
 

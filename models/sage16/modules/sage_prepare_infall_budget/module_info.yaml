@@ -1,6 +1,8 @@
 module:
   name: sage_prepare_infall_budget
-  description: "Prepares the per-halo infall budget: consolidates satellite ejected gas and ICS to the central, then computes cosmological gas infall; stores result in InfallingGas"
+  description: >-
+    Prepares the per-halo infall budget: consolidates satellite ejected gas and ICS to the central,
+    then computes cosmological gas infall; stores result in InfallingGas
 
   supported_processing_modes: [process_full_halo]
 

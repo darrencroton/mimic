@@ -1,6 +1,7 @@
 module:
   name: sage_calculate_cooling_budget
-  description: "Calculates cooling budget from hot halo using metallicity-dependent cooling functions"
+  description: >-
+    Calculates cooling budget from hot halo using metallicity-dependent cooling functions
 
   additional_files:
     - cooling_tables.c

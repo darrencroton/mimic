@@ -1,6 +1,8 @@
 module:
   name: sage_reionization
-  description: "Calculates per-galaxy reionization suppression factor using Gnedin (2000) model; sets HaloBaryonFraction for each galaxy using its own Mvir"
+  description: >-
+    Calculates per-galaxy reionization suppression factor using Gnedin (2000) model; sets
+    HaloBaryonFraction for each galaxy using its own Mvir
 
   supported_processing_modes: [process_full_halo]
 

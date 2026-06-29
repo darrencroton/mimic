@@ -26,6 +26,7 @@
 #define SEC_PER_YEAR 3.155e7      /* Seconds per year */
 #define PROTONMASS 1.6726e-24     /* Proton mass in grams */
 #define BOLTZMANN 1.3806e-16      /* Boltzmann constant in erg/K */
+#define Z_SUN 0.02                /* Solar metallicity mass fraction, Z_sun */
 
 /* ===== Speed of Light (various units) ===== */
 

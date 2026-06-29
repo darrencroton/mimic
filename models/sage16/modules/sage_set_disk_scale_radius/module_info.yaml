@@ -1,6 +1,8 @@
 module:
   name: sage_set_disk_scale_radius
-  description: "Computes disk scale radius for the FOF Type 0 central using Mo, Mao & White (1998) model; Type 1 satellites keep their inherited DiskScaleRadius"
+  description: >-
+    Computes disk scale radius for the FOF Type 0 central using Mo, Mao & White (1998) model; Type
+    1 satellites keep their inherited DiskScaleRadius
 
   supported_processing_modes: [process_full_halo]
 

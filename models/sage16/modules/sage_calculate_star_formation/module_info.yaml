@@ -1,6 +1,9 @@
 module:
   name: sage_calculate_star_formation
-  description: "Swappable SF rate prescription: computes stellar mass formed this substep via Kennicutt-Schmidt efficiency with critical threshold; stores result in NewStellarMass transport field"
+  description: >-
+    Swappable SF rate prescription: computes stellar mass formed this substep via
+    Kennicutt-Schmidt efficiency with critical threshold; stores result in NewStellarMass transport
+    field
 
   supported_processing_modes: [process_by_galaxy]
 
