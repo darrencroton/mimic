@@ -452,9 +452,6 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr, int cent
   /* Configuration access */
   ctx->params = &MimicConfig;
 
-  /* Determine number of substeps (default to 1 if not specified) */
-  ctx->num_substeps = (MimicConfig.SubSteps > 0) ? MimicConfig.SubSteps : 1;
-
   /* Calculate total time interval for this timestep.
    *
    * INVARIANT: workspace halos still carry their *progenitor's* SnapNum at
@@ -466,6 +463,15 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr, int cent
     ctx->time_interval = Age[prev_snap] - Age[snap];
   } else {
     ctx->time_interval = 0.0; /* First snapshot has no previous */
+  }
+
+  if (MimicConfig.TimestepScheme == TIMESTEP_SCHEME_DYNAMIC) {
+    double rvir = get_virial_radius(halonr);
+    double vvir = get_virial_velocity(halonr);
+    double t_dyn = (vvir > 0.0) ? (rvir / vvir) : 0.0;
+    ctx->num_substeps = compute_dynamic_substeps(ctx->time_interval, t_dyn, MimicConfig.SubSteps);
+  } else {
+    ctx->num_substeps = (MimicConfig.SubSteps > 0) ? MimicConfig.SubSteps : 1;
   }
 
   /* Initialize substep information (updated in substep loop) */

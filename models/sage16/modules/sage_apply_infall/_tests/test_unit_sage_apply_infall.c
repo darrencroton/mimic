@@ -21,6 +21,7 @@
  *   - test_property_access: Galaxy property access works correctly
  *   - test_physics_positive_infall_single_substep: Positive infall with 1 substep
  *   - test_physics_positive_infall_multiple_substeps: Infall distributed over 4 substeps
+ *   - test_physics_positive_infall_max_dynamic_substeps: Infall conserved over max dynamic substeps
  *   - test_physics_negative_infall_from_ejected: Negative infall depletes ejected first
  *   - test_physics_negative_infall_from_hot: Negative infall depletes hot when ejected empty
  *   - test_physics_negative_infall_cascade: Negative infall depletes ejected then hot
@@ -36,6 +37,7 @@
 #include "include/types.h"
 #include "include/proto.h"
 #include "include/globals.h"
+#include "include/constants.h"
 #include "util/error.h"
 #include "util/memory.h"
 
@@ -323,6 +325,52 @@ int test_physics_positive_infall_multiple_substeps(void) {
 }
 
 /**
+ * @test    test_physics_positive_infall_max_dynamic_substeps
+ * @brief   Test positive infall sums correctly over the dynamic substep cap
+ *
+ * Expected: Total HotGas gain equals the original InfallingGas budget after
+ * MAX_DYNAMIC_SUBSTEPS applications.
+ * Validates: Direct /num_substeps distribution conserves the infall budget at
+ * the largest dynamic timestep count.
+ */
+int test_physics_positive_infall_max_dynamic_substeps(void) {
+  /* ===== SETUP ===== */
+  init_memory_system(0);
+  setup_module_for_physics_test();
+
+  struct Halo test_halo = create_test_halo(0, 100.0);
+
+  const double initial_hot = 5.0;
+  const double infall_budget = 12.7;
+  test_halo.galaxy->InfallingGas = infall_budget;
+  test_halo.galaxy->HotGas = initial_hot;
+
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.num_substeps = MAX_DYNAMIC_SUBSTEPS;
+
+  /* ===== EXECUTE ===== */
+  for (int i = 0; i < MAX_DYNAMIC_SUBSTEPS; i++) {
+    ctx.substep_number = i;
+    int result = sage_apply_infall_process(&ctx, &test_halo, 1);
+    TEST_ASSERT(result == 0, "Module processing should succeed for each dynamic substep");
+  }
+
+  /* ===== VALIDATE ===== */
+  const double expected_hot = initial_hot + infall_budget;
+  const double hot_tol = fmax(1e-5, fabs(expected_hot) * 1e-6);
+  TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, expected_hot, hot_tol,
+                           "HotGas gain should equal total infall budget at max dynamic substeps");
+
+  /* ===== CLEANUP ===== */
+  free_test_halo(&test_halo);
+  sage_apply_infall_cleanup();
+  check_memory_leaks();
+
+  return TEST_PASS;
+}
+
+/**
  * @test    test_physics_negative_infall_from_ejected
  * @brief   Test negative infall removes from ejected reservoir first
  *
@@ -590,6 +638,7 @@ int main(void) {
   TEST_RUN(test_property_access);
   TEST_RUN(test_physics_positive_infall_single_substep);
   TEST_RUN(test_physics_positive_infall_multiple_substeps);
+  TEST_RUN(test_physics_positive_infall_max_dynamic_substeps);
   TEST_RUN(test_physics_negative_infall_from_ejected);
   TEST_RUN(test_physics_negative_infall_from_hot);
   TEST_RUN(test_physics_negative_infall_cascade);

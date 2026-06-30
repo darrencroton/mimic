@@ -27,6 +27,7 @@
 #include "include/types.h"
 #include "core/module_interface.h"
 #include "include/globals.h"
+#include "include/constants.h"
 #include "util/memory.h"
 #include "util/error.h"
 
@@ -172,6 +173,43 @@ static int test_mass_conservation(void) {
   TEST_ASSERT(FLOAT_EQ(final_total, initial_total, 1e-4), "Total mass should be conserved");
   TEST_ASSERT(FLOAT_EQ(sat_lost, cen_gained, 1e-4),
               "Satellite mass lost should equal central mass gained");
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_mass_conservation_max_dynamic_substeps
+ * @brief   Repeated stripping at the dynamic substep cap conserves mass
+ */
+static int test_mass_conservation_max_dynamic_substeps(void) {
+  init_memory_system(0);
+  struct ModuleContext ctx = create_test_context(MAX_DYNAMIC_SUBSTEPS);
+  struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+  struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+  struct GalaxyData sat_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
+  struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+  ctx.central_galaxy = &central;
+  struct Halo halos[2] = {central, satellite};
+  const double initial_sat_hot = sat_gal.HotGas;
+  const double initial_cen_hot = cen_gal.HotGas;
+  const double initial_total = initial_sat_hot + initial_cen_hot;
+
+  for (int i = 0; i < MAX_DYNAMIC_SUBSTEPS; i++) {
+    ctx.substep_number = i;
+    int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
+    TEST_ASSERT(result == 0, "Process should succeed for each dynamic substep");
+  }
+
+  const double final_total = (double)halos[1].galaxy->HotGas + (double)halos[0].galaxy->HotGas;
+  const double sat_lost = initial_sat_hot - (double)halos[1].galaxy->HotGas;
+  const double cen_gained = (double)halos[0].galaxy->HotGas - initial_cen_hot;
+  const double mass_tol = fmax(1e-4, fabs(initial_total) * 2e-6);
+  const double transfer_tol = fmax(1e-4, fabs(initial_sat_hot) * 2e-5);
+
+  TEST_ASSERT_DOUBLE_EQUAL(final_total, initial_total, mass_tol,
+                           "Total mass should be conserved at max dynamic substeps");
+  TEST_ASSERT_DOUBLE_EQUAL(sat_lost, cen_gained, transfer_tol,
+                           "Satellite mass lost should equal central mass gained");
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -464,6 +502,7 @@ int main(void) {
   TEST_RUN(test_no_stripping_when_below_threshold);
   TEST_RUN(test_stripping_when_above_threshold);
   TEST_RUN(test_mass_conservation);
+  TEST_RUN(test_mass_conservation_max_dynamic_substeps);
   TEST_RUN(test_metal_conservation);
   TEST_RUN(test_metal_conservation_all_regimes);
   TEST_RUN(test_metallicity_preservation);

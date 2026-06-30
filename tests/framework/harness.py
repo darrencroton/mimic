@@ -431,6 +431,7 @@ def create_test_param_file(
     temp_dir=None,
     output_format=None,
     substeps=None,
+    timestep_scheme=None,
 ):
     """
     Create a test YAML parameter file with multi-phase module configuration
@@ -460,6 +461,7 @@ def create_test_param_file(
         temp_dir (str or Path): Temporary directory for outputs (default: create new)
         output_format (str): Output format override ('binary' or 'hdf5', default: from ref file)
         substeps (int, optional): SubSteps override (default: value from ref file, or 1)
+        timestep_scheme (str, optional): TimestepScheme override (default: value from ref file)
 
     Returns:
         tuple: (param_file_path, output_dir_path, temp_dir_path)
@@ -530,6 +532,8 @@ def create_test_param_file(
         config["SubSteps"] = 1
     if substeps is not None:
         config["SubSteps"] = int(substeps)
+    if timestep_scheme is not None:
+        config["TimestepScheme"] = str(timestep_scheme)
 
     # Rebuild the modules section in the current named-substep-phase form:
     #   pre_timestep (lifecycle) -> phases: { <name>: [...] } -> post_timestep.

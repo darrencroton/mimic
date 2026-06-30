@@ -24,6 +24,9 @@ double integrand_time_to_present(double a, void *param);
 void read_parameter_file(const char *fname);
 const char *timestep_scheme_name(enum TimestepScheme scheme);
 
+/* Timestep helpers (src/core/timestep.c) */
+int compute_dynamic_substeps(double time_interval, double t_dyn, int substeps_per_tdyn);
+
 /* Output writers (src/io/output/) */
 void save_halos(int filenr, int tree);
 void finalize_halo_file(int filenr);

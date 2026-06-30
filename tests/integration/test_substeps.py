@@ -305,6 +305,69 @@ def test_substeps_one_no_loop():
         shutil.rmtree(temp_dir)
 
 
+def test_dynamic_timestep_varies_substeps():
+    """
+    Test that dynamic timestep mode varies num_substeps across snapshots.
+
+    Expected: Dynamic mode runs end-to-end and assigns more substeps to at least
+    one higher-redshift snapshot than the lowest-redshift snapshot.
+    """
+    print("Testing dynamic timestep varies substep count...")
+
+    # ===== SETUP =====
+    param_file, output_dir, temp_dir = create_test_param_file(
+        output_name="dynamic_substeps",
+        phase_config={
+            "pre_timestep": [],
+            "galaxy_physics": [("test_fixture", "process_full_halo")],
+            "satellite_mergers": [],
+            "post_timestep": [],
+        },
+        model_params={"TestFixtureDummyParameter": 1.0, "TestFixtureEnableLogging": 1},
+        first_file=0,
+        last_file=0,
+        substeps=10,
+        timestep_scheme="dynamic",
+    )
+
+    try:
+
+        # ===== EXECUTE =====
+        returncode, stdout, stderr = run_mimic(param_file)
+
+        # ===== VALIDATE =====
+        assert returncode == 0, f"Mimic failed: {stderr}"
+
+        all_executions = parse_test_fixture_executions(stdout)
+        assert len(all_executions) > 0, "Should have at least one execution"
+
+        substeps_by_redshift = {}
+        for execution in all_executions:
+            substeps_by_redshift.setdefault(execution["redshift"], []).append(
+                execution["num_substeps"]
+            )
+
+        counts_by_redshift = {
+            redshift: max(num_substeps) for redshift, num_substeps in substeps_by_redshift.items()
+        }
+        low_z = min(counts_by_redshift)
+        low_z_count = counts_by_redshift[low_z]
+        high_z, high_z_count = max(counts_by_redshift.items(), key=lambda item: item[1])
+
+        assert high_z > low_z, f"Largest dynamic N should occur above z={low_z}, got z={high_z}"
+        assert (
+            high_z_count > low_z_count
+        ), f"Expected higher-z N > low-z N, got {high_z_count} <= {low_z_count}"
+
+        print("  ✓ Dynamic timestep uses varied substep counts")
+        print(f"    z={high_z:.4f}: num_substeps={high_z_count}")
+        print(f"    z={low_z:.4f}: num_substeps={low_z_count}")
+
+    finally:
+        # ===== CLEANUP =====
+        shutil.rmtree(temp_dir)
+
+
 def main():
     """Run this file's tests via the shared framework runner."""
     return run_test_suite(
@@ -313,6 +376,7 @@ def main():
             test_substep_dt_calculation,
             test_module_context_fields,
             test_substeps_one_no_loop,
+            test_dynamic_timestep_varies_substeps,
         ],
         "SubSteps Time-Stepping and ModuleContext (test_substeps.py)",
     )
