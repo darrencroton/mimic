@@ -177,6 +177,44 @@ static int write_processing_order_fixture(char *path, size_t path_size,
   return wrote_processing_order ? 0 : -1;
 }
 
+static int write_timestep_scheme_fixture_with_label(char *path, size_t path_size, const char *label,
+                                                    const char *scheme) {
+  FILE *src;
+  FILE *dst;
+  char line[1024];
+
+  if (mkdir("archive", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+  if (mkdir("archive/test-fixtures", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+
+  snprintf(path, path_size, "archive/test-fixtures/test_timestep_scheme_%s.yaml", label);
+  src = fopen(test_binary_param_file(), "r");
+  if (src == NULL) {
+    return -1;
+  }
+  dst = fopen(path, "w");
+  if (dst == NULL) {
+    fclose(src);
+    return -1;
+  }
+
+  fprintf(dst, "TimestepScheme: %s\n", scheme);
+  while (fgets(line, sizeof(line), src) != NULL) {
+    fputs(line, dst);
+  }
+
+  fclose(dst);
+  fclose(src);
+  return 0;
+}
+
+static int write_timestep_scheme_fixture(char *path, size_t path_size, const char *scheme) {
+  return write_timestep_scheme_fixture_with_label(path, path_size, scheme, scheme);
+}
+
 static int write_output_chunking_fixture(char *path, size_t path_size, const char *label,
                                          const char *extra_content) {
   FILE *src;
@@ -336,6 +374,55 @@ static int read_parameter_file_should_fatal(const char *path) {
   return WIFEXITED(status) && WEXITSTATUS(status) != 0;
 }
 
+static int read_parameter_file_fatal_message_contains(const char *path, const char *needle) {
+  int pipefd[2];
+  pid_t pid;
+  int status;
+  char output[4096];
+  size_t used = 0;
+  ssize_t nread;
+
+  fflush(NULL);
+
+  if (pipe(pipefd) != 0) {
+    return -1;
+  }
+
+  pid = fork();
+  if (pid < 0) {
+    close(pipefd[0]);
+    close(pipefd[1]);
+    return -1;
+  }
+
+  if (pid == 0) {
+    close(pipefd[0]);
+    freopen("/dev/null", "w", stdout);
+    dup2(pipefd[1], STDERR_FILENO);
+    close(pipefd[1]);
+    execl(TestExecutablePath, TestExecutablePath, "--expect-fatal", path, (char *)NULL);
+    _exit(127);
+  }
+
+  close(pipefd[1]);
+  while (used < sizeof(output) - 1 &&
+         (nread = read(pipefd[0], output + used, sizeof(output) - 1 - used)) > 0) {
+    used += (size_t)nread;
+  }
+  output[used] = '\0';
+  close(pipefd[0]);
+
+  if (waitpid(pid, &status, 0) < 0) {
+    return -1;
+  }
+
+  if (WIFSIGNALED(status) || (WIFEXITED(status) && WEXITSTATUS(status) == 127)) {
+    return -1;
+  }
+
+  return WIFEXITED(status) && WEXITSTATUS(status) != 0 && strstr(output, needle) != NULL;
+}
+
 /**
  * @test    test_basic_parsing
  * @brief   Test that parameter file can be parsed without errors
@@ -406,6 +493,120 @@ int test_explicit_tree_ordered_processing_order(void) {
 
   printf("  explicit processing_order: %s\n",
          input_processing_order_name((enum InputProcessingOrder)MimicConfig.ProcessingOrder));
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_default_timestep_scheme
+ * @brief   Test that omitted TimestepScheme defaults to fixed
+ */
+int test_default_timestep_scheme(void) {
+  /* ===== SETUP ===== */
+  setup_test();
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(test_binary_param_file());
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.TimestepScheme == TIMESTEP_SCHEME_FIXED,
+              "Default TimestepScheme should be fixed");
+  TEST_ASSERT_STRING_EQUAL(timestep_scheme_name(MimicConfig.TimestepScheme), "fixed",
+                           "Default TimestepScheme name should be fixed");
+
+  printf("  timestep_scheme: %s\n", timestep_scheme_name(MimicConfig.TimestepScheme));
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_explicit_timestep_scheme
+ * @brief   Test that explicit fixed and dynamic TimestepScheme values parse successfully
+ */
+int test_explicit_timestep_scheme(void) {
+  char fixed_path[MAX_STRING_LEN];
+  char dynamic_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  TEST_ASSERT(write_timestep_scheme_fixture(fixed_path, sizeof(fixed_path), "fixed") == 0,
+              "Should create explicit fixed TimestepScheme fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixed_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.TimestepScheme == TIMESTEP_SCHEME_FIXED,
+              "Explicit fixed TimestepScheme should parse as fixed");
+  TEST_ASSERT_STRING_EQUAL(timestep_scheme_name(MimicConfig.TimestepScheme), "fixed",
+                           "Explicit fixed TimestepScheme name should be fixed");
+
+  printf("  explicit timestep_scheme: %s\n", timestep_scheme_name(MimicConfig.TimestepScheme));
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  TEST_ASSERT(write_timestep_scheme_fixture(dynamic_path, sizeof(dynamic_path), "dynamic") == 0,
+              "Should create explicit dynamic TimestepScheme fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(dynamic_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.TimestepScheme == TIMESTEP_SCHEME_DYNAMIC,
+              "Explicit dynamic TimestepScheme should parse as dynamic");
+  TEST_ASSERT_STRING_EQUAL(timestep_scheme_name(MimicConfig.TimestepScheme), "dynamic",
+                           "Explicit dynamic TimestepScheme name should be dynamic");
+
+  printf("  explicit timestep_scheme: %s\n", timestep_scheme_name(MimicConfig.TimestepScheme));
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_timestep_scheme_rejects_invalid_value
+ * @brief   Invalid TimestepScheme values trigger a fatal error
+ */
+int test_timestep_scheme_rejects_invalid_value(void) {
+  char fixture_path[MAX_STRING_LEN];
+  char non_scalar_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  TEST_ASSERT(write_timestep_scheme_fixture(fixture_path, sizeof(fixture_path), "adaptive") == 0,
+              "Should create invalid TimestepScheme fixture");
+
+  /* ===== EXECUTE / VALIDATE ===== */
+  int invalid_result = read_parameter_file_should_fatal(fixture_path);
+  TEST_ASSERT(invalid_result != -1, "Invalid TimestepScheme child should not crash");
+  TEST_ASSERT(invalid_result == 1, "Invalid TimestepScheme should fatal");
+  int invalid_message_result =
+      read_parameter_file_fatal_message_contains(fixture_path, "Unknown TimestepScheme");
+  TEST_ASSERT(invalid_message_result != -1,
+              "Invalid TimestepScheme message child should not crash");
+  TEST_ASSERT(invalid_message_result == 1, "Invalid TimestepScheme should report clear message");
+
+  TEST_ASSERT(write_timestep_scheme_fixture_with_label(non_scalar_path, sizeof(non_scalar_path),
+                                                       "non_scalar", "[dynamic]") == 0,
+              "Should create non-scalar TimestepScheme fixture");
+  int non_scalar_result =
+      read_parameter_file_fatal_message_contains(non_scalar_path, "must be a scalar string");
+  TEST_ASSERT(non_scalar_result != -1, "Non-scalar TimestepScheme child should not crash");
+  TEST_ASSERT(non_scalar_result == 1, "Non-scalar TimestepScheme should report clear message");
 
   /* ===== CLEANUP ===== */
   teardown_test();
@@ -961,6 +1162,9 @@ int main(int argc, char **argv) {
   TEST_RUN(test_basic_parsing);
   TEST_RUN(test_default_processing_order);
   TEST_RUN(test_explicit_tree_ordered_processing_order);
+  TEST_RUN(test_default_timestep_scheme);
+  TEST_RUN(test_explicit_timestep_scheme);
+  TEST_RUN(test_timestep_scheme_rejects_invalid_value);
   TEST_RUN(test_integer_parameters);
   TEST_RUN(test_float_parameters);
   TEST_RUN(test_string_parameters);

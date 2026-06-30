@@ -18,6 +18,9 @@
 /* Enum for output formats */
 enum Valid_OutputFormats { output_binary = 0, output_hdf5 = 1, num_output_formats };
 
+/* Enum for timestep schemes. Fixed must remain zero for memset-zeroed test fixtures. */
+enum TimestepScheme { TIMESTEP_SCHEME_FIXED = 0, TIMESTEP_SCHEME_DYNAMIC = 1 };
+
 /* Forward declarations for phase config structs (defined in module_registry.h,
  * which uses enum ProcessingMode from module_interface.h) */
 struct PhaseModuleConfig;
@@ -118,7 +121,8 @@ struct MimicConfig {
    */
 
   /* Time sub-stepping */
-  int SubSteps; /* Number of substeps per snapshot interval (0 = no substeps) */
+  int SubSteps;                       /* Number of substeps per snapshot interval (0 = none) */
+  enum TimestepScheme TimestepScheme; /* How SubSteps is interpreted */
 
   /* Pre-timestep: runs once before substeps */
   struct PhaseModuleConfig *pre_timestep; /* Array of modules for this phase */

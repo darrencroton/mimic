@@ -22,6 +22,7 @@ double integrand_time_to_present(double a, void *param);
 
 /* Configuration (src/core/read_parameter_file.c) */
 void read_parameter_file(const char *fname);
+const char *timestep_scheme_name(enum TimestepScheme scheme);
 
 /* Output writers (src/io/output/) */
 void save_halos(int filenr, int tree);

@@ -69,6 +69,7 @@ static void validate_and_postprocess(void);
 static void parse_simulation_config_file(const char *fname);
 static void validate_output_snapshots(void);
 static enum InputProcessingOrder parse_processing_order(const char *value);
+static enum TimestepScheme parse_timestep_scheme(const char *value);
 static void resolve_config_path(const char *path, const char *param_file, char *resolved,
                                 size_t resolved_size);
 static int file_exists_readable(const char *path);
@@ -184,6 +185,19 @@ void read_parameter_file(const char *fname) {
     DEBUG_LOG("SubSteps = %d", MimicConfig.SubSteps);
   } else {
     MimicConfig.SubSteps = 1; /* Default: no sub-stepping */
+  }
+
+  /* Parse TimestepScheme (top-level parameter) */
+  node = get_mapping_value(document, root, "TimestepScheme");
+  if (node) {
+    const char *str = get_scalar_value(node);
+    if (str == NULL) {
+      FATAL_ERROR("TimestepScheme must be a scalar string");
+    }
+    MimicConfig.TimestepScheme = parse_timestep_scheme(str);
+    DEBUG_LOG("TimestepScheme = %s", timestep_scheme_name(MimicConfig.TimestepScheme));
+  } else {
+    MimicConfig.TimestepScheme = TIMESTEP_SCHEME_FIXED;
   }
 
   section = get_mapping_value(document, root, "modules");
@@ -306,6 +320,29 @@ static enum InputProcessingOrder parse_processing_order(const char *value) {
               "snapshot_ordered.",
               value);
   return INPUT_PROCESSING_ORDER_TREE; /* unreachable */
+}
+
+const char *timestep_scheme_name(enum TimestepScheme scheme) {
+  switch (scheme) {
+  case TIMESTEP_SCHEME_FIXED:
+    return "fixed";
+  case TIMESTEP_SCHEME_DYNAMIC:
+    return "dynamic";
+  default:
+    return "unknown";
+  }
+}
+
+static enum TimestepScheme parse_timestep_scheme(const char *value) {
+  if (strcasecmp(value, "fixed") == 0) {
+    return TIMESTEP_SCHEME_FIXED;
+  }
+  if (strcasecmp(value, "dynamic") == 0) {
+    return TIMESTEP_SCHEME_DYNAMIC;
+  }
+
+  FATAL_ERROR("Unknown TimestepScheme '%s'. Valid values are fixed, dynamic.", value);
+  return TIMESTEP_SCHEME_FIXED; /* unreachable */
 }
 
 /**
@@ -1349,6 +1386,7 @@ static void validate_and_postprocess(void) {
               "phases",
               MimicConfig.NOUT, total_modules, total_phases);
   VERBOSE_LOG("SubSteps: %d", MimicConfig.SubSteps);
+  VERBOSE_LOG("TimestepScheme: %s", timestep_scheme_name(MimicConfig.TimestepScheme));
 }
 
 /**
