@@ -46,8 +46,8 @@ struct Halo;
  *     output_function: output_infall_property_or_zero
  *     output_function_arg: "g, g->infallMvir"
  */
-static inline float output_infall_property_or_zero(const struct Halo *g, float value) {
-  return (g->Type != 0) ? value : 0.0f;
+static inline double output_infall_property_or_zero(const struct Halo *g, double value) {
+  return (g->Type != 0) ? value : 0.0;
 }
 
 /**
@@ -58,10 +58,10 @@ static inline float output_infall_property_or_zero(const struct Halo *g, float v
  *
  * Used by: Rvir property
  */
-static inline float output_rvir_conditional(const struct Halo *g) {
+static inline double output_rvir_conditional(const struct Halo *g) {
   /* Type 2 orphans: preserve value from when the orphan had a subhalo;
    * Type 0/1: recalculate current (stored value is "maximum ever") */
-  return (g->Type == 2) ? g->Rvir : (float)get_virial_radius(g->HaloNr);
+  return (g->Type == 2) ? g->Rvir : get_virial_radius(g->HaloNr);
 }
 
 /**
@@ -72,10 +72,10 @@ static inline float output_rvir_conditional(const struct Halo *g) {
  *
  * Used by: Vvir property
  */
-static inline float output_vvir_conditional(const struct Halo *g) {
+static inline double output_vvir_conditional(const struct Halo *g) {
   /* Type 2 orphans: preserve value from when the orphan had a subhalo;
    * Type 0/1: recalculate current (stored value is "maximum ever") */
-  return (g->Type == 2) ? g->Vvir : (float)get_virial_velocity(g->HaloNr);
+  return (g->Type == 2) ? g->Vvir : get_virial_velocity(g->HaloNr);
 }
 
 #endif /* OUTPUT_HELPERS_H */

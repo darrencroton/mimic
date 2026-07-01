@@ -22,6 +22,7 @@
  *   - test_physics_positive_infall_single_substep: Positive infall with 1 substep
  *   - test_physics_positive_infall_multiple_substeps: Infall distributed over 4 substeps
  *   - test_physics_positive_infall_max_dynamic_substeps: Infall conserved over max dynamic substeps
+ *   - test_physics_infall_budget_invariant_across_substep_counts: Budget total is N-independent
  *   - test_physics_negative_infall_from_ejected: Negative infall depletes ejected first
  *   - test_physics_negative_infall_from_hot: Negative infall depletes hot when ejected empty
  *   - test_physics_negative_infall_cascade: Negative infall depletes ejected then hot
@@ -329,7 +330,7 @@ int test_physics_positive_infall_multiple_substeps(void) {
  * @brief   Test positive infall sums correctly over the dynamic substep cap
  *
  * Expected: Total HotGas gain equals the original InfallingGas budget after
- * MAX_DYNAMIC_SUBSTEPS applications.
+ * DEFAULT_MAX_DYNAMIC_SUBSTEPS applications.
  * Validates: Direct /num_substeps distribution conserves the infall budget at
  * the largest dynamic timestep count.
  */
@@ -347,23 +348,85 @@ int test_physics_positive_infall_max_dynamic_substeps(void) {
 
   struct ModuleContext ctx;
   memset(&ctx, 0, sizeof(ctx));
-  ctx.num_substeps = MAX_DYNAMIC_SUBSTEPS;
+  ctx.num_substeps = DEFAULT_MAX_DYNAMIC_SUBSTEPS;
 
   /* ===== EXECUTE ===== */
-  for (int i = 0; i < MAX_DYNAMIC_SUBSTEPS; i++) {
+  for (int i = 0; i < DEFAULT_MAX_DYNAMIC_SUBSTEPS; i++) {
     ctx.substep_number = i;
     int result = sage_apply_infall_process(&ctx, &test_halo, 1);
     TEST_ASSERT(result == 0, "Module processing should succeed for each dynamic substep");
   }
 
   /* ===== VALIDATE ===== */
+  /* Wider than a single-substep tolerance: float HotGas accrues roundoff over
+   * N substeps (docs/DEVELOPER-GUIDE.md#property-precision). */
   const double expected_hot = initial_hot + infall_budget;
-  const double hot_tol = fmax(1e-5, fabs(expected_hot) * 1e-6);
+  const double hot_tol = fmax(1e-5, fabs(expected_hot) * 1e-4);
   TEST_ASSERT_DOUBLE_EQUAL(test_halo.galaxy->HotGas, expected_hot, hot_tol,
                            "HotGas gain should equal total infall budget at max dynamic substeps");
 
   /* ===== CLEANUP ===== */
   free_test_halo(&test_halo);
+  sage_apply_infall_cleanup();
+  check_memory_leaks();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_physics_infall_budget_invariant_across_substep_counts
+ * @brief   Total infall applied over a full interval must not depend on num_substeps
+ *
+ * Expected: Two arbitrary substep counts (7 and 23) yield the same final HotGas.
+ * Validates: the fixed pre_timestep budget is partitioned, not recomputed per substep
+ * (contrast sage_satellite_stripping's N-dependent formula).
+ */
+int test_physics_infall_budget_invariant_across_substep_counts(void) {
+  /* ===== SETUP ===== */
+  init_memory_system(0);
+  setup_module_for_physics_test();
+
+  const double initial_hot = 5.0;
+  const double infall_budget = 12.7;
+
+  struct Halo halo_n7 = create_test_halo(0, 100.0);
+  halo_n7.galaxy->InfallingGas = infall_budget;
+  halo_n7.galaxy->HotGas = initial_hot;
+
+  struct Halo halo_n23 = create_test_halo(0, 100.0);
+  halo_n23.galaxy->InfallingGas = infall_budget;
+  halo_n23.galaxy->HotGas = initial_hot;
+
+  struct ModuleContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+
+  /* ===== EXECUTE ===== */
+  ctx.num_substeps = 7;
+  for (int i = 0; i < 7; i++) {
+    ctx.substep_number = i;
+    int result = sage_apply_infall_process(&ctx, &halo_n7, 1);
+    TEST_ASSERT(result == 0, "Module processing should succeed for N=7");
+  }
+
+  ctx.num_substeps = 23;
+  for (int i = 0; i < 23; i++) {
+    ctx.substep_number = i;
+    int result = sage_apply_infall_process(&ctx, &halo_n23, 1);
+    TEST_ASSERT(result == 0, "Module processing should succeed for N=23");
+  }
+
+  /* ===== VALIDATE ===== */
+  const double tol = fmax(1e-5, fabs(initial_hot + infall_budget) * 1e-6);
+  TEST_ASSERT_DOUBLE_EQUAL(halo_n7.galaxy->HotGas, initial_hot + infall_budget, tol,
+                           "N=7 should deliver the full infall budget");
+  TEST_ASSERT_DOUBLE_EQUAL(halo_n23.galaxy->HotGas, initial_hot + infall_budget, tol,
+                           "N=23 should deliver the full infall budget");
+  TEST_ASSERT_DOUBLE_EQUAL(halo_n7.galaxy->HotGas, halo_n23.galaxy->HotGas, tol,
+                           "Final HotGas must be independent of num_substeps");
+
+  /* ===== CLEANUP ===== */
+  free_test_halo(&halo_n7);
+  free_test_halo(&halo_n23);
   sage_apply_infall_cleanup();
   check_memory_leaks();
 
@@ -639,6 +702,7 @@ int main(void) {
   TEST_RUN(test_physics_positive_infall_single_substep);
   TEST_RUN(test_physics_positive_infall_multiple_substeps);
   TEST_RUN(test_physics_positive_infall_max_dynamic_substeps);
+  TEST_RUN(test_physics_infall_budget_invariant_across_substep_counts);
   TEST_RUN(test_physics_negative_infall_from_ejected);
   TEST_RUN(test_physics_negative_infall_from_hot);
   TEST_RUN(test_physics_negative_infall_cascade);

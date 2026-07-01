@@ -620,6 +620,14 @@ output_function_arg: "g, g->infallMvir"
 
 Property metadata is the source of truth for output fields and unit labels. Do not maintain manual exhaustive property tables in prose documentation unless they are generated or deliberately illustrative. For the metadata field reference, see [Property Metadata Schema](#property-metadata-schema).
 
+### Property Precision
+
+`type:` in property metadata is a precision decision, not a display detail — choose it deliberately.
+
+- Core and simulation properties are shared by every model, so default to `double`. A prior `float` choice for core virial fields masked a real bug: comparing a fresh calculation against a rounded stored value (tracking a halo's historical-maximum `Rvir`/`Vvir`) could pick the wrong branch near the rounding boundary.
+- Catalog fields (`simulations/<SIMULATION>/halo_properties.yaml`) should match their on-disk precision, not copy a neighboring package. LHalo binary is genuinely `float`; Consistent Trees ASCII/HDF5 store `double` (check the reader in `src/io/tree/`) — declaring `float` there discards real precision for no benefit.
+- Model-local accumulator properties (gas/mass/metal reservoirs) should also default to `double`. sage16's are `float` only for byte-for-byte parity with sage-model's `struct GALAXY` — see the comment at the top of `models/sage16/model_properties.yaml`. A new model with no parity constraint should not inherit that choice.
+
 ### Units and the Reference Basis
 
 Mimic runs entirely in one fixed internal reference basis, declared once in `src/core/core_properties.yaml` under `reference_units`:
@@ -1282,6 +1290,8 @@ Common fields:
 | `central_galaxy` | Pointer to Type 0 central |
 | `active_event` | Event payload for `process_per_event`; otherwise `NULL` |
 | `params` | Read-only pointer to `MimicConfig` |
+
+`num_substeps` is `SubSteps` under `TimestepScheme: fixed`, or computed per FoF group from the halo dynamical time under `TimestepScheme: dynamic` and capped by `MaxDynamicSubsteps` (`src/core/timestep.c`; default `DEFAULT_MAX_DYNAMIC_SUBSTEPS` in `src/include/constants.h`) — see `docs/USER-GUIDE.md` for the run-configuration view.
 
 ### Parameter Loading Macros
 

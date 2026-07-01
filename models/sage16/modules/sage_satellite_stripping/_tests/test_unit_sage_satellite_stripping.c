@@ -15,6 +15,8 @@
  *   - Metallicity preservation
  *   - Edge cases (zero gas, boundary conditions, type filtering)
  *   - Substep distribution
+ *   - The num_substeps-dependent stripped-fraction formula (inherited SAGE behavior,
+ *     see test_stripped_fraction_follows_geometric_formula)
  */
 
 #include <math.h>
@@ -183,7 +185,7 @@ static int test_mass_conservation(void) {
  */
 static int test_mass_conservation_max_dynamic_substeps(void) {
   init_memory_system(0);
-  struct ModuleContext ctx = create_test_context(MAX_DYNAMIC_SUBSTEPS);
+  struct ModuleContext ctx = create_test_context(DEFAULT_MAX_DYNAMIC_SUBSTEPS);
   struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
   struct Halo central = create_test_halo(0, 100.0, &cen_gal);
   struct GalaxyData sat_gal = create_test_galaxy(10.0, 0.2, 0.0, 0.0);
@@ -194,7 +196,7 @@ static int test_mass_conservation_max_dynamic_substeps(void) {
   const double initial_cen_hot = cen_gal.HotGas;
   const double initial_total = initial_sat_hot + initial_cen_hot;
 
-  for (int i = 0; i < MAX_DYNAMIC_SUBSTEPS; i++) {
+  for (int i = 0; i < DEFAULT_MAX_DYNAMIC_SUBSTEPS; i++) {
     ctx.substep_number = i;
     int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
     TEST_ASSERT(result == 0, "Process should succeed for each dynamic substep");
@@ -210,6 +212,58 @@ static int test_mass_conservation_max_dynamic_substeps(void) {
                            "Total mass should be conserved at max dynamic substeps");
   TEST_ASSERT_DOUBLE_EQUAL(sat_lost, cen_gained, transfer_tol,
                            "Satellite mass lost should equal central mass gained");
+  check_memory_leaks();
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_stripped_fraction_follows_geometric_formula
+ * @brief   Pins the inherited (not Mimic-introduced) 1-(1-1/N)^N stripped-fraction formula
+ *
+ * See the SAGE parity comment in sage_satellite_stripping.c for why this formula is
+ * expected, not a bug. Guards against a future refactor silently changing it.
+ */
+static int test_stripped_fraction_follows_geometric_formula(void) {
+  init_memory_system(0);
+
+  /* N=1: strips the entire excess in a single step. */
+  {
+    struct ModuleContext ctx = create_test_context(1);
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+    /* Mvir=10, baryon_frac=0.17 -> allowed=1.7; HotGas=5.0 -> excess=3.3 */
+    struct GalaxyData sat_gal = create_test_galaxy(5.0, 0.0, 0.0, 0.0);
+    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, satellite};
+
+    int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
+    TEST_ASSERT(result == 0, "Process should succeed at N=1");
+    TEST_ASSERT_DOUBLE_EQUAL((double)halos[1].galaxy->HotGas, 1.7, 1e-4,
+                             "N=1 should strip the full excess down to the baryon-fraction target");
+  }
+
+  /* N=8: excess decays by a factor (1-1/8) each substep, so after 8 substeps
+   * HotGas = allowed + excess0*(1-1/8)^8 = 1.7 + 3.3*0.343609... = 2.833909... */
+  {
+    struct ModuleContext ctx = create_test_context(8);
+    struct GalaxyData cen_gal = create_test_galaxy(100.0, 2.0, 50.0, 20.0);
+    struct Halo central = create_test_halo(0, 100.0, &cen_gal);
+    struct GalaxyData sat_gal = create_test_galaxy(5.0, 0.0, 0.0, 0.0);
+    struct Halo satellite = create_test_halo(1, 10.0, &sat_gal);
+    ctx.central_galaxy = &central;
+    struct Halo halos[2] = {central, satellite};
+
+    for (int i = 0; i < 8; i++) {
+      ctx.substep_number = i;
+      int result = sage_satellite_stripping_process(&ctx, &halos[1], 1);
+      TEST_ASSERT(result == 0, "Process should succeed for each of 8 substeps");
+    }
+
+    TEST_ASSERT_DOUBLE_EQUAL((double)halos[1].galaxy->HotGas, 2.833909422159195, 5e-4,
+                             "N=8 should match the geometric-decay prediction, not full stripping");
+  }
+
   check_memory_leaks();
   return TEST_PASS;
 }
@@ -503,6 +557,7 @@ int main(void) {
   TEST_RUN(test_stripping_when_above_threshold);
   TEST_RUN(test_mass_conservation);
   TEST_RUN(test_mass_conservation_max_dynamic_substeps);
+  TEST_RUN(test_stripped_fraction_follows_geometric_formula);
   TEST_RUN(test_metal_conservation);
   TEST_RUN(test_metal_conservation_all_regimes);
   TEST_RUN(test_metallicity_preservation);

@@ -200,6 +200,18 @@ void read_parameter_file(const char *fname) {
     MimicConfig.TimestepScheme = TIMESTEP_SCHEME_FIXED;
   }
 
+  /* Parse MaxDynamicSubsteps (top-level parameter; only meaningful for TimestepScheme=dynamic) */
+  node = get_mapping_value(document, root, "MaxDynamicSubsteps");
+  if (node) {
+    MimicConfig.MaxDynamicSubsteps = get_strict_int_value(node, "MaxDynamicSubsteps");
+    if (MimicConfig.MaxDynamicSubsteps < 1) {
+      FATAL_ERROR("MaxDynamicSubsteps must be >= 1, got %d", MimicConfig.MaxDynamicSubsteps);
+    }
+    DEBUG_LOG("MaxDynamicSubsteps = %d", MimicConfig.MaxDynamicSubsteps);
+  } else {
+    MimicConfig.MaxDynamicSubsteps = DEFAULT_MAX_DYNAMIC_SUBSTEPS;
+  }
+
   section = get_mapping_value(document, root, "modules");
   if (section)
     parse_modules_section(document, section);
@@ -1387,6 +1399,9 @@ static void validate_and_postprocess(void) {
               MimicConfig.NOUT, total_modules, total_phases);
   VERBOSE_LOG("SubSteps: %d", MimicConfig.SubSteps);
   VERBOSE_LOG("TimestepScheme: %s", timestep_scheme_name(MimicConfig.TimestepScheme));
+  if (MimicConfig.TimestepScheme == TIMESTEP_SCHEME_DYNAMIC) {
+    VERBOSE_LOG("MaxDynamicSubsteps: %d", MimicConfig.MaxDynamicSubsteps);
+  }
 }
 
 /**

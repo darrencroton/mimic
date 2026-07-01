@@ -129,7 +129,7 @@ void build_halo_tree(int halonr, int unit, int depth) {
        * value still reaches output unchanged and the shared marshaller no
        * longer needs to know about this field.
        */
-      float central_mvir = (float)get_virial_mass(mimic_tree_get_FirstHaloInFOFgroup(source_halo));
+      double central_mvir = get_virial_mass(mimic_tree_get_FirstHaloInFOFgroup(source_halo));
       for (int p = workspace_start; p < ngal; p++) {
         FoFWorkspace[p].CentralMvir = central_mvir;
       }
@@ -469,7 +469,8 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr, int cent
     double rvir = get_virial_radius(halonr);
     double vvir = get_virial_velocity(halonr);
     double t_dyn = (vvir > 0.0) ? (rvir / vvir) : 0.0;
-    ctx->num_substeps = compute_dynamic_substeps(ctx->time_interval, t_dyn, MimicConfig.SubSteps);
+    ctx->num_substeps = compute_dynamic_substeps(ctx->time_interval, t_dyn, MimicConfig.SubSteps,
+                                                 MimicConfig.MaxDynamicSubsteps);
   } else {
     ctx->num_substeps = (MimicConfig.SubSteps > 0) ? MimicConfig.SubSteps : 1;
   }

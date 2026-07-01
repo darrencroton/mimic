@@ -378,12 +378,16 @@ def test_hdf5_timestep_run_properties():
     except ImportError:
         raise TestSkipped("h5py not available")
 
-    for scheme, substeps in (("fixed", 7), ("dynamic", 11)):
+    for scheme, substeps, max_dynamic_substeps in (
+        ("fixed", 7, 123),
+        ("dynamic", 11, 321),
+    ):
         param_file, output_dir, temp_dir = create_test_param_file(
             f"hdf5_timestep_{scheme}",
             output_format="hdf5",
             substeps=substeps,
             timestep_scheme=scheme,
+            max_dynamic_substeps=max_dynamic_substeps,
         )
         try:
             master_file = output_dir / "model.hdf5"
@@ -399,6 +403,10 @@ def test_hdf5_timestep_run_properties():
             assert run_properties["TimestepScheme"] == scheme, (
                 f"RunProperties/TimestepScheme mismatch: expected {scheme}, "
                 f"got {run_properties['TimestepScheme']}"
+            )
+            assert run_properties["MaxDynamicSubsteps"] == max_dynamic_substeps, (
+                f"RunProperties/MaxDynamicSubsteps mismatch for {scheme}: "
+                f"expected {max_dynamic_substeps}, got {run_properties['MaxDynamicSubsteps']}"
             )
         finally:
             shutil.rmtree(temp_dir)

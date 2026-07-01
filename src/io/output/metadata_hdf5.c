@@ -505,6 +505,7 @@ void store_run_properties(hid_t master_file_id) {
       {"LastFile", INT, &MimicConfig.LastFile},
       {"NumOutputs", INT, &MimicConfig.NOUT},
       {"SubSteps", INT, &MimicConfig.SubSteps},
+      {"MaxDynamicSubsteps", INT, &MimicConfig.MaxDynamicSubsteps},
       {"BoxSize", DOUBLE, &MimicConfig.BoxSize},
 
       /* Cosmology */

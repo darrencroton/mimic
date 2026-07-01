@@ -71,7 +71,14 @@ int sage_satellite_stripping_process(struct ModuleContext *ctx, struct Halo *hal
   const double total_baryons = sat_gal->StellarMass + sat_gal->ColdGas + sat_gal->HotGas +
                                sat_gal->EjectedGas + sat_gal->BlackHoleMass + sat_gal->ICS;
 
-  /* strip demand distributed over substeps for numerical stability */
+  /* SAGE parity: divides the recomputed excess by num_substeps every substep
+   * (stock SAGE model_infall.c:103 does the same against STEPS), not a fixed
+   * budget partitioned once like sage_apply_infall. The fraction stripped over
+   * one interval is therefore 1-(1-1/N)^N: 100% at N=1, converging to ~63%
+   * (1-1/e) as N grows -- independent of dT. Constant and invisible under
+   * fixed SAGE (STEPS always 10); under TimestepScheme=dynamic, N varies with
+   * z, so this is a real redshift-dependent artifact. Documented, not
+   * changed, to preserve sage-model parity. */
   double strippedGas =
       -1.0 * (halo_baryon_frac * halo->Mvir - total_baryons) / (double)ctx->num_substeps;
 

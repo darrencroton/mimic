@@ -119,7 +119,7 @@ halo_properties:
     sentinels: [0]  # Type 2 orphans
 
   - name: Mvir
-    type: float
+    type: double
     units: 1e10 Msun/h
     description: Virial mass (M200c definition)
     output: true
@@ -129,7 +129,7 @@ halo_properties:
     range: [0.0, 1000000.0]  # up to 10^16 Msun/h
 
   - name: deltaMvir
-    type: float
+    type: double
     units: 1e10 Msun/h
     description: Change in virial mass since last snapshot
     output: true
@@ -139,7 +139,7 @@ halo_properties:
     range: [-20000.0, 20000.0]  # symmetric wide bounds to accommodate Uchuu-scale mass swings
 
   - name: CentralMvir
-    type: float
+    type: double
     units: 1e10 Msun/h
     description: Virial mass of the FoF central halo stamped onto every workspace member
     output: true
@@ -150,7 +150,7 @@ halo_properties:
     sentinels: [0.0]  # Unresolved or below mass limit
 
   - name: Rvir
-    type: float
+    type: double
     units: Mpc/h
     description: Virial radius (radius at which density is 200 * critical density)
     output: true
@@ -163,7 +163,7 @@ halo_properties:
     sentinels: [0.0]  # Valid for halos with catalog Mvir=0
 
   - name: Vvir
-    type: float
+    type: double
     units: km/s
     description: Virial velocity (circular velocity at virial radius)
     output: true
@@ -180,7 +180,7 @@ halo_properties:
   # ===========================================================================
 
   - name: infallMvir
-    type: float
+    type: double
     units: 1e10 Msun/h
     description: Virial mass at infall (satellites only, 0 for centrals)
     output: true
@@ -193,7 +193,7 @@ halo_properties:
     sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
 
   - name: infallVvir
-    type: float
+    type: double
     units: km/s
     description: Virial velocity at infall (satellites only, 0 for centrals)
     output: true
@@ -206,7 +206,7 @@ halo_properties:
     sentinels: [0.0, -1.0]  # 0.0 for centrals, -1.0 for unset
 
   - name: infallVmax
-    type: float
+    type: double
     units: km/s
     description: Maximum circular velocity at infall (satellites only, 0 for centrals)
     output: true

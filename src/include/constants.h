@@ -23,10 +23,10 @@
  * starting estimate only; the buffer grows dynamically via myrealloc_cat when
  * orphan halos cause the actual output count to exceed this multiple. */
 #define MAXHALOFAC 5
-#define ABSOLUTEMAXSNAPS 1000   /* The largest number of snapshots for any simulation */
-#define MAX_STRING_LEN 1024     /* Max length of a string containing a name */
-#define MAX_MODEL_PARAMS 256    /* Max modules.parameters entries in the input file */
-#define MAX_DYNAMIC_SUBSTEPS 50 /* Internal cap for dynamic timestep substeps */
+#define ABSOLUTEMAXSNAPS 1000            /* The largest number of snapshots for any simulation */
+#define MAX_STRING_LEN 1024              /* Max length of a string containing a name */
+#define MAX_MODEL_PARAMS 256             /* Max modules.parameters entries in the input file */
+#define DEFAULT_MAX_DYNAMIC_SUBSTEPS 200 /* Default ceiling for dynamic timestep substeps */
 
 /* Cosmological constants */
 #define INITIAL_REDSHIFT 1000.0 /* Recombination era (CMB formation) */

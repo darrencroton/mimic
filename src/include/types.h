@@ -123,6 +123,7 @@ struct MimicConfig {
   /* Time sub-stepping */
   int SubSteps;                       /* Fixed count or dynamic resolution per dynamical time */
   enum TimestepScheme TimestepScheme; /* How SubSteps is interpreted */
+  int MaxDynamicSubsteps; /* Safety ceiling on computed dynamic substeps (scheme: dynamic only) */
 
   /* Pre-timestep: runs once before substeps */
   struct PhaseModuleConfig *pre_timestep; /* Array of modules for this phase */

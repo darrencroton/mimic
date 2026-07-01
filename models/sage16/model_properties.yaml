@@ -3,6 +3,11 @@
 # This file defines galaxy baryonic physics properties used in Mimic.
 # These properties are created and modified by physics modules.
 #
+# Reservoir fields (HotGas, ColdGas, EjectedGas, StellarMass, Metals*,
+# BlackHoleMass, BulgeMass, ICS) are `float` only for byte-for-byte parity with
+# sage-model's struct GALAXY (see docs/DEVELOPER-GUIDE.md#property-precision).
+# New models without that constraint should prefer `double`.
+#
 # See: docs/DEVELOPER-GUIDE.md for complete schema documentation
 
 galaxy_properties:

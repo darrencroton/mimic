@@ -215,6 +215,40 @@ static int write_timestep_scheme_fixture(char *path, size_t path_size, const cha
   return write_timestep_scheme_fixture_with_label(path, path_size, scheme, scheme);
 }
 
+static int write_max_dynamic_substeps_fixture(char *path, size_t path_size, const char *label,
+                                              const char *value) {
+  FILE *src;
+  FILE *dst;
+  char line[1024];
+
+  if (mkdir("archive", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+  if (mkdir("archive/test-fixtures", 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+
+  snprintf(path, path_size, "archive/test-fixtures/test_max_dynamic_substeps_%s.yaml", label);
+  src = fopen(test_binary_param_file(), "r");
+  if (src == NULL) {
+    return -1;
+  }
+  dst = fopen(path, "w");
+  if (dst == NULL) {
+    fclose(src);
+    return -1;
+  }
+
+  fprintf(dst, "TimestepScheme: dynamic\nMaxDynamicSubsteps: %s\n", value);
+  while (fgets(line, sizeof(line), src) != NULL) {
+    fputs(line, dst);
+  }
+
+  fclose(dst);
+  fclose(src);
+  return 0;
+}
+
 static int write_output_chunking_fixture(char *path, size_t path_size, const char *label,
                                          const char *extra_content) {
   FILE *src;
@@ -607,6 +641,88 @@ int test_timestep_scheme_rejects_invalid_value(void) {
       read_parameter_file_fatal_message_contains(non_scalar_path, "must be a scalar string");
   TEST_ASSERT(non_scalar_result != -1, "Non-scalar TimestepScheme child should not crash");
   TEST_ASSERT(non_scalar_result == 1, "Non-scalar TimestepScheme should report clear message");
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_default_max_dynamic_substeps
+ * @brief   Test that omitted MaxDynamicSubsteps defaults to DEFAULT_MAX_DYNAMIC_SUBSTEPS
+ */
+int test_default_max_dynamic_substeps(void) {
+  /* ===== SETUP ===== */
+  setup_test();
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(test_binary_param_file());
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.MaxDynamicSubsteps == DEFAULT_MAX_DYNAMIC_SUBSTEPS,
+              "Default MaxDynamicSubsteps should be DEFAULT_MAX_DYNAMIC_SUBSTEPS");
+
+  printf("  max_dynamic_substeps: %d\n", MimicConfig.MaxDynamicSubsteps);
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_explicit_max_dynamic_substeps
+ * @brief   Test that an explicit MaxDynamicSubsteps value parses successfully
+ */
+int test_explicit_max_dynamic_substeps(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  TEST_ASSERT(write_max_dynamic_substeps_fixture(fixture_path, sizeof(fixture_path), "explicit",
+                                                 "500") == 0,
+              "Should create explicit MaxDynamicSubsteps fixture");
+
+  /* ===== EXECUTE ===== */
+  read_parameter_file(fixture_path);
+
+  /* ===== VALIDATE ===== */
+  TEST_ASSERT(MimicConfig.MaxDynamicSubsteps == 500,
+              "Explicit MaxDynamicSubsteps should parse as given");
+
+  printf("  explicit max_dynamic_substeps: %d\n", MimicConfig.MaxDynamicSubsteps);
+
+  /* ===== CLEANUP ===== */
+  teardown_test();
+
+  return TEST_PASS;
+}
+
+/**
+ * @test    test_max_dynamic_substeps_rejects_invalid_value
+ * @brief   MaxDynamicSubsteps values below 1 trigger a fatal error
+ */
+int test_max_dynamic_substeps_rejects_invalid_value(void) {
+  char fixture_path[MAX_STRING_LEN];
+
+  /* ===== SETUP ===== */
+  setup_test();
+
+  TEST_ASSERT(write_max_dynamic_substeps_fixture(fixture_path, sizeof(fixture_path), "zero", "0") ==
+                  0,
+              "Should create zero-valued MaxDynamicSubsteps fixture");
+
+  /* ===== EXECUTE / VALIDATE ===== */
+  int invalid_result = read_parameter_file_should_fatal(fixture_path);
+  TEST_ASSERT(invalid_result != -1, "Invalid MaxDynamicSubsteps child should not crash");
+  TEST_ASSERT(invalid_result == 1, "MaxDynamicSubsteps=0 should fatal");
+  int invalid_message_result =
+      read_parameter_file_fatal_message_contains(fixture_path, "MaxDynamicSubsteps must be >= 1");
+  TEST_ASSERT(invalid_message_result != -1,
+              "Invalid MaxDynamicSubsteps message child should not crash");
+  TEST_ASSERT(invalid_message_result == 1, "MaxDynamicSubsteps=0 should report a clear message");
 
   /* ===== CLEANUP ===== */
   teardown_test();
@@ -1165,6 +1281,9 @@ int main(int argc, char **argv) {
   TEST_RUN(test_default_timestep_scheme);
   TEST_RUN(test_explicit_timestep_scheme);
   TEST_RUN(test_timestep_scheme_rejects_invalid_value);
+  TEST_RUN(test_default_max_dynamic_substeps);
+  TEST_RUN(test_explicit_max_dynamic_substeps);
+  TEST_RUN(test_max_dynamic_substeps_rejects_invalid_value);
   TEST_RUN(test_integer_parameters);
   TEST_RUN(test_float_parameters);
   TEST_RUN(test_string_parameters);
