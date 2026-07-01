@@ -1,7 +1,7 @@
 # Dynamic-Timestep Convergence Notes: What Happens as SubSteps → ∞
 
 **Status:** Analysis, informational — not an implementation plan.
-**Scope:** How `SubSteps` (fixed and dynamic interpretations) affects the sage16 physics pipeline in `models/sage16/modules/`, and what happens in the large-N limit. Written alongside the code review of `docs/dev/MIMIC-DYNAMICAL-TIMESTEP-PLAN.md` (commits `469b7adc..HEAD`).
+**Scope:** How `SubSteps` (fixed and dynamic interpretations) affects the sage16 physics pipeline in `models/sage16/modules/`, and what happens in the large-N limit. Written alongside the code review of the dynamic-timestep feature (commits `469b7adc..HEAD`; the original implementation plan has since been archived).
 
 ---
 
@@ -73,7 +73,7 @@ The series converges fast — by `N=20` it is already within ~1 percentage point
 
 **Why this was invisible until now:** `models/sage16/input/sage16_mini-millennium.yaml` fixes `SubSteps: 10` for every snapshot, so every satellite at every redshift is stripped at the same (arbitrary but constant) ~65.1% rate. That constant bias is indistinguishable from a calibration choice and gets absorbed into `GlobalBaryonFraction`/`HaloBaryonFraction` tuning.
 
-**Why dynamic mode changes this:** dynamic mode ties `N` to `t_dyn(z)` by design (per `docs/dev/MIMIC-DYNAMICAL-TIMESTEP-PLAN.md`), so `N` genuinely varies from snapshot to snapshot: it collapses to 1 at low z (where `deltaT ≪ t_dyn`, per the plan's own "Key physical result") and grows toward `MAX_DYNAMIC_SUBSTEPS=50` at high z. Plugging that into the table above: switching a run from `fixed` to `dynamic` would, **as a pure side effect of the timestep scheme and with zero change to any stripping parameter**, push low-z satellite stripping from ~65% (fixed, N=10) toward ~100% (dynamic, N=1) and push high-z stripping from ~65% toward ~63.6% (dynamic, N≈50). The low-z shift is large and would show up directly in any statistic sensitive to satellite gas content or quenching (satellite red fraction, HI/gas-mass functions split by environment, etc.) — a user switching `TimestepScheme` expecting only "better temporal resolution" would silently get a materially different stripping physics instead.
+**Why dynamic mode changes this:** dynamic mode ties `N` to `t_dyn(z)` by design, so `N` genuinely varies from snapshot to snapshot: it collapses to 1 at low z (where `deltaT ≪ t_dyn`, per the plan's own "Key physical result") and grows toward `MAX_DYNAMIC_SUBSTEPS=50` at high z. Plugging that into the table above: switching a run from `fixed` to `dynamic` would, **as a pure side effect of the timestep scheme and with zero change to any stripping parameter**, push low-z satellite stripping from ~65% (fixed, N=10) toward ~100% (dynamic, N=1) and push high-z stripping from ~65% toward ~63.6% (dynamic, N≈50). The low-z shift is large and would show up directly in any statistic sensitive to satellite gas content or quenching (satellite red fraction, HI/gas-mass functions split by environment, etc.) — a user switching `TimestepScheme` expecting only "better temporal resolution" would silently get a materially different stripping physics instead.
 
 ---
 
