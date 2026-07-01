@@ -14,6 +14,7 @@ from .data_loader import (
     get_halo_dtype,
     load_binary_halos,
     load_hdf5_halos,
+    load_hdf5_run_properties,
     validate_no_infs,
     validate_no_nans,
     validate_range,
@@ -57,6 +58,7 @@ __all__ = [
     # Data loading, validation, and comparison
     "load_binary_halos",
     "load_hdf5_halos",
+    "load_hdf5_run_properties",
     "assert_hdf5_schema_layout",
     "compare_halos_comprehensive",
     "get_halo_dtype",

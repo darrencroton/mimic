@@ -493,7 +493,7 @@ static void setup_module_context(struct ModuleContext *ctx, int halonr, int cent
  * caller through the shared output-buffer marshaller.
  *
  * Phase assignments and loop modes are configured in the input YAML file.
- * SubSteps parameter controls time sub-stepping (0 or 1 = no substeps).
+ * TimestepScheme and SubSteps together determine the active substep count.
  */
 void process_halo_evolution(int halonr, int ngal) {
   int centralgal, i;

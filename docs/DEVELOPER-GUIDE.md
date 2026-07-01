@@ -73,7 +73,8 @@ int my_module_process(struct ModuleContext *ctx, struct Halo *halos, int ngal)
         return 0;
     }
 
-    gal->ColdGas += (float)(my_efficiency * ctx->substep_dt);
+    double dt = ctx->substep_dt;
+    gal->ColdGas += (float)(my_efficiency * dt);
     return 0;
 }
 
@@ -82,6 +83,8 @@ int my_module_cleanup(void)
     return 0;
 }
 ```
+
+`ctx->substep_dt` is the shared FoF substep duration. If a model package needs per-object timing semantics, follow its model-local helper pattern, such as SAGE's `mimic_object_substep_dt()` wrapper.
 
 Create `models/<model>/modules/my_module/module_info.yaml`:
 
@@ -1272,9 +1275,9 @@ Common fields:
 | `time` | Current cosmic time in internal units |
 | `snapshot_number` | Current snapshot index |
 | `substep_number` | Zero-based substep index |
-| `num_substeps` | Configured number of substeps |
+| `num_substeps` | Active substep count for this timestep; fixed from `SubSteps` or scheme-derived |
 | `time_interval` | Full snapshot interval |
-| `substep_dt` | Substep duration for integration |
+| `substep_dt` | Shared substep duration; model packages may provide per-object helpers for integration |
 | `central_index` | Index of Type 0 central in the FoF workspace |
 | `central_galaxy` | Pointer to Type 0 central |
 | `active_event` | Event payload for `process_per_event`; otherwise `NULL` |

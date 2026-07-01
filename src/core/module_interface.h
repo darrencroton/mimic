@@ -46,7 +46,7 @@
  * Pipeline shape (configured in the input YAML, not in module metadata):
  *
  *   pre_timestep (once)
- *     -> [ user-named substep phases, in input order ] x SubSteps
+ *     -> [ user-named substep phases, in input order ] x num_substeps
  *     -> post_timestep (once)
  *
  * pre_timestep and post_timestep are fixed optional lifecycle phases. The
@@ -173,8 +173,8 @@ struct ModuleContext {
   /**
    * @brief Total number of substeps
    *
-   * Total substeps for this timestep (from SubSteps parameter in config).
-   * If SubSteps=0 or not specified, num_substeps=1 (no sub-stepping).
+   * Total substeps for this timestep. In fixed mode this is the configured
+   * SubSteps value (with 0 treated as 1); in dynamic mode it is scheme-derived.
    */
   int num_substeps;
 
@@ -197,9 +197,9 @@ struct ModuleContext {
   /**
    * @brief Time interval for this substep
    *
-   * Time step for this substep.
+   * Shared time step for this substep.
    * substep_dt = time_interval / num_substeps
-   * Use this for time integration within modules.
+   * Model packages may provide per-object helpers for module integration.
    */
   double substep_dt;
 
@@ -332,7 +332,7 @@ struct Module {
    * - Preserve halo properties (read-only)
    * - Handle all halo types (central, satellite, orphan)
    * - Access simulation/substep context via ctx
-   * - Use ctx->substep_dt for time integration
+   * - Use substep context or model-local helpers for time integration
    *
    * @param ctx   Module execution context (redshift, time, substep info, params)
    * @param halos Array of halos in the FOF group (FoFWorkspace)

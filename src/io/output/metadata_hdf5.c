@@ -504,6 +504,7 @@ void store_run_properties(hid_t master_file_id) {
       {"FirstFile", INT, &MimicConfig.FirstFile},
       {"LastFile", INT, &MimicConfig.LastFile},
       {"NumOutputs", INT, &MimicConfig.NOUT},
+      {"SubSteps", INT, &MimicConfig.SubSteps},
       {"BoxSize", DOUBLE, &MimicConfig.BoxSize},
 
       /* Cosmology */
@@ -568,6 +569,13 @@ void store_run_properties(hid_t master_file_id) {
       break;
     }
   }
+
+  char timestep_scheme[MAX_STRING_LEN];
+  copy_hdf5_string(timestep_scheme, timestep_scheme_name(MimicConfig.TimestepScheme));
+  attribute_id =
+      H5Acreate(props_group_id, "TimestepScheme", str_type, dataspace_id, H5P_DEFAULT, H5P_DEFAULT);
+  H5Awrite(attribute_id, str_type, timestep_scheme);
+  H5Aclose(attribute_id);
 
   /* Record the active reader's format name (see tree/registry.c) */
   const char *tree_type_str = MimicConfig.reader->name;

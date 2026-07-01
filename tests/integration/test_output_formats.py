@@ -14,6 +14,7 @@ This test validates that Mimic's output system correctly:
 """
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -37,10 +38,12 @@ from framework import (
     baseline_rtol,
     compare_halos_comprehensive,
     core_input_file,
+    create_test_param_file,
     ensure_output_dirs,
     is_default_baseline_combo,
     load_binary_halos,
     load_hdf5_halos,
+    load_hdf5_run_properties,
     run_mimic,
     run_mimic_fresh,
     run_test_suite,
@@ -358,6 +361,49 @@ def test_hdf5_format_loading():
 
     print(f"  ✓ Loaded {metadata['TotHalos']} halos from CURRENT HDF5 output")
     print(f"    File size: {output_file.stat().st_size:,} bytes")
+
+
+def test_hdf5_timestep_run_properties():
+    """Check master-file timestep provenance for fixed and dynamic schemes."""
+    print("Testing HDF5 timestep run properties...")
+
+    if not MIMIC_EXE.exists():
+        raise TestSkipped("Mimic not built")
+
+    if not check_hdf5_support():
+        raise TestSkipped("HDF5 not compiled")
+
+    try:
+        import h5py  # noqa: F401 - import used only for availability check
+    except ImportError:
+        raise TestSkipped("h5py not available")
+
+    for scheme, substeps in (("fixed", 7), ("dynamic", 11)):
+        param_file, output_dir, temp_dir = create_test_param_file(
+            f"hdf5_timestep_{scheme}",
+            output_format="hdf5",
+            substeps=substeps,
+            timestep_scheme=scheme,
+        )
+        try:
+            master_file = output_dir / "model.hdf5"
+
+            run_mimic_fresh(param_file, master_file)
+            assert master_file.exists(), f"HDF5 master file not created: {master_file}"
+
+            run_properties = load_hdf5_run_properties(master_file)
+            assert run_properties["SubSteps"] == substeps, (
+                f"RunProperties/SubSteps mismatch for {scheme}: "
+                f"expected {substeps}, got {run_properties['SubSteps']}"
+            )
+            assert run_properties["TimestepScheme"] == scheme, (
+                f"RunProperties/TimestepScheme mismatch: expected {scheme}, "
+                f"got {run_properties['TimestepScheme']}"
+            )
+        finally:
+            shutil.rmtree(temp_dir)
+
+    print("  ✓ HDF5 timestep run properties match fixed and dynamic run configs")
 
 
 def test_hdf5_compression_equivalence():
@@ -702,6 +748,7 @@ def main():
             test_binary_baseline_comparison,
             test_hdf5_format_execution,
             test_hdf5_format_loading,
+            test_hdf5_timestep_run_properties,
             test_hdf5_compression_equivalence,
             test_hdf5_baseline_comparison,
             test_unique_id_contract,

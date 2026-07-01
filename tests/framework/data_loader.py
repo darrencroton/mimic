@@ -324,6 +324,33 @@ def decode_hdf5_string(value):
     return str(value)
 
 
+def _decode_hdf5_attr(value):
+    """Return ordinary Python scalars for HDF5 attributes."""
+    if isinstance(value, np.ndarray):
+        if value.shape in ((), (1,)):
+            value = value.item()
+        else:
+            return value
+    if isinstance(value, bytes):
+        return value.decode()
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def load_hdf5_run_properties(output_file):
+    """Load master-file RunProperties attributes from a Mimic HDF5 output."""
+    try:
+        import h5py
+    except ImportError:
+        raise ImportError("h5py not available - cannot load HDF5 run properties")
+
+    with h5py.File(output_file, "r") as f:
+        if "RunProperties" not in f:
+            raise ValueError(f"No RunProperties group found in HDF5 file: {output_file}")
+        return {key: _decode_hdf5_attr(value) for key, value in f["RunProperties"].attrs.items()}
+
+
 def assert_hdf5_schema_layout(output_file, expected_format_version="1.1"):
     """
     Validate the current Mimic HDF5 schema layout.

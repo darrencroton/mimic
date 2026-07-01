@@ -158,7 +158,7 @@ Example debugging invocation:
 
 Understanding the processing model helps you configure pipelines correctly and interpret what the physics modules see.
 
-An N-body simulation's halo catalogue is organised into **merger trees**: each tree records how a z = 0 halo was assembled from smaller progenitors over cosmic time. Mimic walks these trees snapshot by snapshot. At each snapshot interval it groups galaxies into **FoF workspaces** — the current central galaxy plus any satellites in the same friends-of-friends halo system — and hands those workspaces to the physics modules. Because galaxy physics (cooling, star formation) evolves on shorter timescales than the gap between simulation snapshots, each snapshot interval is divided into substeps (`SubSteps` in the run file; the shipped configuration uses 10).
+An N-body simulation's halo catalogue is organised into **merger trees**: each tree records how a z = 0 halo was assembled from smaller progenitors over cosmic time. Mimic walks these trees snapshot by snapshot. At each snapshot interval it groups galaxies into **FoF workspaces** — the current central galaxy plus any satellites in the same friends-of-friends halo system — and hands those workspaces to the physics modules. Because galaxy physics (cooling, star formation) evolves on shorter timescales than the gap between simulation snapshots, each snapshot interval can be divided into substeps (`SubSteps` in the run file; the shipped fixed-timestep SAGE configuration uses 10).
 
 For each snapshot interval:
 
@@ -203,6 +203,7 @@ output:
   snapshot_list: [63, 37, 32, 27, 23, 20, 18, 16]
 
 SubSteps: 10
+TimestepScheme: fixed
 
 modules:
   pre_timestep: []
@@ -210,6 +211,8 @@ modules:
   post_timestep: []
   parameters: {}
 ```
+
+`TimestepScheme` controls how `SubSteps` is interpreted. The default `fixed` scheme runs exactly `SubSteps` substeps per snapshot interval (`SubSteps: 0` is treated as one step). The opt-in `dynamic` scheme treats `SubSteps` as the requested resolution per halo dynamical time, computes the central halo's `t_dyn = Rvir / Vvir`, and runs `ceil(deltaT * SubSteps / t_dyn)` substeps clamped to at least 1 and at most 50. Dynamic mode therefore uses fewer substeps when a snapshot interval is shorter than the dynamical time and more substeps when the interval spans many dynamical times. HDF5 master outputs record both `SubSteps` and `TimestepScheme` under `RunProperties`.
 
 `model.name` and `simulation.name` are package names, not display labels. Mimic derives `models/<model.name>/model_properties.yaml`, `simulations/<simulation.name>/simulation_info.yaml`, and `simulations/<simulation.name>/halo_properties.yaml` from them. These package paths are not user-overridable because the executable is generated and compiled for exactly one model/simulation pair.
 

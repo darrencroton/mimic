@@ -113,7 +113,7 @@ struct MimicConfig {
    * This provides maximum flexibility - users control execution structure.
    *
    * Lifecycle per snapshot interval:
-   *   pre_timestep (once) -> [ substep_phases[0..N) ] x SubSteps -> post_timestep (once)
+   *   pre_timestep (once) -> [ substep_phases[0..N) ] x num_substeps -> post_timestep (once)
    *
    * The middle phases are user-named and arbitrary in number (see
    * struct ModulePhaseConfig). Legacy top-level phase_1/phase_2 inputs are
@@ -121,7 +121,7 @@ struct MimicConfig {
    */
 
   /* Time sub-stepping */
-  int SubSteps;                       /* Number of substeps per snapshot interval (0 = none) */
+  int SubSteps;                       /* Fixed count or dynamic resolution per dynamical time */
   enum TimestepScheme TimestepScheme; /* How SubSteps is interpreted */
 
   /* Pre-timestep: runs once before substeps */
