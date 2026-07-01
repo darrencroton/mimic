@@ -73,8 +73,8 @@ int sage_reincorporation_process(struct ModuleContext *ctx, struct Halo *halos, 
     return 0;
   }
 
-  const float Vvir = central_halo->Vvir;
-  const float Rvir = central_halo->Rvir;
+  const double Vvir = central_halo->Vvir;
+  const double Rvir = central_halo->Rvir;
 
   // SN velocity 630 km/s → critical velocity = 630/sqrt(2) = 445.48 km/s
   const double Vcrit = 445.48 * REINCORPORATION_FACTOR;

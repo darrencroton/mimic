@@ -170,10 +170,10 @@ def test_output_property_types():
 
     # Check data types
     assert halos["Type"].dtype == np.int32, f"Type should be int32, got {halos['Type'].dtype}"
-    assert halos["Mvir"].dtype == np.float32, f"Mvir should be float32, got {halos['Mvir'].dtype}"
+    assert halos["Mvir"].dtype == np.float64, f"Mvir should be float64, got {halos['Mvir'].dtype}"
     assert (
-        halos["infallMvir"].dtype == np.float32
-    ), f"infallMvir should be float32, got {halos['infallMvir'].dtype}"
+        halos["infallMvir"].dtype == np.float64
+    ), f"infallMvir should be float64, got {halos['infallMvir'].dtype}"
 
     # Cleanup
     shutil.rmtree(test_temp_dir)
