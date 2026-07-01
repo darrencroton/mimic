@@ -625,7 +625,7 @@ Property metadata is the source of truth for output fields and unit labels. Do n
 `type:` in property metadata is a precision decision, not a display detail — choose it deliberately.
 
 - Core and simulation properties are shared by every model, so default to `double`. A prior `float` choice for core virial fields masked a real bug: comparing a fresh calculation against a rounded stored value (tracking a halo's historical-maximum `Rvir`/`Vvir`) could pick the wrong branch near the rounding boundary.
-- Catalog fields (`simulations/<SIMULATION>/halo_properties.yaml`) should match their on-disk precision, not copy a neighboring package. LHalo binary is genuinely `float`; Consistent Trees ASCII/HDF5 store `double` (check the reader in `src/io/tree/`) — declaring `float` there discards real precision for no benefit.
+- Catalog fields (`simulations/<SIMULATION>/halo_properties.yaml`) should match the source data's *real* precision, not a reader's C variable type or a neighboring package's declaration. A `double` HDF5 dataset can still only hold values a Rockstar/Consistent-Trees ASCII catalog originally wrote to ~7 significant figures — check actual catalog values (not just the reader code) before widening.
 - Model-local accumulator properties (gas/mass/metal reservoirs) should also default to `double`. sage16's are `float` only for byte-for-byte parity with sage-model's `struct GALAXY` — see the comment at the top of `models/sage16/model_properties.yaml`. A new model with no parity constraint should not inherit that choice.
 
 ### Units and the Reference Basis
