@@ -1,6 +1,6 @@
 # Mimic Distributed Snapshot-Global Operations Plan
 
-**Status:** Requirements brief. Split out of `MIMIC-DUAL-DRIVER-PLAN.md` (its former Phase 7) in the 2026-07-02 joint review. Blocked on the single-node snapshot driver passing its cross-format identity gate and on at least one snapshot-global physics contract existing. Not scheduled.
+**Status:** Requirements brief. Split out of `MIMIC-DUAL-DRIVER-PLAN.md` (its former Phase 7) in the 2026-07-02 joint review. Blocked on the single-node snapshot driver passing its cross-format identity gate and on at least one snapshot-global module contract existing (`MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md`) — there is nothing to distribute until then. Not scheduled.
 **Date:** 2026-07-02
 
 ---

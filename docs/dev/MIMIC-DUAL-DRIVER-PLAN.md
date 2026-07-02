@@ -159,7 +159,7 @@ Add `run_snapshot_driver()`:
 5. **Driver-neutral output seam:** `write_master_file()` currently enumerates partitions through `MimicConfig.reader` hooks and the HDF5 attrs write `Ntrees`/`TreeHalosPerSnap` from tree globals. Generalise this narrow seam so snapshot runs (single partition) write per-snapshot counts and no per-tree table, without touching tree-run output.
 6. **Memory:** measure `sizeof(struct Halo)` and `sizeof(struct GalaxyData)` during design and produce a real peak estimate for the 315M-halo z=0 slab (rough expectation ~300–450 GB for sage16-scale property sets against 512 GB — inside budget but tight; choose mitigations from data, e.g. freeing the input slab before marshalling, only if needed).
 
-Snapshot-global operation hooks may be identified, but production global module contracts are follow-on work after the gate.
+Snapshot-global operation hooks may be identified, but production global module contracts are follow-on work after the gate, owned by `MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md`.
 
 **Gate:** all standard checks and tests pass, and the cross-format identity test (defined above) is green on micro-Uchuu with snapshot-global physics disabled — run under **both** timestep schemes (fixed `SubSteps` and `TimestepScheme: dynamic`) so `time_interval`/substep derivation mismatches cannot hide.
 
@@ -194,7 +194,7 @@ Long-running test output should be captured under `archive/test-logs/`, exit cod
 - The snapshot driver runs end to end, and the cross-format identity test (same `UniqueGalaxyID` set per snapshot, every field identical per ID) passes on micro-Uchuu and is part of the scientific tier.
 - The shared inheritance service, physics engine, and output buffer are consumed by both drivers without modification.
 - Shin-Uchuu converts, builds a clean `simulations/shin-uchuu/` package, and runs sage16 end to end with sane HMF/GSMF at z = 0, 1, 2.
-- Snapshot-global physics contracts remain explicitly scoped as follow-on work.
+- Snapshot-global physics contracts remain explicitly scoped as follow-on work (`MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md`).
 
 ---
 

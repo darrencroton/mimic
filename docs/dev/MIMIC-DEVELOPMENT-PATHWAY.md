@@ -20,8 +20,9 @@ The architectural direction is still governed by `docs/VISION.md`: Mimic is a ph
 |---|---|---|---|
 | `MIMIC-DUAL-DRIVER-PLAN.md` | **Active — chosen post-v1.0 direction** | Snapshot-ordered reader and driver over the shared v1.0 core seams; owns the cross-format identity gate and the merged sequence | Ready to execute; reviewed against the tagged v1.0 baseline 2026-07-02 with all decisions resolved |
 | `SHIN-UCHUU-CONVERSION-PLAN.md` | **Active — first work item of the sequence** | External ctrees-ASCII → snapshot-HDF5 converter, validated on micro-Uchuu before any new Mimic code; Shin-Uchuu production conversion after the identity gate | Ready to execute; blocked only on freezing the format contract (the plan's schema is the draft) |
+| `MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md` | Requirements brief | Module contracts over a co-resident snapshot population (true global SHAM, HOD, environment, synchronous reionization) — the single-node scientific payoff of the snapshot driver | Blocked on the dual-driver Phase 5 identity gate; prerequisite for the distributed plan below |
+| `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md` | Requirements brief | MPI/domain decomposition for snapshot-global operations (former dual-driver Phase 7); pairs with the module-contracts brief above | Blocked on the snapshot driver and on at least one snapshot-global module contract existing |
 | `MIMIC-EMBEDDED-ENGINE-PLAN.md` | Requirements brief | Physics-only API for external hosts (former dual-driver Phase 6) | Not scheduled; independent of the snapshot pathway |
-| `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md` | Requirements brief | MPI snapshot-global operations (former dual-driver Phase 7) | Blocked on the single-node snapshot driver and a first snapshot-global physics contract |
 | `MIMIC-MODEL-BUILDER-PLAN.md` | Requirements brief | Assisted, gate-driven model-package construction from scientific evidence | Re-review against the tagged baseline before any implementation RFC |
 
 Mimic v1.0 is tagged and released from `main` as the first production baseline. The 2026-07-02 joint review of the dual-driver and Shin-Uchuu plans (findings, decisions D1–D12, and rationale) is archived at `archive/dev-plans/dual-driver-plan-review.md`; its decisions are baked into the two active plans, which are self-contained.
@@ -42,7 +43,7 @@ The snapshot pathway is the chosen direction (it is both the scientific priority
 4. **Snapshot driver + cross-format identity gate** (dual-driver Phase 5) on micro-Uchuu.
 5. **Shin-Uchuu production conversion** (one-time, 5.6 TB) and the `simulations/shin-uchuu/` package; sage16 end to end with HMF/GSMF sanity checks.
 
-Afterwards, choose among: snapshot-global module contracts, the distributed snapshot plan, the embedded engine, or the model builder — on scientific priority.
+Afterwards, the requirements briefs, in the expected (not frozen) order: `MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md` then `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md`, which go together — the module contracts are the single-node physics payoff of the snapshot driver, and distribution has nothing to parallelise until they exist; then `MIMIC-EMBEDDED-ENGINE-PLAN.md`; then `MIMIC-MODEL-BUILDER-PLAN.md`. Re-prioritise on scientific need once the sequence above completes.
 
 ---
 
