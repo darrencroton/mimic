@@ -1,0 +1,118 @@
+---
+name: mimic-validation-and-qa
+description: "Mimic's test system and evidence standards - what counts as proof that a change works. Load when a task involves running or writing tests (make tests, tests-unit, tests-integration, tests-scientific, summary mode), MIMIC_RESULT markers, TEST_RUN/TEST_ASSERT/TEST_SKIP_WITH macros, tests/framework helpers, test registration (module_info.yaml tests: keys, generated test manifests), test placement decisions, the test_fixture module, baselines (tests/data/output/baseline, physics-binary baseline, regenerate_baseline.sh), tolerances (rtol, MIMIC_BASELINE_RTOL, CI 1e-3), a test that fails/skips/regresses, or \"how do I test this change\"."
+---
+
+# Mimic Validation and QA
+
+Mimic has a three-tier test system with a deterministic structured-marker protocol, generated test manifests keyed to the compiled MODEL/SIMULATION pair, and two committed golden baselines. This skill is how to run it, read it, extend it, and not be fooled by it.
+
+## When to use / when NOT to use
+
+Use for: running suites, writing/registering tests, placement decisions, baseline questions, tolerance questions, interpreting FAIL/SKIP/WARN.
+
+Do NOT use for:
+- Diagnosing why a specific failure happened — see the `mimic-debugging-playbook` skill.
+- The measurement toolbox (inspectors, comparators as standalone tools, fuzzer, benchmarks) — see the `mimic-diagnostics-and-tooling` skill.
+- Designing the scientific evidence for a physics claim (what to measure, what tolerance is justified) — see the `mimic-scientific-method` skill.
+- Commit gating order — see the `mimic-change-control` skill.
+
+## First actions
+
+1. Note the compiled pair: tests are generated for one `MODEL`/`SIMULATION` (defaults `sage16`/`mini-millennium`). Use the same pair on every command.
+2. Activate the venv before Python-backed tiers: `source mimic_venv/bin/activate`. Unit tests are C, but integration, scientific, `make tests`, formatting checks, and plotting tests need the pinned Python packages from `mimic_venv`.
+3. For any suite run, capture and check the exit code — never judge from scrolling output:
+
+```bash
+mkdir -p archive/test-logs
+make tests summary > archive/test-logs/tests.log 2>&1; rc=$?
+rg -n "^MIMIC_RESULT: (FAIL|SKIP|WARN|ERROR)" archive/test-logs/tests.log
+echo "exit_code=$rc"   # non-zero = failure regardless of log text
+```
+
+4. Read every SKIP line and its reason. A skip is not a pass — a guard checking a stale model name once silently skipped the physics baseline test for weeks.
+5. Failing tests are real problems. Never weaken or simplify one to pass (`mimic-change-control`, non-negotiable C).
+
+## 1. The three tiers
+
+| Tier | Command | Language/scope | Runtime |
+|---|---|---|---|
+| Unit | `make tests-unit` | C; direct function calls, no full pipeline | up to ~3 min |
+| Integration | `make tests-integration` | Python; real `./mimic` runs via run files; keep each test under ~30 s | up to ~3 min |
+| Scientific | `make tests-scientific` | Python; physics contracts vs reference data and metadata-declared ranges | ~30 s |
+
+`make tests` composes: clean → generate test registry → one build → `check-docs` → `validate-modules` → all three tiers, accumulating failures in `build/.test_failures` and printing a final verdict block. Append the `summary` goal to any test target to filter output to `MIMIC_RESULT:` FAIL/SKIP/WARN/ERROR lines (PASS suppressed; infra steps silenced on success, dumped in full on failure; a crashing test that emits no markers dumps its full log). Unit and integration are long with large output — when orchestrating from a main agent context, delegate the run and act on the summarized report (AGENTS.md testing strategy).
+
+## 2. The marker protocol
+
+Every test case emits exactly one line:
+
+```text
+MIMIC_RESULT: PASS|FAIL|SKIP|WARN|ERROR <test_name> [-- <reason>]
+```
+
+**C** (`tests/framework/test_framework.h`): `TEST_RUN(fn)` runs a function returning `TEST_PASS` (0) / `TEST_FAIL` (1) / `TEST_SKIP` (2) and emits the marker; `TEST_ASSERT`, `TEST_ASSERT_EQUAL`, `TEST_ASSERT_DOUBLE_EQUAL(a,b,tol,msg)`, `TEST_ASSERT_STRING_EQUAL` emit FAIL markers automatically; a failing test with no assertion marker still gets a generic FAIL so nothing is invisible in summary mode. `return TEST_SKIP_WITH("reason")` for configurations where the test genuinely cannot run. Finish with `TEST_SUMMARY()`/`TEST_RESULT()`.
+
+**Python** (`tests/framework`): `result_pass/result_fail/result_skip/result_warn/result_error` from `markers.py`; raise `TestSkipped("reason")` to skip. The shared loop `run_test_suite` (`tests/framework/runner.py`) catches `TestSkipped` → `result_skip`, and a test function that *returns a non-empty string* is surfaced as a WARN with that string as the reason (verified at `runner.py:61-62`) — use that for soft findings that shouldn't fail the suite.
+
+## 3. Where a test lives (placement decision table)
+
+| What it validates | Location | Registered by |
+|---|---|---|
+| Core framework behavior (dispatch, substeps, output formats, memory) | `tests/{unit,integration,scientific}/` | Globbed automatically (`test_*.c` / `test_*.py`) |
+| One module's physics | `models/<model>/modules/<module>/_tests/` | `tests:` keys in that module's `module_info.yaml` |
+| Cross-module model behavior (pipeline contracts, parity) | `models/<model>/modules/_tests/` | That directory's `module_info.yaml` |
+| Simulation/reader behavior | `simulations/<sim>/_tests/{unit,integration,scientific}/` | Directory placement |
+
+**The model-neutral rule**: core tests must never name production physics modules — they use the `test_fixture` module (`src/module_system/test_fixture/`, compiled only in `TEST_BUILD=yes` builds via `MIMIC_TEST_BUILD=1`). This upholds the physics-agnostic-core principle: archiving or changing a sage16 module can never break framework tests.
+
+Registration flows through `scripts/generate_test_registry.py` into `build/generated/{unit,integration,scientific}_tests.txt` (refresh: `make generate-test-registry`; `--strict` fails on declared-but-missing test files). Shared test run files are materialized under `build/generated/test_inputs/<MODEL>/<SIMULATION>/` (`make generate-test-inputs`), with snapshot indices derived from the simulation's a_list — never hardcoded.
+
+## 4. Selector gating — what actually runs
+
+Model physics tests run only when the selected simulation is in `FULL_MODEL_TEST_SIMULATIONS` (`scripts/discovery.py`): `mini-millennium`, `micro-uchuu`, `micro-uchuu-hdf5`, `micro-uchuu-ascii`. The three micro-Uchuu packages deliberately use their production `simulation_info.yaml` so one small catalog exercises the L-Halo binary, ctrees-HDF5, and ctrees-ASCII reader paths. Larger packages (`millennium`, `mini-uchuu`, `uchuu`) run core + simulation-owned tests on fixtures and skip model physics. Additional per-test guards: `compiled_model()` checks (e.g. the physics baseline self-skips unless the executable was compiled for sage16), baseline tests skip for non-default pairs, HDF5-dependent unit tests skip without HDF5 dev libs. All of these appear as SKIP markers with reasons — audit them after every suite run.
+
+## 5. The golden inventory (baselines)
+
+Two committed baselines; both are recorded run outputs — hand-editing one is fabricating evidence.
+
+1. **Physics-free core baseline** — `tests/data/output/baseline/{binary,hdf5}/`. Protects deterministic halo tracking, independent of any model. Regenerate the HDF5 side with `./scripts/regenerate_baseline.sh`, which asserts an HDF5 build, asserts the generated test run file is physics-free (empty module lists), backs up the old baseline, reruns, and re-validates. Its own header: regenerate only after deliberate, validated changes to core halo tracking — "Never regenerate it merely to silence a failing test."
+2. **Full-physics sage16 baseline** — `models/sage16/modules/_tests/baseline/physics-binary/` (`model_z0.000_0` + `metadata/output_schema.json`). Protects the whole baryonic pipeline at rtol 1e-6 across ALL properties and halos. Refresh procedure is in the docstring of `test_scientific_sage_physics_baseline.py`: after a DELIBERATE, validated science change, rerun its input (`models/sage16/modules/_tests/input/test_physics_binary.yaml`) and `cp` the fresh output file and `output_schema.json` into the baseline directory — with the justification in the commit (see `mimic-change-control` non-negotiable F).
+
+Baseline regeneration is a scientific act: it requires the numbers that justify it (`mimic-scientific-method`) and travels in the same commit as the change that made it necessary.
+
+## 6. Tolerances
+
+- Framework defaults (`tests/framework/harness.py`): `BASELINE_RTOL_DEFAULT = 1e-6`, `BASELINE_ATOL_DEFAULT = 1e-10`; `baseline_rtol()` honors a validated `MIMIC_BASELINE_RTOL` env override.
+- The comparator `compare_halos_comprehensive` (`tests/framework/comparison.py`) supports a `warn_rtol` band: diffs passing a relaxed gate but exceeding the strict one surface as WARN (worst offenders listed) without failing — used so CI relaxation doesn't hide drift.
+- CI runs scientific tests with `MIMIC_BASELINE_RTOL=1e-3` because the sage16 baseline was generated on macOS and Linux libm reproduces it only to ~7e-4 relative; locally the strict 1e-6 applies. A local failure at 1e-6 that CI would pass is still a finding — investigate before relaxing anything.
+- Choosing new tolerances (scientific template guidance): exact conservation laws ~1e-10; approximate physical relations ~1e-2; literature comparisons ~0.5 dex-scale. Justify every tolerance in the test's docstring; see `mimic-scientific-method` for tolerance design.
+
+## 7. Adding a test (per tier)
+
+Always start from a template — `tests/framework/c_unit_test_template.c`, `python_integration_test_template.py`, `python_scientific_test_template.py`; each header documents where to copy it and what its tier should and should not validate.
+
+**C unit**: copy template to `models/<model>/modules/<mod>/_tests/test_unit_<mod>.c` (or `tests/unit/` for core). New sage16 tests include `models/sage16/modules/_tests/sage_test_fixtures.h` instead of re-declaring boilerplate. Every allocating path ends with `check_memory_leaks()`. Register in `module_info.yaml` `tests.unit`. Run: `make generate-test-registry`, then `tests/unit/run_tests.sh test_unit_<mod>` — **never execute the built `.test` binary directly**; the runner refreshes generated registries and rebuilds. Add `MODEL=<m> SIMULATION=<s>` env for non-default pairs.
+
+**Python integration**: copy template to the module's `_tests/`; it locates the repo root itself and imports `create_test_param_file`, `run_mimic`, `load_binary_halos`, `check_no_memory_leaks` (asserts against the run's captured leak report), `run_test_suite` from `tests/framework`. Register in `tests.integration`. Run directly: `python3 path/to/test_integration_<mod>.py` from the repo root.
+
+**Python scientific**: copy template; state the physical contract and tolerance in the docstring; use `run_mimic_fresh` + generated inputs; reference data lives beside the test or in `tests/data/`. Register in `tests.scientific`.
+
+Then: run the individual test → run its tier with `summary` → confirm your markers appear (including the SKIP path if you wrote one).
+
+## Provenance and maintenance
+
+Verified against the live repo 2026-07-04. Re-verify drift-prone specifics:
+
+```bash
+sed -n '41,56p' scripts/discovery.py                       # FULL_MODEL_TEST_SIMULATIONS membership
+grep -n "BASELINE_RTOL_DEFAULT\|BASELINE_ATOL_DEFAULT" tests/framework/harness.py
+grep -n "MIMIC_BASELINE_RTOL" .github/workflows/ci.yml     # CI tolerance still 1e-3
+sed -n '55,65p' tests/framework/runner.py                  # string-return -> WARN behavior
+grep -n -i "never regenerate" scripts/regenerate_baseline.sh
+sed -n '15,30p' models/sage16/modules/_tests/test_scientific_sage_physics_baseline.py  # refresh recipe
+ls tests/framework/*template* models/sage16/modules/_tests/sage_test_fixtures.h
+grep -n "strict" scripts/generate_test_registry.py | head -3
+```
+
+Tier runtimes and the gating set are the most drift-prone facts; the marker protocol and placement rules are framework architecture and durable.

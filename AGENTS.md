@@ -18,6 +18,28 @@ For new repository clones, use the automated setup script:
 
 ---
 
+## Skill Routing
+
+The project-local skill library under `.agents/skills/` is the operating map for Mimic work. Load the narrowest skill set that covers the task, then use `mimic-change-control` before deciding that a change is done or before committing.
+
+| Task | Load these skills |
+|---|---|
+| Build, first-run setup, venv, compiler/library detection | `mimic-build-and-env`; add `mimic-debugging-playbook` if something fails |
+| Broken build, rejected run file, failing run/test/plot, memory report | `mimic-debugging-playbook`; add the relevant domain skill once the failure is localized |
+| Core architecture, data flow, reader/driver boundary, ownership changes | `mimic-architecture-contract` plus `mimic-change-control` |
+| Runtime module work under `models/<model>/modules/` | `mimic-modules`, `mimic-validation-and-qa`, `mimic-change-control`; add `mimic-properties` for new fields and `mimic-scientific-method` for physics claims |
+| Property YAML, generated structs/schemas, units, precision | `mimic-properties`, then `mimic-validation-and-qa` and `mimic-change-control` |
+| Run YAML keys, Make variables, CLI flags, unknown-key errors | `mimic-config-and-flags`; add `mimic-run-and-operate` for execution |
+| Running Mimic and reading binary/HDF5 output | `mimic-run-and-operate`; add `mimic-diagnostics-and-tooling` for inspection |
+| Simulation package or tree reader work | `mimic-simulations-and-readers`; add `mimic-properties` for `halo_properties.yaml` |
+| Plot generation, figure/profile edits, skipped plots | `mimic-plots-and-analysis`; add `mimic-run-and-operate` if output is missing |
+| Test selection, test writing, baselines, marker interpretation | `mimic-validation-and-qa`; use subagents for long unit/integration suite runs |
+| Scientific output differences, parity/correctness claims, tolerances | `mimic-scientific-method`; add `mimic-sam-reference` for domain meaning |
+| Historical quirks, reverted ideas, SAGE parity comments | `mimic-failure-archaeology` |
+| Documentation, README, docs/dev plans, external claims | `mimic-docs-and-writing`; add `mimic-scientific-method` before measured science claims |
+
+---
+
 ## Build Commands
 
 ```bash
@@ -164,7 +186,7 @@ plot/mimic-plot/     Plotting system (registry is model-local; sage16 ships 18 s
 
 ## Testing
 
-**Test templates:** `tests/framework/c_unit_test_template.c`, `tests/framework/python_integration_test_template.py`, `tests/framework/python_scientific_test_template.py` — start from these when writing new tests. See the `mimic-tests` skill for tier selection, location rules, and registration.
+**Test templates:** `tests/framework/c_unit_test_template.c`, `tests/framework/python_integration_test_template.py`, `tests/framework/python_scientific_test_template.py` — start from these when writing new tests. See the `mimic-validation-and-qa` skill for tier selection, location rules, and registration.
 
 Long-running tests should be captured to a log file; check the exit code explicitly:
 

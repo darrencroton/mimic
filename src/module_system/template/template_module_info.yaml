@@ -73,9 +73,9 @@ module:
   # ============================================================================
 
   tests:                                # Optional: Test coverage
-    unit: tests/test_unit_template_module.c
-    integration: tests/test_integration_template_module.py
-    scientific: tests/test_scientific_template_module.py
+    unit: _tests/test_unit_template_module.c
+    integration: _tests/test_integration_template_module.py
+    scientific: _tests/test_scientific_template_module.py
 
   # ============================================================================
   # DOCUMENTATION
