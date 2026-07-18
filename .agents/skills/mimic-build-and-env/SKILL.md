@@ -79,7 +79,7 @@ make
 
 ## The mimic_venv virtual environment
 
-`requirements.txt` installs: numpy, matplotlib, tqdm (plotting); h5py, PyYAML (integration/scientific tests and HDF5 inspection); black, isort, and a **pinned `clang-format>=20,<21`** (formatting — the pin keeps formatting byte-identical across machines and CI).
+`requirements.txt` installs: numpy, matplotlib, tqdm (plotting); h5py, PyYAML (integration/scientific tests and HDF5 inspection); pandas (ctrees→snapshot-HDF5 converter under `scripts/convert/`); black, isort, and a **pinned `clang-format>=20,<21`** (formatting — the pin keeps formatting byte-identical across machines and CI).
 
 - Activate: `source mimic_venv/bin/activate` — deactivate: `deactivate`.
 - What needs it: `plot/mimic-plot/mimic-plot.py`, the Python test tiers, `./scripts/beautify.sh`, and `make check-format`.
