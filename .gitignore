@@ -54,6 +54,7 @@ __pycache__/
 # Claude Code session data
 .claude/
 .ai-orchestrator/
+.orchestrator/
 
 # Agent session handoff files (platform-neutral, not committed)
 HANDOFF.md

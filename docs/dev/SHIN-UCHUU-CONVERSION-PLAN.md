@@ -141,8 +141,8 @@ Stream `forests.list` once to build the tree-root-id → forest-id map (315M × 
 
 Stream-read all 2,747 ctrees ASCII files using a bounded worker pool. `locations.dat` is never needed.
 
-**Parsing ctrees ASCII correctly**: ctrees files contain a `#fields: ...` header line and `#tree <id>` block markers. Do not use `comment='#'` with pandas default `header='infer'`. Correct approach:
-1. Read the first non-empty line beginning with `#fields:` to get column names; strip the prefix and split on whitespace.
+**Parsing ctrees ASCII correctly**: ctrees files contain a header line and `#tree <id>` block markers. Do not use `comment='#'` with pandas default `header='infer'`. **Erratum (2026-07-18, verified against `tree_0_0_0.dat`):** the Uchuu-suite files use an **indexed** first-line header — `#scale(0) id(1) desc_scale(2) … Snap_num(31) …` — with `(N)` column-number suffixes and mixed case, not a `#fields:` line; the reference parser strips the suffixes and matches names case-insensitively (`src/io/tree/ctrees/parse_ctrees.h`). Correct approach:
+1. Read the first header line; strip `(N)` suffixes; match column names case-insensitively (support a `#fields:` dialect as secondary if encountered).
 2. Use `pd.read_csv(..., header=None, names=<derived_names>, sep=r'\s+', comment='#', dtype=<pre_specified>)` so `#tree` markers and the field header are skipped uniformly — but track `#tree <id>` boundaries separately (a light pre-scan of marker byte offsets per chunk) because every halo record must carry its tree root id.
 3. Validate that parsed row count plausibly matches file size before continuing.
 
@@ -166,7 +166,7 @@ Stream-read all 2,747 ctrees ASCII files using a bounded worker pool. `locations
 | `vmax` | float32 | 4 | Vmax |
 | `tree_root_id` | int64 | 8 | provenance (from `#tree` marker) |
 | `forest_id` | int64 | 8 | provenance (Phase 0 join) |
-| **Total** | | **~116 bytes** | |
+| **Total** | | **108 bytes packed** (erratum 2026-07-18: earlier "~116" total was arithmetic drift; the frozen dtype in `MIMIC-CONVERTER-IMPLEMENTATION-PLAN.md` is authoritative) | |
 
 **Worker isolation**: bounded process pool (8–16 workers), each writing per-snapshot scratch files (`scratch/snap_NNN.worker_K.bin`). After all workers finish, concatenate per-snapshot worker files into `scratch/snap_NNN.bin` — a sequential read+write of ~1.9–2.2 TB, ~20–40 minutes at 5 GB/s. The simpler worker-files + concat approach is chosen over the memory-mapped SOA alternative: concat costs ~30 minutes of sequential I/O and has near-zero failure surface, and time is not the binding constraint.
 
