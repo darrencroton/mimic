@@ -1,0 +1,3 @@
+#scale(0) id(1) desc_scale(2) desc_id(3) pid(4) upid(5) Mvir(6) Mvir(7) vrms(8) vmax(9) x(10) y(11) z(12) vx(13) vy(14) vz(15) Jx(16) Jy(17) Jz(18) Snap_num(19)
+#tree 1000
+1.00000 1000 -1.00000 -1 -1 -1 1.5e12 1.5e12 120.5 250.25 10.0 20.0 30.0 -1.5 2.5 -3.5 1e10 -2e10 3e10 5
