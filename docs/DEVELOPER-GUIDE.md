@@ -1358,6 +1358,7 @@ Used by [Adding a New Simulation](#adding-a-new-simulation) when defining catalo
 - [VISION.md](VISION.md): architectural principles and design boundaries
 - [USER-GUIDE.md](USER-GUIDE.md): installation, run configuration, output analysis, plotting, and troubleshooting
 - [STYLE-GUIDE.md](STYLE-GUIDE.md): naming, comments, documentation, metadata, tests, and review conventions
+- [SNAPSHOT-HDF5-FORMAT.md](SNAPSHOT-HDF5-FORMAT.md): frozen on-disk contract for snapshot-ordered HDF5 merger-tree input
 - [plot/mimic-plot/README.md](../plot/mimic-plot/README.md): detailed plotting manual
 - [tests/README.md](../tests/README.md): test-suite quick reference
 - `models/<model>/README.md`: model-package science scope, module pipeline, parameters, plots, and references
