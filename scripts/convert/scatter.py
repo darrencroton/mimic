@@ -557,11 +557,21 @@ def run_scatter(
         )
     manifest.data["provenance"].update(identities)
     if simulation_info_path is not None:
-        # recorded for provenance only; not consumed until later slices
-        manifest.data["provenance"]["simulation_info"] = {
-            "path": str(Path(simulation_info_path).resolve()),
-            "md5": file_md5(simulation_info_path),
-        }
+        # immutable once recorded: the fix-up stage derives Len from this
+        # file's particle mass, so silently replacing the recorded identity
+        # could mix particle-mass provenance across snapshots
+        sim_md5 = file_md5(simulation_info_path)
+        recorded_info = recorded.get("simulation_info")
+        if recorded_info is not None and recorded_info.get("md5") != sim_md5:
+            raise ConverterError(
+                "simulation_info content changed since this workdir was created ({} != {}); "
+                "refusing to resume — use a fresh workdir".format(sim_md5, recorded_info.get("md5"))
+            )
+        if recorded_info is None:
+            manifest.data["provenance"]["simulation_info"] = {
+                "path": str(Path(simulation_info_path).resolve()),
+                "md5": sim_md5,
+            }
 
     pending = [
         (path, i) for i, path in enumerate(tree_files) if not manifest.source_completed(path)
@@ -690,6 +700,15 @@ def _finalize_scatter(
     for snap, parts in sorted(snapshots.items()):
         snap_entry = manifest.data["snapshots"].get(str(snap))
         target = scratch_dir / snapshot_scratch_name(snap)
+        if snap_entry and snap_entry.get("status") == "fixed":
+            # a snapshot the Slice 5 fix-up stage already completed: verify
+            # all downstream artifacts and finish any interrupted cleanup
+            manifest.verify_intermediate(snap_entry["sorted_file"], "sorted snapshot scratch")
+            manifest.verify_intermediate(snap_entry["index_file"], "snapshot id index")
+            manifest.verify_intermediate(snap_entry["fixed_file"], "fixed snapshot scratch")
+            _retry_worker_cleanup(manifest, scratch_dir, snap, parts)
+            manifest.save()
+            continue
         if snap_entry and snap_entry.get("status") == "sorted":
             # a crash between concat-status save and worker deletion can leave
             # a snapshot that was later sorted with workers still on disk —

@@ -37,11 +37,14 @@ def sort_one_snapshot(manifest: Manifest, snap: int) -> None:
     entry = manifest.data["snapshots"].get(str(snap))
     if entry is None:
         raise ConverterError("snapshot {}: no manifest entry; run scatter first".format(snap))
-    if entry.get("status") == "sorted":
-        # skip-trusting a prior sort requires verifying both artifacts and
-        # retrying any unsorted-file cleanup a crash may have interrupted
+    if entry.get("status") in ("sorted", "fixed"):
+        # skip-trusting a prior sort (or a snapshot the Slice 5 fix-up stage
+        # already completed) requires verifying the artifacts and retrying
+        # any unsorted-file cleanup a crash may have interrupted
         manifest.verify_intermediate(entry["sorted_file"], "sorted snapshot scratch")
         manifest.verify_intermediate(entry["index_file"], "snapshot id index")
+        if entry.get("status") == "fixed":
+            manifest.verify_intermediate(entry["fixed_file"], "fixed snapshot scratch")
         _retry_unsorted_cleanup(manifest, entry)
         manifest.save()
         return

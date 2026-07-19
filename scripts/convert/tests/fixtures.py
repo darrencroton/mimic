@@ -276,6 +276,24 @@ def early_dying_forest() -> ForestSpec:
     return ForestSpec(forest_id=400, trees=[tree])
 
 
+def early_dying_flyby_forest() -> ForestSpec:
+    """Forest 700: dies at snapshot 2 with TWO pid==-1 centrals there — the
+    Slice 5 fix_flybys equivalent must demote at the FOREST'S max snapshot,
+    not only at the global final snapshot (7010 survives: 4e11 > 3e11)."""
+    tree_a = TreeSpec(
+        root_id=701,
+        halos=[
+            HaloSpec(halo_id=7010, snap=2, mvir=4.0e11, num_prog=1),
+            HaloSpec(halo_id=7012, snap=1, mvir=3.5e11, desc_id=7010),
+        ],
+    )
+    tree_b = TreeSpec(
+        root_id=702,
+        halos=[HaloSpec(halo_id=7011, snap=2, mvir=3.0e11)],
+    )
+    return ForestSpec(forest_id=700, trees=[tree_a, tree_b])
+
+
 def zero_mass_forest() -> ForestSpec:
     """Forest 500: contains a zero-mass halo (Spin carve-out input, Slice 5)."""
     tree = TreeSpec(

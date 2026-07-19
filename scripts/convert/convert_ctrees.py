@@ -2,8 +2,8 @@
 
 Per-phase subcommands over a user-supplied ``--workdir``; canonical metadata
 comes from explicit ``--simulation-info`` and ``--a-list`` paths so the
-converter stays simulation-agnostic. Later plan slices add the fix-up, link,
-write, validate, and cross-check stages.
+converter stays simulation-agnostic. Later plan slices add the link, write,
+validate, and cross-check stages.
 
 Usage (micro-Uchuu example):
     mimic_venv/bin/python scripts/convert/convert_ctrees.py scatter \\
@@ -14,6 +14,10 @@ Usage (micro-Uchuu example):
         simulations/micro-uchuu-ascii/snapshots/tree_0_0_0.dat
     mimic_venv/bin/python scripts/convert/convert_ctrees.py sort \\
         --workdir output/convert/micro-uchuu
+    mimic_venv/bin/python scripts/convert/convert_ctrees.py fixups \\
+        --workdir output/convert/micro-uchuu \\
+        --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \\
+        --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml
 """
 
 import argparse
@@ -60,6 +64,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="sort only this snapshot (repeatable; default: all)",
     )
+
+    fixups = sub.add_parser(
+        "fixups",
+        help="Phase 3 steps 1-5: adjacency validation, spin/Len conventions, "
+        "fix_flybys/fix_upid equivalents",
+    )
+    _add_workdir(fixups)
+    fixups.add_argument("--a-list", required=True, help="canonical a_list (one scale per line)")
+    fixups.add_argument(
+        "--simulation-info", required=True, help="simulation_info.yaml (particle mass for Len)"
+    )
+    fixups.add_argument(
+        "--snapshot",
+        type=int,
+        action="append",
+        default=None,
+        help="fix only this snapshot (repeatable; default: all)",
+    )
     return parser
 
 
@@ -82,6 +104,15 @@ def main(argv=None) -> int:
             from sort_index import run_sort
 
             run_sort(args.workdir, snapshots=args.snapshot)
+        elif args.command == "fixups":
+            from fixups import run_fixups
+
+            run_fixups(
+                args.workdir,
+                a_list_path=args.a_list,
+                simulation_info_path=args.simulation_info,
+                snapshots=args.snapshot,
+            )
     except ConverterError as exc:
         print("ERROR: {}".format(exc), file=sys.stderr)
         return 1
