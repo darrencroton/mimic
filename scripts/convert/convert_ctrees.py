@@ -20,6 +20,18 @@ Usage (micro-Uchuu example):
         --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml
     mimic_venv/bin/python scripts/convert/convert_ctrees.py links \\
         --workdir output/convert/micro-uchuu
+    mimic_venv/bin/python scripts/convert/convert_ctrees.py write \\
+        --workdir output/convert/micro-uchuu \\
+        --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \\
+        --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml
+    mimic_venv/bin/python scripts/convert/convert_ctrees.py report \\
+        --workdir output/convert/micro-uchuu \\
+        --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list
+
+The producer validation battery is a standalone CLI (see validate.py):
+    mimic_venv/bin/python scripts/convert/validate.py output/convert/micro-uchuu/hdf5 \\
+        --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \\
+        --manifest output/convert/micro-uchuu/manifest.json
 """
 
 import argparse
@@ -91,6 +103,36 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "identity fields (always all snapshots — FirstProgenitor flows forward)",
     )
     _add_workdir(links)
+
+    write = sub.add_parser(
+        "write",
+        help="emit snapshot_NNN.h5 + forests.h5 per docs/SNAPSHOT-HDF5-FORMAT.md "
+        "(one file per a_list snapshot, including empty ones)",
+    )
+    _add_workdir(write)
+    write.add_argument("--a-list", required=True, help="canonical a_list (one scale per line)")
+    write.add_argument(
+        "--simulation-info", required=True, help="simulation_info.yaml (header attributes)"
+    )
+    write.add_argument(
+        "--output-dir",
+        default=None,
+        help="dataset output directory (default: <workdir>/hdf5)",
+    )
+
+    report = sub.add_parser(
+        "report",
+        help="run the producer validation battery over the emitted dataset and write "
+        "the conversion report (exit 1 if validation fails)",
+    )
+    _add_workdir(report)
+    report.add_argument("--a-list", required=True, help="canonical a_list (one scale per line)")
+    report.add_argument(
+        "--multiplier",
+        type=int,
+        default=None,
+        help="UniqueGalaxyID multiplier for the header bound checks (default 1e9)",
+    )
     return parser
 
 
@@ -126,6 +168,23 @@ def main(argv=None) -> int:
             from links import run_links
 
             run_links(args.workdir)
+        elif args.command == "write":
+            from hdf5_writer import run_write
+
+            run_write(
+                args.workdir,
+                a_list_path=args.a_list,
+                simulation_info_path=args.simulation_info,
+                output_dir=args.output_dir,
+            )
+        elif args.command == "report":
+            from report import run_report
+            from validate import DEFAULT_MULTIPLIER
+
+            multiplier = args.multiplier if args.multiplier is not None else DEFAULT_MULTIPLIER
+            report = run_report(args.workdir, a_list_path=args.a_list, multiplier=multiplier)
+            if not report["validation_passed"]:
+                return 1
     except ConverterError as exc:
         print("ERROR: {}".format(exc), file=sys.stderr)
         return 1
