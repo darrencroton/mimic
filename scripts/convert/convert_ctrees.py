@@ -2,7 +2,7 @@
 
 Per-phase subcommands over a user-supplied ``--workdir``; canonical metadata
 comes from explicit ``--simulation-info`` and ``--a-list`` paths so the
-converter stays simulation-agnostic. Later plan slices add the link, write,
+converter stays simulation-agnostic. Later plan slices add the write,
 validate, and cross-check stages.
 
 Usage (micro-Uchuu example):
@@ -18,6 +18,8 @@ Usage (micro-Uchuu example):
         --workdir output/convert/micro-uchuu \\
         --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \\
         --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml
+    mimic_venv/bin/python scripts/convert/convert_ctrees.py links \\
+        --workdir output/convert/micro-uchuu
 """
 
 import argparse
@@ -82,6 +84,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="fix only this snapshot (repeatable; default: all)",
     )
+
+    links = sub.add_parser(
+        "links",
+        help="Phase 3 steps 6-9: FoF chains, descendant/progenitor links, ranks, "
+        "identity fields (always all snapshots — FirstProgenitor flows forward)",
+    )
+    _add_workdir(links)
     return parser
 
 
@@ -113,6 +122,10 @@ def main(argv=None) -> int:
                 simulation_info_path=args.simulation_info,
                 snapshots=args.snapshot,
             )
+        elif args.command == "links":
+            from links import run_links
+
+            run_links(args.workdir)
     except ConverterError as exc:
         print("ERROR: {}".format(exc), file=sys.stderr)
         return 1
