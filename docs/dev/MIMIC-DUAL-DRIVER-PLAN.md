@@ -138,7 +138,7 @@ Full historical detail lives in the v1.0-era revision of this plan (git history)
 
 ### Phase 4a: Format Contract + Converter + Fixtures
 
-Freeze the snapshot-HDF5 format contract (schema, invariants, identity fields, validation rules) as a durable spec in `docs/` — the contract outlives both plans. **Done 2026-07-18:** [`docs/SNAPSHOT-HDF5-FORMAT.md`](../SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`). Then implement the converter and validate it on micro-Uchuu, all before any new Mimic code. This phase is specified in `SHIN-UCHUU-CONVERSION-PLAN.md`; its converter-side gate is the validation battery plus the topology cross-check against the existing `read_ctrees_ascii.c` reader by stable halo identity.
+Freeze the snapshot-HDF5 format contract (schema, invariants, identity fields, validation rules) as a durable spec in `docs/` — the contract outlives both plans. **Done 2026-07-18:** [`docs/dev/SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`). Then implement the converter and validate it on micro-Uchuu, all before any new Mimic code. This phase is specified in `SHIN-UCHUU-CONVERSION-PLAN.md`; its converter-side gate is the validation battery plus the topology cross-check against the existing `read_ctrees_ascii.c` reader by stable halo identity.
 
 **Gate:** converter validation green on micro-Uchuu ASCII; snapshot-HDF5 fixtures exist for reader development.
 

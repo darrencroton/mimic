@@ -31,7 +31,7 @@ Do NOT use for:
 | `docs/USER-GUIDE.md` | Workflow-oriented: generate/configure/analyse catalogues; troubleshooting | "How do I use it successfully?" |
 | `docs/DEVELOPER-GUIDE.md` | Extension workflows, APIs, metadata, testing; the Reference section is the one place for reference-manual prose | "How do I modify it?" |
 | `docs/STYLE-GUIDE.md` | Naming, comments, metadata style, test style, review conventions | "What should contributions look like?" |
-| `docs/SNAPSHOT-HDF5-FORMAT.md` | Frozen on-disk contract for snapshot-ordered HDF5 input (`format_version` ratchet); normative changes only via version bump | "What must a snapshot-HDF5 input file contain?" |
+| `docs/dev/SNAPSHOT-HDF5-FORMAT.md` | Frozen on-disk contract for snapshot-ordered HDF5 input (`format_version` ratchet); normative changes only via version bump | "What must a snapshot-HDF5 input file contain?" |
 | `tests/README.md`, `plot/mimic-plot/README.md` | Quick references for their subsystems, deferring depth to the guides | — |
 | `models/<m>/README.md` | That package's science scope, pipeline, parameters, plots, references, citations | — |
 | `simulations/<s>/README.md` | Data provenance, units, snapshot lists, fixtures, maintenance obligations | — |

@@ -103,7 +103,7 @@ Full rules: `docs/STYLE-GUIDE.md` (human readability) and the formatter (mechani
 - `docs/USER-GUIDE.md` — installation, run configuration, output, plotting, troubleshooting
 - `docs/DEVELOPER-GUIDE.md` — architecture, modules, simulations, properties, tests, generated metadata
 - `docs/STYLE-GUIDE.md` — naming, comments, metadata, tests, review conventions
-- `docs/SNAPSHOT-HDF5-FORMAT.md` — frozen snapshot-ordered HDF5 input contract (`format_version` ratchet)
+- `docs/dev/SNAPSHOT-HDF5-FORMAT.md` — frozen snapshot-ordered HDF5 input contract (`format_version` ratchet)
 - `docs/dev/` — architecture planning documents; read before structural changes
 - `plot/mimic-plot/README.md` — plotting manual · `tests/README.md` — test-suite quick reference
 - `models/<model>/README.md` — package science scope, pipeline, parameters, plots, references

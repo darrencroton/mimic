@@ -1,7 +1,7 @@
 """Producer validation battery for the ctrees -> snapshot-HDF5 converter
 (plan Slice 7).
 
-Implements the full producer battery from docs/SNAPSHOT-HDF5-FORMAT.md
+Implements the full producer battery from docs/dev/SNAPSHOT-HDF5-FORMAT.md
 (Validation Requirements): count conservation against the INDEPENDENT
 per-source-file pre-counts from the Slice 2 pre-scan (never the parser-derived
 totals alone — plan review finding 7), all six format invariants, progenitor
@@ -857,7 +857,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="validate",
         description="Producer validation battery for snapshot-HDF5 datasets "
-        "(docs/SNAPSHOT-HDF5-FORMAT.md)",
+        "(docs/dev/SNAPSHOT-HDF5-FORMAT.md)",
     )
     parser.add_argument("directory", help="directory of snapshot_NNN.h5 files + forests.h5")
     parser.add_argument("--a-list", required=True, help="canonical a_list (one scale per line)")

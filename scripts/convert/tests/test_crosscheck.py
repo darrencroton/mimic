@@ -21,10 +21,14 @@ import crosscheck  # noqa: E402
 import validate  # noqa: E402
 from crosscheck import (  # noqa: E402
     ConverterError,
+    SnapMatch,
+    check_flyby_signs,
+    check_values,
     run_crosscheck,
     run_reference,
     write_reference_run_file,
 )
+from fixups import load_particle_mass  # noqa: E402
 from mock_reference import GALAXY_DTYPE, build_mock_galaxies, write_mock_reference  # noqa: E402
 from test_hdf5_writer import make_written_workdir  # noqa: E402
 
@@ -64,7 +68,8 @@ class TestCrosscheck(unittest.TestCase):
         cls.workdir, cls.a_list_path, cls.sim_info, cls.hdf5_dir = make_written_workdir(root)
         cls.n_snapshots = 6
         _, cls.arrays = validate.load_dataset(cls.hdf5_dir, cls.n_snapshots)
-        cls.pristine = build_mock_galaxies(cls.hdf5_dir, cls.n_snapshots)
+        cls.part_mass = load_particle_mass(cls.sim_info)
+        cls.pristine = build_mock_galaxies(cls.hdf5_dir, cls.n_snapshots, cls.sim_info)
         cls.reference_dir = Path(tempfile.mkdtemp(dir=cls.tmp.name)) / "reference"
         write_mock_reference(cls.pristine, cls.reference_dir, n_snapshots=cls.n_snapshots)
 
@@ -84,7 +89,13 @@ class TestCrosscheck(unittest.TestCase):
 
     def _run(self, reference_dir, multiplier=M):
         return outcome_map(
-            run_crosscheck(self.hdf5_dir, reference_dir, self.a_list_path, multiplier=multiplier)
+            run_crosscheck(
+                self.hdf5_dir,
+                reference_dir,
+                self.a_list_path,
+                self.sim_info,
+                multiplier=multiplier,
+            )
         )
 
     def _run_mutated(self, galaxies):
@@ -109,7 +120,13 @@ class TestCrosscheck(unittest.TestCase):
         row["VelDisp"] = conv["VelDisp"][halo_index]
         row["Vmax"] = conv["Vmax"][halo_index]
         row["Len"] = conv["Len"][halo_index]
-        row["Mvir"] = np.float64(conv["M_Crit200"][halo_index]) * 1e-10
+        halo_mass = np.float64(conv["M_Crit200"][halo_index]) * 1e-10
+        is_central = int(conv["FirstHaloInFOFgroup"][halo_index]) == halo_index
+        row["Mvir"] = (
+            halo_mass
+            if (is_central and halo_mass >= 0.0)
+            else np.float64(conv["Len"][halo_index]) * self.part_mass
+        )
         row["MostBoundID"] = mostboundid
         return row
 
@@ -190,6 +207,20 @@ class TestCrosscheck(unittest.TestCase):
         g[5]["MostBoundID"][i] = 1020  # drop the negative flyby marker
         self.assert_fails(self._run_mutated(g), "flyby-signs")
 
+    def test_flyby_signs_ignores_unmatched_negated_halo(self):
+        # A correctly flyby-demoted converter halo that seeds no galaxy has no
+        # reference counterpart; the check compares only the matched population,
+        # so its negated sign must NOT register as a mismatch.
+        conv = np.zeros(3, dtype=[("MostBoundID", np.int64)])
+        conv["MostBoundID"] = [10, -20, 30]  # halo 1 is flyby-negated and unmatched
+        ref = np.zeros(2, dtype=[("MostBoundID", np.int64), ("Type", np.int32)])
+        ref["MostBoundID"] = [10, 30]
+        match = SnapMatch(0, ref, np.array([0, 1]), conv, np.array([0, 2]))
+        self.assertEqual(check_flyby_signs([match]), [])
+        # but a sign disagreement on a matched halo still fails
+        conv["MostBoundID"] = [-10, -20, 30]  # matched halo 0 negated, reference positive
+        self.assertTrue(check_flyby_signs([match]))
+
     # -- 5. values -----------------------------------------------------------
 
     def test_values_violation_vmax(self):
@@ -215,6 +246,87 @@ class TestCrosscheck(unittest.TestCase):
         i = find_row(g[5], 1010)
         g[5]["Len"][i] += 1
         self.assert_fails(self._run_mutated(g), "values")
+
+    def test_values_mvir_is_type_dependent(self):
+        # Reference Mvir follows get_virial_mass: FoF central with a valid
+        # catalog mass -> M_Crit200*1e-10; every other halo -> Len*PartMass.
+        # A central (halo 0) and a satellite (halo 1, in halo 0's FoF group)
+        # with M_Crit200 chosen so Len*PartMass differs from M_Crit200*1e-10.
+        part_mass = 0.0325
+        conv = np.zeros(
+            2,
+            dtype=[
+                ("Pos", np.float32, (3,)),
+                ("Vel", np.float32, (3,)),
+                ("Spin", np.float32, (3,)),
+                ("VelDisp", np.float32),
+                ("Vmax", np.float32),
+                ("Len", np.int32),
+                ("M_Crit200", np.float32),
+                ("MostBoundID", np.int64),
+                ("FirstHaloInFOFgroup", np.int32),
+            ],
+        )
+        conv["FirstHaloInFOFgroup"] = [0, 0]  # halo 0 central, halo 1 satellite
+        conv["Len"] = [100, 7]
+        conv["M_Crit200"] = [np.float32(3.25e9), np.float32(9.99e9)]
+        conv["MostBoundID"] = [10, 20]
+        ref = np.zeros(2, dtype=GALAXY_DTYPE)
+        ref["MostBoundID"] = [10, 20]
+        ref["Type"] = [0, 1]
+        ref["Len"] = [100, 7]  # match conv Len so only Mvir is under test
+        central_ok = np.float64(np.float32(3.25e9)) * 1e-10
+        sat_ok = np.float64(7) * part_mass
+        match = SnapMatch(0, ref, np.array([0, 1]), conv, np.array([0, 1]))
+
+        ref["Mvir"] = [central_ok, sat_ok]
+        self.assertEqual(check_values([match], part_mass), [])
+        # satellite must NOT take the central (M_Crit200) rule
+        ref["Mvir"] = [central_ok, np.float64(np.float32(9.99e9)) * 1e-10]
+        self.assertTrue(check_values([match], part_mass))
+        # central must NOT take the satellite (Len*PartMass) rule
+        ref["Mvir"] = [np.float64(100) * part_mass, sat_ok]
+        self.assertTrue(check_values([match], part_mass))
+
+    def test_values_central_negative_mass_falls_back_to_len_partmass(self):
+        # A FoF central whose catalog mass is negative (invalid) takes the
+        # Len*PartMass branch, matching get_virial_mass's halo_mass >= 0.0 guard.
+        part_mass = 0.0325
+        conv = np.zeros(
+            1,
+            dtype=[
+                ("Pos", np.float32, (3,)),
+                ("Vel", np.float32, (3,)),
+                ("Spin", np.float32, (3,)),
+                ("VelDisp", np.float32),
+                ("Vmax", np.float32),
+                ("Len", np.int32),
+                ("M_Crit200", np.float32),
+                ("MostBoundID", np.int64),
+                ("FirstHaloInFOFgroup", np.int32),
+            ],
+        )
+        conv["FirstHaloInFOFgroup"] = [0]  # central (self-referencing)
+        conv["Len"] = [11]
+        conv["M_Crit200"] = [np.float32(-5.0)]  # invalid catalog mass
+        conv["MostBoundID"] = [10]
+        ref = np.zeros(1, dtype=GALAXY_DTYPE)
+        ref["MostBoundID"] = [10]
+        ref["Type"] = [0]
+        ref["Len"] = [11]
+        match = SnapMatch(0, ref, np.array([0]), conv, np.array([0]))
+
+        ref["Mvir"] = [np.float64(11) * part_mass]  # fallback, not negative M_Crit200*1e-10
+        self.assertEqual(check_values([match], part_mass), [])
+        ref["Mvir"] = [np.float64(np.float32(-5.0)) * 1e-10]  # the would-be central rule
+        self.assertTrue(check_values([match], part_mass))
+
+    def test_values_rejects_nonpositive_part_mass(self):
+        ref = np.zeros(0, dtype=GALAXY_DTYPE)
+        conv = np.zeros(0, dtype=[("MostBoundID", np.int64)])
+        match = SnapMatch(0, ref, np.array([], dtype=np.int64), conv, np.array([], dtype=np.int64))
+        with self.assertRaisesRegex(ConverterError, "particle mass must be positive"):
+            check_values([match], 0.0)
 
     # -- 6. occupancy --------------------------------------------------------
 
@@ -271,7 +383,7 @@ class TestCrosscheck(unittest.TestCase):
         g[5]["MostBoundID"][i] = np.iinfo(np.int64).min
         directory = self._write_ref(g)
         with self.assertRaisesRegex(ConverterError, "INT64_MIN"):
-            run_crosscheck(self.hdf5_dir, directory, self.a_list_path)
+            run_crosscheck(self.hdf5_dir, directory, self.a_list_path, self.sim_info)
 
     def test_converter_int64_min_aborts(self):
         import shutil
@@ -285,7 +397,7 @@ class TestCrosscheck(unittest.TestCase):
                 [np.iinfo(np.int64).min], dtype=np.int64
             )
         with self.assertRaisesRegex(ConverterError, "INT64_MIN"):
-            run_crosscheck(corrupted, self.reference_dir, self.a_list_path)
+            run_crosscheck(corrupted, self.reference_dir, self.a_list_path, self.sim_info)
 
     # -- Type-2 filter -------------------------------------------------------
 
@@ -317,7 +429,7 @@ class TestCrosscheck(unittest.TestCase):
                 "Galaxies", data=np.zeros(1, dtype=trimmed)
             )
         with self.assertRaisesRegex(ConverterError, "missing field"):
-            run_crosscheck(self.hdf5_dir, directory, self.a_list_path)
+            run_crosscheck(self.hdf5_dir, directory, self.a_list_path, self.sim_info)
 
     def test_wrong_field_width_aborts(self):
         # float64 Pos would let a wrong reference value round back onto the
@@ -337,7 +449,7 @@ class TestCrosscheck(unittest.TestCase):
                 "Galaxies", data=np.zeros(1, dtype=widened)
             )
         with self.assertRaisesRegex(ConverterError, "mistypes"):
-            run_crosscheck(self.hdf5_dir, directory, self.a_list_path)
+            run_crosscheck(self.hdf5_dir, directory, self.a_list_path, self.sim_info)
 
     def test_mixed_chunk_dtype_aborts(self):
         # a second chunk with a different structured dtype would promote the
@@ -352,7 +464,7 @@ class TestCrosscheck(unittest.TestCase):
                 "Galaxies", data=np.zeros(1, dtype=extended)
             )
         with self.assertRaisesRegex(ConverterError, "must share one structured dtype"):
-            run_crosscheck(self.hdf5_dir, directory, self.a_list_path)
+            run_crosscheck(self.hdf5_dir, directory, self.a_list_path, self.sim_info)
 
     # -- plumbing: write_reference_run_file ----------------------------------
 
@@ -432,6 +544,8 @@ class TestCrosscheck(unittest.TestCase):
                 str(self.reference_dir),
                 "--a-list",
                 str(self.a_list_path),
+                "--simulation-info",
+                str(self.sim_info),
             ]
         )
         self.assertEqual(rc, 0)
@@ -448,6 +562,8 @@ class TestCrosscheck(unittest.TestCase):
                 str(violated),
                 "--a-list",
                 str(self.a_list_path),
+                "--simulation-info",
+                str(self.sim_info),
                 "--report",
                 str(report_path),
             ]
@@ -505,7 +621,7 @@ class TestTopologyChains(unittest.TestCase):
         cls.workdir, cls.a_list_path, cls.sim_info, cls.hdf5_dir = make_written_workdir(root)
         cls.n_snapshots = 6
         _, cls.arrays = validate.load_dataset(cls.hdf5_dir, cls.n_snapshots)
-        pristine = build_mock_galaxies(cls.hdf5_dir, cls.n_snapshots)
+        pristine = build_mock_galaxies(cls.hdf5_dir, cls.n_snapshots, cls.sim_info)
         cls.reference_dir = Path(tempfile.mkdtemp(dir=cls.tmp.name)) / "reference"
         write_mock_reference(pristine, cls.reference_dir, n_snapshots=cls.n_snapshots)
         cls.ref_by_snap = crosscheck.load_reference_galaxies(
@@ -575,7 +691,9 @@ class TestTopologyChains(unittest.TestCase):
 
     def test_run_crosscheck_without_dump_omits_check(self):
         outcomes = outcome_map(
-            run_crosscheck(self.hdf5_dir, self.reference_dir, self.a_list_path, multiplier=M)
+            run_crosscheck(
+                self.hdf5_dir, self.reference_dir, self.a_list_path, self.sim_info, multiplier=M
+            )
         )
         self.assertNotIn("topology-chains", outcomes)
 
@@ -587,6 +705,7 @@ class TestTopologyChains(unittest.TestCase):
                 self.hdf5_dir,
                 self.reference_dir,
                 self.a_list_path,
+                self.sim_info,
                 multiplier=M,
                 topology_dump_path=dump_path,
             )

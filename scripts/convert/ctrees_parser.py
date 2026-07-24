@@ -4,7 +4,8 @@ Owns the frozen scratch-record dtype, both Consistent-Trees header dialects
 (indexed ``#scale(0) id(1) ...`` primary, ``#fields:`` secondary), ``#tree``
 block-marker tracking, chunked pandas reads, and the independent row pre-count.
 
-Reference semantics mirrored here (see docs/dev/MIMIC-CONVERTER-IMPLEMENTATION-PLAN.md):
+Reference semantics mirrored here (the converter implementation plan is archived
+under archive/dev-plans/; the reference sources cited below are authoritative):
 - column names are truncated at the first ``(`` and matched case-insensitively
   (src/io/tree/ctrees/parse_ctrees.h); ``snap_idx``/``snap_num`` are equivalent
   spellings of the snapshot column (src/io/tree/read_ctrees_ascii.c

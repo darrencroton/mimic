@@ -13,8 +13,9 @@ snapshot-HDF5 dataset, replicating the reference inheritance semantics
 - Type 0 for FoF centrals (self-referencing FirstHaloInFOFgroup), else Type 1;
 - UniqueCentralGalaxyID = the UniqueGalaxyID of the halo at
   FirstHaloInFOFgroup; MostBoundID keeps the halo's signed value;
-- values copied bit-for-bit from the converter arrays, with
-  ``Mvir = float64(M_Crit200) * 1e-10``.
+- values copied bit-for-bit from the converter arrays, with Mvir derived by
+  the reference get_virial_mass rule (FoF central with a valid catalog mass ->
+  ``float64(M_Crit200) * 1e-10``; every other halo -> ``Len * PartMass``).
 
 One Type 2 orphan row is appended at the final populated snapshot (a merged
 progenitor galaxy's UniqueGalaxyID with the MostBoundID of a halo that no
@@ -36,6 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import validate  # noqa: E402
+from fixups import load_particle_mass  # noqa: E402
 
 #: Reference Galaxies structured dtype: exactly the fields the cross-check
 #: consumes, plus an extra ``dT`` field to prove extras are tolerated.
@@ -58,23 +60,34 @@ GALAXY_DTYPE = np.dtype(
 )
 
 
-def _fill_from_halo(row, conv, h) -> None:
+def _fill_from_halo(row, conv, h, part_mass) -> None:
     """Copy the bit-for-bit value fields from converter halo ``h`` into a
-    Galaxies row (Mvir derived per the frozen arithmetic)."""
+    Galaxies row. Mvir follows the reference get_virial_mass rule: a FoF central
+    with a valid (non-negative) catalog mass takes ``float64(M_Crit200) *
+    1e-10``; every other halo takes ``Len * part_mass``."""
     row["Pos"] = conv["Pos"][h]
     row["Vel"] = conv["Vel"][h]
     row["Spin"] = conv["Spin"][h]
     row["VelDisp"] = conv["VelDisp"][h]
     row["Vmax"] = conv["Vmax"][h]
     row["Len"] = conv["Len"][h]
-    row["Mvir"] = np.float64(conv["M_Crit200"][h]) * 1e-10
+    halo_mass = np.float64(conv["M_Crit200"][h]) * 1e-10
+    is_central = int(conv["FirstHaloInFOFgroup"][h]) == h
+    row["Mvir"] = (
+        halo_mass if (is_central and halo_mass >= 0.0) else np.float64(conv["Len"][h]) * part_mass
+    )
     row["MostBoundID"] = conv["MostBoundID"][h]
 
 
-def build_mock_galaxies(hdf5_dir, n_snapshots, multiplier=10**9) -> Dict[int, np.ndarray]:
+def build_mock_galaxies(
+    hdf5_dir, n_snapshots, simulation_info_path, multiplier=10**9
+) -> Dict[int, np.ndarray]:
     """Build reference galaxies per snapshot from a converted dataset,
-    replicating the reference inheritance semantics."""
+    replicating the reference inheritance semantics. Particle mass comes from
+    simulation_info (the native 1e10 Msun/h value the reference model uses), so
+    satellite Mvir reconstructs bit-for-bit exactly as the cross-check does."""
     _, arrays = validate.load_dataset(Path(hdf5_dir), n_snapshots)
+    part_mass = load_particle_mass(simulation_info_path)
     galaxies_by_snap: Dict[int, np.ndarray] = {}
     ugid_by_snap: Dict[int, np.ndarray] = {}
     occupied_prev = None
@@ -126,7 +139,7 @@ def build_mock_galaxies(hdf5_dir, n_snapshots, multiplier=10**9) -> Dict[int, np
             row["Type"] = 0 if is_central[h] else 1
             row["UniqueGalaxyID"] = ugid[h]
             row["UniqueCentralGalaxyID"] = ugid[int(first_fof[h])]
-            _fill_from_halo(row, conv, h)
+            _fill_from_halo(row, conv, h, part_mass)
             rows.append(row)
         galaxies_by_snap[snap] = (
             np.array(rows, dtype=GALAXY_DTYPE) if rows else np.empty(0, dtype=GALAXY_DTYPE)

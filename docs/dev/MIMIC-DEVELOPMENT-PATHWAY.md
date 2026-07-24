@@ -19,8 +19,7 @@ The architectural direction is still governed by `docs/VISION.md`: Mimic is a ph
 | Document | Status | Role | Actionability |
 |---|---|---|---|
 | `MIMIC-DUAL-DRIVER-PLAN.md` | **Active — chosen post-v1.0 direction** | Snapshot-ordered reader and driver over the shared v1.0 core seams; owns the cross-format identity gate and the merged sequence | Ready to execute; reviewed against the tagged v1.0 baseline 2026-07-02 with all decisions resolved |
-| `SHIN-UCHUU-CONVERSION-PLAN.md` | **Active — first work item of the sequence** | External ctrees-ASCII → snapshot-HDF5 converter, validated on micro-Uchuu before any new Mimic code; Shin-Uchuu production conversion after the identity gate | Ready to execute; format contract frozen 2026-07-18 at `docs/SNAPSHOT-HDF5-FORMAT.md` — no remaining blockers |
-| `MIMIC-CONVERTER-IMPLEMENTATION-PLAN.md` | **Active — execution plan for the converter** | Sliced, review-gated implementation plan for the converter build + micro-Uchuu acceptance gate (10 slices; slice-level contracts, validation, and the corrected cross-check design) | Ready to execute; reviewed by Codex gpt-5.6-sol 2026-07-18, all findings incorporated |
+| `SHIN-UCHUU-CONVERSION-PLAN.md` | **Converter done — Shin-Uchuu production conversion pending** | External ctrees-ASCII → snapshot-HDF5 converter, validated on micro-Uchuu; Shin-Uchuu production conversion remains, after the dual-driver identity gate | Converter built and micro-Uchuu-validated 2026-07-24; format contract frozen 2026-07-18 at `docs/dev/SNAPSHOT-HDF5-FORMAT.md` |
 | `MIMIC-SNAPSHOT-GLOBAL-MODULES-PLAN.md` | Requirements brief | Module contracts over a co-resident snapshot population (true global SHAM, HOD, environment, synchronous reionization) — the single-node scientific payoff of the snapshot driver | Blocked on the dual-driver Phase 5 identity gate; prerequisite for the distributed plan below |
 | `MIMIC-DISTRIBUTED-SNAPSHOT-PLAN.md` | Requirements brief | MPI/domain decomposition for snapshot-global operations (former dual-driver Phase 7); pairs with the module-contracts brief above | Blocked on the snapshot driver and on at least one snapshot-global module contract existing |
 | `MIMIC-EMBEDDED-ENGINE-PLAN.md` | Requirements brief | Physics-only API for external hosts (former dual-driver Phase 6) | Not scheduled; independent of the snapshot pathway |
@@ -28,7 +27,7 @@ The architectural direction is still governed by `docs/VISION.md`: Mimic is a ph
 
 Mimic v1.0 is tagged and released from `main` as the first production baseline. The 2026-07-02 joint review of the dual-driver and Shin-Uchuu plans (findings, decisions D1–D12, and rationale) is archived at `archive/dev-plans/dual-driver-plan-review.md`; its decisions are baked into the two active plans, which are self-contained.
 
-`chunked-output-plan.md` is complete. It remains in `docs/dev/` as implementation history until archived; durable current instructions live in `docs/USER-GUIDE.md`, `docs/DEVELOPER-GUIDE.md`, the simulation/debug skills, and the code itself.
+Completed plans are archived out of `docs/dev/` to `archive/dev-plans/` (gitignored local history); durable current instructions live in `docs/USER-GUIDE.md`, `docs/DEVELOPER-GUIDE.md`, `docs/dev/SNAPSHOT-HDF5-FORMAT.md`, the package READMEs, the skills, and the code itself. Already archived this way: `chunked-output-plan.md` (chunked HDF5 output) and `MIMIC-CONVERTER-IMPLEMENTATION-PLAN.md` (the ctrees→snapshot converter build, complete 2026-07-24 — the converter now lives under `scripts/convert/`).
 
 Archived predecessor plans, validation records, and closeout handoffs are historical evidence, not active planning inputs.
 
@@ -38,9 +37,9 @@ Archived predecessor plans, validation records, and closeout handoffs are histor
 
 The snapshot pathway is the chosen direction (it is both the scientific priority and the only way Mimic can process Shin-Uchuu, whose percolation super-forest defeats forest-ordered loading). One sequence, each step gating the next:
 
-1. **Freeze the snapshot-HDF5 format contract** as a durable `docs/` spec, from the schema drafted in `SHIN-UCHUU-CONVERSION-PLAN.md`. — **Done 2026-07-18:** frozen at [`docs/SNAPSHOT-HDF5-FORMAT.md`](../SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`).
-2. **Build the converter and validate it on micro-Uchuu ASCII** (`SHIN-UCHUU-CONVERSION-PLAN.md`) — topology cross-check against the existing tree-ordered reader; no new Mimic code.
-3. **Snapshot reader** (dual-driver Phase 4b) against the micro-Uchuu fixtures.
+1. **Freeze the snapshot-HDF5 format contract** as a durable `docs/` spec, from the schema drafted in `SHIN-UCHUU-CONVERSION-PLAN.md`. — **Done 2026-07-18:** frozen at [`docs/dev/SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`).
+2. **Build the converter and validate it on micro-Uchuu ASCII** (`SHIN-UCHUU-CONVERSION-PLAN.md`) — topology cross-check against the existing tree-ordered reader. — **Done 2026-07-24:** converter built under [`scripts/convert/`](../../scripts/convert/) and validated end to end on the real micro-Uchuu ASCII data (22,580,924 halos, 50 snapshots, 440,651 forests); producer validation battery passes all invariants, and the cross-check against a `halos-only` reference run passes all seven checks with zero unexplained mismatches. The topology-order gate is **fully discharged**: the optional Slice 10 read-only reference-topology dump harness (`tests/unit/tools/dump_ctrees_topology.c`, the plan's one deliberate exception to "no new Mimic code") let `crosscheck.py --reference-topology` compare `FirstProgenitor`/`NextProgenitor`/`NextHaloInFOFgroup` chain order directly against the tree-ordered reader by stable id.
+3. **Snapshot reader** (dual-driver Phase 4b) against the micro-Uchuu fixtures. — **← NEXT.** Steps 1–2 are done; the converter's validated micro-Uchuu HDF5 output is the reader-development fixture. Owned by `MIMIC-DUAL-DRIVER-PLAN.md`.
 4. **Snapshot driver + cross-format identity gate** (dual-driver Phase 5) on micro-Uchuu.
 5. **Shin-Uchuu production conversion** (one-time, 5.6 TB) and the `simulations/shin-uchuu/` package; sage16 end to end with HMF/GSMF sanity checks.
 

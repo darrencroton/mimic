@@ -114,7 +114,7 @@ Violating any invariant makes a file invalid. Producers and consumers **abort on
 
 Cross-format identity — a snapshot-ordered run reproducing a tree-ordered run's galaxies exactly — depends on orderings the driver cannot derive at runtime. They are producer-owned facts carried by the format:
 
-1. **Progenitor chain order.** For each descendant, `FirstProgenitor` is the most massive progenitor (reference tie-break: first encountered in reference order wins), and the `NextProgenitor` chain lists the remaining progenitors in reference encounter order. Main-progenitor selection tie-breaks by chain position, and chain order fixes workspace layout and merger processing order.
+1. **Progenitor chain order.** For each descendant, `FirstProgenitor` is the most massive progenitor (reference tie-break: first encountered in reference order wins). The `NextProgenitor` chain is built by the reference reader's literal incremental-insertion loop (`ctrees_utils.c` `assign_mergertree_indices`): progenitors are visited in reference encounter order, and each one either replaces the current chain head when its Mvir is *strictly* greater (demoting the old head to second place) or is appended at the tail. When a mid-chain head replacement occurs (three or more progenitors), the resulting order is therefore *not* the remaining progenitors in plain encounter order — it is exactly what that loop produces. Chain order fixes workspace layout and merger processing order, so a conforming producer must replicate the loop, not a paraphrase of it.
 2. **FoF chain order.** `FirstHaloInFOFgroup`/`NextHaloInFOFgroup` chains replicate the reference FoF member ordering, which fixes subhalo slice order and central selection.
 3. **Forest enumeration.** Dense `ForestIndex` assignment replicates the reference run-scoped forest enumeration order (for Consistent-Trees sources: ascending forest id).
 4. **Within-forest rank.** `HaloRankInForest` is the halo's index in reference tree-driver traversal order of its forest, computed after all host/flyby fix-ups.
@@ -166,9 +166,9 @@ Converters live outside Mimic's run path (converter tooling is maintained under 
 
 ## Documentation Directory
 
-- [README.md](../README.md): project overview and shortest path to a first result
-- [VISION.md](VISION.md): architectural principles and design boundaries
-- [USER-GUIDE.md](USER-GUIDE.md): installation, run configuration, output analysis, plotting, and troubleshooting
-- [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md): extending models, modules, simulations, properties, tests, and generated metadata
-- [STYLE-GUIDE.md](STYLE-GUIDE.md): naming, comments, documentation, metadata, tests, and review conventions
+- [README.md](../../README.md): project overview and shortest path to a first result
+- [VISION.md](../VISION.md): architectural principles and design boundaries
+- [USER-GUIDE.md](../USER-GUIDE.md): installation, run configuration, output analysis, plotting, and troubleshooting
+- [DEVELOPER-GUIDE.md](../DEVELOPER-GUIDE.md): extending models, modules, simulations, properties, tests, and generated metadata
+- [STYLE-GUIDE.md](../STYLE-GUIDE.md): naming, comments, documentation, metadata, tests, and review conventions
 - `simulations/<simulation>/README.md`: simulation-package data, units, snapshot lists, and maintenance notes

@@ -33,9 +33,12 @@ widened tolerance):
   2. identity-creation  first-appearance galaxies decode to (ForestIndex, rank)
   3. fof-central        the ``UniqueCentralGalaxyID`` galaxy's |MostBoundID|
                         equals the converter FirstHaloInFOFgroup target's id
-  4. flyby-signs        negative-MostBoundID sets match exactly both directions
+  4. flyby-signs        over matched Type 0/1 halos, the negative-MostBoundID
+                        sets match both directions
   5. values             Pos/Vel/Spin/VelDisp/Vmax bit-exact, Len exact, Mvir
-                        equal to ``float64(M_Crit200) * 1e-10`` bit-for-bit
+                        reconstructed via the reference get_virial_mass rule
+                        (central+valid catalog mass -> float64(M_Crit200)*1e-10,
+                        else Len*PartMass) and compared bit-for-bit
   6. occupancy          the matched-halo set equals the reference occupancy
                         predicate computed on the converter links by forward
                         induction, with zero unmatched reference galaxies
@@ -76,6 +79,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import ConverterError  # noqa: E402
+from fixups import load_particle_mass  # noqa: E402
 from hdf5_writer import snapshot_h5_name  # noqa: E402
 from scatter import load_a_list  # noqa: E402
 from validate import DEFAULT_MULTIPLIER, Outcome, load_dataset  # noqa: E402
@@ -444,12 +448,22 @@ def check_fof_central(matches) -> List[str]:
 
 
 def check_flyby_signs(matches) -> List[str]:
-    """The set of negative MostBoundID values over reference Type 0/1 galaxies
-    must equal the set over ALL converter halos in that file (both ways)."""
+    """Over the matched Type 0/1 population, the set of negative MostBoundID
+    values from the reference galaxies must equal the set from their matched
+    converter halos (both ways). Only matched halos are compared: a correctly
+    flyby-demoted halo that seeds no galaxy — a would-be FoF central demoted to
+    a satellite whose lineage was never occupied, so the reference model never
+    creates a galaxy for it — has no reference counterpart to compare against.
+    Such a halo's flyby sign is instead re-covered by the topology-chains check
+    (which resolves signed link targets against the reference dump) when a
+    reference-topology dump is supplied; without that dump an unmatched halo's
+    sign is not independently re-verified here (occupancy matches on
+    ``|MostBoundID|`` and does not inspect sign)."""
     failures = []
     for match in matches:
-        ref_neg = {int(v) for v in match.ref["MostBoundID"][match.t01_idx] if v < 0}
-        conv_neg = {int(v) for v in match.conv["MostBoundID"] if v < 0}
+        gal_idx, conv_idx = _matched_pairs(match)
+        ref_neg = {int(v) for v in match.ref["MostBoundID"][gal_idx] if v < 0}
+        conv_neg = {int(v) for v in match.conv["MostBoundID"][conv_idx] if v < 0}
         only_ref = ref_neg - conv_neg
         only_conv = conv_neg - ref_neg
         if only_ref or only_conv:
@@ -492,10 +506,17 @@ def _u64(values) -> np.ndarray:
     return arr.view(np.uint64)
 
 
-def check_values(matches) -> List[str]:
+def check_values(matches, part_mass) -> List[str]:
     """Bit-exact value comparison over matched pairs (frozen rules): float32
     fields via uint32 views (NaN payloads and signed zeros count), Len exact,
-    Mvir equal to ``float64(M_Crit200) * 1e-10`` bit-for-bit."""
+    and Mvir reconstructed via the reference get_virial_mass rule (a FoF central
+    with a valid catalog mass -> ``float64(M_Crit200) * 1e-10``; every other
+    halo -> ``Len * part_mass``) compared bit-for-bit."""
+    if not part_mass > 0.0:
+        raise ConverterError(
+            "particle mass must be positive to reconstruct satellite Mvir "
+            "(Len * PartMass); got {}".format(part_mass)
+        )
     failures = []
     for match in matches:
         gal_idx, conv_idx = _matched_pairs(match)
@@ -519,9 +540,14 @@ def check_values(matches) -> List[str]:
         report(
             "Len", ref_sub["Len"].astype(np.int64) != match.conv["Len"][conv_idx].astype(np.int64)
         )
-        # the documented reference arithmetic: float32 M_Crit200 widened to
-        # float64, scaled by 1e-10 in float64; the operand dtype is asserted
-        # before the deliberate widening
+        # Reference galaxy Mvir is model-derived, not a raw catalog copy
+        # (src/core/virial.c get_virial_mass): a FoF central with a valid
+        # (non-negative) spherical-overdensity mass takes M_Crit200 widened to
+        # float64 and scaled by 1e-10 in float64; every other halo — satellites,
+        # and any central without a valid catalog mass — takes Len * PartMass.
+        # The converter carries the raw catalog M_Crit200, so the expected
+        # galaxy Mvir is reconstructed here. The operand dtype is asserted
+        # before the deliberate widening.
         m200 = np.ascontiguousarray(match.conv["M_Crit200"][conv_idx])
         if m200.dtype != np.float32:
             raise ConverterError(
@@ -529,7 +555,10 @@ def check_values(matches) -> List[str]:
                     m200.dtype
                 )
             )
-        expected = m200.astype(np.float64) * 1e-10
+        halo_mass = m200.astype(np.float64) * 1e-10
+        len_mass = match.conv["Len"][conv_idx].astype(np.float64) * part_mass
+        is_central = match.conv["FirstHaloInFOFgroup"][conv_idx] == conv_idx
+        expected = np.where(is_central & (halo_mass >= 0.0), halo_mass, len_mass)
         report("Mvir", _u64(ref_sub["Mvir"]) != _u64(expected))
     return failures
 
@@ -754,6 +783,7 @@ def run_crosscheck(
     converted_dir,
     reference_dir,
     a_list_path,
+    simulation_info_path,
     base: str = "halos",
     multiplier: int = DEFAULT_MULTIPLIER,
     topology_dump_path=None,
@@ -766,7 +796,22 @@ def run_crosscheck(
         raise ConverterError("{}: not a directory".format(converted_dir))
     a_list, _ = load_a_list(a_list_path)
     n_snapshots = len(a_list)
-    _, arrays = load_dataset(converted_dir, n_snapshots)
+    headers, arrays = load_dataset(converted_dir, n_snapshots)
+    # Particle mass (1e10 Msun/h) needed to reconstruct satellite Mvir
+    # (Len * PartMass). Read it from simulation_info — the same native value the
+    # reference model uses (MimicConfig.PartMass) and the converter's own Len
+    # derivation — so the reconstruction is bit-for-bit for any particle mass,
+    # not only header round-trip-safe ones. Guard that the simulation_info
+    # matches the emitted dataset: the header stores
+    # particle_mass_msun_h = value * 1e10, so require agreement across all files.
+    part_mass = load_particle_mass(simulation_info_path)
+    expected_header_mass = part_mass * 1e10
+    header_masses = {float(np.asarray(header["particle_mass_msun_h"])) for header in headers}
+    if header_masses != {expected_header_mass}:
+        raise ConverterError(
+            "simulation_info particle mass ({} -> {} Msun/h) does not match the dataset header "
+            "particle_mass_msun_h {}".format(part_mass, expected_header_mass, sorted(header_masses))
+        )
     ref_by_snap = load_reference_galaxies(reference_dir, base, n_snapshots)
     matches = build_matches(arrays, ref_by_snap, n_snapshots)
 
@@ -781,7 +826,7 @@ def run_crosscheck(
         outcome("identity-creation", check_identity_creation(matches, multiplier)),
         outcome("fof-central", check_fof_central(matches)),
         outcome("flyby-signs", check_flyby_signs(matches)),
-        outcome("values", check_values(matches)),
+        outcome("values", check_values(matches, part_mass)),
         outcome("occupancy", check_occupancy(matches, arrays)),
     ]
     if topology_dump_path is not None:
@@ -843,6 +888,7 @@ def _cmd_compare(args) -> int:
         args.converted_dir,
         args.reference_dir,
         args.a_list,
+        args.simulation_info,
         base=args.reference_base,
         multiplier=args.multiplier,
         topology_dump_path=args.reference_topology,
@@ -891,6 +937,12 @@ def main(argv=None) -> int:
     compare.add_argument("converted_dir", help="converter output directory of snapshot_NNN.h5")
     compare.add_argument("reference_dir", help="reference-run galaxy output directory")
     compare.add_argument("--a-list", required=True, help="canonical a_list (one scale per line)")
+    compare.add_argument(
+        "--simulation-info",
+        required=True,
+        help="simulation_info.yaml providing the native particle mass (1e10 Msun/h) used to "
+        "reconstruct satellite Mvir; must match the dataset the reference run consumed",
+    )
     compare.add_argument(
         "--reference-base", default="halos", help="reference chunk file base (default halos)"
     )

@@ -106,7 +106,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     write = sub.add_parser(
         "write",
-        help="emit snapshot_NNN.h5 + forests.h5 per docs/SNAPSHOT-HDF5-FORMAT.md "
+        help="emit snapshot_NNN.h5 + forests.h5 per docs/dev/SNAPSHOT-HDF5-FORMAT.md "
         "(one file per a_list snapshot, including empty ones)",
     )
     _add_workdir(write)

@@ -1,6 +1,6 @@
 # Shin-Uchuu ctrees ASCII → Snapshot HDF5 Conversion Plan
 
-**Status:** Active — all previously open design decisions resolved (joint plan review 2026-07-02, decisions D1–D12; review record archived at `archive/dev-plans/dual-driver-plan-review.md`). Earlier revision reviewed twice by Codex gpt-5.5 (2026-06-27).
+**Status:** Converter built and micro-Uchuu-validated 2026-07-24 — the external converter described here exists under `scripts/convert/` and passed its micro-Uchuu acceptance gate (full pipeline over the real 22,580,924-halo / 50-snapshot ASCII data; producer validation battery + a seven-check cross-check against a `halos-only` reference run, topology-order proof fully discharged, zero unexplained mismatches). Remaining: the one-time Shin-Uchuu production conversion, after the dual-driver Phase 5 identity gate. All previously open design decisions resolved (joint plan review 2026-07-02, decisions D1–D12; review record archived at `archive/dev-plans/dual-driver-plan-review.md`). Earlier revision reviewed twice by Codex gpt-5.5 (2026-06-27).
 **Date:** 2026-07-02
 **Context:** This plan is one sequence with `MIMIC-DUAL-DRIVER-PLAN.md`. The converter is **not** blocked on the snapshot driver: it is blocked only on the frozen format contract, and it is built and validated first, against micro-Uchuu ASCII, using the existing tree-ordered `read_ctrees_ascii.c` reader as the reference — zero new Mimic code required. The full 5.6 TB Shin-Uchuu conversion runs exactly once, after the dual-driver Phase 5 identity gate is green. Mimic itself performs no internal conversion.
 
@@ -38,7 +38,7 @@ Both problems are structural consequences of forest-ordered processing and both 
 
 ## Target Format: Snapshot-Ordered HDF5
 
-One HDF5 file per snapshot, named `snapshot_000.h5` through `snapshot_069.h5` (per-snapshot files are decided, not open: partial recovery, per-snapshot parallelism, and the driver's access pattern all favour them). All topology links are snapshot-local integer indices (no global IDs). Scalar metadata lives in HDF5 **attributes** on the `/header` group. **Field names and types on disk must match what `simulations/shin-uchuu/halo_properties.yaml` declares**, so the generated `RawHalo`/accessors consume the file directly; the names below already match the existing `micro-uchuu-ascii` bridge contract (`M_Crit200`→`HaloMass`, `Len`, `SnapNum`, `MostBoundID`, spin conventions). The contract is **frozen** at [`docs/SNAPSHOT-HDF5-FORMAT.md`](../SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`, 2026-07-18), which is now authoritative; this section remains as the working draft it was promoted from — if they ever disagree, the spec wins.
+One HDF5 file per snapshot, named `snapshot_000.h5` through `snapshot_069.h5` (per-snapshot files are decided, not open: partial recovery, per-snapshot parallelism, and the driver's access pattern all favour them). All topology links are snapshot-local integer indices (no global IDs). Scalar metadata lives in HDF5 **attributes** on the `/header` group. **Field names and types on disk must match what `simulations/shin-uchuu/halo_properties.yaml` declares**, so the generated `RawHalo`/accessors consume the file directly; the names below already match the existing `micro-uchuu-ascii` bridge contract (`M_Crit200`→`HaloMass`, `Len`, `SnapNum`, `MostBoundID`, spin conventions). The contract is **frozen** at [`docs/dev/SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`, 2026-07-18), which is now authoritative; this section remains as the working draft it was promoted from — if they ever disagree, the spec wins.
 
 ```
 snapshot_NNN.h5
@@ -166,7 +166,7 @@ Stream-read all 2,747 ctrees ASCII files using a bounded worker pool. `locations
 | `vmax` | float32 | 4 | Vmax |
 | `tree_root_id` | int64 | 8 | provenance (from `#tree` marker) |
 | `forest_id` | int64 | 8 | provenance (Phase 0 join) |
-| **Total** | | **108 bytes packed** (erratum 2026-07-18: earlier "~116" total was arithmetic drift; the frozen dtype in `MIMIC-CONVERTER-IMPLEMENTATION-PLAN.md` is authoritative) | |
+| **Total** | | **108 bytes packed** (erratum 2026-07-18: earlier "~116" total was arithmetic drift; the frozen dtype now lives in the converter code, `scripts/convert/ctrees_parser.py` `RECORD_DTYPE`, which is authoritative) | |
 
 **Worker isolation**: bounded process pool (8–16 workers), each writing per-snapshot scratch files (`scratch/snap_NNN.worker_K.bin`). After all workers finish, concatenate per-snapshot worker files into `scratch/snap_NNN.bin` — a sequential read+write of ~1.9–2.2 TB, ~20–40 minutes at 5 GB/s. The simpler worker-files + concat approach is chosen over the memory-mapped SOA alternative: concat costs ~30 minutes of sequential I/O and has near-zero failure surface, and time is not the binding constraint.
 
@@ -289,6 +289,19 @@ For each snap_N+1 halo D (by local index):
         encounter order to tail — NOT fully mass-sorted (reference at
         ctrees_utils.c:667-705)
         build NextProgenitor chain within snap_N (same-file indices)
+    ERRATUM (2026-07-24): "promote max-Mvir to front, append remainder in
+    encounter order" is an imprecise paraphrase. The reference builds the chain
+    by a LITERAL incremental insertion loop (ctrees_utils.c:667-706): each
+    progenitor, in reference encounter order, either replaces the current head
+    when its Mvir is STRICTLY greater (demoting the old head to second place) or
+    is appended at the tail. When a mid-chain head replacement occurs (3+
+    progenitors), the resulting NextProgenitor order is NOT the remaining
+    progenitors in encounter order. The converter (links.py) and the reference
+    reader both implement the literal loop; the cross-check's topology-chains
+    proof confirms the order matches exactly. The frozen spec's Ordering
+    Contract item 1 (docs/dev/SNAPSHOT-HDF5-FORMAT.md) has been corrected to describe
+    this loop precisely; the same paraphrase also appeared in the converter
+    implementation plan, now archived under archive/dev-plans/.
 IDENTITY TRAP — "encounter order" is NOT slab order. Slabs are id-sorted
 (Phase 2), but the reference encounters halos in its forest sort order,
 which within one snapshot reduces to (upid, pid, ascending id) — the same

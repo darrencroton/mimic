@@ -1,7 +1,7 @@
 """Snapshot-HDF5 emission for the ctrees -> snapshot-HDF5 converter (plan Slice 7).
 
 Emits ``snapshot_NNN.h5`` files and the ``forests.h5`` sidecar exactly per the
-frozen contract in docs/SNAPSHOT-HDF5-FORMAT.md (format_version = 1). The
+frozen contract in docs/dev/SNAPSHOT-HDF5-FORMAT.md (format_version = 1). The
 contract is consumed, never modified — any mismatch discovered here is a
 converter bug or a spec erratum to raise to the user.
 
@@ -50,7 +50,7 @@ from scatter import Manifest, file_md5, load_a_list  # noqa: E402
 #: format_version this writer implements (the frozen contract's ratchet).
 FORMAT_VERSION = 1
 
-#: Contract chunk shapes (docs/SNAPSHOT-HDF5-FORMAT.md Storage Layout).
+#: Contract chunk shapes (docs/dev/SNAPSHOT-HDF5-FORMAT.md Storage Layout).
 CHUNK_1D = (65536,)
 CHUNK_VEC = (65536, 3)
 
@@ -58,7 +58,7 @@ CHUNK_VEC = (65536, 3)
 #: box_size_mpc_h is Mpc/h comoving; any other units would corrupt it).
 BOX_SIZE_UNITS = "Mpc/h"
 
-#: Header attributes: name -> numpy dtype (docs/SNAPSHOT-HDF5-FORMAT.md
+#: Header attributes: name -> numpy dtype (docs/dev/SNAPSHOT-HDF5-FORMAT.md
 #: Header Attributes table; names and types are normative).
 HEADER_ATTRS = {
     "format_version": np.int32,
@@ -75,7 +75,7 @@ HEADER_ATTRS = {
     "hubble_h": np.float64,
 }
 
-#: /halos datasets: name -> (dtype, is_vec3) (docs/SNAPSHOT-HDF5-FORMAT.md
+#: /halos datasets: name -> (dtype, is_vec3) (docs/dev/SNAPSHOT-HDF5-FORMAT.md
 #: Halo Datasets table; names and types are normative).
 HALO_DATASETS = {
     "Descendant": (np.int32, False),

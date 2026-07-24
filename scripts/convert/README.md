@@ -1,8 +1,8 @@
 # ctrees ASCII → Snapshot-HDF5 Converter
 
-External converter that transforms Consistent-Trees ASCII output (forest-ordered) into Mimic's snapshot-ordered HDF5 input format. The on-disk output contract is frozen in `docs/SNAPSHOT-HDF5-FORMAT.md` (`format_version = 1`); the algorithm and its implementation slices are specified by `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md` and `docs/dev/MIMIC-CONVERTER-IMPLEMENTATION-PLAN.md`. The converter is a standalone tool: it never touches Mimic source, packages, or run files, and it never deletes source data — cleanup is restricted to manifest-owned intermediates it created under the workdir.
+External converter that transforms Consistent-Trees ASCII output (forest-ordered) into Mimic's snapshot-ordered HDF5 input format. The on-disk output contract is frozen in `docs/dev/SNAPSHOT-HDF5-FORMAT.md` (`format_version = 1`); the algorithm is specified by `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md`. The sliced implementation plan that built this tool is complete and archived under `archive/dev-plans/` (search there for the converter implementation plan if the slice-level history is needed). The converter is a standalone tool: it never touches Mimic source, packages, or run files, and it never deletes source data — cleanup is restricted to manifest-owned intermediates it created under the workdir.
 
-**Status:** phases 0–4 implemented (scatter, sort/index, fixups, links, HDF5 emission + producer validation battery + conversion report) plus the cross-check instrument, synthetic-fixture validated, including the optional `topology-chains` check against an independent reference-topology dump (see below). The real micro-Uchuu end-to-end gate run has not happened yet.
+**Status:** complete and validated on the real micro-Uchuu ASCII data. Phases 0–4 (scatter, sort/index, fixups, links, HDF5 emission + producer validation battery + conversion report) plus the cross-check instrument, including the optional `topology-chains` check against an independent reference-topology dump (see below). The full pipeline ran end to end on the real micro-Uchuu ASCII tree (22,580,924 halos across 50 snapshots, 440,651 forests); the producer validation battery passes all invariants, and the cross-check against a Mimic `halos-only` reference run passes all seven checks — identity, FoF central, flyby signs, values, occupancy, and direct chain-order (`topology-chains`) — with zero unexplained mismatches. The topology-order gate is therefore fully discharged.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ mimic_venv/bin/python scripts/convert/convert_ctrees.py fixups \
 mimic_venv/bin/python scripts/convert/convert_ctrees.py links \
     --workdir output/convert/micro-uchuu
 
-# Phase 4: emit snapshot_NNN.h5 + forests.h5 per docs/SNAPSHOT-HDF5-FORMAT.md
+# Phase 4: emit snapshot_NNN.h5 + forests.h5 per docs/dev/SNAPSHOT-HDF5-FORMAT.md
 # (one file per a_list snapshot, including empty ones; default <workdir>/hdf5)
 mimic_venv/bin/python scripts/convert/convert_ctrees.py write \
     --workdir output/convert/micro-uchuu \
@@ -69,6 +69,7 @@ mimic_venv/bin/python scripts/convert/crosscheck.py run-reference \
 mimic_venv/bin/python scripts/convert/crosscheck.py compare \
     output/convert/micro-uchuu/hdf5 output/convert/micro-uchuu/reference-output \
     --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
+    --simulation-info simulations/micro-uchuu-ascii/simulation_info.yaml \
     --reference-topology output/convert/micro-uchuu/topology.dump  # optional, see below
 ```
 
@@ -89,7 +90,7 @@ Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths,
                            recommended identity multiplier)
   hdf5/
     snapshot_NNN.h5        emitted dataset, one file per a_list snapshot (empty
-                           snapshots included), per docs/SNAPSHOT-HDF5-FORMAT.md
+                           snapshots included), per docs/dev/SNAPSHOT-HDF5-FORMAT.md
     forests.h5             /ForestID sidecar (dense ForestIndex -> ctrees forest id)
   scratch/
     snap_NNN.bin           concatenated per-snapshot records (deleted after sort verifies)

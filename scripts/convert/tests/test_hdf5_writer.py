@@ -1,5 +1,5 @@
 """Slice 7 unit tests: snapshot-HDF5 emission against the frozen contract
-(docs/SNAPSHOT-HDF5-FORMAT.md), the forests.h5 sidecar, writer resume/refuse
+(docs/dev/SNAPSHOT-HDF5-FORMAT.md), the forests.h5 sidecar, writer resume/refuse
 semantics, and the conversion report."""
 
 import os
