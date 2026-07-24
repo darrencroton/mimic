@@ -26,6 +26,8 @@ SKIP_DIRS = {
     ".git",
     ".github",
     ".claude",
+    ".orchestrator",
+    ".ai-orchestrator",
     "archive",
     "build",
     "mimic_venv",
