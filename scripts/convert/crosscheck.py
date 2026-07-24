@@ -1,4 +1,4 @@
-"""Consumer cross-check for the ctrees -> snapshot-HDF5 converter (plan Slice 8).
+"""Consumer cross-check for the ctrees -> snapshot-HDF5 converter.
 
 Cross-checks a converted snapshot-HDF5 dataset (a directory of
 ``snapshot_NNN.h5`` files produced by the converter) against a Mimic
@@ -48,10 +48,16 @@ aborts (ConverterError) — matching cannot be trusted otherwise.
 Also provides reference-run plumbing (``write_reference_run_file`` /
 ``run_reference``) and a CLI (``compare`` / ``prepare`` / ``run-reference``).
 
-The plan's optional ``--reference-topology`` mode (Slice 10, direct
-FirstProgenitor/NextProgenitor/NextHaloInFOFgroup chain-order comparison by
-stable id) is NOT implemented here: Slice 10 has not been approved/landed, so
-this module is the partial six-check gate the plan describes for Slice 8.
+An optional seventh check, ``topology-chains``, runs when ``compare`` is given
+``--reference-topology <dump>``: it compares FirstProgenitor/NextProgenitor/
+FirstHaloInFOFgroup/NextHaloInFOFgroup/Descendant directly against a
+reference dump produced by an independent implementation reading the same
+source data (see tests/unit/tools/dump_ctrees_topology.c and
+load_reference_topology_dump below for the dump format). The six checks above
+establish identity, rank, and central resolution; this seventh check is the
+direct proof that chain ORDER — not just membership — matches. Without
+``--reference-topology`` the six-check gate still runs on its own; chain
+order is then unproven, not merely unreported.
 """
 
 import argparse
@@ -358,8 +364,8 @@ def check_identity_creation(matches, multiplier) -> List[str]:
     appears here must decode to its matched halo's (ForestIndex, rank).
 
     ``seen`` is a sorted int64 array (not a Python set): the check runs over
-    every galaxy of the real micro-Uchuu output at the Slice 9 gate, where
-    per-galaxy Python loops and a tens-of-millions-entry set are prohibitive.
+    every galaxy of the real micro-Uchuu output, where per-galaxy Python loops
+    and a tens-of-millions-entry set are prohibitive.
     A galaxy that is unmatched is skipped here — that is an occupancy failure,
     not an identity failure.
     """
@@ -392,7 +398,7 @@ def check_fof_central(matches) -> List[str]:
     must exist and share |MostBoundID| with the converter FoF-central target.
 
     The Type 0 UniqueGalaxyID -> |MostBoundID| lookup is a sorted-array
-    searchsorted rather than a Python dict (Slice 9 scale; see
+    searchsorted rather than a Python dict (real micro-Uchuu scale; see
     check_identity_creation). Duplicate Type 0 UniqueGalaxyIDs are a
     reference-sanity failure and resolve here to their first occurrence.
     """
@@ -578,6 +584,168 @@ def check_occupancy(matches, arrays) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# Optional seventh check: direct chain-order comparison against an
+# independent reference-topology dump
+# ---------------------------------------------------------------------------
+
+#: Dump row layout, in column order (tests/unit/tools/dump_ctrees_topology.c):
+#: forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id next_fof_id.
+#: All fields are int64 in the dump; ``_INT64_MIN`` marks "no link".
+_TOPOLOGY_DUMP_DTYPE = np.dtype(
+    [
+        ("ForestIndex", np.int64),
+        ("HaloRankInForest", np.int64),
+        ("MostBoundID", np.int64),
+        ("SnapNum", np.int64),
+        ("Descendant", np.int64),
+        ("FirstProgenitor", np.int64),
+        ("NextProgenitor", np.int64),
+        ("FirstHaloInFOFgroup", np.int64),
+        ("NextHaloInFOFgroup", np.int64),
+    ]
+)
+
+_TOPOLOGY_DUMP_HEADER = "# mimic-topology-dump v1"
+
+
+def load_reference_topology_dump(path) -> np.ndarray:
+    """Load a reference-topology dump: a fixed three-line header (format
+    marker, column names, NA-sentinel value) followed by one whitespace-
+    separated row per halo, in the column order of ``_TOPOLOGY_DUMP_DTYPE``.
+    Raises ConverterError if the header does not match — this loader and the
+    harness that writes the dump must agree on the format exactly, and a
+    silent field-order drift between them would defeat every comparison
+    below without ever failing loudly."""
+    path = Path(path)
+    lines = path.read_text().splitlines()
+    if len(lines) < 3 or lines[0] != _TOPOLOGY_DUMP_HEADER:
+        raise ConverterError(
+            "{}: not a recognised reference-topology dump (expected first line {!r})".format(
+                path, _TOPOLOGY_DUMP_HEADER
+            )
+        )
+    expected_sentinel = "# NA sentinel = {} (no link)".format(_INT64_MIN)
+    if lines[2] != expected_sentinel:
+        raise ConverterError(
+            "{}: NA sentinel line {!r} != expected {!r}".format(path, lines[2], expected_sentinel)
+        )
+    rows = lines[3:]
+    if not rows:
+        return np.zeros(0, dtype=_TOPOLOGY_DUMP_DTYPE)
+    try:
+        parsed = [tuple(int(field) for field in row.split()) for row in rows]
+    except ValueError as exc:
+        raise ConverterError("{}: non-integer field in a data row ({})".format(path, exc))
+    if any(len(row) != len(_TOPOLOGY_DUMP_DTYPE) for row in parsed):
+        raise ConverterError(
+            "{}: data row has the wrong column count (expected {})".format(
+                path, len(_TOPOLOGY_DUMP_DTYPE)
+            )
+        )
+    return np.array(parsed, dtype=_TOPOLOGY_DUMP_DTYPE)
+
+
+def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
+    """Compare the reference dump's literal link fields, by stable ctrees id,
+    against the converter's own Descendant/FirstProgenitor/NextProgenitor/
+    FirstHaloInFOFgroup/NextHaloInFOFgroup for every halo the dump names.
+
+    The six checks above establish that the right galaxies exist at the right
+    rank; this check is the direct proof that link ORDER matches, by
+    resolving each converter link (a same-file or adjacent-file index) to an
+    id and comparing it against the reference's own recorded id for the same
+    link. Matching per snapshot reuses each ``matches[i].conv``'s
+    ascending-unique ``|MostBoundID|`` order, already re-asserted by
+    ``build_matches`` before this check ever runs.
+    """
+    failures = []
+    n_snapshots = len(arrays)
+    abs_by_snap = [np.abs(match.conv["MostBoundID"]) for match in matches]
+    mostbound_by_snap = [match.conv["MostBoundID"] for match in matches]
+
+    def resolve(snap, local_index):
+        """Converter local index (>=0) -> its MostBoundID, else None."""
+        if local_index < 0:
+            return None
+        return int(mostbound_by_snap[snap][local_index])
+
+    def lookup(snap, raw_id):
+        """Dump-recorded id (or the NA sentinel) -> converter row index in
+        that snapshot's arrays, else None (NA, or no such id present)."""
+        if raw_id == _INT64_MIN:
+            return None
+        target = abs(raw_id)
+        arr = abs_by_snap[snap]
+        pos = np.searchsorted(arr, target)
+        if pos < arr.size and arr[pos] == target:
+            return pos
+        return None
+
+    by_snap: Dict[int, List[np.void]] = {}
+    for row in dump:
+        by_snap.setdefault(int(row["SnapNum"]), []).append(row)
+
+    for snap in sorted(by_snap):
+        if snap < 0 or snap >= n_snapshots:
+            failures.append(
+                "reference dump has {} halo(s) at snapshot {}, outside the dataset's [0, {})".format(
+                    len(by_snap[snap]), snap, n_snapshots
+                )
+            )
+            continue
+        for row in by_snap[snap]:
+            dump_id = int(row["MostBoundID"])
+            conv_idx = lookup(snap, dump_id)
+            if conv_idx is None:
+                failures.append(
+                    "snapshot {}: reference halo with ctrees id {} has no matching converter "
+                    "halo".format(snap, dump_id)
+                )
+                continue
+
+            for field, target_snap in (
+                ("Descendant", snap + 1),
+                ("FirstProgenitor", snap - 1),
+                ("NextProgenitor", snap),
+                ("FirstHaloInFOFgroup", snap),
+                ("NextHaloInFOFgroup", snap),
+            ):
+                raw_expected = int(row[field])
+                expected = None if raw_expected == _INT64_MIN else raw_expected
+                conv_target = int(arrays[snap][field][conv_idx])
+                if conv_target < 0:
+                    conv_id = None
+                elif target_snap < 0 or target_snap >= n_snapshots:
+                    failures.append(
+                        "snapshot {}: converter halo id {} has {} pointing to snapshot {}, "
+                        "outside the dataset".format(snap, dump_id, field, target_snap)
+                    )
+                    continue
+                elif conv_target >= mostbound_by_snap[target_snap].size:
+                    failures.append(
+                        "snapshot {}: converter halo id {} has {} index {} outside snapshot "
+                        "{}'s {} halo(s)".format(
+                            snap,
+                            dump_id,
+                            field,
+                            conv_target,
+                            target_snap,
+                            mostbound_by_snap[target_snap].size,
+                        )
+                    )
+                    continue
+                else:
+                    conv_id = resolve(target_snap, conv_target)
+                if conv_id != expected:
+                    failures.append(
+                        "snapshot {}: ctrees id {} {} mismatch (reference {}, converter {})".format(
+                            snap, dump_id, field, expected, conv_id
+                        )
+                    )
+    return failures
+
+
+# ---------------------------------------------------------------------------
 # Cross-check driver
 # ---------------------------------------------------------------------------
 
@@ -588,9 +756,11 @@ def run_crosscheck(
     a_list_path,
     base: str = "halos",
     multiplier: int = DEFAULT_MULTIPLIER,
+    topology_dump_path=None,
 ) -> List[Outcome]:
     """Run the six cross-checks (plus reference sanity) and return one Outcome
-    per named check."""
+    per named check. When ``topology_dump_path`` is given, also runs the
+    seventh ``topology-chains`` check against that reference-topology dump."""
     converted_dir = Path(converted_dir)
     if not converted_dir.is_dir():
         raise ConverterError("{}: not a directory".format(converted_dir))
@@ -605,7 +775,7 @@ def run_crosscheck(
             return Outcome(name, "FAIL", "; ".join(failures))
         return Outcome(name, "PASS")
 
-    return [
+    outcomes = [
         outcome("reference-sanity", check_reference_sanity(matches)),
         outcome("identity-forest", check_identity_forest(matches, multiplier)),
         outcome("identity-creation", check_identity_creation(matches, multiplier)),
@@ -614,6 +784,10 @@ def run_crosscheck(
         outcome("values", check_values(matches)),
         outcome("occupancy", check_occupancy(matches, arrays)),
     ]
+    if topology_dump_path is not None:
+        dump = load_reference_topology_dump(topology_dump_path)
+        outcomes.append(outcome("topology-chains", check_topology_chains(matches, arrays, dump)))
+    return outcomes
 
 
 def crosscheck_failed(outcomes) -> bool:
@@ -671,6 +845,7 @@ def _cmd_compare(args) -> int:
         args.a_list,
         base=args.reference_base,
         multiplier=args.multiplier,
+        topology_dump_path=args.reference_topology,
     )
     for outcome in outcomes:
         print(outcome.line())
@@ -708,11 +883,11 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="crosscheck",
         description="Cross-check a converted snapshot-HDF5 dataset against a Mimic halos-only "
-        "reference-run galaxy output (plan Slice 8 six-check gate)",
+        "reference-run galaxy output",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    compare = sub.add_parser("compare", help="run the six-check cross-check")
+    compare = sub.add_parser("compare", help="run the cross-check")
     compare.add_argument("converted_dir", help="converter output directory of snapshot_NNN.h5")
     compare.add_argument("reference_dir", help="reference-run galaxy output directory")
     compare.add_argument("--a-list", required=True, help="canonical a_list (one scale per line)")
@@ -724,6 +899,12 @@ def main(argv=None) -> int:
         type=int,
         default=DEFAULT_MULTIPLIER,
         help="UniqueGalaxyID multiplier (default {})".format(DEFAULT_MULTIPLIER),
+    )
+    compare.add_argument(
+        "--reference-topology",
+        default=None,
+        help="optional reference-topology dump (tests/unit/tools/dump_ctrees_topology.c "
+        "output) for a direct chain-order check",
     )
     compare.add_argument("--report", default=None, help="optional JSON report path")
     compare.set_defaults(func=_cmd_compare)

@@ -1,6 +1,6 @@
-"""Slice 8 unit tests: the six-check cross-check must catch every deliberately
-injected violation, and the reference-run plumbing helpers + CLI must behave
-as frozen. One shared pristine mock reference (built from the fixture pipeline)
+"""Unit tests for the cross-check: it must catch every deliberately injected
+violation, and the reference-run plumbing helpers + CLI must behave as
+frozen. One shared pristine mock reference (built from the fixture pipeline)
 is reused; per-violation tests deep-copy the galaxies dict, mutate, and write a
 fresh reference directory."""
 
@@ -492,6 +492,217 @@ class TestCrosscheck(unittest.TestCase):
             ]
         )
         self.assertEqual(rc, 3)
+
+
+class TestTopologyChains(unittest.TestCase):
+    """The optional seventh check: comparing an independent reference-topology
+    dump against the converter's own link fields by stable ctrees id."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name)
+        cls.workdir, cls.a_list_path, cls.sim_info, cls.hdf5_dir = make_written_workdir(root)
+        cls.n_snapshots = 6
+        _, cls.arrays = validate.load_dataset(cls.hdf5_dir, cls.n_snapshots)
+        pristine = build_mock_galaxies(cls.hdf5_dir, cls.n_snapshots)
+        cls.reference_dir = Path(tempfile.mkdtemp(dir=cls.tmp.name)) / "reference"
+        write_mock_reference(pristine, cls.reference_dir, n_snapshots=cls.n_snapshots)
+        cls.ref_by_snap = crosscheck.load_reference_galaxies(
+            cls.reference_dir, "halos", cls.n_snapshots
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    # -- helpers -------------------------------------------------------------
+
+    def _matches(self):
+        return crosscheck.build_matches(self.arrays, self.ref_by_snap, self.n_snapshots)
+
+    def _dump_rows(self):
+        """Transcribe the converter's own link fields into dump rows: a
+        faithful independent reader reading the same source data would
+        produce exactly this, so this is the pristine-passes fixture; tests
+        below mutate a copy to inject a disagreement."""
+        NA = crosscheck._INT64_MIN
+
+        def resolve(target_snap, local_index):
+            if local_index < 0:
+                return NA
+            return int(self.arrays[target_snap]["MostBoundID"][local_index])
+
+        rows = []
+        for snap in range(self.n_snapshots):
+            conv = self.arrays[snap]
+            for i in range(conv["MostBoundID"].size):
+                rows.append(
+                    [
+                        int(conv["ForestIndex"][i]),
+                        int(conv["HaloRankInForest"][i]),
+                        int(conv["MostBoundID"][i]),
+                        snap,
+                        resolve(snap + 1, int(conv["Descendant"][i])),
+                        resolve(snap - 1, int(conv["FirstProgenitor"][i])),
+                        resolve(snap, int(conv["NextProgenitor"][i])),
+                        resolve(snap, int(conv["FirstHaloInFOFgroup"][i])),
+                        resolve(snap, int(conv["NextHaloInFOFgroup"][i])),
+                    ]
+                )
+        return rows
+
+    def _dump(self, rows):
+        return np.array([tuple(row) for row in rows], dtype=crosscheck._TOPOLOGY_DUMP_DTYPE)
+
+    def _write_dump_file(self, rows, path):
+        lines = [
+            crosscheck._TOPOLOGY_DUMP_HEADER,
+            "# forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id "
+            "next_fof_id",
+            "# NA sentinel = {} (no link)".format(crosscheck._INT64_MIN),
+        ]
+        lines.extend(" ".join(str(v) for v in row) for row in rows)
+        Path(path).write_text("\n".join(lines) + "\n")
+
+    def _check(self, rows):
+        return crosscheck.check_topology_chains(self._matches(), self.arrays, self._dump(rows))
+
+    # -- pristine and CLI wiring ----------------------------------------------
+
+    def test_pristine_dump_passes(self):
+        self.assertEqual(self._check(self._dump_rows()), [])
+
+    def test_run_crosscheck_without_dump_omits_check(self):
+        outcomes = outcome_map(
+            run_crosscheck(self.hdf5_dir, self.reference_dir, self.a_list_path, multiplier=M)
+        )
+        self.assertNotIn("topology-chains", outcomes)
+
+    def test_run_crosscheck_with_dump_end_to_end(self):
+        dump_path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
+        self._write_dump_file(self._dump_rows(), dump_path)
+        outcomes = outcome_map(
+            run_crosscheck(
+                self.hdf5_dir,
+                self.reference_dir,
+                self.a_list_path,
+                multiplier=M,
+                topology_dump_path=dump_path,
+            )
+        )
+        self.assertIn("topology-chains", outcomes)
+        self.assertEqual(
+            outcomes["topology-chains"].status, "PASS", outcomes["topology-chains"].line()
+        )
+
+    # -- injected violations --------------------------------------------------
+
+    def _wrong_value_for(self, rows, row_index, column):
+        """Any halo id that differs from both the row's own id and its
+        current (correct) value in ``column`` — guaranteed to be a genuine
+        mismatch regardless of the fixture's actual topology."""
+        own_id = rows[row_index][2]
+        current = rows[row_index][column]
+        return next(row[2] for row in rows if row[2] not in (own_id, current))
+
+    def test_wrong_first_progenitor_fails(self):
+        rows = self._dump_rows()
+        rows[0][5] = self._wrong_value_for(rows, 0, 5)  # first_prog_id column
+        failures = self._check(rows)
+        self.assertTrue(failures)
+        self.assertTrue(any("FirstProgenitor" in f for f in failures), failures)
+
+    def test_wrong_next_fof_fails(self):
+        rows = self._dump_rows()
+        rows[0][8] = self._wrong_value_for(rows, 0, 8)  # next_fof_id column
+        failures = self._check(rows)
+        self.assertTrue(failures)
+        self.assertTrue(any("NextHaloInFOFgroup" in f for f in failures), failures)
+
+    def test_wrong_next_progenitor_fails(self):
+        rows = self._dump_rows()
+        rows[0][6] = self._wrong_value_for(rows, 0, 6)  # next_prog_id column
+        failures = self._check(rows)
+        self.assertTrue(failures)
+        self.assertTrue(any("NextProgenitor" in f for f in failures), failures)
+
+    def test_wrong_first_fof_fails(self):
+        rows = self._dump_rows()
+        rows[0][7] = self._wrong_value_for(rows, 0, 7)  # first_fof_id column
+        failures = self._check(rows)
+        self.assertTrue(failures)
+        self.assertTrue(any("FirstHaloInFOFgroup" in f for f in failures), failures)
+
+    def test_wrong_descendant_fails(self):
+        rows = self._dump_rows()
+        rows[0][4] = self._wrong_value_for(rows, 0, 4)  # desc_id column
+        failures = self._check(rows)
+        self.assertTrue(failures)
+        self.assertTrue(any("Descendant" in f for f in failures), failures)
+
+    def test_unmatched_reference_id_fails(self):
+        rows = self._dump_rows()
+        rows[0][2] = 987654321  # an id not present anywhere in the converter dataset
+        failures = self._check(rows)
+        self.assertTrue(any("no matching converter halo" in f for f in failures), failures)
+
+    def test_out_of_range_snapshot_fails(self):
+        rows = self._dump_rows()
+        rows[0][3] = self.n_snapshots  # one past the dataset
+        failures = self._check(rows)
+        self.assertTrue(any("outside the dataset" in f for f in failures), failures)
+
+    def test_converter_out_of_range_link_target_fails(self):
+        """A malformed converter link index (in range for its own snapshot's
+        dtype, but past that snapshot's actual halo count) must be reported
+        as a graded failure, not raise an uncaught IndexError. Uses
+        FirstHaloInFOFgroup on row 0 (always a same-snapshot, non-NA self- or
+        central-index) so no search for a populated link is needed; row 0's
+        snapshot is looked up rather than assumed 0, since snapshot 0 may be
+        empty in this fixture."""
+        rows = self._dump_rows()
+        snap0 = rows[0][3]
+        arrays_copy = list(self.arrays)
+        arrays_copy[snap0] = dict(arrays_copy[snap0])
+        arrays_copy[snap0]["FirstHaloInFOFgroup"] = arrays_copy[snap0]["FirstHaloInFOFgroup"].copy()
+        out_of_range = arrays_copy[snap0]["FirstHaloInFOFgroup"].size + 100
+        arrays_copy[snap0]["FirstHaloInFOFgroup"][0] = out_of_range
+        failures = crosscheck.check_topology_chains(self._matches(), arrays_copy, self._dump(rows))
+        self.assertTrue(any("outside snapshot" in f for f in failures), failures)
+
+    # -- dump-file parsing -----------------------------------------------------
+
+    def test_load_reference_topology_dump_roundtrip(self):
+        rows = self._dump_rows()
+        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
+        self._write_dump_file(rows, path)
+        loaded = crosscheck.load_reference_topology_dump(path)
+        expected = self._dump(rows)
+        self.assertEqual(loaded.dtype, expected.dtype)
+        np.testing.assert_array_equal(loaded, expected)
+
+    def test_load_reference_topology_dump_bad_header(self):
+        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
+        path.write_text("not a dump\nline2\nline3\n")
+        with self.assertRaises(ConverterError):
+            crosscheck.load_reference_topology_dump(path)
+
+    def test_load_reference_topology_dump_bad_sentinel(self):
+        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
+        path.write_text(
+            "{}\ncolumn names\n# NA sentinel = 0 (no link)\n".format(
+                crosscheck._TOPOLOGY_DUMP_HEADER
+            )
+        )
+        with self.assertRaises(ConverterError):
+            crosscheck.load_reference_topology_dump(path)
+
+    def test_load_reference_topology_dump_empty_is_valid(self):
+        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
+        self._write_dump_file([], path)
+        loaded = crosscheck.load_reference_topology_dump(path)
+        self.assertEqual(loaded.size, 0)
 
 
 if __name__ == "__main__":

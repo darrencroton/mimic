@@ -303,7 +303,7 @@ GIT_VERSION_H = $(BUILD_DIR)/generated/git_version.h
 # -----------------------------------------------------------------------------
 # Build Targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific test-clean validate-modules lint-parameters validate-build summary
+.PHONY: all clean tidy help info generate generate-modules generate-test-inputs check-generated check-docs check-format tests tests-unit tests-integration tests-scientific test-clean validate-modules lint-parameters validate-build summary dump-ctrees-topology-tool
 
 all: validate-build $(EXEC)
 
@@ -493,6 +493,7 @@ help:
 	@echo "  make tests summary     - Run all tests with concise warning/failure/skip output"
 	@echo "  make test-clean                   - Clean test artifacts"
 	@echo "  make generate-test-registry - Discover selected tests"
+	@echo "  make dump-ctrees-topology-tool - Build the reference-topology dump harness (scripts/convert)"
 	@echo ""
 	@echo "Options:"
 	@echo "  Defaults: MODEL=sage16 SIMULATION=mini-millennium"
@@ -790,9 +791,17 @@ tests-integration:
 tests-scientific:
 	$(call RUN_PYTHON_TIER,scientific,SCIENTIFIC VALIDATION,SCIENTIFIC)
 
+# Reference-topology dump harness: read-only, loads forests through the existing
+# consistent_trees_ascii reader and dumps their literal link fields for
+# scripts/convert/crosscheck.py --reference-topology. Not part of `make tests`;
+# build on demand. See tests/unit/tools/dump_ctrees_topology.c.
+dump-ctrees-topology-tool:
+	@MODEL=$(MODEL) SIMULATION=$(SIMULATION) tests/unit/tools/build_topology_dump.sh
+
 test-clean:
 	@echo "Cleaning test artifacts..."
 	@rm -rf tests/unit/build
+	@rm -rf tests/unit/tools/build
 	@rm -rf tests/data/output/binary/*
 	@rm -rf tests/data/output/hdf5/*
 	@mkdir -p tests/data/output/binary

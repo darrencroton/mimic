@@ -2,7 +2,7 @@
 
 External converter that transforms Consistent-Trees ASCII output (forest-ordered) into Mimic's snapshot-ordered HDF5 input format. The on-disk output contract is frozen in `docs/SNAPSHOT-HDF5-FORMAT.md` (`format_version = 1`); the algorithm and its implementation slices are specified by `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md` and `docs/dev/MIMIC-CONVERTER-IMPLEMENTATION-PLAN.md`. The converter is a standalone tool: it never touches Mimic source, packages, or run files, and it never deletes source data — cleanup is restricted to manifest-owned intermediates it created under the workdir.
 
-**Status:** phases 0–4 implemented (scatter, sort/index, fixups, links, HDF5 emission + producer validation battery + conversion report — plan Slices 2–7) plus the cross-check instrument (Slice 8, synthetic-fixture validated). The real micro-Uchuu end-to-end gate run is plan Slice 9 and has not run yet. The optional `--reference-topology` chain-order mode is not implemented: it depends on the approval-gated Slice 10 harness, so the cross-check currently implements the plan's six-check partial topology gate.
+**Status:** phases 0–4 implemented (scatter, sort/index, fixups, links, HDF5 emission + producer validation battery + conversion report) plus the cross-check instrument, synthetic-fixture validated, including the optional `topology-chains` check against an independent reference-topology dump (see below). The real micro-Uchuu end-to-end gate run has not happened yet.
 
 ## Requirements
 
@@ -56,9 +56,9 @@ mimic_venv/bin/python scripts/convert/convert_ctrees.py report \
     --workdir output/convert/micro-uchuu \
     --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list
 
-# Micro-Uchuu cross-check vs a halos-only reference run (plan Slice 9 executes
-# this on real data; 'prepare' writes a scratch run file listing all snapshots,
-# 'run-reference' captures the run log + exit code, 'compare' is the six-check gate)
+# Cross-check vs a halos-only reference run: 'prepare' writes a scratch run
+# file listing all snapshots, 'run-reference' captures the run log + exit
+# code, 'compare' runs the check
 mimic_venv/bin/python scripts/convert/crosscheck.py prepare \
     --run-file models/halos-only/input/halos-only_micro-uchuu-ascii.yaml \
     --workdir output/convert/micro-uchuu \
@@ -68,7 +68,8 @@ mimic_venv/bin/python scripts/convert/crosscheck.py run-reference \
     --log output/convert/micro-uchuu/reference_run.log
 mimic_venv/bin/python scripts/convert/crosscheck.py compare \
     output/convert/micro-uchuu/hdf5 output/convert/micro-uchuu/reference-output \
-    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list
+    --a-list simulations/micro-uchuu-ascii/micro-uchuu.a_list \
+    --reference-topology output/convert/micro-uchuu/topology.dump  # optional, see below
 ```
 
 Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths, keeping the converter simulation-agnostic. Observed `(SnapNum, scale)` pairs from the data are cross-validated against the a_list (absolute tolerance 1e-4; an unknown pair aborts the run).
@@ -110,7 +111,20 @@ Scratch records use the frozen 108-byte packed little-endian dtype defined in `c
 
 Re-running `scatter` skips source files whose manifest entry is complete and unchanged (size + mtime), so a crashed run resumes where it stopped. Per-file conservation — the pandas-independent row pre-count must equal the parsed and scattered row count exactly — is enforced before a file is recorded as complete. The manifest is bound to its input identities (a_list, forests.list, and the ordered source set are checksummed at first run); changing any of them, or changing a source file after snapshots were finalized, refuses to resume — use a fresh workdir. Every intermediate is verified against its registered content checksum before it is consumed, skip-trusted, or deleted, and non-finite input values (NaN/inf, or float64 values that overflow float32) abort the parse.
 
-**Shin-Uchuu-scale notes (production conversion, out of scope here):** the Phase 0 forest map is currently passed to each pool task by pickling — at the ~5 GB Shin-Uchuu map size that needs a worker initializer with shared or memory-mapped storage; per-chunk per-snapshot boolean scans, whole-file concat reads, and the in-memory sort (~350 B/row peak) are likewise sized for micro-Uchuu, with the chunked external-merge fallback deferred by the plan. The fix-up stage's satellite chain resolution is a sequential per-satellite scan (reference-order in-place rewrites, required for exact fix_upid parity); it is a few seconds per snapshot at micro-Uchuu scale but would need revisiting for Shin-Uchuu. The link stage's rank pass groups every snapshot's sort keys in memory; the Shin-Uchuu super-forest needs the plan's deferred chunked external-merge rank sort instead. The validation battery and cross-check similarly load the full emitted dataset (and reference galaxy output) into memory. Concurrent converter invocations on one workdir are not locked.
+**Shin-Uchuu-scale notes (production conversion, out of scope here):** the Phase 0 forest map is currently passed to each pool task by pickling — at the ~5 GB Shin-Uchuu map size that needs a worker initializer with shared or memory-mapped storage; per-chunk per-snapshot boolean scans, whole-file concat reads, and the in-memory sort (~350 B/row peak) are likewise sized for micro-Uchuu, with a chunked external-merge fallback deferred to a future production pass. The fix-up stage's satellite chain resolution is a sequential per-satellite scan (reference-order in-place rewrites, required for exact fix_upid parity); it is a few seconds per snapshot at micro-Uchuu scale but would need revisiting for Shin-Uchuu. The link stage's rank pass groups every snapshot's sort keys in memory; the Shin-Uchuu super-forest needs a deferred chunked external-merge rank sort instead. The validation battery and cross-check similarly load the full emitted dataset (and reference galaxy output) into memory. Concurrent converter invocations on one workdir are not locked.
+
+## Reference-topology proof
+
+The six-check cross-check (above) establishes identity, rank, and central resolution by matching galaxies to halos. It does not, by itself, directly compare the *order* of the converter's `FirstProgenitor`/`NextProgenitor`/`NextHaloInFOFgroup` chains against another implementation reading the same source data — rank equality constrains the underlying sort but does not prove chain construction.
+
+`tests/unit/tools/dump_ctrees_topology.c` closes that gap: a read-only harness that loads a Consistent-Trees-ASCII package through Mimic's own `consistent_trees_ascii` reader (the same reader code the converter's algorithm mirrors) and dumps every halo's link fields, by stable ctrees id, to a plain-text file. Build it with:
+
+```bash
+make MODEL=halos-only SIMULATION=micro-uchuu-ascii dump-ctrees-topology-tool
+tests/unit/tools/build/dump_ctrees_topology <run_param_file> <output_dump_path>
+```
+
+The dump format is three header lines (format marker, column names, NA-sentinel value) followed by one row per halo: `forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id next_fof_id`, all fields int64, with the NA sentinel (`INT64_MIN`) marking "no link". Pass the dump to `crosscheck.py compare --reference-topology <dump>` to run the additional `topology-chains` check, which resolves every converter link to an id (via each target snapshot's ascending-`|MostBoundID|` order) and compares it against the dump's own recorded id for the same halo and link.
 
 ## Module map
 
@@ -125,7 +139,7 @@ Re-running `scatter` skips source files whose manifest entry is complete and unc
 | `hdf5_writer.py`    | Phase 4: `snapshot_NNN.h5` + `forests.h5` emission per the frozen contract (empty snapshots included; write-verify-record) |
 | `validate.py`       | producer validation battery (standalone CLI): structural conformance, all six format invariants, progenitor round-trip closure, FoF chain walk, identity density, header bounds, count conservation vs the independent pre-counts |
 | `report.py`         | conversion report emission (`conversion_report.{json,txt}`) including battery outcomes and the recommended identity multiplier |
-| `crosscheck.py`     | six-check cross-check vs a halos-only reference run (matching by \|MostBoundID\|, identity decode, FoF central, flyby signs, bit-exact values, occupancy predicate) + reference-run plumbing |
+| `crosscheck.py`     | six-check cross-check vs a halos-only reference run (matching by \|MostBoundID\|, identity decode, FoF central, flyby signs, bit-exact values, occupancy predicate), an optional seventh `topology-chains` check against a reference-topology dump, + reference-run plumbing |
 | `tests/`            | stdlib-unittest suite; synthetic fixture generator (`fixtures.py`); mock reference builder (`mock_reference.py`); committed golden fixtures under `tests/data/` |
 
 ## Tests
@@ -133,3 +147,5 @@ Re-running `scatter` skips source files whose manifest entry is complete and unc
 ```bash
 mimic_venv/bin/python -m unittest discover -s scripts/convert/tests -v
 ```
+
+The dump harness's own format test lives with the simulation package it reads, not under `scripts/convert/tests/`: `simulations/micro-uchuu-ascii/_tests/integration/test_topology_dump_format.py`, part of `make SIMULATION=micro-uchuu-ascii MODEL=halos-only tests-integration`.
