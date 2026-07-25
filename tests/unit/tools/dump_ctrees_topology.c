@@ -22,6 +22,7 @@
  * core/proto.h).
  *
  * Usage: dump_ctrees_topology <run_param_file> <output_dump_path>
+ * Exit codes: 0 complete dump written, 1 runtime/write failure, 2 bad usage.
  */
 
 #include <stdint.h>
@@ -162,6 +163,16 @@ int main(int argc, char **argv) {
     reader->teardown_run();
   }
 
-  fclose(out);
+  /* A silently short dump is the failure mode that matters: the consumer's
+   * topology-chains check asserts the dump names every converter halo, so a
+   * truncated write must surface as a non-zero exit here rather than as a
+   * confusing coverage mismatch downstream. Check the stream error flag once
+   * (cheaper than testing every fprintf) and the fclose flush separately,
+   * since the final buffered write can only fail at close. */
+  const int write_failed = ferror(out);
+  if (fclose(out) != 0 || write_failed) {
+    fprintf(stderr, "Failed to write dump '%s' completely (output is truncated)\n", dump_path);
+    return 1;
+  }
   return 0;
 }

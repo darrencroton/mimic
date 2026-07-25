@@ -228,9 +228,13 @@ ifeq ($(USE-HDF5),yes)
         LIBS += -lhdf5_hl $(shell pkg-config --libs-only-l hdf5)
         HDF5_FOUND := yes
     else
-        # Try Homebrew (macOS) - use brew --prefix to get version-independent path
+        # Try Homebrew (macOS) - use brew --prefix to get version-independent
+        # path. `brew --prefix hdf5` prints a path even for a formula that is
+        # known but not installed, so require the header to exist before
+        # accepting it (matching scripts/lib/hdf5.sh); otherwise fall through
+        # to the system paths below.
         BREW_HDF5 := $(shell command -v brew >/dev/null 2>&1 && brew --prefix hdf5 2>/dev/null)
-        ifneq ($(BREW_HDF5),)
+        ifneq ($(and $(BREW_HDF5),$(wildcard $(BREW_HDF5)/include/hdf5.h)),)
             CFLAGS += -I$(BREW_HDF5)/include
             LDFLAGS += -L$(BREW_HDF5)/lib
             LIBS += -lhdf5_hl -lhdf5

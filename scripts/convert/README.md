@@ -2,7 +2,7 @@
 
 External converter that transforms Consistent-Trees ASCII output (forest-ordered) into Mimic's snapshot-ordered HDF5 input format. The on-disk output contract is frozen in `docs/dev/SNAPSHOT-HDF5-FORMAT.md` (`format_version = 1`); the algorithm is specified by `docs/dev/SHIN-UCHUU-CONVERSION-PLAN.md`. The sliced implementation plan that built this tool is complete and archived under `archive/dev-plans/` (search there for the converter implementation plan if the slice-level history is needed). The converter is a standalone tool: it never touches Mimic source, packages, or run files, and it never deletes source data — cleanup is restricted to manifest-owned intermediates it created under the workdir.
 
-**Status:** complete and validated on the real micro-Uchuu ASCII data. Phases 0–4 (scatter, sort/index, fixups, links, HDF5 emission + producer validation battery + conversion report) plus the cross-check instrument, including the optional `topology-chains` check against an independent reference-topology dump (see below). The full pipeline ran end to end on the real micro-Uchuu ASCII tree (22,580,924 halos across 50 snapshots, 440,651 forests); the producer validation battery passes all invariants, and the cross-check against a Mimic `halos-only` reference run passes all seven checks — identity, FoF central, flyby signs, values, occupancy, and direct chain-order (`topology-chains`) — with zero unexplained mismatches. The topology-order gate is therefore fully discharged.
+**Status:** complete and validated on the real micro-Uchuu ASCII data. Phases 0–4 (scatter, sort/index, fixups, links, HDF5 emission + producer validation battery + conversion report) plus the cross-check instrument, including the optional `topology-chains` check against an independent reference-topology dump (see below). The full pipeline ran end to end on the real micro-Uchuu ASCII tree (22,580,924 halos across 50 snapshots, 440,651 forests); the producer validation battery passes all invariants, and the cross-check against a Mimic `halos-only` reference run passes all seven checks — identity, FoF central, flyby signs, values, occupancy, and direct chain-order (`topology-chains`) — with zero unexplained mismatches. The topology-order gate is therefore fully discharged: `topology-chains` compared links, `ForestIndex`/`HaloRankInForest`, and the signed `MostBoundID` per halo over an asserted-complete dump of all 22,580,924 halos.
 
 ## Requirements
 
@@ -125,7 +125,15 @@ make MODEL=halos-only SIMULATION=micro-uchuu-ascii dump-ctrees-topology-tool
 tests/unit/tools/build/dump_ctrees_topology <run_param_file> <output_dump_path>
 ```
 
-The dump format is three header lines (format marker, column names, NA-sentinel value) followed by one row per halo: `forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id next_fof_id`, all fields int64, with the NA sentinel (`INT64_MIN`) marking "no link". Pass the dump to `crosscheck.py compare --reference-topology <dump>` to run the additional `topology-chains` check, which resolves every converter link to an id (via each target snapshot's ascending-`|MostBoundID|` order) and compares it against the dump's own recorded id for the same halo and link.
+The dump format is three header lines (format marker, column names, NA-sentinel value) followed by one row per halo: `forestnr rank id snapnum desc_id first_prog_id next_prog_id first_fof_id next_fof_id`, all fields int64, with the NA sentinel (`INT64_MIN`) marking "no link". Nothing else may appear: a `#` line after the header means a malformed dump (two runs concatenated, a re-run appended with `>>`) and is rejected rather than skipped. The harness exits non-zero if it could not write the dump completely, so a full disk cannot produce a short dump that looks finished.
+
+Pass the dump to `crosscheck.py compare --reference-topology <dump>` to run the additional `topology-chains` check. It first asserts **coverage** — the dump must name every converter halo exactly once at every snapshot, with no duplicate `|MostBoundID|` — because without that the check would compare cleanly over whatever subset a truncated dump happened to contain and report `PASS`. Then, per halo, it compares:
+
+- the five **links** (`Descendant`, `FirstProgenitor`, `NextProgenitor`, `FirstHaloInFOFgroup`, `NextHaloInFOFgroup`), resolving each converter link index to an id via the target snapshot's ascending-`|MostBoundID|` order and comparing it against the dump's own recorded id — the chain-**order** proof;
+- the two **identity** fields (`ForestIndex`, `HaloRankInForest`), which extends rank conformance from `identity-creation`'s first-appearance subset to every halo, including halos that never seed a galaxy;
+- the halo's own **signed** `MostBoundID`, since matching is by magnitude and the `flyby-signs` check only compares signs over the matched Type 0/1 population.
+
+Failures are reported as one counted summary line per (snapshot, field) with example ctrees ids, never one line per halo.
 
 ## Module map
 
@@ -140,7 +148,7 @@ The dump format is three header lines (format marker, column names, NA-sentinel 
 | `hdf5_writer.py`    | Phase 4: `snapshot_NNN.h5` + `forests.h5` emission per the frozen contract (empty snapshots included; write-verify-record) |
 | `validate.py`       | producer validation battery (standalone CLI): structural conformance, all six format invariants, progenitor round-trip closure, FoF chain walk, identity density, header bounds, count conservation vs the independent pre-counts |
 | `report.py`         | conversion report emission (`conversion_report.{json,txt}`) including battery outcomes and the recommended identity multiplier |
-| `crosscheck.py`     | six-check cross-check vs a halos-only reference run (matching by \|MostBoundID\|, identity decode, FoF central, flyby signs, bit-exact values, occupancy predicate), an optional seventh `topology-chains` check against a reference-topology dump, + reference-run plumbing |
+| `crosscheck.py`     | six-check cross-check vs a halos-only reference run (matching by \|MostBoundID\|, identity decode, FoF central, flyby signs, bit-exact values, occupancy predicate), an optional seventh `topology-chains` check against a reference-topology dump (coverage, links, identity, sign), + reference-run plumbing |
 | `tests/`            | stdlib-unittest suite; synthetic fixture generator (`fixtures.py`); mock reference builder (`mock_reference.py`); committed golden fixtures under `tests/data/` |
 
 ## Tests

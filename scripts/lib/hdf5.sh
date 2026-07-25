@@ -12,10 +12,14 @@
 #   detect_hdf5
 #   # then read $HDF5_AVAILABLE (0/1), $HDF5_CFLAGS, $HDF5_LDFLAGS
 #
-# Note: the project Makefile performs the equivalent detection in GNU Make
-# syntax (the HDF5 block in Makefile). That copy cannot source this shell
-# helper and is maintained in parallel by necessity; keep the two in sync when
-# either changes.
+# Note: the project Makefile performs the same probe sequence in GNU Make
+# syntax (the HDF5 block in Makefile) — pkg-config, then a Homebrew prefix whose
+# include/hdf5.h exists, then the three system paths. That copy cannot source
+# this shell helper and is maintained in parallel by necessity; keep the probe
+# order and the acceptance conditions in sync when either changes. The two
+# differ only in what they emit: the Makefile appends straight to CFLAGS/
+# LDFLAGS/LIBS and hard-errors when nothing is found, while this helper returns
+# HDF5_AVAILABLE=0 so a caller can build a reduced source set instead.
 ###############################################################################
 
 # Detect HDF5 and set HDF5_AVAILABLE (0/1), HDF5_CFLAGS, HDF5_LDFLAGS in the

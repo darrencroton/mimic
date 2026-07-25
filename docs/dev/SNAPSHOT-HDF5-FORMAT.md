@@ -2,7 +2,7 @@
 
 **Purpose**: Define the frozen on-disk contract for snapshot-ordered HDF5 merger-tree input — the format produced by external converters and consumed by Mimic's `snapshot_hdf5` reader and snapshot-ordered driver.
 
-**Status**: Frozen at `format_version = 1`. Every normative statement in this document is part of the contract. Any change that alters the meaning, layout, ordering, or validation rules of files on disk requires incrementing `format_version` and updating this specification; readers must reject files whose `format_version` they do not support.
+**Status**: Frozen at `format_version = 1`. Every normative statement in this document is part of the contract. Any change that alters the meaning, layout, ordering, or validation rules of files on disk requires incrementing `format_version` and updating this specification; readers must reject files whose `format_version` they do not support. Corrections that bring the wording into line with the semantics `format_version = 1` always denoted are recorded under [Errata](#errata) instead of bumping the version — see that section for the rule and the full list.
 
 ---
 
@@ -21,6 +21,7 @@
 11. [Simulation Package Integration](#simulation-package-integration)
 12. [Producing Snapshot-HDF5 Data](#producing-snapshot-hdf5-data)
 13. [Versioning Policy](#versioning-policy)
+14. [Errata](#errata)
 
 ---
 
@@ -161,6 +162,14 @@ Converters live outside Mimic's run path (converter tooling is maintained under 
 ## Versioning Policy
 
 `format_version` is a single int32 ratchet. Version 1 is this document. Readers reject files with an unrecognised version; producers stamp the version they implement. Additive changes (new optional datasets or attributes) also require a version bump — version 1 consumers are entitled to assume the exact object set specified here.
+
+## Errata
+
+A **correction** is an edit that changes what this document *says* without changing which files on disk conform: the reference semantics it describes were always the contract, and the previous wording described them inaccurately. Corrections do not bump `format_version` — a bump would tell every existing reader and producer that the bytes changed, which would be false, and would strand conforming version 1 data. They are recorded here instead, dated, so that anyone who implemented against the earlier wording can see exactly what moved and when. An edit that changes which files conform is not a correction: it bumps the version.
+
+| Date | Section | Correction |
+|---|---|---|
+| 2026-07-24 | [Ordering Contracts](#ordering-contracts) item 1 | The `NextProgenitor` chain order was described as "the remaining progenitors in reference encounter order". That paraphrase is wrong whenever a descendant has three or more progenitors and a mid-chain head replacement occurs. The text now states the reference reader's literal incremental-insertion loop (`assign_mergertree_indices`), which is what `format_version = 1` always denoted and what both the reader and `scripts/convert/links.py` have always implemented. A producer that had implemented the paraphrase literally would have emitted non-conforming chain order; the converter's `topology-chains` cross-check compares this order directly against the reference reader. |
 
 ---
 

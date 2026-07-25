@@ -52,15 +52,20 @@ Also provides reference-run plumbing (``write_reference_run_file`` /
 ``run_reference``) and a CLI (``compare`` / ``prepare`` / ``run-reference``).
 
 An optional seventh check, ``topology-chains``, runs when ``compare`` is given
-``--reference-topology <dump>``: it compares FirstProgenitor/NextProgenitor/
-FirstHaloInFOFgroup/NextHaloInFOFgroup/Descendant directly against a
-reference dump produced by an independent implementation reading the same
-source data (see tests/unit/tools/dump_ctrees_topology.c and
-load_reference_topology_dump below for the dump format). The six checks above
-establish identity, rank, and central resolution; this seventh check is the
-direct proof that chain ORDER — not just membership — matches. Without
-``--reference-topology`` the six-check gate still runs on its own; chain
-order is then unproven, not merely unreported.
+``--reference-topology <dump>``: it compares the converter against a reference
+dump produced by an independent implementation reading the same source data
+(see tests/unit/tools/dump_ctrees_topology.c and load_reference_topology_dump
+below for the dump format). Per halo it checks the five links
+(Descendant/FirstProgenitor/NextProgenitor/FirstHaloInFOFgroup/
+NextHaloInFOFgroup), the two identity fields (ForestIndex/HaloRankInForest),
+and the halo's own signed MostBoundID — after first asserting that the dump
+names every converter halo exactly once at every snapshot, which is what makes
+it a proof rather than a sample. The six checks above establish identity, rank
+(on the lineage-creation subset), and central resolution; this seventh check is
+the direct proof that chain ORDER — not just membership — matches, and it
+extends rank conformance to every halo. Without ``--reference-topology`` the
+six-check gate still runs on its own; chain order is then unproven, not merely
+unreported.
 """
 
 import argparse
@@ -644,60 +649,79 @@ _TOPOLOGY_DUMP_HEADER = "# mimic-topology-dump v1"
 def load_reference_topology_dump(path) -> np.ndarray:
     """Load a reference-topology dump: a fixed three-line header (format
     marker, column names, NA-sentinel value) followed by one whitespace-
-    separated row per halo, in the column order of ``_TOPOLOGY_DUMP_DTYPE``.
-    Raises ConverterError if the header does not match — this loader and the
-    harness that writes the dump must agree on the format exactly, and a
-    silent field-order drift between them would defeat every comparison
-    below without ever failing loudly."""
+    separated row per halo, in the column order of ``_TOPOLOGY_DUMP_DTYPE``,
+    and nothing else. Raises ConverterError on a header mismatch, a ragged or
+    non-integer row, or a comment line after the header — this loader and the
+    harness that writes the dump must agree on the format exactly, and silent
+    field-order drift or a silently spliced second dump would defeat every
+    comparison below without ever failing loudly."""
     path = Path(path)
-    # Validate the fixed three-line header without pulling the whole dump into
-    # memory: the real micro-Uchuu dump is ~2 GB of text (22.6 M rows), so read
-    # only the header here and stream the data rows straight into the structured
-    # array below. ``readline`` past EOF returns "" — a short file therefore
-    # fails the header/sentinel checks rather than raising.
+    # Validate the fixed three-line header, then stream the data rows into the
+    # typed array from the SAME open handle: the real micro-Uchuu dump is ~2 GB
+    # of text (22.6 M rows), so no intermediate Python list is ever built.
+    # ``readline`` past EOF returns "" — a short file therefore fails the
+    # header/sentinel checks rather than raising.
     with open(path) as handle:
         header = [handle.readline().rstrip("\n") for _ in range(3)]
-        has_data = handle.readline() != ""
-    if header[0] != _TOPOLOGY_DUMP_HEADER:
-        raise ConverterError(
-            "{}: not a recognised reference-topology dump (expected first line {!r})".format(
-                path, _TOPOLOGY_DUMP_HEADER
+        if header[0] != _TOPOLOGY_DUMP_HEADER:
+            raise ConverterError(
+                "{}: not a recognised reference-topology dump (expected first line {!r})".format(
+                    path, _TOPOLOGY_DUMP_HEADER
+                )
             )
-        )
-    expected_sentinel = "# NA sentinel = {} (no link)".format(_INT64_MIN)
-    if header[2] != expected_sentinel:
-        raise ConverterError(
-            "{}: NA sentinel line {!r} != expected {!r}".format(path, header[2], expected_sentinel)
-        )
-    if not has_data:
-        return np.zeros(0, dtype=_TOPOLOGY_DUMP_DTYPE)
-    # np.loadtxt (C-accelerated in NumPy >= 1.23) streams rows into the typed
-    # array with bounded memory, skipping the "#" header lines. A ragged row or
-    # a non-integer field raises ValueError, remapped to ConverterError so the
-    # loader keeps a single loud failure mode.
-    try:
-        with warnings.catch_warnings():
-            # An all-comment (data-free) file is already handled above; ignore
-            # only the benign "input contained no data" warning defensively.
-            warnings.simplefilter("ignore", category=UserWarning)
-            parsed = np.loadtxt(path, dtype=_TOPOLOGY_DUMP_DTYPE, comments="#", ndmin=1)
-    except ValueError as exc:
-        raise ConverterError("{}: malformed data row ({})".format(path, exc))
+        expected_sentinel = "# NA sentinel = {} (no link)".format(_INT64_MIN)
+        if header[2] != expected_sentinel:
+            raise ConverterError(
+                "{}: NA sentinel line {!r} != expected {!r}".format(
+                    path, header[2], expected_sentinel
+                )
+            )
+        # np.loadtxt (C-accelerated in NumPy >= 1.23) reads the remaining rows
+        # with bounded memory. ``comments=None`` is deliberate: the format is
+        # exactly three header lines followed by data rows, so a "#" line after
+        # the header means a malformed dump (two runs concatenated, a harness
+        # re-run appended with ">>"). Letting np.loadtxt skip such lines would
+        # silently splice unrelated dumps into one array. A ragged row, a
+        # non-integer field, or a stray comment raises ValueError, remapped to
+        # ConverterError so the loader keeps a single loud failure mode.
+        try:
+            with warnings.catch_warnings():
+                # A header-only dump parses to zero rows here; it is
+                # check_topology_chains' coverage assertion, not the loader,
+                # that rejects it against the converter's halo counts.
+                warnings.simplefilter("ignore", category=UserWarning)
+                parsed = np.loadtxt(handle, dtype=_TOPOLOGY_DUMP_DTYPE, comments=None, ndmin=1)
+        except ValueError as exc:
+            raise ConverterError("{}: malformed data row ({})".format(path, exc))
     return np.ascontiguousarray(parsed)
 
 
 def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
-    """Compare the reference dump's literal link fields, by stable ctrees id,
-    against the converter's own Descendant/FirstProgenitor/NextProgenitor/
-    FirstHaloInFOFgroup/NextHaloInFOFgroup for every halo the dump names.
+    """Compare the reference dump against the converter, by stable ctrees id,
+    for every halo in the dataset: the five link fields
+    (Descendant/FirstProgenitor/NextProgenitor/FirstHaloInFOFgroup/
+    NextHaloInFOFgroup), the two identity fields (ForestIndex/
+    HaloRankInForest), and the halo's own signed MostBoundID.
 
     The six checks above establish that the right galaxies exist at the right
-    rank; this check is the direct proof that link ORDER matches, by
-    resolving each converter link (a same-file or adjacent-file index) to an
-    id and comparing it against the reference's own recorded id for the same
-    link. Matching per snapshot reuses each ``matches[i].conv``'s
-    ascending-unique ``|MostBoundID|`` order, already re-asserted by
-    ``build_matches`` before this check ever runs.
+    rank *on the lineage-creation subset*; this check is the direct proof that
+    link ORDER matches, by resolving each converter link (a same-file or
+    adjacent-file index) to an id and comparing it against the reference's own
+    recorded id for the same link. Matching per snapshot reuses each
+    ``matches[i].conv``'s ascending-unique ``|MostBoundID|`` order, already
+    re-asserted by ``build_matches`` before this check ever runs.
+
+    Coverage is asserted first, and it is what makes the rest a proof rather
+    than a sample: the dump must name every converter halo exactly once at
+    every snapshot. A truncated, empty, or duplicated dump would otherwise
+    compare cleanly over whatever subset it happened to contain and report
+    PASS — a vacuous result, and the likeliest real-world failure (a killed
+    harness run, a full disk) rather than an exotic one.
+
+    Failures are reported as one counted summary line per (snapshot, field)
+    with example ids, never one line per halo: a systematic converter error at
+    micro-Uchuu scale would otherwise build a 22.6 M-element list and a
+    multi-gigabyte joined string before anyone could read it.
     """
     failures = []
     n_snapshots = len(arrays)
@@ -714,15 +738,37 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
         ("FirstHaloInFOFgroup", 0),
         ("NextHaloInFOFgroup", 0),
     )
+    #: Identity fields the dump also carries, compared per halo against the
+    #: converter's own arrays. The reference reader's within-forest rank is the
+    #: halo's position in its final per-forest InputTreeHalos order, which is
+    #: exactly what HaloRankInForest must reproduce; comparing it here extends
+    #: rank conformance from identity-creation's first-appearance subset to
+    #: every halo, including halos that never seed a galaxy.
+    identity_fields = ("ForestIndex", "HaloRankInForest")
+
+    dump_snaps = dump["SnapNum"].astype(np.int64)
+
+    # Completeness, per snapshot, before any comparison (see docstring).
+    within_dataset = (dump_snaps >= 0) & (dump_snaps < n_snapshots)
+    dump_counts = np.bincount(dump_snaps[within_dataset], minlength=n_snapshots)
+    for snap in range(n_snapshots):
+        converter_n = abs_by_snap[snap].size
+        if int(dump_counts[snap]) != converter_n:
+            failures.append(
+                "snapshot {}: reference dump has {} halo row(s) but the converter has {} "
+                "halo(s) — the dump must name every converter halo exactly once".format(
+                    snap, int(dump_counts[snap]), converter_n
+                )
+            )
+
+    if dump_snaps.size == 0:
+        return failures
 
     # Group dump rows by snapshot with a single stable argsort rather than a
     # per-row Python dict, then work one snapshot-slice at a time with fully
     # vectorised lookups. The previous row-at-a-time loop did a searchsorted per
     # halo per field (~5 x 22.6 M interpreter iterations on the real dump); this
     # collapses it to O(snapshots x fields) batched operations.
-    dump_snaps = dump["SnapNum"].astype(np.int64)
-    if dump_snaps.size == 0:
-        return failures
     order = np.argsort(dump_snaps, kind="stable")
     sorted_snaps = dump_snaps[order]
     uniq_snaps, slice_starts = np.unique(sorted_snaps, return_index=True)
@@ -743,6 +789,16 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
         # searchsorted over this snapshot's ascending-unique |MostBoundID|.
         dump_ids = rows["MostBoundID"].astype(np.int64)
         targets = np.abs(dump_ids)
+        # Matching is by magnitude, so a duplicated |id| would let one dumped
+        # halo stand in for another and keep the coverage count balanced. The
+        # converter side is already strictly ascending-unique (build_matches).
+        dup_ids, dup_counts = np.unique(targets, return_counts=True)
+        repeated = dup_ids[dup_counts > 1]
+        if repeated.size:
+            failures.append(
+                "snapshot {}: {} duplicate |MostBoundID| value(s) in the reference dump; "
+                "examples: {}".format(snap, int(repeated.size), _examples(repeated.tolist()))
+            )
         arr = abs_by_snap[snap]
         if arr.size == 0:
             matched = np.zeros(targets.shape, dtype=bool)
@@ -751,14 +807,59 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
             pos = np.searchsorted(arr, targets)
             matched = (pos < arr.size) & (arr[np.minimum(pos, arr.size - 1)] == targets)
             conv_rows = pos[matched]
-        for dump_id in dump_ids[~matched].tolist():
+        if not matched.all():
             failures.append(
-                "snapshot {}: reference halo with ctrees id {} has no matching converter "
-                "halo".format(snap, dump_id)
+                "snapshot {}: {} reference halo(s) with no matching converter halo; example "
+                "ctrees ids: {}".format(
+                    snap,
+                    int((~matched).sum()),
+                    _examples(dump_ids[~matched].tolist()),
+                )
             )
         if not matched.any():
             continue
         m_ids = dump_ids[matched]
+
+        # The halo's own signed id, not just its magnitude. Matching is by
+        # |MostBoundID|, so a wrong flyby sign on the halo itself would
+        # otherwise only be caught indirectly, via some other halo's link
+        # resolving to it — and check_flyby_signs compares signs only over the
+        # matched Type 0/1 population, so galaxy-less demoted halos depend on
+        # this comparison being direct.
+        conv_signed = mostbound_by_snap[snap][conv_rows].astype(np.int64)
+        sign_bad = conv_signed != m_ids
+        if sign_bad.any():
+            first = int(np.flatnonzero(sign_bad)[0])
+            failures.append(
+                "snapshot {}: {} halo(s) with a MostBoundID sign mismatch; first at ctrees id "
+                "{} (reference {}, converter {}); example ctrees ids: {}".format(
+                    snap,
+                    int(sign_bad.sum()),
+                    abs(int(m_ids[first])),
+                    int(m_ids[first]),
+                    int(conv_signed[first]),
+                    _examples(np.abs(m_ids[sign_bad]).tolist()),
+                )
+            )
+
+        for field in identity_fields:
+            expected_identity = rows[field][matched].astype(np.int64)
+            conv_identity = np.asarray(arrays[snap][field])[conv_rows].astype(np.int64)
+            bad = conv_identity != expected_identity
+            if bad.any():
+                first = int(np.flatnonzero(bad)[0])
+                failures.append(
+                    "snapshot {}: {} halo(s) with mismatched {}; first at ctrees id {} "
+                    "(reference {}, converter {}); example ctrees ids: {}".format(
+                        snap,
+                        int(bad.sum()),
+                        field,
+                        abs(int(m_ids[first])),
+                        int(expected_identity[first]),
+                        int(conv_identity[first]),
+                        _examples(np.abs(m_ids[bad]).tolist()),
+                    )
+                )
 
         for field, delta in link_fields:
             target_snap = snap + delta
@@ -774,44 +875,61 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
 
             if target_snap < 0 or target_snap >= n_snapshots:
                 # A non-negative link into a non-existent snapshot is malformed;
-                # no-link rows still fall through to the comparison (as the old
-                # code did, short-circuiting on conv_target < 0 before this
-                # branch), where NA == NA passes.
-                for dump_id in m_ids[~no_link].tolist():
+                # no-link rows still fall through to the comparison (as the
+                # row-at-a-time code did, short-circuiting on conv_target < 0
+                # before this branch), where NA == NA passes.
+                if (~no_link).any():
                     failures.append(
-                        "snapshot {}: converter halo id {} has {} pointing to snapshot {}, "
-                        "outside the dataset".format(snap, dump_id, field, target_snap)
+                        "snapshot {}: {} converter halo(s) with {} pointing to snapshot {}, "
+                        "outside the dataset; example ctrees ids: {}".format(
+                            snap,
+                            int((~no_link).sum()),
+                            field,
+                            target_snap,
+                            _examples(np.abs(m_ids[~no_link]).tolist()),
+                        )
                     )
                 compare = no_link
             else:
                 tgt_mostbound = mostbound_by_snap[target_snap]
                 out_of_range = ~no_link & (conv_target >= tgt_mostbound.size)
-                for dump_id, ct in zip(
-                    m_ids[out_of_range].tolist(), conv_target[out_of_range].tolist()
-                ):
+                if out_of_range.any():
                     failures.append(
-                        "snapshot {}: converter halo id {} has {} index {} outside snapshot "
-                        "{}'s {} halo(s)".format(
-                            snap, dump_id, field, ct, target_snap, tgt_mostbound.size
+                        "snapshot {}: {} converter halo(s) with a {} index outside snapshot "
+                        "{}'s {} halo(s); example ctrees ids: {}".format(
+                            snap,
+                            int(out_of_range.sum()),
+                            field,
+                            target_snap,
+                            tgt_mostbound.size,
+                            _examples(np.abs(m_ids[out_of_range]).tolist()),
                         )
                     )
                 in_range = ~no_link & (conv_target < tgt_mostbound.size)
                 conv_id[in_range] = tgt_mostbound[conv_target[in_range]].astype(np.int64)
-                # Out-of-range rows are already reported and skipped (as the old
-                # `continue` did); compare the no-link and in-range rows.
+                # Out-of-range rows are already reported and skipped; compare
+                # the no-link and in-range rows.
                 compare = no_link | in_range
 
             mismatched = compare & (conv_id != expected)
-            for dump_id, exp_raw, conv_raw in zip(
-                m_ids[mismatched].tolist(),
-                expected[mismatched].tolist(),
-                conv_id[mismatched].tolist(),
-            ):
-                exp_disp = None if exp_raw == _INT64_MIN else exp_raw
-                conv_disp = None if conv_raw == _INT64_MIN else conv_raw
+            if mismatched.any():
+                # Keep the actual disagreeing ids for the first mismatch: a
+                # count alone would not say which side is wrong. The NA
+                # sentinel displays as None, as "no link" reads better than
+                # INT64_MIN.
+                first = int(np.flatnonzero(mismatched)[0])
+                exp_first = int(expected[first])
+                conv_first = int(conv_id[first])
                 failures.append(
-                    "snapshot {}: ctrees id {} {} mismatch (reference {}, converter {})".format(
-                        snap, dump_id, field, exp_disp, conv_disp
+                    "snapshot {}: {} halo(s) with a {} mismatch; first at ctrees id {} "
+                    "(reference {}, converter {}); example ctrees ids: {}".format(
+                        snap,
+                        int(mismatched.sum()),
+                        field,
+                        abs(int(m_ids[first])),
+                        None if exp_first == _INT64_MIN else exp_first,
+                        None if conv_first == _INT64_MIN else conv_first,
+                        _examples(np.abs(m_ids[mismatched]).tolist()),
                     )
                 )
     return failures

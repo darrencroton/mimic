@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Dict, List
 
 import numpy as np
 import yaml
@@ -790,6 +791,67 @@ class TestTopologyChains(unittest.TestCase):
         failures = crosscheck.check_topology_chains(self._matches(), arrays_copy, self._dump(rows))
         self.assertTrue(any("outside snapshot" in f for f in failures), failures)
 
+    # -- coverage: the dump must name every converter halo exactly once --------
+
+    def test_truncated_dump_fails_coverage(self):
+        """A dump missing even one halo must fail, not silently compare over
+        the subset it happens to contain: a killed harness run or a full disk
+        is the likeliest real failure, and it must never read as conformance."""
+        rows = self._dump_rows()
+        dropped_snap = rows[0][3]
+        rows.pop(0)
+        failures = self._check(rows)
+        self.assertTrue(any("every converter halo exactly once" in f for f in failures), failures)
+        self.assertTrue(any("snapshot {}:".format(dropped_snap) in f for f in failures), failures)
+
+    def test_empty_dump_fails_coverage(self):
+        """A header-only dump parses fine (that is the loader's job) but must
+        fail the check against a non-empty dataset — the vacuous-pass case."""
+        empty = np.zeros(0, dtype=crosscheck._TOPOLOGY_DUMP_DTYPE)
+        failures = crosscheck.check_topology_chains(self._matches(), self.arrays, empty)
+        self.assertTrue(any("every converter halo exactly once" in f for f in failures), failures)
+
+    def test_duplicate_dump_id_fails(self):
+        """Matching is by |MostBoundID|, so a duplicated id would let one
+        dumped halo stand in for another while keeping the coverage count
+        balanced; duplicates must be rejected outright."""
+        rows = self._dump_rows()
+        by_snap: Dict[int, List[int]] = {}
+        for i, row in enumerate(rows):
+            by_snap.setdefault(row[3], []).append(i)
+        crowded = [indices for indices in by_snap.values() if len(indices) >= 2]
+        self.assertTrue(crowded, "fixture must have a snapshot with two halos to duplicate")
+        first, second = crowded[0][0], crowded[0][1]
+        rows[second][2] = rows[first][2]
+        failures = self._check(rows)
+        self.assertTrue(any("duplicate |MostBoundID|" in f for f in failures), failures)
+
+    # -- identity and sign, compared for every halo ---------------------------
+
+    def test_wrong_forest_index_fails(self):
+        rows = self._dump_rows()
+        rows[0][0] += 1  # forestnr column
+        failures = self._check(rows)
+        self.assertTrue(any("mismatched ForestIndex" in f for f in failures), failures)
+
+    def test_wrong_rank_fails(self):
+        """Rank is compared for EVERY dumped halo here, not only the
+        first-appearance subset that identity-creation covers."""
+        rows = self._dump_rows()
+        rows[0][1] += 1  # rank column
+        failures = self._check(rows)
+        self.assertTrue(any("mismatched HaloRankInForest" in f for f in failures), failures)
+
+    def test_own_mostboundid_sign_mismatch_fails(self):
+        """The halo's own signed id must agree, not just its magnitude: the
+        flyby-signs check only compares signs over the matched Type 0/1
+        population, so galaxy-less demoted halos rely on this comparison."""
+        rows = self._dump_rows()
+        self.assertNotEqual(rows[0][2], 0, "negating a zero id would not be a mismatch")
+        rows[0][2] = -rows[0][2]
+        failures = self._check(rows)
+        self.assertTrue(any("MostBoundID sign mismatch" in f for f in failures), failures)
+
     # -- dump-file parsing -----------------------------------------------------
 
     def test_load_reference_topology_dump_roundtrip(self):
@@ -817,11 +879,46 @@ class TestTopologyChains(unittest.TestCase):
         with self.assertRaises(ConverterError):
             crosscheck.load_reference_topology_dump(path)
 
-    def test_load_reference_topology_dump_empty_is_valid(self):
+    def test_load_reference_topology_dump_empty_parses(self):
+        """A header-only dump is a well-formed parse; rejecting it against the
+        dataset is check_topology_chains' coverage assertion, not the loader's
+        (see test_empty_dump_fails_coverage)."""
         path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
         self._write_dump_file([], path)
         loaded = crosscheck.load_reference_topology_dump(path)
         self.assertEqual(loaded.size, 0)
+
+    def test_load_reference_topology_dump_rejects_stray_comment(self):
+        """The format is exactly three header lines then data rows, so a "#"
+        line after the header means a malformed dump (two runs concatenated, a
+        harness re-run appended with ">>"). Skipping it would silently splice
+        unrelated dumps into one array."""
+        rows = self._dump_rows()
+        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
+        self._write_dump_file(rows, path)
+        with path.open("a") as handle:
+            handle.write(crosscheck._TOPOLOGY_DUMP_HEADER + "\n")
+            handle.write(" ".join(str(v) for v in rows[0]) + "\n")
+        with self.assertRaises(ConverterError):
+            crosscheck.load_reference_topology_dump(path)
+
+    def test_load_reference_topology_dump_rejects_ragged_row(self):
+        rows = self._dump_rows()
+        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
+        self._write_dump_file(rows, path)
+        with path.open("a") as handle:
+            handle.write("1 2 3\n")  # too few columns
+        with self.assertRaises(ConverterError):
+            crosscheck.load_reference_topology_dump(path)
+
+    def test_load_reference_topology_dump_rejects_non_integer(self):
+        rows = self._dump_rows()
+        path = Path(tempfile.mkdtemp(dir=self.tmp.name)) / "topology.dump"
+        self._write_dump_file(rows, path)
+        with path.open("a") as handle:
+            handle.write(" ".join(["nope"] * len(crosscheck._TOPOLOGY_DUMP_DTYPE)) + "\n")
+        with self.assertRaises(ConverterError):
+            crosscheck.load_reference_topology_dump(path)
 
 
 if __name__ == "__main__":
