@@ -63,6 +63,24 @@ MAX_UPID_CHAIN_DEPTH = 30
 #: keeps the 1e10-units value, so any other units would silently corrupt Len.
 PARTICLE_MASS_UNITS = "1e10 Msun/h"
 
+#: Catalog native mass unit (Msun/h) expressed in the reference mass unit
+#: (1e10 Msun/h). This is the SAME factor the generated tree accessor bakes into
+#: mimic_tree_get_HaloMass for a native-Msun/h catalog (see
+#: scripts/generate_properties.py:_linear_conversion_expr, which derives it from
+#: core_properties.yaml reference_units and formats it to full float64
+#: precision). Defining it once here — the converter's frozen-units home — keeps
+#: the Len derivation (Mvir_native * NATIVE_TO_REF_MASS / PartMass) and the
+#: cross-check Mvir reconstruction from drifting apart or from the C model.
+NATIVE_TO_REF_MASS = 1e-10
+
+#: Reference mass unit (1e10 Msun/h) expressed in native Msun/h — the reciprocal
+#: of NATIVE_TO_REF_MASS, defined independently as the exact literal so the value
+#: matches the multiplication used when the header attribute was written. Used to
+#: stamp/verify the ``particle_mass_msun_h`` header attribute (a 1e10-Msun/h
+#: particle mass rendered in Msun/h); shared by the writer and the cross-check's
+#: header-consistency guard so the round-trip is bit-for-bit.
+REF_TO_NATIVE_MASS = 1e10
+
 _INT32_MAX = float(np.iinfo(np.int32).max)
 
 
@@ -121,7 +139,7 @@ def derive_len(mvir: np.ndarray, particle_mass: float, context: str) -> Tuple[np
     rounding and int32 conversion, C round() half-away-from-zero. Len == 0 is
     preserved and counted, never repaired.
     """
-    len_particles = mvir.astype(np.float64) * 1e-10 / particle_mass
+    len_particles = mvir.astype(np.float64) * NATIVE_TO_REF_MASS / particle_mass
     bad = ~np.isfinite(len_particles) | (len_particles < 0.0) | (len_particles > _INT32_MAX)
     if bad.any():
         rows = np.nonzero(bad)[0][:5]

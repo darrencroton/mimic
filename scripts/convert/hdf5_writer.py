@@ -43,7 +43,12 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import ConverterError  # noqa: E402
-from fixups import FIXED_DTYPE_TAG, FIXED_RECORD_DTYPE, PARTICLE_MASS_UNITS  # noqa: E402
+from fixups import (  # noqa: E402
+    FIXED_DTYPE_TAG,
+    FIXED_RECORD_DTYPE,
+    PARTICLE_MASS_UNITS,
+    REF_TO_NATIVE_MASS,
+)
 from links import LINKS_DTYPE_TAG, LINKS_RECORD_DTYPE  # noqa: E402
 from scatter import Manifest, file_md5, load_a_list  # noqa: E402
 
@@ -119,7 +124,7 @@ def load_header_metadata(path) -> Dict[str, float]:
         pmass = sim["particle_mass"]
         values = {
             "box_size_mpc_h": float(box["value"]),
-            "particle_mass_msun_h": float(pmass["value"]) * 1e10,
+            "particle_mass_msun_h": float(pmass["value"]) * REF_TO_NATIVE_MASS,
             "omega_matter": float(cosmology["omega_matter"]),
             "omega_lambda": float(cosmology["omega_lambda"]),
             "hubble_h": float(cosmology["hubble_h"]),

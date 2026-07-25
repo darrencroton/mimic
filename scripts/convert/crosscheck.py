@@ -69,6 +69,7 @@ import os
 import re
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 from typing import Dict, List
 
@@ -79,7 +80,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ctrees_parser import ConverterError  # noqa: E402
-from fixups import load_particle_mass  # noqa: E402
+from fixups import NATIVE_TO_REF_MASS, REF_TO_NATIVE_MASS, load_particle_mass  # noqa: E402
 from hdf5_writer import snapshot_h5_name  # noqa: E402
 from scatter import load_a_list  # noqa: E402
 from validate import DEFAULT_MULTIPLIER, Outcome, load_dataset  # noqa: E402
@@ -543,10 +544,13 @@ def check_values(matches, part_mass) -> List[str]:
         # Reference galaxy Mvir is model-derived, not a raw catalog copy
         # (src/core/virial.c get_virial_mass): a FoF central with a valid
         # (non-negative) spherical-overdensity mass takes M_Crit200 widened to
-        # float64 and scaled by 1e-10 in float64; every other halo — satellites,
-        # and any central without a valid catalog mass — takes Len * PartMass.
-        # The converter carries the raw catalog M_Crit200, so the expected
-        # galaxy Mvir is reconstructed here. The operand dtype is asserted
+        # float64 and scaled to the reference mass unit in float64; every other
+        # halo — satellites, and any central without a valid catalog mass —
+        # takes Len * PartMass. The converter carries the raw catalog M_Crit200,
+        # so the expected galaxy Mvir is reconstructed here. The scale factor is
+        # NATIVE_TO_REF_MASS — the single converter-side definition shared with
+        # the Len derivation and matching the generated accessor's baked-in
+        # conversion — not a re-typed literal. The operand dtype is asserted
         # before the deliberate widening.
         m200 = np.ascontiguousarray(match.conv["M_Crit200"][conv_idx])
         if m200.dtype != np.float32:
@@ -555,7 +559,7 @@ def check_values(matches, part_mass) -> List[str]:
                     m200.dtype
                 )
             )
-        halo_mass = m200.astype(np.float64) * 1e-10
+        halo_mass = m200.astype(np.float64) * NATIVE_TO_REF_MASS
         len_mass = match.conv["Len"][conv_idx].astype(np.float64) * part_mass
         is_central = match.conv["FirstHaloInFOFgroup"][conv_idx] == conv_idx
         expected = np.where(is_central & (halo_mass >= 0.0), halo_mass, len_mass)
@@ -646,32 +650,40 @@ def load_reference_topology_dump(path) -> np.ndarray:
     silent field-order drift between them would defeat every comparison
     below without ever failing loudly."""
     path = Path(path)
-    lines = path.read_text().splitlines()
-    if len(lines) < 3 or lines[0] != _TOPOLOGY_DUMP_HEADER:
+    # Validate the fixed three-line header without pulling the whole dump into
+    # memory: the real micro-Uchuu dump is ~2 GB of text (22.6 M rows), so read
+    # only the header here and stream the data rows straight into the structured
+    # array below. ``readline`` past EOF returns "" — a short file therefore
+    # fails the header/sentinel checks rather than raising.
+    with open(path) as handle:
+        header = [handle.readline().rstrip("\n") for _ in range(3)]
+        has_data = handle.readline() != ""
+    if header[0] != _TOPOLOGY_DUMP_HEADER:
         raise ConverterError(
             "{}: not a recognised reference-topology dump (expected first line {!r})".format(
                 path, _TOPOLOGY_DUMP_HEADER
             )
         )
     expected_sentinel = "# NA sentinel = {} (no link)".format(_INT64_MIN)
-    if lines[2] != expected_sentinel:
+    if header[2] != expected_sentinel:
         raise ConverterError(
-            "{}: NA sentinel line {!r} != expected {!r}".format(path, lines[2], expected_sentinel)
+            "{}: NA sentinel line {!r} != expected {!r}".format(path, header[2], expected_sentinel)
         )
-    rows = lines[3:]
-    if not rows:
+    if not has_data:
         return np.zeros(0, dtype=_TOPOLOGY_DUMP_DTYPE)
+    # np.loadtxt (C-accelerated in NumPy >= 1.23) streams rows into the typed
+    # array with bounded memory, skipping the "#" header lines. A ragged row or
+    # a non-integer field raises ValueError, remapped to ConverterError so the
+    # loader keeps a single loud failure mode.
     try:
-        parsed = [tuple(int(field) for field in row.split()) for row in rows]
+        with warnings.catch_warnings():
+            # An all-comment (data-free) file is already handled above; ignore
+            # only the benign "input contained no data" warning defensively.
+            warnings.simplefilter("ignore", category=UserWarning)
+            parsed = np.loadtxt(path, dtype=_TOPOLOGY_DUMP_DTYPE, comments="#", ndmin=1)
     except ValueError as exc:
-        raise ConverterError("{}: non-integer field in a data row ({})".format(path, exc))
-    if any(len(row) != len(_TOPOLOGY_DUMP_DTYPE) for row in parsed):
-        raise ConverterError(
-            "{}: data row has the wrong column count (expected {})".format(
-                path, len(_TOPOLOGY_DUMP_DTYPE)
-            )
-        )
-    return np.array(parsed, dtype=_TOPOLOGY_DUMP_DTYPE)
+        raise ConverterError("{}: malformed data row ({})".format(path, exc))
+    return np.ascontiguousarray(parsed)
 
 
 def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
@@ -692,85 +704,116 @@ def check_topology_chains(matches, arrays, dump: np.ndarray) -> List[str]:
     abs_by_snap = [np.abs(match.conv["MostBoundID"]) for match in matches]
     mostbound_by_snap = [match.conv["MostBoundID"] for match in matches]
 
-    def resolve(snap, local_index):
-        """Converter local index (>=0) -> its MostBoundID, else None."""
-        if local_index < 0:
-            return None
-        return int(mostbound_by_snap[snap][local_index])
+    #: (dump field, snapshot offset the converter link points into), matching
+    #: the HDF5 contract: descendants advance one snapshot, first-progenitors
+    #: retreat one, the rest are same-snapshot links.
+    link_fields = (
+        ("Descendant", 1),
+        ("FirstProgenitor", -1),
+        ("NextProgenitor", 0),
+        ("FirstHaloInFOFgroup", 0),
+        ("NextHaloInFOFgroup", 0),
+    )
 
-    def lookup(snap, raw_id):
-        """Dump-recorded id (or the NA sentinel) -> converter row index in
-        that snapshot's arrays, else None (NA, or no such id present)."""
-        if raw_id == _INT64_MIN:
-            return None
-        target = abs(raw_id)
-        arr = abs_by_snap[snap]
-        pos = np.searchsorted(arr, target)
-        if pos < arr.size and arr[pos] == target:
-            return pos
-        return None
+    # Group dump rows by snapshot with a single stable argsort rather than a
+    # per-row Python dict, then work one snapshot-slice at a time with fully
+    # vectorised lookups. The previous row-at-a-time loop did a searchsorted per
+    # halo per field (~5 x 22.6 M interpreter iterations on the real dump); this
+    # collapses it to O(snapshots x fields) batched operations.
+    dump_snaps = dump["SnapNum"].astype(np.int64)
+    if dump_snaps.size == 0:
+        return failures
+    order = np.argsort(dump_snaps, kind="stable")
+    sorted_snaps = dump_snaps[order]
+    uniq_snaps, slice_starts = np.unique(sorted_snaps, return_index=True)
+    slice_ends = np.append(slice_starts[1:], sorted_snaps.size)
 
-    by_snap: Dict[int, List[np.void]] = {}
-    for row in dump:
-        by_snap.setdefault(int(row["SnapNum"]), []).append(row)
-
-    for snap in sorted(by_snap):
+    for snap_val, start, end in zip(uniq_snaps, slice_starts, slice_ends):
+        snap = int(snap_val)
+        rows = dump[order[start:end]]
         if snap < 0 or snap >= n_snapshots:
             failures.append(
                 "reference dump has {} halo(s) at snapshot {}, outside the dataset's [0, {})".format(
-                    len(by_snap[snap]), snap, n_snapshots
+                    rows.size, snap, n_snapshots
                 )
             )
             continue
-        for row in by_snap[snap]:
-            dump_id = int(row["MostBoundID"])
-            conv_idx = lookup(snap, dump_id)
-            if conv_idx is None:
-                failures.append(
-                    "snapshot {}: reference halo with ctrees id {} has no matching converter "
-                    "halo".format(snap, dump_id)
-                )
-                continue
 
-            for field, target_snap in (
-                ("Descendant", snap + 1),
-                ("FirstProgenitor", snap - 1),
-                ("NextProgenitor", snap),
-                ("FirstHaloInFOFgroup", snap),
-                ("NextHaloInFOFgroup", snap),
-            ):
-                raw_expected = int(row[field])
-                expected = None if raw_expected == _INT64_MIN else raw_expected
-                conv_target = int(arrays[snap][field][conv_idx])
-                if conv_target < 0:
-                    conv_id = None
-                elif target_snap < 0 or target_snap >= n_snapshots:
+        # Resolve every dumped id to its converter row via one batched
+        # searchsorted over this snapshot's ascending-unique |MostBoundID|.
+        dump_ids = rows["MostBoundID"].astype(np.int64)
+        targets = np.abs(dump_ids)
+        arr = abs_by_snap[snap]
+        if arr.size == 0:
+            matched = np.zeros(targets.shape, dtype=bool)
+            conv_rows = np.empty(0, dtype=np.intp)
+        else:
+            pos = np.searchsorted(arr, targets)
+            matched = (pos < arr.size) & (arr[np.minimum(pos, arr.size - 1)] == targets)
+            conv_rows = pos[matched]
+        for dump_id in dump_ids[~matched].tolist():
+            failures.append(
+                "snapshot {}: reference halo with ctrees id {} has no matching converter "
+                "halo".format(snap, dump_id)
+            )
+        if not matched.any():
+            continue
+        m_ids = dump_ids[matched]
+
+        for field, delta in link_fields:
+            target_snap = snap + delta
+            # Reference-recorded link id (NA sentinel where the dump had no link).
+            expected = rows[field][matched].astype(np.int64)
+            # Converter's own link: a local index into target_snap's array, or a
+            # negative "no link" sentinel.
+            conv_target = np.asarray(arrays[snap][field])[conv_rows].astype(np.int64)
+            no_link = conv_target < 0
+            # conv_id defaults to the NA sentinel (covers the no-link rows); a
+            # valid in-range target overwrites it with the resolved id below.
+            conv_id = np.full(conv_target.shape, _INT64_MIN, dtype=np.int64)
+
+            if target_snap < 0 or target_snap >= n_snapshots:
+                # A non-negative link into a non-existent snapshot is malformed;
+                # no-link rows still fall through to the comparison (as the old
+                # code did, short-circuiting on conv_target < 0 before this
+                # branch), where NA == NA passes.
+                for dump_id in m_ids[~no_link].tolist():
                     failures.append(
                         "snapshot {}: converter halo id {} has {} pointing to snapshot {}, "
                         "outside the dataset".format(snap, dump_id, field, target_snap)
                     )
-                    continue
-                elif conv_target >= mostbound_by_snap[target_snap].size:
+                compare = no_link
+            else:
+                tgt_mostbound = mostbound_by_snap[target_snap]
+                out_of_range = ~no_link & (conv_target >= tgt_mostbound.size)
+                for dump_id, ct in zip(
+                    m_ids[out_of_range].tolist(), conv_target[out_of_range].tolist()
+                ):
                     failures.append(
                         "snapshot {}: converter halo id {} has {} index {} outside snapshot "
                         "{}'s {} halo(s)".format(
-                            snap,
-                            dump_id,
-                            field,
-                            conv_target,
-                            target_snap,
-                            mostbound_by_snap[target_snap].size,
+                            snap, dump_id, field, ct, target_snap, tgt_mostbound.size
                         )
                     )
-                    continue
-                else:
-                    conv_id = resolve(target_snap, conv_target)
-                if conv_id != expected:
-                    failures.append(
-                        "snapshot {}: ctrees id {} {} mismatch (reference {}, converter {})".format(
-                            snap, dump_id, field, expected, conv_id
-                        )
+                in_range = ~no_link & (conv_target < tgt_mostbound.size)
+                conv_id[in_range] = tgt_mostbound[conv_target[in_range]].astype(np.int64)
+                # Out-of-range rows are already reported and skipped (as the old
+                # `continue` did); compare the no-link and in-range rows.
+                compare = no_link | in_range
+
+            mismatched = compare & (conv_id != expected)
+            for dump_id, exp_raw, conv_raw in zip(
+                m_ids[mismatched].tolist(),
+                expected[mismatched].tolist(),
+                conv_id[mismatched].tolist(),
+            ):
+                exp_disp = None if exp_raw == _INT64_MIN else exp_raw
+                conv_disp = None if conv_raw == _INT64_MIN else conv_raw
+                failures.append(
+                    "snapshot {}: ctrees id {} {} mismatch (reference {}, converter {})".format(
+                        snap, dump_id, field, exp_disp, conv_disp
                     )
+                )
     return failures
 
 
@@ -802,10 +845,11 @@ def run_crosscheck(
     # reference model uses (MimicConfig.PartMass) and the converter's own Len
     # derivation — so the reconstruction is bit-for-bit for any particle mass,
     # not only header round-trip-safe ones. Guard that the simulation_info
-    # matches the emitted dataset: the header stores
-    # particle_mass_msun_h = value * 1e10, so require agreement across all files.
+    # matches the emitted dataset: the header stores particle_mass_msun_h =
+    # value * REF_TO_NATIVE_MASS (the same constant the writer used), so
+    # recompute it identically and require agreement across all files.
     part_mass = load_particle_mass(simulation_info_path)
-    expected_header_mass = part_mass * 1e10
+    expected_header_mass = part_mass * REF_TO_NATIVE_MASS
     header_masses = {float(np.asarray(header["particle_mass_msun_h"])) for header in headers}
     if header_masses != {expected_header_mass}:
         raise ConverterError(

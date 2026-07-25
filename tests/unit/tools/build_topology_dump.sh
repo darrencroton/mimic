@@ -23,6 +23,7 @@ cd "$REPO_ROOT" || exit 1
 
 . "${REPO_ROOT}/scripts/lib/defaults.sh"
 . "${REPO_ROOT}/scripts/lib/colors.sh"
+. "${REPO_ROOT}/scripts/lib/hdf5.sh"
 MODEL="${MODEL:-$DEFAULT_MODEL}"
 SIMULATION="${SIMULATION:-$DEFAULT_SIMULATION}"
 export MODEL SIMULATION
@@ -79,32 +80,8 @@ CFLAGS="-Wall -Wextra -I. -I${SRC_DIR} -I${SRC_DIR}/include -I${SRC_DIR}/include
 CFLAGS="${CFLAGS} -DMIMIC_TEST_BUILD"
 LDFLAGS="-lm ${YAML_LDFLAGS}"
 
-HDF5_AVAILABLE=0
-HDF5_CFLAGS=""
-HDF5_LDFLAGS=""
-if pkg-config --exists hdf5 2>/dev/null; then
-    HDF5_AVAILABLE=1
-    HDF5_CFLAGS="$(pkg-config --cflags hdf5 2>/dev/null)"
-    HDF5_LDFLAGS="$(pkg-config --libs-only-L hdf5 2>/dev/null) -lhdf5_hl $(pkg-config --libs-only-l hdf5 2>/dev/null)"
-else
-    BREW_HDF5="$(command -v brew >/dev/null 2>&1 && brew --prefix hdf5 2>/dev/null || true)"
-    if [ -n "$BREW_HDF5" ] && [ -f "$BREW_HDF5/include/hdf5.h" ]; then
-        HDF5_AVAILABLE=1
-        HDF5_CFLAGS="-I${BREW_HDF5}/include"
-        HDF5_LDFLAGS="-L${BREW_HDF5}/lib -lhdf5_hl -lhdf5"
-    elif [ -f /usr/include/hdf5.h ]; then
-        HDF5_AVAILABLE=1
-        HDF5_LDFLAGS="-lhdf5_hl -lhdf5"
-    elif [ -f /usr/include/hdf5/serial/hdf5.h ]; then
-        HDF5_AVAILABLE=1
-        HDF5_CFLAGS="-I/usr/include/hdf5/serial"
-        HDF5_LDFLAGS="-L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5_hl -lhdf5"
-    elif [ -f /usr/local/include/hdf5.h ]; then
-        HDF5_AVAILABLE=1
-        HDF5_CFLAGS="-I/usr/local/include"
-        HDF5_LDFLAGS="-L/usr/local/lib -lhdf5_hl -lhdf5"
-    fi
-fi
+# HDF5 detection is shared with tests/unit/run_tests.sh (scripts/lib/hdf5.sh).
+detect_hdf5
 if [ "$HDF5_AVAILABLE" = "1" ]; then
     LDFLAGS="${LDFLAGS} ${HDF5_LDFLAGS}"
 fi
