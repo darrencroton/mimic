@@ -365,19 +365,30 @@ Mimic separates the on-disk reader format from the processing driver. The input 
 | `lhalo_hdf5` | LHaloTree HDF5 (per-tree `tree_NNN/<field>` groups) | HDF5 build |
 | `consistent_trees_ascii` | Consistent-Trees / Rockstar ASCII (`forests.list` + `locations.dat` + `tree_i_j_k.dat`) | any |
 | `consistent_trees_hdf5` | Consistent-Trees forests-HDF5 (uchuutools) | HDF5 build |
+| `snapshot_hdf5` | Snapshot-ordered HDF5, one `snapshot_NNN.h5` file per snapshot | HDF5 build |
 
 The HDF5-based readers are only available when Mimic is built with HDF5 (the default; see [Build Options](#build-options)). Selecting one in a `USE-HDF5=no` build stops with a clear configuration error.
 
-`input.tree_name` is reader-specific. `lhalo_binary` is the prefix before the numbered file suffix (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` are literal filenames under `input.simulation_dir`, including any extension. `lhalo_hdf5` uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder, for example `trees_063.%d.hdf5`.
+The first four formats are forest-ordered and feed the tree-ordered driver. `snapshot_hdf5` is the one snapshot-ordered format, read by a separate reader family; its on-disk contract is `docs/dev/SNAPSHOT-HDF5-FORMAT.md`, and the `micro-uchuu-snapshot` package is the shipped example. Its driver is not implemented yet, so such a run validates its input completely and then stops (see `input.processing_order` below).
+
+`input.tree_name` is reader-specific — each reader decides what the value means, so it is not a general filename pattern. `lhalo_binary` is the prefix before the numbered file suffix (`tree_name.<file_number>`). `consistent_trees_ascii` and `consistent_trees_hdf5` are literal filenames under `input.simulation_dir`, including any extension. `lhalo_hdf5` uses explicit HDF5 filenames: for one file, set `tree_name` to that filename; for multiple files, include a `%d` file-number placeholder, for example `trees_063.%d.hdf5`. `snapshot_hdf5` fixes its filename convention in the format itself and therefore accepts exactly the literal `snapshot_%03d.h5` — any other value, including `snapshot_%d.h5`, is rejected at startup with a message naming the accepted literal.
 
 The `consistent_trees_hdf5` reader keeps memory bounded while reducing HDF5 call overhead: it caches chunk-range `ForestInfo`, keeps per-file field handles open for the partition lifetime, and reads normal forests through a fixed 128 MiB per-rank slab window. This is an internal reader detail, not a run-YAML option.
 
-The processing driver is selected separately with `input.processing_order`. It defaults to `tree_ordered`, so existing run files and simulation packages do not need to set it. `snapshot_ordered` is a recognized future value, but Mimic v1.0 fails fast with a clear not-implemented error because the snapshot-ordered driver is not available yet.
+The processing driver is selected separately with `input.processing_order`. It defaults to `tree_ordered`, so existing run files and simulation packages do not need to set it. The other accepted value is `snapshot_ordered`. Startup validation checks the two keys against each other: every reader declares the one driver it feeds, and a mismatched pair — say `snapshot_hdf5` with `tree_ordered`, or `consistent_trees_ascii` with `snapshot_ordered` — is a configuration error naming both. A correctly paired `snapshot_ordered` run now parses, validates, and opens and checks its input dataset in full, then fails with a clear not-implemented error at the driver, because the snapshot-ordered driver is not available yet.
 
 ```yaml
 input:
   tree_type: lhalo_binary          # reader format
   processing_order: tree_ordered   # processing driver; optional default
+```
+
+**`simulation.unique_galaxy_id_multiplier`** sets the forest multiplier in the galaxy identity encoding `UniqueGalaxyID = halonr + multiplier × (forestnr_global + 1)`. It is optional, must be positive, and defaults to the compile-time `TREE_MUL_FAC` (10⁹, in `src/include/constants.h`). It belongs with the catalogue in `simulations/<name>/simulation_info.yaml` and may be overridden in a run file; a value declared in the package survives a run file that omits the key. Raising it is how a catalogue whose largest forest holds ≥10⁹ halos stays encodable. **A non-default value is currently accepted only for snapshot-ordered configurations.** The tree-ordered identity encoder is still hard-coded to `TREE_MUL_FAC`, so a tree-ordered run declaring anything else is rejected at startup rather than silently writing ids computed from the compile-time constant. Snapshot-ordered runs additionally have the value checked against the dataset's own recorded bounds when the input is opened.
+
+```yaml
+simulation:
+  name: micro-uchuu-snapshot
+  unique_galaxy_id_multiplier: 1000000000   # optional; default TREE_MUL_FAC (10^9)
 ```
 
 The two Consistent-Trees readers enumerate output chunks from forest ranges, then assign those chunks across MPI tasks. Output file ids are chunk ids, independent of `NTask`, so serial and MPI runs produce the same chunk layout. Two optional `input` keys tune HDF5 chunk-cost estimation; both are ignored by the L-Halo readers, and `forest_distribution_scheme` is honoured only by `consistent_trees_hdf5` (the ASCII reader cannot know per-forest halo counts before loading, so its chunk costs are uniform):

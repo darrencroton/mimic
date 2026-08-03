@@ -28,6 +28,7 @@ SKIP_DIRS = {
     ".claude",
     ".orchestrator",
     ".ai-orchestrator",
+    ".pm",
     "archive",
     "build",
     "mimic_venv",

@@ -24,7 +24,7 @@ Do NOT use for:
 3. Always pass both selectors for the run you intend to test. Creating or editing a package does nothing until the executable is regenerated with that selector pair, e.g. `make MODEL=halos-only SIMULATION=<name> generate && make MODEL=halos-only SIMULATION=<name>`.
 4. Smoke-test cheaply before physics: run the `halos-only` model on the package first (`make MODEL=halos-only SIMULATION=<name>` + the matching run file) — the package READMEs prescribe this.
 
-## 1. Package anatomy and the shipped seven
+## 1. Package anatomy and the shipped eight
 
 Required files: `simulation_info.yaml` (paths, cosmology, units, chunking defaults), `halo_properties.yaml` (the on-disk record — see section 3), `<name>.a_list`. Conventional: `snapshots/` (data dir or symlink), `plot_profile.yaml`, `README.md`, `_tests/`.
 
@@ -37,8 +37,11 @@ Required files: `simulation_info.yaml` (paths, cosmology, units, chunking defaul
 | micro-uchuu-ascii | consistent_trees_ascii | 0–0 | `tree_0_0_0.dat` | 100.0 | Uchuu |
 | mini-uchuu | lhalo_binary | 0–127 | `Uchuu400_Planck_lhalo_binary` | 400.0 | Uchuu |
 | uchuu | consistent_trees_hdf5 | 0–1999 | `mergertree_info.h5` | 2000.0 | Uchuu |
+| micro-uchuu-snapshot | snapshot_hdf5 | 0–0 | `snapshot_%03d.h5` | 100.0 | Uchuu |
 
 (Units: mp in 1e10 Msun/h. For ASCII, first/last_file are metadata-only; the reader follows `forests.list`/`locations.dat`.)
+
+`micro-uchuu-snapshot` is the odd one out: the same micro-Uchuu catalog converted to the snapshot-ordered HDF5 format (`docs/dev/SNAPSHOT-HDF5-FORMAT.md`), so it is the only package declaring `input.processing_order: snapshot_ordered` and the only one whose `tree_name` is a format-fixed literal rather than a name the user chooses. Its first/last_file are metadata only — the reader derives its file set from the snapshot list. It ships small re-chunked fixtures under `_tests/data/` plus a committed generator and conformance checker under `_tests/input/`; the full 50-snapshot dataset is a machine-local gitignored `snapshots` symlink. It cannot run a model yet (no snapshot driver), so it is deliberately absent from `scripts/discovery.py`'s `FULL_MODEL_TEST_SIMULATIONS` and `PRODUCTION_TEST_CONFIG_SIMULATIONS`, and it also declares `simulation.unique_galaxy_id_multiplier` — see the `mimic-config-and-flags` skill.
 
 **The a_list contract**: one scale factor per line, earliest→latest (increasing a, decreasing z); the line count defines snapshot indices 0..N-1; the last line is normally a=1.0 (z=0). All redshift and timestep math derives from this file — ordering is critical.
 
@@ -70,7 +73,15 @@ Registered readers (`reader_table[]` in `src/io/tree/registry.c`; case-insensiti
 
 Note: `lhalo_hdf5` is registered and documented but no shipped package currently uses it.
 
-`tree_name` interpretation is reader-specific: prefix before the file number for `lhalo_binary` (`trees_063.0`); literal filename for both ctrees readers; explicit filename or `%d` pattern for `lhalo_hdf5`. `input.tree_type` selects the FORMAT; `input.processing_order` selects the DRIVER (default `tree_ordered`; `snapshot_ordered` parses but fails fast in v1.0) — never overload one with the other.
+There is a **second registry** for snapshot-ordered readers (`snapshot_reader_table[]` in `src/io/snapshot/registry.c`, same case-insensitive lookup by `tree_type`, names disjoint from the tree registry):
+
+| tree_type | File | Shape | Build |
+|---|---|---|---|
+| `snapshot_hdf5` | `src/io/snapshot/read_snapshot_hdf5.c` | run open/close + per-snapshot slabs (no partitions) | HDF5 only |
+
+`tree_name` interpretation is reader-specific: prefix before the file number for `lhalo_binary` (`trees_063.0`); literal filename for both ctrees readers; explicit filename or `%d` pattern for `lhalo_hdf5`; and for `snapshot_hdf5` exactly the literal `snapshot_%03d.h5` — the format fixes the convention, so any other value is a startup error.
+
+`input.tree_type` selects the FORMAT; `input.processing_order` selects the DRIVER (default `tree_ordered`) — never overload one with the other. Both registries are consulted for one `tree_type`, and every reader declares the single driver it feeds, so startup validation rejects a mismatched pair in either direction. A snapshot reader now exists, so `snapshot_ordered` no longer fails at configuration: a `snapshot_hdf5` + `snapshot_ordered` run parses, validates, and opens and fully checks its dataset, then fails at exactly one place — `run_processing_driver()` in `src/core/tree_driver.c` — because the snapshot driver itself is Phase 5 work. Distinguish the two rejections by whether the output also contains "Parameter validation failed".
 
 **Partition models**: a partition is the unit of output (one output file set per partition, named by its output id); a unit is one independently processed tree/forest. `PARTITION_PER_FILE` = one partition per input file, output id = file number (L-Halo readers). `PARTITION_ENUMERATED` = the reader publishes a deterministic chunk list with costs; the driver assigns chunks to MPI ranks but output ids stay the reader's chunk ids, independent of task count (ctrees readers). Where the model is observed outside readers (unique-ID offsets, offset scan, HDF5 master file): `mimic-architecture-contract`.
 
@@ -101,12 +112,26 @@ Two keys, legal in both `simulation_info.yaml` (as catalog-scale defaults) and t
 5. Keep it warning-clean under the project flags and exercise it from `tests/unit/` (HDF5 reader sources compile in the unit harness when dev libs exist); validate end-to-end against a fixture package.
 6. No run-YAML changes are needed beyond `tree_type` for a tree-ordered format.
 
+## 8. Adding a snapshot reader (different family, different vtable)
+
+Snapshot-ordered readers are a separate family with their own small vtable — `struct SnapshotReader` in `src/io/snapshot/reader.h`: `name`, `processing_order`, and the hooks `open_run`, `close_run`, `snapshot_halo_count`, `load_slab`, `release_slab`. There are no partitions and no units; the working set is one snapshot's halo population (a *slab* of `struct RawHalo`, `int64_t` counts throughout). Do NOT widen `struct TreeReader` — its 12 hooks are partition/unit-shaped and its `REQUIRE_READER_HOOK` fail-fast would be defeated by two disjoint hook sets.
+
+1. Implement one `const struct SnapshotReader` in `src/io/snapshot/read_<format>.c`. **Filename rule (footgun):** an HDF5-dependent reader file *must* end in `hdf5.c` (`Makefile` drops that pattern from `USE-HDF5=no` builds), while `registry.c` and `interface.c` must *not*, because the configuration path calls `snapshot_reader_lookup()` in every build.
+2. Append one row to `snapshot_reader_table[]` in `src/io/snapshot/registry.c`, `#ifdef HDF5`-guarding both the `extern` and the row when needed; a non-HDF5 build then registers nothing and the lookup returns `NULL`. Keep the name disjoint from the tree registry.
+3. Validate the whole dataset at `open_run` — structure first, then header values, then agreement with the a_list, then measured identity bounds via bounded hyperslab scans — and abort with path, object, and value rather than repairing. Fill slabs by including the generated `read_tree_hdf5_properties.inc` under your own macros; no generator change is needed.
+4. Honour the slab lifecycle: `load_slab` requires an empty destination handle, `release_slab` returns it to empty and is a no-op when already empty, `close_run` aborts if a slab is still loaded.
+5. Ship a fixture package with committed small fixtures and C unit tests under `simulations/<name>/_tests/unit/` (`micro-uchuu-snapshot` is the worked reference), and register new sources in the three hand-maintained lists in `tests/unit/run_tests.sh`.
+
+Full walkthrough, including what `open_run` checks and the identity multiplier: `docs/DEVELOPER-GUIDE.md` → "Snapshot-ordered readers".
+
 ## Provenance and maintenance
 
-Verified against the live repo 2026-07-04. Re-verify drift-prone specifics:
+Verified against the live repo 2026-07-04; the snapshot-reader material added 2026-08-04. Re-verify drift-prone specifics:
 
 ```bash
-sed -n '16,31p' src/io/tree/registry.c                                  # registered readers
+sed -n '16,31p' src/io/tree/registry.c                                  # registered tree readers
+grep -n "snapshot_reader_table\|\.name = " src/io/snapshot/registry.c src/io/snapshot/read_snapshot_hdf5.c   # snapshot registry
+sed -n '/^struct SnapshotReader {/,/^};/p' src/io/snapshot/reader.h      # the snapshot vtable
 grep -n "CTREES_READ_WINDOW_BYTES" src/io/tree/read_ctrees_hdf5.c        # 128 MiB window
 grep -n "forests_per_file > 0" src/io/tree/read_ctrees_ascii.c           # ASCII requirement
 grep -n "bridge_halo_data_to_rawhalo" src/io/tree/read_ctrees_*.c        # shared bridge

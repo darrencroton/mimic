@@ -21,7 +21,7 @@ All numeric scalars use strict parsers (`get_strict_int_value`, `get_strict_int6
 |---|---|---|
 | `model.name` | string | Required. Derives `models/<name>/` and `models/<name>/model_properties.yaml`. Validation: must equal the compiled-in `MIMIC_COMPILED_MODEL` or startup errors with "Run file selects model.name='X' but this executable was built with MODEL=Y" |
 
-## `simulation:` section — valid keys: `name`, `config`, `cosmology`, `box_size`, `particle_mass`
+## `simulation:` section — valid keys: `name`, `config`, `cosmology`, `box_size`, `particle_mass`, `unique_galaxy_id_multiplier`
 
 | Key | Type | Behavior |
 |---|---|---|
@@ -30,6 +30,7 @@ All numeric scalars use strict parsers (`get_strict_int_value`, `get_strict_int6
 | `simulation.cosmology` | mapping | Sub-whitelist: `omega_matter`, `omega_lambda`, `hubble_h` (all strict doubles → `MimicConfig.Omega`, `OmegaLambda`, `Hubble_h`). `hubble_h` is required non-zero |
 | `simulation.box_size` | unit scalar | Reference label `Mpc/h`. Required non-zero |
 | `simulation.particle_mass` | unit scalar | Reference label `1e10 Msun/h` |
+| `simulation.unique_galaxy_id_multiplier` | int64 > 0 | Optional. Forest multiplier in `UniqueGalaxyID = halonr + multiplier × (forestnr_global + 1)`. **Default: `TREE_MUL_FAC`** (10⁹, `src/include/constants.h`), seeded once before either parser pass, so the parser assigns only when the key is present — a `simulation_info.yaml` value survives a run file that omits it, and a run-file value wins. Zero or negative is fatal at parse time. **A non-default value is currently accepted only for snapshot-ordered configurations:** every helper in `src/include/galaxy_id.h` is hard-coded to `TREE_MUL_FAC`, so a tree-ordered configuration declaring anything else is rejected by `validate_and_postprocess` instead of silently encoding ids from the compile-time constant. Snapshot readers additionally bounds-check it against the dataset headers at `open_run` (`snapshot_identity_bounds_valid`) |
 
 **Unit scalar form** (`get_unit_scalar_value`): a bare number is taken as already in the reference units. A mapping form accepts ONLY `value`, `units`, `h_convention` (unknown keys fatal); `value` and `units` are required; `h_convention` defaults to the unit label's own convention from the generated unit registry and must be one of `carried`, `free`, `none`. Conversion = cgs ratio × h-convention correction (`× Hubble_h` when converting into `carried`, `÷` when out of it); converting between `none` and an h-dependent convention is fatal.
 
@@ -38,9 +39,9 @@ All numeric scalars use strict parsers (`get_strict_int_value`, `get_strict_int6
 | Key | Type | Behavior |
 |---|---|---|
 | `first_file` / `last_file` | int | Tree-file number range to process (split across MPI tasks when built with `USE-MPI`) |
-| `tree_name` | string | Required. Tree filename base; reader appends its extension |
-| `tree_type` | string | Required. Looked up in the reader registry at parse time; unknown → FATAL naming `src/io/tree/registry.c` and reminding that HDF5 types need an HDF5-enabled build. Registered names (from `.name =` in `src/io/tree/*.c`): `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, `consistent_trees_hdf5` |
-| `processing_order` | string | Case-insensitive `tree_ordered` (default) or `snapshot_ordered`; anything else fatal. `snapshot_ordered` passes parsing but `validate_and_postprocess` errors "The snapshot-ordered driver is not implemented yet". Also validated: the chosen reader's declared `processing_order` must match |
+| `tree_name` | string | Required unconditionally, but its **meaning is reader-specific** — it is not a general filename pattern. `lhalo_binary`: filename base before the file-number suffix, with the reader's extension appended. Both ctrees readers: a literal filename under `simulation_dir`. `lhalo_hdf5`: an explicit filename, optionally with a `%d` file-number placeholder. `snapshot_hdf5`: a *declaration of the format's fixed convention* — accepted only as the exact literal `snapshot_%03d.h5` (`SNAPSHOT_READER_TREE_NAME`, `src/io/snapshot/reader.h`), every other value rejected by `validate_and_postprocess` with a message naming the literal. The reader builds paths from a fixed internal format string; configured text is never used as a `printf` format |
+| `tree_type` | string | Required. Resolved at parse time against **two** registries: `tree_reader_lookup()` (`src/io/tree/registry.c`) first, then `snapshot_reader_lookup()` (`src/io/snapshot/registry.c`). The name sets are disjoint, so the order fixes only which registry answers first. Unknown → FATAL naming both registries and reminding that HDF5 types need an HDF5-enabled build. Exactly one of `MimicConfig.reader` / `MimicConfig.snapshot_reader` is left non-NULL; `TreeExtension` is set only for tree readers. Registered names: forest-ordered `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, `consistent_trees_hdf5`; snapshot-ordered `snapshot_hdf5` |
+| `processing_order` | string | Case-insensitive `tree_ordered` (default) or `snapshot_ordered`; anything else fatal. Validated against the resolved reader's own declared `processing_order`, whichever registry answered it, so a mismatched reader/order pair is a config error. A correctly paired `snapshot_ordered` configuration now validates cleanly and fails later at `run_processing_driver()` (`src/core/tree_driver.c`) with "The snapshot-ordered driver is not implemented yet" — distinguishable from a config rejection by the absence of "Parameter validation failed" |
 | `simulation_dir` | string | Required. Directory containing the tree files |
 | `snapshot_list_file` | string | Required. Path to the `.a_list` scale-factor file; line count defines `MAXSNAPS` |
 | `max_tree_depth` | int | Default 500 (seeded in `parse_cli`). Recursion guard for `build_halo_tree` |
@@ -88,7 +89,7 @@ Unknown keys here get a dedicated fatal: `Unknown key 'modules.<key>'; supported
 | Axis | simulation_info.yaml (defaults) | Run file (overrides) |
 |---|---|---|
 | `input.*` (all ten keys) | yes — typical home for tree_name, tree_type, simulation_dir, snapshot_list_file, file range | yes — any key can be overridden |
-| `simulation.cosmology`, `box_size`, `particle_mass` | yes — canonical home | yes, but overriding catalog physics is almost always wrong |
+| `simulation.cosmology`, `box_size`, `particle_mass`, `unique_galaxy_id_multiplier` | yes — canonical home | yes, but overriding catalog physics is almost always wrong |
 | `output.target_file_size_mb`, `forests_per_file` | yes (the ONLY output keys allowed) | yes |
 | `output.output_filename/directory/format/snapshot_list` | NO — fatal if present | run-file only |
 | `model.*`, `plotting.*`, `SubSteps`, `TimestepScheme`, `MaxDynamicSubsteps`, `modules.*` | not parsed from simulation config | run-file only |

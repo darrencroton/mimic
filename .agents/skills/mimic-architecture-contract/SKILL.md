@@ -121,8 +121,10 @@ Two ownership facts are load-bearing and non-obvious:
 
 Readers and drivers are deliberately independent axes:
 
-- **Reader** (`input.tree_type`): how trees are stored on disk. Implemented behind the `struct TreeReader` vtable in `src/io/tree/reader.h`; registered in `src/io/tree/registry.c` (`lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, `consistent_trees_hdf5`). Each declares a partition model: `PARTITION_PER_FILE` (work unit = input file) or `PARTITION_ENUMERATED` (reader enumerates forests as work units).
-- **Driver** (`input.processing_order`): the order halos are processed. `tree_ordered` is the shipped driver (`run_processing_driver` in src/core/tree_driver.c); `snapshot_ordered` is reserved (weak point W1).
+- **Reader** (`input.tree_type`): how trees are stored on disk. Forest-ordered formats sit behind the `struct TreeReader` vtable in `src/io/tree/reader.h` (12 function-pointer hooks), registered in `src/io/tree/registry.c` (`lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, `consistent_trees_hdf5`). Each declares a partition model: `PARTITION_PER_FILE` (work unit = input file) or `PARTITION_ENUMERATED` (reader enumerates forests as work units).
+- **Snapshot readers are a second family, behind a second registry.** `struct SnapshotReader` (`src/io/snapshot/reader.h`) is a separate small vtable — `open_run`, `close_run`, `snapshot_halo_count`, `load_slab`, `release_slab` — registered in `src/io/snapshot/registry.c` (`snapshot_hdf5`). It is deliberately NOT a widening of `struct TreeReader`: the tree hooks are partition/unit-shaped, and two disjoint hook sets in one struct would defeat the `REQUIRE_READER_HOOK` fail-fast. Snapshot readers have no partitions and no units; the working set is one snapshot's slab, with `int64_t` counts throughout.
+- **One key, two registries.** `input.tree_type` still resolves at a single site (`parse_input_section`, `src/core/read_parameter_file.c`), which tries `tree_reader_lookup()` and then `snapshot_reader_lookup()`. The name sets are disjoint, so the order fixes only which registry answers first. Exactly one of `MimicConfig.reader` / `MimicConfig.snapshot_reader` is non-`NULL` afterwards, and `TreeExtension` is set only for tree readers — so `MimicConfig.reader` is legitimately `NULL` for a snapshot configuration. Do not add a third resolution site, and do not resolve on `processing_order`.
+- **Driver** (`input.processing_order`): the order halos are processed. `tree_ordered` is the shipped driver (`run_processing_driver` in src/core/tree_driver.c); `snapshot_ordered` resolves and validates but has no driver (weak point W1). Startup validation compares the resolved reader's declared `processing_order` against the configured one, whichever registry answered.
 
 Only three points outside a reader observe partitioning, and any new reader or driver must satisfy exactly these and nothing more: (1) the unique-ID forest offsets (global forest numbering feeding `UniqueGalaxyID`), (2) the per-file work-unit count scan used for file distribution, (3) the HDF5 master file's external-link layout. Everything else must go through the vtable.
 
@@ -134,8 +136,8 @@ For adding a reader or simulation package, see the `mimic-simulations-and-reader
 
 Stated plainly so you neither trip over them nor "fix" them casually. None of these is an invitation to a drive-by fix — structural changes go through section 7.
 
-- **W1 — `snapshot_ordered` parses but fails fast.** `input.processing_order: snapshot_ordered` is accepted by the parser and then FATALs ("not implemented yet"). There is no snapshot driver in v1.0; the fast-fail is deliberate (principle 7), not a bug.
-- **W2 — `UniqueGalaxyID` overflows at super-forest scale.** The fixed `TREE_MUL_FAC = 1e9` multiplier fails when a forest holds ≥1e9 halos (Shin-Uchuu-class inputs). Recorded decision: a per-simulation multiplier — planned, see `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`. Do not invent a different ID scheme ad hoc.
+- **W1 — `snapshot_ordered` has a reader but no driver.** The input half now exists and is validated: `snapshot_hdf5` is registered behind `struct SnapshotReader`, and a `snapshot_hdf5` + `snapshot_ordered` configuration parses, passes validation, and opens and fully checks its dataset (structure, headers, exact `scale_factor` agreement with the a_list, measured identity bounds, link ranges at slab load). It then FATALs at exactly one place — `run_processing_driver()` in `src/core/tree_driver.c`, "not implemented yet" — because the snapshot driver is still unwritten. The fast-fail is deliberate (principle 7), not a bug, and its single location is a contract: do not add a second not-implemented point. Consequences to respect until the driver lands: the HDF5 output writers (`src/io/output/master_hdf5.c`, `metadata_hdf5.c`) still dereference `MimicConfig.reader` unguarded, reachable only past that FATAL, and must be made reader-kind-neutral as one change with the driver.
+- **W2 — `UniqueGalaxyID` overflows at super-forest scale.** The fixed `TREE_MUL_FAC = 1e9` multiplier fails when a forest holds ≥1e9 halos (Shin-Uchuu-class inputs). Half-landed: `simulation.unique_galaxy_id_multiplier` is parsed and stored (`MimicConfig.UniqueGalaxyIDMultiplier`, default `TREE_MUL_FAC`), and a snapshot reader bounds-checks it against the dataset headers at `open_run`. But every helper in `src/include/galaxy_id.h` is still hard-coded to `TREE_MUL_FAC`, so a tree-ordered configuration declaring a non-default value is rejected at startup rather than silently misencoding. Replacing the encoder is planned — see `docs/dev/MIMIC-DEVELOPMENT-PATHWAY.md`. Do not invent a different ID scheme ad hoc.
 - **W3 — `lhalo_hdf5` reader is registered but unused.** No shipped simulation package selects it; it has less real-world exercise than the other three readers. Treat it as less battle-tested.
 - **W4 — Stale legacy generated files.** A few files under generated directories are written by NO current generator (`init_halo_properties.inc`, `init_galaxy_properties.inc`, `reset_galaxy_properties.inc`, `tests/generated/module_sources.mk`), and the Makefile's `GENERATED_HEADERS` still names two of them. Removing them is a real cleanup but must be done deliberately (Makefile + generator + check-generated together), not in passing. See the `mimic-properties` skill.
 - **W5 — Doc wording on accumulator reset.** `docs/DEVELOPER-GUIDE.md` says `init_repeat` fields reset "each substep"; the code resets once per snapshot at inheritance. Code is truth (section 3, last row).
@@ -148,7 +150,7 @@ Any change that alters this contract — a new driver, a new dispatch mode, a ne
 
 ## Provenance and maintenance
 
-Written 2026-07-04 against Mimic v1.0 (tagged 2026-06-29). The principles and invariants are durable; the function names and weak points can drift. Re-verify before relying on specifics:
+Written 2026-07-04 against Mimic v1.0 (tagged 2026-06-29); the reader/driver seam and weak points W1–W2 updated 2026-08-04 when the snapshot reader landed. The principles and invariants are durable; the function names and weak points can drift. Re-verify before relying on specifics:
 
 ```bash
 # Data-flow function names still exist where stated
@@ -162,8 +164,11 @@ grep -rn "TREE_MUL_FAC" src/
 # Reader vtable and partition models
 grep -n "PARTITION_PER_FILE\|PARTITION_ENUMERATED" src/io/tree/reader.h src/io/tree/registry.c
 
-# snapshot_ordered still fails fast (weak point W1)
-grep -rn "snapshot_ordered" src/core/
+# snapshot_ordered still fails fast at the driver, and only there (weak point W1)
+grep -rn "snapshot_ordered\|not implemented yet" src/core/
+# The second reader family and the two-registry resolution
+sed -n '/^struct SnapshotReader {/,/^};/p' src/io/snapshot/reader.h
+grep -n "tree_reader_lookup\|snapshot_reader_lookup" src/core/read_parameter_file.c
 
 # Stale generated files still present (weak point W4)
 grep -n "GENERATED_HEADERS" Makefile

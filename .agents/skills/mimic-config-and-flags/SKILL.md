@@ -100,11 +100,12 @@ Summary table; full per-key semantics, parse behavior, and the simulation_info-v
 | `simulation.cosmology.hubble_h` | double | sim pkg | little-h |
 | `simulation.box_size` | unit scalar | sim pkg | `{value, units, h_convention}` map or bare number |
 | `simulation.particle_mass` | unit scalar | sim pkg | same form as box_size |
+| `simulation.unique_galaxy_id_multiplier` | int64 > 0 | `TREE_MUL_FAC` (10⁹) | Forest multiplier for `UniqueGalaxyID`. Sim-legal and the canonical home; a package value survives a run file that omits the key. **A non-default value is currently accepted only for snapshot-ordered configurations** — the tree-ordered encoder in `src/include/galaxy_id.h` is still hard-coded to `TREE_MUL_FAC`, so a tree-ordered run declaring anything else is rejected at startup |
 | `input.first_file` | int | sim pkg | First tree-file number to process |
 | `input.last_file` | int | sim pkg | Last tree-file number |
-| `input.tree_name` | string | sim pkg | Tree filename base |
-| `input.tree_type` | string | sim pkg | On-disk reader format (registered readers: `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, `consistent_trees_hdf5`) |
-| `input.processing_order` | string | `tree_ordered` | `snapshot_ordered` parses but FATALs "not implemented yet" (v1.0). Never overload `tree_type` with ordering meaning |
+| `input.tree_name` | string | sim pkg | Reader-specific meaning, not a general pattern: filename base for `lhalo_binary`, a literal filename for the ctrees readers, an explicit name or `%d` pattern for `lhalo_hdf5`, and for `snapshot_hdf5` exactly the literal `snapshot_%03d.h5` (anything else rejected at startup) |
+| `input.tree_type` | string | sim pkg | On-disk reader format, resolved against two registries — forest-ordered (`src/io/tree/registry.c`): `lhalo_binary`, `lhalo_hdf5`, `consistent_trees_ascii`, `consistent_trees_hdf5`; snapshot-ordered (`src/io/snapshot/registry.c`): `snapshot_hdf5`. Names are disjoint across the two |
+| `input.processing_order` | string | `tree_ordered` | `tree_ordered` or `snapshot_ordered`, validated against the resolved reader's declared order. A correctly paired `snapshot_ordered` run validates fully, then FATALs "not implemented yet" at the driver. Never overload `tree_type` with ordering meaning |
 | `input.simulation_dir` | string | sim pkg | Directory holding the tree files |
 | `input.snapshot_list_file` | string | sim pkg | Path to the `.a_list` scale-factor file |
 | `input.max_tree_depth` | int | 500 | Recursion guard for `build_halo_tree` |
@@ -186,8 +187,10 @@ grep -n "SubSteps\|TimestepScheme\|MaxDynamicSubsteps" src/core/read_parameter_f
 ls models/*/parameter_units.yaml
 # Environment variables
 grep -rn "MIMIC_BASELINE_RTOL" tests/framework/harness.py; grep -n "NO_COLOR" scripts/console.py scripts/lib/colors.sh
-# Registered tree reader names (the valid input.tree_type values)
-grep -n "\.name = " src/io/tree/*.c
+# Registered reader names (the valid input.tree_type values), both registries
+grep -n "\.name = " src/io/tree/*.c src/io/snapshot/*.c
+# The identity multiplier: whitelist entry, parse, default seeding, tree-ordered rejection
+grep -n "unique_galaxy_id_multiplier\|UniqueGalaxyIDMultiplier" src/core/read_parameter_file.c src/include/types.h
 ```
 
 If a `valid_keys[]` array and the tables here disagree, the code wins — update this skill and `references/all-config-keys.md`.
