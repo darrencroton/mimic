@@ -16,6 +16,11 @@
 # Exit codes: 0 success, 1 build/link failure, 2 precondition failure
 ###############################################################################
 
+# CFLAGS/LDFLAGS are space-separated strings that must word-split into separate
+# argv entries at each $CC invocation; quoting them would break the build. The
+# splitting is deliberate, so shellcheck's quoting advice does not apply.
+# shellcheck disable=SC2086,SC2089,SC2090
+
 set -o pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"

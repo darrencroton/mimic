@@ -107,7 +107,7 @@ deactivate
 
 ### Command-Line Options
 
-```
+```text
 --param-file=<file>    Mimic parameter file (required)
 --first-file=<num>     First file to read [default: 0]
 --last-file=<num>      Last file to read [default: use LastFile from param file]

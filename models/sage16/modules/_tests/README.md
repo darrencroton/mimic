@@ -194,7 +194,7 @@ Tests are discovered via `make MODEL=sage16 generate`, which:
 
 ## Directory Structure
 
-```
+```text
 models/sage16/modules/
 ├── _tests/                          # This directory
 │   ├── README.md                    # This file

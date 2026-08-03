@@ -23,7 +23,9 @@
 ###############################################################################
 
 # Detect HDF5 and set HDF5_AVAILABLE (0/1), HDF5_CFLAGS, HDF5_LDFLAGS in the
-# caller's shell scope.
+# caller's shell scope. Those three are read by the sourcing script rather than
+# by this file, so shellcheck cannot see their uses.
+# shellcheck disable=SC2034
 detect_hdf5() {
     HDF5_AVAILABLE=0
     HDF5_CFLAGS=""

@@ -96,6 +96,8 @@ error_exit() {
     exit 1
 }
 
+# Invoked indirectly by the EXIT trap below, which shellcheck cannot see.
+# shellcheck disable=SC2329
 cleanup_temp_files() {
     if [[ -n "${TEMP_PARAM_DIR}" && -d "${TEMP_PARAM_DIR}" ]]; then
         rm -rf "${TEMP_PARAM_DIR}"
@@ -431,6 +433,9 @@ verbose_log "Cleaning previous build..."
 make clean > /dev/null 2>&1 || true
 
 verbose_log "Building Mimic with flags: ${MAKE_FLAGS}${EXTRA_CFLAGS:+ EXTRA_CFLAGS=${EXTRA_CFLAGS}}"
+# Word splitting is deliberate: -j takes the bare core count, and MAKE_FLAGS
+# holds a multi-word flag list that must expand into separate argv entries.
+# shellcheck disable=SC2046,SC2086
 make MODEL="${SELECTED_MODEL}" SIMULATION="${SELECTED_SIMULATION}" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} ${EXTRA_CFLAGS:+EXTRA_CFLAGS="${EXTRA_CFLAGS}"} || error_exit "Build failed"
 
 echo "Build successful."
@@ -465,7 +470,7 @@ echo "Running Mimic benchmark..."
 cd "${ROOT_DIR}" || error_exit "Could not change to root directory"
 
 # Get number of MPI processes for later use
-NUM_MIMIC_PROCS=$(echo ${MPI_RUN_COMMAND} | awk '{print $NF}')
+NUM_MIMIC_PROCS=$(echo "${MPI_RUN_COMMAND}" | awk '{print $NF}')
 if [[ -z "${NUM_MIMIC_PROCS}" ]]; then
    NUM_MIMIC_PROCS=1
 fi
@@ -654,6 +659,7 @@ cat > "${ROOT_DIR}/benchmarks/${BENCHMARK_RESULTS}" << EOF
     "hw_model": "$(sysctl -n hw.model 2>/dev/null || echo 'unknown')",
     "platform": "${SYSTEM_PLATFORM}",
     "architecture": "${SYSTEM_ARCH}",
+    "kernel_release": "${KERNEL_RELEASE}",
     "kernel_version": "${KERNEL_VERSION}",
     "os_version": "${OS_VERSION}",
     "cpu_count": "$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 'unknown')"

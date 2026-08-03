@@ -2,7 +2,7 @@
 
 ## Layout
 
-```
+```text
 tests/data/
 ├── test_simulation.yaml       Shared test-sized mini-Millennium recipe used by
 │                              generated test run files (single tree file)

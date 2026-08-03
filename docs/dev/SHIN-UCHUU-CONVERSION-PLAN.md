@@ -40,7 +40,7 @@ Both problems are structural consequences of forest-ordered processing and both 
 
 One HDF5 file per snapshot, named `snapshot_000.h5` through `snapshot_069.h5` (per-snapshot files are decided, not open: partial recovery, per-snapshot parallelism, and the driver's access pattern all favour them). All topology links are snapshot-local integer indices (no global IDs). Scalar metadata lives in HDF5 **attributes** on the `/header` group. **Field names and types on disk must match what `simulations/shin-uchuu/halo_properties.yaml` declares**, so the generated `RawHalo`/accessors consume the file directly; the names below already match the existing `micro-uchuu-ascii` bridge contract (`M_Crit200`→`HaloMass`, `Len`, `SnapNum`, `MostBoundID`, spin conventions). The contract is **frozen** at [`docs/dev/SNAPSHOT-HDF5-FORMAT.md`](SNAPSHOT-HDF5-FORMAT.md) (`format_version = 1`, 2026-07-18), which is now authoritative; this section remains as the working draft it was promoted from — if they ever disagree, the spec wins.
 
-```
+```text
 snapshot_NNN.h5
   /header                             HDF5 group
     format_version        int32       attribute; contract version, validated by the reader
@@ -192,7 +192,7 @@ Process snapshots in **forward time order** (snap 0 → snap 69). `FirstProgenit
 
 **Pass structure per snapshot N:**
 
-```
+```text
 Load snap_N sorted data. Load snap_N.idx.
 
 === 1. Adjacency validation ===

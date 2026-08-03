@@ -118,7 +118,7 @@ Scientific validation currently has one repository-level script in `tests/scient
 
 ## Directory Structure
 
-```
+```text
 tests/
 ├── unit/               # C unit tests
 ├── integration/        # Python integration tests

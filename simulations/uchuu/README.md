@@ -12,7 +12,7 @@ This package runs Mimic against the full Uchuu merger trees in uchuutools forest
 **Data files required in `snapshots/`:**
 
 2001 HDF5 files (37 TB total):
-```
+```text
 mergertree_info.h5          (110 KB index file — set as tree_name)
 mergertree_0.h5             (~44 GB, File0: 1.53M forests)
 mergertree_1.h5

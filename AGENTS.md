@@ -58,7 +58,7 @@ make tests summary            # Same, showing only warnings/failures/skips/outco
 
 Full architecture, data flow, and invariants: `mimic-architecture-contract` and `docs/DEVELOPER-GUIDE.md`. Consult `docs/dev/` before structural changes.
 
-```
+```text
 src/
 ├── core/            Execution (main, init, build_model, params); core_properties.yaml
 ├── io/tree/         Tree readers (binary, HDF5)   io/output/  Output writers

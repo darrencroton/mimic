@@ -79,7 +79,7 @@ Canonical metadata comes from explicit `--simulation-info` and `--a-list` paths,
 
 ## Workdir layout
 
-```
+```text
 <workdir>/
   manifest.json            resume manifest: source files (size/mtime/md5, independent
                            pre-count, parsed count, per-snapshot counts and id checksums),

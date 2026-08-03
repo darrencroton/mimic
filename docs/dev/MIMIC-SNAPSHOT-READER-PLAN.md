@@ -515,7 +515,7 @@ Long-running test output is captured under `archive/test-logs/`, exit codes are 
 
 Execute under `project-manager` (Mode B). Use the single authoritative Mode B launcher in `project-manager`'s `SKILL.md` ("Launcher"), with its first line filled in as:
 
-```
+```text
 Plan file: docs/dev/MIMIC-SNAPSHOT-READER-PLAN.md
 ```
 

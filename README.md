@@ -1,6 +1,6 @@
 # Mimic: A Physics-Agnostic Galaxy Evolution Framework
 
-```
+```text
     __  ___  ____  __  ___  ____  ______
    /  |/  / /  _/ /  |/  / /  _/ / ____/
   / /|_/ /  / /  / /|_/ /  / /  / /
@@ -88,4 +88,4 @@ Contributions are welcome — new physics modules, new model packages, new simul
 
 Mimic is open source; see [LICENSE.txt](LICENSE.txt) for details.
 
-**Darren Croton** · dcroton@swin.edu.au · [darrencroton.github.io](https://darrencroton.github.io)
+**Darren Croton** · <dcroton@swin.edu.au> · [darrencroton.github.io](https://darrencroton.github.io)

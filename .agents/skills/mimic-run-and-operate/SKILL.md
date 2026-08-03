@@ -29,7 +29,7 @@ Do NOT use it for:
 
 ## Command anatomy and the golden rule
 
-```
+```bash
 ./mimic [-h|--help] [-v|--verbose] [-d|--debug] [-q|--quiet] [--skip] [--compress] <run.yaml>
 ```
 

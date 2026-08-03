@@ -767,7 +767,7 @@ The `consistent_trees_hdf5` reader is the reference high-throughput HDF5 input p
 
 The `.a_list` file contains one scale factor per line, ordered from earliest to latest snapshot (increasing `a`, decreasing redshift). Mimic derives the last valid snapshot index from this file, so a file with 64 entries defines snapshots `0..63`:
 
-```
+```text
 0.0078125
 0.012346
 0.019608
@@ -976,7 +976,7 @@ To see only warnings, failures, skipped tests, and final suite outcomes, add the
 
 Summary mode works by filtering for structured result markers. Every test emits one of:
 
-```
+```text
 MIMIC_RESULT: PASS <test_name>
 MIMIC_RESULT: FAIL <test_name> [-- <reason>]
 MIMIC_RESULT: SKIP <test_name> [-- <reason>]

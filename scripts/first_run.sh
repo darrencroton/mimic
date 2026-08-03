@@ -193,6 +193,9 @@ fi
 
 # Activate the virtual environment
 echo "Activating virtual environment..."
+# The venv does not exist until this script creates it, so shellcheck cannot
+# follow this source at analysis time.
+# shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
 
 # Update pip in the virtual environment

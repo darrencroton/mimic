@@ -16,6 +16,14 @@
 #   2 - Test preamble failed (code generation / registry refresh)
 ###############################################################################
 
+# This script carries compiler flags and object lists as space-separated
+# strings that must word-split into separate argv entries at each $CC
+# invocation. Quoting them would pass a whole list as one argument and break
+# every compile, so the splitting is deliberate throughout and shellcheck's
+# quoting advice does not apply here. Kept file-level rather than as a dozen
+# scattered directives; the individual $CC sites carry their own comments.
+# shellcheck disable=SC2086,SC2089,SC2090
+
 # Detect compiler failures even when piping to tee for logs
 set -o pipefail
 
@@ -207,8 +215,9 @@ done
 
 # Test list (can be overridden by command line argument)
 if [ $# -gt 0 ]; then
-    # Specific test requested
-    TESTS="$@"
+    # Specific test requested. "$*" not "$@": TESTS is a space-separated string
+    # consumed by `for test in $TESTS`, so concatenation is the intent.
+    TESTS="$*"
 else
     # Auto-discover core, framework, and selected-model unit tests from registry.
     REGISTRY_TESTS=""
@@ -262,7 +271,8 @@ compile_and_run_test() {
     if [ ! -f "$test_file" ]; then
         # Try module directory (auto-discovered tests)
         # Look up full path from registry
-        local registry_path=$(grep "/${test_name}.c$" "${REPO_ROOT}/build/generated/unit_tests.txt" 2>/dev/null | head -1)
+        local registry_path
+        registry_path=$(grep "/${test_name}.c$" "${REPO_ROOT}/build/generated/unit_tests.txt" 2>/dev/null | head -1)
         if [ -n "$registry_path" ]; then
             test_file="${REPO_ROOT}/${registry_path}"
         fi
@@ -276,7 +286,7 @@ compile_and_run_test() {
         record_failed_test "$test_display"
         return 1
     fi
-    test_display="${test_file#${REPO_ROOT}/}"
+    test_display="${test_file#"${REPO_ROOT}"/}"
 
     # Add module directory to include path if this is a module test
     local module_include=""
@@ -315,6 +325,10 @@ compile_and_run_test() {
         fi
     else
         echo -e "${BLUE}Compiling ${test_name}...${NC}"
+        # Word splitting is deliberate: these hold multi-word compiler flag and
+        # object lists that must expand into separate argv entries. Quoting them
+        # would pass each list as one argument and break the build.
+        # shellcheck disable=SC2086
         if ! $CC $test_cflags $module_include $test_file $extra_sources $SHARED_OBJS -o $test_exe $test_ldflags 2>&1 | tee "$compile_log"; then
             echo -e "${RED}✗ Compilation failed for ${test_name}${NC}"
             echo "  See ${compile_log} for details"

@@ -1,0 +1,95 @@
+// Mimic's markdownlint configuration: DEFECTS, NOT TASTE.
+//
+// This file exists so `markdownlint-cli2` (used by the `lint` skill and
+// runnable directly) agrees with Mimic's documented house style instead of
+// fighting it. A project config REPLACES the lint skill's built-in defaults
+// rather than merging with them, so every disable the skill relies on is
+// repeated here — most importantly MD013, without which every line of Mimic's
+// deliberately unwrapped prose would fail.
+//
+// Division of labour: `./scripts/beautify.sh` and `make check-format` own C and
+// Python *formatting*; markdownlint owns Markdown *structure*. They do not
+// overlap. See docs/STYLE-GUIDE.md for the prose rules themselves.
+{
+  "config": {
+    "default": true,
+
+    // --- Off: line width is house style, not a defect. ---------------------- //
+    // Mimic does not hard-wrap prose: modern renderers soft-wrap, and manual
+    // wrapping renders poorly and is painful to edit. The 100-character
+    // guideline applies to code blocks only (docs/STYLE-GUIDE.md).
+    "MD013": false,
+
+    // --- Off: blank lines around headings, lists, and fences. --------------- //
+    // Mimic writes lists directly under a bold lead-in ("**Requirements**:"),
+    // lists directly under a heading ("### Intended Change"), and fenced code
+    // directly under its introducing sentence, throughout the doc set and the
+    // implementation plans. Verified 2026-08-03 against the CommonMark
+    // reference renderer (markdown-it, the same parser markdownlint itself
+    // bundles): all three shapes render correctly -- a <p> or <h3> followed by
+    // a proper <ul>, and a <p> followed by a proper <pre><code>. They are
+    // cosmetic preferences here, not rendering defects, so they are off rather
+    // than churning whitespace across ~20 files.
+    "MD022": false, // blanks-around-headings
+    "MD032": false, // blanks-around-lists
+    "MD031": false, // blanks-around-fences
+
+    // --- Off: cosmetic whitespace and marker styles. ------------------------ //
+    "MD004": false, // ul-style (- vs * vs +)
+    "MD007": false, // ul-indent width
+    "MD012": false, // multiple consecutive blank lines
+    "MD029": false, // ordered-list numbering style
+    "MD030": false, // spaces after list marker
+    "MD035": false, // horizontal-rule style
+    "MD046": false, // code-block style (indented vs fenced)
+    "MD048": false, // code-fence style (``` vs ~~~)
+    "MD049": false, // emphasis style (_ vs *)
+    "MD050": false, // strong style (__ vs **)
+    "MD060": false, // table pipe spacing
+
+    // --- Off: legitimate in this repo's document shapes. -------------------- //
+    // Implementation plans repeat "### Validation Plan", "### Rollback Path"
+    // and friends once per slice by design, so duplicate headings are
+    // structural rather than an error.
+    "MD024": false,
+    "MD003": false, // heading style (setext vs atx)
+    "MD033": false, // inline HTML
+    "MD036": false, // emphasis used instead of a heading
+    "MD041": false, // first line must be a top-level heading
+    "MD044": false, // proper-names capitalisation (needs a per-project word list)
+
+    // Everything else stays ON deliberately. The load-bearing ones:
+    //   MD056 table-column-count   -- a wrong cell count silently drops data
+    //   MD058 blanks-around-tables -- a table without them may not render
+    //   MD056 table-column-count   -- a wrong cell count silently drops data
+    //   MD058 blanks-around-tables -- a table without them may not render
+    //   MD040 fenced-code-language -- untagged fences lose syntax highlighting
+    //   MD034 no-bare-urls         -- bare URLs/emails do not autolink in
+    //                                 strict CommonMark, only under GFM
+    //   MD011 reversed-link-syntax, MD039 spaces-in-links, MD042 empty-links
+    //   MD025 single top-level heading, MD001 heading-increment
+    //   MD009 trailing spaces, MD047 single trailing newline
+    "MD040": true,
+    "MD034": true
+  },
+
+  // Lint the tracked, hand-maintained doc set only. `ignores` mirrors what
+  // `scripts/check_docs.py` already skips: gitignored working directories,
+  // vendored reference copies, generated test artefacts, and reviewer evidence.
+  // Without these, `**/*.md` follows the gitignored `obsidian-inbox` symlink
+  // out of the repository entirely.
+  "globs": ["**/*.md"],
+  "ignores": [
+    "mimic_venv/**",
+    "node_modules/**",
+    "**/node_modules/**",
+    "archive/**",              // gitignored local history
+    "output/**",               // gitignored run output (a symlink off-repo)
+    "obsidian-inbox/**",       // gitignored symlink into a personal vault
+    "sage-code/**",            // gitignored vendored original-SAGE reference
+    ".orchestrator/**",        // gitignored delegate evidence
+    ".ai-orchestrator/**",     // gitignored delegate evidence
+    ".pm/**",                  // gitignored project-manager (Mode B) run records
+    "tests/data/output/tree_preservation_report.md" // generated by tests
+  ]
+}

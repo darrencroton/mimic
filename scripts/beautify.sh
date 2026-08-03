@@ -48,7 +48,7 @@ done
 
 # Check for required tools
 check_tool() {
-  if ! command -v $1 &> /dev/null; then
+  if ! command -v "$1" &> /dev/null; then
     echo -e "${RED}Error: $1 is not installed or not in PATH${NC}"
     echo "To install: $2"
     return 1
@@ -83,18 +83,20 @@ echo -e "${YELLOW}=== Mimic Code Beautifier ===${NC}"
 if $FORMAT_C; then
     echo -n "Formatting C code... "
     if check_tool "${CLANG_FORMAT}" "pip install 'clang-format>=20,<21'"; then
+        # -exec ... + rather than `| xargs`: a path containing a space or a
+        # newline would be split into non-existent filenames by xargs.
         if (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
                 -o -name "generated" \) -prune \
-                -o \( -name "*.c" -o -name "*.h" \) -print \
-                | xargs "${CLANG_FORMAT}" -i) > /dev/null 2>&1; then
+                -o \( -name "*.c" -o -name "*.h" \) \
+                -exec "${CLANG_FORMAT}" -i {} +) > /dev/null 2>&1; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${RED}✗${NC}"
             echo -e "${RED}Error formatting C code. See details below:${NC}"
             (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
                 -o -name "generated" \) -prune \
-                -o \( -name "*.c" -o -name "*.h" \) -print \
-                | xargs "${CLANG_FORMAT}" -i)
+                -o \( -name "*.c" -o -name "*.h" \) \
+                -exec "${CLANG_FORMAT}" -i {} +)
         fi
     else
         echo -e "${RED}✗ (tool not found)${NC}"

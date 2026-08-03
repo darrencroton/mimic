@@ -12,7 +12,7 @@ This package runs Mimic against the micro-Uchuu merger trees in L-Halo binary fo
 **Data files required in `snapshots/`:**
 
 Four binary files (~2.2 GB total), converted from the Consistent-Trees ASCII trees by sage-model:
-```
+```text
 Uchuu100_Planck_lhalo_binary.0
 Uchuu100_Planck_lhalo_binary.1
 Uchuu100_Planck_lhalo_binary.2

@@ -9,6 +9,9 @@
 # or CI output stays free of escape codes. The single source of truth for the
 # shell side, mirroring scripts/console.py for the Python side.
 
+# The colour variables below are consumed by the scripts that source this file
+# rather than by this file itself, so their uses are not visible here.
+# shellcheck disable=SC2034
 if [ -t 1 ] && [ -z "${NO_COLOR+x}" ]; then
     RED='\033[0;31m'
     GREEN='\033[0;32m'

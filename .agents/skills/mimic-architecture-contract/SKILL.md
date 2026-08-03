@@ -45,7 +45,7 @@ Each principle from `docs/VISION.md`, restated as what it forbids. These are loa
 
 The single path every galaxy takes. Function names verified against the source; if any drifts, re-verify with the provenance commands at the end.
 
-```
+```text
 run YAML
   → read_parameter_file()                  src/core/read_parameter_file.c — validates sections,
                                            rejects unknown keys (fast failure)

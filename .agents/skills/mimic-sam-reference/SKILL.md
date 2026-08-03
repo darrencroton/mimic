@@ -64,7 +64,7 @@ What Mimic adds over legacy SAMs (e.g. original SAGE): a **physics-agnostic core
 
 The universe's ordinary matter cycles between named **reservoirs** attached to each galaxy. In words:
 
-```
+```text
 cosmic gas --infall--> HotGas --cooling--> ColdGas --star formation--> StellarMass
                  ^                   ^         |                            |
                  |                   |     SN feedback              recycling (RecycleFraction)
