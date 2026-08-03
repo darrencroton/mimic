@@ -1,0 +1,20 @@
+# Auto-discovered by a bare `codespell` run, unlike a pyproject table (which
+# needs --toml), so the lint skill picks it up. Every entry is a false positive;
+# real misspellings are fixed in place, not listed here.
+[codespell]
+
+# `skip` filters directory traversal only, not an explicit file list, so
+# vendored typos also need ignore-words-list entries below.
+skip = ./mimic_venv,./sage-code,./output,./archive,./build,./benchmarks,./.git,./node_modules,./obsidian-inbox,./.orchestrator,./.ai-orchestrator,./.pm,./src/include/third_party,./src/io/tree/ctrees,*.h5,*.hdf5,*.dat,*.a_list
+
+# Lowercase; matching is case-insensitive.
+#   fof           FoF = friends-of-friends, core Mimic vocabulary (~334 hits)
+#   propert       deliberate stem split: f"propert{'y' if n == 1 else 'ies'}"
+#   disjointness  the standard mathematical noun
+#   statics       a literal key in a code example, not prose
+#   re-declaring  a valid hyphenation in Mimic's own docs
+# The rest are genuine misspellings confined to vendored sources we do not
+# rewrite: rightt/righmost/refering in src/include/third_party/sglib.h;
+# assinging, spefied, therefor, re-use in src/io/tree/ctrees/ (from sage-model,
+# (C) Manodeep Sinha, MIT). Accepted cost: unflagged if they appear in our prose.
+ignore-words-list = fof,propert,disjointness,statics,re-declaring,rightt,righmost,refering,assinging,spefied,therefor,re-use

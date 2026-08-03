@@ -24,7 +24,6 @@ from scatter import (  # noqa: E402
     snapshot_scratch_name,
     validate_observed_pairs,
     validate_root_coverage,
-    worker_scratch_name,
 )
 
 

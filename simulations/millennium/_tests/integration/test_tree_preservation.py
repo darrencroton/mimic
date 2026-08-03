@@ -59,11 +59,8 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from framework import (
-    BLUE,
-    GREEN,
     MIMIC_EXE,
     NC,
-    RED,
     TEST_DATA_DIR,
     YELLOW,
     TestSkipped,
@@ -76,7 +73,7 @@ from framework import (
 )
 
 # Import the LHaloTree-specific tree loader owned by this test package.
-from tree_loader import get_halos_by_snapshot, load_binary_tree
+from tree_loader import load_binary_tree
 
 # Ensure output directories exist
 ensure_output_dirs()

@@ -43,7 +43,6 @@ from framework import (
     MIMIC_EXE,
     NC,
     RED,
-    YELLOW,
     TestSkipped,
     create_test_param_file,
     load_binary_halos,

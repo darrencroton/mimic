@@ -31,11 +31,8 @@ Author: Mimic Development Team
 Date: 2025-12-18
 """
 
-import os
 import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -50,7 +47,6 @@ from framework import (
     MIMIC_EXE,
     NC,
     RED,
-    YELLOW,
     TestSkipped,
     assert_no_infs,
     assert_no_nans,

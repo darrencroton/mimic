@@ -45,7 +45,6 @@ REPO_ROOT = find_repo_root(Path(__file__).resolve())
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
-    BLUE,
     GREEN,
     MIMIC_EXE,
     NC,

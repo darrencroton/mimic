@@ -83,8 +83,7 @@ echo -e "${YELLOW}=== Mimic Code Beautifier ===${NC}"
 if $FORMAT_C; then
     echo -n "Formatting C code... "
     if check_tool "${CLANG_FORMAT}" "pip install 'clang-format>=20,<21'"; then
-        # -exec ... + rather than `| xargs`: a path containing a space or a
-        # newline would be split into non-existent filenames by xargs.
+        # -exec ... + not `| xargs`: xargs splits paths containing spaces.
         if (cd "${ROOT_DIR}" && find . \( -path ./build -o -path ./mimic_venv -o -path ./sage-code \
                 -o -name "generated" \) -prune \
                 -o \( -name "*.c" -o -name "*.h" \) \

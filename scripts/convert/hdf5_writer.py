@@ -34,7 +34,7 @@ row count). Re-running skips files whose recorded md5 still matches
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 import h5py
 import numpy as np

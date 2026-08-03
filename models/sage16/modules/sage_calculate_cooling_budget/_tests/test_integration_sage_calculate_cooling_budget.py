@@ -19,8 +19,6 @@ Date: 2025-11-13 (Updated 2025-12-18)
 """
 
 import os
-import struct
-import subprocess
 import sys
 
 import numpy as np
@@ -33,7 +31,6 @@ from framework import (
     MIMIC_EXE,
     NC,
     RED,
-    YELLOW,
     TestSkipped,
     harness,
     result_error,
@@ -221,7 +218,6 @@ class TestSageCoolingIntegration:
         module execution produces the expected effects on HotGas properties.
         """
         import h5py
-        import numpy as np
 
         param_file, output_dir, temp_dir = harness.create_test_param_file(
             output_name="cooling_downstream_check",

@@ -34,8 +34,6 @@ import shutil
 import sys
 from pathlib import Path
 
-import numpy as np
-
 # Add tests directory to path to import framework
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))
@@ -46,7 +44,6 @@ from framework import (
     MIMIC_EXE,
     NC,
     RED,
-    YELLOW,
     TestSkipped,
     create_test_param_file,
     load_binary_halos,

@@ -28,7 +28,7 @@ plus an empty master ``<base>.hdf5`` to prove the master is ignored.
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 import h5py
 import numpy as np

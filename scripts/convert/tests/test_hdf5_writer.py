@@ -3,7 +3,6 @@
 semantics, and the conversion report."""
 
 import os
-import shutil
 import sys
 import tempfile
 import unittest

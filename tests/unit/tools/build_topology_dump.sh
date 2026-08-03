@@ -16,9 +16,8 @@
 # Exit codes: 0 success, 1 build/link failure, 2 precondition failure
 ###############################################################################
 
-# CFLAGS/LDFLAGS are space-separated strings that must word-split into separate
-# argv entries at each $CC invocation; quoting them would break the build. The
-# splitting is deliberate, so shellcheck's quoting advice does not apply.
+# CFLAGS/LDFLAGS must word-split into separate argv entries at each $CC call;
+# quoting them would break the build.
 # shellcheck disable=SC2086,SC2089,SC2090
 
 set -o pipefail

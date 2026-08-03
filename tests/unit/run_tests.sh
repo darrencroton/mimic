@@ -16,12 +16,8 @@
 #   2 - Test preamble failed (code generation / registry refresh)
 ###############################################################################
 
-# This script carries compiler flags and object lists as space-separated
-# strings that must word-split into separate argv entries at each $CC
-# invocation. Quoting them would pass a whole list as one argument and break
-# every compile, so the splitting is deliberate throughout and shellcheck's
-# quoting advice does not apply here. Kept file-level rather than as a dozen
-# scattered directives; the individual $CC sites carry their own comments.
+# Flags and object lists are space-separated strings that must word-split into
+# separate argv entries at each $CC call; quoting them would break every compile.
 # shellcheck disable=SC2086,SC2089,SC2090
 
 # Detect compiler failures even when piping to tee for logs
@@ -325,10 +321,6 @@ compile_and_run_test() {
         fi
     else
         echo -e "${BLUE}Compiling ${test_name}...${NC}"
-        # Word splitting is deliberate: these hold multi-word compiler flag and
-        # object lists that must expand into separate argv entries. Quoting them
-        # would pass each list as one argument and break the build.
-        # shellcheck disable=SC2086
         if ! $CC $test_cflags $module_include $test_file $extra_sources $SHARED_OBJS -o $test_exe $test_ldflags 2>&1 | tee "$compile_log"; then
             echo -e "${RED}✗ Compilation failed for ${test_name}${NC}"
             echo "  See ${compile_log} for details"

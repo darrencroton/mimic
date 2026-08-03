@@ -433,8 +433,7 @@ verbose_log "Cleaning previous build..."
 make clean > /dev/null 2>&1 || true
 
 verbose_log "Building Mimic with flags: ${MAKE_FLAGS}${EXTRA_CFLAGS:+ EXTRA_CFLAGS=${EXTRA_CFLAGS}}"
-# Word splitting is deliberate: -j takes the bare core count, and MAKE_FLAGS
-# holds a multi-word flag list that must expand into separate argv entries.
+# -j takes the bare core count and MAKE_FLAGS must word-split into argv entries.
 # shellcheck disable=SC2046,SC2086
 make MODEL="${SELECTED_MODEL}" SIMULATION="${SELECTED_SIMULATION}" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1) ${MAKE_FLAGS} ${EXTRA_CFLAGS:+EXTRA_CFLAGS="${EXTRA_CFLAGS}"} || error_exit "Build failed"
 

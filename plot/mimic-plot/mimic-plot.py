@@ -251,7 +251,7 @@ def configure_figure_package(params, param_file, verbose=False):
     EVOLUTION_PLOTS = list(getattr(figures, "EVOLUTION_PLOTS", []))
     PLOT_REQUIREMENTS = dict(getattr(figures, "PLOT_REQUIREMENTS", {}))
     PLOT_FUNCS = dict(getattr(figures, "PLOT_FUNCS", {}))
-    check_required_properties = getattr(figures, "check_required_properties")
+    check_required_properties = figures.check_required_properties
 
     if verbose:
         print(f"Loaded figure package from {plots_dir}")

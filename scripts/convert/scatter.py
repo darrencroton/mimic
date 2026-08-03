@@ -31,7 +31,6 @@ from ctrees_parser import (  # noqa: E402
     RECORD_DTYPE,
     ConverterError,
     CtreesFileParser,
-    prescan_file,
 )
 
 MANIFEST_NAME = "manifest.json"

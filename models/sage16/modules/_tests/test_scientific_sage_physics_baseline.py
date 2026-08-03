@@ -43,7 +43,6 @@ from framework import (
     MIMIC_EXE,
     NC,
     RED,
-    YELLOW,
     TestSkipped,
     baseline_rtol,
     compiled_model,

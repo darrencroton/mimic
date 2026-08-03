@@ -5,3 +5,42 @@ line-length = 100
 profile = "black"
 line_length = 100
 extend_skip = ["mimic_venv", "sage-code", "output", "benchmarks", "archive", "build"]
+
+# `ruff check` is used as a defect linter only. black and isort own Python
+# formatting (see above); ruff format is not used. Declaring this table stops the
+# lint skill falling back to its own defaults.
+[tool.ruff]
+line-length = 100
+target-version = "py39" # Python 3.9+ (docs/USER-GUIDE.md); also silences B905
+extend-exclude = [
+  "mimic_venv",
+  "sage-code",
+  "output",
+  "benchmarks",
+  "archive",
+  "build",
+  "src/include/third_party",
+]
+
+[tool.ruff.lint]
+select = [
+  "F",     # unused/undefined names, f-string bugs
+  "E9",    # syntax and IO errors
+  "B",     # bugbear: real traps, not style
+  "T10",   # forgotten pdb/breakpoint
+  "DTZ",   # naive and deprecated datetime calls
+  "ASYNC", # blocking calls in async functions
+  "PLE",   # pylint error tier only
+]
+
+# Not selected, so they are not restored later: I (isort owns ordering),
+# E5 (black owns width), UP (modernisation, and the 3.9 floor blocks much of it),
+# C4/SIM/E7/RUF (judgement; RUF001-003 flag legitimate scientific unicode).
+
+# An f-string without a placeholder is semantically identical to a plain string.
+ignore = ["F541"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests are never run under `python -O`, so `assert False` is not removed.
+"tests/**" = ["B011"]
+"**/_tests/**" = ["B011"]

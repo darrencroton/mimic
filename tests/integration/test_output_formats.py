@@ -32,7 +32,6 @@ from framework import (
     NC,
     RED,
     TEST_DATA_DIR,
-    YELLOW,
     TestSkipped,
     assert_hdf5_schema_layout,
     baseline_rtol,

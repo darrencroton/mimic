@@ -23,7 +23,6 @@ from links import (  # noqa: E402
     build_descendants,
     build_fof_chains,
     build_progenitor_links,
-    links_scratch_name,
     pending_fp_name,
     reference_order,
     run_links,

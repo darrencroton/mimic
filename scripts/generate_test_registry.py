@@ -20,7 +20,6 @@ Generates:
 import argparse
 import hashlib
 import sys
-from pathlib import Path
 
 import yaml
 from console import NC, RED, YELLOW, print_error, print_warning

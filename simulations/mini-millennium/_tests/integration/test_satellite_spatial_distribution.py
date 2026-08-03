@@ -40,7 +40,6 @@ Date: 2025-12-09
 """
 
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -58,7 +57,6 @@ REPO_ROOT = find_repo_root(Path(__file__).resolve())
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from framework import (
-    BLUE,
     GREEN,
     MIMIC_EXE,
     NC,

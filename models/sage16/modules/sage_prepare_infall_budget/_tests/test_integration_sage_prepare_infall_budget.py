@@ -26,7 +26,6 @@ Author: Mimic Development Team
 Date: 2025-12-11
 """
 
-import os
 import shutil
 import subprocess
 import sys
@@ -221,7 +220,6 @@ def test_parameters_configurable():
     print("Testing parameter configuration...")
 
     # ===== SETUP =====
-    import yaml
 
     param_file, output_dir, temp_dir = create_test_param_file(
         output_name="sage_prepare_infall_budget_params",

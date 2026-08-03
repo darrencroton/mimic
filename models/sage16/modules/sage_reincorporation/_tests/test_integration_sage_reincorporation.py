@@ -33,7 +33,6 @@ Author: Mimic Development Team
 Date: 2025-12-18
 """
 
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -49,7 +48,6 @@ from framework import (
     MIMIC_EXE,
     NC,
     RED,
-    YELLOW,
     TestSkipped,
     check_no_memory_leaks,
     create_test_param_file,

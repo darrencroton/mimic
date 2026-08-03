@@ -33,7 +33,7 @@ except ImportError:
     sys.exit(1)
 
 from console import BLUE, GREEN, NC, RED, YELLOW
-from discovery import REPO_ROOT, module_metadata_files
+from discovery import module_metadata_files
 
 
 def find_parameter_calls(c_file: Path) -> Dict[str, str]:

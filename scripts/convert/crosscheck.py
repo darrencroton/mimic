@@ -531,11 +531,13 @@ def check_values(matches, part_mass) -> List[str]:
         ref_sub = match.ref[gal_idx]
         ids = np.abs(ref_sub["MostBoundID"])
 
-        def report(field, bad):
+        # snap/ids bound as defaults, not closed over, so each iteration's
+        # values are captured at definition rather than at call time.
+        def report(field, bad, snap=match.snap, ids=ids):
             if bad.any():
                 failures.append(
                     "snapshot {}: {} matched pair(s) with mismatched {}; example ctrees ids: "
-                    "{}".format(match.snap, int(bad.sum()), field, _examples(ids[bad].tolist()))
+                    "{}".format(snap, int(bad.sum()), field, _examples(ids[bad].tolist()))
                 )
 
         for field in _VEC3_FIELDS:
